@@ -318,6 +318,62 @@ integration('Xử lý video Mạng nội bộ trên PostgreSQL thật', () => {
     });
   });
 
+  describe('failStuckQueued', () => {
+    const age = (id: string, interval = '2 hours') =>
+      pool.query(`UPDATE social_schema.attachments SET completed_at = now() - $2::interval WHERE id = $1`, [id, interval]);
+    const MESSAGE = 'Hệ thống xử lý video chưa sẵn sàng. Hãy tải video lên lại sau.';
+
+    it('chỉ báo lỗi dòng queued, chưa từng được nhận và đủ cũ; trả đúng id và storage_key', async () => {
+      const stuck = await addRow();
+      await age(stuck);
+      await pool.query(`UPDATE social_schema.attachments SET processing_lease_until = now() + interval '5 minutes' WHERE id = $1`, [stuck]);
+      const fresh = await addRow();
+      await age(fresh, '5 minutes');
+      const claimedBefore = await addRow();
+      await age(claimedBefore);
+      await pool.query(`UPDATE social_schema.attachments SET processing_attempts = 1 WHERE id = $1`, [claimedBefore]);
+      const processing = await addRow({ status: 'processing' });
+      await age(processing);
+      const unfinished = await addRow({ completed: false, status: 'none' });
+      const ready = await addRow({ status: 'ready' });
+      await age(ready);
+
+      const result = await store.failStuckQueued(tenantId, 1800, 50, MESSAGE);
+      // Dòng còn sót từ các test trước (queued, chưa nhận, đã cũ) cũng bị báo lỗi, nên chỉ so phần của test này.
+      const ids = result.map((item) => item.id);
+      expect(result).toContainEqual({ id: stuck, storageKey: `tenants/${tenantId}/social/${stuck}/original` });
+      for (const untouched of [fresh, claimedBefore, processing, unfinished, ready]) expect(ids).not.toContain(untouched);
+
+      const row = await rowOf(stuck);
+      expect(row.processing_status).toBe('failed');
+      expect(row.processing_error).toBe(MESSAGE);
+      expect(row.processing_lease_until).toBeNull();
+      for (const [id, status] of [
+        [fresh, 'queued'],
+        [claimedBefore, 'queued'],
+        [processing, 'processing'],
+        [unfinished, 'none'],
+        [ready, 'ready'],
+      ] as const) {
+        expect((await rowOf(id)).processing_status).toBe(status);
+      }
+      // Lần gọi sau không còn dòng nào để báo lỗi.
+      expect(await store.failStuckQueued(tenantId, 1800, 50, MESSAGE)).toEqual([]);
+    });
+
+    it('cắt thông báo tối đa 500 ký tự và tôn trọng giới hạn lô', async () => {
+      const first = await addRow();
+      const second = await addRow();
+      await age(first, '30 hours');
+      await age(second, '2 hours');
+      const result = await store.failStuckQueued(tenantId, 1800, 1, 'x'.repeat(800));
+      expect(result.map((item) => item.id)).toEqual([first]);
+      expect((await rowOf(first)).processing_error).toHaveLength(500);
+      expect((await rowOf(second)).processing_status).toBe('queued');
+      await store.failStuckQueued(tenantId, 1800, 50, MESSAGE);
+    });
+  });
+
   describe('đếm và dọn', () => {
     it('countInFlight và sumUnattachedBytes theo người dùng và tenant', async () => {
       const before = await store.countInFlight(tenantId, bob);

@@ -126,6 +126,9 @@ class FakeStore implements SocialVideoStore {
   async requeueStale(): Promise<number> {
     return 0;
   }
+  async failStuckQueued(): Promise<readonly { id: string; storageKey: string }[]> {
+    return [];
+  }
 }
 
 class FakeStorage implements VideoWorkStorage {

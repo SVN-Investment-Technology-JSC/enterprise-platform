@@ -8,6 +8,8 @@ import {
   SOCIAL_VIDEO_EVENT_TYPES,
   SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_TENANT,
   SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_USER,
+  SOCIAL_VIDEO_QUEUE_TIMEOUT_SECONDS,
+  SOCIAL_VIDEO_REQUEUE_AFTER_SECONDS,
   type AbortSocialAttachmentRequest,
   type DiscardSocialAttachmentRequest,
   type SocialAttachmentStatusRequest,
@@ -52,8 +54,8 @@ import { UploadRateLimiter } from './upload-rate-limiter.js';
 /** Tệp chưa gắn vào bài sau chừng này thì bị dọn. */
 export const SOCIAL_ORPHAN_TTL_MS = 2 * 60 * 60 * 1000;
 const ORPHAN_BATCH = 200;
-/** Video `queued` quá chừng này mà chưa được xử lý thì xếp lại hàng (hàng đợi bình thường chờ ngắn hơn nhiều). */
-const STALE_VIDEO_SECONDS = 30 * 60;
+/** Thông báo của video bị quá hạn chờ mà chưa từng được xử lý (xem `sweepVideos`). */
+const VIDEO_QUEUE_TIMEOUT_MESSAGE = 'Hệ thống xử lý video chưa sẵn sàng. Hãy tải video lên lại sau.';
 /** Mỗi người chỉ được có tối đa chừng này lần tải dang dở trong `PENDING_WINDOW_MS`. */
 export const SOCIAL_MAX_PENDING_UPLOADS = 20;
 const PENDING_WINDOW_MS = 60 * 60 * 1000;
@@ -602,18 +604,42 @@ export class SocialAttachmentService {
       if (deletable.length === 0 || orphans.length < ORPHAN_BATCH) break;
     }
     await this.sweepSourceKeys(tenantId);
-    await this.requeueStaleVideos(tenantId);
     return removed;
   }
 
   /**
-   * Xếp lại hàng video bị kẹt (tin nhắn đã vào hàng chết hoặc worker chết giữa chừng). Lưới an toàn cho đường
-   * RabbitMQ: bình thường không có dòng nào quá hạn.
+   * Lưới an toàn cho đường RabbitMQ (tin nhắn vào hàng chết, hoặc `video-worker` không chạy). Video đã đăng nên
+   * người xem đang thấy "đang xử lý"; không để treo mãi. Thứ tự: (a) báo lỗi video quá `SOCIAL_VIDEO_QUEUE_TIMEOUT_SECONDS`
+   * mà chưa từng được nhận rồi xoá bản gốc khỏi kho (dòng vẫn ở `failed` để giao diện hiện lỗi); (b) xếp lại hàng
+   * video chờ quá `SOCIAL_VIDEO_REQUEUE_AFTER_SECONDS`. Bình thường không có dòng nào quá hạn.
    */
-  private async requeueStaleVideos(tenantId: string): Promise<void> {
-    if (!this.videoStore) return;
-    const count = await this.videoStore.requeueStale(tenantId, STALE_VIDEO_SECONDS, ORPHAN_BATCH);
-    if (count > 0) this.logger.warn(`Đã xếp lại ${count} video bị kẹt của tenant ${tenantId}.`);
+  async sweepVideos(tenantId: string): Promise<{ requeued: number; failed: number }> {
+    if (!this.videoStore) return { requeued: 0, failed: 0 };
+    const stuck = await this.videoStore.failStuckQueued(
+      tenantId,
+      SOCIAL_VIDEO_QUEUE_TIMEOUT_SECONDS,
+      ORPHAN_BATCH,
+      VIDEO_QUEUE_TIMEOUT_MESSAGE,
+    );
+    if (stuck.length > 0) {
+      try {
+        const { failed } = await this.storage.deleteObjects(stuck.map((item) => item.storageKey));
+        if (failed.length > 0) {
+          this.logger.warn(`Không xoá được ${failed.length} bản gốc video quá hạn của tenant ${tenantId}.`);
+        }
+      } catch (error) {
+        this.logger.warn(`Không xoá được bản gốc video quá hạn của tenant ${tenantId}: ${String(error)}`);
+      }
+    }
+    const requeued = await this.videoStore.requeueStale(
+      tenantId,
+      SOCIAL_VIDEO_REQUEUE_AFTER_SECONDS,
+      ORPHAN_BATCH,
+    );
+    if (requeued > 0 || stuck.length > 0) {
+      this.logger.warn(JSON.stringify({ event: 'social.video.sweep', tenantId, requeued, failed: stuck.length }));
+    }
+    return { requeued, failed: stuck.length };
   }
 
   /** Huỷ phiên tải nhiều phần của các tệp chưa hoàn tất (phần đã tải còn chiếm chỗ trong kho cho tới khi huỷ). */

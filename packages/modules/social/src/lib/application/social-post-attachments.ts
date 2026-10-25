@@ -1,6 +1,6 @@
 import {
   assertAttachmentSet,
-  assertAttachmentsReady,
+  assertAttachmentsPostable,
   attachmentRulesFor,
 } from '../domain/social-rules.js';
 import { SocialAttachmentUnavailableError } from '../domain/social.error.js';
@@ -12,7 +12,7 @@ export type PostAttachmentLookup = Pick<SocialStore['attachments'], 'findById'>;
 /**
  * Kiểm trước khi gắn tệp vào bài (tạo, sửa, hẹn giờ, gửi duyệt): tệp đã tải xong và của người gắn (hoặc đã thuộc
  * chính bài này), đúng luật tập tệp của bài (tối đa 3 video, không trộn ảnh với video, video phải tải lên cho bài
- * viết) và video đã xử lý xong, nếu không thì `SOCIAL_VIDEO_NOT_READY`. Câu SQL gắn tệp vẫn chặn lần nữa ở tầng dữ
+ * viết) và không có video xử lý lỗi (`SOCIAL_VIDEO_FAILED`); video đang chờ hay đang xử lý vẫn gắn được. Câu SQL gắn tệp vẫn chặn lần nữa ở tầng dữ
  * liệu; kiểm ở đây để trả lỗi rõ ràng và chặn ngay lúc lưu bài hẹn giờ.
  */
 export async function assertPostAttachable(
@@ -39,6 +39,6 @@ export async function assertPostAttachable(
     }
     rows.push(row);
   }
-  assertAttachmentsReady(rows);
+  assertAttachmentsPostable(rows);
   assertAttachmentSet('post', rows);
 }

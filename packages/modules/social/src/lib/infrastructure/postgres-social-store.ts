@@ -211,7 +211,7 @@ async function writeOutboxAll(
 }
 
 /**
- * Gắn tệp vào bài. Chỉ nhận tệp đã tải xong, xử lý xong (video `none` hoặc `ready`) và hoặc đã thuộc bài này, hoặc
+ * Gắn tệp vào bài. Chỉ nhận tệp đã tải xong, không phải video `failed` (`queued`/`processing` gắn được) và hoặc đã thuộc bài này, hoặc
  * chưa gắn bài và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
  */
 async function attachFiles(
@@ -226,7 +226,7 @@ async function attachFiles(
         SET post_id = $1
       WHERE id = ANY($2::uuid[])
         AND completed_at IS NOT NULL
-        AND processing_status IN ('none', 'ready')
+        AND processing_status <> 'failed'
         AND (post_id = $1 OR (post_id IS NULL AND comment_id IS NULL AND uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );
@@ -234,7 +234,7 @@ async function attachFiles(
 }
 
 /**
- * Gắn tệp vào bình luận. Chỉ nhận tệp đã tải xong, xử lý xong (video `none` hoặc `ready`) và hoặc đã thuộc bình
+ * Gắn tệp vào bình luận. Chỉ nhận tệp đã tải xong, không phải video `failed` (`queued`/`processing` gắn được) và hoặc đã thuộc bình
  * luận này, hoặc chưa gắn bài
  * lẫn bình luận nào và do `uploaderId` tải; thiếu một tệp là lỗi cả thao tác.
  */
@@ -250,7 +250,7 @@ async function attachToComment(
         SET comment_id = $1
       WHERE id = ANY($2::uuid[])
         AND completed_at IS NOT NULL
-        AND processing_status IN ('none', 'ready')
+        AND processing_status <> 'failed'
         AND (comment_id = $1 OR (comment_id IS NULL AND post_id IS NULL AND uploaded_by = $3))`,
     [commentId, attachmentIds, uploaderId],
   );

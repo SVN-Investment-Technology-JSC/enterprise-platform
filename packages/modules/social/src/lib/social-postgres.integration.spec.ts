@@ -181,6 +181,63 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     );
   });
 
+  it('cổng SQL gắn video: queued và processing gắn được (không lộ url), failed bị từ chối; xoá bài khi đang xử lý xoá ngay', async () => {
+    const addVideo = async (purpose: 'post' | 'comment', status: string) => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO social_schema.attachments
+           (id, uploaded_by, file_name, content_type, size_bytes, storage_key, completed_at, purpose, processing_status)
+         VALUES ($1, $2, 'clip.mov', 'video/quicktime', 10, $3, now(), $4, $5)`,
+        [id, alice, `k/${id}/original`, purpose, status],
+      );
+      return id;
+    };
+    const rejected = (promise: Promise<unknown>) =>
+      promise.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const a = actor(tenantId, alice);
+
+    const queued = await addVideo('post', 'queued');
+    const post = await publishing.create(a, { bodyHtml: '<p>Video chờ</p>', attachmentIds: [queued] });
+    expect(post.attachments?.[0]).toMatchObject({ id: queued, processingStatus: 'queued' });
+    expect(post.attachments?.[0]).not.toHaveProperty('url');
+    const fetched = await publishing.get(actor(tenantId, bob), post.id);
+    expect(fetched.attachments?.[0]).toMatchObject({ id: queued, processingStatus: 'queued' });
+    expect(fetched.attachments?.[0]).not.toHaveProperty('url');
+
+    const processing = await addVideo('comment', 'processing');
+    const comment = await comments.create(a, post.id, { body: 'x', attachmentIds: [processing] });
+    expect(comment.attachments?.[0]).toMatchObject({ id: processing, processingStatus: 'processing' });
+    expect(comment.attachments?.[0]).not.toHaveProperty('url');
+
+    const brokenPost = await addVideo('post', 'failed');
+    expect(await rejected(publishing.create(a, { bodyHtml: '<p>x</p>', attachmentIds: [brokenPost] }))).toMatchObject({
+      code: 'SOCIAL_VIDEO_FAILED',
+      statusCode: 409,
+    });
+    const brokenComment = await addVideo('comment', 'failed');
+    expect(await rejected(comments.create(a, post.id, { body: 'x', attachmentIds: [brokenComment] }))).toMatchObject({
+      code: 'SOCIAL_VIDEO_FAILED',
+      statusCode: 409,
+    });
+    // Tệp chưa tải xong vẫn là "không dùng được", không phải lỗi video.
+    const unfinished = randomUUID();
+    await pool.query(
+      `INSERT INTO social_schema.attachments (id, uploaded_by, file_name, content_type, size_bytes, storage_key, purpose, processing_status)
+       VALUES ($1, $2, 'clip.mov', 'video/quicktime', 10, $3, 'comment', 'queued')`,
+      [unfinished, alice, `k/${unfinished}/original`],
+    );
+    expect(await rejected(comments.create(a, post.id, { body: 'x', attachmentIds: [unfinished] }))).toMatchObject({
+      code: 'ATTACHMENT_UNAVAILABLE',
+    });
+
+    await publishing.remove(a, post.id);
+    const left = await pool.query(`SELECT id FROM social_schema.attachments WHERE id = ANY($1::uuid[])`, [[queued, processing]]);
+    expect(left.rows).toEqual([]);
+  });
+
   it('bài nhóm riêng tư ẩn với người ngoài, hiện với thành viên', async () => {
     const group = await groups.create(actor(tenantId, alice), { name: 'Ban lãnh đạo', privacy: 'private' });
     const post = await publishing.create(actor(tenantId, alice), { bodyHtml: '<p>Kế hoạch bí mật</p>', groupId: group.id });

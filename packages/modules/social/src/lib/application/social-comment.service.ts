@@ -14,7 +14,7 @@ import {
 import { mayCommentOnPost, mayEditContent, mayRead, mayWrite } from '../domain/social-principal.js';
 import {
   assertAttachmentSet,
-  assertAttachmentsReady,
+  assertAttachmentsPostable,
   assertReplyTarget,
   attachmentRulesFor,
   decodeCursor,
@@ -320,7 +320,7 @@ export class SocialCommentService {
   /**
    * Kiểm trước khi gắn: tệp đã tải xong, của người bình luận (hoặc đã thuộc chính bình luận này), chưa gắn
    * bài hay bình luận khác, và đúng luật của bình luận (ảnh nhỏ hơn, tối đa 1 video tải lên cho bình luận). Video
-   * chưa xử lý xong hoặc lỗi thì chưa đăng được (`SOCIAL_VIDEO_NOT_READY`). Lỗi chi tiết từng tệp không lộ ra
+   * xử lý lỗi thì chưa đăng được (`SOCIAL_VIDEO_FAILED`); đang chờ hay đang xử lý vẫn đăng được. Lỗi chi tiết từng tệp không lộ ra
    * ngoài để khỏi lộ tệp của người khác.
    */
   private async assertAttachable(actor: SocialActor, ids: readonly string[], commentId?: string): Promise<void> {
@@ -342,7 +342,7 @@ export class SocialCommentService {
       }
       rows.push(row);
     }
-    assertAttachmentsReady(rows);
+    assertAttachmentsPostable(rows);
     assertAttachmentSet('comment', rows);
   }
 

@@ -137,11 +137,11 @@ export class SocialVideoTooManyProcessingError extends SocialError {
   }
 }
 
-/** Video chưa xử lý xong (đang chờ, đang xử lý) hoặc xử lý lỗi nên chưa gắn vào bài hay bình luận được. */
-export class SocialVideoNotReadyError extends SocialError {
+/** Video xử lý lỗi (`failed`) nên không gắn vào bài hay bình luận được; video đang chờ hoặc đang xử lý thì gắn được. */
+export class SocialVideoFailedError extends SocialError {
   constructor() {
-    super('SOCIAL_VIDEO_NOT_READY', 'Video còn đang xử lý hoặc bị lỗi, chưa thể đăng.', 409);
-    Object.setPrototypeOf(this, SocialVideoNotReadyError.prototype);
+    super('SOCIAL_VIDEO_FAILED', 'Video xử lý lỗi, chưa thể đăng. Hãy gỡ video rồi thử lại.', 409);
+    Object.setPrototypeOf(this, SocialVideoFailedError.prototype);
   }
 }
 

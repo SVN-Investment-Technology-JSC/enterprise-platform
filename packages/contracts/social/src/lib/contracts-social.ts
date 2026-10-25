@@ -96,6 +96,10 @@ export const SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_USER = 3;
 export const SOCIAL_VIDEO_MAX_IN_FLIGHT_PER_TENANT = 6;
 /** Thời gian chạy ffmpeg tối đa cho một video (RabbitMQ chờ ack 30 phút, nên phải thấp hơn). */
 export const SOCIAL_VIDEO_MAX_PROCESSING_SECONDS = 20 * 60;
+/** Video đã đăng mà quá chừng này chưa xử lý xong (hàng chờ hoặc worker treo) thì xếp lại hàng. */
+export const SOCIAL_VIDEO_REQUEUE_AFTER_SECONDS = 10 * 60;
+/** Video quá chừng này mà CHƯA TỪNG được worker nhận thì báo lỗi (hệ thống xử lý video không chạy). */
+export const SOCIAL_VIDEO_QUEUE_TIMEOUT_SECONDS = 30 * 60;
 
 export const SOCIAL_VIDEO_PROCESSING_STATUSES = ['queued', 'processing', 'ready', 'failed'] as const;
 export type SocialVideoProcessingStatus = (typeof SOCIAL_VIDEO_PROCESSING_STATUSES)[number];

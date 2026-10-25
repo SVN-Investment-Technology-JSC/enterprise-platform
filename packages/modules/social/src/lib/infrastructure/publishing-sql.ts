@@ -11,7 +11,7 @@ import type {
 import type { PoolClient } from 'pg';
 import type { ExtendedPostRow } from '../application/ports/post-read-model.js';
 import type { SocialOutboxEvent } from '../application/social-store.port.js';
-import { SocialAttachmentUnavailableError, SocialVideoNotReadyError } from '../domain/social.error.js';
+import { SocialAttachmentUnavailableError, SocialVideoFailedError } from '../domain/social.error.js';
 
 /** Thời điểm UTC dạng ISO giữ nguyên micro giây, để con trỏ phân trang không bỏ sót dòng cùng mili giây. */
 export function isoColumn(expression: string): string {
@@ -164,25 +164,25 @@ export async function writeOutboxAll(
 }
 
 /**
- * Lý do một lần gắn tệp không đủ số dòng: có tệp video chưa xử lý xong thì `SocialVideoNotReadyError`, còn lại
+ * Lý do một lần gắn tệp không đủ số dòng: có tệp video xử lý lỗi thì `SocialVideoFailedError`, còn lại
  * (thiếu, chưa tải xong, của người khác, đã gắn nơi khác) là `SocialAttachmentUnavailableError`. Người gọi ném lỗi
  * này trong transaction nên mọi thay đổi trước đó được huỷ.
  */
 export async function attachmentFailure(
   client: PoolClient,
   attachmentIds: readonly string[],
-): Promise<SocialAttachmentUnavailableError | SocialVideoNotReadyError> {
+): Promise<SocialAttachmentUnavailableError | SocialVideoFailedError> {
   const pending = await client.query(
     `SELECT 1 FROM social_schema.attachments
-      WHERE id = ANY($1::uuid[]) AND completed_at IS NOT NULL AND processing_status NOT IN ('none', 'ready')
+      WHERE id = ANY($1::uuid[]) AND completed_at IS NOT NULL AND processing_status = 'failed'
       LIMIT 1`,
     [attachmentIds],
   );
-  return (pending.rowCount ?? 0) > 0 ? new SocialVideoNotReadyError() : new SocialAttachmentUnavailableError();
+  return (pending.rowCount ?? 0) > 0 ? new SocialVideoFailedError() : new SocialAttachmentUnavailableError();
 }
 
 /**
- * Gắn tệp vào bài: chỉ tệp đã tải xong, xử lý xong (video `none` hoặc `ready`) và của bài này hoặc chưa gắn bài
+ * Gắn tệp vào bài: chỉ tệp đã tải xong, không phải video `failed` (video `queued`/`processing` gắn được) và của bài này hoặc chưa gắn bài
  * do `uploaderId` tải.
  */
 export async function attachFiles(
@@ -197,7 +197,7 @@ export async function attachFiles(
         SET post_id = $1
       WHERE id = ANY($2::uuid[])
         AND completed_at IS NOT NULL
-        AND processing_status IN ('none', 'ready')
+        AND processing_status <> 'failed'
         AND (post_id = $1 OR (post_id IS NULL AND comment_id IS NULL AND uploaded_by = $3))`,
     [postId, attachmentIds, uploaderId],
   );

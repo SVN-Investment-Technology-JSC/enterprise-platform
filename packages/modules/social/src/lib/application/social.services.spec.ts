@@ -546,6 +546,9 @@ class FakeVideoStore implements SocialVideoStore {
   async requeueStale() {
     return 0;
   }
+  async failStuckQueued() {
+    return [];
+  }
 }
 
 function setup() {
@@ -1802,19 +1805,26 @@ describe('video: hiển thị trạng thái và URL', () => {
 });
 
 describe('video: cổng khi đăng bình luận', () => {
-  it('bình luận có video queued, processing hoặc failed bị từ chối SOCIAL_VIDEO_NOT_READY (409); ready và none thì đăng được', async () => {
+  it('bình luận có video failed bị từ chối SOCIAL_VIDEO_FAILED (409); queued, processing, ready và none thì đăng được', async () => {
     const services = videoSetup();
     const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
-    for (const status of ['queued', 'processing', 'failed'] as const) {
+    const failed = seedAttachment(services.store, { processingStatus: 'failed' });
+    const error = await services.comments
+      .create(bob, post.id, { body: 'x', attachmentIds: [failed.id] })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      code: 'SOCIAL_VIDEO_FAILED',
+      statusCode: 409,
+      message: 'Video xử lý lỗi, chưa thể đăng. Hãy gỡ video rồi thử lại.',
+    });
+    for (const status of ['queued', 'processing'] as const) {
       const row = seedAttachment(services.store, { processingStatus: status });
-      const error = await services.comments
-        .create(bob, post.id, { body: 'x', attachmentIds: [row.id] })
-        .catch((caught: unknown) => caught);
-      expect(error).toMatchObject({
-        code: 'SOCIAL_VIDEO_NOT_READY',
-        statusCode: 409,
-        message: 'Video còn đang xử lý hoặc bị lỗi, chưa thể đăng.',
-      });
+      const comment = await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [row.id] });
+      // Người xem thấy khung "đang xử lý": có trạng thái, không có url hay poster.
+      expect(comment.attachments).toHaveLength(1);
+      expect(comment.attachments?.[0]).toMatchObject({ id: row.id, isVideo: true, processingStatus: status });
+      expect(comment.attachments?.[0]).not.toHaveProperty('url');
+      expect(comment.attachments?.[0]).not.toHaveProperty('posterUrl');
     }
     const ready = seedAttachment(services.store);
     const legacy = seedAttachment(services.store, { processingStatus: 'none' });
@@ -1826,15 +1836,18 @@ describe('video: cổng khi đăng bình luận', () => {
     ).toHaveLength(1);
   });
 
-  it('sửa bình luận thêm video chưa ready cũng bị chặn', async () => {
+  it('sửa bình luận: thêm video failed bị chặn, video processing thì được', async () => {
     const services = videoSetup();
     const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
     const created = await services.comments.create(bob, post.id, { body: 'x' });
-    const pending = seedAttachment(services.store, { processingStatus: 'processing' });
+    const broken = seedAttachment(services.store, { processingStatus: 'failed' });
     await expectCode(
-      services.comments.update(bob, created.id, { body: 'x', attachmentIds: [pending.id] }),
-      'SOCIAL_VIDEO_NOT_READY',
+      services.comments.update(bob, created.id, { body: 'x', attachmentIds: [broken.id] }),
+      'SOCIAL_VIDEO_FAILED',
     );
+    const pending = seedAttachment(services.store, { processingStatus: 'processing' });
+    const withPending = await services.comments.update(bob, created.id, { body: 'x', attachmentIds: [pending.id] });
+    expect(withPending.attachments).toHaveLength(1);
     const ready = seedAttachment(services.store);
     const updated = await services.comments.update(bob, created.id, { body: 'x', attachmentIds: [ready.id] });
     expect(updated.attachments).toHaveLength(1);
@@ -1854,6 +1867,16 @@ describe('video: cổng khi đăng bình luận', () => {
     const created = await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [row.id] });
     await services.comments.remove(bob, created.id);
     expect(services.storage.deleted.sort()).toEqual([row.storageKey, 'k/poster.jpg', 'k/source.mov'].sort());
+    expect(services.store.attachments_.has(row.id)).toBe(false);
+  });
+
+  it('xoá bình luận khi video đang processing xoá ngay dòng và tệp', async () => {
+    const services = videoSetup();
+    const post = await services.posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const row = seedAttachment(services.store, { processingStatus: 'processing' });
+    const created = await services.comments.create(bob, post.id, { body: 'x', attachmentIds: [row.id] });
+    await services.comments.remove(bob, created.id);
+    expect(services.storage.deleted).toEqual([row.storageKey]);
     expect(services.store.attachments_.has(row.id)).toBe(false);
   });
 });

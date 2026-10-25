@@ -2127,43 +2127,58 @@ describe('video đính kèm bài viết', () => {
     return id;
   }
 
-  it('video ready (hoặc none) đăng được; queued, processing, failed bị chặn ở bài đăng ngay, hẹn giờ và chờ duyệt', async () => {
+  it('video none, ready, queued, processing đăng được ngay, hẹn giờ và chờ duyệt', async () => {
     const h = harness();
     const ready = file(h);
     const legacy = file(h, { processingStatus: 'none' });
     await h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [ready, legacy] });
 
-    for (const status of ['queued', 'processing', 'failed'] as const) {
+    for (const status of ['queued', 'processing'] as const) {
       const pending = file(h, { processingStatus: status });
-      await expectError(
-        h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pending] }),
-        'SOCIAL_VIDEO_NOT_READY',
-        409,
-      );
-      // Bài hẹn giờ kiểm ngay lúc lưu, không đợi tới giờ đăng.
-      await expectError(
+      await expect(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [pending] })).resolves.toBeDefined();
+      const scheduled = file(h, { processingStatus: status });
+      await expect(
         h.publishing.create(alice, {
           bodyHtml: BODY,
-          attachmentIds: [pending],
+          attachmentIds: [scheduled],
           scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
         }),
-        'SOCIAL_VIDEO_NOT_READY',
-      );
+      ).resolves.toBeDefined();
     }
     h.settings.value = { wallRequireApproval: true };
-    await expectError(
+    await expect(
       h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [file(h, { processingStatus: 'queued' })] }),
-      'SOCIAL_VIDEO_NOT_READY',
-    );
+    ).resolves.toBeDefined();
   });
 
-  it('sửa bài: thêm video chưa ready bị chặn; video ready thì được', async () => {
+  it('video failed bị từ chối SOCIAL_VIDEO_FAILED khi đăng ngay, hẹn giờ và gửi duyệt', async () => {
+    const h = harness();
+    const failed = file(h, { processingStatus: 'failed' });
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [failed] }), 'SOCIAL_VIDEO_FAILED', 409);
+    // Bài hẹn giờ kiểm ngay lúc lưu, không đợi tới giờ đăng.
+    await expectError(
+      h.publishing.create(alice, {
+        bodyHtml: BODY,
+        attachmentIds: [failed],
+        scheduledAt: new Date(h.clock.now.getTime() + 3_600_000).toISOString(),
+      }),
+      'SOCIAL_VIDEO_FAILED',
+    );
+    h.settings.value = { wallRequireApproval: true };
+    await expectError(h.publishing.create(alice, { bodyHtml: BODY, attachmentIds: [failed] }), 'SOCIAL_VIDEO_FAILED');
+  });
+
+  it('sửa bài: thêm video processing được, video failed bị chặn', async () => {
     const h = harness();
     const post = await h.publishing.create(alice, { bodyHtml: BODY });
     await expectError(
-      h.publishing.update(alice, post.id, { attachmentIds: [file(h, { processingStatus: 'processing' })] }),
-      'SOCIAL_VIDEO_NOT_READY',
+      h.publishing.update(alice, post.id, { attachmentIds: [file(h, { processingStatus: 'failed' })] }),
+      'SOCIAL_VIDEO_FAILED',
     );
+    const processing = await h.publishing.update(alice, post.id, {
+      attachmentIds: [file(h, { processingStatus: 'processing' })],
+    });
+    expect(processing.id).toBe(post.id);
     const updated = await h.publishing.update(alice, post.id, { attachmentIds: [file(h)] });
     expect(updated.id).toBe(post.id);
   });

@@ -19,6 +19,8 @@ export interface SocialJobs {
   publishDueScheduled(tenantId: string): Promise<SocialSchedulerResult>;
   /** Dọn tệp đính kèm mồ côi (quá 24 giờ chưa gắn bài); trả số tệp đã dọn. */
   cleanupOrphans(tenantId: string): Promise<number>;
+  /** Báo lỗi video chờ quá lâu mà chưa từng được nhận và xếp lại hàng video bị kẹt; trả số liệu từng việc. */
+  sweepVideos(tenantId: string): Promise<{ requeued: number; failed: number }>;
 }
 
 export function createSocialJobs(references: TenantDatabaseRegistry, pools: PostgresPoolRegistry): SocialJobs {
@@ -48,5 +50,6 @@ export function createSocialJobs(references: TenantDatabaseRegistry, pools: Post
     },
     publishDueScheduled: (tenantId) => scheduler.publishDueScheduled(tenantId),
     cleanupOrphans: (tenantId) => attachments.cleanupOrphans(tenantId),
+    sweepVideos: (tenantId) => attachments.sweepVideos(tenantId),
   };
 }

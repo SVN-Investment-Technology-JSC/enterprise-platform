@@ -89,4 +89,17 @@ export interface SocialVideoStore {
    * không bị xếp lại liên tục. Gửi trùng là vô hại vì `claim` chỉ cho một worker nhận. Trả số dòng đã xếp lại.
    */
   requeueStale(tenantId: string, staleAfterSeconds: number, limit: number): Promise<number>;
+
+  /**
+   * Báo lỗi video chờ quá lâu mà chưa từng có worker nhận: dòng `queued`, `processing_attempts = 0`, đã hoàn tất
+   * tải quá `olderThanSeconds`. Đặt `failed` với `message` (cắt tối đa 500 ký tự) và trả id, khoá bản gốc để người
+   * gọi xoá khỏi kho. Không đụng dòng `processing`, dòng đã từng được nhận (cơ chế thuê và số lần thử lo) hay dòng
+   * chưa tải xong.
+   */
+  failStuckQueued(
+    tenantId: string,
+    olderThanSeconds: number,
+    limit: number,
+    message: string,
+  ): Promise<readonly { readonly id: string; readonly storageKey: string }[]>;
 }

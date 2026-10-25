@@ -194,6 +194,32 @@ export class PostgresSocialVideoStore implements SocialVideoStore {
     });
   }
 
+  failStuckQueued(
+    tenantId: string,
+    olderThanSeconds: number,
+    limit: number,
+    message: string,
+  ): Promise<readonly { readonly id: string; readonly storageKey: string }[]> {
+    return this.runner.run(tenantId, async (pool) => {
+      const failed = await pool.query<{ id: string; storage_key: string }>(
+        `UPDATE social_schema.attachments
+            SET processing_status = 'failed', processing_error = $3, processing_lease_until = NULL
+          WHERE id IN (
+                  SELECT id FROM social_schema.attachments
+                   WHERE processing_status = 'queued'
+                     AND processing_attempts = 0
+                     AND completed_at IS NOT NULL
+                     AND completed_at < now() - make_interval(secs => $1::double precision)
+                   ORDER BY completed_at
+                   LIMIT $2
+                     FOR UPDATE SKIP LOCKED)
+          RETURNING id, storage_key`,
+        [olderThanSeconds, limit, message.slice(0, ERROR_MAX_LENGTH)],
+      );
+      return failed.rows.map((row) => ({ id: row.id, storageKey: row.storage_key }));
+    });
+  }
+
   requeueStale(tenantId: string, staleAfterSeconds: number, limit: number): Promise<number> {
     return this.runner.run(tenantId, async (pool) => {
       const client = await pool.connect();

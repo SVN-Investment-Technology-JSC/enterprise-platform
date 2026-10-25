@@ -11,7 +11,7 @@ import {
 } from './social-principal.js';
 import {
   assertAttachmentSet,
-  assertAttachmentsReady,
+  assertAttachmentsPostable,
   assertReplyTarget,
   attachmentRulesFor,
   decodeCursor,
@@ -27,7 +27,7 @@ import {
   requireContent,
   safeObjectName,
 } from './social-rules.js';
-import { SocialValidationError, SocialVideoNotReadyError } from './social.error.js';
+import { SocialValidationError, SocialVideoFailedError } from './social.error.js';
 
 const UUID_A = '11111111-1111-4111-8111-111111111111';
 const UUID_B = '22222222-2222-4222-8222-222222222222';
@@ -198,13 +198,13 @@ describe('luật tệp theo nơi gắn: video', () => {
     expect(() => assertAttachmentSet('comment', [file('video/mp4', 'post')])).toThrow(SocialValidationError);
   });
 
-  it('chỉ none và ready mới qua cổng xử lý', () => {
-    expect(() => assertAttachmentsReady([{ processingStatus: 'none' }, { processingStatus: 'ready' }])).not.toThrow();
-    for (const processingStatus of ['queued', 'processing', 'failed'] as const) {
-      expect(() => assertAttachmentsReady([{ processingStatus: 'ready' }, { processingStatus }])).toThrow(
-        SocialVideoNotReadyError,
-      );
+  it('chỉ video failed bị chặn ở cổng đăng; none, queued, processing, ready đều qua', () => {
+    for (const processingStatus of ['none', 'queued', 'processing', 'ready'] as const) {
+      expect(() => assertAttachmentsPostable([{ processingStatus: 'ready' }, { processingStatus }])).not.toThrow();
     }
+    expect(() => assertAttachmentsPostable([{ processingStatus: 'ready' }, { processingStatus: 'failed' }])).toThrow(
+      SocialVideoFailedError,
+    );
   });
 });
 

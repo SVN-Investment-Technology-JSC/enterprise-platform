@@ -20,7 +20,7 @@ import {
   type SocialReactionType,
 } from '@enterprise-platform/contracts-social';
 import { htmlToPlainText, sanitizeHtml } from './html-sanitizer.js';
-import { SocialValidationError, SocialVideoNotReadyError } from './social.error.js';
+import { SocialValidationError, SocialVideoFailedError } from './social.error.js';
 
 /** Tối đa người được nhắc tên trong một bài hay một bình luận. */
 export const SOCIAL_MAX_MENTIONS = 50;
@@ -249,14 +249,12 @@ export interface AttachableFacts {
   readonly processingStatus: 'none' | 'queued' | 'processing' | 'ready' | 'failed';
 }
 
-/** Video đang chờ, đang xử lý hoặc lỗi thì chưa gắn được (`none` và `ready` là dùng được). */
-export function isProcessingFinished(file: Pick<AttachableFacts, 'processingStatus'>): boolean {
-  return file.processingStatus === 'none' || file.processingStatus === 'ready';
-}
-
-/** Chặn đăng khi có tệp chưa xử lý xong: chung cho bài viết và bình luận. */
-export function assertAttachmentsReady(files: readonly Pick<AttachableFacts, 'processingStatus'>[]): void {
-  if (files.some((file) => !isProcessingFinished(file))) throw new SocialVideoNotReadyError();
+/**
+ * Chặn đăng khi có video xử lý lỗi: chung cho bài viết và bình luận. Video đang chờ (`queued`) hoặc đang xử lý
+ * (`processing`) vẫn đăng được, người xem thấy khung "đang xử lý" cho tới khi video sẵn sàng.
+ */
+export function assertAttachmentsPostable(files: readonly Pick<AttachableFacts, 'processingStatus'>[]): void {
+  if (files.some((file) => file.processingStatus === 'failed')) throw new SocialVideoFailedError();
 }
 
 /**

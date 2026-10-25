@@ -14,6 +14,8 @@ interface Harness {
   readonly aborted: string[];
   readonly clearedSources: string[];
   readonly requeued: { staleAfterSeconds: number; limit: number }[];
+  readonly calls: string[];
+  readonly failedStuck: { olderThanSeconds: number; limit: number; message: string }[];
 }
 
 function harness(options: {
@@ -22,6 +24,9 @@ function harness(options: {
   failKeys?: readonly string[];
   withAbort?: boolean;
   withVideoStore?: boolean;
+  stuck?: readonly { id: string; storageKey: string }[];
+  requeueCount?: number;
+  throwOnDelete?: boolean;
 }): Harness {
   const listedBefore: string[] = [];
   const deletedKeys: string[] = [];
@@ -29,6 +34,8 @@ function harness(options: {
   const aborted: string[] = [];
   const clearedSources: string[] = [];
   const requeued: { staleAfterSeconds: number; limit: number }[] = [];
+  const calls: string[] = [];
+  const failedStuck: { olderThanSeconds: number; limit: number; message: string }[] = [];
   let served = false;
   const store = {
     attachments: {
@@ -45,6 +52,8 @@ function harness(options: {
   } as unknown as SocialStore;
   const storage = {
     deleteObjects: async (keys: readonly string[]) => {
+      if (options.throwOnDelete) throw new Error('kho lỗi');
+      calls.push('deleteObjects');
       deletedKeys.push(...keys);
       return { failed: keys.filter((key) => options.failKeys?.includes(key)) };
     },
@@ -63,8 +72,14 @@ function harness(options: {
       clearedSources.push(...ids);
     },
     requeueStale: async (_tenantId: string, staleAfterSeconds: number, limit: number) => {
+      calls.push('requeueStale');
       requeued.push({ staleAfterSeconds, limit });
-      return 0;
+      return options.requeueCount ?? 0;
+    },
+    failStuckQueued: async (_tenantId: string, olderThanSeconds: number, limit: number, message: string) => {
+      calls.push('failStuckQueued');
+      failedStuck.push({ olderThanSeconds, limit, message });
+      return options.stuck ?? [];
     },
   } as unknown as SocialVideoStore;
   const service = new SocialAttachmentService(
@@ -75,7 +90,7 @@ function harness(options: {
     undefined,
     options.withVideoStore === false ? undefined : videoStore,
   );
-  return { service, listedBefore, deletedKeys, deletedRows, aborted, clearedSources, requeued };
+  return { service, listedBefore, deletedKeys, deletedRows, aborted, clearedSources, requeued, calls, failedStuck };
 }
 
 describe('dọn tệp mồ côi', () => {
@@ -140,10 +155,52 @@ describe('dọn tệp mồ côi', () => {
     expect(h.clearedSources).toEqual(['a']);
   });
 
-  it('xếp lại video bị kẹt sau mỗi lần dọn, theo ngưỡng 30 phút', async () => {
+  it('cleanupOrphans không còn xếp lại hàng hay báo lỗi video kẹt (việc của sweepVideos)', async () => {
     const h = harness({ orphans: [] });
     await h.service.cleanupOrphans(TENANT);
-    expect(h.requeued).toEqual([{ staleAfterSeconds: 30 * 60, limit: 200 }]);
+    expect(h.requeued).toEqual([]);
+    expect(h.failedStuck).toEqual([]);
+  });
+
+  it('sweepVideos: báo lỗi video chưa từng được nhận (30 phút) trước, rồi xếp lại hàng (10 phút)', async () => {
+    const h = harness({ orphans: [], stuck: [{ id: 'a', storageKey: 'k/a.mov' }], requeueCount: 2 });
+    expect(await h.service.sweepVideos(TENANT)).toEqual({ requeued: 2, failed: 1 });
+    expect(h.calls).toEqual(['failStuckQueued', 'deleteObjects', 'requeueStale']);
+    expect(h.failedStuck).toEqual([
+      {
+        olderThanSeconds: 30 * 60,
+        limit: 200,
+        message: 'Hệ thống xử lý video chưa sẵn sàng. Hãy tải video lên lại sau.',
+      },
+    ]);
+    expect(h.deletedKeys).toEqual(['k/a.mov']);
+    expect(h.requeued).toEqual([{ staleAfterSeconds: 10 * 60, limit: 200 }]);
+    expect(h.deletedRows).toEqual([]);
+  });
+
+  it('sweepVideos: không có video kẹt thì không gọi kho xoá', async () => {
+    const h = harness({ orphans: [] });
+    expect(await h.service.sweepVideos(TENANT)).toEqual({ requeued: 0, failed: 0 });
+    expect(h.calls).toEqual(['failStuckQueued', 'requeueStale']);
+  });
+
+  it('sweepVideos: kho xoá lỗi hoặc từ chối một khoá thì vẫn xếp lại hàng và không ném lỗi', async () => {
+    const thrown = harness({ orphans: [], stuck: [{ id: 'a', storageKey: 'k/a.mov' }], throwOnDelete: true });
+    await expect(thrown.service.sweepVideos(TENANT)).resolves.toEqual({ requeued: 0, failed: 1 });
+    expect(thrown.requeued).toHaveLength(1);
+
+    const refused = harness({
+      orphans: [],
+      stuck: [{ id: 'a', storageKey: 'k/a.mov' }],
+      failKeys: ['k/a.mov'],
+    });
+    await expect(refused.service.sweepVideos(TENANT)).resolves.toEqual({ requeued: 0, failed: 1 });
+    expect(refused.requeued).toHaveLength(1);
+  });
+
+  it('sweepVideos: không có videoStore thì không làm gì', async () => {
+    const h = harness({ orphans: [], withVideoStore: false });
+    expect(await h.service.sweepVideos(TENANT)).toEqual({ requeued: 0, failed: 0 });
   });
 
   it('không có videoStore thì bỏ qua bước dọn bản gốc', async () => {
