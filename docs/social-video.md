@@ -39,7 +39,7 @@ sequenceDiagram
     V->>V: Cập nhật ready (hoặc failed)
     V->>M: Xoá bản gốc
     V->>R: ack
-    B->>A: Hỏi trạng thái, khi ready thì đăng bài hoặc gửi bình luận
+    B->>A: Hỏi trạng thái; đăng bài hoặc gửi bình luận bất cứ lúc nào sau khi tải xong (chưa ready thì có cảnh báo)
     B->>M: Phát bằng URL ký (Range)
 ```
 
@@ -53,7 +53,8 @@ stateDiagram-v2
     processing --> ready: chuyển mã xong
     processing --> failed: lỗi không thử lại được, hoặc hết lần thử
     processing --> queued: lỗi tạm thời, thử lại (đĩa đầy hoặc worker tắt thì được hoàn lại lượt thử)
-    queued --> queued: quá 30 phút chưa xử lý, job dọn xếp lại hàng
+    queued --> queued: quá 10 phút chưa xử lý, job quét xếp lại hàng
+    queued --> failed: quá 30 phút chưa từng được worker nhận
     processing --> processing: hết hạn thuê, nhận lại
     queued --> [*]: bị huỷ hoặc dọn mồ côi
     failed --> [*]: bị huỷ hoặc dọn mồ côi
@@ -100,12 +101,17 @@ Tối đa 2 luồng chuyển mã cùng lúc trong một container. Lý do tách:
 chờ sau video bài đăng dài (tối đa 10 phút, 1080p). Loại sự kiện: `social.video.comment_requested`,
 `social.video.post_requested`; không đổi tên sau khi đã phát (skill `erp-events`).
 
-## 5. Quy tắc "chưa xong thì chưa đăng"
+## 5. Đăng khi video chưa xong
 
-- Video chưa `ready` không đăng bài và không gửi bình luận được. Server chặn bằng mã `SOCIAL_VIDEO_NOT_READY`; giao diện
-  vô hiệu nút gửi.
-- Không có bản nháp: tác giả phải ở lại trang tới khi video xong.
-- Video `failed`: người dùng tải lại (không giữ bản gốc).
+- Bấm Đăng hoặc Gửi lúc video còn đang tải lên, `queued` hoặc `processing` thì hiện hộp cảnh báo "Video chưa xử lý xong"
+  và người dùng vẫn đăng được ("Vẫn đăng"/"Vẫn gửi") hoặc chọn "Chờ video xong".
+- Video đã tải xong nhưng đang xử lý: được đăng kèm. Người xem thấy khung "Video đang được xử lý, sẽ xem được sau ít
+  phút" và khung tự cập nhật (hỏi lại sau 8 giây, giãn dần tới 30 giây, tối đa khoảng 30 phút) khi video xong.
+- Video còn đang tải lên (byte chưa lên hết): bài/bình luận được đăng KHÔNG kèm video đó (video bị huỷ). Bình luận không
+  chữ mà chỉ có video đang tải thì không gửi được.
+- Video `failed` (ở ô soạn hoặc sau khi đã đăng) không gắn được: server từ chối bằng mã `SOCIAL_VIDEO_FAILED`; giao diện
+  yêu cầu gỡ video. Video bị `failed` sau khi đã đăng hiện "Không xử lý được video này"; tác giả sửa bài để gỡ.
+- Không có bản nháp: video chưa tải xong thì phải ở lại trang, rời trang là bỏ video đó.
 
 ## 6. Dọn tệp
 
@@ -115,7 +121,7 @@ chờ sau video bài đăng dài (tối đa 10 phút, 1080p). Loại sự kiện
 | Yêu cầu discard không đến được (treo máy, mất mạng, tắt tab trên điện thoại) | Job dọn dự phòng xoá tệp mồ côi sau 2 giờ, chạy khoảng 15 phút một lần |
 | Tải nhiều phần dang dở | Cùng ngưỡng 2 giờ: job huỷ phiên tải nhiều phần rồi xoá dòng. Tải 1 GB phải kịp xong trong 2 giờ kể từ lúc bắt đầu (khoảng 1,2 Mbps liên tục trở lên) |
 | Xoá bản gốc hỏng sau chuyển mã | Cột `source_key` còn giá trị; job thử lại xoá |
-| Tin nhắn vào hàng chết (lỗi tạm thời kéo dài, ví dụ đĩa đầy) hoặc worker chết làm video kẹt `queued`/`processing` | Job dọn (mỗi 15 phút) xếp lại hàng video `queued` quá 30 phút hoặc `processing` đã hết hạn thuê, ghi lại sự kiện qua outbox; gửi trùng vô hại vì chỉ một worker nhận được việc |
+| Tin nhắn vào hàng chết (lỗi tạm thời kéo dài, ví dụ đĩa đầy), worker chết, hoặc `video-worker` không chạy làm video kẹt `queued`/`processing` | Job quét (mỗi 5 phút, ở `apps/worker`): video `queued` quá 10 phút hoặc `processing` đã hết hạn thuê được xếp lại hàng qua outbox (gửi trùng vô hại vì chỉ một worker nhận được việc); video `queued` quá 30 phút mà chưa từng được nhận thì chuyển `failed` kèm "Hệ thống xử lý video chưa sẵn sàng. Hãy tải video lên lại sau." và xoá bản gốc |
 | Xoá bài hoặc bình luận | Xoá ngay video, poster, bản gốc |
 
 Server chỉ xoá tệp chưa gắn vào bài hoặc bình luận.
@@ -139,6 +145,7 @@ Một dòng JSON, không ghi tên tệp.
 | `social.upload.initiated`, `completed`, `rejected`, `aborted`, `discarded` | social-api |
 | `social.video.started`, `ready`, `failed`, `retry`, `discarded`, `skipped` | video-worker |
 | `social.video_worker.started`, `stopping` | video-worker |
+| `social.video.sweep` (số video xếp lại, số video báo lỗi) | apps/worker |
 
 Trường: `tenantId`, `attachmentId`, `purpose`, `attempt`, `outcome`, `durationMs`, `inputBytes`, `outputBytes`,
 `outputHeight`, `reason`.
@@ -153,7 +160,8 @@ Trường: `tenantId`, `attachmentId`, `purpose`, `attempt`, `outcome`, `duratio
 - Không giữ bản gốc nên chuyển mã lỗi thì người dùng phải tải lại.
 - Rate limiter của social-api nằm trong bộ nhớ từng tiến trình; chạy nhiều bản thì hạn mức nhân lên.
 - Người xem đang giữ URL ký vẫn xem được tới khi hết hạn dù video đã bị xoá hoặc bị thu hồi quyền.
-- Tác giả phải ở lại trang trong lúc xử lý.
+- Video chưa tải xong (byte chưa lên hết) thì phải ở lại trang; sau khi tải xong có thể đăng ngay, không phải chờ chuyển mã.
+- Bài đăng kèm video đang xử lý hiện khung "Đang xử lý" cho người xem tới khi video xong; nếu `video-worker` không chạy, video bị đánh `failed` sau 30 phút kể từ lúc tải xong (cộng tối đa 5 phút chờ chu kỳ quét).
 - Trần "3 video mỗi người, 6 mỗi tenant" và trần 2 GB tệp chưa gắn kiểm rồi mới ghi (không atomic): hai lần `complete` song song sát biên có thể cùng lọt qua.
 - Tải 1 GB phải kịp xong trong 2 giờ kể từ lúc bắt đầu (khoảng 1,2 Mbps liên tục trở lên), nếu không job dọn coi là mồ côi.
 - Trang khôi phục từ bfcache sau khi đã discard vẫn hiện video dù server đã xoá.
@@ -218,5 +226,9 @@ trên VPS, RAM và CPU đỉnh, thời gian chờ hàng khi tải cao, số lu�
 | Chuyển mã mp4, webm, mov HEVC, HDR; 8K bị từ chối | `tools/load-test` (fixtures) |
 | Tải đồng thời, độ dài hàng, công suất | `tools/load-test` |
 | Hệ số thời gian thực của ffmpeg | `tools/load-test/benchmark-ffmpeg.mjs` |
+| Hộp cảnh báo khi đăng lúc video chưa xong, huỷ video đang tải rồi đăng, khung "Đang xử lý" và tự cập nhật cho người xem | Jest, `packages/features/social/src/lib` (`video-publish-gate.spec.ts`, `components/comment-input-video-gate.spec.tsx`, `use-video-refresh-poll.spec.tsx`, `components/video-attachment.spec.tsx`) |
+| Đăng được khi video queued/processing, từ chối khi failed (`SOCIAL_VIDEO_FAILED`), SQL gate | Jest và `social-postgres.integration.spec.ts` |
+| Quét video kẹt: xếp lại sau 10 phút, báo lỗi sau 30 phút, chỉ dòng chưa từng được nhận | Jest `application/social-attachment-cleanup.spec.ts`; `social-video.integration.spec.ts` |
+| HEALTHCHECK của video-worker (tệp heartbeat mới, cũ, thiếu) | Jest `apps/video-worker/src/heartbeat.spec.ts`; kiểm lệnh trên image Docker thật |
 
 Chi tiết cách chạy và các ca thử: `tools/load-test/README.md`.

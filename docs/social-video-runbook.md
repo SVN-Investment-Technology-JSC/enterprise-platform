@@ -16,6 +16,9 @@ docker stats --no-stream <container-video-worker>
 - `docker stats`: CPU không vượt khoảng 400% (4 CPU), MEM LIMIT khoảng 3 GiB. Nếu MEM LIMIT bằng toàn bộ RAM máy thì
   trần chưa được áp dụng (mục 8).
 - Lúc rảnh: khoảng 100-200 MB RAM, ~0% CPU.
+- Sức khoẻ: container có HEALTHCHECK dựa trên tệp heartbeat (ghi mỗi 15 giây khi cả hai consumer đang kết nối). Xem bằng
+  `docker inspect --format '{{.State.Health.Status}}' <container-video-worker>`: `healthy`, hoặc `unhealthy` khi mất kết nối
+  RabbitMQ kéo dài hoặc tiến trình treo (tệp quá 60 giây).
 
 ## 2. Hàng đợi (RabbitMQ management, cổng 15672)
 
@@ -26,7 +29,7 @@ Xem hai hàng `social.video.comment.v1` và `social.video.post.v1`:
 | `messages_ready` | đang chờ worker; tăng liên tục nghĩa là worker chậm hoặc chết |
 | `messages_unacknowledged` | đang xử lý; tối đa 1 mỗi hàng mỗi bản worker |
 | `consumers` | phải từ 1 trở lên mỗi hàng |
-| DLQ | hàng `enterprise.events.dead` (gắn vào exchange `enterprise.events.dlx`, topic, khoá `#`): tin bị loại sau khi hết lỗi tạm thời được thử lại (mặc định 5 lần trong tiến trình, chờ 10 giây rồi tăng dần) hoặc tin hỏng (thiếu trường). Video tương ứng vẫn `queued` và được job dọn xếp lại sau 30 phút |
+| DLQ | hàng `enterprise.events.dead` (gắn vào exchange `enterprise.events.dlx`, topic, khoá `#`): tin bị loại sau khi hết lỗi tạm thời được thử lại (mặc định 5 lần trong tiến trình, chờ 10 giây rồi tăng dần) hoặc tin hỏng (thiếu trường). Video tương ứng vẫn `queued` và được job quét xếp lại sau 10 phút (quét mỗi 5 phút) |
 
 `messages_ready` bằng 0 mà video vẫn `queued`: relay outbox ở `apps/worker` có thể đã dừng.
 
@@ -58,7 +61,7 @@ SELECT id, created_at FROM social_schema.attachments WHERE source_key IS NOT NUL
 - `processing` quá `processing_lease_until` (thuê mặc định 120 giây): tự được nhận lại, không cần can thiệp.
 - `queued` lâu mà hàng rỗng: kiểm relay outbox của `apps/worker` còn chạy và tin chưa phát trong outbox (skill `erp-events`).
 - `queued` lâu và hàng đầy: hàng dồn (mục 5).
-- `queued` quá 30 phút: job dọn (15 phút một lần, ở `apps/worker`) tự xếp lại hàng; chỉ cần can thiệp nếu `apps/worker` đã dừng.
+- `queued` quá 10 phút: job quét (5 phút một lần, ở `apps/worker`) tự xếp lại hàng; quá 30 phút mà chưa từng được worker nhận thì chuyển `failed` ("Hệ thống xử lý video chưa sẵn sàng..."). Gặp nhiều dòng như vậy nghĩa là `video-worker` không chạy hoặc không có consumer: kiểm mục 1 và 2. Chỉ cần can thiệp tay nếu `apps/worker` đã dừng.
 
 ## 4. `failed` hàng loạt
 
@@ -73,6 +76,7 @@ SELECT id, created_at FROM social_schema.attachments WHERE source_key IS NOT NUL
 | Quá 20 phút (timeout) | CPU quá tải hoặc video quá nặng; kiểm `docker stats` |
 | Lỗi MinIO, DB, mạng | Kiểm kết nối và biến môi trường; lỗi tạm thời được thử lại tới `VIDEO_WORKER_MAX_ATTEMPTS` (3) |
 | "Máy xử lý video thiếu dung lượng đĩa" | Không phải lỗi của tệp: lượt thử được hoàn lại, video về `queued` và được xếp lại (mục 6) |
+| "Hệ thống xử lý video chưa sẵn sàng. Hãy tải video lên lại sau." | Video chờ quá 30 phút mà chưa từng được nhận: `video-worker` không chạy hoặc không có consumer (mục 1, 2). Người dùng tải lại sau khi worker chạy |
 
 Video `failed` không chạy lại được (không giữ bản gốc): người dùng tải lại.
 
@@ -113,6 +117,8 @@ docker exec <container-video-worker> du -sh /var/tmp/video-work
 5. Migration `0007-social-video-processing.sql` phải chạy trước (migrator).
 6. Mỗi lần deploy cả hệ thống dừng khoảng 2 phút (AGENTS.md): chọn lúc ít người dùng.
 7. Kiểm nhanh: tải một video ngắn vào bình luận, thấy `queued`, `processing`, `ready`.
+8. Kiểm `docker inspect --format '{{.State.Health.Status}}'` của container `video-worker` là `healthy` sau khoảng 1 phút.
+9. Nếu `video-worker` không chạy sau khi deploy, video đã đăng sẽ hiện "Đang xử lý" rồi báo lỗi sau khoảng 30-35 phút.
 
 ## 9. Giám sát đĩa và băng thông
 
