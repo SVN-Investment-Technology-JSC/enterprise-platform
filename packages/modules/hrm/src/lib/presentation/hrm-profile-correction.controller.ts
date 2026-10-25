@@ -238,7 +238,6 @@ export class HrmProfileCorrectionController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -252,7 +251,7 @@ export class HrmProfileCorrectionController {
       'profile_correction',
       'reject',
     );
-    const note = rejectionNote(reason, quick);
+    const note = rejectionNote(reason);
     const result = await pool.query(
       `UPDATE hrm_schema.profile_corrections SET status='REJECTED',approved_by=$3,rejection_reason=$4,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *`,
       [tenantId, id, principal.userId, note],

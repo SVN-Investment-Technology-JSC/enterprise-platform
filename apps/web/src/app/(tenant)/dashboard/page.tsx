@@ -1,13 +1,12 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
-import { Building2, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
+import { Building2, ClipboardCheck, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { CollapsibleGroup } from '../collapsible-group';
-import { HrmQuickWorkSection } from './hrm-quick-work';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -460,7 +459,16 @@ export default async function TenantPortalPage() {
         </div>
       </section>
 
-      {has('hrm') ? <HrmQuickWorkSection /> : null}
+      {has('hrm') ? (
+        <ModuleLinkCard
+          href="/modules/hrm/approvals"
+          icon={<ClipboardCheck className="size-4" />}
+          tone="bg-emerald-100 text-emerald-700"
+          title="Đơn từ cần xử lý"
+          hint="Duyệt, từ chối và trao đổi đơn nghỉ phép, tăng ca, công tác, giải trình công… trong module Nhân sự."
+          action="Mở Đơn từ cần xử lý"
+        />
+      ) : null}
 
       {procedure ? (
         <CollapsibleGroup
@@ -735,6 +743,44 @@ export default async function TenantPortalPage() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+/** Lối tắt sang một module khi việc cần xử lý nằm ở đó (Bảng điều khiển không xử lý trực tiếp). */
+function ModuleLinkCard({
+  href,
+  icon,
+  tone,
+  title,
+  hint,
+  action,
+}: {
+  href: string;
+  icon: ReactNode;
+  tone: string;
+  title: string;
+  hint: string;
+  action: string;
+}) {
+  return (
+    <section
+      aria-label={title}
+      className="flex flex-wrap items-center gap-3 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white px-5 py-3.5"
+    >
+      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1 basis-64">
+        <h2 className="m-0 text-[14px] font-semibold text-[#18181b]">{title}</h2>
+        <p className="m-0 text-[13px] text-slate-500">{hint}</p>
+      </div>
+      <Link
+        href={href}
+        className="shrink-0 rounded-lg border border-[#eef0f3] bg-[#fafbfc] px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-white hover:text-blue-800"
+      >
+        {action}
+      </Link>
+    </section>
   );
 }
 

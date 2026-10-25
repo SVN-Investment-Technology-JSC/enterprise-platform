@@ -293,7 +293,6 @@ export class HrmRequestController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -307,7 +306,7 @@ export class HrmRequestController {
       'ot',
       'reject',
     );
-    const note = rejectionNote(reason, quick);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.ot_requests SET
@@ -672,7 +671,6 @@ export class HrmRequestController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason?: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -686,7 +684,7 @@ export class HrmRequestController {
       'business_trip',
       'reject',
     );
-    const note = rejectionNote(reason, quick);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const found = await db.query(
         `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1054,7 +1052,6 @@ export class HrmRequestController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body('reason') reason: string,
-    @Body('quick') quick?: boolean,
   ) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
       req,
@@ -1068,7 +1065,7 @@ export class HrmRequestController {
       'shift_change',
       'reject',
     );
-    const note = rejectionNote(reason, quick);
+    const note = rejectionNote(reason);
     const res = await hrmTransaction(pool, async (db) => {
       const result = await db.query(
         `UPDATE hrm_schema.shift_change_requests SET

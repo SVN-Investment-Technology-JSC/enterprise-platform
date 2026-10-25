@@ -25,7 +25,6 @@ export {
 } from './lib/screens/profile-screen';
 
 export { HrmShell } from './lib/hrm-shell';
-export { HrmQuickWork } from './lib/ui/dashboard/quick-work-panel';
 export { default as OperationsScreen } from './lib/screens/operations-screen';
 export { default as HrmPermissionsScreen } from './lib/screens/hrm-permissions-screen';
 export { default as TimeSettingsScreen } from './lib/screens/time-settings-screen';

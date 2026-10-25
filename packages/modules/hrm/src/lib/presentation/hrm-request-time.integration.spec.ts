@@ -692,7 +692,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       );
     });
 
-    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối không bắt buộc lý do', async () => {
+    it('duyệt trực tiếp: người nộp không tự duyệt được; người có quyền duyệt được, từ chối bắt buộc có lý do', async () => {
       const created = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 2' } as any);
       await expect(custom(principal).approve(req, created.data.id)).rejects.toMatchObject({ status: 403 });
       const approved = await custom(approver).approve(req, created.data.id);
@@ -704,13 +704,13 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       });
 
       const other = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 3' } as any);
-      // Từ chối bắt buộc có lý do; chỉ từ chối nhanh (quick) mới được bỏ trống.
+      // Từ chối luôn bắt buộc có lý do: bỏ trống bị 400 và đơn vẫn chờ duyệt.
       await expect(custom(approver).reject(req, other.data.id, '  ')).rejects.toMatchObject({
         status: 400,
         response: { code: 'HRM_REJECT_REASON_REQUIRED' },
       });
-      const rejectedWithoutReason = await custom(approver).reject(req, other.data.id, '  ', true);
-      expect(rejectedWithoutReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: null });
+      const rejectedWithReason = await custom(approver).reject(req, other.data.id, 'Không phù hợp kế hoạch');
+      expect(rejectedWithReason.data).toMatchObject({ status: 'REJECTED', rejectionReason: 'Không phù hợp kế hoạch' });
 
       const otherWithReason = await custom().create(req, { employeeId, typeId: noneType.id, description: 'Đề xuất 4' } as any);
       const rejected = await custom(approver).reject(req, otherWithReason.data.id, 'Chưa phù hợp');
@@ -740,7 +740,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       expect(list.data).toHaveLength(2);
       expect(list.data).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: null }),
+          expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Không phù hợp kế hoạch' }),
           expect.objectContaining({ typeId: noneType.id, status: 'REJECTED', rejectionReason: 'Chưa phù hợp' }),
         ]),
       );
