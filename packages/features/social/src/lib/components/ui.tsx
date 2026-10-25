@@ -1,22 +1,14 @@
 'use client';
 
 import { userAvatarUrl } from '@enterprise-platform/contracts-chat';
-import type { SocialReactionType, SocialUserRef } from '@enterprise-platform/contracts-social';
+import type { SocialUserRef } from '@enterprise-platform/contracts-social';
 import { usePerson } from '@enterprise-platform/feature-chat';
-import { Heart, Lightbulb, PartyPopper, ThumbsUp, X, type LucideIcon } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { initials } from '../social.model';
 import styles from '../social.module.scss';
 import { Button } from '../ui/button';
-
-/** Biểu tượng cho từng loại phản ứng (không dùng emoji). */
-export const REACTION_ICONS: Readonly<Record<SocialReactionType, LucideIcon>> = {
-  like: ThumbsUp,
-  love: Heart,
-  celebrate: PartyPopper,
-  insightful: Lightbulb,
-};
 
 export function Avatar({ user, size = 40 }: { readonly user: SocialUserRef; readonly size?: number }) {
   const [broken, setBroken] = useState(false);

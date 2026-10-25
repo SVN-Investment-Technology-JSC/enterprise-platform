@@ -9,7 +9,8 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../social-api';
 import styles from '../social.module.scss';
-import { Avatar, Dialog, REACTION_ICONS, userSubtitle } from './ui';
+import { ReactionIcon } from './reaction-icon';
+import { Avatar, Dialog, userSubtitle } from './ui';
 
 /**
  * Hộp thoại "Người đã bày tỏ phản ứng", dùng chung cho bài viết và bình luận: thẻ lọc theo loại
@@ -25,6 +26,7 @@ export function ReactorsDialog({
 }) {
   const [items, setItems] = useState<readonly SocialReactor[]>();
   const [error, setError] = useState<string>();
+  const [hoverRow, setHoverRow] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | SocialReactionType>('all');
 
   useEffect(() => {
@@ -74,7 +76,6 @@ export function ReactorsDialog({
             <span className={styles.reactorTabCount}>{items.length}</span>
           </button>
           {presentTypes.map((type) => {
-            const TabIcon = REACTION_ICONS[type];
             return (
               <button
                 key={type}
@@ -87,7 +88,7 @@ export function ReactorsDialog({
                 className={styles.reactorTab}
                 onClick={() => setFilter(type)}
               >
-                <TabIcon size={18} aria-hidden="true" />
+                <ReactionIcon type={type} size={22} playing={filter === type} />
                 <span className={styles.reactorTabCount}>{counts[type]}</span>
               </button>
             );
@@ -97,11 +98,15 @@ export function ReactorsDialog({
       {visible && visible.length > 0 ? (
         <ul className={styles.reactorList}>
           {visible.map((item) => {
-            const Icon = REACTION_ICONS[item.type];
+            const rowKey = `${item.user.id}-${item.type}`;
             return (
               <li
-                key={`${item.user.id}-${item.type}`}
+                key={rowKey}
                 className={styles.reactor}
+                onMouseEnter={() => setHoverRow(rowKey)}
+                onMouseLeave={() =>
+                  setHoverRow((current) => (current === rowKey ? null : current))
+                }
               >
                 <Avatar user={item.user} size={32} />
                 <span className={styles.suggestText}>
@@ -117,7 +122,7 @@ export function ReactorsDialog({
                   data-type={item.type}
                   title={SOCIAL_REACTION_LABELS[item.type]}
                 >
-                  <Icon size={14} />
+                  <ReactionIcon type={item.type} size={20} playing={hoverRow === rowKey} />
                   {SOCIAL_REACTION_LABELS[item.type]}
                 </span>
               </li>

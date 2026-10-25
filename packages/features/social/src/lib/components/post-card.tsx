@@ -54,6 +54,8 @@ import { CommentSection } from './comment-section';
 import { PostPoll } from './poll/post-poll';
 import { galleryItemsFromAttachments, MediaGallery } from './media-gallery';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
+import { ReactionIcon } from './reaction-icon';
+import { ReactionPicker } from './reaction-picker';
 import { ReactorsDialog } from './reactors-dialog';
 import { PostMenu } from './post-menu';
 import {
@@ -66,7 +68,6 @@ import {
   Avatar,
   ConfirmDialog,
   Dialog,
-  REACTION_ICONS,
   userSubtitle,
 } from './ui';
 
@@ -412,7 +413,7 @@ export function PostCard({
   ).sort(
     (a, b) => (post.reactionCounts[b] ?? 0) - (post.reactionCounts[a] ?? 0),
   );
-  const MyIcon = post.myReaction ? REACTION_ICONS[post.myReaction] : ThumbsUp;
+  const topReactionTypes = reactionTypes.slice(0, 3);
 
   return (
     <article
@@ -552,18 +553,11 @@ export function PostCard({
               onClick={() => setReactorsOpen(true)}
             >
               <span className={styles.reactionIcons}>
-                {reactionTypes.map((type) => {
-                  const Icon = REACTION_ICONS[type];
-                  return (
-                    <span
-                      key={type}
-                      className={styles.reactionDot}
-                      data-type={type}
-                    >
-                      <Icon size={11} />
-                    </span>
-                  );
-                })}
+                {topReactionTypes.map((type) => (
+                  <span key={type} className={styles.reactionDot}>
+                    <ReactionIcon type={type} size={18} />
+                  </span>
+                ))}
               </span>
               {post.reactionTotal.toLocaleString('vi-VN')}
             </button>
@@ -593,37 +587,22 @@ export function PostCard({
               disabled={!canReact}
               onClick={() => void react(post.myReaction ? null : 'like')}
             >
-              <MyIcon size={16} />
+              {post.myReaction ? (
+                <ReactionIcon type={post.myReaction} size={20} />
+              ) : (
+                <ThumbsUp size={16} />
+              )}
               {post.myReaction
                 ? SOCIAL_REACTION_LABELS[post.myReaction]
                 : 'Thích'}
             </button>
             {canReact ? (
-              <div
-                className={styles.reactPicker}
-                role="group"
-                aria-label="Chọn phản ứng"
-              >
-                {SOCIAL_REACTION_TYPES.map((type) => {
-                  const Icon = REACTION_ICONS[type];
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      className={styles.reactOption}
-                      data-type={type}
-                      data-selected={post.myReaction === type}
-                      title={SOCIAL_REACTION_LABELS[type]}
-                      aria-label={SOCIAL_REACTION_LABELS[type]}
-                      onClick={() =>
-                        void react(post.myReaction === type ? null : type)
-                      }
-                    >
-                      <Icon size={18} />
-                    </button>
-                  );
-                })}
-              </div>
+              <ReactionPicker
+                value={post.myReaction}
+                onSelect={(type) =>
+                  void react(post.myReaction === type ? null : type)
+                }
+              />
             ) : null}
           </div>
           <button
