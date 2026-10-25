@@ -97,7 +97,8 @@ $cell: 36px;
 
 .recents {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  // `minmax(0, 1fr)`: không để nút giãn theo nội dung (padding mặc định của button) làm tràn cột cuối ra ngoài hộp.
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   max-height: $cell * 2 + 6px;
   padding: 4px 6px;
   border-bottom: 1px solid var(--ep-border, #e5e7eb);
@@ -106,6 +107,7 @@ $cell: 36px;
 
 .recent {
   height: $cell;
+  padding: 0;
   border-radius: var(--ep-radius-sm, 8px);
   font-size: 22px;
 
