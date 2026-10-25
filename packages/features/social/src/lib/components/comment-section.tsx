@@ -43,6 +43,7 @@ import {
 import { shouldSubmitOnEnter } from '../comment-keys';
 import { findFreshComment } from '../comment-refresh';
 import { useAttachmentStatuses } from '../use-attachment-statuses';
+import { useUnsavedWork } from '../unsaved-work';
 import { useUnsentAttachments } from '../use-unsent-attachments';
 import {
   buildVideoWarning,
@@ -58,6 +59,8 @@ import {
   activeMentionQuery,
   decodeMentions,
   encodeMentions,
+  isMentionComplete,
+  splitMentionTokens,
   formatFullTime,
   formatRelativeTime,
   mergePages,
@@ -66,6 +69,7 @@ import {
 } from '../social.model';
 import styles from '../social.module.scss';
 import { ComposerVideoTile } from './composer-video-tile';
+import { MentionLink } from './mention-link';
 import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
 import { ReactorsDialog } from './reactors-dialog';
@@ -172,6 +176,7 @@ export function CommentInput({
   const fileInput = useRef<HTMLInputElement>(null);
   const fileCounter = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const mirror = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<PendingFile[]>(() =>
     initialFiles.map((file) => ({
       key: file.id,
@@ -345,6 +350,10 @@ export function CommentInput({
   const videoFailed = hasFailedVideo(shown);
   const failed = files.find((file) => file.status === 'error');
   const attachmentIds = publishableAttachmentIds(shown);
+  // Đang soạn dở (khác nội dung ban đầu, hoặc đổi số tệp) thì chuyển trang qua tên được nhắc phải hỏi lại.
+  useUnsavedWork(text !== initialText || files.length !== initialFiles.length);
+  const segments = splitMentionTokens(text, picks);
+  const hasMention = segments.some((segment) => segment.mention);
   const [warning, setWarning] = useState(false);
   // Video xong hoặc bị gỡ trong lúc hộp đang mở: không còn gì để cảnh báo.
   useEffect(() => {
@@ -353,8 +362,11 @@ export function CommentInput({
 
   const mention = activeMentionQuery(text, caret);
   // Chưa gõ gì sau `@` thì không gọi server (server trả rỗng cho từ khoá rỗng) mà chỉ nhắc cách dùng.
+  // Tên đã chọn xong (bấm "Trả lời" tự gắn tên, hoặc vừa chọn từ gợi ý) thì không mở bảng gợi ý nữa.
+  const mentionDone = mention !== undefined && isMentionComplete(mention.query, picks);
+  const mentionOpen = mention !== undefined && !mentionDone;
   const mentionQuery = mention?.query.trim() ?? '';
-  const { people, loading } = usePeopleSearch(mentionQuery, mentionQuery.length > 0);
+  const { people, loading } = usePeopleSearch(mentionQuery, mentionOpen && mentionQuery.length > 0);
 
   useEffect(() => {
     if (autoFocus && area.current) {
@@ -488,9 +500,29 @@ export function CommentInput({
       <div className={extras.commentBar}>
         {avatar ? <Avatar user={avatar} size={28} /> : null}
         <div className={extras.commentField}>
+          <div className={extras.commentTextWrap}>
+          {hasMention ? (
+            // Lớp phía sau ô nhập: vẽ cùng chữ với tên được nhắc màu xanh; chữ của ô nhập được làm trong suốt.
+            <div ref={mirror} className={extras.commentMirror} aria-hidden="true">
+              {segments.map((segment, index) =>
+                segment.mention ? (
+                  <span key={index} className={extras.commentMirrorMention}>
+                    {segment.text}
+                  </span>
+                ) : (
+                  <span key={index}>{segment.text}</span>
+                ),
+              )}
+              {'​'}
+            </div>
+          ) : null}
           <textarea
             ref={area}
             className={extras.commentTextarea}
+            data-mirrored={hasMention || undefined}
+            onScroll={(event) => {
+              if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop;
+            }}
             rows={1}
             value={text}
             placeholder={placeholder}
@@ -521,6 +553,7 @@ export function CommentInput({
               }
             }}
           />
+          </div>
           <button
             type="button"
             className={extras.commentTool}
@@ -620,7 +653,7 @@ export function CommentInput({
           {failed.error}
         </p>
       ) : null}
-      {mention ? (
+      {mentionOpen ? (
         <div className={styles.suggestPanel}>
           {mentionQuery.length > 0 ? (
             <PeopleList people={people} loading={loading} onPick={pick} />
@@ -786,9 +819,7 @@ function CommentRow({
                   <p className={styles.commentBody}>
                     {parseCommentBody(comment.body, comment.mentions).map((part, index) =>
                       part.type === 'mention' ? (
-                        <span key={`${part.userId}-${index}`} className={styles.mention}>
-                          @{part.name}
-                        </span>
+                        <MentionLink key={`${part.userId}-${index}`} userId={part.userId} name={part.name} />
                       ) : (
                         <span key={index}>{part.text}</span>
                       ),

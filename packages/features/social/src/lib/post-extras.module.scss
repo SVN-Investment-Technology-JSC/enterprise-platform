@@ -989,6 +989,32 @@ article.postCompact {
   }
 }
 
+.commentTextWrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+/* Lớp tô màu tên được nhắc nằm sau ô nhập; phải trùng phông, khoảng đệm và cách ngắt dòng với `.commentTextarea`. */
+.commentMirror {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0;
+  overflow: hidden;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+.commentMirrorMention {
+  color: var(--ep-link);
+  font-weight: 600;
+}
+
 .commentTextarea {
   flex: 1;
   min-width: 0;
@@ -1003,6 +1029,13 @@ article.postCompact {
   font-size: 13.5px;
   line-height: 1.45;
   resize: none;
+
+  /* Có tên được nhắc: chữ do `.commentMirror` vẽ, ô nhập chỉ giữ con trỏ và vùng chọn. */
+  &[data-mirrored] {
+    position: relative;
+    -webkit-text-fill-color: transparent;
+    scrollbar-width: none;
+  }
 }
 
 .commentTool,
