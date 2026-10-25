@@ -34,6 +34,8 @@ export interface SocialPersonProfile {
   readonly birthday?: SocialBirthday;
   /** Ngày vào công ty (ISO ngày). */
   readonly joinedAt?: string;
+  /** Mã nhân viên (từ HRM); thiếu khi HRM không có hoặc không trả lời. */
+  readonly employeeCode?: string;
   /** Số bài đã đăng mà người xem thấy được (Tường công ty + nhóm xem được; không tính bài tự sinh). */
   readonly postCount: number;
   /** Người xem có quyền sang HRM xem hồ sơ nhân sự của người này. */

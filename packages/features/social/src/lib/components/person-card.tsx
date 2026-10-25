@@ -1,10 +1,11 @@
 'use client';
 
-import { SOCIAL_HRM_LINKS, type SocialPersonProfile } from '@enterprise-platform/contracts-social';
+import type { SocialPersonProfile } from '@enterprise-platform/contracts-social';
 import { openChat } from '@enterprise-platform/feature-chat';
-import { Contact, MessageCircle, User } from 'lucide-react';
+import { MessageCircle, User } from 'lucide-react';
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { loadProfile } from '../social-discovery-api';
+import styles from '../social.module.scss';
 import { socialHref } from '../social.model';
 import { handleSocialLinkClick, navigateSocial } from '../social-navigation';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
@@ -24,8 +25,14 @@ function fetchProfile(userId: string): Promise<SocialPersonProfile> {
   return pending;
 }
 
+/**
+ * Phông của hai nút phải đặt nội tuyến: thẻ `<button>` có phông riêng từ CSS chung của trang (không nằm trong lớp tiện ích của
+ * Tailwind nên thắng `text-[11px]`), làm "Nhắn tin" lệch cỡ và kiểu chữ so với "Cá nhân" là thẻ `<a>`.
+ */
+const BUTTON_FONT = { fontFamily: 'inherit', fontSize: 12 } as const;
+
 const BUTTON =
-  'inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold uppercase tracking-wide no-underline transition-colors';
+  'inline-flex h-8 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-semibold uppercase tracking-wide no-underline transition-colors';
 
 /**
  * Điều hướng sang trang cá nhân kèm kiểm tra việc đang làm dở: chuyển trang kiểu SPA không có hộp hỏi của trình duyệt,
@@ -93,21 +100,27 @@ function PersonCard({
 
   if (!profile) {
     return (
-      <p className="m-0 py-6 text-center text-sm text-slate-600" aria-busy={!failed}>
+      <p className="m-0 py-4 text-center text-xs text-slate-600" aria-busy={!failed}>
         {failed ? name : 'Đang tải…'}
       </p>
     );
   }
 
   return (
-    <div className="flex flex-col items-center gap-1 text-center">
-      <a href={href} onClick={onProfileClick} className="mb-2 rounded-full" aria-label={`Trang cá nhân của ${profile.user.name}`}>
-        <Avatar user={profile.user} size={80} />
+    <div className={`${styles.portalScope} flex flex-col items-center gap-0.5 text-center`}>
+      <a href={href} onClick={onProfileClick} className="mb-1.5 rounded-full" aria-label={`Trang cá nhân của ${profile.user.name}`}>
+        <Avatar user={profile.user} size={72} />
       </a>
       <a href={href} onClick={onProfileClick} className="text-base font-semibold text-slate-900 no-underline hover:underline">
         {profile.user.name}
       </a>
-      {profile.position ? <p className="m-0 text-sm text-slate-600">{profile.position}</p> : null}
+      {profile.position || profile.employeeCode ? (
+        <p className="m-0 text-[13px] text-slate-600">
+          {profile.position}
+          {profile.position && profile.employeeCode ? <span aria-hidden="true"> • </span> : null}
+          <span className="whitespace-nowrap">{profile.employeeCode}</span>
+        </p>
+      ) : null}
       {profile.unitName ? <p className="m-0 text-xs text-slate-500">{profile.unitName}</p> : null}
       {profile.email ? <p className="m-0 max-w-full truncate text-xs text-slate-500">{profile.email}</p> : null}
       <div className="mt-3 flex w-full gap-2">
@@ -115,20 +128,15 @@ function PersonCard({
           <button
             type="button"
             className={`${BUTTON} border-amber-400 bg-amber-300 text-zinc-900 hover:bg-amber-400`}
+            style={BUTTON_FONT}
             onClick={() => openChat({ userId })}
           >
-            <MessageCircle size={14} aria-hidden="true" />
+            <MessageCircle size={13} aria-hidden="true" />
             Nhắn tin
           </button>
         )}
-        {profile.canOpenInHrm ? (
-          <a className={`${BUTTON} border-slate-300 bg-white text-slate-600 hover:bg-slate-50`} href={SOCIAL_HRM_LINKS.employees}>
-            <Contact size={14} aria-hidden="true" />
-            Hồ sơ
-          </a>
-        ) : null}
-        <a href={href} onClick={onProfileClick} className={`${BUTTON} border-slate-300 bg-white text-slate-600 hover:bg-slate-50`}>
-          <User size={14} aria-hidden="true" />
+        <a href={href} onClick={onProfileClick} className={`${BUTTON} border-slate-300 bg-white text-slate-600 hover:bg-slate-50`} style={BUTTON_FONT}>
+          <User size={13} aria-hidden="true" />
           Cá nhân
         </a>
       </div>
@@ -167,7 +175,7 @@ export function PersonHover({
         <HoverCardTrigger href={link.href} className={className} aria-label={label} onClick={onClick}>
           {children}
         </HoverCardTrigger>
-        <HoverCardContent className="w-80 p-4">
+        <HoverCardContent className="w-[22rem] p-4">
           <PersonCard
             userId={userId}
             name={name}

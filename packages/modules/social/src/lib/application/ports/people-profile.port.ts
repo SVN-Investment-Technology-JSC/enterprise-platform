@@ -21,6 +21,8 @@ export interface PersonRecord {
   readonly birthday?: SocialBirthday;
   /** ISO ngày. */
   readonly joinedAt?: string;
+  /** Mã nhân viên trong HRM. */
+  readonly employeeCode?: string;
 }
 
 /** Người có khai ngày sinh.  chỉ để tính tuổi tròn; không được đưa ra ngoài hợp đồng. */
