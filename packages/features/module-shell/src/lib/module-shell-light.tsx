@@ -366,7 +366,9 @@ export function ModuleShellLight<TViewId extends string = string>(
               : undefined
           }
         >
+          {props.hideBreadcrumb && !props.actions ? null : (
           <div className={styles.head}>
+            {props.hideBreadcrumb ? null : (
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
               {homeHref && !props.hideHomeButton ? (
                 <>
@@ -418,8 +420,10 @@ export function ModuleShellLight<TViewId extends string = string>(
                 </span>
               ))}
             </nav>
+            )}
             {props.actions ? <div className={styles.actions}>{props.actions}</div> : null}
           </div>
+          )}
 
           {props.banner ? <div className={styles.banner}>{props.banner}</div> : null}
           <div className={styles.body}>{props.children}</div>

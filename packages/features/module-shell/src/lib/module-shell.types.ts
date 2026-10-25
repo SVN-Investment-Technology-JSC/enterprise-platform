@@ -150,5 +150,10 @@ export interface ModuleShellProps<TViewId extends string = string> {
    * nội dung, canh giữa cùng một khung để các hàng thẳng nhau trên màn rộng. Bỏ trống thì giữ như cũ (tràn bề ngang).
    */
   readonly contentMaxWidth?: number;
+  /**
+   * Chỉ kiểu `light`: bỏ breadcrumb (biểu tượng trang chủ và tên trang) cho module tự dựng thanh trên của riêng mình.
+   * Hàng đầu trang chỉ còn lại khi có `actions`; không có thì bỏ hẳn hàng đó. Mặc định giữ breadcrumb như cũ.
+   */
+  readonly hideBreadcrumb?: boolean;
   readonly children: ReactNode;
 }
