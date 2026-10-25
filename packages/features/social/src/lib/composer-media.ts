@@ -5,6 +5,10 @@ import {
 } from '@enterprise-platform/contracts-social';
 import type { GalleryItem } from './components/media-gallery';
 
+/** Loại tệp cho ô chọn tệp của bài viết (ảnh, video, tài liệu). */
+export const COMPOSER_FILE_ACCEPT =
+  'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,.mov,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
+
 /** Phần của một tệp trong ô soạn bài mà việc sắp thứ tự, dựng id và dựng bản xem trước cần. */
 export interface ComposerMediaFile {
   readonly key: string;

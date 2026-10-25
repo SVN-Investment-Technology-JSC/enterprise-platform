@@ -280,6 +280,7 @@
 .post,
 .stateBox {
   border: 1px solid var(--ep-border);
+  box-shadow: var(--social-card-ring);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
 }
@@ -455,6 +456,13 @@
 
 .menuDanger {
   color: var(--ep-danger) !important;
+}
+
+.topicTags {
+  display: flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 6px;
 }
 
 .topicTag {

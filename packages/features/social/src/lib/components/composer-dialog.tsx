@@ -8,6 +8,7 @@ import {
   SOCIAL_POST_KIND_LABELS,
   SOCIAL_POST_KINDS,
   SOCIAL_POST_TITLE_MAX,
+  SOCIAL_POST_TOPICS_MAX,
   type SocialAttachment,
   type SocialGroupSummary,
   type SocialMe,
@@ -34,7 +35,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   buildPollRequest,
   emptyPollDraft,
@@ -68,6 +69,7 @@ import {
   buildGalleryItems,
   buildMediaPayload,
   canMoveItem,
+  COMPOSER_FILE_ACCEPT,
   countLayoutMedia,
   isMediaFile,
   moveItem,
@@ -77,7 +79,7 @@ import { useAttachmentStatuses } from '../use-attachment-statuses';
 import { useUnsentAttachments } from '../use-unsent-attachments';
 import { loadAllMyGroups, loadSettings } from '../social-posts-api';
 import type { SocialComposerMode } from '../social-context';
-import { formatBytes, isEmptyHtml, validateAttachment } from '../social.model';
+import { formatBytes, isEmptyHtml, postTopics, validateAttachment } from '../social.model';
 import {
   allowsCompanyOnlyExtras,
   buildAudienceInput,
@@ -96,6 +98,7 @@ import { ComposerVideoTile } from './composer-video-tile';
 import { MediaGallery } from './media-gallery';
 import layoutStyles from './media-layout.module.scss';
 import { MediaLayoutPicker, MediaMoveButtons } from './media-layout-picker';
+import { MultiSelect } from '../ui/multi-select';
 import { Avatar, ConfirmDialog, Dialog, Field, SelectField } from './ui';
 import {
   buildVideoWarning,
@@ -149,8 +152,6 @@ export interface ComposerDialogProps {
   readonly topics: readonly SocialTopic[];
   /** Có thì đang sửa bài này. */
   readonly editing?: SocialPost;
-  /** Chuyên mục chọn sẵn khi đang xem một chuyên mục. */
-  readonly defaultTopicId?: string;
   readonly defaultKind?: SocialPostKind;
   /** Mở sẵn đúng phần: chọn tệp, trình dựng bình chọn, hoặc loại Thông báo (nếu có quyền). */
   readonly defaultMode?: SocialComposerMode;
@@ -165,7 +166,6 @@ export function ComposerDialog({
   me,
   topics,
   editing,
-  defaultTopicId,
   defaultKind,
   defaultMode,
   defaultGroupId,
@@ -194,8 +194,9 @@ export function ComposerDialog({
       (defaultMode === 'announcement' ? 'announcement' : defaultKind) ??
       'post',
   );
-  const [topicId, setTopicId] = useState(
-    editing?.topic?.id ?? defaultTopicId ?? '',
+  const [topicIds, setTopicIds] = useState<readonly string[]>(() =>
+    // Bài mới không tự chọn chuyên mục (kể cả khi đang lọc theo một chuyên mục); sửa bài thì nạp chuyên mục của bài.
+    editing ? postTopics(editing).map((topic) => topic.id) : [],
   );
   const [mentions, setMentions] = useState(editing?.mentions ?? []);
   const [mentionsAll, setMentionsAll] = useState(false);
@@ -240,7 +241,17 @@ export function ComposerDialog({
   const [audienceOpen, setAudienceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-  const fileInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  // Lối tắt "Ảnh/Video/File": mở hộp chọn tệp ngay khi ô chọn tệp xuất hiện trong hộp thoại. Hộp thoại dựng qua portal sau
+  // một nhịp nên không gọi được lúc dựng; gọi ở ref callback thì vẫn nằm trong thời hạn của cú bấm vừa mở hộp thoại.
+  const autoPick = useRef(!editing && defaultMode === 'media');
+  const attachFileInput = useCallback((node: HTMLInputElement | null) => {
+    fileInput.current = node;
+    if (node && autoPick.current) {
+      autoPick.current = false;
+      node.click();
+    }
+  }, []);
   const counter = useRef(0);
   // Tệp chưa gửi: cảnh báo khi rời trang, bỏ khi đóng tab hoặc đóng hộp (chỉ tệp tải trong hộp này, không phải tệp của bài đang sửa).
   const unsent = useUnsentAttachments(UNSENT_DEPS);
@@ -255,11 +266,6 @@ export function ComposerDialog({
       for (const item of uploadsRef.current) if (item.objectUrl) URL.revokeObjectURL(item.objectUrl);
     };
   }, []);
-
-  // Lối tắt "Ảnh/File": mở sẵn hộp chọn tệp ngay khi hộp thoại hiện.
-  useEffect(() => {
-    if (!editing && defaultMode === 'media') fileInput.current?.click();
-  }, [editing, defaultMode]);
 
   // Danh sách nhóm của tôi và cài đặt duyệt bài; lỗi thì bỏ qua (chỉ mất phần gợi ý).
   useEffect(() => {
@@ -342,8 +348,9 @@ export function ComposerDialog({
   const hasPoll = pollOn && !editingPoll;
   const noContent = empty && !pollOn;
 
+  // Chuyên mục đã tắt chỉ còn hiện khi bài đang sửa vẫn mang nó (để thấy và bỏ được).
   const topicOptions = topics
-    .filter((topic) => topic.isActive || topic.id === topicId)
+    .filter((topic) => topic.isActive || topicIds.includes(topic.id))
     .map((topic) => ({ value: topic.id, label: topic.name }));
 
   const destinationOptions = [
@@ -585,7 +592,7 @@ export function ComposerDialog({
         saved = await updatePost(editing.id, {
           title: title.trim() || null,
           bodyHtml: html,
-          topicId: inGroup ? null : topicId || null,
+          topicIds: inGroup ? [] : [...topicIds],
           attachmentIds,
           mediaLayout: layoutToSend,
           mentionUserIds,
@@ -609,7 +616,7 @@ export function ComposerDialog({
           kind: effectiveKind,
           title: title.trim() || undefined,
           bodyHtml: html,
-          topicId: !inGroup && topicId ? topicId : undefined,
+          ...(!inGroup && topicIds.length > 0 ? { topicIds: [...topicIds] } : {}),
           attachmentIds,
           mediaLayout: layoutToSend,
           mentionUserIds,
@@ -716,7 +723,7 @@ export function ComposerDialog({
             disabled={Boolean(editing)}
             onChange={(value) => {
               setDestination(value);
-              if (value) setTopicId('');
+              if (value) setTopicIds([]);
             }}
           />
         </SelectField>
@@ -750,14 +757,16 @@ export function ComposerDialog({
       </Field>
 
       {!inGroup ? (
-        <SelectField label="Chuyên mục">
-          <SearchableSelect
+        <SelectField label="Chuyên mục" hint={`Chọn được nhiều chuyên mục (tối đa ${SOCIAL_POST_TOPICS_MAX}).`}>
+          <MultiSelect
             options={topicOptions}
-            value={topicId}
+            values={topicIds}
+            onChange={setTopicIds}
             placeholder="Chọn chuyên mục"
+            searchPlaceholder="Tìm chuyên mục"
             emptyText="Không có chuyên mục"
-            clearable
-            onChange={setTopicId}
+            max={SOCIAL_POST_TOPICS_MAX}
+            aria-label="Chuyên mục"
           />
         </SelectField>
       ) : null}
@@ -967,11 +976,11 @@ export function ComposerDialog({
           </span>
         ) : null}
         <input
-          ref={fileInput}
+          ref={attachFileInput}
           type="file"
           multiple
           hidden
-          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,.mov,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+          accept={COMPOSER_FILE_ACCEPT}
           onChange={(event) => addFiles(event.target.files)}
         />
         <button

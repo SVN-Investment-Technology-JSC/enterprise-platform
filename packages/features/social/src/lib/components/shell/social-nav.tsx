@@ -2,12 +2,11 @@
 
 import { SOCIAL_SEARCH_QUERY_MAX, SOCIAL_SEARCH_QUERY_MIN } from '@enterprise-platform/contracts-social';
 import { Bookmark, Building2, ClipboardCheck, Clock, Newspaper, Search, Users, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { sliceSafe } from '../../safe-text';
-import { routeForTab, socialHref, type SocialRoute, type SocialTab, type SocialTabId } from '../../social.model';
-import { handleSocialLinkClick, navigateSocial } from '../../social-navigation';
+import { routeForTab, type SocialRoute, type SocialTab, type SocialTabId } from '../../social.model';
+import { navigateSocial, SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
-import GooeyNav from '../../ui/gooey-nav';
 
 const TAB_ICONS: Readonly<Record<SocialTabId, LucideIcon>> = {
   feed: Newspaper,
@@ -27,8 +26,8 @@ function goToSearch(query: string, replace: boolean) {
 
 const FEED: SocialRoute = { name: 'feed' };
 
-/** Ô tìm kiếm trên thanh điều hướng: gõ (hoặc Enter) thì sang `/search?q=`. */
-function SearchBox({ active, query }: { readonly active: boolean; readonly query: string }) {
+/** Ô tìm kiếm trên thanh trên: gõ (hoặc Enter) thì sang `/search?q=`. */
+export function SearchBox({ active, query }: { readonly active: boolean; readonly query: string }) {
   const [text, setText] = useState(query);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const activeRef = useRef(active);
@@ -95,50 +94,44 @@ function SearchBox({ active, query }: { readonly active: boolean; readonly query
   );
 }
 
-/** Thanh trên cùng của nội dung: thẻ điều hướng dạng viên thuốc và ô tìm kiếm. */
-export function SocialNav({
-  tabs,
-  activeTab,
-  searchActive,
-  searchQuery,
-}: {
+interface TabListProps {
   readonly tabs: readonly SocialTab[];
   readonly activeTab: SocialTabId | undefined;
-  readonly searchActive: boolean;
-  readonly searchQuery: string;
-}) {
-  const items = tabs.map((tab) => {
-    const Icon = TAB_ICONS[tab.id];
-    const route = routeForTab(tab.id);
-    return {
-      id: tab.id,
-      label: tab.label,
-      href: socialHref(route),
-      icon: <Icon size={15} aria-hidden="true" />,
-      badge: tab.badge ? (tab.badge > 99 ? '99+' : tab.badge) : undefined,
-      onClick: (event: MouseEvent<HTMLElement>) =>
-        handleSocialLinkClick(event as MouseEvent<HTMLAnchorElement>, route),
-    };
-  });
+}
 
+function TabLinks({ tabs, activeTab }: TabListProps) {
   return (
-    <div className={styles.bar}>
-      <div className={styles.gooeyWrap}>
-        <GooeyNav
-          theme="light"
-          size="sm"
-          frame
-          color="#ffc90a"
-          activeTextColor="#18161d"
-          hoverEffect
-          particleCount={12}
-          spread={44}
-          animationTime={520}
-          activeIndex={items.findIndex((item) => item.id === activeTab)}
-          items={items}
-        />
-      </div>
-      <SearchBox active={searchActive} query={searchQuery} />
-    </div>
+    <ul className={styles.navList}>
+      {tabs.map((tab) => {
+        const Icon = TAB_ICONS[tab.id];
+        return (
+          <li key={tab.id}>
+            <SocialLink to={routeForTab(tab.id)} aria-current={tab.id === activeTab ? 'page' : undefined}>
+              <Icon size={16} aria-hidden="true" />
+              <span className={styles.groupName}>{tab.label}</span>
+              {tab.badge ? <span className={styles.pillBadge}>{tab.badge > 99 ? '99+' : tab.badge}</span> : null}
+            </SocialLink>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Thẻ điều hướng dọc ở cột trái (màn rộng). */
+export function SocialNavCard({ tabs, activeTab }: TabListProps) {
+  return (
+    <nav className={`${styles.panel} ${styles.navCard}`} aria-label="Điều hướng Mạng nội bộ">
+      <TabLinks tabs={tabs} activeTab={activeTab} />
+    </nav>
+  );
+}
+
+/** Dải thẻ ngang thay cho thẻ điều hướng khi màn hẹp (cột trái rơi xuống cuối trang). */
+export function SocialTabStrip({ tabs, activeTab }: TabListProps) {
+  return (
+    <nav className={styles.tabStrip} aria-label="Điều hướng Mạng nội bộ (màn hẹp)">
+      <TabLinks tabs={tabs} activeTab={activeTab} />
+    </nav>
   );
 }

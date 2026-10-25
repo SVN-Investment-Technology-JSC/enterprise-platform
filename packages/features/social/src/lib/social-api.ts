@@ -14,7 +14,6 @@ import type {
   SocialFeedPage,
   SocialFeedQuery,
   SocialGroupPage,
-  SocialGroupSummary,
   SocialInboxCounts,
   SocialMe,
   SocialPost,
@@ -256,5 +255,5 @@ export const loadScopedFeed = (
 export const loadInboxCounts = () => request<SocialInboxCounts>('/me/inbox', { cache: 'no-store' });
 
 /** Vài nhóm tôi đang tham gia cho cột phải. */
-export const loadMyGroups = async (limit = 6): Promise<readonly SocialGroupSummary[]> =>
-  (await request<SocialGroupPage>(`/groups?scope=mine&limit=${limit}`, { cache: 'no-store' })).items;
+export const loadMyGroups = (limit = 6): Promise<SocialGroupPage> =>
+  request<SocialGroupPage>(`/groups?scope=mine&limit=${limit}`, { cache: 'no-store' });

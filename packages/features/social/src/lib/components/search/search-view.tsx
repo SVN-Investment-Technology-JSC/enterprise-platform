@@ -31,7 +31,7 @@ import {
   searchPeople,
   searchPosts,
 } from '../../social-discovery-api';
-import { formatRelativeTime } from '../../social.model';
+import { formatRelativeTime, postTopics } from '../../social.model';
 import { Avatar, userSubtitle } from '../ui';
 
 type Tab = 'all' | 'posts' | 'people' | 'groups';
@@ -414,7 +414,7 @@ function PostResults({ q, items }: { readonly q: string; readonly items: readonl
                 ) : null}
                 <span className={styles.resultMeta}>
                   <span>{post.author.name}</span>
-                  {post.topic ? <span>{post.topic.name}</span> : null}
+                  {postTopics(post).length > 0 ? <span>{postTopics(post).map((topic) => topic.name).join(', ')}</span> : null}
                   <span>{formatRelativeTime(post.publishedAt)}</span>
                 </span>
               </span>

@@ -2,7 +2,7 @@
 
 import type { SocialInboxCounts, SocialMe, SocialPost, SocialTopic } from '@enterprise-platform/contracts-social';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
-import { NotificationBell, toast } from '@enterprise-platform/shared-ui';
+import { toast } from '@enterprise-platform/shared-ui';
 import { BarChart3, Image as ImageIcon, Megaphone, Newspaper, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BirthdayView } from './components/birthday/birthday-view';
@@ -19,7 +19,8 @@ import { SearchView } from './components/search/search-view';
 import { LeftRail } from './components/shell/left-rail';
 import { QuickBoard } from './components/shell/quick-board';
 import { SocialRightSlotContext } from './components/shell/right-slot';
-import { SocialNav } from './components/shell/social-nav';
+import { SocialTabStrip } from './components/shell/social-nav';
+import { SocialTopBar } from './components/shell/social-topbar';
 import { TopicDialog } from './components/topic-dialog';
 import { Avatar } from './components/ui';
 import { errorMessage, loadInboxCounts, loadMe, loadPost, loadTenantHomePath, loadTopics } from './social-api';
@@ -48,10 +49,7 @@ const NAV: readonly ModuleNavItem<ShellView>[] = [
 /** Tuyến có cột phải riêng do trang tự dựng (chi tiết nhóm); các tuyến còn lại dùng "bảng nhanh". */
 const OWN_RIGHT_ROUTES: ReadonlySet<SocialRoute['name']> = new Set(['group']);
 
-/** Bề rộng khung nội dung (px): cột trái 264 + cột giữa + cột phải 280 + 2 khoảng cách 12. */
-const CONTENT_MAX_WIDTH = 1440;
-
-/** Tuyến nào có thanh soạn bài dính trên đầu. */
+/** Tuyến nào có thanh soạn bài ở đầu cột giữa. */
 const COMPOSER_ROUTES: ReadonlySet<SocialRoute['name']> = new Set(['feed', 'wall', 'post']);
 
 type ComposerState = { readonly post?: SocialPost; readonly groupId?: string; readonly mode?: SocialComposerMode } | undefined;
@@ -307,9 +305,7 @@ export function SocialScreen() {
       homeHref={homePath}
       hideNavigation
       compact
-      contentMaxWidth={CONTENT_MAX_WIDTH}
-      actions={<NotificationBell />}
-      crumbs={currentTopic ? [currentTopic.name] : undefined}
+      hideBreadcrumb
       banner={
         meError ? (
           <p role="alert" className={styles.alert}>
@@ -325,12 +321,13 @@ export function SocialScreen() {
       ) : (
         <SocialSessionContext.Provider value={session}>
           <div className={shell.page}>
-            <SocialNav
-              tabs={tabs}
-              activeTab={tabForRoute(route)}
+            <SocialTopBar
+              me={me}
+              homeHref={homePath}
               searchActive={route.name === 'search'}
               searchQuery={route.name === 'search' ? route.query : ''}
             />
+            <SocialTabStrip tabs={tabs} activeTab={tabForRoute(route)} />
 
             {info ? (
               <p role="status" className={shell.info}>
@@ -342,7 +339,8 @@ export function SocialScreen() {
             <div className={shell.body}>
                 <LeftRail
                   me={me}
-                  counts={counts}
+                  tabs={tabs}
+                  activeTab={tabForRoute(route)}
                   topicFilter={
                     route.name === 'feed' || route.name === 'wall'
                       ? {
@@ -359,7 +357,7 @@ export function SocialScreen() {
                 {showComposer ? (
                   <section className={shell.composer} aria-label="Soạn bài viết">
                     <div className={shell.composerTop}>
-                      <Avatar user={me.user} size={34} />
+                      <Avatar user={me.user} size={36} />
                       <button
                         type="button"
                         className={shell.composerTrigger}
@@ -371,7 +369,7 @@ export function SocialScreen() {
                     <div className={shell.composerShortcuts}>
                       <button type="button" onClick={() => openComposer(undefined, { mode: 'media' })}>
                         <ImageIcon size={15} aria-hidden="true" />
-                        Ảnh/File
+                        Ảnh/Video/File
                       </button>
                       <button type="button" onClick={() => openComposer(undefined, { mode: 'poll' })}>
                         <BarChart3 size={15} aria-hidden="true" />
@@ -392,7 +390,7 @@ export function SocialScreen() {
               {ownRight ? (
                 <div className={shell.rail} ref={setRightSlot} />
               ) : (
-                <QuickBoard refreshKey={boardKey} toModerate={counts?.toModerate ?? 0} />
+                <QuickBoard refreshKey={boardKey} />
               )}
             </div>
             </SocialRightSlotContext.Provider>
@@ -405,7 +403,6 @@ export function SocialScreen() {
           me={me}
           topics={topics}
           editing={composer.post}
-          defaultTopicId={composer.groupId ? undefined : topicId}
           defaultGroupId={composer.groupId}
           defaultMode={composer.mode}
           defaultKind={

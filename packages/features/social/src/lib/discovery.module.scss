@@ -9,6 +9,7 @@
 
 .card {
   border: 1px solid var(--ep-border);
+  box-shadow: var(--social-card-ring);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
 }

@@ -38,6 +38,7 @@ import {
   formatBytes,
   formatFullTime,
   formatRelativeTime,
+  postTopics,
 } from '../social.model';
 import { isPublished } from '../post-extras.model';
 import extras from '../post-extras.module.scss';
@@ -464,14 +465,14 @@ export function PostCard({
       </header>
 
       {post.group ? <GroupTag group={post.group} /> : null}
-      {post.topic ? (
-        <button
-          type="button"
-          className={styles.topicTag}
-          onClick={() => onOpenTopic(post.topic?.id ?? '')}
-        >
-          {post.topic.name}
-        </button>
+      {postTopics(post).length > 0 ? (
+        <div className={styles.topicTags}>
+          {postTopics(post).map((topic) => (
+            <button key={topic.id} type="button" className={styles.topicTag} onClick={() => onOpenTopic(topic.id)}>
+              {topic.name}
+            </button>
+          ))}
+        </div>
       ) : null}
       {post.status === 'rejected' && post.rejectReason ? (
         <div className={extras.rejectNote} role="note">

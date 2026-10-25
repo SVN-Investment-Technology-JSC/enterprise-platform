@@ -338,6 +338,12 @@ export function plainExcerpt(html: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
+/** Mọi chuyên mục của bài (theo thứ tự tác giả chọn); bản máy chủ cũ chỉ trả `topic` thì lấy chuyên mục đó. */
+export function postTopics(post: Pick<SocialPost, 'topic' | 'topics'>): readonly { readonly id: string; readonly name: string }[] {
+  if (post.topics && post.topics.length > 0) return post.topics;
+  return post.topic ? [post.topic] : [];
+}
+
 /** Dòng tiêu đề ngắn của bài cho danh sách gọn: tiêu đề nếu có, không thì đầu nội dung. */
 export function postHeadline(post: Pick<SocialPost, 'title' | 'bodyHtml'>, max = 80): string {
   return post.title?.trim() || plainExcerpt(post.bodyHtml, max) || 'Bài viết';
