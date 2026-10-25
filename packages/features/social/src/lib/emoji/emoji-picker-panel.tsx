@@ -8,7 +8,7 @@ import { categoryScrollTop } from './emoji-position';
 import { loadRecentEmojis, loadSkinTone, pushRecentEmoji, saveRecentEmojis, saveSkinTone, type EmojiSkinTone } from './emoji-preferences';
 import styles from './emoji-picker.module.scss';
 
-const COLUMNS = 9;
+const COLUMNS = 8;
 const EMOJIBASE_URL = `${SOCIAL_BASE_PATH}/emoji-data`;
 const COMPONENT_GROUP = 2;
 

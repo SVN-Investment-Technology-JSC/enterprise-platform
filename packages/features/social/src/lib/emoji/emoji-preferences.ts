@@ -1,4 +1,4 @@
-export const EMOJI_RECENT_LIMIT = 18;
+export const EMOJI_RECENT_LIMIT = 16;
 const RECENT_KEY = 'social.emoji.recent';
 const SKIN_KEY = 'social.emoji.skin-tone';
 

@@ -2,7 +2,7 @@
 
 $panel-width: 320px;
 $panel-height: 372px;
-$cell: 32px;
+$cell: 36px;
 
 .popover {
   position: fixed;
@@ -97,7 +97,7 @@ $cell: 32px;
 
 .recents {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   max-height: $cell * 2 + 6px;
   padding: 4px 6px;
   border-bottom: 1px solid var(--ep-border, #e5e7eb);
@@ -107,7 +107,7 @@ $cell: 32px;
 .recent {
   height: $cell;
   border-radius: var(--ep-radius-sm, 8px);
-  font-size: 20px;
+  font-size: 22px;
 
   &:hover {
     background: var(--ep-surface-muted, #f3f4f6);
@@ -141,7 +141,7 @@ $cell: 32px;
 }
 
 .emoji {
-  // frimousse đặt `display: flex` nội tuyến cho hàng, nên ô tự chia đều bề ngang hàng (đủ 9 cột, không chừa trống).
+  // frimousse đặt `display: flex` nội tuyến cho hàng, nên ô tự chia đều bề ngang hàng (đủ 8 cột, không chừa trống).
   flex: 1 1 0;
   min-width: 0;
   display: inline-flex;
@@ -152,7 +152,7 @@ $cell: 32px;
   border: 0;
   border-radius: var(--ep-radius-sm, 8px);
   background: transparent;
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
 
