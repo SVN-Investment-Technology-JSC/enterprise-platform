@@ -1,21 +1,12 @@
 'use client';
 
 import { SOCIAL_SEARCH_QUERY_MAX, SOCIAL_SEARCH_QUERY_MIN } from '@enterprise-platform/contracts-social';
-import { Bookmark, Building2, ClipboardCheck, Clock, Newspaper, Search, Users, X, type LucideIcon } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { sliceSafe } from '../../safe-text';
 import { routeForTab, type SocialRoute, type SocialTab, type SocialTabId } from '../../social.model';
 import { navigateSocial, SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
-
-const TAB_ICONS: Readonly<Record<SocialTabId, LucideIcon>> = {
-  feed: Newspaper,
-  wall: Building2,
-  groups: Users,
-  saved: Bookmark,
-  pending: ClipboardCheck,
-  scheduled: Clock,
-};
 
 /** Chờ gõ xong bấy nhiêu ms mới chuyển sang kết quả tìm kiếm. */
 const SEARCH_DEBOUNCE_MS = 450;
@@ -102,18 +93,14 @@ interface TabListProps {
 function TabLinks({ tabs, activeTab }: TabListProps) {
   return (
     <ul className={styles.navList}>
-      {tabs.map((tab) => {
-        const Icon = TAB_ICONS[tab.id];
-        return (
-          <li key={tab.id}>
-            <SocialLink to={routeForTab(tab.id)} aria-current={tab.id === activeTab ? 'page' : undefined}>
-              <Icon size={16} aria-hidden="true" />
-              <span className={styles.groupName}>{tab.label}</span>
-              {tab.badge ? <span className={styles.pillBadge}>{tab.badge > 99 ? '99+' : tab.badge}</span> : null}
-            </SocialLink>
-          </li>
-        );
-      })}
+      {tabs.map((tab) => (
+        <li key={tab.id}>
+          <SocialLink to={routeForTab(tab.id)} aria-current={tab.id === activeTab ? 'page' : undefined}>
+            <span className={styles.groupName}>{tab.label}</span>
+            {tab.badge ? <span className={styles.pillBadge}>{tab.badge > 99 ? '99+' : tab.badge}</span> : null}
+          </SocialLink>
+        </li>
+      ))}
     </ul>
   );
 }

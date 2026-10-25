@@ -266,9 +266,10 @@ export function isModerator(permissions: readonly SocialPermission[]): boolean {
 }
 
 /**
- * Các thẻ hiển thị. "Chờ duyệt" cho moderator (số bài cần duyệt) và cho người có bài của mình đang chờ
- * duyệt hoặc bị từ chối; "Hẹn giờ" chỉ khi có bài hẹn giờ. Chưa biết số đếm thì chỉ hiện thẻ cố định
- * (và "Chờ duyệt" cho moderator).
+ * Các thẻ hiển thị, theo thứ tự: Bảng tin, Tường công ty, Bài viết chờ duyệt, Nhóm thảo luận, Bài viết hẹn giờ.
+ * "Đã lưu" không có thẻ riêng (vào qua "Xem tất cả" ở khối bài đã lưu). "Bài viết chờ duyệt" cho moderator (số bài cần
+ * duyệt) và cho người có bài của mình đang chờ duyệt hoặc bị từ chối; "Bài viết hẹn giờ" luôn hiện (kèm số bài đang hẹn
+ * nếu có; trang trống thì hướng dẫn cách hẹn giờ). Chưa biết số đếm thì không có số trên thẻ.
  */
 export function visibleTabs(
   permissions: readonly SocialPermission[],
@@ -277,15 +278,18 @@ export function visibleTabs(
   const tabs: SocialTab[] = [
     { id: 'feed', label: 'Bảng tin' },
     { id: 'wall', label: 'Tường công ty' },
-    { id: 'groups', label: 'Nhóm' },
-    { id: 'saved', label: 'Đã lưu' },
   ];
   const mine = (counts?.myPending ?? 0) + (counts?.myRejected ?? 0);
   const moderator = isModerator(permissions);
   if (moderator || mine > 0) {
-    tabs.push({ id: 'pending', label: 'Chờ duyệt', badge: moderator ? (counts?.toModerate ?? 0) + mine : mine });
+    tabs.push({
+      id: 'pending',
+      label: 'Bài viết chờ duyệt',
+      badge: moderator ? (counts?.toModerate ?? 0) + mine : mine,
+    });
   }
-  if ((counts?.myScheduled ?? 0) > 0) tabs.push({ id: 'scheduled', label: 'Hẹn giờ', badge: counts?.myScheduled });
+  tabs.push({ id: 'groups', label: 'Nhóm, thảo luận' });
+  tabs.push({ id: 'scheduled', label: 'Bài viết hẹn giờ', badge: counts?.myScheduled });
   return tabs;
 }
 
