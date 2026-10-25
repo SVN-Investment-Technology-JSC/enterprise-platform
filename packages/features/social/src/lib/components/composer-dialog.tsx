@@ -8,6 +8,7 @@ import {
   SOCIAL_POST_KIND_LABELS,
   SOCIAL_POST_KINDS,
   SOCIAL_POST_TITLE_MAX,
+  SOCIAL_POST_TOPICS_MAX,
   type SocialAttachment,
   type SocialGroupSummary,
   type SocialMe,
@@ -34,7 +35,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   buildPollRequest,
   emptyPollDraft,
@@ -68,6 +69,7 @@ import {
   buildGalleryItems,
   buildMediaPayload,
   canMoveItem,
+  COMPOSER_FILE_ACCEPT,
   countLayoutMedia,
   isMediaFile,
   moveItem,
@@ -77,7 +79,7 @@ import { useAttachmentStatuses } from '../use-attachment-statuses';
 import { useUnsentAttachments } from '../use-unsent-attachments';
 import { loadAllMyGroups, loadSettings } from '../social-posts-api';
 import type { SocialComposerMode } from '../social-context';
-import { formatBytes, isEmptyHtml, validateAttachment } from '../social.model';
+import { formatBytes, isEmptyHtml, postTopics, validateAttachment } from '../social.model';
 import {
   allowsCompanyOnlyExtras,
   buildAudienceInput,
@@ -96,6 +98,11 @@ import { ComposerVideoTile } from './composer-video-tile';
 import { MediaGallery } from './media-gallery';
 import layoutStyles from './media-layout.module.scss';
 import { MediaLayoutPicker, MediaMoveButtons } from './media-layout-picker';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { MultiSelect } from '../ui/multi-select';
 import { Avatar, ConfirmDialog, Dialog, Field, SelectField } from './ui';
 import {
   buildVideoWarning,
@@ -149,8 +156,6 @@ export interface ComposerDialogProps {
   readonly topics: readonly SocialTopic[];
   /** Có thì đang sửa bài này. */
   readonly editing?: SocialPost;
-  /** Chuyên mục chọn sẵn khi đang xem một chuyên mục. */
-  readonly defaultTopicId?: string;
   readonly defaultKind?: SocialPostKind;
   /** Mở sẵn đúng phần: chọn tệp, trình dựng bình chọn, hoặc loại Thông báo (nếu có quyền). */
   readonly defaultMode?: SocialComposerMode;
@@ -161,11 +166,14 @@ export interface ComposerDialogProps {
 }
 
 /** Hộp thoại soạn bài hoặc sửa bài. Dựng mới mỗi lần mở nên không cần đặt lại trạng thái. */
+/** Mọi ô nhập, ô chọn và nút trong hộp soạn cùng cao 38px, chữ 13,5px, bo 6px. */
+const CONTROL_HEIGHT = 38;
+const CONTROL_CLASS = 'h-[38px] rounded-md px-3 text-[13.5px]!';
+
 export function ComposerDialog({
   me,
   topics,
   editing,
-  defaultTopicId,
   defaultKind,
   defaultMode,
   defaultGroupId,
@@ -194,8 +202,9 @@ export function ComposerDialog({
       (defaultMode === 'announcement' ? 'announcement' : defaultKind) ??
       'post',
   );
-  const [topicId, setTopicId] = useState(
-    editing?.topic?.id ?? defaultTopicId ?? '',
+  const [topicIds, setTopicIds] = useState<readonly string[]>(() =>
+    // Bài mới không tự chọn chuyên mục (kể cả khi đang lọc theo một chuyên mục); sửa bài thì nạp chuyên mục của bài.
+    editing ? postTopics(editing).map((topic) => topic.id) : [],
   );
   const [mentions, setMentions] = useState(editing?.mentions ?? []);
   const [mentionsAll, setMentionsAll] = useState(false);
@@ -240,7 +249,17 @@ export function ComposerDialog({
   const [audienceOpen, setAudienceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-  const fileInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  // Lối tắt "Ảnh/Video/File": mở hộp chọn tệp ngay khi ô chọn tệp xuất hiện trong hộp thoại. Hộp thoại dựng qua portal sau
+  // một nhịp nên không gọi được lúc dựng; gọi ở ref callback thì vẫn nằm trong thời hạn của cú bấm vừa mở hộp thoại.
+  const autoPick = useRef(!editing && defaultMode === 'media');
+  const attachFileInput = useCallback((node: HTMLInputElement | null) => {
+    fileInput.current = node;
+    if (node && autoPick.current) {
+      autoPick.current = false;
+      node.click();
+    }
+  }, []);
   const counter = useRef(0);
   // Tệp chưa gửi: cảnh báo khi rời trang, bỏ khi đóng tab hoặc đóng hộp (chỉ tệp tải trong hộp này, không phải tệp của bài đang sửa).
   const unsent = useUnsentAttachments(UNSENT_DEPS);
@@ -255,11 +274,6 @@ export function ComposerDialog({
       for (const item of uploadsRef.current) if (item.objectUrl) URL.revokeObjectURL(item.objectUrl);
     };
   }, []);
-
-  // Lối tắt "Ảnh/File": mở sẵn hộp chọn tệp ngay khi hộp thoại hiện.
-  useEffect(() => {
-    if (!editing && defaultMode === 'media') fileInput.current?.click();
-  }, [editing, defaultMode]);
 
   // Danh sách nhóm của tôi và cài đặt duyệt bài; lỗi thì bỏ qua (chỉ mất phần gợi ý).
   useEffect(() => {
@@ -342,8 +356,9 @@ export function ComposerDialog({
   const hasPoll = pollOn && !editingPoll;
   const noContent = empty && !pollOn;
 
+  // Chuyên mục đã tắt chỉ còn hiện khi bài đang sửa vẫn mang nó (để thấy và bỏ được).
   const topicOptions = topics
-    .filter((topic) => topic.isActive || topic.id === topicId)
+    .filter((topic) => topic.isActive || topicIds.includes(topic.id))
     .map((topic) => ({ value: topic.id, label: topic.name }));
 
   const destinationOptions = [
@@ -585,7 +600,7 @@ export function ComposerDialog({
         saved = await updatePost(editing.id, {
           title: title.trim() || null,
           bodyHtml: html,
-          topicId: inGroup ? null : topicId || null,
+          topicIds: inGroup ? [] : [...topicIds],
           attachmentIds,
           mediaLayout: layoutToSend,
           mentionUserIds,
@@ -609,7 +624,7 @@ export function ComposerDialog({
           kind: effectiveKind,
           title: title.trim() || undefined,
           bodyHtml: html,
-          topicId: !inGroup && topicId ? topicId : undefined,
+          ...(!inGroup && topicIds.length > 0 ? { topicIds: [...topicIds] } : {}),
           attachmentIds,
           mediaLayout: layoutToSend,
           mentionUserIds,
@@ -713,10 +728,11 @@ export function ComposerDialog({
           <SearchableSelect
             options={destinationOptions}
             value={destination}
+            height={CONTROL_HEIGHT}
             disabled={Boolean(editing)}
             onChange={(value) => {
               setDestination(value);
-              if (value) setTopicId('');
+              if (value) setTopicIds([]);
             }}
           />
         </SelectField>
@@ -725,6 +741,7 @@ export function ComposerDialog({
             <SearchableSelect
               options={KIND_OPTIONS}
               value={kind}
+              height={CONTROL_HEIGHT}
               onChange={(value) => setKind(value as SocialPostKind)}
             />
           </SelectField>
@@ -740,8 +757,8 @@ export function ComposerDialog({
       ) : null}
 
       <Field label="Tiêu đề" hint="Không bắt buộc.">
-        <input
-          className={styles.input}
+        <Input
+          className={CONTROL_CLASS}
           value={title}
           maxLength={SOCIAL_POST_TITLE_MAX}
           placeholder="Nhập tiêu đề bài viết"
@@ -750,14 +767,16 @@ export function ComposerDialog({
       </Field>
 
       {!inGroup ? (
-        <SelectField label="Chuyên mục">
-          <SearchableSelect
+        <SelectField label="Chuyên mục" hint={`Chọn được nhiều chuyên mục (tối đa ${SOCIAL_POST_TOPICS_MAX}).`}>
+          <MultiSelect
             options={topicOptions}
-            value={topicId}
+            values={topicIds}
+            onChange={setTopicIds}
             placeholder="Chọn chuyên mục"
+            searchPlaceholder="Tìm chuyên mục"
             emptyText="Không có chuyên mục"
-            clearable
-            onChange={setTopicId}
+            max={SOCIAL_POST_TOPICS_MAX}
+            aria-label="Chuyên mục"
           />
         </SelectField>
       ) : null}
@@ -781,62 +800,56 @@ export function ComposerDialog({
       <div className={styles.checkRow}>
         {canAnnounce && !editing ? (
           <>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
+            <Label className="cursor-pointer">
+              <Checkbox
                 checked={mentionsAll}
-                onChange={(event) => setMentionsAll(event.target.checked)}
+                onCheckedChange={(checked) => setMentionsAll(checked)}
               />
               <span>Nhắc tất cả mọi người (@all)</span>
-            </label>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
+            </Label>
+            <Label className="cursor-pointer">
+              <Checkbox
                 checked={pinned}
-                onChange={(event) => setPinned(event.target.checked)}
+                onCheckedChange={(checked) => setPinned(checked)}
               />
               <span>Ghim lên đầu bảng tin</span>
-            </label>
+            </Label>
           </>
         ) : null}
         {companyOnly ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={requireRead}
               disabled={lockedRead}
-              onChange={(event) => setRequireRead(event.target.checked)}
+              onCheckedChange={(checked) => setRequireRead(checked)}
             />
             <span>
               Yêu cầu xác nhận đã đọc
               {lockedRead ? ' (đã có người xác nhận)' : ''}
             </span>
-          </label>
+          </Label>
         ) : null}
         {!editing || editingPoll ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={pollOn}
               disabled={Boolean(editingPoll)}
-              onChange={(event) => setPollOn(event.target.checked)}
+              onCheckedChange={(checked) => setPollOn(checked)}
             />
             <span>Thêm bình chọn</span>
-          </label>
+          </Label>
         ) : null}
         {canSchedule ? (
-          <label className={styles.check}>
-            <input
-              type="checkbox"
+          <Label className="cursor-pointer">
+            <Checkbox
               checked={scheduleOn}
-              onChange={(event) => {
-                setScheduleOn(event.target.checked);
-                if (event.target.checked && !scheduleTime)
-                  setScheduleTime('08:00');
+              onCheckedChange={(checked) => {
+                setScheduleOn(checked);
+                if (checked && !scheduleTime) setScheduleTime('08:00');
               }}
             />
             <span>Hẹn giờ đăng</span>
-          </label>
+          </Label>
         ) : null}
       </div>
 
@@ -858,7 +871,7 @@ export function ComposerDialog({
               <DatePickerInput
                 value={scheduleDate}
                 min={vnToday()}
-                height={38}
+                height={CONTROL_HEIGHT}
                 aria-label="Ngày đăng"
                 onChange={setScheduleDate}
               />
@@ -967,21 +980,22 @@ export function ComposerDialog({
           </span>
         ) : null}
         <input
-          ref={fileInput}
+          ref={attachFileInput}
           type="file"
           multiple
           hidden
-          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,.mov,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+          accept={COMPOSER_FILE_ACCEPT}
           onChange={(event) => addFiles(event.target.files)}
         />
-        <button
+        <Button
           type="button"
-          className={`${styles.buttonGhost} ${styles.attachButton}`}
+          variant="outline"
+          className={`${CONTROL_CLASS} self-start`}
           disabled={activeUploads >= SOCIAL_MAX_ATTACHMENTS_PER_POST}
           onClick={() => fileInput.current?.click()}
         >
-          <Paperclip size={15} /> Thêm ảnh, video hoặc tệp
-        </button>
+          <Paperclip className="size-4" aria-hidden="true" /> Thêm ảnh, video hoặc tệp
+        </Button>
       </div>
     </Dialog>
     <ConfirmDialog
@@ -1040,17 +1054,18 @@ function VisibilityControl({
     </>
   );
   return interactive ? (
-    <button
+    <Button
       type="button"
-      className={extras.audienceButton}
+      variant="outline"
+      className="h-9 rounded-md px-3 text-[13px] font-semibold"
       aria-haspopup="dialog"
       title="Tùy chỉnh quyền xem"
       onClick={onOpen}
     >
       {content}
-    </button>
+    </Button>
   ) : (
-    <span className={extras.audienceButton} data-static="true">
+    <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 text-[13px] font-semibold text-slate-700">
       {content}
     </span>
   );

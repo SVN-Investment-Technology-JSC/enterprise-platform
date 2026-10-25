@@ -210,6 +210,23 @@ export async function attachFiles(
   if (result.rowCount !== attachmentIds.length) throw await attachmentFailure(client, attachmentIds);
 }
 
+/** Ghi lại toàn bộ chuyên mục của bài; thứ tự mảng là `position`. */
+export async function replacePostTopics(
+  client: PoolClient,
+  postId: string,
+  topicIds: readonly string[],
+): Promise<void> {
+  await client.query(`DELETE FROM social_schema.post_topics WHERE post_id = $1`, [postId]);
+  if (topicIds.length === 0) return;
+  await client.query(
+    `INSERT INTO social_schema.post_topics (post_id, topic_id, position)
+     SELECT $1, t.id, (t.ord - 1)::smallint
+       FROM unnest($2::uuid[]) WITH ORDINALITY AS t(id, ord)
+     ON CONFLICT DO NOTHING`,
+    [postId, topicIds],
+  );
+}
+
 export async function replacePostMentions(
   client: PoolClient,
   postId: string,

@@ -28,9 +28,9 @@
   --ep-success: #047857;
   --ep-radius-sm: 6px;
   --ep-radius: 8px;
-  --ep-radius-md: 10px;
-  --ep-radius-lg: 12px;
-  --ep-radius-xl: 14px;
+  --ep-radius-md: 8px;
+  --ep-radius-lg: 10px;
+  --ep-radius-xl: 12px;
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
   --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
 }
@@ -260,6 +260,11 @@
   color: #a16207;
 }
 
+/* Thẻ nổi dựng qua portal vào `document.body` không thừa hưởng biến `--ep-*` (ví dụ nền vàng của `.avatar`): khai lại. */
+.portalScope {
+  @include ep-tokens;
+}
+
 .avatar {
   display: inline-flex;
   flex: none;
@@ -280,6 +285,7 @@
 .post,
 .stateBox {
   border: 1px solid var(--ep-border);
+  box-shadow: var(--social-card-ring);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
 }
@@ -455,6 +461,13 @@
 
 .menuDanger {
   color: var(--ep-danger) !important;
+}
+
+.topicTags {
+  display: flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 6px;
 }
 
 .topicTag {
@@ -717,41 +730,23 @@
   }
 }
 
-.reactionDot,
-.reactOption,
-.reactorType {
-  --reaction: #1d4ed8;
-
-  &[data-type='love'] {
-    --reaction: #dc2626;
-  }
-
-  &[data-type='celebrate'] {
-    --reaction: #d97706;
-  }
-
-  &[data-type='insightful'] {
-    --reaction: #a16207;
-  }
-}
-
 .reactionDot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border: 2px solid var(--ep-surface);
+  box-sizing: content-box;
   border-radius: 50%;
-  background: var(--reaction);
-  color: #fff;
+  background: var(--ep-surface);
 }
 
 .reactorType {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--reaction);
+  color: var(--ep-text-sub);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -767,8 +762,6 @@
 }
 
 .reactorTab {
-  --reaction: #1d4ed8;
-
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -783,22 +776,6 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-
-  &[data-type='love'] {
-    --reaction: #dc2626;
-  }
-
-  &[data-type='celebrate'] {
-    --reaction: #d97706;
-  }
-
-  &[data-type='insightful'] {
-    --reaction: #a16207;
-  }
-
-  &[data-type] svg {
-    color: var(--reaction);
-  }
 
   &:hover {
     background: var(--ep-hover);
@@ -899,6 +876,22 @@
     color: #dc2626;
   }
 
+  &[data-type='haha'] {
+    color: #d97706;
+  }
+
+  &[data-type='wow'] {
+    color: #d97706;
+  }
+
+  &[data-type='sad'] {
+    color: #d97706;
+  }
+
+  &[data-type='angry'] {
+    color: #e7725c;
+  }
+
   &[data-type='celebrate'] {
     color: #d97706;
   }
@@ -916,6 +909,7 @@
   &:hover .reactPicker,
   &:focus-within .reactPicker {
     visibility: visible;
+    transition-delay: 0s;
     opacity: 1;
     transform: translateY(0);
   }
@@ -928,40 +922,110 @@
   z-index: 15;
   display: flex;
   gap: 2px;
-  padding: 4px;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px 8px;
   border: 1px solid var(--ep-border-strong);
   border-radius: 999px;
   background: var(--ep-surface);
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
   opacity: 0;
   transform: translateY(4px);
+  /* Trễ khi ẩn để rê chuột từ nút lên bảng không làm bảng tắt giữa chừng. */
   transition:
-    opacity 0.12s ease,
-    transform 0.12s ease,
-    visibility 0.12s;
+    opacity 0.15s ease 0.2s,
+    transform 0.15s ease 0.2s,
+    visibility 0s linear 0.35s;
   visibility: hidden;
+
+  /* Cầu nối vô hình giữa nút và bảng. */
+  &::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: -12px;
+    left: 0;
+    height: 12px;
+  }
+
+  @media (width < 420px) {
+    flex-wrap: wrap;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    border-radius: 24px;
+  }
 }
 
 .reactOption {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: var(--reaction);
   cursor: pointer;
-  transition: transform 0.1s ease;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
 
-  &:hover {
-    background: var(--ep-hover);
-    transform: scale(1.18);
+  &:hover,
+  &:focus-visible {
+    z-index: 1;
+    transform: translateY(-8px) scale(1.4);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
   }
 
   &[data-selected='true'] {
     background: var(--ep-accent-soft);
+  }
+
+  &:hover .reactTip,
+  &:focus-visible .reactTip {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+/* Tên phản ứng nổi trên đầu biểu tượng; ngược tỉ lệ phóng để chữ không bị to theo. */
+.reactTip {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 78%);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.5);
+  transform-origin: 50% 100%;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reactPicker,
+  .reactOption,
+  .reactTip {
+    transition-duration: 0.01s;
+    transition-delay: 0s;
+  }
+
+  .reactOption:hover,
+  .reactOption:focus-visible {
+    transform: none;
   }
 }
 
@@ -1106,29 +1170,15 @@
 }
 
 .reactionDotSmall {
-  --reaction: #1d4ed8;
-
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  box-sizing: content-box;
   border: 1.5px solid var(--ep-surface);
   border-radius: 50%;
-  background: var(--reaction);
-  color: #fff;
-
-  &[data-type='love'] {
-    --reaction: #dc2626;
-  }
-
-  &[data-type='celebrate'] {
-    --reaction: #d97706;
-  }
-
-  &[data-type='insightful'] {
-    --reaction: #a16207;
-  }
+  background: var(--ep-surface);
 }
 
 /* Nút "Thích" dưới bình luận: rê chuột hiện bảng chọn phản ứng như ở bài viết. */
@@ -1139,6 +1189,7 @@
   &:hover .reactPicker,
   &:focus-within .reactPicker {
     visibility: visible;
+    transition-delay: 0s;
     opacity: 1;
     transform: translateY(0);
   }
@@ -1170,6 +1221,22 @@
 
   &[data-type='love'] {
     --reaction: #dc2626;
+  }
+
+  &[data-type='haha'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='wow'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='sad'] {
+    --reaction: #d97706;
+  }
+
+  &[data-type='angry'] {
+    --reaction: #e7725c;
   }
 
   &[data-type='celebrate'] {
@@ -1536,10 +1603,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
+  height: 38px;
   padding: 0 10px;
   border: 1px solid var(--ep-border-strong);
-  border-radius: var(--ep-radius);
+  border-radius: 6px;
   background: var(--ep-surface-soft);
   color: var(--ep-text-muted);
 

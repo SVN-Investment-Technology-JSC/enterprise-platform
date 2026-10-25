@@ -1,24 +1,17 @@
 'use client';
 
-import type {
-  SocialGroupSummary,
-  SocialInboxCounts,
-  SocialMe,
-  SocialTopic,
-} from '@enterprise-platform/contracts-social';
-import { Bookmark, Cake, Clock, Pin, Settings2, type LucideIcon } from 'lucide-react';
+import type { SocialMe, SocialTopic } from '@enterprise-platform/contracts-social';
+import { ListFilter, Settings2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { loadMyGroups } from '../../social-api';
 import { loadProfile } from '../../social-discovery-api';
-import { orderMyGroups } from '../../social.model';
+import { DEFAULT_PROFILE_COVER } from '../../profile-cover';
+import type { SocialTab, SocialTabId } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
-import { GroupGlyph } from '../groups/group-visuals';
 import { Avatar, userSubtitle } from '../ui';
-
-/** Số nhóm hiện ở cột trái; lấy dư để nhóm ưu tiên không bị cắt mất. */
-const GROUP_LIMIT = 6;
-const GROUP_FETCH = 20;
+import { useMyGroups } from './my-groups';
+import { SavedRecent } from './quick-board';
+import { SocialNavCard } from './social-nav';
 
 export interface TopicFilterProps {
   readonly topics: readonly SocialTopic[];
@@ -30,7 +23,18 @@ export interface TopicFilterProps {
 
 const formatCount = (value: number) => value.toLocaleString('vi-VN');
 
-function ProfileCard({ me }: { readonly me: SocialMe }) {
+function ProfileCard({
+  me,
+  groupCount,
+  groupCountMore,
+  coverUrl = DEFAULT_PROFILE_COVER,
+}: {
+  readonly me: SocialMe;
+  /** Số nhóm đã tham gia; chưa biết hoặc 0 thì không hiện. */
+  readonly groupCount: number | undefined;
+  readonly groupCountMore: boolean;
+  readonly coverUrl?: string;
+}) {
   const [postCount, setPostCount] = useState<number>();
 
   useEffect(() => {
@@ -48,108 +52,39 @@ function ProfileCard({ me }: { readonly me: SocialMe }) {
   const subtitle = userSubtitle(me.user);
   return (
     <section className={`${styles.panel} ${styles.profileCard}`} aria-label="Hồ sơ của tôi">
-      <Avatar user={me.user} size={40} />
-      <div className={styles.profileInfo}>
-        <SocialLink className={styles.profileName} to={{ name: 'profile', userId: me.user.id }}>
-          {me.user.name}
-        </SocialLink>
-        {subtitle ? <span className={styles.profileSub}>{subtitle}</span> : null}
-      </div>
-      <div className={styles.profileMeta}>
-        {postCount !== undefined ? (
-          <span>
-            <strong>{formatCount(postCount)}</strong> bài viết
+      <div className={styles.profileCover} style={{ backgroundImage: `url("${coverUrl}")` }} aria-hidden="true" />
+      <div className={styles.profileBody}>
+        <span className={styles.profileAvatar}>
+          <Avatar user={me.user} size={56} />
+        </span>
+        <div className={styles.profileInfo}>
+          <SocialLink className={styles.profileName} to={{ name: 'profile', userId: me.user.id }}>
+            {me.user.name}
+          </SocialLink>
+          {subtitle ? <span className={styles.profileSub}>{subtitle}</span> : null}
+        </div>
+        <div className={styles.profileMeta}>
+          <span className={styles.profileStats}>
+            {postCount !== undefined ? (
+              <span>
+                <strong>{formatCount(postCount)}</strong> bài viết
+              </span>
+            ) : null}
+            {groupCount ? (
+              <span>
+                <strong>
+                  {formatCount(groupCount)}
+                  {groupCountMore ? '+' : ''}
+                </strong>{' '}
+                nhóm
+              </span>
+            ) : null}
           </span>
-        ) : (
-          <span />
-        )}
-        <SocialLink className={styles.panelLink} to={{ name: 'profile', userId: me.user.id }}>
-          Trang cá nhân
-        </SocialLink>
+          <SocialLink className={styles.panelLink} to={{ name: 'profile', userId: me.user.id }}>
+            Trang cá nhân
+          </SocialLink>
+        </div>
       </div>
-    </section>
-  );
-}
-
-interface ShortcutItem {
-  readonly key: string;
-  readonly label: string;
-  readonly icon: LucideIcon;
-  readonly route: 'saved' | 'scheduled' | 'birthday';
-  readonly count?: number;
-}
-
-function Shortcuts({ counts }: { readonly counts: SocialInboxCounts | undefined }) {
-  const items: readonly ShortcutItem[] = [
-    { key: 'saved', label: 'Đã lưu', icon: Bookmark, route: 'saved', count: counts?.bookmarks },
-    { key: 'scheduled', label: 'Hẹn giờ', icon: Clock, route: 'scheduled', count: counts?.myScheduled },
-    { key: 'birthday', label: 'Sinh nhật', icon: Cake, route: 'birthday' },
-  ];
-  return (
-    <nav className={styles.panel} aria-label="Lối tắt">
-      <ul className={styles.shortcutList}>
-        {items.map(({ key, label, icon: Icon, route, count }) => (
-          <li key={key}>
-            <SocialLink to={{ name: route }}>
-              <Icon size={15} aria-hidden="true" />
-              <span className={styles.groupName}>{label}</span>
-              {count ? <span className={styles.groupCount}>{formatCount(count)}</span> : null}
-            </SocialLink>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-function MyGroups() {
-  const [groups, setGroups] = useState<readonly SocialGroupSummary[]>();
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadMyGroups(GROUP_FETCH)
-      .then((items) => {
-        if (!cancelled) setGroups(orderMyGroups(items).slice(0, GROUP_LIMIT));
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <section className={styles.panel} aria-label="Nhóm của bạn">
-      <header className={styles.panelHead}>
-        <h2>Nhóm của bạn</h2>
-        <SocialLink className={styles.panelLink} to={{ name: 'groups' }}>
-          Xem tất cả
-        </SocialLink>
-      </header>
-      {failed ? (
-        <p className={styles.panelEmpty}>Không tải được danh sách nhóm.</p>
-      ) : !groups ? (
-        <p className={styles.panelEmpty}>Đang tải…</p>
-      ) : groups.length === 0 ? (
-        <p className={styles.panelEmpty}>Bạn chưa tham gia nhóm nào.</p>
-      ) : (
-        <ul className={styles.groupList}>
-          {groups.map((group) => (
-            <li key={group.id}>
-              <SocialLink to={{ name: 'group', groupId: group.id }}>
-                <GroupGlyph icon={group.icon} color={group.color} size={28} />
-                <span className={styles.groupName}>{group.name}</span>
-                {group.myPriorityAt ? (
-                  <Pin size={11} className={styles.groupPin} aria-label="Nhóm ưu tiên" />
-                ) : null}
-                <span className={styles.groupCount}>{formatCount(group.memberCount)}</span>
-              </SocialLink>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }
@@ -157,8 +92,9 @@ function MyGroups() {
 function TopicFilter({ topics, activeTopicId, canManage, onSelect, onManage }: TopicFilterProps) {
   const active = topics.filter((topic) => topic.isActive);
   return (
-    <section className={styles.panel} aria-label="Chuyên mục">
+    <section className={`${styles.panel} ${styles.panelTopics}`} aria-label="Chuyên mục">
       <header className={styles.panelHead}>
+        <ListFilter size={17} aria-hidden="true" />
         <h2>Chuyên mục</h2>
         {canManage ? (
           <button
@@ -193,23 +129,29 @@ function TopicFilter({ topics, activeTopicId, canManage, onSelect, onManage }: T
 }
 
 /**
- * Cột trái: hồ sơ của tôi, lối tắt, nhóm của bạn, chuyên mục. `topicFilter` chỉ có ở Bảng tin và
- * Tường công ty (nơi lọc chuyên mục có nghĩa).
+ * Cột trái: hồ sơ của tôi, thẻ điều hướng (các tab của Mạng nội bộ), bài đã lưu gần đây, chuyên mục. `topicFilter` chỉ có ở
+ * Bảng tin và Tường công ty (nơi lọc chuyên mục có nghĩa).
  */
 export function LeftRail({
   me,
-  counts,
+  tabs,
+  activeTab,
   topicFilter,
+  refreshKey = 0,
 }: {
   readonly me: SocialMe;
-  readonly counts: SocialInboxCounts | undefined;
+  readonly tabs: readonly SocialTab[];
+  readonly activeTab: SocialTabId | undefined;
   readonly topicFilter?: TopicFilterProps;
+  /** Đổi giá trị khi cần nạp lại các khối nhanh (bài đã lưu). */
+  readonly refreshKey?: number;
 }) {
+  const myGroups = useMyGroups();
   return (
     <aside className={styles.leftRail} aria-label="Thông tin của bạn">
-      <ProfileCard me={me} />
-      <Shortcuts counts={counts} />
-      <MyGroups />
+      <ProfileCard me={me} groupCount={myGroups.groups?.length} groupCountMore={myGroups.hasMore} />
+      <SocialNavCard tabs={tabs} activeTab={activeTab} />
+      <SavedRecent refreshKey={refreshKey} />
       {topicFilter ? <TopicFilter {...topicFilter} /> : null}
     </aside>
   );

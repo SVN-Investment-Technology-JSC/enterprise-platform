@@ -20,7 +20,7 @@ import { daysUntilBirthday, isValidBirthday } from '../domain/social-birthday-ru
  *    chưa được xếp vào đơn vị nào không có trong danh sách (kể cả `listActiveUserIds`).
  * 2. Ngày sinh và ngày vào công ty nằm ở hồ sơ nhân sự của HRM. Client này gọi route nội bộ của HRM:
  *      GET {HRM_API_URL}/v1/internal/people/profile-facts   (x-tenant-id, x-service-token)
- *      -> { data: [{ userId, birthMonth?, birthDay?, birthYear?, joinDate? }] }
+ *      -> { data: [{ userId, birthMonth?, birthDay?, birthYear?, joinDate?, employeeCode? }] }
  *    Năm sinh chỉ dùng để tính tuổi ở trang sinh nhật, không vào hồ sơ hay widget. Khi HRM trả lỗi (5xx,
  *    quá hạn, tenant chưa bật HRM) thì sinh nhật rỗng và hồ sơ thiếu `birthday`/`joinedAt`; mọi phần
  *    khác vẫn chạy.
@@ -43,6 +43,7 @@ interface PersonFacts {
   /** Chỉ dùng tính tuổi ở trang sinh nhật; không bao giờ vào hồ sơ trả ra ngoài. */
   readonly birthYear?: number;
   readonly joinedAt?: string;
+  readonly employeeCode?: string;
 }
 
 interface Cached<TValue> {
@@ -93,6 +94,7 @@ export class HttpPeopleProfile implements PeopleProfilePort {
       ...(entry.email ? { email: entry.email } : {}),
       ...(facts?.birthday ? { birthday: facts.birthday } : {}),
       ...(facts?.joinedAt ? { joinedAt: facts.joinedAt } : {}),
+      ...(facts?.employeeCode ? { employeeCode: facts.employeeCode } : {}),
     };
   }
 
@@ -246,11 +248,13 @@ export function parseFacts(payload: unknown): ReadonlyMap<string, PersonFacts> {
     const birthYear = birthday && Number.isInteger(year) && year >= 1900 && year <= 2200 ? year : undefined;
     const joinDate = text(row?.['joinDate']);
     const joinedAt = joinDate && /^\d{4}-\d{2}-\d{2}/.test(joinDate) ? joinDate.slice(0, 10) : undefined;
-    if (!birthday && !joinedAt) continue;
+    const employeeCode = text(row?.['employeeCode']);
+    if (!birthday && !joinedAt && !employeeCode) continue;
     result.set(userId.toLowerCase(), {
       ...(birthday ? { birthday } : {}),
       ...(birthYear ? { birthYear } : {}),
       ...(joinedAt ? { joinedAt } : {}),
+      ...(employeeCode ? { employeeCode } : {}),
     });
   }
   return result;

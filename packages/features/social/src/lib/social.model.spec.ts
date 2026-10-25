@@ -338,14 +338,25 @@ describe('visibleTabs', () => {
   });
   const ids = (tabs: ReturnType<typeof visibleTabs>) => tabs.map((tab) => tab.id);
 
-  it('người thường chỉ thấy bốn thẻ cố định', () => {
+  it('người thường thấy Bảng tin, Tường công ty, Nhóm và Hẹn giờ (không có Đã lưu)', () => {
     expect(ids(visibleTabs(['social.read', 'social.post.write'], counts({})))).toEqual([
       'feed',
       'wall',
       'groups',
-      'saved',
+      'scheduled',
     ]);
-    expect(ids(visibleTabs([], undefined))).toEqual(['feed', 'wall', 'groups', 'saved']);
+    expect(ids(visibleTabs([], undefined))).toEqual(['feed', 'wall', 'groups', 'scheduled']);
+  });
+
+  it('thứ tự và nhãn: Bảng tin, Tường công ty, Bài viết chờ duyệt, Nhóm thảo luận, Bài viết hẹn giờ', () => {
+    const tabs = visibleTabs(['social.post.moderate'], counts({}));
+    expect(tabs.map((tab) => tab.label)).toEqual([
+      'Bảng tin',
+      'Tường công ty',
+      'Bài viết chờ duyệt',
+      'Nhóm, thảo luận',
+      'Bài viết hẹn giờ',
+    ]);
   });
 
   it('moderator luôn thấy Chờ duyệt, kèm số bài cần duyệt', () => {
@@ -354,9 +365,10 @@ describe('visibleTabs', () => {
     expect(ids(visibleTabs(['social.post.moderate'], undefined))).toContain('pending');
   });
 
-  it('tác giả có bài chờ duyệt hoặc bị từ chối thấy Chờ duyệt; có bài hẹn giờ thấy Hẹn giờ', () => {
+  it('tác giả có bài chờ duyệt hoặc bị từ chối thấy Chờ duyệt; Hẹn giờ mang số bài đang hẹn', () => {
     expect(ids(visibleTabs([], counts({ myRejected: 1 })))).toContain('pending');
-    expect(ids(visibleTabs([], counts({ myScheduled: 2 })))).toEqual(['feed', 'wall', 'groups', 'saved', 'scheduled']);
+    expect(visibleTabs([], counts({ myScheduled: 2 })).find((tab) => tab.id === 'scheduled')?.badge).toBe(2);
+    expect(visibleTabs([], counts({})).find((tab) => tab.id === 'scheduled')?.badge).toBe(0);
   });
 });
 

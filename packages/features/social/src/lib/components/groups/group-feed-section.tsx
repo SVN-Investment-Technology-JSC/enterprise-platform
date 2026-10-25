@@ -46,7 +46,7 @@ export function GroupFeedSection({
             <div className={s.composeShortcuts}>
               <button type="button" onClick={() => compose('media')}>
                 <ImageIcon size={15} aria-hidden="true" />
-                Ảnh/File
+                Ảnh/Video/File
               </button>
               <button type="button" onClick={() => compose('poll')}>
                 <BarChart3 size={15} aria-hidden="true" />

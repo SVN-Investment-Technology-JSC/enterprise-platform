@@ -1,4 +1,5 @@
 export * from './lib/module-shell';
+export * from './lib/module-switcher';
 export * from './lib/assistant-actions';
 export * from './lib/assistant-form-host';
 export * from './lib/assistant-saved';

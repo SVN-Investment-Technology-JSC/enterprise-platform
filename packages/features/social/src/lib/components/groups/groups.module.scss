@@ -9,6 +9,7 @@
 
 @mixin surface {
   border: 1px solid var(--ep-border);
+  box-shadow: var(--social-card-ring);
   border-radius: var(--ep-radius-md);
   background: var(--ep-surface);
 }

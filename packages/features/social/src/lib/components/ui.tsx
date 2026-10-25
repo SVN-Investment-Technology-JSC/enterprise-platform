@@ -1,21 +1,14 @@
 'use client';
 
 import { userAvatarUrl } from '@enterprise-platform/contracts-chat';
-import type { SocialReactionType, SocialUserRef } from '@enterprise-platform/contracts-social';
+import type { SocialUserRef } from '@enterprise-platform/contracts-social';
 import { usePerson } from '@enterprise-platform/feature-chat';
-import { Heart, Lightbulb, PartyPopper, ThumbsUp, X, type LucideIcon } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { initials } from '../social.model';
 import styles from '../social.module.scss';
-
-/** Biểu tượng cho từng loại phản ứng (không dùng emoji). */
-export const REACTION_ICONS: Readonly<Record<SocialReactionType, LucideIcon>> = {
-  like: ThumbsUp,
-  love: Heart,
-  celebrate: PartyPopper,
-  insightful: Lightbulb,
-};
+import { Button } from '../ui/button';
 
 export function Avatar({ user, size = 40 }: { readonly user: SocialUserRef; readonly size?: number }) {
   const [broken, setBroken] = useState(false);
@@ -64,6 +57,9 @@ export interface DialogProps {
 }
 
 /** Hộp thoại dựng qua portal vào `document.body`; Esc và bấm ra ngoài để đóng. */
+/** Nút ở chân hộp thoại: cùng cao 38px với ô nhập trong hộp. */
+const DIALOG_BUTTON = 'h-[38px] rounded-md px-4 text-[13.5px]! font-semibold';
+
 export function Dialog({
   open,
   title,
@@ -110,9 +106,9 @@ export function Dialog({
       >
         <header className={styles.dialogHead}>
           <h3>{title}</h3>
-          <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={onClose}>
-            <X size={15} />
-          </button>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Đóng" onClick={onClose}>
+            <X className="size-4" aria-hidden="true" />
+          </Button>
         </header>
         <form
           className={styles.dialogForm}
@@ -130,17 +126,17 @@ export function Dialog({
             ) : null}
           </div>
           <footer className={styles.dialogFoot}>
-            <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
+            <Button type="button" variant="outline" className={DIALOG_BUTTON} onClick={onClose} disabled={submitting}>
               {onSubmit ? cancelLabel : 'Đóng'}
-            </button>
+            </Button>
             {onSubmit ? (
-              <button
+              <Button
                 type="submit"
-                className={danger ? styles.buttonDanger : styles.buttonPrimary}
+                className={danger ? `${DIALOG_BUTTON} bg-red-600 text-white hover:bg-red-700` : DIALOG_BUTTON}
                 disabled={submitting || submitDisabled}
               >
                 {submitting ? submittingLabel : submitLabel}
-              </button>
+              </Button>
             ) : null}
           </footer>
         </form>

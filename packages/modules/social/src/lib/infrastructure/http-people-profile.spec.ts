@@ -74,7 +74,7 @@ describe('HttpPeopleProfile', () => {
   const facts = () =>
     json({
       data: [
-        { userId: USER_A, birthMonth: 10, birthDay: 23, joinDate: '2020-01-02' },
+        { userId: USER_A, birthMonth: 10, birthDay: 23, joinDate: '2020-01-02', employeeCode: 'NV001' },
         { userId: USER_B, birthMonth: 2, birthDay: 29 },
       ],
     });
@@ -89,6 +89,7 @@ describe('HttpPeopleProfile', () => {
       email: 'an@example.com',
       birthday: { month: 10, day: 23 },
       joinedAt: '2020-01-02',
+      employeeCode: 'NV001',
     });
     const hrmCall = fetcher.mock.calls.find(([url]) => String(url).includes('profile-facts'));
     expect(String(hrmCall?.[0])).toBe('http://hrm/api/hrm/v1/internal/people/profile-facts');

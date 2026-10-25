@@ -37,7 +37,7 @@ export function parseProfileFactsFilter(userIds?: string, month?: string): Profi
 
 /**
  * Ngày sinh và ngày vào công ty của nhân sự đang làm việc có tài khoản người dùng. Chỉ đọc; nhân sự đã
- * nghỉ việc, đã xoá hoặc chưa gắn người dùng bị loại. Không trả dòng nếu cả ngày sinh lẫn ngày vào đều trống.
+ * nghỉ việc, đã xoá hoặc chưa gắn người dùng bị loại. Không trả dòng nếu cả ngày sinh, ngày vào lẫn mã nhân viên đều trống.
  */
 export async function listProfileFacts(
   pool: Pool,
@@ -63,7 +63,8 @@ export async function listProfileFacts(
   const { rows } = await pool.query(
     `SELECT e.user_id::text AS user_id,
             to_char(ep.date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
-            to_char(ep.join_date, 'YYYY-MM-DD') AS join_date
+            to_char(ep.join_date, 'YYYY-MM-DD') AS join_date,
+            ep.employee_code
        FROM hrm_schema.employee_profiles ep
        JOIN core_schema.employees e ON e.id = ep.employee_id AND e.tenant_id = ep.tenant_id
       WHERE ${where.join(' AND ')}
@@ -71,13 +72,20 @@ export async function listProfileFacts(
     params,
   );
   const facts: HrmPersonProfileFact[] = [];
-  for (const row of rows as Array<{ user_id: string; date_of_birth: string | null; join_date: string | null }>) {
+  for (const row of rows as Array<{
+    user_id: string;
+    date_of_birth: string | null;
+    join_date: string | null;
+    employee_code?: string | null;
+  }>) {
     const birth = row.date_of_birth ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(row.date_of_birth) : null;
-    if (!birth && !row.join_date) continue;
+    const employeeCode = row.employee_code?.trim();
+    if (!birth && !row.join_date && !employeeCode) continue;
     facts.push({
       userId: row.user_id,
       ...(birth ? { birthYear: Number(birth[1]), birthMonth: Number(birth[2]), birthDay: Number(birth[3]) } : {}),
       ...(row.join_date ? { joinDate: row.join_date } : {}),
+      ...(employeeCode ? { employeeCode } : {}),
     });
   }
   return facts;

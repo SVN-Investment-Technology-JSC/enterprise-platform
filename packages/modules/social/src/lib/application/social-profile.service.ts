@@ -38,6 +38,7 @@ export class SocialProfileService {
       ...(record.email ? { email: record.email } : {}),
       ...(record.birthday ? { birthday: record.birthday } : {}),
       ...(record.joinedAt ? { joinedAt: record.joinedAt } : {}),
+      ...(record.employeeCode ? { employeeCode: record.employeeCode } : {}),
       postCount,
       canOpenInHrm,
     };

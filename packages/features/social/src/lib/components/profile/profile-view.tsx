@@ -8,6 +8,7 @@ import styles from '../../discovery.module.scss';
 import { errorMessage, type SocialApiError } from '../../social-api';
 import { loadProfile } from '../../social-discovery-api';
 import { SocialFeed } from '../feed/social-feed';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip';
 import { Avatar, userSubtitle } from '../ui';
 
 type Tab = 'posts' | 'about';
@@ -22,7 +23,7 @@ type State =
   | { readonly status: 'error'; readonly message: string; readonly notFound: boolean }
   | { readonly status: 'ready'; readonly profile: SocialPersonProfile };
 
-/** Trang cá nhân: đầu trang gọn, hồ sơ nhanh bên cạnh, tab Bài viết / Giới thiệu. */
+/** Trang cá nhân: đầu trang gọn (kèm liên kết sang hồ sơ nhân sự), tab Bài viết / Giới thiệu. */
 export function ProfileView({ userId }: { readonly userId: string }) {
   const [state, setState] = useState<State>({ status: 'loading' });
   const [tab, setTab] = useState<Tab>('posts');
@@ -90,6 +91,22 @@ export function ProfileView({ userId }: { readonly userId: string }) {
             <li>{profile.postCount} bài viết</li>
           </ul>
         </div>
+        {profile.canOpenInHrm ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <a
+                  className={styles.profileHrmLink}
+                  href={SOCIAL_HRM_LINKS.employees}
+                  aria-label="Hồ sơ trong Nhân sự"
+                />
+              }
+            >
+              <ExternalLink size={20} aria-hidden="true" />
+            </TooltipTrigger>
+            <TooltipContent side="left">Hồ sơ trong Nhân sự</TooltipContent>
+          </Tooltip>
+        ) : null}
       </header>
 
       <div className={styles.profileBody}>
@@ -119,18 +136,6 @@ export function ProfileView({ userId }: { readonly userId: string }) {
             )}
           </div>
         </div>
-
-        <aside className={`${styles.card} ${styles.quick}`} aria-label="Hồ sơ nhanh">
-          <h2>Hồ sơ nhanh</h2>
-          {profile.canOpenInHrm ? (
-            <a className={styles.quickLink} href={SOCIAL_HRM_LINKS.employees}>
-              Hồ sơ trong Nhân sự
-              <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          ) : (
-            <p className={styles.quickNote}>Bạn không có quyền xem hồ sơ nhân sự của người này.</p>
-          )}
-        </aside>
       </div>
     </div>
   );

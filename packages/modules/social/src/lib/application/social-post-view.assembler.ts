@@ -25,6 +25,16 @@ import { ReadAudience } from './social-read-audience.js';
 import type { SocialStore } from './social-store.port.js';
 import { lookupUsers, toAttachmentView } from './social-views.js';
 
+/** `topic` (chuyên mục chính, cho bản cũ) và `topics` (đủ danh sách); thiếu bảng nối thì chỉ có chuyên mục chính. */
+function topicFields(
+  row: ExtendedPostRow,
+  topics: readonly { readonly id: string; readonly name: string }[] | undefined,
+): Pick<SocialPost, 'topic' | 'topics'> {
+  const list = topics && topics.length > 0 ? topics : row.topicId ? [{ id: row.topicId, name: row.topicName ?? '' }] : [];
+  const first = list[0];
+  return first ? { topic: first, topics: list } : {};
+}
+
 export interface PostViewAssemblerDeps {
   readonly store: Pick<SocialStore, 'posts'>;
   readonly publishing: Pick<SocialPublishingStore, 'engagement'>;
@@ -139,7 +149,7 @@ export class SocialPostViewAssembler implements PostViewAssembler {
           kind: row.kind,
           ...(row.title ? { title: row.title } : {}),
           bodyHtml: row.bodyHtml,
-          ...(row.topicId ? { topic: { id: row.topicId, name: row.topicName ?? '' } } : {}),
+          ...topicFields(row, relations.topics?.get(row.id)),
           pinned: row.pinned,
           attachments,
           mentions: (relations.mentions.get(row.id) ?? []).map(userOf),

@@ -25,6 +25,7 @@ import {
   normalizeMediaLayout,
   normalizeMentionIds,
   normalizeTitle,
+  normalizeTopicIds,
   requireContent,
   requireUuid,
 } from '../domain/social-rules.js';
@@ -82,6 +83,7 @@ const CONTENT_FIELDS = [
   'title',
   'bodyHtml',
   'topicId',
+  'topicIds',
   'attachmentIds',
   'mediaLayout',
   'mentionUserIds',
@@ -198,8 +200,9 @@ export class SocialPublishingService {
       }
     }
 
-    if (group && input.topicId) throw new SocialValidationError('Bài trong nhóm không có chuyên mục.');
-    const topicId = group ? undefined : await this.validTopic(actor, input.topicId);
+    const requestedTopics = normalizeTopicIds(input.topicIds, input.topicId) ?? [];
+    if (group && requestedTopics.length > 0) throw new SocialValidationError('Bài trong nhóm không có chuyên mục.');
+    const topicIds = group ? [] : await this.validTopics(actor, requestedTopics);
     const groupTopicId = await this.validGroupTopic(actor, group?.id, input.groupTopicId);
     const placement = await this.resolvePlacement(actor, {
       visibility,
@@ -243,7 +246,8 @@ export class SocialPublishingService {
       kind,
       title,
       bodyHtml: body.html,
-      topicId,
+      topicId: topicIds[0],
+      topicIds,
       groupId: group?.id,
       pinned: wantsPinned,
       mentionsAll: wantsAll,
@@ -309,7 +313,6 @@ export class SocialPublishingService {
 
     let title = row.title;
     let bodyState = { html: row.bodyHtml, hasText: htmlToPlainText(row.bodyHtml).length > 0 };
-    let topicId: string | null | undefined;
     let attachmentIds: string[] | undefined;
     let mentionUserIds: string[] | undefined;
     const patch: { -readonly [K in keyof PublishingPostPatch]?: PublishingPostPatch[K] } = {};
@@ -323,12 +326,16 @@ export class SocialPublishingService {
       patch.bodyHtml = body.html;
       bodyState = body;
     }
-    if (input.topicId !== undefined) {
-      if (row.groupId && input.topicId !== null && input.topicId !== '') {
+    const requestedTopics = normalizeTopicIds(input.topicIds, input.topicId);
+    if (requestedTopics !== undefined) {
+      if (row.groupId && requestedTopics.length > 0) {
         throw new SocialValidationError('Bài trong nhóm không có chuyên mục.');
       }
-      topicId = input.topicId === null || input.topicId === '' ? null : await this.validTopic(actor, input.topicId);
-      patch.topicId = topicId;
+      // Chuyên mục đã tắt mà bài đã có thì được giữ nguyên, chỉ không cho thêm chuyên mục tắt mới.
+      const already = new Set((relations.topics?.get(postId) ?? []).map((topic) => topic.id.toLowerCase()));
+      const topicIds = await this.validTopics(actor, requestedTopics, already);
+      patch.topicIds = topicIds;
+      patch.topicId = topicIds[0] ?? null;
     }
     if (input.attachmentIds !== undefined) {
       attachmentIds = normalizeAttachmentIds(input.attachmentIds);
@@ -711,14 +718,22 @@ export class SocialPublishingService {
   }
 
   /** Chuyên mục phải có và đang dùng; rỗng là không chọn chuyên mục. */
-  private async validTopic(actor: SocialActor, topicId: string | null | undefined): Promise<string | undefined> {
-    if (topicId === undefined || topicId === null || topicId === '') return undefined;
-    requireUuid(topicId, 'Mã chuyên mục');
-    const topic = await this.deps.social.topics.findById(actor.tenantId, topicId);
-    if (!topic) throw new SocialTopicNotFoundError();
-    if (!topic.isActive) throw new SocialTopicInactiveError();
-    return topic.id;
+  /** Mỗi chuyên mục phải có thật và còn dùng (trừ chuyên mục bài đã có sẵn); giữ thứ tự tác giả chọn. */
+  private async validTopics(
+    actor: SocialActor,
+    topicIds: readonly string[],
+    keepInactive: ReadonlySet<string> = new Set(),
+  ): Promise<string[]> {
+    const valid: string[] = [];
+    for (const id of topicIds) {
+      const topic = await this.deps.social.topics.findById(actor.tenantId, id);
+      if (!topic) throw new SocialTopicNotFoundError();
+      if (!topic.isActive && !keepInactive.has(topic.id.toLowerCase())) throw new SocialTopicInactiveError();
+      valid.push(topic.id);
+    }
+    return valid;
   }
+
 }
 
 function optionalBoolean(value: unknown, label: string): boolean {

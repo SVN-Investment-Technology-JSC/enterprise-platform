@@ -26,6 +26,7 @@ describe('whereClause của bảng tin', () => {
     const values: unknown[] = ['x'];
     const clause = whereClause({ visibility, source: 'all', topicId: 'topic-1' }, values);
     const index = values.indexOf('topic-1') + 1;
-    expect(clause).toContain(`p.topic_id = $${index}::uuid`);
+    // Lọc theo mọi chuyên mục của bài (bảng nối), không chỉ chuyên mục chính.
+    expect(clause).toContain(`pt.post_id = p.id AND pt.topic_id = $${index}::uuid`);
   });
 });

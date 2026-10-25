@@ -23,7 +23,8 @@ import { SocialPollService } from './application/social-poll.service.js';
 import { SocialPublishingService } from './application/social-publishing.service.js';
 import { SocialSchedulerService } from './application/social-scheduler.service.js';
 import { SocialSearchService } from './application/social-search.service.js';
-import { SocialPostNotFoundError } from './domain/social.error.js';
+import { SocialTopicService } from './application/social-topic.service.js';
+import { SocialPostNotFoundError, SocialValidationError } from './domain/social.error.js';
 import { SOCIAL_STORE, type SocialStore } from './application/social-store.port.js';
 import { SocialModule } from './social.module.js';
 
@@ -46,6 +47,8 @@ const MIGRATIONS = [
   'tenant/social/0006-social-comment-attachments.sql',
   'tenant/social/0007-social-video-processing.sql',
   'tenant/social/0008-social-post-media-layout.sql',
+  'tenant/social/0009-social-post-topics.sql',
+  'tenant/social/0010-social-more-reactions.sql',
 ];
 
 function actor(tenantId: string, userId: string, over: Partial<SocialActor> = {}): SocialActor {
@@ -79,6 +82,7 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
   let polls: SocialPollService;
   let scheduler: SocialSchedulerService;
   let comments: SocialCommentService;
+  let topics: SocialTopicService;
   const deletedKeys: string[] = [];
 
   beforeAll(async () => {
@@ -132,6 +136,7 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     polls = moduleRef.get(SocialPollService);
     scheduler = moduleRef.get(SocialSchedulerService);
     comments = moduleRef.get(SocialCommentService);
+    topics = moduleRef.get(SocialTopicService);
   });
 
   afterAll(async () => {
@@ -151,6 +156,46 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     expect(page.items.map((item) => item.id)).toContain(post.id);
     const outbox = await pool.query(`SELECT 1 FROM integration_schema.outbox_events WHERE event_type = 'social.post.published'`);
     expect(outbox.rowCount).toBeGreaterThan(0);
+  });
+
+  it('một bài có nhiều chuyên mục: lọc theo từng chuyên mục, đếm bài, đổi và bỏ chuyên mục', async () => {
+    const manager = actor(tenantId, alice, { canModerate: true, canManage: true });
+    const a = await topics.create(manager, { name: 'Chuyên mục A' });
+    const b = await topics.create(manager, { name: 'Chuyên mục B' });
+    const c = await topics.create(manager, { name: 'Chuyên mục C' });
+    const idsInFeed = async (topicId: string) =>
+      (await feed.feed(actor(tenantId, bob), { topicId })).items.map((item) => item.id);
+    const countOf = async (id: string) => (await topics.list(manager)).items.find((item) => item.id === id)?.postCount;
+
+    const post = await publishing.create(actor(tenantId, alice), { bodyHtml: '<p>Nhiều chuyên mục</p>', topicIds: [b.id, a.id] });
+    expect(post.topics?.map((topic) => topic.id)).toEqual([b.id, a.id]);
+    expect(post.topic?.id).toBe(b.id);
+    expect(await idsInFeed(a.id)).toContain(post.id);
+    expect(await idsInFeed(b.id)).toContain(post.id);
+    expect(await idsInFeed(c.id)).not.toContain(post.id);
+    expect([await countOf(a.id), await countOf(b.id), await countOf(c.id)]).toEqual([1, 1, 0]);
+
+    const moved = await publishing.update(actor(tenantId, alice), post.id, { topicIds: [c.id] });
+    expect(moved.topics?.map((topic) => topic.id)).toEqual([c.id]);
+    expect(await idsInFeed(a.id)).not.toContain(post.id);
+    expect(await idsInFeed(c.id)).toContain(post.id);
+    expect([await countOf(a.id), await countOf(c.id)]).toEqual([0, 1]);
+
+    const cleared = await publishing.update(actor(tenantId, alice), post.id, { topicIds: [] });
+    expect(cleared.topics).toBeUndefined();
+    expect(cleared.topic).toBeUndefined();
+    expect(await countOf(c.id)).toBe(0);
+
+    const legacy = await publishing.create(actor(tenantId, alice), { bodyHtml: '<p>Một chuyên mục</p>', topicId: a.id });
+    expect(legacy.topics?.map((topic) => topic.id)).toEqual([a.id]);
+    expect(await idsInFeed(a.id)).toContain(legacy.id);
+
+    await expect(
+      publishing.create(actor(tenantId, alice), {
+        bodyHtml: '<p>Quá nhiều</p>',
+        topicIds: Array.from({ length: 6 }, () => randomUUID()),
+      }),
+    ).rejects.toBeInstanceOf(SocialValidationError);
   });
 
   it('xoá bài xoá luôn dòng và object của tệp bài lẫn tệp bình luận (kể cả poster và bản gốc video)', async () => {

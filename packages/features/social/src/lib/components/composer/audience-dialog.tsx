@@ -19,6 +19,11 @@ import {
 } from '../../post-visibility.model';
 import { loadOrgNodes } from '../../social-posts-api';
 import styles from '../../social.module.scss';
+import { Checkbox } from '../../ui/checkbox';
+import { Input } from '../../ui/input';
+import { Label } from '../../ui/label';
+import { RadioGroup, RadioGroupItem } from '../../ui/radio-group';
+import { Tabs, TabsList, TabsTrigger } from '../../ui/tabs';
 import { usePeopleSearch } from '../people-picker';
 import { Avatar, Dialog, userSubtitle } from '../ui';
 
@@ -128,39 +133,30 @@ export function AudienceDialog({
       onSubmit={apply}
       onClose={onClose}
     >
-      <div
-        className={extras.audienceList}
-        role="radiogroup"
+      <RadioGroup
         aria-label="Quyền xem bài viết"
+        value={visibility}
+        onValueChange={(next) => {
+          setVisibility(next as SocialPostVisibility);
+          setError(undefined);
+        }}
       >
         {VISIBILITY_OPTIONS.map((option) => {
           const disabled = Boolean(lockedReason) && option.value !== 'company';
           return (
-            <label
+            <Label
               key={option.value}
-              className={extras.audienceOption}
-              data-selected={visibility === option.value}
-              data-disabled={disabled}
+              className="cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 has-data-checked:border-amber-400 has-data-checked:bg-amber-50 has-disabled:opacity-50"
             >
-              <input
-                type="radio"
-                name="social-post-visibility"
-                value={option.value}
-                checked={visibility === option.value}
-                disabled={disabled}
-                onChange={() => {
-                  setVisibility(option.value);
-                  setError(undefined);
-                }}
-              />
-              <span className={extras.audienceText}>
-                <span className={extras.audienceName}>{option.label}</span>
-                <span className={extras.audienceHint}>{option.hint}</span>
+              <RadioGroupItem value={option.value} disabled={disabled} className="mt-0.5" />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13.5px] font-semibold text-slate-900">{option.label}</span>
+                <span className="text-xs font-normal text-slate-500">{option.hint}</span>
               </span>
-            </label>
+            </Label>
           );
         })}
-      </div>
+      </RadioGroup>
       {lockedReason ? (
         <p className={extras.notice} role="note">
           {lockedReason}
@@ -207,32 +203,26 @@ export function AudienceDialog({
               ))}
             </ul>
           ) : null}
-          <div
-            className={extras.tabs}
-            role="tablist"
-            aria-label="Loại đối tượng"
+          <Tabs
+            value={tab}
+            onValueChange={(next) => {
+              setTab(next as PickerTab);
+              setQuery('');
+              setNodes([]);
+            }}
           >
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                className={extras.tab}
-                data-active={tab === item.id}
-                onClick={() => {
-                  setTab(item.id);
-                  setQuery('');
-                  setNodes([]);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className={styles.searchBox}>
-            <Search size={14} />
-            <input
+            <TabsList aria-label="Loại đối tượng">
+              {TABS.map((item) => (
+                <TabsTrigger key={item.id} value={item.id}>
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <Input
+              className="h-[38px] rounded-md pl-9 text-[13.5px]!"
               value={query}
               placeholder={SEARCH_PLACEHOLDER[tab]}
               aria-label="Tìm đối tượng được xem bài"
@@ -244,15 +234,14 @@ export function AudienceDialog({
             {tab === 'people'
               ? people.map((user) => (
                   <li key={user.id}>
-                    <label className={extras.pickRow}>
-                      <input
-                        type="checkbox"
+                    <Label className={extras.pickRow}>
+                      <Checkbox
                         checked={userIds.has(user.id)}
                         disabled={
                           !userIds.has(user.id) &&
                           users.length >= SOCIAL_AUDIENCE_MAX_USERS
                         }
-                        onChange={() => setUsers((list) => toggleById(list, user))}
+                        onCheckedChange={() => setUsers((list) => toggleById(list, user))}
                       />
                       <Avatar user={user} size={24} />
                       <span className={extras.pickText}>
@@ -263,20 +252,19 @@ export function AudienceDialog({
                           </span>
                         ) : null}
                       </span>
-                    </label>
+                    </Label>
                   </li>
                 ))
               : nodes.map((node) => (
                   <li key={node.id}>
-                    <label className={extras.pickRow}>
-                      <input
-                        type="checkbox"
+                    <Label className={extras.pickRow}>
+                      <Checkbox
                         checked={unitIds.has(node.id)}
                         disabled={
                           !unitIds.has(node.id) &&
                           units.length >= SOCIAL_AUDIENCE_MAX_UNITS
                         }
-                        onChange={() =>
+                        onCheckedChange={() =>
                           setUnits((list) =>
                             toggleById(list, {
                               id: node.id,
@@ -298,7 +286,7 @@ export function AudienceDialog({
                             .join(' · ')}
                         </span>
                       </span>
-                    </label>
+                    </Label>
                   </li>
                 ))}
             {listEmpty ? (

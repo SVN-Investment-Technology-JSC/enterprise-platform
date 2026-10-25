@@ -71,6 +71,8 @@ export interface ReactionSummaryRow {
 
 export interface PostRelations {
   readonly mentions: ReadonlyMap<string, readonly string[]>;
+  /** Chuyên mục của từng bài (thứ tự tác giả chọn); bài không có thì không có khoá. */
+  readonly topics?: ReadonlyMap<string, readonly { readonly id: string; readonly name: string }[]>;
   /** Chỉ tệp đã tải xong. */
   readonly attachments: ReadonlyMap<string, readonly AttachmentRow[]>;
   readonly reactions: ReadonlyMap<string, ReactionSummaryRow>;

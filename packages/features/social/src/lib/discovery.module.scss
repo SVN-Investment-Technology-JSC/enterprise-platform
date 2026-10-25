@@ -9,6 +9,7 @@
 
 .card {
   border: 1px solid var(--ep-border);
+  box-shadow: var(--social-card-ring);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
 }
@@ -153,52 +154,18 @@
 }
 
 .profileBody {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
-  gap: 14px;
-
-  @media (width <= 900px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.profileMain {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-width: 0;
 }
 
-.quick {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 12px;
-  background: var(--ep-surface);
-
-  h2 {
-    margin: 0 0 6px;
-    color: var(--ep-text-muted);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-  }
-}
-
-.quickLink {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
-  padding: 0 10px;
+/* Liên kết sang hồ sơ nhân sự: chỉ một biểu tượng ở góc trên phải của đầu trang. */
+.profileHrmLink {
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+  padding: 6px;
   border-radius: var(--ep-radius);
   color: var(--ep-link);
-  font-size: 13.5px;
-  font-weight: 600;
-  text-decoration: none;
+  line-height: 0;
 
   &:hover {
     background: var(--ep-hover);
@@ -210,11 +177,11 @@
   }
 }
 
-.quickNote {
-  margin: 0;
-  padding: 4px 10px;
-  color: var(--ep-text-muted);
-  font-size: 12.5px;
+.profileMain {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 .about {

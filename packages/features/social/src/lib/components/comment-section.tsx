@@ -74,7 +74,9 @@ import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
 import { ReactorsDialog } from './reactors-dialog';
 import { Popover, PopoverContent } from '../ui/popover';
-import { Avatar, ConfirmDialog, REACTION_ICONS, userSubtitle } from './ui';
+import { ReactionIcon } from './reaction-icon';
+import { ReactionPicker } from './reaction-picker';
+import { Avatar, ConfirmDialog, userSubtitle } from './ui';
 import { VideoAttachment } from './video-attachment';
 
 /** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng ô, `keepalive` khi đóng tab. */
@@ -879,14 +881,11 @@ function CommentRow({
                     .join(', ')}
                 >
                   <span className={styles.reactionIcons}>
-                    {reactionTypes.map((type) => {
-                      const Icon = REACTION_ICONS[type];
-                      return (
-                        <span key={type} className={styles.reactionDotSmall} data-type={type}>
-                          <Icon size={9} />
-                        </span>
-                      );
-                    })}
+                    {reactionTypes.slice(0, 3).map((type) => (
+                      <span key={type} className={styles.reactionDotSmall}>
+                        <ReactionIcon type={type} size={14} />
+                      </span>
+                    ))}
                   </span>
                   {comment.reactionTotal > 1 ? comment.reactionTotal.toLocaleString('vi-VN') : null}
                 </button>
@@ -917,29 +916,10 @@ function CommentRow({
                   >
                     {comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
                   </button>
-                  <span className={styles.reactPicker} role="group" aria-label="Chọn phản ứng">
-                    {SOCIAL_REACTION_TYPES.map((type) => {
-                      const Icon = REACTION_ICONS[type];
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          className={styles.reactOption}
-                          data-type={type}
-                          data-selected={comment.myReaction === type}
-                          title={SOCIAL_REACTION_LABELS[type]}
-                          aria-label={SOCIAL_REACTION_LABELS[type]}
-                          onClick={(event) => {
-                            // Bỏ focus để bảng chọn đóng lại (nó mở theo :hover và :focus-within).
-                            event.currentTarget.blur();
-                            void react(comment.myReaction === type ? null : type);
-                          }}
-                        >
-                          <Icon size={18} />
-                        </button>
-                      );
-                    })}
-                  </span>
+                  <ReactionPicker
+                    value={comment.myReaction}
+                    onSelect={(type) => void react(comment.myReaction === type ? null : type)}
+                  />
                 </span>
               ) : null}
               {comment.editedAt ? <span title={formatFullTime(comment.editedAt)}>Đã sửa</span> : null}

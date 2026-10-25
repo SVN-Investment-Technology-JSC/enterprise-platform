@@ -74,7 +74,7 @@ export class PostgresSocialSearchStore implements SocialSearchStore {
 
       if (filter.topicId) {
         values.push(filter.topicId);
-        where += ` AND p.topic_id = $${values.length}::uuid`;
+        where += ` AND EXISTS (SELECT 1 FROM social_schema.post_topics pt WHERE pt.post_id = p.id AND pt.topic_id = $${values.length}::uuid)`;
       }
       if (filter.groupId) {
         values.push(filter.groupId);
