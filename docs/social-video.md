@@ -113,6 +113,25 @@ chờ sau video bài đăng dài (tối đa 10 phút, 1080p). Loại sự kiện
   yêu cầu gỡ video. Video bị `failed` sau khi đã đăng hiện "Không xử lý được video này"; tác giả sửa bài để gỡ.
 - Không có bản nháp: video chưa tải xong thì phải ở lại trang, rời trang là bỏ video đó.
 
+### Ảnh và video trong cùng một bài, bố cục hiển thị
+
+- Một bài được gồm ảnh, video và tài liệu cùng nhau (tối đa 3 video và 10 tệp). Bình luận giữ giới hạn riêng: 1 video, 4 tệp.
+- Khi bài có từ 2 ảnh hoặc video trở lên, tác giả chọn "Bố cục hiển thị" và sắp thứ tự từng mục (nút mũi tên trên mỗi ảnh và
+  video), kèm khung xem trước trực tiếp đúng cách bài sẽ hiển thị:
+
+| Bố cục (`mediaLayout`) | Hiển thị |
+|---|---|
+| `auto` (Tự động, mặc định) | Cách cũ: ảnh dạng lưới, video xếp dọc bên dưới. Bài cũ không đổi |
+| `grid` (Lưới đều) | Lưới 2 cột ô bằng nhau, tối đa 4 ô, ô cuối phủ "+N" |
+| `featured` (Nổi bật) | Mục đầu lớn, các mục còn lại nhỏ bên dưới (tối đa 3), ô cuối phủ "+N" |
+| `stack` (Xếp dọc) | Tạm ẩn khỏi giao diện chọn (dòng `'stack'` trong `SELECTABLE_LAYOUTS` ở `media-layout-picker.tsx` đang được comment; bỏ comment để bật lại). Server và phần hiển thị vẫn hỗ trợ: từng mục rộng hết khung theo thứ tự, video phát tại chỗ |
+| `carousel` (Trượt ngang) | Dải cuộn ngang; video phát tại chỗ |
+
+- Bố cục lưu ở `social_schema.posts.media_layout`, thứ tự ở `social_schema.attachments.position` (migration
+  `0008-social-post-media-layout.sql`); thứ tự của mảng `attachmentIds` khi đăng hoặc sửa là thứ tự hiển thị. Sửa bài gửi lại
+  `mediaLayout` hoặc `attachmentIds` với thứ tự khác là đổi bố cục hoặc thứ tự (tính là sửa bài, không tạo bản lịch sử).
+- Bấm vào ảnh hoặc video trong bố cục `grid`, `featured` mở trình xem toàn màn hình cho cả ảnh lẫn video (phím trái, phải, Esc).
+
 ## 6. Dọn tệp
 
 | Tình huống | Cách xử lý |
@@ -226,6 +245,8 @@ trên VPS, RAM và CPU đỉnh, thời gian chờ hàng khi tải cao, số lu�
 | Chuyển mã mp4, webm, mov HEVC, HDR; 8K bị từ chối | `tools/load-test` (fixtures) |
 | Tải đồng thời, độ dài hàng, công suất | `tools/load-test` |
 | Hệ số thời gian thực của ffmpeg | `tools/load-test/benchmark-ffmpeg.mjs` |
+| Bố cục ảnh và video: hàm kế hoạch, hiển thị 5 bố cục, trình xem, sắp thứ tự, xem trước trong ô soạn | Jest, `packages/features/social/src/lib` (`components/media-gallery.spec.tsx`, `composer-media.spec.ts`, `components/media-layout-picker.spec.tsx`) |
+| Lưu và đọc lại bố cục, thứ tự, trộn ảnh và video, giữ bố cục khi duyệt hoặc đăng hẹn giờ | Jest và `social-postgres.integration.spec.ts` |
 | Hộp cảnh báo khi đăng lúc video chưa xong, huỷ video đang tải rồi đăng, khung "Đang xử lý" và tự cập nhật cho người xem | Jest, `packages/features/social/src/lib` (`video-publish-gate.spec.ts`, `components/comment-input-video-gate.spec.tsx`, `use-video-refresh-poll.spec.tsx`, `components/video-attachment.spec.tsx`) |
 | Đăng được khi video queued/processing, từ chối khi failed (`SOCIAL_VIDEO_FAILED`), SQL gate | Jest và `social-postgres.integration.spec.ts` |
 | Quét video kẹt: xếp lại sau 10 phút, báo lỗi sau 30 phút, chỉ dòng chưa từng được nhận | Jest `application/social-attachment-cleanup.spec.ts`; `social-video.integration.spec.ts` |
