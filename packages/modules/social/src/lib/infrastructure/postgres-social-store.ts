@@ -778,6 +778,15 @@ export class PostgresSocialStore implements SocialStore {
         );
       }),
 
+    setDimensions: (tenantId: string, attachmentId: string, width: number, height: number): Promise<void> =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `UPDATE social_schema.attachments SET width = $2, height = $3
+            WHERE id = $1 AND width IS NULL AND height IS NULL`,
+          [attachmentId, width, height],
+        );
+      }),
+
     listOrphans: (tenantId: string, olderThan: string, limit: number): Promise<OrphanAttachment[]> =>
       this.run(tenantId, async (pool) => {
         const result = await pool.query<{

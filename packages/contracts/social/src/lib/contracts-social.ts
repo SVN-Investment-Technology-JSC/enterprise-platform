@@ -66,6 +66,8 @@ export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
 export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
 export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const SOCIAL_COMMENT_PAGE_SIZE = 10;
+/** Cạnh ảnh lớn nhất được ghi nhận kích thước (đủ cho ảnh panorama, loại giá trị vô lý). */
+export const SOCIAL_IMAGE_MAX_DIMENSION = 20_000;
 
 /**
  * Video: nhận mp4, webm và mov (iPhone), chuyển mã ở nền sang MP4 H.264 rồi xoá bản gốc. Giới hạn theo nơi gắn:
@@ -496,6 +498,12 @@ export interface InitiateSocialAttachmentResponse {
 /** Body của `POST /attachments/:id/complete`: với tải nhiều phần phải gửi `uploadId` nhận được lúc initiate. */
 export interface CompleteSocialAttachmentRequest {
   readonly uploadId?: string;
+  /**
+   * Chỉ ảnh: kích thước điểm ảnh (số nguyên dương, tối đa `SOCIAL_IMAGE_MAX_DIMENSION`) mà trình duyệt đọc được trước khi tải lên.
+   * Server chỉ dùng để đặt tỉ lệ khung hiển thị (tránh giật bố cục và cắt ảnh); giá trị không hợp lệ bị bỏ qua, không gây lỗi.
+   */
+  readonly width?: number;
+  readonly height?: number;
 }
 
 /**

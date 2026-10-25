@@ -24,6 +24,7 @@ import { SocialPublishingService } from './application/social-publishing.service
 import { SocialSchedulerService } from './application/social-scheduler.service.js';
 import { SocialSearchService } from './application/social-search.service.js';
 import { SocialPostNotFoundError } from './domain/social.error.js';
+import { SOCIAL_STORE, type SocialStore } from './application/social-store.port.js';
 import { SocialModule } from './social.module.js';
 
 /**
@@ -242,6 +243,26 @@ integration('Mạng nội bộ P2/P3 trên PostgreSQL thật', () => {
     await publishing.remove(a, post.id);
     const left = await pool.query(`SELECT id FROM social_schema.attachments WHERE id = ANY($1::uuid[])`, [[queued, processing]]);
     expect(left.rows).toEqual([]);
+  });
+
+  it('setDimensions ghi kích thước ảnh một lần, không ghi đè; view của bài trả width/height', async () => {
+    const store = moduleRef.get<SocialStore>(SOCIAL_STORE);
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO social_schema.attachments
+         (id, uploaded_by, file_name, content_type, size_bytes, storage_key, completed_at, purpose, processing_status)
+       VALUES ($1, $2, 'a.png', 'image/png', 10, $3, now(), 'post', 'none')`,
+      [id, alice, `k/${id}/a.png`],
+    );
+    await store.attachments.setDimensions(tenantId, id, 1200, 800);
+    await store.attachments.setDimensions(tenantId, id, 10, 10);
+    const row = await pool.query(`SELECT width, height FROM social_schema.attachments WHERE id = $1`, [id]);
+    expect(row.rows[0]).toEqual({ width: 1200, height: 800 });
+
+    const post = await publishing.create(actor(tenantId, alice), { bodyHtml: '<p>Ảnh</p>', attachmentIds: [id] });
+    expect(post.attachments?.[0]).toMatchObject({ id, isImage: true, width: 1200, height: 800 });
+    const fetched = await publishing.get(actor(tenantId, bob), post.id);
+    expect(fetched.attachments?.[0]).toMatchObject({ id, width: 1200, height: 800 });
   });
 
   it('bài nhóm riêng tư ẩn với người ngoài, hiện với thành viên', async () => {

@@ -41,6 +41,13 @@ export async function knownUserIds(
   return ids.filter((id) => found.has(id.toLowerCase()));
 }
 
+function dimensionsOf(row: AttachmentRow): { width?: number; height?: number } {
+  return {
+    ...(row.width !== undefined ? { width: row.width } : {}),
+    ...(row.height !== undefined ? { height: row.height } : {}),
+  };
+}
+
 export async function toAttachmentView(
   storage: AttachmentStorage,
   row: AttachmentRow,
@@ -83,8 +90,7 @@ export async function toAttachmentView(
       : {}),
     ...(posterUrl ? { posterUrl } : {}),
     ...(isVideo && row.durationMs !== undefined ? { durationMs: row.durationMs } : {}),
-    ...(isVideo && row.width !== undefined ? { width: row.width } : {}),
-    ...(isVideo && row.height !== undefined ? { height: row.height } : {}),
+    ...(isVideo || isImage ? dimensionsOf(row) : {}),
     ...(url ? { url } : {}),
   };
 }

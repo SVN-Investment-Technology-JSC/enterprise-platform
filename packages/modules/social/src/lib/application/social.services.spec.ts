@@ -337,6 +337,10 @@ class FakeStore implements SocialStore {
       const row = this.attachments_.get(id);
       if (row) this.attachments_.set(id, { ...row, sizeBytes, completed: true });
     },
+    setDimensions: async (_t, id, width, height) => {
+      const row = this.attachments_.get(id);
+      if (row && row.width === undefined && row.height === undefined) this.attachments_.set(id, { ...row, width, height });
+    },
     listOrphans: async (_t, _olderThan, limit) =>
       [...this.attachments_.values()]
         .filter((a) => !a.postId && !a.commentId)
@@ -1301,6 +1305,76 @@ describe('tệp đính kèm', () => {
     expect(done.url).toBeDefined();
   });
 
+  describe('complete: kích thước ảnh', () => {
+    async function upload(
+      ctx: ReturnType<typeof setup>,
+      file: { fileName: string; contentType: string },
+      size = 50,
+    ): Promise<string> {
+      const { attachmentId } = await ctx.attachments.initiate(alice, { ...file, sizeBytes: size });
+      ctx.storage.uploaded.set(await findKey(ctx.attachments, attachmentId), size);
+      return attachmentId;
+    }
+
+    it('ảnh với kích thước hợp lệ được lưu và có trong view', async () => {
+      const ctx = setup();
+      const id = await upload(ctx, { fileName: 'a.png', contentType: 'image/png' });
+      const done = await ctx.attachments.complete(alice, id, { width: 1200, height: 800 });
+      expect(done).toMatchObject({ isImage: true, width: 1200, height: 800 });
+      expect(ctx.store.attachments_.get(id)).toMatchObject({ width: 1200, height: 800 });
+    });
+
+    it.each([
+      [{ width: 1200 }],
+      [{ height: 800 }],
+      [{ width: 0, height: 10 }],
+      [{ width: -5, height: 10 }],
+      [{ width: 10.5, height: 10 }],
+      [{ width: 20_001, height: 10 }],
+      [{ width: Number.NaN, height: 10 }],
+      [{ width: '100' as unknown as number, height: 10 }],
+    ])('kích thước sai %j bị bỏ qua, không lỗi', async (request) => {
+      const ctx = setup();
+      const id = await upload(ctx, { fileName: 'a.png', contentType: 'image/png' });
+      const done = await ctx.attachments.complete(alice, id, request);
+      expect(done.url).toBeDefined();
+      expect(done.width).toBeUndefined();
+      expect(done.height).toBeUndefined();
+      expect(ctx.store.attachments_.get(id)?.width).toBeUndefined();
+    });
+
+    it('không ghi đè kích thước đã có và complete lần hai không ghi lại', async () => {
+      const ctx = setup();
+      const spy = jest.spyOn(ctx.store.attachments, 'setDimensions');
+      const id = await upload(ctx, { fileName: 'a.png', contentType: 'image/png' });
+      await ctx.attachments.complete(alice, id, { width: 100, height: 50 });
+      const again = await ctx.attachments.complete(alice, id, { width: 999, height: 999 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(again).toMatchObject({ width: 100, height: 50 });
+      await ctx.store.attachments.setDimensions(TENANT, id, 7, 7);
+      expect(ctx.store.attachments_.get(id)).toMatchObject({ width: 100, height: 50 });
+    });
+
+    it('ghi kích thước lỗi thì complete vẫn thành công, không trả kích thước', async () => {
+      const ctx = setup();
+      jest.spyOn(ctx.store.attachments, 'setDimensions').mockRejectedValueOnce(new Error('DB tạm lỗi'));
+      const id = await upload(ctx, { fileName: 'a.png', contentType: 'image/png' });
+      const done = await ctx.attachments.complete(alice, id, { width: 100, height: 50 });
+      expect(done.url).toBeDefined();
+      expect(done.width).toBeUndefined();
+      expect(ctx.store.attachments_.get(id)).toMatchObject({ completed: true });
+    });
+
+    it('tài liệu không ghi kích thước', async () => {
+      const ctx = setup();
+      const spy = jest.spyOn(ctx.store.attachments, 'setDimensions');
+      const id = await upload(ctx, { fileName: 'a.pdf', contentType: 'application/pdf' });
+      const done = await ctx.attachments.complete(alice, id, { width: 100, height: 50 });
+      expect(spy).not.toHaveBeenCalled();
+      expect(done.width).toBeUndefined();
+    });
+  });
+
   it('complete: dung lượng sai thì xoá ngay object và dòng', async () => {
     const { attachments, storage, store } = setup();
     const { attachmentId } = await attachments.initiate(alice, {
@@ -1660,6 +1734,16 @@ describe('video: tải lên, xếp hàng và giới hạn', () => {
     expect(done.url).toBeDefined();
     expect(videoStore.completeCalls).toBe(0);
     expect(store.attachments_.get(attachmentId)?.completed).toBe(true);
+  });
+
+  it('video không nhận kích thước từ client', async () => {
+    const { attachments, storage, store } = videoSetup();
+    const spy = jest.spyOn(store.attachments, 'setDimensions');
+    const id = await initiateVideo(attachments, alice, 'post', MOV);
+    storage.uploaded.set(await findKey(attachments, id), 100);
+    const done = await attachments.complete(alice, id, { width: 100, height: 50 });
+    expect(spy).not.toHaveBeenCalled();
+    expect(done.width).toBeUndefined();
   });
 
   it('complete hai lần, kể cả đồng thời, chỉ tạo MỘT sự kiện', async () => {

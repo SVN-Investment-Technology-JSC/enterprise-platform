@@ -258,6 +258,8 @@ export interface SocialStore {
     insert(tenantId: string, input: AttachmentInsert): Promise<void>;
     findById(tenantId: string, attachmentId: string): Promise<AttachmentRow | undefined>;
     markCompleted(tenantId: string, attachmentId: string, sizeBytes: number): Promise<void>;
+    /** Ghi kích thước ảnh, chỉ khi dòng chưa có kích thước (không ghi đè). */
+    setDimensions(tenantId: string, attachmentId: string, width: number, height: number): Promise<void>;
     /** Tệp chưa gắn bài, tạo trước `olderThan` (ISO). */
     listOrphans(tenantId: string, olderThan: string, limit: number): Promise<OrphanAttachment[]>;
     deleteByIds(tenantId: string, ids: readonly string[]): Promise<void>;

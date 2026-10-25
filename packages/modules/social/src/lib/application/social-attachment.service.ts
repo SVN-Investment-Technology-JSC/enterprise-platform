@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
+  SOCIAL_IMAGE_MAX_DIMENSION,
   SOCIAL_MAX_UNATTACHED_BYTES_PER_USER,
   SOCIAL_MULTIPART_PART_BYTES,
   SOCIAL_MULTIPART_THRESHOLD_BYTES,
@@ -25,6 +26,7 @@ import {
 import { FILE_SIGNATURE_HEAD_BYTES, matchesFileSignature } from '../domain/file-signature.js';
 import { mayWrite } from '../domain/social-principal.js';
 import {
+  isImageContentType,
   isUuid,
   isVideoContentType,
   normalizeAttachmentInput,
@@ -77,6 +79,17 @@ interface UploadLogContext {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** Kích thước ảnh do client gợi ý để dựng khung hiển thị: thiếu hoặc không hợp lệ thì bỏ qua, không báo lỗi. */
+function validImageDimensions(
+  request: CompleteSocialAttachmentRequest | undefined,
+): { width: number; height: number } | undefined {
+  const width: unknown = request?.width;
+  const height: unknown = request?.height;
+  const valid = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= SOCIAL_IMAGE_MAX_DIMENSION;
+  return valid(width) && valid(height) ? { width, height } : undefined;
 }
 
 function isMultipartSize(sizeBytes: number): boolean {
@@ -319,8 +332,23 @@ export class SocialAttachmentService {
       return this.completeVideo(videoStore, actor, row, uploadedBytes, context);
     }
     await this.store.attachments.markCompleted(actor.tenantId, attachmentId, uploadedBytes);
+    const dimensions = isImageContentType(row.contentType) ? validImageDimensions(request) : undefined;
+    let recorded = dimensions;
+    if (dimensions) {
+      try {
+        await this.store.attachments.setDimensions(actor.tenantId, attachmentId, dimensions.width, dimensions.height);
+      } catch (error) {
+        // Kích thước chỉ để đặt tỉ lệ khung hiển thị: không được làm hỏng việc hoàn tất tải lên.
+        recorded = undefined;
+        this.logger.warn(`Không ghi được kích thước ảnh của tenant ${actor.tenantId}: ${String(error)}`);
+      }
+    }
     this.log('completed', context);
-    return toAttachmentView(this.storage, { ...row, completed: true });
+    return toAttachmentView(this.storage, {
+      ...row,
+      completed: true,
+      ...(recorded && row.width === undefined && row.height === undefined ? recorded : {}),
+    });
   }
 
   /**
