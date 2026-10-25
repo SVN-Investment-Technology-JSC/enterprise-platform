@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "emojibase-data": "18.0.0",
     "tailwindcss": "^4.3.3"
   }
 }

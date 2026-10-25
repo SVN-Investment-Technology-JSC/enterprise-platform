@@ -89,3 +89,4 @@ playwright-report/
 blob-report/
 .nyc_output/
 test-results/
+apps/social-web/public/emoji-data/
