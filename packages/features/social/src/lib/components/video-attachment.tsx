@@ -5,6 +5,7 @@ import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import styles from '../social.module.scss';
 import { useExclusiveVideoPlayback } from '../use-exclusive-video-playback';
+import { useNearViewport, usePauseWhenOutOfView } from '../use-viewport-visibility';
 import { useVideoRefreshPoll, type VideoRefresh } from '../use-video-refresh-poll';
 
 export interface VideoAttachmentProps {
@@ -50,12 +51,19 @@ export function shouldRefreshOnError(state: { readonly started: boolean; readonl
 export function VideoAttachment({ attachment, onRemove, onRequestRefresh, className }: VideoAttachmentProps) {
   useExclusiveVideoPlayback();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
   const retried = useRef(false);
   const resumeAt = useRef<number | null>(null);
   const [expired, setExpired] = useState(false);
 
   const { url, posterUrl } = attachment;
+  // Video đang phát mà cuộn ra khỏi màn hình thì tự dừng (cuộn lại không tự phát tiếp).
+  usePauseWhenOutOfView(videoRef, url);
+  // Ảnh bìa (thuộc tính `poster`) và khung đầu của video không bìa đều được tải ngay khi thẻ video xuất hiện, không có lazy
+  // như thẻ `<img>`; hoãn tới khi gần vùng nhìn thấy để mở bảng tin không phải tải bìa của mọi bài.
+  const near = useNearViewport(rootRef, Boolean(url));
+  const source = url && (posterUrl || near) ? url : undefined;
   const duration = formatVideoDuration(attachment.durationMs);
   const rootClass = [styles.videoAttachment, className].filter(Boolean).join(' ');
   const ratio = videoAspectRatio(attachment.width, attachment.height);
@@ -122,14 +130,14 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
   }
 
   return (
-    <div className={rootClass}>
+    <div ref={rootRef} className={rootClass}>
       <video
         ref={videoRef}
         key={url}
         className={styles.videoPlayer}
         style={{ aspectRatio: ratio }}
-        src={url}
-        poster={posterUrl}
+        src={source}
+        poster={near ? posterUrl : undefined}
         controls
         playsInline
         preload={videoPreload(posterUrl)}

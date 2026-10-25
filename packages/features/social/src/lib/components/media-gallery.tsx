@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, LoaderCircle, Play, TriangleAlert } from 'lu
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import styles from '../media-gallery.module.scss';
 import { useVideoRefreshPoll } from '../use-video-refresh-poll';
+import { useNearViewport } from '../use-viewport-visibility';
 import { ImageGrid } from './image-grid';
 import { MediaViewer } from './media-viewer';
 import {
@@ -193,6 +194,17 @@ function VideoStateBox({ item }: { readonly item: GalleryItem }) {
   );
 }
 
+/** Khung đầu của video không có ảnh bìa: chỉ nạp (siêu dữ liệu) khi ô tới gần vùng nhìn thấy, không nạp cả loạt lúc tải trang. */
+function LazyFirstFrame({ url, alt }: { readonly url?: string; readonly alt: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(ref, true);
+  return (
+    <div ref={ref} style={{ width: '100%', height: '100%' }}>
+      {near && url ? <video src={url} preload="metadata" muted playsInline aria-label={`Video ${alt}`} /> : null}
+    </div>
+  );
+}
+
 /** Hình của ô: ảnh, hoặc video (ảnh bìa hoặc khung đầu, biểu tượng phát, thời lượng), hoặc khung trạng thái. */
 function CellFace({ item }: { readonly item: GalleryItem }) {
   if (item.kind === 'image') {
@@ -205,7 +217,7 @@ function CellFace({ item }: { readonly item: GalleryItem }) {
       {item.posterUrl ? (
         <img src={item.posterUrl} alt={item.alt} loading="lazy" />
       ) : (
-        <video src={item.url} preload="metadata" muted playsInline aria-label={`Video ${item.alt}`} />
+        <LazyFirstFrame url={item.url} alt={item.alt} />
       )}
       <span className={styles.playBadge} aria-hidden="true">
         <Play size={20} fill="currentColor" />
