@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { SocialPost } from '@enterprise-platform/contracts-social';
+import { SOCIAL_FEED_PAGE_SIZE, type SocialPost } from '@enterprise-platform/contracts-social';
 import { SocialError } from '../domain/social.error.js';
 import { PostVisibilityService } from './post-visibility.service.js';
 import type { GroupAccessInfo, GroupMembershipPort } from './ports/group-membership.port.js';
@@ -126,7 +126,7 @@ describe('SocialFeedService', () => {
   it('mặc định là Tường công ty (scope wall), giống P1', async () => {
     const store = new FakeFeedStore();
     await service(store).feed(actor(ALICE));
-    expect(store.pageReads[0]).toMatchObject({ source: 'wall', limit: 21 });
+    expect(store.pageReads[0]).toMatchObject({ source: 'wall', limit: SOCIAL_FEED_PAGE_SIZE + 1 });
     expect(store.pageReads[0].groupId).toBeUndefined();
   });
 
