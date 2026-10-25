@@ -1620,6 +1620,24 @@
   list-style: none;
 }
 
+/* Hộp gợi ý tự co theo nội dung: hộp tự cuộn, tên và chức danh dài thì xuống dòng chứ không bị cắt. */
+.suggestList[data-full] {
+  max-height: none;
+  overflow: visible;
+
+  .suggestName,
+  .suggestMeta {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.suggestItem[data-active] {
+  background: var(--ep-hover);
+}
+
 .suggestItem {
   display: flex;
   align-items: center;

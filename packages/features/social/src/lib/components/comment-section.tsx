@@ -11,8 +11,8 @@ import {
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { AtSign, ImagePlus, PenLine, RotateCw, SendHorizontal, X } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ImagePlus, PenLine, RotateCw, SendHorizontal, X } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
   attachmentErrorMessage,
@@ -73,6 +73,7 @@ import { MentionLink } from './mention-link';
 import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
 import { ReactorsDialog } from './reactors-dialog';
+import { Popover, PopoverContent } from '../ui/popover';
 import { Avatar, ConfirmDialog, REACTION_ICONS, userSubtitle } from './ui';
 import { VideoAttachment } from './video-attachment';
 
@@ -177,6 +178,7 @@ export function CommentInput({
   const fileCounter = useRef(0);
   const [dragging, setDragging] = useState(false);
   const mirror = useRef<HTMLDivElement>(null);
+  const mirrorProbe = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<PendingFile[]>(() =>
     initialFiles.map((file) => ({
       key: file.id,
@@ -364,9 +366,18 @@ export function CommentInput({
   // Chưa gõ gì sau `@` thì không gọi server (server trả rỗng cho từ khoá rỗng) mà chỉ nhắc cách dùng.
   // Tên đã chọn xong (bấm "Trả lời" tự gắn tên, hoặc vừa chọn từ gợi ý) thì không mở bảng gợi ý nữa.
   const mentionDone = mention !== undefined && isMentionComplete(mention.query, picks);
-  const mentionOpen = mention !== undefined && !mentionDone;
+  // Esc đóng bảng gợi ý cho đoạn `@` này (nhớ vị trí `@`), đến khi người dùng bắt đầu một `@` khác.
+  const [dismissedStart, setDismissedStart] = useState<number>();
+  useEffect(() => {
+    if (mention === undefined) setDismissedStart(undefined);
+  }, [mention]);
+  const mentionOpen = mention !== undefined && !mentionDone && mention.start !== dismissedStart;
   const mentionQuery = mention?.query.trim() ?? '';
+  const [active, setActive] = useState(0);
+  const marker = useRef<HTMLSpanElement>(null);
   const { people, loading } = usePeopleSearch(mentionQuery, mentionOpen && mentionQuery.length > 0);
+  // Danh sách đổi (gõ thêm chữ) thì quay về mục đầu.
+  useEffect(() => setActive(0), [people, mentionQuery]);
 
   useEffect(() => {
     if (autoFocus && area.current) {
@@ -374,6 +385,18 @@ export function CommentInput({
       area.current.setSelectionRange(initialText.length, initialText.length);
     }
   }, [autoFocus, initialText.length]);
+
+  const mentionStart = mention?.start;
+  // Đổi `key` khi `@` mới bắt đầu để bộ định vị tính lại neo. Chỉ đổi lúc đang mở: đổi đúng lúc đóng sẽ dựng lại hộp
+  // ở trạng thái đóng và hộp không bao giờ được gỡ khỏi trang.
+  const popoverKey = useRef(0);
+  if (mentionOpen && mentionStart !== undefined) popoverKey.current = mentionStart;
+  // Lớp đo ẩn cuộn cùng ô nhập để dấu mốc (neo của bảng gợi ý) luôn nằm đúng chỗ `@`.
+  useLayoutEffect(() => {
+    if (mentionOpen && mirrorProbe.current && area.current) mirrorProbe.current.scrollTop = area.current.scrollTop;
+  }, [mentionOpen, mentionStart, text]);
+  const suggestible = mentionOpen && mentionQuery.length > 0 && people.length > 0;
+  const activeIndex = Math.min(active, Math.max(people.length - 1, 0));
 
   const pick = (user: SocialUserRef) => {
     if (!mention) return;
@@ -449,17 +472,6 @@ export function CommentInput({
     });
   };
 
-  const insertAt = () => {
-    const position = area.current?.selectionStart ?? text.length;
-    const next = `${text.slice(0, position)}@${text.slice(position)}`;
-    setText(next);
-    setCaret(position + 1);
-    window.requestAnimationFrame(() => {
-      area.current?.focus();
-      area.current?.setSelectionRange(position + 1, position + 1);
-    });
-  };
-
   const canSend =
     !busy &&
     !nonVideoUploading &&
@@ -516,10 +528,19 @@ export function CommentInput({
               {'​'}
             </div>
           ) : null}
+          {mentionOpen && mentionStart !== undefined ? (
+            // Lớp đo ẩn: cùng chữ đến trước dấu `@`, rồi một dấu mốc để biết `@` nằm ở đâu (kể cả khi ô xuống dòng).
+            <div ref={mirrorProbe} className={extras.commentMirror} style={{ visibility: 'hidden' }} aria-hidden="true">
+              {text.slice(0, mentionStart)}
+              <span ref={marker}>{'\u200b'}</span>
+            </div>
+          ) : null}
           <textarea
             ref={area}
             className={extras.commentTextarea}
             data-mirrored={hasMention || undefined}
+            // Gạch đỏ chính tả vẽ theo chữ của ô nhập (đang trong suốt) sẽ lệch khỏi lớp tô màu.
+            spellCheck={hasMention ? false : undefined}
             onScroll={(event) => {
               if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop;
             }}
@@ -543,27 +564,31 @@ export function CommentInput({
               addFiles(media);
             }}
             onKeyDown={(event) => {
+              // Bảng gợi ý đang mở và có người: lên/xuống chọn, Enter hoặc Tab nhận người đang chọn.
+              if (suggestible) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  const step = event.key === 'ArrowDown' ? 1 : -1;
+                  setActive((current) => (current + step + people.length) % people.length);
+                  return;
+                }
+                if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  pick(people[activeIndex] as SocialUserRef);
+                  return;
+                }
+              }
               if (shouldSubmitOnEnter(event.nativeEvent)) {
                 event.preventDefault();
                 void submit();
               }
-              if (event.key === 'Escape' && mention) {
+              if (event.key === 'Escape' && mentionOpen) {
                 event.stopPropagation();
-                setCaret(0);
+                setDismissedStart(mention?.start);
               }
             }}
           />
           </div>
-          <button
-            type="button"
-            className={extras.commentTool}
-            aria-label="Nhắc đến một người"
-            title="Nhắc đến (@)"
-            disabled={busy}
-            onClick={insertAt}
-          >
-            <AtSign size={16} />
-          </button>
           <EmojiButton className={extras.commentTool} disabled={busy} onPick={insertEmoji} />
           <button
             type="button"
@@ -653,15 +678,31 @@ export function CommentInput({
           {failed.error}
         </p>
       ) : null}
-      {mentionOpen ? (
-        <div className={styles.suggestPanel}>
+      {/* Mở/đóng do ô nhập quyết định; chỉ Esc được chuyển thành "đóng bảng gợi ý" (ghi nhớ đã đóng cho đoạn `@` này). */}
+      <Popover
+        open={mentionOpen && mentionStart !== undefined}
+        onOpenChange={(next, details) => {
+          if (!next && details.reason === 'escape-key') setDismissedStart(mention?.start);
+        }}
+      >
+        <PopoverContent
+          key={popoverKey.current}
+          anchor={marker}
+          side="top"
+          align="start"
+          initialFocus={false}
+          finalFocus={false}
+          className={extras.mentionPopover}
+          // Giữ tiêu điểm trong ô nhập khi bấm chọn người.
+          onMouseDown={(event) => event.preventDefault()}
+        >
           {mentionQuery.length > 0 ? (
-            <PeopleList people={people} loading={loading} onPick={pick} />
+            <PeopleList people={people} loading={loading} onPick={pick} activeIndex={activeIndex} fullText />
           ) : (
             <p className={styles.suggestEmpty}>Gõ tên để tìm người cần nhắc.</p>
           )}
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
       {error ? (
         <p role="alert" className={styles.fieldError}>
           {error}

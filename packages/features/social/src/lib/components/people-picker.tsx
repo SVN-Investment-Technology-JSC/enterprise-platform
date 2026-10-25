@@ -37,26 +37,39 @@ export function usePeopleSearch(query: string, enabled = true) {
   return { people, loading };
 }
 
+/** Giữ mục đang chọn bằng bàn phím trong tầm nhìn của bảng gợi ý. */
+function scrollIntoViewNearest(element: HTMLElement | null) {
+  element?.scrollIntoView?.({ block: 'nearest' });
+}
+
 /** Danh sách gợi ý người, dùng chung cho ô chọn người và ô bình luận. */
 export function PeopleList({
   people,
   loading,
   onPick,
+  activeIndex,
+  fullText = false,
 }: {
   readonly people: readonly SocialUserRef[];
   readonly loading: boolean;
   readonly onPick: (user: SocialUserRef) => void;
+  /** Mục đang chọn bằng bàn phím (phím lên/xuống); bỏ trống nếu danh sách chỉ dùng chuột. */
+  readonly activeIndex?: number;
+  /** Xuống dòng thay vì cắt bằng "…" khi tên hoặc chức danh dài (dùng trong hộp tự co theo nội dung). */
+  readonly fullText?: boolean;
 }) {
   if (people.length === 0) {
     return <p className={styles.suggestEmpty}>{loading ? 'Đang tìm…' : 'Không có người phù hợp.'}</p>;
   }
   return (
-    <ul className={styles.suggestList} role="listbox" aria-label="Gợi ý người">
-      {people.map((user) => (
-        <li key={user.id} role="option" aria-selected="false">
+    <ul className={styles.suggestList} role="listbox" aria-label="Gợi ý người" data-full={fullText || undefined}>
+      {people.map((user, index) => (
+        <li key={user.id} role="option" aria-selected={index === activeIndex}>
           <button
             type="button"
             className={styles.suggestItem}
+            data-active={index === activeIndex || undefined}
+            ref={index === activeIndex ? scrollIntoViewNearest : undefined}
             // Giữ con trỏ trong ô đang gõ.
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onPick(user)}
