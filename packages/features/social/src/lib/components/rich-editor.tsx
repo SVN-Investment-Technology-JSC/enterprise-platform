@@ -2,6 +2,7 @@
 
 import { Bold, Italic, Link2, List, ListOrdered, Quote, Underline } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { EmojiButton } from '../emoji/emoji-button';
 import { normalizeLink } from '../social.model';
 import styles from '../social.module.scss';
 
@@ -54,12 +55,36 @@ export function RichEditor({ initialHtml = '', placeholder, onChange }: RichEdit
     emit();
   };
 
-  const openLink = () => {
+  const rememberSelection = () => {
     const selection = window.getSelection();
     savedRange.current =
       selection && selection.rangeCount > 0 && ref.current?.contains(selection.anchorNode)
         ? selection.getRangeAt(0).cloneRange()
         : null;
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const editor = ref.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (selection) {
+      // Chưa từng đặt con trỏ trong ô soạn thì chèn ở cuối nội dung.
+      const range = savedRange.current ?? document.createRange();
+      if (!savedRange.current) {
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    document.execCommand('insertText', false, emoji);
+    rememberSelection();
+    emit();
+  };
+
+  const openLink = () => {
+    rememberSelection();
     setLinkValue('');
     setLinkError(false);
     setLinkOpen(true);
@@ -123,6 +148,7 @@ export function RichEditor({ initialHtml = '', placeholder, onChange }: RichEdit
         >
           <Quote size={15} />
         </button>
+        <EmojiButton className={styles.editorTool} iconSize={15} onBeforeOpen={rememberSelection} onPick={insertEmoji} />
       </div>
       {linkOpen ? (
         <div className={styles.linkBar}>

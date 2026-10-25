@@ -29,6 +29,8 @@ import {
   uploadAttachment,
 } from '../social-api';
 import { isUploadAborted } from '../attachment-upload';
+import { EmojiButton } from '../emoji/emoji-button';
+import { insertAtSelection } from '../emoji/emoji-text';
 import {
   exceedsCommentImageLimit,
   isCommentVideo,
@@ -417,6 +419,21 @@ export function CommentInput({
     element.style.height = `${Math.min(element.scrollHeight, 120)}px`;
   };
 
+  const insertEmoji = (emoji: string) => {
+    const field = area.current;
+    const start = field?.selectionStart ?? text.length;
+    const end = field?.selectionEnd ?? start;
+    const result = insertAtSelection(text, start, end, emoji);
+    setText(result.text);
+    setCaret(result.caret);
+    window.requestAnimationFrame(() => {
+      if (!area.current) return;
+      area.current.focus();
+      area.current.setSelectionRange(result.caret, result.caret);
+      grow(area.current);
+    });
+  };
+
   const insertAt = () => {
     const position = area.current?.selectionStart ?? text.length;
     const next = `${text.slice(0, position)}@${text.slice(position)}`;
@@ -511,6 +528,7 @@ export function CommentInput({
           >
             <AtSign size={16} />
           </button>
+          <EmojiButton className={extras.commentTool} disabled={busy} onPick={insertEmoji} />
           <button
             type="button"
             className={extras.commentTool}
