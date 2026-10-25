@@ -258,4 +258,13 @@ trên VPS, RAM và CPU đỉnh, thời gian chờ hàng khi tải cao, số lu�
 | Quét video kẹt: xếp lại sau 10 phút, báo lỗi sau 30 phút, chỉ dòng chưa từng được nhận | Jest `application/social-attachment-cleanup.spec.ts`; `social-video.integration.spec.ts` |
 | HEALTHCHECK của video-worker (tệp heartbeat mới, cũ, thiếu) | Jest `apps/video-worker/src/heartbeat.spec.ts`; kiểm lệnh trên image Docker thật |
 
+## Tải bảng tin và phát video trong trang
+
+- Bảng tin nạp 10 bài mỗi lượt (`SOCIAL_FEED_PAGE_SIZE`), cuộn gần đáy thì nạp lượt kế. Danh sách chưa ảo hoá nên mọi bài đã nạp nằm trong DOM.
+- Ảnh dùng `loading="lazy"`. Ảnh bìa (`poster`) và khung đầu của video không bìa không có lazy riêng, nên `VideoAttachment` và
+  ô video của `MediaGallery` chỉ gắn `poster` hoặc `src` khi phần tử tới gần vùng nhìn thấy (cách khoảng 300 px,
+  `useNearViewport`). Mở trang không tải bìa hay siêu dữ liệu của mọi video.
+- Video đang phát mà cuộn ra khỏi màn hình (còn thấy dưới 25%) thì tự dừng; cuộn lại không tự phát tiếp (`usePauseWhenOutOfView`).
+  Video đang toàn màn hình hoặc hình trong hình không bị dừng.
+
 Chi tiết cách chạy và các ca thử: `tools/load-test/README.md`.
