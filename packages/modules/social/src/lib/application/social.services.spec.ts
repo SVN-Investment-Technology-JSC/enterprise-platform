@@ -760,7 +760,7 @@ describe('phản ứng', () => {
   it('loại lạ và người chỉ đọc bị từ chối', async () => {
     const { posts, reactions } = setup();
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
-    await expectCode(reactions.set(bob, post.id, { type: 'angry' as never }), 'VALIDATION');
+    await expectCode(reactions.set(bob, post.id, { type: 'dislike' as never }), 'VALIDATION');
     await expectCode(reactions.set(readOnly, post.id, { type: 'like' }), 'FORBIDDEN');
   });
 
@@ -1166,7 +1166,7 @@ describe('phản ứng trên bình luận', () => {
     const { posts, comments } = setup();
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
     const root = await comments.create(bob, post.id, { body: 'gốc' });
-    await expectCode(comments.react(alice, root.id, { type: 'wow' as never }), 'VALIDATION');
+    await expectCode(comments.react(alice, root.id, { type: 'dislike' as never }), 'VALIDATION');
     await expectCode(comments.react(readOnly, root.id, { type: 'like' }), 'FORBIDDEN');
     await comments.remove(bob, root.id);
     await expectCode(comments.react(alice, root.id, { type: 'like' }), 'COMMENT_NOT_FOUND');

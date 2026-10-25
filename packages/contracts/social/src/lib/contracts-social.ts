@@ -44,12 +44,16 @@ export const SOCIAL_POST_KIND_LABELS: Readonly<Record<SocialPostKind, string>> =
 };
 
 /** Loại phản ứng. Giao diện hiển thị bằng biểu tượng, không dùng emoji. */
-export const SOCIAL_REACTION_TYPES = ['like', 'love', 'celebrate', 'insightful'] as const;
+export const SOCIAL_REACTION_TYPES = ['like', 'love', 'haha', 'wow', 'sad', 'angry', 'celebrate', 'insightful'] as const;
 export type SocialReactionType = (typeof SOCIAL_REACTION_TYPES)[number];
 
 export const SOCIAL_REACTION_LABELS: Readonly<Record<SocialReactionType, string>> = {
   like: 'Thích',
   love: 'Yêu thích',
+  haha: 'Haha',
+  wow: 'Wow',
+  sad: 'Buồn',
+  angry: 'Phẫn nộ',
   celebrate: 'Chúc mừng',
   insightful: 'Hữu ích',
 };

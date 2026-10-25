@@ -41,6 +41,7 @@ const MIGRATIONS = [
   'tenant/social/0007-social-video-processing.sql',
   'tenant/social/0008-social-post-media-layout.sql',
   'tenant/social/0009-social-post-topics.sql',
+  'tenant/social/0010-social-more-reactions.sql',
 ];
 
 const tenantId = 'tenant-visibility';

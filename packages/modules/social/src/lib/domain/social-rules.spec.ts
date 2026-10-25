@@ -23,6 +23,7 @@ import {
   normalizeCommentBody,
   normalizeLimit,
   normalizeMediaLayout,
+  normalizeReactionType,
   normalizeTitle,
   normalizeTopicName,
   requireContent,
@@ -245,5 +246,19 @@ describe('chuyên mục, con trỏ, cỡ trang', () => {
     expect(normalizeLimit('500')).toBe(50);
     expect(() => normalizeLimit('0')).toThrow(SocialValidationError);
     expect(() => normalizeLimit('abc')).toThrow(SocialValidationError);
+  });
+});
+
+describe('normalizeReactionType', () => {
+  it('chấp nhận cả tám loại phản ứng', () => {
+    for (const type of ['like', 'love', 'haha', 'wow', 'sad', 'angry', 'celebrate', 'insightful']) {
+      expect(normalizeReactionType(type)).toBe(type);
+    }
+  });
+
+  it('null nghĩa là bỏ phản ứng, loại lạ bị từ chối', () => {
+    expect(normalizeReactionType(null)).toBeNull();
+    expect(() => normalizeReactionType('dislike')).toThrow(SocialValidationError);
+    expect(() => normalizeReactionType(undefined)).toThrow(SocialValidationError);
   });
 });
