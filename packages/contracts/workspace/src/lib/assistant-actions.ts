@@ -25,7 +25,7 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
     draft: draftOf<CreateEventRequest>({
       projectId: {
         describe:
-          'Mã dự án nếu người dùng nói sự kiện thuộc một dự án. Bỏ trống khi là lịch cá nhân, không thuộc dự án.',
+          'Mã dự án khi người dùng nêu tên hay mã dự án của sự kiện. Không nêu dự án thì bỏ trống: lịch cá nhân, không thuộc dự án.',
         lookup: PROJECTS_LOOKUP,
       },
       title: { describe: 'Tiêu đề ngắn, ví dụ "Họp giao ban tuần".', required: true },
@@ -57,7 +57,7 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
         required: true,
       },
       title: { describe: 'Tên công việc ngắn gọn.', required: true },
-      description: 'Yêu cầu, kết quả cần nộp. Bỏ trống nếu người dùng không nói.',
+      description: 'Yêu cầu, kết quả cần nộp theo lời người dùng, không chép lại tên công việc. Bỏ trống nếu người dùng không nói.',
       itemType: 'Một trong: task (công việc, mặc định), milestone (mốc), phase (nhóm công việc).',
       priority: 'Một trong: low, normal (mặc định), high, urgent.',
       assigneeUserId: {
@@ -82,19 +82,21 @@ export const WORKSPACE_ASSISTANT_ACTIONS = defineAssistantActions('workspace', {
     page: '/modules/workspace#tasks',
     draft: draftOf<CreateStandaloneTaskRequest>({
       title: { describe: 'Tên công việc ngắn gọn.', required: true },
-      description: 'Yêu cầu, kết quả cần nộp. Bỏ trống nếu người dùng không nói.',
+      description: 'Yêu cầu, kết quả cần nộp theo lời người dùng, không chép lại tên công việc. Bỏ trống nếu người dùng không nói.',
       priority: 'Một trong: low, normal (mặc định), high, urgent.',
       assigneeUserId: {
         describe:
-          'userId người phụ trách, bất kỳ ai trong tổ chức. Không nói thì bỏ trống: form chọn sẵn chính người dùng.',
+          'userId người phụ trách, bất kỳ ai trong tổ chức. Không nói, hoặc người dùng tự xưng (tôi, em, mình…) là người làm, thì bỏ trống: form chọn sẵn chính người dùng.',
         lookup: PEOPLE_LOOKUP,
       },
       participantUserIds: {
-        describe: 'Danh sách userId người cùng thực hiện, không gồm người phụ trách.',
+        describe:
+          'Danh sách userId người cùng làm việc này, không gồm người phụ trách và người theo dõi.',
         lookup: PEOPLE_LOOKUP,
       },
       followerUserIds: {
-        describe: 'Danh sách userId người theo dõi (chỉ xem và nhận thông báo).',
+        describe:
+          'Danh sách userId người theo dõi: người người dùng nói là "theo dõi", "nắm thông tin", "để biết"; chỉ xem và nhận thông báo, không cùng làm.',
         lookup: PEOPLE_LOOKUP,
       },
       plannedStart: 'Ngày bắt đầu, dạng YYYY-MM-DD.',

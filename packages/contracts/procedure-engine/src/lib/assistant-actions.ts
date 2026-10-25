@@ -24,18 +24,27 @@ export const PROCEDURE_ASSISTANT_ACTIONS = defineAssistantActions('procedure-eng
     permission: 'procedure.instance.create',
     page: '/modules/procedure#workspace',
     variants: {
-      describe: 'Quy trình áp dụng: definitions[] có status "published" (id, code, name, description)',
-      lookup: '/api/procedure/v1/workspace',
+      describe:
+        'Quy trình áp dụng: id của quy trình người dùng khởi tạo được, khớp việc họ muốn làm theo tên, mã hay mô tả.',
+      lookup: '/api/procedure/v1/definitions/startable',
     },
     draft: draftOf<ProcedureStartAssistantDraft>({
-      title: { describe: 'Tên công việc (tiêu đề hồ sơ)', required: true },
-      startDueAt: 'Thời gian bắt đầu dự kiến, ISO 8601 kèm múi giờ',
-      endDueAt: 'Thời gian kết thúc dự kiến, ISO 8601 kèm múi giờ, sau thời gian bắt đầu',
+      title: {
+        describe:
+          'Tiêu đề hồ sơ, tối đa 255 ký tự: tự đặt ngắn gọn từ lời người dùng, nêu việc cần làm và giữ đủ các chi tiết họ nói như số tiền, đối tác, nơi đến, thời hạn.',
+        required: true,
+      },
+      startDueAt:
+        'Thời gian bắt đầu dự kiến, ISO 8601 kèm múi giờ. Người dùng chưa nói thì bỏ trống.',
+      endDueAt:
+        'Thời gian kết thúc dự kiến (hạn hoàn thành), ISO 8601 kèm múi giờ, sau thời gian bắt đầu. Người dùng chưa nói thì bỏ trống.',
       projectId: {
-        describe: 'Dự án liên quan (items[].id); chỉ dự án người dùng tham gia',
+        describe:
+          'Dự án liên quan khi người dùng nêu dự án (items[].id); chỉ dự án người dùng tham gia. Không nêu thì bỏ trống.',
         lookup: '/api/workspace/v1/projects',
       },
-      description: 'Mô tả công việc, chỉ dùng khi có dự án liên quan',
+      description:
+        'Mô tả công việc trong dự án, chỉ dùng khi có projectId: yêu cầu, chi tiết người dùng nói, ghi gần nguyên lời họ.',
     }),
   },
 });

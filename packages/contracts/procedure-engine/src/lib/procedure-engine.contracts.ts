@@ -506,6 +506,22 @@ export interface ProcedureWorkspacePermissions {
   canOverrideActions: boolean;
 }
 
+/**
+ * Một quy trình người gọi khởi tạo được: đã công bố, người gọi có quyền tạo hồ sơ và giữ vai S ở một bước (hoặc có
+ * quyền override). Trả bởi `GET /v1/definitions/startable`, ví dụ để Trợ lý liệt kê quy trình của công ty.
+ */
+export interface ProcedureStartableDefinition {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+}
+
+export interface ProcedureStartableDefinitionsResponse {
+  data: ProcedureStartableDefinition[];
+}
+
 export interface ProcedureWorkspace {
   tenantId: string;
   actor: {
