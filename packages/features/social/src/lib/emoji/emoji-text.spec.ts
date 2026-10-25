@@ -1,4 +1,4 @@
-import { categoryScrollTop, placePopover } from './emoji-position';
+import { categoryScrollTop } from './emoji-position';
 import { EMOJI_RECENT_LIMIT, pushRecentEmoji } from './emoji-preferences';
 import { insertAtSelection } from './emoji-text';
 
@@ -33,29 +33,6 @@ describe('pushRecentEmoji', () => {
     expect(next).toHaveLength(EMOJI_RECENT_LIMIT);
     expect(next[0]).toBe('new');
     expect(next).not.toContain(`e${EMOJI_RECENT_LIMIT - 1}`);
-  });
-});
-
-describe('placePopover', () => {
-  const size = { width: 320, height: 372 };
-  const viewport = { width: 1200, height: 800 };
-
-  it('uu tien phia duoi khi du cho', () => {
-    const rect = placePopover({ top: 100, bottom: 130, left: 500, right: 530 }, size, viewport);
-    expect(rect.placement).toBe('below');
-    expect(rect.top).toBe(136);
-    expect(rect.left).toBe(210);
-  });
-
-  it('lat len tren khi duoi khong du va tren rong hon', () => {
-    const rect = placePopover({ top: 700, bottom: 730, left: 500, right: 530 }, size, viewport);
-    expect(rect.placement).toBe('above');
-    expect(rect.top).toBe(700 - 6 - 372);
-  });
-
-  it('kep ngang vao khung nhin', () => {
-    expect(placePopover({ top: 100, bottom: 130, left: 0, right: 20 }, size, viewport).left).toBe(8);
-    expect(placePopover({ top: 100, bottom: 130, left: 1190, right: 1210 }, size, viewport).left).toBe(1200 - 320 - 8);
   });
 });
 

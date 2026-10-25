@@ -5,10 +5,8 @@ $panel-height: 372px;
 $cell: 36px;
 
 .popover {
-  position: fixed;
-  z-index: 1000;
   width: $panel-width;
-  height: $panel-height;
+  height: min($panel-height, var(--available-height, $panel-height));
   border: 1px solid var(--ep-border, #e5e7eb);
   border-radius: var(--ep-radius-md, 10px);
   background: var(--ep-surface, #fff);
