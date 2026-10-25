@@ -40,6 +40,7 @@ import {
   validateVideoDuration,
   withVideoContentType,
 } from '../comment-media';
+import { shouldSubmitOnEnter } from '../comment-keys';
 import { findFreshComment } from '../comment-refresh';
 import { useAttachmentStatuses } from '../use-attachment-statuses';
 import { useUnsentAttachments } from '../use-unsent-attachments';
@@ -508,7 +509,7 @@ export function CommentInput({
               addFiles(media);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+              if (shouldSubmitOnEnter(event.nativeEvent)) {
                 event.preventDefault();
                 void submit();
               }
@@ -554,7 +555,7 @@ export function CommentInput({
             type="button"
             className={extras.commentSend}
             aria-label={submitLabel}
-            title={sendHint ?? `${submitLabel} (Ctrl+Enter)`}
+            title={sendHint ?? `${submitLabel} (Enter; Shift+Enter để xuống dòng)`}
             disabled={!canSend}
             onClick={() => void submit()}
           >
