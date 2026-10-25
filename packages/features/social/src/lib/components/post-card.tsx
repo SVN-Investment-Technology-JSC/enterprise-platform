@@ -33,6 +33,7 @@ import {
   setReaction,
   updatePost,
 } from '../social-api';
+import { applyReactionSummary } from '../post-reaction';
 import {
   formatBytes,
   formatFullTime,
@@ -330,7 +331,7 @@ export function PostCard({
     async (type: SocialReactionType | null) => {
       try {
         const summary = await setReaction(post.id, type);
-        onChange({ ...post, ...summary });
+        onChange(applyReactionSummary(post, summary));
       } catch (cause) {
         onError(errorMessage(cause, 'Không gửi được phản ứng.'));
       }
