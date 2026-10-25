@@ -138,6 +138,49 @@
   }
 }
 
+/* ------------------------------------------------------------ ảnh đơn (không cắt) */
+
+.singleImage {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ep-radius-md, 10px);
+  background: #e5e7eb;
+  overflow: hidden;
+  cursor: zoom-in;
+
+  img {
+    display: block;
+    width: 100%;
+    object-fit: contain;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong, #d9ab00);
+    outline-offset: 2px;
+  }
+}
+
+/* Có kích thước: khung theo tỉ lệ (đặt nội tuyến), ảnh khít khung; ngoài khoảng kẹp thì có dải nền. */
+.singleImageSized {
+  --frame-max-height: min(640px, 80vh);
+
+  /* Bề ngang = min(hết khung, tỉ lệ x chiều cao tối đa) để khung giữ đúng tỉ lệ và ảnh khít, không dư dải nền hai bên. */
+  width: min(100%, calc(var(--frame-ratio) * var(--frame-max-height)));
+  margin-inline: auto;
+
+  img {
+    height: 100%;
+  }
+}
+
+/* Thiếu kích thước (ảnh cũ): theo luồng tự nhiên, không đo lúc tải nên không giật bố cục. */
+.singleImageFlow img {
+  height: auto;
+  max-height: 560px;
+}
+
 /* ------------------------------------------------------------------ lưới đều */
 
 .grid {

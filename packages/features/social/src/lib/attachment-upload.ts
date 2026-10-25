@@ -9,6 +9,7 @@ import type {
   SocialAttachmentPurpose,
   SocialMultipartPart,
 } from '@enterprise-platform/contracts-social';
+import type { ImageSize } from './image-size';
 
 /** Số phần tải song song tối đa. */
 export const UPLOAD_PART_CONCURRENCY = 3;
@@ -294,6 +295,11 @@ export interface UploadAttachmentOptions {
    */
   readonly onInitiated?: (ticket: { readonly attachmentId: string; readonly uploadId?: string }) => void;
   readonly signal?: AbortSignal;
+  /**
+   * Chỉ ảnh: kích thước của tệp được tải lên (hoặc lời hứa đang đọc, để đọc song song với việc tải). Chỉ chờ trước
+   * `complete`; đọc lỗi hay thiếu thì bỏ qua, không chặn việc tải.
+   */
+  readonly dimensions?: ImageSize | Promise<ImageSize | undefined>;
 }
 
 /**
@@ -305,7 +311,7 @@ export async function uploadAttachmentWithProgress(
   purpose: SocialAttachmentPurpose,
   options: UploadAttachmentOptions,
 ): Promise<SocialAttachment> {
-  const { api, onProgress, onInitiated, signal } = options;
+  const { api, onProgress, onInitiated, signal, dimensions } = options;
   if (signal?.aborted) throw createUploadAbortedError();
   const ticket = await api.initiate({
     fileName: file.name,
@@ -352,7 +358,11 @@ export async function uploadAttachmentWithProgress(
     abortRemote();
     throw createUploadAbortedError();
   }
-  const attachment = await api.complete(ticket.attachmentId, uploadId ? { uploadId } : {});
+  const size = await Promise.resolve(dimensions).catch(() => undefined);
+  const attachment = await api.complete(ticket.attachmentId, {
+    ...(uploadId ? { uploadId } : {}),
+    ...(size ? { width: size.width, height: size.height } : {}),
+  });
   onProgress?.(1);
   return attachment;
 }

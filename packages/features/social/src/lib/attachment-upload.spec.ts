@@ -235,6 +235,29 @@ describe('uploadAttachmentWithProgress', () => {
     expect(api.complete).toHaveBeenCalledWith('att-1', {});
   });
 
+  it('ảnh: complete kèm width/height khi có kích thước (cả khi là lời hứa)', async () => {
+    const { put } = fakePut();
+    const api = makeApi(false, put);
+    await uploadAttachmentWithProgress(makeFile(12), 'post', { api, dimensions: { width: 800, height: 600 } });
+    expect(api.complete).toHaveBeenLastCalledWith('att-1', { width: 800, height: 600 });
+    const multi = makeApi(true, put);
+    await uploadAttachmentWithProgress(makeFile(12), 'post', {
+      api: multi,
+      dimensions: Promise.resolve({ width: 10, height: 20 }),
+    });
+    expect(multi.complete).toHaveBeenLastCalledWith('att-1', { uploadId: 'up-1', width: 10, height: 20 });
+  });
+
+  it('đọc kích thước lỗi hoặc thiếu thì vẫn tải và complete không có width/height', async () => {
+    const { put, calls } = fakePut();
+    const api = makeApi(false, put);
+    await uploadAttachmentWithProgress(makeFile(12), 'post', { api, dimensions: Promise.reject(new Error('x')) });
+    expect(calls).toHaveLength(1);
+    expect(api.complete).toHaveBeenLastCalledWith('att-1', {});
+    await uploadAttachmentWithProgress(makeFile(12), 'post', { api, dimensions: Promise.resolve(undefined) });
+    expect(api.complete).toHaveBeenLastCalledWith('att-1', {});
+  });
+
   it('huỷ sau khi initiate thì gọi abort và ném lỗi huỷ', async () => {
     const controller = new AbortController();
     const put: PutBlob = (_url, _body, _type, options) =>

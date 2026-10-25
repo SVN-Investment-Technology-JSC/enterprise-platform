@@ -11,6 +11,7 @@ import {
   galleryPlan,
   MediaGallery,
   type MediaGalleryProps,
+  singleImageFrame,
 } from './media-gallery';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -272,5 +273,72 @@ describe('MediaGallery trạng thái video và xem trước', () => {
     render({ items: [video(1, { url: undefined, processingStatus: 'queued' })], layout: 'featured', preview: true });
     expect(container.querySelector('[data-state="processing"]')?.textContent).toBe('Đang xử lý');
     expect(container.querySelector('video')).toBeNull();
+  });
+});
+
+describe('singleImageFrame', () => {
+  it('trong khoảng thì giữ đúng tỉ lệ', () => {
+    expect(singleImageFrame(1600, 1000)).toEqual({ aspectRatio: '1.6' });
+    expect(singleImageFrame(1000, 1000)).toEqual({ aspectRatio: '1' });
+  });
+  it('dọc quá cao bị kẹp 4/5, ngang quá rộng bị kẹp 1.91', () => {
+    expect(singleImageFrame(500, 2000)).toEqual({ aspectRatio: '0.8' });
+    expect(singleImageFrame(4000, 1000)).toEqual({ aspectRatio: '1.91' });
+  });
+  it('thiếu hoặc không hợp lệ thì không có tỉ lệ', () => {
+    expect(singleImageFrame()).toEqual({});
+    expect(singleImageFrame(100, undefined)).toEqual({});
+    expect(singleImageFrame(0, 100)).toEqual({});
+    expect(singleImageFrame(100, -1)).toEqual({});
+    expect(singleImageFrame(Number.NaN, 100)).toEqual({});
+  });
+});
+
+describe('MediaGallery với đúng một ảnh', () => {
+  const layouts = ['auto', 'grid', 'featured', 'carousel', 'stack'] as const;
+  const sized = { ...image(1), width: 1000, height: 1000 };
+
+  it.each(layouts)('bố cục %s: dùng khung ảnh đơn theo tỉ lệ, bấm mở trình xem', (layout) => {
+    render({ items: [sized], layout });
+    const button = buttons()[0];
+    expect(button.getAttribute('data-sized')).toBe('true');
+    expect(button.style.aspectRatio).toBe('1');
+    expect(container.querySelector('[data-layout]')).toBeNull();
+    click(button);
+    expect(dialog()).not.toBeNull();
+  });
+
+  it.each(layouts)('bố cục %s: ảnh cũ thiếu kích thước không có aspect-ratio', (layout) => {
+    render({ items: [image(1)], layout });
+    const button = buttons()[0];
+    expect(button.getAttribute('data-sized')).toBe('false');
+    expect(button.style.aspectRatio).toBe('');
+  });
+
+  it('xem trước thì tĩnh, không có nút và không mở trình xem', () => {
+    render({ items: [sized], layout: 'grid', preview: true });
+    expect(buttons()).toHaveLength(0);
+    expect(container.querySelector('[data-sized="true"]')).not.toBeNull();
+    expect(dialog()).toBeNull();
+  });
+
+  it('hai ảnh, hoặc ảnh kèm video, vẫn là ô cắt đều', () => {
+    render({ items: [image(1), image(2)], layout: 'grid' });
+    expect(container.querySelector('[data-layout="grid"]')).not.toBeNull();
+    expect(container.querySelector('[data-sized]')).toBeNull();
+    render({ items: [image(1), video(1)], layout: 'featured' });
+    expect(container.querySelector('[data-layout="featured"]')).not.toBeNull();
+    expect(container.querySelector('[data-sized]')).toBeNull();
+  });
+
+  it('một video không dùng khung ảnh đơn', () => {
+    render({ items: [video(1)], layout: 'grid' });
+    expect(container.querySelector('[data-layout="grid"]')).not.toBeNull();
+  });
+
+  it('galleryItemsFromAttachments truyền width/height của ảnh', () => {
+    const [item] = galleryItemsFromAttachments([{ ...attachmentOf(image(1)), width: 300, height: 200 }]);
+    expect(item.width).toBe(300);
+    expect(item.height).toBe(200);
   });
 });

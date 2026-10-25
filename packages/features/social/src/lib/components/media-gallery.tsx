@@ -2,7 +2,7 @@
 
 import type { SocialAttachment, SocialMediaLayout } from '@enterprise-platform/contracts-social';
 import { ChevronLeft, ChevronRight, LoaderCircle, Play, TriangleAlert } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import styles from '../media-gallery.module.scss';
 import { useVideoRefreshPoll } from '../use-video-refresh-poll';
 import { ImageGrid } from './image-grid';
@@ -102,10 +102,55 @@ export function galleryItemsFromAttachments(attachments: readonly SocialAttachme
         attachment,
       });
     } else if (attachment.isImage) {
-      items.push({ key: attachment.id, kind: 'image', alt: attachment.fileName, url: attachment.url });
+      items.push({
+        key: attachment.id,
+        kind: 'image',
+        alt: attachment.fileName,
+        url: attachment.url,
+        width: attachment.width,
+        height: attachment.height,
+      });
     }
   }
   return items;
+}
+
+/** Tỉ lệ khung ảnh đơn: dọc nhất 4:5, ngang nhất 1.91:1 (ngoài khoảng thì ảnh nằm trong khung có dải nền, không cắt). */
+export const SINGLE_IMAGE_MIN_RATIO = 4 / 5;
+export const SINGLE_IMAGE_MAX_RATIO = 1.91;
+
+/**
+ * Khung của ảnh đơn theo kích thước thật, kẹp trong [4/5, 1.91]. Thiếu hoặc không hợp lệ (ảnh cũ chưa lưu kích thước)
+ * thì không có `aspectRatio`: ảnh hiển thị theo luồng tự nhiên.
+ */
+export function singleImageFrame(width?: number, height?: number): { aspectRatio?: string } {
+  if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return {};
+  const ratio = Math.min(SINGLE_IMAGE_MAX_RATIO, Math.max(SINGLE_IMAGE_MIN_RATIO, width / height));
+  return { aspectRatio: String(Number(ratio.toFixed(4))) };
+}
+
+/** Một ảnh duy nhất của bài: theo tỉ lệ thật, không cắt (`contain` trên nền trung tính). */
+function SingleImage({ item, preview, onOpen }: { readonly item: GalleryItem; readonly preview?: boolean; readonly onOpen: () => void }) {
+  const ratio = singleImageFrame(item.width, item.height);
+  const sized = ratio.aspectRatio !== undefined;
+  // `--frame-ratio` để CSS thu hẹp bề ngang khung theo chiều cao tối đa, giữ đúng tỉ lệ (ảnh dọc không ra khung rộng).
+  const frame = (sized ? { ...ratio, '--frame-ratio': ratio.aspectRatio } : ratio) as CSSProperties;
+  const classes = [styles.singleImage, sized ? styles.singleImageSized : styles.singleImageFlow, preview ? styles.cellStatic : '']
+    .filter(Boolean)
+    .join(' ');
+  const img = item.url ? <img src={item.url} alt={item.alt} loading="lazy" /> : null;
+  if (preview) {
+    return (
+      <div className={classes} style={frame} data-sized={sized}>
+        {img}
+      </div>
+    );
+  }
+  return (
+    <button type="button" className={classes} style={frame} data-sized={sized} aria-label={cellLabel(item)} onClick={onOpen}>
+      {img}
+    </button>
+  );
 }
 
 /* ------------------------------------------------------------------ ô nhỏ */
@@ -419,10 +464,14 @@ export function MediaGallery({ items, layout, preview = false, onRequestRefresh,
   const onOpen = preview ? () => undefined : setViewing;
   const refresh = preview ? undefined : onRequestRefresh;
   const common: LayoutProps = { items, preview, onOpen, onRequestRefresh: refresh };
+  // Đúng một ảnh: mọi bố cục đều hiển thị theo tỉ lệ thật, không cắt. Ảnh kèm video hay nhiều mục giữ ô cắt đều.
+  const single = items.length === 1 && items[0].kind === 'image' ? items[0] : undefined;
 
   return (
     <div className={[styles.gallery, className].filter(Boolean).join(' ')}>
-      {layout === 'grid' ? (
+      {single ? (
+        <SingleImage item={single} preview={preview} onOpen={() => onOpen(0)} />
+      ) : layout === 'grid' ? (
         <GridLayout {...common} />
       ) : layout === 'featured' ? (
         <FeaturedLayout {...common} />

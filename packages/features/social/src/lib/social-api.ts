@@ -29,6 +29,7 @@ import type {
 } from '@enterprise-platform/contracts-social';
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { uploadAttachmentWithProgress, type AttachmentUploadApi } from './attachment-upload';
+import { readImageSize, type ImageSize } from './image-size';
 import { buildFeedQuery, buildFeedRequestPath, type SocialFeedScope } from './social.model';
 
 const API = '/api/social/v1';
@@ -233,9 +234,14 @@ export function uploadAttachment(
     readonly onProgress?: (fraction: number) => void;
     readonly onInitiated?: (ticket: { readonly attachmentId: string; readonly uploadId?: string }) => void;
     readonly signal?: AbortSignal;
+    /** Chỉ ảnh: kích thước đã biết; thiếu thì tự đọc từ `file` (tệp cuối cùng được tải lên). */
+    readonly dimensions?: ImageSize;
   } = {},
 ): Promise<SocialAttachment> {
-  return uploadAttachmentWithProgress(file, purpose, { ...options, api: attachmentUploadApi });
+  // Ảnh: đọc kích thước song song với `initiate` và việc tải; đọc lỗi thì chỉ thiếu kích thước.
+  const dimensions =
+    options.dimensions ?? (file.type.startsWith('image/') ? readImageSize(file) : undefined);
+  return uploadAttachmentWithProgress(file, purpose, { ...options, dimensions, api: attachmentUploadApi });
 }
 
 /* ------------------------------------------------- bố cục: bảng tin, thẻ, cột phải */
