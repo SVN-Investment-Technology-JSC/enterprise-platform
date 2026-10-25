@@ -27,4 +27,7 @@ RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store,sharing=lo
 RUN mkdir -p /var/tmp/video-work && chown node:node /var/tmp/video-work
 ENV VIDEO_WORKER_TMP_DIR=/var/tmp/video-work
 USER node
+# Khoẻ khi tệp heartbeat tồn tại và mtime cách hiện tại dưới 60 giây (xem src/heartbeat.ts); chỉ dùng Node có sẵn.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "try{const s=require('fs').statSync(process.env.VIDEO_WORKER_HEARTBEAT_FILE||'/tmp/video-worker.alive');process.exit(Date.now()-s.mtimeMs<60000?0:1)}catch{process.exit(1)}"]
 CMD ["node", "main.js"]

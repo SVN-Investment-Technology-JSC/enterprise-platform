@@ -11,6 +11,8 @@ export interface VideoWorkerConfig {
   readonly leaseSeconds: number;
   readonly commentConcurrency: number;
   readonly postConcurrency: number;
+  /** Tệp heartbeat mà HEALTHCHECK của container đọc mtime. */
+  readonly heartbeatFile: string;
 }
 
 function positiveNumber(raw: string | undefined, fallback: number, integer = true): number {
@@ -32,5 +34,6 @@ export function readConfig(env: NodeJS.ProcessEnv): VideoWorkerConfig {
     leaseSeconds: positiveNumber(env['VIDEO_WORKER_LEASE_SECONDS'], 120),
     commentConcurrency: positiveNumber(env['VIDEO_WORKER_COMMENT_CONCURRENCY'], 1),
     postConcurrency: positiveNumber(env['VIDEO_WORKER_POST_CONCURRENCY'], 1),
+    heartbeatFile: env['VIDEO_WORKER_HEARTBEAT_FILE']?.trim() || path.join(os.tmpdir(), 'video-worker.alive'),
   };
 }

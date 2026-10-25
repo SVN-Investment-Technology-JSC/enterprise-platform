@@ -97,6 +97,12 @@ describe('readConfig', () => {
     });
     expect(config.tmpDir.endsWith('video-work')).toBe(true);
   });
+
+  it('tệp heartbeat: mặc định trong thư mục tạm và đổi được bằng biến môi trường', () => {
+    expect(readConfig({}).heartbeatFile.endsWith('video-worker.alive')).toBe(true);
+    expect(readConfig({ VIDEO_WORKER_HEARTBEAT_FILE: ' /run/vw.alive ' }).heartbeatFile).toBe('/run/vw.alive');
+    expect(readConfig({ VIDEO_WORKER_HEARTBEAT_FILE: '  ' }).heartbeatFile.endsWith('video-worker.alive')).toBe(true);
+  });
 });
 
 describe('cleanStaleWorkDirs', () => {

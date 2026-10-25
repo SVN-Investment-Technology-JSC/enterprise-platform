@@ -24,6 +24,7 @@ Kiến trúc: `docs/social-video.md`. Vận hành: `docs/social-video-runbook.md
 | `VIDEO_WORKER_LEASE_SECONDS` | `120` | Thời gian thuê việc; hết hạn thì việc được nhận lại |
 | `VIDEO_WORKER_COMMENT_CONCURRENCY` | `1` | Số việc song song của hàng bình luận |
 | `VIDEO_WORKER_POST_CONCURRENCY` | `1` | Số việc song song của hàng bài đăng |
+| `VIDEO_WORKER_HEARTBEAT_FILE` | `<tmpdir>/video-worker.alive` | Tệp heartbeat cho HEALTHCHECK (trong container: `/tmp/video-worker.alive`) |
 
 Biến kết nối (cùng tên với `apps/worker` và `apps/social-api`, xem `infrastructure/docker/compose.coolify.yml`):
 
@@ -57,6 +58,14 @@ Khi phát triển, `pnpm dev` đã chạy sẵn `video-worker` cùng các dịch
 
 Mỗi việc dùng một thư mục con trong `VIDEO_WORKER_TMP_DIR` và xoá khi xong. Bản gốc nằm trên đĩa, không đưa vào RAM.
 Chỉ dọn tay khi worker đã dừng.
+
+## Kiểm tra sức khoẻ
+
+Worker chạm tệp heartbeat mỗi 15 giây, nhưng chỉ khi cả hai consumer RabbitMQ đang kết nối và worker chưa tắt máy; khi nhận SIGTERM/SIGINT tệp bị xoá. `HEALTHCHECK` của Dockerfile (mỗi 30 giây, thời gian khởi động 60 giây, 3 lần lỗi thì unhealthy) chạy lệnh Node kiểm tệp tồn tại và `mtime` cách hiện tại dưới 60 giây. Treo hoặc mất kết nối RabbitMQ kéo dài thì container chuyển `unhealthy`.
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' <container>
+```
 
 ## Tắt máy gọn
 

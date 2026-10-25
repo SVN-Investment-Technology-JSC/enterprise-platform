@@ -12,6 +12,7 @@ import { SOCIAL_VIDEO_EVENT_TYPES, SOCIAL_VIDEO_QUEUES } from '@enterprise-platf
 import { PostgresSocialVideoStore, SocialVideoProcessingService } from '@enterprise-platform/module-social';
 import { readConfig } from './config.js';
 import { FfmpegTranscoder } from './ffmpeg-transcoder.js';
+import { startHeartbeat } from './heartbeat.js';
 import { cleanStaleWorkDirs } from './stale-work-dirs.js';
 import { createVideoMessageHandler } from './video-message-handler.js';
 
@@ -168,12 +169,20 @@ async function main() {
     postConcurrency: config.postConcurrency,
     queues: consumers.length,
     staleWorkDirsRemoved: removed,
+    heartbeatFile: config.heartbeatFile,
   });
 
   let stopping = false;
+  // Chỉ báo khoẻ khi cả hai consumer đã kết nối và chưa tắt máy; mất kết nối kéo dài thì tệp cũ đi và HEALTHCHECK báo lỗi.
+  const stopHeartbeat = startHeartbeat({
+    file: config.heartbeatFile,
+    isHealthy: () => !stopping && consumers.every((consumer) => consumer.isReady()),
+    warn: (line) => console.warn(line),
+  });
   async function shutdown(signalName: string) {
     if (stopping) return;
     stopping = true;
+    stopHeartbeat();
     logEvent('social.video_worker.stopping', { signal: signalName, inFlight: inFlight.size });
     // Ngừng nhận tin trước; tin chưa ack được broker giao lại cho worker kế tiếp.
     await Promise.allSettled(consumers.map((consumer) => consumer.close()));
