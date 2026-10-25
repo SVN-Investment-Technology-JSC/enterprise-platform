@@ -2,7 +2,11 @@
 
 import type { SocialAttachment } from '@enterprise-platform/contracts-social';
 import { LoaderCircle, Play, RotateCw, TriangleAlert, X } from 'lucide-react';
+import { useState } from 'react';
 import styles from '../composer-video.module.scss';
+import layoutStyles from './media-layout.module.scss';
+import { MediaMoveButtons } from './media-layout-picker';
+import { previewFailureNote, previewSources, VideoPreview } from './video-preview';
 
 export interface ComposerVideoTileProps {
   readonly fileName: string;
@@ -22,6 +26,12 @@ export interface ComposerVideoTileProps {
   readonly disabled?: boolean;
   readonly onRemove: () => void;
   readonly onRetry?: () => void;
+  /** Nút đổi vị trí trong bố cục bài viết; không truyền thì không hiện (ví dụ ô soạn bình luận). */
+  readonly move?: {
+    readonly canEarlier: boolean;
+    readonly canLater: boolean;
+    readonly onMove: (direction: 'earlier' | 'later') => void;
+  };
 }
 
 /** Thời lượng dạng m:ss hoặc h:mm:ss. */
@@ -45,16 +55,28 @@ function tileState(props: Pick<ComposerVideoTileProps, 'status' | 'attachment'>)
 
 /** Một video trong ô soạn: tải lên, chờ hoặc đang xử lý, sẵn sàng hoặc lỗi; gỡ được ở mọi trạng thái. */
 export function ComposerVideoTile(props: ComposerVideoTileProps) {
-  const { fileName, previewUrl, progress = 0, attachment, error, retryable, disabled, onRemove, onRetry } = props;
+  const { fileName, previewUrl, progress = 0, attachment, error, retryable, disabled, onRemove, onRetry, move } = props;
   const state = tileState(props);
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
   const duration = formatVideoDuration(attachment?.durationMs);
   const removeLabel = state === 'uploading' ? `Huỷ tải video ${fileName}` : `Gỡ video ${fileName}`;
   const busyProcessing = state === 'queued' || state === 'processing';
+  // Xem trước được ngay khi đã có tệp trong máy (kể cả đang tải hoặc đang xử lý) hoặc bản đã xử lý trên máy chủ.
+  const [previewing, setPreviewing] = useState(false);
+  const sources = previewSources({ state, attachment, previewUrl });
 
   return (
     <div className={styles.tile} data-state={state} role="group" aria-label={`Video ${fileName}`}>
       <div className={styles.thumb}>
+        {sources.length > 0 ? (
+          <button
+            type="button"
+            className={styles.thumbButton}
+            aria-label={`Xem trước video ${fileName}`}
+            title="Xem trước"
+            onClick={() => setPreviewing(true)}
+          />
+        ) : null}
         {state === 'ready' && attachment?.posterUrl ? (
           <img src={attachment.posterUrl} alt="" />
         ) : previewUrl && state !== 'failed' ? (
@@ -98,7 +120,12 @@ export function ComposerVideoTile(props: ComposerVideoTileProps) {
             <span className={styles.hint}>Bạn có thể đăng ngay hoặc chờ vài phút.</span>
           </>
         ) : null}
-        {state === 'ready' ? <span className={styles.status}>Video đã sẵn sàng</span> : null}
+        {state === 'ready' ? (
+          <>
+            <span className={styles.status}>Video đã sẵn sàng</span>
+            {sources.length > 0 ? <span className={styles.hint}>Bấm vào hình để xem trước.</span> : null}
+          </>
+        ) : null}
         {state === 'failed' ? (
           <>
             <span className={styles.errorText} role="alert">
@@ -142,6 +169,24 @@ export function ComposerVideoTile(props: ComposerVideoTileProps) {
       >
         <X size={12} aria-hidden="true" />
       </button>
+      {move ? (
+        <MediaMoveButtons
+          className={layoutStyles.tileMove}
+          fileName={fileName}
+          canEarlier={move.canEarlier}
+          canLater={move.canLater}
+          disabled={disabled}
+          onMove={move.onMove}
+        />
+      ) : null}
+      {previewing ? (
+        <VideoPreview
+          fileName={fileName}
+          sources={sources}
+          failureNote={previewFailureNote(state)}
+          onClose={() => setPreviewing(false)}
+        />
+      ) : null}
     </div>
   );
 }

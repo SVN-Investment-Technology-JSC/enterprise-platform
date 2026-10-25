@@ -49,27 +49,24 @@ export function withVideoContentType(file: File): File {
   return new File([file], file.name, { type, lastModified: file.lastModified });
 }
 
-/** Bài viết không đi chung ảnh và video (tài liệu thì được). */
-export const POST_HAS_IMAGES_MESSAGE = 'Bài viết đã có ảnh nên không thêm video được. Hãy đăng ảnh và video thành các bài riêng.';
-export const POST_HAS_VIDEOS_MESSAGE = 'Bài viết đã có video nên không thêm ảnh được. Hãy đăng ảnh và video thành các bài riêng.';
-
 const MB = 1024 * 1024;
 const formatLimitBytes = (bytes: number) =>
   bytes >= 1024 * MB ? `${Math.floor(bytes / (1024 * MB))} GB` : `${Math.floor(bytes / MB)} MB`;
 const formatLimitSeconds = (seconds: number) =>
   seconds % 60 === 0 && seconds >= 60 ? `${seconds / 60} phút` : `${seconds} giây`;
 
-/** Số tệp đã có trong ô soạn; `images` chỉ cần khi kiểm cho bài viết (không trộn ảnh và video). */
+/** Số tệp đã có trong ô soạn (ảnh và video được đi chung một bài, nên chỉ cần tổng số và số video). */
 export interface CommentMediaCount {
   readonly count: number;
   readonly videos: number;
+  /** Không còn dùng để chặn; giữ để nơi gọi cũ không phải đổi. */
   readonly images?: number;
 }
 
 /**
  * Kiểm một ảnh hoặc video định đính kèm; trả thông báo lỗi tiếng Việt hoặc `undefined` khi hợp lệ.
  * Video không nén nên chỉ kiểm loại, dung lượng và số lượng theo `SOCIAL_VIDEO_LIMITS[purpose]`; thời lượng
- * kiểm riêng bằng `validateVideoDuration` sau khi đọc thử. Với bài viết ('post'), ảnh và video không đi chung một bài.
+ * kiểm riêng bằng `validateVideoDuration` sau khi đọc thử. Bài viết ('post') được gồm cả ảnh và video.
  */
 export function validateCommentMedia(
   file: { readonly name: string; readonly type: string; readonly size: number },
@@ -84,9 +81,6 @@ export function validateCommentMedia(
   }
   if (isCommentVideo(file)) {
     const limits = SOCIAL_VIDEO_LIMITS[purpose];
-    if (isPost && (current.images ?? 0) > 0) {
-      return POST_HAS_IMAGES_MESSAGE;
-    }
     if (current.videos >= limits.maxVideos) {
       return `Mỗi ${noun} chỉ đính kèm tối đa ${limits.maxVideos} video.`;
     }
@@ -98,9 +92,6 @@ export function validateCommentMedia(
   }
   if (!SOCIAL_IMAGE_CONTENT_TYPES.includes(file.type)) {
     return `"${file.name}" không phải ảnh JPEG, PNG, GIF, WebP hoặc video MP4, WebM, MOV.`;
-  }
-  if (isPost && current.videos > 0) {
-    return POST_HAS_VIDEOS_MESSAGE;
   }
   if (file.size > COMMENT_IMAGE_INPUT_MAX_BYTES) {
     return `Ảnh "${file.name}" quá lớn (tối đa ${Math.floor(COMMENT_IMAGE_INPUT_MAX_BYTES / MB)} MB).`;

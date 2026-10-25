@@ -49,8 +49,7 @@ import { setBookmark } from '../social-posts-api';
 import styles from '../social.module.scss';
 import { CommentSection } from './comment-section';
 import { PostPoll } from './poll/post-poll';
-import { ImageGrid } from './image-grid';
-import { VideoAttachment } from './video-attachment';
+import { galleryItemsFromAttachments, MediaGallery } from './media-gallery';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
 import { ReactorsDialog } from './reactors-dialog';
 import { PostMenu } from './post-menu';
@@ -267,9 +266,6 @@ function PostMentions({
 
 /* ------------------------------------------------------------------ thẻ bài */
 
-/** Số video tối đa hiển thị trong một bài. */
-const MAX_POST_VIDEOS = 3;
-
 export interface PostCardProps {
   readonly post: SocialPost;
   readonly me: SocialMe;
@@ -312,10 +308,7 @@ export function PostCard({
   const activity = post.activity;
   const menuItems = buildPostMenu(post).filter((item) => !(isDetailPage && item.action === 'detail'));
   const commentsDisabled = Boolean(post.commentsDisabled);
-  const videos = post.attachments
-    .filter((item) => item.isVideo)
-    .slice(0, MAX_POST_VIDEOS);
-  const images = post.attachments.filter((item) => item.isImage && !item.isVideo);
+  const mediaItems = galleryItemsFromAttachments(post.attachments);
   const files = post.attachments.filter((item) => !item.isImage && !item.isVideo);
 
   /**
@@ -516,14 +509,13 @@ export function PostCard({
         </>
       )}
 
-      {images.length > 0 ? <ImageGrid images={images} /> : null}
-      {videos.map((video) => (
-        <VideoAttachment
-          key={video.id}
-          attachment={video}
+      {mediaItems.length > 0 ? (
+        <MediaGallery
+          items={mediaItems}
+          layout={post.mediaLayout ?? 'auto'}
           onRequestRefresh={refreshPost}
         />
-      ))}
+      ) : null}
       {files.length > 0 ? <FileList files={files} /> : null}
       {post.poll ? (
         <PostPoll

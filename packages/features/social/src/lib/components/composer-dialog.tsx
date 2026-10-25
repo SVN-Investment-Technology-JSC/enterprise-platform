@@ -2,6 +2,7 @@
 
 import {
   SOCIAL_MAX_ATTACHMENTS_PER_POST,
+  SOCIAL_MEDIA_LAYOUT_DEFAULT,
   SOCIAL_POST_VISIBILITY_LABELS,
   SOCIAL_POST_BODY_MAX,
   SOCIAL_POST_KIND_LABELS,
@@ -10,6 +11,7 @@ import {
   type SocialAttachment,
   type SocialGroupSummary,
   type SocialMe,
+  type SocialMediaLayout,
   type SocialPost,
   type SocialPostKind,
   type SocialPostVisibility,
@@ -57,12 +59,20 @@ import {
 import { isUploadAborted } from '../attachment-upload';
 import {
   isCommentVideo,
-  POST_HAS_VIDEOS_MESSAGE,
   probeVideo,
   validateCommentMedia,
   validateVideoDuration,
   withVideoContentType,
 } from '../comment-media';
+import {
+  buildGalleryItems,
+  buildMediaPayload,
+  canMoveItem,
+  countLayoutMedia,
+  isMediaFile,
+  moveItem,
+  type MoveDirection,
+} from '../composer-media';
 import { useAttachmentStatuses } from '../use-attachment-statuses';
 import { useUnsentAttachments } from '../use-unsent-attachments';
 import { loadAllMyGroups, loadSettings } from '../social-posts-api';
@@ -83,6 +93,9 @@ import { PollBuilder } from './poll/poll-builder';
 import { RichEditor } from './rich-editor';
 import { TimeSelect } from './time-select';
 import { ComposerVideoTile } from './composer-video-tile';
+import { MediaGallery } from './media-gallery';
+import layoutStyles from './media-layout.module.scss';
+import { MediaLayoutPicker, MediaMoveButtons } from './media-layout-picker';
 import { Avatar, ConfirmDialog, Dialog, Field, SelectField } from './ui';
 import {
   buildVideoWarning,
@@ -91,7 +104,6 @@ import {
   hasNonVideoUploading,
   hasUnfinishedVideos,
   isVideoPending,
-  publishableAttachmentIds,
 } from '../video-publish-gate';
 
 /** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng hộp, `keepalive` khi đóng tab. */
@@ -106,7 +118,7 @@ interface UploadItem {
   readonly attachment?: SocialAttachment;
   readonly error?: string;
   readonly isVideo?: boolean;
-  /** URL tạm của video vừa chọn (xem trước); thu hồi khi gỡ hoặc đóng hộp. */
+  /** URL tạm của ảnh hoặc video vừa chọn (xem trước); thu hồi khi gỡ hoặc đóng hộp. */
   readonly objectUrl?: string;
   /** Tiến trình tải lên, 0 đến 1. */
   readonly progress?: number;
@@ -213,6 +225,9 @@ export function ComposerDialog({
       attachment,
     })),
   );
+  const [mediaLayout, setMediaLayout] = useState<SocialMediaLayout>(
+    editing?.mediaLayout ?? SOCIAL_MEDIA_LAYOUT_DEFAULT,
+  );
   const [visibility, setVisibility] = useState<SocialPostVisibility>(
     editing?.visibility ?? 'company',
   );
@@ -311,6 +326,18 @@ export function ComposerDialog({
   const activeUploads = uploads.filter(
     (item) => item.status !== 'error',
   ).length;
+  const layoutMediaCount = countLayoutMedia(shownUploads);
+  const showLayout = layoutMediaCount >= 2;
+  const moveUpload = (key: string, direction: MoveDirection) =>
+    setUploads((list) => moveItem(list, key, direction));
+  const moveProps = (item: UploadItem) =>
+    showLayout && isMediaFile(item)
+      ? {
+          canEarlier: canMoveItem(shownUploads, item.key, 'earlier'),
+          canLater: canMoveItem(shownUploads, item.key, 'later'),
+          onMove: (direction: MoveDirection) => moveUpload(item.key, direction),
+        }
+      : undefined;
   const empty = isEmptyHtml(html);
   const hasPoll = pollOn && !editingPoll;
   const noContent = empty && !pollOn;
@@ -454,13 +481,10 @@ export function ComposerDialog({
     for (const file of Array.from(files)) {
       const isVideo = isCommentVideo(file);
       const isImage = !isVideo && file.type.startsWith('image/');
-      let problem: string | undefined;
-      if (isVideo) {
-        problem = validateCommentMedia(file, { count, videos, images }, 'post');
-      } else {
-        problem = validateAttachment(file, count);
-        if (!problem && isImage && videos > 0) problem = POST_HAS_VIDEOS_MESSAGE;
-      }
+      // Ảnh, video và tài liệu đi chung một bài; chỉ còn giới hạn số lượng, dung lượng và loại tệp.
+      const problem = isVideo
+        ? validateCommentMedia(file, { count, videos, images }, 'post')
+        : validateAttachment(file, count);
       if (problem) {
         rejected.push(problem);
         continue;
@@ -470,7 +494,7 @@ export function ComposerDialog({
       if (isImage) images += 1;
       counter.current += 1;
       const key = `new-${counter.current}`;
-      const objectUrl = isVideo ? URL.createObjectURL(file) : undefined;
+      const objectUrl = isVideo || isImage ? URL.createObjectURL(file) : undefined;
       setUploads((list) => [
         ...list,
         {
@@ -538,7 +562,7 @@ export function ComposerDialog({
     setSubmitting(true);
     setError(undefined);
     // Tệp đã tải xong và không lỗi (gồm video đang xử lý); video đang tải dở đã bị huỷ ở bước xác nhận.
-    const attachmentIds = publishableAttachmentIds(shownUploads);
+    const { attachmentIds, mediaLayout: layoutToSend } = buildMediaPayload(shownUploads, mediaLayout);
     const mentionUserIds = mentions.map((user) => user.id);
     const scheduledAt =
       scheduleOn && canSchedule
@@ -563,6 +587,7 @@ export function ComposerDialog({
           bodyHtml: html,
           topicId: inGroup ? null : topicId || null,
           attachmentIds,
+          mediaLayout: layoutToSend,
           mentionUserIds,
           ...(editingScheduled && scheduledAt ? { scheduledAt } : {}),
           ...(companyOnly &&
@@ -586,6 +611,7 @@ export function ComposerDialog({
           bodyHtml: html,
           topicId: !inGroup && topicId ? topicId : undefined,
           attachmentIds,
+          mediaLayout: layoutToSend,
           mentionUserIds,
           ...(inGroup ? { groupId: destination } : {}),
           ...(canAnnounce ? { mentionsAll, pinned } : {}),
@@ -872,6 +898,7 @@ export function ComposerDialog({
                     disabled={submitting}
                     onRemove={() => removeUpload(item.key)}
                     onRetry={() => retryVideo(item.key)}
+                    move={moveProps(item)}
                   />
                 </li>
               ) : (
@@ -893,6 +920,15 @@ export function ComposerDialog({
                         ? (item.error ?? 'Lỗi')
                         : formatBytes(item.sizeBytes)}
                   </span>
+                  {moveProps(item) && item.status !== 'error' ? (
+                    <MediaMoveButtons
+                      fileName={item.fileName}
+                      disabled={submitting}
+                      canEarlier={moveProps(item)?.canEarlier ?? false}
+                      canLater={moveProps(item)?.canLater ?? false}
+                      onMove={(direction) => moveUpload(item.key, direction)}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className={styles.chipRemove}
@@ -905,6 +941,21 @@ export function ComposerDialog({
               ),
             )}
           </ul>
+        ) : null}
+        {showLayout ? (
+          <div className={layoutStyles.section}>
+            <span className={layoutStyles.sectionHead}>Bố cục hiển thị</span>
+            <MediaLayoutPicker value={mediaLayout} disabled={submitting} onChange={setMediaLayout} />
+            <p className={layoutStyles.sectionHint}>
+              Dùng nút mũi tên trên từng ảnh hoặc video để đổi thứ tự hiển thị.
+            </p>
+            <div className={layoutStyles.previewFrame}>
+              <MediaGallery items={buildGalleryItems(shownUploads)} layout={mediaLayout} preview />
+            </div>
+            <p className={layoutStyles.previewCaption}>
+              Xem trước: đây là cách bài viết hiển thị với mọi người.
+            </p>
+          </div>
         ) : null}
         {videoFailed ? (
           <span className={styles.fieldHint} role="status">

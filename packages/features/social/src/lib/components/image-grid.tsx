@@ -84,8 +84,11 @@ function ImageViewer({
 
 export function ImageGrid({
   images,
+  preview = false,
 }: {
   readonly images: readonly SocialAttachment[];
+  /** Xem trước tĩnh trong ô soạn: ô không bấm được, không mở hộp xem ảnh. */
+  readonly preview?: boolean;
 }) {
   const [viewing, setViewing] = useState<number>();
   const shown = images.slice(0, 4);
@@ -93,22 +96,31 @@ export function ImageGrid({
   return (
     <>
       <div className={styles.imageGrid} data-count={shown.length}>
-        {shown.map((image, index) => (
-          <button
-            key={image.id}
-            type="button"
-            className={styles.imageCell}
-            aria-label={`Xem ảnh ${image.fileName}`}
-            onClick={() => setViewing(index)}
-          >
-            {image.url ? (
-              <img src={image.url} alt={image.fileName} loading="lazy" />
-            ) : null}
-            {hidden > 0 && index === shown.length - 1 ? (
-              <span className={styles.imageMore}>+{hidden}</span>
-            ) : null}
-          </button>
-        ))}
+        {shown.map((image, index) =>
+          preview ? (
+            <div key={image.id} className={`${styles.imageCell} ${styles.imageCellStatic}`}>
+              {image.url ? <img src={image.url} alt={image.fileName} loading="lazy" /> : null}
+              {hidden > 0 && index === shown.length - 1 ? (
+                <span className={styles.imageMore}>+{hidden}</span>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              key={image.id}
+              type="button"
+              className={styles.imageCell}
+              aria-label={`Xem ảnh ${image.fileName}`}
+              onClick={() => setViewing(index)}
+            >
+              {image.url ? (
+                <img src={image.url} alt={image.fileName} loading="lazy" />
+              ) : null}
+              {hidden > 0 && index === shown.length - 1 ? (
+                <span className={styles.imageMore}>+{hidden}</span>
+              ) : null}
+            </button>
+          ),
+        )}
       </div>
       {viewing !== undefined ? (
         <ImageViewer

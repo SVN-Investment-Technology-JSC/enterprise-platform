@@ -80,9 +80,14 @@ describe('validateCommentMedia (video)', () => {
     expect(validateCommentMedia(video(), { count: 3, videos: 3, images: 0 }, 'post')).toContain('tối đa 3 video');
   });
 
-  it('bài viết không trộn ảnh với video, theo cả hai chiều', () => {
-    expect(validateCommentMedia(video(), { count: 1, videos: 0, images: 1 }, 'post')).toContain('đã có ảnh');
-    expect(validateCommentMedia(file(), { count: 1, videos: 1, images: 0 }, 'post')).toContain('đã có video');
+  it('bài viết cho trộn ảnh với video, theo cả hai chiều', () => {
+    expect(validateCommentMedia(video(), { count: 1, videos: 0, images: 1 }, 'post')).toBeUndefined();
+    expect(validateCommentMedia(file(), { count: 1, videos: 1, images: 0 }, 'post')).toBeUndefined();
+  });
+
+  it('bài viết trộn ảnh và video vẫn chặn video thứ 4 và tệp thứ 11', () => {
+    expect(validateCommentMedia(video(), { count: 5, videos: 3, images: 2 }, 'post')).toContain('tối đa 3 video');
+    expect(validateCommentMedia(file(), { count: 10, videos: 3, images: 7 }, 'post')).toContain('tối đa 10 tệp');
   });
 
   it('bình luận vẫn cho thêm ảnh khi đã có video', () => {

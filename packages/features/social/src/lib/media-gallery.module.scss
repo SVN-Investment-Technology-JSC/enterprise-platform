@@ -1,0 +1,377 @@
+// Bố cục ảnh và video của bài viết (MediaGallery) và hộp xem toàn màn hình (MediaViewer).
+// Màu, bo góc lấy từ biến `--ep-*` của khung sáng; hộp xem dựng qua portal nên dùng màu cố định cho nền tối.
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.autoStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ------------------------------------------------------------ ô ảnh/video */
+
+.cell {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: #e5e7eb;
+  overflow: hidden;
+  cursor: zoom-in;
+
+  img,
+  video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong, #d9ab00);
+    outline-offset: -2px;
+  }
+}
+
+.cellStatic {
+  cursor: default;
+}
+
+.cellVideo {
+  background: #18181b;
+  cursor: pointer;
+}
+
+.cellStatic.cellVideo {
+  cursor: default;
+}
+
+.playBadge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgb(24 24 27 / 65%);
+  color: #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.cellSmall .playBadge {
+  width: 30px;
+  height: 30px;
+}
+
+.duration {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgb(24 24 27 / 70%);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(10 12 18 / 55%);
+  color: #fff;
+  font-size: 26px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.cellSmall .more {
+  font-size: 20px;
+}
+
+.state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: #27272a;
+  color: #d4d4d8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.state[data-state='failed'] {
+  color: #fca5a5;
+}
+
+.stateDetail {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.spin {
+  animation: media-gallery-spin 1.1s linear infinite;
+}
+
+@keyframes media-gallery-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ lưới đều */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  overflow: hidden;
+  border-radius: var(--ep-radius-md, 10px);
+
+  .cell {
+    aspect-ratio: 1 / 1;
+  }
+
+  &[data-count='1'] {
+    grid-template-columns: 1fr;
+
+    .cell {
+      aspect-ratio: 16 / 9;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ nổi bật */
+
+.featured {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  overflow: hidden;
+  border-radius: var(--ep-radius-md, 10px);
+}
+
+.featuredMain {
+  grid-column: 1 / -1;
+  aspect-ratio: 16 / 9;
+  max-height: 480px;
+}
+
+.featured .cellSmall {
+  aspect-ratio: 1 / 1;
+}
+
+/* Số ô nhỏ ít hơn 3 thì chia đều chiều ngang, không để cột trống. */
+.featured[data-count='2'] {
+  grid-template-columns: 1fr;
+
+  .cellSmall {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+.featured[data-count='3'] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* ------------------------------------------------------------------ xếp dọc */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stackImage {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ep-radius-md, 10px);
+  background: #e5e7eb;
+  overflow: hidden;
+  cursor: zoom-in;
+
+  img {
+    display: block;
+    width: 100%;
+    max-height: 560px;
+    object-fit: contain;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong, #d9ab00);
+    outline-offset: 2px;
+  }
+}
+
+/* Gấp đôi tên lớp để thắng `.videoAttachment` (max-width 560px, lề trên 8px) của VideoAttachment. */
+.fullVideo.fullVideo {
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+}
+
+/* ---------------------------------------------------------------- trượt ngang */
+
+.carousel {
+  position: relative;
+}
+
+.track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: var(--ep-radius-md, 10px);
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.slide {
+  position: relative;
+  flex: 0 0 80%;
+  min-width: min(240px, 100%);
+  aspect-ratio: 4 / 3;
+  scroll-snap-align: center;
+  border-radius: var(--ep-radius-md, 10px);
+  background: #e5e7eb;
+  overflow: hidden;
+
+  &[data-single='true'] {
+    flex-basis: 100%;
+    aspect-ratio: 16 / 9;
+  }
+
+  .cell {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  /* VideoAttachment điền kín khung 4:3; chiều cao đặt rõ nên thắng aspect-ratio nội tuyến của nó. */
+  .fullVideo {
+    height: 100%;
+    background: #000;
+  }
+
+  .fullVideo video,
+  .fullVideo > div {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
+.carouselNav {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(24 24 27 / 65%);
+  color: #fff;
+  cursor: pointer;
+  transform: translateY(-50%);
+
+  &:hover {
+    background: rgb(24 24 27 / 85%);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong, #d9ab00);
+    outline-offset: 2px;
+  }
+}
+
+.carouselPrev {
+  left: 8px;
+}
+
+.carouselNext {
+  right: 8px;
+}
+
+.carouselCount {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgb(24 24 27 / 70%);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- hộp xem */
+
+.viewerMedia {
+  max-width: 92vw;
+  max-height: 90vh;
+  border-radius: 8px;
+  background: #000;
+  object-fit: contain;
+}
+
+.viewerNote {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 24px 32px;
+  border-radius: 8px;
+  background: #27272a;
+  color: #e4e4e7;
+  font-size: 14px;
+  text-align: center;
+}
+
+.viewerCount {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+  font-size: 13px;
+  transform: translateX(-50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+
+  .track {
+    scroll-behavior: auto;
+  }
+}
