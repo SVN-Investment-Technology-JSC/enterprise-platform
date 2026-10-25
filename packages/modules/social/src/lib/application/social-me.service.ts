@@ -4,6 +4,7 @@ import {
   type SocialPermission,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
+import { sliceSafe } from '../domain/safe-text.js';
 import { mayManage, mayModerate, mayRead, mayWrite } from '../domain/social-principal.js';
 import { SocialForbiddenError } from '../domain/social.error.js';
 import type { OrganizationDirectory } from './organization-directory.port.js';
@@ -37,7 +38,7 @@ export class SocialMeService {
   /** Gợi ý người để nhắc tên; chỉ người có quyền đăng bài mới cần. Truy vấn rỗng trả danh sách rỗng. */
   async people(actor: SocialActor, query: string | undefined): Promise<{ items: readonly SocialUserRef[] }> {
     if (!mayWrite(actor)) throw new SocialForbiddenError();
-    const text = (query ?? '').trim().slice(0, PEOPLE_QUERY_MAX);
+    const text = sliceSafe((query ?? '').trim(), PEOPLE_QUERY_MAX);
     if (!text) return { items: [] };
     return { items: await this.directory.search(actor.tenantId, text, PEOPLE_LIMIT) };
   }
