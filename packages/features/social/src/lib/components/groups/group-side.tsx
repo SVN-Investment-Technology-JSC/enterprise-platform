@@ -7,7 +7,8 @@ import { errorMessage } from '../../social-api';
 import { useSocialSession } from '../../social-context';
 import { SocialLink } from '../../social-navigation';
 import base from '../../social.module.scss';
-import { Avatar, userSubtitle } from '../ui';
+import { userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { AvatarStack, GroupGlyph } from './group-visuals';
 import { memberCountLabel } from './groups.model';
 import s from './groups.module.scss';
@@ -153,7 +154,7 @@ export function GroupSide({
         <ul className={s.sideList}>
           {admins.map((member) => (
             <li key={member.user.id} className={s.sideRow}>
-              <Avatar user={member.user} size={32} />
+              <UserAvatar user={member.user} size={32} />
               <span className={s.rowText}>
                 <span className={s.rowTitle}>
                   {member.user.name} <span className={s.roleAdmin}>Admin</span>

@@ -1,4 +1,6 @@
 import type {
+  SocialBookmarkFolder,
+  SocialBookmarkFolderList,
   SocialBookmarkState,
   SocialFeedPage,
   SocialGroupPage,
@@ -36,14 +38,32 @@ const noStore = { cache: 'no-store' } as const;
 
 /* ------------------------------------------------------------------- đã lưu */
 
-export const setBookmark = (postId: string, bookmarked: boolean) =>
+/** `folderId`: bỏ trống giữ thư mục cũ, `null` là chưa phân loại. */
+export const setBookmark = (
+  postId: string,
+  bookmarked: boolean,
+  folderId?: string | null,
+) =>
   request<SocialBookmarkState>(
     `${post(postId)}/bookmark`,
-    json('PUT', { bookmarked }),
+    json(
+      'PUT',
+      folderId === undefined ? { bookmarked } : { bookmarked, folderId },
+    ),
   );
 
-export const loadBookmarks = (cursor?: string, limit = 20) =>
-  request<SocialFeedPage>(`/bookmarks${query({ cursor, limit })}`, noStore);
+/** `folderId`: mã thư mục, `none` là chưa phân loại, bỏ trống là tất cả. */
+export const loadBookmarks = (cursor?: string, limit = 20, folderId?: string) =>
+  request<SocialFeedPage>(
+    `/bookmarks${query({ cursor, limit, folderId })}`,
+    noStore,
+  );
+
+export const loadBookmarkFolders = () =>
+  request<SocialBookmarkFolderList>('/bookmark-folders', noStore);
+
+export const createBookmarkFolder = (name: string) =>
+  request<SocialBookmarkFolder>('/bookmark-folders', json('POST', { name }));
 
 /* ----------------------------------------------------------------- bình chọn */
 

@@ -35,7 +35,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { errorMessage } from '../../social-api';
 import base from '../../social.module.scss';
 import { PeopleList, usePeopleSearch } from '../people-picker';
-import { Avatar } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { addSource, coverGradient, type GroupSourceDraft } from './groups.model';
 import s from './groups.module.scss';
 import { searchOrgNodes } from './social-groups-api';
@@ -156,7 +156,7 @@ export function AvatarStack({ users, size = 28 }: { readonly users: readonly Soc
     <span className={s.avatarStack}>
       {users.map((user) => (
         <span key={user.id} className={s.avatarStackItem} title={user.name}>
-          <Avatar user={user} size={size} />
+          <UserAvatar user={user} size={size} />
         </span>
       ))}
     </span>

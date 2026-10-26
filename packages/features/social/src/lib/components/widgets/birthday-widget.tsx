@@ -7,7 +7,7 @@ import { loadBirthdaysUpcoming } from '../../social-discovery-api';
 import { SocialLink } from '../../social-navigation';
 import { ageLabel, entryDayMonth, splitForWidget } from '../birthday/birthday.model';
 import styles from '../birthday/birthday.module.scss';
-import { Avatar } from '../ui';
+import { UserAvatar } from '../user-avatar';
 
 const NEXT_AVATARS = 3;
 
@@ -96,7 +96,7 @@ export function BirthdayWidget() {
             return (
               <li key={entry.user.id}>
                 <SocialLink to={{ name: 'profile', userId: entry.user.id }} className={styles.todayItem}>
-                  <Avatar user={entry.user} size={28} />
+                  <UserAvatar user={entry.user} size={28} link={false} />
                   <span className={styles.text}>
                     <span className={styles.name}>{entry.user.name}</span>
                     <span className={styles.meta}>{['Hôm nay', age].filter(Boolean).join(' · ')}</span>
@@ -117,7 +117,7 @@ export function BirthdayWidget() {
           <span>Sinh nhật sắp tới</span>
           <span className={styles.stack}>
             {shown.map((entry) => (
-              <Avatar key={entry.user.id} user={entry.user} size={26} />
+              <UserAvatar key={entry.user.id} user={entry.user} size={26} link={false} />
             ))}
             {rest > 0 ? <span className={styles.stackMore}>+{rest}</span> : null}
           </span>

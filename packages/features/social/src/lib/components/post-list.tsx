@@ -13,6 +13,7 @@ import { useSocialSession } from '../social-context';
 import { mergePages, replacePost } from '../social.model';
 import styles from '../social.module.scss';
 import { ComposerDialog } from './composer-dialog';
+import { BookmarkDialog } from './library/bookmark-dialog';
 import { PostCard } from './post-card';
 
 export interface PostListActions {
@@ -40,6 +41,12 @@ export interface PostListProps {
   readonly keep?: (post: SocialPost) => boolean;
   /** Báo cho nơi cha khi số lượng đổi (cập nhật chấm số). */
   readonly onCountChange?: (count: number) => void;
+  /**
+   * Chế độ thư mục đã lưu: bấm Lưu bài mở hộp thoại chọn thư mục (thay vì bật/tắt ngay). Gọi sau khi lưu hoặc bỏ lưu
+   * xong để nơi cha tải lại số bài của từng thư mục.
+   */
+  readonly onBookmarkChanged?: () => void;
+  readonly bookmarkFolders?: boolean;
 }
 
 /** Danh sách bài có phân trang cho các màn Đã lưu, Chờ duyệt, Hẹn giờ. */
@@ -50,6 +57,8 @@ export function PostList({
   renderActions,
   keep,
   onCountChange,
+  bookmarkFolders = false,
+  onBookmarkChanged,
 }: PostListProps) {
   const session = useSocialSession();
   const [ownMe, setMe] = useState<SocialMe>();
@@ -61,6 +70,7 @@ export function PostList({
   const [toast, setToast] = useState<string>();
   const [topics, setTopics] = useState<readonly SocialTopic[]>([]);
   const [editing, setEditing] = useState<SocialPost>();
+  const [bookmarking, setBookmarking] = useState<SocialPost>();
 
   useEffect(() => {
     if (session) return;
@@ -178,6 +188,7 @@ export function PostList({
             onDeleted={remove}
             onOpenTopic={() => undefined}
             onError={setToast}
+            onPickBookmarkFolder={bookmarkFolders ? setBookmarking : undefined}
           />
           {renderActions ? renderActions(post, actions) : null}
         </div>
@@ -203,6 +214,18 @@ export function PostList({
         >
           {loading ? 'Đang tải…' : 'Xem thêm'}
         </button>
+      ) : null}
+
+      {bookmarking ? (
+        <BookmarkDialog
+          post={bookmarking}
+          onClose={() => setBookmarking(undefined)}
+          onDone={(next) => {
+            setBookmarking(undefined);
+            update(next);
+            onBookmarkChanged?.();
+          }}
+        />
       ) : null}
 
       {editing ? (

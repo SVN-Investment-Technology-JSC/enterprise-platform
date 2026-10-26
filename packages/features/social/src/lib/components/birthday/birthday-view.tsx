@@ -7,7 +7,7 @@ import { errorMessage } from '../../social-api';
 import { sliceSafe } from '../../safe-text';
 import { loadBirthdaysUpcoming } from '../../social-discovery-api';
 import { SocialLink } from '../../social-navigation';
-import { Avatar } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { ageLabel, entryDayMonth, entrySubtitle, monthGroupLabel } from './birthday.model';
 import styles from './birthday.module.scss';
 
@@ -87,7 +87,7 @@ export function BirthdayView() {
                       className={styles.card}
                       data-today={entry.isToday}
                     >
-                      <Avatar user={entry.user} size={32} />
+                      <UserAvatar user={entry.user} size={32} link={false} />
                       <span className={styles.text}>
                         <span className={styles.name}>{entry.user.name}</span>
                         {unit ? <span className={styles.unit}>{unit}</span> : null}

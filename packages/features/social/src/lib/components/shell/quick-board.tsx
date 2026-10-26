@@ -8,8 +8,7 @@ import { onReactionChanged } from '../../reaction-events';
 import { formatFullTime, formatRelativeTime, postHeadline, postTopics } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
-import { PersonHover } from '../person-card';
-import { Avatar } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { MyGroupsCard } from './my-groups';
 import { BirthdayWidget } from '../widgets/birthday-widget';
 
@@ -117,9 +116,7 @@ function NoticeReactors({ postId, initialTotal }: { readonly postId: string; rea
   return (
     <span className={styles.noticeReactors} aria-label={`${users.length} người đã thả cảm xúc`}>
       {shown.map((user) => (
-        <PersonHover key={user.id} userId={user.id} name={user.name} label={user.name} className={styles.noticeReactor}>
-          <Avatar user={user} size={24} />
-        </PersonHover>
+        <UserAvatar key={user.id} user={user} size={24} className={styles.noticeReactor} />
       ))}
       {rest > 0 ? <span className={styles.noticeReactorMore}>+{rest}</span> : null}
     </span>
@@ -145,9 +142,7 @@ function CompanyNotices({ refreshKey }: { readonly refreshKey: number }) {
           const topicNames = postTopics(post).map((topic) => topic.name);
           return (
             <li key={post.id} className={styles.noticeItem}>
-              <PersonHover userId={post.author.id} name={post.author.name} label={post.author.name} className={styles.noticeAuthor}>
-                <Avatar user={post.author} size={36} />
-              </PersonHover>
+              <UserAvatar user={post.author} size={36} className={styles.noticeAuthor} />
               <div className={styles.noticeText}>
                 <SocialLink className={styles.noticeTitle} to={{ name: 'post', postId: post.id }}>
                   {postHeadline(post)}

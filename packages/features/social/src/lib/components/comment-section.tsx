@@ -4,14 +4,13 @@ import {
   SOCIAL_COMMENT_MAX,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
   SOCIAL_REACTION_LABELS,
-  SOCIAL_REACTION_TYPES,
   type SocialAttachment,
   type SocialComment,
   type SocialMe,
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { ImagePlus, PenLine, RotateCw, SendHorizontal, X } from 'lucide-react';
+import { Ellipsis, ImagePlus, PenLine, Pencil, RotateCw, SendHorizontal, ThumbsUp, Trash2, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
@@ -72,11 +71,12 @@ import { ComposerVideoTile } from './composer-video-tile';
 import { MentionLink } from './mention-link';
 import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
-import { ReactorsDialog } from './reactors-dialog';
+import { ReactionSummary } from './reaction-summary';
 import { Popover, PopoverContent } from '../ui/popover';
 import { ReactionIcon } from './reaction-icon';
 import { ReactionPicker } from './reaction-picker';
 import { Avatar, ConfirmDialog, userSubtitle } from './ui';
+import { UserAvatar } from './user-avatar';
 import { VideoAttachment } from './video-attachment';
 
 /** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng ô, `keepalive` khi đóng tab. */
@@ -763,7 +763,8 @@ function CommentRow({
     if (highlight) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [highlight]);
   const [editing, setEditing] = useState(false);
-  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -783,9 +784,24 @@ function CommentRow({
       setError(errorMessage(cause, 'Không lưu được phản ứng.'));
     }
   };
-  const reactionTypes = SOCIAL_REACTION_TYPES.filter((type) => (comment.reactionCounts[type] ?? 0) > 0).sort(
-    (a, b) => (comment.reactionCounts[b] ?? 0) - (comment.reactionCounts[a] ?? 0),
-  );
+  // Menu "⋯" (Sửa, Xoá): đóng khi bấm ra ngoài hoặc nhấn Esc.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+  const canEdit = comment.capabilities.canEdit;
+  const canDelete = comment.capabilities.canDelete;
 
   const commentImages = comment.attachments.filter((item) => !item.isVideo);
   const commentVideos = comment.attachments.filter((item) => item.isVideo);
@@ -809,7 +825,7 @@ function CommentRow({
   if (comment.deleted) {
     return (
       <div className={styles.comment}>
-        <Avatar user={comment.author} size={30} />
+        <UserAvatar user={comment.author} size={30} />
         <div className={styles.commentMain}>
           <p className={styles.commentDeleted}>Bình luận đã bị xoá.</p>
         </div>
@@ -819,7 +835,7 @@ function CommentRow({
 
   return (
     <div className={styles.comment} ref={rowRef} data-highlight={highlight}>
-      <Avatar user={comment.author} size={30} />
+      <UserAvatar user={comment.author} size={30} />
       <div className={styles.commentMain}>
         {editing && decoded ? (
           <CommentInput
@@ -838,7 +854,7 @@ function CommentRow({
           />
         ) : (
           <>
-            <div className={styles.commentBubbleWrap} data-has-reactions={comment.reactionTotal > 0}>
+            <div className={styles.commentBubbleWrap}>
               <div className={styles.commentBubble}>
                 <div className={styles.commentHead}>
                   <span className={styles.commentAuthor} title={userSubtitle(comment.author) || undefined}>
@@ -870,25 +886,51 @@ function CommentRow({
                   </p>
                 ) : null}
               </div>
-              {comment.reactionTotal > 0 ? (
-                <button
-                  type="button"
-                  className={styles.commentReactions}
-                  aria-label="Xem người đã bày tỏ phản ứng"
-                  onClick={() => setReactorsOpen(true)}
-                  title={reactionTypes
-                    .map((type) => `${SOCIAL_REACTION_LABELS[type]}: ${comment.reactionCounts[type]}`)
-                    .join(', ')}
-                >
-                  <span className={styles.reactionIcons}>
-                    {reactionTypes.slice(0, 3).map((type) => (
-                      <span key={type} className={styles.reactionDotSmall}>
-                        <ReactionIcon type={type} size={14} />
-                      </span>
-                    ))}
-                  </span>
-                  {comment.reactionTotal > 1 ? comment.reactionTotal.toLocaleString('vi-VN') : null}
-                </button>
+              {canEdit || canDelete ? (
+                <div className={styles.commentMenu} ref={menuRef} data-open={menuOpen}>
+                  <button
+                    type="button"
+                    className={styles.commentMenuButton}
+                    aria-label="Tuỳ chọn bình luận"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={() => setMenuOpen((value) => !value)}
+                  >
+                    <Ellipsis size={16} aria-hidden="true" />
+                  </button>
+                  {menuOpen ? (
+                    <div className={extras.postMenu} role="menu">
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={extras.postMenuItem}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setEditing(true);
+                          }}
+                        >
+                          <Pencil size={15} aria-hidden="true" />
+                          Sửa bình luận
+                        </button>
+                      ) : null}
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`${extras.postMenuItem} ${extras.postMenuDanger}`}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setConfirming(true);
+                          }}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          Xoá bình luận
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             {commentImages.length > 0 ? (
@@ -898,7 +940,7 @@ function CommentRow({
             ) : null}
             {commentVideos.map((video) => (
               <div key={video.id} className={styles.commentVideo}>
-                <VideoAttachment attachment={video} onRequestRefresh={onRefreshMedia} />
+                <VideoAttachment attachment={video} fit className={styles.commentVideoFit} onRequestRefresh={onRefreshMedia} />
               </div>
             ))}
             <div className={styles.commentMeta}>
@@ -909,12 +951,14 @@ function CommentRow({
                     className={styles.commentReactButton}
                     data-active={Boolean(comment.myReaction)}
                     data-type={comment.myReaction}
+                    aria-label={comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
+                    title={comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
                     onClick={(event) => {
                       event.currentTarget.blur();
                       void react(comment.myReaction ? null : 'like');
                     }}
                   >
-                    {comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
+                    {comment.myReaction ? <ReactionIcon type={comment.myReaction} size={17} /> : <ThumbsUp size={17} aria-hidden="true" />}
                   </button>
                   <ReactionPicker
                     value={comment.myReaction}
@@ -924,27 +968,21 @@ function CommentRow({
               ) : null}
               {comment.editedAt ? <span title={formatFullTime(comment.editedAt)}>Đã sửa</span> : null}
               {canComment ? (
-                <button type="button" className={styles.linkButton} onClick={() => onReply(comment)}>
+                <button type="button" className={`${styles.linkButton} ${styles.commentReplyButton}`} onClick={() => onReply(comment)}>
                   Trả lời
                 </button>
               ) : null}
-              {comment.capabilities.canEdit ? (
-                <button type="button" className={styles.linkButton} onClick={() => setEditing(true)}>
-                  Sửa
-                </button>
-              ) : null}
-              {comment.capabilities.canDelete ? (
-                <button type="button" className={styles.linkButton} onClick={() => setConfirming(true)}>
-                  Xoá
-                </button>
-              ) : null}
+              <ReactionSummary
+                counts={comment.reactionCounts}
+                total={comment.reactionTotal}
+                load={() => loadCommentReactors(comment.id)}
+                iconSize={17}
+                className={styles.commentReactionSummary}
+              />
             </div>
           </>
         )}
       </div>
-      {reactorsOpen ? (
-        <ReactorsDialog load={() => loadCommentReactors(comment.id)} onClose={() => setReactorsOpen(false)} />
-      ) : null}
       <ConfirmDialog
         open={confirming}
         title="Xoá bình luận"
@@ -1040,8 +1078,8 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
       />
       <div className={styles.replies}>
         {comment.replyCount > 0 && !expanded ? (
-          <button type="button" className={styles.linkButton} onClick={showReplies}>
-            Xem {comment.replyCount.toLocaleString('vi-VN')} trả lời
+          <button type="button" className={`${styles.linkButton} ${styles.repliesToggle}`} onClick={showReplies}>
+            Xem {comment.replyCount.toLocaleString('vi-VN')} phản hồi
           </button>
         ) : null}
         {expanded ? (
@@ -1079,7 +1117,7 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
             ) : null}
             {cursor && !loading ? (
               <button type="button" className={styles.linkButton} onClick={() => void fetchReplies(cursor)}>
-                Xem thêm trả lời
+                Xem thêm phản hồi
               </button>
             ) : null}
           </>

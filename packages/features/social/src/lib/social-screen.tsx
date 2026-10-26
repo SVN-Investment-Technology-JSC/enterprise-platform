@@ -336,7 +336,7 @@ export function SocialScreen() {
             ) : null}
 
             <SocialRightSlotContext.Provider value={rightSlot}>
-            <div className={shell.body}>
+              <div className={shell.body}>
                 <LeftRail
                   me={me}
                   tabs={tabs}
@@ -345,55 +345,55 @@ export function SocialScreen() {
                   topicFilter={
                     route.name === 'feed' || route.name === 'wall'
                       ? {
-                          topics,
-                          activeTopicId: topicId,
-                          canManage,
-                          onSelect: openTopic,
-                          onManage: () => setManaging(true),
-                        }
+                        topics,
+                        activeTopicId: topicId,
+                        canManage,
+                        onSelect: openTopic,
+                        onManage: () => setManaging(true),
+                      }
                       : undefined
                   }
                 />
-              <main className={shell.main}>
-                {showComposer ? (
-                  <section className={shell.composer} aria-label="Soạn bài viết">
-                    <div className={shell.composerTop}>
-                      <Avatar user={me.user} size={36} />
-                      <button
-                        type="button"
-                        className={shell.composerTrigger}
-                        onClick={() => openComposer()}
-                      >
-                        <Pencil size={14} aria-hidden="true" /> Bạn đang nghĩ gì? Đăng bài viết mới
-                      </button>
-                    </div>
-                    <div className={shell.composerShortcuts}>
-                      <button type="button" onClick={() => openComposer(undefined, { mode: 'media' })}>
-                        <ImageIcon size={15} aria-hidden="true" />
-                        Ảnh/Video/File
-                      </button>
-                      <button type="button" onClick={() => openComposer(undefined, { mode: 'poll' })}>
-                        <BarChart3 size={15} aria-hidden="true" />
-                        Bình chọn
-                      </button>
-                      {permissions?.includes('social.post.moderate') ? (
-                        <button type="button" onClick={() => openComposer(undefined, { mode: 'announcement' })}>
-                          <Megaphone size={15} aria-hidden="true" />
-                          Thông báo
+                <main className={shell.main}>
+                  {showComposer ? (
+                    <section className={shell.composer} aria-label="Soạn bài viết">
+                      <div className={shell.composerTop}>
+                        <Avatar user={me.user} size={36} />
+                        <button
+                          type="button"
+                          className={shell.composerTrigger}
+                          onClick={() => openComposer()}
+                        >
+                          <Pencil size={14} aria-hidden="true" /> Bạn đang nghĩ gì? Đăng bài viết mới
                         </button>
-                      ) : null}
-                    </div>
-                  </section>
-                ) : null}
-                {content}
-              </main>
+                      </div>
+                      <div className={shell.composerShortcuts}>
+                        <button type="button" onClick={() => openComposer(undefined, { mode: 'media' })}>
+                          <ImageIcon size={15} aria-hidden="true" />
+                          Ảnh/Video/File
+                        </button>
+                        <button type="button" onClick={() => openComposer(undefined, { mode: 'poll' })}>
+                          <BarChart3 size={15} aria-hidden="true" />
+                          Bình chọn
+                        </button>
+                        {permissions?.includes('social.post.moderate') ? (
+                          <button type="button" onClick={() => openComposer(undefined, { mode: 'announcement' })}>
+                            <Megaphone size={15} aria-hidden="true" />
+                            Thông báo
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+                  {content}
+                </main>
 
-              {ownRight ? (
-                <div className={shell.rail} ref={setRightSlot} />
-              ) : (
-                <QuickBoard refreshKey={boardKey} />
-              )}
-            </div>
+                {ownRight ? (
+                  <div className={shell.rail} ref={setRightSlot} />
+                ) : (
+                  <QuickBoard refreshKey={boardKey} />
+                )}
+              </div>
             </SocialRightSlotContext.Provider>
           </div>
         </SocialSessionContext.Provider>

@@ -153,10 +153,13 @@ export function PersonHover({
   name,
   label,
   className,
+  asLink = true,
   children,
 }: {
   readonly userId: string;
   readonly name: string;
+  /** `false`: ảnh/chữ đã nằm trong một liên kết khác; thẻ gắn vào `<span>` để không lồng `<a>`. */
+  readonly asLink?: boolean;
   /** Nhãn đọc cho trình đọc màn hình khi nội dung liên kết không có chữ (ảnh đại diện). */
   readonly label?: string;
   readonly className?: string;
@@ -172,9 +175,15 @@ export function PersonHover({
     <>
       {/* Đóng thẻ hồ sơ khi hộp xác nhận mở, để nó không đè lên hộp. */}
       <HoverCard open={open && !link.confirming} onOpenChange={setOpen}>
-        <HoverCardTrigger href={link.href} className={className} aria-label={label} onClick={onClick}>
-          {children}
-        </HoverCardTrigger>
+        {asLink ? (
+          <HoverCardTrigger href={link.href} className={className} aria-label={label} onClick={onClick}>
+            {children}
+          </HoverCardTrigger>
+        ) : (
+          <HoverCardTrigger render={<span />} className={className}>
+            {children}
+          </HoverCardTrigger>
+        )}
         <HoverCardContent className="w-[22rem] p-4">
           <PersonCard
             userId={userId}

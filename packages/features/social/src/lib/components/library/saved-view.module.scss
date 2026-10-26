@@ -1,0 +1,68 @@
+// Đầu màn "Bài đã lưu": thẻ tiêu đề kèm hàng thư mục dạng viên thuốc. Biến --ep-* lấy từ vỏ trang.
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: var(--social-card-ring);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-accent-glow);
+  color: var(--ep-accent-text);
+}
+
+.text {
+  min-width: 0;
+  flex: 1;
+
+  h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--ep-text-muted);
+    font-size: 12.5px;
+  }
+}
+
+.total {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ep-hover);
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  strong {
+    color: var(--ep-text);
+    font-weight: 700;
+  }
+}
+
+.divider {
+  height: 1px;
+  background: var(--ep-line);
+}

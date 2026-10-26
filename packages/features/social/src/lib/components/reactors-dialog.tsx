@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../social-api';
 import styles from '../social.module.scss';
 import { ReactionIcon } from './reaction-icon';
-import { Avatar, Dialog, userSubtitle } from './ui';
+import { Dialog, userSubtitle } from './ui';
+import { UserAvatar } from './user-avatar';
 
 /**
  * Hộp thoại "Người đã bày tỏ phản ứng", dùng chung cho bài viết và bình luận: thẻ lọc theo loại
@@ -108,7 +109,7 @@ export function ReactorsDialog({
                   setHoverRow((current) => (current === rowKey ? null : current))
                 }
               >
-                <Avatar user={item.user} size={32} />
+                <UserAvatar user={item.user} size={32} />
                 <span className={styles.suggestText}>
                   <span className={styles.suggestName}>{item.user.name}</span>
                   {userSubtitle(item.user) ? (

@@ -13,7 +13,8 @@ import { RefreshCw, Search, UserMinus, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
 import base from '../../social.module.scss';
-import { Avatar, ConfirmDialog, Dialog, Field, SelectField, userSubtitle } from '../ui';
+import { ConfirmDialog, Dialog, Field, SelectField, userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { MemberPicker } from './group-visuals';
 import { appendUnique } from './groups.model';
 import s from './groups.module.scss';
@@ -318,7 +319,7 @@ export function GroupMembersPanel({
         <ul className={s.rowList}>
           {members.map((member) => (
             <li key={member.user.id} className={s.memberRow}>
-              <Avatar user={member.user} size={32} />
+              <UserAvatar user={member.user} size={32} />
               <span className={s.rowText}>
                 <span className={s.rowTitle}>{member.user.name}</span>
                 {userSubtitle(member.user) ? <span className={s.rowMeta}>{userSubtitle(member.user)}</span> : null}
