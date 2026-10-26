@@ -881,6 +881,11 @@ export interface CreateSocialBookmarkFolderRequest {
   readonly name: string;
 }
 
+/** Đổi tên thư mục đã lưu (cùng quy tắc tên với tạo mới). */
+export interface UpdateSocialBookmarkFolderRequest {
+  readonly name: string;
+}
+
 export interface SetSocialBookmarkRequest {
   readonly bookmarked: boolean;
   /**

@@ -17,6 +17,7 @@ import type {
   PinSocialPostRequest,
   RejectSocialPostRequest,
   CreateSocialBookmarkFolderRequest,
+  UpdateSocialBookmarkFolderRequest,
   SetSocialBookmarkRequest,
   SetSocialPollVoteRequest,
   UpdateSocialPostRequest,
@@ -171,6 +172,23 @@ export class SocialPublishingController {
     return this.execute(() =>
       this.bookmarks.createFolder(this.actor(request), body ?? ({} as CreateSocialBookmarkFolderRequest)),
     );
+  }
+
+  @Patch('bookmark-folders/:id')
+  renameBookmarkFolder(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateSocialBookmarkFolderRequest,
+  ) {
+    return this.execute(() =>
+      this.bookmarks.renameFolder(this.actor(request), id, body ?? ({} as UpdateSocialBookmarkFolderRequest)),
+    );
+  }
+
+  @Delete('bookmark-folders/:id')
+  @HttpCode(204)
+  async deleteBookmarkFolder(@Req() request: SocialRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.bookmarks.deleteFolder(this.actor(request), id));
   }
 
   /* ------------------------------------------------------- xác nhận đã đọc */

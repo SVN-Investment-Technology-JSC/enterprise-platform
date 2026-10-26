@@ -634,6 +634,14 @@ class FakePublishingStore implements SocialPublishingStore {
     if (!existing) this.folders.push(folder);
     return { id: folder.id, name: folder.name, count: 0 };
   }
+  async renameBookmarkFolder(_t: string, userId: string, folderId: string, name: string) {
+    const folder = this.folders.find((f) => f.id === folderId && f.userId === userId);
+    if (folder) folder.name = name;
+  }
+  async deleteBookmarkFolder(_t: string, userId: string, folderId: string) {
+    this.folders = this.folders.filter((f) => !(f.id === folderId && f.userId === userId));
+    this.bookmarks = this.bookmarks.map((b) => (b.userId === userId && b.folderId === folderId ? { ...b, folderId: undefined } : b));
+  }
   async bookmarkFolderExists(_t: string, userId: string, folderId: string) {
     return this.folders.some((f) => f.id === folderId && f.userId === userId);
   }
@@ -1644,6 +1652,50 @@ describe('thư mục bài đã lưu', () => {
     ]);
     expect(folders.unfiledCount).toBe(1);
     expect(folders.total).toBe(3);
+  });
+});
+
+describe('sửa và xoá thư mục bài đã lưu', () => {
+  it('đổi tên: cắt khoảng trắng, từ chối tên rỗng, quá dài hoặc trùng thư mục khác; giữ nguyên count', async () => {
+    const h = harness();
+    const post = await h.publishing.create(alice, { bodyHtml: BODY });
+    const a = await h.bookmarks.createFolder(bob, { name: 'Alpha' });
+    const b = await h.bookmarks.createFolder(bob, { name: 'Beta' });
+    await h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: a.id });
+
+    await expect(h.bookmarks.renameFolder(bob, a.id, { name: '  Gamma  ' })).resolves.toEqual({ id: a.id, name: 'Gamma', count: 1 });
+    expect((await h.bookmarks.listFolders(bob)).items.map((f) => f.name)).toEqual(['Beta', 'Gamma']);
+    // Đổi hoa thường của chính nó thì được; trùng thư mục khác thì không.
+    await expect(h.bookmarks.renameFolder(bob, a.id, { name: 'GAMMA' })).resolves.toMatchObject({ name: 'GAMMA' });
+    await expectError(h.bookmarks.renameFolder(bob, a.id, { name: 'beta' }), 'VALIDATION');
+    await expectError(h.bookmarks.renameFolder(bob, b.id, { name: '   ' }), 'VALIDATION');
+    await expectError(h.bookmarks.renameFolder(bob, b.id, { name: 'x'.repeat(SOCIAL_BOOKMARK_FOLDER_NAME_MAX + 1) }), 'VALIDATION');
+  });
+
+  it('thư mục của người khác hoặc id sai: không tìm thấy, không lộ thư mục người khác', async () => {
+    const h = harness();
+    const theirs = await h.bookmarks.createFolder(alice, { name: 'Của Alice' });
+    await expectError(h.bookmarks.renameFolder(bob, theirs.id, { name: 'Đổi' }), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
+    await expectError(h.bookmarks.deleteFolder(bob, theirs.id), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
+    await expectError(h.bookmarks.deleteFolder(bob, 'khong-phai-uuid'), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
+    expect((await h.bookmarks.listFolders(alice)).items.map((f) => f.name)).toEqual(['Của Alice']);
+  });
+
+  it('xoá thư mục: bài đã lưu về chưa phân loại, không mất bài', async () => {
+    const h = harness();
+    const post = await h.publishing.create(alice, { bodyHtml: BODY });
+    const folder = await h.bookmarks.createFolder(bob, { name: 'Tạm' });
+    await h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: folder.id });
+
+    await h.bookmarks.deleteFolder(bob, folder.id);
+    const folders = await h.bookmarks.listFolders(bob);
+    expect(folders.items).toEqual([]);
+    expect(folders.unfiledCount).toBe(1);
+    const saved = (await h.bookmarks.list(bob)).items;
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.bookmarked).toBe(true);
+    expect(saved[0]?.bookmarkFolderId).toBeUndefined();
+    await expectError(h.bookmarks.deleteFolder(bob, folder.id), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
   });
 });
 

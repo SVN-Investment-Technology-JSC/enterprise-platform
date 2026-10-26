@@ -2,6 +2,7 @@ import {
   SOCIAL_BOOKMARK_FOLDERS_MAX,
   SOCIAL_BOOKMARK_FOLDER_NAME_MAX,
   type CreateSocialBookmarkFolderRequest,
+  type UpdateSocialBookmarkFolderRequest,
   type SetSocialBookmarkRequest,
   type SocialBookmarkFolder,
   type SocialBookmarkFolderList,
@@ -69,6 +70,36 @@ export class SocialBookmarkService {
       throw new SocialValidationError(`Mỗi người chỉ tạo tối đa ${SOCIAL_BOOKMARK_FOLDERS_MAX} thư mục đã lưu.`);
     }
     return this.deps.store.createBookmarkFolder(actor.tenantId, actor.userId, name);
+  }
+
+  /** Đổi tên: cùng quy tắc tên với tạo mới; trùng tên một thư mục khác (không phân biệt hoa thường) thì báo lỗi. */
+  async renameFolder(actor: SocialActor, folderId: string, request: UpdateSocialBookmarkFolderRequest): Promise<SocialBookmarkFolder> {
+    const name = typeof request?.name === 'string' ? request.name.trim() : '';
+    if (!name) throw new SocialValidationError('Vui lòng nhập tên thư mục.');
+    if (name.length > SOCIAL_BOOKMARK_FOLDER_NAME_MAX) {
+      throw new SocialValidationError(`Tên thư mục tối đa ${SOCIAL_BOOKMARK_FOLDER_NAME_MAX} ký tự.`);
+    }
+    const id = await this.requireFolder(actor, folderId);
+    const { folders } = await this.deps.store.listBookmarkFolders(actor.tenantId, actor.userId);
+    if (folders.some((folder) => folder.id !== id && folder.name.toLowerCase() === name.toLowerCase())) {
+      throw new SocialValidationError('Đã có thư mục cùng tên.');
+    }
+    await this.deps.store.renameBookmarkFolder(actor.tenantId, actor.userId, id, name);
+    const current = folders.find((folder) => folder.id === id);
+    return { id, name, count: current?.count ?? 0 };
+  }
+
+  /** Xoá thư mục; bài đã lưu trong đó về "chưa phân loại". */
+  async deleteFolder(actor: SocialActor, folderId: string): Promise<void> {
+    const id = await this.requireFolder(actor, folderId);
+    await this.deps.store.deleteBookmarkFolder(actor.tenantId, actor.userId, id);
+  }
+
+  private async requireFolder(actor: SocialActor, folderId: string): Promise<string> {
+    if (!isUuid(folderId) || !(await this.deps.store.bookmarkFolderExists(actor.tenantId, actor.userId, folderId))) {
+      throw new SocialBookmarkFolderNotFoundError();
+    }
+    return folderId.toLowerCase();
   }
 
   async list(

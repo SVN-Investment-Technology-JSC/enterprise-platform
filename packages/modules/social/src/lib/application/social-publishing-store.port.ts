@@ -285,6 +285,10 @@ export interface SocialPublishingStore {
   /** Idempotent theo tên không phân biệt hoa thường: trùng thì trả thư mục cũ. */
   createBookmarkFolder(tenantId: string, userId: string, name: string): Promise<BookmarkFolderRow>;
   bookmarkFolderExists(tenantId: string, userId: string, folderId: string): Promise<boolean>;
+  /** Đổi tên thư mục của người dùng; tên đã được kiểm trùng ở service. */
+  renameBookmarkFolder(tenantId: string, userId: string, folderId: string, name: string): Promise<void>;
+  /** Xoá thư mục; các bài đã lưu trong đó về "chưa phân loại" (khoá ngoại `ON DELETE SET NULL`), không mất bài. */
+  deleteBookmarkFolder(tenantId: string, userId: string, folderId: string): Promise<void>;
   /** Bài đã lưu còn thấy được, lưu gần nhất trước; con trỏ theo `(bookmarkedAt, postId)`. */
   listBookmarks(
     tenantId: string,

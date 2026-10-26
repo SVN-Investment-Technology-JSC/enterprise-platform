@@ -779,6 +779,22 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
     });
   }
 
+  renameBookmarkFolder(tenantId: string, userId: string, folderId: string, name: string): Promise<void> {
+    return this.run(tenantId, async (pool) => {
+      await pool.query(`UPDATE social_schema.bookmark_folders SET name = $3 WHERE id = $1::uuid AND user_id = $2`, [
+        folderId,
+        userId,
+        name,
+      ]);
+    });
+  }
+
+  deleteBookmarkFolder(tenantId: string, userId: string, folderId: string): Promise<void> {
+    return this.run(tenantId, async (pool) => {
+      await pool.query(`DELETE FROM social_schema.bookmark_folders WHERE id = $1::uuid AND user_id = $2`, [folderId, userId]);
+    });
+  }
+
   bookmarkFolderExists(tenantId: string, userId: string, folderId: string): Promise<boolean> {
     return this.run(tenantId, async (pool) => {
       const result = await pool.query(
