@@ -23,6 +23,8 @@ export interface DialogProps {
    * (khoảng 68rem).
    */
   readonly size?: 'default' | 'wide' | 'extraWide';
+  /** Căn hộp thoại giữa màn hình theo chiều dọc thay vì sát mép trên. */
+  readonly centered?: boolean;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -48,6 +50,7 @@ export function Dialog({
   submitDisabled = false,
   error,
   size = 'default',
+  centered = false,
   onClose,
   onSubmit,
   children,
@@ -158,7 +161,11 @@ export function Dialog({
   }
 
   return createPortal(
-    <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
+    <div
+      className={centered ? `${styles.overlay} ${styles.overlayCentered}` : styles.overlay}
+      role="presentation"
+      onMouseDown={requestClose}
+    >
       <div
         className={
           size === 'wide'

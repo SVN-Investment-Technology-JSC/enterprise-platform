@@ -2188,6 +2188,7 @@ function AttachDialog({
       title="Gắn tài liệu có sẵn"
       subtitle="Chọn từ tài liệu đã tải lên trong dự án."
       submitLabel="Gắn"
+      centered
       submitting={submitting}
       error={error}
       onClose={onClose}
