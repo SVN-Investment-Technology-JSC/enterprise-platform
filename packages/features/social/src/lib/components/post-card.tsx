@@ -22,6 +22,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
   deletePost,
@@ -45,6 +46,7 @@ import extras from '../post-extras.module.scss';
 import {
   buildPostMenu,
   type PostMenuAction,
+  type PostMenuItem,
 } from '../post-visibility.model';
 import { SocialLink } from '../social-navigation';
 import { toast } from '@enterprise-platform/shared-ui';
@@ -289,6 +291,8 @@ export interface PostCardProps {
    * Nơi cha hiển thị hộp thoại; không truyền thì Lưu bài bật/tắt nhanh.
    */
   readonly onPickBookmarkFolder?: (post: SocialPost) => void;
+  /** Nút chèn thêm ở đầu thẻ, trước menu "⋮" (ví dụ tay nắm kéo thả sang thư mục khác). */
+  readonly headerExtra?: ReactNode;
 }
 
 export function PostCard({
@@ -303,6 +307,7 @@ export function PostCard({
   focusCommentId,
   isDetailPage = false,
   onPickBookmarkFolder,
+  headerExtra,
 }: PostCardProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
@@ -315,7 +320,17 @@ export function PostCard({
   const canReact = me.permissions.includes('social.post.write');
   const published = isPublished(post);
   const activity = post.activity;
-  const menuItems = buildPostMenu(post).filter((item) => !(isDetailPage && item.action === 'detail'));
+  // Màn Đã lưu: thêm mục chuyển thư mục ngay sau "Xem chi tiết" (hoặc đầu menu khi đang ở trang chi tiết).
+  const menuItems = buildPostMenu(post)
+    .filter((item) => !(isDetailPage && item.action === 'detail'))
+    .flatMap((item): readonly PostMenuItem[] =>
+      item.action === 'detail' && onPickBookmarkFolder && published
+        ? [item, { action: 'moveFolder', label: 'Chuyển sang thư mục khác' }]
+        : [item],
+    );
+  if (onPickBookmarkFolder && published && !menuItems.some((item) => item.action === 'moveFolder')) {
+    menuItems.unshift({ action: 'moveFolder', label: 'Chuyển sang thư mục khác' });
+  }
   const commentsDisabled = Boolean(post.commentsDisabled);
   const mediaItems = galleryItemsFromAttachments(post.attachments);
   const files = post.attachments.filter((item) => !item.isImage && !item.isVideo);
@@ -402,6 +417,7 @@ export function PostCard({
     else if (action === 'toggleComments') void toggleComments();
     else if (action === 'history') setHistoryOpen(true);
     else if (action === 'edit') onEdit(post);
+    else if (action === 'moveFolder') onPickBookmarkFolder?.(post);
     else setConfirming(true);
   };
 
@@ -462,6 +478,7 @@ export function PostCard({
         <div className={styles.postBadges}>
           <PostStatusBadges post={post} />
         </div>
+        {headerExtra}
         <PostMenu
           postId={post.id}
           items={menuItems}

@@ -33,6 +33,8 @@
   flex: 1;
 
   h2 {
+    display: flex;
+    align-items: center;
     margin: 0;
     font-size: 17px;
     font-weight: 700;
@@ -48,6 +50,7 @@
 
 .total {
   flex: none;
+  margin-left: 10px;
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--ep-hover);
@@ -65,4 +68,23 @@
 .divider {
   height: 1px;
   background: var(--ep-line);
+}
+
+/* Hàng thư mục: các chip bên trái, nhóm nút sửa/xoá của thư mục đang chọn gọn ở góc phải. */
+.folderBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.folderActions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: var(--ep-surface);
 }

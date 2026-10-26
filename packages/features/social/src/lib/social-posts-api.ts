@@ -65,6 +65,13 @@ export const loadBookmarkFolders = () =>
 export const createBookmarkFolder = (name: string) =>
   request<SocialBookmarkFolder>('/bookmark-folders', json('POST', { name }));
 
+export const renameBookmarkFolder = (id: string, name: string) =>
+  request<SocialBookmarkFolder>(`/bookmark-folders/${encodeURIComponent(id)}`, json('PATCH', { name }));
+
+/** Xoá thư mục; các bài đã lưu trong đó về "chưa phân loại". */
+export const deleteBookmarkFolder = (id: string) =>
+  request<void>(`/bookmark-folders/${encodeURIComponent(id)}`, json('DELETE'));
+
 /* ----------------------------------------------------------------- bình chọn */
 
 export const votePoll = (postId: string, optionIds: readonly string[]) =>

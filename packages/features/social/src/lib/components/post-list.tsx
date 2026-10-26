@@ -6,6 +6,7 @@ import type {
   SocialPost,
   SocialTopic,
 } from '@enterprise-platform/contracts-social';
+import { GripVertical } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import extras from '../post-extras.module.scss';
 import { errorMessage, loadMe, loadTopics } from '../social-api';
@@ -14,6 +15,8 @@ import { mergePages, replacePost } from '../social.model';
 import styles from '../social.module.scss';
 import { ComposerDialog } from './composer-dialog';
 import { BookmarkDialog } from './library/bookmark-dialog';
+import { BOOKMARK_DRAG_TYPE } from './library/bookmark-dnd';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { PostCard } from './post-card';
 
 export interface PostListActions {
@@ -47,6 +50,55 @@ export interface PostListProps {
    */
   readonly onBookmarkChanged?: () => void;
   readonly bookmarkFolders?: boolean;
+}
+
+/**
+ * Một dòng của danh sách. Ở màn Đã lưu (có thư mục) dòng kéo được bằng tay nắm ở đầu thẻ để thả vào chip thư mục; chỉ
+ * kéo được khi bấm giữ tay nắm, nên bôi đen chữ trong bài vẫn bình thường.
+ */
+function DraggableItem({
+  postId,
+  enabled,
+  children,
+}: {
+  readonly postId: string;
+  readonly enabled: boolean;
+  readonly children: (grip: ReactNode) => ReactNode;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!enabled) return <div className={extras.listItem}>{children(null)}</div>;
+  const grip = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={extras.dragGrip}
+            aria-label="Kéo bài vào một thư mục để chuyển"
+            onMouseDown={() => setArmed(true)}
+            onMouseUp={() => setArmed(false)}
+          />
+        }
+      >
+        <GripVertical size={16} aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipContent side="top">Giữ và kéo bài vào một thư mục phía trên</TooltipContent>
+    </Tooltip>
+  );
+  return (
+    <div
+      className={extras.listItem}
+      draggable={armed}
+      onDragStart={(event) => {
+        event.dataTransfer.setData(BOOKMARK_DRAG_TYPE, postId);
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
+      }}
+      onDragEnd={() => setArmed(false)}
+    >
+      {children(grip)}
+    </div>
+  );
 }
 
 /** Danh sách bài có phân trang cho các màn Đã lưu, Chờ duyệt, Hẹn giờ. */
@@ -179,19 +231,24 @@ export function PostList({
       ) : null}
 
       {items.map((post) => (
-        <div key={post.id} className={extras.listItem}>
-          <PostCard
-            post={post}
-            me={me}
-            onChange={update}
-            onEdit={edit}
-            onDeleted={remove}
-            onOpenTopic={() => undefined}
-            onError={setToast}
-            onPickBookmarkFolder={bookmarkFolders ? setBookmarking : undefined}
-          />
-          {renderActions ? renderActions(post, actions) : null}
-        </div>
+        <DraggableItem key={post.id} postId={post.id} enabled={bookmarkFolders}>
+          {(grip) => (
+            <>
+              <PostCard
+                post={post}
+                me={me}
+                onChange={update}
+                onEdit={edit}
+                onDeleted={remove}
+                onOpenTopic={() => undefined}
+                onError={setToast}
+                onPickBookmarkFolder={bookmarkFolders ? setBookmarking : undefined}
+                headerExtra={grip}
+              />
+              {renderActions ? renderActions(post, actions) : null}
+            </>
+          )}
+        </DraggableItem>
       ))}
 
       {loading && items.length === 0 ? (
