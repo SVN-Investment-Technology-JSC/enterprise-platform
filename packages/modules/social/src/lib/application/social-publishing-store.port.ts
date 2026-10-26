@@ -138,6 +138,23 @@ export interface PostListQuery {
   readonly cursor?: PageCursor;
 }
 
+export interface BookmarkListQuery extends PostListQuery {
+  /** Id thư mục, hoặc `none` là chưa phân loại; thiếu là tất cả. */
+  readonly folderId?: string;
+}
+
+export interface BookmarkFolderRow {
+  readonly id: string;
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface BookmarkFolderSummary {
+  /** Sắp theo tên, không phân biệt hoa thường. */
+  readonly folders: BookmarkFolderRow[];
+  readonly unfiledCount: number;
+}
+
 export interface BookmarkedPostRow {
   readonly post: ExtendedPostRow;
   readonly bookmarkedAt: string;
@@ -255,13 +272,25 @@ export interface SocialPublishingStore {
   /** Mọi xác nhận của bài, theo `(confirmedAt, userId)`. */
   listConfirmations(tenantId: string, postId: string): Promise<ReadConfirmationRecord[]>;
 
-  setBookmark(tenantId: string, postId: string, userId: string, bookmarked: boolean): Promise<void>;
+  /** `folderId` undefined giữ thư mục cũ (nếu đã lưu), `null` về chưa phân loại. Người gọi đã kiểm thư mục là của userId. */
+  setBookmark(
+    tenantId: string,
+    postId: string,
+    userId: string,
+    bookmarked: boolean,
+    folderId?: string | null,
+  ): Promise<void>;
+  /** Thư mục cùng số bài đã lưu; `count` đếm bài đã đăng (không xét quyền xem). */
+  listBookmarkFolders(tenantId: string, userId: string): Promise<BookmarkFolderSummary>;
+  /** Idempotent theo tên không phân biệt hoa thường: trùng thì trả thư mục cũ. */
+  createBookmarkFolder(tenantId: string, userId: string, name: string): Promise<BookmarkFolderRow>;
+  bookmarkFolderExists(tenantId: string, userId: string, folderId: string): Promise<boolean>;
   /** Bài đã lưu còn thấy được, lưu gần nhất trước; con trỏ theo `(bookmarkedAt, postId)`. */
   listBookmarks(
     tenantId: string,
     userId: string,
     scope: PostVisibilityScope,
-    query: PostListQuery,
+    query: BookmarkListQuery,
   ): Promise<BookmarkedPostRow[]>;
 
   /** Đặt/bỏ/đổi phản ứng và ghi sự kiện cùng transaction (`SocialStore.reactions` không nhận sự kiện). */

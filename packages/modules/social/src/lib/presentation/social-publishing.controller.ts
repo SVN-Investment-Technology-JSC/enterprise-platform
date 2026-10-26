@@ -16,6 +16,7 @@ import type {
   CreateSocialPostRequest,
   PinSocialPostRequest,
   RejectSocialPostRequest,
+  CreateSocialBookmarkFolderRequest,
   SetSocialBookmarkRequest,
   SetSocialPollVoteRequest,
   UpdateSocialPostRequest,
@@ -145,9 +146,30 @@ export class SocialPublishingController {
   }
 
   @Get('bookmarks')
-  bookmarkList(@Req() request: SocialRequest, @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+  bookmarkList(
+    @Req() request: SocialRequest,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('folderId') folderId?: string,
+  ) {
     return this.execute(() =>
-      this.bookmarks.list(this.actor(request), { cursor: cursor || undefined, limit: numberOrUndefined(limit) }),
+      this.bookmarks.list(this.actor(request), {
+        cursor: cursor || undefined,
+        limit: numberOrUndefined(limit),
+        folderId: folderId || undefined,
+      }),
+    );
+  }
+
+  @Get('bookmark-folders')
+  bookmarkFolders(@Req() request: SocialRequest) {
+    return this.execute(() => this.bookmarks.listFolders(this.actor(request)));
+  }
+
+  @Post('bookmark-folders')
+  createBookmarkFolder(@Req() request: SocialRequest, @Body() body: CreateSocialBookmarkFolderRequest) {
+    return this.execute(() =>
+      this.bookmarks.createFolder(this.actor(request), body ?? ({} as CreateSocialBookmarkFolderRequest)),
     );
   }
 

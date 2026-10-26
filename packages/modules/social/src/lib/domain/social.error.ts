@@ -38,6 +38,13 @@ export class SocialPostNotFoundError extends SocialError {
   }
 }
 
+export class SocialBookmarkFolderNotFoundError extends SocialError {
+  constructor() {
+    super('BOOKMARK_FOLDER_NOT_FOUND', 'Thư mục đã lưu không tồn tại.', 404);
+    Object.setPrototypeOf(this, SocialBookmarkFolderNotFoundError.prototype);
+  }
+}
+
 export class SocialCommentNotFoundError extends SocialError {
   constructor() {
     super('COMMENT_NOT_FOUND', 'Bình luận không tồn tại hoặc đã bị xoá.', 404);

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
+  SOCIAL_BOOKMARK_FOLDERS_MAX,
+  SOCIAL_BOOKMARK_FOLDER_NAME_MAX,
   SOCIAL_EVENT_TYPES,
   type SocialGroupRole,
   type SocialOrgNode,
@@ -44,6 +46,9 @@ import { PublishedEventBuilder } from './social-publishing-events.js';
 import { SocialPublishingService } from './social-publishing.service.js';
 import type {
   BookmarkedPostRow,
+  BookmarkFolderRow,
+  BookmarkFolderSummary,
+  BookmarkListQuery,
   DueDecision,
   InboxCountsRow,
   PollVoterRow,
@@ -292,7 +297,8 @@ class FakePublishingStore implements SocialPublishingStore {
   mentions = new Map<string, string[]>();
   polls = new Map<string, FakePoll>();
   confirmations = new Map<string, ReadConfirmationRecord[]>();
-  bookmarks: { userId: string; postId: string; at: string }[] = [];
+  bookmarks: { userId: string; postId: string; at: string; folderId?: string }[] = [];
+  folders: { id: string; userId: string; name: string }[] = [];
   reactions = new Map<string, SocialReactionType>();
   events: SocialOutboxEvent[] = [];
   edits: StoredEdit[] = [];
@@ -566,6 +572,9 @@ class FakePublishingStore implements SocialPublishingStore {
       polls,
       readConfirmations,
       bookmarkedPostIds: new Set(this.bookmarks.filter((b) => b.userId === viewerId).map((b) => b.postId)),
+      bookmarkFolderIds: new Map(
+        this.bookmarks.flatMap((b) => (b.userId === viewerId && b.folderId ? [[b.postId, b.folderId] as const] : [])),
+      ),
       audiences,
     };
   }
@@ -603,12 +612,36 @@ class FakePublishingStore implements SocialPublishingStore {
     return this.confirmations.get(postId) ?? [];
   }
 
-  async setBookmark(_t: string, postId: string, userId: string, bookmarked: boolean) {
-    this.bookmarks = this.bookmarks.filter((b) => !(b.postId === postId && b.userId === userId));
-    if (bookmarked) this.bookmarks.push({ userId, postId, at: this.stamp() });
+  async setBookmark(_t: string, postId: string, userId: string, bookmarked: boolean, folderId?: string | null) {
+    const previous = this.bookmarks.find((b) => b.postId === postId && b.userId === userId);
+    this.bookmarks = this.bookmarks.filter((b) => b !== previous);
+    if (!bookmarked) return;
+    const folder = folderId === undefined ? previous?.folderId : (folderId ?? undefined);
+    this.bookmarks.push({ userId, postId, at: previous?.at ?? this.stamp(), ...(folder ? { folderId: folder } : {}) });
   }
-  async listBookmarks(_t: string, userId: string, scope: PostVisibilityScope, query: PostListQuery): Promise<BookmarkedPostRow[]> {
-    const mine = this.bookmarks.filter((b) => b.userId === userId).sort((a, b) => b.at.localeCompare(a.at));
+  async listBookmarkFolders(_t: string, userId: string): Promise<BookmarkFolderSummary> {
+    const mine = this.bookmarks.filter((b) => b.userId === userId && this.rows.get(b.postId)?.status === 'published');
+    return {
+      folders: this.folders
+        .filter((f) => f.userId === userId)
+        .map((f) => ({ id: f.id, name: f.name, count: mine.filter((b) => b.folderId === f.id).length })),
+      unfiledCount: mine.filter((b) => !b.folderId).length,
+    };
+  }
+  async createBookmarkFolder(_t: string, userId: string, name: string): Promise<BookmarkFolderRow> {
+    const existing = this.folders.find((f) => f.userId === userId && f.name.toLowerCase() === name.toLowerCase());
+    const folder = existing ?? { id: randomUUID(), userId, name };
+    if (!existing) this.folders.push(folder);
+    return { id: folder.id, name: folder.name, count: 0 };
+  }
+  async bookmarkFolderExists(_t: string, userId: string, folderId: string) {
+    return this.folders.some((f) => f.id === folderId && f.userId === userId);
+  }
+  async listBookmarks(_t: string, userId: string, scope: PostVisibilityScope, query: BookmarkListQuery): Promise<BookmarkedPostRow[]> {
+    const mine = this.bookmarks
+      .filter((b) => b.userId === userId)
+      .filter((b) => (query.folderId === undefined ? true : query.folderId === 'none' ? !b.folderId : b.folderId === query.folderId))
+      .sort((a, b) => b.at.localeCompare(a.at));
     const out: BookmarkedPostRow[] = [];
     for (const b of mine) {
       const row = this.rows.get(b.postId);
@@ -1534,6 +1567,85 @@ describe('xác nhận đã đọc', () => {
 });
 
 /* -------------------------------------------------------------- đã lưu */
+
+describe('thư mục bài đã lưu', () => {
+  it('tạo thư mục: cắt khoảng trắng, trùng tên (không phân biệt hoa thường) trả lại thư mục cũ', async () => {
+    const h = harness();
+    const first = await h.bookmarks.createFolder(bob, { name: '  Quy trình  ' });
+    expect(first).toMatchObject({ name: 'Quy trình', count: 0 });
+    const again = await h.bookmarks.createFolder(bob, { name: 'QUY TRÌNH' });
+    expect(again.id).toBe(first.id);
+    expect((await h.bookmarks.listFolders(bob)).items).toHaveLength(1);
+    // Người khác tạo cùng tên thì ra thư mục riêng.
+    expect((await h.bookmarks.createFolder(alice, { name: 'Quy trình' })).id).not.toBe(first.id);
+  });
+
+  it('từ chối tên rỗng, quá dài và vượt số thư mục tối đa', async () => {
+    const h = harness();
+    await expectError(h.bookmarks.createFolder(bob, { name: '   ' }), 'VALIDATION');
+    await expectError(h.bookmarks.createFolder(bob, {} as { name: string }), 'VALIDATION');
+    await expectError(h.bookmarks.createFolder(bob, { name: 'x'.repeat(SOCIAL_BOOKMARK_FOLDER_NAME_MAX + 1) }), 'VALIDATION');
+    await expect(h.bookmarks.createFolder(bob, { name: 'x'.repeat(SOCIAL_BOOKMARK_FOLDER_NAME_MAX) })).resolves.toBeDefined();
+    for (let i = 1; i < SOCIAL_BOOKMARK_FOLDERS_MAX; i += 1) await h.bookmarks.createFolder(bob, { name: `Thư mục ${i}` });
+    await expectError(h.bookmarks.createFolder(bob, { name: 'Thêm một thư mục' }), 'VALIDATION');
+    // Tên trùng vẫn trả thư mục cũ dù đã đủ số lượng.
+    await expect(h.bookmarks.createFolder(bob, { name: 'thư mục 1' })).resolves.toMatchObject({ name: 'Thư mục 1' });
+  });
+
+  it('lưu bài vào thư mục: thư mục lạ bị từ chối, bỏ trống giữ thư mục cũ, null về chưa phân loại', async () => {
+    const h = harness();
+    const post = await h.publishing.create(alice, { bodyHtml: BODY });
+    const folder = await h.bookmarks.createFolder(bob, { name: 'Đọc sau' });
+    const strangers = await h.bookmarks.createFolder(alice, { name: 'Của Alice' });
+
+    await expectError(h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: strangers.id }), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
+    await expectError(h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: 'khong-phai-uuid' }), 'BOOKMARK_FOLDER_NOT_FOUND', 404);
+    expect((await h.bookmarks.list(bob)).items).toEqual([]);
+
+    await expect(h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: folder.id })).resolves.toEqual({
+      bookmarked: true,
+      folderId: folder.id,
+    });
+    expect((await h.bookmarks.list(bob)).items[0]).toMatchObject({ bookmarked: true, bookmarkFolderId: folder.id });
+
+    // Lưu lại không nêu folderId: giữ thư mục cũ.
+    await h.bookmarks.set(bob, post.id, { bookmarked: true });
+    expect((await h.bookmarks.list(bob)).items[0]?.bookmarkFolderId).toBe(folder.id);
+
+    // null: về chưa phân loại.
+    await h.bookmarks.set(bob, post.id, { bookmarked: true, folderId: null });
+    const unfiled = (await h.bookmarks.list(bob)).items[0];
+    expect(unfiled?.bookmarked).toBe(true);
+    expect(unfiled?.bookmarkFolderId).toBeUndefined();
+  });
+
+  it('lọc danh sách theo thư mục hoặc none; danh sách thư mục kèm count, unfiledCount và sắp theo tên', async () => {
+    const h = harness();
+    const a = await h.publishing.create(alice, { bodyHtml: BODY });
+    const b = await h.publishing.create(alice, { bodyHtml: '<p>Bài hai</p>' });
+    const c = await h.publishing.create(alice, { bodyHtml: '<p>Bài ba</p>' });
+    const zeta = await h.bookmarks.createFolder(bob, { name: 'zeta' });
+    const alpha = await h.bookmarks.createFolder(bob, { name: 'Alpha' });
+    await h.bookmarks.set(bob, a.id, { bookmarked: true, folderId: alpha.id });
+    await h.bookmarks.set(bob, b.id, { bookmarked: true, folderId: alpha.id });
+    await h.bookmarks.set(bob, c.id, { bookmarked: true });
+
+    const ids = async (folderId?: string) => (await h.bookmarks.list(bob, { folderId })).items.map((p) => p.id).sort();
+    expect(await ids()).toEqual([a.id, b.id, c.id].sort());
+    expect(await ids(alpha.id)).toEqual([a.id, b.id].sort());
+    expect(await ids('none')).toEqual([c.id]);
+    expect(await ids(zeta.id)).toEqual([]);
+    await expectError(h.bookmarks.list(bob, { folderId: 'bậy' }), 'VALIDATION');
+
+    const folders = await h.bookmarks.listFolders(bob);
+    expect(folders.items.map((f) => [f.name, f.count])).toEqual([
+      ['Alpha', 2],
+      ['zeta', 0],
+    ]);
+    expect(folders.unfiledCount).toBe(1);
+    expect(folders.total).toBe(3);
+  });
+});
 
 describe('bài đã lưu', () => {
   it('lưu và bỏ lưu; danh sách lưu gần nhất trước', async () => {

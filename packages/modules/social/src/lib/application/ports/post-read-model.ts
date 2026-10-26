@@ -56,6 +56,8 @@ export interface PostEngagementRelations {
   readonly readConfirmations: ReadonlyMap<string, ReadConfirmationRow>;
   /** Id bài người xem đã lưu, trong số các id được hỏi. */
   readonly bookmarkedPostIds: ReadonlySet<string>;
+  /** Thư mục của bài đã lưu (khoá là id bài); bài chưa phân loại không có mục. */
+  readonly bookmarkFolderIds?: ReadonlyMap<string, string>;
   /**
    * Đợt 2. Danh sách chia sẻ của các bài `custom` (khoá là id bài). Chỉ nạp khi cần dựng
    * `SocialPost.audience` (tác giả xem bài của mình) hoặc khi kiểm quyền xem một bài.

@@ -256,6 +256,8 @@ export interface SocialPost {
   readonly moderatedAt?: string;
   /** Mặc định `false`. */
   readonly bookmarked?: boolean;
+  /** Thư mục chứa bài đã lưu; chỉ có khi `bookmarked` và bài nằm trong một thư mục. */
+  readonly bookmarkFolderId?: string;
   /**
    * Bài tự sinh từ hoạt động. Với bài này `kind` luôn là `post` (kiểu `SocialPostKind` không đổi để
    * không vỡ mã P1), `bodyHtml` rỗng và không sửa được; hiển thị theo `activity.type`.
@@ -858,12 +860,38 @@ export interface SocialMyPostsQuery {
   readonly limit?: number;
 }
 
+export const SOCIAL_BOOKMARK_FOLDER_NAME_MAX = 60;
+export const SOCIAL_BOOKMARK_FOLDERS_MAX = 50;
+
+export interface SocialBookmarkFolder {
+  readonly id: string;
+  readonly name: string;
+  /** Số bài đã lưu trong thư mục. */
+  readonly count: number;
+}
+
+export interface SocialBookmarkFolderList {
+  readonly items: readonly SocialBookmarkFolder[];
+  /** Số bài đã lưu chưa vào thư mục nào. */
+  readonly unfiledCount: number;
+  readonly total: number;
+}
+
+export interface CreateSocialBookmarkFolderRequest {
+  readonly name: string;
+}
+
 export interface SetSocialBookmarkRequest {
   readonly bookmarked: boolean;
+  /**
+   * Chỉ có ý nghĩa khi `bookmarked = true`. `null` là chưa phân loại; không gửi trường này thì giữ thư mục cũ.
+   */
+  readonly folderId?: string | null;
 }
 
 export interface SocialBookmarkState {
   readonly bookmarked: boolean;
+  readonly folderId?: string;
 }
 
 /** Số mục chờ xử lý, để hiện chấm số ở điều hướng (yêu cầu tham gia nhóm: xem `totalCount` của `SocialJoinRequestInboxPage`). */
