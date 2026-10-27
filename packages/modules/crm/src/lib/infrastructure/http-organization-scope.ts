@@ -1,5 +1,7 @@
+import type { CrmPerson } from '@enterprise-platform/contracts-crm';
 import { Logger } from '@nestjs/common';
 import type { ReportingLineReader } from '../application/organization-scope.port.js';
+import type { PeopleDirectory } from '../application/sales-store.port.js';
 import { CrmOrganizationUnavailableError } from '../domain/crm.error.js';
 import type {
   ReportingAssignment,
@@ -22,8 +24,11 @@ const TIMEOUT_MS = 5_000;
  * thì ở đây không vỡ. Không đọc được thì dùng bản cũ nếu còn; chưa có bản nào
  * thì ném 503, vì đoán phạm vi (rộng hơn hay hẹp hơn) đều sai.
  */
-export class HttpOrganizationScope implements ReportingLineReader {
-  private readonly cache = new Map<string, { expiresAt: number; snapshot: ReportingLineSnapshot }>();
+export class HttpOrganizationScope implements ReportingLineReader, PeopleDirectory {
+  private readonly cache = new Map<
+    string,
+    { expiresAt: number; snapshot: ReportingLineSnapshot; people: CrmPerson[] }
+  >();
   private readonly logger = new Logger(HttpOrganizationScope.name);
 
   constructor(
@@ -35,24 +40,35 @@ export class HttpOrganizationScope implements ReportingLineReader {
   ) {}
 
   async snapshot(tenantId: string): Promise<ReportingLineSnapshot> {
+    return (await this.load(tenantId)).snapshot;
+  }
+
+  /** Danh bạ (id, tên) từ cùng payload và cùng bản cache với quan hệ "Báo cáo cho". */
+  async people(tenantId: string): Promise<CrmPerson[]> {
+    return (await this.load(tenantId)).people;
+  }
+
+  private async load(tenantId: string): Promise<{ snapshot: ReportingLineSnapshot; people: CrmPerson[] }> {
     const cached = this.cache.get(tenantId);
-    if (cached && cached.expiresAt > this.now()) return cached.snapshot;
+    if (cached && cached.expiresAt > this.now()) return cached;
     try {
       const response = await this.fetcher(`${this.root}/${encodeURIComponent(tenantId)}`, {
         headers: { 'x-service-token': this.serviceToken },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Tenant Core organization context returned ${response.status}.`);
-      const snapshot = parseReportingLines(await response.json());
-      this.cache.set(tenantId, { expiresAt: this.now() + CACHE_TTL_MS, snapshot });
-      return snapshot;
+      const payload: unknown = await response.json();
+      const entry = { expiresAt: this.now() + CACHE_TTL_MS, snapshot: parseReportingLines(payload), people: parsePeople(payload) };
+      this.cache.set(tenantId, entry);
+      return entry;
     } catch (error) {
       this.logger.warn(
         `Không đọc được cơ cấu tổ chức của tenant ${tenantId}: ${error instanceof Error ? error.message : String(error)}`,
       );
       if (!cached) throw new CrmOrganizationUnavailableError();
-      this.cache.set(tenantId, { expiresAt: this.now() + RETRY_AFTER_MS, snapshot: cached.snapshot });
-      return cached.snapshot;
+      const stale = { ...cached, expiresAt: this.now() + RETRY_AFTER_MS };
+      this.cache.set(tenantId, stale);
+      return stale;
     }
   }
 }
@@ -92,6 +108,20 @@ export function parseReportingLines(payload: unknown): ReportingLineSnapshot {
   }
 
   return { positions: [...byId.values()], assignments };
+}
+
+/** Người trong tổ chức: một dòng mỗi `userId` (một người có thể có nhiều phân công), sắp theo tên. */
+export function parsePeople(payload: unknown): CrmPerson[] {
+  const root = asRecord(payload);
+  const members = Array.isArray(root?.['members']) ? (root['members'] as unknown[]) : [];
+  const people = new Map<string, CrmPerson>();
+  for (const entry of members) {
+    const member = asRecord(entry);
+    const userId = text(member?.['userId']);
+    if (!userId || people.has(userId)) continue;
+    people.set(userId, { userId, displayName: text(member?.['displayName']) ?? text(member?.['email']) ?? userId });
+  }
+  return [...people.values()].sort((left, right) => left.displayName.localeCompare(right.displayName, 'vi'));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

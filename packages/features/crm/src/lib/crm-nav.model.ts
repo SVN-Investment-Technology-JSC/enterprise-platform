@@ -7,7 +7,9 @@ import type { CrmCapabilities } from '@enterprise-platform/contracts-crm';
 export type CrmView =
   | 'overview'
   | 'customers'
+  | 'leads'
   | 'opportunities'
+  | 'activities'
   | 'quotes'
   | 'contracts'
   | 'orders'
@@ -31,7 +33,9 @@ export interface CrmPage {
 export const CRM_VIEWS: readonly CrmView[] = [
   'overview',
   'customers',
+  'leads',
   'opportunities',
+  'activities',
   'quotes',
   'contracts',
   'orders',
@@ -57,10 +61,24 @@ export const CRM_PAGES: readonly CrmPage[] = [
     phase: 'Giai đoạn 2',
   },
   {
+    id: 'leads',
+    label: 'Lead',
+    group: 'Bán hàng',
+    summary: 'Đầu mối tiềm năng; chuyển thành khách hàng và cơ hội bằng một thao tác.',
+    phase: 'Giai đoạn 2',
+  },
+  {
     id: 'opportunities',
     label: 'Cơ hội',
     group: 'Bán hàng',
-    summary: 'Lead, cơ hội theo giai đoạn và hoạt động chăm sóc khách hàng.',
+    summary: 'Cơ hội theo giai đoạn: kanban kéo thả, dạng bảng, lịch sử chuyển giai đoạn.',
+    phase: 'Giai đoạn 2',
+  },
+  {
+    id: 'activities',
+    label: 'Hoạt động',
+    group: 'Bán hàng',
+    summary: 'Gọi điện, email, gặp mặt, công việc; nhắc trước hạn và khi quá hạn.',
     phase: 'Giai đoạn 2',
   },
   {
@@ -110,8 +128,8 @@ export const CRM_PAGES: readonly CrmPage[] = [
     id: 'settings',
     label: 'Cấu hình',
     group: 'Quản trị',
-    summary: 'Bảng giá chuẩn, nhóm khách, hạn mức, luồng duyệt và các thiết lập của phân hệ.',
-    phase: 'Giai đoạn 3',
+    summary: 'Nhóm khách, quy tắc mã khách hàng, nhắc hoạt động; bảng giá và luồng duyệt từ giai đoạn 3.',
+    phase: 'Giai đoạn 2',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canManage,
   },
 ];

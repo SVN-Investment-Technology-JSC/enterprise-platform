@@ -644,3 +644,18 @@ describe('social P2 visibility and report notifications', () => {
     expect(resolved?.template.deepLink).toBe('/modules/social/pending?tab=reports');
   });
 });
+
+describe('nhắc hoạt động Bán hàng', () => {
+  it.each(['crm.activity.due-soon', 'crm.activity.overdue'])('%s báo người được giao, mở đúng hoạt động', async (type) => {
+    const resolved = await registry.resolve(
+      event(type, { activityId: 'act-1', title: 'Gọi lại khách', dueAt: '2026-10-05T02:30:00.000Z', assigneeUserId: 'user-b' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe(type.endsWith('overdue') ? 'Hoạt động bán hàng đã quá hạn' : 'Hoạt động bán hàng sắp đến hạn');
+    expect(resolved?.template.body).toBe('Gọi lại khách (hạn 05/10/2026 09:30)');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#activities/act-1');
+  });
+});
+

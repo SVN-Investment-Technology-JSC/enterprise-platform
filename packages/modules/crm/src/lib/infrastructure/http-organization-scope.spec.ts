@@ -96,3 +96,24 @@ describe('HttpOrganizationScope', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('parsePeople', () => {
+  it('một dòng mỗi người, tên rơi về email rồi id, sắp theo tên', async () => {
+    const { parsePeople } = await import('./http-organization-scope.js');
+    expect(
+      parsePeople({
+        members: [
+          { userId: 'u2', displayName: 'Trần B', unitId: 'p1' },
+          { userId: 'u1', displayName: 'Nguyễn A', unitId: 'p1' },
+          { userId: 'u1', displayName: 'Nguyễn A', unitId: 'p2' },
+          { userId: 'u3', email: 'c@x.vn' },
+          { displayName: 'Không id' },
+        ],
+      }),
+    ).toEqual([
+      { userId: 'u3', displayName: 'c@x.vn' },
+      { userId: 'u1', displayName: 'Nguyễn A' },
+      { userId: 'u2', displayName: 'Trần B' },
+    ]);
+  });
+});

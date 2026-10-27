@@ -22,6 +22,7 @@
     "@enterprise-platform/contracts-crm": "workspace:*",
     "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
+    "antd": "^6.6.4",
     "lucide-react": "^1.31.0",
     "react": "^19.2.8"
   }

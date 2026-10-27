@@ -907,6 +907,29 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       },
     }),
   ),
+  // Nhắc hoạt động Bán hàng (gọi điện, email, gặp mặt, công việc): notification-worker quét
+  // `crm_schema.activities` đang mở, nhắc trước hạn theo cấu hình (mặc định 30 phút) và khi quá hạn.
+  ...(['due-soon', 'overdue'] as const).map((kind) =>
+    directPolicy({
+      eventType: `crm.activity.${kind}`,
+      module: 'crm',
+      category: 'deadline',
+      priority: kind === 'overdue' ? 'actionable' : 'informational',
+      recipients: { kind: 'payload', fields: ['assigneeUserId'] },
+      template: ({ payload }) => {
+        const due = formatDue(payload.dueAt);
+        const subject = text(payload, 'title', 'Hoạt động bán hàng');
+        return {
+          title: kind === 'overdue' ? 'Hoạt động bán hàng đã quá hạn' : 'Hoạt động bán hàng sắp đến hạn',
+          body: `${subject}${due ? ` (hạn ${due})` : ''}`,
+          deepLink: `/modules/crm#activities/${encodeURIComponent(id(payload, 'activityId'))}`,
+          sourceType: 'crm_activity_deadline',
+          // Gồm hạn để dời hạn thì là thông báo mới, không gộp vào thông báo theo hạn cũ.
+          sourceId: `${id(payload, 'activityId')}:${kind}:${text(payload, 'dueAt', '')}`,
+        };
+      },
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],

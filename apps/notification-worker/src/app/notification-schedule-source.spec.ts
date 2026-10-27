@@ -43,4 +43,70 @@ describe('notification schedule source', () => {
     expect(candidates.find((item) => item.eventType === 'procedure.sla.warning')?.userId).toBe('user-b');
     expect(candidates.find((item) => item.eventType === 'inventory.reservation.expiring')?.payload).toMatchObject({ sourceId: 'reservation-a' });
   });
+
+  describe('nhắc hoạt động Bán hàng', () => {
+    const activity = (overrides: Record<string, unknown> = {}) => ({
+      id: 'activity-a', subject: 'Gọi lại khách', due_at: new Date('2026-10-02T03:00:00Z'),
+      assignee_user_id: 'user-crm', customer_id: 'customer-a', opportunity_id: null, ...overrides,
+    });
+    const source = (rows: unknown[], setting?: unknown) => {
+      const query = jest.fn(async (sql: string, ...params: unknown[]) => {
+        void params;
+        if (sql.includes('to_regclass')) return { rows: [{ workspace: false, calendar: false, procedure: false, maintenance: false, inventory: false, crm: true }] };
+        if (sql.includes('crm_schema.settings')) return { rows: setting === undefined ? [] : [{ value: setting }] };
+        if (sql.includes('crm_schema.activities')) return { rows };
+        return { rows: [] };
+      });
+      return { query, source: new PostgresNotificationScheduleSource({ query } as never) };
+    };
+
+    it('TC-INT-09/10: nhắc trước 30 phút (mặc định) và đúng hạn cho người được giao', async () => {
+      const { query, source: subject } = source([activity()]);
+      const candidates = await subject.candidates(new Date('2026-10-02T02:30:00Z'));
+      expect(candidates).toEqual([
+        expect.objectContaining({
+          eventType: 'crm.activity.due-soon', aggregateType: 'crm-activity', aggregateId: 'activity-a',
+          userId: 'user-crm', scheduledFor: '2026-10-02T02:30:00.000Z', scheduleKey: 'crm:activity:activity-a:due-soon',
+          payload: { activityId: 'activity-a', title: 'Gọi lại khách', customerId: 'customer-a', dueAt: '2026-10-02T03:00:00.000Z', assigneeUserId: 'user-crm' },
+        }),
+        expect.objectContaining({ eventType: 'crm.activity.overdue', scheduledFor: '2026-10-02T03:00:00.000Z' }),
+      ]);
+      const activityQuery = query.mock.calls.find(([sql]) => sql.includes('FROM crm_schema.activities'));
+      // Chỉ hoạt động đang mở mới được nhắc (TC-ACT-05): hoàn tất, huỷ thì không quá hạn.
+      expect(activityQuery?.[0]).toContain("status = 'OPEN'");
+      expect(activityQuery?.[1]).toEqual([new Date('2026-10-02T02:30:00Z'), 30]);
+    });
+
+    it('đọc số phút nhắc từ cấu hình tenant; giá trị hỏng thì 30', async () => {
+      const custom = await source([activity()], { leadMinutes: 120 }).source.candidates(new Date('2026-10-02T00:00:00Z'));
+      expect(custom.find((item) => item.eventType === 'crm.activity.due-soon')?.scheduledFor).toBe('2026-10-02T01:00:00.000Z');
+      const broken = await source([activity()], { leadMinutes: 'x' }).source.candidates(new Date('2026-10-02T00:00:00Z'));
+      expect(broken.find((item) => item.eventType === 'crm.activity.due-soon')?.scheduledFor).toBe('2026-10-02T02:30:00.000Z');
+    });
+
+    it('TC-ACT-04: dời hạn thì thời điểm nhắc đổi theo hạn mới', async () => {
+      const before = await source([activity()]).source.candidates(new Date('2026-10-02T00:00:00Z'));
+      const after = await source([activity({ due_at: new Date('2026-10-03T03:00:00Z') })]).source.candidates(new Date('2026-10-02T00:00:00Z'));
+      const at = (list: readonly { eventType: string; scheduledFor: string }[]) => list.find((item) => item.eventType === 'crm.activity.due-soon')?.scheduledFor;
+      expect(at(before)).toBe('2026-10-02T02:30:00.000Z');
+      expect(at(after)).toBe('2026-10-03T02:30:00.000Z');
+    });
+
+    it('Công việc và Bảo trì vẫn nhắc trước 24 giờ', async () => {
+      const query = jest.fn(async (sql: string) => {
+        if (sql.includes('to_regclass')) return { rows: [{ workspace: true, calendar: false, procedure: false, maintenance: true, inventory: false, crm: false }] };
+        if (sql.includes('work_items')) return { rows: [{ id: 'task-a', title: 'Task', assignee_user_id: 'user-a', project_id: 'p1', due_at: new Date('2026-10-03T00:00:00Z') }] };
+        if (sql.includes('maintenance_schema.occurrences')) return { rows: [{ id: 'occ-a', title: 'Repair', due_at: new Date('2026-10-03T00:00:00Z'), assignee_id: 'user-c' }] };
+        return { rows: [] };
+      });
+      const candidates = await new PostgresNotificationScheduleSource({ query } as never).candidates(new Date('2026-10-02T00:00:00Z'));
+      expect(candidates.filter((item) => item.eventType.endsWith('due-soon')).map((item) => item.scheduledFor)).toEqual([
+        '2026-10-02T00:00:00.000Z', '2026-10-02T00:00:00.000Z',
+      ]);
+      expect(candidates.find((item) => item.eventType === 'workspace.work-item.due-soon')?.payload).toEqual({
+        workItemId: 'task-a', title: 'Task', projectId: 'p1', dueAt: '2026-10-03T00:00:00.000Z', assigneeUserId: 'user-a',
+      });
+      expect(query.mock.calls.some(([sql]) => sql.includes('FROM crm_schema'))).toBe(false);
+    });
+  });
 });

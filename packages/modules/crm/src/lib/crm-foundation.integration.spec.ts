@@ -21,7 +21,8 @@ integration('Bán hàng: migration nền và nhật ký (PostgreSQL)', () => {
     const { rows } = await handle.pool.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'crm_schema' ORDER BY table_name`,
     );
-    expect(rows.map((row) => row.table_name)).toEqual(['audit_log', 'integration_requests', 'settings']);
+    // Migration sau thêm bảng; ở đây chỉ kiểm ba bảng nền của 0001.
+    expect(rows.map((row) => row.table_name)).toEqual(expect.arrayContaining(['audit_log', 'integration_requests', 'settings']));
   });
 
   it('nhật ký ghi trong transaction: commit thì còn, rollback thì mất', async () => {

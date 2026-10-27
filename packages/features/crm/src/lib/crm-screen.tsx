@@ -3,6 +3,7 @@
 import { CRM_NO_CAPABILITIES, type CrmStatus } from '@enterprise-platform/contracts-crm';
 import { ModuleShell, useHashView, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import {
+  CalendarClock,
   ChartColumn,
   FileSignature,
   FileText,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Target,
+  UserPlus,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -26,11 +28,23 @@ import {
   type CrmView,
 } from './crm-nav.model';
 import styles from './crm.module.scss';
+import { ActivityPanel } from './activities/activity-panel';
+import { CrmAntdProvider } from './components/crm-ui';
+import { CrmDataProvider, peopleOptions, useCrm } from './crm-context';
+import { CustomerDetail } from './customers/customer-detail';
+import { CustomerList } from './customers/customer-list';
+import { LeadsPage } from './leads/leads-page';
+import { OpportunitiesPage } from './opportunities/opportunities-page';
+import { CrmSettingsPage } from './settings/crm-settings';
+import salesStyles from './sales.module.scss';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 
 const ICONS: Record<CrmView, ReactNode> = {
   overview: <LayoutDashboard size={16} />,
   customers: <Users size={16} />,
+  leads: <UserPlus size={16} />,
   opportunities: <Target size={16} />,
+  activities: <CalendarClock size={16} />,
   quotes: <FileText size={16} />,
   contracts: <FileSignature size={16} />,
   orders: <ShoppingCart size={16} />,
@@ -41,12 +55,13 @@ const ICONS: Record<CrmView, ReactNode> = {
 };
 
 /**
- * Bán hàng. GĐ0 mới có khung: menu tiếng Việt và trang giữ chỗ cho từng phần;
- * menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status` (quyền thật
- * kiểm ở API).
+ * Bán hàng. Menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status`
+ * (quyền thật kiểm ở API). Đoạn hash thứ hai là id đang mở, ví dụ
+ * `#customers/<id>`, `#opportunities/<id>`, `#activities/<id>` (liên kết từ
+ * thông báo nhắc hạn). Phần chưa làm hiện trang giữ chỗ.
  */
 export function CrmScreen() {
-  const { view, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
+  const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
   const [homePath, setHomePath] = useState('/');
   const [status, setStatus] = useState<CrmStatus>();
   const [error, setError] = useState<string>();
@@ -103,6 +118,12 @@ export function CrmScreen() {
     >
       {!status ? null : current.id === 'overview' ? (
         <Overview status={status} onOpen={navigate} />
+      ) : status.tablesReady ? (
+        <CrmAntdProvider>
+          <CrmDataProvider capabilities={capabilities}>
+            <SalesView page={current} sub={sub} navigate={navigate} />
+          </CrmDataProvider>
+        </CrmAntdProvider>
       ) : (
         <Placeholder page={current} />
       )}
@@ -147,6 +168,71 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** Trang đã làm ở GĐ2; còn lại là trang giữ chỗ. */
+function SalesView({
+  page,
+  sub,
+  navigate,
+}: {
+  page: CrmPage;
+  sub: string | undefined;
+  navigate: (view: CrmView, sub?: string) => void;
+}) {
+  const openCustomer = (id: string) => navigate('customers', id);
+  const openOpportunity = (id: string) => navigate('opportunities', id);
+  switch (page.id) {
+    case 'customers':
+      return sub ? (
+        <CustomerDetail key={sub} customerId={sub} onBack={() => navigate('customers')} onOpenOpportunity={openOpportunity} />
+      ) : (
+        <CustomerList onOpen={openCustomer} />
+      );
+    case 'leads':
+      return <LeadsPage onOpenCustomer={openCustomer} onOpenOpportunity={openOpportunity} />;
+    case 'opportunities':
+      return (
+        <OpportunitiesPage
+          focusId={sub}
+          onFocus={(id) => navigate('opportunities', id)}
+          onOpenCustomer={openCustomer}
+        />
+      );
+    case 'activities':
+      return <ActivitiesPage focusId={sub} />;
+    case 'settings':
+      return <CrmSettingsPage />;
+    default:
+      return <Placeholder page={page} />;
+  }
+}
+
+/** Hoạt động trong phạm vi dữ liệu, mặc định đang mở; lọc theo người được giao. */
+function ActivitiesPage({ focusId }: { focusId?: string }) {
+  const { people } = useCrm();
+  const [assigneeUserId, setAssigneeUserId] = useState('');
+  return (
+    <div className={salesStyles.page}>
+      <div className={salesStyles.toolbar}>
+        <SearchableSelect
+          className={salesStyles.filter}
+          options={peopleOptions(people)}
+          value={assigneeUserId}
+          placeholder="Mọi người được giao"
+          clearable
+          onChange={setAssigneeUserId}
+        />
+      </div>
+      <ActivityPanel
+        key={assigneeUserId}
+        scope={assigneeUserId ? { assigneeUserId } : {}}
+        focusId={focusId}
+        showTarget
+        defaultStatus="OPEN"
+      />
     </div>
   );
 }
