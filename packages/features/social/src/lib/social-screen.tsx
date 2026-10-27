@@ -18,7 +18,6 @@ import { ProfileView } from './components/profile/profile-view';
 import { SearchView } from './components/search/search-view';
 import { LeftRail } from './components/shell/left-rail';
 import { QuickBoard } from './components/shell/quick-board';
-import { SocialRightSlotContext } from './components/shell/right-slot';
 import { SocialTabStrip } from './components/shell/social-nav';
 import { SocialTopBar } from './components/shell/social-topbar';
 import { TopicDialog } from './components/topic-dialog';
@@ -46,7 +45,7 @@ const NAV: readonly ModuleNavItem<ShellView>[] = [
   { id: 'social', label: 'Mạng nội bộ', icon: <Newspaper size={16} /> },
 ];
 
-/** Tuyến có cột phải riêng do trang tự dựng (chi tiết nhóm); các tuyến còn lại dùng "bảng nhanh". */
+/** Tuyến tự dựng cột phải trong nội dung (chi tiết nhóm): bỏ "bảng nhanh" và để nội dung rộng ra hết bề ngang. */
 const OWN_RIGHT_ROUTES: ReadonlySet<SocialRoute['name']> = new Set(['group']);
 
 /** Tuyến nào có thanh soạn bài ở đầu cột giữa. */
@@ -80,7 +79,6 @@ export function SocialScreen() {
   const [managing, setManaging] = useState(false);
   /** Tăng khi có bài mới/sửa để bảng nhanh nạp lại thông báo ghim. */
   const [boardKey, setBoardKey] = useState(0);
-  const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null);
   const infoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const [focused, setFocused] = useState<SocialPost>();
@@ -335,8 +333,7 @@ export function SocialScreen() {
               </p>
             ) : null}
 
-            <SocialRightSlotContext.Provider value={rightSlot}>
-              <div className={shell.body}>
+              <div className={ownRight ? `${shell.body} ${shell.bodyWide}` : shell.body}>
                 <LeftRail
                   me={me}
                   tabs={tabs}
@@ -388,13 +385,8 @@ export function SocialScreen() {
                   {content}
                 </main>
 
-                {ownRight ? (
-                  <div className={shell.rail} ref={setRightSlot} />
-                ) : (
-                  <QuickBoard refreshKey={boardKey} />
-                )}
+                {ownRight ? null : <QuickBoard refreshKey={boardKey} />}
               </div>
-            </SocialRightSlotContext.Provider>
           </div>
         </SocialSessionContext.Provider>
       )}

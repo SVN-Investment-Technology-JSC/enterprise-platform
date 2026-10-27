@@ -1489,6 +1489,11 @@ $thread-line: #b8bfca;
   width: min(44rem, 100%);
 }
 
+// Chiều cao cố định theo màn hình: tối đa 54rem, màn thấp thì 94% chiều cao; nội dung dài chỉ cuộn trong thân hộp.
+.dialogFixed {
+  height: min(54rem, 94dvh);
+}
+
 /* Đầu và chân cố định; chỉ phần thân (.dialogBody) cuộn. */
 .dialogHead {
   display: flex;

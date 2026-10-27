@@ -263,6 +263,19 @@
   }
 }
 
+// Trang tự dựng cột phải trong nội dung (chi tiết nhóm): không chừa cột phải của shell, nội dung rộng thêm.
+.bodyWide {
+  grid-template-areas: 'left main';
+  grid-template-columns: var(--social-left-w) minmax(0, 1fr);
+
+  @media (width <= 820px) {
+    grid-template-areas:
+      'main'
+      'left';
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .main {
   display: flex;
   flex-direction: column;

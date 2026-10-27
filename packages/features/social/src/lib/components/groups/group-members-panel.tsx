@@ -13,6 +13,8 @@ import { RefreshCw, Search, UserMinus, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
 import base from '../../social.module.scss';
+import { Button } from '../../ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip';
 import { ConfirmDialog, Dialog, Field, SelectField, userSubtitle } from '../ui';
 import { UserAvatar } from '../user-avatar';
 import { MemberPicker } from './group-visuals';
@@ -317,7 +319,10 @@ export function GroupMembersPanel({
         <p className={s.emptyLine}>{query || role ? 'Không có thành viên phù hợp.' : 'Nhóm chưa có thành viên.'}</p>
       ) : (
         <ul className={s.rowList}>
-          {members.map((member) => (
+          {members.map((member) => {
+            // Quản trị viên duy nhất không gỡ được (server cũng chặn): nút vẫn hiện nhưng khoá, rê vào có giải thích.
+            const lastAdmin = member.role === 'admin' && group.adminCount <= 1;
+            return (
             <li key={member.user.id} className={s.memberRow}>
               <UserAvatar user={member.user} size={32} />
               <span className={s.rowText}>
@@ -335,18 +340,32 @@ export function GroupMembersPanel({
                       onChange={(value) => void changeRole(member, value as SocialGroupRole)}
                     />
                   </span>
-                  <button
-                    type="button"
-                    className={base.iconButton}
-                    aria-label={`Xoá ${member.user.name} khỏi nhóm`}
-                    title="Xoá khỏi nhóm"
-                    onClick={() => {
-                      setRemoveError(undefined);
-                      setRemoving(member);
-                    }}
-                  >
-                    <UserMinus size={14} />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className={`text-slate-500 ${lastAdmin ? 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-500' : 'hover:text-red-600'}`}
+                          aria-label={`Xoá ${member.user.name} khỏi nhóm`}
+                          aria-disabled={lastAdmin || undefined}
+                          onClick={() => {
+                            if (lastAdmin) return;
+                            setRemoveError(undefined);
+                            setRemoving(member);
+                          }}
+                        />
+                      }
+                    >
+                      <UserMinus size={14} aria-hidden="true" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-64 text-center">
+                      {lastAdmin
+                        ? 'Đây là quản trị viên duy nhất. Hãy chỉ định quản trị viên khác trước khi gỡ.'
+                        : 'Xoá khỏi nhóm'}
+                    </TooltipContent>
+                  </Tooltip>
                 </span>
               ) : (
                 <span className={member.role === 'admin' ? s.roleAdmin : s.roleMember}>
@@ -354,7 +373,8 @@ export function GroupMembersPanel({
                 </span>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
