@@ -264,6 +264,7 @@ describe('Lối tắt ?create= từ Bàn làm việc', () => {
       expect(screen.getByTestId(`request-row-${target}`).getAttribute('aria-selected')).toBe('true'),
     );
     expect(row.getAttribute('data-testid')).toBe(`request-row-${target}`);
+    expect(window.location.search).not.toContain('request=');
   });
 
   it('loại không có trong danh mục thì không mở gì', async () => {
