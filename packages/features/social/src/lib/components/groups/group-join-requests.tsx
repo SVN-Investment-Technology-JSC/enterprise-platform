@@ -5,10 +5,11 @@ import { Check, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
 import { formatRelativeTime } from '../../social.model';
-import base from '../../social.module.scss';
-import { Avatar, userSubtitle } from '../ui';
+import { Button } from '../../ui/button';
+import { userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
+import { ALERT, EMPTY_LINE, PANEL, REASON, ROW, ROW_LIST, ROW_META, ROW_TEXT, ROW_TITLE, SKELETON } from './group-ui';
 import { appendUnique } from './groups.model';
-import s from './groups.module.scss';
 import { approveJoinRequest, listJoinRequests, rejectJoinRequest } from './social-groups-api';
 
 /** Tab "Yêu cầu tham gia" (chỉ admin nhóm / quản trị toàn hệ thống). */
@@ -78,64 +79,67 @@ export function GroupJoinRequests({
   };
 
   return (
-    <section className={s.panel} aria-label="Yêu cầu tham gia">
+    <section className={PANEL} aria-label="Yêu cầu tham gia">
       {error ? (
-        <p role="alert" className={base.alert}>
+        <p role="alert" className={ALERT}>
           <span>{error}</span>
-          <button type="button" className={base.buttonSmall} onClick={() => void load()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
             Thử lại
-          </button>
+          </Button>
         </p>
       ) : null}
       {loading ? (
-        <ul className={s.rowList} aria-busy="true">
+        <ul className={`${ROW_LIST} gap-1.5`} aria-busy="true">
           {[0, 1, 2].map((key) => (
-            <li key={key} className={s.rowSkeleton} />
+            <li key={key} className={`${SKELETON} h-14`} />
           ))}
         </ul>
       ) : items.length === 0 && !error ? (
-        <p className={s.emptyLine}>Không có yêu cầu nào đang chờ duyệt.</p>
+        <p className={EMPTY_LINE}>Không có yêu cầu nào đang chờ duyệt.</p>
       ) : (
-        <ul className={s.rowList}>
+        <ul className={ROW_LIST}>
           {items.map((item) => (
-            <li key={item.id} className={s.reportRow}>
-              <Avatar user={item.user} size={32} />
-              <div className={s.reportText}>
-                <span className={s.rowTitle}>{item.user.name}</span>
-                <span className={s.rowMeta}>
+            <li key={item.id} className={`${ROW} items-start`}>
+              <UserAvatar user={item.user} size={32} />
+              <div className={ROW_TEXT}>
+                <span className={ROW_TITLE}>{item.user.name}</span>
+                <span className={ROW_META}>
                   {[userSubtitle(item.user), formatRelativeTime(item.createdAt)].filter(Boolean).join(' · ')}
                 </span>
-                {item.message ? <p className={s.reportReason}>{item.message}</p> : null}
+                {item.message ? <p className={REASON}>{item.message}</p> : null}
               </div>
-              <div className={s.rowActions}>
-                <button
+              <div className="flex flex-none items-center gap-1.5">
+                <Button
                   type="button"
-                  className={base.buttonSmall + ' ' + base.buttonSmallPrimary}
+                  size="sm"
+                  className="h-8 gap-1.5 px-3.5 text-[13px] font-semibold"
                   disabled={busyId === item.id}
                   onClick={() => void decide(item, true)}
                 >
-                  <Check size={14} />
+                  <Check size={14} aria-hidden="true" />
                   Duyệt
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={base.buttonSmall}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 px-3.5 text-[13px]"
                   disabled={busyId === item.id}
                   onClick={() => void decide(item, false)}
                 >
-                  <X size={14} />
+                  <X size={14} aria-hidden="true" />
                   Từ chối
-                </button>
+                </Button>
               </div>
             </li>
           ))}
         </ul>
       )}
       {cursor ? (
-        <div className={s.more}>
-          <button type="button" className={base.buttonGhost} disabled={loadingMore} onClick={() => void loadMore()}>
+        <div className="flex justify-center py-1">
+          <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
             {loadingMore ? 'Đang tải…' : 'Xem thêm'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </section>

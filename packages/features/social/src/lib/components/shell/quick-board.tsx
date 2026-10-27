@@ -4,6 +4,7 @@ import type { SocialPost, SocialUserRef } from '@enterprise-platform/contracts-s
 import { Bookmark, FileText, Megaphone, Pin } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { loadReactors, loadScopedFeed } from '../../social-api';
+import { onBookmarkChanged } from '../../bookmark-events';
 import { onReactionChanged } from '../../reaction-events';
 import { formatFullTime, formatRelativeTime, postHeadline, postTopics } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
@@ -174,7 +175,10 @@ function CompanyNotices({ refreshKey }: { readonly refreshKey: number }) {
 }
 
 export function SavedRecent({ refreshKey }: { readonly refreshKey: number }) {
-  const items = useBoardPosts(loadSaved, refreshKey);
+  // Lưu hoặc bỏ lưu ở bất cứ đâu trên trang thì nạp lại ngay.
+  const [savedTick, setSavedTick] = useState(0);
+  useEffect(() => onBookmarkChanged(() => setSavedTick((tick) => tick + 1)), []);
+  const items = useBoardPosts(loadSaved, refreshKey * 1000 + savedTick);
   const recent = items?.slice(0, SAVED_LIMIT);
   if (!recent || recent.length === 0) return null;
   return <HeadlinePanel label="Bài đã lưu gần đây" items={recent} icon="bookmark" moreLabel="Xem tất cả" />;

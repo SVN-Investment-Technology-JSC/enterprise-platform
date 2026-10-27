@@ -120,6 +120,23 @@ export type SocialRoute =
   | { readonly name: 'post'; readonly postId: string; readonly commentId?: string }
   | { readonly name: 'birthday' };
 
+/**
+ * Định danh "trang" của một tuyến: đổi giá trị này nghĩa là sang trang khác (nên về đầu trang). Đổi chuyên mục ở bảng tin,
+ * mở hộp thoại hay đổi mục trong một nhóm (`section`), hay mở bình luận của cùng một bài chỉ là đổi trong cùng một trang.
+ */
+export function routePageKey(route: SocialRoute): string {
+  switch (route.name) {
+    case 'group':
+      return `group:${route.groupId}`;
+    case 'profile':
+      return `profile:${route.userId}`;
+    case 'post':
+      return `post:${route.postId}`;
+    default:
+      return route.name;
+  }
+}
+
 /** Đoạn phụ của `/wall` để chỉ xem bài Thông báo; không trùng với id chuyên mục (UUID). */
 export const WALL_ANNOUNCEMENTS_SEGMENT = 'announcements';
 
