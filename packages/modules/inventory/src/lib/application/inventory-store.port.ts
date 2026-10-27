@@ -6,6 +6,8 @@ import type {
   InventoryItem,
   CreateAssetRequest,
   CreateMaterialRequest,
+  InternalMaterialCatalogItem,
+  InternalMaterialCatalogQuery,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -81,6 +83,16 @@ export interface InventoryStore {
     update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
     countTransactions(tenantId: string, code: string): Promise<number>;
+    /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
+    hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Danh mục cho phân hệ khác (T1-24): một trang theo mã, kèm tồn khả dụng và
+     * giá bình quân theo kho. Lấy `limit + 1` dòng để biết còn trang sau.
+     */
+    catalog(
+      tenantId: string,
+      query: InternalMaterialCatalogQuery,
+    ): Promise<InternalMaterialCatalogItem[]>;
   };
 
   /**

@@ -4,12 +4,20 @@ import type {
   CreateMaterialRequest,
   Material,
   MaterialCategory,
+  MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import styles from '../inventory.module.scss';
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
+
+/** Dịch vụ, phần mềm có trong danh mục để bán nhưng không quản lý tồn (D6). */
+const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
+  { value: 'STOCK', label: 'Hàng hoá (quản lý tồn kho)' },
+  { value: 'SERVICE', label: 'Dịch vụ (không quản lý tồn)' },
+];
 
 /**
  * Form Thêm mới / Chỉnh sửa Vật tư (Chuẩn danh mục Master Data ERP/WMS).
@@ -40,6 +48,11 @@ export function MaterialForm({
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
+  const [kind, setKind] = useState<MaterialKind>(editing?.kind ?? 'STOCK');
+  const [warrantyMonths, setWarrantyMonths] = useState(
+    editing?.warrantyMonths === undefined ? '' : String(editing.warrantyMonths),
+  );
+  const isService = kind === 'SERVICE';
 
   // Xác định phương thức quản lý ban đầu khi sửa hoặc tạo mới
   const initialMode: MaterialTrackingMode = editing?.isSerialized
@@ -60,16 +73,20 @@ export function MaterialForm({
     // Phân nhóm category theo tracking mode để tương thích ràng buộc database & contracts
     const category: MaterialCategory =
       trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
-    const isSerialized = trackingMode === 'SERIAL';
+    const isSerialized = !isService && trackingMode === 'SERIAL';
+    const warranty = warrantyMonths.trim();
 
     onSubmit({
       code: cleanCode,
       name: cleanName,
       category,
       unit: cleanUnit,
-      minStock: Number(minStock) || 0,
-      maxStock: Number(maxStock) || 0,
+      minStock: isService ? 0 : Number(minStock) || 0,
+      maxStock: isService ? 0 : Number(maxStock) || 0,
       isSerialized,
+      kind,
+      // Ô trống khi sửa là xoá số tháng đã khai.
+      warrantyMonths: warranty ? Math.max(Math.trunc(Number(warranty)) || 0, 0) : editing ? null : undefined,
     });
   };
 
@@ -160,27 +177,59 @@ export function MaterialForm({
               </label>
 
               <label>
-                Tồn tối thiểu (Min stock)
-                <input
-                  type="number"
-                  min={0}
-                  value={minStock}
-                  onChange={(event) => setMinStock(event.target.value)}
+                Loại mặt hàng *
+                <SearchableSelect
+                  options={KIND_OPTIONS}
+                  value={kind}
+                  placeholder="Chọn loại mặt hàng"
+                  emptyText="Không có loại phù hợp"
+                  onChange={(value) => setKind(value === 'SERVICE' ? 'SERVICE' : 'STOCK')}
+                  style={{ width: '100%' }}
                 />
+                {isService ? (
+                  <small>Dịch vụ không nhập, xuất kho và không giữ hàng.</small>
+                ) : null}
               </label>
 
               <label>
-                Tồn tối đa (Max stock)
+                Bảo hành (tháng)
                 <input
                   type="number"
                   min={0}
-                  value={maxStock}
-                  onChange={(event) => setMaxStock(event.target.value)}
+                  step={1}
+                  placeholder="Bỏ trống nếu chưa khai"
+                  value={warrantyMonths}
+                  onChange={(event) => setWarrantyMonths(event.target.value)}
                 />
               </label>
+
+              {!isService ? (
+                <>
+                  <label>
+                    Tồn tối thiểu (Min stock)
+                    <input
+                      type="number"
+                      min={0}
+                      value={minStock}
+                      onChange={(event) => setMinStock(event.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Tồn tối đa (Max stock)
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxStock}
+                      onChange={(event) => setMaxStock(event.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
             </div>
 
             {/* 2. CHỌN DUY NHẤT 1 PHƯƠNG THỨC QUẢN LÝ (MUTUALLY EXCLUSIVE) */}
+            {!isService ? (
             <div style={{ marginTop: '20px' }}>
               <span
                 style={{
@@ -319,6 +368,8 @@ export function MaterialForm({
                 </label>
               </div>
             </div>
+
+            ) : null}
 
             {/* Thông báo chuẩn nghiệp vụ kho */}
             <div

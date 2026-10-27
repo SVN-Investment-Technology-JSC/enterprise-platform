@@ -9,6 +9,7 @@ import type { InventoryStore } from './inventory-store.port.js';
 import { StockDocumentService } from './stock-document.service.js';
 import type {
   NewStockDocumentInput,
+  PostOptions,
   StockDocumentChange,
   StockDocumentStore,
 } from './stock-document-store.port.js';
@@ -78,8 +79,19 @@ class FakeStockDocumentStore implements StockDocumentStore {
     return { document: next, transactions: [] };
   }
 
-  async createAndPost(): Promise<PostedStockDocument> {
-    throw new Error('not used');
+  readonly postOptions: PostOptions[] = [];
+
+  async createAndPost(
+    tenantId: string,
+    input: NewStockDocumentInput,
+    _postedBy: string,
+    options: PostOptions = {},
+  ): Promise<PostedStockDocument> {
+    this.postOptions.push(options);
+    const document = await this.create(tenantId, input);
+    const posted: StockDocument = { ...document, status: 'POSTED' };
+    this.documents.set(document.id, posted);
+    return { document: posted, transactions: [] };
   }
 
   async reverse(
@@ -353,5 +365,85 @@ describe('StockDocumentService', () => {
       }),
     );
     expect(badDates.message).toBe('Dòng 1: ngày sản xuất phải trước hạn dùng.');
+  });
+
+  describe('API nội bộ cho Bán hàng (T1-25, T1-26)', () => {
+    const sourceId = '8d0f6c1e-2b8e-4f55-9d64-2f0d9a1c7e11';
+    const issueRequest = {
+      idempotencyKey: ' giao-1 ',
+      warehouseCode: ' QA-KHO ',
+      sourceType: 'crm_delivery',
+      sourceId,
+      lines: [{ materialCode: ' QA-KHO-CAP ', quantity: 3, lotNo: ' l01 ' }],
+    };
+
+    it('yêu cầu xuất tạo chứng từ nháp ISSUE_SALES, có dấu nội dung ổn định', async () => {
+      const result = await service.createIssueRequest(clerk, issueRequest);
+      expect(result).toMatchObject({ documentId: 'doc-1', documentCode: 'PN-1', docType: 'ISSUE_SALES', status: 'DRAFT' });
+      expect(store.created[0]).toMatchObject({
+        idempotencyKey: 'giao-1',
+        warehouseCode: 'QA-KHO',
+        sourceType: 'crm_delivery',
+        sourceId,
+        lines: [{ materialCode: 'QA-KHO-CAP', quantity: 3, direction: 'OUT', lot: { lotNo: 'L01' } }],
+      });
+      await service.createIssueRequest(clerk, issueRequest);
+      await service.createIssueRequest(clerk, { ...issueRequest, docType: 'ISSUE_WARRANTY' });
+      expect(store.created[0].requestHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(store.created[1].requestHash).toBe(store.created[0].requestHash);
+      expect(store.created[2].requestHash).not.toBe(store.created[0].requestHash);
+    });
+
+    it('yêu cầu xuất kiểm khoá chống lặp, nguồn, loại chứng từ và quyền', async () => {
+      const cases: [Partial<typeof issueRequest> & { docType?: string }, string][] = [
+        [{ idempotencyKey: ' ' }, 'Thiếu khoá chống lặp (idempotencyKey).'],
+        [{ sourceType: '' }, 'Thiếu loại chứng từ nguồn (sourceType).'],
+        [{ sourceId: 'abc' }, 'Mã chứng từ nguồn không hợp lệ.'],
+        [{ docType: 'ISSUE_OTHER' }, 'Yêu cầu xuất chỉ nhận loại xuất bán hoặc xuất bảo hành.'],
+      ];
+      for (const [patch, message] of cases) {
+        const error = await rejection(service.createIssueRequest(clerk, { ...issueRequest, ...patch } as never));
+        expect([error.statusCode, error.message]).toEqual([400, message]);
+      }
+      const denied = await rejection(
+        service.createIssueRequest(actor('viewer', { canWriteTransactions: false }), issueRequest),
+      );
+      expect(denied.statusCode).toBe(403);
+    });
+
+    it('nhập trả ghi sổ ngay với hàng Chờ kiểm định; dòng không serial vào lô TH riêng', async () => {
+      const result = await service.receiveReturn(clerk, {
+        idempotencyKey: 'tra-1',
+        warehouseCode: 'QA-KHO-CL',
+        sourceType: 'crm_warranty',
+        sourceId,
+        lines: [
+          { materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN032'] },
+          { materialCode: 'QA-KHO-CAP', quantity: 2, lotNo: 'l01', sourceLineId: sourceId },
+        ],
+      });
+      expect(result).toMatchObject({ docType: 'RECEIPT_SALES_RETURN', status: 'POSTED' });
+      expect(store.postOptions).toEqual([{ inboundQuality: 'PENDING_INSPECTION' }]);
+      const [serialLine, lotLine] = store.created[0].lines;
+      expect(serialLine).toMatchObject({ serials: ['SN032'], direction: 'IN' });
+      expect(serialLine.lot).toBeUndefined();
+      expect(lotLine).toMatchObject({
+        newLotQuality: 'PENDING_INSPECTION',
+        copyLotFrom: 'L01',
+        sourceLineId: sourceId,
+      });
+      expect(lotLine.lot?.lotNo).toMatch(/^TH-[0-9A-F]{10}-2$/);
+    });
+
+    it('dòng xuất gốc chỉ dùng cho nhập trả hàng bán', async () => {
+      const error = await rejection(
+        service.create(clerk, {
+          docType: 'RECEIPT_PURCHASE',
+          warehouseCode: 'KHO',
+          lines: [{ materialCode: 'VT', quantity: 1, sourceLineId: sourceId }],
+        }),
+      );
+      expect(error.message).toBe('Dòng 1: chỉ dòng nhập trả hàng bán mới tham chiếu dòng xuất gốc.');
+    });
   });
 });

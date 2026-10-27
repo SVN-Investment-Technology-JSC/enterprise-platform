@@ -348,17 +348,7 @@ export class InventoryController {
     });
   }
 
-  /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
-  /**
-   * Danh mục vật tư cho module khác. `available` là tồn khả dụng gộp mọi kho,
-   * đọc tươi mỗi lần gọi — không bao giờ đóng băng, khác với `name`/`unit`.
-   */
-  @Get('internal/materials')
-  async listMaterialsForServices(@Req() request: InventoryRequest) {
-    return this.execute(async () => ({
-      materials: await this.app.listMaterialsWithStock(this.actor(request)),
-    }));
-  }
+  // `GET internal/materials` (danh mục cho phân hệ khác) ở InternalCatalogController.
 
   /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
   @Get('internal/materials/:code')

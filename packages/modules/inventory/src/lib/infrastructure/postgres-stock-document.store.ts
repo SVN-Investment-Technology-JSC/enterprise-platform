@@ -17,20 +17,32 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { randomUUID } from 'node:crypto';
 import type {
   NewStockDocumentInput,
+  PostOptions,
   StockDocumentChange,
   StockDocumentLineDraft,
   StockDocumentPatch,
   StockDocumentStore,
 } from '../application/stock-document-store.port.js';
 import {
+  DocumentIdempotencyConflictError,
   InsufficientAvailableStockError,
   InventoryError,
   MaterialNotFoundError,
   ReservationIssueError,
+  ServiceMaterialNotStockedError,
   StockDocumentNotFoundError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import {
+  averageAfterIssue,
+  averageAfterReceipt,
+  costAmount,
+  inboundUnitCost,
+  outboundUnitCost,
+} from '../domain/costing.js';
+import { requiresSerialsAtPosting, stockEventKind } from '../domain/stock-document-policy.js';
 import { lowStockNotificationEvent } from './inventory-notification-events.js';
+import { stockDocumentPostedEvent } from './inventory-stock-events.js';
 import { mapTransaction, writeInventoryOutbox } from './postgres-inventory-store.js';
 import { StockDocumentTracking } from './postgres-stock-tracking.js';
 
@@ -96,6 +108,7 @@ function mapLine(row: Row): StockDocumentLine {
     lotNo: opt(row.lot_no),
     lotExpiresOn: opt(row.lot_expires_on),
     serials: Array.isArray(row.serial_numbers) ? row.serial_numbers.map(str) : undefined,
+    sourceLineId: opt(row.source_line_id),
     note: opt(row.note),
   };
 }
@@ -162,6 +175,8 @@ interface Movement {
   readonly lotId?: string;
   readonly lotNo?: string;
   readonly serials?: readonly string[];
+  /** Dòng nhập trả: dòng xuất gốc để lấy giá vốn. */
+  readonly sourceLineId?: string;
 }
 
 interface Balance {
@@ -170,6 +185,14 @@ interface Balance {
   reserved: number;
   /** Phần không Đạt (lô, serial Cách ly, Lỗi, Chờ kiểm định). */
   blocked: number;
+  /** Giá vốn bình quân của dòng tồn, cập nhật theo từng movement. */
+  avgCost: number;
+}
+
+/** Giá vốn của một movement lúc ghi sổ. */
+interface MovementCost {
+  readonly unitCost: number;
+  readonly costAmount: number;
 }
 
 /** Dòng giữ hàng đã khoá, kèm phần chưa xuất còn lại trong lượt ghi sổ này. */
@@ -304,6 +327,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     tenantId: string,
     input: NewStockDocumentInput,
     postedBy: string,
+    options: PostOptions = {},
   ): Promise<PostedStockDocument> {
     const pool = await this.poolFor(tenantId);
     return inTransaction(pool, async (client) => {
@@ -314,7 +338,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       if (created.status === 'POSTED') {
         return { document: created, transactions: await this.loadLedger(client, id) };
       }
-      const transactions = await this.postLocked(client, tenantId, created, postedBy);
+      const transactions = await this.postLocked(client, tenantId, created, postedBy, options);
       const document = await this.load(client, id, false);
       if (!document) throw new StockDocumentNotFoundError(id);
       return { document, transactions };
@@ -446,13 +470,16 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
   ): Promise<Map<string, string>> {
     const codes = [...new Set(lines.map((line) => line.materialCode))];
     const result = await client.query<Row>(
-      `SELECT id, code FROM inventory_schema.materials
-        WHERE code = ANY($1::text[]) AND kind = 'STOCK'`,
+      `SELECT id, code, kind FROM inventory_schema.materials
+        WHERE code = ANY($1::text[]) AND kind IN ('STOCK', 'SERVICE')`,
       [codes],
     );
+    const kinds = new Map(result.rows.map((row) => [str(row.code), str(row.kind)]));
     const ids = new Map(result.rows.map((row) => [str(row.code), str(row.id)]));
     for (const code of codes) {
       if (!ids.has(code)) throw new MaterialNotFoundError(code);
+      // D6: dịch vụ không có dòng tồn, chứng từ kho không nhận.
+      if (kinds.get(code) === 'SERVICE') throw new ServiceMaterialNotStockedError(code);
     }
     return ids;
   }
@@ -465,10 +492,10 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
   ): Promise<string> {
     if (input.idempotencyKey) {
       const existing = await client.query<Row>(
-        `SELECT id FROM inventory_schema.stock_documents WHERE idempotency_key = $1`,
+        `SELECT id, request_hash FROM inventory_schema.stock_documents WHERE idempotency_key = $1`,
         [input.idempotencyKey],
       );
-      if (existing.rows[0]) return str(existing.rows[0].id);
+      if (existing.rows[0]) return this.replayed(existing.rows[0], input);
     }
     const warehouseId = await this.warehouseId(client, input.warehouseCode);
     const targetId = input.targetWarehouseCode
@@ -478,8 +505,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     const inserted = await client.query<Row>(
       `INSERT INTO inventory_schema.stock_documents
          (code, doc_type, status, warehouse_id, target_warehouse_id, source_type, source_id,
-          idempotency_key, document_date, note, reverses_document_id, created_by)
-       VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), $9, $10, $11)
+          idempotency_key, document_date, note, reverses_document_id, created_by, request_hash)
+       VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, COALESCE($8::date, CURRENT_DATE), $9, $10, $11, $12)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id`,
       [
@@ -494,19 +521,28 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
         input.note ?? null,
         reversesDocumentId ?? null,
         input.createdBy,
+        input.requestHash ?? null,
       ],
     );
     if (!inserted.rows[0]) {
       // Hai lời gọi cùng khoá chạy song song: bên thua đọc lại chứng từ của bên thắng.
       const winner = await client.query<Row>(
-        `SELECT id FROM inventory_schema.stock_documents WHERE idempotency_key = $1`,
+        `SELECT id, request_hash FROM inventory_schema.stock_documents WHERE idempotency_key = $1`,
         [input.idempotencyKey],
       );
-      return str(winner.rows[0]?.id);
+      return this.replayed(winner.rows[0] ?? {}, input);
     }
     const id = str(inserted.rows[0].id);
     await this.insertLines(client, id, input.lines, materials, input.createdBy);
     return id;
+  }
+
+  /** Gọi lại cùng khoá: API nội bộ (có dấu nội dung) khác dấu thì 409. */
+  private replayed(row: Row, input: NewStockDocumentInput): string {
+    if (input.requestHash && opt(row.request_hash) !== input.requestHash) {
+      throw new DocumentIdempotencyConflictError(String(input.idempotencyKey));
+    }
+    return str(row.id);
   }
 
   private async insertLines(
@@ -524,8 +560,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       await client.query(
         `INSERT INTO inventory_schema.stock_document_lines
            (document_id, line_no, material_id, quantity, direction, unit_cost, reservation_id, note,
-            lot_id, serial_numbers)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            lot_id, serial_numbers, source_line_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           documentId,
           index + 1,
@@ -537,6 +573,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           line.note ?? null,
           lotId,
           line.serials?.length ? [...line.serials] : null,
+          line.sourceLineId ?? null,
         ],
       );
     }
@@ -556,19 +593,40 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
   ): Promise<string> {
     const lot = line.lot as NonNullable<StockDocumentLineDraft['lot']>;
     if (line.direction === 'IN') {
+      // Lô mới của hàng trả về chép thông tin lô gốc (nếu có) để giữ hạn dùng.
+      const template = line.copyLotFrom
+        ? (
+            await client.query<Row>(
+              `SELECT manufactured_on::text AS manufactured_on, expires_on::text AS expires_on,
+                      supplier, certificate_no
+                 FROM inventory_schema.lots WHERE material_id = $1 AND lot_no = $2`,
+              [materialId, line.copyLotFrom],
+            )
+          ).rows[0]
+        : undefined;
+      if (line.copyLotFrom && !template) {
+        throw new InventoryError(
+          'LOT_NOT_FOUND',
+          `Dòng ${lineNo}: không tìm thấy lô ${line.copyLotFrom} của vật tư ${line.materialCode}.`,
+          404,
+        );
+      }
       await client.query(
         `INSERT INTO inventory_schema.lots
-           (material_id, lot_no, manufactured_on, expires_on, supplier, certificate_no, created_by)
-         VALUES ($1, $2, $3::date, $4::date, $5, $6, $7)
+           (material_id, lot_no, manufactured_on, expires_on, supplier, certificate_no, created_by,
+            quality_status, note)
+         VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, $8, $9)
          ON CONFLICT (material_id, lot_no) DO NOTHING`,
         [
           materialId,
           lot.lotNo,
-          lot.manufacturedOn ?? null,
-          lot.expiresOn ?? null,
-          lot.supplier ?? null,
-          lot.certificateNo ?? null,
+          lot.manufacturedOn ?? opt(template?.manufactured_on) ?? null,
+          lot.expiresOn ?? opt(template?.expires_on) ?? null,
+          lot.supplier ?? opt(template?.supplier) ?? null,
+          lot.certificateNo ?? opt(template?.certificate_no) ?? null,
           actorId,
+          line.newLotQuality ?? 'PASSED',
+          line.copyLotFrom ? `Hàng trả về từ lô ${line.copyLotFrom}` : null,
         ],
       );
     }
@@ -709,6 +767,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
         lotId: line.lotId,
         lotNo: line.lotNo,
         serials: line.serials,
+        sourceLineId: inbound ? line.sourceLineId : undefined,
       });
     }
     return result;
@@ -725,15 +784,24 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     tenantId: string,
     document: StockDocument,
     postedBy: string,
+    options: PostOptions = {},
   ): Promise<InventoryTransaction[]> {
     if (document.lines.length === 0) {
       throw new InventoryError('VALIDATION', 'Chứng từ không có dòng nào để ghi sổ.');
     }
+    const isReversal = Boolean(document.reversesDocumentId);
+    await this.assertPostableMaterials(client, document, isReversal);
     const movements = this.movements(document);
+    const sourceLineCosts = await this.sourceLineCosts(client, movements);
     // Khoá giữ hàng trước dòng tồn, cùng thứ tự với nhả hàng và job hết hạn.
     const reservationItems = await this.lockReservations(client, document, movements);
     // Serial rồi lô: khoá, kiểm và tính phần không Đạt của từng movement.
-    const tracking = await StockDocumentTracking.prepare(client, document, movements);
+    const tracking = await StockDocumentTracking.prepare(
+      client,
+      document,
+      movements,
+      options.inboundQuality,
+    );
     const keyOf = (warehouseId: string, materialId: string) => `${warehouseId}|${materialId}`;
     const keys = [
       ...new Map(
@@ -766,7 +834,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     }
 
     const locked = await client.query<Row>(
-      `SELECT b.id, b.warehouse_id, b.material_id, b.quantity, b.quantity_reserved, b.quantity_blocked
+      `SELECT b.id, b.warehouse_id, b.material_id, b.quantity, b.quantity_reserved, b.quantity_blocked,
+              b.avg_cost
          FROM inventory_schema.material_inventory b
          JOIN unnest($1::uuid[], $2::uuid[]) AS k(warehouse_id, material_id)
            ON k.warehouse_id = b.warehouse_id AND k.material_id = b.material_id
@@ -783,9 +852,11 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           quantity: num(row.quantity),
           reserved: num(row.quantity_reserved),
           blocked: num(row.quantity_blocked),
+          avgCost: num(row.avg_cost),
         },
       ]),
     );
+    const costs: MovementCost[] = [];
     // Tổng tồn theo lô của cặp (kho, vật tư) có dòng xuất không ghi lô: phần không
     // theo lô (tồn trừ tổng lô) phải đủ, để xuất không lô không ăn vào hàng của lô.
     const lotTotals = await this.lotTotals(
@@ -804,6 +875,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       const balance = balances.get(key);
       const blocked = tracking.blocked[index];
       const quantity = Math.abs(movement.delta);
+      // Giá vốn tính trên số dư TRƯỚC movement này, rồi cập nhật bình quân (D4).
+      costs[index] = this.priceMovement(document, movement, balance, costs, sourceLineCosts, isReversal);
       if (movement.lotId && lotTotals.has(key)) {
         lotTotals.set(key, round3((lotTotals.get(key) ?? 0) + movement.delta));
       }
@@ -853,16 +926,30 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     for (const balance of balances.values()) {
       await client.query(
         `UPDATE inventory_schema.material_inventory
-            SET quantity = $2, quantity_reserved = $3, quantity_blocked = $4, updated_at = now()
+            SET quantity = $2, quantity_reserved = $3, quantity_blocked = $4, avg_cost = $5,
+                updated_at = now()
           WHERE id = $1`,
-        [balance.id, balance.quantity, balance.reserved, balance.blocked],
+        [balance.id, balance.quantity, balance.reserved, balance.blocked, balance.avgCost],
+      );
+    }
+    // Giá vốn của dòng: movement đầu của dòng (vế xuất với điều chuyển).
+    const lineCosts = new Map<string, MovementCost>();
+    movements.forEach((movement, index) => {
+      if (!lineCosts.has(movement.lineId)) lineCosts.set(movement.lineId, costs[index]);
+    });
+    for (const [lineId, cost] of lineCosts) {
+      await client.query(
+        `UPDATE inventory_schema.stock_document_lines
+            SET unit_cost = $2, cost_amount = $3
+          WHERE id = $1`,
+        [lineId, cost.unitCost, cost.costAmount],
       );
     }
     await tracking.apply(client);
     await this.recordReservationIssue(client, reservationItems);
 
     const ledger: InventoryTransaction[] = [];
-    for (const movement of movements) {
+    for (const [index, movement] of movements.entries()) {
       const outLeg = movement.transferInOf !== undefined ? ledger[movement.transferInOf] : undefined;
       const note = outLeg
         ? movement.note
@@ -881,7 +968,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           movement.materialId,
           movement.type,
           movement.delta,
-          movement.unitCost,
+          costs[index].unitCost,
           outLeg ? 'inventory_transaction' : (document.sourceType ?? null),
           outLeg ? outLeg.id : (document.sourceId ?? null),
           note ?? null,
@@ -892,16 +979,134 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       ledger.push(mapTransaction(inserted.rows[0]));
     }
 
-    await client.query(
+    const posted = await client.query<Row>(
       `UPDATE inventory_schema.stock_documents
           SET status = 'POSTED', posted_by = $2, posted_at = now(), updated_at = now()
-        WHERE id = $1`,
+        WHERE id = $1
+      RETURNING posted_at`,
       [document.id, postedBy],
     );
     await tracking.record(client, postedBy);
 
+    // T1-27: sự kiện xuất kho, nhập trả trong cùng transaction với ghi sổ.
+    const eventKind = stockEventKind(document.docType);
+    if (eventKind) {
+      await writeInventoryOutbox(
+        client as PoolClient,
+        tenantId,
+        stockDocumentPostedEvent({
+          kind: eventKind,
+          document,
+          postedAt: iso(posted.rows[0]?.posted_at ?? new Date()),
+          firstTransactionCode: ledger[0]?.transactionCode ?? '',
+          lineCosts,
+          qualityStatus: options.inboundQuality ?? 'PASSED',
+          actorUserId: postedBy,
+        }),
+      );
+    }
+
     await this.notifyLowStock(client, tenantId, movements, ledger);
     return ledger;
+  }
+
+  /**
+   * Giá vốn một movement và bình quân mới của dòng tồn (D4). Xuất: bình quân hiện
+   * tại (đảo phiếu nhập: giá dòng gốc). Nhập: xem `inboundUnitCost`. Dòng tồn
+   * chưa có (xuất thiếu tồn) thì trả giá 0; lỗi thiếu tồn được ném ngay sau đó.
+   */
+  private priceMovement(
+    document: StockDocument,
+    movement: Movement,
+    balance: Balance | undefined,
+    priced: readonly MovementCost[],
+    sourceLineCosts: ReadonlyMap<string, number>,
+    isReversal: boolean,
+  ): MovementCost {
+    const quantity = Math.abs(movement.delta);
+    const currentAverage = balance?.avgCost ?? 0;
+    if (movement.delta < 0) {
+      const unitCost = outboundUnitCost({ entered: movement.unitCost, currentAverage, isReversal });
+      if (balance) balance.avgCost = averageAfterIssue(balance, quantity, unitCost);
+      return { unitCost, costAmount: costAmount(quantity, unitCost) };
+    }
+    const unitCost = inboundUnitCost({
+      docType: document.docType,
+      entered: movement.unitCost,
+      currentAverage,
+      isReversal,
+      transferCost:
+        movement.transferInOf !== undefined ? priced[movement.transferInOf]?.unitCost : undefined,
+      sourceLineCost: movement.sourceLineId ? sourceLineCosts.get(movement.sourceLineId) : undefined,
+    });
+    if (balance) balance.avgCost = averageAfterReceipt(balance, quantity, unitCost);
+    return { unitCost, costAmount: costAmount(quantity, unitCost) };
+  }
+
+  /**
+   * Giá vốn của các dòng xuất gốc mà dòng nhập trả tham chiếu. Dòng gốc phải là
+   * dòng xuất của chứng từ xuất đã ghi sổ, cùng mặt hàng.
+   */
+  private async sourceLineCosts(
+    client: Queryable,
+    movements: readonly Movement[],
+  ): Promise<Map<string, number>> {
+    const costs = new Map<string, number>();
+    const wanted = movements.filter((movement) => movement.sourceLineId);
+    if (wanted.length === 0) return costs;
+    const result = await client.query<Row>(
+      `SELECT l.id, l.material_id, l.unit_cost
+         FROM inventory_schema.stock_document_lines l
+         JOIN inventory_schema.stock_documents d ON d.id = l.document_id
+        WHERE l.id = ANY($1::uuid[])
+          AND l.direction = 'OUT' AND d.status = 'POSTED' AND left(d.doc_type, 6) = 'ISSUE_'`,
+      [[...new Set(wanted.map((movement) => movement.sourceLineId))]],
+    );
+    const found = new Map(result.rows.map((row) => [str(row.id), row]));
+    for (const movement of wanted) {
+      const row = found.get(movement.sourceLineId as string);
+      if (!row || str(row.material_id) !== movement.materialId) {
+        throw new InventoryError(
+          'RETURN_SOURCE_LINE_INVALID',
+          `Dòng ${movement.lineNo}: dòng xuất gốc không phải dòng xuất đã ghi sổ của ${movement.materialCode}.`,
+        );
+      }
+      costs.set(str(row.id), num(row.unit_cost));
+    }
+    return costs;
+  }
+
+  /**
+   * Kiểm mặt hàng trước khi ghi sổ: dịch vụ không ghi sổ kho (D6, phòng mã đổi
+   * loại sau khi lập nháp); chứng từ giao hàng, bảo hành, nhập trả phải có đủ
+   * serial cho mặt hàng theo serial.
+   */
+  private async assertPostableMaterials(
+    client: Queryable,
+    document: StockDocument,
+    isReversal: boolean,
+  ): Promise<void> {
+    const result = await client.query<Row>(
+      `SELECT id, code, kind, is_serialized FROM inventory_schema.materials WHERE id = ANY($1::uuid[])`,
+      [[...new Set(document.lines.map((line) => line.materialId))]],
+    );
+    const materials = new Map(result.rows.map((row) => [str(row.id), row]));
+    const serialsRequired = requiresSerialsAtPosting(document.docType, isReversal);
+    for (const line of document.lines) {
+      const material = materials.get(line.materialId);
+      if (material && str(material.kind) === 'SERVICE') {
+        throw new ServiceMaterialNotStockedError(line.materialCode);
+      }
+      if (serialsRequired && material && Boolean(material.is_serialized)) {
+        const count = line.serials?.length ?? 0;
+        if (count !== line.quantity) {
+          throw new InventoryError(
+            'SERIALS_REQUIRED',
+            `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial; chọn đủ ${line.quantity} serial trước khi ghi sổ (đang có ${count}).`,
+          );
+        }
+      }
+    }
   }
 
   /** Tổng tồn các lô theo (kho, vật tư); chỉ trả cặp đang có lô. */

@@ -1,4 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import {
+  MATERIAL_KINDS,
+  type MaterialKind,
+} from '@enterprise-platform/contracts-inventory';
 import type {
   CreateWarehouseRequest,
   UpdateWarehouseRequest,
@@ -13,6 +17,8 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  InternalMaterialCatalogPage,
+  InternalMaterialCatalogQuery,
   InventoryItem,
   InventorySettingsKey,
   InventorySettingsSnapshot,
@@ -46,6 +52,7 @@ import {
   InventoryError,
   InvalidReservationError,
   MaterialNotFoundError,
+  ServiceMaterialNotStockedError,
   SettingsVersionConflictError,
   UnknownSettingsKeyError,
   WarehouseNotFoundError,
@@ -173,6 +180,24 @@ export class InventoryApplication {
 
   listMaterials(actor: InventoryActor, includeInactive = false): Promise<Material[]> {
     return this.store.material.list(actor.tenantId, includeInactive);
+  }
+
+  /**
+   * Danh mục mặt hàng cho phân hệ khác (T1-24): loại, tồn khả dụng theo kho, giá
+   * vốn bình quân, số tháng bảo hành. Không có `limit` thì trả cả danh mục như
+   * hành vi cũ mà Quy trình đang dùng; có `limit` thì phân trang theo mã.
+   */
+  async listMaterialCatalog(
+    actor: InventoryActor,
+    query: InternalMaterialCatalogQuery,
+  ): Promise<InternalMaterialCatalogPage> {
+    const normalized = normalizeCatalogQuery(query);
+    const rows = await this.store.material.catalog(actor.tenantId, normalized);
+    if (!normalized.limit || rows.length <= normalized.limit) {
+      return { materials: rows, nextCursor: null };
+    }
+    const page = rows.slice(0, normalized.limit);
+    return { materials: page, nextCursor: page[page.length - 1].code };
   }
 
   /**
@@ -595,9 +620,9 @@ export class InventoryApplication {
 
     const materialCode = input?.materialCode?.trim().toUpperCase();
     if (!materialCode) throw new InventoryError('VALIDATION', 'Thiếu mã vật tư.');
-    if (!(await this.store.material.findAnyByCode(actor.tenantId, materialCode))) {
-      throw new MaterialNotFoundError(materialCode);
-    }
+    const material = await this.store.material.findAnyByCode(actor.tenantId, materialCode);
+    if (!material) throw new MaterialNotFoundError(materialCode);
+    if (material.kind === 'SERVICE') throw new ServiceMaterialNotStockedError(materialCode);
 
     // Bỏ trùng và bỏ rỗng ngay: dán một cột từ Excel gần như luôn kéo theo dòng
     // trắng, và hai dòng giống nhau thì chỉ là một cá thể.
@@ -924,13 +949,25 @@ export class InventoryApplication {
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên vật tư không được để trống.');
     if (!input.unit?.trim()) throw new InventoryError('VALIDATION', 'Đơn vị tính không được để trống.');
     this.requireStockBounds(input.minStock, input.maxStock);
+    const kind = requireMaterialKind(input.kind) ?? 'STOCK';
+    requireWarrantyMonths(input.warrantyMonths);
+    if (kind === 'SERVICE' && input.isSerialized) {
+      throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
+    }
 
     // Kiểm cả vật tư đã ngừng hoạt động: mã vẫn chiếm chỗ, và tạo trùng sẽ vỡ
     // ràng buộc UNIQUE với thông báo khó hiểu của Postgres.
     if (await this.store.material.findAnyByCode(actor.tenantId, code)) {
       throw new InventoryError('VALIDATION', `Mã vật tư ${code} đã tồn tại.`);
     }
-    return this.store.material.create(actor.tenantId, { ...input, code, name: input.name.trim() });
+    return this.store.material.create(actor.tenantId, {
+      ...input,
+      code,
+      name: input.name.trim(),
+      kind,
+      // Dịch vụ không có tồn nên không có định mức tồn.
+      ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
+    });
   }
 
   async updateMaterial(
@@ -946,6 +983,17 @@ export class InventoryApplication {
       patch.minStock ?? current.minStock,
       patch.maxStock ?? current.maxStock,
     );
+    const kind = requireMaterialKind(patch.kind) ?? current.kind;
+    requireWarrantyMonths(patch.warrantyMonths);
+    if (kind !== current.kind && (await this.store.material.hasStockFootprint(actor.tenantId, code))) {
+      throw new InventoryError(
+        'VALIDATION',
+        `Mã ${code} đã có tồn, bút toán, giữ hàng hoặc serial; không đổi được giữa hàng hoá và dịch vụ.`,
+      );
+    }
+    if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
+      throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
+    }
     const updated = await this.store.material.update(actor.tenantId, code, patch);
     if (!updated) throw new MaterialNotFoundError(code);
     return updated;
@@ -1144,4 +1192,48 @@ export class InventoryApplication {
       throw new InvalidReservationError('Số lượng phải là số dương.');
     }
   }
+}
+
+const MAX_CATALOG_PAGE = 500;
+const CATALOG_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireMaterialKind(value: unknown): MaterialKind | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!(MATERIAL_KINDS as readonly unknown[]).includes(value)) {
+    throw new InventoryError('VALIDATION', 'Loại mặt hàng phải là hàng hoá hoặc dịch vụ.');
+  }
+  return value as MaterialKind;
+}
+
+function requireWarrantyMonths(value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 1200) {
+    throw new InventoryError('VALIDATION', 'Số tháng bảo hành phải là số nguyên từ 0 đến 1200.');
+  }
+}
+
+/** Chuẩn hoá tham số danh mục nội bộ; giá trị sai thì 400, không lặng lẽ bỏ qua. */
+function normalizeCatalogQuery(query: InternalMaterialCatalogQuery): InternalMaterialCatalogQuery {
+  const ids = (query.ids ?? []).map((id) => id.trim()).filter(Boolean);
+  if (ids.some((id) => !CATALOG_UUID.test(id))) {
+    throw new InventoryError('VALIDATION', 'Danh sách id mặt hàng không hợp lệ.');
+  }
+  const codes = (query.codes ?? []).map((code) => code.trim().toUpperCase()).filter(Boolean);
+  const kinds = (query.kinds ?? []).map((kind) => requireMaterialKind(kind) as MaterialKind);
+  let limit: number | undefined;
+  if (query.limit !== undefined) {
+    limit = Number(query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_CATALOG_PAGE) {
+      throw new InventoryError('VALIDATION', `limit phải là số nguyên từ 1 đến ${MAX_CATALOG_PAGE}.`);
+    }
+  }
+  return {
+    search: query.search?.trim() || undefined,
+    ids: ids.length ? ids : undefined,
+    codes: codes.length ? codes : undefined,
+    warehouseCode: query.warehouseCode?.trim() || undefined,
+    kinds: kinds.length ? kinds : undefined,
+    limit,
+    cursor: query.cursor?.trim() || undefined,
+  };
 }

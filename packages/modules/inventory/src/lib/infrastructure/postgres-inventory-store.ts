@@ -12,6 +12,8 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   UpdateMaterialRequest,
+  InternalMaterialCatalogItem,
+  InternalMaterialCatalogQuery,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -37,6 +39,7 @@ import {
   InventoryError,
   MaterialNotFoundError,
   ReservationInsufficientStockError,
+  ServiceMaterialNotStockedError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
 import { reservationCreatedEvent } from './inventory-reservation-events.js';
@@ -123,6 +126,35 @@ function mapMaterial(row: Row): Material {
       : Number(row.purchase_price),
     currency: opt(row.currency),
     isActive: Boolean(row.is_active),
+    kind: row.kind === 'SERVICE' ? 'SERVICE' : 'STOCK',
+    warrantyMonths: row.warranty_months == null ? undefined : Number(row.warranty_months),
+  };
+}
+
+function mapCatalogItem(row: Row): InternalMaterialCatalogItem {
+  const service = row.kind === 'SERVICE';
+  const stocks = Array.isArray(row.stocks) ? (row.stocks as Row[]) : [];
+  const byWarehouse = stocks.map((stock) => ({
+    warehouseId: str(stock.warehouseId),
+    warehouseCode: str(stock.warehouseCode),
+    available: num(stock.available),
+    avgCost: num(stock.avgCost),
+  }));
+  const total = Math.round(byWarehouse.reduce((sum, stock) => sum + stock.available, 0) * 1000) / 1000;
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    name: str(row.name),
+    unit: str(row.unit ?? ''),
+    kind: service ? 'SERVICE' : 'STOCK',
+    category: (opt(row.category) ?? null) as InternalMaterialCatalogItem['category'],
+    isSerialized: Boolean(row.is_serialized),
+    isActive: Boolean(row.is_active),
+    warrantyMonths: row.warranty_months == null ? null : Number(row.warranty_months),
+    avgCost: service ? null : num(row.avg_cost),
+    availableByWarehouse: service ? null : byWarehouse,
+    totalAvailable: service ? null : total,
+    available: service ? 0 : total,
   };
 }
 
@@ -167,6 +199,7 @@ function mapInventory(row: Row): MaterialInventory {
     quantityReserved: num(row.quantity_reserved),
     quantityBlocked: num(row.quantity_blocked),
     available: num(row.available),
+    avgCost: row.avg_cost == null ? undefined : num(row.avg_cost),
     updatedAt: iso(row.updated_at),
   };
 }
@@ -306,14 +339,15 @@ export class PostgresInventoryStore implements InventoryStore {
   /**
    * Vật tư và thiết bị dùng chung một bảng từ migration 0006.
    *
-   * Mọi truy vấn ở nhóm này PHẢI lọc `kind = 'STOCK'`; thiếu bộ lọc thì thiết bị
-   * lọt vào danh sách vật tư, và sổ cái tồn kho sẽ nhận những mã không có tồn.
+   * Mọi truy vấn ở nhóm này PHẢI lọc `kind IN ('STOCK', 'SERVICE')`; thiếu bộ lọc
+   * thì thiết bị lọt vào danh sách vật tư. Dịch vụ (D6) nằm trong danh mục nhưng
+   * sổ kho, giữ hàng, serial vẫn chỉ nhận STOCK.
    */
   material = {
     findByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -322,7 +356,7 @@ export class PostgresInventoryStore implements InventoryStore {
     findAnyByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -330,7 +364,9 @@ export class PostgresInventoryStore implements InventoryStore {
 
     list: async (tenantId: string, includeInactive = false): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
-      const whereClause = includeInactive ? `WHERE kind = 'STOCK'` : `WHERE kind = 'STOCK' AND is_active = true`;
+      const whereClause = includeInactive
+        ? `WHERE kind IN ('STOCK', 'SERVICE')`
+        : `WHERE kind IN ('STOCK', 'SERVICE') AND is_active = true`;
       const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.materials ${whereClause} ORDER BY code`,
       );
@@ -343,8 +379,8 @@ export class PostgresInventoryStore implements InventoryStore {
         `INSERT INTO inventory_schema.materials
            (code, name, category, unit, min_stock, max_stock, is_serialized, barcode,
             serial_number, manufacture_year, supplier, manufacturer,
-            purchase_price, currency, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)
+            purchase_price, currency, is_active, kind, warranty_months)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, $15, $16)
       RETURNING *`,
         [
           input.code,
@@ -361,6 +397,8 @@ export class PostgresInventoryStore implements InventoryStore {
           input.manufacturer?.trim() || null,
           input.purchasePrice ?? null,
           input.currency?.trim() || null,
+          input.kind ?? 'STOCK',
+          input.warrantyMonths ?? null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -391,8 +429,10 @@ export class PostgresInventoryStore implements InventoryStore {
                 is_serialized = COALESCE($15, is_serialized),
                 status = COALESCE($16, status),
                 usage_state = COALESCE($17, usage_state),
-                type = COALESCE($18, type)
-          WHERE code = $1 AND kind = 'STOCK'
+                type = COALESCE($18, type),
+                kind = COALESCE($19, kind),
+                warranty_months = CASE WHEN $20::boolean THEN $21::integer ELSE warranty_months END
+          WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
           code,
@@ -413,6 +453,10 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.status ?? null,
           patch.usageState?.trim() || null,
           patch.type?.trim() || null,
+          patch.kind ?? null,
+          // `undefined` giữ nguyên, `null` xoá số tháng bảo hành.
+          patch.warrantyMonths !== undefined,
+          patch.warrantyMonths ?? null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -430,6 +474,74 @@ export class PostgresInventoryStore implements InventoryStore {
       return num(result.rows[0]?.n ?? 0);
     },
 
+    hasStockFootprint: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT EXISTS (SELECT 1 FROM inventory_schema.material_inventory b WHERE b.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.inventory_transactions t WHERE t.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.reservation_items r WHERE r.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.serial_tracking s WHERE s.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.stock_document_lines l WHERE l.material_id = m.id)
+             AS used
+           FROM inventory_schema.materials m
+          WHERE m.code = $1`,
+        [code],
+      );
+      return Boolean(result.rows[0]?.used);
+    },
+
+    catalog: async (
+      tenantId: string,
+      query: InternalMaterialCatalogQuery,
+    ): Promise<InternalMaterialCatalogItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      const where: string[] = [];
+      const values: unknown[] = [];
+      const push = (value: unknown): string => {
+        values.push(value);
+        return `$${values.length}`;
+      };
+      where.push(`m.kind = ANY(${push(query.kinds?.length ? [...query.kinds] : ['STOCK', 'SERVICE'])}::text[])`);
+      // Tra theo id, mã thì trả cả mã đã ngừng dùng: bên gọi đang giữ tham chiếu tới chúng.
+      if (query.ids?.length) where.push(`m.id = ANY(${push([...query.ids])}::uuid[])`);
+      if (query.codes?.length) where.push(`m.code = ANY(${push([...query.codes])}::text[])`);
+      if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
+      if (query.search) {
+        const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
+        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern})`);
+      }
+      if (query.cursor) where.push(`m.code > ${push(query.cursor)}`);
+      const warehouseFilter = query.warehouseCode ? `AND w.code = ${push(query.warehouseCode)}` : '';
+      const limit = query.limit ? `LIMIT ${push(query.limit + 1)}` : '';
+      // Giá bình quân của mặt hàng: bình quân theo số lượng của các dòng tồn đang
+      // có hàng; hết hàng ở mọi kho thì lấy giá bình quân cuối cùng còn ghi.
+      const result = await pool.query<Row>(
+        `SELECT m.id, m.code, m.name, m.unit, m.kind, m.category, m.is_serialized, m.is_active,
+                m.warranty_months, stock.stocks,
+                COALESCE(round(stock.value / NULLIF(stock.quantity, 0), 4), stock.fallback_avg, 0)
+                  AS avg_cost
+           FROM inventory_schema.materials m
+           LEFT JOIN LATERAL (
+             SELECT jsonb_agg(
+                      jsonb_build_object(
+                        'warehouseId', b.warehouse_id, 'warehouseCode', w.code,
+                        'available', b.available, 'avgCost', b.avg_cost
+                      ) ORDER BY w.code
+                    ) AS stocks,
+                    SUM(GREATEST(b.quantity, 0) * b.avg_cost) AS value,
+                    SUM(GREATEST(b.quantity, 0)) AS quantity,
+                    MAX(b.avg_cost) AS fallback_avg
+               FROM inventory_schema.material_inventory b
+               JOIN inventory_schema.warehouses w ON w.id = b.warehouse_id
+              WHERE b.material_id = m.id AND b.location_id IS NULL ${warehouseFilter}
+           ) stock ON true
+          WHERE ${where.join(' AND ')}
+          ORDER BY m.code
+          ${limit}`,
+        values,
+      );
+      return result.rows.map(mapCatalogItem);
+    },
   };
 
   asset = {
@@ -1585,15 +1697,20 @@ export class PostgresInventoryStore implements InventoryStore {
       [[...new Set(items.map((item) => item.warehouseCode))]],
     );
     const materials = await client.query<Row>(
-      `SELECT id, code FROM inventory_schema.materials
-        WHERE code = ANY($1::text[]) AND kind = 'STOCK'`,
+      `SELECT id, code, kind FROM inventory_schema.materials
+        WHERE code = ANY($1::text[]) AND kind IN ('STOCK', 'SERVICE')`,
       [[...new Set(items.map((item) => item.materialCode))]],
     );
     const warehouseIds = new Map(warehouses.rows.map((row) => [str(row.code), str(row.id)]));
     const materialIds = new Map(materials.rows.map((row) => [str(row.code), str(row.id)]));
+    const services = new Set(
+      materials.rows.filter((row) => row.kind === 'SERVICE').map((row) => str(row.code)),
+    );
     return items.map((item) => {
       const warehouseId = warehouseIds.get(item.warehouseCode);
       if (!warehouseId) throw new WarehouseNotFoundError(item.warehouseCode);
+      // D6: dịch vụ không có tồn nên không giữ hàng được.
+      if (services.has(item.materialCode)) throw new ServiceMaterialNotStockedError(item.materialCode);
       const materialId = materialIds.get(item.materialCode);
       if (!materialId) throw new MaterialNotFoundError(item.materialCode);
       return {
@@ -1618,10 +1735,12 @@ export class PostgresInventoryStore implements InventoryStore {
     if (!warehouse.rows[0]) throw new WarehouseNotFoundError(warehouseCode);
 
     const material = await client.query<Row>(
-      `SELECT id FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
+      `SELECT id, kind FROM inventory_schema.materials
+        WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
       [materialCode],
     );
     if (!material.rows[0]) throw new MaterialNotFoundError(materialCode);
+    if (material.rows[0].kind === 'SERVICE') throw new ServiceMaterialNotStockedError(materialCode);
 
     return {
       warehouseId: str(warehouse.rows[0].id),

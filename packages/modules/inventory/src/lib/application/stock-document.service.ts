@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   STOCK_DOCUMENT_STATUSES,
   STOCK_DOCUMENT_TYPES,
   type CreateStockDocumentRequest,
+  type InternalIssueRequest,
+  type InternalReturnReceiptRequest,
+  type InternalStockDocumentResult,
   type PostedStockDocument,
   type RejectStockDocumentRequest,
   type StockDocument,
@@ -17,6 +21,7 @@ import {
   assertSerialsUniqueAcrossLines,
   normalizeLineSerials,
   normalizeLotInput,
+  normalizeLotNo,
 } from '../domain/traceability-policy.js';
 import {
   assertEditable,
@@ -187,6 +192,100 @@ export class StockDocumentService {
     return this.documents.reverse(actor.tenantId, key, actor.userId, assertReversible);
   }
 
+  /**
+   * Yêu cầu xuất từ đợt giao hàng hoặc bảo hành (T1-25): chứng từ NHÁP, dòng gắn
+   * giữ hàng, nguồn là đơn bán hoặc yêu cầu bảo hành. Thủ kho chọn serial, lô rồi
+   * ghi sổ. Cùng khoá cùng nội dung trả chứng từ đã tạo (trạng thái hiện tại),
+   * khác nội dung thì 409.
+   */
+  async createIssueRequest(
+    actor: InventoryActor,
+    input: InternalIssueRequest,
+  ): Promise<InternalStockDocumentResult> {
+    requireStockWriter(actor);
+    const docType = input?.docType ?? 'ISSUE_SALES';
+    if (docType !== 'ISSUE_SALES' && docType !== 'ISSUE_WARRANTY') {
+      throw new InventoryError('VALIDATION', 'Yêu cầu xuất chỉ nhận loại xuất bán hoặc xuất bảo hành.');
+    }
+    const header = normalizeInternalHeader(input);
+    const lines = normalizeLines(
+      docType,
+      (input.lines ?? []).map((line) => ({
+        materialCode: line?.materialCode,
+        quantity: line?.quantity,
+        reservationId: line?.reservationId,
+        serials: line?.serials,
+        lot: line?.lotNo ? { lotNo: line.lotNo } : undefined,
+        note: line?.note,
+      })),
+    );
+    const requestHash = internalRequestHash([docType, header, lines]);
+    const document = await this.documents.create(actor.tenantId, {
+      docType,
+      ...header,
+      requestHash,
+      createdBy: actor.userId,
+      lines,
+    });
+    return internalResult(document);
+  }
+
+  /**
+   * Nhập trả hàng bán vào kho cách ly (T1-26): tạo và ghi sổ ngay chứng từ
+   * RECEIPT_SALES_RETURN. Hàng nhận về Chờ kiểm định, không tính khả dụng:
+   * serial nhận trạng thái Chờ kiểm định; dòng không serial vào một lô mới riêng
+   * của lần trả (`TH-...`, chép hạn dùng của lô gốc nếu có) ở trạng thái Chờ kiểm
+   * định, để người kiểm định đổi trạng thái bằng API chất lượng lô sẵn có.
+   */
+  async receiveReturn(
+    actor: InventoryActor,
+    input: InternalReturnReceiptRequest,
+  ): Promise<InternalStockDocumentResult> {
+    requireStockWriter(actor);
+    const header = normalizeInternalHeader(input);
+    const rawLines = (input.lines ?? []).map((line) => {
+      const sourceLineId = line?.sourceLineId?.trim() || undefined;
+      return {
+        materialCode: line?.materialCode,
+        quantity: line?.quantity,
+        serials: line?.serials,
+        sourceLineId,
+        note: line?.note,
+        originalLotNo: line?.lotNo ? normalizeLotNo(line.lotNo) : undefined,
+      };
+    });
+    const normalized = normalizeLines('RECEIPT_SALES_RETURN', rawLines);
+    const requestHash = internalRequestHash([
+      'RECEIPT_SALES_RETURN',
+      header,
+      normalized,
+      rawLines.map((line) => line.originalLotNo ?? null),
+    ]);
+    const lines = normalized.map((line, index) => {
+      if (line.serials?.length) return line;
+      const originalLotNo = rawLines[index].originalLotNo;
+      return {
+        ...line,
+        lot: { lotNo: `TH-${requestHash.slice(0, 10).toUpperCase()}-${index + 1}` },
+        newLotQuality: 'PENDING_INSPECTION' as const,
+        copyLotFrom: originalLotNo,
+      };
+    });
+    const posted = await this.documents.createAndPost(
+      actor.tenantId,
+      {
+        docType: 'RECEIPT_SALES_RETURN',
+        ...header,
+        requestHash,
+        createdBy: actor.userId,
+        lines,
+      },
+      actor.userId,
+      { inboundQuality: 'PENDING_INSPECTION' },
+    );
+    return internalResult(posted.document);
+  }
+
   private async allowSelfApproval(tenantId: string): Promise<boolean> {
     const stored = await this.inventory.settings.get(tenantId, 'documents.approval');
     const value = stored
@@ -237,6 +336,50 @@ function normalizeDate(value: string | undefined): string | undefined {
   return date;
 }
 
+/** Phần đầu chung của hai API nội bộ: khoá chống lặp, kho, nguồn bắt buộc. */
+function normalizeInternalHeader(input: {
+  readonly idempotencyKey?: string;
+  readonly warehouseCode?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+}) {
+  const idempotencyKey = input?.idempotencyKey?.trim();
+  if (!idempotencyKey) throw new InventoryError('VALIDATION', 'Thiếu khoá chống lặp (idempotencyKey).');
+  if (idempotencyKey.length > 200) {
+    throw new InventoryError('VALIDATION', 'Khoá chống lặp dài tối đa 200 ký tự.');
+  }
+  const sourceType = input.sourceType?.trim();
+  if (!sourceType) throw new InventoryError('VALIDATION', 'Thiếu loại chứng từ nguồn (sourceType).');
+  const sourceId = input.sourceId?.trim();
+  if (!sourceId || !UUID_PATTERN.test(sourceId)) {
+    throw new InventoryError('VALIDATION', 'Mã chứng từ nguồn không hợp lệ.');
+  }
+  return {
+    idempotencyKey,
+    warehouseCode: requireCode(input.warehouseCode, 'Kho không được để trống.'),
+    sourceType,
+    sourceId,
+    documentDate: normalizeDate(input.documentDate),
+    note: input.note?.trim() || undefined,
+  };
+}
+
+function internalRequestHash(parts: unknown): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+}
+
+function internalResult(document: StockDocument): InternalStockDocumentResult {
+  return {
+    documentId: document.id,
+    documentCode: document.code,
+    docType: document.docType,
+    status: document.status,
+    document,
+  };
+}
+
 function normalizeLines(
   docType: StockDocumentType,
   lines: readonly StockDocumentLineInput[] | undefined,
@@ -277,6 +420,16 @@ function normalizeLines(
         `Dòng ${lineNo}: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.`,
       );
     }
+    const sourceLineId = line.sourceLineId?.trim() || undefined;
+    if (sourceLineId && !UUID_PATTERN.test(sourceLineId)) {
+      throw new InventoryError('VALIDATION', `Dòng ${lineNo}: mã dòng xuất gốc không hợp lệ.`);
+    }
+    if (sourceLineId && docType !== 'RECEIPT_SALES_RETURN') {
+      throw new InventoryError(
+        'VALIDATION',
+        `Dòng ${lineNo}: chỉ dòng nhập trả hàng bán mới tham chiếu dòng xuất gốc.`,
+      );
+    }
     return {
       materialCode,
       quantity,
@@ -285,6 +438,7 @@ function normalizeLines(
       reservationId,
       serials,
       lot,
+      sourceLineId,
       note: line.note?.trim() || undefined,
     };
   });

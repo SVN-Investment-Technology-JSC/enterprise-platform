@@ -26,3 +26,29 @@ INVENTORY_DATABASE_URL=postgres://... node tools/inventory/find-duplicate-serial
 Xử lý: thủ kho xem từng nhóm, quyết định giữ bản nào (thường là bản đang ở kho hoặc đang lắp vào thiết bị), sửa bản còn
 lại cho đúng số serial thật hoặc xoá bản khai nhầm. Sửa xong chạy lại script đến khi báo "Không có serial trùng", rồi
 mới deploy migration (kế hoạch `docs/crm/plan_crm.md` mục 4.4, TC-MIG-03).
+
+## Khởi tạo giá vốn bình quân sau migration 0016
+
+Migration `migrations/tenant/inventory/0016-costing.sql` thêm `material_inventory.avg_cost` (giá vốn bình quân gia quyền
+của từng dòng tồn kho, vật tư) với giá trị 0 cho dữ liệu cũ. Từ bản này mỗi lần ghi sổ chứng từ tự cập nhật bình quân;
+dòng tồn có từ trước cần tính lại một lần từ sổ kho bằng script dưới đây (T1-22, TC-MIG-04):
+
+```bash
+# Xem trước, không ghi gì (transaction READ ONLY):
+node tools/inventory/init-avg-cost.mjs --database-url=postgres://user:pass@host:5432/<db tenant> --dry-run
+# Ghi avg_cost:
+node tools/inventory/init-avg-cost.mjs --database-url=postgres://user:pass@host:5432/<db tenant>
+# Hoặc đặt INVENTORY_DATABASE_URL; thêm --json để nhận kết quả dạng JSON.
+```
+
+- Script đọc `inventory_schema.inventory_transactions` theo thứ tự thời gian cho từng dòng tồn (kho, vật tư) và áp
+  đúng quy tắc lúc ghi sổ (`packages/modules/inventory/src/lib/domain/costing.ts`): nhập có đơn giá thì
+  `bình quân = (tồn × bình quân + số nhập × đơn giá) / (tồn + số nhập)`; nhập không ghi đơn giá (0) giữ nguyên bình
+  quân; vế nhập điều chuyển lấy giá vế xuất ở kho đi; xuất theo bình quân hiện tại, chứng từ đảo xuất ở giá dòng gốc.
+  Bình quân giữ 4 chữ số thập phân, làm tròn nửa xa số 0.
+- Bảng ra stdout: kho, mặt hàng, tồn hiện tại, tồn cộng từ sổ, bình quân đang lưu, bình quân tính lại, có đổi không.
+  Tóm tắt ra stderr; cảnh báo nếu tồn lệch sổ kho (cần đối soát trước khi tin giá).
+- Chạy lại cho cùng kết quả: bình quân chỉ phụ thuộc sổ kho (chỉ ghi thêm), không đọc giá đang lưu. Khi ghi thật, script
+  khoá mọi dòng tồn trong lúc tính nên chứng từ ghi sổ cùng lúc phải chờ; chạy ngoài giờ làm việc.
+- Mã thoát: 0 khi chạy được, 1 khi lỗi tham số, kết nối hoặc DB chưa chạy 0016.
+- Kế toán đối chiếu bảng `--dry-run` với bảng tính tay của 5 mặt hàng mẫu trước khi ghi (TC-MIG-04).

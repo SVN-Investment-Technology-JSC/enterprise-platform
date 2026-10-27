@@ -167,3 +167,28 @@ export class ReservationIssueError extends InventoryError {
     Object.setPrototypeOf(this, ReservationIssueError.prototype);
   }
 }
+
+/** Mặt hàng dịch vụ (D6) không có dòng tồn: chứng từ kho, giữ hàng, serial đều từ chối. */
+export class ServiceMaterialNotStockedError extends InventoryError {
+  constructor(materialCode: string) {
+    super(
+      'SERVICE_MATERIAL_NOT_STOCKED',
+      `Mặt hàng dịch vụ không quản lý tồn (${materialCode}).`,
+      400,
+      { materialCode },
+    );
+    Object.setPrototypeOf(this, ServiceMaterialNotStockedError.prototype);
+  }
+}
+
+/** Cùng khoá chống lặp của API nội bộ tạo chứng từ nhưng nội dung khác lần đầu. */
+export class DocumentIdempotencyConflictError extends InventoryError {
+  constructor(key: string) {
+    super(
+      'IDEMPOTENCY_KEY_CONFLICT',
+      `Khoá chống lặp ${key} đã dùng cho một yêu cầu có nội dung khác.`,
+      409,
+    );
+    Object.setPrototypeOf(this, DocumentIdempotencyConflictError.prototype);
+  }
+}

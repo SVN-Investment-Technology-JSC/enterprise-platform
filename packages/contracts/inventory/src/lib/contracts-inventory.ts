@@ -102,6 +102,10 @@ export interface CreateMaterialRequest {
   readonly manufacturer?: string;
   readonly purchasePrice?: number;
   readonly currency?: string;
+  /** Hàng hoá (mặc định) hoặc dịch vụ. Dịch vụ không quản lý tồn (D6). */
+  readonly kind?: MaterialKind;
+  /** Số tháng bảo hành mặc định khi bán; bỏ trống là chưa khai. */
+  readonly warrantyMonths?: number | null;
 }
 
 export interface UpdateMaterialRequest {
@@ -125,6 +129,13 @@ export interface UpdateMaterialRequest {
   readonly purchasePrice?: number;
   readonly currency?: string;
   readonly isActive?: boolean;
+  /**
+   * Đổi giữa hàng hoá và dịch vụ. Chỉ đổi được khi mã chưa có bút toán, dòng tồn
+   * hay serial nào.
+   */
+  readonly kind?: MaterialKind;
+  /** `null` xoá số tháng bảo hành đã khai. */
+  readonly warrantyMonths?: number | null;
 }
 
 /**
@@ -332,6 +343,14 @@ export interface AssetInstallation {
 
 export type WarehouseType = 'PHYSICAL' | 'VIRTUAL_IN_TRANSIT';
 export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
+
+/**
+ * Loại mặt hàng trong danh mục vật tư. SERVICE (dịch vụ, phần mềm) có trong danh
+ * mục để Bán hàng chọn nhưng không có dòng tồn; chứng từ kho và giữ hàng từ chối
+ * (D6). Thiết bị (`ASSET`) đi đường riêng, không nằm trong union này.
+ */
+export const MATERIAL_KINDS = ['STOCK', 'SERVICE'] as const;
+export type MaterialKind = (typeof MATERIAL_KINDS)[number];
 /**
  * Tình trạng và "đang ở đâu" của một cá thể — CHUỖI TỰ DO, không phải union.
  *
@@ -418,6 +437,10 @@ export interface Material {
   readonly purchasePrice?: number;
   readonly currency?: string;
   readonly isActive: boolean;
+  /** Hàng hoá hoặc dịch vụ (không quản lý tồn). */
+  readonly kind: MaterialKind;
+  /** Số tháng bảo hành mặc định; không có là chưa khai. */
+  readonly warrantyMonths?: number;
 }
 
 export interface SerialTracking {
@@ -636,6 +659,8 @@ export interface MaterialInventory {
   /** Phần tồn không Đạt (lô, serial Cách ly, Lỗi, Chờ kiểm định). */
   readonly quantityBlocked: number;
   readonly available: number; // quantity - quantityReserved - quantityBlocked (generated)
+  /** Giá vốn bình quân gia quyền của dòng tồn (kho, vật tư), 4 chữ số thập phân. */
+  readonly avgCost?: number;
   readonly updatedAt: string;
 }
 
@@ -823,6 +848,49 @@ export interface InventoryReservationReleasedPayload {
 
 export type InventoryReservationExpiredPayload = InventoryReservationReleasedPayload;
 
+export const INVENTORY_STOCK_ISSUED_EVENT = 'inventory.stock.issued';
+export const INVENTORY_STOCK_RETURNED_EVENT = 'inventory.stock.returned';
+
+export const INVENTORY_STOCK_EVENT_TYPES = [
+  INVENTORY_STOCK_ISSUED_EVENT,
+  INVENTORY_STOCK_RETURNED_EVENT,
+] as const;
+
+export type InventoryStockEventType = (typeof INVENTORY_STOCK_EVENT_TYPES)[number];
+
+/** Một dòng đã ghi sổ trong sự kiện xuất kho, nhập trả. */
+export interface InventoryStockEventLine {
+  readonly lineId: string;
+  readonly lineNo: number;
+  readonly materialId: string;
+  readonly materialCode: string;
+  /** IN cộng tồn, OUT trừ tồn; chứng từ đảo có chiều ngược với chứng từ gốc. */
+  readonly direction: StockDocumentLineDirection;
+  readonly quantity: number;
+  /** Giá vốn đơn vị lúc ghi sổ (4 chữ số thập phân). */
+  readonly unitCost: number;
+  /** `quantity × unitCost`, làm tròn 2 chữ số. */
+  readonly costAmount: number;
+  readonly lotId: string | null;
+  readonly lotNo: string | null;
+  readonly serials: readonly string[];
+  readonly reservationId: string | null;
+  /** Dòng xuất gốc của dòng nhập trả, nếu có. */
+  readonly sourceLineId: string | null;
+}
+
+/**
+ * `inventory.stock.issued`: chứng từ xuất (ISSUE_*) vừa ghi sổ, trong cùng
+ * transaction với ghi sổ (T1-27). Bên nghe chống trùng theo `documentId`.
+ *
+ * Chứng từ đảo của chứng từ xuất cũng phát sự kiện này với `reversesDocumentId`
+ * khác null và dòng chiều IN: bên nghe hiểu là huỷ tác dụng của chứng từ gốc,
+ * không phải một lần giao thêm.
+ *
+ * `transactionCode`, `materialCode`, `quantityIssued`, `warehouseCode`,
+ * `referenceType`, `referenceId` có từ trước (chưa ai phát); giữ để không bỏ
+ * trường, lấy theo dòng đầu và nguồn của chứng từ.
+ */
 export interface InventoryStockIssuedPayload {
   readonly transactionCode: string;
   readonly materialCode: string;
@@ -830,6 +898,27 @@ export interface InventoryStockIssuedPayload {
   readonly warehouseCode: string;
   readonly referenceType?: string;
   readonly referenceId?: string;
+  readonly documentId: string;
+  readonly documentCode: string;
+  readonly docType: StockDocumentType;
+  readonly sourceType: string | null;
+  readonly sourceId: string | null;
+  readonly warehouseId: string;
+  readonly reversesDocumentId: string | null;
+  readonly postedAt: string;
+  readonly lines: readonly InventoryStockEventLine[];
+  readonly totalCostAmount: number;
+  /** Null khi hệ thống tự làm. */
+  readonly actorUserId: string | null;
+}
+
+/**
+ * `inventory.stock.returned`: chứng từ nhập trả hàng bán (RECEIPT_SALES_RETURN)
+ * vừa ghi sổ. `qualityStatus` là trạng thái chất lượng hàng nhận về (Chờ kiểm
+ * định với nhập trả qua API nội bộ).
+ */
+export interface InventoryStockReturnedPayload extends InventoryStockIssuedPayload {
+  readonly qualityStatus: QualityStatus;
 }
 
 export interface InventoryStockTransferredPayload {
@@ -855,6 +944,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.asset',
   'catalog.unit',
   'documents.approval',
+  'costing.method',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -910,12 +1000,24 @@ export interface InventoryDocumentApprovalSettings {
   readonly allowSelfApproval: boolean;
 }
 
+/**
+ * Phương pháp tính giá xuất kho. Union đóng; hiện chỉ có bình quân gia quyền tức
+ * thời (D4). FIFO làm ở P2.
+ */
+export const COSTING_METHODS = ['MOVING_AVERAGE'] as const;
+export type CostingMethod = (typeof COSTING_METHODS)[number];
+
+export interface InventoryCostingSettings {
+  readonly method: CostingMethod;
+}
+
 export interface InventorySettings {
   readonly 'dashboard.cards': DashboardCardSelection;
   readonly 'catalog.material': InventoryCatalogSettings;
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
+  readonly 'costing.method': InventoryCostingSettings;
 }
 
 export interface SettingsEntry<TValue> {
@@ -1145,6 +1247,8 @@ export interface StockDocumentLine {
   readonly lotExpiresOn?: string;
   /** Serial của dòng, đúng bằng số lượng. */
   readonly serials?: readonly string[];
+  /** Dòng xuất gốc mà dòng nhập trả này lấy giá vốn. */
+  readonly sourceLineId?: string;
   readonly note?: string;
 }
 
@@ -1203,6 +1307,12 @@ export interface StockDocumentLineInput {
    * điều chuyển chỉ cần `lotNo` của lô đã có. Không ghi cùng lúc lô và serial.
    */
   readonly lot?: StockDocumentLotInput;
+  /**
+   * Chỉ cho dòng nhập trả hàng bán (RECEIPT_SALES_RETURN): id dòng xuất gốc đã ghi
+   * sổ, cùng mặt hàng. Giá vốn nhập trả lấy theo giá vốn của dòng đó; bỏ trống thì
+   * lấy giá bình quân hiện tại của kho nhận.
+   */
+  readonly sourceLineId?: string;
   readonly note?: string;
 }
 
@@ -1251,4 +1361,142 @@ export interface StockDocumentPage {
 export interface PostedStockDocument {
   readonly document: StockDocument;
   readonly transactions: readonly InventoryTransaction[];
+}
+
+// ============================================================================
+// API NỘI BỘ CHO BÁN HÀNG (T1-24, T1-25, T1-26)
+// ============================================================================
+
+/**
+ * Tham số `GET v1/internal/materials`. Mọi trường tuỳ chọn; `ids`, `codes`,
+ * `kind` nhận danh sách cách nhau bằng dấu phẩy.
+ *
+ * Không có `limit` thì trả cả danh mục (hành vi cũ mà Quy trình đang dùng); có
+ * `limit` thì phân trang theo mã, trang sau gọi lại với `cursor = nextCursor`.
+ */
+export interface InternalMaterialCatalogQuery {
+  /** Tìm theo mã hoặc tên, không phân biệt hoa thường. */
+  readonly search?: string;
+  readonly ids?: readonly string[];
+  readonly codes?: readonly string[];
+  /** Chỉ tính tồn tại kho này. */
+  readonly warehouseCode?: string;
+  /** Mặc định cả STOCK và SERVICE. */
+  readonly kinds?: readonly MaterialKind[];
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface InternalMaterialWarehouseStock {
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  /** Tồn khả dụng = thực tế − đã giữ − không Đạt. */
+  readonly available: number;
+  /** Giá vốn bình quân của dòng tồn tại kho này. */
+  readonly avgCost: number;
+}
+
+/**
+ * Một mặt hàng cho phân hệ khác. Mặt hàng dịch vụ có `avgCost`,
+ * `availableByWarehouse`, `totalAvailable` là null (không quản lý tồn).
+ *
+ * `available` là trường cũ Quy trình đang đọc: bằng `totalAvailable`, dịch vụ
+ * nhận 0.
+ */
+export interface InternalMaterialCatalogItem {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly unit: string;
+  readonly kind: MaterialKind;
+  readonly category: MaterialCategory | null;
+  readonly isSerialized: boolean;
+  readonly isActive: boolean;
+  readonly warrantyMonths: number | null;
+  /**
+   * Giá vốn bình quân của mặt hàng: bình quân theo số lượng của giá bình quân các
+   * kho đang có hàng (chỉ kho `warehouseCode` khi có lọc). Là giá ước tính cho báo
+   * giá; giá vốn thực tế ghi trên dòng xuất lúc ghi sổ.
+   */
+  readonly avgCost: number | null;
+  readonly availableByWarehouse: readonly InternalMaterialWarehouseStock[] | null;
+  readonly totalAvailable: number | null;
+  readonly available: number;
+}
+
+export interface InternalMaterialCatalogPage {
+  readonly materials: readonly InternalMaterialCatalogItem[];
+  /** Có khi còn trang sau (chỉ khi gọi với `limit`). */
+  readonly nextCursor: string | null;
+}
+
+/** Một dòng của yêu cầu xuất. */
+export interface InternalIssueRequestLine {
+  readonly materialCode: string;
+  readonly quantity: number;
+  /** Giữ hàng (id) mà dòng xuất trừ vào. */
+  readonly reservationId?: string;
+  /** Lô gợi ý; thủ kho đổi được trước khi ghi sổ. */
+  readonly lotNo?: string;
+  /** Serial gợi ý; mặt hàng theo serial bắt buộc đủ serial lúc ghi sổ. */
+  readonly serials?: readonly string[];
+  readonly note?: string;
+}
+
+/**
+ * `POST v1/internal/issue-requests`: tạo chứng từ xuất NHÁP từ đợt giao hàng
+ * (ISSUE_SALES) hoặc bảo hành (ISSUE_WARRANTY). Thủ kho chọn serial, lô rồi ghi
+ * sổ trên màn Kho; ghi sổ phát `inventory.stock.issued`.
+ *
+ * Cùng `idempotencyKey` và cùng nội dung trả lại chứng từ đã tạo; khác nội dung
+ * thì 409 `IDEMPOTENCY_KEY_CONFLICT`.
+ */
+export interface InternalIssueRequest {
+  readonly idempotencyKey: string;
+  /** Mặc định ISSUE_SALES. */
+  readonly docType?: 'ISSUE_SALES' | 'ISSUE_WARRANTY';
+  readonly warehouseCode: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+  readonly lines: readonly InternalIssueRequestLine[];
+}
+
+/** Một dòng nhập trả. */
+export interface InternalReturnReceiptLine {
+  readonly materialCode: string;
+  readonly quantity: number;
+  /** Serial nhận về; mặt hàng theo serial bắt buộc đủ serial. */
+  readonly serials?: readonly string[];
+  /** Lô gốc của hàng trả về (để chép hạn dùng). */
+  readonly lotNo?: string;
+  /** Dòng xuất gốc (id dòng chứng từ) để lấy giá vốn lúc xuất. */
+  readonly sourceLineId?: string;
+  readonly note?: string;
+}
+
+/**
+ * `POST v1/internal/return-receipts`: tạo VÀ ghi sổ chứng từ nhập trả hàng bán
+ * (RECEIPT_SALES_RETURN) vào kho được chỉ định (kho cách ly). Hàng nhận về ở
+ * trạng thái Chờ kiểm định, không tính vào tồn khả dụng. Có khoá chống lặp như
+ * `issue-requests`. Ghi sổ phát `inventory.stock.returned`.
+ */
+export interface InternalReturnReceiptRequest {
+  readonly idempotencyKey: string;
+  readonly warehouseCode: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+  readonly lines: readonly InternalReturnReceiptLine[];
+}
+
+/** Kết quả của hai API nội bộ tạo chứng từ. */
+export interface InternalStockDocumentResult {
+  readonly documentId: string;
+  readonly documentCode: string;
+  readonly docType: StockDocumentType;
+  readonly status: StockDocumentStatus;
+  readonly document: StockDocument;
 }

@@ -518,6 +518,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0015-quality-blocked',
       path: 'tenant/inventory/0015-quality-blocked.sql',
     },
+    { version: '0016-costing', path: 'tenant/inventory/0016-costing.sql' },
+    {
+      version: '0017-service-kind',
+      path: 'tenant/inventory/0017-service-kind.sql',
+    },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

@@ -113,9 +113,11 @@ export class StockDocumentTracking {
     client: Queryable,
     document: StockDocument,
     movements: readonly TrackedMovement[],
+    /** Trạng thái chất lượng gán cho serial nhập (nhập trả vào kho cách ly). */
+    inboundQuality?: QualityStatus,
   ): Promise<StockDocumentTracking> {
     const blocked = movements.map(() => 0);
-    const serialChanges = await prepareSerials(client, document, movements, blocked);
+    const serialChanges = await prepareSerials(client, document, movements, blocked, inboundQuality);
     const lotBalances = await prepareLots(client, document, movements, blocked);
     return new StockDocumentTracking(document, blocked, serialChanges, lotBalances);
   }
@@ -125,9 +127,9 @@ export class StockDocumentTracking {
       if (!change.update) continue;
       await client.query(
         `UPDATE inventory_schema.serial_tracking
-            SET stock_state = $2, current_warehouse_id = $3, updated_at = now()
+            SET stock_state = $2, current_warehouse_id = $3, quality_status = $4, updated_at = now()
           WHERE id = $1`,
-        [change.serialId, change.stockState, change.warehouseId],
+        [change.serialId, change.stockState, change.warehouseId, change.quality],
       );
     }
     for (const balance of this.lotBalances.values()) {
@@ -217,6 +219,7 @@ async function prepareSerials(
   document: StockDocument,
   movements: readonly TrackedMovement[],
   blocked: number[],
+  inboundQuality: QualityStatus | undefined,
 ): Promise<SerialChange[]> {
   const ops = serialOps(document, movements);
   if (ops.length === 0) return [];
@@ -253,7 +256,7 @@ async function prepareSerials(
   for (const op of ops) {
     const current = existing.get(`${op.materialId}|${op.key}`);
     if (op.kind === 'IN') {
-      changes.push(await receiveSerial(client, op, current, blocked));
+      changes.push(await receiveSerial(client, op, current, blocked, inboundQuality));
       continue;
     }
     if (!current) {
@@ -320,6 +323,7 @@ async function receiveSerial(
   op: SerialOp,
   current: LockedSerial | undefined,
   blocked: number[],
+  inboundQuality: QualityStatus | undefined,
 ): Promise<SerialChange> {
   if (current) {
     if (current.stockState === 'IN_STOCK' || current.stockState === 'IN_TRANSIT' || current.stockState === 'SCRAPPED') {
@@ -329,11 +333,12 @@ async function receiveSerial(
         409,
       );
     }
-    if (isBlockingQuality(current.quality) && op.inIndex !== undefined) blocked[op.inIndex] += 1;
+    const quality = inboundQuality ?? current.quality;
+    if (isBlockingQuality(quality) && op.inIndex !== undefined) blocked[op.inIndex] += 1;
     return {
       serialId: current.id,
       op,
-      quality: current.quality,
+      quality,
       stockState: 'IN_STOCK',
       warehouseId: op.toWarehouseId ?? null,
       update: true,
@@ -345,10 +350,10 @@ async function receiveSerial(
     `INSERT INTO inventory_schema.serial_tracking
        (id, material_id, serial_number, current_status, location_type, current_warehouse_id,
         stock_state, quality_status)
-     VALUES (gen_random_uuid(), $1, $2, 'IN_STOCK', 'WAREHOUSE', $3, 'IN_STOCK', 'PASSED')
+     VALUES (gen_random_uuid(), $1, $2, 'IN_STOCK', 'WAREHOUSE', $3, 'IN_STOCK', $4)
      ON CONFLICT DO NOTHING
      RETURNING id`,
-    [op.materialId, op.serial, op.toWarehouseId ?? null],
+    [op.materialId, op.serial, op.toWarehouseId ?? null, inboundQuality ?? 'PASSED'],
   );
   if (!inserted.rows[0]) {
     throw serialError(
@@ -357,10 +362,12 @@ async function receiveSerial(
       409,
     );
   }
+  const quality = inboundQuality ?? 'PASSED';
+  if (isBlockingQuality(quality) && op.inIndex !== undefined) blocked[op.inIndex] += 1;
   return {
     serialId: str(inserted.rows[0].id),
     op,
-    quality: 'PASSED',
+    quality,
     stockState: 'IN_STOCK',
     warehouseId: op.toWarehouseId ?? null,
     update: false,

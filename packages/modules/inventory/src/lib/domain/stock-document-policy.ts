@@ -166,3 +166,26 @@ export function resolveLineDirection(
   }
   return expected;
 }
+
+/**
+ * Chứng từ gắn với giao hàng, bảo hành, nhận hàng trả về: mặt hàng theo serial
+ * phải có đủ serial LÚC GHI SỔ (thủ kho chọn serial trên chứng từ nháp rồi mới
+ * ghi sổ). Chứng từ đảo chép serial của chứng từ gốc nên không kiểm lại; đường
+ * nhập xuất cũ (loại khác) vẫn cho bỏ trống serial như trước.
+ */
+const SERIALS_REQUIRED_AT_POSTING: ReadonlySet<StockDocumentType> = new Set<StockDocumentType>([
+  'ISSUE_SALES',
+  'ISSUE_WARRANTY',
+  'RECEIPT_SALES_RETURN',
+]);
+
+export function requiresSerialsAtPosting(docType: StockDocumentType, isReversal: boolean): boolean {
+  return !isReversal && SERIALS_REQUIRED_AT_POSTING.has(docType);
+}
+
+/** Loại chứng từ phát sự kiện kho khi ghi sổ (T1-27). */
+export function stockEventKind(docType: StockDocumentType): 'ISSUED' | 'RETURNED' | null {
+  if (isIssueType(docType)) return 'ISSUED';
+  if (docType === 'RECEIPT_SALES_RETURN') return 'RETURNED';
+  return null;
+}

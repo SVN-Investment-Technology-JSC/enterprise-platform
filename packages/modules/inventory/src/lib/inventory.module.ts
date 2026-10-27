@@ -19,12 +19,21 @@ import {
 } from './application/traceability-store.port.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
 import { InventoryController } from './presentation/inventory.controller.js';
+import { InternalCatalogController } from './presentation/internal-catalog.controller.js';
+import { InternalDocumentsController } from './presentation/internal-documents.controller.js';
 import { LotController } from './presentation/lot.controller.js';
 import { SerialController } from './presentation/serial.controller.js';
 import { StockDocumentController } from './presentation/stock-document.controller.js';
 
 @Module({
-  controllers: [InventoryController, StockDocumentController, LotController, SerialController],
+  controllers: [
+    InventoryController,
+    StockDocumentController,
+    LotController,
+    SerialController,
+    InternalCatalogController,
+    InternalDocumentsController,
+  ],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

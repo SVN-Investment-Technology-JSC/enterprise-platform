@@ -11,7 +11,9 @@ import {
   assertTransition,
   canTransition,
   requiresApproval,
+  requiresSerialsAtPosting,
   resolveLineDirection,
+  stockEventKind,
 } from './stock-document-policy.js';
 
 /** Các cặp chuyển hợp lệ theo sơ đồ mục 5.6 của kế hoạch, cho loại có nguồn đã duyệt. */
@@ -102,5 +104,22 @@ describe('máy trạng thái chứng từ kho (TC-SM-11)', () => {
     expect(() => resolveLineDirection('ADJUSTMENT', undefined, 2)).toThrow(/Dòng 2/);
     expect(() => resolveLineDirection('RECEIPT_OTHER', 'OUT', 3)).toThrow(/Dòng 3/);
     expect(() => resolveLineDirection('TRANSFER', 'IN', 1)).toThrow(/chỉ có dòng xuất/);
+  });
+});
+
+describe('serial bắt buộc lúc ghi sổ và sự kiện kho (T1-25, T1-27)', () => {
+  it('chỉ xuất bán, xuất bảo hành, nhập trả bắt buộc serial; chứng từ đảo thì không', () => {
+    const required = STOCK_DOCUMENT_TYPES.filter((type) => requiresSerialsAtPosting(type, false));
+    expect(required).toEqual(['RECEIPT_SALES_RETURN', 'ISSUE_SALES', 'ISSUE_WARRANTY']);
+    expect(requiresSerialsAtPosting('ISSUE_SALES', true)).toBe(false);
+  });
+
+  it('chứng từ xuất phát issued, nhập trả hàng bán phát returned, loại khác không phát', () => {
+    expect(stockEventKind('ISSUE_PROJECT')).toBe('ISSUED');
+    expect(stockEventKind('ISSUE_TRANSFER')).toBe('ISSUED');
+    expect(stockEventKind('RECEIPT_SALES_RETURN')).toBe('RETURNED');
+    expect(stockEventKind('RECEIPT_PURCHASE')).toBeNull();
+    expect(stockEventKind('TRANSFER')).toBeNull();
+    expect(stockEventKind('ADJUSTMENT')).toBeNull();
   });
 });

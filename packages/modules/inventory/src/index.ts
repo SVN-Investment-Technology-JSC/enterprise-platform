@@ -17,3 +17,6 @@ export * from './lib/application/serial.service.js';
 export * from './lib/application/quality.service.js';
 export * from './lib/presentation/lot.controller.js';
 export * from './lib/presentation/serial.controller.js';
+export * from './lib/presentation/internal-catalog.controller.js';
+export * from './lib/presentation/internal-documents.controller.js';
+export * from './lib/domain/costing.js';
