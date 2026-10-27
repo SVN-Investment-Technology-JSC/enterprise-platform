@@ -154,6 +154,12 @@ export class SocialController {
     return this.execute(() => this.topics.update(this.actor(request), id, body ?? {}));
   }
 
+  @Delete('topics/:id')
+  @HttpCode(204)
+  async removeTopic(@Req() request: SocialRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.topics.remove(this.actor(request), id));
+  }
+
   /* --------------------------------------------------------- tệp đính kèm */
 
   @Post('attachments/uploads')

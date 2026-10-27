@@ -49,6 +49,14 @@ export class SocialTopicService {
     return this.require(actor, topicId);
   }
 
+  /** Xoá hẳn chuyên mục; bài viết vẫn còn, chỉ không còn gắn chuyên mục này. */
+  async remove(actor: SocialActor, topicId: string): Promise<void> {
+    this.assertManage(actor);
+    requireUuid(topicId, 'Mã chuyên mục');
+    await this.require(actor, topicId);
+    await this.store.topics.remove(actor.tenantId, topicId);
+  }
+
   private assertManage(actor: SocialActor): void {
     if (!mayManage(actor)) throw new SocialForbiddenError('Bạn không có quyền quản lý chuyên mục.');
   }

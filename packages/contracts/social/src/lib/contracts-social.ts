@@ -68,6 +68,8 @@ export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
 
 /** Bình luận: số tệp tối đa, dung lượng ảnh tối đa và số bình luận mỗi lần tải (nhẹ vì bình luận có thể kèm ảnh). */
 export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
+/** Số cấp tối đa của chuỗi bình luận: gốc (1), trả lời (2), trả lời của trả lời (3). */
+export const SOCIAL_COMMENT_MAX_DEPTH = 3;
 export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const SOCIAL_COMMENT_PAGE_SIZE = 10;
 /** Cạnh ảnh lớn nhất được ghi nhận kích thước (đủ cho ảnh panorama, loại giá trị vô lý). */
@@ -422,7 +424,7 @@ export interface SocialReactor {
 export interface SocialComment {
   readonly id: string;
   readonly postId: string;
-  /** Chỉ hai cấp: bình luận gốc và trả lời. */
+  /** Tối đa `SOCIAL_COMMENT_MAX_DEPTH` cấp: bình luận gốc rồi các trả lời lồng nhau. */
   readonly parentId?: string;
   readonly author: SocialUserRef;
   /** Văn bản thuần; mention ghi dạng `@[userId]`. */

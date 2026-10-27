@@ -403,6 +403,7 @@ export function SocialScreen() {
         <ComposerDialog
           me={me}
           topics={topics}
+          onTopicCreated={reloadTopics}
           editing={composer.post}
           defaultGroupId={composer.groupId}
           defaultMode={composer.mode}
@@ -418,6 +419,11 @@ export function SocialScreen() {
           topics={topics}
           onChanged={() => {
             reloadTopics();
+          }}
+          onRemoved={(id) => {
+            // Đang xem đúng chuyên mục vừa xoá thì về bảng tin chung; làm mới bảng tin để bỏ nhãn chuyên mục cũ.
+            if (id === topicId) openTopic(undefined);
+            setBoardKey((key) => key + 1);
           }}
           onClose={() => setManaging(false)}
         />

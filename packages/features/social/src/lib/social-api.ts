@@ -113,6 +113,9 @@ export const createTopic = (body: CreateSocialTopicRequest) =>
 export const updateTopic = (id: string, body: UpdateSocialTopicRequest) =>
   request<SocialTopic>(`/topics/${encodeURIComponent(id)}`, json('PATCH', body));
 
+export const deleteTopic = (id: string) =>
+  request<void>(`/topics/${encodeURIComponent(id)}`, json('DELETE'));
+
 /* ---------------------------------------------------------------- bài viết */
 
 export const loadFeed = (query: SocialFeedQuery) =>

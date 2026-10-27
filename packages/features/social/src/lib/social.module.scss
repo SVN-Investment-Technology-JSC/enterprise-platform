@@ -1054,16 +1054,72 @@
   gap: 6px;
 }
 
+// Màu đường nối giữa bình luận và các trả lời.
+$thread-line: #b8bfca;
+
+// Cột trái của bình luận: ảnh đại diện (30px) và đường nối đi xuống các trả lời.
+.commentRail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 30px;
+}
+
+.commentRailLine {
+  flex: 1;
+  width: 1px;
+  align-self: flex-start;
+  margin-left: 14px;
+  margin-top: 4px;
+  // Chạm tới đầu khối trả lời (cách dòng bình luận 6px).
+  margin-bottom: -6px;
+  border-radius: 1px;
+  background: $thread-line;
+}
+
+// Khối trả lời lùi vào để ảnh đại diện con nằm ở x = 40px; đường nối chính ở giữa ảnh đại diện cha (x = 15px).
 .replies {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-left: 40px;
+  margin-left: 14px;
+  padding-left: 26px;
 }
 
 /* Phản hồi đầu tiên của một bình luận cách bình luận gốc thêm 3px. */
 .replies > .commentList > li:first-child {
   padding-top: 3px;
+}
+
+// Mỗi trả lời có một nhánh cong nối từ đường chính tới ảnh đại diện; trả lời không phải cuối còn kéo đường chính xuống tiếp.
+.replies > .commentList > li {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -26px;
+    width: 22px;
+    height: 15px;
+    border-bottom: 1px solid $thread-line;
+    border-left: 1px solid $thread-line;
+    border-bottom-left-radius: 12px;
+  }
+
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: -10px;
+    left: -26px;
+    border-left: 1px solid $thread-line;
+  }
+}
+
+.replies > .commentList > li:first-child::before {
+  height: 18px;
 }
 
 /* "Xem N trả lời": sát lề trái ngay dưới hàng Thích / Trả lời của bình luận gốc, chữ nghiêng xám đậm. */
@@ -1112,8 +1168,12 @@
 }
 
 .commentDeleted {
+  align-self: flex-start;
   margin: 0;
-  padding: 6px 0;
+  padding: 6px 12px;
+  border: 1px dashed #c3c9d3;
+  border-radius: var(--ep-radius-lg);
+  background: #f6f7f9;
   color: var(--ep-text-faint);
   font-size: 13px;
   font-style: italic;
