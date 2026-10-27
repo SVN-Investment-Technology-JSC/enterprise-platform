@@ -508,6 +508,15 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0012-reservation-source',
       path: 'tenant/inventory/0012-reservation-source.sql',
     },
+    {
+      version: '0013-serial-quality',
+      path: 'tenant/inventory/0013-serial-quality.sql',
+    },
+    { version: '0014-lots', path: 'tenant/inventory/0014-lots.sql' },
+    {
+      version: '0015-quality-blocked',
+      path: 'tenant/inventory/0015-quality-blocked.sql',
+    },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

@@ -3,6 +3,7 @@ import type {
   AssetStatus,
   AssetType,
   MaterialCategory,
+  QualityStatus,
   ReservationStatus,
   TransactionType,
   WarehouseType,
@@ -29,20 +30,19 @@ export const ASSET_STATUS_LABEL: Readonly<Record<AssetStatus, string>> = {
   DISPOSED: 'Đã thanh lý',
 };
 
-export const LOT_STATUS_LABEL: Readonly<Record<string, string>> = {
-  PASSED: 'Đạt chuẩn (Passed)',
-  QUARANTINE: 'Chờ kiểm định (Quarantine)',
-  NEAR_EXPIRY: 'Cận hạn dùng (Near Expiry)',
-  EXPIRED: 'Hết hạn sử dụng (Expired)',
-  BLOCKED: 'Khóa xuất / Niêm phong',
+/** Trạng thái chất lượng của lô và serial; chỉ hàng Đạt tính vào tồn khả dụng. */
+export const QUALITY_STATUS_LABEL: Readonly<Record<QualityStatus, string>> = {
+  PASSED: 'Đạt',
+  QUARANTINE: 'Cách ly',
+  DEFECTIVE: 'Lỗi',
+  PENDING_INSPECTION: 'Chờ kiểm định',
 };
 
-export const LOT_STATUS_BADGE: Readonly<Record<string, { bg: string; text: string; border: string }>> = {
+export const QUALITY_STATUS_BADGE: Readonly<Record<QualityStatus, { bg: string; text: string; border: string }>> = {
   PASSED: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
   QUARANTINE: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
-  NEAR_EXPIRY: { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
-  EXPIRED: { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' },
-  BLOCKED: { bg: '#f8fafc', text: '#475569', border: '#cbd5e1' },
+  DEFECTIVE: { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' },
+  PENDING_INSPECTION: { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
 };
 
 export const ASSET_CRITICALITY_LABEL: Readonly<Record<AssetCriticality, string>> = {

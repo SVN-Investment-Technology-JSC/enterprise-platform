@@ -8,8 +8,10 @@ import type {
   CreateWarehouseRequest,
   InstallItemRequest,
   InventorySettingsKey,
+  LotAllocationInput,
   RegisterSerialsRequest,
   ReturnItemToStockRequest,
+  StockDocumentLotInput,
   UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -43,6 +45,7 @@ export class InventoryController {
     return {
       canManage: actor.canManage,
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
+      canWriteQuality: actor.canWriteQuality ?? actor.canManage,
     };
   }
 
@@ -231,6 +234,8 @@ export class InventoryController {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      /** Lô nhận vào: tạo lô mới hoặc cộng vào lô cùng số lô. */
+      lot?: StockDocumentLotInput;
     },
   ) {
     return this.execute(() => this.app.receiveStock(this.actor(request), body));
@@ -248,6 +253,8 @@ export class InventoryController {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
+      lots?: readonly LotAllocationInput[];
     },
   ) {
     return this.execute(() => this.app.issueStock(this.actor(request), body));
@@ -264,6 +271,8 @@ export class InventoryController {
       materialCode: string;
       quantity: number;
       note?: string;
+      /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
+      lots?: readonly LotAllocationInput[];
     },
   ) {
     return this.execute(() => this.app.transferStock(this.actor(request), body));

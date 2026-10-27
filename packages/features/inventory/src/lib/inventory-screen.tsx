@@ -7,7 +7,6 @@ import type {
   InventoryItem,
   InventorySettingsSnapshot,
   Material,
-  LotTracking,
 } from '@enterprise-platform/contracts-inventory';
 import {
   DashboardCardPicker,
@@ -52,7 +51,6 @@ import {
   type ProcedureWorkOrder,
   loadInventoryWorkspace,
   loadLedger,
-  loadLots,
   loadInstallations,
   loadReservations,
   registerSerials,
@@ -61,7 +59,6 @@ import {
   retireMaterial,
   uninstallMaterial,
   saveInventorySetting,
-  saveLots,
   transferStock,
   updateMaterial,
   type InventoryLedgerRow,
@@ -115,7 +112,11 @@ export function InventoryScreen() {
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
-  const uiPermissions = useMemo(() => ({ canManage, canWriteTransactions }), [canManage, canWriteTransactions]);
+  const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
+  const uiPermissions = useMemo(
+    () => ({ canManage, canWriteTransactions, canWriteQuality }),
+    [canManage, canWriteTransactions, canWriteQuality],
+  );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
@@ -423,51 +424,22 @@ export function InventoryScreen() {
       const txCodes: string[] = [];
       let totalSerialsAdded = 0;
 
-      // Lô hiện được quản lý cùng dữ liệu kho trên client; chỉ cập nhật sau khi bút toán
-      // thành công để tránh số lượng lô đi trước sổ cái.
-      const persistLotMovement = async (
-        item: (typeof lineItems)[number],
-        action: 'receipt' | 'issue' | 'transfer',
-        warehouseCode: string,
-        destinationWarehouseCode?: string,
-      ) => {
-        if (action === 'receipt' && item.receiptLot) {
-          const lots = await loadLots(item.materialCode);
-          const existing = lots.find((lot) => lot.lotNumber === item.receiptLot?.lotNumber && lot.warehouseCode === warehouseCode);
-          const incoming: LotTracking = {
-            id: existing?.id ?? `lot-${Date.now()}-${item.materialCode}`,
-            materialCode: item.materialCode,
-            lotNumber: item.receiptLot.lotNumber,
-            status: item.receiptLot.status,
-            quantity: (existing?.quantity ?? 0) + item.quantity,
-            unit: item.unit,
-            warehouseCode,
-            manufactureDate: item.receiptLot.manufactureDate,
-            expiryDate: item.receiptLot.expiryDate,
-            supplier: item.receiptLot.supplier,
-            coCqNumber: item.receiptLot.coCqNumber,
-            createdAt: existing?.createdAt ?? new Date().toISOString(),
-          };
-          await saveLots(item.materialCode, existing ? lots.map((lot) => lot.id === existing.id ? incoming : lot) : [incoming, ...lots]);
-          return;
-        }
-        if (!item.lotAllocations?.length) return;
-        const lots = await loadLots(item.materialCode);
-        const allocationById = new Map(item.lotAllocations.map((lot) => [lot.lotId, lot.quantity]));
-        await saveLots(item.materialCode, lots.flatMap((lot) => {
-          const quantity = allocationById.get(lot.id);
-          if (!quantity) return lot;
-          if (action === 'transfer' && destinationWarehouseCode) {
-            if (quantity >= lot.quantity) return { ...lot, warehouseCode: destinationWarehouseCode };
-            // Chuyển một phần lô: giữ lại số dư tại kho nguồn và tạo phần cùng mã lô tại kho đích.
-            return [
-              { ...lot, quantity: lot.quantity - quantity },
-              { ...lot, id: `${lot.id}-transfer-${Date.now()}`, quantity, warehouseCode: destinationWarehouseCode },
-            ];
-          }
-          return { ...lot, quantity: Math.max(0, lot.quantity - quantity) };
-        }));
-      };
+      // Lô lưu ở server: phiếu nhập gửi kèm lô (tạo mới hoặc cộng vào lô cùng số
+      // lô), phiếu xuất và chuyển gửi phân bổ theo lô; cùng một chứng từ với bút toán.
+      const lotAllocations = (item: (typeof lineItems)[number]) =>
+        item.lotAllocations?.length
+          ? item.lotAllocations.map((lot) => ({ lotNo: lot.lotNumber, quantity: lot.quantity }))
+          : undefined;
+      const receiptLot = (item: (typeof lineItems)[number]) =>
+        item.receiptLot
+          ? {
+              lotNo: item.receiptLot.lotNumber,
+              manufacturedOn: item.receiptLot.manufactureDate,
+              expiresOn: item.receiptLot.expiryDate,
+              supplier: item.receiptLot.supplier,
+              certificateNo: item.receiptLot.coCqNumber,
+            }
+          : undefined;
 
       if (movement.kind === 'receipt') {
         for (const item of lineItems) {
@@ -489,9 +461,9 @@ export function InventoryScreen() {
             quantity: item.quantity,
             unitCost: item.unitCost,
             note: lineFullNote,
+            lot: receiptLot(item),
           });
           txCodes.push(tx.transactionCode);
-          await persistLotMovement(item, 'receipt', wh);
 
           const serials = item.serialNumbers ?? [];
           if (serials.length > 0) {
@@ -532,16 +504,15 @@ export function InventoryScreen() {
               note: lineNote,
             });
             txCodes.push(tx.transactionCode);
-            await persistLotMovement(item, 'issue', wh);
           } else {
             const tx = await issueStock({
               warehouseCode: wh,
               materialCode: item.materialCode,
               quantity: item.quantity,
               note: lineNote,
+              lots: lotAllocations(item),
             });
             txCodes.push(tx.transactionCode);
-            await persistLotMovement(item, 'issue', wh);
           }
         }
 
@@ -569,9 +540,9 @@ export function InventoryScreen() {
           materialCode: item.materialCode,
           quantity: item.quantity,
           note: lineNote,
+          lots: lotAllocations(item),
         });
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);
-        await persistLotMovement(item, 'transfer', fromWh, toWh);
       }
 
       const refText = txCodes.join(', ');

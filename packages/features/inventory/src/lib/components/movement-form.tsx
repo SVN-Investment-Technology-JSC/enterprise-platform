@@ -3,7 +3,7 @@
 import type {
   Material,
   Reservation,
-  LotTracking,
+  Lot,
 } from '@enterprise-platform/contracts-inventory';
 import {
   X,
@@ -29,7 +29,7 @@ import type {
   ProcedureWorkOrder,
 } from '../inventory-api';
 import { loadLots } from '../inventory-api';
-import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
+import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
 import styles from '../inventory.module.scss';
 
@@ -57,8 +57,14 @@ export interface MovementLineItem {
   readonly serialNumbers?: readonly string[];
   /** Phân bổ số lượng theo từng lô. Bắt buộc khi người dùng đã chọn quản lý theo lô. */
   readonly lotAllocations?: readonly { lotId: string; lotNumber: string; quantity: number }[];
-  /** Thông tin lô mới, dùng khi nhập kho. */
-  readonly receiptLot?: Pick<LotTracking, 'lotNumber' | 'manufactureDate' | 'expiryDate' | 'supplier' | 'coCqNumber' | 'status'>;
+  /** Thông tin lô nhận vào khi nhập kho: lô mới hoặc lô đã có cùng số lô. */
+  readonly receiptLot?: {
+    readonly lotNumber: string;
+    readonly manufactureDate?: string;
+    readonly expiryDate?: string;
+    readonly supplier?: string;
+    readonly coCqNumber?: string;
+  };
   readonly lineNote?: string;
   readonly newMaterial?: {
     readonly code: string;
@@ -131,6 +137,25 @@ function parseSerials(draft: string): string[] {
 }
 
 /** Mỗi vật tư chỉ có một cách định danh: sê-ri, lô, hoặc theo dõi số lượng thuần. */
+/**
+ * Lô chọn được tại một kho, theo hạn dùng gần nhất trước (FEFO). Phiếu xuất chỉ
+ * lấy lô Đạt còn hạn; phiếu chuyển mang được cả lô không Đạt (sang kho lỗi).
+ */
+function lotChoices(lots: readonly Lot[], warehouseCode: string, kind: string): { lot: Lot; available: number }[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return lots
+    .map((lot) => {
+      const balance = lot.balances.find((candidate) => candidate.warehouseCode === warehouseCode);
+      const available = kind === 'transfer' ? (balance?.quantity ?? 0) : (balance?.available ?? 0);
+      return { lot, available };
+    })
+    .filter(({ lot, available }) =>
+      available > 0 &&
+      (kind === 'transfer' || (lot.qualityStatus === 'PASSED' && !(lot.expiresOn && lot.expiresOn < today))),
+    )
+    .sort((left, right) => (left.lot.expiresOn ?? '9999-12-31').localeCompare(right.lot.expiresOn ?? '9999-12-31'));
+}
+
 function getTrackingMode(material?: Material): 'SERIAL' | 'LOT' | 'NONE' {
   if (!material) return 'NONE';
   if (material.isSerialized) return 'SERIAL';
@@ -432,7 +457,7 @@ export function MovementForm({
   const [serialModalIndex, setSerialModalIndex] = useState<number | null>(null);
   const [serialDraft, setSerialDraft] = useState('');
   const [lotModalIndex, setLotModalIndex] = useState<number | null>(null);
-  const [lotsByMaterial, setLotsByMaterial] = useState<Record<string, LotTracking[]>>({});
+  const [lotsByMaterial, setLotsByMaterial] = useState<Record<string, Lot[]>>({});
   const [lotDraft, setLotDraft] = useState<Record<string, number>>({});
   const [newLotDraft, setNewLotDraft] = useState({ lotNumber: '', manufactureDate: '', expiryDate: '', supplier: '', coCqNumber: '' });
 
@@ -449,9 +474,10 @@ export function MovementForm({
 
   useEffect(() => {
     const codes = [...new Set(items.map((item) => item.materialCode).filter(Boolean))];
-    void Promise.all(codes.map(async (code) => [code, await loadLots(code)] as const)).then((entries) =>
-      setLotsByMaterial((current) => ({ ...current, ...Object.fromEntries(entries) })),
-    );
+    // Lô đọc từ server; lỗi tải thì coi như chưa có lô, server vẫn kiểm lại khi ghi phiếu.
+    void Promise.all(
+      codes.map(async (code) => [code, await loadLots(code).catch(() => [] as Lot[])] as const),
+    ).then((entries) => setLotsByMaterial((current) => ({ ...current, ...Object.fromEntries(entries) })));
   }, [items]);
 
   // Khi đổi kho mặc định ở phần đầu phiếu, tự cập nhật cho các dòng chưa thay đổi kho riêng
@@ -577,10 +603,10 @@ export function MovementForm({
     if (!item) return;
     const existingLots = lotsByMaterial[item.materialCode] ?? [];
     const allocations = existingLots
-      .map((lot) => ({ lotId: lot.id, lotNumber: lot.lotNumber, quantity: Number(lotDraft[lot.id]) || 0 }))
+      .map((lot) => ({ lotId: lot.id, lotNumber: lot.lotNo, quantity: Number(lotDraft[lot.id]) || 0 }))
       .filter((lot) => lot.quantity > 0);
     const receiptLot = kind === 'receipt' && newLotDraft.lotNumber.trim()
-      ? { lotNumber: newLotDraft.lotNumber.trim().toUpperCase(), manufactureDate: newLotDraft.manufactureDate || undefined, expiryDate: newLotDraft.expiryDate || undefined, supplier: newLotDraft.supplier.trim() || undefined, coCqNumber: newLotDraft.coCqNumber.trim() || undefined, status: 'PASSED' as const }
+      ? { lotNumber: newLotDraft.lotNumber.trim().toUpperCase(), manufactureDate: newLotDraft.manufactureDate || undefined, expiryDate: newLotDraft.expiryDate || undefined, supplier: newLotDraft.supplier.trim() || undefined, coCqNumber: newLotDraft.coCqNumber.trim() || undefined }
       : undefined;
     setItems((previous) => previous.map((line, index) => index === lotModalIndex ? { ...line, lotAllocations: allocations, receiptLot } : line));
     setLotModalIndex(null);
@@ -682,7 +708,8 @@ export function MovementForm({
   const hasInvalidLotAllocation = items.some((item) => {
     if (getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) !== 'LOT') return false;
     if (kind === 'receipt') return !item.receiptLot?.lotNumber;
-    return (item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0) !== item.quantity;
+    // Phần không phân bổ xuất từ tồn không theo lô; server từ chối nếu phần đó không đủ.
+    return (item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0) > item.quantity;
   });
 
   // Tổng hợp thống kê số lượng và số tiền
@@ -738,7 +765,7 @@ export function MovementForm({
           : hasAnyOverdraw
             ? 'Có dòng xuất vượt số lượng tồn.'
             : hasInvalidLotAllocation
-              ? 'Có dòng chưa khai báo hoặc phân bổ đủ lô.'
+              ? 'Có dòng chưa khai báo lô hoặc phân bổ lô vượt số lượng.'
               : hasInvalidSerialSelection
                 ? 'Có dòng chưa chọn đủ số sê-ri.'
                 : undefined;
@@ -1372,7 +1399,7 @@ export function MovementForm({
                               <Layers size={13} />
                               <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
                             </button>
-                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div style={{ marginTop: '3px', fontSize: '12px', color: '#b45309' }}>Phân bổ {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
+                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div style={{ marginTop: '3px', fontSize: '12px', color: '#b45309' }}>Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
                           </>
                         ) : trackingMode === 'SERIAL' ? (
                           <button
@@ -1466,7 +1493,7 @@ export function MovementForm({
                 ) : hasInvalidLotAllocation ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
                     <AlertTriangle size={15} />
-                    <span>Vật tư quản lý theo lô phải được phân bổ đủ số lượng trước khi ghi phiếu.</span>
+                    <span>Phiếu nhập phải khai báo lô; phiếu xuất không được phân bổ lô vượt số lượng.</span>
                   </div>
                 ) : hasInvalidSerialSelection ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
@@ -1554,13 +1581,13 @@ export function MovementForm({
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '330px', overflowY: 'auto' }}>
-                {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).filter((lot) => lot.warehouseCode === items[lotModalIndex].warehouseCode && !['BLOCKED', 'EXPIRED', 'QUARANTINE'].includes(lot.status)).sort((a, b) => (a.expiryDate ?? '9999-12-31').localeCompare(b.expiryDate ?? '9999-12-31')).map((lot) => (
+                {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).map(({ lot, available }) => (
                   <div key={lot.id} style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '12px', alignItems: 'center', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc' }}>
-                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNumber}</strong><div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>Khả dụng: {formatNumber(lot.quantity)} {lot.unit ?? items[lotModalIndex].unit}{lot.expiryDate ? ` · HSD ${formatDate(lot.expiryDate)}` : ''}</div></div>
-                    <input type="number" min={0} max={lot.quantity} className={styles.gridCellInput} style={{ textAlign: 'right' }} value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(lot.quantity, Math.max(0, Number(event.target.value) || 0)) }))} />
+                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNo}</strong><div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>Khả dụng: {formatNumber(available)} {items[lotModalIndex].unit}{lot.expiresOn ? ` · HSD ${formatDate(lot.expiresOn)}` : ''}{lot.qualityStatus !== 'PASSED' ? ` · ${QUALITY_STATUS_LABEL[lot.qualityStatus]}` : ''}</div></div>
+                    <input type="number" min={0} max={available} className={styles.gridCellInput} style={{ textAlign: 'right' }} value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}
-                {(lotsByMaterial[items[lotModalIndex].materialCode] ?? []).length === 0 ? <p style={{ margin: '8px 0', color: '#64748b', fontSize: '14px' }}>Chưa có lô nào cho vật tư này. Hãy lập phiếu nhập và khai báo lô trước khi xuất.</p> : null}
+                {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).length === 0 ? <p style={{ margin: '8px 0', color: '#64748b', fontSize: '14px' }}>Chưa có lô dùng được tại kho này. Phần không chọn lô sẽ lấy từ tồn không theo lô.</p> : null}
               </div>
             )}
             <div className={styles.lotMovementDialogFoot}>

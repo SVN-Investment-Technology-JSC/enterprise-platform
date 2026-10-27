@@ -3,6 +3,7 @@ import type {
   StockDocument,
   StockDocumentLineDirection,
   StockDocumentListQuery,
+  StockDocumentLotInput,
   StockDocumentPage,
   StockDocumentType,
 } from '@enterprise-platform/contracts-inventory';
@@ -17,6 +18,10 @@ export interface StockDocumentLineDraft {
   readonly unitCost: number;
   /** Dòng xuất trừ vào giữ hàng này; chỉ có ở chứng từ xuất. */
   readonly reservationId?: string;
+  /** Serial đã bỏ khoảng trắng, không lặp, đúng bằng số lượng. */
+  readonly serials?: readonly string[];
+  /** Lô đã chuẩn hoá: số lô viết hoa; dòng xuất chỉ có số lô. */
+  readonly lot?: StockDocumentLotInput;
   readonly note?: string;
 }
 

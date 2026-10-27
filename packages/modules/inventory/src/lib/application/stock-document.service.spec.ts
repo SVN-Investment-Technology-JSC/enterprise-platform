@@ -274,4 +274,84 @@ describe('StockDocumentService', () => {
       });
     }
   });
+
+  it('T1-14: dòng serial chuẩn hoá serial, số serial phải bằng số lượng nguyên', async () => {
+    await service.create(clerk, {
+      docType: 'RECEIPT_PURCHASE',
+      warehouseCode: 'KHO',
+      lines: [{ materialCode: 'LAP', quantity: 2, serials: [' SN001 ', 'SN002'] }],
+    });
+    expect(store.created.at(-1)?.lines[0]).toMatchObject({ serials: ['SN001', 'SN002'] });
+
+    const fewer = await rejection(
+      service.create(clerk, {
+        docType: 'ISSUE_SALES',
+        warehouseCode: 'KHO',
+        lines: [{ materialCode: 'LAP', quantity: 3, serials: ['SN001', 'SN002'] }],
+      }),
+    );
+    expect([fewer.statusCode, fewer.message]).toEqual([
+      400,
+      'Dòng 1: số serial (2) phải bằng số lượng (3).',
+    ]);
+    const fractional = await rejection(
+      service.create(clerk, {
+        docType: 'ISSUE_SALES',
+        warehouseCode: 'KHO',
+        lines: [{ materialCode: 'LAP', quantity: 1.5, serials: ['SN001'] }],
+      }),
+    );
+    expect(fractional.statusCode).toBe(400);
+    const repeated = await rejection(
+      service.create(clerk, {
+        docType: 'ISSUE_SALES',
+        warehouseCode: 'KHO',
+        lines: [
+          { materialCode: 'LAP', quantity: 1, serials: ['sn001'] },
+          { materialCode: 'LAP', quantity: 1, serials: ['SN001'] },
+        ],
+      }),
+    );
+    expect(repeated.message).toBe('Serial SN001 của LAP có ở cả dòng 1 và dòng 2.');
+  });
+
+  it('T1-17: dòng lô viết hoa số lô; dòng xuất chỉ giữ số lô; không ghi cả lô và serial', async () => {
+    await service.create(clerk, {
+      docType: 'RECEIPT_PURCHASE',
+      warehouseCode: 'KHO',
+      lines: [
+        { materialCode: 'MUC', quantity: 30, lot: { lotNo: ' l01 ', expiresOn: '2026-12-31', manufacturedOn: '2026-01-01' } },
+      ],
+    });
+    expect(store.created.at(-1)?.lines[0].lot).toEqual({
+      lotNo: 'L01',
+      expiresOn: '2026-12-31',
+      manufacturedOn: '2026-01-01',
+      supplier: undefined,
+      certificateNo: undefined,
+    });
+    await service.create(clerk, {
+      docType: 'ISSUE_SALES',
+      warehouseCode: 'KHO',
+      lines: [{ materialCode: 'MUC', quantity: 3, lot: { lotNo: 'L01', expiresOn: '2027-01-01' } }],
+    });
+    expect(store.created.at(-1)?.lines[0].lot).toEqual({ lotNo: 'L01' });
+
+    const both = await rejection(
+      service.create(clerk, {
+        docType: 'RECEIPT_PURCHASE',
+        warehouseCode: 'KHO',
+        lines: [{ materialCode: 'MUC', quantity: 1, serials: ['A'], lot: { lotNo: 'L01' } }],
+      }),
+    );
+    expect(both.message).toBe('Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
+    const badDates = await rejection(
+      service.create(clerk, {
+        docType: 'RECEIPT_PURCHASE',
+        warehouseCode: 'KHO',
+        lines: [{ materialCode: 'MUC', quantity: 1, lot: { lotNo: 'L09', manufacturedOn: '2027-01-02', expiresOn: '2027-01-01' } }],
+      }),
+    );
+    expect(badDates.message).toBe('Dòng 1: ngày sản xuất phải trước hạn dùng.');
+  });
 });

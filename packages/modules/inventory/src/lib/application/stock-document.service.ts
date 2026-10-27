@@ -14,6 +14,11 @@ import {
 } from '@enterprise-platform/contracts-inventory';
 import { InventoryError, StockDocumentNotFoundError } from '../domain/inventory.error.js';
 import {
+  assertSerialsUniqueAcrossLines,
+  normalizeLineSerials,
+  normalizeLotInput,
+} from '../domain/traceability-policy.js';
+import {
   assertEditable,
   assertNotSelfApproval,
   assertReversible,
@@ -242,7 +247,7 @@ function normalizeLines(
   if (lines.length > MAX_LINES) {
     throw new InventoryError('VALIDATION', `Chứng từ có tối đa ${MAX_LINES} dòng.`);
   }
-  return lines.map((line, index) => {
+  const normalized = lines.map((line, index) => {
     const lineNo = index + 1;
     const materialCode = requireCode(line?.materialCode, `Dòng ${lineNo}: thiếu mã vật tư.`);
     const quantity = Number(line.quantity);
@@ -263,13 +268,26 @@ function normalizeLines(
         `Dòng ${lineNo}: chỉ dòng của chứng từ xuất mới trừ vào giữ hàng.`,
       );
     }
+    const direction = resolveLineDirection(docType, line.direction, lineNo);
+    const serials = normalizeLineSerials(line.serials, quantity, lineNo);
+    const lot = normalizeLotInput(line.lot, direction, lineNo);
+    if (serials && lot) {
+      throw new InventoryError(
+        'VALIDATION',
+        `Dòng ${lineNo}: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.`,
+      );
+    }
     return {
       materialCode,
       quantity,
-      direction: resolveLineDirection(docType, line.direction, lineNo),
+      direction,
       unitCost,
       reservationId,
+      serials,
+      lot,
       note: line.note?.trim() || undefined,
     };
   });
+  assertSerialsUniqueAcrossLines(normalized);
+  return normalized;
 }

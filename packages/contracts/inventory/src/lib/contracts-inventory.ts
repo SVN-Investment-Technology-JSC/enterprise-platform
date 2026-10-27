@@ -431,30 +431,170 @@ export interface SerialTracking {
   readonly locationType: LocationType;
   readonly currentWarehouseId?: string;
   readonly currentAssetId?: string;
+  readonly qualityStatus?: QualityStatus;
+  readonly stockState?: SerialStockState;
   readonly createdAt: string;
 }
 
-/**
- * Quản lý theo Lô / Mẻ hàng (Batch / Lot Tracking).
- * Dành cho vật tư tiêu hao, hóa chất, dầu mỡ, cáp điện theo cuộn,...
- */
-export type LotStatus = 'PASSED' | 'QUARANTINE' | 'NEAR_EXPIRY' | 'EXPIRED' | 'BLOCKED';
+// ---------------------------------------------------------------- Chất lượng, lô, serial
 
-export interface LotTracking {
-  readonly id: string;
-  readonly materialId?: string;
-  readonly materialCode: string;
-  readonly lotNumber: string;
-  readonly status: LotStatus;
-  readonly quantity: number;
-  readonly unit?: string;
+/**
+ * Trạng thái chất lượng của lô và serial (INV-06). Chỉ hàng Đạt mới tính vào tồn
+ * khả dụng; ba trạng thái còn lại cộng vào `quantityBlocked` của tồn.
+ */
+export const QUALITY_STATUSES = ['PASSED', 'QUARANTINE', 'DEFECTIVE', 'PENDING_INSPECTION'] as const;
+export type QualityStatus = (typeof QUALITY_STATUSES)[number];
+
+/**
+ * Serial nằm ở đâu theo sổ kho: Trong kho, Đã xuất, Đang chuyển, Đã huỷ. Khác
+ * `currentStatus` (trạng thái sử dụng do admin tenant khai). Không có giá trị là
+ * serial khai ở danh mục chưa vào sổ kho.
+ */
+export type SerialStockState = 'IN_STOCK' | 'ISSUED' | 'IN_TRANSIT' | 'SCRAPPED';
+
+export type SerialMovementType =
+  | 'RECEIPT'
+  | 'ISSUE'
+  | 'TRANSFER'
+  | 'RETURN'
+  | 'WARRANTY_ISSUE'
+  | 'ADJUSTMENT'
+  | 'REVERSAL'
+  | 'QUALITY_CHANGE';
+
+/** Tồn của một lô tại một kho. `available` = số lượng − đã giữ − không Đạt. */
+export interface LotBalance {
+  readonly warehouseId: string;
   readonly warehouseCode: string;
-  readonly manufactureDate?: string;
-  readonly expiryDate?: string;
+  readonly warehouseName?: string;
+  readonly quantity: number;
+  readonly quantityReserved: number;
+  readonly quantityBlocked: number;
+  readonly available: number;
+}
+
+/** Lô của một mặt hàng, lưu ở server (INV-04). Số lô duy nhất trong mặt hàng. */
+export interface Lot {
+  readonly id: string;
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly lotNo: string;
+  /** YYYY-MM-DD. */
+  readonly manufacturedOn?: string;
+  /** YYYY-MM-DD; dùng được đến hết ngày này. */
+  readonly expiresOn?: string;
+  readonly qualityStatus: QualityStatus;
   readonly supplier?: string;
-  readonly coCqNumber?: string;
+  readonly certificateNo?: string;
   readonly note?: string;
   readonly createdAt: string;
+  readonly updatedAt: string;
+  /** Tổng số lượng mọi kho. */
+  readonly quantity: number;
+  readonly balances: readonly LotBalance[];
+}
+
+export interface LotQualityEvent {
+  readonly id: string;
+  readonly fromStatus: QualityStatus;
+  readonly toStatus: QualityStatus;
+  readonly reason: string;
+  readonly actorId: string;
+  readonly occurredAt: string;
+}
+
+export interface LotDetail extends Lot {
+  readonly qualityEvents: readonly LotQualityEvent[];
+}
+
+/** Một lô trong gợi ý xuất FEFO: hạn dùng gần nhất trước. */
+export interface LotSuggestionLine {
+  readonly lotId: string;
+  readonly lotNo: string;
+  readonly expiresOn?: string;
+  readonly manufacturedOn?: string;
+  readonly available: number;
+  /** Số nên lấy từ lô này để đủ số yêu cầu. */
+  readonly quantity: number;
+}
+
+export interface LotSuggestion {
+  readonly materialCode: string;
+  readonly warehouseCode: string;
+  readonly requested: number;
+  /** Tổng các dòng gợi ý; nhỏ hơn `requested` khi các lô dùng được không đủ. */
+  readonly allocated: number;
+  readonly shortage: number;
+  readonly lines: readonly LotSuggestionLine[];
+}
+
+export interface ChangeQualityRequest {
+  readonly qualityStatus: QualityStatus;
+  /** Bắt buộc: lý do đổi trạng thái, ghi vào lịch sử. */
+  readonly reason: string;
+  /** Chỉ dùng cho serial: mã vật tư khi cùng số serial có ở nhiều mặt hàng. */
+  readonly materialCode?: string;
+}
+
+export interface SerialMovement {
+  readonly id: string;
+  readonly movementType: SerialMovementType;
+  readonly fromWarehouseCode?: string;
+  readonly toWarehouseCode?: string;
+  readonly documentId?: string;
+  readonly documentCode?: string;
+  readonly docType?: StockDocumentType;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly stockState?: SerialStockState;
+  readonly qualityStatus: QualityStatus;
+  readonly previousQualityStatus?: QualityStatus;
+  readonly reason?: string;
+  readonly occurredAt: string;
+  readonly actorId: string;
+}
+
+/** Lần xuất gần nhất của serial: chứng từ xuất và chứng từ nguồn (đơn bán, bảo hành). */
+export interface SerialLastIssue {
+  readonly documentId: string;
+  readonly documentCode: string;
+  readonly docType: StockDocumentType;
+  readonly warehouseCode?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly issuedAt: string;
+}
+
+/** Tra cứu một serial: mặt hàng, kho, trạng thái, lần xuất gần nhất và toàn bộ lịch sử. */
+export interface SerialHistory {
+  readonly id: string;
+  readonly serialNumber: string;
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly warehouseCode?: string;
+  readonly stockState?: SerialStockState;
+  readonly currentStatus: SerialStatus;
+  readonly qualityStatus: QualityStatus;
+  readonly lastIssue?: SerialLastIssue;
+  /** Bằng `lastIssue.issuedAt`; tiện cho bên tính hạn bảo hành. */
+  readonly issuedAt?: string;
+  readonly movements: readonly SerialMovement[];
+}
+
+/** Thông tin lô trên dòng nhập: tạo lô mới hoặc cộng vào lô đã có cùng số lô. */
+export interface StockDocumentLotInput {
+  readonly lotNo: string;
+  readonly manufacturedOn?: string;
+  readonly expiresOn?: string;
+  readonly supplier?: string;
+  readonly certificateNo?: string;
+}
+
+/** Một phần số lượng xuất hoặc chuyển lấy từ một lô (đường API cũ `issues`, `transfers`). */
+export interface LotAllocationInput {
+  readonly lotNo: string;
+  readonly quantity: number;
 }
 
 /**
@@ -493,7 +633,9 @@ export interface MaterialInventory {
   readonly materialId: string;
   readonly quantity: number;
   readonly quantityReserved: number;
-  readonly available: number; // quantity - quantityReserved (generated)
+  /** Phần tồn không Đạt (lô, serial Cách ly, Lỗi, Chờ kiểm định). */
+  readonly quantityBlocked: number;
+  readonly available: number; // quantity - quantityReserved - quantityBlocked (generated)
   readonly updatedAt: string;
 }
 
@@ -998,6 +1140,11 @@ export interface StockDocumentLine {
   readonly unitCost: number;
   readonly costAmount?: number;
   readonly reservationId?: string;
+  readonly lotId?: string;
+  readonly lotNo?: string;
+  readonly lotExpiresOn?: string;
+  /** Serial của dòng, đúng bằng số lượng. */
+  readonly serials?: readonly string[];
   readonly note?: string;
 }
 
@@ -1045,6 +1192,17 @@ export interface StockDocumentLineInput {
    * tăng số đã xuất của giữ hàng. Chỉ dùng cho dòng của chứng từ xuất (ISSUE_*).
    */
   readonly reservationId?: string;
+  /**
+   * Danh sách serial cho mặt hàng theo dõi theo serial: số phần tử phải bằng số
+   * lượng (nguyên). Dòng nhập tạo hoặc nhận lại serial; dòng xuất kiểm serial có,
+   * đúng mặt hàng, đúng kho, Trong kho và Đạt.
+   */
+  readonly serials?: readonly string[];
+  /**
+   * Lô của dòng. Dòng nhập tạo lô mới hoặc cộng vào lô cùng số lô; dòng xuất và
+   * điều chuyển chỉ cần `lotNo` của lô đã có. Không ghi cùng lúc lô và serial.
+   */
+  readonly lot?: StockDocumentLotInput;
   readonly note?: string;
 }
 

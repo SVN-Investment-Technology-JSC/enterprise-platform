@@ -1831,6 +1831,9 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      antd:
+        specifier: ^6.6.4
+        version: 6.6.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react:
         specifier: ^1.31.0
         version: 1.31.0(react@19.2.8)

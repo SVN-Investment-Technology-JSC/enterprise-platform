@@ -23,6 +23,12 @@ function requiredInventoryPermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
   const path = request.path;
+  // Đổi trạng thái chất lượng lô, serial (Cách ly, Lỗi, Chờ kiểm định): quyền
+  // riêng của người kiểm định, không đi theo quyền ghi phát sinh tồn kho.
+  if (/\/(lots|serials)\/[^/]+\/quality\/?$/.test(path)) {
+    return 'inventory.quality.write';
+  }
+
   // Duyệt, từ chối chứng từ kho: quyền riêng, người duyệt không nhất thiết là thủ kho.
   if (/\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
     return 'inventory.document.approve';
@@ -85,7 +91,9 @@ export class InventoryAccessGuard implements CanActivate {
             ? 'Bạn không có quyền ghi phát sinh tồn kho.'
             : required === 'inventory.document.approve'
               ? 'Bạn không có quyền duyệt chứng từ kho.'
-              : 'Bạn không có quyền sửa danh mục kho.',
+              : required === 'inventory.quality.write'
+                ? 'Bạn không có quyền đổi trạng thái chất lượng hàng.'
+                : 'Bạn không có quyền sửa danh mục kho.',
       });
     }
 
@@ -97,6 +105,7 @@ export class InventoryAccessGuard implements CanActivate {
       canManage: tenantActionHeld(held, 'inventory.manage'),
       canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
       canApproveDocuments: tenantActionHeld(held, 'inventory.document.approve'),
+      canWriteQuality: tenantActionHeld(held, 'inventory.quality.write'),
     };
     return true;
   }
@@ -118,6 +127,8 @@ export class InventoryAccessGuard implements CanActivate {
       canWriteTransactions: true,
       // Dịch vụ không duyệt thay người: chứng từ cần duyệt phải có người duyệt thật.
       canApproveDocuments: false,
+      // Đổi chất lượng cần người kiểm định thật, có lý do và người chịu trách nhiệm.
+      canWriteQuality: false,
     };
     return true;
   }

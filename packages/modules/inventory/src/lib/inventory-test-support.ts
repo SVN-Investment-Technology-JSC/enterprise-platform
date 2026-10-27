@@ -66,11 +66,27 @@ export class TestInventoryDatabase {
     private readonly admin: Pool,
     readonly pool: Pool,
     readonly databaseName: string,
+    /** URL của DB test, cho script chạy ngoài tiến trình test. */
+    readonly url: string,
+    /** Migration Kho chưa chạy khi tạo với `stopBefore`, theo đúng thứ tự đăng ký. */
+    readonly pendingMigrations: readonly string[],
   ) {
     this.pools = new TestPoolRegistry(pool);
   }
 
-  static async create(adminUrl: string): Promise<TestInventoryDatabase> {
+  /** Chạy một file migration như migrator: cả file trong một transaction ngầm. */
+  async runMigration(path: string): Promise<void> {
+    await this.pool.query(await readFile(resolve(workspaceRoot(), 'migrations', path), 'utf8'));
+  }
+
+  /**
+   * Tạo DB test và chạy migration Kho. `stopBefore` (tên version, ví dụ
+   * `0013-serial-quality`) dừng trước migration đó để test dựng dữ liệu cũ.
+   */
+  static async create(
+    adminUrl: string,
+    options: { readonly stopBefore?: string } = {},
+  ): Promise<TestInventoryDatabase> {
     const url = new URL(adminUrl);
     if (!['localhost', '127.0.0.1'].includes(url.hostname)) {
       throw new Error('Only local disposable PostgreSQL is allowed');
@@ -83,10 +99,15 @@ export class TestInventoryDatabase {
     const root = workspaceRoot();
     // Hạ tầng outbox có sẵn ở mọi DB tenant trước migration của module; cảnh báo tồn thấp ghi vào đó.
     await pool.query(await readFile(resolve(root, 'migrations/tenant/0001-integration.sql'), 'utf8'));
-    for (const path of await inventoryMigrationPaths(root)) {
+    const paths = await inventoryMigrationPaths(root);
+    const stop = options.stopBefore
+      ? paths.findIndex((path) => path.endsWith(`/${options.stopBefore}.sql`))
+      : paths.length;
+    if (stop < 0) throw new Error(`Không tìm thấy migration ${options.stopBefore}.`);
+    for (const path of paths.slice(0, stop)) {
       await pool.query(await readFile(resolve(root, 'migrations', path), 'utf8'));
     }
-    return new TestInventoryDatabase(admin, pool, databaseName);
+    return new TestInventoryDatabase(admin, pool, databaseName, url.toString(), paths.slice(stop));
   }
 
   /**

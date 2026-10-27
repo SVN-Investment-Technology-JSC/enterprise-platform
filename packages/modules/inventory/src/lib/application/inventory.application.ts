@@ -17,6 +17,7 @@ import type {
   InventorySettingsKey,
   InventorySettingsSnapshot,
   InventoryTransaction,
+  LotAllocationInput,
   Material,
   MaterialInventory,
   Reservation,
@@ -24,6 +25,7 @@ import type {
   ReturnItemToStockRequest,
   SerialTracking,
   SettingsEntry,
+  StockDocumentLotInput,
   UpdateAssetRequest,
   UpdateMaterialRequest,
   UpdateSettingsRequest,
@@ -59,6 +61,7 @@ import {
   normalizeInventorySetting,
 } from './inventory-settings.js';
 import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
+import { normalizeLotInput, splitByLots } from '../domain/traceability-policy.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -80,6 +83,11 @@ export interface InventoryActor {
    * theo `canManage`, như `canWriteTransactions`.
    */
   readonly canApproveDocuments?: boolean;
+  /**
+   * Đổi trạng thái chất lượng của lô, serial (`inventory.quality.write`). Bỏ
+   * trống = suy theo `canManage`.
+   */
+  readonly canWriteQuality?: boolean;
 }
 
 @Injectable()
@@ -659,10 +667,12 @@ export class InventoryApplication {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      lot?: StockDocumentLotInput;
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
+    const lot = normalizeLotInput(input.lot, 'IN');
     const posted = await this.postLegacyDocument(actor, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: input.warehouseCode,
@@ -676,6 +686,7 @@ export class InventoryApplication {
           quantity: input.quantity,
           direction: 'IN',
           unitCost: input.unitCost ?? 0,
+          lot,
         },
       ],
     });
@@ -698,10 +709,13 @@ export class InventoryApplication {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      lots?: readonly LotAllocationInput[];
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
+    // Phân bổ nhiều lô thành nhiều dòng của cùng một chứng từ; response giữ bút
+    // toán của dòng đầu như trước.
     const posted = await this.postLegacyDocument(actor, {
       docType: 'ISSUE_PROJECT',
       warehouseCode: input.warehouseCode,
@@ -709,14 +723,13 @@ export class InventoryApplication {
       sourceId: input.referenceId,
       note: input.note,
       createdBy: actor.userId,
-      lines: [
-        {
-          materialCode: input.materialCode,
-          quantity: input.quantity,
-          direction: 'OUT',
-          unitCost: 0,
-        },
-      ],
+      lines: splitByLots(input.quantity, input.lots).map((part) => ({
+        materialCode: input.materialCode,
+        quantity: part.quantity,
+        direction: 'OUT' as const,
+        unitCost: 0,
+        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
+      })),
     });
     return posted[0];
   }
@@ -734,6 +747,7 @@ export class InventoryApplication {
       materialCode: string;
       quantity: number;
       note?: string;
+      lots?: readonly LotAllocationInput[];
     },
   ): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
     this.requireStockWriter(actor);
@@ -748,14 +762,13 @@ export class InventoryApplication {
       targetWarehouseCode: input.toWarehouseCode,
       note: input.note,
       createdBy: actor.userId,
-      lines: [
-        {
-          materialCode: input.materialCode,
-          quantity: input.quantity,
-          direction: 'OUT',
-          unitCost: 0,
-        },
-      ],
+      lines: splitByLots(input.quantity, input.lots).map((part) => ({
+        materialCode: input.materialCode,
+        quantity: part.quantity,
+        direction: 'OUT' as const,
+        unitCost: 0,
+        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
+      })),
     });
     return { out, in: inbound };
   }

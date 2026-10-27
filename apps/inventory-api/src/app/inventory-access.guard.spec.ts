@@ -28,7 +28,12 @@ describe('inventory module capabilities', () => {
       cookies: { ep_csrf: 'csrf' },
       inventoryActor: undefined as
         | undefined
-        | { canManage: boolean; canWriteTransactions: boolean; canApproveDocuments?: boolean },
+        | {
+            canManage: boolean;
+            canWriteTransactions: boolean;
+            canApproveDocuments?: boolean;
+            canWriteQuality?: boolean;
+          },
     };
     const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
     return { guard, request, context, register };
@@ -66,5 +71,23 @@ describe('inventory module capabilities', () => {
     const approver = setup(['inventory.read', 'inventory.document.approve'], '/stock-documents/abc/reject');
     await expect(approver.guard.canActivate(approver.context)).resolves.toBe(true);
     expect(approver.request.inventoryActor).toMatchObject({ canApproveDocuments: true, canWriteTransactions: false });
+  });
+  it('quality status changes need inventory.quality.write, not transaction.write', async () => {
+    const writer = ['inventory.read', 'inventory.transaction.write'];
+    for (const path of ['/lots/abc/quality', '/serials/SN001/quality']) {
+      const denied = setup(writer, path);
+      await expect(denied.guard.canActivate(denied.context)).rejects.toMatchObject({ status: 403 });
+    }
+    const inspector = setup(['inventory.read', 'inventory.quality.write'], '/lots/abc/quality');
+    await expect(inspector.guard.canActivate(inspector.context)).resolves.toBe(true);
+    expect(inspector.request.inventoryActor).toMatchObject({ canWriteQuality: true, canWriteTransactions: false });
+
+    const serial = setup(['inventory.read', 'inventory.quality.write'], '/serials/SN001/quality');
+    await expect(serial.guard.canActivate(serial.context)).resolves.toBe(true);
+
+    // Đọc lô, lịch sử serial chỉ cần quyền đọc.
+    const reader = setup(['inventory.read'], '/serials/SN001/history', 'GET');
+    await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
+    expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
   });
 });

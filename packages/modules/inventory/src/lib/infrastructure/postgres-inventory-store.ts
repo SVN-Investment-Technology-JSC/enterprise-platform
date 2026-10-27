@@ -165,6 +165,7 @@ function mapInventory(row: Row): MaterialInventory {
     materialId: str(row.material_id),
     quantity: num(row.quantity),
     quantityReserved: num(row.quantity_reserved),
+    quantityBlocked: num(row.quantity_blocked),
     available: num(row.available),
     updatedAt: iso(row.updated_at),
   };
@@ -202,6 +203,8 @@ function mapSerial(row: Row): SerialTracking {
     locationType: row.location_type as SerialTracking['locationType'],
     currentWarehouseId: opt(row.current_warehouse_id),
     currentAssetId: opt(row.current_asset_id),
+    qualityStatus: (opt(row.quality_status) ?? undefined) as SerialTracking['qualityStatus'],
+    stockState: (opt(row.stock_state) ?? undefined) as SerialTracking['stockState'],
     createdAt: iso(row.created_at),
   };
 }
@@ -984,13 +987,13 @@ export class PostgresInventoryStore implements InventoryStore {
             `UPDATE inventory_schema.material_inventory
                 SET quantity = quantity + $3, updated_at = now()
               WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2
-                AND quantity - quantity_reserved + $3 >= 0`,
+                AND quantity - quantity_reserved - quantity_blocked + $3 >= 0`,
             [warehouseId, materialId, input.quantity],
           );
 
           if ((moved.rowCount ?? 0) === 0) {
             const current = await client.query<{ available: string }>(
-              `SELECT quantity - quantity_reserved AS available
+              `SELECT quantity - quantity_reserved - quantity_blocked AS available
                  FROM inventory_schema.material_inventory
                 WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2`,
               [warehouseId, materialId],
@@ -1008,15 +1011,14 @@ export class PostgresInventoryStore implements InventoryStore {
 
         const lowStock = await client.query<Row>(
           `SELECT material.id, material.code, material.name, material.min_stock,
-                  COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0) AS available
+                  COALESCE(SUM(balance.available), 0) AS available
              FROM inventory_schema.materials material
              LEFT JOIN inventory_schema.material_inventory balance
                ON balance.material_id = material.id
             WHERE material.id = $1
             GROUP BY material.id, material.code, material.name, material.min_stock
            HAVING material.min_stock > 0
-              AND COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0)
-                  < material.min_stock`,
+              AND COALESCE(SUM(balance.available), 0) < material.min_stock`,
           [materialId],
         );
         if (lowStock.rows[0]) {
@@ -1139,7 +1141,8 @@ export class PostgresInventoryStore implements InventoryStore {
         // Khoá dòng tồn theo thứ tự (warehouse_id, material_id) như đường ghi sổ
         // chứng từ, để hai giữ hàng chạm cùng các mã không khoá chéo nhau.
         const locked = await client.query<Row>(
-          `SELECT b.id, b.warehouse_id, b.material_id, b.quantity, b.quantity_reserved
+          `SELECT b.id, b.warehouse_id, b.material_id, b.quantity, b.quantity_reserved,
+                  b.quantity_blocked
              FROM inventory_schema.material_inventory b
              JOIN unnest($1::uuid[], $2::uuid[]) AS k(warehouse_id, material_id)
                ON k.warehouse_id = b.warehouse_id AND k.material_id = b.material_id
@@ -1151,7 +1154,10 @@ export class PostgresInventoryStore implements InventoryStore {
         const balances = new Map(
           locked.rows.map((row) => [
             `${str(row.warehouse_id)}|${str(row.material_id)}`,
-            { id: str(row.id), available: num(row.quantity) - num(row.quantity_reserved) },
+            {
+              id: str(row.id),
+              available: num(row.quantity) - num(row.quantity_reserved) - num(row.quantity_blocked),
+            },
           ]),
         );
 
@@ -1370,6 +1376,10 @@ export class PostgresInventoryStore implements InventoryStore {
      * `ON CONFLICT DO NOTHING` theo cặp (mã, sê-ri): khai lại đúng số cũ là
      * chuyện thường khi ai đó bấm nhập hai lần, và nó không được sinh ra cá thể
      * ma. Trả về số dòng THẬT SỰ được thêm để màn hình nói đúng "đã thêm mấy".
+     *
+     * Từ 0013 cặp (mã, sê-ri) là unique theo `upper(btrim(serial_number))`, nên
+     * hai người khai cùng lúc cũng chỉ thêm một dòng. Khai kèm kho thì sê-ri được
+     * coi là Trong kho, như quy tắc đặt `stock_state` cho dữ liệu cũ ở 0013.
      */
     register: async (
       tenantId: string,
@@ -1382,16 +1392,20 @@ export class PostgresInventoryStore implements InventoryStore {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query(
         `INSERT INTO inventory_schema.serial_tracking
-           (id, material_id, serial_number, current_status, location_type, current_warehouse_id)
-         SELECT gen_random_uuid(), m.id, sn, $3, $4, w.id
+           (id, material_id, serial_number, current_status, location_type, current_warehouse_id,
+            stock_state)
+         SELECT gen_random_uuid(), m.id, sn, $3, $4, w.id,
+                CASE WHEN w.id IS NOT NULL THEN 'IN_STOCK' END
            FROM inventory_schema.materials m
            CROSS JOIN UNNEST($2::text[]) AS sn
            LEFT JOIN inventory_schema.warehouses w ON w.code = $5
           WHERE m.code = $1
             AND NOT EXISTS (
               SELECT 1 FROM inventory_schema.serial_tracking e
-               WHERE e.material_id = m.id AND e.serial_number = sn
-            )`,
+               WHERE e.material_id = m.id
+                 AND upper(btrim(e.serial_number)) = upper(btrim(sn))
+            )
+         ON CONFLICT DO NOTHING`,
         [materialCode, [...serialNumbers], currentStatus, locationType, warehouseCode ?? null],
       );
       return result.rowCount ?? 0;
