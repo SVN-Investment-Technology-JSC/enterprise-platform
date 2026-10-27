@@ -125,6 +125,7 @@ export type NotificationModule =
   | 'inventory'
   | 'maintenance'
   | 'social'
+  | 'crm'
   | 'chat';
 
 export interface NotificationRecord {

@@ -376,6 +376,21 @@ services:
     init: true
     restart: unless-stopped
 
+  crm-api:
+    build:
+      context: ../..
+      dockerfile: apps/crm-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3344'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -623,6 +638,16 @@ services:
     init: true
     restart: unless-stopped
 
+  crm-web:
+    build:
+      context: ../..
+      dockerfile: apps/crm-web/Dockerfile
+    depends_on:
+      crm-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -636,6 +661,7 @@ services:
       - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
       - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
       - ../nginx/social-maintenance.html:/usr/share/nginx/html/social-maintenance.html:ro
+      - ../nginx/crm-maintenance.html:/usr/share/nginx/html/crm-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

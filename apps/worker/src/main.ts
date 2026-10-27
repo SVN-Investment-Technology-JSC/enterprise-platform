@@ -73,6 +73,12 @@ import {
   SOCIAL_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-social';
 import {
+  createCrmIntegrationEvents,
+  createCrmJobs,
+  CRM_INTEGRATION_BINDINGS,
+  CRM_INTEGRATION_QUEUE,
+} from '@enterprise-platform/module-crm';
+import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
   webPushSender,
@@ -158,6 +164,12 @@ const socialConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
 );
+// Bán hàng nhận sự kiện của Kho, Tài chính, Quy trình qua hàng đợi riêng. GĐ0 chưa bind loại nào: hàng đợi vẫn được
+// khai báo để các giai đoạn sau chỉ cần thêm loại sự kiện vào CRM_INTEGRATION_BINDINGS.
+const crmConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: CRM_INTEGRATION_QUEUE, bindings: [...CRM_INTEGRATION_BINDINGS] },
+);
 // Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Khoá VAPID lấy theo
 // từng công ty (biến môi trường WEB_PUSH_VAPID_* nếu có, không thì cặp khoá tự sinh trong DB công ty).
 const CHAT_PUSH_QUEUE = 'core.chat.push.v1';
@@ -176,6 +188,8 @@ const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases,
 const procedureWorkspaceEvents = createProcedureWorkspaceEvents(moduleDatabases, tenantPools);
 const socialActivityEvents = createSocialActivityEvents(moduleDatabases, tenantPools);
 const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
+const crmIntegrationEvents = createCrmIntegrationEvents(moduleDatabases, tenantPools);
+const crmJobs = createCrmJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -244,6 +258,16 @@ void socialConsumer
   .catch((error) =>
     console.error(
       'Social consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void crmConsumer
+  .start((event) =>
+    handleLinkEvent(event, { moduleKey: 'crm', queue: CRM_INTEGRATION_QUEUE }, crmIntegrationEvents),
+  )
+  .catch((error) =>
+    console.error(
+      'CRM consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -595,7 +619,18 @@ async function processSocialJobs(database: TenantDatabaseReference) {
   if (dueVideoSweep) await socialJobs.sweepVideos(tenantId);
 }
 
-/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance và Social jobs, tuần tự. */
+/**
+ * Việc định kỳ của Bán hàng, chạy trong withActiveTenant (khóa SHARED) của tick, chỉ cho tenant đã bật phân hệ crm
+ * và đã chạy migration nền. GĐ0 chưa có việc nào; module tự quyết định việc nào đến hạn.
+ */
+async function processCrmJobs(database: TenantDatabaseReference) {
+  if (!(await moduleEnabled(database.tenantId, 'crm'))) return;
+  moduleDatabases.register(database);
+  if (!(await crmJobs.ready(database.tenantId))) return;
+  await crmJobs.run(database.tenantId);
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social và CRM jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
 ): Promise<void> {
@@ -604,7 +639,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -771,6 +806,7 @@ async function shutdown() {
     financeConsumer.close(),
     workspaceConsumer.close(),
     socialConsumer.close(),
+    crmConsumer.close(),
     chatPushConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),

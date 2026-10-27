@@ -380,6 +380,16 @@ export const TENANT_PERMISSION_ACTIONS = [
     label: 'Duyệt và ghi sổ kiểm kê kho',
   },
   {
+    key: 'inventory.document.approve',
+    group: 'Inventory',
+    label: 'Duyệt chứng từ nhập khác, xuất khác và điều chỉnh kho',
+  },
+  {
+    key: 'inventory.quality.write',
+    group: 'Inventory',
+    label: 'Đổi trạng thái chất lượng của lô và serial',
+  },
+  {
     key: 'maintenance.read',
     group: 'Maintenance',
     label: 'Xem lịch và hồ sơ bảo trì',
@@ -459,6 +469,25 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'social.post.write', group: 'Mạng nội bộ', label: 'Đăng bài, bình luận và phản ứng' },
   { key: 'social.post.moderate', group: 'Mạng nội bộ', label: 'Kiểm duyệt bài viết và bình luận' },
   { key: 'social.manage', group: 'Mạng nội bộ', label: 'Quản lý chuyên mục' },
+  { key: 'crm.read', group: 'Bán hàng', label: 'Xem Bán hàng trong phạm vi dữ liệu của mình' },
+  { key: 'crm.read.all', group: 'Bán hàng', label: 'Xem toàn bộ dữ liệu Bán hàng' },
+  {
+    key: 'crm.opportunity.write',
+    group: 'Bán hàng',
+    label: 'Quản lý khách hàng, lead, cơ hội và hoạt động của mình',
+  },
+  { key: 'crm.quote.write', group: 'Bán hàng', label: 'Lập báo giá' },
+  { key: 'crm.quote.approve', group: 'Bán hàng', label: 'Duyệt báo giá' },
+  { key: 'crm.order.write', group: 'Bán hàng', label: 'Lập và xác nhận đơn bán' },
+  { key: 'crm.contract.write', group: 'Bán hàng', label: 'Quản lý hợp đồng' },
+  { key: 'crm.receivable.write', group: 'Bán hàng', label: 'Thu tiền và điều chỉnh công nợ' },
+  { key: 'crm.warranty.write', group: 'Bán hàng', label: 'Xử lý bảo hành và đổi trả' },
+  { key: 'crm.report.read', group: 'Bán hàng', label: 'Xem báo cáo Bán hàng' },
+  {
+    key: 'crm.manage',
+    group: 'Bán hàng',
+    label: 'Quản trị bán hàng: bảng giá, chính sách, nhóm khách hàng, hạn mức và cấu hình',
+  },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -534,6 +563,8 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
     'inventory.transaction.write',
     'inventory.stocktake.create',
     'inventory.stocktake.approve',
+    'inventory.document.approve',
+    'inventory.quality.write',
   ],
   'maintenance.manage': ['maintenance.read', 'maintenance.occurrence.manage'],
   'workspace.manage': [
@@ -557,6 +588,18 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'social.manage': ['social.read', 'social.post.write', 'social.post.moderate'],
   'social.post.moderate': ['social.read', 'social.post.write'],
   'social.post.write': ['social.read'],
+  // Bán hàng: mọi quyền nghiệp vụ đều cần xem được phân hệ. `crm.manage` là quản trị cấu hình,
+  // cố ý không kéo theo quyền lập báo giá, đơn, hợp đồng hay thu tiền.
+  'crm.manage': ['crm.read', 'crm.read.all'],
+  'crm.read.all': ['crm.read'],
+  'crm.opportunity.write': ['crm.read'],
+  'crm.quote.write': ['crm.read'],
+  'crm.quote.approve': ['crm.read'],
+  'crm.order.write': ['crm.read'],
+  'crm.contract.write': ['crm.read'],
+  'crm.receivable.write': ['crm.read'],
+  'crm.warranty.write': ['crm.read'],
+  'crm.report.read': ['crm.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */
@@ -583,6 +626,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   finance: 'finance',
   shared: 'shared',
   social: 'social',
+  crm: 'crm',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([

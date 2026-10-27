@@ -323,6 +323,20 @@ services:
     init: true
     restart: unless-stopped
 
+  crm-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:crm-api-${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3344'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:realtime-api-${IMAGE_TAG:-production}
@@ -528,6 +542,15 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-web-${IMAGE_TAG:-production}
     depends_on:
       social-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  crm-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:crm-web-${IMAGE_TAG:-production}
+    depends_on:
+      crm-api:
         condition: service_healthy
     init: true
     restart: unless-stopped

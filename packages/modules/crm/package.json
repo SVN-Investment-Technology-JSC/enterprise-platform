@@ -1,0 +1,36 @@
+{
+  "name": "@enterprise-platform/module-crm",
+  "version": "0.0.1",
+  "description": "Bán hàng — khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@enterprise-platform/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "module-crm",
+    "tags": [
+      "type:module",
+      "scope:crm"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-crm": "workspace:*",
+    "@nestjs/common": "^11.2.1",
+    "pg": "^8.23.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0"
+  }
+}
