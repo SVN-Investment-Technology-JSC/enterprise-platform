@@ -248,7 +248,7 @@ function mapProject(row: Row): Project {
   };
 }
 
-const CUSTOMER_COLUMNS = `id, code, name, note, created_by, created_at, updated_at`;
+const CUSTOMER_COLUMNS = `id, code, name, note, created_by, created_at, updated_at, crm_customer_id`;
 
 function mapCustomer(row: Row): Customer {
   return {
@@ -259,6 +259,7 @@ function mapCustomer(row: Row): Customer {
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    crmCustomerId: opt(row.crm_customer_id),
   };
 }
 
@@ -998,7 +999,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         clause = `WHERE (c.code ILIKE $1 OR c.name ILIKE $1)`;
       }
       const result = await pool.query<Row>(
-        `SELECT c.id, c.code, c.name, c.note, c.created_by, c.created_at, c.updated_at,
+        `SELECT c.id, c.code, c.name, c.note, c.created_by, c.created_at, c.updated_at, c.crm_customer_id,
                 (SELECT COUNT(*) FROM workspace_schema.contracts ct
                   WHERE ct.customer_id = c.id)::text AS contract_count,
                 (SELECT COUNT(*) FROM workspace_schema.projects p

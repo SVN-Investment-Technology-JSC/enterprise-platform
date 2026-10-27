@@ -136,7 +136,7 @@ export class PostgresLeadStore implements LeadStore {
       }
       const attachedToExistingCustomer = Boolean(customerId);
       if (!customerId) {
-        customerId = await insertCustomer(client, null, plan.customer, actorId);
+        customerId = await insertCustomer(client, tenantId, null, plan.customer, actorId);
         if (plan.contact) await insertContact(client, customerId, plan.contact, actorId);
       }
 

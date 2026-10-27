@@ -350,6 +350,8 @@ export function WorkspaceScreen() {
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
+  /** Tenant bật Bán hàng: màn khách hàng chỉ đọc (D1); server cũng chặn ghi. */
+  const customersManagedByCrm = Boolean(status?.capabilities?.customersManagedByCrm);
 
   return (
     <ModuleShell<Tab>
@@ -487,9 +489,10 @@ export function WorkspaceScreen() {
               scopeCustomerId={openProjectInfo?.customerId}
               scopeProjectId={urlProjectId}
               onOpenProject={openProject}
+              customersReadOnly={customersManagedByCrm}
             />
           ) : (
-            <CustomersView onOpenProject={openProject} />
+            <CustomersView onOpenProject={openProject} customersReadOnly={customersManagedByCrm} />
           )}
         </>
       ) : view === 'reports' && !provisioning ? (

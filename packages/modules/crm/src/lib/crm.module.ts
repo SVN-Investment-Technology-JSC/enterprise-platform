@@ -7,6 +7,19 @@ import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { DiscountPolicyService } from './application/discount-policy.service.js';
+import { PriceListService } from './application/price-list.service.js';
+import { PricingService } from './application/pricing.service.js';
+import {
+  CRM_CATALOG_READER,
+  CRM_DISCOUNT_POLICY_STORE,
+  CRM_PRICE_LIST_STORE,
+  CRM_PRICING_STORE,
+  type CatalogReader,
+  type DiscountPolicyStore,
+  type PriceListStore,
+  type PricingStore,
+} from './application/pricing-store.port.js';
 import { REPORTING_LINE_READER } from './application/organization-scope.port.js';
 import {
   CRM_ACTIVITY_STORE,
@@ -33,8 +46,17 @@ import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.
 import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import { PostgresCustomerGroupStore, PostgresSettingsStore } from './infrastructure/postgres-settings.store.js';
+import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import {
+  PostgresDiscountPolicyStore,
+  PostgresPriceListStore,
+  PostgresPricingStore,
+} from './infrastructure/postgres-pricing.store.js';
 import { CrmController } from './presentation/crm.controller.js';
+import { DiscountPoliciesController } from './presentation/discount-policies.controller.js';
+import { PriceListsController, PricingController } from './presentation/price-lists.controller.js';
 import { CrmSettingsController, CustomersController } from './presentation/customers.controller.js';
+import { InternalCustomersController } from './presentation/internal-customers.controller.js';
 import {
   ActivitiesController,
   LeadsController,
@@ -58,9 +80,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     CrmController,
     CustomersController,
     CrmSettingsController,
+    InternalCustomersController,
     LeadsController,
     OpportunitiesController,
     ActivitiesController,
+    PriceListsController,
+    DiscountPoliciesController,
+    PricingController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -137,6 +163,27 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (timeline: TimelineStore, customers: CustomerStore, scopes: CrmDataScopeService) =>
         new CustomerTimelineService(timeline, customers, scopes),
       inject: [CRM_TIMELINE_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService],
+    },
+    // Giá (GĐ3a). Danh mục Kho đọc qua API nội bộ khi có T1-24; tới lúc đó dùng PendingCatalogReader.
+    { provide: CRM_CATALOG_READER, useFactory: () => new PendingCatalogReader() },
+    store(CRM_PRICE_LIST_STORE, (database) => new PostgresPriceListStore(database)),
+    store(CRM_DISCOUNT_POLICY_STORE, (database) => new PostgresDiscountPolicyStore(database)),
+    store(CRM_PRICING_STORE, (database) => new PostgresPricingStore(database)),
+    {
+      provide: PriceListService,
+      useFactory: (lists: PriceListStore, catalog: CatalogReader) => new PriceListService(lists, catalog),
+      inject: [CRM_PRICE_LIST_STORE, CRM_CATALOG_READER],
+    },
+    {
+      provide: DiscountPolicyService,
+      useFactory: (policies: DiscountPolicyStore) => new DiscountPolicyService(policies),
+      inject: [CRM_DISCOUNT_POLICY_STORE],
+    },
+    {
+      provide: PricingService,
+      useFactory: (pricing: PricingStore, customers: CustomerService, catalog: CatalogReader) =>
+        new PricingService(pricing, customers, catalog),
+      inject: [CRM_PRICING_STORE, CustomerService, CRM_CATALOG_READER],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry],

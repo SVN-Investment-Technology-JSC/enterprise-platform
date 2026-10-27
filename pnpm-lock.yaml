@@ -1999,6 +1999,9 @@ importers:
       '@enterprise-platform/contracts-crm':
         specifier: workspace:*
         version: link:../../contracts/crm
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)

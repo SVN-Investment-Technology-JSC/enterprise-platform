@@ -61,3 +61,30 @@ Dữ liệu theo API Kho và Workspace hiện tại, để test migration (TC-MI
 - Workspace: khách `QA-CRM-WS01` đến `QA-CRM-WS05`, 3 dự án gắn WS01 đến WS03, hợp đồng `QA-CRM-HD01`, `QA-CRM-HD02`.
 - Cuối bước in tổng tồn theo kho, mặt hàng (`quantity`, `quantity_reserved`), số serial theo trạng thái và ghi ảnh
   chụp JSON `<thư mục tạm>/crm-seed/<tenant>-legacy-snapshot.json` để đối soát sau migration (không ghi vào repo).
+
+## Chuyển khách hàng Workspace sang Bán hàng (T2-15)
+
+Quyết định D1: Bán hàng là nguồn gốc khách hàng, Workspace giữ bản sao (`workspace_schema.customers.crm_customer_id`).
+Khi tenant đã bật `crm`, chạy một lần để đưa khách Workspace có sẵn sang Bán hàng:
+
+```bash
+node tools/crm/migrate-workspace-customers.mjs --tenant=svn --dry-run   # chỉ báo sẽ làm gì
+node tools/crm/migrate-workspace-customers.mjs --tenant=svn             # chạy thật
+```
+
+- Đăng nhập bằng quản trị tenant (`qtv@<tenant>.local`, mật khẩu `SVN_SEED_PASSWORD`). Tenant khác: đặt
+  `CRM_MIGRATE_ADMIN_EMAIL`, `CRM_MIGRATE_ADMIN_PASSWORD`. URL dịch vụ như bảng biến ở trên (`WORKSPACE_API_URL`,
+  `CRM_API_URL`, `SVN_SEED_PLATFORM_API_URL`).
+- Chỉ gọi API, không ghi chéo schema. Với mỗi khách Workspace chưa gắn: tìm khách Bán hàng cùng mã (mã viết hoa), chưa
+  có thì tạo ở Bán hàng giữ nguyên mã; trùng mã thì dùng khách đã có. Sau đó gọi
+  `POST /api/workspace/v1/crm-customers/:id/link` với `customerId` của khách Workspace để ghi `crm_customer_id`. Sự
+  kiện `crm.customer.created` cũng tự gắn theo mã; hai đường gặp nhau vẫn chỉ ra một bản sao.
+- Mã Workspace không hợp lệ ở Bán hàng (có dấu, khoảng trắng, ký tự lạ, dài quá 50) bị bỏ qua và báo "cần xử lý tay".
+  Thêm `--generate-codes` để Bán hàng cấp mã mới cho các khách này (mã cũ ghi vào ghi chú khách Bán hàng; mã của bản
+  sao Workspace đổi theo mã mới).
+- Dự án và hợp đồng Workspace vẫn trỏ đúng khách: script gắn chính dòng khách cũ, không tạo dòng mới.
+- Chạy lại được: khách đã gắn được bỏ qua. Cuối lượt in số khách Workspace, đã gắn từ trước, khớp khách có sẵn, tạo
+  mới, vừa gắn, mã không hợp lệ, lỗi. Có lỗi hoặc còn khách mã không hợp lệ thì mã thoát là 1.
+- Sau khi bật Bán hàng, màn khách hàng Workspace chỉ đọc và API tạo, sửa, xoá khách Workspace trả 409
+  `CUSTOMER_MANAGED_BY_CRM`; vì vậy chạy lại bước `legacy` cho tenant đã bật `crm` sẽ không tạo thêm được khách
+  Workspace.

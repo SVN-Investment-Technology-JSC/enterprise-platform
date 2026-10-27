@@ -274,6 +274,8 @@ services:
       PORT: '3337'
       # Workspace hỏi HRM trước khi gửi yêu cầu huỷ hiệu lực đơn từ (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Tenant bật Bán hàng: Workspace tra khách hàng ở Bán hàng (chỉ đọc).
+      CRM_API_URL: http://crm-api:3344/api/crm
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       api:

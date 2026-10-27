@@ -10,16 +10,59 @@ import { CrmDialog, Field } from '../components/crm-ui';
 import { createGroup, deleteGroup, errorMessage, loadSettings, saveSettings, updateGroup } from '../crm-api';
 import { useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
+import { DiscountPoliciesPage } from '../pricing/discount-policies-page';
+import { PriceListsPage } from '../pricing/price-lists-page';
+import { QuotePreviewPanel } from '../pricing/quote-preview-panel';
+
+/** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
+export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview';
+
+const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
+  { id: 'general', label: 'Chung' },
+  { id: 'price-lists', label: 'Bảng giá' },
+  { id: 'discount-policies', label: 'Chính sách chiết khấu' },
+  { id: 'quote-preview', label: 'Thử tính giá' },
+];
+
+export function settingsTab(value: string | undefined): CrmSettingsTab {
+  return SETTINGS_TABS.find((tab) => tab.id === value)?.id ?? 'general';
+}
 
 /**
  * Cấu hình của quản trị bán hàng (`crm.manage`): quy tắc mã khách hàng, thời
- * gian nhắc hoạt động trước hạn, nhóm khách hàng. Server kiểm quyền lại.
+ * gian nhắc hoạt động trước hạn, nhóm khách hàng; bảng giá, chính sách chiết
+ * khấu, thử tính giá. Server kiểm quyền lại.
  */
-export function CrmSettingsPage() {
+export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: CrmSettingsTab) => void }) {
+  const current = settingsTab(tab);
   return (
     <div className={styles.page}>
-      <GeneralSettings />
-      <CustomerGroups />
+      <nav className={styles.tabs} role="tablist" aria-label="Cấu hình bán hàng">
+        {SETTINGS_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={current === item.id}
+            className={current === item.id ? styles.tabActive : styles.tab}
+            onClick={() => onTab?.(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      {current === 'price-lists' ? (
+        <PriceListsPage />
+      ) : current === 'discount-policies' ? (
+        <DiscountPoliciesPage />
+      ) : current === 'quote-preview' ? (
+        <QuotePreviewPanel />
+      ) : (
+        <>
+          <GeneralSettings />
+          <CustomerGroups />
+        </>
+      )}
     </div>
   );
 }

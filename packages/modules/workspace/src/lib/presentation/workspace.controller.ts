@@ -30,6 +30,7 @@ import type {
   UpdateStandaloneTaskRequest,
   CreateCustomerRequest,
   UpdateCustomerRequest,
+  LinkCrmCustomerRequest,
   CreateContractRequest,
   UpdateContractRequest,
   EnsureFolderPathRequest,
@@ -73,6 +74,7 @@ import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
 import { ContractService } from '../application/contract.service.js';
 import { CustomerService } from '../application/customer.service.js';
+import { CrmCustomerLinkService } from '../application/crm-customer-link.service.js';
 import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
 import { ExternalReferenceService } from '../application/external-reference.service.js';
@@ -145,6 +147,7 @@ export class WorkspaceController {
     private readonly standaloneTasks: StandaloneTaskService,
     private readonly customers: CustomerService,
     private readonly contracts: ContractService,
+    private readonly crmCustomers: CrmCustomerLinkService,
   ) {}
 
   /**
@@ -1022,6 +1025,26 @@ export class WorkspaceController {
   @HttpCode(204)
   removeCustomer(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.customers.remove(this.actor(request), id));
+  }
+
+  /**
+   * Khách hàng ở Bán hàng để chọn cho dự án (D1). Tenant không bật Bán hàng thì
+   * `enabled = false`, danh sách rỗng; giao diện dùng danh mục Workspace như cũ.
+   */
+  @Get('crm-customers')
+  searchCrmCustomers(@Req() request: WorkspaceRequest, @Query('search') search?: string) {
+    return this.execute(() => this.crmCustomers.search(this.actor(request), { search }));
+  }
+
+  /** Chọn một khách Bán hàng: tạo hoặc gắn bản sao trong Workspace rồi trả bản sao để dự án trỏ tới. */
+  @Post('crm-customers/:crmCustomerId/link')
+  @HttpCode(200)
+  linkCrmCustomer(
+    @Req() request: WorkspaceRequest,
+    @Param('crmCustomerId') crmCustomerId: string,
+    @Body() body: LinkCrmCustomerRequest,
+  ) {
+    return this.execute(() => this.crmCustomers.link(this.actor(request), crmCustomerId, body ?? {}));
   }
 
   @Get('customers/:id/contracts')

@@ -17,6 +17,7 @@ import type {
   OpportunitySummary,
   TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
+import type { CrmCustomerReference } from '@enterprise-platform/contracts-integration';
 import type { CustomerCodeRule } from '../domain/customer-code.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import type { CrmDataScope } from './data-scope.js';
@@ -106,6 +107,18 @@ export interface CustomerStore {
   ): Promise<boolean>;
   /** Xoá người chính thì người liên hệ cũ nhất còn lại thành người chính. */
   deleteContact(tenantId: string, customerId: string, contactId: string): Promise<boolean>;
+  /**
+   * Tra khách cho phân hệ khác (`GET /v1/internal/customers`): theo danh sách id
+   * hoặc theo chuỗi tìm (đầu mã, đầu MST, đầu từ trong tên). Không lọc phạm vi
+   * người phụ trách: bên gọi là dịch vụ, chỉ nhận mã, tên, MST, phiên bản.
+   */
+  lookupCustomers(tenantId: string, query: CustomerLookupQuery): Promise<CrmCustomerReference[]>;
+}
+
+export interface CustomerLookupQuery {
+  readonly q?: string;
+  readonly ids?: readonly string[];
+  readonly limit: number;
 }
 
 // ---------------------------------------------------------------------------

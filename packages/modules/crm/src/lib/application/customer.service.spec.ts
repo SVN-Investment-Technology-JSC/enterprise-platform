@@ -56,6 +56,7 @@ function setup(options: { scope?: CrmDataScope; existing?: CustomerDetail; match
     addContact: jest.fn().mockResolvedValue(CONTACT_ID),
     updateContact: jest.fn().mockResolvedValue(true),
     deleteContact: jest.fn().mockResolvedValue(true),
+    lookupCustomers: jest.fn().mockResolvedValue([]),
   };
   const scopes = { resolve: jest.fn().mockResolvedValue(scope) } as unknown as CrmDataScopeService;
   return { store, service: new CustomerService(store, scopes) };
@@ -157,5 +158,31 @@ describe('CustomerService', () => {
     await service.list(writer, { q: ' minh ', kind: 'CUSTOMER', limit: 500 });
     expect(store.listCustomers).toHaveBeenCalledWith('t1', { kind: 'users', userIds: [NV1] }, expect.objectContaining({ q: 'minh', kind: 'CUSTOMER', limit: 100 }));
     await expect(service.list(writer, { kind: 'VIP' as never })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  describe('tra khách cho phân hệ khác (GET /v1/internal/customers)', () => {
+    const system: CrmActor = { ...CRM_NO_CAPABILITIES, tenantId: 't1', userId: '00000000-0000-0000-0000-000000000000', displayName: 'Hệ thống' };
+
+    it('theo chuỗi tìm: mặc định 20 dòng, tối đa 100; không lọc phạm vi người phụ trách', async () => {
+      const { store, service } = setup();
+      await service.lookup(system, { search: ' KH00 ' });
+      expect(store.lookupCustomers).toHaveBeenLastCalledWith('t1', { q: 'KH00', ids: undefined, limit: 20 });
+      await service.lookup(system, { limit: '500' });
+      expect(store.lookupCustomers).toHaveBeenLastCalledWith('t1', { q: undefined, ids: undefined, limit: 100 });
+    });
+
+    it('theo danh sách id: bỏ id sai định dạng, trùng; không còn id hợp lệ thì trả rỗng không hỏi DB', async () => {
+      const { store, service } = setup();
+      await service.lookup(system, { ids: `${CUSTOMER_ID},abc,${CUSTOMER_ID.toUpperCase()}` });
+      expect(store.lookupCustomers).toHaveBeenLastCalledWith('t1', { q: undefined, ids: [CUSTOMER_ID], limit: 1 });
+      store.lookupCustomers.mockClear();
+      await expect(service.lookup(system, { ids: 'abc' })).resolves.toEqual([]);
+      expect(store.lookupCustomers).not.toHaveBeenCalled();
+    });
+
+    it('limit sai trả 400', async () => {
+      const { service } = setup();
+      await expect(service.lookup(system, { limit: '0' })).rejects.toMatchObject({ statusCode: 400 });
+    });
   });
 });

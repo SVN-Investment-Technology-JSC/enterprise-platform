@@ -24,6 +24,7 @@ import type {
   CreateContractRequest,
   CreateCostEntryRequest,
   CreateCustomerRequest,
+  CrmCustomerSearchResult,
   Customer,
   CustomerSummary,
   UpdateContractRequest,
@@ -148,6 +149,8 @@ export interface WorkspaceStatus {
     readonly canWriteTasks: boolean;
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
+    /** Tenant bật Bán hàng: khách hàng do Bán hàng quản lý (D1). Vắng (server cũ) là không. */
+    readonly customersManagedByCrm?: boolean;
   };
 }
 
@@ -369,6 +372,22 @@ export const updateCustomer = (id: string, body: UpdateCustomerRequest) =>
 /** Chỉ xoá được khi khách hàng chưa có hợp đồng và dự án; server từ chối nếu còn. */
 export const deleteCustomer = (id: string) =>
   request<void>(`/customers/${id}`, { method: 'DELETE' });
+
+/**
+ * Khách hàng ở Bán hàng để chọn cho dự án (D1). `enabled = false` khi tenant
+ * không bật Bán hàng: dùng danh mục khách hàng Workspace như cũ.
+ */
+export const searchCrmCustomers = (search?: string) => {
+  const suffix = search ? `?search=${encodeURIComponent(search)}` : '';
+  return request<CrmCustomerSearchResult>(`/crm-customers${suffix}`, { cache: 'no-store' });
+};
+
+/** Chọn một khách Bán hàng: Workspace tạo hoặc gắn bản sao rồi trả bản sao để dự án trỏ tới. */
+export const linkCrmCustomer = (crmCustomerId: string) =>
+  request<Customer>(`/crm-customers/${encodeURIComponent(crmCustomerId)}/link`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 
 export const listCustomerContracts = (id: string) =>
   request<Contract[]>(`/customers/${id}/contracts`, { cache: 'no-store' });

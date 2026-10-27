@@ -118,6 +118,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-customers', path: 'tenant/crm/0002-customers.sql' },
     { version: '0003-leads-opportunities', path: 'tenant/crm/0003-leads-opportunities.sql' },
     { version: '0004-activities', path: 'tenant/crm/0004-activities.sql' },
+    { version: '0005-pricing', path: 'tenant/crm/0005-pricing.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -705,6 +706,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0030-workspace-standalone-inline-edit',
       path: 'tenant/workspace/0030-workspace-standalone-inline-edit.sql',
     },
+    { version: '0031-crm-customer-link', path: 'tenant/workspace/0031-crm-customer-link.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

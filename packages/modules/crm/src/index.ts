@@ -22,3 +22,8 @@ export * from './lib/infrastructure/crm-events.js';
 export * from './lib/infrastructure/owner-scope-sql.js';
 export * from './lib/infrastructure/postgres-settings.store.js';
 export * from './lib/presentation/crm.controller.js';
+export * from './lib/application/discount-policy.service.js';
+export * from './lib/application/price-list.service.js';
+export * from './lib/application/pricing.service.js';
+export * from './lib/application/pricing-store.port.js';
+export * from './lib/domain/pricing-engine.js';

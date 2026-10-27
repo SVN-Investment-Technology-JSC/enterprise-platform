@@ -32,6 +32,18 @@ import {
   type UpdateLeadRequest,
   type UpdateOpportunityRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  BulkPriceListItemsRequest,
+  DiscountPolicy,
+  PriceListDetail,
+  PriceListSummary,
+  PricingResult,
+  PricingSettings,
+  QuotePreviewRequest,
+  SaveDiscountPolicyRequest,
+  SavePriceListItemRequest,
+  SavePriceListRequest,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -140,6 +152,32 @@ export const getActivity = (id: string) => request<Activity>(`/activities/${enco
 export const createActivity = (body: CreateActivityRequest) => send<Activity>('POST', '/activities', body);
 export const updateActivity = (id: string, body: UpdateActivityRequest) =>
   send<Activity>('PATCH', `/activities/${encodeURIComponent(id)}`, body);
+
+// Bảng giá, chính sách chiết khấu, thử tính giá
+export const listPriceLists = () => request<PriceListSummary[]>('/price-lists', { cache: 'no-store' });
+export const getPriceList = (id: string) =>
+  request<PriceListDetail>(`/price-lists/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createPriceList = (body: SavePriceListRequest) => send<PriceListDetail>('POST', '/price-lists', body);
+export const updatePriceList = (id: string, body: SavePriceListRequest) =>
+  send<PriceListDetail>('PATCH', `/price-lists/${encodeURIComponent(id)}`, body);
+export const deletePriceList = (id: string) => send<void>('DELETE', `/price-lists/${encodeURIComponent(id)}`);
+export const addPriceListItem = (id: string, body: SavePriceListItemRequest) =>
+  send<PriceListDetail>('POST', `/price-lists/${encodeURIComponent(id)}/items`, body);
+export const upsertPriceListItems = (id: string, body: BulkPriceListItemsRequest) =>
+  send<PriceListDetail>('POST', `/price-lists/${encodeURIComponent(id)}/items/bulk`, body);
+export const updatePriceListItem = (id: string, itemId: string, body: SavePriceListItemRequest) =>
+  send<PriceListDetail>('PATCH', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`, body);
+export const deletePriceListItem = (id: string, itemId: string) =>
+  send<PriceListDetail>('DELETE', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`);
+export const listDiscountPolicies = () => request<DiscountPolicy[]>('/discount-policies', { cache: 'no-store' });
+export const createDiscountPolicy = (body: SaveDiscountPolicyRequest) =>
+  send<DiscountPolicy>('POST', '/discount-policies', body);
+export const updateDiscountPolicy = (id: string, body: SaveDiscountPolicyRequest) =>
+  send<DiscountPolicy>('PATCH', `/discount-policies/${encodeURIComponent(id)}`, body);
+export const deleteDiscountPolicy = (id: string) => send<void>('DELETE', `/discount-policies/${encodeURIComponent(id)}`);
+export const loadPricingSettings = () => request<PricingSettings>('/pricing/settings', { cache: 'no-store' });
+export const savePricingSettings = (body: PricingSettings) => send<PricingSettings>('PUT', '/pricing/settings', body);
+export const previewQuote = (body: QuotePreviewRequest) => send<PricingResult>('POST', '/pricing/quote-preview', body);
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {

@@ -204,7 +204,7 @@ function SalesView({
     case 'activities':
       return <ActivitiesPage focusId={sub} />;
     case 'settings':
-      return <CrmSettingsPage />;
+      return <CrmSettingsPage tab={sub} onTab={(tab) => navigate('settings', tab === 'general' ? undefined : tab)} />;
     default:
       return <Placeholder page={page} />;
   }

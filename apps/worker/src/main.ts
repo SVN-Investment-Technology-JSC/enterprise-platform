@@ -15,8 +15,10 @@ import {
   TransientConsumerError,
 } from '@enterprise-platform/adapter-events';
 import {
+  CRM_CUSTOMER_EVENTS,
   FLEET_BOOKING_RESULT_EVENTS,
   HRM_FLEET_BOOKING_CONFIRMED,
+  isCrmCustomerEvent,
   type IntegrationEventEnvelope,
 } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
@@ -58,6 +60,7 @@ import {
   PROCEDURE_WORKSPACE_EVENT_TYPES,
 } from '@enterprise-platform/module-procedure-engine';
 import {
+  createWorkspaceCrmCustomerEvents,
   createWorkspaceProcedureEvents,
   WORKSPACE_PROCEDURE_EVENT_TYPES,
   isProjectRequestEvent,
@@ -157,7 +160,8 @@ const workspaceConsumer = new RabbitMqConsumer(
     queue: WORKSPACE_INTEGRATION_QUEUE,
     // Một hàng đợi, một consumer: liên kết công việc ↔ quy trình và đơn từ do
     // module khác gửi. Hai consumer trên cùng hàng đợi sẽ chia sự kiện cho nhau.
-    bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS],
+    // `crm.customer.*`: bản sao khách hàng Bán hàng (D1).
+    bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS, ...CRM_CUSTOMER_EVENTS],
   },
 );
 // Bài tự sinh của Mạng nội bộ (chúc mừng sinh nhật, kỷ niệm...) nghe sự kiện của phân hệ khác.
@@ -186,6 +190,7 @@ const procedureConsumer = new RabbitMqConsumer(
 );
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
+const workspaceCrmCustomerEvents = createWorkspaceCrmCustomerEvents(moduleDatabases, tenantPools);
 const procedureWorkspaceEvents = createProcedureWorkspaceEvents(moduleDatabases, tenantPools);
 const socialActivityEvents = createSocialActivityEvents(moduleDatabases, tenantPools);
 const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
@@ -244,7 +249,7 @@ void workspaceConsumer
       : handleLinkEvent(
           event,
           { moduleKey: 'workspace', queue: WORKSPACE_INTEGRATION_QUEUE },
-          workspaceProcedureEvents,
+          isCrmCustomerEvent(event.type) ? workspaceCrmCustomerEvents : workspaceProcedureEvents,
         ),
   )
   .catch((error) =>

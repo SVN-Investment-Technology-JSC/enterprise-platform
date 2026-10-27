@@ -10,7 +10,8 @@ import {
   type TaxCodeMatch,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-crm';
-import { CrmConflictError, CrmNotFoundError } from '../domain/crm.error.js';
+import type { CrmCustomerReference } from '@enterprise-platform/contracts-integration';
+import { CrmConflictError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { normalizeCustomerCode } from '../domain/customer-code.js';
 import {
   isUuid,
@@ -32,6 +33,10 @@ import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
 import type { ContactRecord, CustomerRecord, CustomerStore } from './sales-store.port.js';
 
 const CUSTOMER_NOT_FOUND = 'Không tìm thấy khách hàng.';
+
+/** Số dòng mặc định và tối đa của một lần tra khách từ phân hệ khác. */
+export const CUSTOMER_LOOKUP_LIMIT_DEFAULT = 20;
+export const CUSTOMER_LOOKUP_LIMIT_MAX = 100;
 
 /**
  * Khách hàng và người liên hệ.
@@ -69,6 +74,22 @@ export class CustomerService {
     const normalized = normalizeTaxCode(taxCode);
     if (!normalized) return [];
     return this.customers.findByTaxCode(actor.tenantId, normalized, isUuid(excludeId) ? excludeId : undefined);
+  }
+
+  /**
+   * Tra khách cho phân hệ khác (`GET /v1/internal/customers`, actor hệ thống):
+   * Workspace chọn khách cho dự án và giữ bản sao theo D1. Theo `ids` (tối đa
+   * `CUSTOMER_LOOKUP_LIMIT_MAX` id, id sai định dạng bị bỏ) hoặc chuỗi tìm; chỉ
+   * trả mã, tên, MST, phiên bản.
+   */
+  async lookup(
+    actor: CrmActor,
+    query: { readonly search?: unknown; readonly ids?: unknown; readonly limit?: unknown },
+  ): Promise<CrmCustomerReference[]> {
+    const ids = parseIds(query.ids);
+    const limit = lookupLimit(query.limit, ids);
+    if (ids && !ids.length) return [];
+    return this.customers.lookupCustomers(actor.tenantId, { q: normalizeSearch(query.search), ids, limit });
   }
 
   async create(actor: CrmActor, request: CreateCustomerRequest): Promise<CustomerDetail> {
@@ -223,6 +244,28 @@ function withDefaults(request: UpdateCustomerRequest, current: CustomerDetail): 
   };
   const provided = Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined));
   return { ...base, ...provided } as UpdateCustomerRequest;
+}
+
+/** `ids` dạng `a,b,c` hoặc lặp tham số; `undefined` khi không lọc theo id. */
+function parseIds(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const values = (Array.isArray(raw) ? raw : [raw]).flatMap((value) => String(value).split(','));
+  const ids = [...new Set(values.map((value) => value.trim().toLowerCase()).filter(isUuid))];
+  if (ids.length > CUSTOMER_LOOKUP_LIMIT_MAX) {
+    throw new CrmValidationError('TOO_MANY_IDS', `Tra tối đa ${CUSTOMER_LOOKUP_LIMIT_MAX} khách hàng mỗi lần.`);
+  }
+  return ids;
+}
+
+function lookupLimit(raw: unknown, ids: readonly string[] | undefined): number {
+  if (raw === undefined || raw === null || raw === '') {
+    return ids?.length ? Math.max(ids.length, 1) : CUSTOMER_LOOKUP_LIMIT_DEFAULT;
+  }
+  const number = Number(raw);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new CrmValidationError('INVALID_LIMIT', 'Số dòng mỗi trang không hợp lệ.');
+  }
+  return Math.min(number, CUSTOMER_LOOKUP_LIMIT_MAX);
 }
 
 export function contactRecord(request: SaveContactRequest): ContactRecord {

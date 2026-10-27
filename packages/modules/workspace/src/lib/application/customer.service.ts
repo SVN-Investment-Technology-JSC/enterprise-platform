@@ -8,6 +8,7 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import {
   CustomerCodeConflictError,
+  CustomerManagedByCrmError,
   CustomerNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
@@ -21,9 +22,20 @@ import type { CustomerUpdateModel, CustomerWriteModel, WorkspaceStore } from './
  * cũng đọc và quản lý được danh mục khách hàng của tenant. Mã khách hàng là
  * định danh người dùng đọc nên phải duy nhất trong tenant; không xoá được khách
  * hàng khi còn hợp đồng hoặc dự án trỏ tới.
+ *
+ * Tenant bật Bán hàng (D1): khách hàng là bản sao của Bán hàng, chỉ đọc ở đây;
+ * tạo, sửa, xoá trả 409 `CUSTOMER_MANAGED_BY_CRM`. Không truyền `crmSource`
+ * (hoặc tenant không bật crm) thì hành vi như cũ.
  */
 export class CustomerService {
-  constructor(private readonly store: WorkspaceStore) {}
+  constructor(
+    private readonly store: WorkspaceStore,
+    private readonly crmSource?: { enabled(tenantId: string): Promise<boolean> },
+  ) {}
+
+  private async assertManagedHere(tenantId: string): Promise<void> {
+    if (this.crmSource && (await this.crmSource.enabled(tenantId))) throw new CustomerManagedByCrmError();
+  }
 
   async list(
     actor: WorkspaceActor,
@@ -46,6 +58,7 @@ export class CustomerService {
   }
 
   async create(actor: WorkspaceActor, input: CreateCustomerRequest): Promise<Customer> {
+    await this.assertManagedHere(actor.tenantId);
     const code = requireCode(input.code, 'Mã khách hàng');
     const name = requireText(input.name, 'Tên khách hàng', 200);
 
@@ -63,6 +76,7 @@ export class CustomerService {
     customerId: string,
     input: UpdateCustomerRequest,
   ): Promise<Customer> {
+    await this.assertManagedHere(actor.tenantId);
     const existing = await this.store.customer.findById(actor.tenantId, customerId);
     if (!existing) throw new CustomerNotFoundError();
 
@@ -76,6 +90,7 @@ export class CustomerService {
 
   /** Xoá khách hàng: chỉ khi không còn hợp đồng và không còn dự án trỏ tới. */
   async remove(actor: WorkspaceActor, customerId: string): Promise<void> {
+    await this.assertManagedHere(actor.tenantId);
     const existing = await this.store.customer.findById(actor.tenantId, customerId);
     if (!existing) throw new CustomerNotFoundError();
 

@@ -1,0 +1,92 @@
+// Màn bảng giá, chính sách, thử tính giá: phần riêng ngoài `sales.module.scss`.
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-bg, #f6f7f9);
+
+  @media (width <= 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ruleFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ep-text-muted, #6b7280);
+}
+
+.capForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.capInput {
+  width: 120px;
+}
+
+.previewLines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.previewLine {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) repeat(5, minmax(90px, 1fr)) auto;
+  align-items: end;
+  gap: 8px;
+
+  @media (width <= 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  justify-content: end;
+  gap: 4px 24px;
+  margin: 0;
+  font-size: 13.5px;
+
+  dt {
+    color: var(--ep-text-muted, #6b7280);
+  }
+
+  dd {
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.grandTotal {
+  font-weight: 700;
+}
+
+.policyTag {
+  display: block;
+  white-space: nowrap;
+}

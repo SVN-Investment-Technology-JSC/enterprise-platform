@@ -7,9 +7,11 @@ import type {
   TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
+import type { CrmCustomerReference } from '@enterprise-platform/contracts-integration';
 import type {
   ContactRecord,
   CustomerFilter,
+  CustomerLookupQuery,
   CustomerRecord,
   CustomerStore,
 } from '../application/sales-store.port.js';
@@ -17,6 +19,7 @@ import { CrmConflictError, CrmStaleVersionError, CrmValidationError } from '../d
 import { CUSTOMER_CODE_SETTING_KEY, formatCustomerCode, parseCustomerCodeRule } from '../domain/customer-code.js';
 import type { CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
+import { writeCustomerEvent } from './crm-outbox.js';
 import {
   SqlConditions,
   constraintViolation,
@@ -145,7 +148,7 @@ export class PostgresCustomerStore implements CustomerStore {
   }
 
   createCustomer(tenantId: string, code: string | null, record: CustomerRecord, actorId: string): Promise<string> {
-    return this.database.transaction(tenantId, (client) => insertCustomer(client, code, record, actorId));
+    return this.database.transaction(tenantId, (client) => insertCustomer(client, tenantId, code, record, actorId));
   }
 
   async updateCustomer(
@@ -156,18 +159,21 @@ export class PostgresCustomerStore implements CustomerStore {
     expectedVersion: number,
     actorId: string,
   ): Promise<void> {
-    const pool = await this.database.pool(tenantId);
     try {
-      const result = await pool.query(
-        `UPDATE crm_schema.customers
-            SET code = $3, name = $4, tax_code = $5, address = $6, province = $7, region = $8, industry = $9,
-                phone = $10, email = $11, group_id = $12, kind = $13, credit_limit = $14,
-                payment_term_days = $15, note = $16, owner_user_id = $17,
-                version = version + 1, updated_at = now(), updated_by = $18
-          WHERE id = $1 AND version = $2`,
-        [id, expectedVersion, code, ...customerValues(record), actorId],
-      );
-      if (!result.rowCount) throw new CrmStaleVersionError();
+      // Sự kiện `crm.customer.updated` ghi cùng transaction với thay đổi (D1: Workspace giữ bản sao).
+      await this.database.transaction(tenantId, async (client) => {
+        const result = await client.query(
+          `UPDATE crm_schema.customers
+              SET code = $3, name = $4, tax_code = $5, address = $6, province = $7, region = $8, industry = $9,
+                  phone = $10, email = $11, group_id = $12, kind = $13, credit_limit = $14,
+                  payment_term_days = $15, note = $16, owner_user_id = $17,
+                  version = version + 1, updated_at = now(), updated_by = $18
+            WHERE id = $1 AND version = $2`,
+          [id, expectedVersion, code, ...customerValues(record), actorId],
+        );
+        if (!result.rowCount) throw new CrmStaleVersionError();
+        await writeCustomerEvent(client, tenantId, id, 'updated', actorId);
+      });
     } catch (error) {
       throw translateCustomerError(error);
     }
@@ -224,6 +230,26 @@ export class PostgresCustomerStore implements CustomerStore {
       return true;
     });
   }
+
+  async lookupCustomers(tenantId: string, query: CustomerLookupQuery): Promise<CrmCustomerReference[]> {
+    const where = new SqlConditions();
+    if (query.ids?.length) where.add(`c.id = ANY(${where.param(query.ids)}::uuid[])`);
+    if (query.q) addCustomerSearch(where, query.q);
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<{ id: string; code: string; name: string; tax_code: string | null; version: number }>(
+      `SELECT c.id, c.code, c.name, c.tax_code, c.version FROM crm_schema.customers c ${where.where()}
+        ORDER BY c.code, c.id
+        LIMIT ${where.param(query.limit)}`,
+      where.params,
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      taxCode: row.tax_code,
+      version: Number(row.version),
+    }));
+  }
 }
 
 /**
@@ -246,10 +272,12 @@ function addCustomerSearch(where: SqlConditions, q: string): void {
 /**
  * Ghi một khách trong transaction của bên gọi (tạo khách, chuyển đổi lead).
  * `code` rỗng thì sinh: tiền tố + số thứ tự từ sequence, bỏ qua số đã có người
- * nhập tay. Trùng mã người dùng nhập: 409.
+ * nhập tay. Trùng mã người dùng nhập: 409. Sự kiện `crm.customer.created` ghi
+ * vào outbox trong cùng transaction.
  */
 export async function insertCustomer(
   client: CrmSqlClient,
+  tenantId: string,
   code: string | null,
   record: CustomerRecord,
   actorId: string,
@@ -257,6 +285,7 @@ export async function insertCustomer(
   const finalCode = code ?? (await nextCustomerCode(client));
   // Savepoint để lỗi trùng mã không làm hỏng transaction lớn hơn của bên gọi.
   await client.query('SAVEPOINT crm_insert_customer');
+  let id: string | undefined;
   try {
     const result = await client.query<{ id: string }>(
       `INSERT INTO crm_schema.customers
@@ -267,13 +296,14 @@ export async function insertCustomer(
       [finalCode, ...customerValues(record), actorId],
     );
     await client.query('RELEASE SAVEPOINT crm_insert_customer');
-    const id = result.rows[0]?.id;
-    if (!id) throw new Error('crm_schema.customers insert returned no row.');
-    return id;
+    id = result.rows[0]?.id;
   } catch (error) {
     await client.query('ROLLBACK TO SAVEPOINT crm_insert_customer');
     throw translateCustomerError(error);
   }
+  if (!id) throw new Error('crm_schema.customers insert returned no row.');
+  await writeCustomerEvent(client, tenantId, id, 'created', actorId);
+  return id;
 }
 
 async function nextCustomerCode(client: CrmSqlClient): Promise<string> {

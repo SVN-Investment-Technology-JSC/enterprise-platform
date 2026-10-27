@@ -3,6 +3,7 @@
 import {
   PROJECT_STATUSES,
   type CreateProjectRequest,
+  type CrmCustomerOption,
   type CustomerSummary,
   type Project,
   type ProjectRole,
@@ -17,7 +18,14 @@ import { Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { orgUnitOptions } from '../org-units';
-import { createCustomer, listCustomers, listProjectTypes, previewProjectCode } from '../workspace-api';
+import {
+  createCustomer,
+  linkCrmCustomer,
+  listCustomers,
+  listProjectTypes,
+  previewProjectCode,
+  searchCrmCustomers,
+} from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -122,6 +130,14 @@ export function ProjectForm({
   const [newCustomer, setNewCustomer] = useState({ code: '', name: '' });
   const [customerError, setCustomerError] = useState<string>();
   const [savingCustomer, setSavingCustomer] = useState(false);
+  /**
+   * Tenant bật Bán hàng (D1): chọn khách từ Bán hàng thay cho danh mục Workspace.
+   * Chọn một khách thì Workspace tạo (hoặc gắn) bản sao rồi dự án trỏ tới bản sao.
+   */
+  const [crmMode, setCrmMode] = useState(false);
+  const [crmOptions, setCrmOptions] = useState<readonly CrmCustomerOption[]>([]);
+  const [crmSearch, setCrmSearch] = useState('');
+  const [linkingCustomer, setLinkingCustomer] = useState(false);
   /** "Thêm người" lúc tạo: bật mục rồi chọn người, mỗi người đặt vai trò riêng. */
   const [addPeople, setAddPeople] = useState(false);
   /** Mã dự kiến theo quy tắc ở Cài đặt (chỉ khi tạo); đổi nhóm dự án thì tính lại. */
@@ -137,6 +153,35 @@ export function ProjectForm({
       .then((items) => setCustomers(items))
       .catch(() => setCustomers([]));
   }, [open]);
+
+  // Hỏi Bán hàng mỗi lần mở và khi gõ tìm (chờ một nhịp để không gọi mỗi phím). Tenant không bật Bán hàng thì
+  // server trả `enabled = false`, form giữ danh mục Workspace như cũ.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const timer = setTimeout(
+      () =>
+        void searchCrmCustomers(crmSearch.trim() || undefined)
+          .then((result) => {
+            if (!alive) return;
+            setCrmMode(result.enabled);
+            setCrmOptions(result.items);
+          })
+          .catch((cause) => {
+            if (!alive) return;
+            // Bán hàng tạm không trả lời: vẫn ở chế độ Bán hàng, báo lỗi để người dùng thử lại.
+            const unavailable = (cause as { code?: string })?.code === 'CRM_UNAVAILABLE';
+            setCrmMode(unavailable);
+            setCrmOptions([]);
+            if (unavailable) setCustomerError((cause as { message?: string })?.message);
+          }),
+      crmSearch ? 300 : 0,
+    );
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [open, crmSearch]);
 
   useEffect(() => {
     if (!open || project) return;
@@ -180,6 +225,8 @@ export function ProjectForm({
     setNewCustomer({ code: '', name: '' });
     setCustomerError(undefined);
     setSavingCustomer(false);
+    setCrmSearch('');
+    setLinkingCustomer(false);
   }, [open, project]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
@@ -208,6 +255,52 @@ export function ProjectForm({
       setCustomerError((cause as { message?: string })?.message ?? 'Không tạo được khách hàng.');
     } finally {
       setSavingCustomer(false);
+    }
+  };
+
+  /** Khách đang chọn (bản sao Workspace), để giữ nhãn khi nó không nằm trong kết quả tìm ở Bán hàng. */
+  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const crmSelectValue = selectedCustomer?.crmCustomerId
+    ? `crm:${selectedCustomer.crmCustomerId}`
+    : form.customerId;
+  const crmSelectOptions = useMemo(() => {
+    const options = crmOptions.map((option) => ({
+      value: `crm:${option.crmCustomerId}`,
+      label: option.taxCode
+        ? `${option.code} · ${option.name} · MST ${option.taxCode}`
+        : `${option.code} · ${option.name}`,
+    }));
+    if (selectedCustomer && !options.some((option) => option.value === crmSelectValue)) {
+      options.unshift({ value: crmSelectValue, label: `${selectedCustomer.code} · ${selectedCustomer.name}` });
+    }
+    return options;
+  }, [crmOptions, selectedCustomer, crmSelectValue]);
+
+  /** Chọn khách Bán hàng: đã có bản sao thì dùng luôn, chưa có thì nhờ Workspace tạo bản sao. */
+  const chooseCrmCustomer = async (value: string) => {
+    setCustomerError(undefined);
+    if (!value.startsWith('crm:')) {
+      set({ customerId: value });
+      return;
+    }
+    const crmCustomerId = value.slice('crm:'.length);
+    const known = customers.find((customer) => customer.crmCustomerId === crmCustomerId);
+    if (known) {
+      set({ customerId: known.id });
+      return;
+    }
+    setLinkingCustomer(true);
+    try {
+      const copy = await linkCrmCustomer(crmCustomerId);
+      setCustomers((current) => [
+        { ...copy, contractCount: 0, projectCount: 0 },
+        ...current.filter((customer) => customer.id !== copy.id),
+      ]);
+      set({ customerId: copy.id });
+    } catch (cause) {
+      setCustomerError((cause as { message?: string })?.message ?? 'Không chọn được khách hàng từ Bán hàng.');
+    } finally {
+      setLinkingCustomer(false);
     }
   };
 
@@ -377,6 +470,37 @@ export function ProjectForm({
         <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
       </Field>
 
+      {crmMode ? (
+        <Field
+          label="Khách hàng"
+          hint="Khách hàng chủ quản của dự án, lấy từ phân hệ Bán hàng. Bỏ trống nếu chưa gắn."
+        >
+          <input
+            value={crmSearch}
+            placeholder="Tìm ở Bán hàng theo mã, tên hoặc mã số thuế…"
+            aria-label="Tìm khách hàng ở Bán hàng"
+            maxLength={100}
+            onChange={(event) => setCrmSearch(event.target.value)}
+          />
+          <SearchableSelect
+            options={crmSelectOptions}
+            value={crmSelectValue}
+            placeholder="Chọn khách hàng từ Bán hàng…"
+            emptyText="Không có khách hàng nào khớp ở Bán hàng."
+            disabled={linkingCustomer}
+            clearable
+            onChange={(value) => void chooseCrmCustomer(value)}
+          />
+          {customerError ? (
+            <p role="alert" className={styles.alert}>
+              {customerError}
+            </p>
+          ) : null}
+          <a className={styles.linkButton} href="/modules/crm">
+            <Plus size={13} /> Tạo khách hàng ở Bán hàng
+          </a>
+        </Field>
+      ) : (
       <Field label="Khách hàng" hint="Khách hàng chủ quản của dự án. Bỏ trống nếu chưa gắn.">
         <SearchableSelect
           options={customers.map((customer) => ({
@@ -460,6 +584,7 @@ export function ProjectForm({
           </button>
         )}
       </Field>
+      )}
 
       {/*
         Giá trị hợp đồng nhập ngay lúc lập dự án: đó là con số mọi báo cáo
