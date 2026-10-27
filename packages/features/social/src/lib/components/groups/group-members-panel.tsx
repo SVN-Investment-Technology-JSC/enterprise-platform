@@ -84,7 +84,7 @@ export function AddMembersDialog({
         <input className={base.input} value={groupName} readOnly disabled />
       </Field>
       <SelectField label="Thành viên">
-        <MemberPicker selected={picked} onChange={setPicked} />
+        <MemberPicker variant="list" selected={picked} onChange={setPicked} />
       </SelectField>
     </Dialog>
   );

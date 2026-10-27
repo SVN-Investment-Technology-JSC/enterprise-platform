@@ -35,11 +35,15 @@ export class SocialMeService {
     return { user, permissions: SOCIAL_PERMISSIONS.filter((permission) => held[permission]) };
   }
 
-  /** Gợi ý người để nhắc tên; chỉ người có quyền đăng bài mới cần. Truy vấn rỗng trả danh sách rỗng. */
-  async people(actor: SocialActor, query: string | undefined): Promise<{ items: readonly SocialUserRef[] }> {
+  /** Gợi ý người để chọn hoặc nhắc tên. Truy vấn rỗng trả danh sách nhân viên mặc định. */
+  async people(
+    actor: SocialActor,
+    query: string | undefined,
+    limit?: number,
+  ): Promise<{ items: readonly SocialUserRef[] }> {
     if (!mayWrite(actor)) throw new SocialForbiddenError();
     const text = sliceSafe((query ?? '').trim(), PEOPLE_QUERY_MAX);
-    if (!text) return { items: [] };
-    return { items: await this.directory.search(actor.tenantId, text, PEOPLE_LIMIT) };
+    const take = limit && limit > 0 ? Math.min(limit, 200) : (text ? PEOPLE_LIMIT : 200);
+    return { items: await this.directory.search(actor.tenantId, text, take) };
   }
 }

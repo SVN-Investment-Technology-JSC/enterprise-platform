@@ -196,19 +196,19 @@ export function ChatPanel({ hidden }: { hidden: boolean }) {
             </div>
           </section>
         )}
-        {creating ? (
-          <CreateGroupDialog
-            me={me.userId}
-            people={people}
-            onClose={() => setCreating(false)}
-            onCreated={(conversation) => {
-              setCreating(false);
-              upsert(conversation);
-              setActiveId(conversation.id);
-            }}
-          />
-        ) : null}
       </div>
+      {creating ? (
+        <CreateGroupDialog
+          me={me.userId}
+          people={people}
+          onClose={() => setCreating(false)}
+          onCreated={(conversation) => {
+            setCreating(false);
+            upsert(conversation);
+            setActiveId(conversation.id);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

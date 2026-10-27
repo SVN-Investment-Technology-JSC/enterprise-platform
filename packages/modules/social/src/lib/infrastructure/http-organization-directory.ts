@@ -52,14 +52,18 @@ export class HttpOrganizationDirectory implements OrganizationDirectory {
 
   async search(tenantId: string, query: string, limit: number): Promise<readonly SocialUserRef[]> {
     const needle = foldText(query);
-    if (!needle) return [];
     const snapshot = await this.snapshot(tenantId);
-    const matches = snapshot.entries.filter((entry) => entry.haystack.includes(needle));
-    // Khớp đầu tên lên trước.
+    const matches = needle
+      ? snapshot.entries.filter((entry) => entry.haystack.includes(needle))
+      : [...snapshot.entries];
+    // Khớp đầu tên lên trước khi có từ khoá; không từ khoá thì xếp theo bảng chữ cái.
     matches.sort((left, right) => {
-      const leftStarts = foldText(left.user.name).startsWith(needle) ? 0 : 1;
-      const rightStarts = foldText(right.user.name).startsWith(needle) ? 0 : 1;
-      return leftStarts - rightStarts || left.user.name.localeCompare(right.user.name, 'vi');
+      if (needle) {
+        const leftStarts = foldText(left.user.name).startsWith(needle) ? 0 : 1;
+        const rightStarts = foldText(right.user.name).startsWith(needle) ? 0 : 1;
+        if (leftStarts !== rightStarts) return leftStarts - rightStarts;
+      }
+      return left.user.name.localeCompare(right.user.name, 'vi');
     });
     return matches.slice(0, limit).map((entry) => entry.user);
   }
