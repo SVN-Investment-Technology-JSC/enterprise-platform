@@ -48,12 +48,15 @@ const MODES: ReadonlyArray<{ readonly value: SocialGroupMembershipMode; readonly
 export function GroupFormDialog({
   open,
   group,
+  creatorId,
   creatorName,
   onClose,
   onSaved,
 }: {
   readonly open: boolean;
   readonly group?: SocialGroupDetail;
+  /** Id người tạo, dùng để loại khỏi danh sách quản lý thêm. */
+  readonly creatorId?: string;
   /** Tên người tạo, hiện làm quản lý mặc định. */
   readonly creatorName?: string;
   readonly onClose: () => void;
@@ -146,6 +149,7 @@ export function GroupFormDialog({
               <MemberPicker
                 selected={state.admins}
                 onChange={(admins) => patch({ admins })}
+                exclude={creatorId ? [creatorId] : []}
                 placeholder="Thêm quản lý khác…"
               />
             </div>
@@ -165,7 +169,12 @@ export function GroupFormDialog({
           </SelectField>
         ) : editing ? null : (
           <SelectField label="Thành viên">
-            <MemberPicker selected={state.members} onChange={(members) => patch({ members })} />
+            <MemberPicker
+              variant="list"
+              selected={state.members}
+              onChange={(members) => patch({ members })}
+              placeholder="Tìm người theo tên hoặc chức vụ…"
+            />
           </SelectField>
         )}
 

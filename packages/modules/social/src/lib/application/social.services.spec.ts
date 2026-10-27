@@ -1648,9 +1648,9 @@ describe('me và gợi ý người', () => {
     expect(result.permissions).toEqual(['social.read', 'social.post.write', 'social.post.moderate']);
   });
 
-  it('people: truy vấn rỗng trả rỗng, người chỉ đọc bị từ chối', async () => {
+  it('people: truy vấn rỗng trả danh sách nhân viên mặc định, người chỉ đọc bị từ chối', async () => {
     const { me } = setup();
-    expect((await me.people(alice, '  ')).items).toEqual([]);
+    expect((await me.people(alice, '  ')).items.length).toBeGreaterThan(0);
     expect((await me.people(alice, 'bob')).items.map((u) => u.id)).toEqual([BOB]);
     await expectCode(me.people(readOnly, 'bob'), 'FORBIDDEN');
   });

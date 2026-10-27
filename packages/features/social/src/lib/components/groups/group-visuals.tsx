@@ -16,6 +16,7 @@ import {
   Book,
   Briefcase,
   CalendarDays,
+  Check,
   ChevronRight,
   Globe,
   Heart,
@@ -25,6 +26,7 @@ import {
   MessageSquare,
   MoreVertical,
   Rocket,
+  Search,
   Star,
   Trophy,
   Users,
@@ -32,10 +34,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { errorMessage } from '../../social-api';
+import { errorMessage, searchPeople } from '../../social-api';
 import base from '../../social.module.scss';
-import { PeopleList, usePeopleSearch } from '../people-picker';
-import { Avatar } from '../ui';
+import { Avatar, userSubtitle } from '../ui';
 import { addSource, coverGradient, type GroupSourceDraft } from './groups.model';
 import s from './groups.module.scss';
 import { searchOrgNodes } from './social-groups-api';
@@ -87,23 +88,206 @@ export function PrivacyBadge({ privacy }: { readonly privacy: SocialGroupPrivacy
   );
 }
 
-/** Chọn nhiều người: gõ để tìm, bấm để thêm thành thẻ. `exclude` là người đã có sẵn. */
+let cachedAllPeople: readonly SocialUserRef[] | undefined;
+let pendingAllPeople: Promise<readonly SocialUserRef[]> | undefined;
+
+/** Tải danh sách toàn bộ nhân viên (tối đa 200 người) cho bộ chọn thành viên/quản lý. */
+export function loadAllEmployees(): Promise<readonly SocialUserRef[]> {
+  if (cachedAllPeople) return Promise.resolve(cachedAllPeople);
+  if (!pendingAllPeople) {
+    pendingAllPeople = searchPeople('', 200)
+      .then((items) => {
+        cachedAllPeople = items;
+        pendingAllPeople = undefined;
+        return items;
+      })
+      .catch((error) => {
+        pendingAllPeople = undefined;
+        throw error;
+      });
+  }
+  return pendingAllPeople;
+}
+
+function normalizeText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase();
+}
+
+function matchesUser(user: SocialUserRef, query: string): boolean {
+  if (!query.trim()) return true;
+  const q = normalizeText(query.trim());
+  const name = normalizeText(user.name);
+  const pos = normalizeText(user.position ?? '');
+  const unit = normalizeText(user.unitName ?? '');
+  return name.includes(q) || pos.includes(q) || unit.includes(q);
+}
+
+/** Chọn nhiều người: chọn từ danh sách hoặc gõ để lọc, thêm thành thẻ. `exclude` là người đã có sẵn. */
 export function MemberPicker({
   selected,
   onChange,
   exclude = [],
   placeholder = 'Tìm người theo tên…',
+  variant = 'combobox',
 }: {
   readonly selected: readonly SocialUserRef[];
   readonly onChange: (next: readonly SocialUserRef[]) => void;
   readonly exclude?: readonly string[];
   readonly placeholder?: string;
+  readonly variant?: 'list' | 'combobox';
 }) {
+  const [people, setPeople] = useState<readonly SocialUserRef[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const { people, loading } = usePeopleSearch(query, open);
-  const taken = new Set([...selected.map((user) => user.id), ...exclude]);
-  const candidates = people.filter((user) => !taken.has(user.id));
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadAllEmployees()
+      .then((items) => {
+        if (!cancelled) setPeople(items);
+      })
+      .catch(() => {
+        if (!cancelled) setPeople([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const excludeSet = useMemo(() => new Set(exclude), [exclude]);
+  const selectedMap = useMemo(() => new Map(selected.map((user) => [user.id, user])), [selected]);
+  const taken = useMemo(() => new Set([...selected.map((user) => user.id), ...exclude]), [selected, exclude]);
+
+  const options = useMemo(
+    () =>
+      variant === 'list'
+        ? []
+        : people
+            .filter((user) => !taken.has(user.id))
+            .map((user) => ({
+              value: user.id,
+              label: user.name,
+              description: [user.position, user.unitName].filter(Boolean).join(' · '),
+            })),
+    [people, taken, variant],
+  );
+
+  const toggle = (user: SocialUserRef) => {
+    if (selectedMap.has(user.id)) {
+      onChange(selected.filter((item) => item.id !== user.id));
+    } else {
+      onChange([...selected, user]);
+    }
+  };
+
+  const pick = (value: string) => {
+    const user = people.find((u) => u.id === value);
+    if (user) onChange([...selected, user]);
+  };
+
+  if (variant === 'list') {
+    const visible = people.filter((user) => !excludeSet.has(user.id) && matchesUser(user, query));
+
+    return (
+      <div className={s.memberListPicker}>
+        <div className={s.pickerHeader}>
+          <span className={selected.length > 0 ? s.pickerBadge : s.pickerHint}>
+            {selected.length > 0 ? `Đã chọn ${selected.length} người` : 'Chọn ít nhất 1 người'}
+          </span>
+          {selected.length > 0 ? (
+            <button
+              type="button"
+              className={s.pickerClearBtn}
+              onClick={() => onChange([])}
+            >
+              Bỏ chọn tất cả
+            </button>
+          ) : null}
+        </div>
+
+        {selected.length > 0 ? (
+          <div className={s.pickerChips} aria-label="Thành viên đã chọn">
+            {selected.map((user) => (
+              <span key={user.id} className={s.pickerChip}>
+                <Avatar user={user} size={18} />
+                <span className={s.pickerChipName}>{user.name}</span>
+                <button
+                  type="button"
+                  className={s.pickerChipRemove}
+                  aria-label={`Bỏ ${user.name}`}
+                  onClick={() => onChange(selected.filter((item) => item.id !== user.id))}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className={s.pickerSearch}>
+          <Search size={15} aria-hidden="true" />
+          <input
+            value={query}
+            placeholder={loading ? 'Đang tải danh sách nhân viên…' : placeholder}
+            aria-label="Tìm người theo tên hoặc chức vụ"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {query ? (
+            <button
+              type="button"
+              className={s.pickerSearchClear}
+              onClick={() => setQuery('')}
+              aria-label="Xoá tìm kiếm"
+              title="Xoá tìm kiếm"
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+
+        <div className={s.pickList} role="listbox" aria-multiselectable="true" aria-label="Chọn người">
+          {loading ? (
+            <p className={s.pickerEmpty}>Đang tải danh sách nhân viên…</p>
+          ) : visible.length === 0 ? (
+            <p className={s.pickerEmpty}>Không có người phù hợp.</p>
+          ) : (
+            visible.map((user) => {
+              const on = selectedMap.has(user.id);
+              const subtitle = userSubtitle(user);
+              return (
+                <button
+                  key={user.id}
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  className={s.pickRow}
+                  onClick={() => toggle(user)}
+                >
+                  <span className={on ? `${s.check} ${s.checkOn}` : s.check} aria-hidden="true">
+                    {on ? <Check size={12} strokeWidth={2.5} /> : null}
+                  </span>
+                  <Avatar user={user} size={30} />
+                  <div className={s.pickInfo}>
+                    <span className={s.pickName}>{user.name}</span>
+                    {subtitle ? <small className={s.pickMeta}>{subtitle}</small> : null}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={base.peoplePicker}>
@@ -124,27 +308,30 @@ export function MemberPicker({
           ))}
         </ul>
       ) : null}
-      <input
-        className={base.input}
-        value={query}
-        placeholder={placeholder}
-        aria-label="Tìm người"
-        onFocus={() => setOpen(true)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-        onChange={(event) => setQuery(event.target.value)}
+      <SearchableSelect
+        options={options}
+        value=""
+        height={36}
+        placeholder={loading ? 'Đang tải danh sách nhân viên…' : placeholder}
+        searchPlaceholder="Tìm người theo tên hoặc chức vụ…"
+        emptyText="Không có nhân viên phù hợp."
+        disabled={loading}
+        onChange={pick}
+        renderOption={(option) => {
+          const user = people.find((u) => u.id === option.value);
+          if (!user) return <span>{option.label}</span>;
+          const subtitle = userSubtitle(user);
+          return (
+            <div className={s.pickerOption}>
+              <Avatar user={user} size={26} />
+              <div className={s.pickerOptionMeta}>
+                <span className={s.pickerOptionName}>{user.name}</span>
+                {subtitle ? <span className={s.pickerOptionSub}>{subtitle}</span> : null}
+              </div>
+            </div>
+          );
+        }}
       />
-      {open ? (
-        <div className={base.suggestPanel}>
-          <PeopleList
-            people={candidates}
-            loading={loading}
-            onPick={(user) => {
-              onChange([...selected, user]);
-              setQuery('');
-            }}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -339,6 +339,7 @@ export function GroupsView() {
 
       <GroupFormDialog
         open={creating}
+        creatorId={session?.me.user.id}
         creatorName={session?.me.user.name}
         onClose={() => setCreating(false)}
         onSaved={(group) => {
