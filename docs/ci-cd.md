@@ -68,8 +68,13 @@ Thêm các runtime variables sau vào Service Stack. Các biến có `${VAR:?}` 
 | `PLATFORM_DB_PASSWORD`     | Password mạnh, URL-safe.                                                                              |
 | `TENANT_DB_PASSWORD`       | Password mạnh, URL-safe.                                                                              |
 | `RABBITMQ_PASSWORD`        | Password mạnh, URL-safe.                                                                              |
-| `MINIO_ROOT_USER`          | Tài khoản MinIO production.                                                                           |
+| `MINIO_ROOT_USER`          | Tài khoản root của MinIO trong stack (chỉ MinIO dùng).                                                |
 | `MINIO_ROOT_PASSWORD`      | Password MinIO mạnh.                                                                                  |
+| `S3_ACCESS_KEY_ID`         | Khoá kho tệp mà các service dùng. Dùng MinIO trong stack thì đặt bằng `MINIO_ROOT_USER`.              |
+| `S3_SECRET_ACCESS_KEY`     | Secret đi cùng. Dùng MinIO trong stack thì đặt bằng `MINIO_ROOT_PASSWORD`.                            |
+| `S3_PUBLIC_ENDPOINT`       | Địa chỉ HTTPS của kho tệp mà trình duyệt mở (URL ký sẵn).                                             |
+| `S3_INTERNAL_ENDPOINT`     | Tuỳ chọn. Địa chỉ server gọi kho; mặc định `http://minio:9000`. Kho ngoài thì đặt cùng địa chỉ công khai. |
+| `S3_BUCKET`, `S3_REGION`   | Tuỳ chọn. Mặc định `enterprise-platform` / `us-east-1`; kho ngoài thì đặt theo bucket đã tạo ở nhà cung cấp. |
 | `SEED_SUPERADMIN_PASSWORD` | Password ban đầu cho Platform Super Admin. Lưu ý: migrator hiện cập nhật password này mỗi lần deploy. |
 | `INTERNAL_SERVICE_TOKEN`   | Random secret dài, dùng chung giữa các service.                                                       |
 | `AUTH_PRIVATE_KEY`         | PEM private key RS256, multiline runtime secret.                                                      |
