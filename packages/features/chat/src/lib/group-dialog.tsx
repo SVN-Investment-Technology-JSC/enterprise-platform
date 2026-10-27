@@ -23,10 +23,26 @@ function PeoplePicker({
   const [query, setQuery] = useState('');
   const visible = people.filter((person) => !exclude.has(person.id.toLowerCase()) && matchesPerson(person, query));
   return (
-    <>
-      <div className={styles.search}>
+    <div className={styles.pickerSection}>
+      <div className={styles.pickerSearch}>
         <Search aria-hidden="true" />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm người theo tên hoặc email..." aria-label="Tìm người" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Tìm người theo tên hoặc email..."
+          aria-label="Tìm người"
+        />
+        {query ? (
+          <button
+            type="button"
+            className={styles.pickerSearchClear}
+            onClick={() => setQuery('')}
+            aria-label="Xoá tìm kiếm"
+            title="Xoá tìm kiếm"
+          >
+            <X aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
       <div className={styles.pickList} role="listbox" aria-multiselectable="true" aria-label="Chọn người">
         {visible.length === 0 ? <p className={styles.emptyList}>Không có người phù hợp.</p> : null}
@@ -37,17 +53,16 @@ function PeoplePicker({
               <span className={on ? `${styles.check} ${styles.checkOn}` : styles.check} aria-hidden="true">
                 {on ? <Check /> : null}
               </span>
-              <UserAvatar userId={person.id} name={person.fullName} size={28} />
-              <span>
-                {person.fullName}
-                <br />
-                <small>{person.email}</small>
-              </span>
+              <UserAvatar userId={person.id} name={person.fullName} size={30} />
+              <div className={styles.pickInfo}>
+                <span className={styles.pickName}>{person.fullName}</span>
+                {person.email ? <small className={styles.pickEmail}>{person.email}</small> : null}
+              </div>
             </button>
           );
         })}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -105,9 +120,9 @@ export function CreateGroupDialog({
     <div className={styles.overlay} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="chat-create-group">
         <div className={styles.dialogHead}>
-          <div style={{ flex: 1 }}>
+          <div className={styles.dialogHeadInfo}>
             <h3 id="chat-create-group">Tạo nhóm chat</h3>
-            <p>Đặt tên nhóm và chọn người tham gia.</p>
+            <p>Đặt tên nhóm và chọn người tham gia thảo luận.</p>
           </div>
           <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={onClose}>
             <X aria-hidden="true" />
@@ -115,30 +130,50 @@ export function CreateGroupDialog({
         </div>
         <div className={styles.dialogBody}>
           <div className={styles.field}>
-            <label htmlFor="chat-group-title">Tên nhóm</label>
+            <div className={styles.fieldHeader}>
+              <label htmlFor="chat-group-title">
+                Tên nhóm <span className={styles.requiredStar}>*</span>
+              </label>
+              <span className={styles.fieldHint}>
+                {title.length}/{CHAT_MAX_TITLE_LENGTH}
+              </span>
+            </div>
             <input
               id="chat-group-title"
               value={title}
               maxLength={CHAT_MAX_TITLE_LENGTH}
               autoFocus
-              placeholder="Ví dụ: Phòng kế toán"
+              placeholder="Ví dụ: Phòng Kế toán, Dự án ERP..."
               onChange={(event) => setTitle(event.target.value)}
               onKeyDown={(event) => event.key === 'Enter' && void submit()}
             />
           </div>
-          {selected.size > 0 ? (
-            <div className={styles.chips} aria-label="Người đã chọn">
-              {[...selected.values()].map((person) => (
-                <span key={person.id} className={styles.chip}>
-                  {person.fullName}
-                  <button type="button" aria-label={`Bỏ ${person.fullName}`} onClick={() => toggle(person)}>
-                    <X aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
+
+          <div className={styles.field}>
+            <div className={styles.fieldHeader}>
+              <span className={styles.fieldLabel}>
+                Thành viên tham gia <span className={styles.requiredStar}>*</span>
+              </span>
+              <span className={selected.size > 0 ? styles.fieldBadge : styles.fieldHint}>
+                {selected.size > 0 ? `Đã chọn ${selected.size} người` : 'Chọn ít nhất 1 người'}
+              </span>
             </div>
-          ) : null}
-          <PeoplePicker people={people} selected={new Set(selected.keys())} onToggle={toggle} exclude={exclude} />
+            {selected.size > 0 ? (
+              <div className={styles.chips} aria-label="Người đã chọn">
+                {[...selected.values()].map((person) => (
+                  <span key={person.id} className={styles.chip}>
+                    <UserAvatar userId={person.id} name={person.fullName} size={18} />
+                    <span className={styles.chipLabel}>{person.fullName}</span>
+                    <button type="button" aria-label={`Bỏ ${person.fullName}`} onClick={() => toggle(person)}>
+                      <X aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <PeoplePicker people={people} selected={new Set(selected.keys())} onToggle={toggle} exclude={exclude} />
+          </div>
+
           {error ? (
             <p className={styles.formError} role="alert">
               {error}
@@ -146,7 +181,7 @@ export function CreateGroupDialog({
           ) : null}
         </div>
         <div className={styles.dialogFoot}>
-          <button type="button" className={styles.ghost} onClick={onClose}>
+          <button type="button" className={styles.ghost} onClick={onClose} disabled={busy}>
             Huỷ
           </button>
           <button type="button" className={styles.primary} disabled={!canSubmit} onClick={() => void submit()}>
@@ -201,7 +236,7 @@ export function GroupInfoDialog({
     <div className={styles.overlay} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="chat-group-info">
         <div className={styles.dialogHead}>
-          <div style={{ flex: 1 }}>
+          <div className={styles.dialogHeadInfo}>
             <h3 id="chat-group-info">Thông tin nhóm</h3>
             <p>{conversation.memberCount} thành viên</p>
           </div>
@@ -212,7 +247,7 @@ export function GroupInfoDialog({
         <div className={styles.dialogBody}>
           <div className={styles.field}>
             <label htmlFor="chat-group-rename">Tên nhóm</label>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input id="chat-group-rename" style={{ flex: 1 }} value={title} maxLength={CHAT_MAX_TITLE_LENGTH} onChange={(event) => setTitle(event.target.value)} />
               <button
                 type="button"
@@ -241,7 +276,7 @@ export function GroupInfoDialog({
                   })
                 }
               />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button type="button" className={styles.ghost} onClick={() => setAdding(false)}>
                   Quay lại
                 </button>
