@@ -35,6 +35,8 @@ import { CustomerDetail } from './customers/customer-detail';
 import { CustomerList } from './customers/customer-list';
 import { LeadsPage } from './leads/leads-page';
 import { OpportunitiesPage } from './opportunities/opportunities-page';
+import { QuoteEditor } from './quotes/quote-editor';
+import { QuotesPage } from './quotes/quotes-page';
 import { CrmSettingsPage } from './settings/crm-settings';
 import salesStyles from './sales.module.scss';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -58,7 +60,7 @@ const ICONS: Record<CrmView, ReactNode> = {
  * Bán hàng. Menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status`
  * (quyền thật kiểm ở API). Đoạn hash thứ hai là id đang mở, ví dụ
  * `#customers/<id>`, `#opportunities/<id>`, `#activities/<id>` (liên kết từ
- * thông báo nhắc hạn). Phần chưa làm hiện trang giữ chỗ.
+ * thông báo nhắc hạn), `#quotes/<id>` (thông báo duyệt báo giá). Phần chưa làm hiện trang giữ chỗ.
  */
 export function CrmScreen() {
   const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
@@ -172,7 +174,7 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
   );
 }
 
-/** Trang đã làm ở GĐ2; còn lại là trang giữ chỗ. */
+/** Trang đã làm (GĐ2, GĐ3); còn lại là trang giữ chỗ. */
 function SalesView({
   page,
   sub,
@@ -184,6 +186,7 @@ function SalesView({
 }) {
   const openCustomer = (id: string) => navigate('customers', id);
   const openOpportunity = (id: string) => navigate('opportunities', id);
+  const openQuote = (id: string) => navigate('quotes', id);
   switch (page.id) {
     case 'customers':
       return sub ? (
@@ -199,7 +202,20 @@ function SalesView({
           focusId={sub}
           onFocus={(id) => navigate('opportunities', id)}
           onOpenCustomer={openCustomer}
+          onOpenQuote={openQuote}
         />
+      );
+    case 'quotes':
+      return sub ? (
+        <QuoteEditor
+          key={sub}
+          quoteId={sub}
+          onBack={() => navigate('quotes')}
+          onOpenCustomer={openCustomer}
+          onOpenOpportunity={openOpportunity}
+        />
+      ) : (
+        <QuotesPage onOpen={openQuote} />
       );
     case 'activities':
       return <ActivitiesPage focusId={sub} />;

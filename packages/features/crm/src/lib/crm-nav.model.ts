@@ -128,7 +128,7 @@ export const CRM_PAGES: readonly CrmPage[] = [
     id: 'settings',
     label: 'Cấu hình',
     group: 'Quản trị',
-    summary: 'Nhóm khách, quy tắc mã khách hàng, nhắc hoạt động; bảng giá, chính sách chiết khấu, thử tính giá.',
+    summary: 'Nhóm khách, quy tắc mã khách hàng, nhắc hoạt động; bảng giá, chính sách chiết khấu, thử tính giá; ngưỡng và cách duyệt báo giá.',
     phase: 'Giai đoạn 2',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canManage,
   },

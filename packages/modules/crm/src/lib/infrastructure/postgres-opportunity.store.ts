@@ -16,6 +16,7 @@ import type {
 } from '../application/sales-store.port.js';
 import { CrmConflictError, CrmStaleVersionError } from '../domain/crm.error.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
+import { ensureDraftQuoteForOpportunity } from './postgres-quote.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { SqlConditions, cursorAt, keysetPage, prefixTsQuery, toIso, toNumber } from './sql-helpers.js';
 
@@ -188,6 +189,18 @@ export class PostgresOpportunityStore implements OpportunityStore {
 
   changeStage(tenantId: string, id: string, change: StageChange, actorId: string): Promise<void> {
     return this.database.transaction(tenantId, async (client) => {
+      if (change.requireAcceptedQuote) {
+        const accepted = await client.query(
+          `SELECT 1 FROM crm_schema.quotes WHERE opportunity_id = $1 AND status = 'ACCEPTED' LIMIT 1`,
+          [id],
+        );
+        if (!accepted.rows.length) {
+          throw new CrmConflictError(
+            'ACCEPTED_QUOTE_REQUIRED',
+            'Cơ hội chỉ chuyển sang Thắng khi có báo giá được khách chấp nhận.',
+          );
+        }
+      }
       const result = await client.query(
         `UPDATE crm_schema.opportunities
             SET stage = $3::varchar,
@@ -205,6 +218,10 @@ export class PostgresOpportunityStore implements OpportunityStore {
         );
       }
       await recordStageChange(client, id, change.from, change.to, change.reason, actorId);
+      // Dòng cơ hội đã bị UPDATE khoá: hai lần chuyển sang Báo giá cùng lúc không tạo hai nháp.
+      if (change.draftQuoteValidUntil) {
+        await ensureDraftQuoteForOpportunity(client, id, change.draftQuoteValidUntil, actorId);
+      }
     });
   }
 }

@@ -13,15 +13,17 @@ import styles from '../sales.module.scss';
 import { DiscountPoliciesPage } from '../pricing/discount-policies-page';
 import { PriceListsPage } from '../pricing/price-lists-page';
 import { QuotePreviewPanel } from '../pricing/quote-preview-panel';
+import { ApprovalSettingsPage } from './approval-settings';
 
 /** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
-export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview';
+export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval';
 
 const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
   { id: 'general', label: 'Chung' },
   { id: 'price-lists', label: 'Bảng giá' },
   { id: 'discount-policies', label: 'Chính sách chiết khấu' },
   { id: 'quote-preview', label: 'Thử tính giá' },
+  { id: 'approval', label: 'Duyệt báo giá' },
 ];
 
 export function settingsTab(value: string | undefined): CrmSettingsTab {
@@ -31,7 +33,7 @@ export function settingsTab(value: string | undefined): CrmSettingsTab {
 /**
  * Cấu hình của quản trị bán hàng (`crm.manage`): quy tắc mã khách hàng, thời
  * gian nhắc hoạt động trước hạn, nhóm khách hàng; bảng giá, chính sách chiết
- * khấu, thử tính giá. Server kiểm quyền lại.
+ * khấu, thử tính giá; ngưỡng và cách duyệt báo giá. Server kiểm quyền lại.
  */
 export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: CrmSettingsTab) => void }) {
   const current = settingsTab(tab);
@@ -57,6 +59,8 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
         <DiscountPoliciesPage />
       ) : current === 'quote-preview' ? (
         <QuotePreviewPanel />
+      ) : current === 'approval' ? (
+        <ApprovalSettingsPage />
       ) : (
         <>
           <GeneralSettings />

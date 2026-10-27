@@ -930,6 +930,31 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       },
     }),
   ),
+  // Báo giá Bán hàng: cần duyệt (báo cấp trên khi duyệt trực tiếp), kết quả duyệt (báo người gửi), hết hạn (báo người
+  // phụ trách). Người nhận ghi sẵn trong payload (`recipientUserIds`).
+  ...(
+    [
+      ['crm.quote.approval-requested', 'approval', 'actionable', 'Báo giá cần duyệt'],
+      ['crm.quote.approval-decided', 'result', 'actionable', 'Kết quả duyệt báo giá'],
+      ['crm.quote.expired', 'deadline', 'informational', 'Báo giá đã hết hạn'],
+    ] as const
+  ).map(([eventType, category, priority, title]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category,
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Báo giá có cập nhật mới.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#quotes'),
+        sourceType: 'crm_quote',
+        sourceId: `${id(payload, 'quoteId')}:${String(payload.versionNo ?? '')}:${eventType}`,
+      }),
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],

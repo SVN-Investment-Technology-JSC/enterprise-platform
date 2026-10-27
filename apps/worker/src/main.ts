@@ -169,8 +169,8 @@ const socialConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
 );
-// Bán hàng nhận sự kiện của Kho, Tài chính, Quy trình qua hàng đợi riêng. GĐ0 chưa bind loại nào: hàng đợi vẫn được
-// khai báo để các giai đoạn sau chỉ cần thêm loại sự kiện vào CRM_INTEGRATION_BINDINGS.
+// Bán hàng nhận sự kiện của Kho, Tài chính, Quy trình qua hàng đợi riêng. Hiện bind `procedure.instance.completed`
+// (kết quả duyệt báo giá `crm_quote`); module tự lọc theo sourceType. Thêm loại sự kiện ở CRM_INTEGRATION_BINDINGS.
 const crmConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: CRM_INTEGRATION_QUEUE, bindings: [...CRM_INTEGRATION_BINDINGS] },
@@ -628,7 +628,7 @@ async function processSocialJobs(database: TenantDatabaseReference) {
 
 /**
  * Việc định kỳ của Bán hàng, chạy trong withActiveTenant (khóa SHARED) của tick, chỉ cho tenant đã bật phân hệ crm
- * và đã chạy migration nền. GĐ0 chưa có việc nào; module tự quyết định việc nào đến hạn.
+ * và đã chạy migration nền: hết hạn báo giá, tạo phiên Quy trình cho báo giá chờ duyệt. Module tự giãn nhịp.
  */
 async function processCrmJobs(database: TenantDatabaseReference) {
   if (!(await moduleEnabled(database.tenantId, 'crm'))) return;

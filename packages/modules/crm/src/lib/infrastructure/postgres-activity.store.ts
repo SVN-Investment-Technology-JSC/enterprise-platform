@@ -160,7 +160,7 @@ export class PostgresActivityStore implements ActivityStore {
 }
 
 interface TimelineRow {
-  kind: 'opportunity-stage' | 'activity';
+  kind: 'opportunity-stage' | 'activity' | 'quote';
   id: string;
   at: Date;
   actor_id: string | null;
@@ -173,6 +173,8 @@ interface TimelineRow {
   subject: string | null;
   status: ActivityStatus | null;
   due_at: Date | null;
+  quote_id: string | null;
+  version_no: string | null;
   cursor_at: string;
 }
 
@@ -196,10 +198,14 @@ export class PostgresTimelineStore implements TimelineStore {
     stages.add(`o.customer_id = ${customer}::uuid`);
     stages.scope(scope, 'o.owner_user_id');
 
-    // Nhánh hoạt động dùng chung bộ tham số với nhánh cơ hội.
+    // Nhánh hoạt động, báo giá dùng chung bộ tham số với nhánh cơ hội.
     const activities = new SqlConditions(stages.params);
     activities.add(`a.customer_id = ${customer}::uuid`);
     activityScope(activities, scope);
+
+    const quotes = new SqlConditions(stages.params);
+    quotes.add(`q.customer_id = ${customer}::uuid`);
+    quotes.scope(scope, 'q.owner_user_id');
 
     const outer = new SqlConditions(stages.params);
     outer.after(cursor, 't.at', 't.id');
@@ -210,15 +216,21 @@ export class PostgresTimelineStore implements TimelineStore {
          SELECT 'opportunity-stage' AS kind, h.id, h.at, h.actor_id, o.id AS opportunity_id,
                 o.name AS opportunity_name, h.from_stage, h.to_stage, h.reason,
                 NULL::varchar AS activity_type, NULL::varchar AS subject, NULL::varchar AS status,
-                NULL::timestamptz AS due_at
+                NULL::timestamptz AS due_at, NULL::uuid AS quote_id, NULL::text AS version_no
            FROM crm_schema.opportunity_stage_history h
            JOIN crm_schema.opportunities o ON o.id = h.opportunity_id
            ${stages.where()}
          UNION ALL
          SELECT 'activity', a.id, a.created_at, a.created_by, a.opportunity_id, o.name, NULL, NULL, NULL,
-                a.type, a.subject, a.status, a.due_at
+                a.type, a.subject, a.status, a.due_at, NULL, NULL
            ${ACTIVITY_FROM}
            ${activities.where()}
+         UNION ALL
+         SELECT 'quote', l.id, l.at, l.actor_id, q.opportunity_id, NULL, l.from_status, l.to_status, l.reason,
+                l.action, q.code, NULL, NULL, q.id, l.metadata->>'versionNo'
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.quotes q ON q.id = l.entity_id AND l.entity_type = 'quote'
+           ${quotes.where()}
        ) t
        ${outer.where()}
        ORDER BY t.at DESC, t.id DESC
@@ -231,6 +243,22 @@ export class PostgresTimelineStore implements TimelineStore {
 
 function toEntry(row: TimelineRow): CustomerTimelineEntry {
   const at = toIso(row.at) ?? '';
+  if (row.kind === 'quote') {
+    return {
+      kind: 'quote',
+      id: row.id,
+      at,
+      actorId: row.actor_id,
+      quoteId: row.quote_id ?? '',
+      quoteCode: row.subject ?? '',
+      action: row.activity_type ?? '',
+      fromStatus: row.from_stage,
+      toStatus: row.to_stage,
+      versionNo: row.version_no === null ? null : Number(row.version_no),
+      reason: row.reason,
+      opportunityId: row.opportunity_id,
+    };
+  }
   if (row.kind === 'activity') {
     return {
       kind: 'activity',

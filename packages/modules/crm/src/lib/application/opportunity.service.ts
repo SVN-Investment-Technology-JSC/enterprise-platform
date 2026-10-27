@@ -21,11 +21,18 @@ import {
   requiredText,
   requiredVersion,
 } from '../domain/fields.js';
-import { assertStageTransition, isOpenStage, isOpportunityStage, normalizeProbability } from '../domain/opportunity.js';
+import {
+  assertStageTransition,
+  isOpenStage,
+  isOpportunityStage,
+  normalizeProbability,
+  stageSideEffects,
+} from '../domain/opportunity.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
 import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
+import { vietnamToday } from './pricing.service.js';
 import type { CustomerStore, OpportunityRecord, OpportunityStore } from './sales-store.port.js';
 
 const OPPORTUNITY_NOT_FOUND = 'Không tìm thấy cơ hội.';
@@ -36,15 +43,16 @@ export const OPPORTUNITY_BOARD_PER_STAGE = 50;
  * Cơ hội và máy trạng thái giai đoạn (`domain/opportunity.ts`).
  *
  * Mỗi lần chuyển ghi `opportunity_stage_history` và `audit_log` trong cùng
- * transaction (store). Đàm phán → Thắng hiện chỉ cần đúng giai đoạn; điều kiện
- * "có báo giá Khách chấp nhận" thêm ở GĐ3 khi có bảng báo giá (T3-14 và máy
- * trạng thái báo giá), kiểm ở `changeStage` trước khi gọi store.
+ * transaction (store). Tác động phụ (T3-14, `stageSideEffects`): sang Báo giá
+ * tạo nháp báo giá nếu chưa có; sang Thắng cần báo giá Khách chấp nhận. Cả hai
+ * làm trong cùng transaction với chuyển giai đoạn.
  */
 export class OpportunityService {
   constructor(
     private readonly opportunities: OpportunityStore,
     private readonly customers: CustomerStore,
     private readonly scopes: CrmDataScopeService,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async list(actor: CrmActor, query: OpportunityListQuery): Promise<CrmPage<OpportunitySummary>> {
@@ -142,6 +150,7 @@ export class OpportunityService {
         to: request.stage,
         reason,
         expectedVersion: request.version === undefined ? undefined : requiredVersion(request.version),
+        ...stageSideEffects(request.stage, vietnamToday(this.now())),
       },
       actor.userId,
     );

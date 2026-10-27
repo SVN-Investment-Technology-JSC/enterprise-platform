@@ -27,6 +27,9 @@ class FakeCatalogReader implements CatalogReader {
   async materials(_tenantId: string, ids: readonly string[]): Promise<ReadonlyMap<string, CatalogMaterial>> {
     return new Map(this.known.filter((material) => ids.includes(material.id)).map((material) => [material.id, material]));
   }
+  async search(): Promise<CatalogMaterial[]> {
+    return [...this.known];
+  }
 }
 
 function priceListStore(): jest.Mocked<PriceListStore> {

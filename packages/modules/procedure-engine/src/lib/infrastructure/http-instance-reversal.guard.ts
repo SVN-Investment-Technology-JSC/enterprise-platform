@@ -8,10 +8,20 @@ export const FINANCE_INSTANCE_REVERSAL_CHECK_PATH = (instanceId: string) =>
   `/v1/internal/instances/${encodeURIComponent(instanceId)}/reversal-check`;
 
 /**
+ * Route nội bộ của Bán hàng cho phiên duyệt báo giá, đơn bán (tính từ `CRM_API_URL`). Bán hàng nhận id hồ sơ hoặc
+ * id lần gửi duyệt (`sourceId`, id của `crm_schema.procedure_links`); Quy trình gửi `sourceId`.
+ */
+export const CRM_INSTANCE_REVERSAL_CHECK_PATH = (instanceId: string) =>
+  `/v1/internal/instances/${encodeURIComponent(instanceId)}/reversal-check`;
+
+/** Nguồn của Bán hàng: hỏi theo id hồ sơ (`crm_quote`, `crm_order_credit`). */
+const CRM_SOURCE_TYPES: readonly string[] = ['crm_quote', 'crm_order_credit'];
+
+/**
  * Hỏi module nguồn qua route nội bộ chỉ đọc. Không trả lời được thì coi như KHÔNG cho
  * huỷ: thà chặn rồi thử lại còn hơn huỷ một hồ sơ mà module nguồn không hoàn tác được.
  *
- * Mỗi loại nguồn có địa chỉ riêng: đơn từ HRM và phiếu của Tài chính. Nguồn khác (Bảo trì, hồ sơ thủ công) không có
+ * Mỗi loại nguồn có địa chỉ riêng: đơn từ HRM, phiếu của Tài chính, báo giá và đơn bán của Bán hàng. Nguồn khác (Bảo trì, hồ sơ thủ công) không có
  * gì để hỏi nên luôn cho phép. Riêng hồ sơ có bước Tài chính đã sinh phiếu thì hỏi Tài chính theo id hồ sơ.
  */
 export class HttpInstanceReversalGuard implements InstanceReversalGuard {
@@ -20,6 +30,8 @@ export class HttpInstanceReversalGuard implements InstanceReversalGuard {
       'http://localhost:3339/api/hrm',
     private readonly financeApiUrl: string = process.env['FINANCE_API_URL'] ??
       'http://localhost:3341/api/finance',
+    private readonly crmApiUrl: string = process.env['CRM_API_URL'] ??
+      'http://localhost:3344/api/crm',
   ) {}
 
   private endpoint(sourceType: string): { base: string; label: string } | null {
@@ -32,6 +44,9 @@ export class HttpInstanceReversalGuard implements InstanceReversalGuard {
     tenantId: string,
     source: { readonly sourceType: string; readonly sourceId: string },
   ): Promise<ReversalCheck> {
+    if (CRM_SOURCE_TYPES.includes(source.sourceType)) {
+      return this.ask(tenantId, `${this.crmApiUrl}${CRM_INSTANCE_REVERSAL_CHECK_PATH(source.sourceId)}`, 'Bán hàng');
+    }
     const endpoint = this.endpoint(source.sourceType);
     if (!endpoint) return { allowed: true };
     return this.ask(

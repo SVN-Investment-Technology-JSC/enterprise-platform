@@ -259,6 +259,24 @@ describe('FIX-E-01 - bước S tự hoàn thành khi gửi đơn HRM', () => {
     ).rejects.toMatchObject({ code: 'validation' });
   });
 
+  it.each(['crm_quote', 'crm_order_credit'] as const)(
+    'nhận cờ cho phiên duyệt của Bán hàng (%s)',
+    async (sourceType) => {
+      const { application } = setup();
+      const definition = await publish(application, leaveInput());
+      const created = await application.createInstance(
+        TENANT,
+        request(definition, {
+          autoCompleteInitiatorStep: true,
+          sourceType,
+          sourceId: '7f0c2b1e-3a4d-4c5e-8f60-718293a4b5c6',
+          idempotencyKey: `crm:${sourceType}`,
+        }),
+      );
+      expect(created.autoComplete).toEqual({ status: 'completed' });
+    },
+  );
+
   it('khớp phân công S theo chức danh qua ngữ cảnh tổ chức của người khởi tạo', async () => {
     const resolver: InitiatorActorResolver = {
       resolve: async (_tenant, userId) => person(userId, { positionIds: ['pos-nv'] }),

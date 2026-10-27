@@ -865,7 +865,11 @@ export type ProcedureInstanceSourceType =
   /** Mở theo yêu cầu của một công việc "Theo quy trình" bên Workspace. */
   | 'workspace_work_item'
   /** Mở theo yêu cầu của một việc ngoài dự án "Theo quy trình" bên Workspace. */
-  | 'workspace_standalone_task';
+  | 'workspace_standalone_task'
+  /** Duyệt phiên bản báo giá vượt ngưỡng của Bán hàng; sourceId là id lần gửi duyệt (`crm_schema.procedure_links`). */
+  | 'crm_quote'
+  /** Duyệt đơn bán vượt hạn mức công nợ của Bán hàng; sourceId là id lần gửi duyệt. */
+  | 'crm_order_credit';
 
 /**
  * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.

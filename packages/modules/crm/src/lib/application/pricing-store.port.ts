@@ -139,17 +139,31 @@ export interface CatalogMaterial {
   readonly unit: string | null;
   /** Loại hàng, dùng cho tiêu chí "Nhóm hàng". */
   readonly category: string | null;
+  /** STOCK hoặc SERVICE; dịch vụ không có tồn (D6). */
+  readonly kind?: string | null;
+  /** Giá vốn bình quân hiện tại, đơn giá 4 chữ số thập phân (D4); rỗng với dịch vụ. */
+  readonly avgCost?: number | null;
+  /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */
+  readonly totalAvailable?: number | null;
+  readonly availableByWarehouse?: readonly CatalogMaterialStock[] | null;
+}
+
+export interface CatalogMaterialStock {
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly available: number;
 }
 
 /**
- * Đọc danh mục mặt hàng của Kho qua API nội bộ, không đọc schema của Kho.
+ * Đọc danh mục mặt hàng của Kho qua API nội bộ `GET /v1/internal/materials`,
+ * không đọc schema của Kho (`HttpInventoryCatalogReader`). Test dùng bản giả.
  *
- * API `GET /v1/internal/materials` của Kho làm ở T1-24; trước đó phân hệ dùng
- * `PendingCatalogReader` (không biết mặt hàng nào), nên mã, tên, đơn vị, loại
- * hàng lấy theo dữ liệu người dùng nhập. Bản HTTP thay vào đây khi T1-24 xong,
- * service không phải đổi.
+ * Kho không trả lời thì ném `CrmError` 503; bên gọi chỉ dùng danh mục để làm
+ * giàu dữ liệu (thử tính giá) có thể bỏ qua lỗi.
  */
 export interface CatalogReader {
   /** Mặt hàng danh mục biết, theo id; id không biết thì vắng trong kết quả. */
   materials(tenantId: string, ids: readonly string[]): Promise<ReadonlyMap<string, CatalogMaterial>>;
+  /** Tìm theo mã hoặc tên (chọn mặt hàng khi thêm dòng báo giá). */
+  search(tenantId: string, query: string, limit: number): Promise<CatalogMaterial[]>;
 }

@@ -2,8 +2,10 @@
 
 import {
   OPPORTUNITY_STAGE_LABELS,
+  QUOTE_STATUS_LABELS,
   type OpportunityDetail,
   type OpportunityStage,
+  type QuoteSummary,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, formatDateTime, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
@@ -18,9 +20,12 @@ import {
   errorMessage,
   getOpportunity,
   listCustomers,
+  listQuotes,
   updateOpportunity,
 } from '../crm-api';
 import { peopleOptions, useCanWrite, useCrm } from '../crm-context';
+import { QUOTE_STATUS_TONE } from '../quotes/quote.model';
+import { CreateQuoteDialog } from '../quotes/quotes-page';
 import { canDropStage, formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -179,11 +184,13 @@ export function OpportunityDrawer({
   onClose,
   onChanged,
   onOpenCustomer,
+  onOpenQuote,
 }: {
   opportunityId: string;
   onClose: () => void;
   onChanged: () => void;
   onOpenCustomer: (id: string) => void;
+  onOpenQuote: (id: string) => void;
 }) {
   const { people } = useCrm();
   const canWrite = useCanWrite();
@@ -277,6 +284,7 @@ export function OpportunityDrawer({
               ) : null}
             </div>
           ) : null}
+          <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>
           <ol className={styles.timeline}>
             {detail.history.map((entry) => (
@@ -313,5 +321,65 @@ export function OpportunityDrawer({
         <LostReasonDialog name={detail.name} onClose={() => setLosing(false)} onConfirm={(reason) => move('LOST', reason)} />
       ) : null}
     </Drawer>
+  );
+}
+
+/**
+ * Báo giá của cơ hội (mới nhất trước) và nút lập báo giá. Sang giai đoạn Báo giá
+ * server tự tạo nháp; sang Thắng cần một báo giá Khách chấp nhận.
+ */
+function OpportunityQuotes({
+  opportunity,
+  refresh,
+  onOpenQuote,
+}: {
+  opportunity: OpportunityDetail;
+  refresh: number;
+  onOpenQuote: (id: string) => void;
+}) {
+  const { capabilities } = useCrm();
+  const canWriteQuote = capabilities.isTenantAdmin || capabilities.canWriteQuote;
+  const [quotes, setQuotes] = useState<readonly QuoteSummary[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    listQuotes({ opportunityId: opportunity.id, limit: 20 })
+      .then((page) => setQuotes(page.items))
+      .catch(() => setQuotes([]));
+  }, [opportunity.id, refresh]);
+
+  const open = opportunity.stage !== 'WON' && opportunity.stage !== 'LOST';
+  return (
+    <>
+      <h4 className={styles.sectionTitle}>Báo giá</h4>
+      {quotes.length ? (
+        <ul className={styles.timeline}>
+          {quotes.map((quote) => (
+            <li key={quote.id} className={styles.timelineItem}>
+              <button type="button" className={styles.linkButton} onClick={() => onOpenQuote(quote.id)}>
+                {quote.code} v{quote.currentVersion}
+              </button>{' '}
+              <StatusPill tone={QUOTE_STATUS_TONE[quote.status]}>{QUOTE_STATUS_LABELS[quote.status]}</StatusPill>{' '}
+              <span className={styles.muted}>{formatMoney(quote.totalAmount)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={styles.muted}>Chưa có báo giá.</p>
+      )}
+      {opportunity.stage === 'NEGOTIATION' && !quotes.some((quote) => quote.status === 'ACCEPTED') ? (
+        <p className={styles.muted}>Cần một báo giá được khách chấp nhận trước khi chuyển sang Thắng.</p>
+      ) : null}
+      {open && canWriteQuote ? (
+        <div className={styles.toolbar}>
+          <button type="button" className={styles.buttonGhost} onClick={() => setCreating(true)}>
+            Lập báo giá
+          </button>
+        </div>
+      ) : null}
+      {creating ? (
+        <CreateQuoteDialog opportunityId={opportunity.id} onClose={() => setCreating(false)} onCreated={onOpenQuote} />
+      ) : null}
+    </>
   );
 }

@@ -69,3 +69,35 @@ export function computeSubordinateUserIds(
   result.delete(actorUserId);
   return result;
 }
+
+/**
+ * Cấp trên gần nhất của `userId`: với mỗi chức danh người đó giữ, leo theo
+ * "Báo cáo cho" (bước đầu dùng ô ghi đè của phân công) tới chức danh đầu tiên
+ * có người giữ, lấy những người đó. Không gồm chính `userId`. Dùng để báo người
+ * duyệt trực tiếp khi báo giá cần duyệt.
+ */
+export function computeNearestSuperiorUserIds(snapshot: ReportingLineSnapshot, userId: string): string[] {
+  const reportsTo = new Map<string, string | null | undefined>();
+  for (const position of snapshot.positions) reportsTo.set(position.id, position.reportsToPositionId);
+  const holders = new Map<string, string[]>();
+  for (const assignment of snapshot.assignments) {
+    if (assignment.userId === userId) continue;
+    holders.set(assignment.positionId, [...(holders.get(assignment.positionId) ?? []), assignment.userId]);
+  }
+  const result = new Set<string>();
+  for (const assignment of snapshot.assignments.filter((entry) => entry.userId === userId)) {
+    const seen = new Set<string>([assignment.positionId]);
+    let cursor = assignment.reportsToOverrideId ?? reportsTo.get(assignment.positionId);
+    let depth = 0;
+    while (cursor && !seen.has(cursor) && depth++ < MAX_CHAIN_DEPTH) {
+      const found = holders.get(cursor);
+      if (found?.length) {
+        found.forEach((holder) => result.add(holder));
+        break;
+      }
+      seen.add(cursor);
+      cursor = reportsTo.get(cursor);
+    }
+  }
+  return [...result].sort();
+}

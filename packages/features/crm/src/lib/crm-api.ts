@@ -44,6 +44,22 @@ import type {
   SavePriceListItemRequest,
   SavePriceListRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  ApprovalBinding,
+  ApprovalKind,
+  CreateQuoteRequest,
+  CrmCatalogMaterial,
+  ProcedureDefinitionOption,
+  QuoteApprovalSettings,
+  QuoteComparison,
+  QuoteDecisionRequest,
+  QuoteDetail,
+  QuoteListQuery,
+  QuoteSummary,
+  SaveApprovalBindingRequest,
+  SaveQuoteLineRequest,
+  UpdateQuoteVersionRequest,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -178,6 +194,42 @@ export const deleteDiscountPolicy = (id: string) => send<void>('DELETE', `/disco
 export const loadPricingSettings = () => request<PricingSettings>('/pricing/settings', { cache: 'no-store' });
 export const savePricingSettings = (body: PricingSettings) => send<PricingSettings>('PUT', '/pricing/settings', body);
 export const previewQuote = (body: QuotePreviewRequest) => send<PricingResult>('POST', '/pricing/quote-preview', body);
+
+// Báo giá
+const quotePath = (id: string, versionNo?: number) =>
+  `/quotes/${encodeURIComponent(id)}${versionNo === undefined ? '' : `/versions/${versionNo}`}`;
+export const listQuotes = (query: QuoteListQuery) =>
+  request<CrmPage<QuoteSummary>>(`/quotes${toQuery(query)}`, { cache: 'no-store' });
+export const getQuote = (id: string, versionNo?: number) =>
+  request<QuoteDetail>(`${quotePath(id)}${toQuery({ version: versionNo })}`, { cache: 'no-store' });
+export const createQuote = (body: CreateQuoteRequest) => send<QuoteDetail>('POST', '/quotes', body);
+export const updateQuoteVersion = (id: string, versionNo: number, body: UpdateQuoteVersionRequest) =>
+  send<QuoteDetail>('PATCH', quotePath(id, versionNo), body);
+export const addQuoteLine = (id: string, versionNo: number, body: SaveQuoteLineRequest) =>
+  send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines`, body);
+export const updateQuoteLine = (id: string, versionNo: number, lineId: string, body: SaveQuoteLineRequest) =>
+  send<QuoteDetail>('PATCH', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}`, body);
+export const removeQuoteLine = (id: string, versionNo: number, lineId: string, revision: number) =>
+  send<QuoteDetail>('DELETE', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}${toQuery({ revision })}`);
+/** `recalculate`, `revise`, `submit`, `approve`, `reject`, `send`, `accept`, `decline`. */
+export type QuoteAction = 'recalculate' | 'revise' | 'submit' | 'approve' | 'reject' | 'send' | 'accept' | 'decline';
+export const quoteAction = (id: string, versionNo: number, action: QuoteAction, body: QuoteDecisionRequest) =>
+  send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/${action}`, body);
+export const compareQuote = (id: string, from: number, to: number) =>
+  request<QuoteComparison>(`${quotePath(id)}/compare${toQuery({ from, to })}`, { cache: 'no-store' });
+export const searchCatalog = (search: string) =>
+  request<CrmCatalogMaterial[]>(`/catalog/materials${toQuery({ search, limit: 30 })}`, { cache: 'no-store' });
+
+// Cách duyệt, ngưỡng duyệt
+export const listApprovalBindings = () => request<ApprovalBinding[]>('/approval-bindings', { cache: 'no-store' });
+export const saveApprovalBinding = (kind: ApprovalKind, body: SaveApprovalBindingRequest) =>
+  send<ApprovalBinding[]>('PUT', `/approval-bindings/${kind}`, body);
+export const listProcedureOptions = () =>
+  request<ProcedureDefinitionOption[]>('/approval-bindings/procedures', { cache: 'no-store' });
+export const loadQuoteApprovalSettings = () =>
+  request<QuoteApprovalSettings>('/quote-approval/settings', { cache: 'no-store' });
+export const saveQuoteApprovalSettings = (body: QuoteApprovalSettings) =>
+  send<QuoteApprovalSettings>('PUT', '/quote-approval/settings', body);
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {

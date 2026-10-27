@@ -51,6 +51,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/contracts/inventory"
+    },
+    {
       "path": "../../packages/shared/ui"
     }
   ]

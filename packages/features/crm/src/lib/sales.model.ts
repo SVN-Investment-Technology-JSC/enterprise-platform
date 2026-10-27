@@ -2,12 +2,14 @@ import {
   ACTIVITY_TYPE_LABELS,
   OPPORTUNITY_STAGE_LABELS,
   OPPORTUNITY_STAGE_TRANSITIONS,
+  QUOTE_STATUS_LABELS,
   type Activity,
   type CrmPerson,
   type CustomerTimelineEntry,
   type OpportunityBoard,
   type OpportunityStage,
   type OpportunitySummary,
+  type QuoteStatus,
 } from '@enterprise-platform/contracts-crm';
 
 /**
@@ -107,7 +109,29 @@ export function describeTimelineEntry(entry: CustomerTimelineEntry): { title: st
       };
     case 'activity':
       return { title: `${ACTIVITY_TYPE_LABELS[entry.activityType] ?? 'Hoạt động'}: ${entry.subject}` };
+    case 'quote': {
+      const version = entry.versionNo ? ` v${entry.versionNo}` : '';
+      const action = QUOTE_ACTION_LABELS[entry.action] ?? 'Cập nhật';
+      const status = entry.toStatus && entry.toStatus in QUOTE_STATUS_LABELS ? QUOTE_STATUS_LABELS[entry.toStatus as QuoteStatus] : '';
+      return {
+        title: `Báo giá ${entry.quoteCode}${version}: ${action}${status && entry.action !== 'revise' ? ` (${status})` : ''}`,
+        detail: entry.reason ?? undefined,
+      };
+    }
     default:
       return { title: 'Sự kiện khác' };
   }
 }
+
+/** Nhãn thao tác trên báo giá (nhật ký, dòng thời gian). */
+export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {
+  create: 'Lập báo giá',
+  revise: 'Sinh phiên bản mới',
+  submit: 'Gửi duyệt',
+  approve: 'Duyệt',
+  reject: 'Từ chối duyệt',
+  send: 'Gửi khách',
+  accept: 'Khách chấp nhận',
+  decline: 'Khách từ chối',
+  expire: 'Hết hạn',
+};

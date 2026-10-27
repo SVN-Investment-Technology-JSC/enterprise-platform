@@ -5,6 +5,7 @@ import {
   OPPORTUNITY_STAGES,
   type OpportunityStage,
 } from '@enterprise-platform/contracts-crm';
+import { QUOTE_DEFAULT_VALIDITY_DAYS } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmValidationError } from './crm.error.js';
 
 /**
@@ -16,9 +17,8 @@ import { CrmConflictError, CrmValidationError } from './crm.error.js';
  * - mọi giai đoạn mở → Thua, bắt buộc lý do;
  * - Thắng, Thua là trạng thái cuối, không chuyển đi đâu.
  *
- * Điều kiện "có báo giá Khách chấp nhận" cho Đàm phán → Thắng thuộc GĐ3 (chưa
- * có bảng báo giá); khi đó service kiểm thêm qua port báo giá, bảng chuyển ở
- * đây giữ nguyên.
+ * Tác động phụ theo giai đoạn đích (`stageSideEffects`): sang Báo giá thì tạo
+ * nháp báo giá nếu chưa có; sang Thắng thì phải có báo giá Khách chấp nhận.
  */
 export function isOpenStage(stage: OpportunityStage): boolean {
   return OPEN_OPPORTUNITY_STAGES.includes(stage);
@@ -70,4 +70,22 @@ export function normalizeProbability(value: unknown, fallback = 0): number {
     throw new CrmValidationError('INVALID_PROBABILITY', 'Xác suất phải là số nguyên từ 0 đến 100.');
   }
   return number;
+}
+
+/**
+ * Tác động phụ của việc chuyển sang `to` (mục 5.1 kế hoạch, T3-14), store làm
+ * trong cùng transaction: sang Báo giá tạo nháp báo giá hạn hiệu lực mặc định
+ * tính từ `today` nếu chưa có; sang Thắng cần báo giá Khách chấp nhận.
+ */
+export function stageSideEffects(
+  to: OpportunityStage,
+  today: string,
+): { draftQuoteValidUntil?: string; requireAcceptedQuote?: boolean } {
+  if (to === 'QUOTING') {
+    const date = new Date(`${today}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + QUOTE_DEFAULT_VALIDITY_DAYS);
+    return { draftQuoteValidUntil: date.toISOString().slice(0, 10) };
+  }
+  if (to === 'WON') return { requireAcceptedQuote: true };
+  return {};
 }

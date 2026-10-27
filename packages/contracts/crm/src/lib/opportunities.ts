@@ -322,6 +322,21 @@ export type CustomerTimelineEntry =
       readonly status: ActivityStatus;
       readonly dueAt: string | null;
       readonly opportunityId: string | null;
+    }
+  | {
+      /** Báo giá: lập, gửi duyệt, duyệt, gửi khách, khách trả lời, hết hạn, sinh phiên bản mới. */
+      readonly kind: 'quote';
+      readonly id: string;
+      readonly at: string;
+      readonly actorId: string | null;
+      readonly quoteId: string;
+      readonly quoteCode: string;
+      readonly action: string;
+      readonly fromStatus: string | null;
+      readonly toStatus: string | null;
+      readonly versionNo: number | null;
+      readonly reason: string | null;
+      readonly opportunityId: string | null;
     };
 
 export type CustomerTimelineKind = CustomerTimelineEntry['kind'];

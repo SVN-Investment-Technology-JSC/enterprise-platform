@@ -250,6 +250,13 @@ export interface StageChange {
   readonly reason: string | null;
   /** Không có thì không so phiên bản (chỉ so giai đoạn hiện tại). */
   readonly expectedVersion?: number;
+  /**
+   * Sang Báo giá: tạo nháp báo giá (hạn hiệu lực ngày này) trong cùng
+   * transaction nếu cơ hội chưa có báo giá còn hiệu lực (OPP-05).
+   */
+  readonly draftQuoteValidUntil?: string;
+  /** Sang Thắng: phải có báo giá Khách chấp nhận, kiểm trong transaction. */
+  readonly requireAcceptedQuote?: boolean;
 }
 
 export interface OpportunityStore {

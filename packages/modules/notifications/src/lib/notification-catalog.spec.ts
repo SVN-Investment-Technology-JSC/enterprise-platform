@@ -659,3 +659,33 @@ describe('nhắc hoạt động Bán hàng', () => {
   });
 });
 
+
+describe('báo giá Bán hàng', () => {
+  it('cần duyệt: báo người trong payload, mở đúng báo giá, không báo chính người gửi', async () => {
+    const resolved = await registry.resolve(
+      event('crm.quote.approval-requested', {
+        quoteId: 'q-1',
+        quoteCode: 'BG2600001',
+        versionNo: 1,
+        recipientUserIds: ['user-tn', 'user-nv'],
+        actorUserId: 'user-nv',
+        summary: 'Báo giá BG2600001 (Công ty A) cần duyệt: Dòng 1 (CAP): Chiết khấu vượt hạn mức vai trò nhân viên (12% > 5%).',
+        deepLink: '/modules/crm#quotes/q-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-tn']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe('Báo giá cần duyệt');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#quotes/q-1');
+  });
+
+  it.each(['crm.quote.approval-decided', 'crm.quote.expired'])('%s báo người gửi hoặc người phụ trách', async (type) => {
+    const resolved = await registry.resolve(
+      event(type, { quoteId: 'q-2', versionNo: 2, recipientUserIds: ['user-nv'], actorUserId: null, summary: 'Báo giá BG2600002 đã hết hạn hiệu lực.', deepLink: '/modules/crm#quotes/q-2' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-nv']);
+    expect(resolved?.template.body).toBe('Báo giá BG2600002 đã hết hạn hiệu lực.');
+  });
+});

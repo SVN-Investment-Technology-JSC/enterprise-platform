@@ -184,6 +184,8 @@ services:
       # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
       FINANCE_API_URL: http://finance-api:3341/api/finance
+      # Procedure hỏi Bán hàng trước khi huỷ hiệu lực phiên duyệt báo giá, đơn bán (chỉ đọc).
+      CRM_API_URL: http://crm-api:3344/api/crm
     depends_on:
       api:
         condition: service_healthy
@@ -331,6 +333,9 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3344'
+      # Báo giá: danh mục, tồn khả dụng, giá vốn từ Kho; phiên duyệt vượt ngưỡng ở Quy trình.
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       api:
         condition: service_healthy

@@ -444,11 +444,18 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       await expect(opportunities.changeStage(seller(NV1), created.id, { stage: 'NEGOTIATION' })).rejects.toMatchObject({ statusCode: 409 });
     });
 
-    it('Đàm phán → Thắng', async () => {
+    it('Đàm phán → Thắng (cần báo giá khách chấp nhận, T3-14)', async () => {
       const created = await opportunities.create(seller(NV1), { customerId, name: 'Thắng được' });
-      for (const stage of ['CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION', 'WON'] as const) {
+      for (const stage of ['CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION'] as const) {
         await opportunities.changeStage(seller(NV1), created.id, { stage });
       }
+      await expect(opportunities.changeStage(seller(NV1), created.id, { stage: 'WON' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'ACCEPTED_QUOTE_REQUIRED',
+      });
+      // Luồng báo giá đầy đủ kiểm ở crm-quotes.integration.spec.ts; ở đây chỉ đặt nháp tự tạo thành chấp nhận.
+      await handle.pool.query(`UPDATE crm_schema.quotes SET status = 'ACCEPTED' WHERE opportunity_id = $1`, [created.id]);
+      await opportunities.changeStage(seller(NV1), created.id, { stage: 'WON' });
       await expect(opportunities.get(seller(NV1), created.id)).resolves.toMatchObject({ stage: 'WON', probability: 100 });
     });
 
