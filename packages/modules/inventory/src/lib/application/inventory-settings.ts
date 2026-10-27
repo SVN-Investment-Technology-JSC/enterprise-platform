@@ -57,6 +57,8 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'catalog.material': DEFAULT_CATALOG,
   'catalog.asset': DEFAULT_CATALOG,
   'catalog.unit': { units: DEFAULT_UNITS },
+  // Q5: mặc định không tự duyệt, giống Tài chính.
+  'documents.approval': { allowSelfApproval: false },
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -117,6 +119,10 @@ const NORMALIZERS: {
     // không lưu được gì. Rơi về mặc định thay vì tự khoá cả module.
     return { units: units.length > 0 ? units : [...DEFAULT_UNITS] };
   },
+  // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.
+  'documents.approval': (value) => ({
+    allowSelfApproval: (value as { allowSelfApproval?: unknown } | null)?.allowSelfApproval === true,
+  }),
 };
 
 /**

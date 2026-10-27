@@ -157,7 +157,7 @@ function mapInventory(row: Row): MaterialInventory {
   };
 }
 
-function mapTransaction(row: Row): InventoryTransaction {
+export function mapTransaction(row: Row): InventoryTransaction {
   return {
     id: str(row.id),
     transactionCode: str(row.transaction_code),
@@ -174,6 +174,7 @@ function mapTransaction(row: Row): InventoryTransaction {
     note: opt(row.note),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
+    documentId: opt(row.document_id),
   };
 }
 
@@ -1491,7 +1492,7 @@ export class PostgresInventoryStore implements InventoryStore {
   }
 }
 
-async function writeInventoryOutbox(
+export async function writeInventoryOutbox(
   client: PoolClient,
   tenantId: string,
   input: InventoryNotificationEvent,

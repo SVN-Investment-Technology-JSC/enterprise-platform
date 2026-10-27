@@ -3,3 +3,7 @@ export * from './lib/application/inventory.application.js';
 export * from './lib/application/inventory-store.port.js';
 export * from './lib/presentation/inventory.controller.js';
 export * from './lib/domain/inventory.error.js';
+export * from './lib/application/stock-document.service.js';
+export * from './lib/application/stock-document-store.port.js';
+export * from './lib/presentation/stock-document.controller.js';
+export * from './lib/domain/stock-document-policy.js';

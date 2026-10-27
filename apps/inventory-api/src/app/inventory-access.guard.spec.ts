@@ -26,7 +26,9 @@ describe('inventory module capabilities', () => {
       path: '/api/inventory/v1' + path, method,
       headers: { authorization: 'Bearer token', 'x-csrf-token': 'csrf' },
       cookies: { ep_csrf: 'csrf' },
-      inventoryActor: undefined as undefined | { canManage: boolean; canWriteTransactions: boolean },
+      inventoryActor: undefined as
+        | undefined
+        | { canManage: boolean; canWriteTransactions: boolean; canApproveDocuments?: boolean },
     };
     const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
     return { guard, request, context, register };
@@ -49,5 +51,20 @@ describe('inventory module capabilities', () => {
     const { guard, context, request } = setup(['inventory.read'], '/materials', 'GET');
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.inventoryActor).toMatchObject({ canManage: false, canWriteTransactions: false });
+  });
+  it('stock documents: writing needs transaction.write, approving needs document.approve', async () => {
+    const writer = ['inventory.read', 'inventory.transaction.write'];
+    const create = setup(writer, '/stock-documents');
+    await expect(create.guard.canActivate(create.context)).resolves.toBe(true);
+    const post = setup(writer, '/stock-documents/abc/post');
+    await expect(post.guard.canActivate(post.context)).resolves.toBe(true);
+    const approveByWriter = setup(writer, '/stock-documents/abc/approve');
+    await expect(approveByWriter.guard.canActivate(approveByWriter.context)).rejects.toMatchObject({ status: 403 });
+    const reader = setup(['inventory.read'], '/stock-documents/abc/submit');
+    await expect(reader.guard.canActivate(reader.context)).rejects.toMatchObject({ status: 403 });
+
+    const approver = setup(['inventory.read', 'inventory.document.approve'], '/stock-documents/abc/reject');
+    await expect(approver.guard.canActivate(approver.context)).resolves.toBe(true);
+    expect(approver.request.inventoryActor).toMatchObject({ canApproveDocuments: true, canWriteTransactions: false });
   });
 });

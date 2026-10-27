@@ -32,7 +32,14 @@ import type {
 import type { InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_STORE } from './inventory-store.port.js';
 import {
+  STOCK_DOCUMENT_STORE,
+  type NewStockDocumentInput,
+  type StockDocumentStore,
+} from './stock-document-store.port.js';
+import {
   AssetNotFoundError,
+  InsufficientAvailableStockError,
+  InsufficientStockError,
   InventoryError,
   InvalidReservationError,
   MaterialNotFoundError,
@@ -62,11 +69,19 @@ export interface InventoryActor {
    * mọi nơi gọi chưa cập nhật.
    */
   readonly canWriteTransactions?: boolean;
+  /**
+   * Duyệt, từ chối chứng từ kho (`inventory.document.approve`). Bỏ trống = suy
+   * theo `canManage`, như `canWriteTransactions`.
+   */
+  readonly canApproveDocuments?: boolean;
 }
 
 @Injectable()
 export class InventoryApplication {
-  constructor(@Inject(INVENTORY_STORE) private readonly store: InventoryStore) {}
+  constructor(
+    @Inject(INVENTORY_STORE) private readonly store: InventoryStore,
+    @Inject(STOCK_DOCUMENT_STORE) private readonly documents: StockDocumentStore,
+  ) {}
 
   /**
    * Khai một kho mới.
@@ -621,8 +636,14 @@ export class InventoryApplication {
     return updated;
   }
 
-  /** Inbound movement — positive ledger quantity. */
-  receiveStock(
+  /**
+   * Inbound movement — positive ledger quantity.
+   *
+   * Từ T1-06 ghi qua chứng từ kho một dòng (nhập theo đơn mua), tạo và ghi sổ
+   * trong cùng một transaction, nên bút toán mới có `document_id`. Request và
+   * response giữ nguyên; import tồn đầu kỳ cũng đi đường này.
+   */
+  async receiveStock(
     actor: InventoryActor,
     input: {
       warehouseCode: string;
@@ -636,16 +657,33 @@ export class InventoryApplication {
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
-    return this.store.transaction.append(actor.tenantId, {
-      ...input,
-      type: 'IMPORT',
-      quantity: input.quantity,
+    const posted = await this.postLegacyDocument(actor, {
+      docType: 'RECEIPT_PURCHASE',
+      warehouseCode: input.warehouseCode,
+      sourceType: input.referenceType,
+      sourceId: input.referenceId,
+      note: input.note,
       createdBy: actor.userId,
+      lines: [
+        {
+          materialCode: input.materialCode,
+          quantity: input.quantity,
+          direction: 'IN',
+          unitCost: input.unitCost ?? 0,
+        },
+      ],
     });
+    return posted[0];
   }
 
-  /** Outbound movement — stored as a negative ledger quantity. */
-  issueStock(
+  /**
+   * Outbound movement — stored as a negative ledger quantity.
+   *
+   * Ghi qua chứng từ xuất một dòng. Khác trước: kiểm theo tồn khả dụng (tồn trừ
+   * phần đã giữ) thay vì tồn thực tế, để xuất tự do không lấy hàng đã giữ cho
+   * người khác (T1-09). Lỗi vẫn là 400 INSUFFICIENT_STOCK như cũ.
+   */
+  async issueStock(
     actor: InventoryActor,
     input: {
       warehouseCode: string;
@@ -658,15 +696,30 @@ export class InventoryApplication {
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
-    return this.store.transaction.append(actor.tenantId, {
-      ...input,
-      type: 'EXPORT',
-      quantity: -input.quantity,
+    const posted = await this.postLegacyDocument(actor, {
+      docType: 'ISSUE_PROJECT',
+      warehouseCode: input.warehouseCode,
+      sourceType: input.referenceType,
+      sourceId: input.referenceId,
+      note: input.note,
       createdBy: actor.userId,
+      lines: [
+        {
+          materialCode: input.materialCode,
+          quantity: input.quantity,
+          direction: 'OUT',
+          unitCost: 0,
+        },
+      ],
     });
+    return posted[0];
   }
 
-  /** Two ledger rows: TRANSFER_OUT at source, TRANSFER_IN at destination. */
+  /**
+   * Hai bút toán EXPORT ở kho nguồn và IMPORT ở kho đích (vế nhập tham chiếu vế
+   * xuất), cùng một chứng từ TRANSFER và cùng một transaction: vế nhập lỗi thì
+   * vế xuất cũng không còn.
+   */
   async transferStock(
     actor: InventoryActor,
     input: {
@@ -683,35 +736,47 @@ export class InventoryApplication {
       throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
 
-    const outNote = input.note
-      ? `${input.note} (Xuất chuyển đến kho ${input.toWarehouseCode})`
-      : `Xuất chuyển đến kho ${input.toWarehouseCode}`;
-
-    const out = await this.store.transaction.append(actor.tenantId, {
+    const [out, inbound] = await this.postLegacyDocument(actor, {
+      docType: 'TRANSFER',
       warehouseCode: input.fromWarehouseCode,
-      materialCode: input.materialCode,
-      type: 'EXPORT',
-      quantity: -input.quantity,
-      note: outNote,
+      targetWarehouseCode: input.toWarehouseCode,
+      note: input.note,
       createdBy: actor.userId,
+      lines: [
+        {
+          materialCode: input.materialCode,
+          quantity: input.quantity,
+          direction: 'OUT',
+          unitCost: 0,
+        },
+      ],
     });
-
-    const inNote = input.note
-      ? `${input.note} (Nhập chuyển từ kho ${input.fromWarehouseCode} theo ${out.transactionCode})`
-      : `Nhập chuyển từ kho ${input.fromWarehouseCode} theo ${out.transactionCode}`;
-
-    const inbound = await this.store.transaction.append(actor.tenantId, {
-      warehouseCode: input.toWarehouseCode,
-      materialCode: input.materialCode,
-      type: 'IMPORT',
-      quantity: input.quantity,
-      referenceType: 'inventory_transaction',
-      referenceId: out.id,
-      note: inNote,
-      createdBy: actor.userId,
-    });
-
     return { out, in: inbound };
+  }
+
+  /**
+   * Tạo và ghi sổ chứng từ cho đường API cũ. Không qua bước duyệt: loại chứng
+   * từ được chọn đều là loại ghi sổ thẳng, và quyền đã kiểm như trước. Lỗi
+   * thiếu tồn đổi về `InsufficientStockError` (400) để màn Kho cũ nhận đúng mã.
+   */
+  private async postLegacyDocument(
+    actor: InventoryActor,
+    input: NewStockDocumentInput,
+  ): Promise<InventoryTransaction[]> {
+    try {
+      const posted = await this.documents.createAndPost(actor.tenantId, input, actor.userId);
+      return [...posted.transactions];
+    } catch (error) {
+      if (error instanceof InsufficientAvailableStockError) {
+        throw new InsufficientStockError(
+          error.materialCode,
+          error.requested,
+          error.available,
+          error.warehouseCode,
+        );
+      }
+      throw error;
+    }
   }
 
   createStockReservation(

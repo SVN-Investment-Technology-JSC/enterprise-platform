@@ -22,9 +22,15 @@ interface InventoryRequest extends Request {
 function requiredInventoryPermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
-  // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư.
   const path = request.path;
+  // Duyệt, từ chối chứng từ kho: quyền riêng, người duyệt không nhất thiết là thủ kho.
+  if (/\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
+    return 'inventory.document.approve';
+  }
+
+  // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư, chứng từ kho.
   if (
+    path.includes('/stock-documents') ||
     path.includes('/receipts') ||
     path.includes('/issues') ||
     path.includes('/transfers') ||
@@ -77,7 +83,9 @@ export class InventoryAccessGuard implements CanActivate {
         message:
           required === 'inventory.transaction.write'
             ? 'Bạn không có quyền ghi phát sinh tồn kho.'
-            : 'Bạn không có quyền sửa danh mục kho.',
+            : required === 'inventory.document.approve'
+              ? 'Bạn không có quyền duyệt chứng từ kho.'
+              : 'Bạn không có quyền sửa danh mục kho.',
       });
     }
 
@@ -88,6 +96,7 @@ export class InventoryAccessGuard implements CanActivate {
       displayName: decision.principal.displayName,
       canManage: tenantActionHeld(held, 'inventory.manage'),
       canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
+      canApproveDocuments: tenantActionHeld(held, 'inventory.document.approve'),
     };
     return true;
   }
@@ -107,6 +116,8 @@ export class InventoryAccessGuard implements CanActivate {
       displayName: 'Hệ thống',
       canManage: false,
       canWriteTransactions: true,
+      // Dịch vụ không duyệt thay người: chứng từ cần duyệt phải có người duyệt thật.
+      canApproveDocuments: false,
     };
     return true;
   }

@@ -513,6 +513,8 @@ export interface InventoryTransaction {
   readonly note?: string;
   readonly createdBy: string;
   readonly createdAt: string;
+  /** Chứng từ kho sinh ra bút toán; bút toán trước migration 0011 không có. */
+  readonly documentId?: string;
 }
 
 export type ReservationStatus = 'PENDING' | 'RESERVED' | 'PARTIALLY_ISSUED' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
@@ -628,6 +630,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.material',
   'catalog.asset',
   'catalog.unit',
+  'documents.approval',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -673,11 +676,22 @@ export interface InventoryUnitCatalog {
   readonly units: readonly string[];
 }
 
+/**
+ * Quy tắc duyệt chứng từ kho (nhập khác, xuất khác, điều chỉnh).
+ *
+ * Mặc định người lập không tự duyệt được chứng từ của mình, giống
+ * `allow_self_approval` của Tài chính.
+ */
+export interface InventoryDocumentApprovalSettings {
+  readonly allowSelfApproval: boolean;
+}
+
 export interface InventorySettings {
   readonly 'dashboard.cards': DashboardCardSelection;
   readonly 'catalog.material': InventoryCatalogSettings;
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
+  readonly 'documents.approval': InventoryDocumentApprovalSettings;
 }
 
 export interface SettingsEntry<TValue> {
@@ -858,3 +872,138 @@ export interface UpdateStocktakeLineInput {
   readonly serialAllocations?: readonly StocktakeSerialAllocation[];
 }
 
+// ---------------------------------------------------------------- Chứng từ kho
+
+export const STOCK_DOCUMENT_TYPES = [
+  'RECEIPT_PURCHASE',
+  'RECEIPT_SALES_RETURN',
+  'RECEIPT_TRANSFER',
+  'RECEIPT_OTHER',
+  'ISSUE_SALES',
+  'ISSUE_PROJECT',
+  'ISSUE_WARRANTY',
+  'ISSUE_TRANSFER',
+  'ISSUE_OTHER',
+  'ADJUSTMENT',
+  'TRANSFER',
+] as const;
+
+export type StockDocumentType = (typeof STOCK_DOCUMENT_TYPES)[number];
+
+export const STOCK_DOCUMENT_STATUSES = [
+  'DRAFT',
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'POSTED',
+  'CANCELLED',
+] as const;
+
+export type StockDocumentStatus = (typeof STOCK_DOCUMENT_STATUSES)[number];
+
+/** Chiều của dòng: IN cộng tồn, OUT trừ tồn. Dòng điều chuyển ghi OUT (xuất khỏi kho đi). */
+export type StockDocumentLineDirection = 'IN' | 'OUT';
+
+export interface StockDocumentLine {
+  readonly id: string;
+  readonly lineNo: number;
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly unit?: string;
+  readonly quantity: number;
+  readonly direction: StockDocumentLineDirection;
+  readonly unitCost: number;
+  readonly costAmount?: number;
+  readonly reservationId?: string;
+  readonly note?: string;
+}
+
+export interface StockDocument {
+  readonly id: string;
+  readonly code: string;
+  readonly docType: StockDocumentType;
+  readonly status: StockDocumentStatus;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly targetWarehouseId?: string;
+  readonly targetWarehouseCode?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly idempotencyKey?: string;
+  /** Ngày chứng từ, dạng YYYY-MM-DD. */
+  readonly documentDate: string;
+  readonly note?: string;
+  readonly rejectReason?: string;
+  readonly reversesDocumentId?: string;
+  readonly createdBy: string;
+  readonly submittedBy?: string;
+  readonly submittedAt?: string;
+  readonly approvedBy?: string;
+  readonly approvedAt?: string;
+  readonly rejectedBy?: string;
+  readonly rejectedAt?: string;
+  readonly postedBy?: string;
+  readonly postedAt?: string;
+  readonly cancelledBy?: string;
+  readonly cancelledAt?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lines: readonly StockDocumentLine[];
+}
+
+export interface StockDocumentLineInput {
+  readonly materialCode: string;
+  readonly quantity: number;
+  /** Bỏ trống thì suy theo loại chứng từ; chứng từ điều chỉnh bắt buộc ghi. */
+  readonly direction?: StockDocumentLineDirection;
+  readonly unitCost?: number;
+  readonly note?: string;
+}
+
+export interface CreateStockDocumentRequest {
+  readonly docType: StockDocumentType;
+  readonly warehouseCode: string;
+  readonly targetWarehouseCode?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  /** Gọi lại cùng khoá trả về chứng từ đã tạo, không tạo thêm. */
+  readonly idempotencyKey?: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+  readonly lines: readonly StockDocumentLineInput[];
+}
+
+/** Sửa chứng từ nháp (hoặc bị từ chối, sửa xong quay về nháp). Không đổi được loại chứng từ. */
+export interface UpdateStockDocumentRequest {
+  readonly warehouseCode?: string;
+  readonly targetWarehouseCode?: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+  readonly lines?: readonly StockDocumentLineInput[];
+}
+
+export interface RejectStockDocumentRequest {
+  readonly reason: string;
+}
+
+export interface StockDocumentListQuery {
+  readonly docType?: StockDocumentType;
+  readonly status?: StockDocumentStatus;
+  readonly warehouseCode?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StockDocumentPage {
+  readonly items: readonly StockDocument[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+/** Kết quả ghi sổ: chứng từ và các bút toán vừa sinh, theo thứ tự dòng. */
+export interface PostedStockDocument {
+  readonly document: StockDocument;
+  readonly transactions: readonly InventoryTransaction[];
+}

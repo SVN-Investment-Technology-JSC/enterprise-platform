@@ -66,3 +66,52 @@ export class SettingsVersionConflictError extends InventoryError {
     );
   }
 }
+
+export class StockDocumentNotFoundError extends InventoryError {
+  constructor(key: string) {
+    super('STOCK_DOCUMENT_NOT_FOUND', `Không tìm thấy chứng từ kho ${key}.`, 404);
+  }
+}
+
+/** Chuyển trạng thái không có trong máy trạng thái chứng từ kho (kế hoạch mục 5.6). */
+export class InvalidStockDocumentTransitionError extends InventoryError {
+  constructor(message: string) {
+    super('STOCK_DOCUMENT_INVALID_TRANSITION', message, 409);
+  }
+}
+
+export class PostedStockDocumentError extends InventoryError {
+  constructor() {
+    super('STOCK_DOCUMENT_POSTED', 'Chứng từ đã ghi sổ không được sửa.', 409);
+  }
+}
+
+export class StockDocumentSelfApprovalError extends InventoryError {
+  constructor() {
+    super('STOCK_DOCUMENT_SELF_APPROVAL', 'Không được tự duyệt chứng từ do mình lập.', 403);
+  }
+}
+
+/**
+ * Xuất vượt tồn khả dụng (tồn thực tế trừ phần đã giữ) khi ghi sổ chứng từ.
+ *
+ * 409 vì yêu cầu hợp lệ nhưng xung đột với trạng thái tồn hiện tại. Đường API cũ
+ * (`/v1/issues`, `/v1/transfers`) đổi lỗi này về `InsufficientStockError` (400)
+ * để giữ nguyên hợp đồng với màn Kho.
+ */
+export class InsufficientAvailableStockError extends InventoryError {
+  constructor(
+    readonly materialCode: string,
+    readonly requested: number,
+    readonly available: number,
+    readonly warehouseCode: string,
+  ) {
+    super(
+      'INSUFFICIENT_AVAILABLE_STOCK',
+      `Không đủ tồn khả dụng: kho ${warehouseCode} chỉ còn ${available} ${materialCode} khả dụng, không đủ cho ${requested}.`,
+      409,
+    );
+    // Lớp cha ép prototype về InventoryError; trả lại để `instanceof` nhận ra lỗi này.
+    Object.setPrototypeOf(this, InsufficientAvailableStockError.prototype);
+  }
+}
