@@ -4,25 +4,29 @@ import {
   SOCIAL_TOPIC_NAME_MAX,
   type SocialTopic,
 } from '@enterprise-platform/contracts-social';
-import { Check, Pencil, Plus, X } from 'lucide-react';
+import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import { createTopic, errorMessage, updateTopic } from '../social-api';
+import { createTopic, deleteTopic, errorMessage, updateTopic } from '../social-api';
 import styles from '../social.module.scss';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
-import { Dialog } from './ui';
+import { ConfirmDialog, Dialog } from './ui';
 
 function TopicRow({
   topic,
   onSaved,
+  onRemoved,
   onError,
 }: {
   readonly topic: SocialTopic;
   readonly onSaved: () => void;
+  readonly onRemoved: (topicId: string) => void;
   readonly onError: (message: string | undefined) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const [name, setName] = useState(topic.name);
   const [busy, setBusy] = useState(false);
 
@@ -36,6 +40,20 @@ function TopicRow({
     } catch (cause) {
       onError(errorMessage(cause, 'Không lưu được chuyên mục.'));
       return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setDeleteError(undefined);
+    try {
+      await deleteTopic(topic.id);
+      setConfirming(false);
+      onRemoved(topic.id);
+    } catch (cause) {
+      setDeleteError(errorMessage(cause, 'Không xoá được chuyên mục.'));
     } finally {
       setBusy(false);
     }
@@ -125,6 +143,17 @@ function TopicRow({
           >
             <Pencil className="size-5" />
           </Button>
+          <Button
+            size="icon-lg"
+            variant="ghost"
+            className="text-slate-500 hover:bg-red-50 hover:text-red-600"
+            aria-label={`Xoá chuyên mục ${topic.name}`}
+            title="Xoá chuyên mục"
+            disabled={busy}
+            onClick={() => setConfirming(true)}
+          >
+            <Trash2 className="size-5" />
+          </Button>
           <Switch
             checked={topic.isActive}
             disabled={busy}
@@ -138,18 +167,37 @@ function TopicRow({
           />
         </>
       )}
+      <ConfirmDialog
+        open={confirming}
+        title="Xoá chuyên mục"
+        message={[
+          `Xoá chuyên mục "${topic.name}"?`,
+          topic.postCount > 0
+            ? `${topic.postCount.toLocaleString('vi-VN')} bài viết đang thuộc chuyên mục này vẫn được giữ nguyên, chỉ không còn gắn chuyên mục này (bài còn chuyên mục khác thì giữ các chuyên mục đó). Không thể khôi phục.`
+            : 'Chưa có bài viết đã đăng nào thuộc chuyên mục này. Không thể khôi phục.',
+          'Chỉ muốn ẩn khỏi danh sách chọn khi đăng bài? Hãy tắt công tắc thay vì xoá.',
+        ]}
+        confirmLabel="Xoá chuyên mục"
+        busy={busy}
+        error={deleteError}
+        onConfirm={() => void remove()}
+        onClose={() => setConfirming(false)}
+      />
     </li>
   );
 }
 
-/** Quản lý chuyên mục: thêm, đổi tên, bật hoặc tắt. Chỉ mở cho người có `social.manage`. */
+/** Quản lý chuyên mục: thêm, đổi tên, bật hoặc tắt, xoá. Chỉ mở cho người có `social.manage`. */
 export function TopicDialog({
   topics,
   onChanged,
+  onRemoved,
   onClose,
 }: {
   readonly topics: readonly SocialTopic[];
   readonly onChanged: () => void;
+  /** Sau khi xoá một chuyên mục (nơi cha bỏ lọc theo chuyên mục đó nếu đang mở). */
+  readonly onRemoved: (topicId: string) => void;
   readonly onClose: () => void;
 }) {
   const [name, setName] = useState('');
@@ -203,20 +251,28 @@ export function TopicDialog({
           Thêm
         </Button>
       </div>
-      {topics.length === 0 ? (
-        <p className={styles.muted}>Chưa có chuyên mục nào.</p>
-      ) : (
-        <ul className="m-0 flex list-none flex-col gap-1 p-0">
-          {topics.map((topic) => (
-            <TopicRow
-              key={`${topic.id}-${topic.name}-${topic.isActive}`}
-              topic={topic}
-              onSaved={onChanged}
-              onError={setError}
-            />
-          ))}
-        </ul>
-      )}
+      {/* Khung danh sách cao cố định theo chiều cao màn hình: thêm, xoá chuyên mục không làm hộp thoại co giãn;
+          nhiều quá thì chỉ cuộn trong khung này. */}
+      <div className="h-[clamp(180px,calc(100dvh-400px),460px)] overflow-y-auto overscroll-contain pr-1">
+        {topics.length === 0 ? (
+          <p className={styles.muted}>Chưa có chuyên mục nào.</p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {topics.map((topic) => (
+              <TopicRow
+                key={`${topic.id}-${topic.name}-${topic.isActive}`}
+                topic={topic}
+                onSaved={onChanged}
+                onRemoved={(id) => {
+                  onRemoved(id);
+                  onChanged();
+                }}
+                onError={setError}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     </Dialog>
   );
 }

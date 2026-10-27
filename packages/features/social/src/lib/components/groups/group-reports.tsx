@@ -17,7 +17,8 @@ import { errorMessage } from '../../social-api';
 import { formatRelativeTime } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
 import base from '../../social.module.scss';
-import { Avatar, Dialog, Field, userSubtitle } from '../ui';
+import { Dialog, Field, userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { appendUnique, reportReasonError } from './groups.model';
 import s from './groups.module.scss';
 import { createReport, listGroupReports, resolveGroupReport } from './social-groups-api';
@@ -260,7 +261,7 @@ export function GroupReports({
         <ul className={s.rowList}>
           {items.map((report) => (
             <li key={report.id} className={s.reportRow}>
-              <Avatar user={report.reporter} size={32} />
+              <UserAvatar user={report.reporter} size={32} />
               <div className={s.reportText}>
                 <span className={s.rowTitle}>
                   <b>{report.reporter.name}</b> báo cáo {SOCIAL_REPORT_TARGET_LABELS[report.targetType].toLowerCase()}

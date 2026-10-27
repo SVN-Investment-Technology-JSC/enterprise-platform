@@ -49,6 +49,8 @@ export interface DialogProps {
   readonly submitDisabled?: boolean;
   readonly danger?: boolean;
   readonly wide?: boolean;
+  /** Chiều cao cố định theo kích thước màn hình (không co giãn theo nội dung); nội dung dài cuộn trong hộp. */
+  readonly fixedHeight?: boolean;
   readonly error?: string;
   /** Không có `onSubmit` thì chân hộp thoại chỉ có nút Đóng. */
   readonly onSubmit?: () => void;
@@ -70,6 +72,7 @@ export function Dialog({
   submitDisabled = false,
   danger = false,
   wide = false,
+  fixedHeight = false,
   error,
   onSubmit,
   onClose,
@@ -98,7 +101,9 @@ export function Dialog({
       }}
     >
       <div
-        className={wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
+        className={[styles.dialog, wide ? styles.dialogWide : '', fixedHeight ? styles.dialogFixed : '']
+          .filter(Boolean)
+          .join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label={title}

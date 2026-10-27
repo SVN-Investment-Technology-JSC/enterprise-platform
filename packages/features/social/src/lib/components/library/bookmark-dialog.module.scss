@@ -1,0 +1,184 @@
+// Ô chọn thư mục bài đã lưu (kiểu Ant Design "custom dropdown menu"). Bảng màu theo `ui/multi-select.module.scss`.
+// Danh sách dựng qua portal nên không nhận biến `--ep-*`: dùng màu cố định.
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible,
+  &[data-open] {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgb(37 99 235 / 15%);
+    outline: none;
+  }
+
+  &:disabled {
+    background: #f1f5f9;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: #94a3b8;
+}
+
+.dropdown {
+  width: var(--anchor-width, 320px);
+  min-width: 220px;
+  max-height: min(360px, var(--available-height, 360px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 16%);
+  color: #0f172a;
+  font-family: inherit;
+}
+
+.search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #94a3b8;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #0f172a;
+    font: inherit;
+    font-size: 13px;
+  }
+}
+
+.list {
+  flex: 1;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+
+  &[data-active] {
+    background: #f1f5f9;
+  }
+
+  &[data-selected] {
+    background: #e8f0ff;
+    font-weight: 600;
+  }
+
+  &[data-selected][data-active] {
+    background: #dbe7ff;
+  }
+}
+
+.optionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionCount {
+  flex: none;
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.hint {
+  margin: 0;
+  padding: 6px 12px 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.divider {
+  flex: none;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: #e2e8f0;
+}
+
+.add {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.addInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.addError {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: #b91c1c;
+  font-size: 12.5px;
+}
+
+.unsave {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
+}

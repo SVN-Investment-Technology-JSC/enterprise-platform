@@ -49,6 +49,7 @@ const MIGRATIONS = [
   'tenant/social/0008-social-post-media-layout.sql',
   'tenant/social/0009-social-post-topics.sql',
   'tenant/social/0010-social-more-reactions.sql',
+  'tenant/social/0011-social-bookmark-folders.sql',
 ];
 
 function actor(tenantId: string, userId: string, over: Partial<SocialActor> = {}): SocialActor {

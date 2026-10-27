@@ -14,7 +14,10 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Lock, Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../../social-api';
-import base from '../../social.module.scss';
+import { Checkbox } from '../../ui/checkbox';
+import { Input } from '../../ui/input';
+import { Label } from '../../ui/label';
+import { RadioGroup, RadioGroupItem } from '../../ui/radio-group';
 import { RichEditor } from '../rich-editor';
 import { Dialog, Field, SelectField } from '../ui';
 import { MemberPicker, OrgSourcePicker } from './group-visuals';
@@ -28,7 +31,6 @@ import {
   validateGroupForm,
   type GroupFormState,
 } from './groups.model';
-import s from './groups.module.scss';
 import { createGroup, setGroupMemberSources, updateGroup } from './social-groups-api';
 
 const POST_PERMISSION_OPTIONS = SOCIAL_GROUP_POST_PERMISSIONS.map((value) => ({
@@ -107,6 +109,7 @@ export function GroupFormDialog({
     <Dialog
       open={open}
       wide
+      fixedHeight
       title={editing ? 'Chỉnh sửa nhóm' : 'Tạo nhóm'}
       submitLabel={editing ? 'Cập nhật' : 'Tạo nhóm'}
       submittingLabel={editing ? 'Đang lưu…' : 'Đang tạo…'}
@@ -116,10 +119,10 @@ export function GroupFormDialog({
       onSubmit={() => void submit()}
       onClose={onClose}
     >
-      <div className={s.formStack}>
+      <div className="flex flex-col gap-2.5">
         <Field label="Tên nhóm" required>
-          <input
-            className={base.input}
+          <Input
+            className="h-[38px] rounded-md px-3 text-[13.5px]!"
             value={state.name}
             maxLength={SOCIAL_GROUP_NAME_MAX}
             placeholder="Ví dụ: Câu lạc bộ sáng tạo"
@@ -128,24 +131,26 @@ export function GroupFormDialog({
           />
         </Field>
 
-        <div className={s.radioRow} role="radiogroup" aria-label="Cách chọn thành viên">
+        <RadioGroup
+          className="flex flex-wrap gap-x-5 gap-y-1"
+          aria-label="Cách chọn thành viên"
+          value={state.mode}
+          onValueChange={(value) => patch({ mode: value as SocialGroupMembershipMode })}
+        >
           {MODES.map((mode) => (
-            <label key={mode.value} className={s.radio}>
-              <input
-                type="radio"
-                name="group-mode"
-                checked={state.mode === mode.value}
-                onChange={() => patch({ mode: mode.value })}
-              />
+            <Label key={mode.value} className="cursor-pointer text-[13px] font-normal text-slate-800">
+              <RadioGroupItem value={mode.value} />
               {mode.label}
-            </label>
+            </Label>
           ))}
-        </div>
+        </RadioGroup>
 
         {editing ? null : (
           <SelectField label="Quản lý nhóm">
-            <div className={s.adminPicker}>
-              <span className={s.fixedChip}>{creatorName ? `${creatorName} (bạn)` : 'Bạn'}</span>
+            <div className="flex flex-col gap-1.5">
+              <span className="self-start rounded-full bg-blue-50 px-3 py-0.5 text-[12.5px] font-semibold text-blue-800">
+                {creatorName ? `${creatorName} (bạn)` : 'Bạn'}
+              </span>
               <MemberPicker
                 selected={state.admins}
                 onChange={(admins) => patch({ admins })}
@@ -203,14 +208,14 @@ export function GroupFormDialog({
           />
         </SelectField>
 
-        <div className={s.coverRow} role="group" aria-label="Ảnh bìa">
-          <span className={base.fieldLabel}>Ảnh bìa</span>
-          <div className={s.swatches}>
+        <div className="flex flex-wrap items-center gap-2.5" role="group" aria-label="Ảnh bìa">
+          <span className="text-[13px] font-semibold text-slate-700">Ảnh bìa</span>
+          <div className="flex flex-wrap gap-1.5">
             {SOCIAL_GROUP_COVER_PRESETS.map((preset) => (
               <button
                 key={preset}
                 type="button"
-                className={s.swatch}
+                className="h-[22px] w-[34px] cursor-pointer rounded-md border-2 border-transparent p-0 outline-none transition-shadow focus-visible:ring-3 focus-visible:ring-blue-500/30 data-[active=true]:border-slate-900 data-[active=true]:ring-2 data-[active=true]:ring-blue-500/30"
                 data-active={preset === state.coverPreset}
                 style={{ background: presetGradient(preset) }}
                 aria-label={SOCIAL_GROUP_COVER_PRESET_LABELS[preset]}
@@ -222,22 +227,18 @@ export function GroupFormDialog({
           </div>
         </div>
 
-        <label className={s.publicCheck}>
-          <input
-            type="checkbox"
-            checked={state.isPublic}
-            onChange={(event) => patch({ isPublic: event.target.checked })}
-          />
-          <span className={s.publicText}>
+        <Label className="cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-normal text-slate-800">
+          <Checkbox checked={state.isPublic} onCheckedChange={(checked) => patch({ isPublic: checked })} />
+          <span className="inline-flex items-center gap-1.5 font-semibold">
             {state.isPublic ? <Globe size={13} aria-hidden="true" /> : <Lock size={13} aria-hidden="true" />}
             Nhóm công khai
           </span>
-          <small>
+          <small className="basis-full pl-6 text-xs text-slate-500">
             {state.isPublic
               ? 'Mọi người trong công ty thấy nhóm và tham gia được ngay.'
               : 'Chỉ thành viên thấy nội dung; người khác phải gửi yêu cầu.'}
           </small>
-        </label>
+        </Label>
       </div>
     </Dialog>
   );

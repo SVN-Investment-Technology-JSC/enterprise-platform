@@ -68,6 +68,8 @@ export const SOCIAL_PRESIGNED_URL_TTL_SECONDS = 300;
 
 /** Bình luận: số tệp tối đa, dung lượng ảnh tối đa và số bình luận mỗi lần tải (nhẹ vì bình luận có thể kèm ảnh). */
 export const SOCIAL_COMMENT_MAX_ATTACHMENTS = 4;
+/** Số cấp tối đa của chuỗi bình luận: gốc (1), trả lời (2), trả lời của trả lời (3). */
+export const SOCIAL_COMMENT_MAX_DEPTH = 3;
 export const SOCIAL_COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const SOCIAL_COMMENT_PAGE_SIZE = 10;
 /** Cạnh ảnh lớn nhất được ghi nhận kích thước (đủ cho ảnh panorama, loại giá trị vô lý). */
@@ -256,6 +258,8 @@ export interface SocialPost {
   readonly moderatedAt?: string;
   /** Mặc định `false`. */
   readonly bookmarked?: boolean;
+  /** Thư mục chứa bài đã lưu; chỉ có khi `bookmarked` và bài nằm trong một thư mục. */
+  readonly bookmarkFolderId?: string;
   /**
    * Bài tự sinh từ hoạt động. Với bài này `kind` luôn là `post` (kiểu `SocialPostKind` không đổi để
    * không vỡ mã P1), `bodyHtml` rỗng và không sửa được; hiển thị theo `activity.type`.
@@ -420,7 +424,7 @@ export interface SocialReactor {
 export interface SocialComment {
   readonly id: string;
   readonly postId: string;
-  /** Chỉ hai cấp: bình luận gốc và trả lời. */
+  /** Tối đa `SOCIAL_COMMENT_MAX_DEPTH` cấp: bình luận gốc rồi các trả lời lồng nhau. */
   readonly parentId?: string;
   readonly author: SocialUserRef;
   /** Văn bản thuần; mention ghi dạng `@[userId]`. */
@@ -858,12 +862,43 @@ export interface SocialMyPostsQuery {
   readonly limit?: number;
 }
 
+export const SOCIAL_BOOKMARK_FOLDER_NAME_MAX = 60;
+export const SOCIAL_BOOKMARK_FOLDERS_MAX = 50;
+
+export interface SocialBookmarkFolder {
+  readonly id: string;
+  readonly name: string;
+  /** Số bài đã lưu trong thư mục. */
+  readonly count: number;
+}
+
+export interface SocialBookmarkFolderList {
+  readonly items: readonly SocialBookmarkFolder[];
+  /** Số bài đã lưu chưa vào thư mục nào. */
+  readonly unfiledCount: number;
+  readonly total: number;
+}
+
+export interface CreateSocialBookmarkFolderRequest {
+  readonly name: string;
+}
+
+/** Đổi tên thư mục đã lưu (cùng quy tắc tên với tạo mới). */
+export interface UpdateSocialBookmarkFolderRequest {
+  readonly name: string;
+}
+
 export interface SetSocialBookmarkRequest {
   readonly bookmarked: boolean;
+  /**
+   * Chỉ có ý nghĩa khi `bookmarked = true`. `null` là chưa phân loại; không gửi trường này thì giữ thư mục cũ.
+   */
+  readonly folderId?: string | null;
 }
 
 export interface SocialBookmarkState {
   readonly bookmarked: boolean;
+  readonly folderId?: string;
 }
 
 /** Số mục chờ xử lý, để hiện chấm số ở điều hướng (yêu cầu tham gia nhóm: xem `totalCount` của `SocialJoinRequestInboxPage`). */

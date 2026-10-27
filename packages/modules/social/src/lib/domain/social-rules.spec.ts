@@ -12,7 +12,7 @@ import {
 import {
   assertAttachmentSet,
   assertAttachmentsPostable,
-  assertReplyTarget,
+  assertReplyDepth,
   attachmentRulesFor,
   decodeCursor,
   encodeCursor,
@@ -103,14 +103,14 @@ describe('nội dung bài viết', () => {
   });
 });
 
-describe('bình luận hai cấp', () => {
-  it('trả lời được gắn vào bình luận gốc', () => {
-    expect(() => assertReplyTarget({ parentId: undefined })).not.toThrow();
-    expect(() => assertReplyTarget({ parentId: null })).not.toThrow();
+describe('bình luận ba cấp', () => {
+  it('trả lời được bình luận gốc và trả lời cấp hai', () => {
+    expect(() => assertReplyDepth(1)).not.toThrow();
+    expect(() => assertReplyDepth(2)).not.toThrow();
   });
 
-  it('không trả lời được một trả lời', () => {
-    expect(() => assertReplyTarget({ parentId: UUID_A })).toThrow(SocialValidationError);
+  it('không trả lời được bình luận cấp ba', () => {
+    expect(() => assertReplyDepth(3)).toThrow(SocialValidationError);
   });
 
   it('nội dung bình luận: rỗng và quá dài đều lỗi', () => {

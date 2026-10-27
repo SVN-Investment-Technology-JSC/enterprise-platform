@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
 import { formatRelativeTime } from '../../social.model';
 import base from '../../social.module.scss';
-import { Avatar, userSubtitle } from '../ui';
+import { userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 import { appendUnique } from './groups.model';
 import s from './groups.module.scss';
 import { approveJoinRequest, listJoinRequests, rejectJoinRequest } from './social-groups-api';
@@ -99,7 +100,7 @@ export function GroupJoinRequests({
         <ul className={s.rowList}>
           {items.map((item) => (
             <li key={item.id} className={s.reportRow}>
-              <Avatar user={item.user} size={32} />
+              <UserAvatar user={item.user} size={32} />
               <div className={s.reportText}>
                 <span className={s.rowTitle}>{item.user.name}</span>
                 <span className={s.rowMeta}>

@@ -2,6 +2,7 @@
 
 import {
   Eye,
+  FolderInput,
   History,
   MessageSquareOff,
   MessageSquare,
@@ -24,6 +25,7 @@ const ICONS: Readonly<Record<PostMenuAction, LucideIcon>> = {
   history: History,
   toggleComments: MessageSquareOff,
   edit: Pencil,
+  moveFolder: FolderInput,
   delete: Trash2,
 };
 

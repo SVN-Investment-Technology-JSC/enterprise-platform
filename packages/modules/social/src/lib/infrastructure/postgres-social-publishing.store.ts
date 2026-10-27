@@ -16,6 +16,9 @@ import type {
 import type { PostVisibilityScope } from '../application/ports/post-visibility.port.js';
 import type {
   BookmarkedPostRow,
+  BookmarkFolderRow,
+  BookmarkFolderSummary,
+  BookmarkListQuery,
   DueDecision,
   InboxCountsRow,
   PollVoterRow,
@@ -493,8 +496,9 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
       const polls = new Map<string, PollRow>();
       const readConfirmations = new Map<string, ReadConfirmationRow>();
       const bookmarkedPostIds = new Set<string>();
+      const bookmarkFolderIds = new Map<string, string>();
       const audiences = new Map<string, PostAudienceRow>();
-      if (postIds.length === 0) return { polls, readConfirmations, bookmarkedPostIds, audiences };
+      if (postIds.length === 0) return { polls, readConfirmations, bookmarkedPostIds, bookmarkFolderIds, audiences };
 
       const [pollRows, confirmationRows, bookmarkRows, audienceRows] = await Promise.all([
         pool.query<PollRecord>(
@@ -514,8 +518,8 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
             GROUP BY p.id`,
           [postIds, viewerId],
         ),
-        pool.query<{ post_id: string }>(
-          `SELECT post_id FROM social_schema.post_bookmarks WHERE user_id = $2 AND post_id = ANY($1::uuid[])`,
+        pool.query<{ post_id: string; folder_id: string | null }>(
+          `SELECT post_id, folder_id FROM social_schema.post_bookmarks WHERE user_id = $2 AND post_id = ANY($1::uuid[])`,
           [postIds, viewerId],
         ),
         // Danh sách chia sẻ chỉ cho tác giả của bài `custom` (người khác không biết bài chia sẻ cho ai).
@@ -586,7 +590,10 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
           confirmedCount: row.n,
         });
       }
-      for (const row of bookmarkRows.rows) bookmarkedPostIds.add(row.post_id);
+      for (const row of bookmarkRows.rows) {
+        bookmarkedPostIds.add(row.post_id);
+        if (row.folder_id) bookmarkFolderIds.set(row.post_id, row.folder_id);
+      }
       for (const row of audienceRows.rows) {
         const current = audiences.get(row.post_id) ?? { userIds: [], unitIds: [] };
         audiences.set(row.post_id, {
@@ -594,7 +601,7 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
           unitIds: row.principal_type === 'unit' ? [...current.unitIds, row.principal_id] : current.unitIds,
         });
       }
-      return { polls, readConfirmations, bookmarkedPostIds, audiences };
+      return { polls, readConfirmations, bookmarkedPostIds, bookmarkFolderIds, audiences };
     });
   }
 
@@ -702,13 +709,21 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
     });
   }
 
-  setBookmark(tenantId: string, postId: string, userId: string, bookmarked: boolean): Promise<void> {
+  setBookmark(
+    tenantId: string,
+    postId: string,
+    userId: string,
+    bookmarked: boolean,
+    folderId?: string | null,
+  ): Promise<void> {
     return this.run(tenantId, async (pool) => {
       if (bookmarked) {
         await pool.query(
-          `INSERT INTO social_schema.post_bookmarks (user_id, post_id) VALUES ($1, $2)
-           ON CONFLICT (user_id, post_id) DO NOTHING`,
-          [userId, postId],
+          `INSERT INTO social_schema.post_bookmarks (user_id, post_id, folder_id) VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, post_id) ${
+             folderId === undefined ? 'DO NOTHING' : 'DO UPDATE SET folder_id = EXCLUDED.folder_id'
+           }`,
+          [userId, postId, folderId ?? null],
         );
       } else {
         await pool.query(`DELETE FROM social_schema.post_bookmarks WHERE user_id = $1 AND post_id = $2`, [
@@ -719,15 +734,92 @@ export class PostgresSocialPublishingStore implements SocialPublishingStore {
     });
   }
 
+  listBookmarkFolders(tenantId: string, userId: string): Promise<BookmarkFolderSummary> {
+    return this.run(tenantId, async (pool) => {
+      const [folders, unfiled] = await Promise.all([
+        pool.query<{ id: string; name: string; n: number }>(
+          `SELECT f.id, f.name,
+                  (SELECT count(*)::int FROM social_schema.post_bookmarks b
+                     JOIN social_schema.posts p ON p.id = b.post_id AND p.status = 'published'
+                    WHERE b.user_id = f.user_id AND b.folder_id = f.id) AS n
+             FROM social_schema.bookmark_folders f
+            WHERE f.user_id = $1
+            ORDER BY lower(f.name), f.id`,
+          [userId],
+        ),
+        pool.query<{ n: number }>(
+          `SELECT count(*)::int AS n
+             FROM social_schema.post_bookmarks b
+             JOIN social_schema.posts p ON p.id = b.post_id AND p.status = 'published'
+            WHERE b.user_id = $1 AND b.folder_id IS NULL`,
+          [userId],
+        ),
+      ]);
+      return {
+        folders: folders.rows.map((row) => ({ id: row.id, name: row.name, count: row.n })),
+        unfiledCount: unfiled.rows[0]?.n ?? 0,
+      };
+    });
+  }
+
+  createBookmarkFolder(tenantId: string, userId: string, name: string): Promise<BookmarkFolderRow> {
+    return this.run(tenantId, async (pool) => {
+      await pool.query(
+        `INSERT INTO social_schema.bookmark_folders (user_id, name) VALUES ($1, $2)
+         ON CONFLICT (user_id, lower(name)) DO NOTHING`,
+        [userId, name],
+      );
+      const result = await pool.query<{ id: string; name: string }>(
+        `SELECT id, name FROM social_schema.bookmark_folders WHERE user_id = $1 AND lower(name) = lower($2)`,
+        [userId, name],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error('Không tạo được thư mục đã lưu.');
+      return { id: row.id, name: row.name, count: 0 };
+    });
+  }
+
+  renameBookmarkFolder(tenantId: string, userId: string, folderId: string, name: string): Promise<void> {
+    return this.run(tenantId, async (pool) => {
+      await pool.query(`UPDATE social_schema.bookmark_folders SET name = $3 WHERE id = $1::uuid AND user_id = $2`, [
+        folderId,
+        userId,
+        name,
+      ]);
+    });
+  }
+
+  deleteBookmarkFolder(tenantId: string, userId: string, folderId: string): Promise<void> {
+    return this.run(tenantId, async (pool) => {
+      await pool.query(`DELETE FROM social_schema.bookmark_folders WHERE id = $1::uuid AND user_id = $2`, [folderId, userId]);
+    });
+  }
+
+  bookmarkFolderExists(tenantId: string, userId: string, folderId: string): Promise<boolean> {
+    return this.run(tenantId, async (pool) => {
+      const result = await pool.query(
+        `SELECT 1 FROM social_schema.bookmark_folders WHERE id = $1::uuid AND user_id = $2`,
+        [folderId, userId],
+      );
+      return result.rows.length > 0;
+    });
+  }
+
   listBookmarks(
     tenantId: string,
     userId: string,
     scope: PostVisibilityScope,
-    query: PostListQuery,
+    query: BookmarkListQuery,
   ): Promise<BookmarkedPostRow[]> {
     return this.run(tenantId, async (pool) => {
       const values: unknown[] = [userId];
       let where = `b.user_id = $1 AND p.status = 'published' AND ${visibilityClause(scope, values)}`;
+      if (query.folderId === 'none') {
+        where += ' AND b.folder_id IS NULL';
+      } else if (query.folderId) {
+        values.push(query.folderId);
+        where += ` AND b.folder_id = $${values.length}::uuid`;
+      }
       if (query.cursor) {
         values.push(query.cursor.at, query.cursor.id);
         where += ` AND (b.created_at, b.post_id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;

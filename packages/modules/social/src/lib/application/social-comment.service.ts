@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import {
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_MAX_DEPTH,
   SOCIAL_COMMENT_PAGE_SIZE,
   type CreateSocialCommentRequest,
   type SetSocialReactionRequest,
@@ -15,7 +16,7 @@ import { mayCommentOnPost, mayEditContent, mayRead, mayWrite } from '../domain/s
 import {
   assertAttachmentSet,
   assertAttachmentsPostable,
-  assertReplyTarget,
+  assertReplyDepth,
   attachmentRulesFor,
   decodeCursor,
   encodeCursor,
@@ -59,7 +60,7 @@ import {
 const COMMENT_PAGE_SIZE = SOCIAL_COMMENT_PAGE_SIZE;
 
 /**
- * Bình luận: chỉ hai cấp (gốc và trả lời), nội dung văn bản thuần, mention ghi
+ * Bình luận: tối đa ba cấp (gốc và các trả lời lồng nhau), nội dung văn bản thuần, mention ghi
  * `@[userId]`. Xoá là xoá mềm để giữ chuỗi trả lời.
  */
 export class SocialCommentService {
@@ -87,7 +88,7 @@ export class SocialCommentService {
 
   /**
    * Không có `parentId`: bình luận gốc của bài (cũ trước), kèm `replyCount`.
-   * Có `parentId`: các trả lời của bình luận gốc đó.
+   * Có `parentId`: các trả lời trực tiếp của bình luận đó.
    */
   async list(
     actor: SocialActor,
@@ -131,7 +132,14 @@ export class SocialCommentService {
     if (input.parentId) {
       parent = await this.store.comments.findById(actor.tenantId, requireUuid(input.parentId, 'Mã bình luận'));
       if (!parent || parent.postId !== postId || parent.deleted) throw new SocialCommentNotFoundError();
-      assertReplyTarget(parent);
+      // Cấp của bình luận được trả lời: gốc 1, trả lời 2, trả lời của trả lời 3.
+      let parentDepth = 1;
+      for (let at = parent; at.parentId && parentDepth < SOCIAL_COMMENT_MAX_DEPTH; parentDepth += 1) {
+        const up = await this.store.comments.findById(actor.tenantId, at.parentId);
+        if (!up) break;
+        at = up;
+      }
+      assertReplyDepth(parentDepth);
     }
 
     const mentionUserIds = await this.onlyThoseWhoCanSee(

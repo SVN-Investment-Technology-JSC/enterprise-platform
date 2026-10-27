@@ -188,6 +188,9 @@ export class SocialPostViewAssembler implements PostViewAssembler {
           ...(moderatedBy ? { moderatedBy: userOf(moderatedBy) } : {}),
           ...(moderatedBy && row.moderatedAt ? { moderatedAt: toIso(row.moderatedAt) } : {}),
           bookmarked: engagement.bookmarkedPostIds.has(row.id),
+          ...(engagement.bookmarkedPostIds.has(row.id) && engagement.bookmarkFolderIds?.get(row.id)
+            ? { bookmarkFolderId: engagement.bookmarkFolderIds.get(row.id) }
+            : {}),
           ...(row.activityType
             ? { activity: { type: row.activityType, payload: row.activityPayload ?? {} } }
             : {}),
