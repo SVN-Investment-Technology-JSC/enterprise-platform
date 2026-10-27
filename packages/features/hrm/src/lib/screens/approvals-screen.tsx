@@ -147,6 +147,10 @@ function ApprovalsContent() {
     if (row) {
       setDetailKey(row.key);
       setLinkedRequestId('');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('request');
+      url.searchParams.delete('comment');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
   }, [rows, linkedRequestId, availableSources]);
   useEffect(
@@ -159,6 +163,9 @@ function ApprovalsContent() {
     if (row) {
       setDetailKey(row.key);
       setLinkedId('');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('workflow');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
   }, [rows, linkedId]);
 
