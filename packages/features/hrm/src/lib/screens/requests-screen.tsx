@@ -1174,12 +1174,25 @@ export default function RequestsPage() {
     // Chỉ chạy một lần (adjustHandled) khi danh sách đơn có dữ liệu.
   }, [requestsList]);
 
-  // Gửi đơn xong: đóng form, tải lại danh sách và đưa người dùng tới đơn vừa gửi (tháng hiện tại, nhóm chờ duyệt).
-  const handleRequestSubmitted = async () => {
+  // Gửi đơn xong: đóng form, dọn URL query cũ, tải lại danh sách và đưa người dùng tới đơn vừa gửi (tháng hiện tại, nhóm chờ duyệt).
+  const handleRequestSubmitted = async (result?: { id?: string }) => {
     setIsCreateModalOpen(false);
-    await loadData({ listsOnly: true });
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('request') || url.searchParams.has('comment')) {
+      url.searchParams.delete('request');
+      url.searchParams.delete('comment');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+    const latest = await loadData({ listsOnly: true });
     setListMonth(currentMonthVn());
     setFilterStatus('PENDING');
+    if (result?.id && latest && Array.isArray(latest)) {
+      const createdItem = latest.find((item) => item.id === result.id);
+      if (createdItem) {
+        skipAutoSelect.current = true;
+        setSelectedRequest(createdItem);
+      }
+    }
   };
 
   // Đơn tạo hộ thuộc về nhân viên khác nên không hiện trong "Đơn từ của tôi": chỉ đóng form và báo kết quả.
@@ -1279,10 +1292,24 @@ export default function RequestsPage() {
   useEffect(() => {
     if (!notificationRequestId) return;
     const request = requestsList.find((item) => item.id === notificationRequestId);
-    if (!request) return;
+    if (!request) {
+      if (requestsList.length > 0 && !loading) {
+        setNotificationRequestId('');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('request');
+        url.searchParams.delete('comment');
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
+      return;
+    }
     setNotificationRequestId('');
     skipAutoSelect.current = true;
     focusRequestId.current = request.id;
+    // Dọn sạch query param trên URL để không bị dính khi tạo đơn mới hoặc tải lại trang
+    const url = new URL(window.location.href);
+    url.searchParams.delete('request');
+    url.searchParams.delete('comment');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     // Mở đúng đơn trong thông báo: bỏ các bộ lọc có thể che đơn đó, chuyển tới tháng của đơn.
     setFilterStatus('ALL');
     setFilterKind('ALL');
@@ -1291,7 +1318,7 @@ export default function RequestsPage() {
     setWaitStep('');
     setListMonth(requestMonthOf(request) || null);
     setSelectedRequest(request);
-  }, [notificationRequestId, requestsList]);
+  }, [notificationRequestId, requestsList, loading]);
 
   // Luôn có một đơn đang chọn trong danh sách đang lọc (đơn đầu tiên nếu đơn cũ không còn); bỏ qua khi ngăn kéo đang mở.
   useEffect(() => {

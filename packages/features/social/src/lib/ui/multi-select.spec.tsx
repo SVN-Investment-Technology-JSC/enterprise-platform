@@ -116,4 +116,39 @@ describe('MultiSelect', () => {
     });
     expect(screen.getByTestId('values').textContent).toBe('a');
   });
+
+  it('thêm nhanh: nhập tên rồi Enter tạo mục mới và tự chọn nó; lỗi hiện dưới ô nhập', async () => {
+    const onCreate = jest.fn(async (name: string) => {
+      if (name === 'Trùng') throw new Error('Tên đã tồn tại.');
+      return { value: 'new', label: name };
+    });
+    function CreateHarness() {
+      const [values, setValues] = useState<readonly string[]>([]);
+      return (
+        <>
+          <MultiSelect options={OPTIONS} values={values} onChange={setValues} aria-label="Chuyên mục" onCreate={onCreate} createPlaceholder="Tên mới" />
+          <output data-testid="values">{values.join(',')}</output>
+        </>
+      );
+    }
+    render(<CreateHarness />);
+    await open();
+    const input = screen.getByRole('textbox', { name: 'Tên mới' });
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Trùng' } });
+    });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(screen.getByRole('alert').textContent).toBe('Tên đã tồn tại.');
+    expect(screen.getByTestId('values').textContent).toBe('');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Mục mới' } });
+    });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(onCreate).toHaveBeenLastCalledWith('Mục mới');
+    expect(screen.getByTestId('values').textContent).toBe('new');
+  });
 });

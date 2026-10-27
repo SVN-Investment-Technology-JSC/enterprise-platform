@@ -14,7 +14,8 @@ import base from '../social.module.scss';
 import { errorMessage } from '../social-api';
 import { confirmRead, loadReadConfirmations } from '../social-posts-api';
 import { formatFullTime } from '../social.model';
-import { Avatar, Dialog, userSubtitle } from './ui';
+import { Dialog, userSubtitle } from './ui';
+import { UserAvatar } from './user-avatar';
 
 export interface ReadConfirmationBlockProps {
   readonly post: SocialPost;
@@ -226,7 +227,7 @@ function ConfirmationsDialog({
       <ul className={styles.personList}>
         {items.map((entry) => (
           <li key={entry.user.id} className={styles.person}>
-            <Avatar user={entry.user} size={30} />
+            <UserAvatar user={entry.user} size={30} />
             <span>
               {entry.user.name}
               {userSubtitle(entry.user) ? (

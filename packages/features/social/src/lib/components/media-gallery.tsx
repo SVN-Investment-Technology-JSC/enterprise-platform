@@ -451,7 +451,7 @@ function AutoLayout({ items, preview, onRequestRefresh }: LayoutProps) {
       {images.length > 0 ? <ImageGrid images={images} preview={preview} /> : null}
       {videos.map((item) =>
         !preview && item.attachment ? (
-          <VideoAttachment key={item.key} attachment={item.attachment} onRequestRefresh={onRequestRefresh} />
+          <VideoAttachment key={item.key} attachment={item.attachment} fit onRequestRefresh={onRequestRefresh} />
         ) : (
           <div key={item.key} className={styles.stack}>
             <Cell item={item} preview className={styles.featuredMain} onOpen={() => undefined} />

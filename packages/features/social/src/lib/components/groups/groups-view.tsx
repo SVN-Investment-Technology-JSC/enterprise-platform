@@ -8,15 +8,20 @@ import { errorMessage } from '../../social-api';
 import { useSocialSession } from '../../social-context';
 import { navigateSocial, SocialLink } from '../../social-navigation';
 import { socialHref } from '../../social.model';
-import base from '../../social.module.scss';
+import { Button } from '../../ui/button';
+import { Input } from '../../ui/input';
+import { Tabs, TabsList, TabsTrigger } from '../../ui/tabs';
 import { Dialog } from '../ui';
 import { GroupFormDialog } from './group-form-dialog';
 import { GroupGlyph, GroupMenu, PrivacyBadge, type GroupMenuItem } from './group-visuals';
 import { appendUnique, groupCover, joinState, memberCountLabel } from './groups.model';
-import s from './groups.module.scss';
 import { joinGroup, leaveGroup, listGroups, setGroupPriority } from './social-groups-api';
 
 type Tab = 'mine' | 'all';
+
+const GRID =
+  'm-0 grid list-none grid-cols-1 gap-2.5 p-0 min-[520px]:grid-cols-2 min-[860px]:grid-cols-3 min-[1180px]:grid-cols-4';
+const SURFACE = 'rounded-[var(--ep-radius-xl)] border border-slate-200 bg-white shadow-xs';
 
 const TABS: ReadonlyArray<{ readonly key: Tab; readonly label: string }> = [
   { key: 'mine', label: 'Nhóm của bạn' },
@@ -37,33 +42,49 @@ function GroupCard({
 }) {
   const state = joinState(group);
   return (
-    <li className={s.card}>
-      <div className={s.cardCover} style={{ background: groupCover(group) }} />
-      <span className={s.cardGlyph}>
+    <li className="relative flex flex-col items-center gap-1.5 overflow-hidden rounded-[var(--ep-radius-xl)] border border-slate-200 bg-white pb-2.5 text-center shadow-xs">
+      <div className="h-16 self-stretch" style={{ background: groupCover(group) }} />
+      <span className="-mt-[26px] inline-flex rounded-full border-[3px] border-white bg-white">
         <GroupGlyph icon={group.icon} color={group.color} size={44} />
       </span>
-      <div className={s.cardBody}>
-        <SocialLink to={groupRoute(group)} className={s.cardName} title={group.name}>
+      <div className="flex max-w-full flex-col items-center gap-px px-2.5">
+        <SocialLink
+          to={groupRoute(group)}
+          className="max-w-full truncate text-[13.5px] font-bold text-slate-900 no-underline hover:underline"
+          title={group.name}
+        >
           {group.name}
         </SocialLink>
-        <span className={s.cardMeta}>
+        <span className="text-xs text-slate-500">
           {group.privacy === 'private' ? 'Riêng tư' : 'Công khai'} &bull; {memberCountLabel(group.memberCount)}
         </span>
       </div>
       {state === 'member' ? (
-        <button type="button" className={s.cardBtn} data-state="joined" onClick={() => navigateSocial(groupRoute(group))}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-w-24 rounded-full text-slate-600"
+          onClick={() => navigateSocial(groupRoute(group))}
+        >
           <Check size={13} aria-hidden="true" />
           Đã tham gia
-        </button>
+        </Button>
       ) : state === 'pending' ? (
-        <button type="button" className={s.cardBtn} data-state="joined" onClick={() => navigateSocial(groupRoute(group))}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-w-24 rounded-full text-slate-600"
+          onClick={() => navigateSocial(groupRoute(group))}
+        >
           <Clock size={13} aria-hidden="true" />
           Chờ duyệt
-        </button>
+        </Button>
       ) : (
-        <button type="button" className={s.cardBtn} data-state="join" disabled={busy} onClick={() => onJoin(group)}>
+        <Button type="button" size="sm" className="min-w-24 rounded-full font-semibold" disabled={busy} onClick={() => onJoin(group)}>
           {busy ? 'Đang gửi…' : state === 'join' ? 'Tham gia' : 'Gửi yêu cầu'}
-        </button>
+        </Button>
       )}
     </li>
   );
@@ -92,14 +113,17 @@ function GroupRow({
     { key: 'leave', label: 'Rời khỏi nhóm', icon: LogOut, onSelect: () => onLeave(group) },
   ];
   return (
-    <li className={s.groupRow}>
+    <li className="flex items-center gap-2.5 px-3 py-2 not-first:border-t not-first:border-slate-100 hover:bg-slate-50">
       <GroupGlyph icon={group.icon} color={group.color} size={40} />
-      <div className={s.groupRowText}>
-        <SocialLink to={groupRoute(group)} className={s.groupRowName}>
+      <div className="flex min-w-0 flex-1 flex-col gap-px">
+        <SocialLink
+          to={groupRoute(group)}
+          className="inline-flex items-center gap-1.5 truncate text-[13.5px] font-bold text-slate-900 no-underline hover:underline"
+        >
           {group.name}
-          {group.myPriorityAt ? <Pin size={12} className={s.pinMark} aria-label="Đang ưu tiên" /> : null}
+          {group.myPriorityAt ? <Pin size={12} className="flex-none text-amber-600" aria-label="Đang ưu tiên" /> : null}
         </SocialLink>
-        <span className={s.rowMeta}>{memberCountLabel(group.memberCount)}</span>
+        <span className="text-xs leading-snug text-slate-500">{memberCountLabel(group.memberCount)}</span>
         <PrivacyBadge privacy={group.privacy} />
       </div>
       <GroupMenu items={items} label={`Tuỳ chọn nhóm ${group.name}`} />
@@ -227,68 +251,70 @@ export function GroupsView() {
   };
 
   return (
-    <section className={s.page} aria-label="Nhóm">
-      <div className={s.toolbar}>
-        <div className={s.tabs} role="tablist" aria-label="Danh mục nhóm">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.key}
-              className={s.tab}
-              data-active={tab === item.key}
-              onClick={() => setTab(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <button type="button" className={base.buttonPrimary + ' ' + s.compactBtn} onClick={() => setCreating(true)}>
-          <Plus size={14} />
+    <section className="flex min-w-0 flex-col gap-2.5" aria-label="Nhóm">
+      <div className="flex items-center justify-between gap-2.5">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+          <TabsList aria-label="Danh mục nhóm">
+            {TABS.map((item) => (
+              <TabsTrigger key={item.key} value={item.key}>
+                {item.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <Button type="button" className="h-[34px] gap-1.5 rounded-md px-3 text-[13px] font-semibold" onClick={() => setCreating(true)}>
+          <Plus size={14} aria-hidden="true" />
           Tạo nhóm
-        </button>
+        </Button>
       </div>
 
       {tab === 'all' ? (
-        <label className={s.filter}>
-          <Search size={14} />
-          <input
+        <div className="relative">
+          <Search
+            size={14}
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
+            aria-hidden="true"
+          />
+          <Input
+            className="h-[38px] rounded-md pl-9 text-[13.5px]!"
             value={text}
             placeholder="Tìm kiếm"
             aria-label="Tìm kiếm nhóm"
             onChange={(event) => setText(event.target.value)}
           />
-        </label>
+        </div>
       ) : null}
 
       {error ? (
-        <p role="alert" className={base.alert}>
+        <p
+          role="alert"
+          className="m-0 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700"
+        >
           <span>{error}</span>
-          <button type="button" className={base.buttonSmall} onClick={() => void load()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
             Thử lại
-          </button>
+          </Button>
         </p>
       ) : null}
 
       {loading ? (
         tab === 'all' ? (
-          <ul className={s.grid} aria-busy="true" aria-label="Đang tải nhóm">
+          <ul className={GRID} aria-busy="true" aria-label="Đang tải nhóm">
             {[0, 1, 2, 3, 4, 5, 6, 7].map((key) => (
-              <li key={key} className={s.cardSkeleton} />
+              <li key={key} className="h-[150px] animate-pulse rounded-lg bg-slate-100" />
             ))}
           </ul>
         ) : (
-          <ul className={s.groupList} aria-busy="true" aria-label="Đang tải nhóm">
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-busy="true" aria-label="Đang tải nhóm">
             {[0, 1, 2, 3].map((key) => (
-              <li key={key} className={s.rowSkeleton} />
+              <li key={key} className="h-14 animate-pulse rounded-lg bg-slate-100" />
             ))}
           </ul>
         )
       ) : groups.length === 0 && !error ? (
-        <div className={s.empty}>
-          <Users size={26} />
-          <strong>
+        <div className={`flex flex-col items-center gap-1.5 px-4 py-7 text-center text-[13px] text-slate-500 ${SURFACE}`}>
+          <Users size={26} aria-hidden="true" />
+          <strong className="text-sm text-slate-900">
             {query && tab === 'all'
               ? 'Không có nhóm phù hợp.'
               : tab === 'mine'
@@ -296,24 +322,24 @@ export function GroupsView() {
                 : 'Chưa có nhóm nào.'}
           </strong>
           {tab === 'mine' ? (
-            <div className={s.emptyActions}>
-              <button type="button" className={base.buttonGhost} onClick={() => setTab('all')}>
+            <div className="mt-1 flex flex-wrap justify-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setTab('all')}>
                 Xem tất cả nhóm
-              </button>
-              <button type="button" className={base.buttonPrimary} onClick={() => setCreating(true)}>
+              </Button>
+              <Button type="button" onClick={() => setCreating(true)}>
                 Tạo nhóm
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
       ) : tab === 'all' ? (
-        <ul className={s.grid}>
+        <ul className={GRID}>
           {groups.map((group) => (
             <GroupCard key={group.id} group={group} busy={joiningId === group.id} onJoin={(item) => void join(item)} />
           ))}
         </ul>
       ) : (
-        <ul className={s.groupList}>
+        <ul className={`m-0 flex list-none flex-col p-0 ${SURFACE}`}>
           {groups.map((group) => (
             <GroupRow
               key={group.id}
@@ -330,15 +356,16 @@ export function GroupsView() {
       )}
 
       {cursor && !loading ? (
-        <div className={s.more}>
-          <button type="button" className={base.buttonGhost} disabled={loadingMore} onClick={() => void loadMore()}>
+        <div className="flex justify-center py-1">
+          <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
             {loadingMore ? 'Đang tải…' : 'Xem thêm nhóm'}
-          </button>
+          </Button>
         </div>
       ) : null}
 
       <GroupFormDialog
         open={creating}
+        creatorId={session?.me.user.id}
         creatorName={session?.me.user.name}
         onClose={() => setCreating(false)}
         onSaved={(group) => {
@@ -358,7 +385,7 @@ export function GroupsView() {
         onSubmit={() => void leave()}
         onClose={() => setLeaving(undefined)}
       >
-        <p className={base.confirmText}>
+        <p className="m-0 text-[13.5px] leading-relaxed text-slate-700">
           {leaving?.privacy === 'private'
             ? `Rời nhóm "${leaving.name}"? Nhóm riêng tư nên bạn sẽ phải gửi yêu cầu và chờ duyệt để quay lại.`
             : `Rời nhóm "${leaving?.name ?? ''}"? Bạn có thể tham gia lại bất cứ lúc nào.`}

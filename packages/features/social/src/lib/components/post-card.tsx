@@ -3,7 +3,6 @@
 import {
   SOCIAL_ACTIVITY_LABELS,
   SOCIAL_REACTION_LABELS,
-  SOCIAL_REACTION_TYPES,
   type SocialAttachment,
   type SocialMe,
   type SocialPost,
@@ -23,6 +22,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
   deletePost,
@@ -46,8 +46,10 @@ import extras from '../post-extras.module.scss';
 import {
   buildPostMenu,
   type PostMenuAction,
+  type PostMenuItem,
 } from '../post-visibility.model';
 import { SocialLink } from '../social-navigation';
+import { toast } from '@enterprise-platform/shared-ui';
 import { setBookmark } from '../social-posts-api';
 import styles from '../social.module.scss';
 import { CommentSection } from './comment-section';
@@ -56,7 +58,8 @@ import { galleryItemsFromAttachments, MediaGallery } from './media-gallery';
 import { PostEditHistoryDialog } from './post-edit-history-dialog';
 import { ReactionIcon } from './reaction-icon';
 import { ReactionPicker } from './reaction-picker';
-import { ReactorsDialog } from './reactors-dialog';
+import { UserAvatar } from './user-avatar';
+import { ReactionSummary } from './reaction-summary';
 import { PostMenu } from './post-menu';
 import {
   GroupTag,
@@ -65,7 +68,6 @@ import {
 } from './post-status-badge';
 import { ReadConfirmationBlock } from './read-confirmation';
 import {
-  Avatar,
   ConfirmDialog,
   Dialog,
   userSubtitle,
@@ -178,7 +180,7 @@ function MentionsDialog({
         <ul className={styles.reactorList}>
           {items.map((user) => (
             <li key={user.id} className={styles.reactor}>
-              <Avatar user={user} size={32} />
+              <UserAvatar user={user} size={32} />
               <span className={styles.suggestText}>
                 <SocialLink
                   to={{ name: 'profile', userId: user.id }}
@@ -284,6 +286,13 @@ export interface PostCardProps {
   readonly focusCommentId?: string;
   /** Đang ở trang chính bài này: ẩn mục "Xem chi tiết" trong menu. */
   readonly isDetailPage?: boolean;
+  /**
+   * Chế độ thư mục (màn "Bài đã lưu"): bấm Lưu bài thì mở hộp thoại chọn thư mục thay vì bật/tắt ngay.
+   * Nơi cha hiển thị hộp thoại; không truyền thì Lưu bài bật/tắt nhanh.
+   */
+  readonly onPickBookmarkFolder?: (post: SocialPost) => void;
+  /** Nút chèn thêm ở đầu thẻ, trước menu "⋮" (ví dụ tay nắm kéo thả sang thư mục khác). */
+  readonly headerExtra?: ReactNode;
 }
 
 export function PostCard({
@@ -297,10 +306,11 @@ export function PostCard({
   defaultCommentsOpen = false,
   focusCommentId,
   isDetailPage = false,
+  onPickBookmarkFolder,
+  headerExtra,
 }: PostCardProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
-  const [reactorsOpen, setReactorsOpen] = useState(false);
   const [mentionsOpen, setMentionsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -310,7 +320,17 @@ export function PostCard({
   const canReact = me.permissions.includes('social.post.write');
   const published = isPublished(post);
   const activity = post.activity;
-  const menuItems = buildPostMenu(post).filter((item) => !(isDetailPage && item.action === 'detail'));
+  // Màn Đã lưu: thêm mục chuyển thư mục ngay sau "Xem chi tiết" (hoặc đầu menu khi đang ở trang chi tiết).
+  const menuItems = buildPostMenu(post)
+    .filter((item) => !(isDetailPage && item.action === 'detail'))
+    .flatMap((item): readonly PostMenuItem[] =>
+      item.action === 'detail' && onPickBookmarkFolder && published
+        ? [item, { action: 'moveFolder', label: 'Chuyển sang thư mục khác' }]
+        : [item],
+    );
+  if (onPickBookmarkFolder && published && !menuItems.some((item) => item.action === 'moveFolder')) {
+    menuItems.unshift({ action: 'moveFolder', label: 'Chuyển sang thư mục khác' });
+  }
   const commentsDisabled = Boolean(post.commentsDisabled);
   const mediaItems = galleryItemsFromAttachments(post.attachments);
   const files = post.attachments.filter((item) => !item.isImage && !item.isVideo);
@@ -344,10 +364,16 @@ export function PostCard({
   );
 
   const toggleBookmark = async () => {
+    if (onPickBookmarkFolder) {
+      onPickBookmarkFolder(post);
+      return;
+    }
     const next = !post.bookmarked;
     try {
       const state = await setBookmark(post.id, next);
       onChange({ ...post, bookmarked: state.bookmarked });
+      if (state.bookmarked) toast.success('Đã lưu bài viết');
+      else toast('Đã bỏ lưu bài viết');
     } catch (cause) {
       onError(
         errorMessage(
@@ -391,6 +417,7 @@ export function PostCard({
     else if (action === 'toggleComments') void toggleComments();
     else if (action === 'history') setHistoryOpen(true);
     else if (action === 'edit') onEdit(post);
+    else if (action === 'moveFolder') onPickBookmarkFolder?.(post);
     else setConfirming(true);
   };
 
@@ -408,13 +435,6 @@ export function PostCard({
     }
   };
 
-  const reactionTypes = SOCIAL_REACTION_TYPES.filter(
-    (type) => (post.reactionCounts[type] ?? 0) > 0,
-  ).sort(
-    (a, b) => (post.reactionCounts[b] ?? 0) - (post.reactionCounts[a] ?? 0),
-  );
-  const topReactionTypes = reactionTypes.slice(0, 3);
-
   return (
     <article
       className={`${styles.post} ${extras.postCompact}`}
@@ -422,7 +442,7 @@ export function PostCard({
       data-status={post.status ?? 'published'}
     >
       <header className={styles.postHead}>
-        <Avatar user={post.author} size={38} />
+        <UserAvatar user={post.author} size={38} />
         <div className={styles.postWho}>
           <div className={extras.authorLine}>
             <SocialLink
@@ -458,6 +478,7 @@ export function PostCard({
         <div className={styles.postBadges}>
           <PostStatusBadges post={post} />
         </div>
+        {headerExtra}
         <PostMenu
           postId={post.id}
           items={menuItems}
@@ -547,20 +568,11 @@ export function PostCard({
       {published && (post.reactionTotal > 0 || post.commentCount > 0) ? (
         <div className={styles.postStats}>
           {post.reactionTotal > 0 ? (
-            <button
-              type="button"
-              className={styles.reactionSummary}
-              onClick={() => setReactorsOpen(true)}
-            >
-              <span className={styles.reactionIcons}>
-                {topReactionTypes.map((type) => (
-                  <span key={type} className={styles.reactionDot}>
-                    <ReactionIcon type={type} size={18} />
-                  </span>
-                ))}
-              </span>
-              {post.reactionTotal.toLocaleString('vi-VN')}
-            </button>
+            <ReactionSummary
+              counts={post.reactionCounts}
+              total={post.reactionTotal}
+              load={() => loadReactors(post.id)}
+            />
           ) : (
             <span />
           )}
@@ -585,7 +597,11 @@ export function PostCard({
               data-active={Boolean(post.myReaction)}
               data-type={post.myReaction}
               disabled={!canReact}
-              onClick={() => void react(post.myReaction ? null : 'like')}
+              onClick={(event) => {
+                // Bỏ focus để bảng chọn phản ứng đóng lại khi rời chuột (nó mở theo :hover và focus).
+                event.currentTarget.blur();
+                void react(post.myReaction ? null : 'like');
+              }}
             >
               {post.myReaction ? (
                 <ReactionIcon type={post.myReaction} size={20} />
@@ -658,12 +674,6 @@ export function PostCard({
         <PostEditHistoryDialog
           postId={post.id}
           onClose={() => setHistoryOpen(false)}
-        />
-      ) : null}
-      {reactorsOpen ? (
-        <ReactorsDialog
-          load={() => loadReactors(post.id)}
-          onClose={() => setReactorsOpen(false)}
         />
       ) : null}
       {mentionsOpen ? (

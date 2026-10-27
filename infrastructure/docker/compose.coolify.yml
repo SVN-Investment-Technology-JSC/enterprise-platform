@@ -5,7 +5,20 @@ x-database-environment: &database-environment
   TENANT_DATABASE_ADMIN_URL: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/postgres
   TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
 
+# Kho tệp S3 dùng chung cho mọi service. Mặc định là MinIO trong stack; muốn
+# dùng kho ngoài (Lanit Simple Storage...) thì đặt các biến S3_* trên Coolify,
+# không sửa file này. Khoá truy cập tách khỏi MINIO_ROOT_*: MinIO chỉ còn là
+# một kho trong số các kho có thể chọn.
+x-s3-environment: &s3-environment
+  S3_INTERNAL_ENDPOINT: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-enterprise-platform}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+
 x-tenant-deletion-environment: &tenant-deletion-environment
+  <<: *s3-environment
   TENANT_DELETION_ENABLED: ${TENANT_DELETION_ENABLED:-false}
   TENANT_DATABASE_ENDPOINT_ALIASES: ${TENANT_DATABASE_ENDPOINT_ALIASES:-}
   TENANT_DATABASE_PROTECTED_NAMES: ${TENANT_DATABASE_PROTECTED_NAMES:-}
@@ -14,19 +27,6 @@ x-tenant-deletion-environment: &tenant-deletion-environment
   RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
   RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
   TENANT_DELETION_QUEUES: ${TENANT_DELETION_QUEUES:-maintenance.integrations.v1,enterprise.events.dead}
-  S3_INTERNAL_ENDPOINT: http://minio:9000
-  S3_REGION: us-east-1
-  S3_BUCKET: enterprise-platform
-  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
-
-x-s3-environment: &s3-environment
-  S3_INTERNAL_ENDPOINT: http://minio:9000
-  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
-  S3_REGION: us-east-1
-  S3_BUCKET: enterprise-platform
-  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
 
 x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
@@ -164,8 +164,6 @@ services:
       AUTH_COOKIE_SECURE: 'true'
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?}
-      # Chat nội bộ của core: ký URL tải tệp đính kèm lên MinIO cho trình duyệt (cùng địa chỉ công khai với các phân hệ).
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
       # Thông báo đẩy của chat (báo tin cả khi đã đóng tab ERP). Không bắt buộc: bỏ trống thì mỗi công ty tự sinh cặp
       # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
@@ -180,18 +178,12 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:procedure-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3334'
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
       FINANCE_API_URL: http://finance-api:3341/api/finance
-      S3_INTERNAL_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
     depends_on:
       api:
         condition: service_healthy
@@ -206,14 +198,8 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:maintenance-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3335'
-      S3_INTERNAL_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       # Bảo trì hỏi HRM xe và tài xế còn trống khi tạo sự cố cần đi hiện trường (chỉ đọc).
@@ -230,14 +216,8 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:inventory-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3336'
-      S3_INTERNAL_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
     depends_on:
       api:
         condition: service_healthy
@@ -290,18 +270,10 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:workspace-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3337'
       # Workspace hỏi HRM trước khi gửi yêu cầu huỷ hiệu lực đơn từ (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
-      # Tài liệu dự án dùng presigned URL qua MinIO. Thiếu nhóm biến này thì
-      # adapter rơi về localhost:9010 — tức chính container này — và mọi lần
-      # tải tệp lên đều hỏng.
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       api:
@@ -317,16 +289,10 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:shared-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3342'
       # Hạn mức dung lượng tệp của cả tenant (theo gói + gói mua thêm).
       PLATFORM_TENANT_LIMITS_URL: http://api:3333/api/platform/internal/v1/tenant-limits
-      # Tài liệu công ty dùng presigned URL qua MinIO như Workspace.
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
     depends_on:
       api:
         condition: service_healthy
@@ -341,18 +307,12 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:social-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3343'
       # Mạng nội bộ hỏi HRM ngày sinh và ngày vào công ty của nhân sự (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
       # Hỏi Hệ dùng chung còn hạn mức dung lượng không trước khi ký URL tải lên (lỗi thì cho qua).
       SHARED_API_URL: http://shared-api:3342/api/shared
-      # Ảnh và tệp đính kèm bài viết dùng presigned URL qua MinIO như Workspace.
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
     depends_on:
       api:
         condition: service_healthy
@@ -451,13 +411,8 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:video-worker-${IMAGE_TAG:-production}
     environment:
-      <<: *database-environment
+      <<: [*database-environment, *s3-environment]
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
-      S3_INTERNAL_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_BUCKET: enterprise-platform
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
       VIDEO_WORKER_TMP_DIR: /var/tmp/video-work
       VIDEO_WORKER_FFMPEG_THREADS: ${VIDEO_WORKER_FFMPEG_THREADS:-4}
       VIDEO_WORKER_MIN_FREE_DISK_GB: ${VIDEO_WORKER_MIN_FREE_DISK_GB:-5}

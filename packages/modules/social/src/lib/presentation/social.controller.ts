@@ -60,10 +60,17 @@ export class SocialController {
     return this.execute(() => this.me.me(this.actor(request)));
   }
 
-  /** Gợi ý người để nhắc tên. */
+  /** Gợi ý người để chọn hoặc nhắc tên. */
   @Get('people')
-  people(@Req() request: SocialRequest, @Query('query') query?: string) {
-    return this.execute(() => this.me.people(this.actor(request), query));
+  people(
+    @Req() request: SocialRequest,
+    @Query('query') query?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? Number(limit) : undefined;
+    return this.execute(() =>
+      this.me.people(this.actor(request), query, Number.isFinite(limitNum) ? limitNum : undefined),
+    );
   }
 
   /* Bảng tin và bài viết (feed, posts, pin) nằm ở SocialFeedController và SocialPublishingController. */
@@ -152,6 +159,12 @@ export class SocialController {
   @Patch('topics/:id')
   updateTopic(@Req() request: SocialRequest, @Param('id') id: string, @Body() body: UpdateSocialTopicRequest) {
     return this.execute(() => this.topics.update(this.actor(request), id, body ?? {}));
+  }
+
+  @Delete('topics/:id')
+  @HttpCode(204)
+  async removeTopic(@Req() request: SocialRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.topics.remove(this.actor(request), id));
   }
 
   /* --------------------------------------------------------- tệp đính kèm */

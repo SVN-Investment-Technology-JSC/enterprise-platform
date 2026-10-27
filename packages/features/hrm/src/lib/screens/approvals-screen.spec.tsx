@@ -438,6 +438,8 @@ describe('ApprovalsScreen: trao đổi trên đơn', () => {
       expect(within(target).getByText('Tin nhắn từ thông báo')).toBeTruthy();
       // Tin nhắn khác trong luồng không bị làm nổi.
       expect(thread.querySelector('[data-comment-id="c2"]')?.getAttribute('data-highlighted')).toBeNull();
+      expect(window.location.search).not.toContain('request=');
+      expect(window.location.search).not.toContain('comment=');
     } finally {
       window.history.pushState({}, '', '/');
     }

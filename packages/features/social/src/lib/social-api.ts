@@ -93,10 +93,14 @@ export async function loadTenantHomePath(): Promise<string> {
 
 export const loadMe = () => request<SocialMe>('/me', { cache: 'no-store' });
 
-/** Danh sách người để nhắc tên; `query` rỗng cho ra vài người đầu. Chấp nhận cả mảng lẫn `{ items }`. */
-export async function searchPeople(query: string): Promise<readonly SocialUserRef[]> {
+/** Danh sách người để chọn hoặc nhắc tên; `query` rỗng trả danh sách nhân viên mặc định. Chấp nhận cả mảng lẫn `{ items }`. */
+export async function searchPeople(query = '', limit?: number): Promise<readonly SocialUserRef[]> {
+  const params = new URLSearchParams();
+  if (query) params.set('query', query);
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
   const result = await request<readonly SocialUserRef[] | { readonly items: readonly SocialUserRef[] }>(
-    `/people?query=${encodeURIComponent(query)}`,
+    `/people${qs ? `?${qs}` : ''}`,
     { cache: 'no-store' },
   );
   return Array.isArray(result) ? result : ((result as { items?: readonly SocialUserRef[] }).items ?? []);
@@ -112,6 +116,9 @@ export const createTopic = (body: CreateSocialTopicRequest) =>
 
 export const updateTopic = (id: string, body: UpdateSocialTopicRequest) =>
   request<SocialTopic>(`/topics/${encodeURIComponent(id)}`, json('PATCH', body));
+
+export const deleteTopic = (id: string) =>
+  request<void>(`/topics/${encodeURIComponent(id)}`, json('DELETE'));
 
 /* ---------------------------------------------------------------- bài viết */
 

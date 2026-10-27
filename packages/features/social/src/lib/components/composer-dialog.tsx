@@ -10,6 +10,7 @@ import {
   SOCIAL_POST_TITLE_MAX,
   SOCIAL_GROUP_TOPIC_NAME_MAX,
   SOCIAL_POST_TOPICS_MAX,
+  SOCIAL_TOPIC_NAME_MAX,
   type SocialAttachment,
   type SocialGroupSummary,
   type SocialGroupTopic,
@@ -55,8 +56,10 @@ import {
   attachmentErrorMessage,
   attachmentStatusApi,
   createPost,
+  createTopic,
   discardAttachment,
   discardAttachmentKeepalive,
+  errorMessage,
   updatePost,
   uploadAttachment,
 } from '../social-api';
@@ -165,6 +168,8 @@ export interface ComposerDialogProps {
   readonly defaultMode?: SocialComposerMode;
   /** Nhóm chọn sẵn khi soạn bài từ trang một nhóm. */
   readonly defaultGroupId?: string;
+  /** Người quản lý vừa tạo nhanh một chuyên mục trong ô chọn: nơi cha tải lại danh sách chuyên mục. */
+  readonly onTopicCreated?: (topic: SocialTopic) => void;
   readonly onClose: () => void;
   readonly onSaved: (post: SocialPost) => void;
 }
@@ -181,9 +186,13 @@ export function ComposerDialog({
   defaultKind,
   defaultMode,
   defaultGroupId,
+  onTopicCreated,
   onClose,
   onSaved,
 }: ComposerDialogProps) {
+  const canManageTopics = me.permissions.includes('social.manage');
+  // Chuyên mục tạo nhanh trong hộp này (danh sách `topics` của nơi cha chưa kịp tải lại).
+  const [createdTopics, setCreatedTopics] = useState<readonly SocialTopic[]>([]);
   const canModerate = me.permissions.includes('social.post.moderate');
   const scheduledParts = editing?.scheduledAt
     ? isoToVnParts(editing.scheduledAt)
@@ -383,7 +392,7 @@ export function ComposerDialog({
   const noContent = empty && !pollOn;
 
   // Chuyên mục đã tắt chỉ còn hiện khi bài đang sửa vẫn mang nó (để thấy và bỏ được).
-  const topicOptions = topics
+  const topicOptions = [...topics, ...createdTopics.filter((made) => !topics.some((topic) => topic.id === made.id))]
     .filter((topic) => topic.isActive || topicIds.includes(topic.id))
     .map((topic) => ({ value: topic.id, label: topic.name }));
 
@@ -810,6 +819,21 @@ export function ComposerDialog({
             emptyText="Không có chuyên mục"
             max={SOCIAL_POST_TOPICS_MAX}
             aria-label="Chuyên mục"
+            {...(canManageTopics
+              ? {
+                  onCreate: async (name: string) => {
+                    const topic = await createTopic({ name }).catch((cause: unknown) => {
+                      throw new Error(errorMessage(cause, 'Không thêm được chuyên mục.'));
+                    });
+                    setCreatedTopics((list) => [...list, topic]);
+                    onTopicCreated?.(topic);
+                    return { value: topic.id, label: topic.name };
+                  },
+                  createPlaceholder: 'Tên chuyên mục mới',
+                  createLabel: 'Thêm chuyên mục',
+                  createMaxLength: SOCIAL_TOPIC_NAME_MAX,
+                }
+              : {})}
           />
         </SelectField>
       ) : (

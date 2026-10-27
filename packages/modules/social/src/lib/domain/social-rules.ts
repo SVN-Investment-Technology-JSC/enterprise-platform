@@ -4,6 +4,7 @@ import {
   SOCIAL_COMMENT_IMAGE_MAX_BYTES,
   SOCIAL_COMMENT_MAX,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_MAX_DEPTH,
   SOCIAL_VIDEO_CONTENT_TYPES,
   SOCIAL_VIDEO_LIMITS,
   SOCIAL_FEED_MAX_PAGE_SIZE,
@@ -155,13 +156,13 @@ export function mergeMentions(declared: readonly string[], inBody: readonly stri
 }
 
 /**
- * Bình luận chỉ có hai cấp: trả lời được gắn vào bình luận gốc, không gắn vào
- * một trả lời khác.
+ * Chuỗi bình luận sâu tối đa `SOCIAL_COMMENT_MAX_DEPTH` cấp. `parentDepth` là cấp của bình luận được trả lời
+ * (gốc là 1); trả lời vào cấp cuối thì bị từ chối.
  */
-export function assertReplyTarget(parent: { readonly parentId?: string | null }): void {
-  if (parent.parentId) {
+export function assertReplyDepth(parentDepth: number): void {
+  if (parentDepth >= SOCIAL_COMMENT_MAX_DEPTH) {
     throw new SocialValidationError(
-      'Chỉ trả lời được bình luận gốc. Hãy trả lời vào bình luận gốc của chuỗi này.',
+      `Bình luận chỉ lồng tối đa ${SOCIAL_COMMENT_MAX_DEPTH} cấp. Hãy trả lời vào bình luận cấp trên của chuỗi này.`,
     );
   }
 }

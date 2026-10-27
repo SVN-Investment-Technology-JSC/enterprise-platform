@@ -32,7 +32,8 @@ import {
   searchPosts,
 } from '../../social-discovery-api';
 import { formatRelativeTime, postTopics } from '../../social.model';
-import { Avatar, userSubtitle } from '../ui';
+import { userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 
 type Tab = 'all' | 'posts' | 'people' | 'groups';
 
@@ -400,7 +401,7 @@ function PostResults({ q, items }: { readonly q: string; readonly items: readonl
         return (
           <li key={post.id}>
             <SocialLink className={styles.result} to={{ name: 'post', postId: post.id }}>
-              <Avatar user={post.author} size={36} />
+              <UserAvatar user={post.author} size={36} link={false} />
               <span className={styles.resultBody}>
                 {post.title ? (
                   <span className={styles.resultTitle}>
@@ -432,7 +433,7 @@ function PeopleResults({ q, items }: { readonly q: string; readonly items: reado
       {items.map((user) => (
         <li key={user.id}>
           <SocialLink className={styles.result} to={{ name: 'profile', userId: user.id }}>
-            <Avatar user={user} size={40} />
+            <UserAvatar user={user} size={40} link={false} />
             <span className={styles.resultBody}>
               <span className={styles.resultTitle}>
                 <Highlight text={user.name} query={q} />
