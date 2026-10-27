@@ -31,12 +31,23 @@ export class StockDocumentController {
     @Query('warehouseCode') warehouseCode?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('docTypes') docTypes?: string,
+    @Query('sourceType') sourceType?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
   ) {
     return this.execute(() =>
       this.documents.list(this.actor(request), {
         docType: (docType || undefined) as StockDocumentType | undefined,
+        // Danh sách loại cách nhau bằng dấu phẩy, ví dụ ISSUE_SALES,ISSUE_WARRANTY.
+        docTypes: docTypes
+          ? (docTypes.split(',').map((item) => item.trim()).filter(Boolean) as StockDocumentType[])
+          : undefined,
         status: (status || undefined) as StockDocumentStatus | undefined,
         warehouseCode: warehouseCode || undefined,
+        sourceType: sourceType || undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
         limit: limit ? Number(limit) : undefined,
         offset: offset ? Number(offset) : undefined,
       }),

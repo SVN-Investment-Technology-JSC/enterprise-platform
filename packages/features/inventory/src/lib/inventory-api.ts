@@ -7,6 +7,7 @@ import type {
   CreateAssetDocumentResponse,
   CreateAssetRequest,
   CreateMaterialRequest,
+  CreateStockDocumentRequest,
   CreateStockReservationRequest,
   CreateWarehouseRequest,
   InstallItemRequest,
@@ -28,11 +29,16 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  PostedStockDocument,
+  StockDocument,
+  StockDocumentListQuery,
   StockDocumentLotInput,
+  StockDocumentPage,
   UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
   UpdateSerialRequest,
+  UpdateStockDocumentRequest,
   UpdateWarehouseRequest,
   Warehouse,
   StocktakeSession,
@@ -85,7 +91,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Everything the screen needs, fetched together so a tab switch never waits on the network. */
 export interface InventoryWorkspace {
-  readonly permissions?: { canManage: boolean; canWriteTransactions: boolean; canWriteQuality?: boolean };
+  readonly permissions?: {
+    canManage: boolean;
+    canWriteTransactions: boolean;
+    canWriteQuality?: boolean;
+    canApproveDocuments?: boolean;
+  };
   readonly warehouses: Warehouse[];
   readonly materials: Material[];
   readonly assets: Asset[];
@@ -553,6 +564,67 @@ export function changeSerialQuality(serial: string, input: ChangeQualityRequest)
 export function loadSerialHistory(serial: string, materialCode?: string): Promise<SerialHistory> {
   const query = materialCode ? `?materialCode=${encodeURIComponent(materialCode)}` : '';
   return request<SerialHistory>(`/serials/${encodeURIComponent(serial)}/history${query}`);
+}
+
+// ---------------------------------------------------------------- Chứng từ kho (T1-28 đến T1-31)
+
+/** Danh sách chứng từ kho, mới nhất trước; lọc theo loại, trạng thái, kho, nguồn, khoảng ngày. */
+export function loadStockDocuments(query: StockDocumentListQuery = {}): Promise<StockDocumentPage> {
+  const params = new URLSearchParams();
+  if (query.docType) params.set('docType', query.docType);
+  if (query.docTypes?.length) params.set('docTypes', query.docTypes.join(','));
+  if (query.status) params.set('status', query.status);
+  if (query.warehouseCode) params.set('warehouseCode', query.warehouseCode);
+  if (query.sourceType) params.set('sourceType', query.sourceType);
+  if (query.fromDate) params.set('fromDate', query.fromDate);
+  if (query.toDate) params.set('toDate', query.toDate);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.offset !== undefined) params.set('offset', String(query.offset));
+  const suffix = params.toString();
+  return request<StockDocumentPage>(`/stock-documents${suffix ? `?${suffix}` : ''}`);
+}
+
+export function loadStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}`);
+}
+
+export function createStockDocument(input: CreateStockDocumentRequest): Promise<StockDocument> {
+  return request<StockDocument>('/stock-documents', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateStockDocument(id: string, input: UpdateStockDocumentRequest): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/submit`, { method: 'POST' });
+}
+
+export function approveStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+}
+
+export function rejectStockDocument(id: string, reason: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function postStockDocument(id: string): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>(`/stock-documents/${encodeURIComponent(id)}/post`, { method: 'POST' });
+}
+
+export function cancelStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+}
+
+/** Chứng từ đảo của chứng từ đã ghi sổ; server ghi sổ ngay. */
+export function reverseStockDocument(id: string): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>(`/stock-documents/${encodeURIComponent(id)}/reverse`, { method: 'POST' });
 }
 
 /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */

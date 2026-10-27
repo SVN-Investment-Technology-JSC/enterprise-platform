@@ -241,6 +241,10 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       values.push(query.docType);
       where.push(`d.doc_type = $${values.length}`);
     }
+    if (query.docTypes?.length) {
+      values.push([...query.docTypes]);
+      where.push(`d.doc_type = ANY($${values.length}::text[])`);
+    }
     if (query.status) {
       values.push(query.status);
       where.push(`d.status = $${values.length}`);
@@ -248,6 +252,18 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     if (query.warehouseCode) {
       values.push(query.warehouseCode);
       where.push(`(w.code = $${values.length} OR tw.code = $${values.length})`);
+    }
+    if (query.sourceType) {
+      values.push(query.sourceType);
+      where.push(`d.source_type = $${values.length}`);
+    }
+    if (query.fromDate) {
+      values.push(query.fromDate);
+      where.push(`d.document_date >= $${values.length}::date`);
+    }
+    if (query.toDate) {
+      values.push(query.toDate);
+      where.push(`d.document_date <= $${values.length}::date`);
     }
     const filter = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = await pool.query<Row>(

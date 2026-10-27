@@ -31,6 +31,8 @@ import { ReturnToStockDialog } from './components/return-to-stock-dialog';
 import { MaterialForm } from './components/material-form';
 import { MovementForm, type MovementInput } from './components/movement-form';
 import { LedgerTable } from './components/ledger-table';
+import { StockDocumentApproval, StockDocumentList } from './components/stock-document-list';
+import { IssueRequestPanel } from './components/issue-request-panel';
 import {
   createAsset,
   createMaterial,
@@ -75,12 +77,25 @@ import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 import { InventoryPermissionsContext } from './inventory-permissions';
 
-type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
+type Tab =
+  | 'dashboard'
+  | 'items'
+  | 'stock'
+  | 'transactions'
+  | 'documents'
+  | 'approvals'
+  | 'issue-requests'
+  | 'assets'
+  | 'ledger'
+  | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
   { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành' },
   { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành' },
+  { id: 'documents', label: 'Chứng từ kho', group: 'Chứng từ' },
+  { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
+  { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
@@ -113,9 +128,10 @@ export function InventoryScreen() {
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
   const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
+  const canApproveDocuments = workspace?.permissions?.canApproveDocuments ?? false;
   const uiPermissions = useMemo(
-    () => ({ canManage, canWriteTransactions, canWriteQuality }),
-    [canManage, canWriteTransactions, canWriteQuality],
+    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments }),
+    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments],
   );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -943,6 +959,32 @@ export function InventoryScreen() {
               onSubmitMovement={submitMovement}
               onReload={reload}
               onNotice={(msg) => setNotice(msg)}
+            />
+          ) : null}
+
+          {tab === 'documents' ? (
+            <StockDocumentList
+              warehouses={workspace.warehouses}
+              materials={workspace.materials}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
+            />
+          ) : null}
+
+          {tab === 'approvals' ? (
+            <StockDocumentApproval
+              warehouses={workspace.warehouses}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
+            />
+          ) : null}
+
+          {tab === 'issue-requests' ? (
+            <IssueRequestPanel
+              warehouses={workspace.warehouses}
+              materials={workspace.materials}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
             />
           ) : null}
 

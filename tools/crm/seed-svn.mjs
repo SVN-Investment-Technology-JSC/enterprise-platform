@@ -4,6 +4,7 @@
 //
 //   node tools/crm/seed-svn.mjs --step=tenant [--tenant=svn]
 //   node tools/crm/seed-svn.mjs --step=legacy [--tenant=svn]
+//   node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
 //
 // Biến môi trường và thứ tự chạy: tools/crm/README.md.
 import { parseArgs } from 'node:util';
@@ -12,6 +13,7 @@ import { buildConfig, loadEnv } from './seed-svn/config.mjs';
 const STEPS = {
   tenant: async () => (await import('./seed-svn/tenant.mjs')).runTenantStep,
   legacy: async () => (await import('./seed-svn/legacy.mjs')).runLegacyStep,
+  inventory: async () => (await import('./seed-svn/inventory.mjs')).runInventoryStep,
 };
 
 const log = {

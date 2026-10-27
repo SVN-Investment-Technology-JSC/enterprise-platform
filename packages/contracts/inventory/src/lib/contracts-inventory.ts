@@ -1344,8 +1344,16 @@ export interface RejectStockDocumentRequest {
 
 export interface StockDocumentListQuery {
   readonly docType?: StockDocumentType;
+  /** Lọc theo nhiều loại cùng lúc (màn thủ kho: xuất bán và xuất bảo hành). */
+  readonly docTypes?: readonly StockDocumentType[];
   readonly status?: StockDocumentStatus;
   readonly warehouseCode?: string;
+  /** Loại chứng từ nguồn, ví dụ đơn bán, bảo hành. */
+  readonly sourceType?: string;
+  /** Ngày chứng từ từ ngày này (YYYY-MM-DD, tính cả ngày này). */
+  readonly fromDate?: string;
+  /** Ngày chứng từ đến ngày này (YYYY-MM-DD, tính cả ngày này). */
+  readonly toDate?: string;
   readonly limit?: number;
   readonly offset?: number;
 }

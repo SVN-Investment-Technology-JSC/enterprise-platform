@@ -2,6 +2,7 @@ import type {
   PostedStockDocument,
   SettingsEntry,
   StockDocument,
+  StockDocumentListQuery,
   StockDocumentPage,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryActor } from './inventory.application.js';
@@ -21,7 +22,10 @@ class FakeStockDocumentStore implements StockDocumentStore {
   posts = 0;
   private sequence = 0;
 
-  async list(): Promise<StockDocumentPage> {
+  lastQuery?: StockDocumentListQuery;
+
+  async list(_tenantId: string, query: StockDocumentListQuery): Promise<StockDocumentPage> {
+    this.lastQuery = query;
     const items = [...this.documents.values()];
     return { items, total: items.length, limit: 50, offset: 0 };
   }
@@ -163,6 +167,37 @@ describe('StockDocumentService', () => {
       warehouseCode: ' KHO-HN ',
       lines: [{ materialCode: ' VT-01 ', quantity: 10 }],
     });
+
+  it('danh sách lọc theo nhiều loại, nguồn, khoảng ngày; từ chối loại hoặc ngày sai', async () => {
+    await service.list(clerk, {
+      docTypes: ['ISSUE_SALES', 'ISSUE_WARRANTY'],
+      status: 'DRAFT',
+      sourceType: ' crm_order ',
+      fromDate: '2026-10-01',
+      toDate: '2026-10-31',
+    });
+    expect(store.lastQuery).toMatchObject({
+      docTypes: ['ISSUE_SALES', 'ISSUE_WARRANTY'],
+      status: 'DRAFT',
+      sourceType: 'crm_order',
+      fromDate: '2026-10-01',
+      toDate: '2026-10-31',
+    });
+    await service.list(clerk, { docTypes: [], sourceType: '  ' });
+    expect(store.lastQuery?.docTypes).toBeUndefined();
+    expect(store.lastQuery?.sourceType).toBeUndefined();
+
+    expect(
+      await rejection(service.list(clerk, { docTypes: ['ISSUE_SALES', 'KHAC' as never] })),
+    ).toMatchObject({ statusCode: 400, message: 'Loại chứng từ không hợp lệ.' });
+    expect(await rejection(service.list(clerk, { fromDate: '27/10/2026' }))).toMatchObject({
+      statusCode: 400,
+      message: 'Ngày lọc phải có dạng YYYY-MM-DD.',
+    });
+    expect(
+      await rejection(service.list(clerk, { fromDate: '2026-10-31', toDate: '2026-10-01' })),
+    ).toMatchObject({ statusCode: 400, message: 'Từ ngày phải trước hoặc bằng đến ngày.' });
+  });
 
   it('chuẩn hoá input khi tạo: cắt khoảng trắng, suy chiều dòng, đơn giá mặc định 0', async () => {
     await createOther();

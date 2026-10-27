@@ -7,6 +7,7 @@ email hoặc tên) được bỏ qua, quyền của vai trò được chỉnh v�
 ```bash
 node tools/crm/seed-svn.mjs --step=tenant [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=legacy [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
 ```
 
 ## Cần có
@@ -32,8 +33,9 @@ node tools/crm/seed-svn.mjs --step=legacy [--tenant=svn]
 1. `--step=tenant` (T0-18), trên code hiện tại.
 2. `--step=legacy` (T0-19), ngay sau bước 1 và **trước** khi áp migration Kho mới.
 3. Cập nhật code, chạy migration mới (worker nâng cấp phân hệ cho tenant).
-4. Các bước của giai đoạn sau, sẽ thêm vào cùng script: `inventory` (T1-33), `crm` (T2-24), `pricing` (T3-18),
-   `finance` (T5-14), `warranty` (T6-10).
+4. `--step=inventory` (T1-33), sau khi migration Kho mới đã áp.
+5. Các bước của giai đoạn sau, sẽ thêm vào cùng script: `crm` (T2-24), `pricing` (T3-18), `finance` (T5-14),
+   `warranty` (T6-10).
 
 Tenant `svn2`, `svn3`, `svn-perf` chỉ chạy bước `tenant` với `--tenant=<slug>`.
 
@@ -61,6 +63,23 @@ Dữ liệu theo API Kho và Workspace hiện tại, để test migration (TC-MI
 - Workspace: khách `QA-CRM-WS01` đến `QA-CRM-WS05`, 3 dự án gắn WS01 đến WS03, hợp đồng `QA-CRM-HD01`, `QA-CRM-HD02`.
 - Cuối bước in tổng tồn theo kho, mặt hàng (`quantity`, `quantity_reserved`), số serial theo trạng thái và ghi ảnh
   chụp JSON `<thư mục tạm>/crm-seed/<tenant>-legacy-snapshot.json` để đối soát sau migration (không ghi vào repo).
+
+## Bước `inventory`
+
+Dữ liệu Kho mới cho Bán hàng, chỉ qua API chứng từ kho (`v1/stock-documents`), lô và serial. Cần bước `legacy` trước
+(kho, `QA-KHO-LAP` với `SN001` đến `SN040`, `QA-KHO-MUC`).
+
+- Kho `QA-KHO-HN`, `QA-KHO-CL` (cách ly), `QA-KHO-LOI` (hàng lỗi): tạo nếu chưa có.
+- Mặt hàng dịch vụ `QA-KHO-BT` (gói bảo trì), `QA-KHO-PM` (phần mềm), loại `SERVICE`; `QA-KHO-LAP` bảo hành 12 tháng.
+- Chứng từ nhập mua (ghi sổ thẳng) vào `QA-KHO-HN`, mỗi chứng từ một `idempotencyKey` cố định
+  `qa-seed-inventory:<tenant>:<khoá>`: chạy lại trả chứng từ đã có, chứng từ còn Nháp thì ghi sổ tiếp.
+  - `QA-KHO-MUC` lô L01 (30, hạn 31/12 năm nay), L02 (20, hạn 30/11 năm nay), L03 (10, hạn 31/12 năm trước, đã hết
+    hạn), L04 (15, hạn 30/6 năm sau), đơn giá 250.000; sau đó đổi L04 sang Cách ly có lý do.
+  - 5 serial dự phòng `SN-DP01` đến `SN-DP05` của `QA-KHO-LAP` (Q9), đơn giá 15.000.000.
+- Serial `SN039` chuyển Cách ly có lý do (TC-INV-12).
+- Cuối bước in hạn dùng, chất lượng từng lô, gợi ý FEFO xuất 10 (mong đợi L02 rồi L01, không có L03, L04) và số serial
+  dự phòng, serial Cách ly.
+- Chạy vào tháng 12 thì L02 đã quá hạn theo lịch; test FEFO khi đó cần tenant mới seed lại.
 
 ## Chuyển khách hàng Workspace sang Bán hàng (T2-15)
 

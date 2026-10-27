@@ -61,10 +61,25 @@ export class StockDocumentService {
     if (query.docType && !STOCK_DOCUMENT_TYPES.includes(query.docType)) {
       throw new InventoryError('VALIDATION', 'Loại chứng từ không hợp lệ.');
     }
+    if (query.docTypes?.some((docType) => !STOCK_DOCUMENT_TYPES.includes(docType))) {
+      throw new InventoryError('VALIDATION', 'Loại chứng từ không hợp lệ.');
+    }
     if (query.status && !STOCK_DOCUMENT_STATUSES.includes(query.status)) {
       throw new InventoryError('VALIDATION', 'Trạng thái chứng từ không hợp lệ.');
     }
-    return this.documents.list(actor.tenantId, query);
+    for (const date of [query.fromDate, query.toDate]) {
+      if (date && !DATE_PATTERN.test(date)) {
+        throw new InventoryError('VALIDATION', 'Ngày lọc phải có dạng YYYY-MM-DD.');
+      }
+    }
+    if (query.fromDate && query.toDate && query.fromDate > query.toDate) {
+      throw new InventoryError('VALIDATION', 'Từ ngày phải trước hoặc bằng đến ngày.');
+    }
+    return this.documents.list(actor.tenantId, {
+      ...query,
+      docTypes: query.docTypes?.length ? query.docTypes : undefined,
+      sourceType: query.sourceType?.trim() || undefined,
+    });
   }
 
   async get(actor: InventoryActor, key: string): Promise<StockDocument> {

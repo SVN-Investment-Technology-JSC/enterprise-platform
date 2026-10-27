@@ -351,4 +351,31 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     const page = await documents.list(clerk, { docType: 'ISSUE_SALES', status: 'DRAFT', warehouseCode: 'KHO-A' });
     expect(page.items.filter((item) => item.idempotencyKey === request.idempotencyKey)).toHaveLength(1);
   });
+
+  it('danh sách lọc nhiều loại, nguồn và khoảng ngày chứng từ (màn thủ kho)', async () => {
+    const sourceType = `qa_source_${randomUUID().slice(0, 8)}`;
+    const make = (docType: 'ISSUE_SALES' | 'ISSUE_WARRANTY' | 'ISSUE_OTHER', documentDate: string) =>
+      documents.create(clerk, {
+        docType,
+        warehouseCode: 'KHO-B',
+        sourceType,
+        sourceId: randomUUID(),
+        documentDate,
+        lines: [{ materialCode: 'VT-2', quantity: 1 }],
+      });
+    const sales = await make('ISSUE_SALES', '2026-03-10');
+    const warranty = await make('ISSUE_WARRANTY', '2026-03-20');
+    await make('ISSUE_OTHER', '2026-03-15');
+    await make('ISSUE_SALES', '2026-04-02');
+
+    const page = await documents.list(clerk, {
+      docTypes: ['ISSUE_SALES', 'ISSUE_WARRANTY'],
+      status: 'DRAFT',
+      sourceType,
+      fromDate: '2026-03-01',
+      toDate: '2026-03-31',
+    });
+    expect(page.total).toBe(2);
+    expect(page.items.map((item) => item.id).sort()).toEqual([sales.id, warranty.id].sort());
+  });
 });
