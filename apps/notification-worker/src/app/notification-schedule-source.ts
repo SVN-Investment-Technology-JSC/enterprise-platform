@@ -22,6 +22,9 @@ const DEADLINE_SUBJECTS: Readonly<Record<DeadlineModule, { subject: string; idFi
 const DEFAULT_DUE_SOON_MINUTES = 24 * 60;
 /** Nhắc hoạt động Bán hàng trước hạn mặc định, khi `crm_schema.settings` chưa có khoá `activity.reminder`. */
 export const CRM_ACTIVITY_REMINDER_DEFAULT_MINUTES = 30;
+/** Báo hợp đồng sắp hết hạn trước mặc định, khi `crm_schema.settings` chưa có khoá `contract.expiring` (CON-06). */
+export const CRM_CONTRACT_EXPIRING_DEFAULT_DAYS = 30;
+interface CrmContractRow { id: string; code: string; title: string; valid_to: string; owner_user_id: string; days_left: number }
 interface CrmActivityRow {
   id: string; subject: string; due_at: Date; assignee_user_id: string;
   customer_id: string | null; opportunity_id: string | null;
@@ -50,12 +53,14 @@ export class PostgresNotificationScheduleSource {
   async candidates(now: Date): Promise<readonly NotificationScheduleCandidate[]> {
     const tables = await this.pool.query<{
       workspace: boolean; calendar: boolean; procedure: boolean; maintenance: boolean; inventory: boolean; crm: boolean;
+      crm_contracts?: boolean;
     }>(`SELECT to_regclass('workspace_schema.work_items') IS NOT NULL AS workspace,
                to_regclass('workspace_schema.calendar_event_exceptions') IS NOT NULL AS calendar,
                to_regclass('procedure_schema.instances') IS NOT NULL AS procedure,
                to_regclass('maintenance_schema.occurrences') IS NOT NULL AS maintenance,
                to_regclass('inventory_schema.reservations') IS NOT NULL AS inventory,
-               to_regclass('crm_schema.activities') IS NOT NULL AS crm`);
+               to_regclass('crm_schema.activities') IS NOT NULL AS crm,
+               to_regclass('crm_schema.contract_payment_terms') IS NOT NULL AS crm_contracts`);
     const installed = tables.rows[0];
     const candidates: NotificationScheduleCandidate[] = [];
     /**
@@ -185,8 +190,42 @@ export class PostgresNotificationScheduleSource {
         });
       }
     }
+    if (installed.crm_contracts) {
+      // Hợp đồng Hiệu lực hết hạn trong N ngày tới (cấu hình `contract.expiring`, mặc định 30): báo người phụ trách
+      // từ đầu ngày (giờ Việt Nam) còn đúng N ngày. Khoá lịch gồm ngày kết thúc nên gia hạn thì báo lại theo hạn mới.
+      const setting = await this.pool.query<{ value: unknown }>(
+        `SELECT value FROM crm_schema.settings WHERE key = 'contract.expiring'`);
+      const days = crmContractExpiringDays(setting.rows[0]?.value);
+      const contracts = await this.pool.query<CrmContractRow>(
+        `SELECT id, code, title, valid_to::text AS valid_to, owner_user_id,
+                (valid_to - ($1::timestamptz AT TIME ZONE $3)::date)::int AS days_left
+           FROM crm_schema.contracts
+          WHERE status = 'ACTIVE' AND valid_to IS NOT NULL
+            AND valid_to BETWEEN ($1::timestamptz AT TIME ZONE $3)::date
+                             AND ($1::timestamptz AT TIME ZONE $3)::date + $2::int`, [now, days, this.timezone]);
+      for (const row of contracts.rows) {
+        const notifyFrom = new Date(Date.parse(`${row.valid_to}T00:00:00+07:00`) - days * 24 * 60 * 60_000);
+        candidates.push({
+          scheduleKey: `crm:contract:${row.id}:expiring:${row.valid_to}`, eventType: 'crm.contract.expiring',
+          aggregateType: 'crm-contract', aggregateId: row.id, userId: row.owner_user_id,
+          scheduledFor: notifyFrom.toISOString(),
+          payload: {
+            contractId: row.id, contractCode: row.code, endDate: row.valid_to, ownerUserId: row.owner_user_id,
+            daysLeft: row.days_left,
+            summary: `Hợp đồng ${row.code} (${row.title}) hết hạn ngày ${row.valid_to.split('-').reverse().join('/')}, còn ${row.days_left} ngày.`,
+            deepLink: `/modules/crm#contracts/${encodeURIComponent(row.id)}`,
+          },
+        });
+      }
+    }
     return candidates;
   }
+}
+
+/** Số ngày báo trước khi hợp đồng hết hạn từ giá trị cấu hình `{ days }`; không hợp lệ thì mặc định. */
+export function crmContractExpiringDays(value: unknown): number {
+  const days = Number((value as { days?: unknown } | null | undefined)?.days);
+  return Number.isInteger(days) && days >= 1 && days <= 365 ? days : CRM_CONTRACT_EXPIRING_DEFAULT_DAYS;
 }
 
 /** Số phút nhắc trước hạn từ giá trị cấu hình `{ leadMinutes }`; không hợp lệ thì mặc định. */

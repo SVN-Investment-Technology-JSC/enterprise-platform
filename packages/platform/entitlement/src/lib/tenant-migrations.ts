@@ -120,6 +120,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0004-activities', path: 'tenant/crm/0004-activities.sql' },
     { version: '0005-pricing', path: 'tenant/crm/0005-pricing.sql' },
     { version: '0006-quotes', path: 'tenant/crm/0006-quotes.sql' },
+    { version: '0007-contracts', path: 'tenant/crm/0007-contracts.sql' },
+    { version: '0008-sales-orders', path: 'tenant/crm/0008-sales-orders.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },

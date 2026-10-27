@@ -3,3 +3,5 @@ export * from './lib/customers.js';
 export * from './lib/opportunities.js';
 export * from './lib/pricing.js';
 export * from './lib/quotes.js';
+export * from './lib/contracts.js';
+export * from './lib/orders.js';

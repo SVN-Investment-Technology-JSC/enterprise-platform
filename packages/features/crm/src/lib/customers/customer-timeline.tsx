@@ -2,7 +2,7 @@
 
 import type { CustomerTimelineEntry } from '@enterprise-platform/contracts-crm';
 import { formatDateTime } from '@enterprise-platform/shared-ui';
-import { CalendarClock, CircleDot, Target } from 'lucide-react';
+import { CalendarClock, CircleDot, FileSignature, FileText, ShoppingCart, Target } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { errorMessage, loadTimeline } from '../crm-api';
 import { useCrm } from '../crm-context';
@@ -14,13 +14,29 @@ const ICONS: Partial<Record<CustomerTimelineEntry['kind'], ReactNode>> = {
   'opportunity-created': <Target size={14} />,
   'opportunity-stage-changed': <Target size={14} />,
   activity: <CalendarClock size={14} />,
+  quote: <FileText size={14} />,
+  contract: <FileSignature size={14} />,
+  order: <ShoppingCart size={14} />,
 };
 
 /**
- * Dòng thời gian khách hàng: cơ hội, chuyển giai đoạn, hoạt động, mới nhất
- * trước, tải thêm theo trang. API đã lọc theo phạm vi dữ liệu từng mục.
+ * Dòng thời gian khách hàng: cơ hội, chuyển giai đoạn, hoạt động, báo giá, hợp
+ * đồng, đơn bán, mới nhất trước, tải thêm theo trang. API đã lọc theo phạm vi
+ * dữ liệu từng mục.
  */
-export function CustomerTimeline({ customerId, onOpenOpportunity }: { customerId: string; onOpenOpportunity: (id: string) => void }) {
+export function CustomerTimeline({
+  customerId,
+  onOpenOpportunity,
+  onOpenQuote,
+  onOpenContract,
+  onOpenOrder,
+}: {
+  customerId: string;
+  onOpenOpportunity: (id: string) => void;
+  onOpenQuote?: (id: string) => void;
+  onOpenContract?: (id: string) => void;
+  onOpenOrder?: (id: string) => void;
+}) {
   const { people } = useCrm();
   const [entries, setEntries] = useState<CustomerTimelineEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -51,14 +67,23 @@ export function CustomerTimeline({ customerId, onOpenOpportunity }: { customerId
       <ol className={styles.timeline}>
         {entries.map((entry) => {
           const { title, detail } = describeTimelineEntry(entry);
-          const opportunityId = 'opportunityId' in entry ? entry.opportunityId : null;
+          const open =
+            entry.kind === 'contract' && onOpenContract
+              ? () => onOpenContract(entry.contractId)
+              : entry.kind === 'order' && onOpenOrder
+                ? () => onOpenOrder(entry.orderId)
+                : entry.kind === 'quote' && onOpenQuote
+                  ? () => onOpenQuote(entry.quoteId)
+                  : 'opportunityId' in entry && entry.opportunityId
+                    ? () => onOpenOpportunity(entry.opportunityId as string)
+                    : null;
           return (
             <li key={`${entry.kind}:${entry.id}`} className={styles.timelineItem}>
               <span className={styles.timelineIcon}>{ICONS[entry.kind] ?? <CircleDot size={14} />}</span>
               <div>
                 <div className={styles.timelineTitle}>
-                  {opportunityId ? (
-                    <button type="button" className={styles.linkButton} onClick={() => onOpenOpportunity(opportunityId)}>
+                  {open ? (
+                    <button type="button" className={styles.linkButton} onClick={open}>
                       {title}
                     </button>
                   ) : (

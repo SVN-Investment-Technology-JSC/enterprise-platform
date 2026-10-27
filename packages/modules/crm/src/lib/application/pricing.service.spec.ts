@@ -243,6 +243,7 @@ describe('PricingService.preview', () => {
       saveDiscountCapPercent: jest.fn().mockResolvedValue(undefined),
       priceListsForPricing: jest.fn().mockResolvedValue([standard]),
       policiesForPricing: jest.fn().mockResolvedValue([vipPolicy]),
+      contractPricesForPricing: jest.fn().mockResolvedValue([]),
     };
     const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP } as CustomerDetail) };
     const service = new PricingService(store, customers, new FakeCatalogReader(), () => new Date('2026-12-31T18:30:00Z'));
@@ -259,6 +260,16 @@ describe('PricingService.preview', () => {
     expect(store.priceListsForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', VIP, [CAP]);
     expect(result).toMatchObject({ date: '2027-01-01', customerGroupId: VIP });
     expect(result.lines[0]).toMatchObject({ discountPercent: 3, lineAmount: 9_700_000 });
+  });
+
+  it('TC-PRC-03: hợp đồng khung của khách đứng trước bảng giá (nguồn "Hợp đồng")', async () => {
+    const { store, service } = setup();
+    store.contractPricesForPricing.mockResolvedValue([
+      { contractId: 'k1', contractCode: 'HD2600001', materialId: CAP, unit: 'Cái', price: 900_000, vatRate: 10, validFrom: '2026-01-01', validTo: null },
+    ]);
+    const result = await service.preview(seller, { customerId: CUSTOMER, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] });
+    expect(store.contractPricesForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', CUSTOMER, [CAP]);
+    expect(result.lines[0]).toMatchObject({ listPrice: 900_000, priceSource: 'CONTRACT', priceReferenceCode: 'HD2600001' });
   });
 
   it('khách ngoài phạm vi trả 404 từ CustomerService', async () => {

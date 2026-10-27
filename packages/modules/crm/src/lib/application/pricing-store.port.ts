@@ -6,7 +6,7 @@ import type {
   PriceListSummary,
   PricingStatus,
 } from '@enterprise-platform/contracts-crm';
-import type { PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
+import type { PricingContractPrice, PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
 
 /**
  * Port lưu trữ của bảng giá, chính sách chiết khấu và cấu hình giá (GĐ3a), cùng
@@ -129,6 +129,19 @@ export interface PricingStore {
   ): Promise<PricingPriceList[]>;
   /** Chính sách ACTIVE còn hiệu lực ngày `date`, kèm tiêu chí. */
   policiesForPricing(tenantId: string, date: string): Promise<PricingPolicy[]>;
+  /**
+   * Giá khung hợp đồng cho engine giá (nguồn "Hợp đồng", T4-02). Có
+   * `contractId`: dòng của đúng hợp đồng đó (đơn từ hợp đồng). Không có: dòng
+   * của các hợp đồng khung, nguyên tắc đang Hiệu lực của `customerId`. Chỉ hợp
+   * đồng Hiệu lực ngày `date`; hợp đồng bắt đầu sau cùng đứng trước.
+   */
+  contractPricesForPricing(
+    tenantId: string,
+    date: string,
+    customerId: string | null,
+    materialIds: readonly string[],
+    contractId?: string | null,
+  ): Promise<PricingContractPrice[]>;
 }
 
 /** Mặt hàng theo danh mục Kho. */

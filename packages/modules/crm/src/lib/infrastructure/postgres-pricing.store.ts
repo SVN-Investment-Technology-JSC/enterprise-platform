@@ -19,7 +19,7 @@ import type {
   PricingStore,
 } from '../application/pricing-store.port.js';
 import { CrmConflictError, CrmValidationError } from '../domain/crm.error.js';
-import type { PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
+import type { PricingContractPrice, PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
 import type { CrmDatabase } from './crm.database.js';
 import { constraintViolation, toDateOnly, toIso } from './sql-helpers.js';
 
@@ -658,6 +658,48 @@ export class PostgresPricingStore implements PricingStore {
       [date],
     );
     return result.rows.map(toPolicy);
+  }
+
+  async contractPricesForPricing(
+    tenantId: string,
+    date: string,
+    customerId: string | null,
+    materialIds: readonly string[],
+    contractId?: string | null,
+  ): Promise<PricingContractPrice[]> {
+    if (!materialIds.length || (!customerId && !contractId)) return [];
+    const pool = await this.database.pool(tenantId);
+    // Đơn từ hợp đồng: đúng hợp đồng đó; còn lại: hợp đồng khung, nguyên tắc của khách.
+    const result = await pool.query<{
+      contract_id: string;
+      code: string;
+      material_id: string;
+      unit: string;
+      unit_price: string;
+      vat_rate: string;
+      valid_from: string | Date;
+      valid_to: string | Date | null;
+    }>(
+      `SELECT c.id AS contract_id, c.code, l.material_id, l.unit, l.unit_price, l.vat_rate, c.valid_from, c.valid_to
+         FROM crm_schema.contracts c
+         JOIN crm_schema.contract_lines l ON l.contract_id = c.id
+        WHERE c.status = 'ACTIVE' AND c.valid_from <= $1::date AND (c.valid_to IS NULL OR c.valid_to >= $1::date)
+          AND l.material_id = ANY($2::uuid[])
+          AND (CASE WHEN $3::uuid IS NOT NULL THEN c.id = $3::uuid
+                    ELSE c.customer_id = $4::uuid AND c.type IN ('FRAMEWORK', 'PRINCIPLE') END)
+        ORDER BY c.valid_from DESC, c.code`,
+      [date, materialIds, contractId ?? null, customerId],
+    );
+    return result.rows.map((row) => ({
+      contractId: row.contract_id,
+      contractCode: row.code,
+      materialId: row.material_id,
+      unit: row.unit,
+      price: Number(row.unit_price),
+      vatRate: Number(row.vat_rate),
+      validFrom: toDateOnly(row.valid_from) as string,
+      validTo: toDateOnly(row.valid_to),
+    }));
   }
 }
 

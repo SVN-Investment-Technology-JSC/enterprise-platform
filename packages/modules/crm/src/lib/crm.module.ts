@@ -84,6 +84,40 @@ import {
   LeadsController,
   OpportunitiesController,
 } from './presentation/opportunities.controller.js';
+import { ContractService } from './application/contract.service.js';
+import {
+  CRM_CONTRACT_STORE,
+  CRM_SALES_SETTINGS_STORE,
+  type ContractStore,
+  type SalesSettingsStore,
+} from './application/contract-store.port.js';
+import {
+  AllowAllCreditLimitCheck,
+  CRM_CREDIT_LIMIT_CHECK,
+  CRM_INTEGRATION_DISPATCHER,
+  CRM_INVENTORY_CLIENT,
+  CRM_ORDER_BALANCE_READER,
+  UnknownOrderBalanceReader,
+  type CreditLimitCheck,
+  type IntegrationDispatcher,
+  type InventoryClient,
+  type OrderBalanceReader,
+} from './application/fulfillment.port.js';
+import { QuoteConversionService } from './application/quote-conversion.service.js';
+import {
+  CRM_QUOTE_CONVERSION_STORE,
+  CRM_SALES_ORDER_STORE,
+  type QuoteConversionStore,
+  type SalesOrderStore,
+} from './application/sales-order-store.port.js';
+import { SalesOrderService } from './application/sales-order.service.js';
+import { HttpInventoryClient } from './infrastructure/http-inventory-client.js';
+import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
+import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
+import { PostgresQuoteConversionStore } from './infrastructure/postgres-quote-conversion.store.js';
+import { PostgresSalesOrderStore } from './infrastructure/postgres-sales-order.store.js';
+import { ContractsController } from './presentation/contracts.controller.js';
+import { SalesOrdersController } from './presentation/sales-orders.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -112,6 +146,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     QuotesController,
     ApprovalSettingsController,
     InternalInstancesController,
+    ContractsController,
+    SalesOrdersController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -249,6 +285,78 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (settings: QuoteSettingsStore, procedures: ProcedureClient) =>
         new QuoteApprovalSettingsService(settings, procedures),
       inject: [CRM_QUOTE_SETTINGS_STORE, CRM_PROCEDURE_CLIENT],
+    },
+    // Hợp đồng, đơn bán, giao hàng (GĐ4). Kho gọi qua API nội bộ (INVENTORY_API_URL).
+    { provide: CRM_INVENTORY_CLIENT, useFactory: () => new HttpInventoryClient() },
+    // Hạn mức công nợ (T5-10) và số còn phải thu (T5-11) có ở GĐ5; tạm thời cho qua và "chưa biết".
+    { provide: CRM_CREDIT_LIMIT_CHECK, useFactory: () => new AllowAllCreditLimitCheck() },
+    { provide: CRM_ORDER_BALANCE_READER, useFactory: () => new UnknownOrderBalanceReader() },
+    {
+      provide: CRM_INTEGRATION_DISPATCHER,
+      useFactory: (database: CrmDatabase, inventory: InventoryClient) => new PostgresIntegrationRequests(database, inventory),
+      inject: [CrmDatabase, CRM_INVENTORY_CLIENT],
+    },
+    store(CRM_CONTRACT_STORE, (database) => new PostgresContractStore(database)),
+    store(CRM_SALES_SETTINGS_STORE, (database) => new PostgresSalesSettingsStore(database)),
+    store(CRM_QUOTE_CONVERSION_STORE, (database) => new PostgresQuoteConversionStore(database)),
+    {
+      provide: CRM_SALES_ORDER_STORE,
+      useFactory: (database: CrmDatabase, balances: OrderBalanceReader) => new PostgresSalesOrderStore(database, balances),
+      inject: [CrmDatabase, CRM_ORDER_BALANCE_READER],
+    },
+    {
+      provide: ContractService,
+      useFactory: (
+        contracts: ContractStore,
+        customers: CustomerStore,
+        catalog: CatalogReader,
+        scopes: CrmDataScopeService,
+        inventory: InventoryClient,
+        settings: SalesSettingsStore,
+        dispatcher: IntegrationDispatcher,
+      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher),
+      inject: [
+        CRM_CONTRACT_STORE,
+        CRM_CUSTOMER_STORE,
+        CRM_CATALOG_READER,
+        CrmDataScopeService,
+        CRM_INVENTORY_CLIENT,
+        CRM_SALES_SETTINGS_STORE,
+        CRM_INTEGRATION_DISPATCHER,
+      ],
+    },
+    {
+      provide: SalesOrderService,
+      useFactory: (
+        orders: SalesOrderStore,
+        contracts: ContractStore,
+        customers: CustomerStore,
+        pricing: PricingStore,
+        catalog: CatalogReader,
+        scopes: CrmDataScopeService,
+        inventory: InventoryClient,
+        settings: SalesSettingsStore,
+        credit: CreditLimitCheck,
+        dispatcher: IntegrationDispatcher,
+      ) => new SalesOrderService(orders, contracts, customers, pricing, catalog, scopes, inventory, settings, credit, dispatcher),
+      inject: [
+        CRM_SALES_ORDER_STORE,
+        CRM_CONTRACT_STORE,
+        CRM_CUSTOMER_STORE,
+        CRM_PRICING_STORE,
+        CRM_CATALOG_READER,
+        CrmDataScopeService,
+        CRM_INVENTORY_CLIENT,
+        CRM_SALES_SETTINGS_STORE,
+        CRM_CREDIT_LIMIT_CHECK,
+        CRM_INTEGRATION_DISPATCHER,
+      ],
+    },
+    {
+      provide: QuoteConversionService,
+      useFactory: (conversion: QuoteConversionStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new QuoteConversionService(conversion, quotes, scopes),
+      inject: [CRM_QUOTE_CONVERSION_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry],

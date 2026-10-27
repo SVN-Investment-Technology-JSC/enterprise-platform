@@ -42,6 +42,7 @@ const catalog = () =>
   ]);
 
 const pricing: PricingStore = {
+  contractPricesForPricing: async () => [],
   discountCapPercent: async () => 50,
   saveDiscountCapPercent: async () => undefined,
   priceListsForPricing: async () => [

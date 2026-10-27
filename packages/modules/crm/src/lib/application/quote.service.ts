@@ -513,11 +513,13 @@ export class QuoteService {
   ): Promise<QuoteVersionWrite> {
     const date = next.priceDate ?? this.today();
     const materialIds = [...new Set(next.lines.map((line) => line.materialId))];
-    const [priceLists, policies, cap, known] = await Promise.all([
+    const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
       this.pricing.priceListsForPricing(tenantId, date, quote.head.customerGroupId, materialIds),
       this.pricing.policiesForPricing(tenantId, date),
       this.pricing.discountCapPercent(tenantId),
       materialIds.length ? this.catalog.materials(tenantId, materialIds) : Promise.resolve(new Map<string, CatalogMaterial>()),
+      // Giá khung hợp đồng khung, nguyên tắc đang hiệu lực của khách đứng trước bảng giá (T4-02).
+      this.pricing.contractPricesForPricing(tenantId, date, quote.head.customerId, materialIds),
     ]);
     // Danh mục còn mặt hàng thì làm mới bản chụp mã, tên, loại; không thì giữ bản chụp cũ.
     const lines = next.lines.map((line) => {
@@ -549,6 +551,7 @@ export class QuoteService {
       lines: inputs,
       priceLists,
       policies,
+      contractPrices,
       discountCapPercent: cap,
       shipping: shipping.amount > 0 ? { amount: shipping.amount, vatRate: shipping.vatRate } : null,
     });

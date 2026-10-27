@@ -337,6 +337,32 @@ export type CustomerTimelineEntry =
       readonly versionNo: number | null;
       readonly reason: string | null;
       readonly opportunityId: string | null;
+    }
+  | {
+      /** Hợp đồng: lập, xác nhận, hết hạn, hoàn thành, thanh lý, huỷ. */
+      readonly kind: 'contract';
+      readonly id: string;
+      readonly at: string;
+      readonly actorId: string | null;
+      readonly contractId: string;
+      readonly contractCode: string;
+      readonly action: string;
+      readonly fromStatus: string | null;
+      readonly toStatus: string | null;
+      readonly reason: string | null;
+    }
+  | {
+      /** Đơn bán: lập, xác nhận, giao hàng, huỷ, hoàn tất. */
+      readonly kind: 'order';
+      readonly id: string;
+      readonly at: string;
+      readonly actorId: string | null;
+      readonly orderId: string;
+      readonly orderCode: string;
+      readonly action: string;
+      readonly fromStatus: string | null;
+      readonly toStatus: string | null;
+      readonly reason: string | null;
     };
 
 export type CustomerTimelineKind = CustomerTimelineEntry['kind'];

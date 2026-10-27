@@ -955,6 +955,48 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Hợp đồng sắp hết hạn (nguồn lịch của notification-worker, trước N ngày theo cấu hình `contract.expiring`): báo
+  // người phụ trách hợp đồng.
+  directPolicy({
+    eventType: 'crm.contract.expiring',
+    module: 'crm',
+    category: 'deadline',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['ownerUserId'] },
+    template: ({ payload }) => ({
+      title: 'Hợp đồng sắp hết hạn',
+      body: text(payload, 'summary', 'Hợp đồng bán hàng sắp hết hạn.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#contracts'),
+      sourceType: 'crm_contract',
+      // Gồm ngày kết thúc để gia hạn rồi sắp hết hạn lần nữa là thông báo mới.
+      sourceId: `${id(payload, 'contractId')}:expiring:${text(payload, 'endDate', '')}`,
+    }),
+  }),
+  // Đơn bán: đợt giao trễ (job của Bán hàng), phần giữ hàng hết hạn ở Kho (đơn hoặc hợp đồng). Người nhận ghi sẵn
+  // trong payload (`recipientUserIds`, người phụ trách).
+  ...(
+    [
+      ['crm.delivery.late', 'deadline', 'Đợt giao hàng bị trễ', 'crm_delivery', 'deliveryId'],
+      ['crm.order.reservation-lost', 'reservation', 'Đơn bán mất phần giữ hàng', 'crm_order', 'orderId'],
+      ['crm.contract.reservation-lost', 'reservation', 'Hợp đồng mất phần giữ hàng', 'crm_contract', 'contractId'],
+    ] as const
+  ).map(([eventType, category, title, sourceType, idField]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category,
+      priority: 'actionable',
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Đơn bán có cập nhật cần xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#orders'),
+        sourceType,
+        sourceId: `${id(payload, idField)}:${eventType}:${text(payload, eventType === 'crm.delivery.late' ? 'plannedDate' : 'reservationCode', '')}`,
+      }),
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],

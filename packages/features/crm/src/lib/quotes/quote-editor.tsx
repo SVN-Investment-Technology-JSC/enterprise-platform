@@ -17,6 +17,7 @@ import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import {
   addQuoteLine,
+  convertQuote,
   errorMessage,
   getQuote,
   quoteAction,
@@ -63,11 +64,14 @@ export function QuoteEditor({
   onBack,
   onOpenCustomer,
   onOpenOpportunity,
+  onOpenOrder,
 }: {
   quoteId: string;
   onBack: () => void;
   onOpenCustomer: (id: string) => void;
   onOpenOpportunity: (id: string) => void;
+  /** Mở đơn sinh khi chuyển báo giá khách chấp nhận (T4-06). */
+  onOpenOrder?: (id: string) => void;
 }) {
   const { capabilities, people, currentUserId } = useCrm();
   const [detail, setDetail] = useState<QuoteDetail>();
@@ -119,6 +123,27 @@ export function QuoteEditor({
     detail && version
       ? run(() => quoteAction(detail.id, version.versionNo, action, { revision: version.revision, reason }), ACTION_DONE[action])
       : Promise.resolve(false);
+
+  const canConvert =
+    !!detail && detail.status === 'ACCEPTED' && (capabilities.isTenantAdmin || capabilities.canWriteOrder) && !!onOpenOrder;
+  /** Chuyển thành hợp đồng, đơn, kế hoạch giao; đã chuyển thì trả đúng đơn lần đầu. */
+  async function convert() {
+    if (!detail || !onOpenOrder) return;
+    setBusy(true);
+    try {
+      const result = await convertQuote(detail.id);
+      toast.success(
+        result.created
+          ? `Đã tạo hợp đồng ${result.contractCode} và đơn ${result.orderCode}.`
+          : `Báo giá đã chuyển thành hợp đồng ${result.contractCode} và đơn ${result.orderCode}.`,
+      );
+      onOpenOrder(result.orderId);
+    } catch (cause) {
+      toast.error(errorMessage(cause, 'Không chuyển được báo giá.'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const columns: ColumnsType<QuoteLine> = [
       { title: '#', dataIndex: 'lineNo', width: 44, align: 'right' },
@@ -318,6 +343,30 @@ export function QuoteEditor({
           ) : null}
         </dl>
         <ApprovalNotice detail={detail} />
+        {canConvert ? (
+          <div className={styles.toolbar}>
+            {detail.convertedAt ? (
+              <>
+                <span className={styles.muted}>Đã chuyển thành hợp đồng và đơn bán ngày {formatDateTime(detail.convertedAt)}.</span>
+                <button type="button" className={styles.buttonGhost} disabled={busy} onClick={() => void convert()}>
+                  Mở đơn bán
+                </button>
+              </>
+            ) : (
+              <Popconfirm
+                title="Chuyển thành hợp đồng và đơn?"
+                description="Tạo hợp đồng mua bán, đơn bán (Nháp) cùng dòng, giá của phiên bản khách chấp nhận và một đợt giao mặc định. Mỗi báo giá chỉ chuyển một lần."
+                okText="Chuyển"
+                cancelText="Huỷ"
+                onConfirm={() => convert()}
+              >
+                <button type="button" className={styles.buttonPrimary} disabled={busy}>
+                  Chuyển thành hợp đồng, đơn
+                </button>
+              </Popconfirm>
+            )}
+          </div>
+        ) : null}
         {actions.length ? (
           <div className={styles.toolbar}>
             {actions.includes('edit') ? (

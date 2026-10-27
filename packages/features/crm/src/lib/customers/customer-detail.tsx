@@ -48,10 +48,16 @@ export function CustomerDetail({
   customerId,
   onBack,
   onOpenOpportunity,
+  onOpenQuote,
+  onOpenContract,
+  onOpenOrder,
 }: {
   customerId: string;
   onBack: () => void;
   onOpenOpportunity: (id: string) => void;
+  onOpenQuote?: (id: string) => void;
+  onOpenContract?: (id: string) => void;
+  onOpenOrder?: (id: string) => void;
 }) {
   const { people } = useCrm();
   const canWrite = useCanWrite();
@@ -146,7 +152,13 @@ export function CustomerDetail({
       {tab === 'contacts' ? <ContactsTab customer={customer} onChanged={setCustomer} /> : null}
       {tab === 'opportunities' ? <CustomerOpportunities customer={customer} onOpen={onOpenOpportunity} /> : null}
       {tab === 'activities' ? <ActivityPanel scope={{ customerId: customer.id }} /> : null}
-      {tab === 'timeline' ? <CustomerTimeline customerId={customer.id} onOpenOpportunity={onOpenOpportunity} /> : null}
+      {tab === 'timeline' ? <CustomerTimeline
+          customerId={customer.id}
+          onOpenOpportunity={onOpenOpportunity}
+          onOpenQuote={onOpenQuote}
+          onOpenContract={onOpenContract}
+          onOpenOrder={onOpenOrder}
+        /> : null}
       {editing ? (
         <CustomerFormDialog
           customer={customer}

@@ -38,6 +38,10 @@ import { OpportunitiesPage } from './opportunities/opportunities-page';
 import { QuoteEditor } from './quotes/quote-editor';
 import { QuotesPage } from './quotes/quotes-page';
 import { CrmSettingsPage } from './settings/crm-settings';
+import { ContractDetail } from './contracts/contract-detail';
+import { ContractsPage } from './contracts/contracts-page';
+import { OrderDetail } from './orders/order-detail';
+import { OrdersPage } from './orders/orders-page';
 import salesStyles from './sales.module.scss';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 
@@ -60,7 +64,8 @@ const ICONS: Record<CrmView, ReactNode> = {
  * Bán hàng. Menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status`
  * (quyền thật kiểm ở API). Đoạn hash thứ hai là id đang mở, ví dụ
  * `#customers/<id>`, `#opportunities/<id>`, `#activities/<id>` (liên kết từ
- * thông báo nhắc hạn), `#quotes/<id>` (thông báo duyệt báo giá). Phần chưa làm hiện trang giữ chỗ.
+ * thông báo nhắc hạn), `#quotes/<id>` (thông báo duyệt báo giá), `#contracts/<id>` (hợp đồng sắp hết
+ * hạn), `#orders/<id>` (giao trễ, mất phần giữ hàng). Phần chưa làm hiện trang giữ chỗ.
  */
 export function CrmScreen() {
   const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
@@ -174,7 +179,7 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
   );
 }
 
-/** Trang đã làm (GĐ2, GĐ3); còn lại là trang giữ chỗ. */
+/** Trang đã làm (GĐ2 đến GĐ4); còn lại là trang giữ chỗ. */
 function SalesView({
   page,
   sub,
@@ -187,10 +192,20 @@ function SalesView({
   const openCustomer = (id: string) => navigate('customers', id);
   const openOpportunity = (id: string) => navigate('opportunities', id);
   const openQuote = (id: string) => navigate('quotes', id);
+  const openContract = (id: string) => navigate('contracts', id);
+  const openOrder = (id: string) => navigate('orders', id);
   switch (page.id) {
     case 'customers':
       return sub ? (
-        <CustomerDetail key={sub} customerId={sub} onBack={() => navigate('customers')} onOpenOpportunity={openOpportunity} />
+        <CustomerDetail
+          key={sub}
+          customerId={sub}
+          onBack={() => navigate('customers')}
+          onOpenOpportunity={openOpportunity}
+          onOpenQuote={openQuote}
+          onOpenContract={openContract}
+          onOpenOrder={openOrder}
+        />
       ) : (
         <CustomerList onOpen={openCustomer} />
       );
@@ -213,9 +228,36 @@ function SalesView({
           onBack={() => navigate('quotes')}
           onOpenCustomer={openCustomer}
           onOpenOpportunity={openOpportunity}
+          onOpenOrder={openOrder}
         />
       ) : (
         <QuotesPage onOpen={openQuote} />
+      );
+    case 'contracts':
+      return sub ? (
+        <ContractDetail
+          key={sub}
+          contractId={sub}
+          onBack={() => navigate('contracts')}
+          onOpenCustomer={openCustomer}
+          onOpenOrder={openOrder}
+          onOpenQuote={openQuote}
+        />
+      ) : (
+        <ContractsPage onOpen={openContract} />
+      );
+    case 'orders':
+      return sub ? (
+        <OrderDetail
+          key={sub}
+          orderId={sub}
+          onBack={() => navigate('orders')}
+          onOpenCustomer={openCustomer}
+          onOpenContract={openContract}
+          onOpenQuote={openQuote}
+        />
+      ) : (
+        <OrdersPage onOpen={openOrder} />
       );
     case 'activities':
       return <ActivitiesPage focusId={sub} />;

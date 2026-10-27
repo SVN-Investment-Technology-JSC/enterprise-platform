@@ -1,13 +1,22 @@
 'use client';
 
-import type { CrmSettings, CustomerGroup } from '@enterprise-platform/contracts-crm';
+import type { CrmSettings, CustomerGroup, SalesSettings } from '@enterprise-platform/contracts-crm';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
-import { createGroup, deleteGroup, errorMessage, loadSettings, saveSettings, updateGroup } from '../crm-api';
+import {
+  createGroup,
+  deleteGroup,
+  errorMessage,
+  loadSalesSettings,
+  loadSettings,
+  saveSalesSettings,
+  saveSettings,
+  updateGroup,
+} from '../crm-api';
 import { useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
 import { DiscountPoliciesPage } from '../pricing/discount-policies-page';
@@ -64,6 +73,7 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
       ) : (
         <>
           <GeneralSettings />
+          <SalesSettingsPanel />
           <CustomerGroups />
         </>
       )}
@@ -129,6 +139,66 @@ function GeneralSettings() {
           </Field>
           <Field label="Nhắc hoạt động trước hạn (phút)" hint="Người được giao nhận thông báo trước hạn và khi quá hạn">
             <input className={styles.input} inputMode="numeric" value={reminder} maxLength={5} onChange={(event) => setReminder(event.target.value.replace(/[^\d]/g, ''))} />
+          </Field>
+          <div className={styles.formActions}>
+            <button type="submit" className={styles.buttonPrimary} disabled={saving}>
+              {saving ? 'Đang lưu…' : 'Lưu cấu hình'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+/** Hạn giữ hàng mặc định (Q12) và số ngày báo hợp đồng sắp hết hạn (CON-06). */
+function SalesSettingsPanel() {
+  const [settings, setSettings] = useState<SalesSettings>();
+  const [holdDays, setHoldDays] = useState('');
+  const [expiringDays, setExpiringDays] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    loadSalesSettings()
+      .then((value) => {
+        setSettings(value);
+        setHoldDays(String(value.reservationHoldDays));
+        setExpiringDays(String(value.contractExpiringDays));
+      })
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình hợp đồng, đơn bán.')));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setError(undefined);
+    try {
+      setSettings(await saveSalesSettings({ reservationHoldDays: Number(holdDays), contractExpiringDays: Number(expiringDays) }));
+      toast.success('Đã lưu cấu hình hợp đồng, đơn bán.');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được cấu hình.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className={styles.panel} aria-label="Hợp đồng và đơn bán">
+      <h2 className={styles.title}>Hợp đồng và đơn bán</h2>
+      {error ? <p className={styles.alert}>{error}</p> : null}
+      {settings ? (
+        <form
+          className={styles.fieldGrid}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <Field label="Giữ hàng mặc định (ngày)" hint="Tính từ lúc xác nhận; đơn có ngày giao dự kiến thì giữ tới ngày đó cộng 2 ngày">
+            <input className={styles.input} inputMode="numeric" value={holdDays} maxLength={3} onChange={(event) => setHoldDays(event.target.value.replace(/[^\d]/g, ''))} />
+          </Field>
+          <Field label="Báo hợp đồng sắp hết hạn trước (ngày)" hint="Người phụ trách hợp đồng nhận thông báo">
+            <input className={styles.input} inputMode="numeric" value={expiringDays} maxLength={3} onChange={(event) => setExpiringDays(event.target.value.replace(/[^\d]/g, ''))} />
           </Field>
           <div className={styles.formActions}>
             <button type="submit" className={styles.buttonPrimary} disabled={saving}>

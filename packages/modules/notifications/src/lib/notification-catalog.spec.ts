@@ -689,3 +689,33 @@ describe('báo giá Bán hàng', () => {
     expect(resolved?.template.body).toBe('Báo giá BG2600002 đã hết hạn hiệu lực.');
   });
 });
+
+describe('hợp đồng, đơn bán Bán hàng', () => {
+  it('crm.contract.expiring báo người phụ trách hợp đồng, mở đúng hợp đồng', async () => {
+    const resolved = await registry.resolve(
+      event('crm.contract.expiring', {
+        contractId: 'k-1', contractCode: 'HD2600001', endDate: '2026-11-26', ownerUserId: 'user-owner', daysLeft: 30,
+        summary: 'Hợp đồng HD2600001 hết hạn ngày 26/11/2026, còn 30 ngày.', deepLink: '/modules/crm#contracts/k-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe('Hợp đồng sắp hết hạn');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#contracts/k-1');
+  });
+
+  it.each([
+    ['crm.delivery.late', { deliveryId: 'd-1', plannedDate: '2026-10-26' }, 'Đợt giao hàng bị trễ'],
+    ['crm.order.reservation-lost', { orderId: 'o-1', reservationCode: 'R1' }, 'Đơn bán mất phần giữ hàng'],
+    ['crm.contract.reservation-lost', { contractId: 'k-1', reservationCode: 'R2' }, 'Hợp đồng mất phần giữ hàng'],
+  ])('%s báo người phụ trách trong payload', async (type, extra, title) => {
+    const resolved = await registry.resolve(
+      event(type, { ...extra, recipientUserIds: ['user-owner'], actorUserId: null, summary: 'Nội dung.', deepLink: '/modules/crm#orders/o-1' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner']);
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.body).toBe('Nội dung.');
+  });
+});

@@ -160,7 +160,7 @@ export class PostgresActivityStore implements ActivityStore {
 }
 
 interface TimelineRow {
-  kind: 'opportunity-stage' | 'activity' | 'quote';
+  kind: 'opportunity-stage' | 'activity' | 'quote' | 'contract' | 'order';
   id: string;
   at: Date;
   actor_id: string | null;
@@ -207,6 +207,14 @@ export class PostgresTimelineStore implements TimelineStore {
     quotes.add(`q.customer_id = ${customer}::uuid`);
     quotes.scope(scope, 'q.owner_user_id');
 
+    const contracts = new SqlConditions(stages.params);
+    contracts.add(`k.customer_id = ${customer}::uuid`);
+    contracts.scope(scope, 'k.owner_user_id');
+
+    const orders = new SqlConditions(stages.params);
+    orders.add(`so.customer_id = ${customer}::uuid`);
+    orders.scope(scope, 'so.owner_user_id');
+
     const outer = new SqlConditions(stages.params);
     outer.after(cursor, 't.at', 't.id');
 
@@ -231,6 +239,18 @@ export class PostgresTimelineStore implements TimelineStore {
            FROM crm_schema.audit_log l
            JOIN crm_schema.quotes q ON q.id = l.entity_id AND l.entity_type = 'quote'
            ${quotes.where()}
+         UNION ALL
+         SELECT 'contract', l.id, l.at, l.actor_id, NULL, NULL, l.from_status, l.to_status, l.reason,
+                l.action, k.code, NULL, NULL, k.id, NULL
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.contracts k ON k.id = l.entity_id AND l.entity_type = 'contract'
+           ${contracts.where()}
+         UNION ALL
+         SELECT 'order', l.id, l.at, l.actor_id, NULL, NULL, l.from_status, l.to_status, l.reason,
+                l.action, so.code, NULL, NULL, so.id, NULL
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.sales_orders so ON so.id = l.entity_id AND l.entity_type = 'sales_order'
+           ${orders.where()}
        ) t
        ${outer.where()}
        ORDER BY t.at DESC, t.id DESC
@@ -258,6 +278,20 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
       reason: row.reason,
       opportunityId: row.opportunity_id,
     };
+  }
+  if (row.kind === 'contract' || row.kind === 'order') {
+    const common = {
+      id: row.id,
+      at,
+      actorId: row.actor_id,
+      action: row.activity_type ?? '',
+      fromStatus: row.from_stage,
+      toStatus: row.to_stage,
+      reason: row.reason,
+    };
+    return row.kind === 'contract'
+      ? { kind: 'contract', ...common, contractId: row.quote_id ?? '', contractCode: row.subject ?? '' }
+      : { kind: 'order', ...common, orderId: row.quote_id ?? '', orderCode: row.subject ?? '' };
   }
   if (row.kind === 'activity') {
     return {

@@ -109,4 +109,50 @@ describe('notification schedule source', () => {
       expect(query.mock.calls.some(([sql]) => sql.includes('FROM crm_schema'))).toBe(false);
     });
   });
+
+  describe('hợp đồng Bán hàng sắp hết hạn', () => {
+    const source = (rows: unknown[], setting?: unknown) => {
+      const query = jest.fn(async (sql: string, ...params: unknown[]) => {
+        void params;
+        if (sql.includes('to_regclass')) {
+          return { rows: [{ workspace: false, calendar: false, procedure: false, maintenance: false, inventory: false, crm: false, crm_contracts: true }] };
+        }
+        if (sql.includes("key = 'contract.expiring'")) return { rows: setting === undefined ? [] : [{ value: setting }] };
+        if (sql.includes('FROM crm_schema.contracts')) return { rows };
+        return { rows: [] };
+      });
+      return { query, source: new PostgresNotificationScheduleSource({ query } as never) };
+    };
+
+    it('TC-CON-09: báo người phụ trách từ đầu ngày còn đúng 30 ngày (mặc định), chỉ xét hợp đồng hết hạn trong 30 ngày', async () => {
+      const { query, source: subject } = source([
+        { id: 'contract-a', code: 'HD2600001', title: 'Khung 2026', valid_to: '2026-11-26', owner_user_id: 'user-owner', days_left: 30 },
+      ]);
+      const candidates = await subject.candidates(new Date('2026-10-27T03:00:00Z'));
+      expect(candidates).toEqual([
+        expect.objectContaining({
+          eventType: 'crm.contract.expiring', userId: 'user-owner', aggregateType: 'crm-contract', aggregateId: 'contract-a',
+          scheduleKey: 'crm:contract:contract-a:expiring:2026-11-26', scheduledFor: '2026-10-26T17:00:00.000Z',
+          payload: expect.objectContaining({ contractId: 'contract-a', endDate: '2026-11-26', ownerUserId: 'user-owner', daysLeft: 30 }),
+        }),
+      ]);
+      const contractQuery = query.mock.calls.find(([sql]) => sql.includes('FROM crm_schema.contracts'));
+      expect(contractQuery?.[0]).toContain("status = 'ACTIVE'");
+      // Cửa sổ là [hôm nay, hôm nay + 30]: hợp đồng còn 31 ngày nằm ngoài truy vấn.
+      expect(contractQuery?.[1]).toEqual([new Date('2026-10-27T03:00:00Z'), 30, 'Asia/Ho_Chi_Minh']);
+    });
+
+    it('đọc số ngày từ cấu hình tenant; giá trị hỏng thì 30', async () => {
+      const row = { id: 'c', code: 'HD1', title: 'T', valid_to: '2026-11-10', owner_user_id: 'u', days_left: 14 };
+      const custom = source([row], { days: 15 });
+      const [candidate] = await custom.source.candidates(new Date('2026-10-27T03:00:00Z'));
+      expect(candidate.scheduledFor).toBe('2026-10-25T17:00:00.000Z');
+      expect(custom.query.mock.calls.find(([sql]) => sql.includes('FROM crm_schema.contracts'))?.[1]).toEqual([
+        new Date('2026-10-27T03:00:00Z'), 15, 'Asia/Ho_Chi_Minh',
+      ]);
+      const broken = source([row], { days: 'x' });
+      await broken.source.candidates(new Date('2026-10-27T03:00:00Z'));
+      expect((broken.query.mock.calls.find(([sql]) => sql.includes('FROM crm_schema.contracts'))?.[1] as unknown[] | undefined)?.[1]).toBe(30);
+    });
+  });
 });

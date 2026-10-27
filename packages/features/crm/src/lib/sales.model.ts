@@ -1,5 +1,7 @@
 import {
   ACTIVITY_TYPE_LABELS,
+  CONTRACT_STATUS_LABELS,
+  SALES_ORDER_STATUS_LABELS,
   OPPORTUNITY_STAGE_LABELS,
   OPPORTUNITY_STAGE_TRANSITIONS,
   QUOTE_STATUS_LABELS,
@@ -11,6 +13,7 @@ import {
   type OpportunitySummary,
   type QuoteStatus,
 } from '@enterprise-platform/contracts-crm';
+import { FULFILLMENT_ACTION_LABELS } from './fulfillment.model';
 
 /**
  * Logic thuần của các màn Bán hàng (không React), để kiểm thử riêng. Quyền và
@@ -118,6 +121,14 @@ export function describeTimelineEntry(entry: CustomerTimelineEntry): { title: st
         detail: entry.reason ?? undefined,
       };
     }
+    case 'contract':
+    case 'order': {
+      const labels: Readonly<Record<string, string>> = entry.kind === 'contract' ? CONTRACT_STATUS_LABELS : SALES_ORDER_STATUS_LABELS;
+      const subject = entry.kind === 'contract' ? `Hợp đồng ${entry.contractCode}` : `Đơn bán ${entry.orderCode}`;
+      const action = FULFILLMENT_ACTION_LABELS[entry.action] ?? 'Cập nhật';
+      const status = entry.toStatus && entry.toStatus !== entry.fromStatus ? labels[entry.toStatus] : undefined;
+      return { title: `${subject}: ${action}${status ? ` (${status})` : ''}`, detail: entry.reason ?? undefined };
+    }
     default:
       return { title: 'Sự kiện khác' };
   }
@@ -134,4 +145,6 @@ export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {
   accept: 'Khách chấp nhận',
   decline: 'Khách từ chối',
   expire: 'Hết hạn',
+  convert: 'Chuyển thành hợp đồng, đơn',
 };
+

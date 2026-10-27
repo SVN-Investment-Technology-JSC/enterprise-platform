@@ -66,11 +66,13 @@ export class PricingService {
     const lines = rawLines.map((line: QuotePreviewLine, index: number) => lineInput(line ?? ({} as never), index));
     const materialIds = [...new Set(lines.map((line) => line.materialId))];
 
-    const [priceLists, policies, cap, known] = await Promise.all([
+    const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
       this.store.priceListsForPricing(actor.tenantId, date, customerGroupId, materialIds),
       this.store.policiesForPricing(actor.tenantId, date),
       this.store.discountCapPercent(actor.tenantId),
       this.catalog.materials(actor.tenantId, materialIds),
+      // Giá khung của hợp đồng khung, nguyên tắc đang hiệu lực của khách (T4-02).
+      this.store.contractPricesForPricing(actor.tenantId, date, customerId, materialIds),
     ]);
     const enriched = lines.map((line) => {
       const material = known.get(line.materialId);
@@ -88,7 +90,6 @@ export class PricingService {
         }
       : null;
 
-    // Giá hợp đồng vào engine từ GĐ4 (T4-02), khi có bảng hợp đồng.
     return priceQuote({
       date,
       customerId,
@@ -96,6 +97,7 @@ export class PricingService {
       lines: enriched,
       priceLists,
       policies,
+      contractPrices,
       discountCapPercent: cap,
       shipping,
     });

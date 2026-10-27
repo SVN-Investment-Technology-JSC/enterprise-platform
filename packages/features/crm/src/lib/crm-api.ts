@@ -60,6 +60,24 @@ import type {
   SaveQuoteLineRequest,
   UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  ContractActionRequest,
+  ContractDetail,
+  ContractListQuery,
+  ContractSummary,
+  ConvertQuoteResult,
+  CreateSalesOrderRequest,
+  CrmMaterialStock,
+  SalesOrderActionRequest,
+  SalesOrderDetail,
+  SalesOrderListQuery,
+  SalesOrderSummary,
+  SalesSettings,
+  SaveContractRequest,
+  SaveDeliveryPlanRequest,
+  SavePaymentTermsRequest,
+  UpdateSalesOrderRequest,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -230,6 +248,41 @@ export const loadQuoteApprovalSettings = () =>
   request<QuoteApprovalSettings>('/quote-approval/settings', { cache: 'no-store' });
 export const saveQuoteApprovalSettings = (body: QuoteApprovalSettings) =>
   send<QuoteApprovalSettings>('PUT', '/quote-approval/settings', body);
+
+// Hợp đồng
+export const listContracts = (query: ContractListQuery) =>
+  request<CrmPage<ContractSummary>>(`/contracts${toQuery(query)}`, { cache: 'no-store' });
+export const getContract = (id: string) => request<ContractDetail>(`/contracts/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createContract = (body: SaveContractRequest) => send<ContractDetail>('POST', '/contracts', body);
+export const updateContract = (id: string, body: Partial<SaveContractRequest>) =>
+  send<ContractDetail>('PATCH', `/contracts/${encodeURIComponent(id)}`, body);
+export const savePaymentTerms = (id: string, body: SavePaymentTermsRequest) =>
+  send<ContractDetail>('PUT', `/contracts/${encodeURIComponent(id)}/payment-terms`, body);
+export type ContractAction = 'confirm' | 'cancel' | 'complete' | 'liquidate';
+export const contractAction = (id: string, action: ContractAction, body: ContractActionRequest) =>
+  send<ContractDetail>('POST', `/contracts/${encodeURIComponent(id)}/${action}`, body);
+
+// Đơn bán, kế hoạch giao
+export const listOrders = (query: SalesOrderListQuery) =>
+  request<CrmPage<SalesOrderSummary>>(`/orders${toQuery(query)}`, { cache: 'no-store' });
+export const getOrder = (id: string) => request<SalesOrderDetail>(`/orders/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createOrder = (body: CreateSalesOrderRequest) => send<SalesOrderDetail>('POST', '/orders', body);
+export const updateOrder = (id: string, body: UpdateSalesOrderRequest) =>
+  send<SalesOrderDetail>('PATCH', `/orders/${encodeURIComponent(id)}`, body);
+export type OrderAction = 'confirm' | 'cancel' | 'close';
+export const orderAction = (id: string, action: OrderAction, body: SalesOrderActionRequest) =>
+  send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(id)}/${action}`, body);
+export const saveDelivery = (orderId: string, deliveryId: string | null, body: SaveDeliveryPlanRequest) =>
+  deliveryId
+    ? send<SalesOrderDetail>('PATCH', `/orders/${encodeURIComponent(orderId)}/deliveries/${encodeURIComponent(deliveryId)}`, body)
+    : send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(orderId)}/deliveries`, body);
+export const deliveryAction = (orderId: string, deliveryId: string, action: 'request-issue' | 'cancel', body: SalesOrderActionRequest) =>
+  send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(orderId)}/deliveries/${encodeURIComponent(deliveryId)}/${action}`, body);
+export const loadMaterialStock = (materialIds: readonly string[]) =>
+  request<CrmMaterialStock[]>(`/catalog/stock${toQuery({ materialIds: materialIds.join(',') })}`, { cache: 'no-store' });
+export const convertQuote = (quoteId: string) => send<ConvertQuoteResult>('POST', `/quotes/${encodeURIComponent(quoteId)}/convert`);
+export const loadSalesSettings = () => request<SalesSettings>('/sales-settings', { cache: 'no-store' });
+export const saveSalesSettings = (body: SalesSettings) => send<SalesSettings>('PUT', '/sales-settings', body);
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {
