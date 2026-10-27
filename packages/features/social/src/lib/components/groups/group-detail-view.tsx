@@ -9,10 +9,13 @@ import { ArrowLeft, Flag, Link2, ListChecks, LogOut, Pencil, Star, Tag, Trash2 }
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@enterprise-platform/shared-ui';
 import { errorMessage } from '../../social-api';
+import { onGroupTopicsChanged } from '../../group-topic-events';
 import { navigateSocial, SocialLink, useSocialRoute } from '../../social-navigation';
 import { useSocialGroupRoom } from '../../social-realtime';
 import { socialHref } from '../../social.model';
-import base from '../../social.module.scss';
+import { Button } from '../../ui/button';
+import { Tabs, TabsList, TabsTrigger } from '../../ui/tabs';
+import { Textarea } from '../../ui/textarea';
 import { ConfirmDialog, Dialog, Field } from '../ui';
 import { GroupFeedSection } from './group-feed-section';
 import { GroupFormDialog } from './group-form-dialog';
@@ -23,9 +26,9 @@ import { AddMembersDialog, GroupMembersPanel } from './group-members-panel';
 import { GroupReportDialog, GroupReports } from './group-reports';
 import { GroupSide, useGroupAdmins } from './group-side';
 import { GroupTopicsDialog } from './group-topics-dialog';
+import { ALERT, BADGE, CARD, CONFIRM_TEXT, SKELETON } from './group-ui';
 import { GroupGlyph, type GroupMenuItem } from './group-visuals';
 import { parseGroupSection, type GroupSection } from './groups.model';
-import s from './groups.module.scss';
 import {
   cancelJoinRequest,
   deleteGroup,
@@ -101,6 +104,14 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
   useEffect(() => {
     if (full) void loadTopicList();
   }, [full, loadTopicList]);
+
+  // Tạo nhanh chủ đề trong hộp soạn bài: nạp lại các chip lọc chủ đề.
+  useEffect(
+    () => onGroupTopicsChanged((changed) => {
+      if (changed === groupId) void loadTopicList();
+    }),
+    [groupId, loadTopicList],
+  );
 
   const admins = useGroupAdmins(groupId, Boolean(full), membersKey);
 
@@ -272,29 +283,29 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
 
   if (loading && !group) {
     return (
-      <section className={s.page} aria-busy="true" aria-label="Đang tải nhóm">
-        <div className={s.coverSkeleton} />
-        <div className={s.blockSkeleton} />
+      <section className="flex min-w-0 flex-col gap-2.5" aria-busy="true" aria-label="Đang tải nhóm">
+        <div className={`${SKELETON} h-[150px]`} />
+        <div className={`${SKELETON} h-[90px]`} />
       </section>
     );
   }
 
   if (!group) {
     return (
-      <section className={s.page}>
-        <SocialLink to={{ name: 'groups' }} className={s.backLink}>
-          <ArrowLeft size={14} />
+      <section className="flex min-w-0 flex-col gap-2.5">
+        <SocialLink to={{ name: 'groups' }} className="inline-flex items-center gap-1 self-start text-[12.5px] font-semibold text-slate-500 no-underline hover:text-slate-900">
+          <ArrowLeft size={14} aria-hidden="true" />
           Tất cả nhóm
         </SocialLink>
-        <div className={s.empty}>
-          <strong>{error ?? 'Không tìm thấy nhóm.'}</strong>
-          <div className={s.emptyActions}>
-            <button type="button" className={base.buttonGhost} onClick={() => void load()}>
+        <div className={`${CARD} flex flex-col items-center gap-1.5 px-4 py-7 text-center text-[13px] text-slate-500`}>
+          <strong className="text-sm text-slate-900">{error ?? 'Không tìm thấy nhóm.'}</strong>
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
+            <Button type="button" variant="outline" onClick={() => void load()}>
               Thử lại
-            </button>
-            <button type="button" className={base.buttonPrimary} onClick={backToList}>
+            </Button>
+            <Button type="button" onClick={backToList}>
               Về danh sách nhóm
-            </button>
+            </Button>
           </div>
         </div>
       </section>
@@ -328,9 +339,9 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
   const activeTab: GroupSection = section === 'announcements' ? 'feed' : section;
 
   return (
-    <section className={s.page} aria-label={group.name}>
-      <SocialLink to={{ name: 'groups' }} className={s.backLink}>
-        <ArrowLeft size={14} />
+    <section className="flex min-w-0 flex-col gap-2.5" aria-label={group.name}>
+      <SocialLink to={{ name: 'groups' }} className="inline-flex items-center gap-1 self-start text-[12.5px] font-semibold text-slate-500 no-underline hover:text-slate-900">
+        <ArrowLeft size={14} aria-hidden="true" />
         Tất cả nhóm
       </SocialLink>
 
@@ -348,15 +359,15 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
       />
 
       {error ? (
-        <p role="alert" className={base.alert}>
+        <p role="alert" className={ALERT}>
           <span>{error}</span>
         </p>
       ) : null}
 
       {preview ? (
-        <div className={s.previewBox}>
+        <div className={`${CARD} flex flex-col items-center gap-1.5 px-4 py-[22px] text-center text-[13px] text-slate-500`}>
           <GroupGlyph icon={group.icon} color={group.color} size={36} />
-          <strong>Đây là nhóm riêng tư.</strong>
+          <strong className="text-sm text-slate-900">Đây là nhóm riêng tư.</strong>
           <span>
             {group.myJoinRequestId
               ? 'Yêu cầu của bạn đang chờ quản trị viên duyệt. Sau khi được duyệt, bạn sẽ xem được bài viết và thành viên.'
@@ -364,22 +375,27 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
           </span>
         </div>
       ) : (
-        <div className={s.body}>
-          <div className={s.main}>
-            <nav className={s.sectionTabs} aria-label="Nội dung nhóm">
-              {tabs.map((item) => (
-                <SocialLink
-                  key={item.key}
-                  to={{ name: 'group', groupId: group.id, section: item.key === 'feed' ? undefined : item.key }}
-                  className={s.sectionTab}
-                  aria-current={activeTab === item.key ? 'page' : undefined}
-                  data-active={activeTab === item.key}
-                >
-                  {item.label}
-                  {item.badge ? <span className={s.tabBadge}>{item.badge}</span> : null}
-                </SocialLink>
-              ))}
-            </nav>
+        <div className="grid grid-cols-[minmax(0,1fr)_280px] items-start gap-2.5 max-[980px]:grid-cols-[minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-2">
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) =>
+                navigateSocial({
+                  name: 'group',
+                  groupId: group.id,
+                  section: value === 'feed' ? undefined : (value as GroupSection),
+                })
+              }
+            >
+              <TabsList aria-label="Nội dung nhóm" className="max-w-full overflow-x-auto">
+                {tabs.map((item) => (
+                  <TabsTrigger key={item.key} value={item.key}>
+                    {item.label}
+                    {item.badge ? <span className={BADGE}>{item.badge}</span> : null}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
 
             {activeTab === 'feed' ? (
               <GroupFeedSection
@@ -457,12 +473,11 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onSubmit={() => void join(requestMessage.trim() || undefined)}
         onClose={() => setRequesting(false)}
       >
-        <p className={base.confirmText}>
+        <p className={CONFIRM_TEXT}>
           Quản trị viên của "{group.name}" sẽ nhận được yêu cầu của bạn. Bạn có thể kèm lời nhắn.
         </p>
         <Field label="Lời nhắn" hint={`${requestMessage.length}/${SOCIAL_GROUP_JOIN_MESSAGE_MAX}`}>
-          <textarea
-            className={base.textarea}
+          <Textarea
             rows={3}
             value={requestMessage}
             maxLength={SOCIAL_GROUP_JOIN_MESSAGE_MAX}
@@ -483,7 +498,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onSubmit={() => void leave()}
         onClose={() => setLeaving(false)}
       >
-        <p className={base.confirmText}>
+        <p className={CONFIRM_TEXT}>
           {group.privacy === 'private'
             ? `Rời nhóm "${group.name}"? Nhóm riêng tư nên bạn sẽ phải gửi yêu cầu và chờ duyệt để quay lại.`
             : `Rời nhóm "${group.name}"? Bạn có thể tham gia lại bất cứ lúc nào.`}

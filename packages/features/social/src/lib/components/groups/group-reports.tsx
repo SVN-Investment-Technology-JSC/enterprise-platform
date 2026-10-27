@@ -16,11 +16,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
 import { formatRelativeTime } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
-import base from '../../social.module.scss';
+import { Button } from '../../ui/button';
+import { Tabs, TabsList, TabsTrigger } from '../../ui/tabs';
+import { Textarea } from '../../ui/textarea';
 import { Dialog, Field, userSubtitle } from '../ui';
 import { UserAvatar } from '../user-avatar';
+import { ALERT, BADGE, CONFIRM_TEXT, EMPTY_LINE, PANEL, REASON, ROW, ROW_LIST, ROW_META, ROW_TEXT, ROW_TITLE, SKELETON } from './group-ui';
 import { appendUnique, reportReasonError } from './groups.model';
-import s from './groups.module.scss';
 import { createReport, listGroupReports, resolveGroupReport } from './social-groups-api';
 
 /** Hộp báo cáo vi phạm một nhóm: chọn lý do gợi ý hoặc tự viết. */
@@ -78,23 +80,24 @@ export function GroupReportDialog({
       onSubmit={() => void submit()}
       onClose={onClose}
     >
-      <p className={base.confirmText}>Gửi báo cáo về nhóm "{groupName}" tới người quản trị xem xét.</p>
-      <div className={s.reasonChips} role="group" aria-label="Lý do gợi ý">
+      <p className={CONFIRM_TEXT}>Gửi báo cáo về nhóm "{groupName}" tới người quản trị xem xét.</p>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Lý do gợi ý">
         {SOCIAL_REPORT_SUGGESTED_REASONS.map((item) => (
-          <button
+          <Button
             key={item}
             type="button"
-            className={s.reasonChip}
+            variant="outline"
+            size="sm"
+            className="h-[26px] rounded-full px-2.5 text-[12.5px] font-normal text-slate-600 data-[active=true]:border-amber-400 data-[active=true]:bg-amber-50 data-[active=true]:font-semibold data-[active=true]:text-zinc-900"
             data-active={reason === item}
             onClick={() => setReason(item)}
           >
             {item}
-          </button>
+          </Button>
         ))}
       </div>
       <Field label="Lý do" required hint={`${reason.length}/${SOCIAL_REPORT_REASON_MAX}`}>
-        <textarea
-          className={base.textarea}
+        <Textarea
           rows={3}
           value={reason}
           maxLength={SOCIAL_REPORT_REASON_MAX}
@@ -153,8 +156,7 @@ function ResolveDialog({
       onClose={onClose}
     >
       <Field label="Ghi chú" hint={`${note.length}/${SOCIAL_REPORT_NOTE_MAX}`}>
-        <textarea
-          className={base.textarea}
+        <Textarea
           rows={3}
           value={note}
           maxLength={SOCIAL_REPORT_NOTE_MAX}
@@ -220,56 +222,51 @@ export function GroupReports({
   };
 
   return (
-    <section className={s.panel} aria-label="Báo cáo của nhóm">
-      <div className={s.chipRow} role="tablist" aria-label="Trạng thái báo cáo">
-        {SOCIAL_REPORT_STATUSES.map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={status === key}
-            className={s.filterChip}
-            data-active={status === key}
-            onClick={() => setStatus(key)}
-          >
-            {SOCIAL_REPORT_STATUS_LABELS[key]}
-            {key === 'open' && openCount > 0 ? <span className={s.tabBadge}>{openCount}</span> : null}
-          </button>
-        ))}
-      </div>
+    <section className={PANEL} aria-label="Báo cáo của nhóm">
+      <Tabs value={status} onValueChange={(value) => setStatus(value as SocialReportStatus)}>
+        <TabsList aria-label="Trạng thái báo cáo">
+          {SOCIAL_REPORT_STATUSES.map((key) => (
+            <TabsTrigger key={key} value={key}>
+              {SOCIAL_REPORT_STATUS_LABELS[key]}
+              {key === 'open' && openCount > 0 ? <span className={BADGE}>{openCount}</span> : null}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {error ? (
-        <p role="alert" className={base.alert}>
+        <p role="alert" className={ALERT}>
           <span>{error}</span>
-          <button type="button" className={base.buttonSmall} onClick={() => void load()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
             Thử lại
-          </button>
+          </Button>
         </p>
       ) : null}
 
       {loading ? (
-        <ul className={s.rowList} aria-busy="true">
+        <ul className={`${ROW_LIST} gap-1.5`} aria-busy="true">
           {[0, 1, 2].map((key) => (
-            <li key={key} className={s.rowSkeleton} />
+            <li key={key} className={`${SKELETON} h-14`} />
           ))}
         </ul>
       ) : items.length === 0 && !error ? (
-        <p className={s.emptyLine}>
+        <p className={EMPTY_LINE}>
           {status === 'open' ? 'Không có báo cáo nào đang chờ xử lý.' : 'Chưa có báo cáo nào ở trạng thái này.'}
         </p>
       ) : (
-        <ul className={s.rowList}>
+        <ul className={ROW_LIST}>
           {items.map((report) => (
-            <li key={report.id} className={s.reportRow}>
+            <li key={report.id} className={`${ROW} items-start`}>
               <UserAvatar user={report.reporter} size={32} />
-              <div className={s.reportText}>
-                <span className={s.rowTitle}>
+              <div className={ROW_TEXT}>
+                <span className={ROW_TITLE}>
                   <b>{report.reporter.name}</b> báo cáo {SOCIAL_REPORT_TARGET_LABELS[report.targetType].toLowerCase()}
                   {report.target ? (
                     <>
                       :{' '}
                       {report.target.postId ? (
                         <SocialLink
+                          className="text-blue-700 hover:underline"
                           to={{
                             name: 'post',
                             postId: report.target.postId,
@@ -284,12 +281,12 @@ export function GroupReports({
                     </>
                   ) : null}
                 </span>
-                <span className={s.rowMeta}>
+                <span className={ROW_META}>
                   {[userSubtitle(report.reporter), formatRelativeTime(report.createdAt)].filter(Boolean).join(' · ')}
                 </span>
-                <p className={s.reportReason}>{report.reason}</p>
+                <p className={REASON}>{report.reason}</p>
                 {report.status !== 'open' ? (
-                  <span className={s.rowMeta}>
+                  <span className={ROW_META}>
                     {SOCIAL_REPORT_STATUS_LABELS[report.status]}
                     {report.handledBy ? ` bởi ${report.handledBy.name}` : ''}
                     {report.handleNote ? `: ${report.handleNote}` : ''}
@@ -297,23 +294,26 @@ export function GroupReports({
                 ) : null}
               </div>
               {report.status === 'open' ? (
-                <div className={s.rowActions}>
-                  <button
+                <div className="flex flex-none items-center gap-1.5">
+                  <Button
                     type="button"
-                    className={base.buttonSmallPrimary + ' ' + base.buttonSmall}
+                    size="sm"
+                    className="h-8 gap-1.5 px-3.5 text-[13px] font-semibold"
                     onClick={() => setTarget({ report, decision: 'resolved' })}
                   >
-                    <Check size={13} />
+                    <Check size={14} aria-hidden="true" />
                     Đã xử lý
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className={base.buttonSmall}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 px-3.5 text-[13px]"
                     onClick={() => setTarget({ report, decision: 'dismissed' })}
                   >
-                    <X size={13} />
+                    <X size={14} aria-hidden="true" />
                     Bỏ qua
-                  </button>
+                  </Button>
                 </div>
               ) : null}
             </li>
@@ -322,10 +322,10 @@ export function GroupReports({
       )}
 
       {cursor ? (
-        <div className={s.more}>
-          <button type="button" className={base.buttonGhost} disabled={loadingMore} onClick={() => void loadMore()}>
+        <div className="flex justify-center py-1">
+          <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
             {loadingMore ? 'Đang tải…' : 'Xem thêm'}
-          </button>
+          </Button>
         </div>
       ) : null}
 

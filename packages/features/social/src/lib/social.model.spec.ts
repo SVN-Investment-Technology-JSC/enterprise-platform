@@ -1,5 +1,6 @@
 import type { SocialInboxCounts, SocialPost, SocialUserRef } from '@enterprise-platform/contracts-social';
 import {
+  routePageKey,
   activeMentionQuery,
   buildFeedQuery,
   buildFeedRequestPath,
@@ -404,5 +405,20 @@ describe('orderMyGroups', () => {
       { id: 'd', myPriorityAt: '2026-02-01T00:00:00Z' },
     ]);
     expect(result.map((group) => group.id)).toEqual(['d', 'b', 'a', 'c']);
+  });
+});
+
+describe('routePageKey', () => {
+  it('đổi chuyên mục, mục trong nhóm hay bình luận của cùng một bài vẫn là cùng một trang', () => {
+    expect(routePageKey({ name: 'feed', topicId: 'a' })).toBe(routePageKey({ name: 'feed' }));
+    expect(routePageKey({ name: 'group', groupId: 'g', section: 'members' })).toBe(routePageKey({ name: 'group', groupId: 'g' }));
+    expect(routePageKey({ name: 'post', postId: 'p', commentId: 'c' })).toBe(routePageKey({ name: 'post', postId: 'p' }));
+  });
+
+  it('khác loại trang hoặc khác nhóm, bài, người thì là trang khác', () => {
+    expect(routePageKey({ name: 'saved' })).not.toBe(routePageKey({ name: 'scheduled' }));
+    expect(routePageKey({ name: 'group', groupId: 'g1' })).not.toBe(routePageKey({ name: 'group', groupId: 'g2' }));
+    expect(routePageKey({ name: 'profile', userId: 'u1' })).not.toBe(routePageKey({ name: 'profile', userId: 'u2' }));
+    expect(routePageKey({ name: 'feed' })).not.toBe(routePageKey({ name: 'groups' }));
   });
 });

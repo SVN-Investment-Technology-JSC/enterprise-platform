@@ -3,7 +3,7 @@
 import type { SocialInboxCounts, SocialMe, SocialPost, SocialTopic } from '@enterprise-platform/contracts-social';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import { toast } from '@enterprise-platform/shared-ui';
-import { BarChart3, Image as ImageIcon, Megaphone, Newspaper, Pencil } from 'lucide-react';
+import { Newspaper } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BirthdayView } from './components/birthday/birthday-view';
 import { ComposerDialog } from './components/composer-dialog';
@@ -17,11 +17,11 @@ import { PostCard } from './components/post-card';
 import { ProfileView } from './components/profile/profile-view';
 import { SearchView } from './components/search/search-view';
 import { LeftRail } from './components/shell/left-rail';
+import { ComposerBox } from './components/shell/composer-box';
 import { QuickBoard } from './components/shell/quick-board';
 import { SocialTabStrip } from './components/shell/social-nav';
 import { SocialTopBar } from './components/shell/social-topbar';
 import { TopicDialog } from './components/topic-dialog';
-import { Avatar } from './components/ui';
 import { errorMessage, loadInboxCounts, loadMe, loadPost, loadTenantHomePath, loadTopics } from './social-api';
 import {
   SocialSessionContext,
@@ -31,6 +31,7 @@ import {
   type SocialSession,
 } from './social-context';
 import {
+  routePageKey,
   tabForRoute,
   visibleTabs,
   type SocialRoute,
@@ -84,6 +85,16 @@ export function SocialScreen() {
   const [focused, setFocused] = useState<SocialPost>();
   const [focusError, setFocusError] = useState<string>();
   const focusRef = useRef<HTMLDivElement>(null);
+  const pageTopRef = useRef<HTMLDivElement>(null);
+  // Sang trang khác (xem `routePageKey`) thì về đầu trang. `scrollIntoView` tự cuộn đúng khung đang cuộn (ở đây là `<main>`
+  // của ModuleShell), không cần biết nó là phần tử nào; lần dựng đầu thì giữ nguyên.
+  const pageKey = routePageKey(route);
+  const previousPage = useRef(pageKey);
+  useEffect(() => {
+    if (previousPage.current === pageKey) return;
+    previousPage.current = pageKey;
+    pageTopRef.current?.scrollIntoView({ block: 'start' });
+  }, [pageKey]);
   const linkPostId = route.name === 'post' ? route.postId : undefined;
 
   useEffect(() => {
@@ -319,6 +330,7 @@ export function SocialScreen() {
       ) : (
         <SocialSessionContext.Provider value={session}>
           <div className={shell.page}>
+            <div ref={pageTopRef} aria-hidden="true" />
             <SocialTopBar
               me={me}
               homeHref={homePath}
@@ -353,34 +365,12 @@ export function SocialScreen() {
                 />
                 <main className={shell.main}>
                   {showComposer ? (
-                    <section className={shell.composer} aria-label="Soạn bài viết">
-                      <div className={shell.composerTop}>
-                        <Avatar user={me.user} size={36} />
-                        <button
-                          type="button"
-                          className={shell.composerTrigger}
-                          onClick={() => openComposer()}
-                        >
-                          <Pencil size={14} aria-hidden="true" /> Bạn đang nghĩ gì? Đăng bài viết mới
-                        </button>
-                      </div>
-                      <div className={shell.composerShortcuts}>
-                        <button type="button" onClick={() => openComposer(undefined, { mode: 'media' })}>
-                          <ImageIcon size={15} aria-hidden="true" />
-                          Ảnh/Video/File
-                        </button>
-                        <button type="button" onClick={() => openComposer(undefined, { mode: 'poll' })}>
-                          <BarChart3 size={15} aria-hidden="true" />
-                          Bình chọn
-                        </button>
-                        {permissions?.includes('social.post.moderate') ? (
-                          <button type="button" onClick={() => openComposer(undefined, { mode: 'announcement' })}>
-                            <Megaphone size={15} aria-hidden="true" />
-                            Thông báo
-                          </button>
-                        ) : null}
-                      </div>
-                    </section>
+                    <ComposerBox
+                      user={me.user}
+                      placeholder="Bạn đang nghĩ gì? Đăng bài viết mới"
+                      canAnnounce={Boolean(permissions?.includes('social.post.moderate'))}
+                      onCompose={(mode) => openComposer(undefined, { mode })}
+                    />
                   ) : null}
                   {content}
                 </main>

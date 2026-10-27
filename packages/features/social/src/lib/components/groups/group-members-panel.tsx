@@ -12,14 +12,16 @@ import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { RefreshCw, Search, UserMinus, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../social-api';
-import base from '../../social.module.scss';
 import { Button } from '../../ui/button';
+import { Checkbox } from '../../ui/checkbox';
+import { Input } from '../../ui/input';
+import { Label } from '../../ui/label';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip';
 import { ConfirmDialog, Dialog, Field, SelectField, userSubtitle } from '../ui';
 import { UserAvatar } from '../user-avatar';
+import { ALERT, CONFIRM_TEXT, CONTROL, EMPTY_LINE, PANEL, ROLE_ADMIN, ROLE_MEMBER, ROW, ROW_LIST, ROW_META, ROW_TEXT, ROW_TITLE, SKELETON } from './group-ui';
 import { MemberPicker } from './group-visuals';
 import { appendUnique } from './groups.model';
-import s from './groups.module.scss';
 import {
   addGroupMembers,
   listGroupMembers,
@@ -84,7 +86,7 @@ export function AddMembersDialog({
       onClose={onClose}
     >
       <Field label="Tên nhóm">
-        <input className={base.input} value={groupName} readOnly disabled />
+        <Input className={CONTROL} value={groupName} readOnly disabled />
       </Field>
       <SelectField label="Thành viên">
         <MemberPicker variant="list" selected={picked} onChange={setPicked} />
@@ -139,12 +141,14 @@ function SyncDialog({
       onSubmit={() => void submit()}
       onClose={onClose}
     >
-      <p className={base.confirmText}>Thêm những người mới thuộc phòng ban, vị trí của nhóm vào danh sách thành viên.</p>
-      <label className={s.publicCheck}>
-        <input type="checkbox" checked={prune} onChange={(event) => setPrune(event.target.checked)} />
-        <span className={s.publicText}>Gỡ người không còn thuộc nguồn nào</span>
-        <small>Chỉ gỡ người do đồng bộ thêm vào; không gỡ quản trị viên hay người được thêm tay.</small>
-      </label>
+      <p className={CONFIRM_TEXT}>Thêm những người mới thuộc phòng ban, vị trí của nhóm vào danh sách thành viên.</p>
+      <Label className="cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-normal text-slate-800">
+        <Checkbox checked={prune} onCheckedChange={(checked) => setPrune(checked)} />
+        <span className="font-semibold">Gỡ người không còn thuộc nguồn nào</span>
+        <small className="basis-full pl-6 text-xs text-slate-500">
+          Chỉ gỡ người do đồng bộ thêm vào; không gỡ quản trị viên hay người được thêm tay.
+        </small>
+      </Label>
     </Dialog>
   );
 }
@@ -267,122 +271,126 @@ export function GroupMembersPanel({
   };
 
   return (
-    <section className={s.panel} aria-label="Thành viên">
-      <header className={s.panelHead}>
-        <h3>
-          Thành viên <span className={s.count}>{group.memberCount}</span>
+    <section className={PANEL} aria-label="Thành viên">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="m-0 text-sm font-bold text-slate-900">
+          Thành viên <span className="font-semibold text-slate-500">{group.memberCount}</span>
         </h3>
-        <div className={s.panelTools}>
-          <label className={s.filter}>
-            <Search size={14} />
-            <input
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="relative">
+            <Search
+              size={14}
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <Input
+              className="h-8 w-52 rounded-md pl-8 text-[13px]!"
               value={text}
               placeholder="Tìm thành viên…"
               aria-label="Tìm thành viên"
               onChange={(event) => setText(event.target.value)}
             />
-          </label>
-          <div className={s.roleFilter}>
+          </div>
+          <div className="w-[164px] flex-none">
             <SearchableSelect options={ROLE_FILTER_OPTIONS} value={role} height={32} onChange={setRole} />
           </div>
           {canSync ? (
-            <button type="button" className={base.buttonSmall} onClick={() => setSyncing(true)}>
-              <RefreshCw size={13} />
+            <Button type="button" variant="outline" className="h-8 gap-1.5 px-3 text-[13px]" onClick={() => setSyncing(true)}>
+              <RefreshCw size={13} aria-hidden="true" />
               Đồng bộ lại
-            </button>
+            </Button>
           ) : null}
           {canManage ? (
-            <button type="button" className={base.buttonSmall} onClick={() => setAdding(true)}>
-              <UserPlus size={13} />
+            <Button type="button" variant="outline" className="h-8 gap-1.5 px-3 text-[13px]" onClick={() => setAdding(true)}>
+              <UserPlus size={13} aria-hidden="true" />
               Thêm thành viên
-            </button>
+            </Button>
           ) : null}
         </div>
       </header>
 
       {error ? (
-        <p role="alert" className={base.alert}>
+        <p role="alert" className={ALERT}>
           <span>{error}</span>
-          <button type="button" className={base.buttonSmall} onClick={() => void load()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
             Thử lại
-          </button>
+          </Button>
         </p>
       ) : null}
 
       {loading ? (
-        <ul className={s.rowList} aria-busy="true">
+        <ul className={`${ROW_LIST} gap-1.5`} aria-busy="true">
           {[0, 1, 2, 3].map((key) => (
-            <li key={key} className={s.rowSkeleton} />
+            <li key={key} className={`${SKELETON} h-12`} />
           ))}
         </ul>
       ) : members.length === 0 && !error ? (
-        <p className={s.emptyLine}>{query || role ? 'Không có thành viên phù hợp.' : 'Nhóm chưa có thành viên.'}</p>
+        <p className={EMPTY_LINE}>{query || role ? 'Không có thành viên phù hợp.' : 'Nhóm chưa có thành viên.'}</p>
       ) : (
-        <ul className={s.rowList}>
+        <ul className={ROW_LIST}>
           {members.map((member) => {
             // Quản trị viên duy nhất không gỡ được (server cũng chặn): nút vẫn hiện nhưng khoá, rê vào có giải thích.
             const lastAdmin = member.role === 'admin' && group.adminCount <= 1;
             return (
-            <li key={member.user.id} className={s.memberRow}>
-              <UserAvatar user={member.user} size={32} />
-              <span className={s.rowText}>
-                <span className={s.rowTitle}>{member.user.name}</span>
-                {userSubtitle(member.user) ? <span className={s.rowMeta}>{userSubtitle(member.user)}</span> : null}
-              </span>
-              {canManage ? (
-                <span className={s.rowActions}>
-                  <span className={s.rolePick}>
-                    <SearchableSelect
-                      options={ROLE_OPTIONS}
-                      value={member.role}
-                      height={32}
-                      disabled={changingId === member.user.id}
-                      onChange={(value) => void changeRole(member, value as SocialGroupRole)}
-                    />
+              <li key={member.user.id} className={`${ROW} items-center`}>
+                <UserAvatar user={member.user} size={32} />
+                <span className={ROW_TEXT}>
+                  <span className={ROW_TITLE}>{member.user.name}</span>
+                  {userSubtitle(member.user) ? <span className={ROW_META}>{userSubtitle(member.user)}</span> : null}
+                </span>
+                {canManage ? (
+                  <span className="flex flex-none items-center gap-1.5">
+                    <span className="w-[164px] flex-none">
+                      <SearchableSelect
+                        options={ROLE_OPTIONS}
+                        value={member.role}
+                        height={32}
+                        disabled={changingId === member.user.id}
+                        onChange={(value) => void changeRole(member, value as SocialGroupRole)}
+                      />
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className={`size-8 p-0 text-slate-500 ${lastAdmin ? 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-500' : 'hover:text-red-600'}`}
+                            aria-label={`Xoá ${member.user.name} khỏi nhóm`}
+                            aria-disabled={lastAdmin || undefined}
+                            onClick={() => {
+                              if (lastAdmin) return;
+                              setRemoveError(undefined);
+                              setRemoving(member);
+                            }}
+                          />
+                        }
+                      >
+                        <UserMinus size={14} aria-hidden="true" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-64 text-center">
+                        {lastAdmin
+                          ? 'Đây là quản trị viên duy nhất. Hãy chỉ định quản trị viên khác trước khi gỡ.'
+                          : 'Xoá khỏi nhóm'}
+                      </TooltipContent>
+                    </Tooltip>
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className={`text-slate-500 ${lastAdmin ? 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-500' : 'hover:text-red-600'}`}
-                          aria-label={`Xoá ${member.user.name} khỏi nhóm`}
-                          aria-disabled={lastAdmin || undefined}
-                          onClick={() => {
-                            if (lastAdmin) return;
-                            setRemoveError(undefined);
-                            setRemoving(member);
-                          }}
-                        />
-                      }
-                    >
-                      <UserMinus size={14} aria-hidden="true" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-64 text-center">
-                      {lastAdmin
-                        ? 'Đây là quản trị viên duy nhất. Hãy chỉ định quản trị viên khác trước khi gỡ.'
-                        : 'Xoá khỏi nhóm'}
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-              ) : (
-                <span className={member.role === 'admin' ? s.roleAdmin : s.roleMember}>
-                  {member.role === 'admin' ? 'Admin' : SOCIAL_GROUP_ROLE_LABELS[member.role]}
-                </span>
-              )}
-            </li>
+                ) : (
+                  <span className={member.role === 'admin' ? ROLE_ADMIN : ROLE_MEMBER}>
+                    {member.role === 'admin' ? 'Admin' : SOCIAL_GROUP_ROLE_LABELS[member.role]}
+                  </span>
+                )}
+              </li>
             );
           })}
         </ul>
       )}
 
       {cursor ? (
-        <div className={s.more}>
-          <button type="button" className={base.buttonGhost} disabled={loadingMore} onClick={() => void loadMore()}>
+        <div className="flex justify-center py-1">
+          <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
             {loadingMore ? 'Đang tải…' : 'Xem thêm'}
-          </button>
+          </Button>
         </div>
       ) : null}
 

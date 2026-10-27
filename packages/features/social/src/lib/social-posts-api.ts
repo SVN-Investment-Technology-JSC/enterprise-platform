@@ -19,6 +19,7 @@ import type {
   SocialSettings,
   UpdateSocialSettingsRequest,
 } from '@enterprise-platform/contracts-social';
+import { emitBookmarkChanged } from './bookmark-events';
 import { json, request } from './social-api';
 
 /** Hàm gọi API của mảng bài viết P2 (bình chọn, xác nhận đã đọc, duyệt, hẹn giờ, đã lưu). */
@@ -50,7 +51,11 @@ export const setBookmark = (
       'PUT',
       folderId === undefined ? { bookmarked } : { bookmarked, folderId },
     ),
-  );
+  ).then((state) => {
+    // Thẻ "Bài đã lưu gần đây" nạp lại ngay.
+    emitBookmarkChanged();
+    return state;
+  });
 
 /** `folderId`: mã thư mục, `none` là chưa phân loại, bỏ trống là tất cả. */
 export const loadBookmarks = (cursor?: string, limit = 20, folderId?: string) =>

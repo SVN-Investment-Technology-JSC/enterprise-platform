@@ -9,7 +9,7 @@ import {
 import { formatFullTime } from '../../social.model';
 import { Dialog } from '../ui';
 import { PrivacyBadge } from './group-visuals';
-import s from './groups.module.scss';
+import { EMPTY_LINE } from './group-ui';
 
 /** Hộp "Thông tin nhóm" (biểu tượng i): người quản trị, ngày tạo, quyền đăng bài, nguồn thành viên, mô tả. */
 export function GroupInfoDialog({
@@ -27,7 +27,7 @@ export function GroupInfoDialog({
   const permitted = group.postPermittedUsers ?? [];
   return (
     <Dialog open={open} title="Thông tin nhóm" onClose={onClose}>
-      <dl className={s.infoList}>
+      <dl className="m-0 flex flex-col gap-1.5 text-[13px] [&>div]:grid [&>div]:grid-cols-[150px_minmax(0,1fr)] [&>div]:gap-2.5 [&_dd]:m-0 [&_dd]:[overflow-wrap:anywhere] [&_dt]:text-slate-500">
         <div>
           <dt>Quyền riêng tư</dt>
           <dd>
@@ -76,12 +76,12 @@ export function GroupInfoDialog({
           </div>
         ) : null}
       </dl>
-      <h4 className={s.infoHeading}>Mô tả</h4>
+      <h4 className="m-0 mt-1 text-[13px] font-bold text-slate-900">Mô tả</h4>
       {group.descriptionHtml ? (
         // HTML đã được server làm sạch.
-        <div className={s.richText} dangerouslySetInnerHTML={{ __html: group.descriptionHtml }} />
+        <div className="text-[13px] leading-[1.55] [overflow-wrap:anywhere] [&_a]:text-blue-700 [&_ol]:m-0 [&_ol]:mb-1.5 [&_ol]:pl-5 [&_p]:m-0 [&_p]:mb-1.5 [&_ul]:m-0 [&_ul]:mb-1.5 [&_ul]:pl-5" dangerouslySetInnerHTML={{ __html: group.descriptionHtml }} />
       ) : (
-        <p className={s.emptyLine}>{group.description || 'Nhóm chưa có mô tả.'}</p>
+        <p className={EMPTY_LINE}>{group.description || 'Nhóm chưa có mô tả.'}</p>
       )}
     </Dialog>
   );
