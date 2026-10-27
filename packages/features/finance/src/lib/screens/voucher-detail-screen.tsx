@@ -73,20 +73,30 @@ const SOURCE_STATUS_TEXT: Record<FinanceVoucherSource['status'], string> = {
   POSTED: 'Đã ghi sổ',
   CLOSED: 'Đã đóng',
   REVERSAL_PENDING: 'Hồ sơ đã huỷ hiệu lực, chờ đảo phiếu',
+  REVERSED: 'Đã đảo phiếu',
 };
+
+/** Nhãn phân hệ nguồn không phải Quy trình. */
+const SOURCE_MODULE_TEXT: Record<string, string> = { crm: 'Bán hàng' };
 
 /** Khối "Nguồn": hồ sơ quy trình đã tạo ra phiếu, giá trị nhận từ hồ sơ, ai phụ trách và ai đang xử lý. */
 function SourcePanel({ source }: { source: FinanceVoucherSource }) {
   const values = source.values;
   return (
     <section aria-label="Nguồn hồ sơ quy trình" className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-sm font-semibold text-slate-900">
-        Nguồn: hồ sơ{' '}
-        <a className="font-semibold text-link hover:underline" href={`/modules/procedure#workspace/${encodeURIComponent(source.instanceId)}`}>
-          {source.instanceCode}
-        </a>
-        {source.definitionName ? <span className="font-normal text-slate-600"> – {source.definitionName}</span> : null}
-      </h2>
+      {source.instanceId ? (
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">
+          Nguồn: hồ sơ{' '}
+          <a className="font-semibold text-link hover:underline" href={`/modules/procedure#workspace/${encodeURIComponent(source.instanceId)}`}>
+            {source.instanceCode}
+          </a>
+          {source.definitionName ? <span className="font-normal text-slate-600"> – {source.definitionName}</span> : null}
+        </h2>
+      ) : (
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">
+          Nguồn: {SOURCE_MODULE_TEXT[source.sourceModule] ?? source.sourceModule} – {source.instanceCode}
+        </h2>
+      )}
       <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
         <Info label="Bước">{source.stepName}</Info>
         <Info label="Tình trạng">{SOURCE_STATUS_TEXT[source.status]}</Info>

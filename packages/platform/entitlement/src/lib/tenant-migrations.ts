@@ -131,6 +131,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
     { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
     { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
+    { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
