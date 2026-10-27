@@ -39,6 +39,9 @@
       "path": "../../packages/modules/procedure-engine/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/inventory/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/hrm/tsconfig.lib.json"
     },
     {

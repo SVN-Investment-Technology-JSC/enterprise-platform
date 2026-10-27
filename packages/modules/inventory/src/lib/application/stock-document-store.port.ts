@@ -15,6 +15,8 @@ export interface StockDocumentLineDraft {
   readonly quantity: number;
   readonly direction: StockDocumentLineDirection;
   readonly unitCost: number;
+  /** Dòng xuất trừ vào giữ hàng này; chỉ có ở chứng từ xuất. */
+  readonly reservationId?: string;
   readonly note?: string;
 }
 

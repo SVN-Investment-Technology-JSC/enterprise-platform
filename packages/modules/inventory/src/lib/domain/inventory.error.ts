@@ -1,11 +1,21 @@
+import type { ReservationShortage } from '@enterprise-platform/contracts-inventory';
+
 export class InventoryError extends Error {
   readonly code: string;
   readonly statusCode: number;
+  /** Trường thêm vào thân lỗi trả cho bên gọi, ví dụ danh sách dòng thiếu tồn. */
+  readonly details?: Readonly<Record<string, unknown>>;
 
-  constructor(code: string, message: string, statusCode = 400) {
+  constructor(
+    code: string,
+    message: string,
+    statusCode = 400,
+    details?: Readonly<Record<string, unknown>>,
+  ) {
     super(message);
     this.code = code;
     this.statusCode = statusCode;
+    this.details = details;
     Object.setPrototypeOf(this, InventoryError.prototype);
   }
 }
@@ -113,5 +123,47 @@ export class InsufficientAvailableStockError extends InventoryError {
     );
     // Lớp cha ép prototype về InventoryError; trả lại để `instanceof` nhận ra lỗi này.
     Object.setPrototypeOf(this, InsufficientAvailableStockError.prototype);
+  }
+}
+
+/**
+ * Giữ hàng thiếu tồn ở ít nhất một dòng (Q4: giữ tất cả hoặc không). Không dòng
+ * nào được giữ; `shortages` liệt kê mọi dòng thiếu để bên gọi giảm số lượng hoặc
+ * chia đợt giao.
+ */
+export class ReservationInsufficientStockError extends InventoryError {
+  constructor(readonly shortages: readonly ReservationShortage[]) {
+    super(
+      'RESERVATION_INSUFFICIENT_STOCK',
+      `Không đủ tồn khả dụng để giữ hàng: ${shortages
+        .map(
+          (line) =>
+            `${line.materialCode} tại kho ${line.warehouseCode} cần ${line.requested}, còn ${line.available}`,
+        )
+        .join('; ')}.`,
+      409,
+      { shortages },
+    );
+    Object.setPrototypeOf(this, ReservationInsufficientStockError.prototype);
+  }
+}
+
+/** Cùng khoá chống lặp nhưng nội dung yêu cầu khác lần đầu. */
+export class IdempotencyKeyConflictError extends InventoryError {
+  constructor(key: string) {
+    super(
+      'IDEMPOTENCY_KEY_CONFLICT',
+      `Khoá chống lặp ${key} đã dùng cho một yêu cầu giữ hàng có nội dung khác.`,
+      409,
+    );
+    Object.setPrototypeOf(this, IdempotencyKeyConflictError.prototype);
+  }
+}
+
+/** Dòng xuất tham chiếu giữ hàng không dùng được: không có, đã đóng, lệch vật tư hoặc kho, xuất quá phần giữ. */
+export class ReservationIssueError extends InventoryError {
+  constructor(code: string, message: string, statusCode = 409) {
+    super(code, message, statusCode);
+    Object.setPrototypeOf(this, ReservationIssueError.prototype);
   }
 }

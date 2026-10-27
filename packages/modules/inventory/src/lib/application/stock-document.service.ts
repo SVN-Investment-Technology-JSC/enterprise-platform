@@ -18,6 +18,7 @@ import {
   assertNotSelfApproval,
   assertReversible,
   assertTransition,
+  isIssueType,
   resolveLineDirection,
 } from '../domain/stock-document-policy.js';
 import type { InventoryActor } from './inventory.application.js';
@@ -252,11 +253,22 @@ function normalizeLines(
     if (!Number.isFinite(unitCost) || unitCost < 0) {
       throw new InventoryError('VALIDATION', `Dòng ${lineNo}: đơn giá không hợp lệ.`);
     }
+    const reservationId = line.reservationId?.trim() || undefined;
+    if (reservationId && !UUID_PATTERN.test(reservationId)) {
+      throw new InventoryError('VALIDATION', `Dòng ${lineNo}: mã giữ hàng không hợp lệ.`);
+    }
+    if (reservationId && !isIssueType(docType)) {
+      throw new InventoryError(
+        'VALIDATION',
+        `Dòng ${lineNo}: chỉ dòng của chứng từ xuất mới trừ vào giữ hàng.`,
+      );
+    }
     return {
       materialCode,
       quantity,
       direction: resolveLineDirection(docType, line.direction, lineNo),
       unitCost,
+      reservationId,
       note: line.note?.trim() || undefined,
     };
   });

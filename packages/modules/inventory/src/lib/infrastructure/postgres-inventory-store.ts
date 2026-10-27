@@ -17,6 +17,7 @@ import type {
   MaterialInventory,
   Reservation,
   ReservationItem,
+  ReservationShortage,
   AssetBomLine,
   SerialTracking,
   SettingsEntry,
@@ -31,11 +32,23 @@ import type {
   InventoryStore,
 } from '../application/inventory-store.port.js';
 import {
+  IdempotencyKeyConflictError,
   InsufficientStockError,
   InventoryError,
   MaterialNotFoundError,
+  ReservationInsufficientStockError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import { reservationCreatedEvent } from './inventory-reservation-events.js';
+import {
+  OPEN_RESERVATION_STATUSES,
+  loadReservationItems,
+  mapReservation,
+  mapReservationItem,
+  newReservationCode,
+  releaseLockedReservation,
+  reservationEventHeader,
+} from './postgres-reservation-support.js';
 import {
   lowStockNotificationEvent,
   type InventoryNotificationEvent,
@@ -190,31 +203,6 @@ function mapSerial(row: Row): SerialTracking {
     currentWarehouseId: opt(row.current_warehouse_id),
     currentAssetId: opt(row.current_asset_id),
     createdAt: iso(row.created_at),
-  };
-}
-
-function mapReservationItem(row: Row): ReservationItem {
-  return {
-    id: str(row.id),
-    reservationId: str(row.reservation_id),
-    warehouseId: str(row.warehouse_id),
-    materialId: str(row.material_id),
-    quantityReserved: num(row.quantity_reserved),
-    quantityIssued: num(row.quantity_issued),
-  };
-}
-
-function mapReservation(row: Row, items: ReservationItem[] = []): Reservation {
-  return {
-    id: str(row.id),
-    reservationCode: str(row.reservation_code),
-    referenceType: str(row.reference_type),
-    referenceId: opt(row.reference_id),
-    status: row.status as Reservation['status'],
-    expiresAt: row.expires_at ? iso(row.expires_at) : undefined,
-    createdBy: str(row.created_by),
-    createdAt: iso(row.created_at),
-    items,
   };
 }
 
@@ -988,27 +976,31 @@ export class PostgresInventoryStore implements InventoryStore {
            *
            * Không có dòng tồn nào cũng rơi vào nhánh này: rowCount = 0, tức xuất
            * một mã chưa từng nhập kho — cũng phải từ chối.
+           *
+           * Kiểm theo tồn khả dụng (tồn trừ phần đã giữ), như đường ghi sổ chứng
+           * từ (T1-09): lắp vật tư không được lấy hàng đã giữ cho đơn khác.
            */
           const moved = await client.query(
             `UPDATE inventory_schema.material_inventory
                 SET quantity = quantity + $3, updated_at = now()
               WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2
-                AND quantity + $3 >= 0`,
+                AND quantity - quantity_reserved + $3 >= 0`,
             [warehouseId, materialId, input.quantity],
           );
 
           if ((moved.rowCount ?? 0) === 0) {
-            const current = await client.query<{ quantity: string }>(
-              `SELECT quantity FROM inventory_schema.material_inventory
+            const current = await client.query<{ available: string }>(
+              `SELECT quantity - quantity_reserved AS available
+                 FROM inventory_schema.material_inventory
                 WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2`,
               [warehouseId, materialId],
             );
-            const onHand = num(current.rows[0]?.quantity ?? 0);
+            const available = Math.max(num(current.rows[0]?.available ?? 0), 0);
             // Cả bút toán vừa chèn ở trên cũng bị cuốn theo khi transaction rollback.
             throw new InsufficientStockError(
               input.materialCode,
               Math.abs(input.quantity),
-              onHand,
+              available,
               input.warehouseCode,
             );
           }
@@ -1104,70 +1096,126 @@ export class PostgresInventoryStore implements InventoryStore {
     create: async (tenantId: string, input: CreateReservationInput): Promise<Reservation> => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
-        const reservationRow = await client.query<Row>(
+        // Chèn phiếu trước. Hai lời gọi cùng khoá chạy song song: bên sau chờ ở
+        // khoá duy nhất; bên trước commit thì bên sau rơi vào DO NOTHING và đọc
+        // lại kết quả của bên trước, bên trước rollback (thiếu tồn) thì bên sau
+        // tự giữ như thường.
+        const header = await client.query<Row>(
           `INSERT INTO inventory_schema.reservations
-             (id, reservation_code, reference_type, reference_id, status, expires_at, created_by)
-           VALUES (gen_random_uuid(), $1, $2, $3, 'RESERVED', $4, $5)
+             (id, reservation_code, reference_type, reference_id, status, expires_at, created_by,
+              source_type, source_id, idempotency_key, request_hash)
+           VALUES (gen_random_uuid(), $1, $2, $3, 'RESERVED', $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (idempotency_key) DO NOTHING
            RETURNING *`,
           [
-            newCode('RES'),
+            newReservationCode(),
             input.referenceType,
             input.referenceId ?? null,
             input.expiresAt ?? null,
             input.createdBy,
+            input.sourceType ?? null,
+            input.sourceId ?? null,
+            input.idempotencyKey ?? null,
+            input.requestHash ?? null,
           ],
         );
-        const reservationId = str(reservationRow.rows[0].id);
+        if (!header.rows[0]) {
+          const winner = await client.query<Row>(
+            `SELECT * FROM inventory_schema.reservations WHERE idempotency_key = $1`,
+            [input.idempotencyKey],
+          );
+          if (opt(winner.rows[0]?.request_hash) !== input.requestHash) {
+            throw new IdempotencyKeyConflictError(String(input.idempotencyKey));
+          }
+          return mapReservation(
+            winner.rows[0],
+            await loadReservationItems(client, str(winner.rows[0].id)),
+          );
+        }
+        const reservationRow = header.rows[0];
+        const reservationId = str(reservationRow.id);
+
+        const lines = await this.resolveReservationLines(client, input.items);
+        // Khoá dòng tồn theo thứ tự (warehouse_id, material_id) như đường ghi sổ
+        // chứng từ, để hai giữ hàng chạm cùng các mã không khoá chéo nhau.
+        const locked = await client.query<Row>(
+          `SELECT b.id, b.warehouse_id, b.material_id, b.quantity, b.quantity_reserved
+             FROM inventory_schema.material_inventory b
+             JOIN unnest($1::uuid[], $2::uuid[]) AS k(warehouse_id, material_id)
+               ON k.warehouse_id = b.warehouse_id AND k.material_id = b.material_id
+            WHERE b.location_id IS NULL
+            ORDER BY b.warehouse_id, b.material_id
+            FOR UPDATE OF b`,
+          [lines.map((line) => line.warehouseId), lines.map((line) => line.materialId)],
+        );
+        const balances = new Map(
+          locked.rows.map((row) => [
+            `${str(row.warehouse_id)}|${str(row.material_id)}`,
+            { id: str(row.id), available: num(row.quantity) - num(row.quantity_reserved) },
+          ]),
+        );
+
+        // Tất cả hoặc không (Q4): kiểm hết các dòng rồi mới báo, để bên gọi thấy
+        // mọi dòng thiếu một lần.
+        const shortages: ReservationShortage[] = [];
+        for (const line of lines) {
+          const balance = balances.get(`${line.warehouseId}|${line.materialId}`);
+          const available = Math.round((balance?.available ?? 0) * 1000) / 1000;
+          if (!balance || available < line.quantity) {
+            shortages.push({
+              materialId: line.materialId,
+              materialCode: line.materialCode,
+              warehouseId: line.warehouseId,
+              warehouseCode: line.warehouseCode,
+              requested: line.quantity,
+              available: Math.max(available, 0),
+            });
+          }
+        }
+        if (shortages.length > 0) throw new ReservationInsufficientStockError(shortages);
 
         const items: ReservationItem[] = [];
-        for (const item of input.items) {
-          const { warehouseId, materialId } = await this.resolveIds(
-            client,
-            item.warehouseCode,
-            item.materialCode,
-          );
-
-          // Lock the balance row so two reservations cannot claim the same stock.
-          const balance = await client.query<Row>(
-            `SELECT quantity, quantity_reserved
-             FROM inventory_schema.material_inventory
-             WHERE warehouse_id = $1 AND material_id = $2
-             FOR UPDATE`,
-            [warehouseId, materialId],
-          );
-
-          const available =
-            num(balance.rows[0]?.quantity) - num(balance.rows[0]?.quantity_reserved);
-          if (available < item.quantityReserved) {
-            throw new InsufficientStockError(
-              item.materialCode,
-              item.quantityReserved,
-              available,
-            );
-          }
-
+        for (const line of lines) {
           const itemRow = await client.query<Row>(
             `INSERT INTO inventory_schema.reservation_items
                (id, reservation_id, warehouse_id, material_id, quantity_reserved, quantity_issued)
              VALUES (gen_random_uuid(), $1, $2, $3, $4, 0)
              RETURNING *`,
-            [reservationId, warehouseId, materialId, item.quantityReserved],
+            [reservationId, line.warehouseId, line.materialId, line.quantity],
           );
           items.push(mapReservationItem(itemRow.rows[0]));
-
           await client.query(
             `UPDATE inventory_schema.material_inventory
-             SET quantity_reserved = quantity_reserved + $3, updated_at = now()
-             WHERE warehouse_id = $1 AND material_id = $2`,
-            [warehouseId, materialId, item.quantityReserved],
+                SET quantity_reserved = quantity_reserved + $2, updated_at = now()
+              WHERE id = $1`,
+            [balances.get(`${line.warehouseId}|${line.materialId}`)?.id, line.quantity],
           );
         }
 
-        return mapReservation(reservationRow.rows[0], items);
+        await writeInventoryOutbox(
+          client,
+          tenantId,
+          reservationCreatedEvent(
+            reservationEventHeader(reservationRow),
+            lines.map((line) => ({
+              materialId: line.materialId,
+              materialCode: line.materialCode,
+              warehouseId: line.warehouseId,
+              warehouseCode: line.warehouseCode,
+              quantity: line.quantity,
+            })),
+            input.createdBy,
+          ),
+        );
+        return mapReservation(reservationRow, items);
       });
     },
 
-    release: async (tenantId: string, reservationCode: string): Promise<Reservation | null> => {
+    release: async (
+      tenantId: string,
+      reservationCode: string,
+      actorUserId?: string,
+    ): Promise<Reservation | null> => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
         // Khoá phiếu trước: hai lần nhả song song không được trừ hai lần.
@@ -1177,35 +1225,72 @@ export class PostgresInventoryStore implements InventoryStore {
         );
         if (!header.rows[0]) return null;
 
+        // Đã đóng rồi thì trả nguyên trạng, không trừ thêm, không phát sự kiện.
         const status = str(header.rows[0].status);
-        const reservationId = str(header.rows[0].id);
-        const itemRows = await client.query<Row>(
-          `SELECT * FROM inventory_schema.reservation_items WHERE reservation_id = $1`,
-          [reservationId],
-        );
-
-        // Đã đóng rồi thì trả nguyên trạng, không trừ thêm.
-        if (status === 'CANCELLED' || status === 'COMPLETED' || status === 'EXPIRED') {
-          return mapReservation(header.rows[0], itemRows.rows.map(mapReservationItem));
-        }
-
-        for (const item of itemRows.rows) {
-          const outstanding = num(item.quantity_reserved) - num(item.quantity_issued);
-          if (outstanding <= 0) continue;
-          await client.query(
-            `UPDATE inventory_schema.material_inventory
-             SET quantity_reserved = GREATEST(0, quantity_reserved - $3), updated_at = now()
-             WHERE warehouse_id = $1 AND material_id = $2`,
-            [str(item.warehouse_id), str(item.material_id), outstanding],
+        if (!(OPEN_RESERVATION_STATUSES as readonly string[]).includes(status)) {
+          return mapReservation(
+            header.rows[0],
+            await loadReservationItems(client, str(header.rows[0].id)),
           );
         }
-
-        const updated = await client.query<Row>(
-          `UPDATE inventory_schema.reservations SET status = 'CANCELLED' WHERE id = $1 RETURNING *`,
-          [reservationId],
+        return releaseLockedReservation(
+          client,
+          tenantId,
+          header.rows[0],
+          'CANCELLED',
+          actorUserId ?? null,
+          writeInventoryOutbox,
         );
-        return mapReservation(updated.rows[0], itemRows.rows.map(mapReservationItem));
       });
+    },
+
+    findByIdempotencyKey: async (
+      tenantId: string,
+      idempotencyKey: string,
+    ): Promise<{ reservation: Reservation; requestHash?: string } | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.reservations WHERE idempotency_key = $1`,
+        [idempotencyKey],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        reservation: mapReservation(row, await loadReservationItems(pool, str(row.id))),
+        requestHash: opt(row.request_hash),
+      };
+    },
+
+    expireDue: async (tenantId: string, limit: number): Promise<Reservation[]> => {
+      const pool = await this.poolFor(tenantId);
+      const expired: Reservation[] = [];
+      for (let index = 0; index < limit; index += 1) {
+        const reservation = await inTransaction(pool, async (client) => {
+          // SKIP LOCKED: giữ hàng đang bị đường xuất khoá thì để lượt sau, không
+          // chờ. Postgres kiểm lại điều kiện trên bản đã khoá, nên giữ hàng vừa
+          // được xuất đủ (COMPLETED) không bị chọn.
+          const header = await client.query<Row>(
+            `SELECT * FROM inventory_schema.reservations
+              WHERE status IN ('RESERVED', 'PARTIALLY_ISSUED')
+                AND expires_at IS NOT NULL AND expires_at < now()
+              ORDER BY expires_at, id
+              LIMIT 1
+              FOR UPDATE SKIP LOCKED`,
+          );
+          if (!header.rows[0]) return null;
+          return releaseLockedReservation(
+            client,
+            tenantId,
+            header.rows[0],
+            'EXPIRED',
+            null,
+            writeInventoryOutbox,
+          );
+        });
+        if (!reservation) break;
+        expired.push(reservation);
+      }
+      return expired;
     },
 
     list: async (tenantId: string): Promise<Reservation[]> => {
@@ -1467,6 +1552,45 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
     },
   };
+
+  /** Đổi mã kho, mã vật tư của các dòng giữ hàng sang id; mã không có thì 404. */
+  private async resolveReservationLines(
+    client: PoolClient,
+    items: CreateReservationInput['items'],
+  ): Promise<
+    {
+      warehouseId: string;
+      warehouseCode: string;
+      materialId: string;
+      materialCode: string;
+      quantity: number;
+    }[]
+  > {
+    const warehouses = await client.query<Row>(
+      `SELECT id, code FROM inventory_schema.warehouses WHERE code = ANY($1::text[])`,
+      [[...new Set(items.map((item) => item.warehouseCode))]],
+    );
+    const materials = await client.query<Row>(
+      `SELECT id, code FROM inventory_schema.materials
+        WHERE code = ANY($1::text[]) AND kind = 'STOCK'`,
+      [[...new Set(items.map((item) => item.materialCode))]],
+    );
+    const warehouseIds = new Map(warehouses.rows.map((row) => [str(row.code), str(row.id)]));
+    const materialIds = new Map(materials.rows.map((row) => [str(row.code), str(row.id)]));
+    return items.map((item) => {
+      const warehouseId = warehouseIds.get(item.warehouseCode);
+      if (!warehouseId) throw new WarehouseNotFoundError(item.warehouseCode);
+      const materialId = materialIds.get(item.materialCode);
+      if (!materialId) throw new MaterialNotFoundError(item.materialCode);
+      return {
+        warehouseId,
+        warehouseCode: item.warehouseCode,
+        materialId,
+        materialCode: item.materialCode,
+        quantity: item.quantityReserved,
+      };
+    });
+  }
 
   private async resolveIds(
     client: PoolClient,

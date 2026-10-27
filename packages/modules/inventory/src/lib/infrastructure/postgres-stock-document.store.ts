@@ -26,6 +26,7 @@ import {
   InsufficientAvailableStockError,
   InventoryError,
   MaterialNotFoundError,
+  ReservationIssueError,
   StockDocumentNotFoundError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
@@ -149,13 +150,33 @@ interface Movement {
   /** Vế nhập của điều chuyển: tham chiếu bút toán vế xuất như đường cũ. */
   readonly transferInOf?: number;
   readonly transferFromCode?: string;
+  /** Dòng xuất trừ vào giữ hàng: giảm cả tồn lẫn phần đã giữ. */
+  readonly reservationId?: string;
+  readonly lineNo: number;
 }
 
 interface Balance {
   readonly id: string;
   quantity: number;
-  readonly reserved: number;
+  reserved: number;
 }
+
+/** Dòng giữ hàng đã khoá, kèm phần chưa xuất còn lại trong lượt ghi sổ này. */
+interface LockedReservationItem {
+  readonly id: string;
+  readonly reservationId: string;
+  readonly warehouseId: string;
+  readonly materialId: string;
+  outstanding: number;
+  issued: number;
+}
+
+const RESERVATION_STATUS_LABELS: Readonly<Record<string, string>> = {
+  PENDING: 'chờ giữ',
+  COMPLETED: 'xuất đủ',
+  CANCELLED: 'bị huỷ',
+  EXPIRED: 'hết hạn',
+};
 
 /**
  * Chứng từ kho trên Postgres. Mọi thay đổi trạng thái khoá dòng chứng từ
@@ -482,8 +503,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     for (const [index, line] of lines.entries()) {
       await client.query(
         `INSERT INTO inventory_schema.stock_document_lines
-           (document_id, line_no, material_id, quantity, direction, unit_cost, note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           (document_id, line_no, material_id, quantity, direction, unit_cost, reservation_id, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           documentId,
           index + 1,
@@ -491,6 +512,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           line.quantity,
           line.direction,
           line.unitCost,
+          line.reservationId ?? null,
           line.note ?? null,
         ],
       );
@@ -552,6 +574,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           type: 'EXPORT',
           unitCost: line.unitCost,
           note: note ? `${note} (Xuất chuyển đến kho ${to})` : `Xuất chuyển đến kho ${to}`,
+          lineNo: line.lineNo,
         });
         result.push({
           warehouseId: document.targetWarehouseId ?? '',
@@ -564,6 +587,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           note,
           transferInOf: outIndex,
           transferFromCode: document.warehouseCode,
+          lineNo: line.lineNo,
         });
         continue;
       }
@@ -577,6 +601,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
         type: document.docType === 'ADJUSTMENT' ? 'ADJUST' : inbound ? 'IMPORT' : 'EXPORT',
         unitCost: line.unitCost,
         note,
+        reservationId: inbound ? undefined : line.reservationId,
+        lineNo: line.lineNo,
       });
     }
     return result;
@@ -598,6 +624,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       throw new InventoryError('VALIDATION', 'Chứng từ không có dòng nào để ghi sổ.');
     }
     const movements = this.movements(document);
+    // Khoá giữ hàng trước dòng tồn, cùng thứ tự với nhả hàng và job hết hạn.
+    const reservationItems = await this.lockReservations(client, document, movements);
     const keyOf = (warehouseId: string, materialId: string) => `${warehouseId}|${materialId}`;
     const keys = [
       ...new Map(
@@ -650,6 +678,22 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     // số thật, và hai dòng cùng mã trong một chứng từ được cộng dồn đúng.
     for (const movement of movements) {
       const balance = balances.get(keyOf(movement.warehouseId, movement.materialId));
+      if (movement.reservationId) {
+        // Xuất theo giữ hàng lấy chính phần đã giữ: tồn và phần giữ cùng giảm,
+        // khả dụng không đổi. Chỉ cần tồn thực tế đủ.
+        const quantity = Math.abs(movement.delta);
+        if (!balance || round3(balance.quantity - quantity) < 0) {
+          throw new InsufficientAvailableStockError(
+            movement.materialCode,
+            quantity,
+            Math.max(balance?.quantity ?? 0, 0),
+            movement.warehouseCode,
+          );
+        }
+        balance.quantity = round3(balance.quantity - quantity);
+        balance.reserved = Math.max(round3(balance.reserved - quantity), 0);
+        continue;
+      }
       if (movement.delta < 0) {
         const available = balance ? round3(balance.quantity - balance.reserved) : 0;
         if (!balance || round3(available + movement.delta) < 0) {
@@ -667,11 +711,12 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     for (const balance of balances.values()) {
       await client.query(
         `UPDATE inventory_schema.material_inventory
-            SET quantity = $2, updated_at = now()
+            SET quantity = $2, quantity_reserved = $3, updated_at = now()
           WHERE id = $1`,
-        [balance.id, balance.quantity],
+        [balance.id, balance.quantity, balance.reserved],
       );
     }
+    await this.recordReservationIssue(client, reservationItems);
 
     const ledger: InventoryTransaction[] = [];
     for (const movement of movements) {
@@ -713,6 +758,128 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
 
     await this.notifyLowStock(client, tenantId, movements, ledger);
     return ledger;
+  }
+
+  /**
+   * Khoá các giữ hàng mà dòng xuất tham chiếu (theo id) và dòng của chúng, rồi
+   * phân số xuất vào phần chưa xuất. Lỗi khi giữ hàng không có, đã đóng, không
+   * giữ đúng vật tư tại đúng kho, hoặc xuất quá phần còn giữ.
+   */
+  private async lockReservations(
+    client: Queryable,
+    document: StockDocument,
+    movements: readonly Movement[],
+  ): Promise<LockedReservationItem[]> {
+    const ids = [
+      ...new Set(
+        movements
+          .map((movement) => movement.reservationId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ].sort();
+    if (ids.length === 0) return [];
+    const headers = await client.query<Row>(
+      `SELECT id, reservation_code, status FROM inventory_schema.reservations
+        WHERE id = ANY($1::uuid[])
+        ORDER BY id
+        FOR UPDATE`,
+      [ids],
+    );
+    const itemRows = await client.query<Row>(
+      `SELECT id, reservation_id, warehouse_id, material_id, quantity_reserved, quantity_issued
+         FROM inventory_schema.reservation_items
+        WHERE reservation_id = ANY($1::uuid[])
+        ORDER BY reservation_id, id
+        FOR UPDATE`,
+      [ids],
+    );
+    const byId = new Map(headers.rows.map((row) => [str(row.id), row]));
+    const items: LockedReservationItem[] = itemRows.rows.map((row) => ({
+      id: str(row.id),
+      reservationId: str(row.reservation_id),
+      warehouseId: str(row.warehouse_id),
+      materialId: str(row.material_id),
+      outstanding: round3(num(row.quantity_reserved) - num(row.quantity_issued)),
+      issued: 0,
+    }));
+
+    for (const movement of movements) {
+      if (!movement.reservationId) continue;
+      const header = byId.get(movement.reservationId);
+      if (!header) {
+        throw new ReservationIssueError(
+          'RESERVATION_NOT_FOUND',
+          `Dòng ${movement.lineNo}: không tìm thấy giữ hàng ${movement.reservationId}.`,
+          404,
+        );
+      }
+      const code = str(header.reservation_code);
+      const status = str(header.status);
+      if (status !== 'RESERVED' && status !== 'PARTIALLY_ISSUED') {
+        throw new ReservationIssueError(
+          'RESERVATION_CLOSED',
+          `Dòng ${movement.lineNo}: giữ hàng ${code} đã ${RESERVATION_STATUS_LABELS[status] ?? status}, không xuất theo được.`,
+        );
+      }
+      const matching = items.filter(
+        (item) =>
+          item.reservationId === movement.reservationId &&
+          item.warehouseId === movement.warehouseId &&
+          item.materialId === movement.materialId,
+      );
+      if (matching.length === 0) {
+        throw new ReservationIssueError(
+          'RESERVATION_MISMATCH',
+          `Dòng ${movement.lineNo}: giữ hàng ${code} không giữ ${movement.materialCode} tại kho ${document.warehouseCode}.`,
+        );
+      }
+      let remaining = Math.abs(movement.delta);
+      const outstanding = round3(matching.reduce((sum, item) => sum + item.outstanding, 0));
+      if (round3(outstanding - remaining) < 0) {
+        throw new ReservationIssueError(
+          'RESERVATION_OVER_ISSUE',
+          `Dòng ${movement.lineNo}: giữ hàng ${code} chỉ còn ${Math.max(outstanding, 0)} ${movement.materialCode} chưa xuất, không xuất được ${remaining}.`,
+        );
+      }
+      for (const item of matching) {
+        if (remaining <= 0) break;
+        const take = Math.min(item.outstanding, remaining);
+        if (take <= 0) continue;
+        item.outstanding = round3(item.outstanding - take);
+        item.issued = round3(item.issued + take);
+        remaining = round3(remaining - take);
+      }
+    }
+    return items;
+  }
+
+  /** Cộng số đã xuất vào dòng giữ hàng, đặt Xuất một phần hoặc Xuất đủ. */
+  private async recordReservationIssue(
+    client: Queryable,
+    items: readonly LockedReservationItem[],
+  ): Promise<void> {
+    const touched = items.filter((item) => item.issued > 0);
+    if (touched.length === 0) return;
+    for (const item of touched) {
+      await client.query(
+        `UPDATE inventory_schema.reservation_items
+            SET quantity_issued = quantity_issued + $2
+          WHERE id = $1`,
+        [item.id, item.issued],
+      );
+    }
+    await client.query(
+      `UPDATE inventory_schema.reservations r
+          SET status = CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM inventory_schema.reservation_items i
+                   WHERE i.reservation_id = r.id AND i.quantity_issued < i.quantity_reserved
+                ) THEN 'PARTIALLY_ISSUED'
+                ELSE 'COMPLETED'
+              END
+        WHERE r.id = ANY($1::uuid[])`,
+      [[...new Set(touched.map((item) => item.reservationId))]],
+    );
   }
 
   /** Cảnh báo tồn thấp như `append` cũ, mỗi mã một lần cho cả chứng từ. */

@@ -38,6 +38,7 @@ import {
 } from './stock-document-store.port.js';
 import {
   AssetNotFoundError,
+  IdempotencyKeyConflictError,
   InsufficientAvailableStockError,
   InsufficientStockError,
   InventoryError,
@@ -47,6 +48,11 @@ import {
   UnknownSettingsKeyError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import {
+  assertExpiryInFuture,
+  normalizeReservationRequest,
+  reservationRequestHash,
+} from '../domain/reservation-policy.js';
 import {
   INVENTORY_SETTINGS_DEFAULTS,
   isInventorySettingsKey,
@@ -779,35 +785,60 @@ export class InventoryApplication {
     }
   }
 
-  createStockReservation(
+  /**
+   * Giữ hàng nhiều dòng, tất cả hoặc không (Q4), có khoá chống lặp (T1-11).
+   *
+   * Gọi lại cùng `idempotencyKey` và cùng nội dung trả giữ hàng đã tạo (trạng thái
+   * hiện tại của nó), không giữ thêm; khác nội dung thì 409. Kiểm hạn ở tương lai
+   * chỉ khi tạo mới, để lần thử lại muộn vẫn nhận được kết quả lần đầu.
+   */
+  async createStockReservation(
     actor: InventoryActor,
     request: CreateStockReservationRequest,
   ): Promise<Reservation> {
     this.requireStockWriter(actor);
-    if (!request.items?.length) {
-      throw new InvalidReservationError('Yêu cầu giữ vật tư phải có ít nhất một dòng.');
+    const normalized = normalizeReservationRequest(request);
+    const requestHash = reservationRequestHash(normalized);
+
+    if (normalized.idempotencyKey) {
+      const existing = await this.store.reservation.findByIdempotencyKey(
+        actor.tenantId,
+        normalized.idempotencyKey,
+      );
+      if (existing) {
+        if (existing.requestHash !== requestHash) {
+          throw new IdempotencyKeyConflictError(normalized.idempotencyKey);
+        }
+        return existing.reservation;
+      }
     }
-    for (const item of request.items) {
-      this.requirePositive(item.quantityReserved);
-    }
+    assertExpiryInFuture(normalized.expiresAt, new Date());
 
     return this.store.reservation.create(actor.tenantId, {
-      referenceType: request.referenceType,
-      referenceId: request.referenceId,
-      expiresAt: request.expiresAt,
+      referenceType: normalized.referenceType,
+      referenceId: normalized.referenceId,
+      sourceType: normalized.sourceType,
+      sourceId: normalized.sourceId,
+      idempotencyKey: normalized.idempotencyKey,
+      requestHash,
+      expiresAt: normalized.expiresAt,
       createdBy: actor.userId,
-      items: request.items.map((item) => ({
-        warehouseCode: request.warehouseCode,
-        materialCode: item.materialCode,
-        quantityReserved: item.quantityReserved,
+      items: normalized.lines.map((line) => ({
+        warehouseCode: line.warehouseCode,
+        materialCode: line.materialCode,
+        quantityReserved: line.quantity,
       })),
     });
   }
 
-  /** Nhả giữ chỗ, trả số lượng về khả dụng. Idempotent ở tầng store. */
+  /**
+   * Nhả phần chưa xuất, trả về khả dụng. Idempotent theo trạng thái: giữ hàng đã
+   * đóng (huỷ, hết hạn, xuất đủ) thì trả nguyên trạng, không trừ thêm — đủ cho bên
+   * gọi thử lại mà không cần khoá chống lặp riêng.
+   */
   async releaseReservation(actor: InventoryActor, code: string): Promise<Reservation> {
     this.requireStockWriter(actor);
-    const released = await this.store.reservation.release(actor.tenantId, code);
+    const released = await this.store.reservation.release(actor.tenantId, code, actor.userId);
     if (!released) {
       throw new InvalidReservationError(`Không tìm thấy phiếu giữ vật tư ${code}.`);
     }

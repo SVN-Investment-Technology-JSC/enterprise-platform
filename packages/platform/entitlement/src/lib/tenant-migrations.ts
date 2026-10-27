@@ -499,6 +499,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0011-stock-documents',
       path: 'tenant/inventory/0011-stock-documents.sql',
     },
+    {
+      version: '0012-reservation-source',
+      path: 'tenant/inventory/0012-reservation-source.sql',
+    },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

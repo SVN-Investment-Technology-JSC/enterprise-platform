@@ -528,6 +528,10 @@ export interface Reservation {
   readonly expiresAt?: string;
   readonly createdBy: string;
   readonly createdAt: string;
+  /** Chứng từ nguồn (đơn bán, hợp đồng...). Giữ hàng tạo trước migration 0012 không có. */
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly idempotencyKey?: string;
   readonly items?: ReservationItem[];
 }
 
@@ -557,16 +561,43 @@ export interface InventoryAdjustment {
 // API REQUESTS/RESPONSES
 // ============================================================================
 
+/**
+ * Giữ hàng một hoặc nhiều dòng, tất cả hoặc không (Q4): thiếu một dòng thì không
+ * dòng nào được giữ, trả 409 `RESERVATION_INSUFFICIENT_STOCK` kèm `shortages`.
+ *
+ * Kho đặt ở đầu phiếu, hoặc riêng từng dòng (`items[].warehouseCode`) khi giữ ở
+ * nhiều kho. Bên gọi mới (Bán hàng) dùng `sourceType`, `sourceId`; bên gọi cũ dùng
+ * `referenceType`, `referenceId` — thiếu một cặp thì lấy theo cặp kia.
+ */
 export interface CreateStockReservationRequest {
-  readonly warehouseCode: string;
-  readonly referenceType: string;
-  readonly referenceId: string;
+  readonly warehouseCode?: string;
+  readonly referenceType?: string;
+  readonly referenceId?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  /**
+   * Gọi lại cùng khoá và cùng nội dung trả lại giữ hàng đã tạo, không giữ thêm;
+   * cùng khoá mà khác nội dung trả 409 `IDEMPOTENCY_KEY_CONFLICT`.
+   */
+  readonly idempotencyKey?: string;
+  /** ISO 8601, phải sau thời điểm gọi. Bỏ trống thì không tự hết hạn. */
   readonly expiresAt?: string;
   readonly notes?: string;
   readonly items: Array<{
     readonly materialCode: string;
     readonly quantityReserved: number;
+    readonly warehouseCode?: string;
   }>;
+}
+
+/** Một dòng thiếu tồn khi giữ hàng, trả trong lỗi 409 `RESERVATION_INSUFFICIENT_STOCK`. */
+export interface ReservationShortage {
+  readonly materialId?: string;
+  readonly materialCode: string;
+  readonly warehouseId?: string;
+  readonly warehouseCode: string;
+  readonly requested: number;
+  readonly available: number;
 }
 
 export interface ResolveAssetTaskTemplateRequest {
@@ -590,14 +621,65 @@ export interface ResolveMaterialTaskTemplateResponse {
 // EVENTS
 // ============================================================================
 
+export const INVENTORY_RESERVATION_CREATED_EVENT = 'inventory.reservation.created';
+export const INVENTORY_RESERVATION_RELEASED_EVENT = 'inventory.reservation.released';
+export const INVENTORY_RESERVATION_EXPIRED_EVENT = 'inventory.reservation.expired';
+
+export const INVENTORY_RESERVATION_EVENT_TYPES = [
+  INVENTORY_RESERVATION_CREATED_EVENT,
+  INVENTORY_RESERVATION_RELEASED_EVENT,
+  INVENTORY_RESERVATION_EXPIRED_EVENT,
+] as const;
+
+export type InventoryReservationEventType = (typeof INVENTORY_RESERVATION_EVENT_TYPES)[number];
+
+/** Một dòng trong sự kiện giữ hàng: số đã giữ lúc tạo, hoặc số vừa nhả khi nhả, hết hạn. */
+export interface InventoryReservationEventLine {
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly quantity: number;
+}
+
+/**
+ * Payload chung của `inventory.reservation.*`. Trường `referenceType`,
+ * `referenceId`, `materialCode`, `quantityReserved` có từ trước (chưa ai phát);
+ * giữ lại để không bỏ trường, với giữ hàng nhiều dòng thì `materialCode` và
+ * `quantityReserved` lấy theo dòng đầu.
+ */
 export interface InventoryStockReservationCreatedPayload {
   readonly reservationId: string;
   readonly reservationCode: string;
   readonly referenceType: string;
-  readonly referenceId: string;
+  /** Giữ hàng không gắn đối tượng thì null. */
+  readonly referenceId: string | null;
   readonly materialCode: string;
   readonly quantityReserved: number;
+  readonly sourceType: string | null;
+  readonly sourceId: string | null;
+  readonly expiresAt: string | null;
+  readonly lines: readonly InventoryReservationEventLine[];
+  /** Null khi hệ thống tự làm. */
+  readonly actorUserId: string | null;
 }
+
+/** `inventory.reservation.released` và `.expired`: phần chưa xuất vừa được trả về khả dụng. */
+export interface InventoryReservationReleasedPayload {
+  readonly reservationId: string;
+  readonly reservationCode: string;
+  readonly referenceType: string;
+  readonly referenceId: string | null;
+  readonly sourceType: string | null;
+  readonly sourceId: string | null;
+  readonly status: 'CANCELLED' | 'EXPIRED';
+  readonly releasedLines: readonly InventoryReservationEventLine[];
+  readonly releasedQuantity: number;
+  /** Null khi hệ thống tự làm (job hết hạn). */
+  readonly actorUserId: string | null;
+}
+
+export type InventoryReservationExpiredPayload = InventoryReservationReleasedPayload;
 
 export interface InventoryStockIssuedPayload {
   readonly transactionCode: string;
@@ -958,6 +1040,11 @@ export interface StockDocumentLineInput {
   /** Bỏ trống thì suy theo loại chứng từ; chứng từ điều chỉnh bắt buộc ghi. */
   readonly direction?: StockDocumentLineDirection;
   readonly unitCost?: number;
+  /**
+   * Dòng xuất trừ vào giữ hàng này (id): ghi sổ giảm cả tồn lẫn phần đã giữ và
+   * tăng số đã xuất của giữ hàng. Chỉ dùng cho dòng của chứng từ xuất (ISSUE_*).
+   */
+  readonly reservationId?: string;
   readonly note?: string;
 }
 

@@ -7,3 +7,6 @@ export * from './lib/application/stock-document.service.js';
 export * from './lib/application/stock-document-store.port.js';
 export * from './lib/presentation/stock-document.controller.js';
 export * from './lib/domain/stock-document-policy.js';
+export * from './lib/domain/reservation-policy.js';
+export * from './lib/application/reservation-expiry.job.js';
+export * from './lib/inventory-jobs.factory.js';

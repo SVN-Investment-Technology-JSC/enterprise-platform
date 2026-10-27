@@ -510,7 +510,12 @@ export class InventoryController {
     } catch (error) {
       if (!(error instanceof InventoryError)) throw error;
       throw new HttpException(
-        { statusCode: error.statusCode, code: error.code, message: error.message },
+        {
+          ...error.details,
+          statusCode: error.statusCode,
+          code: error.code,
+          message: error.message,
+        },
         error.statusCode,
       );
     }

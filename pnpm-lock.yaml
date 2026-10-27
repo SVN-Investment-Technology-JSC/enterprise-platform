@@ -1378,6 +1378,9 @@ importers:
       '@enterprise-platform/module-hrm':
         specifier: workspace:*
         version: link:../../packages/modules/hrm
+      '@enterprise-platform/module-inventory':
+        specifier: workspace:*
+        version: link:../../packages/modules/inventory
       '@enterprise-platform/module-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/modules/procedure-engine

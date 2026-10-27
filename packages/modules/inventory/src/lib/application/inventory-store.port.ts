@@ -37,6 +37,11 @@ export interface AppendTransactionInput {
 export interface CreateReservationInput {
   readonly referenceType: string;
   readonly referenceId?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly idempotencyKey?: string;
+  /** Băm nội dung yêu cầu (`reservationRequestHash`), so khi gọi lại cùng khoá. */
+  readonly requestHash?: string;
   readonly expiresAt?: string;
   readonly createdBy: string;
   readonly items: ReadonlyArray<{
@@ -172,9 +177,28 @@ export interface InventoryStore {
   };
 
   reservation: {
+    /**
+     * Giữ tất cả dòng hoặc không dòng nào: khoá dòng tồn theo thứ tự (kho, vật
+     * tư), thiếu một dòng thì ném `ReservationInsufficientStockError` kèm mọi dòng
+     * thiếu. Có khoá chống lặp đã dùng thì trả giữ hàng cũ nếu cùng `requestHash`,
+     * khác thì ném `IdempotencyKeyConflictError`. Ghi `inventory.reservation.created`
+     * vào outbox trong cùng transaction.
+     */
     create(tenantId: string, input: CreateReservationInput): Promise<Reservation>;
     list(tenantId: string): Promise<Reservation[]>;
     findByCode(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    /** Giữ hàng đã tạo bằng khoá chống lặp này, kèm băm nội dung lần đầu. */
+    findByIdempotencyKey(
+      tenantId: string,
+      idempotencyKey: string,
+    ): Promise<{ reservation: Reservation; requestHash?: string } | null>;
+    /**
+     * Nhả phần chưa xuất của các giữ hàng quá hạn (RESERVED, PARTIALLY_ISSUED),
+     * đặt EXPIRED, ghi `inventory.reservation.expired`. Mỗi giữ hàng một
+     * transaction, khoá `FOR UPDATE SKIP LOCKED` để không chờ đường xuất đang giữ
+     * khoá; tối đa `limit` giữ hàng mỗi lần. Trả các giữ hàng vừa hết hạn.
+     */
+    expireDue(tenantId: string, limit: number): Promise<Reservation[]>;
     /**
      * Nhả giữ chỗ: trả số lượng về khả dụng và đóng phiếu.
      *
@@ -182,7 +206,11 @@ export interface InventoryStore {
      * bên gọi là Quy trình, nhả sau khi transaction của nó đã commit nên có thể
      * thử lại.
      */
-    release(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    release(
+      tenantId: string,
+      reservationCode: string,
+      actorUserId?: string,
+    ): Promise<Reservation | null>;
     findByReference(
       tenantId: string,
       referenceType: string,

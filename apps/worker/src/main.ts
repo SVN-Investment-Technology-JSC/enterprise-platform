@@ -78,6 +78,7 @@ import {
   CRM_INTEGRATION_BINDINGS,
   CRM_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-crm';
+import { createInventoryJobs } from '@enterprise-platform/module-inventory';
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
@@ -190,6 +191,7 @@ const socialActivityEvents = createSocialActivityEvents(moduleDatabases, tenantP
 const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
 const crmIntegrationEvents = createCrmIntegrationEvents(moduleDatabases, tenantPools);
 const crmJobs = createCrmJobs(moduleDatabases, tenantPools);
+const inventoryJobs = createInventoryJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -630,7 +632,28 @@ async function processCrmJobs(database: TenantDatabaseReference) {
   await crmJobs.run(database.tenantId);
 }
 
-/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social và CRM jobs, tuần tự. */
+const INVENTORY_RESERVATION_EXPIRY_INTERVAL_MS = 60_000;
+const inventoryLastRun = new Map<string, number>();
+
+/**
+ * Việc định kỳ của Kho, chạy trong withActiveTenant (khóa SHARED) của tick: nhả giữ hàng hết hạn mỗi 60 giây cho
+ * từng tenant đã bật phân hệ inventory và đã chạy migration 0012. Mốc chạy giữ trong bộ nhớ như Mạng nội bộ; chạy
+ * lại an toàn vì giữ hàng đã EXPIRED không còn khớp điều kiện nhả.
+ */
+async function processInventoryJobs(database: TenantDatabaseReference) {
+  const tenantId = database.tenantId;
+  const now = Date.now();
+  if (now - (inventoryLastRun.get(tenantId) ?? 0) < INVENTORY_RESERVATION_EXPIRY_INTERVAL_MS) return;
+  if (!(await moduleEnabled(tenantId, 'inventory'))) return;
+  moduleDatabases.register(database);
+  if (!(await inventoryJobs.ready(tenantId))) return;
+  // Đặt mốc trước khi chạy để một lần lỗi không làm tick 1 giây gọi lại liên tục.
+  inventoryLastRun.set(tenantId, now);
+  const expired = await inventoryJobs.expireReservations(tenantId);
+  if (expired.length) console.info(`[inventory] Tenant ${tenantId}: nhả ${expired.length} giữ hàng hết hạn.`);
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social, CRM và Inventory jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
 ): Promise<void> {
@@ -639,7 +662,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs]) {
         try {
           await step(database);
         } catch (error) {
