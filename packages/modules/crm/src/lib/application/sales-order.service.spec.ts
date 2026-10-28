@@ -236,6 +236,28 @@ describe('SalesOrderService: xác nhận và giữ hàng (T4-09)', () => {
     expect(inventory.reserve).toHaveBeenCalledTimes(1);
   });
 
+  it('TC-UAT-01 bước 10: đơn chuyển từ báo giá chưa có kho lấy kho của hợp đồng rồi dùng phần giữ của hợp đồng', async () => {
+    const contract = {
+      id: CONTRACT,
+      code: 'HD1',
+      status: 'ACTIVE',
+      validFrom: '2026-01-01',
+      validTo: null,
+      warehouseCode: 'KHO-1',
+      reservation: { reservationId: 'rc', reservationCode: 'GHK', status: 'HELD', expiresAt: null },
+      lines: [{ materialId: CAP, materialKind: 'STOCK', quantity: 10 }],
+    } as unknown as ContractDetail;
+    const draft = order({ contractId: CONTRACT, source: 'QUOTE', warehouseCode: null });
+    const { store, inventory, service } = setup(draft, contract);
+    store.getOrder.mockResolvedValueOnce(draft).mockResolvedValueOnce({ ...draft, warehouseCode: 'KHO-1', revision: 6 });
+    await service.confirm(actor(), ORDER, { revision: 5 });
+    expect(store.updateDraft).toHaveBeenCalledWith(TENANT, ORDER, 5, expect.objectContaining({ warehouseCode: 'KHO-1' }), undefined, USER);
+    expect(inventory.reserve).not.toHaveBeenCalled();
+    expect(store.confirm).toHaveBeenCalledWith(TENANT, ORDER, 6, 'DRAFT', expect.objectContaining({
+      lines: [{ lineId: 'l1', reservationId: 'rc', reservationCode: 'GHK', source: 'CONTRACT', quantity: 10 }],
+    }), USER);
+  });
+
   it('TC-CON-03: đơn từ hợp đồng hết hạn bị chặn', async () => {
     const contract = { id: CONTRACT, code: 'HD1', status: 'EXPIRED', validFrom: '2026-01-01', validTo: '2026-06-30' } as unknown as ContractDetail;
     const { service } = setup(order(), contract);

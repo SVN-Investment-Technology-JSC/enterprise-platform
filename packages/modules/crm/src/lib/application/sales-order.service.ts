@@ -284,8 +284,8 @@ export class SalesOrderService {
   /** Nháp → Đã xác nhận (T4-09): kiểm hạn mức, giữ hàng ở Kho rồi ghi. */
   async confirm(actor: CrmActor, id: string, request: SalesOrderActionRequest): Promise<SalesOrderDetail> {
     requireOrderWriter(actor);
-    const order = await this.get(actor, id);
-    const revision = this.expect(order, request?.revision);
+    let order = await this.get(actor, id);
+    let revision = this.expect(order, request?.revision);
     assertOrderTransition(order.status, 'CONFIRMED');
     if (order.status === 'CREDIT_PENDING' && this.credit.requestApproval) {
       // Có sổ công nợ (GĐ5): đơn chờ duyệt hạn mức chỉ được xác nhận qua quyết định duyệt.
@@ -295,6 +295,24 @@ export class SalesOrderService {
     const today = this.today();
     const contract = order.contractId ? await this.contracts.getContract(actor.tenantId, ALL, order.contractId) : undefined;
     if (contract) assertContractUsableForOrder(contract, today);
+    if (order.status === 'DRAFT' && !order.warehouseCode && contract?.warehouseCode) {
+      // Đơn chuyển từ báo giá được lập cùng hợp đồng khi hợp đồng chưa chọn kho: lấy kho của hợp đồng như khi
+      // lập đơn từ hợp đồng (create), để dùng được phần giữ của hợp đồng và làm kho xuất mặc định.
+      const header = this.headerInput(
+        {
+          expectedDeliveryDate: order.expectedDeliveryDate,
+          warehouseCode: contract.warehouseCode,
+          deliveryAddress: order.deliveryAddress,
+          note: order.note,
+          priceDate: order.priceDate,
+          shipping: order.shipping,
+        },
+        null,
+      );
+      await this.orders.updateDraft(actor.tenantId, id, revision, { ...header, totals: order.totals }, undefined, actor.userId);
+      order = await this.get(actor, id);
+      revision = order.revision;
+    }
 
     // Điểm mở rộng của T5-10: vượt hạn mức thì chặn hoặc đưa đi duyệt (Chờ duyệt hạn mức).
     if (order.status === 'DRAFT') {

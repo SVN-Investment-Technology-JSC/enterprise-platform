@@ -55,7 +55,9 @@ export function buildConfig(tenantSlug) {
 export const ENTITLEMENTS = ['crm', 'inventory', 'finance', 'procedure-engine', 'workspace', 'hrm'];
 
 const SALES_STAFF = ['crm.read', 'crm.opportunity.write', 'crm.quote.write', 'crm.order.write'];
-const TEAM_LEAD = [...SALES_STAFF, 'crm.quote.approve'];
+// Trưởng nhóm và quản lý duyệt báo giá, vượt hạn mức trên Quy trình (TC-UAT-01 bước 7, TC-AR-11): cần vào được
+// Procedure Engine (`procedure.access`), không thì procedure-api trả 403 MODULE_ROLE_FORBIDDEN.
+const TEAM_LEAD = [...SALES_STAFF, 'crm.quote.approve', 'procedure.access'];
 
 /** Vai trò; mỗi vai trò có một Permission cùng tên (tiền tố "Quyền - "). Khớp theo tên khi chạy lại. */
 export const ROLES = {

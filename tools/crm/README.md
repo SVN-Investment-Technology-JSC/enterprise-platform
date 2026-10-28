@@ -51,6 +51,8 @@ Tenant `svn2`, `svn3`, `svn-perf` chỉ chạy bước `tenant` với `--tenant=
   (Platform tạo khi khởi tạo tenant, có vai trò quản trị tenant).
 - Bật phân hệ `crm`, `inventory`, `finance`, `procedure-engine`, `workspace`, `hrm`; chờ worker khởi tạo xong.
 - Tạo Permission và vai trò theo bảng 1.3, 10 tài khoản `<ký hiệu>@<tenant>.local` (ví dụ `nv1@svn.local`), gán vai trò.
+  TN và QL có thêm `procedure.access` (bảng 1.3 chưa ghi) để duyệt báo giá, vượt hạn mức trên Quy trình; thiếu quyền
+  này procedure-api trả 403 `MODULE_ROLE_FORBIDDEN` và phiên duyệt kẹt ở Chờ duyệt.
 - Cơ cấu tổ chức: đơn vị Kinh doanh, Kho, Kế toán, Kỹ thuật; chức danh và quan hệ "Báo cáo cho":
   NV1, NV2 báo cáo TN; NV3 và TN báo cáo QL (trưởng Kinh doanh); TK báo cáo QLK (trưởng Kho); KT ở Kế toán; KTV ở Kỹ thuật.
 - Kiểm tra cuối bước: NV1 gọi `GET /api/crm/v1/status` có `canWriteOpportunity = true`, `canReadAll = false`;
@@ -143,8 +145,52 @@ Bán hàng lấy ngày giao (mốc bảo hành, ngày ghi nợ, dòng doanh thu)
 Kho đặt giá trị này bằng `now()` lúc ghi sổ (`postgres-stock-document.store.ts`, `UPDATE ... posted_at = now()`), không
 theo `documentDate`. Vì vậy đơn seed luôn giao "hôm nay": `SN031` đến `SN035` hiện có hạn tính từ ngày chạy seed (đúng
 nguồn hạn MATERIAL 12 tháng, CONTRACT 24 và 6 tháng, nhưng chưa có serial sắp hết hạn hay đã hết hạn). Chứng từ xuất
-vẫn mang ngày chứng từ quá khứ. Muốn test hạn theo mốc thời gian cần Kho phát `postedAt` theo ngày chứng từ, hoặc
-chỉnh dữ liệu trực tiếp ở DB thử (ngoài phạm vi script này).
+vẫn mang ngày chứng từ quá khứ. Muốn test hạn theo mốc thời gian, chạy `backdate-deliveries.mjs` (mục dưới) sau bước
+`warranty`.
+
+## Lùi ngày giao serial bảo hành (T6-13)
+
+```bash
+node tools/crm/backdate-deliveries.mjs --tenant=svn [--dry-run]
+```
+
+- Ghi thẳng SQL vào DB tenant nên **từ chối** host khác `localhost`, `127.0.0.1`. URL lấy từ
+  `TENANT_DATABASE_URL_TEMPLATE` trong `.env` (`{databaseName}` là slug, `-` thành `_`).
+- Đặt `crm_schema.delivery_plans.issued_at` của đợt giao chứa serial (đơn seed ghi chú `seed-svn:warranty:<serial>`)
+  về 9 giờ sáng giờ Việt Nam của mốc: `SN031` 3 tháng trước, `SN032` 11 tháng, `SN033` 13 tháng, `SN034`, `SN035` 8
+  tháng. Đây là cột duy nhất tra cứu bảo hành đọc làm ngày giao (`postgres-warranty.store.ts`, rồi
+  `domain/warranty-period.ts`). Ngày xuất ở Kho (`inventory_schema.serial_movements.occurred_at`) chỉ được đọc khi
+  `issued_at` rỗng nên không sửa; bảng đó và chứng từ đã ghi sổ còn bị trigger append-only chặn UPDATE. Vì vậy lịch
+  sử serial ở Kho, sổ công nợ và `sales_facts` của các đơn này vẫn mang ngày chạy seed.
+- Mốc tính theo hôm nay: chạy lại cùng ngày không đổi gì; chạy ngày khác thì dời theo để vẫn đúng "N tháng trước".
+- Kết quả mong đợi (KTV tra `GET /api/crm/v1/warranty/lookup?serial=`): `SN031` còn khoảng 9 tháng (MATERIAL 12),
+  `SN032` còn khoảng 1 tháng, `SN033` hết hạn, `SN034` còn khoảng 16 tháng (CONTRACT 24), `SN035` hết hạn (CONTRACT 6),
+  khớp TC-WAR-01, 02, 03, 05.
+
+## UAT tự động (TC-UAT-01 đến 09)
+
+```bash
+node tools/crm/uat-e2e.mjs --tenant=svn [--roles-only]
+```
+
+- Chạy 21 bước TC-UAT-01 (`docs/crm/TEST.md` mục 3.9) qua API thật, đăng nhập đúng tài khoản từng bước (NV1, TN,
+  QTBH, TK, KT, QTV, KTV, QL); duyệt báo giá bằng TN trên Procedure Engine
+  (`POST /api/procedure/v1/instances/:id/actions`, `approve`). Chờ hiệu ứng qua worker bằng hỏi lại (60 giây,
+  `UAT_EVENT_TIMEOUT_MS`). In bảng ĐẠT/LỖI theo bước; có LỖI thì mã thoát 1. `--roles-only` chỉ chạy kiểm vai trò.
+- Mỗi lượt dùng tiền tố `QA-UAT-<thời điểm>`: lead và khách mới, 21 serial mới `QAU<thời điểm>-01..21` QTV nhập mua
+  vào `QA-KHO-HN` (bước 0) để không dùng serial seed mà test case khác cần. Chạy lại được; mỗi lượt để lại một khách,
+  hợp đồng, đơn đã hoàn tất, yêu cầu bảo hành đã đóng.
+- Thao tác thêm so với bảng 3.9, đúng như người dùng phải làm trên màn hình: QTBH chọn kho giữ hàng cho hợp đồng (hợp
+  đồng chuyển từ báo giá chưa có kho); NV1 bỏ đợt giao mặc định rồi lập 2 đợt, gửi yêu cầu xuất kho trước khi TK xử lý;
+  QTV chọn lý do thu (tạo `QA-TC-THU-BH` "Thu tiền bán hàng" nếu chưa có), nhóm đối tượng "Khách hàng", tài khoản
+  `QA-TC-VCB` rồi ghi sổ phiếu thu; KTV gửi lệnh nhận hàng, TK ghi sổ chứng từ nhập trả.
+- Bước 3 (nhắc lịch): nhắc chỉ phát trước hạn theo cấu hình (mặc định 30 phút) nên script tạo thêm một hoạt động hạn
+  sau 10 phút và đọc `notification_schema.notifications` ở DB tenant local (chỉ đọc, chỉ localhost) vì API đọc thông
+  báo nằm ở realtime-api, không có trong stack dev. Cần notification-worker chạy.
+- Bước 20: dòng thời gian kiểm 8 trong 9 loại của TC-CUS-10; kịch bản không có đổi trả nên không kiểm loại đó.
+- TC-UAT-02 đến 09: kiểm nhanh phạm vi và quyền qua API (NV1 không thấy khách của NV3, TN thấy khách cấp dưới,
+  TK bị 403 ở báo giá, KT xem tuổi nợ, KTV không lập đơn, QL xem đủ 4 báo cáo...). Phần còn lại của các kịch bản này là
+  thao tác trên giao diện, vẫn làm tay.
 
 ## Chuyển khách hàng Workspace sang Bán hàng (T2-15)
 

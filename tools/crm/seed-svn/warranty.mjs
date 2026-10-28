@@ -88,7 +88,7 @@ export async function runWarrantyStep(config, log) {
   if (mismatched) {
     log.warn(
       `${mismatched}/${list.length} serial chưa có ngày giao trong quá khứ. API hiện không cho lùi ngày giao; ` +
-        'test hạn bảo hành theo mốc thời gian cần Kho phát `postedAt` theo ngày chứng từ, hoặc chỉnh dữ liệu ở DB thử.',
+        'chạy `node tools/crm/backdate-deliveries.mjs --tenant=' + config.tenantSlug + '` để đặt ngày giao về đúng mốc (chỉ DB local).',
     );
   }
 }
