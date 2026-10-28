@@ -22,7 +22,9 @@ interface StateBody {
  *
  * - `POST /v1/internal/voucher-sources`: tạo phiếu thu nháp INHERITED; cùng khoá
  *   cùng nội dung trả lại phiếu cũ; bản ghi nguồn bị trả lại thì mở lại phiếu;
- * - `GET /v1/internal/voucher-sources/:sourceRef?sourceModule=crm`: trạng thái.
+ * - `GET /v1/internal/voucher-sources/:sourceRef?sourceModule=crm`: trạng thái;
+ * - `POST /v1/internal/voucher-sources/:sourceRef/cancel?sourceModule=crm`: huỷ
+ *   phiếu còn nháp khi lần thu bị huỷ (T5-15), gọi lại không lỗi.
  *
  * Lỗi mạng, token, 5xx, 401, 403, 408, 429 thành 503 `FINANCE_UNAVAILABLE` (thử
  * lại); Tài chính từ chối (409 khác nội dung, 422 dữ liệu sai) giữ mã, thông
@@ -46,6 +48,16 @@ export class HttpFinanceClient implements FinanceClient {
   async voucherState(tenantId: string, sourceRef: string): Promise<FinanceVoucherState | null> {
     const response = await this.call(tenantId, `/v1/internal/voucher-sources/${encodeURIComponent(sourceRef)}?sourceModule=crm`, {
       method: 'GET',
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw await rejection(response);
+    return stateOf((await response.json().catch(() => ({}))) as StateBody);
+  }
+
+  async cancelReceiptVoucher(tenantId: string, sourceRef: string, reason: string): Promise<FinanceVoucherState | null> {
+    const response = await this.call(tenantId, `/v1/internal/voucher-sources/${encodeURIComponent(sourceRef)}/cancel?sourceModule=crm`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
     if (response.status === 404) return null;
     if (!response.ok) throw await rejection(response);

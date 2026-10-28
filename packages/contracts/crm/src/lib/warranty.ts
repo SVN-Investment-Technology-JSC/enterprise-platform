@@ -104,7 +104,7 @@ export type WarrantyDocumentKind = (typeof WARRANTY_DOCUMENT_KINDS)[number];
 export const WARRANTY_DOCUMENT_KIND_LABELS: Readonly<Record<WarrantyDocumentKind, string>> = {
   RETURN_RECEIPT: 'Nhập trả vào kho cách ly',
   QUALITY: 'Đổi trạng thái chất lượng',
-  TRANSFER: 'Điều chuyển sang kho lỗi',
+  TRANSFER: 'Điều chuyển kho (kho lỗi hoặc kho bán)',
   SCRAP: 'Xuất khác (loại bỏ)',
   REPLACEMENT: 'Xuất bảo hành (hàng thay thế)',
   CREDIT: 'Điều chỉnh giảm công nợ',
@@ -151,6 +151,8 @@ export const WARRANTY_SOURCE_LABELS: Readonly<Record<WarrantySource, string>> = 
 /** Kho cách ly, kho lỗi mặc định khi chưa cấu hình (`crm_schema.settings`). */
 export const DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE = 'QA-KHO-CL';
 export const DEFAULT_WARRANTY_DEFECT_WAREHOUSE = 'QA-KHO-LOI';
+/** Kho nhận hàng Đạt nhập lại khi không biết kho xuất ban đầu của serial, dòng (T6-11). */
+export const DEFAULT_WARRANTY_RESTOCK_WAREHOUSE = 'QA-KHO-HN';
 /** Số dòng tối đa của một yêu cầu bảo hành. */
 export const WARRANTY_LINES_MAX = 50;
 
@@ -349,6 +351,8 @@ export interface ResolveWarrantyLineRequest {
 export interface WarrantySettings {
   readonly quarantineWarehouseCode: string;
   readonly defectWarehouseCode: string;
+  /** Kho nhận lại hàng Đạt khi không biết kho xuất ban đầu (T6-11). */
+  readonly restockWarehouseCode: string;
 }
 
 /** Lịch sử một serial: bước kho (từ Kho) và các yêu cầu bảo hành có serial đó. */

@@ -47,6 +47,40 @@ export function assertQuoteTransition(from: QuoteStatus, to: QuoteStatus): void 
   );
 }
 
+/**
+ * Lần chuyển do hệ thống làm, ngoài bảng chuyển của người dùng:
+ *
+ * - `OPPORTUNITY_LOST` (T3-21): cơ hội chuyển Thua thì mọi báo giá chưa kết
+ *   thúc (Nháp, Chờ duyệt, Đã duyệt, Đã gửi khách, Từ chối duyệt) sang Khách từ
+ *   chối với lý do "Cơ hội đã thua";
+ * - `PROCEDURE_REVERSED` (T3-19): Quy trình thu hồi phiên đã duyệt thì báo giá
+ *   Đã duyệt, Đã gửi khách (chưa chuyển hợp đồng) về Từ chối duyệt.
+ */
+export type QuoteSystemTransition = 'OPPORTUNITY_LOST' | 'PROCEDURE_REVERSED';
+
+const QUOTE_SYSTEM_TRANSITIONS: Readonly<Record<QuoteSystemTransition, Partial<Record<QuoteStatus, readonly QuoteStatus[]>>>> = {
+  OPPORTUNITY_LOST: {
+    DRAFT: ['DECLINED'],
+    PENDING: ['DECLINED'],
+    APPROVED: ['DECLINED'],
+    SENT: ['DECLINED'],
+    REJECTED: ['DECLINED'],
+  },
+  PROCEDURE_REVERSED: {
+    APPROVED: ['REJECTED'],
+    SENT: ['REJECTED'],
+  },
+};
+
+/** Lý do ghi vào báo giá khi cơ hội chuyển Thua. */
+export const QUOTE_OPPORTUNITY_LOST_REASON = 'Cơ hội đã thua';
+/** Lý do ghi vào báo giá khi Quy trình thu hồi kết quả duyệt. */
+export const QUOTE_PROCEDURE_REVERSED_REASON = 'Quy trình đã thu hồi';
+
+export function canQuoteSystemTransition(kind: QuoteSystemTransition, from: QuoteStatus, to: QuoteStatus): boolean {
+  return QUOTE_SYSTEM_TRANSITIONS[kind][from]?.includes(to) ?? false;
+}
+
 /** Quá hạn hiệu lực: ngày hiệu lực cuối nhỏ hơn hôm nay (cả hai `YYYY-MM-DD` giờ Việt Nam). */
 export function isPastValidity(validUntil: string | null, today: string): boolean {
   return !!validUntil && validUntil < today;

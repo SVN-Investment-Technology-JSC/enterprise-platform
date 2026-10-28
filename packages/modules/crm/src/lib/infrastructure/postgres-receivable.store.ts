@@ -22,6 +22,7 @@ import {
   type ReceivableSettings,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
+import { CRM_WARRANTY_SOURCE_TYPE, WARRANTY_AUDIT_ENTITY } from '../application/warranty.port.js';
 import type { BalanceQueryRunner, OrderBalanceReader } from '../application/fulfillment.port.js';
 import type {
   AdjustmentFilter,
@@ -52,7 +53,7 @@ import {
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
-import { enqueueReceiptVoucher, RECEIPT_VOUCHER_OPERATION } from './integration-requests.js';
+import { enqueueReceiptVoucher, enqueueReceiptVoucherCancel, RECEIPT_VOUCHER_OPERATION } from './integration-requests.js';
 import { CREDIT_LIMIT_SETTING_KEY, parseCreditLimitMode } from './postgres-credit.store.js';
 import { readHistory } from './postgres-contract.store.js';
 import { lockOrder, setStatus } from './postgres-sales-order.store.js';
@@ -556,6 +557,8 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
         );
       }
       await stopVoucherRequest(client, receipt.idempotency_key);
+      // Phiếu nháp bên Tài chính (lần thu bị trả lại) huỷ theo qua lệnh gửi sau commit (T5-15).
+      if (receipt.status === 'RETURNED' || receipt.finance_voucher_id) await enqueueReceiptVoucherCancel(client, id, reason);
       await client.query(
         `UPDATE crm_schema.receipts SET status = 'CANCELLED', revision = revision + 1, updated_at = now(), updated_by = $2 WHERE id = $1`,
         [id, actorId],
@@ -570,6 +573,112 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
         reason,
         metadata: { code: receipt.code, financeVoucherCode: receipt.finance_voucher_code },
       });
+    });
+  }
+
+  async entryCustomer(tenantId: string, entryId: string): Promise<string | undefined> {
+    const pool = await this.database.pool(tenantId);
+    return (await pool.query<{ customer_id: string }>(`SELECT customer_id FROM crm_schema.receivable_entries WHERE id = $1`, [entryId])).rows[0]
+      ?.customer_id;
+  }
+
+  applyCredit(
+    tenantId: string,
+    creditEntryId: string,
+    allocations: readonly AllocationInput[],
+    actorId: string,
+    today: string,
+  ): Promise<{ customerId: string }> {
+    return this.database.transaction(tenantId, async (client) => {
+      const credit = (
+        await client.query<{ id: string; kind: string; customer_id: string; receipt_id: string | null; ref_entry_id: string | null; amount: string }>(
+          `SELECT id, kind, customer_id, receipt_id, ref_entry_id, amount FROM crm_schema.receivable_entries WHERE id = $1`,
+          [creditEntryId],
+        )
+      ).rows[0];
+      if (!credit) throw new CrmNotFoundError('Không tìm thấy khoản tiền thu chưa phân bổ.');
+      if (credit.kind !== 'CREDIT' || credit.ref_entry_id) {
+        throw new CrmConflictError('CREDIT_NOT_UNAPPLIED', 'Dòng sổ này không phải tiền thu chưa phân bổ.');
+      }
+      // Khoá dòng trả trước cùng các khoản nợ theo thứ tự id (cùng thứ tự với lần thu, điều chỉnh).
+      await lockEntries(client, [credit.id, ...allocations.map((line) => line.entryId)]);
+      const used = (
+        await client.query<{ used: string }>(
+          `SELECT COALESCE(sum(amount), 0) AS used FROM crm_schema.receivable_entries WHERE reverses_entry_id = $1`,
+          [credit.id],
+        )
+      ).rows[0];
+      const remaining = roundVnd(-(num(credit.amount) + num(used?.used)));
+      const total = roundVnd(allocations.reduce((sum, line) => sum + line.amount, 0));
+      if (total > remaining) {
+        throw new CrmValidationError(
+          'CREDIT_EXCEEDS_UNAPPLIED',
+          `Tổng phân bổ vượt số tiền trả trước còn lại (còn ${formatVnd(Math.max(remaining, 0))} đ).`,
+          { remaining: Math.max(remaining, 0) },
+        );
+      }
+      await lockAllocatable(client, allocations, credit.customer_id, null);
+      const targets = new Map(
+        (
+          await client.query<{ id: string; order_id: string | null; contract_id: string | null; payment_term_id: string | null }>(
+            `SELECT id, order_id, contract_id, payment_term_id FROM crm_schema.receivable_entries WHERE id = ANY($1::uuid[])`,
+            [allocations.map((line) => line.entryId)],
+          )
+        ).rows.map((row) => [row.id, row]),
+      );
+      const applicationId = randomUUID();
+      const orders = new Set<string>();
+      for (const [index, line] of allocations.entries()) {
+        const target = targets.get(line.entryId);
+        const key = `${applicationId}:${index + 1}`;
+        // Phần trả trước giảm đi (bút đảo một phần dòng CREDIT chưa phân bổ), cùng số đó ghi CREDIT vào khoản nợ.
+        await insertReceivableEntry(client, {
+          kind: 'REVERSAL',
+          customerId: credit.customer_id,
+          receiptId: credit.receipt_id,
+          amount: line.amount,
+          entryDate: today,
+          reversesEntryId: credit.id,
+          sourceType: 'credit_application_release',
+          sourceId: key,
+          description: 'Chuyển tiền trả trước sang khoản nợ',
+          createdBy: actorId,
+        });
+        await insertReceivableEntry(client, {
+          kind: 'CREDIT',
+          customerId: credit.customer_id,
+          orderId: target?.order_id ?? null,
+          contractId: target?.contract_id ?? null,
+          paymentTermId: target?.payment_term_id ?? null,
+          receiptId: credit.receipt_id,
+          amount: -line.amount,
+          entryDate: today,
+          refEntryId: line.entryId,
+          sourceType: 'credit_application',
+          sourceId: key,
+          description: 'Phân bổ tiền trả trước',
+          createdBy: actorId,
+        });
+        if (target?.order_id) orders.add(target.order_id);
+      }
+      // Đợt thanh toán của hợp đồng đã thu đủ.
+      await client.query(
+        `UPDATE crm_schema.contract_payment_terms t SET status = 'PAID', updated_at = now()
+          WHERE t.status = 'DUE' AND t.id = ANY($1::uuid[])
+            AND EXISTS (SELECT 1 FROM crm_schema.receivable_open_items i WHERE i.payment_term_id = t.id AND i.open_amount <= 0)`,
+        [[...targets.values()].map((row) => row.payment_term_id).filter((id): id is string => !!id)],
+      );
+      if (credit.receipt_id) {
+        await writeAuditLog(client, {
+          entityType: RECEIPT_AUDIT_ENTITY,
+          entityId: credit.receipt_id,
+          action: 'apply-credit',
+          actorId,
+          metadata: { creditEntryId: credit.id, amount: total, allocations: allocations.length, remaining: roundVnd(remaining - total) },
+        });
+      }
+      await completeSettledOrders(client, [...orders], actorId);
+      return { customerId: credit.customer_id };
     });
   }
 
@@ -727,6 +836,7 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
         reason: adjustment.reason,
         metadata: { code: adjustment.code, direction: adjustment.direction, amount: num(adjustment.amount) },
       });
+      if (adjustment.source_type === CRM_WARRANTY_SOURCE_TYPE) await markWarrantyCreditPosted(client, id, adjustment.code, actorId);
       await completeSettledOrders(client, [...touchedOrders], actorId);
     });
   }
@@ -1061,13 +1171,14 @@ interface LockedReceipt {
   idempotency_key: string;
   voucher_attempt: number;
   voucher_error: string | null;
+  finance_voucher_id: string | null;
   finance_voucher_code: string | null;
 }
 
 async function lockReceipt(client: CrmSqlClient, id: string, revision: number): Promise<LockedReceipt> {
   const row = (
     await client.query<LockedReceipt>(
-      `SELECT code, customer_id, status, revision, idempotency_key, voucher_attempt, voucher_error, finance_voucher_code
+      `SELECT code, customer_id, status, revision, idempotency_key, voucher_attempt, voucher_error, finance_voucher_id, finance_voucher_code
          FROM crm_schema.receipts WHERE id = $1 FOR UPDATE`,
       [id],
     )
@@ -1086,12 +1197,39 @@ interface LockedAdjustment {
   reason: string;
   status: AdjustmentStatus;
   revision: number;
+  source_type: string | null;
+  source_id: string | null;
+}
+
+/**
+ * Điều chỉnh giảm trừ của dòng bảo hành vừa được duyệt (T6-12): chứng từ giảm
+ * trừ, hoàn tiền của dòng chuyển Đã ghi sổ ngay trong transaction duyệt, ghi
+ * nhật ký yêu cầu bảo hành; không phải bấm "Gửi lại chứng từ".
+ */
+async function markWarrantyCreditPosted(client: CrmSqlClient, adjustmentId: string, code: string, actorId: string): Promise<void> {
+  const posted = await client.query<{ case_id: string; kind: string }>(
+    `UPDATE crm_schema.warranty_documents
+        SET status = 'POSTED', posted_at = now(), last_error = NULL, updated_at = now()
+      WHERE document_id = $1 AND kind IN ('CREDIT', 'REFUND') AND status IN ('PENDING_RECEIVABLE', 'PENDING')
+      RETURNING case_id, kind`,
+    [adjustmentId],
+  );
+  for (const row of posted.rows) {
+    await writeAuditLog(client, {
+      entityType: WARRANTY_AUDIT_ENTITY,
+      entityId: row.case_id,
+      action: 'credit-posted',
+      actorId,
+      reason: `Điều chỉnh công nợ ${code} đã được duyệt`,
+      metadata: { kind: row.kind, documentCode: code },
+    });
+  }
 }
 
 async function lockAdjustment(client: CrmSqlClient, id: string, revision: number): Promise<LockedAdjustment> {
   const row = (
     await client.query<LockedAdjustment>(
-      `SELECT code, customer_id, order_id, entry_id, direction, amount, reason, status, revision
+      `SELECT code, customer_id, order_id, entry_id, direction, amount, reason, status, revision, source_type, source_id
          FROM crm_schema.receivable_adjustments WHERE id = $1 FOR UPDATE`,
       [id],
     )

@@ -95,7 +95,8 @@ export function assertResolution(input: ResolutionInput): void {
  */
 export function documentsForResolution(disposition: WarrantyDisposition, remedy: WarrantyRemedy): WarrantyDocumentKind[] {
   const kinds: WarrantyDocumentKind[] = ['QUALITY'];
-  if (disposition === 'MOVE_TO_DEFECT') kinds.push('TRANSFER');
+  // Nhập lại (T6-11) và chuyển kho lỗi đều điều chuyển ra khỏi kho cách ly.
+  if (disposition === 'RESTOCK' || disposition === 'MOVE_TO_DEFECT') kinds.push('TRANSFER');
   if (disposition === 'SCRAP') kinds.push('SCRAP');
   if (remedy === 'REPLACE') kinds.push('REPLACEMENT');
   if (remedy === 'CREDIT') kinds.push('CREDIT');

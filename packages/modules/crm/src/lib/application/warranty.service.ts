@@ -403,7 +403,15 @@ export class WarrantyService {
     if (quarantineWarehouseCode === defectWarehouseCode) {
       throw new CrmValidationError('SAME_WAREHOUSE', 'Kho cách ly và kho lỗi phải khác nhau.');
     }
-    await this.store.saveSettings(actor.tenantId, { quarantineWarehouseCode, defectWarehouseCode }, actor.userId);
+    // Kho nhập lại hàng Đạt (T6-11): không gửi thì giữ cấu hình đang có.
+    const restockWarehouseCode =
+      request?.restockWarehouseCode === undefined
+        ? (await this.store.settings(actor.tenantId)).restockWarehouseCode
+        : requiredText(request.restockWarehouseCode, WAREHOUSE_CODE_MAX, 'mã kho nhập lại').toUpperCase();
+    if (restockWarehouseCode === quarantineWarehouseCode) {
+      throw new CrmValidationError('SAME_WAREHOUSE', 'Kho nhập lại hàng Đạt phải khác kho cách ly.');
+    }
+    await this.store.saveSettings(actor.tenantId, { quarantineWarehouseCode, defectWarehouseCode, restockWarehouseCode }, actor.userId);
     return this.store.settings(actor.tenantId);
   }
 }

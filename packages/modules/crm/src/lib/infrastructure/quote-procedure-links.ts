@@ -3,14 +3,23 @@ import type { QuoteStatus } from '@enterprise-platform/contracts-crm';
 import type { ApprovalLinks, ProcedureClient } from '../application/quote-store.port.js';
 import { CrmError } from '../domain/crm.error.js';
 import { isUuid } from '../domain/fields.js';
+import { canQuoteSystemTransition, QUOTE_PROCEDURE_REVERSED_REASON } from '../domain/quote.js';
 import type { CrmDatabase } from './crm.database.js';
-import { PROCEDURE_REJECTED } from './http-procedure-client.js';
+import { PROCEDURE_REJECTED, type ProcedureInstanceState } from './http-procedure-client.js';
 import { applyDecision, CRM_QUOTE_SOURCE_TYPE, lockVersionById } from './postgres-quote.store.js';
 
 /** Số lần thử tạo phiên tối đa trước khi bỏ (lỗi hạ tầng). */
 export const PROCEDURE_START_MAX_ATTEMPTS = 30;
 /** Một tiến trình giữ liên kết tối đa chừng này giây khi đang gọi Quy trình. */
 const LEASE_SECONDS = 30;
+
+/** Liên kết đang chạy quá chừng này phút mà chưa có kết quả thì hỏi lại Quy trình (T3-20). */
+export const PROCEDURE_RECONCILE_AFTER_MINUTES = 5;
+
+/** Đọc trạng thái hồ sơ để đối soát (`HttpProcedureClient.instanceStatuses`). */
+export interface ProcedureStatusReader {
+  instanceStatuses(tenantId: string, ids: readonly string[]): Promise<ProcedureInstanceState[]>;
+}
 
 /** Kết quả hồ sơ Quy trình theo `procedure.instance.completed`. */
 const RESULTS: Readonly<Record<string, 'completed' | 'rejected' | 'cancelled'>> = {
@@ -29,6 +38,17 @@ export interface ProcedureCompletedPayload {
   readonly actorId?: string;
   readonly reason?: string;
   readonly comment?: string;
+}
+
+/** Payload của `procedure.instance.reversed` mà Bán hàng đọc. */
+export interface ProcedureReversedPayload {
+  readonly instanceId?: string;
+  readonly instanceCode?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly reason?: string;
+  readonly reversedBy?: string;
+  readonly actorUserId?: string;
 }
 
 /**
@@ -114,6 +134,56 @@ export class PostgresApprovalLinks implements ApprovalLinks {
 }
 
 /**
+ * Đối soát khi lỡ mất sự kiện kết quả (T3-20, mẫu `processFinanceProcedureSync`
+ * của Tài chính): liên kết đã có phiên, còn Đang chạy quá
+ * `PROCEDURE_RECONCILE_AFTER_MINUTES` phút thì hỏi Quy trình. Hồ sơ đã kết thúc
+ * (hoàn tất, từ chối, huỷ) trả về payload như `procedure.instance.completed`
+ * để bên gọi áp đúng như consumer (báo giá, duyệt vượt hạn mức); còn chạy hoặc
+ * không thấy thì đẩy mốc `updated_at` để lần sau mới hỏi lại.
+ */
+export async function reconcileRunningLinks(
+  database: CrmDatabase,
+  reader: ProcedureStatusReader,
+  tenantId: string,
+  limit = 50,
+): Promise<ProcedureCompletedPayload[]> {
+  const pool = await database.pool(tenantId);
+  const stale = (
+    await pool.query<{ id: string; source_type: string; instance_id: string }>(
+      `SELECT id, source_type, instance_id FROM crm_schema.procedure_links
+        WHERE status = 'RUNNING' AND instance_id IS NOT NULL
+          AND updated_at < now() - make_interval(mins => $1)
+        ORDER BY updated_at
+        LIMIT $2`,
+      [PROCEDURE_RECONCILE_AFTER_MINUTES, Math.min(limit, 100)],
+    )
+  ).rows;
+  if (!stale.length) return [];
+  const states = new Map((await reader.instanceStatuses(tenantId, stale.map((row) => row.instance_id))).map((state) => [state.instanceId, state]));
+  const finished: ProcedureCompletedPayload[] = [];
+  const waiting: string[] = [];
+  for (const row of stale) {
+    const state = states.get(row.instance_id);
+    if (state && RESULTS[state.status]) {
+      finished.push({
+        instanceId: row.instance_id,
+        instanceCode: state.instanceCode ?? undefined,
+        sourceType: row.source_type,
+        sourceId: row.id,
+        status: state.status,
+        actorId: state.lastActorId ?? undefined,
+      });
+    } else {
+      waiting.push(row.id);
+    }
+  }
+  if (waiting.length) {
+    await pool.query(`UPDATE crm_schema.procedure_links SET updated_at = now() WHERE id = ANY($1::uuid[]) AND status = 'RUNNING'`, [waiting]);
+  }
+  return finished;
+}
+
+/**
  * Áp kết quả `procedure.instance.completed` (sourceType `crm_quote`) vào báo
  * giá trong một transaction: hoàn tất thì Đã duyệt; từ chối hoặc huỷ thì Từ
  * chối duyệt kèm lý do. Nhận trùng hoặc đến muộn (liên kết đã áp, đã đóng;
@@ -167,6 +237,54 @@ export async function applyQuoteProcedureResult(
     await client.query(
       `UPDATE crm_schema.procedure_links SET status = 'APPLIED', last_error = NULL, updated_at = now() WHERE id = $1`,
       [linkId],
+    );
+    return 'applied';
+  });
+}
+
+/**
+ * Quy trình thu hồi phiên duyệt báo giá (`procedure.instance.reversed`,
+ * sourceType `crm_quote`, T3-19): báo giá chưa chuyển hợp đồng, phiên bản đã
+ * duyệt theo phiên này vẫn là phiên bản hiện tại ở Đã duyệt hoặc Đã gửi khách
+ * thì về Từ chối duyệt với lý do "Quy trình đã thu hồi" và ghi nhật ký. Báo giá
+ * đã chuyển hợp đồng thì Quy trình đã bị chặn từ `reversal-check`; nếu vẫn tới
+ * thì bỏ qua. Nhận lặp: liên kết đã ghi `result = reversed` thì bỏ qua.
+ */
+export async function applyQuoteProcedureReversed(
+  database: CrmDatabase,
+  tenantId: string,
+  payload: ProcedureReversedPayload,
+): Promise<'applied' | 'ignored'> {
+  if (payload.sourceType !== CRM_QUOTE_SOURCE_TYPE || !isUuid(payload.sourceId)) return 'ignored';
+  const linkId = payload.sourceId;
+  return database.transaction(tenantId, async (client) => {
+    const link = (
+      await client.query<{ source_id: string; status: string; result: string | null; instance_id: string | null; instance_code: string | null }>(
+        `SELECT source_id, status, result, instance_id, instance_code FROM crm_schema.procedure_links
+          WHERE id = $1 AND source_type = $2 FOR UPDATE`,
+        [linkId, CRM_QUOTE_SOURCE_TYPE],
+      )
+    ).rows[0];
+    if (!link || link.result === 'reversed' || link.result !== 'completed') return 'ignored';
+    if (link.instance_id && payload.instanceId && link.instance_id !== payload.instanceId) return 'ignored';
+    const detail = payload.reason?.trim();
+    const reason = `${QUOTE_PROCEDURE_REVERSED_REASON}${detail ? `: ${detail}` : ''}`.slice(0, 2000);
+    await client.query(
+      `UPDATE crm_schema.procedure_links SET result = 'reversed', result_reason = $2, updated_at = now() WHERE id = $1`,
+      [linkId, reason],
+    );
+    const locked = await lockVersionById(client, link.source_id);
+    if (!locked || !canQuoteSystemTransition('PROCEDURE_REVERSED', locked.status, 'REJECTED')) return 'ignored';
+    const converted = await client.query(`SELECT 1 FROM crm_schema.quotes WHERE id = $1 AND converted_at IS NOT NULL`, [locked.quoteId]);
+    if (converted.rows.length) return 'ignored';
+    const actor = isUuid(payload.reversedBy) ? payload.reversedBy : isUuid(payload.actorUserId) ? payload.actorUserId : null;
+    await applyDecision(
+      client,
+      tenantId,
+      locked,
+      { from: locked.status, to: 'REJECTED', action: 'procedure-reversed', reason },
+      actor,
+      { procedureLinkId: linkId, instanceId: payload.instanceId ?? link.instance_id, instanceCode: payload.instanceCode ?? link.instance_code },
     );
     return 'applied';
   });

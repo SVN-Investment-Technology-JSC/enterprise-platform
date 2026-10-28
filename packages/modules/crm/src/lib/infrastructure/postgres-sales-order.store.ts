@@ -38,6 +38,7 @@ import { writeCrmOutbox } from './crm-outbox.js';
 import { enqueueReservationRelease } from './integration-requests.js';
 import { cancelPendingCreditRequests, PostgresCreditStore } from './postgres-credit.store.js';
 import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
+import { recordSalesFacts, salesFactSnapshot } from './sales-facts.js';
 import { readHistory } from './postgres-contract.store.js';
 import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
 
@@ -463,7 +464,19 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
       } else {
         // Đợt chỉ có dịch vụ: không qua Kho, ghi nhận đã giao ngay và ghi nợ (D3).
         const before = await deliveredSnapshot(client, orderId);
+        const factsBefore = await salesFactSnapshot(client, orderId);
         await markServiceLinesDelivered(client, deliveryId, 1);
+        await recordSalesFacts(client, {
+          orderId,
+          deliveryId,
+          before: factsBefore,
+          sourceType: 'service_delivery',
+          documentId: deliveryId,
+          documentCode: code,
+          reversesDocumentId: null,
+          deliveredAt: null,
+          deliveredDate: vietnamDateOf(null),
+        });
         await recognizeOrderDelivery(client, {
           orderId,
           deliveryId,

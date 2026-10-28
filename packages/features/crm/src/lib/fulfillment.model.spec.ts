@@ -1,5 +1,5 @@
 import { CRM_NO_CAPABILITIES, type DeliveryPlan, type SalesOrderLine } from '@enterprise-platform/contracts-crm';
-import { canRequestDelivery, contractActions, orderActions, paymentTermTotals, remainingToPlan } from './fulfillment.model';
+import { canRequestDelivery, canTriggerPaymentTerm, contractActions, warehouseOptions, orderActions, paymentTermTotals, remainingToPlan } from './fulfillment.model';
 
 const writer = { ...CRM_NO_CAPABILITIES, canWriteContract: true, canWriteOrder: true };
 
@@ -9,6 +9,26 @@ describe('màn hợp đồng, đơn bán', () => {
     expect(contractActions({ status: 'ACTIVE' }, writer)).toEqual(['complete', 'cancel']);
     expect(contractActions({ status: 'EXPIRED' }, writer)).toEqual(['liquidate']);
     expect(contractActions({ status: 'DRAFT' }, CRM_NO_CAPABILITIES)).toEqual([]);
+  });
+
+  it('TC-CON-06: nút ghi nhận nghiệm thu chỉ với đợt nghiệm thu chưa đến hạn, hợp đồng hiệu lực, quyền hợp đồng', () => {
+    const term = { condition: 'ACCEPTANCE', status: 'PENDING' } as const;
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, term, writer)).toBe(true);
+    expect(canTriggerPaymentTerm({ status: 'COMPLETED' }, term, writer)).toBe(true);
+    expect(canTriggerPaymentTerm({ status: 'DRAFT' }, term, writer)).toBe(false);
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, status: 'DUE' }, writer)).toBe(false);
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, condition: 'SIGN' }, writer)).toBe(false);
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, term, { ...CRM_NO_CAPABILITIES, canWriteReceivable: true })).toBe(false);
+  });
+
+  it('TC-ORD-04: ô chọn kho xuất: kho đang hoạt động, giữ kho đang chọn kể cả đã ngừng hay không còn', () => {
+    const list = [
+      { id: '1', code: 'KHO-1', name: 'Kho Hà Nội', isActive: true },
+      { id: '2', code: 'KHO-2', name: 'Kho cũ', isActive: false },
+    ];
+    expect(warehouseOptions(list, null)).toEqual([{ value: 'KHO-1', label: 'Kho Hà Nội', badge: 'KHO-1' }]);
+    expect(warehouseOptions(list, 'KHO-2').map((option) => option.value)).toEqual(['KHO-1', 'KHO-2']);
+    expect(warehouseOptions([], 'KHO-9')).toEqual([{ value: 'KHO-9', label: 'KHO-9', badge: 'KHO-9' }]);
   });
 
   it('nút đơn theo trạng thái; đóng tay chỉ quản lý', () => {

@@ -16,7 +16,7 @@ import type {
 } from '../application/sales-store.port.js';
 import { CrmConflictError, CrmStaleVersionError } from '../domain/crm.error.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
-import { ensureDraftQuoteForOpportunity } from './postgres-quote.store.js';
+import { declineQuotesForLostOpportunity, ensureDraftQuoteForOpportunity } from './postgres-quote.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { SqlConditions, cursorAt, keysetPage, prefixTsQuery, toIso, toNumber } from './sql-helpers.js';
 
@@ -222,6 +222,7 @@ export class PostgresOpportunityStore implements OpportunityStore {
       if (change.draftQuoteValidUntil) {
         await ensureDraftQuoteForOpportunity(client, id, change.draftQuoteValidUntil, actorId);
       }
+      if (change.declineOpenQuotes) await declineQuotesForLostOpportunity(client, tenantId, id, actorId);
     });
   }
 }

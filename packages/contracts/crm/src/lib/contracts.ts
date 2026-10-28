@@ -79,6 +79,11 @@ export const RESERVATION_STATUS_LABELS: Readonly<Record<CrmReservationStatus, st
 /** Sự kiện outbox (skill `erp-events`). Nguồn lịch của notification-worker phát `crm.contract.expiring`. */
 export const CRM_CONTRACT_EXPIRING = 'crm.contract.expiring';
 export const CRM_CONTRACT_RESERVATION_LOST = 'crm.contract.reservation-lost';
+/**
+ * Job nhả phần giữ hàng còn lại của hợp đồng đã hết hạn hoặc đã huỷ (T4-18),
+ * báo người phụ trách. Payload cùng hình dạng `CrmReservationLostPayload`.
+ */
+export const CRM_CONTRACT_RESERVATION_RELEASED = 'crm.contract.reservation-released';
 
 export interface CrmContractExpiringPayload {
   readonly contractId: string;

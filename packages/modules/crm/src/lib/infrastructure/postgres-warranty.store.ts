@@ -1,6 +1,7 @@
 import {
   DEFAULT_WARRANTY_DEFECT_WAREHOUSE,
   DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE,
+  DEFAULT_WARRANTY_RESTOCK_WAREHOUSE,
   WARRANTY_STATUS_LABELS,
   type CrmPage,
   type WarrantyCaseDetail,
@@ -38,6 +39,7 @@ import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDa
 /** Khoá cấu hình kho cách ly, kho lỗi (giá trị `{ "code": "..." }`). */
 export const WARRANTY_QUARANTINE_SETTING_KEY = 'warranty.quarantineWarehouseCode';
 export const WARRANTY_DEFECT_SETTING_KEY = 'warranty.defectWarehouseCode';
+export const WARRANTY_RESTOCK_SETTING_KEY = 'warranty.restockWarehouseCode';
 
 const STALE = () =>
   new CrmConflictError('STALE_VERSION', 'Yêu cầu bảo hành vừa được người khác cập nhật. Vui lòng tải lại rồi thao tác lại.');
@@ -886,7 +888,7 @@ export class PostgresWarrantyStore implements WarrantyStore {
     const pool = await this.database.pool(tenantId);
     const result = await pool.query<{ key: string; value: { code?: unknown } | null }>(
       `SELECT key, value FROM crm_schema.settings WHERE key = ANY($1::text[])`,
-      [[WARRANTY_QUARANTINE_SETTING_KEY, WARRANTY_DEFECT_SETTING_KEY]],
+      [[WARRANTY_QUARANTINE_SETTING_KEY, WARRANTY_DEFECT_SETTING_KEY, WARRANTY_RESTOCK_SETTING_KEY]],
     );
     const read = (key: string, fallback: string) => {
       const code = result.rows.find((row) => row.key === key)?.value?.code;
@@ -895,6 +897,7 @@ export class PostgresWarrantyStore implements WarrantyStore {
     return {
       quarantineWarehouseCode: read(WARRANTY_QUARANTINE_SETTING_KEY, DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE),
       defectWarehouseCode: read(WARRANTY_DEFECT_SETTING_KEY, DEFAULT_WARRANTY_DEFECT_WAREHOUSE),
+      restockWarehouseCode: read(WARRANTY_RESTOCK_SETTING_KEY, DEFAULT_WARRANTY_RESTOCK_WAREHOUSE),
     };
   }
 
@@ -903,6 +906,7 @@ export class PostgresWarrantyStore implements WarrantyStore {
       for (const [key, code] of [
         [WARRANTY_QUARANTINE_SETTING_KEY, settings.quarantineWarehouseCode],
         [WARRANTY_DEFECT_SETTING_KEY, settings.defectWarehouseCode],
+        [WARRANTY_RESTOCK_SETTING_KEY, settings.restockWarehouseCode],
       ] as const) {
         await client.query(
           `INSERT INTO crm_schema.settings (key, value, updated_by) VALUES ($1, $2::jsonb, $3)

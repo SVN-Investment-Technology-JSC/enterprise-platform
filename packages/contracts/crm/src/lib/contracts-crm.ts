@@ -56,6 +56,8 @@ export const CRM_NO_CAPABILITIES: CrmCapabilities = {
 /** `GET /api/crm/v1/status`: mức sẵn sàng của phân hệ và quyền của người gọi. */
 export interface CrmStatus {
   readonly tenantId: string;
+  /** Người dùng hiện tại, để giao diện ẩn nút tự duyệt (server vẫn chặn). */
+  readonly userId: string;
   /** Đã có `crm_schema` trong DB của tenant. */
   readonly schemaExists: boolean;
   /** Migration nền (0001) đã chạy xong. */

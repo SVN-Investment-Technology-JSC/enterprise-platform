@@ -46,6 +46,7 @@ import { CustomerLedger } from './receivables/customer-ledger';
 import { ReceivablesPage } from './receivables/receivables-page';
 import { WarrantyDetail } from './warranty/warranty-detail';
 import { WarrantyPage } from './warranty/warranty-page';
+import { ReportsPage } from './reports/reports-page';
 import salesStyles from './sales.module.scss';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 
@@ -131,7 +132,7 @@ export function CrmScreen() {
         <Overview status={status} onOpen={navigate} />
       ) : status.tablesReady ? (
         <CrmAntdProvider>
-          <CrmDataProvider capabilities={capabilities}>
+          <CrmDataProvider capabilities={capabilities} currentUserId={status.userId}>
             <SalesView page={current} sub={sub} navigate={navigate} />
           </CrmDataProvider>
         </CrmAntdProvider>
@@ -288,6 +289,16 @@ function SalesView({
         />
       ) : (
         <WarrantyPage onOpen={(id) => navigate('warranty', id)} />
+      );
+    case 'reports':
+      return (
+        <ReportsPage
+          onOpenCustomer={(customerId) => navigate('receivables', customerId)}
+          onOpenOrder={openOrder}
+          onOpenAlert={(alert) =>
+            alert.kind === 'QUOTE_PENDING' ? openQuote(alert.id) : alert.kind === 'CONTRACT_EXPIRING' ? openContract(alert.id) : openOrder(alert.id)
+          }
+        />
       );
     case 'activities':
       return <ActivitiesPage focusId={sub} />;

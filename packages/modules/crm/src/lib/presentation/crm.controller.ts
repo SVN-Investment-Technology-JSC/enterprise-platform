@@ -16,7 +16,7 @@ export class CrmController {
     return runCrm(async () => {
       const actor = crmActor(request);
       const schema = await this.diagnostics.schemaStatus(actor.tenantId);
-      return { tenantId: actor.tenantId, ...schema, capabilities: crmCapabilities(actor) };
+      return { tenantId: actor.tenantId, userId: actor.userId, ...schema, capabilities: crmCapabilities(actor) };
     });
   }
 }

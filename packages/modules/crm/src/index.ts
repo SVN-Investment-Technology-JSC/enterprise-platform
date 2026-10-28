@@ -55,3 +55,6 @@ export * from './lib/application/receivable.service.js';
 export * from './lib/application/receivable-adjustment.service.js';
 export * from './lib/application/receivable-store.port.js';
 export * from './lib/domain/receivables.js';
+export * from './lib/application/sales-report.service.js';
+export * from './lib/application/sales-report-store.port.js';
+export * from './lib/domain/sales-report.js';

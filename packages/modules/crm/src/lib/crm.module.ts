@@ -145,6 +145,10 @@ import {
 import { HttpWarrantyInventoryClient } from './infrastructure/http-warranty-inventory.js';
 import { PostgresWarrantyStore } from './infrastructure/postgres-warranty.store.js';
 import { WarrantyController } from './presentation/warranty.controller.js';
+import { SalesReportService } from './application/sales-report.service.js';
+import { CRM_SALES_REPORT_STORE, type SalesReportStore } from './application/sales-report-store.port.js';
+import { PostgresSalesReportStore } from './infrastructure/postgres-sales-report.store.js';
+import { ReportsController } from './presentation/reports.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -177,6 +181,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     SalesOrdersController,
     ReceivablesController,
     WarrantyController,
+    ReportsController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -431,6 +436,14 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, credit: WarrantyCreditPort, scopes: CrmDataScopeService) =>
         new WarrantyResolutionService(warranty, inventory, credit, scopes),
       inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_WARRANTY_CREDIT, CrmDataScopeService],
+    },
+    // Báo cáo (GĐ7): doanh thu đọc `sales_facts`; chuyển đổi, cảnh báo, công nợ đọc bảng nghiệp vụ.
+    store(CRM_SALES_REPORT_STORE, (database) => new PostgresSalesReportStore(database)),
+    {
+      provide: SalesReportService,
+      useFactory: (reports: SalesReportStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
+        new SalesReportService(reports, scopes, settings),
+      inject: [CRM_SALES_REPORT_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],

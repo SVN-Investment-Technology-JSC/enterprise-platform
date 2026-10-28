@@ -6,6 +6,7 @@ import {
   type WarrantyCaseDetail,
   type WarrantyCaseLine,
   type WarrantyDocumentKind,
+  type WarrantySettings,
 } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, optionalEnum, optionalText, requiredVersion } from '../domain/fields.js';
@@ -137,7 +138,7 @@ export class WarrantyResolutionService {
       const existing = detail.documents.find((document) => document.lineId === line.id && document.kind === kind);
       if (existing && !needsResend(existing.status)) continue;
       try {
-        const record = await this.issue(actor, detail, line, kind, key, settings.defectWarehouseCode);
+        const record = await this.issue(actor, detail, line, kind, key, settings);
         await this.store.saveDocument(actor.tenantId, detail.id, record);
       } catch (error) {
         await this.store.saveDocument(actor.tenantId, detail.id, {
@@ -159,7 +160,7 @@ export class WarrantyResolutionService {
     line: WarrantyCaseLine,
     kind: WarrantyDocumentKind,
     key: string,
-    defectWarehouseCode: string,
+    settings: Pick<WarrantySettings, 'defectWarehouseCode' | 'restockWarehouseCode'>,
   ): Promise<WarrantyDocumentRecord> {
     const tenantId = actor.tenantId;
     const base = { lineId: line.id, kind, idempotencyKey: key, lastError: null } as const;
@@ -185,14 +186,26 @@ export class WarrantyResolutionService {
       case 'TRANSFER':
       case 'SCRAP': {
         if (!quarantine) throw new CrmConflictError('GOODS_NOT_RECEIVED', 'Hàng chưa được nhận về kho cách ly.');
+        // Nhập lại (T6-11): hàng Đạt về kho đã xuất serial, dòng; không biết thì kho nhập lại theo cấu hình.
+        const restock = kind === 'TRANSFER' && line.disposition === 'RESTOCK';
+        const target = restock ? (line.deliveryWarehouseCode ?? settings.restockWarehouseCode) : settings.defectWarehouseCode;
+        if (restock && target.toUpperCase() === quarantine.toUpperCase()) {
+          // Kho xuất ban đầu chính là kho cách ly: hàng đã ở đúng chỗ, không cần điều chuyển.
+          return { ...base, status: 'POSTED', payload: { targetWarehouseCode: target, skipped: true } };
+        }
         const document = await this.inventory.createStockDocument(tenantId, {
           docType: kind === 'TRANSFER' ? 'TRANSFER' : 'ISSUE_OTHER',
           idempotencyKey: key,
           warehouseCode: quarantine,
-          targetWarehouseCode: kind === 'TRANSFER' ? defectWarehouseCode : undefined,
+          targetWarehouseCode: kind === 'TRANSFER' ? target : undefined,
           sourceType: CRM_WARRANTY_SOURCE_TYPE,
           sourceId: detail.id,
-          note: kind === 'TRANSFER' ? `Bảo hành ${detail.code}: chuyển hàng lỗi sang kho lỗi` : `Bảo hành ${detail.code}: loại bỏ hàng lỗi`,
+          note:
+            kind === 'SCRAP'
+              ? `Bảo hành ${detail.code}: loại bỏ hàng lỗi`
+              : restock
+                ? `Bảo hành ${detail.code}: nhập lại hàng Đạt về kho ${target}`
+                : `Bảo hành ${detail.code}: chuyển hàng lỗi sang kho lỗi`,
           lines: [stockLine],
         });
         return {

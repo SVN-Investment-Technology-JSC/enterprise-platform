@@ -118,6 +118,12 @@ describe('ContractService', () => {
     expect(store.confirm).toHaveBeenCalledWith(TENANT, ID, 3, expect.objectContaining({ reservationCode: 'GH001' }), USER);
   });
 
+  it('TC-CON-07: hợp đồng có ngày kết thúc: hạn giữ là hết ngày kết thúc (giờ Việt Nam), không theo holdDays', async () => {
+    const { inventory, service } = setup(contract({ validTo: '2027-03-31' }));
+    await service.confirm(actor(), ID, { revision: 3 });
+    expect(inventory.reserve).toHaveBeenCalledWith(TENANT, expect.objectContaining({ expiresAt: '2027-03-31T16:59:59.000Z' }));
+  });
+
   it('TC-CON-08: thiếu tồn thì 409 kèm dòng thiếu, hợp đồng giữ trạng thái cũ', async () => {
     const { store, inventory, service } = setup();
     inventory.reserve.mockRejectedValue(

@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { CreditLimitMode, OrderCreditRequest } from '@enterprise-platform/contracts-crm';
+import {
+  CRM_ORDER_CREDIT_APPROVAL_REDIRECTED,
+  salesOrderDeepLink,
+  type CreditLimitMode,
+  type CrmOrderCreditApprovalRedirectedPayload,
+  type OrderCreditRequest,
+} from '@enterprise-platform/contracts-crm';
 import {
   CRM_ORDER_CREDIT_SOURCE_TYPE,
   type CreditApprovalRequest,
@@ -9,7 +15,8 @@ import {
 import { isUuid } from '../domain/fields.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
-import type { ProcedureCompletedPayload } from './quote-procedure-links.js';
+import { writeCrmOutbox } from './crm-outbox.js';
+import { PROCEDURE_START_MAX_ATTEMPTS, type ProcedureCompletedPayload } from './quote-procedure-links.js';
 import { lockOrder, SALES_ORDER_AUDIT_ENTITY } from './postgres-sales-order.store.js';
 import { toIso } from './sql-helpers.js';
 
@@ -171,6 +178,61 @@ export class PostgresCreditStore implements CreditStore {
       [limit],
     );
     return result.rows.map((row) => ({ requestId: row.id, orderId: row.order_id }));
+  }
+
+  redirectFailedProcedures(tenantId: string, limit: number): Promise<number> {
+    return this.database.transaction(tenantId, async (client) => {
+      // Lỗi vĩnh viễn: hết số lần thử, hoặc Quy trình từ chối dữ liệu (lease khoá 100 năm).
+      const failed = (
+        await client.query<{ link_id: string; last_error: string | null; request_id: string; order_id: string; created_by: string; code: string }>(
+          `SELECT l.id AS link_id, l.last_error, r.id AS request_id, r.order_id, r.created_by, o.code
+             FROM crm_schema.procedure_links l
+             JOIN crm_schema.order_credit_requests r ON r.id = l.source_id
+             JOIN crm_schema.sales_orders o ON o.id = r.order_id
+            WHERE l.source_type = $1 AND l.status = 'FAILED' AND l.instance_id IS NULL
+              AND (l.attempts >= $2 OR l.lease_until > now() + interval '1 year')
+              AND r.status = 'PENDING' AND r.mode = 'PROCEDURE'
+            ORDER BY l.created_at
+            LIMIT $3
+            FOR UPDATE OF l, r SKIP LOCKED`,
+          [CRM_ORDER_CREDIT_SOURCE_TYPE, PROCEDURE_START_MAX_ATTEMPTS, limit],
+        )
+      ).rows;
+      for (const row of failed) {
+        await client.query(`UPDATE crm_schema.order_credit_requests SET mode = 'DIRECT', updated_at = now() WHERE id = $1`, [row.request_id]);
+        await client.query(
+          `UPDATE crm_schema.procedure_links SET status = 'CLOSED', lease_token = NULL, lease_until = NULL, updated_at = now() WHERE id = $1`,
+          [row.link_id],
+        );
+        await client.query(`UPDATE crm_schema.sales_orders SET revision = revision + 1, updated_at = now() WHERE id = $1`, [row.order_id]);
+        const cause = row.last_error ? ` (${row.last_error})` : '';
+        const reason = `Không tạo được phiên Quy trình duyệt vượt hạn mức${cause}; chuyển sang duyệt trực tiếp trong Bán hàng.`.slice(0, 2000);
+        await writeAuditLog(client, {
+          entityType: SALES_ORDER_AUDIT_ENTITY,
+          entityId: row.order_id,
+          action: 'credit-redirect',
+          actorId: null,
+          reason,
+          metadata: { code: row.code, creditRequestId: row.request_id, procedureLinkId: row.link_id },
+        });
+        const payload: CrmOrderCreditApprovalRedirectedPayload = {
+          orderId: row.order_id,
+          orderCode: row.code,
+          creditRequestId: row.request_id,
+          actorUserId: null,
+          recipientUserIds: [row.created_by],
+          summary: `Đơn ${row.code}: ${reason}`.slice(0, 500),
+          deepLink: salesOrderDeepLink(row.order_id),
+        };
+        await writeCrmOutbox(client, tenantId, {
+          type: CRM_ORDER_CREDIT_APPROVAL_REDIRECTED,
+          aggregateType: 'crm-order',
+          aggregateId: row.order_id,
+          payload,
+        });
+      }
+      return failed.length;
+    });
   }
 }
 

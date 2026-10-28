@@ -2,6 +2,7 @@ import { QUOTE_STATUSES, type QuoteStatus } from '@enterprise-platform/contracts
 import {
   assertCustomerTransition,
   assertQuoteTransition,
+  canQuoteSystemTransition,
   canQuoteTransition,
   formatQuoteCode,
   isQuoteClosed,
@@ -80,5 +81,26 @@ describe('sửa phiên bản', () => {
   it('mã báo giá', () => {
     expect(formatQuoteCode(2026, 7)).toBe('BG2600007');
     expect(formatQuoteCode(2031, 123456)).toBe('BG31123456');
+  });
+});
+
+describe('chuyển do hệ thống', () => {
+  it('TC-SM-04: cơ hội Thua: mọi trạng thái chưa kết thúc sang Khách từ chối, trạng thái cuối giữ nguyên', () => {
+    for (const status of ['DRAFT', 'PENDING', 'APPROVED', 'SENT', 'REJECTED'] as const) {
+      expect(canQuoteSystemTransition('OPPORTUNITY_LOST', status, 'DECLINED')).toBe(true);
+    }
+    for (const status of ['ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED'] as const) {
+      expect(canQuoteSystemTransition('OPPORTUNITY_LOST', status, 'DECLINED')).toBe(false);
+    }
+    // Bảng của người dùng không đổi: Nháp không sang Khách từ chối được.
+    expect(canQuoteTransition('DRAFT', 'DECLINED')).toBe(false);
+  });
+
+  it('Quy trình thu hồi: chỉ Đã duyệt, Đã gửi khách về Từ chối duyệt', () => {
+    expect(canQuoteSystemTransition('PROCEDURE_REVERSED', 'APPROVED', 'REJECTED')).toBe(true);
+    expect(canQuoteSystemTransition('PROCEDURE_REVERSED', 'SENT', 'REJECTED')).toBe(true);
+    for (const status of ['DRAFT', 'PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED', 'REJECTED'] as const) {
+      expect(canQuoteSystemTransition('PROCEDURE_REVERSED', status, 'REJECTED')).toBe(false);
+    }
   });
 });

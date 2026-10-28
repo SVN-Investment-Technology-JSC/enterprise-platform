@@ -979,6 +979,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       ['crm.delivery.late', 'deadline', 'Đợt giao hàng bị trễ', 'crm_delivery', 'deliveryId'],
       ['crm.order.reservation-lost', 'reservation', 'Đơn bán mất phần giữ hàng', 'crm_order', 'orderId'],
       ['crm.contract.reservation-lost', 'reservation', 'Hợp đồng mất phần giữ hàng', 'crm_contract', 'contractId'],
+      ['crm.contract.reservation-released', 'reservation', 'Đã nhả phần giữ hàng của hợp đồng', 'crm_contract', 'contractId'],
     ] as const
   ).map(([eventType, category, title, sourceType, idField]) =>
     directPolicy({
@@ -997,6 +998,22 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Duyệt vượt hạn mức qua Quy trình lỗi vĩnh viễn: yêu cầu chuyển sang duyệt trực tiếp trong Bán hàng, báo người lập đơn.
+  directPolicy({
+    eventType: 'crm.order.credit-approval-redirected',
+    module: 'crm',
+    category: 'approval',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Duyệt vượt hạn mức chuyển sang duyệt trực tiếp',
+      body: text(payload, 'summary', 'Yêu cầu duyệt vượt hạn mức của đơn bán đã chuyển sang duyệt trực tiếp.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#orders'),
+      sourceType: 'crm_order',
+      sourceId: `${id(payload, 'orderId')}:crm.order.credit-approval-redirected:${text(payload, 'creditRequestId', '')}`,
+    }),
+  }),
   // Công nợ Bán hàng (job của Bán hàng): khoản nợ quá hạn (mỗi khoản một lần cho mỗi hạn), khách vượt hạn mức công nợ
   // (mỗi đợt vượt một lần). Người nhận ghi sẵn trong payload: người phụ trách khách, đơn và kế toán công nợ theo cấu hình.
   ...(

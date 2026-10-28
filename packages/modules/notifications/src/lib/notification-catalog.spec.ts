@@ -709,6 +709,8 @@ describe('hợp đồng, đơn bán Bán hàng', () => {
     ['crm.delivery.late', { deliveryId: 'd-1', plannedDate: '2026-10-26' }, 'Đợt giao hàng bị trễ'],
     ['crm.order.reservation-lost', { orderId: 'o-1', reservationCode: 'R1' }, 'Đơn bán mất phần giữ hàng'],
     ['crm.contract.reservation-lost', { contractId: 'k-1', reservationCode: 'R2' }, 'Hợp đồng mất phần giữ hàng'],
+    ['crm.contract.reservation-released', { contractId: 'k-1', reservationCode: 'R3' }, 'Đã nhả phần giữ hàng của hợp đồng'],
+    ['crm.order.credit-approval-redirected', { orderId: 'o-1', creditRequestId: 'q-1' }, 'Duyệt vượt hạn mức chuyển sang duyệt trực tiếp'],
   ])('%s báo người phụ trách trong payload', async (type, extra, title) => {
     const resolved = await registry.resolve(
       event(type, { ...extra, recipientUserIds: ['user-owner'], actorUserId: null, summary: 'Nội dung.', deepLink: '/modules/crm#orders/o-1' }),

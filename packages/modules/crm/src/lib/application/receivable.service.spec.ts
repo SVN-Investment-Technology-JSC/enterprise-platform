@@ -31,6 +31,8 @@ function fakeStore(): jest.Mocked<ReceivableStore> {
     createReceipt: jest.fn().mockResolvedValue(RECEIPT),
     resendReceipt: jest.fn(),
     cancelReceipt: jest.fn(),
+    entryCustomer: jest.fn().mockResolvedValue(CUSTOMER),
+    applyCredit: jest.fn().mockResolvedValue({ customerId: CUSTOMER }),
     listAdjustments: jest.fn(),
     getAdjustment: jest.fn(),
     createAdjustment: jest.fn().mockResolvedValue({ id: ADJUSTMENT, created: true }),
@@ -80,6 +82,29 @@ describe('ReceivableService', () => {
       service.createReceipt(actor(), { customerId: CUSTOMER, amount: 1_000_000, method: 'CASH', allocations: [{ entryId: ENTRY, amount: 1_200_000 }] }),
     ).rejects.toMatchObject({ statusCode: 400, code: 'ALLOCATION_EXCEEDS_RECEIPT' });
     expect(store.createReceipt).not.toHaveBeenCalled();
+  });
+
+  it('huỷ lần thu: lưu rồi gửi lệnh huỷ phiếu nháp bên Tài chính ngay (T5-15)', async () => {
+    const store = fakeStore();
+    const dispatcher = { dispatch: jest.fn().mockResolvedValue(1) };
+    const service = new ReceivableService(store, scopes, dispatcher);
+    await expect(service.cancelReceipt(actor(), RECEIPT, { revision: 2 })).rejects.toMatchObject({ statusCode: 400 });
+    await service.cancelReceipt(actor(), RECEIPT, { revision: 2, reason: 'Khách không chuyển' });
+    expect(store.cancelReceipt).toHaveBeenCalledWith(TENANT, RECEIPT, 2, 'Khách không chuyển', 'kt-1');
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(TENANT);
+  });
+
+  it('TC-AR-03: phân bổ tiền trả trước: cần quyền, cần khoản nợ, kiểm phạm vi trước khi ghi (T5-16)', async () => {
+    const store = fakeStore();
+    const service = new ReceivableService(store, scopes, { dispatch: jest.fn() }, () => new Date('2026-10-27T03:00:00Z'));
+    const credit = '66666666-6666-4666-8666-666666666666';
+    await expect(service.applyCredit(actor({ canWriteReceivable: false }), credit, { allocations: [] })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.applyCredit(actor(), credit, { allocations: [] })).rejects.toMatchObject({ statusCode: 400, code: 'ALLOCATIONS_REQUIRED' });
+    store.ledger.mockResolvedValueOnce(undefined);
+    await expect(service.applyCredit(actor(), credit, { allocations: [{ entryId: ENTRY, amount: 1_000 }] })).rejects.toMatchObject({ statusCode: 404 });
+    expect(store.applyCredit).not.toHaveBeenCalled();
+    await service.applyCredit(actor(), credit, { allocations: [{ entryId: ENTRY, amount: 1_000 }] });
+    expect(store.applyCredit).toHaveBeenCalledWith(TENANT, credit, [{ entryId: ENTRY, amount: 1_000 }], 'kt-1', '2026-10-27');
   });
 
   it('cấu hình chỉ quản trị bán hàng được lưu; người nhận phải là id hợp lệ', async () => {
@@ -141,6 +166,7 @@ describe('Hạn mức công nợ', () => {
       decide: jest.fn().mockResolvedValue('applied'),
       returnToDraft: jest.fn(),
       approvedAwaitingConfirmation: jest.fn().mockResolvedValue([]),
+      redirectFailedProcedures: jest.fn().mockResolvedValue(0),
     };
   }
 

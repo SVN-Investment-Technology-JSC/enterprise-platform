@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  CRM_CONTRACT_RESERVATION_RELEASED,
   CRM_CUSTOMER_CREDIT_EXCEEDED,
   CRM_NO_CAPABILITIES,
+  CRM_ORDER_CREDIT_APPROVAL_REDIRECTED,
   CRM_RECEIVABLE_OVERDUE,
   type SalesOrderDetail,
 } from '@enterprise-platform/contracts-crm';
@@ -28,6 +30,7 @@ import { applyStockIssued } from './infrastructure/inventory-events.js';
 import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
+import { PROCEDURE_START_MAX_ATTEMPTS } from './infrastructure/quote-procedure-links.js';
 import { applyOrderCreditProcedureResult, PostgresCreditStore } from './infrastructure/postgres-credit.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
@@ -69,8 +72,9 @@ class FakeInventory implements InventoryClient {
     this.reservations.set(request.idempotencyKey, created);
     return created;
   }
-  async release(): Promise<void> {
-    return undefined;
+  readonly released: string[] = [];
+  async release(_tenantId: string, reservationCode: string): Promise<void> {
+    this.released.push(reservationCode);
   }
   async createIssueRequest(_tenantId: string, input: IssueRequestInput) {
     const existing = this.issues.get(input.idempotencyKey) ?? { documentId: randomUUID(), documentCode: `PX${this.issues.size + 1}` };
@@ -99,6 +103,14 @@ class FakeFinance implements FinanceClient {
   }
   async voucherState(_tenantId: string, sourceRef: string) {
     return this.byRef.get(sourceRef)?.state ?? null;
+  }
+  readonly cancelled: string[] = [];
+  async cancelReceiptVoucher(_tenantId: string, sourceRef: string) {
+    const existing = this.byRef.get(sourceRef);
+    if (!existing) return null;
+    this.cancelled.push(sourceRef);
+    existing.state = { ...existing.state, status: 'CANCELLED', sourceStatus: 'CLOSED' };
+    return existing.state;
   }
 }
 
@@ -557,5 +569,151 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
         ['receipt', 'post'],
       ]),
     );
+  });
+
+  it('TC-INT-07 (T5-15): huỷ lần thu bị trả lại thì gửi lệnh huỷ phiếu nháp bên Tài chính đúng một lần', async () => {
+    const customerId = await newCustomer();
+    const receipt = await receivables.createReceipt(kt, { customerId, amount: 700_000, method: 'CASH', allocations: [] });
+    const returned = { voucherId: finance.byRef.get(receipt.id)?.state.voucherId, reason: 'Sai ngày', sourceModule: 'crm', sourceRef: receipt.id };
+    await applyFinanceVoucherEvent(handle.database, tenantId, FINANCE_VOUCHER_RETURNED, returned);
+    const current = await receivables.getReceipt(kt, receipt.id);
+    const cancelled = await receivables.cancelReceipt(kt, receipt.id, { revision: current.revision, reason: 'Khách không nộp tiền' });
+    expect(cancelled.status).toBe('CANCELLED');
+    expect(finance.cancelled.filter((ref) => ref === receipt.id)).toHaveLength(1);
+    expect(finance.byRef.get(receipt.id)?.state.status).toBe('CANCELLED');
+    const request = (
+      await handle.pool.query<{ status: string; payload: { reason: string } }>(
+        `SELECT status, payload FROM crm_schema.integration_requests WHERE idempotency_key = $1`,
+        [`crm-receipt-cancel:${receipt.id}`],
+      )
+    ).rows;
+    expect(request).toEqual([{ status: 'SUCCEEDED', payload: expect.objectContaining({ reason: 'Khách không nộp tiền' }) }]);
+    await dispatcher.dispatch(tenantId);
+    expect(finance.cancelled.filter((ref) => ref === receipt.id)).toHaveLength(1);
+  });
+
+  it('TC-AR-03 (T5-16): tiền trả trước phân bổ vào khoản nợ phát sinh sau, không vượt số dư; đảo phiếu thu vẫn đúng', async () => {
+    const customerId = await newCustomer();
+    const receipt = await receivables.createReceipt(kt, { customerId, amount: 500_000, method: 'CASH', allocations: [] });
+    await post(receipt.id);
+    const unapplied = (
+      await handle.pool.query<{ id: string }>(
+        `SELECT id FROM crm_schema.receivable_entries WHERE receipt_id = $1 AND kind = 'CREDIT' AND ref_entry_id IS NULL`,
+        [receipt.id],
+      )
+    ).rows[0].id;
+    const a = await debit(customerId, 300_000);
+    const b = await debit(customerId, 400_000);
+    await expect(receivables.applyCredit(kt, unapplied, { allocations: [{ entryId: a, amount: 300_000 }, { entryId: b, amount: 300_000 }] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CREDIT_EXCEEDS_UNAPPLIED',
+    });
+    await expect(receivables.applyCredit(kt, unapplied, { allocations: [{ entryId: a, amount: 400_000 }] })).rejects.toMatchObject({
+      code: 'ALLOCATION_EXCEEDS_OPEN',
+    });
+    await expect(receivables.applyCredit(kt, a, { allocations: [{ entryId: b, amount: 1 }] })).rejects.toMatchObject({ code: 'CREDIT_NOT_UNAPPLIED' });
+    await expect(receivables.applyCredit(nv, unapplied, { allocations: [{ entryId: a, amount: 1 }] })).rejects.toMatchObject({ statusCode: 403 });
+
+    // Hai lần phân bổ cùng lúc 300.000 (còn 500.000): đúng một thành công nhờ khoá dòng.
+    const results = await Promise.allSettled([
+      receivables.applyCredit(kt, unapplied, { allocations: [{ entryId: a, amount: 300_000 }] }),
+      receivables.applyCredit(kt, unapplied, { allocations: [{ entryId: b, amount: 300_000 }] }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    let ledger = await receivables.ledger(kt, customerId);
+    expect(ledger).toMatchObject({ balance: 200_000, unappliedAmount: 200_000 });
+    const rest = await receivables.applyCredit(kt, unapplied, { allocations: [{ entryId: (await openOf(a)) > 0 ? a : b, amount: 200_000 }] });
+    expect(rest).toMatchObject({ balance: 200_000, unappliedAmount: 0 });
+    expect((await openOf(a)) + (await openOf(b))).toBe(200_000);
+    expect(rest.entries.filter((entry) => entry.kind === 'CREDIT' && entry.refEntryId).length).toBe(2);
+
+    // Phiếu thu bị đảo: mọi phần đã phân bổ mở lại, dư nợ về đúng tổng khoản nợ.
+    const reversed = { voucherId: finance.byRef.get(receipt.id)?.state.voucherId, status: 'REVERSED', sourceModule: 'crm', sourceRef: receipt.id };
+    expect(await applyFinanceVoucherEvent(handle.database, tenantId, FINANCE_VOUCHER_STATUS_CHANGED, reversed)).toBe('applied');
+    ledger = await receivables.ledger(kt, customerId);
+    expect(ledger).toMatchObject({ balance: 700_000, unappliedAmount: 0 });
+    expect(await openOf(a)).toBe(300_000);
+    expect(await openOf(b)).toBe(400_000);
+  });
+
+  it('TC-AR-11 (T5-17): phiên Quy trình duyệt vượt hạn mức lỗi vĩnh viễn thì chuyển duyệt trực tiếp, báo người lập', async () => {
+    const definitionId = randomUUID();
+    await handle.pool.query(
+      `INSERT INTO crm_schema.approval_bindings (kind, mode, procedure_definition_id, procedure_definition_name)
+       VALUES ('ORDER_CREDIT', 'PROCEDURE', $1, 'Duyệt hạn mức')
+       ON CONFLICT (kind) DO UPDATE SET mode = 'PROCEDURE', procedure_definition_id = $1`,
+      [definitionId],
+    );
+    try {
+      const customerId = await newCustomer(1_000);
+      const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
+      const pending = await orders.confirm(nv, draft.id, { revision: draft.revision });
+      const requestId = pending.creditRequest?.id as string;
+      // Còn lần thử: chưa chuyển.
+      await handle.pool.query(
+        `UPDATE crm_schema.procedure_links SET status = 'FAILED', attempts = 3, last_error = 'Quy trình đang không khả dụng.' WHERE source_id = $1`,
+        [requestId],
+      );
+      expect(await credit.redirectFailedProcedures(tenantId)).toBe(0);
+      await handle.pool.query(`UPDATE crm_schema.procedure_links SET attempts = $2 WHERE source_id = $1`, [requestId, PROCEDURE_START_MAX_ATTEMPTS]);
+      expect(await credit.redirectFailedProcedures(tenantId)).toBe(1);
+      expect(await credit.redirectFailedProcedures(tenantId)).toBe(0);
+      const order = await orders.get(nv, draft.id);
+      expect(order).toMatchObject({ status: 'CREDIT_PENDING', creditRequest: { id: requestId, status: 'PENDING', mode: 'DIRECT' } });
+      expect(order.history[0]).toMatchObject({ action: 'credit-redirect', actorId: null });
+      const events = (
+        await handle.pool.query<{ payload: { payload: { recipientUserIds: string[]; creditRequestId: string } } }>(
+          `SELECT payload FROM integration_schema.outbox_events WHERE event_type = $1 AND aggregate_id = $2`,
+          [CRM_ORDER_CREDIT_APPROVAL_REDIRECTED, draft.id],
+        )
+      ).rows;
+      expect(events.map((row) => row.payload.payload)).toEqual([expect.objectContaining({ recipientUserIds: [NV], creditRequestId: requestId })]);
+      const link = (await handle.pool.query<{ status: string }>(`SELECT status FROM crm_schema.procedure_links WHERE source_id = $1`, [requestId])).rows[0];
+      expect(link.status).toBe('CLOSED');
+      // Quản lý duyệt trực tiếp được.
+      expect((await credit.decide(ql, draft.id, true, {})).status).toBe('CONFIRMED');
+    } finally {
+      await handle.pool.query(`DELETE FROM crm_schema.approval_bindings WHERE kind = 'ORDER_CREDIT'`);
+    }
+  });
+
+  it('TC-CON-07/09 (T4-17, T4-18): giữ hàng tới hết ngày kết thúc; hết hạn thì nhả phần còn lại qua lệnh gửi Kho, báo người phụ trách một lần', async () => {
+    const customerId = await newCustomer();
+    const validTo = addDays(today, 10);
+    const draft = await contracts.create(nv, {
+      type: 'SALE',
+      customerId,
+      title: 'HĐ giữ hàng',
+      validFrom: today,
+      validTo,
+      value: 3_000_000,
+      warehouseCode: 'KHO-1',
+      lines: [{ materialId: CAP, quantity: 3, unitPrice: 1_000_000 }],
+    });
+    const active = await contracts.confirm(nv, draft.id, { revision: draft.revision });
+    const code = active.reservation?.reservationCode as string;
+    expect(inventory.reservations.get(`crm-contract:${draft.id}`)?.expiresAt).toBe(new Date(Date.parse(`${addDays(validTo, 1)}T00:00:00+07:00`) - 1000).toISOString());
+
+    // Job chạy ngày sau ngày kết thúc.
+    const store = new PostgresContractStore(handle.database);
+    expect(await store.expireDue(tenantId, addDays(validTo, 1), 100)).toBeGreaterThanOrEqual(1);
+    expect(await store.expireDue(tenantId, addDays(validTo, 1), 100)).toBe(0);
+    const expired = await contracts.get(nv, draft.id);
+    expect(expired).toMatchObject({ status: 'EXPIRED', reservation: { reservationCode: code, status: 'RELEASED' } });
+    expect(expired.history.map((entry) => entry.action)).toEqual(expect.arrayContaining(['expire', 'release-reservation']));
+    const requests = (
+      await handle.pool.query(`SELECT operation FROM crm_schema.integration_requests WHERE idempotency_key = $1`, [`crm-release:${code}`])
+    ).rows;
+    expect(requests).toEqual([{ operation: 'reservation.release' }]);
+    await handle.pool.query(`UPDATE crm_schema.integration_requests SET lease_until = NULL WHERE idempotency_key = $1`, [`crm-release:${code}`]);
+    await dispatcher.dispatch(tenantId);
+    expect(inventory.released).toContain(code);
+    const events = (
+      await handle.pool.query<{ payload: { payload: { recipientUserIds: string[]; reservationCode: string } } }>(
+        `SELECT payload FROM integration_schema.outbox_events WHERE event_type = $1 AND aggregate_id = $2`,
+        [CRM_CONTRACT_RESERVATION_RELEASED, draft.id],
+      )
+    ).rows;
+    expect(events.map((row) => row.payload.payload)).toEqual([expect.objectContaining({ recipientUserIds: [NV], reservationCode: code })]);
   });
 });

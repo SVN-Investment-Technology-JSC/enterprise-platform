@@ -290,6 +290,27 @@ integration('Tài chính: phiếu thu có nguồn Bán hàng qua API nội bộ 
     expect(await sourceCount(created.sourceRef)).toBe(1);
   });
 
+  it('TC-INT-07: Bán hàng huỷ lần thu bị trả lại: phiếu nháp ĐÃ HUỶ, nguồn đóng; gọi lại idempotent; phiếu đã ghi sổ thì 409', async () => {
+    const created = await readyVoucher();
+    await app.returnSourced(cashier, created.voucherId, { reason: 'Sai số tiền' });
+    const cancelled = await app.cancelExternalVoucherSource(tenantId, 'crm', created.sourceRef, { reason: 'Khách không chuyển khoản' });
+    expect(cancelled).toMatchObject({ voucherId: created.voucherId, status: 'CANCELLED', sourceStatus: 'CLOSED' });
+    const voucher = await app.voucher(cashier, created.voucherId);
+    expect(voucher.status).toBe('CANCELLED');
+    await expect(app.cancelExternalVoucherSource(tenantId, 'crm', created.sourceRef, {})).resolves.toMatchObject({ status: 'CANCELLED' });
+    // Đã đóng thì không mở lại bằng khoá mới.
+    await rejects(
+      app.createExternalVoucherSource(tenantId, request({ sourceRef: created.sourceRef, idempotencyKey: `crm:receipt:${created.sourceRef}:9` })),
+      'FINANCE_SOURCE_REF_CONFLICT',
+    );
+
+    const posted = await readyVoucher();
+    await app.postSourced(cashier, posted.voucherId, {});
+    await rejects(app.cancelExternalVoucherSource(tenantId, 'crm', posted.sourceRef, {}), 'FINANCE_SOURCE_NOT_CANCELLABLE');
+    await rejects(app.cancelExternalVoucherSource(tenantId, 'crm', randomUUID(), {}), 'FINANCE_NOT_FOUND');
+    await rejects(app.cancelExternalVoucherSource(tenantId, 'hrm', posted.sourceRef, {}), 'FINANCE_INVALID');
+  });
+
   it('TC-INT-07: người có quyền duyệt đảo thủ công phiếu nguồn crm đã ghi sổ, phát status-changed REVERSED kèm nguồn', async () => {
     const created = await readyVoucher();
     await app.postSourced(cashier, created.voucherId, {});

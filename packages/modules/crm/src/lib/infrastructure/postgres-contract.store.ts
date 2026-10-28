@@ -1,5 +1,6 @@
 import {
   CONTRACT_STATUS_LABELS,
+  CRM_CONTRACT_RESERVATION_RELEASED,
   DEFAULT_CONTRACT_EXPIRING_DAYS,
   DEFAULT_RESERVATION_HOLD_DAYS,
   type ContractDetail,
@@ -10,10 +11,12 @@ import {
   type ContractType,
   type CrmHistoryEntry,
   type CrmPage,
+  type CrmReservationLostPayload,
   type CrmReservationStatus,
   type PaymentTerm,
   type PaymentTermCondition,
   type PaymentTermStatus,
+  contractDeepLink,
 } from '@enterprise-platform/contracts-crm';
 import type {
   ContractFilter,
@@ -29,6 +32,7 @@ import { formatContractCode } from '../domain/contract.js';
 import { CrmConflictError } from '../domain/crm.error.js';
 import type { PaymentTermDraft } from '../domain/payment-terms.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
+import { writeCrmOutbox } from './crm-outbox.js';
 import type { CrmDatabase } from './crm.database.js';
 import { enqueueReservationRelease } from './integration-requests.js';
 import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
@@ -291,6 +295,13 @@ export class PostgresContractStore implements ContractStore {
     return result.rows[0]?.delivered === true;
   }
 
+  /**
+   * Job (mục 5.3, T4-18): hợp đồng Hiệu lực quá ngày kết thúc chuyển Hết hạn.
+   * Phần giữ hàng còn lại của hợp đồng đã hết hạn hoặc đã huỷ (kể cả hợp đồng hết
+   * hạn trước khi có bước này) được xếp lệnh nhả sang Kho qua
+   * `integration_requests` (Kho chỉ nhả phần chưa xuất, phần đã giao không đổi),
+   * ghi nhật ký và báo người phụ trách. Chạy lại không làm gì thêm.
+   */
   expireDue(tenantId: string, today: string, limit: number): Promise<number> {
     return this.database.transaction(tenantId, async (client) => {
       const due = await client.query<{ id: string; code: string; valid_to: string }>(
@@ -317,9 +328,55 @@ export class PostgresContractStore implements ContractStore {
           metadata: { code: row.code },
         });
       }
+      await releaseClosedContractReservations(client, tenantId, limit);
       return due.rows.length;
     });
   }
+}
+
+/**
+ * Nhả phần giữ còn lại của hợp đồng đã hết hạn hoặc đã huỷ mà vẫn đang giữ
+ * (T4-18), trong transaction của job. Trả số hợp đồng đã xếp lệnh nhả.
+ */
+async function releaseClosedContractReservations(client: CrmSqlClient, tenantId: string, limit: number): Promise<number> {
+  const held = await client.query<{ id: string; code: string; status: ContractStatus; owner_user_id: string; reservation_code: string }>(
+    `SELECT id, code, status, owner_user_id, reservation_code FROM crm_schema.contracts
+      WHERE status IN ('EXPIRED', 'CANCELLED') AND reservation_status = 'HELD' AND reservation_code IS NOT NULL
+      ORDER BY id
+      LIMIT $1
+      FOR UPDATE SKIP LOCKED`,
+    [limit],
+  );
+  for (const row of held.rows) {
+    const reason = `Hợp đồng ${row.code} ${row.status === 'EXPIRED' ? 'đã hết hạn' : 'đã huỷ'}: nhả phần giữ hàng còn lại`;
+    await releaseContractReservation(client, row.id, row.reservation_code, reason);
+    await client.query(`UPDATE crm_schema.contracts SET revision = revision + 1, updated_at = now() WHERE id = $1`, [row.id]);
+    await writeAuditLog(client, {
+      entityType: CONTRACT_AUDIT_ENTITY,
+      entityId: row.id,
+      action: 'release-reservation',
+      actorId: null,
+      reason,
+      metadata: { code: row.code, reservationCode: row.reservation_code },
+    });
+    const payload: CrmReservationLostPayload = {
+      orderId: null,
+      contractId: row.id,
+      code: row.code,
+      reservationCode: row.reservation_code,
+      actorUserId: null,
+      recipientUserIds: [row.owner_user_id],
+      summary: `${reason} (${row.reservation_code}); phần đã giao không đổi.`.slice(0, 500),
+      deepLink: contractDeepLink(row.id),
+    };
+    await writeCrmOutbox(client, tenantId, {
+      type: CRM_CONTRACT_RESERVATION_RELEASED,
+      aggregateType: 'crm-contract',
+      aggregateId: row.id,
+      payload,
+    });
+  }
+  return held.rows.length;
 }
 
 /** Cấu hình GĐ4 trong `crm_schema.settings`. */

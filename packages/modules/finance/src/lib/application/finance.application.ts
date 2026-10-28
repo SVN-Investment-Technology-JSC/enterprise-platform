@@ -118,6 +118,7 @@ import {
 } from '../infrastructure/voucher-workflow.js';
 import {
   applyExternalSourceRequest,
+  cancelExternalSource,
   externalSourceState,
   externalSourceStateOfVoucher,
   parseExternalSourceRequest,
@@ -716,6 +717,17 @@ export class FinanceApplication {
       const { voucherId } = await applyExternalSourceRequest(db, tenantId, request, plan);
       return externalSourceStateOfVoucher(db, tenantId, voucherId);
     });
+  }
+
+  /** Bên nguồn huỷ bản ghi nguồn: phiếu còn nháp thì ĐÃ HUỶ, nguồn đóng (dịch vụ nội bộ, không có người dùng). */
+  async cancelExternalVoucherSource(
+    tenantId: string,
+    sourceModule: string | undefined,
+    sourceRef: string,
+    body: { reason?: unknown } | undefined,
+  ): Promise<FinanceVoucherSourceState> {
+    const reason = typeof body?.reason === 'string' ? body.reason.slice(0, 1000) : null;
+    return this.database.transaction(tenantId, (db) => cancelExternalSource(db, tenantId, sourceModule ?? '', sourceRef, reason));
   }
 
   /** Trạng thái phiếu của một bản ghi nguồn (đối soát khi bên nguồn mất sự kiện). */

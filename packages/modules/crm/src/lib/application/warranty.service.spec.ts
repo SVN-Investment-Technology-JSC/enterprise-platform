@@ -199,7 +199,7 @@ class FakeWarrantyStore implements WarrantyStore {
     return [];
   }
   async settings() {
-    return { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: 'QA-KHO-LOI' };
+    return { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: 'QA-KHO-LOI', restockWarehouseCode: 'QA-KHO-HN' };
   }
   async saveSettings() {
     return undefined;
@@ -375,13 +375,33 @@ describe('WarrantyResolutionService (T6-05, T6-06)', () => {
     await warranty.create(actor(), { cause: 'TECHNICAL_FAULT', lines: [{ serial: 'SN032' }] });
   });
 
-  it('TC-WAR-08: Đạt và nhập lại: đổi chất lượng về Đạt, ghi người kiểm định', async () => {
+  it('TC-WAR-08: Đạt và nhập lại: đổi chất lượng về Đạt rồi điều chuyển từ kho cách ly về kho xuất ban đầu, có khoá chống lặp', async () => {
     store.inspected('PASSED');
     await resolution.resolve(actor(), CASE_ID, 'line-1', { revision: 1, disposition: 'RESTOCK', remedy: 'NONE' });
     expect(inventory.calls).toEqual([
       { op: 'quality', args: { serial: 'SN032', change: expect.objectContaining({ qualityStatus: 'PASSED', actorUserId: KTV, materialCode: 'QA-KHO-MAY' }) } },
+      {
+        op: 'TRANSFER',
+        args: expect.objectContaining({
+          idempotencyKey: `crm-warranty:${CASE_ID}:line-1:transfer`,
+          warehouseCode: 'QA-KHO-CL',
+          targetWarehouseCode: 'QA-KHO',
+          lines: [{ materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN032'] }],
+        }),
+      },
     ]);
     expect(store.completed).toBe(1);
+    // Gửi lại chứng từ: điều chuyển đã có thì không tạo lần nữa.
+    await resolution.syncDocuments(actor(), CASE_ID, { revision: 2 });
+    expect(inventory.calls.filter((call) => call.op === 'TRANSFER')).toHaveLength(1);
+  });
+
+  it('TC-WAR-08: không biết kho xuất ban đầu thì nhập lại về kho cấu hình', async () => {
+    store.inspected('PASSED');
+    const line = store.detail?.lines[0] as { deliveryWarehouseCode: string | null };
+    line.deliveryWarehouseCode = null;
+    await resolution.resolve(actor(), CASE_ID, 'line-1', { revision: 1, disposition: 'RESTOCK', remedy: 'NONE' });
+    expect(inventory.calls[1].args).toMatchObject({ warehouseCode: 'QA-KHO-CL', targetWarehouseCode: 'QA-KHO-HN' });
   });
 
   it('TC-WAR-09, TC-WAR-10: Lỗi, chuyển kho lỗi và đổi hàng: ba chứng từ theo thứ tự, khoá theo dòng', async () => {

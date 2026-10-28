@@ -8,6 +8,7 @@ import {
   type CreateSalesOrderRequest,
   type CrmMaterialStock,
   type CrmPage,
+  type CrmWarehouseOption,
   type SalesOrderActionRequest,
   type SalesOrderDetail,
   type SalesOrderLine,
@@ -557,6 +558,21 @@ export class SalesOrderService {
       totalAvailable: material.totalAvailable ?? null,
       byWarehouse: (material.availableByWarehouse ?? []).map((stock) => ({ warehouseCode: stock.warehouseCode, available: stock.available })),
     }));
+  }
+
+  /**
+   * Danh sách kho của Kho để chọn kho xuất trong kế hoạch giao (T4-19):
+   * `search` theo mã, tên; `codes` lấy thêm kho đang chọn (kể cả kho đã ngừng).
+   */
+  async warehouses(actor: CrmActor, query: { search?: unknown; codes?: unknown }): Promise<CrmWarehouseOption[]> {
+    if (!this.catalog.warehouses) return [];
+    const search = typeof query?.search === 'string' ? query.search.trim().slice(0, 100) : '';
+    const codes = String(query?.codes ?? '')
+      .split(',')
+      .map((code) => code.trim().toUpperCase())
+      .filter((code) => code && code.length <= 50)
+      .slice(0, 50);
+    return this.catalog.warehouses(actor.tenantId, { search, codes });
   }
 
   // -------------------------------------------------------------------------

@@ -82,7 +82,7 @@ describe('OpportunityService', () => {
     expect(opportunities.changeStage).toHaveBeenCalledWith(
       't1',
       OPP_ID,
-      expect.objectContaining({ from: 'NEGOTIATION', to: 'LOST', reason: 'Giá cao hơn đối thủ' }),
+      expect.objectContaining({ from: 'NEGOTIATION', to: 'LOST', reason: 'Giá cao hơn đối thủ', declineOpenQuotes: true }),
       NV1,
     );
   });

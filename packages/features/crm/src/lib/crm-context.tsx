@@ -29,7 +29,15 @@ const CrmContext = createContext<CrmContextValue>({
   reloadGroups: () => undefined,
 });
 
-export function CrmDataProvider({ capabilities, children }: { capabilities: CrmCapabilities; children: ReactNode }) {
+export function CrmDataProvider({
+  capabilities,
+  currentUserId,
+  children,
+}: {
+  capabilities: CrmCapabilities;
+  currentUserId?: string;
+  children: ReactNode;
+}) {
   const [people, setPeople] = useState<readonly CrmPerson[]>([]);
   const [groups, setGroups] = useState<readonly CustomerGroup[]>([]);
 
@@ -43,7 +51,10 @@ export function CrmDataProvider({ capabilities, children }: { capabilities: CrmC
     reloadGroups();
   }, [reloadGroups]);
 
-  const value = useMemo(() => ({ capabilities, people, groups, reloadGroups }), [capabilities, people, groups, reloadGroups]);
+  const value = useMemo(
+    () => ({ capabilities, currentUserId, people, groups, reloadGroups }),
+    [capabilities, currentUserId, people, groups, reloadGroups],
+  );
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;
 }
 

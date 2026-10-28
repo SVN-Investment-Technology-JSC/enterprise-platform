@@ -333,6 +333,14 @@ export interface SalesSettings {
   readonly contractExpiringDays: number;
 }
 
+/** Một kho của phân hệ Kho để chọn kho xuất (`GET v1/catalog/warehouses`, T4-19). */
+export interface CrmWarehouseOption {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly isActive: boolean;
+}
+
 /** Tồn khả dụng theo kho của một mặt hàng (chọn kho giữ hàng, kho xuất). */
 export interface CrmMaterialStock {
   readonly materialId: string;

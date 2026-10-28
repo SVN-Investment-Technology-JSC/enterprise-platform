@@ -3,6 +3,7 @@ import type {
   CreateSalesOrderRequest,
   CrmMaterialStock,
   CrmPage,
+  CrmWarehouseOption,
   SalesOrderActionRequest,
   SalesOrderDetail,
   SalesOrderListQuery,
@@ -47,6 +48,16 @@ export class SalesOrdersController {
   @Get('catalog/stock')
   stock(@Req() request: CrmRequest, @Query('materialIds') materialIds?: string): Promise<CrmMaterialStock[]> {
     return runCrm(() => this.orders.materialStock(crmActor(request), materialIds));
+  }
+
+  /** Danh sách kho của Kho (`?search=&codes=`) để chọn kho xuất trong kế hoạch giao (T4-19). */
+  @Get('catalog/warehouses')
+  warehouses(
+    @Req() request: CrmRequest,
+    @Query('search') search?: string,
+    @Query('codes') codes?: string,
+  ): Promise<CrmWarehouseOption[]> {
+    return runCrm(() => this.orders.warehouses(crmActor(request), { search, codes }));
   }
 
   @Get('orders/:id')

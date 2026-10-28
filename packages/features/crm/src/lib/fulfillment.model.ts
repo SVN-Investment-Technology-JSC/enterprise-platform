@@ -4,8 +4,10 @@ import {
   type ContractDetail,
   type ContractStatus,
   type CrmCapabilities,
+  type CrmWarehouseOption,
   type DeliveryPlan,
   type DeliveryStatus,
+  type PaymentTerm,
   type SalesOrderDetail,
   type SalesOrderStatus,
 } from '@enterprise-platform/contracts-crm';
@@ -59,6 +61,8 @@ export const FULFILLMENT_ACTION_LABELS: Readonly<Record<string, string>> = {
   'credit-approve': 'Duyệt vượt hạn mức',
   'credit-reject': 'Từ chối vượt hạn mức',
   'credit-unreserved': 'Đã duyệt hạn mức nhưng chưa giữ được hàng',
+  'credit-redirect': 'Chuyển sang duyệt hạn mức trực tiếp',
+  'release-reservation': 'Nhả phần giữ hàng còn lại',
   'payment-term-due': 'Đợt thanh toán đến hạn',
   'request-issue': 'Yêu cầu xuất kho',
   deliver: 'Kho đã xuất',
@@ -79,6 +83,32 @@ export function contractActions(detail: Pick<ContractDetail, 'status'>, capabili
   if (next.includes('LIQUIDATED')) actions.push('liquidate');
   if (next.includes('CANCELLED')) actions.push('cancel');
   return actions;
+}
+
+/**
+ * Nút "Ghi nhận nghiệm thu" của đợt thanh toán điều kiện nghiệm thu (T5-18):
+ * hợp đồng Hiệu lực hoặc Hoàn thành, đợt chưa đến hạn, người có quyền hợp đồng.
+ */
+export function canTriggerPaymentTerm(
+  contract: Pick<ContractDetail, 'status'>,
+  term: Pick<PaymentTerm, 'condition' | 'status'>,
+  capabilities: CrmCapabilities,
+): boolean {
+  if (!(capabilities.isTenantAdmin || capabilities.canWriteContract)) return false;
+  if (contract.status !== 'ACTIVE' && contract.status !== 'COMPLETED') return false;
+  return term.condition === 'ACCEPTANCE' && term.status === 'PENDING';
+}
+
+/** Tuỳ chọn ô chọn kho (T4-19): kho đang hoạt động; kho đang chọn luôn có mặt (kể cả đã ngừng hay Kho không trả). */
+export function warehouseOptions(
+  warehouses: readonly CrmWarehouseOption[],
+  current: string | null | undefined,
+): { value: string; label: string; badge?: string }[] {
+  const options = warehouses
+    .filter((warehouse) => warehouse.isActive || warehouse.code === current)
+    .map((warehouse) => ({ value: warehouse.code, label: warehouse.name, badge: warehouse.isActive ? warehouse.code : `${warehouse.code} · ngừng` }));
+  if (current && !options.some((option) => option.value === current)) options.unshift({ value: current, label: current, badge: current });
+  return options;
 }
 
 export type OrderUiAction = 'edit' | 'confirm' | 'plan' | 'cancel' | 'close';

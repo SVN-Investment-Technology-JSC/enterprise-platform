@@ -68,6 +68,7 @@ import type {
   ConvertQuoteResult,
   CreateSalesOrderRequest,
   CrmMaterialStock,
+  CrmWarehouseOption,
   SalesOrderActionRequest,
   SalesOrderDetail,
   SalesOrderListQuery,
@@ -107,6 +108,16 @@ import type {
   ReceivableAgingQuery,
   ReceivableSettings,
   ResendReceiptRequest,
+} from '@enterprise-platform/contracts-crm';
+import type {
+  ConversionReport,
+  ConversionReportQuery,
+  ReceivableReport,
+  ReceivableReportQuery,
+  SalesAlertList,
+  SalesAlertQuery,
+  SalesReport,
+  SalesReportQuery,
 } from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -310,6 +321,9 @@ export const deliveryAction = (orderId: string, deliveryId: string, action: 'req
   send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(orderId)}/deliveries/${encodeURIComponent(deliveryId)}/${action}`, body);
 export const loadMaterialStock = (materialIds: readonly string[]) =>
   request<CrmMaterialStock[]>(`/catalog/stock${toQuery({ materialIds: materialIds.join(',') })}`, { cache: 'no-store' });
+/** Kho của phân hệ Kho để chọn kho xuất (T4-19); `codes` lấy thêm kho đang chọn. */
+export const loadWarehouses = (codes: readonly string[] = []) =>
+  request<CrmWarehouseOption[]>(`/catalog/warehouses${toQuery({ codes: codes.join(',') })}`, { cache: 'no-store' });
 export const convertQuote = (quoteId: string) => send<ConvertQuoteResult>('POST', `/quotes/${encodeURIComponent(quoteId)}/convert`);
 export const loadSalesSettings = () => request<SalesSettings>('/sales-settings', { cache: 'no-store' });
 export const saveSalesSettings = (body: SalesSettings) => send<SalesSettings>('PUT', '/sales-settings', body);
@@ -369,3 +383,13 @@ export const resolveWarrantyLine = (id: string, lineId: string, body: ResolveWar
   send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/resolve`, body);
 export const loadWarrantySettings = () => request<WarrantySettings>('/warranty/settings', { cache: 'no-store' });
 export const saveWarrantySettings = (body: WarrantySettings) => send<WarrantySettings>('PUT', '/warranty/settings', body);
+
+// Báo cáo (GĐ7): dữ liệu đã lọc theo phạm vi của người xem ở server.
+export const loadSalesReport = (query: SalesReportQuery) =>
+  request<SalesReport>(`/reports/sales${toQuery(query)}`, { cache: 'no-store' });
+export const loadConversionReport = (query: ConversionReportQuery) =>
+  request<ConversionReport>(`/reports/conversion${toQuery(query)}`, { cache: 'no-store' });
+export const loadSalesAlerts = (query: SalesAlertQuery) =>
+  request<SalesAlertList>(`/reports/alerts${toQuery(query)}`, { cache: 'no-store' });
+export const loadReceivableReport = (query: ReceivableReportQuery) =>
+  request<ReceivableReport>(`/reports/receivables${toQuery(query)}`, { cache: 'no-store' });

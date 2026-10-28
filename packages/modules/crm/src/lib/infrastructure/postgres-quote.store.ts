@@ -37,7 +37,12 @@ import type {
   QuoteVersionWrite,
 } from '../application/quote-store.port.js';
 import { CrmConflictError } from '../domain/crm.error.js';
-import { formatQuoteCode, type QuoteEditPlan } from '../domain/quote.js';
+import {
+  canQuoteSystemTransition,
+  formatQuoteCode,
+  QUOTE_OPPORTUNITY_LOST_REASON,
+  type QuoteEditPlan,
+} from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
@@ -728,6 +733,69 @@ export async function lockVersionById(client: CrmSqlClient, versionId: string): 
     status: row.status,
     submittedBy: row.submitted_by,
   };
+}
+
+/**
+ * Cơ hội chuyển Thua (T3-21), trong transaction chuyển giai đoạn: mọi báo giá
+ * của cơ hội còn chưa kết thúc (phiên bản hiện tại Nháp, Chờ duyệt, Đã duyệt,
+ * Đã gửi khách, Từ chối duyệt) sang Khách từ chối với lý do "Cơ hội đã thua",
+ * ghi nhật ký. Liên kết Quy trình còn mở của phiên bản đóng lại (Quy trình chưa
+ * có API huỷ phiên cho phân hệ khác) nên kết quả đến sau bị bỏ qua. Trả số báo
+ * giá đã chuyển.
+ */
+export async function declineQuotesForLostOpportunity(
+  client: CrmSqlClient,
+  tenantId: string,
+  opportunityId: string,
+  actorId: string | null,
+): Promise<number> {
+  const rows = (
+    await client.query<{
+      quote_id: string;
+      code: string;
+      owner_user_id: string;
+      version_id: string;
+      version_no: number;
+      status: QuoteStatus;
+      submitted_by: string | null;
+    }>(
+      `SELECT q.id AS quote_id, q.code, q.owner_user_id, v.id AS version_id, v.version_no, v.status, v.submitted_by
+         FROM crm_schema.quotes q
+         JOIN crm_schema.quote_versions v ON v.quote_id = q.id AND v.version_no = q.current_version
+        WHERE q.opportunity_id = $1
+        ORDER BY q.id
+        FOR UPDATE OF q, v`,
+      [opportunityId],
+    )
+  ).rows;
+  let declined = 0;
+  for (const row of rows) {
+    if (!canQuoteSystemTransition('OPPORTUNITY_LOST', row.status, 'DECLINED')) continue;
+    await applyDecision(
+      client,
+      tenantId,
+      {
+        quoteId: row.quote_id,
+        code: row.code,
+        ownerUserId: row.owner_user_id,
+        versionId: row.version_id,
+        versionNo: row.version_no,
+        status: row.status,
+        submittedBy: row.submitted_by,
+      },
+      { from: row.status, to: 'DECLINED', action: 'decline', reason: QUOTE_OPPORTUNITY_LOST_REASON },
+      actorId,
+      { opportunityId, system: 'opportunity-lost' },
+    );
+    await client.query(
+      `UPDATE crm_schema.procedure_links
+          SET status = 'CLOSED', result_reason = $3, lease_until = NULL, lease_token = NULL, updated_at = now()
+        WHERE source_type = $1 AND source_id = $2 AND status NOT IN ('APPLIED', 'CLOSED')`,
+      [CRM_QUOTE_SOURCE_TYPE, row.version_id, QUOTE_OPPORTUNITY_LOST_REASON],
+    );
+    declined += 1;
+  }
+  return declined;
 }
 
 /** Tạo nháp báo giá cho cơ hội nếu cơ hội chưa có báo giá còn hiệu lực (OPP-05). Trả id khi tạo mới. */

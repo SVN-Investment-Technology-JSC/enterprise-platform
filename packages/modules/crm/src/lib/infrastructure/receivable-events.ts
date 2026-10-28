@@ -104,7 +104,8 @@ export async function handleReceivableEvent(
 /**
  * Việc định kỳ của công nợ (mỗi phút): đợt "theo ngày" của hợp đồng tới ngày
  * (T5-05), cảnh báo quá hạn và vượt hạn mức (T5-09), giữ hàng lại cho đơn đã
- * được duyệt vượt hạn mức mà lần trước lỗi hạ tầng.
+ * được duyệt vượt hạn mức mà lần trước lỗi hạ tầng, chuyển yêu cầu có phiên
+ * Quy trình lỗi vĩnh viễn sang duyệt trực tiếp (T5-17).
  */
 export async function runReceivableJobs(
   database: CrmDatabase,
@@ -116,4 +117,5 @@ export async function runReceivableJobs(
   await database.transaction(tenantId, (client) => recognizeDateTerms(client, today, RECEIVABLE_JOB_BATCH));
   await new PostgresReceivableStore(database).notifyAlerts(tenantId, today, RECEIVABLE_JOB_BATCH);
   await approvals().retryApproved(tenantId, 20);
+  await approvals().redirectFailedProcedures(tenantId, 20);
 }

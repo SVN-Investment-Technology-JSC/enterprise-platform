@@ -1,4 +1,5 @@
 import {
+  type ApplyCreditRequest,
   CREDIT_LIMIT_MODES,
   RECEIPT_METHODS,
   RECEIPT_STATUSES,
@@ -156,7 +157,27 @@ export class ReceivableService {
     const reason = optionalText(request?.reason, 2000, 'lý do');
     if (!reason) throw new CrmValidationError('REASON_REQUIRED', 'Phải ghi lý do huỷ lần thu.');
     await this.store.cancelReceipt(actor.tenantId, id, requiredVersion(request?.revision), reason, actor.userId);
+    // Huỷ phiếu nháp bên Tài chính ngay sau commit; lỗi thì job gửi lại (T5-15).
+    await this.dispatcher.dispatch(actor.tenantId).catch(() => undefined);
     return this.getReceipt(actor, id);
+  }
+
+  /**
+   * Phân bổ tiền trả trước (dòng CREDIT chưa gắn khoản nợ) vào khoản nợ phát
+   * sinh sau (T5-16): `crm.receivable.write`, khách trong phạm vi; store khoá
+   * dòng và kiểm không vượt số trả trước còn lại, số còn nợ.
+   */
+  async applyCredit(actor: CrmActor, creditEntryId: string, request: ApplyCreditRequest): Promise<CustomerLedger> {
+    requireReceivableWriter(actor);
+    if (!isUuid(creditEntryId)) throw new CrmNotFoundError('Không tìm thấy khoản tiền thu chưa phân bổ.');
+    const allocations = normalizeAllocations(request?.allocations, Number.MAX_SAFE_INTEGER);
+    if (!allocations.length) throw new CrmValidationError('ALLOCATIONS_REQUIRED', 'Vui lòng chọn khoản nợ để phân bổ.');
+    // Khách của dòng phải nằm trong phạm vi dữ liệu của người phân bổ (ngoài phạm vi: như không có).
+    const owner = await this.store.entryCustomer(actor.tenantId, creditEntryId.toLowerCase());
+    if (!owner) throw new CrmNotFoundError('Không tìm thấy khoản tiền thu chưa phân bổ.');
+    await this.ledger(actor, owner);
+    const { customerId } = await this.store.applyCredit(actor.tenantId, creditEntryId.toLowerCase(), allocations, actor.userId, this.today());
+    return this.ledger(actor, customerId);
   }
 
   /** Đợt thanh toán "khi nghiệm thu" (tạm thời đến khi có nghiệm thu CON-04): ghi nhận nợ bằng tay. */

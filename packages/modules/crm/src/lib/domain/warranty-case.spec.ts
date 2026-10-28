@@ -78,10 +78,10 @@ describe('Hướng xử lý (T6-05, T6-06)', () => {
   });
 
   it('chứng từ theo hướng xử lý, theo thứ tự gửi', () => {
-    expect(documentsForResolution('RESTOCK', 'NONE')).toEqual(['QUALITY']);
+    expect(documentsForResolution('RESTOCK', 'NONE')).toEqual(['QUALITY', 'TRANSFER']);
     expect(documentsForResolution('MOVE_TO_DEFECT', 'REPLACE')).toEqual(['QUALITY', 'TRANSFER', 'REPLACEMENT']);
     expect(documentsForResolution('SCRAP', 'CREDIT')).toEqual(['QUALITY', 'SCRAP', 'CREDIT']);
-    expect(documentsForResolution('RESTOCK', 'REFUND')).toEqual(['QUALITY', 'REFUND']);
+    expect(documentsForResolution('RESTOCK', 'REFUND')).toEqual(['QUALITY', 'TRANSFER', 'REFUND']);
   });
 
   it('dòng xong khi mọi chứng từ cần có đã sinh; chứng từ chưa gửi được thì chưa', () => {

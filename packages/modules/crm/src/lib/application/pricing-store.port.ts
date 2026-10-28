@@ -1,4 +1,5 @@
 import type {
+  CrmWarehouseOption,
   DiscountPolicy,
   DiscountPolicyRule,
   DiscountStacking,
@@ -181,4 +182,9 @@ export interface CatalogReader {
   materials(tenantId: string, ids: readonly string[]): Promise<ReadonlyMap<string, CatalogMaterial>>;
   /** Tìm theo mã hoặc tên (chọn mặt hàng khi thêm dòng báo giá). */
   search(tenantId: string, query: string, limit: number): Promise<CatalogMaterial[]>;
+  /**
+   * Danh sách kho của Kho (`GET /v1/internal/warehouses?search=&codes=`) để chọn
+   * kho xuất (T4-19). Bản giả trong test có thể không có.
+   */
+  warehouses?(tenantId: string, query: { readonly search?: string; readonly codes?: readonly string[] }): Promise<CrmWarehouseOption[]>;
 }

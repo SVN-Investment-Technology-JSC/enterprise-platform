@@ -367,14 +367,19 @@ integration('Bán hàng GĐ6: bảo hành, đổi trả (PostgreSQL)', () => {
     const credit = detail.documents.find((document) => document.kind === 'CREDIT');
     expect(credit).toMatchObject({ status: 'PENDING_RECEIVABLE', amount: 11_000_000 });
     expect(inventory.quality.get('SN041')).toBe('PASSED');
+    // TC-WAR-08 (T6-11): hàng Đạt nhập lại được điều chuyển từ kho cách ly về kho đã xuất, một chứng từ mỗi dòng.
+    const restock = inventory.documents.get(`crm-warranty:${created.id}:${detail.lines[0].id}:transfer`);
+    expect(restock?.request).toMatchObject({ docType: 'TRANSFER', warehouseCode: 'QA-KHO-CL', targetWarehouseCode: 'QA-KHO', lines: [expect.objectContaining({ serials: ['SN041'] })] });
     await expect(warranty.close(ktv, created.id, { revision: detail.revision })).rejects.toMatchObject({ code: 'DOCUMENTS_NOT_POSTED' });
     // TC-WAR-11: sổ công nợ có điều chỉnh giảm trừ Chờ duyệt đúng giá trị dòng; quản lý duyệt rồi gửi lại thì Đã ghi sổ.
     const manager = actor(randomUUID(), { canReadAll: true, canManage: true, canWriteReceivable: true });
     const adjustment = await adjustments.get(manager, credit?.documentId as string);
     expect(adjustment).toMatchObject({ status: 'DRAFT', direction: 'DECREASE', amount: 11_000_000, sourceType: 'crm_warranty', customerId });
     await adjustments.approve(manager, adjustment.id, { revision: adjustment.revision });
-    detail = await resolution.syncDocuments(ktv, created.id, { revision: detail.revision });
+    // T6-12: duyệt điều chỉnh cập nhật chứng từ bảo hành trong cùng transaction, không cần gửi lại.
+    detail = await warranty.get(ktv, created.id);
     expect(detail.documents.find((document) => document.kind === 'CREDIT')).toMatchObject({ status: 'POSTED', documentCode: adjustment.code });
+    expect(detail.history[0]).toMatchObject({ action: 'credit-posted' });
     expect((await warranty.close(ktv, created.id, { revision: detail.revision })).status).toBe('CLOSED');
   });
 

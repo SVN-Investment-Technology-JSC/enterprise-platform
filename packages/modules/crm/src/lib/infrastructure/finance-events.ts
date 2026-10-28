@@ -235,14 +235,20 @@ async function applyReversed(
       contract_id: string | null;
       payment_term_id: string | null;
     }>(
-      `SELECT id, ref_entry_id, amount, order_id, contract_id, payment_term_id
-         FROM crm_schema.receivable_entries
-        WHERE receipt_id = $1 AND kind = 'CREDIT'
-        ORDER BY id`,
+      // Dòng trả trước (chưa gắn khoản nợ) đã chuyển một phần sang khoản nợ (T5-16): chỉ đảo phần còn lại,
+      // phần đã chuyển được đảo qua dòng CREDIT gắn khoản nợ.
+      `SELECT e.id, e.ref_entry_id, e.order_id, e.contract_id, e.payment_term_id,
+              e.amount + CASE WHEN e.ref_entry_id IS NULL
+                              THEN COALESCE((SELECT sum(x.amount) FROM crm_schema.receivable_entries x WHERE x.reverses_entry_id = e.id), 0)
+                              ELSE 0 END AS amount
+         FROM crm_schema.receivable_entries e
+        WHERE e.receipt_id = $1 AND e.kind = 'CREDIT'
+        ORDER BY e.id`,
       [receipt.id],
     )
   ).rows;
   for (const credit of credits) {
+    if (Number(credit.amount) === 0) continue;
     await insertReceivableEntry(client, {
       kind: 'REVERSAL',
       customerId: receipt.customer_id,

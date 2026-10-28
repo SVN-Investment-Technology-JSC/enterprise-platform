@@ -47,6 +47,7 @@ export const WARRANTY_ACTION_LABELS: Readonly<Record<string, string>> = {
   'replacement-issued': 'Kho đã xuất hàng thay thế',
   'document-posted': 'Kho đã ghi sổ chứng từ',
   'document-reversed': 'Kho đã đảo chứng từ',
+  'credit-posted': 'Sổ công nợ đã duyệt giảm trừ',
   close: 'Đóng yêu cầu',
 };
 

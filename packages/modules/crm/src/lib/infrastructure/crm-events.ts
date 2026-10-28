@@ -20,7 +20,14 @@ import { applyWarrantyIssued, applyWarrantyReturned, INVENTORY_STOCK_RETURNED, t
 import { PostgresQuoteStore } from './postgres-quote.store.js';
 import { PostgresSalesOrderStore } from './postgres-sales-order.store.js';
 import { notifyLateDeliveries } from '../application/delivery-late.job.js';
-import { applyQuoteProcedureResult, PostgresApprovalLinks, type ProcedureCompletedPayload } from './quote-procedure-links.js';
+import {
+  applyQuoteProcedureResult,
+  applyQuoteProcedureReversed,
+  PostgresApprovalLinks,
+  reconcileRunningLinks,
+  type ProcedureCompletedPayload,
+  type ProcedureReversedPayload,
+} from './quote-procedure-links.js';
 import { HttpFinanceClient } from './http-finance-client.js';
 import { PostgresReceivableStore } from './postgres-receivable.store.js';
 import { createCreditApprovals, CRM_RECEIVABLE_BINDINGS, handleReceivableEvent, runReceivableJobs } from './receivable-events.js';
@@ -30,6 +37,8 @@ export const CRM_INTEGRATION_QUEUE = 'crm.integrations.v1';
 
 /** Quy trình phát khi hồ sơ kết thúc (duyệt, từ chối, huỷ), phân biệt bằng `status`. */
 export const PROCEDURE_INSTANCE_COMPLETED = 'procedure.instance.completed';
+/** Quy trình phát khi admin thu hồi (huỷ hiệu lực) hồ sơ đã hoàn tất (T3-19). */
+export const PROCEDURE_INSTANCE_REVERSED = 'procedure.instance.reversed';
 
 /**
  * Loại sự kiện worker bind vào hàng đợi của Bán hàng: kết quả duyệt báo giá từ
@@ -38,6 +47,8 @@ export const PROCEDURE_INSTANCE_COMPLETED = 'procedure.instance.completed';
  */
 export const CRM_INTEGRATION_BINDINGS: readonly string[] = [
   PROCEDURE_INSTANCE_COMPLETED,
+  // Quy trình thu hồi phiên duyệt báo giá (T3-19).
+  PROCEDURE_INSTANCE_REVERSED,
   INVENTORY_STOCK_ISSUED,
   INVENTORY_RESERVATION_EXPIRED,
   // Bảo hành (T6-04): nhập trả vào kho cách ly đã ghi sổ.
@@ -106,6 +117,13 @@ export function createCrmIntegrationEvents(
         if (event.sourceType !== 'crm_quote') return;
         if (!(await quoteTablesReady(database, tenantId))) return;
         await applyQuoteProcedureResult(database, tenantId, event);
+        return;
+      }
+      if (type === PROCEDURE_INSTANCE_REVERSED) {
+        const event = (payload ?? {}) as ProcedureReversedPayload;
+        if (event.sourceType !== 'crm_quote') return;
+        if (!(await quoteTablesReady(database, tenantId))) return;
+        await applyQuoteProcedureReversed(database, tenantId, event);
         return;
       }
       if ((type === INVENTORY_STOCK_ISSUED || type === INVENTORY_STOCK_RETURNED) && (payload as WarrantyStockEventPayload | null)?.sourceType === 'crm_warranty') {
@@ -180,6 +198,8 @@ export function createCrmJobs(
       const today = vietnamToday(now());
       if (dueExpiry) await quotes.expireDue(tenantId, today, QUOTE_EXPIRY_BATCH);
       if (dueSync) await links.sync(tenantId);
+      // Lỡ mất sự kiện kết quả: hỏi Quy trình các phiên chạy lâu (T3-20); Quy trình lỗi thì lượt sau hỏi lại.
+      if (dueExpiry) await reconcileProcedureLinks(database, procedures, creditApprovals, tenantId).catch(() => undefined);
       if (!(await salesTablesReady(database, tenantId))) return;
       if (dueExpiry) {
         // Hợp đồng quá ngày kết thúc (mục 5.3), đợt giao quá ngày dự kiến chưa xuất (T4-14).
@@ -191,6 +211,19 @@ export function createCrmJobs(
       if (dueSync) await requests.dispatch(tenantId);
     },
   };
+}
+
+/** Áp kết quả hồ sơ đã kết thúc mà chưa nhận được sự kiện, như consumer (T3-20). */
+async function reconcileProcedureLinks(
+  database: CrmDatabase,
+  procedures: HttpProcedureClient,
+  approvals: () => CreditApprovalService,
+  tenantId: string,
+): Promise<void> {
+  for (const event of await reconcileRunningLinks(database, procedures, tenantId)) {
+    if (event.sourceType === 'crm_quote') await applyQuoteProcedureResult(database, tenantId, event);
+    else await handleReceivableEvent(database, approvals, tenantId, PROCEDURE_INSTANCE_COMPLETED, event);
+  }
 }
 
 /** Migration đơn bán (0008) đã chạy chưa. */

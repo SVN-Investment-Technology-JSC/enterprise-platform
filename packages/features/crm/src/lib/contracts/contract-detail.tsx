@@ -23,12 +23,21 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { MaterialPickerDialog } from '../components/material-picker';
-import { contractAction, errorMessage, getContract, savePaymentTerms, updateContract, type ContractAction } from '../crm-api';
+import {
+  contractAction,
+  errorMessage,
+  getContract,
+  savePaymentTerms,
+  triggerPaymentTerm,
+  updateContract,
+  type ContractAction,
+} from '../crm-api';
 import { labelOptions, useCrm } from '../crm-context';
 import {
   CONTRACT_STATUS_TONE,
   FULFILLMENT_ACTION_LABELS,
   ORDER_STATUS_TONE,
+  canTriggerPaymentTerm,
   contractActions,
   formatDay,
   formatQuantity,
@@ -95,6 +104,8 @@ export function ContractDetail({
   const [picking, setPicking] = useState(false);
   const [reasonFor, setReasonFor] = useState<Exclude<ContractAction, 'confirm'>>();
   const [terms, setTerms] = useState<TermDraft[]>([]);
+  const [triggering, setTriggering] = useState<PaymentTerm>();
+  const [triggerDate, setTriggerDate] = useState('');
 
   const load = useCallback(
     () =>
@@ -511,6 +522,27 @@ export function ContractDetail({
             },
             {
               title: '',
+              key: 'trigger',
+              width: 150,
+              render: (_: unknown, row) => {
+                const saved = detail.paymentTerms.find((term) => term.id === row.key);
+                return !editable && saved && canTriggerPaymentTerm(detail, saved, capabilities) ? (
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    disabled={busy}
+                    onClick={() => {
+                      setTriggerDate('');
+                      setTriggering(saved);
+                    }}
+                  >
+                    Ghi nhận nghiệm thu
+                  </button>
+                ) : null;
+              },
+            },
+            {
+              title: '',
               key: 'remove',
               width: 60,
               render: (_: unknown, _row, index) =>
@@ -572,6 +604,28 @@ export function ContractDetail({
         </ol>
       </section>
 
+      {triggering ? (
+        <CrmDialog
+          open
+          title="Ghi nhận nghiệm thu"
+          subtitle={`${triggering.name} · ${formatMoney(triggering.amount)}`}
+          submitLabel="Ghi nhận"
+          submitting={busy}
+          onClose={() => setTriggering(undefined)}
+          onSubmit={() =>
+            void run(async () => {
+              await triggerPaymentTerm(current.id, triggering.id, triggerDate || undefined);
+              return getContract(current.id);
+            }, 'Đã ghi nhận đợt thanh toán đến hạn.').then((done) => {
+              if (done) setTriggering(undefined);
+            })
+          }
+        >
+          <Field label="Ngày nghiệm thu" hint="Để trống là hôm nay; hạn thanh toán tính từ ngày này">
+            <DatePickerInput value={triggerDate || undefined} onChange={(value) => setTriggerDate(value)} height={34} aria-label="Ngày nghiệm thu" />
+          </Field>
+        </CrmDialog>
+      ) : null}
       {editing ? (
         <ContractFormDialog
           contract={detail}

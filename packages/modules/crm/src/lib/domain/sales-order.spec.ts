@@ -7,6 +7,7 @@ import {
   isDeliveryLate,
   orderStatusAfterDelivery,
   reservationExpiry,
+  contractReservationExpiry,
   reservationIdempotencyKey,
 } from './sales-order.js';
 
@@ -81,6 +82,11 @@ describe('hạn giữ hàng (Q12) và khoá chống lặp', () => {
   it('có ngày giao dự kiến: hết ngày giao + 2 ngày; ngày đó đã qua thì về mặc định', () => {
     expect(reservationExpiry({ today: '2026-10-27', now, holdDays: 7, plannedDate: '2026-11-20' })).toBe('2026-11-22T16:59:59.000Z');
     expect(reservationExpiry({ today: '2026-10-27', now, holdDays: 7, plannedDate: '2026-10-01' })).toBe('2026-11-03T16:59:59.000Z');
+  });
+
+  it('TC-CON-07: giữ hàng của hợp đồng tới hết ngày kết thúc hợp đồng; không có ngày kết thúc thì theo holdDays', () => {
+    expect(contractReservationExpiry({ validTo: '2027-03-31', today: '2026-10-27', now, holdDays: 7 })).toBe('2027-03-31T16:59:59.000Z');
+    expect(contractReservationExpiry({ validTo: null, today: '2026-10-27', now, holdDays: 7 })).toBe('2026-11-03T16:59:59.000Z');
   });
 
   it('khoá crm-order:<id>; lần giữ sau khi phải nhả thêm số lần', () => {

@@ -1,3 +1,4 @@
+import type { CrmWarehouseOption } from '@enterprise-platform/contracts-crm';
 import type { CatalogMaterial, CatalogMaterialStock, CatalogReader } from '../application/pricing-store.port.js';
 import { CrmError } from '../domain/crm.error.js';
 
@@ -92,13 +93,35 @@ export class HttpInventoryCatalogReader implements CatalogReader {
     return this.fetch(tenantId, { search: query.trim(), kind: ALL_KINDS, limit: String(limit) });
   }
 
+  /** Danh sách kho (T4-19) qua `GET /v1/internal/warehouses?search=&codes=`. */
+  async warehouses(tenantId: string, query: { readonly search?: string; readonly codes?: readonly string[] }): Promise<CrmWarehouseOption[]> {
+    const body = await this.get<{ warehouses?: unknown }>(tenantId, '/v1/internal/warehouses', {
+      search: query.search?.trim() ?? '',
+      codes: (query.codes ?? []).join(','),
+    });
+    if (!Array.isArray(body?.warehouses)) throw inventoryUnavailable();
+    return (body.warehouses as { id?: unknown; code?: unknown; name?: unknown; isActive?: unknown }[])
+      .map((row): CrmWarehouseOption | null => {
+        const id = text(row?.id);
+        const code = text(row?.code);
+        return id && code ? { id, code, name: text(row?.name) ?? code, isActive: row?.isActive !== false } : null;
+      })
+      .filter((row): row is CrmWarehouseOption => row !== null);
+  }
+
   private async fetch(tenantId: string, params: Record<string, string>): Promise<CatalogMaterial[]> {
+    const body = await this.get<{ materials?: unknown }>(tenantId, '/v1/internal/materials', params);
+    if (!Array.isArray(body?.materials)) throw inventoryUnavailable();
+    return (body.materials as WireMaterial[]).map(toMaterial).filter((material): material is CatalogMaterial => material !== null);
+  }
+
+  private async get<T>(tenantId: string, path: string, params: Record<string, string>): Promise<T> {
     const token = this.token();
     if (!token) throw inventoryUnavailable();
     const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== ''));
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/v1/internal/materials?${query}`, {
+      response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${path}?${query}`, {
         headers: { 'x-tenant-id': tenantId, 'x-service-token': token },
         redirect: 'error',
         signal: AbortSignal.timeout(8000),
@@ -107,13 +130,10 @@ export class HttpInventoryCatalogReader implements CatalogReader {
       throw inventoryUnavailable();
     }
     if (!response.ok) throw inventoryUnavailable();
-    let body: { materials?: unknown };
     try {
-      body = (await response.json()) as { materials?: unknown };
+      return (await response.json()) as T;
     } catch {
       throw inventoryUnavailable();
     }
-    if (!Array.isArray(body?.materials)) throw inventoryUnavailable();
-    return (body.materials as WireMaterial[]).map(toMaterial).filter((material): material is CatalogMaterial => material !== null);
   }
 }

@@ -7,12 +7,13 @@ import {
   SALES_ORDER_SOURCE_LABELS,
   SALES_ORDER_STATUS_LABELS,
   type CrmMaterialStock,
+  type CrmWarehouseOption,
   type DeliveryLine,
   type DeliveryPlan,
   type SalesOrderDetail,
   type SalesOrderLine,
 } from '@enterprise-platform/contracts-crm';
-import { Popconfirm, formatDateTime, toast } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect, formatDateTime, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -25,6 +26,7 @@ import {
   errorMessage,
   getOrder,
   loadMaterialStock,
+  loadWarehouses,
   orderAction,
   saveDelivery,
   updateOrder,
@@ -41,6 +43,7 @@ import {
   formatQuantity,
   orderActions,
   remainingToPlan,
+  warehouseOptions,
 } from '../fulfillment.model';
 import { formatPercent, parseNumber } from '../pricing/pricing.model';
 import { formatMoney, personName } from '../sales.model';
@@ -608,6 +611,15 @@ function DeliveryDialog({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [warehouses, setWarehouses] = useState<readonly CrmWarehouseOption[]>([]);
+  const [warehouseError, setWarehouseError] = useState<string>();
+
+  useEffect(() => {
+    const initial = delivery?.warehouseCode ?? order.warehouseCode;
+    loadWarehouses(initial ? [initial] : [])
+      .then(setWarehouses)
+      .catch((cause) => setWarehouseError(errorMessage(cause, 'Không tải được danh sách kho.')));
+  }, [delivery?.warehouseCode, order.warehouseCode]);
 
   async function save() {
     if (!plannedDate) return setError('Vui lòng nhập ngày giao dự kiến.');
@@ -629,8 +641,16 @@ function DeliveryDialog({
         <Field label="Ngày giao dự kiến" required>
           <DatePickerInput value={plannedDate || undefined} onChange={setPlannedDate} height={38} aria-label="Ngày giao dự kiến" />
         </Field>
-        <Field label="Mã kho xuất" hint="Bỏ trống: kho của đơn; khác kho giữ hàng thì xuất từ tồn khả dụng">
-          <input className={styles.input} maxLength={50} value={warehouseCode} onChange={(event) => setWarehouseCode(event.target.value.toUpperCase())} />
+        <Field label="Kho xuất" hint={warehouseError ?? 'Bỏ trống: kho của đơn; khác kho giữ hàng thì xuất từ tồn khả dụng'}>
+          <SearchableSelect
+            options={warehouseOptions(warehouses, warehouseCode || null)}
+            value={warehouseCode}
+            placeholder={order.warehouseCode ? `Theo đơn (${order.warehouseCode})` : 'Chọn kho xuất'}
+            searchPlaceholder="Tìm theo mã hoặc tên kho"
+            emptyText="Không có kho phù hợp"
+            clearable
+            onChange={(value) => setWarehouseCode(value)}
+          />
         </Field>
         <Field label="Địa chỉ giao" wide>
           <input className={styles.input} maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} />

@@ -68,4 +68,29 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
       statusCode: 503,
     });
   });
+
+  it('TC-ORD-04: danh sách kho qua GET /v1/internal/warehouses (search, codes); bỏ dòng thiếu mã', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          warehouses: [
+            { id: 'w1', code: 'KHO-1', name: 'Kho Hà Nội', isActive: true },
+            { id: 'w2', code: 'KHO-2', name: 'Kho cũ', isActive: false },
+            { id: 'w3', code: '' },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const reader = new HttpInventoryCatalogReader('http://inv/api/inventory', () => 'token');
+    await expect(reader.warehouses('t1', { search: ' ha ', codes: ['KHO-1', 'KHO-2'] })).resolves.toEqual([
+      { id: 'w1', code: 'KHO-1', name: 'Kho Hà Nội', isActive: true },
+      { id: 'w2', code: 'KHO-2', name: 'Kho cũ', isActive: false },
+    ]);
+    const parsed = new URL((fetchMock.mock.calls[0] as [string])[0]);
+    expect(parsed.pathname).toBe('/api/inventory/v1/internal/warehouses');
+    expect(parsed.searchParams.get('search')).toBe('ha');
+    expect(parsed.searchParams.get('codes')).toBe('KHO-1,KHO-2');
+  });
 });

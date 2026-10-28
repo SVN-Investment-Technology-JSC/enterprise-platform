@@ -129,6 +129,22 @@ export interface CrmCustomerCreditExceededPayload {
   readonly deepLink: string;
 }
 
+/**
+ * Phiên Quy trình duyệt vượt hạn mức lỗi vĩnh viễn (T5-17): yêu cầu chuyển sang
+ * duyệt trực tiếp trong Bán hàng, báo người lập đơn.
+ */
+export const CRM_ORDER_CREDIT_APPROVAL_REDIRECTED = 'crm.order.credit-approval-redirected';
+
+export interface CrmOrderCreditApprovalRedirectedPayload {
+  readonly orderId: string;
+  readonly orderCode: string;
+  readonly creditRequestId: string;
+  readonly actorUserId: null;
+  readonly recipientUserIds: readonly string[];
+  readonly summary: string;
+  readonly deepLink: string;
+}
+
 /** Đường dẫn mở sổ công nợ của khách (thông báo, dòng thời gian). */
 export function receivableDeepLink(customerId: string): string {
   return `/modules/crm#receivables/${encodeURIComponent(customerId)}`;
@@ -291,6 +307,14 @@ export interface CreateReceiptRequest {
   /** YYYY-MM-DD; mặc định hôm nay. */
   readonly receiptDate?: string | null;
   readonly note?: string | null;
+  readonly allocations: readonly ReceiptAllocationRequest[];
+}
+
+/**
+ * Phân bổ tiền thu chưa phân bổ (trả trước, dòng CREDIT chưa gắn khoản nợ) vào
+ * khoản nợ phát sinh sau (T5-16). Tổng không vượt số trả trước còn lại.
+ */
+export interface ApplyCreditRequest {
   readonly allocations: readonly ReceiptAllocationRequest[];
 }
 

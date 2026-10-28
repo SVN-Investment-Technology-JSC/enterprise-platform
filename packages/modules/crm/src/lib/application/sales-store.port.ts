@@ -257,6 +257,8 @@ export interface StageChange {
   readonly draftQuoteValidUntil?: string;
   /** Sang Thắng: phải có báo giá Khách chấp nhận, kiểm trong transaction. */
   readonly requireAcceptedQuote?: boolean;
+  /** Sang Thua: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
+  readonly declineOpenQuotes?: boolean;
 }
 
 export interface OpportunityStore {

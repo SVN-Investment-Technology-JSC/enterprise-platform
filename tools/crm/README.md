@@ -107,3 +107,33 @@ node tools/crm/migrate-workspace-customers.mjs --tenant=svn             # chạy
 - Sau khi bật Bán hàng, màn khách hàng Workspace chỉ đọc và API tạo, sửa, xoá khách Workspace trả 409
   `CUSTOMER_MANAGED_BY_CRM`; vì vậy chạy lại bước `legacy` cho tenant đã bật `crm` sẽ không tạo thêm được khách
   Workspace.
+
+## Dữ liệu lớn và đo hiệu năng (T7-10)
+
+`tools/crm/seed-perf.mjs` dựng dữ liệu hiệu năng theo `docs/crm/TEST.md` mục 1.3 ("svn-perf") và
+`tools/crm/measure-perf.mjs` đo theo mục 1.4 (TC-PERF-01 đến TC-PERF-04).
+
+```bash
+# DB mới, dùng xong bỏ, trên PostgreSQL local (ví dụ container test): tạo DB crm_perf_<số> rồi chạy migration crm.
+node tools/crm/seed-perf.mjs --url=postgres://postgres:<mật khẩu>@localhost:<cổng>/postgres --create-db --out=/tmp/crm-perf.json
+# Hoặc DB tenant svn-perf local đã có crm_schema (đã chạy migration 0011), chưa có dữ liệu hiệu năng:
+node tools/crm/seed-perf.mjs --url=postgres://<user>:<mật khẩu>@localhost:55436/svn_perf
+
+pnpm nx build module-crm
+node tools/crm/measure-perf.mjs --url=postgres://.../crm_perf_<số> --seed=/tmp/crm-perf.json [--explain] [--only=TC-PERF-04]
+```
+
+- Cả hai script **từ chối** URL không phải `localhost` hoặc `127.0.0.1`. Seed ghi thẳng SQL vào `crm_schema` (không qua
+  API) nên chỉ dùng cho DB thử; không chạy trên DB có dữ liệu thật.
+- Seed (khoảng 30 giây): 30 nhân viên trong 5 nhóm (mỗi nhóm 6 người, người đầu là trưởng nhóm; id ngẫu nhiên ghi vào
+  file `--out`, mặc định `<thư mục tạm>/crm-perf/<db>.json`), 5 nhóm khách, 50.000 khách (mã `PF000001`...),
+  50.000 cơ hội, 30.000 báo giá, 10.000 hợp đồng, 50.000 đơn bán có một đợt giao (khoảng 20% còn chờ giao, trễ hạn),
+  600.000 dòng `sales_facts` trải 12 tháng, 2.000 mặt hàng, 20 nhóm hàng, sổ công nợ một khoản nợ mỗi đơn đã giao
+  (một nửa đã thu). `--scale=N` nhân số khách và đơn. DB đã có khách `PF000001` thì dừng, không seed chồng.
+- Đo: gọi thẳng các store Postgres đã build của `module-crm` (đúng câu SQL API chạy), không qua HTTP, guard,
+  access-decision. Ba phạm vi: toàn bộ (`crm.read.all`), nhóm (6 người), của tôi (1 người). Danh sách: trang 1, trang
+  100 (đi lần lượt bằng con trỏ), tìm theo tên, lọc nhóm khách, kanban, đơn giao trễ. Báo cáo: doanh thu 12 tháng theo
+  từng chiều, chuyển đổi 12 tháng, cảnh báo, công nợ. Mỗi phép đo 5 lần làm nóng, 50 lần đo, in p95 và Đạt/LỖI theo
+  ngưỡng (danh sách 1 giây, báo cáo 5 giây); có phép đo vượt ngưỡng thì mã thoát 1. `--explain` in
+  `EXPLAIN (ANALYZE, BUFFERS)` của câu chậm nhất.
+- Xoá DB thử sau khi đo: `DROP DATABASE "crm_perf_<số>" WITH (FORCE)`.

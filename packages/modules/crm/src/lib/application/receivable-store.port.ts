@@ -67,6 +67,12 @@ export interface FinanceClient {
   createReceiptVoucher(tenantId: string, request: FinanceReceiptVoucherRequest): Promise<FinanceVoucherState>;
   /** Trạng thái phiếu của một lần thu; chưa có phiếu thì `null`. */
   voucherState(tenantId: string, sourceRef: string): Promise<FinanceVoucherState | null>;
+  /**
+   * Huỷ phiếu nháp của một lần thu (T5-15): phiếu còn nháp thì Tài chính huỷ,
+   * đã huỷ thì trả lại trạng thái; chưa có phiếu thì `null`. Phiếu không còn
+   * nháp thì Tài chính từ chối (409).
+   */
+  cancelReceiptVoucher(tenantId: string, sourceRef: string, reason: string): Promise<FinanceVoucherState | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +147,20 @@ export interface ReceivableStore {
   resendReceipt(tenantId: string, id: string, revision: number, changes: ReceiptChanges, actorId: string): Promise<void>;
   /** Bỏ lần thu chưa có phiếu ghi sổ (chờ tạo phiếu bị từ chối, bị trả lại). */
   cancelReceipt(tenantId: string, id: string, revision: number, reason: string, actorId: string): Promise<void>;
+  /**
+   * Phân bổ dòng CREDIT chưa gắn khoản nợ (tiền trả trước) vào khoản nợ của cùng
+   * khách (T5-16): khoá dòng `FOR UPDATE`, không vượt số trả trước còn lại và số
+   * còn nợ. Trả khách hàng của dòng.
+   */
+  /** Khách hàng của một dòng sổ (kiểm phạm vi trước khi ghi). */
+  entryCustomer(tenantId: string, entryId: string): Promise<string | undefined>;
+  applyCredit(
+    tenantId: string,
+    creditEntryId: string,
+    allocations: readonly AllocationInput[],
+    actorId: string,
+    today: string,
+  ): Promise<{ customerId: string }>;
   listAdjustments(tenantId: string, scope: CrmDataScope, filter: AdjustmentFilter): Promise<CrmPage<ReceivableAdjustment>>;
   getAdjustment(tenantId: string, scope: CrmDataScope, id: string): Promise<ReceivableAdjustment | undefined>;
   /** Tạo điều chỉnh Chờ duyệt; trùng `sourceType`/`sourceId` thì trả điều chỉnh đã có (`created = false`). */
@@ -198,4 +218,10 @@ export interface CreditStore {
   returnToDraft(tenantId: string, orderId: string, reason: string, actorId: string | null): Promise<void>;
   /** Yêu cầu đã duyệt mà đơn còn Chờ duyệt hạn mức (job thử giữ hàng lại). */
   approvedAwaitingConfirmation(tenantId: string, limit: number): Promise<{ requestId: string; orderId: string }[]>;
+  /**
+   * Yêu cầu đang chờ mà phiên Quy trình không tạo được nữa (hết số lần thử hoặc
+   * Quy trình từ chối dữ liệu): chuyển sang duyệt trực tiếp, đóng liên kết, báo
+   * người lập (T5-17). Trả số yêu cầu đã chuyển.
+   */
+  redirectFailedProcedures(tenantId: string, limit: number): Promise<number>;
 }

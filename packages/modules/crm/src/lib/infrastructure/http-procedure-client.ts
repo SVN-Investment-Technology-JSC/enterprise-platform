@@ -5,6 +5,15 @@ import { CrmConflictError, CrmError, CrmForbiddenError } from '../domain/crm.err
 export const PROCEDURE_UNAVAILABLE = 'PROCEDURE_UNAVAILABLE';
 export const PROCEDURE_REJECTED = 'PROCEDURE_REJECTED';
 
+/** Trạng thái một hồ sơ khi đối soát. */
+export interface ProcedureInstanceState {
+  readonly instanceId: string;
+  readonly instanceCode: string | null;
+  /** `running`, `completed`, `rejected`, `cancelled`, `reversed`. */
+  readonly status: string;
+  readonly lastActorId: string | null;
+}
+
 export const procedureUnavailable = (message = 'Quy trình đang không khả dụng. Vui lòng thử lại sau.') =>
   new CrmError(PROCEDURE_UNAVAILABLE, message, 503);
 
@@ -63,6 +72,31 @@ export class HttpProcedureClient implements ProcedureClient {
     const body = (await response.json().catch(() => ({}))) as { id?: unknown; code?: unknown };
     if (typeof body.id !== 'string' || !body.id) throw procedureUnavailable('Quy trình không trả mã hồ sơ.');
     return { id: body.id, code: typeof body.code === 'string' ? body.code : null };
+  }
+
+  /**
+   * Đối soát hàng loạt (tối đa 100 hồ sơ): trạng thái và người làm gần nhất, qua
+   * `POST /v1/internal/instances/status` (T3-20). Hồ sơ không còn thì vắng.
+   */
+  async instanceStatuses(tenantId: string, ids: readonly string[]): Promise<ProcedureInstanceState[]> {
+    if (!ids.length) return [];
+    const response = await this.call(this.url('/v1/internal/instances/status'), {
+      method: 'POST',
+      headers: { ...this.serviceHeaders(tenantId), 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ ids: ids.slice(0, 100) }),
+    });
+    if (!response.ok) throw procedureUnavailable(await errorMessage(response, `Quy trình trả mã ${response.status}.`));
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!Array.isArray(body)) throw procedureUnavailable('Quy trình trả dữ liệu đối soát không hợp lệ.');
+    return body
+      .map((entry: { instanceId?: unknown; instanceCode?: unknown; status?: unknown; lastActorId?: unknown }) => ({
+        instanceId: typeof entry?.instanceId === 'string' ? entry.instanceId : '',
+        instanceCode: typeof entry?.instanceCode === 'string' ? entry.instanceCode : null,
+        status: typeof entry?.status === 'string' ? entry.status : '',
+        lastActorId: typeof entry?.lastActorId === 'string' ? entry.lastActorId : null,
+      }))
+      .filter((entry) => entry.instanceId && entry.status);
   }
 
   async publishedDefinition(tenantId: string, definitionId: string): Promise<ProcedureDefinitionOption> {

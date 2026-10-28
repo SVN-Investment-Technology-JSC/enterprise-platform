@@ -1,6 +1,7 @@
 import type {
   AdjustmentActionRequest,
   AdjustmentListQuery,
+  ApplyCreditRequest,
   CreateAdjustmentRequest,
   CreateReceiptRequest,
   CreditDecisionRequest,
@@ -49,6 +50,17 @@ export class ReceivablesController {
   @Get('receivables/customers/:customerId')
   ledger(@Req() request: CrmRequest, @Param('customerId') customerId: string): Promise<CustomerLedger> {
     return runCrm(() => this.receivables.ledger(crmActor(request), customerId));
+  }
+
+  /** Phân bổ tiền trả trước (dòng CREDIT chưa gắn khoản nợ) vào khoản nợ phát sinh sau (T5-16). */
+  @Post('receivables/credits/:entryId/apply')
+  @HttpCode(200)
+  applyCredit(
+    @Req() request: CrmRequest,
+    @Param('entryId') entryId: string,
+    @Body() payload: Payload<ApplyCreditRequest>,
+  ): Promise<CustomerLedger> {
+    return runCrm(() => this.receivables.applyCredit(crmActor(request), entryId, body(payload)));
   }
 
   @Get('receivable-settings')

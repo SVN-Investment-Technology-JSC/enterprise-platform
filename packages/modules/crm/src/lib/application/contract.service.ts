@@ -35,7 +35,7 @@ import {
 } from '../domain/fields.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
 import { assertPaymentTermsBalanced, normalizePaymentTerms } from '../domain/payment-terms.js';
-import { reservationExpiry, reservationIdempotencyKey } from '../domain/sales-order.js';
+import { contractReservationExpiry, reservationIdempotencyKey } from '../domain/sales-order.js';
 import { assertOwnerInScope } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
@@ -322,8 +322,9 @@ export class ContractService {
     lines: readonly ContractLineRecord[],
     today: string,
   ): Promise<ReservedStock> {
-    const holdDays = await this.settings.reservationHoldDays(tenantId);
-    const expiresAt = reservationExpiry({ today, now: this.now(), holdDays, plannedDate: null });
+    // Giữ tới hết ngày kết thúc hợp đồng (T4-17); hợp đồng không thời hạn mới dùng hạn giữ mặc định.
+    const holdDays = contract.validTo ? 0 : await this.settings.reservationHoldDays(tenantId);
+    const expiresAt = contractReservationExpiry({ validTo: contract.validTo, today, now: this.now(), holdDays });
     for (let round = 0; round < 2; round += 1) {
       const attempt = await this.contracts.reserveAttempt(tenantId, contract.id);
       let reserved: ReservedStock;

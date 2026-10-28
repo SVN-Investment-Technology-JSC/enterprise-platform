@@ -179,6 +179,7 @@ export const RECEIVABLE_ACTION_LABELS: Readonly<Record<string, string>> = {
   reverse: 'Phiếu thu bị đảo',
   cancel: 'Huỷ',
   approve: 'Duyệt',
+  'apply-credit': 'Phân bổ tiền trả trước',
 };
 
 /** Nhãn thao tác trên báo giá (nhật ký, dòng thời gian). */
@@ -193,5 +194,6 @@ export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {
   decline: 'Khách từ chối',
   expire: 'Hết hạn',
   convert: 'Chuyển thành hợp đồng, đơn',
+  'procedure-reversed': 'Quy trình thu hồi kết quả duyệt',
 };
 

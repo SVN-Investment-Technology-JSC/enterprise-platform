@@ -31,7 +31,13 @@ import {
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
 import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
-import { applyQuoteProcedureResult, PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
+import {
+  applyQuoteProcedureResult,
+  applyQuoteProcedureReversed,
+  PostgresApprovalLinks,
+  reconcileRunningLinks,
+} from './infrastructure/quote-procedure-links.js';
+import type { ProcedureInstanceState } from './infrastructure/http-procedure-client.js';
 
 const integration = crmIntegrationEnabled() ? describe : describe.skip;
 
@@ -411,5 +417,93 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     await expect(
       settings.saveApprovalSettings(admin, { roleLimits: { staff: 7, teamLead: 15, manager: null }, minMarginPercent: 8 }),
     ).resolves.toEqual({ roleLimits: { staff: 7, teamLead: 15, manager: null }, minMarginPercent: 8 });
+  });
+
+  it('TC-INT-03 (T3-19): Quy trình thu hồi phiên đã duyệt: báo giá chưa chuyển hợp đồng về Từ chối duyệt, nhận lặp bỏ qua', async () => {
+    await settings.saveBinding(admin, 'QUOTE', { mode: 'PROCEDURE', procedureDefinitionId: procedure.definition.id });
+    const draft = await draftQuote(12);
+    await quotes.submit(nv1, draft.id, 1, { revision: draft.version.revision });
+    const [link] = await linksOf(draft.id);
+    // Chưa áp kết quả thì thu hồi không làm gì.
+    const reversed = { sourceType: 'crm_quote', sourceId: link.id, instanceId: link.instance_id, reason: 'Duyệt nhầm', reversedBy: TN };
+    await expect(applyQuoteProcedureReversed(handle.database, tenantId, reversed)).resolves.toBe('ignored');
+    await applyQuoteProcedureResult(handle.database, tenantId, { sourceType: 'crm_quote', sourceId: link.id, instanceId: link.instance_id, status: 'completed', actorId: TN });
+    const approved = await quotes.get(nv1, draft.id);
+    await quotes.send(nv1, draft.id, 1, { revision: approved.version.revision });
+    await expect(applyQuoteProcedureReversed(handle.database, tenantId, reversed)).resolves.toBe('applied');
+    await expect(applyQuoteProcedureReversed(handle.database, tenantId, reversed)).resolves.toBe('ignored');
+    const detail = await quotes.get(nv1, draft.id);
+    expect(detail).toMatchObject({ status: 'REJECTED', version: { status: 'REJECTED', decisionReason: 'Quy trình đã thu hồi: Duyệt nhầm' } });
+    expect(detail.history[0]).toMatchObject({ action: 'procedure-reversed', actorId: TN, fromStatus: 'SENT', toStatus: 'REJECTED' });
+
+    // Đã chuyển hợp đồng: không đổi (reversal-check đã chặn từ trước).
+    const converted = await draftQuote(12);
+    await quotes.submit(nv1, converted.id, 1, { revision: converted.version.revision });
+    const [other] = await linksOf(converted.id);
+    await applyQuoteProcedureResult(handle.database, tenantId, { sourceType: 'crm_quote', sourceId: other.id, status: 'completed' });
+    await handle.pool.query(`UPDATE crm_schema.quotes SET converted_at = now() WHERE id = $1`, [converted.id]);
+    await expect(applyQuoteProcedureReversed(handle.database, tenantId, { sourceType: 'crm_quote', sourceId: other.id })).resolves.toBe('ignored');
+    expect((await quotes.get(nv1, converted.id)).status).toBe('APPROVED');
+  });
+
+  it('TC-INT-04 (T3-20): lỡ mất sự kiện kết quả: job hỏi Quy trình phiên chạy lâu rồi áp như consumer', async () => {
+    await settings.saveBinding(admin, 'QUOTE', { mode: 'PROCEDURE', procedureDefinitionId: procedure.definition.id });
+    const done = await draftQuote(12);
+    await quotes.submit(nv1, done.id, 1, { revision: done.version.revision });
+    const running = await draftQuote(12);
+    await quotes.submit(nv1, running.id, 1, { revision: running.version.revision });
+    const [doneLink] = await linksOf(done.id);
+    const [runningLink] = await linksOf(running.id);
+    const asked: string[][] = [];
+    const reader = {
+      instanceStatuses: async (_tenantId: string, ids: readonly string[]): Promise<ProcedureInstanceState[]> => {
+        asked.push([...ids]);
+        return ids.map((id) => ({ instanceId: id, instanceCode: 'HS-X', status: id === doneLink.instance_id ? 'rejected' : 'running', lastActorId: TN }));
+      },
+    };
+    // Mới chạy: chưa hỏi.
+    expect(await reconcileRunningLinks(handle.database, reader, tenantId)).toEqual([]);
+    expect(asked).toEqual([]);
+    await handle.pool.query(`UPDATE crm_schema.procedure_links SET updated_at = now() - interval '10 minutes' WHERE id = ANY($1::uuid[])`, [[doneLink.id, runningLink.id]]);
+    const finished = await reconcileRunningLinks(handle.database, reader, tenantId);
+    expect(asked[0]).toEqual(expect.arrayContaining([doneLink.instance_id, runningLink.instance_id]));
+    expect(finished).toEqual([expect.objectContaining({ sourceType: 'crm_quote', sourceId: doneLink.id, status: 'rejected', actorId: TN })]);
+    for (const event of finished) await applyQuoteProcedureResult(handle.database, tenantId, event);
+    expect((await quotes.get(nv1, done.id)).version.status).toBe('REJECTED');
+    expect((await quotes.get(nv1, running.id)).status).toBe('PENDING');
+    // Phiên còn chạy được đẩy mốc, lượt sau chưa hỏi lại.
+    expect(await reconcileRunningLinks(handle.database, reader, tenantId)).toEqual([]);
+    expect(asked).toHaveLength(1);
+  });
+
+  it('TC-SM-04, TC-OPP-05 (T3-21): cơ hội chuyển Thua: mọi báo giá chưa kết thúc sang Khách từ chối, phiên Quy trình đóng', async () => {
+    await settings.saveBinding(admin, 'QUOTE', { mode: 'PROCEDURE', procedureDefinitionId: procedure.definition.id });
+    const opportunity = await opportunities.create(nv1, { customerId, name: 'Dự án thua' });
+    for (const stage of ['CONTACTED', 'DISCOVERY', 'QUOTING'] as const) await opportunities.changeStage(nv1, opportunity.id, { stage });
+    const [draftId] = (await quotes.list(nv1, { opportunityId: opportunity.id })).items.map((item) => item.id);
+    // Báo giá thứ hai của cơ hội đang Chờ duyệt qua Quy trình; thứ ba đã Khách chấp nhận thì giữ nguyên.
+    const pendingQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    const withLine = await quotes.addLine(nv1, pendingQuote.id, 1, { revision: pendingQuote.version.revision, materialId: CAP, quantity: 10, overrideDiscountPercent: 12 });
+    await quotes.submit(nv1, pendingQuote.id, 1, { revision: withLine.version.revision });
+    const acceptedQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    let accepted = await quotes.addLine(nv1, acceptedQuote.id, 1, { revision: acceptedQuote.version.revision, materialId: CAP, quantity: 1 });
+    accepted = await quotes.submit(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
+    accepted = await quotes.send(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
+    await quotes.accept(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
+
+    await opportunities.changeStage(nv1, opportunity.id, { stage: 'LOST', reason: 'Khách chọn đối thủ' });
+    for (const id of [draftId, pendingQuote.id]) {
+      const detail = await quotes.get(nv1, id);
+      expect(detail).toMatchObject({ status: 'DECLINED', version: { status: 'DECLINED', decisionReason: 'Cơ hội đã thua' } });
+      expect(detail.history[0]).toMatchObject({ action: 'decline', toStatus: 'DECLINED', reason: 'Cơ hội đã thua', actorId: NV1 });
+    }
+    expect((await quotes.get(nv1, acceptedQuote.id)).status).toBe('ACCEPTED');
+    const [link] = await linksOf(pendingQuote.id);
+    expect(link).toMatchObject({ status: 'CLOSED', result_reason: 'Cơ hội đã thua' });
+    // Kết quả Quy trình đến sau bị bỏ qua.
+    await expect(
+      applyQuoteProcedureResult(handle.database, tenantId, { sourceType: 'crm_quote', sourceId: link.id, status: 'completed' }),
+    ).resolves.toBe('ignored');
+    expect((await quotes.get(nv1, pendingQuote.id)).status).toBe('DECLINED');
   });
 });

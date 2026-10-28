@@ -314,10 +314,11 @@ function IntakeDialog({
   );
 }
 
-/** Kho cách ly nhận hàng bảo hành, kho lỗi nhận hàng kiểm định Lỗi (`crm.manage`). */
+/** Kho cách ly nhận hàng bảo hành, kho lỗi nhận hàng kiểm định Lỗi, kho nhập lại hàng Đạt (`crm.manage`). */
 function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
   const [quarantine, setQuarantine] = useState('');
   const [defect, setDefect] = useState('');
+  const [restock, setRestock] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -326,6 +327,7 @@ function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
       .then((settings) => {
         setQuarantine(settings.quarantineWarehouseCode);
         setDefect(settings.defectWarehouseCode);
+        setRestock(settings.restockWarehouseCode);
       })
       .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình.')));
   }, []);
@@ -334,7 +336,11 @@ function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(undefined);
     try {
-      await saveWarrantySettings({ quarantineWarehouseCode: quarantine.trim(), defectWarehouseCode: defect.trim() });
+      await saveWarrantySettings({
+        quarantineWarehouseCode: quarantine.trim(),
+        defectWarehouseCode: defect.trim(),
+        restockWarehouseCode: restock.trim(),
+      });
       toast.success('Đã lưu kho bảo hành.');
       onClose();
     } catch (cause) {
@@ -352,6 +358,9 @@ function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
         </Field>
         <Field label="Kho lỗi" required hint="Hàng kiểm định Lỗi chuyển sang">
           <input className={styles.input} maxLength={50} value={defect} onChange={(event) => setDefect(event.target.value.toUpperCase())} />
+        </Field>
+        <Field label="Kho nhập lại hàng Đạt" required hint="Dùng khi không biết kho đã xuất serial, dòng hàng">
+          <input className={styles.input} maxLength={50} value={restock} onChange={(event) => setRestock(event.target.value.toUpperCase())} />
         </Field>
       </div>
     </CrmDialog>

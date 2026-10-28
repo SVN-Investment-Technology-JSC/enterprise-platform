@@ -1714,6 +1714,9 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      xlsx:
+        specifier: ^0.18.5
+        version: 0.18.5
 
   packages/features/finance:
     dependencies:

@@ -113,6 +113,21 @@ export function reservationExpiry(input: {
   return endOfVietnamDay(addDays(input.today, Math.max(1, input.holdDays)));
 }
 
+/**
+ * Hạn giữ hàng của hợp đồng (T4-17, CON-05): hết ngày kết thúc hợp đồng (giờ
+ * Việt Nam), không dùng `reservation.holdDays`. Hợp đồng không có ngày kết thúc
+ * thì theo hạn giữ mặc định như đơn bán.
+ */
+export function contractReservationExpiry(input: {
+  readonly validTo: string | null;
+  readonly today: string;
+  readonly now: Date;
+  readonly holdDays: number;
+}): string {
+  if (input.validTo) return endOfVietnamDay(input.validTo);
+  return reservationExpiry({ today: input.today, now: input.now, holdDays: input.holdDays, plannedDate: null });
+}
+
 /** Tiến độ giao của đơn sau khi áp một chứng từ xuất (hoặc chứng từ đảo). */
 export interface DeliveryProgress {
   /** Mọi dòng đã giao đủ số lượng. */

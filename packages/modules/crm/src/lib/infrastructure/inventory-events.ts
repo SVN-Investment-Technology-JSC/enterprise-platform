@@ -18,6 +18,7 @@ import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { CONTRACT_AUDIT_ENTITY } from './postgres-contract.store.js';
 import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
+import { recordSalesFacts, salesFactSnapshot } from './sales-facts.js';
 import {
   lockOrder,
   markServiceLinesDelivered,
@@ -99,6 +100,7 @@ export async function applyStockIssued(
     if (!orderId) return 'ignored';
     await lockOrder(client, orderId, null);
     const deliveredBefore = await deliveredSnapshot(client, orderId);
+    const factsBefore = await salesFactSnapshot(client, orderId);
     const delivery = (
       await client.query<{ code: string; status: string }>(
         `SELECT code, status FROM crm_schema.delivery_plans WHERE id = $1 FOR UPDATE`,
@@ -214,6 +216,18 @@ export async function applyStockIssued(
       await client.query(`UPDATE crm_schema.delivery_plans SET status = 'REVERSED', updated_at = now() WHERE id = $1`, [deliveryId]);
       await markServiceLinesDelivered(client, deliveryId, -1);
     }
+    // Dòng giao cho báo cáo doanh thu (T7-01): chứng từ đảo ghi dòng âm.
+    await recordSalesFacts(client, {
+      orderId,
+      deliveryId,
+      before: factsBefore,
+      sourceType: 'stock_issue',
+      documentId,
+      documentCode: payload.documentCode ?? null,
+      reversesDocumentId: reversesId,
+      deliveredAt: isoOrNull(payload.postedAt),
+      deliveredDate: vietnamDateOf(payload.postedAt),
+    });
     // Ghi nợ theo phần vừa giao (D3, T5-04) trước khi xét tự Hoàn tất.
     await recognizeOrderDelivery(client, {
       orderId,

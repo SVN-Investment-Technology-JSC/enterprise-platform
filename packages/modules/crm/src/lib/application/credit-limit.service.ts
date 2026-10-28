@@ -108,6 +108,14 @@ export class CreditApprovalService {
     }
   }
 
+  /**
+   * Job (T5-17): phiên Quy trình duyệt vượt hạn mức lỗi vĩnh viễn thì yêu cầu
+   * chuyển sang duyệt trực tiếp trong Bán hàng và báo người lập.
+   */
+  redirectFailedProcedures(tenantId: string, limit = 20): Promise<number> {
+    return this.store.redirectFailedProcedures(tenantId, limit);
+  }
+
   /** Job: yêu cầu đã duyệt mà đơn còn Chờ duyệt hạn mức (lần giữ hàng trước lỗi hạ tầng). */
   async retryApproved(tenantId: string, limit = 20): Promise<number> {
     const due = await this.store.approvedAwaitingConfirmation(tenantId, limit);

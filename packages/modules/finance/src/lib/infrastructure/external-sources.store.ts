@@ -11,10 +11,12 @@ import {
   type FinanceVoucherSourceStatus,
 } from '@enterprise-platform/contracts-finance';
 import type { FinanceActor } from '../domain/finance.access.js';
+import { FINANCE_SYSTEM_ACTOR_ID } from '../domain/procedure-attributes.js';
 import { conflict, invalid, notFound } from '../domain/finance.error.js';
 import { isValidDate, type NormalizedVoucher } from '../domain/voucher.rules.js';
 import { iso, num, todayVn, type Db } from './finance.database.js';
 import { addEvent, allocationColumns, createVoucher, type ResolvedWorkspaceLinks, type Row } from './vouchers.store.js';
+import { closeWithoutPosting } from './voucher-workflow.js';
 
 /**
  * Phiếu có nguồn do phân hệ khác yêu cầu qua API nội bộ (trước mắt: phiếu thu từ lần thu tiền của Bán hàng).
@@ -335,4 +337,46 @@ export async function externalSourceState(db: Db, tenantId: string, sourceModule
 /** Trạng thái theo phiếu (trả cho bên gọi sau khi tạo), cùng hình dạng với `externalSourceState`. */
 export async function externalSourceStateOfVoucher(db: Db, tenantId: string, voucherId: string): Promise<FinanceVoucherSourceState> {
   return stateOf((await db.query(`${STATE_SELECT} WHERE s.tenant_id=$1 AND s.voucher_id=$2`, [tenantId, voucherId])).rows[0] as Row | undefined);
+}
+
+/**
+ * Bên nguồn huỷ bản ghi nguồn (Bán hàng huỷ lần thu bị trả lại, T5-15): phiếu còn nháp thì ĐÃ HUỶ (không bút toán), nguồn đóng.
+ * Gọi lại với phiếu đã huỷ trả trạng thái hiện tại (idempotent). Phiếu đã gửi duyệt hoặc đã ghi sổ thì 409: kế toán xử lý bên Tài chính.
+ */
+export async function cancelExternalSource(
+  db: Db,
+  tenantId: string,
+  sourceModule: string,
+  sourceRef: string,
+  reason: string | null,
+): Promise<FinanceVoucherSourceState> {
+  if (!(FINANCE_EXTERNAL_SOURCE_MODULES as readonly string[]).includes(sourceModule)) throw invalid('Phân hệ nguồn không hợp lệ.');
+  const source = (
+    await db.query(`SELECT voucher_id, instance_code FROM finance_schema.voucher_sources WHERE tenant_id=$1 AND source_module=$2 AND source_ref=$3 FOR UPDATE`, [
+      tenantId,
+      sourceModule,
+      sourceRef,
+    ])
+  ).rows[0] as Row | undefined;
+  if (!source) throw notFound('phiếu của bản ghi nguồn');
+  const voucherId = String(source.voucher_id);
+  const voucher = (await db.query(`SELECT code, status FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, voucherId]))
+    .rows[0] as Row | undefined;
+  if (!voucher) throw notFound('phiếu của bản ghi nguồn');
+  if (voucher.status === 'DRAFT') {
+    const label = SOURCE_MODULE_LABELS[sourceModule as FinanceExternalSourceModule];
+    const note = `${String(source.instance_code)} đã bị huỷ bên ${label}${reason?.trim() ? `: ${reason.trim()}` : ''}`.slice(0, 2000);
+    await closeWithoutPosting(db, tenantId, voucherId, 'CANCELLED', { userId: FINANCE_SYSTEM_ACTOR_ID, displayName: label }, note);
+    await db.query(
+      `UPDATE finance_schema.voucher_sources SET status='CLOSED', handling_by=NULL, handling_by_name=NULL, handling_since=NULL, updated_at=now()
+        WHERE tenant_id=$1 AND voucher_id=$2`,
+      [tenantId, voucherId],
+    );
+  } else if (voucher.status !== 'CANCELLED') {
+    throw conflict(
+      'FINANCE_SOURCE_NOT_CANCELLABLE',
+      `Phiếu ${String(voucher.code)} không còn là nháp (đã gửi duyệt hoặc đã ghi sổ); huỷ hoặc đảo phiếu bên Tài chính.`,
+    );
+  }
+  return externalSourceStateOfVoucher(db, tenantId, voucherId);
 }

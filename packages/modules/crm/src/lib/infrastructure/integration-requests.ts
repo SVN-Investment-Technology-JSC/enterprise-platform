@@ -49,6 +49,29 @@ export async function enqueueReceiptVoucher(client: CrmSqlClient, receiptId: str
   );
 }
 
+/** Thao tác huỷ phiếu thu nháp ở Tài chính khi lần thu bị huỷ (T5-15). */
+export const RECEIPT_VOUCHER_CANCEL_OPERATION = 'voucher-source.cancel';
+
+interface ReceiptVoucherCancelPayload {
+  readonly receiptId: string;
+  readonly reason: string;
+}
+
+/**
+ * Xếp lệnh huỷ phiếu thu nháp ở Tài chính trong transaction huỷ lần thu. Khoá
+ * `crm-receipt-cancel:<id>`: huỷ một lần thu chỉ một lệnh; Tài chính huỷ cũng
+ * idempotent (phiếu đã huỷ trả lại trạng thái).
+ */
+export async function enqueueReceiptVoucherCancel(client: CrmSqlClient, receiptId: string, reason: string): Promise<void> {
+  const payload: ReceiptVoucherCancelPayload = { receiptId, reason };
+  await client.query(
+    `INSERT INTO crm_schema.integration_requests (target, operation, idempotency_key, payload)
+     VALUES ('finance', $1, $2, $3::jsonb)
+     ON CONFLICT (idempotency_key) DO NOTHING`,
+    [RECEIPT_VOUCHER_CANCEL_OPERATION, `crm-receipt-cancel:${receiptId}`, JSON.stringify(payload)],
+  );
+}
+
 /**
  * Gửi lệnh đã xếp sang Kho, Tài chính. Giành lease ngắn để hai tiến trình (API vừa huỷ
  * đơn, worker) không cùng gửi; thành công thì SUCCEEDED; lỗi hạ tầng thì
@@ -64,12 +87,18 @@ export class PostgresIntegrationRequests implements IntegrationDispatcher {
 
   /** Chỉ nhận lệnh mà tiến trình này gửi được (không có client Tài chính thì để lệnh phiếu thu cho nơi khác). */
   private operations(): string[] {
-    return this.finance ? [RESERVATION_RELEASE_OPERATION, RECEIPT_VOUCHER_OPERATION] : [RESERVATION_RELEASE_OPERATION];
+    return this.finance
+      ? [RESERVATION_RELEASE_OPERATION, RECEIPT_VOUCHER_OPERATION, RECEIPT_VOUCHER_CANCEL_OPERATION]
+      : [RESERVATION_RELEASE_OPERATION];
   }
 
   async dispatch(tenantId: string, limit = 20): Promise<number> {
     const pool = await this.database.pool(tenantId);
-    const claimed = await pool.query<{ id: string; operation: string; payload: { reservationCode?: string } & Partial<ReceiptVoucherPayload> }>(
+    const claimed = await pool.query<{
+      id: string;
+      operation: string;
+      payload: { reservationCode?: string; reason?: string } & Partial<ReceiptVoucherPayload>;
+    }>(
       `UPDATE crm_schema.integration_requests r
           SET status = 'PROCESSING', attempts = attempts + 1, lease_until = now() + ($1 || ' seconds')::interval,
               updated_at = now()
@@ -97,6 +126,9 @@ export class PostgresIntegrationRequests implements IntegrationDispatcher {
               WHERE id = $1 AND idempotency_key = $2`,
             [row.payload.receiptId, row.payload.request.idempotencyKey, state.voucherId, state.voucherCode],
           );
+        } else if (row.operation === RECEIPT_VOUCHER_CANCEL_OPERATION && this.finance && row.payload?.receiptId) {
+          // Chưa có phiếu (404) thì không còn gì để huỷ.
+          await this.finance.cancelReceiptVoucher(tenantId, row.payload.receiptId, row.payload.reason ?? 'Lần thu đã huỷ bên Bán hàng.');
         } else if (row.operation === RESERVATION_RELEASE_OPERATION && row.payload?.reservationCode) {
           await this.inventory.release(tenantId, row.payload.reservationCode);
         } else {

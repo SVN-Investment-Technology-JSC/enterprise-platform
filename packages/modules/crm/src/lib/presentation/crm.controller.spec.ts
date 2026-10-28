@@ -14,13 +14,14 @@ const ACTOR: CrmActor = {
 };
 
 describe('CrmController', () => {
-  it('status trả mức sẵn sàng và đúng cờ quyền của actor, không kèm danh tính', async () => {
+  it('status trả mức sẵn sàng, người dùng hiện tại và đúng cờ quyền của actor (cờ quyền không kèm danh tính)', async () => {
     const schemaStatus = jest.fn().mockResolvedValue({ schemaExists: true, tablesReady: true });
     const controller = new CrmController({ schemaStatus });
     const status = await controller.status({ crmActor: ACTOR });
     expect(schemaStatus).toHaveBeenCalledWith('t1');
     expect(status).toEqual({
       tenantId: 't1',
+      userId: 'u1',
       schemaExists: true,
       tablesReady: true,
       capabilities: { ...CRM_NO_CAPABILITIES, canWriteOpportunity: true, canWriteQuote: true },

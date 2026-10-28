@@ -75,17 +75,19 @@ export function normalizeProbability(value: unknown, fallback = 0): number {
 /**
  * Tác động phụ của việc chuyển sang `to` (mục 5.1 kế hoạch, T3-14), store làm
  * trong cùng transaction: sang Báo giá tạo nháp báo giá hạn hiệu lực mặc định
- * tính từ `today` nếu chưa có; sang Thắng cần báo giá Khách chấp nhận.
+ * tính từ `today` nếu chưa có; sang Thắng cần báo giá Khách chấp nhận; sang
+ * Thua thì báo giá chưa kết thúc sang Khách từ chối (T3-21).
  */
 export function stageSideEffects(
   to: OpportunityStage,
   today: string,
-): { draftQuoteValidUntil?: string; requireAcceptedQuote?: boolean } {
+): { draftQuoteValidUntil?: string; requireAcceptedQuote?: boolean; declineOpenQuotes?: boolean } {
   if (to === 'QUOTING') {
     const date = new Date(`${today}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + QUOTE_DEFAULT_VALIDITY_DAYS);
     return { draftQuoteValidUntil: date.toISOString().slice(0, 10) };
   }
   if (to === 'WON') return { requireAcceptedQuote: true };
+  if (to === 'LOST') return { declineOpenQuotes: true };
   return {};
 }
