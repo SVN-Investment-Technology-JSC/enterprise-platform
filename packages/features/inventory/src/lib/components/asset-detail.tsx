@@ -14,6 +14,10 @@ import {
   updateAsset,
   loadMaintenanceHistoryForAsset,
   createMaintenanceIncidentForAsset,
+  loadMaintenanceSchedulesForAsset,
+  maintenanceFrequencyLabel,
+  maintenanceScheduleStatusLabel,
+  type MaintenanceScheduleSummary,
 } from '../inventory-api';
 import {
   ASSET_CRITICALITY_LABEL,
@@ -85,21 +89,7 @@ export function AssetDetail({
   const [error, setError] = useState<string>();
   const [showQrModal, setShowQrModal] = useState(false);
 
-  // Default specs fallback if none
-  const specs = Object.entries(
-    asset.specs && Object.keys(asset.specs).length > 0
-      ? asset.specs
-      : {
-          'Model / Ký hiệu': asset.code,
-          'Số Serial': asset.serialNumber ?? 'SN-2024-8892',
-          'Vật liệu chế tạo': 'Thép hợp kim chống mài mòn / Nitrile Rubber NBR',
-          'Kích thước danh định': '120 × 12.9 mm × 15.20 mm',
-          'Nhiệt độ vận hành': '-20°C ~ +85°C',
-          'Áp suất định mức': '100 Bar / 10 MPa',
-          'Nhà sản xuất': 'Siemens AG / SKF Industrial',
-          'Năm lắp đặt & đưa vào vận hành': '2024',
-        },
-  );
+  const specs = Object.entries(asset.specs ?? {});
   const taskTemplate = asset.taskTemplate ?? [];
 
   // Tự động đóng các form chỉnh sửa (thông số, tổng quan, đầu việc) khi chuyển sang node khác trên cây
@@ -197,52 +187,21 @@ export function AssetDetail({
     };
   }, [asset.code]);
 
-  // Bộ nhớ lưu trữ nhật ký theo từng mã tài sản (Map assetCode -> IncidentLogRecord[])
-  // Chỉ tài sản mẫu hệ thống (AST-001) mới có sẵn demo logs, vật tư mới lắp vào cây sẽ trống hoàn toàn.
-  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({
-    'AST-001': [
-      {
-        id: 'log-1',
-        date: '10/08/2026',
-        title: 'Hoàn thành Đại tu định kỳ Cấp 2',
-        badge: 'Bảo trì định kỳ',
-        badgeType: 'success',
-        desc: 'Thực hiện theo Lệnh sửa chữa WO-2026-0412. Đã thay thế phớt chắn dầu, bơm dầu bôi trơn mới và cân chỉnh độ đồng tâm trục.',
-        actor: 'KTV. Nguyễn Văn A (Đội Cơ điện 1)',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-2',
-        date: '15/06/2026',
-        title: 'Cảnh báo nhiệt độ ổ trục tăng nhẹ (+3°C)',
-        badge: 'Cảnh báo thông số',
-        badgeType: 'warn',
-        desc: 'Hệ thống cảm biến SCADA ghi nhận nhiệt độ tăng trong ca 2. Kỹ thuật viên đã kiểm tra tại hiện trường và bổ sung mỡ bôi trơn chịu nhiệt.',
-        actor: 'KTV. Trần Văn B',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-3',
-        date: '20/03/2026',
-        title: 'Thay thế định kỳ phớt làm kín Sealing Ring',
-        badge: 'Thay thế phụ tùng',
-        badgeType: 'info',
-        desc: 'Xuất kho phụ tùng SKU-MTR-001 thay thế theo chu kỳ 6 tháng. Thiết bị hoạt động ổn định sau khi lắp ráp.',
-        actor: 'KTV. Lê Hoàng C',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-4',
-        date: '01/11/2025',
-        title: 'Đưa vào vận hành chính thức (Commissioning)',
-        badge: 'Bàn giao nghiệm thu',
-        badgeType: 'info',
-        desc: 'Nghiệm thu đóng điện và chạy tải 72 giờ không sự cố tại Phân xưởng 1 (Factory Plant 1).',
-        actor: 'Hội đồng Nghiệm thu Kỹ thuật',
-        source: 'inventory_local',
-      },
-    ],
-  });
+  // Lịch bảo trì định kỳ của thiết bị, đọc từ phân hệ Bảo trì. undefined = chưa tải hoặc không đọc được.
+  const [maintenanceSchedules, setMaintenanceSchedules] = useState<MaintenanceScheduleSummary[] | null>();
+  useEffect(() => {
+    let active = true;
+    setMaintenanceSchedules(undefined);
+    void loadMaintenanceSchedulesForAsset(asset.code).then((schedules) => {
+      if (active) setMaintenanceSchedules(schedules ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [asset.code]);
+
+  // Nhật ký nội bộ ghi trong phiên làm việc, theo từng mã tài sản.
+  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({});
 
   const currentAssetLogs = useMemo(
     () => historyLogsByAsset[asset.code] ?? [],
@@ -362,30 +321,6 @@ export function AssetDetail({
     }
   };
 
-  // Mock Maintenance Plans
-  const maintenancePlans = [
-    {
-      level: 'Cấp 1 — Bảo dưỡng hàng tháng (200 giờ)',
-      cycle: '1 tháng / lần',
-      tasks: ['Kiểm tra rung chấn và nhiệt độ bề mặt', 'Kiểm tra mức dầu bôi trơn và độ kín phớt', 'Xiết chặt bulong liên kết chân máy'],
-      duration: '45 phút',
-      status: 'Định kỳ',
-    },
-    {
-      level: 'Cấp 2 — Bảo dưỡng định kỳ 6 tháng (1,200 giờ)',
-      cycle: '6 tháng / lần',
-      tasks: ['Thay mới dầu thủy lực & lọc dầu', 'Kiểm tra độ mòn phớt làm kín Sealing Ring', 'Hiệu chuẩn cảm biến áp suất và rơ le bảo vệ'],
-      duration: '180 phút',
-      status: 'Sắp đến hạn (20 ngày)',
-    },
-    {
-      level: 'Cấp 3 — Đại tu toàn diện hàng năm (5,000 giờ)',
-      cycle: '12 tháng / lần',
-      tasks: ['Tháo rã toàn bộ cụm ổ đỡ & rotor', 'Kiểm tra khuyết tật bằng phương pháp không phá hủy (NDT)', 'Thay thế toàn bộ gioăng phớt, bạc lót và cân bằng động'],
-      duration: '2 ngày',
-      status: 'Kế hoạch Q4/2026',
-    },
-  ];
 
   return (
     <div className={styles.assetWorkspaceCard}>
@@ -800,6 +735,9 @@ export function AssetDetail({
               </div>
             ) : (
               <div style={{ display: 'grid', gap: '8px' }}>
+                {specs.length === 0 ? (
+                  <span style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Chưa khai báo thông số kỹ thuật.</span>
+                ) : null}
                 {specs.map(([key, value]) => (
                   <div
                     key={key}
@@ -839,16 +777,6 @@ export function AssetDetail({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà máy trực thuộc</span>
-                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Factory (Plant 1)</div>
-                </div>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Phân khu lắp đặt</span>
-                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Khu vực Turbine T1</div>
-                </div>
-              </div>
             </div>
           </section>
         </div>
@@ -1069,27 +997,32 @@ export function AssetDetail({
             </div>
 
             <div style={{ display: 'grid', gap: '12px', marginTop: '12px' }}>
-              {maintenancePlans.map((plan, index) => (
-                <div key={index} style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--pe-border-subtle)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div>
-                      <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{plan.level}</strong>
-                      <span style={{ marginLeft: '8px', fontSize: '13px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.cycle})</span>
+              {maintenanceSchedules === undefined ? (
+                <span style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Đang tải lịch bảo trì…</span>
+              ) : maintenanceSchedules === null ? (
+                <span style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Không đọc được lịch từ phân hệ Bảo trì.</span>
+              ) : maintenanceSchedules.length === 0 ? (
+                <span style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Thiết bị chưa có lịch bảo trì định kỳ.</span>
+              ) : (
+                maintenanceSchedules.map((schedule) => (
+                  <div key={schedule.id} style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--pe-border-subtle)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{schedule.title}</strong>
+                        <span style={{ marginLeft: '8px', fontSize: '13px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({maintenanceFrequencyLabel(schedule.frequency)})</span>
+                      </div>
+                      <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '12px' }}>
+                        {maintenanceScheduleStatusLabel(schedule.status)}
+                      </span>
                     </div>
-                    <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '12px' }}>
-                      {plan.status}
-                    </span>
+                    {schedule.nextDueAt ? (
+                      <div style={{ marginTop: '6px', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
+                        Kỳ tiếp theo: <strong>{formatDate(schedule.nextDueAt)}</strong>
+                      </div>
+                    ) : null}
                   </div>
-                  <ul style={{ margin: '6px 0 10px', paddingLeft: '20px', fontSize: '13px', color: 'var(--pe-text-secondary)' }}>
-                    {plan.tasks.map((t, idx) => (
-                      <li key={idx} style={{ marginBottom: '3px' }}>{t}</li>
-                    ))}
-                  </ul>
-                  <div style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>
-                    Thời gian dự kiến: <strong>{plan.duration}</strong> · Yêu cầu: <strong>2 Kỹ thuật viên</strong>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
 

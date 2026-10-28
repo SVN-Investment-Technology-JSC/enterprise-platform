@@ -7,8 +7,6 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import {
   X,
-  Paperclip,
-  Upload,
   Search,
   Plus,
   Trash2,
@@ -29,6 +27,7 @@ import type {
   ProcedureWorkOrder,
 } from '../inventory-api';
 import { loadLots } from '../inventory-api';
+import { trackingModeOf, type MaterialTrackingMode } from '../material-tracking';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
 import styles from '../inventory.module.scss';
@@ -91,8 +90,8 @@ export interface MovementInput {
   readonly movementDate?: string;
   /** Quy trình sẽ mở work order cho lệnh này. Bỏ trống thì không mở. */
   readonly procedureDefinitionId?: string;
-  /** Tệp tài liệu / chứng từ đính kèm (hoá đơn, phiếu giao nhận, biên bản...) */
-  readonly attachmentFile?: File;
+  /** Bộ phận / khách hàng nhận hàng khi xuất kho không lắp vào tài sản; ghi vào ghi chú phiếu. */
+  readonly recipient?: { readonly kind: 'department' | 'customer'; readonly name: string };
   /** Số sê-ri khai kèm phiếu nhập đơn lẻ. */
   readonly serialNumbers?: readonly string[];
   /** Mã thiết bị đích khi xuất lắp đặt/thay thế phụ tùng (cộng vào 'Đang sử dụng' thay vì xuất tiêu hao) */
@@ -131,12 +130,8 @@ function parseSerials(draft: string): string[] {
 }
 
 /** Mỗi vật tư chỉ có một cách định danh: sê-ri, lô, hoặc theo dõi số lượng thuần. */
-function getTrackingMode(material?: Material): 'SERIAL' | 'LOT' | 'NONE' {
-  if (!material) return 'NONE';
-  if (material.isSerialized) return 'SERIAL';
-  return material.category === 'CONSUMABLE' || material.code.includes('DAU') || material.code.includes('CAP') || material.code === 'VT-001'
-    ? 'LOT'
-    : 'NONE';
+function getTrackingMode(material?: Material): MaterialTrackingMode {
+  return trackingModeOf(material);
 }
 
 /**
@@ -403,8 +398,7 @@ export function MovementForm({
   const [targetAssetCode, setTargetAssetCode] = useState<string>('');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
   const [note, setNote] = useState(initialNote ?? '');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [recipientName, setRecipientName] = useState('');
   const [showExcelImport, setShowExcelImport] = useState(false);
 
   // Danh sách các dòng vật tư trong phiếu
@@ -755,8 +749,11 @@ export function MovementForm({
       toWarehouseCode: kind === 'transfer' ? toWarehouseCode : undefined,
       note: note.trim(),
       procedureDefinitionId: procedureDefinitionId || undefined,
-      attachmentFile: selectedFile || undefined,
       targetAssetCode: kind === 'issue' && issueTargetType === 'asset' ? targetAssetCode : undefined,
+      recipient:
+        kind === 'issue' && issueTargetType !== 'asset' && recipientName.trim()
+          ? { kind: issueTargetType, name: recipientName.trim() }
+          : undefined,
       items,
       // Dữ liệu tương thích ngược cho single-item consumers
       materialCode: firstItem?.materialCode,
@@ -1021,6 +1018,10 @@ export function MovementForm({
                   <input
                     type="text"
                     style={{ flex: 1 }}
+                    value={recipientName}
+                    maxLength={200}
+                    onChange={(event) => setRecipientName(event.target.value)}
+                    disabled={busy}
                     placeholder={issueTargetType === 'department' ? 'Tên phòng ban / đội thi công…' : 'Tên khách hàng / dự án…'}
                   />
                 )}
@@ -1055,74 +1056,6 @@ export function MovementForm({
             />
           </div>
 
-          {/* Cột 4: Khu vực đính kèm chứng từ */}
-          <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-            <label>Tệp chứng từ đính kèm (Biên bản giao nhận, Hoá đơn đỏ, Ảnh chụp...)</label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0] || null;
-                setSelectedFile(file);
-              }}
-            />
-            <div
-              className={styles.fileUploadArea}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (e.dataTransfer.files?.[0]) {
-                  setSelectedFile(e.dataTransfer.files[0]);
-                }
-              }}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {selectedFile ? (
-                <div
-                  className={styles.fileUploadAttachedCard}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Paperclip size={15} color="#2563eb" />
-                  <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedFile.name}</span>
-                  <span style={{ color: '#64748b', fontSize: '12px' }}>
-                    ({Math.round(selectedFile.size / 1024)} KB)
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.fileUploadRemoveBtn}
-                    onClick={() => {
-                      setSelectedFile(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    title="Xoá tệp đính kèm"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '13px' }}>
-                  <Upload size={16} color="#64748b" />
-                  <span>Kéo thả tệp chứng từ vào đây hoặc </span>
-                  <button
-                    type="button"
-                    style={{
-                      border: 'none',
-                      background: 'none',
-                      color: '#2563eb',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      padding: 0,
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    chọn từ máy tính
-                  </button>
-                  <span style={{ color: '#94a3b8', fontSize: '12px' }}>(Hỗ trợ PDF, Excel, JPG, PNG tối đa 25MB)</span>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Khối Danh mục vật tư đa đối tượng */}

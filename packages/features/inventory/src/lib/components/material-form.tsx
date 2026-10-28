@@ -8,8 +8,9 @@ import type {
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import styles from '../inventory.module.scss';
+import { trackingModeOf, type MaterialTrackingMode } from '../material-tracking';
 
-export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
+export type { MaterialTrackingMode } from '../material-tracking';
 
 /**
  * Form Thêm mới / Chỉnh sửa Vật tư (Chuẩn danh mục Master Data ERP/WMS).
@@ -42,11 +43,7 @@ export function MaterialForm({
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
 
   // Xác định phương thức quản lý ban đầu khi sửa hoặc tạo mới
-  const initialMode: MaterialTrackingMode = editing?.isSerialized
-    ? 'SERIAL'
-    : editing?.category === 'CONSUMABLE'
-    ? 'LOT'
-    : 'NONE';
+  const initialMode = trackingModeOf(editing);
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
