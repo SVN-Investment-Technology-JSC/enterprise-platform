@@ -206,7 +206,7 @@ describe('menu thư mục', () => {
 
   it('người có quyền ghi tạo được thư mục con, tải tệp lên, sửa tên, mô tả, thông tin hồ sơ', () => {
     expect(shape(build({ kind: 'folder', folder: folder() }, WRITER))).toBe(
-      'Mở · | · Tạo thư mục · Tải file lên · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ',
+      'Mở · | · Tạo thư mục · Tải file lên · Tải thư mục lên · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ',
     );
   });
 
@@ -230,7 +230,7 @@ describe('menu thư mục', () => {
   it('quyền Xem ở thư mục chỉ còn Mở; quyền Quản lý thêm Chia sẻ thành một nhóm riêng', () => {
     expect(shape(build({ kind: 'folder', folder: folder() }, DELETER, role('viewer')))).toBe('Mở');
     expect(shape(build({ kind: 'folder', folder: folder() }, WRITER, role('manager')))).toBe(
-      'Mở · | · Tạo thư mục · Tải file lên · | · Chia sẻ · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ',
+      'Mở · | · Tạo thư mục · Tải file lên · Tải thư mục lên · | · Chia sẻ · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ',
     );
     expect(entry(build({ kind: 'folder', folder: folder() }, WRITER, role('editor')), 'share')).toBeUndefined();
     expect(entry(build({ kind: 'folder', folder: folder() }, READER, role('manager')), 'share')).toBeUndefined();
@@ -258,13 +258,13 @@ describe('menu theo quyền ở thư mục chứa tài liệu', () => {
 describe('menu chỗ trống', () => {
   it('trong một thư mục: như menu thư mục đang mở, không có Mở', () => {
     expect(shape(build({ kind: 'blank', folder: folder() }, DELETER))).toBe(
-      'Tạo thư mục · Tải file lên · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ · | · Xoá',
+      'Tạo thư mục · Tải file lên · Tải thư mục lên · | · Cập nhật mô tả · Thay đổi tên · Thông tin hồ sơ · | · Xoá',
     );
   });
 
   it('ở gốc kho: quản trị kho tạo được thư mục gốc, người có quyền ghi chỉ tải tệp lên, người chỉ đọc không có menu', () => {
-    expect(shape(build({ kind: 'blank' }, MANAGER))).toBe('Tạo thư mục · Tải file lên');
-    expect(shape(build({ kind: 'blank' }, WRITER))).toBe('Tải file lên');
+    expect(shape(build({ kind: 'blank' }, MANAGER))).toBe('Tạo thư mục · Tải file lên · Tải thư mục lên');
+    expect(shape(build({ kind: 'blank' }, WRITER))).toBe('Tải file lên · Tải thư mục lên');
     expect(build({ kind: 'blank' }, READER)).toEqual([]);
   });
 

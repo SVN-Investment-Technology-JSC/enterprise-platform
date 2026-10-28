@@ -1,4 +1,9 @@
-import type { SharedFolder, SharedFolderRole } from '@enterprise-platform/contracts-shared';
+import {
+  isSharedContentType,
+  SHARED_DEFAULT_CONTENT_TYPE,
+  type SharedFolder,
+  type SharedFolderRole,
+} from '@enterprise-platform/contracts-shared';
 
 /** Một dòng của cây thư mục đã trải phẳng theo thứ tự hiển thị. */
 export interface FolderTreeRow {
@@ -162,11 +167,14 @@ export function parseTags(value: string): string[] {
 }
 
 /**
- * Kiểu tệp trình duyệt không nhận ra (thường gặp với .dwg, .rar trên Windows)
- * thì đoán theo phần mở rộng, để server không từ chối oan.
+ * Kiểu tệp gửi lên server. Trình duyệt không nhận ra (thường gặp với .dwg, .rar
+ * trên Windows) thì đoán theo phần mở rộng; không đoán được thì là tệp nhị phân.
+ * Mọi định dạng đều tải lên được, đây chỉ để xem trước và ô loại tệp đúng hơn.
  */
 export function contentTypeOf(file: Pick<File, 'name' | 'type'>): string {
-  if (file.type) return file.type;
+  // Bỏ tham số kiểu ";charset=…": server chỉ nhận dạng `loại/kiểu`.
+  const type = file.type.split(';')[0].trim();
+  if (type && isSharedContentType(type)) return type;
   const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
   const byExtension: Record<string, string> = {
     pdf: 'application/pdf',
@@ -188,5 +196,5 @@ export function contentTypeOf(file: Pick<File, 'name' | 'type'>): string {
     gif: 'image/gif',
     webp: 'image/webp',
   };
-  return byExtension[extension] ?? 'application/octet-stream';
+  return byExtension[extension] ?? SHARED_DEFAULT_CONTENT_TYPE;
 }

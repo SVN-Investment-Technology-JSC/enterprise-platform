@@ -137,3 +137,28 @@ describe('S3ObjectStorage – đọc object phía máy chủ', () => {
     await expect(storage.getObject('platform/brand/x')).rejects.toMatchObject({ name: 'AccessDenied' });
   });
 });
+
+describe('S3ObjectStorage – URL tải về', () => {
+  const storage = new S3ObjectStorage({
+    bucket: 'tenant-files',
+    publicEndpoint: 'https://files.example',
+    accessKeyId: 'key',
+    secretAccessKey: 'secret',
+  });
+  const signed = async (options: Parameters<S3ObjectStorage['createDownloadUrl']>[2]) =>
+    new URL(await storage.createDownloadUrl('t-1/doc', 60, options)).searchParams;
+
+  it('ký kèm attachment khi buộc tải về, để trình duyệt không tự mở tệp', async () => {
+    const params = await signed({ attachment: true, fileName: 'Biên bản.html' });
+    expect(params.get('response-content-disposition')).toBe(
+      "attachment; filename*=UTF-8''Bi%C3%AAn%20b%E1%BA%A3n.html",
+    );
+  });
+
+  it('xem tại chỗ vẫn là inline, không yêu cầu gì thì không ký disposition', async () => {
+    const preview = await signed({ inline: true, contentType: 'application/pdf', fileName: 'a.pdf' });
+    expect(preview.get('response-content-disposition')).toBe("inline; filename*=UTF-8''a.pdf");
+    expect(preview.get('response-content-type')).toBe('application/pdf');
+    expect((await signed({ fileName: 'a.pdf' })).has('response-content-disposition')).toBe(false);
+  });
+});
