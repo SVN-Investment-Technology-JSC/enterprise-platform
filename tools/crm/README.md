@@ -1,4 +1,4 @@
-# Seed tenant thí điểm phân hệ Bán hàng
+# Seed tenant thí điểm phân hệ CRM
 
 `tools/crm/seed-svn.mjs` dựng tenant thí điểm `svn` ở local theo `docs/crm/TEST.md` mục 1.3. Script chỉ gọi API
 thật (đăng nhập, cookie và CSRF như web app), không ghi thẳng DB. Chạy lại nhiều lần được: bản ghi đã có (theo mã,
@@ -32,7 +32,7 @@ node tools/crm/seed-svn.mjs --step=warranty [--tenant=svn]
 | `SVN_SEED_TENANT_DB_HOST`, `SVN_SEED_TENANT_DB_PORT` | Không | DB của tenant mới; mặc định `localhost:55436`. |
 | `SVN_SEED_PROVISION_TIMEOUT_MS` | Không | Thời gian chờ worker khởi tạo phân hệ; mặc định 5 phút. |
 | `SVN_SEED_OUTPUT_DIR` | Không | Thư mục ghi ảnh chụp tồn của bước `legacy`; mặc định thư mục tạm của hệ điều hành. |
-| `SVN_SEED_EVENT_TIMEOUT_MS` | Không | Thời gian chờ Bán hàng nhận kết quả xuất kho (qua worker) ở bước `finance`, `warranty`; mặc định 90 giây. |
+| `SVN_SEED_EVENT_TIMEOUT_MS` | Không | Thời gian chờ CRM nhận kết quả xuất kho (qua worker) ở bước `finance`, `warranty`; mặc định 90 giây. |
 
 ## Thứ tự chạy
 
@@ -74,7 +74,7 @@ Dữ liệu theo API Kho và Workspace hiện tại, để test migration (TC-MI
 
 ## Bước `inventory`
 
-Dữ liệu Kho mới cho Bán hàng, chỉ qua API chứng từ kho (`v1/stock-documents`), lô và serial. Cần bước `legacy` trước
+Dữ liệu Kho mới cho CRM, chỉ qua API chứng từ kho (`v1/stock-documents`), lô và serial. Cần bước `legacy` trước
 (kho, `QA-KHO-LAP` với `SN001` đến `SN040`, `QA-KHO-MUC`).
 
 - Kho `QA-KHO-HN`, `QA-KHO-CL` (cách ly), `QA-KHO-LOI` (hàng lỗi): tạo nếu chưa có.
@@ -93,7 +93,7 @@ Dữ liệu Kho mới cho Bán hàng, chỉ qua API chứng từ kho (`v1/stock-
 
 Mỗi nhân viên tự tạo dữ liệu của mình (đăng nhập bằng tài khoản đó) để test phạm vi dữ liệu (TC-PERM-02, TC-PERM-04).
 
-- Chạy chuyển khách Workspace sang Bán hàng trước (cùng hàm với `migrate-workspace-customers.mjs`, bằng QTV).
+- Chạy chuyển khách Workspace sang CRM trước (cùng hàm với `migrate-workspace-customers.mjs`, bằng QTV).
 - QTBH tạo 3 nhóm khách: `QA-CRM-DL1` "Đại lý cấp 1", `QA-CRM-VIP` "VIP", `QA-CRM-DA` "Dự án".
 - 30 khách `QA-CRM-KH01` đến `KH30`: NV1 có KH01 đến KH10, NV2 có KH11 đến KH20, NV3 có KH21 đến KH30; nhóm xoay
   vòng DL1, VIP, Dự án; MST riêng (KH01 mang `0101234567` cho TC-CUS-05, TC-OPP-03), tỉnh và khu vực Bắc, Trung,
@@ -126,9 +126,9 @@ Mỗi nhân viên tự tạo dữ liệu của mình (đăng nhập bằng tài 
 - Hạn mức và dư nợ: KH01 hạn mức 200 triệu, nợ 50 triệu quá hạn 30 ngày (dưới hạn mức); KH02 hạn mức 100 triệu, nợ 95
   triệu quá hạn 61 ngày (sát hạn mức); KH03 hạn mức 50 triệu, nợ 80 triệu quá hạn 91 ngày (vượt hạn mức).
 - Khoản quá hạn tạo bằng hợp đồng mua bán (dòng dịch vụ `QA-KHO-BT`) có ngày ký trong quá khứ và một đợt thanh toán
-  "khi ký" 100%, hạn 0 ngày: xác nhận hợp đồng ghi nợ đúng ngày ký. Không dùng đơn giao hàng vì Bán hàng ghi nợ theo
+  "khi ký" 100%, hạn 0 ngày: xác nhận hợp đồng ghi nợ đúng ngày ký. Không dùng đơn giao hàng vì CRM ghi nợ theo
   ngày Kho ghi sổ chứng từ xuất (luôn là hôm nay), xem mục giới hạn dưới đây.
-- Thêm một đơn của NV1 cho KH01 (2 `QA-KHO-CAP`) giao hôm nay: thủ kho TK ghi sổ chứng từ xuất, Bán hàng ghi nợ chưa
+- Thêm một đơn của NV1 cho KH01 (2 `QA-KHO-CAP`) giao hôm nay: thủ kho TK ghi sổ chứng từ xuất, CRM ghi nợ chưa
   đến hạn.
 - Cuối bước in dư nợ, hạn mức, khoản quá hạn theo nhóm tuổi nợ của 3 khách (đọc bằng KT).
 
@@ -144,7 +144,7 @@ Mỗi nhân viên tự tạo dữ liệu của mình (đăng nhập bằng tài 
 
 ### Giới hạn: không lùi được ngày giao qua API
 
-Bán hàng lấy ngày giao (mốc bảo hành, ngày ghi nợ, dòng doanh thu) từ `postedAt` của sự kiện `inventory.stock.issued`;
+CRM lấy ngày giao (mốc bảo hành, ngày ghi nợ, dòng doanh thu) từ `postedAt` của sự kiện `inventory.stock.issued`;
 Kho đặt giá trị này bằng `now()` lúc ghi sổ (`postgres-stock-document.store.ts`, `UPDATE ... posted_at = now()`), không
 theo `documentDate`. Vì vậy đơn seed luôn giao "hôm nay": `SN031` đến `SN035` hiện có hạn tính từ ngày chạy seed (đúng
 nguồn hạn MATERIAL 12 tháng, CONTRACT 24 và 6 tháng, nhưng chưa có serial sắp hết hạn hay đã hết hạn). Chứng từ xuất
@@ -195,10 +195,10 @@ node tools/crm/uat-e2e.mjs --tenant=svn [--roles-only]
   TK bị 403 ở báo giá, KT xem tuổi nợ, KTV không lập đơn, QL xem đủ 4 báo cáo...). Phần còn lại của các kịch bản này là
   thao tác trên giao diện, vẫn làm tay.
 
-## Chuyển khách hàng Workspace sang Bán hàng (T2-15)
+## Chuyển khách hàng Workspace sang CRM (T2-15)
 
-Quyết định D1: Bán hàng là nguồn gốc khách hàng, Workspace giữ bản sao (`workspace_schema.customers.crm_customer_id`).
-Khi tenant đã bật `crm`, chạy một lần để đưa khách Workspace có sẵn sang Bán hàng:
+Quyết định D1: CRM là nguồn gốc khách hàng, Workspace giữ bản sao (`workspace_schema.customers.crm_customer_id`).
+Khi tenant đã bật `crm`, chạy một lần để đưa khách Workspace có sẵn sang CRM:
 
 ```bash
 node tools/crm/migrate-workspace-customers.mjs --tenant=svn --dry-run   # chỉ báo sẽ làm gì
@@ -208,17 +208,17 @@ node tools/crm/migrate-workspace-customers.mjs --tenant=svn             # chạy
 - Đăng nhập bằng quản trị tenant (`qtv@<tenant>.local`, mật khẩu `SVN_SEED_PASSWORD`). Tenant khác: đặt
   `CRM_MIGRATE_ADMIN_EMAIL`, `CRM_MIGRATE_ADMIN_PASSWORD`. URL dịch vụ như bảng biến ở trên (`WORKSPACE_API_URL`,
   `CRM_API_URL`, `SVN_SEED_PLATFORM_API_URL`).
-- Chỉ gọi API, không ghi chéo schema. Với mỗi khách Workspace chưa gắn: tìm khách Bán hàng cùng mã (mã viết hoa), chưa
-  có thì tạo ở Bán hàng giữ nguyên mã; trùng mã thì dùng khách đã có. Sau đó gọi
+- Chỉ gọi API, không ghi chéo schema. Với mỗi khách Workspace chưa gắn: tìm khách CRM cùng mã (mã viết hoa), chưa
+  có thì tạo ở CRM giữ nguyên mã; trùng mã thì dùng khách đã có. Sau đó gọi
   `POST /api/workspace/v1/crm-customers/:id/link` với `customerId` của khách Workspace để ghi `crm_customer_id`. Sự
   kiện `crm.customer.created` cũng tự gắn theo mã; hai đường gặp nhau vẫn chỉ ra một bản sao.
-- Mã Workspace không hợp lệ ở Bán hàng (có dấu, khoảng trắng, ký tự lạ, dài quá 50) bị bỏ qua và báo "cần xử lý tay".
-  Thêm `--generate-codes` để Bán hàng cấp mã mới cho các khách này (mã cũ ghi vào ghi chú khách Bán hàng; mã của bản
+- Mã Workspace không hợp lệ ở CRM (có dấu, khoảng trắng, ký tự lạ, dài quá 50) bị bỏ qua và báo "cần xử lý tay".
+  Thêm `--generate-codes` để CRM cấp mã mới cho các khách này (mã cũ ghi vào ghi chú khách CRM; mã của bản
   sao Workspace đổi theo mã mới).
 - Dự án và hợp đồng Workspace vẫn trỏ đúng khách: script gắn chính dòng khách cũ, không tạo dòng mới.
 - Chạy lại được: khách đã gắn được bỏ qua. Cuối lượt in số khách Workspace, đã gắn từ trước, khớp khách có sẵn, tạo
   mới, vừa gắn, mã không hợp lệ, lỗi. Có lỗi hoặc còn khách mã không hợp lệ thì mã thoát là 1.
-- Sau khi bật Bán hàng, màn khách hàng Workspace chỉ đọc và API tạo, sửa, xoá khách Workspace trả 409
+- Sau khi bật CRM, màn khách hàng Workspace chỉ đọc và API tạo, sửa, xoá khách Workspace trả 409
   `CUSTOMER_MANAGED_BY_CRM`; vì vậy chạy lại bước `legacy` cho tenant đã bật `crm` sẽ không tạo thêm được khách
   Workspace.
 

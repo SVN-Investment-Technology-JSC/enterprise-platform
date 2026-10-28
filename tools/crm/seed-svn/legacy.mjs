@@ -272,7 +272,7 @@ export async function runLegacyStep(config, log) {
     // Tenant đã bật Bán hàng thì Workspace chặn ghi khách hàng (CUSTOMER_MANAGED_BY_CRM): không còn
     // tạo được dữ liệu Workspace kiểu cũ. Chỉ ảnh hưởng phần thử chuyển khách Workspace sang Bán hàng.
     if (!String(error?.message ?? error).includes('CUSTOMER_MANAGED_BY_CRM')) throw error;
-    log.warn('Tenant đã bật Bán hàng nên Workspace không cho tạo khách hàng kiểu cũ; bỏ qua dữ liệu Workspace của bước legacy.');
+    log.warn('Tenant đã bật CRM nên Workspace không cho tạo khách hàng kiểu cũ; bỏ qua dữ liệu Workspace của bước legacy.');
     report.workspace = { customers: 0, projects: 0, contracts: 0 };
   }
 

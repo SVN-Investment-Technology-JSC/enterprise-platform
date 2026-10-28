@@ -1,6 +1,6 @@
 # HƯỚNG DẪN SỬ DỤNG — KHO: THỦ KHO VÀ QUẢN LÝ KHO (NÂNG CẤP CÙNG BÁN HÀNG)
 
-> Phạm vi: phần mới của phân hệ `Kho & Vật tư` đi cùng Bán hàng: chứng từ kho nhiều dòng, duyệt chứng từ, lô và hạn dùng (FEFO), serial, trạng thái chất lượng, yêu cầu xuất từ đơn bán, báo cáo kho. Phần cũ (cây tài sản, danh mục, kiểm kê) xem [HDSD_02](../HDSD_02_NHA_KHO_VA_CAY_TAI_SAN_CHI_TIET.md).
+> Phạm vi: phần mới của phân hệ `Kho & Vật tư` đi cùng CRM: chứng từ kho nhiều dòng, duyệt chứng từ, lô và hạn dùng (FEFO), serial, trạng thái chất lượng, yêu cầu xuất từ đơn bán, báo cáo kho. Phần cũ (cây tài sản, danh mục, kiểm kê) xem [HDSD_02](../HDSD_02_NHA_KHO_VA_CAY_TAI_SAN_CHI_TIET.md).
 
 ## 1. Quyền
 
@@ -20,7 +20,7 @@ Thủ kho thường có `inventory.read`, `inventory.transaction.write`, `invent
 |---|---|---|
 | Chứng từ | `Chứng từ kho` | Danh sách, lập và xử lý chứng từ nhập, xuất, chuyển, điều chỉnh nhiều dòng |
 | Chứng từ | `Duyệt chứng từ` | Chứng từ đang `Chờ duyệt` |
-| Chứng từ | `Yêu cầu xuất từ đơn bán` | Chứng từ xuất nháp do Bán hàng gửi sang (xuất bán, xuất bảo hành) |
+| Chứng từ | `Yêu cầu xuất từ đơn bán` | Chứng từ xuất nháp do CRM gửi sang (xuất bán, xuất bảo hành) |
 | Báo cáo | `Báo cáo kho` | Tồn theo kho, lô, serial; nhập xuất; lịch sử duyệt |
 
 ## 3. Tồn thực tế, đã giữ, khả dụng
@@ -34,7 +34,7 @@ Bảng tồn có bốn cột:
 | `Chờ kiểm định/không đạt` | Hàng thuộc lô, serial không ở trạng thái `Đạt`. |
 | `Khả dụng` | `Thực tế − Đã giữ − Chờ kiểm định/không đạt`; là số còn bán hoặc xuất được. |
 
-Thay đổi so với trước: mọi phiếu xuất tự do (xuất dự án, xuất khác, điều chuyển) chỉ lấy được từ tồn **khả dụng**. Hàng đã giữ cho đơn bán được bảo vệ; muốn dùng thì Bán hàng phải nhả giữ hàng trước.
+Thay đổi so với trước: mọi phiếu xuất tự do (xuất dự án, xuất khác, điều chuyển) chỉ lấy được từ tồn **khả dụng**. Hàng đã giữ cho đơn bán được bảo vệ; muốn dùng thì CRM phải nhả giữ hàng trước.
 
 ## 4. Chứng từ kho
 
@@ -48,9 +48,9 @@ Thay đổi so với trước: mọi phiếu xuất tự do (xuất dự án, xu
 | `Xuất khác` | Có | Có | Được xuất hàng không `Đạt` (ví dụ loại bỏ). |
 | `Điều chuyển kho` | Có | Không | Được chuyển hàng không `Đạt` (ví dụ sang kho lỗi). |
 | `Điều chỉnh tồn` | Có | Có | Mỗi dòng chọn `Chiều` `Tăng tồn` hoặc `Giảm tồn`. |
-| `Xuất bán hàng` | Không, từ Bán hàng | Không | Chỉ lấy hàng `Đạt`; phải chọn đủ serial. |
-| `Xuất bảo hành` | Không, từ Bán hàng | Không | Hàng thay thế cho khách. |
-| `Nhập trả hàng bán` | Không, từ Bán hàng | Không | Nhập trả về kho cách ly. |
+| `Xuất bán hàng` | Không, từ CRM | Không | Chỉ lấy hàng `Đạt`; phải chọn đủ serial. |
+| `Xuất bảo hành` | Không, từ CRM | Không | Hàng thay thế cho khách. |
+| `Nhập trả hàng bán` | Không, từ CRM | Không | Nhập trả về kho cách ly. |
 | `Nhập điều chuyển`, `Xuất điều chuyển` | Không | | Do chứng từ điều chuyển sinh ra. |
 
 Trạng thái: `Nháp`, `Chờ duyệt`, `Đã duyệt`, `Từ chối`, `Đã ghi sổ`, `Đã huỷ`. Nguồn: `Đơn bán`, `Đợt giao hàng`, `Bảo hành`, `Trả hàng`, `Không có nguồn`.
@@ -150,15 +150,15 @@ Khi nhân viên kinh doanh bấm `Yêu cầu xuất kho` trên một đợt giao
 1. Mở `Yêu cầu xuất từ đơn bán`. Lọc `Loại` (`Xuất bán và xuất bảo hành`), `Nguồn`, kho.
 2. Chọn một yêu cầu ở danh sách bên trái. Phần chi tiết hiện `Mặt hàng`, `Xuất`, `Giữ hàng / còn chưa xuất` (ví dụ `Giữ 10, đã xuất 4, còn 6`), `Lô` và `Hết hạn giữ ...`.
 3. Chọn lô (FEFO), serial cho từng dòng. Bấm `Lưu lựa chọn` nếu chưa xuất ngay.
-4. Bấm `Ghi sổ`. Hộp `Ghi sổ xuất kho?`: tồn và phần đã giữ giảm ngay; Bán hàng nhận số đã giao, serial và giá vốn.
-5. Không xuất được: `Huỷ chứng từ` (`Huỷ yêu cầu xuất?`): chứng từ chuyển `Đã huỷ`; giữ hàng của đơn vẫn còn đến khi Bán hàng nhả.
+4. Bấm `Ghi sổ`. Hộp `Ghi sổ xuất kho?`: tồn và phần đã giữ giảm ngay; CRM nhận số đã giao, serial và giá vốn.
+5. Không xuất được: `Huỷ chứng từ` (`Huỷ yêu cầu xuất?`): chứng từ chuyển `Đã huỷ`; giữ hàng của đơn vẫn còn đến khi CRM nhả.
 
 Quy tắc giữ hàng:
 
 | Quy tắc | Chi tiết |
 |---|---|
-| Giữ tất cả hoặc không | Bán hàng xác nhận đơn: một dòng thiếu khả dụng thì không giữ dòng nào (`Không đủ tồn khả dụng để giữ hàng: ...`). |
-| Hạn giữ | Mỗi lần giữ có hạn. Hết hạn mà chưa xuất, hệ thống tự chuyển `Hết hạn` và trả phần chưa xuất về khả dụng; Bán hàng báo người phụ trách. |
+| Giữ tất cả hoặc không | CRM xác nhận đơn: một dòng thiếu khả dụng thì không giữ dòng nào (`Không đủ tồn khả dụng để giữ hàng: ...`). |
+| Hạn giữ | Mỗi lần giữ có hạn. Hết hạn mà chưa xuất, hệ thống tự chuyển `Hết hạn` và trả phần chưa xuất về khả dụng; CRM báo người phụ trách. |
 | Không xuất quá phần giữ | Dòng xuất không vượt số còn đang giữ (`giữ hàng ... chỉ còn ... chưa xuất`). |
 | Giao từng phần | Một đơn có nhiều đợt giao, mỗi đợt một chứng từ xuất; trạng thái giữ hàng `Đã xuất một phần` cho tới khi xuất hết. |
 | Xuất từ kho khác | Đợt giao chọn kho khác kho giữ hàng thì xuất từ tồn khả dụng của kho đó. |
@@ -167,7 +167,7 @@ Trạng thái giữ hàng: `Chờ xử lý`, `Đang giữ`, `Đã xuất một p
 
 ## 10. Giá vốn bình quân
 
-Giá vốn tính khi ghi sổ theo bình quân gia quyền di động từng kho: nhập làm thay đổi giá bình quân; xuất lấy giá bình quân hiện tại; nhập đơn giá 0 giữ nguyên bình quân; chứng từ đảo lấy giá của dòng gốc. Bán hàng dùng giá bình quân làm giá vốn ước tính khi báo giá và lấy giá vốn thực tế từ chứng từ xuất đã ghi sổ.
+Giá vốn tính khi ghi sổ theo bình quân gia quyền di động từng kho: nhập làm thay đổi giá bình quân; xuất lấy giá bình quân hiện tại; nhập đơn giá 0 giữ nguyên bình quân; chứng từ đảo lấy giá của dòng gốc. CRM dùng giá bình quân làm giá vốn ước tính khi báo giá và lấy giá vốn thực tế từ chứng từ xuất đã ghi sổ.
 
 ## 11. Báo cáo kho
 

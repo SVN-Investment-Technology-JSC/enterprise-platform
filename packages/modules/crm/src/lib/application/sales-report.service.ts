@@ -27,7 +27,7 @@ import type { SalesReportStore } from './sales-report-store.port.js';
 /** Xem báo cáo Bán hàng: `crm.report.read` (quản trị tenant luôn có). */
 export function requireReportReader(actor: CrmActor): void {
   if (!actor.canReadReport && !actor.isTenantAdmin) {
-    throw new CrmForbiddenError('Bạn không có quyền xem báo cáo Bán hàng.');
+    throw new CrmForbiddenError('Bạn không có quyền xem báo cáo CRM.');
   }
 }
 

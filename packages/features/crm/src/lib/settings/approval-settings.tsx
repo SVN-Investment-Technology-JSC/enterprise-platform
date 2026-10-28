@@ -99,7 +99,7 @@ function ThresholdSettings() {
           <Field label="Hạn mức của trưởng nhóm (%)" hint="Người có quyền duyệt báo giá">
             <input className={styles.input} inputMode="decimal" value={teamLead} onChange={(event) => setTeamLead(event.target.value)} />
           </Field>
-          <Field label="Hạn mức của quản lý (%)" hint="Người xem toàn bộ dữ liệu Bán hàng">
+          <Field label="Hạn mức của quản lý (%)" hint="Người xem toàn bộ dữ liệu CRM">
             <input className={styles.input} inputMode="decimal" value={manager} onChange={(event) => setManager(event.target.value)} />
           </Field>
           <Field label="Biên lợi nhuận tối thiểu (%)">
@@ -135,8 +135,8 @@ function ApprovalBindings() {
     <section className={styles.panel} aria-label="Cách duyệt">
       <h2 className={styles.title}>Cách duyệt</h2>
       <p className={styles.muted}>
-        Duyệt trực tiếp: người có quyền duyệt báo giá duyệt ngay trong Bán hàng. Duyệt qua Quy trình: hệ thống tạo hồ sơ
-        theo quy trình đã chọn, bước người lập tự hoàn tất, kết quả quay về Bán hàng.
+        Duyệt trực tiếp: người có quyền duyệt báo giá duyệt ngay trong CRM. Duyệt qua Quy trình: hệ thống tạo hồ sơ
+        theo quy trình đã chọn, bước người lập tự hoàn tất, kết quả quay về CRM.
       </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {procedureError ? <p className={styles.warning}>{procedureError}</p> : null}

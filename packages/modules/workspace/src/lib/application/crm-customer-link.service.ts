@@ -83,7 +83,7 @@ export class CrmCustomerLinkService {
       if (!actor.isTenantAdmin && !actor.canManage) {
         throw new WorkspaceError(
           'FORBIDDEN',
-          'Chỉ quản trị được gắn khách hàng Workspace có sẵn với khách hàng Bán hàng.',
+          'Chỉ quản trị được gắn khách hàng Workspace có sẵn với khách hàng CRM.',
           403,
         );
       }
@@ -117,7 +117,7 @@ export class CrmCustomerLinkService {
 }
 
 function notFound(): WorkspaceError {
-  return new WorkspaceError('CRM_CUSTOMER_NOT_FOUND', 'Không tìm thấy khách hàng ở Bán hàng.', 404);
+  return new WorkspaceError('CRM_CUSTOMER_NOT_FOUND', 'Không tìm thấy khách hàng ở CRM.', 404);
 }
 
 /** Kiểm payload `crm.customer.*`; sai thì ném lỗi (dữ liệu hỏng, thử lại cũng không khá hơn). */

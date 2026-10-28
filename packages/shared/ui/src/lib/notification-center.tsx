@@ -1073,7 +1073,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     inventory: 'Kho',
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
-    crm: 'Bán hàng',
+    crm: 'CRM',
     chat: 'Chat nội bộ',
   } as const)[module];
 }

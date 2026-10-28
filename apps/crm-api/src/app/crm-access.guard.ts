@@ -45,7 +45,7 @@ export class CrmAccessGuard implements CanActivate {
       throw new ForbiddenException({
         statusCode: 403,
         code: decision.code ?? 'ACCESS_DENIED',
-        message: 'Không được phép truy cập Bán hàng.',
+        message: 'Không được phép truy cập CRM.',
       });
     }
 

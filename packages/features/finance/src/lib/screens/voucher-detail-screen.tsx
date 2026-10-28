@@ -77,7 +77,7 @@ const SOURCE_STATUS_TEXT: Record<FinanceVoucherSource['status'], string> = {
 };
 
 /** Nhãn phân hệ nguồn không phải Quy trình. */
-const SOURCE_MODULE_TEXT: Record<string, string> = { crm: 'Bán hàng' };
+const SOURCE_MODULE_TEXT: Record<string, string> = { crm: 'CRM' };
 
 /** Khối "Nguồn": hồ sơ quy trình đã tạo ra phiếu, giá trị nhận từ hồ sơ, ai phụ trách và ai đang xử lý. */
 function SourcePanel({ source }: { source: FinanceVoucherSource }) {

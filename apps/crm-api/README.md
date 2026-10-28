@@ -1,6 +1,6 @@
 # crm-api
 
-API của phân hệ **Bán hàng** (`/api/crm`, cổng 3344; giao diện `crm-web` ở
+API của phân hệ **CRM** (`/api/crm`, cổng 3344; giao diện `crm-web` ở
 `/modules/crm`, cổng 3012). Kế hoạch và danh sách việc: `docs/crm/plan_crm.md`,
 `docs/crm/TASK.md`.
 

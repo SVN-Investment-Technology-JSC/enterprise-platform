@@ -206,7 +206,7 @@ export class PostgresCreditStore implements CreditStore {
         );
         await client.query(`UPDATE crm_schema.sales_orders SET revision = revision + 1, updated_at = now() WHERE id = $1`, [row.order_id]);
         const cause = row.last_error ? ` (${row.last_error})` : '';
-        const reason = `Không tạo được phiên Quy trình duyệt vượt hạn mức${cause}; chuyển sang duyệt trực tiếp trong Bán hàng.`.slice(0, 2000);
+        const reason = `Không tạo được phiên Quy trình duyệt vượt hạn mức${cause}; chuyển sang duyệt trực tiếp trong CRM.`.slice(0, 2000);
         await writeAuditLog(client, {
           entityType: SALES_ORDER_AUDIT_ENTITY,
           entityId: row.order_id,

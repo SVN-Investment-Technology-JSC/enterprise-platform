@@ -1,6 +1,6 @@
 # HƯỚNG DẪN SỬ DỤNG — BÁN HÀNG: QUẢN TRỊ BÁN HÀNG
 
-> Phạm vi: trang `Cấu hình` của Bán hàng (nhóm khách, mã khách, nhắc hoạt động, giữ hàng, cảnh báo hợp đồng; bảng giá; chính sách chiết khấu; thử tính giá; ngưỡng và cách duyệt), cấu hình công nợ và kho bảo hành. Quyền cần có: `crm.manage` (hoặc quản trị tenant). `crm.manage` cho thấy toàn bộ dữ liệu nhưng không kèm quyền lập báo giá, đơn; cần gán thêm nếu bạn cũng thao tác nghiệp vụ.
+> Phạm vi: trang `Cấu hình` của CRM (nhóm khách, mã khách, nhắc hoạt động, giữ hàng, cảnh báo hợp đồng; bảng giá; chính sách chiết khấu; thử tính giá; ngưỡng và cách duyệt), cấu hình công nợ và kho bảo hành. Quyền cần có: `crm.manage` (hoặc quản trị tenant). `crm.manage` cho thấy toàn bộ dữ liệu nhưng không kèm quyền lập báo giá, đơn; cần gán thêm nếu bạn cũng thao tác nghiệp vụ.
 
 ## 1. Trình tự cấu hình khuyến nghị khi bật phân hệ
 
@@ -123,7 +123,7 @@ Ngoài chiết khấu và biên, báo giá luôn cần duyệt khi có dòng ghi
 
 Phần `Cách duyệt` có hai mục: `Báo giá vượt ngưỡng` và `Đơn bán vượt hạn mức công nợ`. Mỗi mục chọn:
 
-- `Duyệt trực tiếp trong Bán hàng` (mặc định): báo giá do người có `crm.quote.approve` trong phạm vi duyệt; vượt hạn mức do quản lý kinh doanh duyệt.
+- `Duyệt trực tiếp trong CRM` (mặc định): báo giá do người có `crm.quote.approve` trong phạm vi duyệt; vượt hạn mức do quản lý kinh doanh duyệt.
 - `Duyệt qua Quy trình`: chọn `Quy trình duyệt` trong danh sách quy trình đã công bố, bấm `Lưu`. Mục `Quy trình đã gắn` hiện quy trình đang dùng.
 
 Chuẩn bị trước trên phân hệ Quy trình: thiết kế, phân vai RACI và công bố một quy trình duyệt (cần `procedure.definition.manage`, `procedure.definition.publish`). Danh sách trống thì hiện `Chưa có quy trình đã công bố`.

@@ -2,7 +2,7 @@ import './global.css';
 import { Toaster } from '@enterprise-platform/shared-ui';
 
 export const metadata = {
-  title: 'Bán hàng · Enterprise Platform',
+  title: 'CRM · Enterprise Platform',
   description: 'Khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ và bảo hành.',
 };
 

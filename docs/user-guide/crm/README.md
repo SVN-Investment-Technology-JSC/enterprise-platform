@@ -1,6 +1,6 @@
 # HƯỚNG DẪN SỬ DỤNG — PHÂN HỆ BÁN HÀNG (CRM)
 
-> Phạm vi: phân hệ Bán hàng (`/modules/crm`) và các màn Kho, Tài chính, Quy trình mà người bán hàng dùng kèm. Chức năng hiển thị phụ thuộc vào entitlement `crm` của tenant và quyền mà quản trị tenant đã cấp. Quyền thật được kiểm ở API; nút bị ẩn trên giao diện chỉ là hệ quả của quyền, không phải cách phân quyền.
+> Phạm vi: phân hệ CRM (`/modules/crm`) và các màn Kho, Tài chính, Quy trình mà người bán hàng dùng kèm. Chức năng hiển thị phụ thuộc vào entitlement `crm` của tenant và quyền mà quản trị tenant đã cấp. Quyền thật được kiểm ở API; nút bị ẩn trên giao diện chỉ là hệ quả của quyền, không phải cách phân quyền.
 
 ## 1. Tài liệu theo vai trò
 
@@ -18,7 +18,7 @@ Tài liệu vận hành khi đưa phân hệ vào dùng: [docs/operations/crm-go
 
 ## 2. Bản đồ menu
 
-Menu bên trái của phân hệ Bán hàng chia theo nhóm. Mỗi trang có địa chỉ riêng dạng `/modules/crm#<trang>`, có thể gửi đường dẫn cho người khác.
+Menu bên trái của phân hệ CRM chia theo nhóm. Mỗi trang có địa chỉ riêng dạng `/modules/crm#<trang>`, có thể gửi đường dẫn cho người khác.
 
 | Nhóm | Trang | Nội dung | Ai thấy |
 |---|---|---|---|
@@ -37,19 +37,19 @@ Menu bên trái của phân hệ Bán hàng chia theo nhóm. Mỗi trang có đ�
 
 Trang **Tổng quan** hiện:
 
-- `Phạm vi dữ liệu`: `Toàn bộ dữ liệu Bán hàng` (người có `crm.read.all`, `crm.manage` hoặc quản trị tenant) hoặc `Dữ liệu của bạn và cấp dưới theo cơ cấu tổ chức`.
+- `Phạm vi dữ liệu`: `Toàn bộ dữ liệu CRM` (người có `crm.read.all`, `crm.manage` hoặc quản trị tenant) hoặc `Dữ liệu của bạn và cấp dưới theo cơ cấu tổ chức`.
 - `Quyền của bạn`: danh sách nhãn như `Lập báo giá`, `Duyệt báo giá`, `Lập đơn bán`, `Thu tiền, công nợ`... Không có quyền ghi nào thì hiện `Chỉ xem`.
 
-Khi tenant vừa bật phân hệ, trang hiện `Dữ liệu Bán hàng của tenant đang được khởi tạo.` cho đến khi migration của `crm_schema` chạy xong.
+Khi tenant vừa bật phân hệ, trang hiện `Dữ liệu CRM của tenant đang được khởi tạo.` cho đến khi migration của `crm_schema` chạy xong.
 
 ## 3. Quyền và vai trò
 
-### 3.1. Action quyền của Bán hàng
+### 3.1. Action quyền của CRM
 
 | Action | Nhãn trên Tổng quan | Cho phép |
 |---|---|---|
-| `crm.read` | (quyền vào phân hệ) | Xem dữ liệu Bán hàng trong phạm vi của mình |
-| `crm.read.all` | (phạm vi `Toàn bộ dữ liệu Bán hàng`) | Xem toàn bộ dữ liệu, không lọc theo người phụ trách; được tính là "quản lý" khi xét ngưỡng duyệt; duyệt điều chỉnh công nợ, duyệt vượt hạn mức trực tiếp |
+| `crm.read` | (quyền vào phân hệ) | Xem dữ liệu CRM trong phạm vi của mình |
+| `crm.read.all` | (phạm vi `Toàn bộ dữ liệu CRM`) | Xem toàn bộ dữ liệu, không lọc theo người phụ trách; được tính là "quản lý" khi xét ngưỡng duyệt; duyệt điều chỉnh công nợ, duyệt vượt hạn mức trực tiếp |
 | `crm.opportunity.write` | `Quản lý khách hàng, cơ hội` | Khách hàng, lead, cơ hội, hoạt động của mình |
 | `crm.quote.write` | `Lập báo giá` | Lập, sửa, gửi duyệt, đánh dấu gửi khách, ghi nhận khách chấp nhận hoặc từ chối |
 | `crm.quote.approve` | `Duyệt báo giá` | Duyệt, từ chối báo giá do người khác gửi; được tính là "trưởng nhóm" khi xét ngưỡng duyệt |
@@ -60,7 +60,7 @@ Khi tenant vừa bật phân hệ, trang hiện `Dữ liệu Bán hàng của te
 | `crm.report.read` | `Xem báo cáo` | Trang Báo cáo |
 | `crm.manage` | `Quản trị bán hàng` | Nhóm khách, mã khách, bảng giá, chính sách, ngưỡng và cách duyệt, hạn mức, cấu hình; thấy toàn bộ dữ liệu |
 
-Quản trị tenant (`tenant.manage`) có mọi quyền Bán hàng. Quyền kéo theo: mọi quyền `crm.*` đều kèm `crm.read`; `crm.manage` kèm `crm.read.all` nhưng không kèm các quyền ghi (lập báo giá, đơn...), nên quản trị bán hàng cần được gán thêm quyền ghi nếu cũng thao tác nghiệp vụ.
+Quản trị tenant (`tenant.manage`) có mọi quyền CRM. Quyền kéo theo: mọi quyền `crm.*` đều kèm `crm.read`; `crm.manage` kèm `crm.read.all` nhưng không kèm các quyền ghi (lập báo giá, đơn...), nên quản trị bán hàng cần được gán thêm quyền ghi nếu cũng thao tác nghiệp vụ.
 
 Hai quyền Kho mới đi cùng đợt nâng cấp: `inventory.document.approve` (Duyệt chứng từ nhập khác, xuất khác và điều chỉnh kho) và `inventory.quality.write` (Đổi trạng thái chất lượng của lô và serial); cả hai nằm trong `inventory.manage`.
 

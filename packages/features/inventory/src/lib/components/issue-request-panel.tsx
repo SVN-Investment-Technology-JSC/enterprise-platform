@@ -289,7 +289,7 @@ function IssueRequestWorkbench({
         return;
       }
       const posted = await postStockDocument(saved.id);
-      onSaved(posted.document, `Đã ghi sổ ${posted.document.code}; Bán hàng sẽ nhận số đã giao và serial.`);
+      onSaved(posted.document, `Đã ghi sổ ${posted.document.code}; CRM sẽ nhận số đã giao và serial.`);
     } catch (cause) {
       setError(errorMessage(cause, 'Không lưu được chứng từ.'));
     } finally {
@@ -441,7 +441,7 @@ function IssueRequestWorkbench({
         <div className={styles.docActions} style={{ justifyContent: 'flex-end', marginTop: 12 }}>
           <Popconfirm
             title="Huỷ yêu cầu xuất?"
-            description="Chứng từ chuyển sang Đã huỷ; giữ hàng của đơn vẫn còn đến khi Bán hàng nhả."
+            description="Chứng từ chuyển sang Đã huỷ; giữ hàng của đơn vẫn còn đến khi CRM nhả."
             okText="Huỷ chứng từ"
             cancelText="Không"
             disabled={busy}
@@ -456,7 +456,7 @@ function IssueRequestWorkbench({
           </button>
           <Popconfirm
             title="Ghi sổ xuất kho?"
-            description="Tồn và phần đã giữ giảm ngay; Bán hàng nhận số đã giao, serial và giá vốn."
+            description="Tồn và phần đã giữ giảm ngay; CRM nhận số đã giao, serial và giá vốn."
             okText="Ghi sổ"
             cancelText="Huỷ"
             okType="primary"

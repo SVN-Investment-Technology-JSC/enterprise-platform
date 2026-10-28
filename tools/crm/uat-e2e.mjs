@@ -209,7 +209,7 @@ async function runE2E(config, sessions, ctx) {
         action, comment: 'UAT: đồng ý chiết khấu 12%', idempotencyKey: `${ctx.prefix}:quote-approve`,
       });
       const nv1 = await as('NV1');
-      const quote = await wait('Bán hàng nhận kết quả duyệt', async () => {
+      const quote = await wait('CRM nhận kết quả duyệt', async () => {
         const current = await nv1.get(`${crm}/v1/quotes/${s.quoteId}`);
         return current.version.status === 'APPROVED' ? current : null;
       }).catch(async () => nv1.get(`${crm}/v1/quotes/${s.quoteId}`));
@@ -361,7 +361,7 @@ async function runE2E(config, sessions, ctx) {
       const receipt = detail.documents.find((d) => d.kind === 'RETURN_RECEIPT');
       expect(receipt?.documentId, 'KTV gửi lệnh nhận hàng về kho cách ly', `${receipt?.documentCode} ${receipt?.status} ${receipt?.lastError ?? ''}`);
       if (receipt.status !== 'POSTED') await postStockDocument(receipt.documentId);
-      detail = await wait('Bán hàng nhận chứng từ nhập trả', async () => {
+      detail = await wait('CRM nhận chứng từ nhập trả', async () => {
         const current = await ktv.get(`${crm}/v1/warranty/cases/${s.case.id}`);
         return current.status === 'INSPECTING' ? current : null;
       }).catch(async () => ktv.get(`${crm}/v1/warranty/cases/${s.case.id}`));
@@ -390,7 +390,7 @@ async function runE2E(config, sessions, ctx) {
         await postStockDocument(doc.documentId, doc.kind === 'REPLACEMENT' ? [s.spare] : undefined);
       }
       const ktv = await as('KTV');
-      const detail = await wait('Bán hàng nhận chứng từ xuất thay thế', async () => {
+      const detail = await wait('CRM nhận chứng từ xuất thay thế', async () => {
         const current = await ktv.get(`${crm}/v1/warranty/cases/${s.case.id}`);
         return current.documents.filter((d) => d.documentId).every((d) => d.status === 'POSTED') && current.lines[0].replacementSerials.length ? current : null;
       }).catch(async () => ktv.get(`${crm}/v1/warranty/cases/${s.case.id}`));
@@ -460,7 +460,7 @@ async function runE2E(config, sessions, ctx) {
     const requested = order.deliveries.find((d) => d.id === delivery.id);
     if (!requested.issueDocumentId) throw new StepFailure(`Đợt ${requested.code} không có chứng từ xuất (${requested.status}).`);
     await postStockDocument(requested.issueDocumentId, serials);
-    return wait(`Bán hàng nhận xuất kho đợt ${requested.code}`, async () => {
+    return wait(`CRM nhận xuất kho đợt ${requested.code}`, async () => {
       const current = await nv1.get(`${crm}/v1/orders/${s.orderId}`);
       return current.deliveries.find((d) => d.id === delivery.id)?.status === 'ISSUED' ? current : null;
     });
@@ -541,7 +541,7 @@ async function runE2E(config, sessions, ctx) {
     }
     await qtv.post(`${fin}/v1/vouchers/${voucher.id}/post-sourced`, { note: 'UAT: đã nhận tiền', revision: voucher.revision });
     const kt = await as('KT');
-    return wait(`Bán hàng nhận phiếu ${voucher.code} đã ghi sổ`, async () => {
+    return wait(`CRM nhận phiếu ${voucher.code} đã ghi sổ`, async () => {
       const current = await kt.get(`${crm}/v1/receipts/${receipt.id}`);
       return current.status === 'POSTED' ? current : null;
     }).catch(async () => kt.get(`${crm}/v1/receipts/${receipt.id}`));
@@ -590,7 +590,7 @@ async function runRoleChecks(config, sessions) {
     ['UAT-03', 'TN', 'Không thấy khách của NV3 (khác nhóm): 404', async () => [await status('TN', 'GET', `${crm}/v1/customers/${byCode.get('QA-CRM-KH21')?.id}`), 404]],
     ['UAT-04', 'QTBH', 'Xem bảng giá, chính sách: 200', async () => [Math.max(await status('QTBH', 'GET', `${crm}/v1/price-lists`), await status('QTBH', 'GET', `${crm}/v1/discount-policies`)), 200]],
     ['UAT-05', 'QTBH', 'Xem danh sách hợp đồng: 200', async () => [await status('QTBH', 'GET', `${crm}/v1/contracts`), 200]],
-    ['UAT-06', 'TK', 'Không có quyền Bán hàng: báo giá 403', async () => [await status('TK', 'GET', `${crm}/v1/quotes`), 403]],
+    ['UAT-06', 'TK', 'Không có quyền CRM: báo giá 403', async () => [await status('TK', 'GET', `${crm}/v1/quotes`), 403]],
     ['UAT-06', 'TK', 'Xem chứng từ kho: 200', async () => [await status('TK', 'GET', `${config.inventoryApi}/v1/stock-documents`), 200]],
     ['UAT-07', 'KT', 'Xem tuổi nợ: 200', async () => [await status('KT', 'GET', `${crm}/v1/receivables/aging`), 200]],
     ['UAT-07', 'KT', 'Không lập báo giá: 403', async () => [await status('KT', 'POST', `${crm}/v1/quotes`, { customerId: byCode.get('QA-CRM-KH01')?.id }), 403]],

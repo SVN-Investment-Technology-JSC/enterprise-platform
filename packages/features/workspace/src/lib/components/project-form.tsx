@@ -298,7 +298,7 @@ export function ProjectForm({
       ]);
       set({ customerId: copy.id });
     } catch (cause) {
-      setCustomerError((cause as { message?: string })?.message ?? 'Không chọn được khách hàng từ Bán hàng.');
+      setCustomerError((cause as { message?: string })?.message ?? 'Không chọn được khách hàng từ CRM.');
     } finally {
       setLinkingCustomer(false);
     }
@@ -473,20 +473,20 @@ export function ProjectForm({
       {crmMode ? (
         <Field
           label="Khách hàng"
-          hint="Khách hàng chủ quản của dự án, lấy từ phân hệ Bán hàng. Bỏ trống nếu chưa gắn."
+          hint="Khách hàng chủ quản của dự án, lấy từ phân hệ CRM. Bỏ trống nếu chưa gắn."
         >
           <input
             value={crmSearch}
-            placeholder="Tìm ở Bán hàng theo mã, tên hoặc mã số thuế…"
-            aria-label="Tìm khách hàng ở Bán hàng"
+            placeholder="Tìm ở CRM theo mã, tên hoặc mã số thuế…"
+            aria-label="Tìm khách hàng ở CRM"
             maxLength={100}
             onChange={(event) => setCrmSearch(event.target.value)}
           />
           <SearchableSelect
             options={crmSelectOptions}
             value={crmSelectValue}
-            placeholder="Chọn khách hàng từ Bán hàng…"
-            emptyText="Không có khách hàng nào khớp ở Bán hàng."
+            placeholder="Chọn khách hàng từ CRM…"
+            emptyText="Không có khách hàng nào khớp ở CRM."
             disabled={linkingCustomer}
             clearable
             onChange={(value) => void chooseCrmCustomer(value)}
@@ -497,7 +497,7 @@ export function ProjectForm({
             </p>
           ) : null}
           <a className={styles.linkButton} href="/modules/crm">
-            <Plus size={13} /> Tạo khách hàng ở Bán hàng
+            <Plus size={13} /> Tạo khách hàng ở CRM
           </a>
         </Field>
       ) : (

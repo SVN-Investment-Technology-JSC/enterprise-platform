@@ -92,7 +92,7 @@ export function CrmScreen() {
       })
       .catch((cause) => {
         if (isCrmAccessDenied(cause)) setDenied(true);
-        else setError(errorMessage(cause, 'Không tải được trạng thái phân hệ Bán hàng.'));
+        else setError(errorMessage(cause, 'Không tải được trạng thái phân hệ CRM.'));
       });
   }, []);
 
@@ -115,7 +115,7 @@ export function CrmScreen() {
     <ModuleShell<CrmView>
       moduleKey="crm"
       appearance="light"
-      title="Bán hàng"
+      title="CRM"
       nav={nav}
       view={current.id}
       onViewChange={navigate}
@@ -131,7 +131,7 @@ export function CrmScreen() {
             </p>
           ) : null}
           {provisioning ? (
-            <p className={styles.notice}>Dữ liệu Bán hàng của tenant đang được khởi tạo.</p>
+            <p className={styles.notice}>Dữ liệu CRM của tenant đang được khởi tạo.</p>
           ) : null}
         </>
       }
@@ -315,7 +315,7 @@ function Placeholder({ page }: { page: CrmPage }) {
           <h2 className={styles.title}>{page.label}</h2>
         </span>
         <p className={styles.muted}>{page.summary}</p>
-        <p className={styles.muted}>Trang sẽ mở khi dữ liệu Bán hàng của tenant khởi tạo xong.</p>
+        <p className={styles.muted}>Trang sẽ mở khi dữ liệu CRM của tenant khởi tạo xong.</p>
       </section>
     </div>
   );

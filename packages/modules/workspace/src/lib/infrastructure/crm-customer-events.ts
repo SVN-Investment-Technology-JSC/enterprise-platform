@@ -84,7 +84,7 @@ export class PostgresCrmCustomerCopies implements CrmCustomerCopyStore {
       await client.query('ROLLBACK');
       if ((error as { code?: string } | null)?.code === '23505') {
         throw new CrmCustomerLinkConflictError(
-          `Mã khách hàng ${reference.code} đã có ở một khách hàng Workspace khác; chưa gắn được khách Bán hàng.`,
+          `Mã khách hàng ${reference.code} đã có ở một khách hàng Workspace khác; chưa gắn được khách CRM.`,
         );
       }
       throw error;
@@ -139,8 +139,8 @@ async function applyInTransaction(
     case 'conflict':
       throw new CrmCustomerLinkConflictError(
         options.targetCustomerId
-          ? 'Khách hàng Workspace này đã gắn với một khách Bán hàng khác, hoặc khách Bán hàng đã có bản sao khác.'
-          : `Mã khách hàng ${reference.code} đang thuộc bản sao của một khách Bán hàng khác.`,
+          ? 'Khách hàng Workspace này đã gắn với một khách CRM khác, hoặc khách CRM đã có bản sao khác.'
+          : `Mã khách hàng ${reference.code} đang thuộc bản sao của một khách CRM khác.`,
       );
     case 'update':
     case 'link': {

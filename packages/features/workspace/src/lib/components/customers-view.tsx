@@ -67,8 +67,8 @@ const CRM_CUSTOMERS_PATH = '/modules/crm';
 function CrmManagedNotice() {
   return (
     <p className={styles.notice} role="status">
-      Khách hàng do phân hệ Bán hàng quản lý; ở đây chỉ xem. Thêm hoặc sửa khách hàng tại{' '}
-      <a href={CRM_CUSTOMERS_PATH}>Bán hàng</a>.
+      Khách hàng do phân hệ CRM quản lý; ở đây chỉ xem. Thêm hoặc sửa khách hàng tại{' '}
+      <a href={CRM_CUSTOMERS_PATH}>CRM</a>.
     </p>
   );
 }

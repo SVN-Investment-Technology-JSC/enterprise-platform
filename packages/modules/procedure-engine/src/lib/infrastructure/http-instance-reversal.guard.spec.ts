@@ -42,6 +42,6 @@ describe('nguồn Bán hàng (crm_quote, crm_order_credit)', () => {
     const guard = new HttpInstanceReversalGuard('http://hrm', 'http://finance', 'http://crm/api/crm');
     const result = await guard.check('tenant-1', { sourceType: 'crm_order_credit', sourceId: 'link-2' });
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain('Bán hàng');
+    expect(result.reason).toContain('CRM');
   });
 });

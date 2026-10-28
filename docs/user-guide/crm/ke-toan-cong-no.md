@@ -1,6 +1,6 @@
 # HƯỚNG DẪN SỬ DỤNG — BÁN HÀNG: KẾ TOÁN CÔNG NỢ
 
-> Phạm vi: trang `Công nợ` của Bán hàng (tuổi nợ, sổ công nợ khách, lần thu tiền, phân bổ, điều chỉnh) và bước ghi sổ phiếu thu bên Tài chính. Quyền cần có: `crm.read`, `crm.read.all`, `crm.receivable.write` để thu tiền, lập điều chỉnh; `finance.read`, `finance.receipt.create`; người ghi sổ phiếu thu bên Tài chính cần `finance.receipt.approve`.
+> Phạm vi: trang `Công nợ` của CRM (tuổi nợ, sổ công nợ khách, lần thu tiền, phân bổ, điều chỉnh) và bước ghi sổ phiếu thu bên Tài chính. Quyền cần có: `crm.read`, `crm.read.all`, `crm.receivable.write` để thu tiền, lập điều chỉnh; `finance.read`, `finance.receipt.create`; người ghi sổ phiếu thu bên Tài chính cần `finance.receipt.approve`.
 
 ## 1. Nguyên tắc sổ công nợ
 
@@ -53,13 +53,13 @@ Kết quả: lần thu ở trạng thái `Chờ tạo phiếu`, rồi `Chờ k�
 
 ## 5. Ghi sổ phiếu thu bên Tài chính
 
-Người có `finance.receipt.approve` mở phiếu thu nháp trên phân hệ Tài chính (phiếu có nguồn từ Bán hàng):
+Người có `finance.receipt.approve` mở phiếu thu nháp trên phân hệ Tài chính (phiếu có nguồn từ CRM):
 
 | Nút | Kết quả |
 |---|---|
 | `Nhập thông tin kế toán` | Bổ sung tài khoản quỹ, ngân hàng và thông tin hạch toán. |
-| `Ghi sổ` | Hộp `Ghi sổ phiếu này?`: tiền ghi vào sổ tài khoản, phiếu nhận mã chính thức. Lần thu bên Bán hàng sang `Đã ghi sổ`, phân bổ có hiệu lực, dư nợ giảm. |
-| `Trả hồ sơ` | Bắt buộc `Lý do trả hồ sơ`. Lần thu bên Bán hàng sang `Bị trả lại, cần sửa`. |
+| `Ghi sổ` | Hộp `Ghi sổ phiếu này?`: tiền ghi vào sổ tài khoản, phiếu nhận mã chính thức. Lần thu bên CRM sang `Đã ghi sổ`, phân bổ có hiệu lực, dư nợ giảm. |
+| `Trả hồ sơ` | Bắt buộc `Lý do trả hồ sơ`. Lần thu bên CRM sang `Bị trả lại, cần sửa`. |
 
 Người lập phiếu không được tự ghi sổ phiếu do mình lập, trừ khi cài đặt Tài chính cho phép tự duyệt.
 
@@ -67,7 +67,7 @@ Người lập phiếu không được tự ghi sổ phiếu do mình lập, tr�
 
 | Trạng thái | Ý nghĩa | Thao tác |
 |---|---|---|
-| `Chờ tạo phiếu` | Bán hàng chưa tạo được phiếu bên Tài chính; hệ thống tự thử lại | Chờ; báo quản trị nếu kéo dài |
+| `Chờ tạo phiếu` | CRM chưa tạo được phiếu bên Tài chính; hệ thống tự thử lại | Chờ; báo quản trị nếu kéo dài |
 | `Chờ kế toán ghi sổ` | Phiếu thu nháp đã có | Kế toán ghi sổ bên Tài chính |
 | `Bị trả lại, cần sửa` | Tài chính trả lại | `Sửa và gửi lại` (sửa số tiền, phân bổ), rồi phiếu cũ được mở lại bên Tài chính |
 | `Đã ghi sổ` | Có hiệu lực | |

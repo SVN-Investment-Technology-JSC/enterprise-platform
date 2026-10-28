@@ -30,7 +30,7 @@ describe('menu Bán hàng', () => {
 
   it('nhãn phạm vi và quyền tiếng Việt', () => {
     expect(crmScopeLabel(CRM_NO_CAPABILITIES)).toContain('cấp dưới');
-    expect(crmScopeLabel({ ...CRM_NO_CAPABILITIES, canReadAll: true })).toBe('Toàn bộ dữ liệu Bán hàng');
+    expect(crmScopeLabel({ ...CRM_NO_CAPABILITIES, canReadAll: true })).toBe('Toàn bộ dữ liệu CRM');
     expect(crmCapabilityLabels(CRM_NO_CAPABILITIES)).toEqual(['Chỉ xem']);
     expect(crmCapabilityLabels({ ...CRM_NO_CAPABILITIES, canWriteQuote: true })).toEqual(['Lập báo giá']);
   });
@@ -44,12 +44,12 @@ describe('menu Bán hàng', () => {
   });
 
   it('chưa có quyền crm.* (403) là trạng thái riêng, lỗi khác vẫn là lỗi', () => {
-    expect(isCrmAccessDenied({ statusCode: 403, message: 'Không được phép truy cập Bán hàng.' })).toBe(true);
+    expect(isCrmAccessDenied({ statusCode: 403, message: 'Không được phép truy cập CRM.' })).toBe(true);
     expect(isCrmAccessDenied({ statusCode: 500 })).toBe(false);
     expect(isCrmAccessDenied(undefined)).toBe(false);
     expect(isCrmAccessDenied(new Error('mạng'))).toBe(false);
     expect(CRM_ACCESS_DENIED_MESSAGE).toBe(
-      'Bạn chưa được cấp quyền dùng phân hệ Bán hàng. Liên hệ quản trị để được cấp quyền.',
+      'Bạn chưa được cấp quyền dùng phân hệ CRM. Liên hệ quản trị để được cấp quyền.',
     );
   });
 });

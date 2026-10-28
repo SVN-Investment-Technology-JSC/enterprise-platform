@@ -368,7 +368,7 @@ export class CustomerManagedByCrmError extends WorkspaceError {
   constructor() {
     super(
       'CUSTOMER_MANAGED_BY_CRM',
-      'Khách hàng do phân hệ Bán hàng quản lý. Hãy tạo hoặc sửa khách hàng ở Bán hàng.',
+      'Khách hàng do phân hệ CRM quản lý. Hãy tạo hoặc sửa khách hàng ở CRM.',
       409,
     );
     Object.setPrototypeOf(this, CustomerManagedByCrmError.prototype);
@@ -386,7 +386,7 @@ export class CrmCustomerLinkConflictError extends WorkspaceError {
 /** Tenant không bật Bán hàng nên không tra được khách ở đó. */
 export class CrmNotEnabledError extends WorkspaceError {
   constructor() {
-    super('CRM_NOT_ENABLED', 'Công ty chưa bật phân hệ Bán hàng.', 409);
+    super('CRM_NOT_ENABLED', 'Công ty chưa bật phân hệ CRM.', 409);
     Object.setPrototypeOf(this, CrmNotEnabledError.prototype);
   }
 }

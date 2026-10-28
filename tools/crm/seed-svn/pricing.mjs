@@ -167,7 +167,7 @@ async function ensureProcedures(config, sessions, log) {
       if (!position) throw new Error(`Chưa có chức danh ${procedure.approver}. Chạy --step=tenant trước.`);
       const body = {
         name: procedure.name,
-        description: `Duyệt cho Bán hàng (${procedure.kind}); tạo bởi tools/crm/seed-svn.mjs`,
+        description: `Duyệt cho CRM (${procedure.kind}); tạo bởi tools/crm/seed-svn.mjs`,
         kind: 'process',
         category: PROCEDURE_CATEGORY,
         steps: [
@@ -267,7 +267,7 @@ export async function runPricingStep(config, log) {
   await ensurePriceLists(config, sessions, log);
   log.section('Chính sách chiết khấu, trần, ngưỡng duyệt');
   await ensurePolicies(config, sessions, log);
-  log.section('Quy trình duyệt (Quy trình) và cách duyệt (Bán hàng)');
+  log.section('Quy trình duyệt (Quy trình) và cách duyệt (CRM)');
   const procedures = await ensureProcedures(config, sessions, log);
   await ensureBindings(config, sessions, procedures, log);
   log.section('Tóm tắt');

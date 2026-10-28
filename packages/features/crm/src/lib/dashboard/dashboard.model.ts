@@ -195,7 +195,7 @@ export const ATTENTION_EMPTY: Readonly<Record<DashboardAttentionKind, string>> =
 export const SCOPE_TEXT: Readonly<Record<DashboardScopeLevel, string>> = {
   mine: 'Số liệu của riêng bạn',
   team: 'Số liệu của bạn và cấp dưới',
-  all: 'Toàn bộ dữ liệu Bán hàng',
+  all: 'Toàn bộ dữ liệu CRM',
 };
 
 /** `YYYY-MM-DD` → `dd/mm/yyyy`. */

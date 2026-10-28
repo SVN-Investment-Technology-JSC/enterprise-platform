@@ -128,7 +128,7 @@ export class PostgresIntegrationRequests implements IntegrationDispatcher {
           );
         } else if (row.operation === RECEIPT_VOUCHER_CANCEL_OPERATION && this.finance && row.payload?.receiptId) {
           // Chưa có phiếu (404) thì không còn gì để huỷ.
-          await this.finance.cancelReceiptVoucher(tenantId, row.payload.receiptId, row.payload.reason ?? 'Lần thu đã huỷ bên Bán hàng.');
+          await this.finance.cancelReceiptVoucher(tenantId, row.payload.receiptId, row.payload.reason ?? 'Lần thu đã huỷ bên CRM.');
         } else if (row.operation === RESERVATION_RELEASE_OPERATION && row.payload?.reservationCode) {
           await this.inventory.release(tenantId, row.payload.reservationCode);
         } else {

@@ -58,7 +58,7 @@ export class HttpCrmCustomerDirectory implements CrmCustomerDirectory {
     query: { readonly search?: string; readonly ids?: readonly string[]; readonly limit?: number },
   ): Promise<readonly CrmCustomerReference[]> {
     const token = process.env['INTERNAL_SERVICE_TOKEN'];
-    if (!token) throw unavailable('Chưa cấu hình kết nối tới Bán hàng.');
+    if (!token) throw unavailable('Chưa cấu hình kết nối tới CRM.');
     const params = new URLSearchParams();
     if (query.search) params.set('search', query.search);
     if (query.ids?.length) params.set('ids', query.ids.join(','));
@@ -69,12 +69,12 @@ export class HttpCrmCustomerDirectory implements CrmCustomerDirectory {
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'error',
       });
-      if (!response.ok) throw unavailable(`Bán hàng không trả lời danh sách khách hàng (${response.status}).`);
+      if (!response.ok) throw unavailable(`CRM không trả lời danh sách khách hàng (${response.status}).`);
       const body = (await response.json()) as Partial<CrmCustomerReferencePage>;
       return Array.isArray(body.items) ? body.items : [];
     } catch (error) {
       if (error instanceof WorkspaceError) throw error;
-      throw unavailable('Không kết nối được Bán hàng để lấy danh sách khách hàng.');
+      throw unavailable('Không kết nối được CRM để lấy danh sách khách hàng.');
     }
   }
 }

@@ -135,7 +135,7 @@ describe('CrmAccessGuard', () => {
     });
     await expect(guard.canActivate(context)).rejects.toMatchObject({
       status: 403,
-      response: { code: 'PERMISSION_DENIED', message: 'Không được phép truy cập Bán hàng.' },
+      response: { code: 'PERMISSION_DENIED', message: 'Không được phép truy cập CRM.' },
     });
     expect(register).not.toHaveBeenCalled();
   });

@@ -45,7 +45,7 @@ export class HttpInstanceReversalGuard implements InstanceReversalGuard {
     source: { readonly sourceType: string; readonly sourceId: string },
   ): Promise<ReversalCheck> {
     if (CRM_SOURCE_TYPES.includes(source.sourceType)) {
-      return this.ask(tenantId, `${this.crmApiUrl}${CRM_INSTANCE_REVERSAL_CHECK_PATH(source.sourceId)}`, 'Bán hàng');
+      return this.ask(tenantId, `${this.crmApiUrl}${CRM_INSTANCE_REVERSAL_CHECK_PATH(source.sourceId)}`, 'CRM');
     }
     const endpoint = this.endpoint(source.sourceType);
     if (!endpoint) return { allowed: true };

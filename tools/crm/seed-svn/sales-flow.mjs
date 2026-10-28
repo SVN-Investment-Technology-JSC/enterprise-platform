@@ -131,7 +131,7 @@ export async function ensureDeliveredOrder(config, sessions, log, definition) {
   if (delivery.status === 'REQUESTED' && delivery.issueDocumentId) {
     await postIssueDocument(config, sessions, log, delivery, { serials, documentDate: plannedDate });
   }
-  order = await waitFor(`${label}: Bán hàng nhận kết quả xuất kho của đơn ${order.code}`, async () => {
+  order = await waitFor(`${label}: CRM nhận kết quả xuất kho của đơn ${order.code}`, async () => {
     const current = await session.get(orderUrl(order.id));
     const issued = current.deliveries.find((item) => item.id === delivery.id)?.status === 'ISSUED';
     return issued ? current : null;

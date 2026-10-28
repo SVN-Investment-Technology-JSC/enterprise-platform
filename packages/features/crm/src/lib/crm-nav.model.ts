@@ -128,13 +128,13 @@ export function visibleCrmPages(capabilities: CrmCapabilities): CrmPage[] {
 /** Phạm vi dữ liệu hiện cho người dùng; quyền thật lọc ở API. */
 export function crmScopeLabel(capabilities: CrmCapabilities): string {
   return capabilities.isTenantAdmin || capabilities.canManage || capabilities.canReadAll
-    ? 'Toàn bộ dữ liệu Bán hàng'
+    ? 'Toàn bộ dữ liệu CRM'
     : 'Dữ liệu của bạn và cấp dưới theo cơ cấu tổ chức';
 }
 
 /** Nhãn tiếng Việt của các quyền đang có, để trang Tổng quan cho người dùng biết mình làm được gì. */
 export function crmCapabilityLabels(capabilities: CrmCapabilities): string[] {
-  if (capabilities.isTenantAdmin) return ['Quản trị tenant: mọi quyền Bán hàng'];
+  if (capabilities.isTenantAdmin) return ['Quản trị tenant: mọi quyền CRM'];
   const labels: [boolean, string][] = [
     [capabilities.canManage, 'Quản trị bán hàng'],
     [capabilities.canWriteOpportunity, 'Quản lý khách hàng, cơ hội'],
@@ -152,7 +152,7 @@ export function crmCapabilityLabels(capabilities: CrmCapabilities): string[] {
 
 /** Câu hiện khi người dùng chưa có quyền `crm.*` nào (`GET v1/status` trả 403). */
 export const CRM_ACCESS_DENIED_MESSAGE =
-  'Bạn chưa được cấp quyền dùng phân hệ Bán hàng. Liên hệ quản trị để được cấp quyền.';
+  'Bạn chưa được cấp quyền dùng phân hệ CRM. Liên hệ quản trị để được cấp quyền.';
 
 /** Lỗi tải trạng thái là do chưa được cấp quyền (403), không phải lỗi hệ thống. */
 export function isCrmAccessDenied(cause: unknown): boolean {

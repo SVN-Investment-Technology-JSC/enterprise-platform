@@ -30,7 +30,7 @@ import { closeWithoutPosting } from './voucher-workflow.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Nhãn phân hệ nguồn trong nhật ký phiếu. */
-const SOURCE_MODULE_LABELS: Readonly<Record<FinanceExternalSourceModule, string>> = { crm: 'Bán hàng' };
+const SOURCE_MODULE_LABELS: Readonly<Record<FinanceExternalSourceModule, string>> = { crm: 'CRM' };
 
 /** Yêu cầu đã kiểm và chuẩn hoá. */
 export interface ExternalSourceRequest {

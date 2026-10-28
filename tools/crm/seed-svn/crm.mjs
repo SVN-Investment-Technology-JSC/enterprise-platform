@@ -356,7 +356,7 @@ async function summary(config, sessions, log) {
 export async function runCrmStep(config, log) {
   log.section(`Bước crm cho ${config.tenantSlug}`);
   const sessions = createSessions(config);
-  log.section('Chuyển khách Workspace sang Bán hàng (T2-15)');
+  log.section('Chuyển khách Workspace sang CRM (T2-15)');
   await migrateWorkspace(config, sessions, log);
   log.section('Nhóm khách hàng');
   const groupIds = await ensureGroups(config, sessions, log);

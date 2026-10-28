@@ -375,7 +375,7 @@ export const APPROVAL_MODES = ['DIRECT', 'PROCEDURE'] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
 export const APPROVAL_MODE_LABELS: Readonly<Record<ApprovalMode, string>> = {
-  DIRECT: 'Duyệt trực tiếp trong Bán hàng',
+  DIRECT: 'Duyệt trực tiếp trong CRM',
   PROCEDURE: 'Duyệt qua Quy trình',
 };
 

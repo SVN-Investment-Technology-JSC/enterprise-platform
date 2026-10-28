@@ -1,7 +1,7 @@
 {
   "name": "@enterprise-platform/module-crm",
   "version": "0.0.1",
-  "description": "Bán hàng — khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành",
+  "description": "CRM — khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

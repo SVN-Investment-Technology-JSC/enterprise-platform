@@ -62,7 +62,7 @@ export async function migrateWorkspaceCustomers(config, session, options, log) {
   const status = await session.get(`${config.workspaceApi}/v1/status`);
   if (!status?.capabilities?.customersManagedByCrm) {
     const message =
-      'Workspace báo tenant chưa bật Bán hàng (capabilities.customersManagedByCrm = false), hoặc workspace-api là bản cũ.';
+      'Workspace báo tenant chưa bật CRM (capabilities.customersManagedByCrm = false), hoặc workspace-api là bản cũ.';
     if (!options.dryRun) throw new Error(`${message} Bật phân hệ crm cho tenant rồi chạy lại.`);
     log.warn(`${message} Chạy thử vẫn tiếp tục.`);
   }
@@ -73,15 +73,15 @@ export async function migrateWorkspaceCustomers(config, session, options, log) {
     const label = `${customer.code} "${customer.name}"`;
     if (customer.crmCustomerId) {
       report.alreadyLinked += 1;
-      log.skip(`${label} đã gắn khách Bán hàng ${customer.crmCustomerId}.`);
+      log.skip(`${label} đã gắn khách CRM ${customer.crmCustomerId}.`);
       continue;
     }
     const code = crmCodeOf(customer.code);
     if (!code && !options.generateCodes) {
       report.invalidCode += 1;
       log.warn(
-        `${label}: mã không hợp lệ ở Bán hàng (chỉ chữ không dấu, số, . - _; tối đa 50 ký tự). ` +
-          'Sửa mã ở Workspace trước, hoặc chạy với --generate-codes để Bán hàng cấp mã mới.',
+        `${label}: mã không hợp lệ ở CRM (chỉ chữ không dấu, số, . - _; tối đa 50 ký tự). ` +
+          'Sửa mã ở Workspace trước, hoặc chạy với --generate-codes để CRM cấp mã mới.',
       );
       continue;
     }
@@ -92,8 +92,8 @@ export async function migrateWorkspaceCustomers(config, session, options, log) {
         else report.created += 1;
         log.info(
           existing
-            ? `(thử) ${label} sẽ gắn với khách Bán hàng có sẵn ${existing.code}.`
-            : `(thử) ${label} sẽ tạo ở Bán hàng với mã ${code ?? '(Bán hàng cấp)'} rồi gắn.`,
+            ? `(thử) ${label} sẽ gắn với khách CRM có sẵn ${existing.code}.`
+            : `(thử) ${label} sẽ tạo ở CRM với mã ${code ?? '(CRM cấp)'} rồi gắn.`,
         );
         continue;
       }
@@ -108,7 +108,7 @@ export async function migrateWorkspaceCustomers(config, session, options, log) {
       // Gắn đích danh khách này: mã hai bên có thể khác hoa thường hoặc do Bán hàng cấp mới.
       await session.post(`${config.workspaceApi}/v1/crm-customers/${target.id}/link`, { customerId: customer.id });
       report.linked += 1;
-      log.created(`${label} gắn với khách Bán hàng ${target.code}.`);
+      log.created(`${label} gắn với khách CRM ${target.code}.`);
     } catch (error) {
       report.failed += 1;
       log.warn(`${label}: ${error instanceof Error ? error.message : String(error)}`);
@@ -146,11 +146,11 @@ async function main() {
   const password = process.env.CRM_MIGRATE_ADMIN_PASSWORD ?? config.password;
   const session = await Session.login(config.platformApi, { email, password, portal: 'tenant' });
   const options = { dryRun: values['dry-run'], generateCodes: values['generate-codes'] };
-  console.log(`== Chuyển khách hàng Workspace sang Bán hàng (${values.tenant}${options.dryRun ? ', chạy thử' : ''})`);
+  console.log(`== Chuyển khách hàng Workspace sang CRM (${values.tenant}${options.dryRun ? ', chạy thử' : ''})`);
   const report = await migrateWorkspaceCustomers(config, session, options, createLog());
   console.log(
     `\n${options.dryRun ? 'Chạy thử' : 'Hoàn tất'}: ${report.total} khách Workspace; ${report.alreadyLinked} đã gắn từ trước; ` +
-      `${report.matched} khớp khách Bán hàng có sẵn; ${report.created} ${options.dryRun ? 'sẽ tạo' : 'tạo mới'} ở Bán hàng; ` +
+      `${report.matched} khớp khách CRM có sẵn; ${report.created} ${options.dryRun ? 'sẽ tạo' : 'tạo mới'} ở CRM; ` +
       `${report.linked} vừa gắn; ${report.invalidCode} mã không hợp lệ (cần xử lý tay); ${report.failed} lỗi.`,
   );
   if (report.failed || (!options.dryRun && report.invalidCode)) process.exitCode = 1;
