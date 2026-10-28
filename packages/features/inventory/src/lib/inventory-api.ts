@@ -664,6 +664,8 @@ export function receiveStock(input: {
   note?: string;
   /** Lô nhận vào: tạo lô mới hoặc cộng vào lô cùng số lô. */
   lot?: StockDocumentLotInput;
+  /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
+  serials?: readonly string[];
 }): Promise<InventoryTransaction> {
   return request<InventoryTransaction>('/receipts', { method: 'POST', body: JSON.stringify(input) });
 }

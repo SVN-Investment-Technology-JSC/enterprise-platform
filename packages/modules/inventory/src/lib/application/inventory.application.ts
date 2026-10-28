@@ -70,7 +70,7 @@ import {
   normalizeInventorySetting,
 } from './inventory-settings.js';
 import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
-import { normalizeLotInput, splitByLots } from '../domain/traceability-policy.js';
+import { normalizeLineSerials, normalizeLotInput, splitByLots } from '../domain/traceability-policy.js';
 import { filterWarehouseCatalog } from '../domain/inventory-report.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
@@ -623,6 +623,9 @@ export class InventoryApplication {
    * Giá trị mặc định lấy từ chính danh mục admin đã khai, không phải hằng số
    * trong code: sau migration 0009 thì danh sách này là của tenant, đoán hộ họ
    * một giá trị dựng sẵn sẽ đẻ ra dữ liệu không nằm trong danh mục nào.
+   *
+   * Khai sê-ri không đưa sê-ri vào kho (T8-11): `warehouseCode` trong request bị
+   * bỏ qua, sê-ri ở trạng thái chưa vào sổ kho cho tới khi có chứng từ nhập.
    */
   async registerSerials(
     actor: InventoryActor,
@@ -652,7 +655,6 @@ export class InventoryApplication {
       serials,
       input.currentStatus?.trim() || 'OPERATING',
       input.locationType?.trim() || states[0] || '',
-      input.warehouseCode?.trim(),
     );
 
     // Khai sê-ri CHÍNH LÀ tuyên bố mã này theo dõi theo cá thể. Không bật cờ thì
@@ -705,11 +707,19 @@ export class InventoryApplication {
       referenceId?: string;
       note?: string;
       lot?: StockDocumentLotInput;
+      /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng (T8-11). */
+      serials?: readonly string[];
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
     const lot = normalizeLotInput(input.lot, 'IN');
+    // Đường cũ ghi thẳng qua store, không qua chuẩn hoá dòng của StockDocumentService:
+    // kiểm số serial bằng số lượng ở đây.
+    const serials = normalizeLineSerials(input.serials, input.quantity, 1);
+    if (serials && lot) {
+      throw new InventoryError('VALIDATION', 'Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
+    }
     const posted = await this.postLegacyDocument(actor, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: input.warehouseCode,
@@ -724,6 +734,7 @@ export class InventoryApplication {
           direction: 'IN',
           unitCost: input.unitCost ?? 0,
           lot,
+          serials,
         },
       ],
     });

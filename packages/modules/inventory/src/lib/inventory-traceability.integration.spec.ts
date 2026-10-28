@@ -169,6 +169,66 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     expect(registered).toEqual({ added: 1, total: 3 });
   });
 
+  it('T8-11: khai sê-ri kèm kho không đưa sê-ri vào kho; chỉ chứng từ nhập mới đưa vào', async () => {
+    const lap = await material('QA-KHO-LAP', true);
+    const inStock = async () => {
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM inventory_schema.serial_tracking s
+           JOIN inventory_schema.materials m ON m.id = s.material_id
+          WHERE m.code = $1 AND s.stock_state = 'IN_STOCK'`,
+        [lap],
+      );
+      return Number((rows[0] as { n: number }).n);
+    };
+
+    const registered = await app.registerSerials(admin, {
+      materialCode: lap,
+      warehouseCode: 'QA-KHO-HN',
+      serialNumbers: ['SN-KHAI-01', 'SN-KHAI-02'],
+    });
+    expect(registered).toEqual({ added: 2, total: 2 });
+    expect(await serialRow(lap, 'SN-KHAI-01')).toEqual({
+      stock_state: null,
+      quality_status: 'PASSED',
+      warehouse_code: null,
+    });
+    expect(await inStock()).toBe(0);
+    expect(await stock(lap)).toMatchObject({ quantity: 0 });
+
+    // Chưa vào sổ kho thì không xuất được.
+    const issue = await rejection(
+      post('ISSUE_SALES', 'QA-KHO-HN', [{ materialCode: lap, quantity: 1, serials: ['SN-KHAI-01'] }]),
+    );
+    expect([issue.statusCode, issue.code, issue.message]).toEqual([
+      400,
+      'SERIAL_NOT_AVAILABLE',
+      'Dòng 1: serial SN-KHAI-01 không ở trạng thái Trong kho, Đạt (đang chưa vào sổ kho).',
+    ]);
+
+    // Chứng từ nhập nhận lại đúng dòng đã khai, không tạo dòng mới.
+    await post('RECEIPT_PURCHASE', 'QA-KHO-HN', [{ materialCode: lap, quantity: 1, serials: ['sn-khai-01'] }]);
+    expect(await serialRow(lap, 'SN-KHAI-01')).toMatchObject({ stock_state: 'IN_STOCK', warehouse_code: 'QA-KHO-HN' });
+    expect(await serialRow(lap, 'SN-KHAI-02')).toMatchObject({ stock_state: null, warehouse_code: null });
+    expect(await inStock()).toBe(1);
+    expect((await app.listSerials(admin, lap)).length).toBe(2);
+
+    // Nhập kho kiểu cũ (POST v1/receipts) mang sê-ri theo cùng phiếu.
+    await app.receiveStock(clerk, {
+      warehouseCode: 'QA-KHO-HN',
+      materialCode: lap,
+      quantity: 2,
+      unitCost: 1000,
+      serials: ['SN-KHAI-02', 'SN-KHAI-03'],
+    });
+    expect(await inStock()).toBe(3);
+    expect(await stock(lap)).toMatchObject({ quantity: 3 });
+    const mismatch = await rejection(
+      app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2, serials: ['SN-KHAI-04'] }),
+    );
+    expect([mismatch.statusCode, mismatch.code]).toEqual([400, 'VALIDATION']);
+    expect(await stock(lap)).toMatchObject({ quantity: 3 });
+  });
+
   it('TC-INV-10, TC-INV-11, TC-INV-12: xuất serial không có, ở kho khác, không Đạt đều 400', async () => {
     const lap = await material('QA-KHO-LAP', true);
     await post('RECEIPT_PURCHASE', 'QA-KHO-HN', [{ materialCode: lap, quantity: 2, serials: ['SN001', 'SN003'] }]);

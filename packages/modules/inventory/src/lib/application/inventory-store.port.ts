@@ -233,14 +233,16 @@ export interface InventoryStore {
   serial: {
     list(tenantId: string): Promise<SerialTracking[]>;
     listByMaterial(tenantId: string, materialCode: string): Promise<SerialTracking[]>;
-    /** Khai một loạt sê-ri; trả số dòng thật sự được thêm (bỏ qua số đã có). */
+    /**
+     * Khai một loạt sê-ri vào danh mục cá thể, chưa vào sổ kho; trả số dòng thật
+     * sự được thêm (bỏ qua số đã có). Sê-ri chỉ vào kho qua chứng từ nhập.
+     */
     register(
       tenantId: string,
       materialCode: string,
       serialNumbers: readonly string[],
       currentStatus: string,
       locationType: string,
-      warehouseCode?: string,
     ): Promise<number>;
     update(
       tenantId: string,

@@ -237,6 +237,8 @@ export class InventoryController {
       note?: string;
       /** Lô nhận vào: tạo lô mới hoặc cộng vào lô cùng số lô. */
       lot?: StockDocumentLotInput;
+      /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
+      serials?: readonly string[];
     },
   ) {
     return this.execute(() => this.app.receiveStock(this.actor(request), body));

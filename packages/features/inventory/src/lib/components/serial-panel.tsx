@@ -181,6 +181,12 @@ export function SerialPanel({
           Khai sê-ri
         </button>
       </div>
+      {/* T8-11: khai ở đây không đưa sê-ri vào kho, nói rõ để người dùng không
+          tưởng đã có hàng để xuất. */}
+      <p className={styles.hint}>
+        Khai sê-ri ở đây chỉ ghi danh mục cá thể, chưa tính vào tồn kho. Muốn sê-ri vào kho,
+        nhập qua phiếu nhập kho kèm số sê-ri.
+      </p>
     </section>
   );
 }

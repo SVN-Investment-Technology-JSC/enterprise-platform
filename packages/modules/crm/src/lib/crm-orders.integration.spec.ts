@@ -330,6 +330,8 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     order = await orders.get(nv, order.id);
     expect(order.status).toBe('PARTIAL');
     expect(order.lines[0]).toMatchObject({ deliveredQuantity: 4, actualCost: 3_200_000, reservedQuantity: 6, serials: ['S1', 'S2', 'S3', 'S4'] });
+    // T8-12: dòng dùng phần giữ của chính đơn xuất một phần: vẫn Đang giữ.
+    expect(order.lines[0]).toMatchObject({ reservationSource: 'ORDER', reservationStatus: 'HELD' });
     expect(order.lines[1]).toMatchObject({ deliveredQuantity: 1 });
     expect(order.deliveries[0]).toMatchObject({ status: 'ISSUED', issueDocumentCode: issue?.documentCode });
 
@@ -348,6 +350,8 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     // Đã giao đủ nhưng chưa có sổ công nợ (GĐ5): không tự Hoàn tất.
     expect(order.status).toBe('DELIVERED');
     expect(order.lines[0]).toMatchObject({ deliveredQuantity: 10, actualCost: 8_060_000, reservedQuantity: 0 });
+    // T8-12: xuất đủ thì phần giữ của dòng sang Đã xuất đủ, như dòng dùng phần giữ của hợp đồng.
+    expect(order.lines[0]).toMatchObject({ reservationSource: 'ORDER', reservationStatus: 'COMPLETED' });
 
     // Chứng từ đảo đợt 2: trừ lại, bỏ serial, đơn lùi về Đã giao một phần; nhận trùng thì bỏ qua.
     const reversal = {
@@ -362,6 +366,8 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     order = await orders.get(nv, order.id);
     expect(order.status).toBe('PARTIAL');
     expect(order.lines[0]).toMatchObject({ deliveredQuantity: 4, actualCost: 3_200_000, serials: ['S1', 'S2', 'S3', 'S4'] });
+    // Đảo chứng từ không trả phần giữ (như Kho): vẫn Đã xuất đủ.
+    expect(order.lines[0]).toMatchObject({ reservationStatus: 'COMPLETED', reservedQuantity: 0 });
     expect(order.deliveries[1].status).toBe('REVERSED');
     expect(order.history.map((entry) => entry.action)).toEqual(
       expect.arrayContaining(['create', 'confirm', 'request-issue', 'deliver', 'reverse-delivery']),

@@ -628,6 +628,10 @@ export interface LotAllocationInput {
  */
 export interface RegisterSerialsRequest {
   readonly materialCode: string;
+  /**
+   * Bị bỏ qua từ T8-11: khai sê-ri chỉ ghi danh mục cá thể (chưa vào sổ kho).
+   * Sê-ri vào kho qua chứng từ nhập (`serials` của dòng nhập).
+   */
   readonly warehouseCode?: string;
   readonly serialNumbers: readonly string[];
   /** Tình trạng ban đầu, mặc định lấy giá trị đầu trong danh mục. */

@@ -56,7 +56,6 @@ import {
   loadLedger,
   loadInstallations,
   loadReservations,
-  registerSerials,
   loadTenantHomePath,
   receiveStock,
   retireMaterial,
@@ -474,6 +473,10 @@ export function InventoryScreen() {
             movement.movementDate ? `Ngày nhận: ${movement.movementDate}` : '',
           ].filter(Boolean).join(' | ');
           const lineFullNote = item.lineNote ? `${lineNoteBase} (${item.lineNote})` : lineNoteBase;
+          // Sê-ri đi cùng phiếu nhập (T8-11): chỉ chứng từ nhập mới đưa sê-ri vào
+          // kho, khai riêng sau phiếu thì sê-ri chưa vào sổ kho. Số sê-ri lệch số
+          // lượng thì server từ chối cả dòng, không ghi nửa vời.
+          const serials = item.serialNumbers ?? [];
           const tx = await receiveStock({
             warehouseCode: wh,
             materialCode: item.materialCode,
@@ -481,28 +484,16 @@ export function InventoryScreen() {
             unitCost: item.unitCost,
             note: lineFullNote,
             lot: receiptLot(item),
+            serials: serials.length > 0 ? [...serials] : undefined,
           });
           txCodes.push(tx.transactionCode);
-
-          const serials = item.serialNumbers ?? [];
-          if (serials.length > 0) {
-            try {
-              const res = await registerSerials({
-                materialCode: item.materialCode,
-                warehouseCode: wh,
-                serialNumbers: [...serials],
-              });
-              totalSerialsAdded += res.added;
-            } catch {
-              // Bỏ qua lỗi sê-ri để không hỏng phiếu nhập
-            }
-          }
+          totalSerialsAdded += serials.length;
         }
 
         const refText = txCodes.join(', ');
         await openOrderFor(movement, refText);
         return `Đã nhập kho ${lineItems.length} mặt hàng — chứng từ [${refText}]${
-          totalSerialsAdded > 0 ? `, đã khai ${totalSerialsAdded} sê-ri` : ''
+          totalSerialsAdded > 0 ? `, đã nhập ${totalSerialsAdded} sê-ri vào kho` : ''
         }.`;
       }
 

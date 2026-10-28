@@ -1490,8 +1490,13 @@ export class PostgresInventoryStore implements InventoryStore {
      * ma. Trả về số dòng THẬT SỰ được thêm để màn hình nói đúng "đã thêm mấy".
      *
      * Từ 0013 cặp (mã, sê-ri) là unique theo `upper(btrim(serial_number))`, nên
-     * hai người khai cùng lúc cũng chỉ thêm một dòng. Khai kèm kho thì sê-ri được
-     * coi là Trong kho, như quy tắc đặt `stock_state` cho dữ liệu cũ ở 0013.
+     * hai người khai cùng lúc cũng chỉ thêm một dòng.
+     *
+     * Khai ở đây chỉ ghi danh mục cá thể, KHÔNG đưa sê-ri vào kho: `stock_state`
+     * và kho hiện tại để trống (chưa vào sổ kho), kể cả khi request gửi kèm kho.
+     * Trước T8-11 khai kèm kho đặt luôn Trong kho mà không có chứng từ nhập, nên
+     * số sê-ri Trong kho vượt tồn. Sê-ri chỉ vào kho qua chứng từ nhập; chứng từ
+     * nhập nhận lại đúng dòng chưa vào sổ kho này, không tạo dòng mới.
      */
     register: async (
       tenantId: string,
@@ -1499,18 +1504,14 @@ export class PostgresInventoryStore implements InventoryStore {
       serialNumbers: readonly string[],
       currentStatus: string,
       locationType: string,
-      warehouseCode?: string,
     ): Promise<number> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query(
         `INSERT INTO inventory_schema.serial_tracking
-           (id, material_id, serial_number, current_status, location_type, current_warehouse_id,
-            stock_state)
-         SELECT gen_random_uuid(), m.id, sn, $3, $4, w.id,
-                CASE WHEN w.id IS NOT NULL THEN 'IN_STOCK' END
+           (id, material_id, serial_number, current_status, location_type)
+         SELECT gen_random_uuid(), m.id, sn, $3, $4
            FROM inventory_schema.materials m
            CROSS JOIN UNNEST($2::text[]) AS sn
-           LEFT JOIN inventory_schema.warehouses w ON w.code = $5
           WHERE m.code = $1
             AND NOT EXISTS (
               SELECT 1 FROM inventory_schema.serial_tracking e
@@ -1518,7 +1519,7 @@ export class PostgresInventoryStore implements InventoryStore {
                  AND upper(btrim(e.serial_number)) = upper(btrim(sn))
             )
          ON CONFLICT DO NOTHING`,
-        [materialCode, [...serialNumbers], currentStatus, locationType, warehouseCode ?? null],
+        [materialCode, [...serialNumbers], currentStatus, locationType],
       );
       return result.rowCount ?? 0;
     },

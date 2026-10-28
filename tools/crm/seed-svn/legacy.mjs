@@ -25,7 +25,8 @@ const RECEIPTS = [
   { key: 'CAP-1', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-CAP', quantity: 10, unitCost: 700_000 },
   { key: 'CAP-2', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-CAP', quantity: 10, unitCost: 800_000 },
   { key: 'CAP-3', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-CAP', quantity: 10, unitCost: 900_000 },
-  { key: 'LAP-1', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-LAP', quantity: 40, unitCost: 15_000_000 },
+  // Serial vào kho qua chính phiếu nhập: khai serial riêng (POST /v1/serials) không còn đưa serial vào tồn.
+  { key: 'LAP-1', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-LAP', quantity: 40, unitCost: 15_000_000, withSerials: true },
   { key: 'MUC-1', warehouseCode: 'QA-KHO-HN', materialCode: 'QA-KHO-MUC', quantity: 50, unitCost: 250_000 },
 ];
 const RECEIPT_REFERENCE_TYPE = 'QA-SEED-LEGACY';
@@ -95,7 +96,8 @@ async function seedInventory(config, admin, tenantId, log, report) {
   const historyByMaterial = new Map();
   for (const receipt of RECEIPTS) {
     if (!historyByMaterial.has(receipt.materialCode)) {
-      const history = await admin.get(`${api}/v1/materials/${receipt.materialCode}/history`);
+      // Mặc định chỉ 50 giao dịch gần nhất; tenant đã chạy UAT có nhiều hơn nên lấy mức tối đa 200.
+      const history = await admin.get(`${api}/v1/materials/${receipt.materialCode}/history?limit=200`);
       historyByMaterial.set(receipt.materialCode, list(history, 'transactions', 'items', 'history'));
     }
     const referenceId = stableUuid(`receipt:${receipt.key}`);
@@ -112,19 +114,13 @@ async function seedInventory(config, admin, tenantId, log, report) {
       referenceType: RECEIPT_REFERENCE_TYPE,
       referenceId,
       note: `Seed legacy ${receipt.key}`,
+      ...(receipt.withSerials ? { serials: SERIALS } : {}),
     });
-    log.created(`Nhập ${receipt.key}: ${receipt.quantity} ${receipt.materialCode} @ ${receipt.unitCost} vào ${receipt.warehouseCode}.`);
+    log.created(
+      `Nhập ${receipt.key}: ${receipt.quantity} ${receipt.materialCode} @ ${receipt.unitCost} vào ${receipt.warehouseCode}` +
+        (receipt.withSerials ? ` kèm serial ${SERIALS[0]}..${SERIALS.at(-1)}.` : '.'),
+    );
   }
-
-  // Serial: khai như màn hình Kho làm (POST /v1/serials), gắn kho QA-KHO-HN. API tự bỏ serial đã có.
-  // SN040 khai riêng ở bước thử tạo cặp trùng bên dưới.
-  const registered = await admin.post(`${api}/v1/serials`, {
-    materialCode: 'QA-KHO-LAP',
-    warehouseCode: 'QA-KHO-HN',
-    serialNumbers: SERIALS.filter((serial) => serial !== DUPLICATE_SERIAL),
-  });
-  if (registered.added) log.created(`Khai ${registered.added} serial QA-KHO-LAP (tổng ${registered.total}).`);
-  else log.skip(`Serial SN001..SN039 đã có (tổng ${registered.total}).`);
 
   report.duplicateSerial = await seedDuplicateSerial(api, admin, log);
 
@@ -270,7 +266,15 @@ export async function runLegacyStep(config, log) {
   log.section('Kho');
   await seedInventory(config, admin, tenant.id, log, report);
   log.section('Workspace');
-  report.workspace = await seedWorkspace(config, admin, log);
+  try {
+    report.workspace = await seedWorkspace(config, admin, log);
+  } catch (error) {
+    // Tenant đã bật Bán hàng thì Workspace chặn ghi khách hàng (CUSTOMER_MANAGED_BY_CRM): không còn
+    // tạo được dữ liệu Workspace kiểu cũ. Chỉ ảnh hưởng phần thử chuyển khách Workspace sang Bán hàng.
+    if (!String(error?.message ?? error).includes('CUSTOMER_MANAGED_BY_CRM')) throw error;
+    log.warn('Tenant đã bật Bán hàng nên Workspace không cho tạo khách hàng kiểu cũ; bỏ qua dữ liệu Workspace của bước legacy.');
+    report.workspace = { customers: 0, projects: 0, contracts: 0 };
+  }
 
   log.section('Tổng tồn để đối soát');
   const snapshot = await inventorySnapshot(config, admin);

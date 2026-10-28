@@ -129,6 +129,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0013-warranty-warehouse-settings', path: 'tenant/crm/0013-warranty-warehouse-settings.sql' },
     { version: '0014-contract-reservation-completed', path: 'tenant/crm/0014-contract-reservation-completed.sql' },
     { version: '0015-order-line-reservation-completed', path: 'tenant/crm/0015-order-line-reservation-completed.sql' },
+    { version: '0016-order-reservation-completed', path: 'tenant/crm/0016-order-reservation-completed.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
