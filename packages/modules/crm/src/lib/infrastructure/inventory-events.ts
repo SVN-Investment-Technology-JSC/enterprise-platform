@@ -42,6 +42,8 @@ export interface StockIssuedPayload {
   readonly sourceId?: string | null;
   readonly reversesDocumentId?: string | null;
   readonly postedAt?: string;
+  /** Người dùng Kho ghi sổ chứng từ; null khi hệ thống tự làm. */
+  readonly actorUserId?: string | null;
   readonly lines?: readonly {
     readonly materialId?: string;
     readonly materialCode?: string;
@@ -59,6 +61,16 @@ export interface ReservationExpiredPayload {
   readonly reservationCode?: string;
   readonly sourceType?: string | null;
   readonly sourceId?: string | null;
+  /** Người dùng Kho nhả phần giữ; null khi job hết hạn hay hệ thống tự làm. */
+  readonly actorUserId?: string | null;
+}
+
+/**
+ * Người làm ghi vào nhật ký Bán hàng cho thay đổi đến từ sự kiện Kho: người dùng
+ * Kho trong payload (`actorUserId`); không có (job, hệ thống) thì null.
+ */
+export function eventActorId(payload: { readonly actorUserId?: string | null }): string | null {
+  return isUuid(payload.actorUserId) ? payload.actorUserId.toLowerCase() : null;
 }
 
 /** Dòng đợt giao đang được cộng, trừ trong lúc áp một chứng từ. */
@@ -97,6 +109,7 @@ export async function applyStockIssued(
   const deliveryId = payload.sourceId;
   const documentId = payload.documentId;
   const reversesId = isUuid(payload.reversesDocumentId) ? payload.reversesDocumentId : null;
+  const actorId = eventActorId(payload);
   return database.transaction(tenantId, async (client) => {
     const found = await client.query<{ order_id: string }>(`SELECT order_id FROM crm_schema.delivery_plans WHERE id = $1`, [deliveryId]);
     const orderId = found.rows[0]?.order_id;
@@ -130,7 +143,7 @@ export async function applyStockIssued(
     );
     if (!claimed.rows.length) return 'ignored';
     // Khoá hợp đồng trước dòng đơn (cùng thứ tự với huỷ hợp đồng nhả phần giữ).
-    if (!reversesId) await recordContractReservationIssue(client, payload.lines ?? []);
+    if (!reversesId) await recordContractReservationIssue(client, payload.lines ?? [], actorId);
 
     const targets = (
       await client.query<{ id: string; order_line_id: string; material_id: string; planned_quantity: string; delivered_quantity: string; serials: string[] | null }>(
@@ -247,11 +260,11 @@ export async function applyStockIssued(
       reversesSourceId: reversesId,
       documentCode: payload.documentCode ?? null,
       date: vietnamDateOf(payload.postedAt),
-      actorId: null,
+      actorId,
     });
     await refreshOrderProgress(client, tenantId, orderId, balances, {
       action: reversal ? 'reverse-delivery' : 'deliver',
-      actorId: null,
+      actorId,
       metadata: {
         deliveryCode: delivery?.code ?? null,
         documentCode: payload.documentCode ?? null,
@@ -277,11 +290,12 @@ export async function applyReservationExpired(
   const code = payload.reservationCode?.trim();
   if (!code || !isUuid(payload.sourceId)) return 'ignored';
   const sourceId = payload.sourceId;
+  const actorId = eventActorId(payload);
   if (payload.sourceType === CRM_ORDER_SOURCE_TYPE) {
     return database.transaction(tenantId, async (client) => {
       const lost = await expireOrderLines(client, `order_id = $2 AND reservation_code = $1`, [code, sourceId]);
       if (!lost) return 'ignored';
-      await notifyOrderLost(client, tenantId, sourceId, code);
+      await notifyOrderLost(client, tenantId, sourceId, code, actorId);
       return 'applied';
     });
   }
@@ -299,7 +313,7 @@ export async function applyReservationExpired(
         entityType: CONTRACT_AUDIT_ENTITY,
         entityId: sourceId,
         action: 'reservation-expired',
-        actorId: null,
+        actorId,
         reason: `Phần giữ hàng ${code} ở Kho đã hết hạn.`,
         metadata: { code: row.code, reservationCode: code },
       });
@@ -322,7 +336,7 @@ export async function applyReservationExpired(
           RETURNING order_id`,
         [code],
       );
-      for (const orderId of new Set(orders.rows.map((line) => line.order_id))) await notifyOrderLost(client, tenantId, orderId, code);
+      for (const orderId of new Set(orders.rows.map((line) => line.order_id))) await notifyOrderLost(client, tenantId, orderId, code, actorId);
       return 'applied';
     });
   }
@@ -335,7 +349,11 @@ export async function applyReservationExpired(
  * xuất đủ, như trạng thái Xuất đủ bên Kho. Chứng từ đảo không trừ lại vì Kho
  * cũng không trả phần giữ khi đảo.
  */
-export async function recordContractReservationIssue(client: CrmSqlClient, lines: NonNullable<StockIssuedPayload['lines']>): Promise<void> {
+export async function recordContractReservationIssue(
+  client: CrmSqlClient,
+  lines: NonNullable<StockIssuedPayload['lines']>,
+  actorId: string | null = null,
+): Promise<void> {
   const byReservation = new Map<string, Map<string, number>>();
   for (const raw of lines) {
     const reservationId = String(raw.reservationId ?? '').toLowerCase();
@@ -380,7 +398,7 @@ export async function recordContractReservationIssue(client: CrmSqlClient, lines
         entityType: CONTRACT_AUDIT_ENTITY,
         entityId: contract.id,
         action: 'reservation-completed',
-        actorId: null,
+        actorId,
         reason: `Kho đã xuất đủ phần giữ hàng ${contract.reservation_code ?? ''}.`,
         metadata: { code: contract.code, reservationCode: contract.reservation_code },
       });
@@ -419,6 +437,7 @@ export async function applyReservationReleased(
   if (!code || !isUuid(payload.sourceId)) return 'ignored';
   const sourceId = payload.sourceId;
   if (payload.sourceType !== CRM_ORDER_SOURCE_TYPE && payload.sourceType !== CRM_CONTRACT_SOURCE_TYPE) return 'ignored';
+  const actorId = eventActorId(payload);
   return database.transaction(tenantId, async (client) => {
     let applied = false;
     if (payload.sourceType === CRM_CONTRACT_SOURCE_TYPE) {
@@ -435,7 +454,7 @@ export async function applyReservationReleased(
           entityType: CONTRACT_AUDIT_ENTITY,
           entityId: sourceId,
           action: 'reservation-released',
-          actorId: null,
+          actorId,
           reason: `Phần giữ hàng ${code} đã được nhả ở Kho.`,
           metadata: { code: row.code, reservationCode: code },
         });
@@ -463,7 +482,7 @@ export async function applyReservationReleased(
         entityType: SALES_ORDER_AUDIT_ENTITY,
         entityId: orderId,
         action: 'reservation-released',
-        actorId: null,
+        actorId,
         reason: `Phần giữ hàng ${code} đã được nhả ở Kho.`,
         metadata: { code: order?.code ?? null, reservationCode: code },
       });
@@ -484,7 +503,13 @@ async function expireOrderLines(client: CrmSqlClient, condition: string, values:
 }
 
 /** Nhật ký và thông báo cho người phụ trách đơn khi dòng đơn mất phần giữ. */
-async function notifyOrderLost(client: CrmSqlClient, tenantId: string, orderId: string, reservationCode: string) {
+async function notifyOrderLost(
+  client: CrmSqlClient,
+  tenantId: string,
+  orderId: string,
+  reservationCode: string,
+  actorId: string | null,
+) {
   const order = (
     await client.query<{ code: string; owner_user_id: string; status: string }>(
       `UPDATE crm_schema.sales_orders SET revision = revision + 1, updated_at = now() WHERE id = $1
@@ -497,7 +522,7 @@ async function notifyOrderLost(client: CrmSqlClient, tenantId: string, orderId: 
     entityType: SALES_ORDER_AUDIT_ENTITY,
     entityId: orderId,
     action: 'reservation-expired',
-    actorId: null,
+    actorId,
     reason: `Phần giữ hàng ${reservationCode} ở Kho đã hết hạn.`,
     metadata: { code: order.code, reservationCode },
   });

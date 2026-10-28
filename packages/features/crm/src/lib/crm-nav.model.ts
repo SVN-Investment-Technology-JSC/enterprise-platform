@@ -22,10 +22,8 @@ export interface CrmPage {
   readonly id: CrmView;
   readonly label: string;
   readonly group: string;
-  /** Câu mô tả ngắn trên trang giữ chỗ. */
+  /** Câu mô tả ngắn trên thẻ của trang Tổng quan. */
   readonly summary: string;
-  /** Giai đoạn triển khai theo kế hoạch (`docs/crm/plan_crm.md`, mục 7). */
-  readonly phase: string;
   /** Ai thấy trang này; không khai thì mọi người có `crm.read`. */
   readonly visible?: (capabilities: CrmCapabilities) => boolean;
 }
@@ -50,78 +48,67 @@ export const CRM_PAGES: readonly CrmPage[] = [
     id: 'overview',
     label: 'Tổng quan',
     group: 'Bán hàng',
-    summary: 'Chỉ số bán hàng, việc cần làm và cảnh báo trong phạm vi dữ liệu của bạn.',
-    phase: 'Giai đoạn 2',
+    summary: 'Giới thiệu phân hệ, phạm vi dữ liệu, quyền của bạn và lối vào từng mục.',
   },
   {
     id: 'customers',
     label: 'Khách hàng',
     group: 'Bán hàng',
     summary: 'Hồ sơ khách hàng, người liên hệ, nhóm khách và người phụ trách.',
-    phase: 'Giai đoạn 2',
   },
   {
     id: 'leads',
     label: 'Lead',
     group: 'Bán hàng',
     summary: 'Đầu mối tiềm năng; chuyển thành khách hàng và cơ hội bằng một thao tác.',
-    phase: 'Giai đoạn 2',
   },
   {
     id: 'opportunities',
     label: 'Cơ hội',
     group: 'Bán hàng',
     summary: 'Cơ hội theo giai đoạn: kanban kéo thả, dạng bảng, lịch sử chuyển giai đoạn.',
-    phase: 'Giai đoạn 2',
   },
   {
     id: 'activities',
     label: 'Hoạt động',
     group: 'Bán hàng',
     summary: 'Gọi điện, email, gặp mặt, công việc; nhắc trước hạn và khi quá hạn.',
-    phase: 'Giai đoạn 2',
   },
   {
     id: 'quotes',
     label: 'Báo giá',
     group: 'Bán hàng',
     summary: 'Bảng giá, chính sách chiết khấu, báo giá theo phiên bản và duyệt báo giá.',
-    phase: 'Giai đoạn 3',
   },
   {
     id: 'contracts',
     label: 'Hợp đồng',
     group: 'Giao dịch',
     summary: 'Hợp đồng mua bán, hợp đồng khung, điều khoản thanh toán và hiệu lực.',
-    phase: 'Giai đoạn 4',
   },
   {
     id: 'orders',
     label: 'Đơn bán',
     group: 'Giao dịch',
     summary: 'Đơn bán, giữ hàng ở Kho, kế hoạch giao và xuất kho.',
-    phase: 'Giai đoạn 4',
   },
   {
     id: 'receivables',
     label: 'Công nợ',
     group: 'Giao dịch',
     summary: 'Sổ công nợ khách hàng, thu tiền qua phiếu thu Tài chính, hạn mức tín dụng.',
-    phase: 'Giai đoạn 5',
   },
   {
     id: 'warranty',
     label: 'Bảo hành',
     group: 'Sau bán',
     summary: 'Yêu cầu bảo hành, đổi trả theo serial và nhập trả về Kho.',
-    phase: 'Giai đoạn 6',
   },
   {
     id: 'reports',
     label: 'Báo cáo',
     group: 'Sau bán',
     summary: 'Doanh thu, sản lượng, lợi nhuận theo nhân viên, khách hàng, sản phẩm, khu vực.',
-    phase: 'Giai đoạn 7',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canReadReport,
   },
   {
@@ -129,7 +116,6 @@ export const CRM_PAGES: readonly CrmPage[] = [
     label: 'Cấu hình',
     group: 'Quản trị',
     summary: 'Nhóm khách, quy tắc mã khách hàng, nhắc hoạt động; bảng giá, chính sách chiết khấu, thử tính giá; ngưỡng và cách duyệt báo giá.',
-    phase: 'Giai đoạn 2',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canManage,
   },
 ];
@@ -162,4 +148,13 @@ export function crmCapabilityLabels(capabilities: CrmCapabilities): string[] {
   ];
   const held = labels.filter(([on]) => on).map(([, label]) => label);
   return held.length ? held : ['Chỉ xem'];
+}
+
+/** Câu hiện khi người dùng chưa có quyền `crm.*` nào (`GET v1/status` trả 403). */
+export const CRM_ACCESS_DENIED_MESSAGE =
+  'Bạn chưa được cấp quyền dùng phân hệ Bán hàng. Liên hệ quản trị để được cấp quyền.';
+
+/** Lỗi tải trạng thái là do chưa được cấp quyền (403), không phải lỗi hệ thống. */
+export function isCrmAccessDenied(cause: unknown): boolean {
+  return (cause as { statusCode?: unknown } | null | undefined)?.statusCode === 403;
 }

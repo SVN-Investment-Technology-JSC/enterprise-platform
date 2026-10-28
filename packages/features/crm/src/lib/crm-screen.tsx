@@ -19,10 +19,12 @@ import {
 import { useEffect, useState, type ReactNode } from 'react';
 import { errorMessage, loadCrmStatus, loadTenantHomePath } from './crm-api';
 import {
+  CRM_ACCESS_DENIED_MESSAGE,
   CRM_PAGES,
   CRM_VIEWS,
   crmCapabilityLabels,
   crmScopeLabel,
+  isCrmAccessDenied,
   visibleCrmPages,
   type CrmPage,
   type CrmView,
@@ -70,13 +72,15 @@ const ICONS: Record<CrmView, ReactNode> = {
  * (quyền thật kiểm ở API). Đoạn hash thứ hai là id đang mở, ví dụ
  * `#customers/<id>`, `#opportunities/<id>`, `#activities/<id>` (liên kết từ
  * thông báo nhắc hạn), `#quotes/<id>` (thông báo duyệt báo giá), `#contracts/<id>` (hợp đồng sắp hết
- * hạn), `#orders/<id>` (giao trễ, mất phần giữ hàng). Phần chưa làm hiện trang giữ chỗ.
+ * hạn), `#orders/<id>` (giao trễ, mất phần giữ hàng). Người chưa có quyền
+ * `crm.*` nào (status trả 403) chỉ thấy một thông báo, không có menu.
  */
 export function CrmScreen() {
   const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
   const [homePath, setHomePath] = useState('/');
   const [status, setStatus] = useState<CrmStatus>();
   const [error, setError] = useState<string>();
+  const [denied, setDenied] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
 
   useEffect(() => {
@@ -85,8 +89,12 @@ export function CrmScreen() {
       .then((next) => {
         setStatus(next);
         setError(undefined);
+        setDenied(false);
       })
-      .catch((cause) => setError(errorMessage(cause, 'Không tải được trạng thái phân hệ Bán hàng.')));
+      .catch((cause) => {
+        if (isCrmAccessDenied(cause)) setDenied(true);
+        else setError(errorMessage(cause, 'Không tải được trạng thái phân hệ Bán hàng.'));
+      });
   }, []);
 
   const capabilities = status?.capabilities ?? CRM_NO_CAPABILITIES;
@@ -95,12 +103,13 @@ export function CrmScreen() {
   // Trang bị ẩn (mở bằng link cũ khi không có quyền) thì hiện Tổng quan.
   const current: CrmPage = pages.find((page) => page.id === view) ?? CRM_PAGES[0];
 
+  // Menu chỉ hiện khi đã biết quyền, để người không có quyền không thấy menu thoáng qua.
   const nav: readonly ModuleNavItem<CrmView>[] = CRM_PAGES.map((page) => ({
     id: page.id,
     label: page.label,
     group: page.group,
     icon: ICONS[page.id],
-    hidden: !pages.includes(page),
+    hidden: !status || !pages.includes(page),
   }));
 
   return (
@@ -128,7 +137,9 @@ export function CrmScreen() {
         </>
       }
     >
-      {!status ? null : current.id === 'overview' ? (
+      {denied ? (
+        <AccessDenied />
+      ) : !status ? null : current.id === 'overview' ? (
         <Overview status={status} onOpen={navigate} />
       ) : status.tablesReady ? (
         <CrmAntdProvider>
@@ -151,7 +162,8 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
       <section className={styles.panel} aria-label="Quyền của bạn">
         <h2 className={styles.title}>Phân hệ Bán hàng</h2>
         <p className={styles.muted}>
-          Phân hệ đang được xây dựng theo từng giai đoạn. Các trang dưới đây sẽ lần lượt mở khi sẵn sàng.
+          Quản lý trọn chu trình bán hàng: khách hàng, lead và cơ hội; báo giá, hợp đồng và đơn bán; công nợ, bảo hành
+          và báo cáo. Chọn một mục dưới đây để mở.
         </p>
         <dl className={styles.facts}>
           <dt>Phạm vi dữ liệu</dt>
@@ -173,7 +185,7 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
               <span className={styles.cardHead}>
                 {ICONS[page.id]}
                 <strong>{page.label}</strong>
-                <span className={styles.badge}>{page.phase}</span>
+                <span className={styles.badge}>{page.group}</span>
               </span>
               <span className={styles.muted}>{page.summary}</span>
             </button>
@@ -184,7 +196,7 @@ function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmVie
   );
 }
 
-/** Trang đã làm (GĐ2 đến GĐ4); còn lại là trang giữ chỗ. */
+/** Nội dung từng trang; trang không khớp hiện khung chờ. */
 function SalesView({
   page,
   sub,
@@ -336,6 +348,7 @@ function ActivitiesPage({ focusId }: { focusId?: string }) {
   );
 }
 
+/** Khung chờ khi dữ liệu Bán hàng của tenant chưa khởi tạo xong. */
 function Placeholder({ page }: { page: CrmPage }) {
   return (
     <div className={styles.page}>
@@ -343,10 +356,21 @@ function Placeholder({ page }: { page: CrmPage }) {
         <span className={styles.cardHead}>
           {ICONS[page.id]}
           <h2 className={styles.title}>{page.label}</h2>
-          <span className={styles.badge}>{page.phase}</span>
         </span>
         <p className={styles.muted}>{page.summary}</p>
-        <p className={styles.muted}>Trang này đang được xây dựng.</p>
+        <p className={styles.muted}>Trang sẽ mở khi dữ liệu Bán hàng của tenant khởi tạo xong.</p>
+      </section>
+    </div>
+  );
+}
+
+/** Người chưa có quyền `crm.*` nào: một thông báo rõ, không menu, không lỗi đỏ. */
+function AccessDenied() {
+  return (
+    <div className={styles.page}>
+      <section className={styles.panel} aria-label="Chưa được cấp quyền">
+        <h2 className={styles.title}>Chưa được cấp quyền</h2>
+        <p className={styles.muted}>{CRM_ACCESS_DENIED_MESSAGE}</p>
       </section>
     </div>
   );

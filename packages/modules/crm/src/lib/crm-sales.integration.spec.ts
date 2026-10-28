@@ -486,6 +486,21 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       ).rejects.toMatchObject({ code: '23514' });
     });
 
+    it('BUG-CRM-001: tìm cơ hội theo `%`, `_` như chuỗi thường; tìm theo từ vẫn đúng', async () => {
+      await opportunities.create(seller(NV1), { customerId, name: 'Bảo trì trạm biến áp' });
+      const names = async (q: string) => (await opportunities.list(seller(NV1), { q })).items.map((item) => item.name);
+      expect(await names('%')).toEqual([]);
+      expect(await names('_')).toEqual([]);
+      expect(await names('%%')).toEqual([]);
+      expect(await names('bảo trì')).toEqual(['Bảo trì trạm biến áp']);
+      expect(await names('biến')).toEqual(['Bảo trì trạm biến áp']);
+      const board = await opportunities.board(seller(NV1), { q: '%' });
+      expect(board.columns.every((column) => column.items.length === 0)).toBe(true);
+
+      const literal = await opportunities.create(seller(NV1), { customerId, name: '%_ Ký hiệu đặc biệt' });
+      expect((await opportunities.list(seller(NV1), { q: '%_' })).items.map((item) => item.id)).toEqual([literal.id]);
+    });
+
     it('kanban: cột theo giai đoạn, tổng giá trị, lọc theo phạm vi', async () => {
       const board = await opportunities.board(seller(NV1), {});
       expect(board.columns.map((column) => column.stage)).toEqual(['NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION', 'WON', 'LOST']);

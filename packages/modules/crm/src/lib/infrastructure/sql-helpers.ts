@@ -65,6 +65,18 @@ export function prefixTsQuery(text: string): string | undefined {
   return words.length ? words.map((word) => `${word}:*`).join(' & ') : undefined;
 }
 
+/**
+ * Điều kiện tìm theo tên: khớp đầu từ (full-text `simple`). Chuỗi không có chữ
+ * hay số (ví dụ `%`, `_`) thì khớp đầu tên như chuỗi thường qua `prefixPattern`
+ * (đã thoát ký tự đại diện), không bỏ điều kiện tìm.
+ */
+export function nameSearchCondition(where: SqlConditions, column: string, q: string): string {
+  const tsQuery = prefixTsQuery(q);
+  return tsQuery
+    ? `to_tsvector('simple'::regconfig, ${column}) @@ to_tsquery('simple'::regconfig, ${where.param(tsQuery)})`
+    : `${column} ILIKE ${where.param(prefixPattern(q))}`;
+}
+
 /** Biểu thức SQL đọc thời điểm đủ micro giây theo UTC, để làm con trỏ. */
 export function cursorAt(column: string): string {
   return `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;

@@ -31,6 +31,8 @@ const integration = crmIntegrationEnabled() ? describe : describe.skip;
 const MAY = randomUUID();
 const NV = randomUUID();
 const KTV = randomUUID();
+/** Thủ kho ghi sổ chứng từ ở Kho (`actorUserId` của sự kiện). */
+const TK = randomUUID();
 
 /** Danh mục giả: máy cắt bảo hành 12 tháng. */
 const catalog: CatalogReader = {
@@ -172,6 +174,7 @@ integration('Bán hàng GĐ6: bảo hành, đổi trả (PostgreSQL)', () => {
       reversesDocumentId: null,
       postedAt: new Date().toISOString(),
       qualityStatus: 'PENDING_INSPECTION',
+      actorUserId: TK,
       lines: [{ materialId: MAY, materialCode: 'QA-KHO-MAY', quantity: serials.length, direction: 'IN', serials }],
     });
   }
@@ -318,6 +321,7 @@ integration('Bán hàng GĐ6: bảo hành, đổi trả (PostgreSQL)', () => {
         sourceType: 'crm_warranty',
         sourceId: created.id,
         postedAt: new Date().toISOString(),
+        actorUserId: TK,
         lines: [{ materialId: MAY, materialCode: 'QA-KHO-MAY', quantity: 1, direction: 'OUT', serials: ['SN-DP01'] }],
       }),
     ).toBe('applied');
@@ -341,6 +345,10 @@ integration('Bán hàng GĐ6: bảo hành, đổi trả (PostgreSQL)', () => {
       'close',
     ]);
     expect(detail.history.every((entry) => entry.at)).toBe(true);
+    // Bước đến từ sự kiện Kho ghi đúng thủ kho đã ghi sổ (không để trống người làm).
+    const byAction = new Map(detail.history.map((entry) => [entry.action, entry.actorId]));
+    expect(byAction.get('goods-received')).toBe(TK);
+    expect(byAction.get('replacement-issued')).toBe(TK);
 
     // Lịch sử serial: SN032 là serial gốc, SN-DP01 là serial thay thế.
     expect((await store.serialCases(tenantId, { kind: 'all' }, 'SN-DP01')).map((item) => item.role)).toEqual(['REPLACEMENT']);

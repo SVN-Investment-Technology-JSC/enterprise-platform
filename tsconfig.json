@@ -239,6 +239,9 @@
     },
     {
       "path": "./apps/crm-web"
+    },
+    {
+      "path": "./packages/features/crm"
     }
   ]
 }

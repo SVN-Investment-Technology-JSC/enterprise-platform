@@ -2,6 +2,7 @@ import { CRM_WARRANTY_SOURCE_TYPE, WARRANTY_AUDIT_ENTITY } from '../application/
 import { isUuid } from '../domain/fields.js';
 import { receiveIdempotencyKey } from '../domain/warranty-case.js';
 import { writeAuditLog } from './audit-log.js';
+import { eventActorId } from './inventory-events.js';
 import type { CrmDatabase } from './crm.database.js';
 import { lockWarrantyCase, transitionWarrantyCase, upsertWarrantyDocument } from './postgres-warranty.store.js';
 
@@ -18,6 +19,8 @@ export interface WarrantyStockEventPayload {
   readonly reversesDocumentId?: string | null;
   readonly postedAt?: string;
   readonly qualityStatus?: string;
+  /** Người dùng Kho ghi sổ chứng từ; null khi hệ thống tự làm. */
+  readonly actorUserId?: string | null;
   readonly lines?: readonly {
     readonly materialId?: string;
     readonly materialCode?: string;
@@ -94,7 +97,7 @@ export async function applyWarrantyReturned(
     );
     await transitionWarrantyCase(client, caseId, locked.status, 'INSPECTING', {
       action: 'goods-received',
-      actorId: null,
+      actorId: eventActorId(payload),
       metadata: { documentCode: payload.documentCode ?? null, qualityStatus: payload.qualityStatus ?? null },
     });
     return 'applied';
@@ -133,7 +136,7 @@ export async function applyWarrantyIssued(
         entityType: WARRANTY_AUDIT_ENTITY,
         entityId: caseId,
         action: 'document-reversed',
-        actorId: null,
+        actorId: eventActorId(payload),
         metadata: { documentCode: payload.documentCode ?? null, kind: target.kind },
       });
       return 'applied';
@@ -167,7 +170,7 @@ export async function applyWarrantyIssued(
       entityType: WARRANTY_AUDIT_ENTITY,
       entityId: caseId,
       action: target.kind === 'REPLACEMENT' ? 'replacement-issued' : 'document-posted',
-      actorId: null,
+      actorId: eventActorId(payload),
       metadata,
     });
     return 'applied';

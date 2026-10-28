@@ -1,5 +1,13 @@
 import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
-import { CRM_PAGES, CRM_VIEWS, crmCapabilityLabels, crmScopeLabel, visibleCrmPages } from './crm-nav.model';
+import {
+  CRM_ACCESS_DENIED_MESSAGE,
+  CRM_PAGES,
+  CRM_VIEWS,
+  crmCapabilityLabels,
+  crmScopeLabel,
+  isCrmAccessDenied,
+  visibleCrmPages,
+} from './crm-nav.model';
 
 const ids = (capabilities = CRM_NO_CAPABILITIES) => visibleCrmPages(capabilities).map((page) => page.id);
 
@@ -25,5 +33,23 @@ describe('menu Bán hàng', () => {
     expect(crmScopeLabel({ ...CRM_NO_CAPABILITIES, canReadAll: true })).toBe('Toàn bộ dữ liệu Bán hàng');
     expect(crmCapabilityLabels(CRM_NO_CAPABILITIES)).toEqual(['Chỉ xem']);
     expect(crmCapabilityLabels({ ...CRM_NO_CAPABILITIES, canWriteQuote: true })).toEqual(['Lập báo giá']);
+  });
+
+  it('thẻ Tổng quan có mô tả thật, không còn nhãn giai đoạn hay chữ giữ chỗ', () => {
+    for (const page of CRM_PAGES) {
+      expect(page.summary.length).toBeGreaterThan(20);
+      expect(page).not.toHaveProperty('phase');
+      expect(page.summary).not.toMatch(/giai đoạn \d|đang được xây dựng/i);
+    }
+  });
+
+  it('chưa có quyền crm.* (403) là trạng thái riêng, lỗi khác vẫn là lỗi', () => {
+    expect(isCrmAccessDenied({ statusCode: 403, message: 'Không được phép truy cập Bán hàng.' })).toBe(true);
+    expect(isCrmAccessDenied({ statusCode: 500 })).toBe(false);
+    expect(isCrmAccessDenied(undefined)).toBe(false);
+    expect(isCrmAccessDenied(new Error('mạng'))).toBe(false);
+    expect(CRM_ACCESS_DENIED_MESSAGE).toBe(
+      'Bạn chưa được cấp quyền dùng phân hệ Bán hàng. Liên hệ quản trị để được cấp quyền.',
+    );
   });
 });

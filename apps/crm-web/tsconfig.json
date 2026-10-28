@@ -52,6 +52,9 @@
   "references": [
     {
       "path": "../../packages/shared/ui"
+    },
+    {
+      "path": "../../packages/features/crm"
     }
   ]
 }

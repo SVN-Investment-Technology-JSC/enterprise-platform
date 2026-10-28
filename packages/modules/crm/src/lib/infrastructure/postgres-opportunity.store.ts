@@ -18,7 +18,7 @@ import { CrmConflictError, CrmStaleVersionError } from '../domain/crm.error.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { declineQuotesForLostOpportunity, ensureDraftQuoteForOpportunity } from './postgres-quote.store.js';
 import type { CrmDatabase } from './crm.database.js';
-import { SqlConditions, cursorAt, keysetPage, prefixTsQuery, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, keysetPage, nameSearchCondition, toIso, toNumber } from './sql-helpers.js';
 
 interface OpportunityRow {
   id: string;
@@ -276,10 +276,9 @@ async function recordStageChange(
   });
 }
 
+/** Chuỗi chỉ có ký tự đặc biệt (`%`, `_`) vẫn là điều kiện tìm, không bị bỏ qua. */
 function addNameSearch(where: SqlConditions, q: string | undefined): void {
-  const tsQuery = q ? prefixTsQuery(q) : undefined;
-  if (!tsQuery) return;
-  where.add(`to_tsvector('simple'::regconfig, o.name) @@ to_tsquery('simple'::regconfig, ${where.param(tsQuery)})`);
+  if (q) where.add(nameSearchCondition(where, 'o.name', q));
 }
 
 function opportunityValues(record: OpportunityRecord): unknown[] {

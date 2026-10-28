@@ -46,6 +46,8 @@ const integration = crmIntegrationEnabled() ? describe : describe.skip;
 const CAP = randomUUID();
 const BT = randomUUID();
 const NV = randomUUID();
+/** Thủ kho ghi sổ chứng từ ở Kho (`actorUserId` của sự kiện). */
+const TK = randomUUID();
 
 /** Danh mục Kho giả: `QA-KHO-CAP` hàng tồn kho, `QA-KHO-BT` dịch vụ. */
 class FakeCatalog implements CatalogReader {
@@ -322,6 +324,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
       sourceId: first.id,
       reversesDocumentId: null,
       postedAt: new Date().toISOString(),
+      actorUserId: TK,
       lines: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', quantity: 4, unitCost: 800_000, costAmount: 3_200_000, serials: ['S1', 'S2', 'S3', 'S4'], direction: 'OUT' }],
     };
     const balances = new UnknownOrderBalanceReader();
@@ -372,6 +375,14 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(order.history.map((entry) => entry.action)).toEqual(
       expect.arrayContaining(['create', 'confirm', 'request-issue', 'deliver', 'reverse-delivery']),
     );
+    // Nhật ký giao, đảo giao ghi thủ kho đã ghi sổ ở Kho, không để trống người làm.
+    const audit = await handle.pool.query<{ action: string; actor_id: string | null }>(
+      `SELECT action, actor_id FROM crm_schema.audit_log
+        WHERE entity_type = 'sales_order' AND entity_id = $1 AND action IN ('deliver', 'reverse-delivery')`,
+      [order.id],
+    );
+    expect(audit.rows.length).toBeGreaterThanOrEqual(3);
+    expect(audit.rows.every((row) => row.actor_id === TK)).toBe(true);
   });
 
   it('TC-SM-09: huỷ đơn đã giao một phần nhả phần giữ còn lại, không đụng phần đã xuất', async () => {
@@ -417,6 +428,12 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(after.lines[0]).toMatchObject({ reservationStatus: 'EXPIRED', reservedQuantity: 0 });
     const lost = (await outbox(order.id)).find((row) => row.event_type === CRM_ORDER_RESERVATION_LOST);
     expect(lost?.payload.payload).toMatchObject({ recipientUserIds: [NV], reservationCode: code });
+    // Job hết hạn của Kho không có người làm: nhật ký để trống.
+    const audit = await handle.pool.query<{ actor_id: string | null }>(
+      `SELECT actor_id FROM crm_schema.audit_log WHERE entity_type = 'sales_order' AND entity_id = $1 AND action = 'reservation-expired'`,
+      [order.id],
+    );
+    expect(audit.rows).toEqual([{ actor_id: null }]);
   });
 
   it('TC-ORD-08/09: đợt quá ngày dự kiến hiện ở bộ lọc giao trễ, báo một lần; xuất xong thì hết trễ', async () => {
@@ -618,10 +635,20 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     const otherActive = await contracts.confirm(nv, other.id, { revision: other.revision });
     let otherOrder = await orders.create(nv, { contractId: other.id, lines: [{ materialId: CAP, quantity: 2 }] });
     otherOrder = await orders.confirm(nv, otherOrder.id, { revision: otherOrder.revision });
-    const released = { reservationCode: otherActive.reservation?.reservationCode, sourceType: 'crm_contract', sourceId: other.id };
+    const released = { reservationCode: otherActive.reservation?.reservationCode, sourceType: 'crm_contract', sourceId: other.id, actorUserId: TK };
     expect(await applyReservationReleased(handle.database, tenantId, released)).toBe('applied');
     expect(await applyReservationReleased(handle.database, tenantId, released)).toBe('ignored');
     expect((await contracts.get(nv, other.id)).reservation?.status).toBe('RELEASED');
     expect((await orders.get(nv, otherOrder.id)).lines[0]).toMatchObject({ reservationStatus: 'RELEASED', reservedQuantity: 0 });
+    // Thủ kho nhả tay: nhật ký hợp đồng và đơn ghi đúng người nhả.
+    const audit = await handle.pool.query<{ entity_type: string; actor_id: string | null }>(
+      `SELECT entity_type, actor_id FROM crm_schema.audit_log
+        WHERE entity_id = ANY($1::uuid[]) AND action = 'reservation-released' ORDER BY entity_type`,
+      [[other.id, otherOrder.id]],
+    );
+    expect(audit.rows).toEqual([
+      { entity_type: 'contract', actor_id: TK },
+      { entity_type: 'sales_order', actor_id: TK },
+    ]);
   });
 });
