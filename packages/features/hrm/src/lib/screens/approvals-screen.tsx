@@ -18,7 +18,7 @@ import {
   isPendingStatus,
   splitEmployeeLabel,
 } from '../hrm-approval-kinds';
-import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
+import { formatRequestPeriod } from '../request-time-format';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -83,12 +83,23 @@ function FilterBox({ label, children, className = "min-w-[140px] flex-1" }: { la
 function ApprovalsContent() {
   const searchParams = useSearchParams();
   const kindFromQuery = approvalKindFromType(searchParams?.get('type'));
+  const rawTab = searchParams?.get('tab')?.toUpperCase();
+  const initialTab: ApprovalTab =
+    rawTab === 'ALL' ||
+    rawTab === 'MINE' ||
+    rawTab === 'PROCESSING' ||
+    rawTab === 'DONE' ||
+    rawTab === 'OVERDUE' ||
+    rawTab === 'DONE_MONTH'
+      ? (rawTab as ApprovalTab)
+      : 'MINE';
+
   const permissions = useHrmPermissions(),
     permissionKey = permissions.actions.join('|');
   const [rows, setRows] = useState<Row[]>([]),
     [error, setError] = useState(''),
     [panelError, setPanelError] = useState(''),
-    [filter, setFilter] = useState<ApprovalFilter>({ tab: 'MINE', kind: kindFromQuery, department: '', status: '', search: '', from: '', to: '' }),
+    [filter, setFilter] = useState<ApprovalFilter>({ tab: initialTab, kind: kindFromQuery, department: '', status: '', search: '', from: '', to: '' }),
     [currentStep, setCurrentStep] = useState(''),
     [page, setPage] = useState(1),
     [detailKey, setDetailKey] = useState(''),
@@ -123,6 +134,20 @@ function ApprovalsContent() {
   useEffect(() => {
     if (kindFromQuery) patch({ kind: kindFromQuery });
   }, [kindFromQuery]);
+  // ?tab=<nhóm đơn> từ liên kết ngoài module: chọn sẵn tab nhóm đơn tương ứng.
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab')?.toUpperCase();
+    if (
+      tabParam === 'ALL' ||
+      tabParam === 'MINE' ||
+      tabParam === 'PROCESSING' ||
+      tabParam === 'DONE' ||
+      tabParam === 'OVERDUE' ||
+      tabParam === 'DONE_MONTH'
+    ) {
+      patch({ tab: tabParam as ApprovalTab });
+    }
+  }, [searchParams]);
   const availableSources = useMemo(
     () => approvalSourcesFor(permissionKey ? permissionKey.split('|') : []),
     [permissionKey],
@@ -187,6 +212,11 @@ function ApprovalsContent() {
     ]);
     const reversedReasons = new Map(reversals.map((r) => [r.requestId, r.reason]));
     const people = new Map(employees.map((e) => [e.value, { ...splitEmployeeLabel(e.label), department: e.department ?? '' }]));
+    for (const e of employees) {
+      if (e.userId) {
+        people.set(e.userId, { ...splitEmployeeLabel(e.label), department: e.department ?? '' });
+      }
+    }
     const linkOf = new Map(links.data.map((l) => [`${l.request_kind}:${l.request_id}`, l]));
     const text = (value: unknown) => (typeof value === 'string' && value ? value : '');
     const fetchLists = (pendingOnly: boolean) =>
@@ -213,6 +243,9 @@ function ApprovalsContent() {
           list.filter((r) => r.status !== 'CANCELLED' || reversedReasons.has(r.id)).map((r): Row => {
             const employeeId = r.employeeId || r.employee_id || '';
             const person = people.get(employeeId);
+            const approvedBy = String(r.approvedBy || r.approved_by || '');
+            const approver = approvedBy ? people.get(approvedBy) : undefined;
+            const approvedByName = approver?.name || text(r.approvedByName) || text(r.approved_by_name) || '';
             return {
               ...r,
               // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
@@ -223,6 +256,7 @@ function ApprovalsContent() {
               employeeName: text(r.employee_name) || text(r.employeeName) || person?.name || employeeId || '—',
               employeeCode: text(r.employee_code) || text(r.employeeCode) || person?.code || '',
               department: person?.department ?? '',
+              approvedByName,
               created: r.createdAt || r.created_at || '',
               period: formatRequestPeriod(r),
               ...reasonColumns(available[i].kind, r),
@@ -399,16 +433,6 @@ function ApprovalsContent() {
     { id: 'PROCESSING', label: 'Đang xử lý', count: counts.processing },
     { id: 'DONE', label: 'Đã xử lý', count: counts.done },
   ];
-  const amountText = (r: Row) =>
-    r.requestedAmount !== undefined
-      ? `${Number(r.requestedAmount).toLocaleString('vi-VN')} đ`
-      : r.plannedMinutes !== undefined
-        ? `${r.plannedMinutes} phút`
-        : typeof r.durationMinutes === 'number'
-          ? formatRequestDuration({ durationMinutes: r.durationMinutes })
-          : r.duration !== undefined
-            ? String(r.duration)
-            : '';
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-3 pb-4">
@@ -582,7 +606,6 @@ function ApprovalsContent() {
                 ) : (
                   paged.items.map((r) => {
                     const active = r.key === detailKey;
-                    const amount = amountText(r);
                     return (
                       <tr
                         key={r.key}
@@ -617,7 +640,6 @@ function ApprovalsContent() {
                         </td>
                         <td className="px-2 py-2.5">
                           <p className="font-medium text-slate-900">{r.period || '—'}</p>
-                          {amount ? <p className="text-[12px] text-slate-500">{amount}</p> : null}
                         </td>
                         <td className="max-w-[200px] px-2 py-2.5">
                           <p className="truncate text-slate-800" title={r.reasonLabel}>

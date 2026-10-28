@@ -44,6 +44,12 @@ describe('định dạng thời gian đơn từ', () => {
     expect(formatRequestPeriod({ fromDate: '2026-10-12', toDate: '2026-10-14' })).toBe('12/10/2026 - 14/10/2026');
     expect(formatRequestPeriod({ fromDate: '2026-10-12', toDate: '2026-10-12' })).toBe('12/10/2026');
     expect(formatRequestPeriod({ requestDate: '2026-10-12' })).toBe('12/10/2026');
+    expect(
+      formatRequestPeriod({ requestDate: '2026-10-12', newCheckInAt: '08:30:00', newCheckOutAt: '17:30:00' }),
+    ).toBe('12/10/2026 (08:30 - 17:30)');
+    expect(
+      formatRequestPeriod({ requestDate: '2026-10-12', newCheckInAt: '08:30:00' }),
+    ).toBe('12/10/2026 (Vào: 08:30)');
     expect(formatRequestPeriod({})).toBe('');
   });
 

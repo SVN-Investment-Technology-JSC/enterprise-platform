@@ -138,9 +138,16 @@ const UUID_PATTERN =
 export function approverFallbackLabel(
   approvedBy: unknown,
   pending: boolean,
+  nameLookup?: (id: string) => string | undefined,
 ): string {
   const text = typeof approvedBy === 'string' ? approvedBy.trim() : '';
-  if (text && !UUID_PATTERN.test(text)) return text;
-  if (text) return 'Đã có người xử lý';
+  if (text) {
+    if (nameLookup) {
+      const resolved = nameLookup(text);
+      if (resolved) return resolved;
+    }
+    if (!UUID_PATTERN.test(text)) return text;
+    return 'Đã có người xử lý';
+  }
   return pending ? 'Theo luồng phê duyệt' : '----';
 }

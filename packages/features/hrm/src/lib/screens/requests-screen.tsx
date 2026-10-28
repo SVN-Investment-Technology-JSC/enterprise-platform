@@ -52,7 +52,7 @@ import {
   SheetDescription,
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
-import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { hrmApiUrl, hrmEmployeeOptions, hrmFetch, type EmployeeOption } from '../hrm-api';
 import {
   loadLinkableProjects,
   PROJECT_LINK_STATUS_LABEL,
@@ -71,6 +71,8 @@ import {
   SearchableSelect,
   Popconfirm,
   formatDate,
+  formatDateTime,
+  formatTime,
 } from '@enterprise-platform/shared-ui';
 import { reasonCell, requestReasonView } from '../request-reason-form';
 import {
@@ -93,11 +95,14 @@ import {
   type RequestFormInitial,
   type RequestKind,
 } from '../ui/create-request-form';
-import { isHiddenRequestKind } from '../hrm-approval-kinds';
+import { isHiddenRequestKind, splitEmployeeLabel } from '../hrm-approval-kinds';
 import { leaveBalancesOf, type LeaveTypeItem, type ShiftItem } from '../request-form-model';
 
 /** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
-function customRequestItem(item: Record<string, any>): RequestItem {
+function customRequestItem(
+  item: Record<string, any>,
+  nameLookup?: (id: string) => string | undefined,
+): RequestItem {
   const status = String(item.status);
   const wf: RequestItem['workflowStatus'] =
     status === 'APPROVED'
@@ -113,14 +118,14 @@ function customRequestItem(item: Record<string, any>): RequestItem {
     typeName: String(item.typeName || 'Đơn tuỳ chỉnh'),
     category: String(item.typeName || 'Đơn tuỳ chỉnh'),
     createdAt: item.createdAt
-      ? formatDate(item.createdAt)
+      ? formatDateTime(item.createdAt)
       : '----',
     rawCreatedAt: item.createdAt,
     createdTimeMs: item.createdAt ? new Date(item.createdAt).getTime() : 0,
     effectiveDate: formatRequestPeriod(item) || 'Không có thời gian',
     duration: minutes != null ? formatRequestDuration({ durationMinutes: minutes }) : '----',
     ...requestReasonView(item),
-    approver: approverFallbackLabel(item.approvedBy, wf === 'PENDING_APPROVAL'),
+    approver: approverFallbackLabel(item.approvedBy, wf === 'PENDING_APPROVAL', nameLookup),
     workflowStatus: wf,
     requestStatus:
       status === 'APPROVED'
@@ -485,6 +490,7 @@ export default function RequestsPage() {
         advRes,
         profileRes,
         customRes,
+        employeeOptions,
       ] = await Promise.all([
         fetch(hrmApiUrl(`/leave-requests${empQuery}`), {
           credentials: 'same-origin',
@@ -510,7 +516,16 @@ export default function RequestsPage() {
         fetch(hrmApiUrl(`/custom-requests${empQuery}`), {
           credentials: 'same-origin',
         }).catch(() => null),
+        hrmEmployeeOptions(true).catch(() => [] as EmployeeOption[]),
       ]);
+
+      const peopleMap = new Map<string, string>();
+      for (const e of employeeOptions) {
+        const name = splitEmployeeLabel(e.label).name || e.label;
+        peopleMap.set(e.value, name);
+        if (e.userId) peopleMap.set(e.userId, name);
+      }
+      const nameLookup = (id: string) => peopleMap.get(id);
 
       const mergedList: RequestItem[] = [];
 
@@ -552,7 +567,7 @@ export default function RequestsPage() {
             typeName: 'Đơn xin nghỉ phép',
             category: 'Nghỉ phép',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
@@ -564,6 +579,7 @@ export default function RequestsPage() {
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -609,18 +625,19 @@ export default function RequestsPage() {
             typeName: `Làm thêm giờ (${item.otType || 'OT'})`,
             category: 'Làm thêm giờ',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.fromAt
               ? formatRequestPeriod(item)
               : `${item.workDate ? formatDate(item.workDate) : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
-            duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
+            duration: plannedHrs === '----' ? '----' : `${plannedHrs} giờ`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -663,7 +680,7 @@ export default function RequestsPage() {
             typeName: `Công tác (${item.destination || '----'})`,
             category: 'Công tác',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
@@ -675,6 +692,7 @@ export default function RequestsPage() {
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -732,7 +750,7 @@ export default function RequestsPage() {
                 : 'Đề nghị chuyển ca',
             category: 'Đổi ca',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
@@ -743,6 +761,7 @@ export default function RequestsPage() {
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL' || wfStatus === 'PENDING_PEER',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -773,17 +792,18 @@ export default function RequestsPage() {
                   ? 'REJECTED'
                   : 'PENDING';
           const inTime = item.newCheckInAt
-            ? new Date(item.newCheckInAt).toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-            : '----';
+            ? formatTime(item.newCheckInAt)
+            : '';
           const outTime = item.newCheckOutAt
-            ? new Date(item.newCheckOutAt).toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-            : '----';
+            ? formatTime(item.newCheckOutAt)
+            : '';
+          const durationText = inTime && outTime
+            ? `Vào: ${inTime} | Ra: ${outTime}`
+            : inTime
+              ? `Vào: ${inTime}`
+              : outTime
+                ? `Ra: ${outTime}`
+                : '----';
           const stText = isApplied
             ? 'Đã cập nhật Timesheet'
             : isApproved
@@ -802,18 +822,19 @@ export default function RequestsPage() {
             typeName: 'Giải trình / Bổ sung công',
             category: 'Chấm công',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
             effectiveDate: item.requestDate
               ? formatDate(item.requestDate)
               : '----',
-            duration: `Vào: ${inTime} | Ra: ${outTime}`,
+            duration: durationText,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -863,7 +884,7 @@ export default function RequestsPage() {
             typeName: 'Đơn xin tạm ứng lương',
             category: 'Tạm ứng',
             createdAt: item.createdAt
-              ? formatDate(item.createdAt)
+              ? formatDateTime(item.createdAt)
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
@@ -877,6 +898,7 @@ export default function RequestsPage() {
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
+              nameLookup,
             ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
@@ -891,7 +913,7 @@ export default function RequestsPage() {
         if (customRes?.ok) {
           const payload = await customRes.json();
           for (const item of payload?.data || [])
-            mergedList.push(customRequestItem(item));
+            mergedList.push(customRequestItem(item, nameLookup));
         }
       } catch {
         // Máy chủ chưa có đơn tuỳ chỉnh: danh sách chỉ gồm các đơn hệ thống.
@@ -906,7 +928,7 @@ export default function RequestsPage() {
             kind: 'profile_correction',
             typeName: 'Điều chỉnh hồ sơ',
             category: 'Hồ sơ',
-            createdAt: formatDate(item.createdAt),
+            createdAt: formatDateTime(item.createdAt),
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
             reason: reasonCell(item.reason),
@@ -914,6 +936,7 @@ export default function RequestsPage() {
             approver: approverFallbackLabel(
               item.reviewed_by ?? item.reviewedBy,
               item.status !== 'APPROVED' && item.status !== 'REJECTED',
+              nameLookup,
             ),
             workflowStatus:
               item.status === 'APPROVED'
@@ -1372,8 +1395,11 @@ export default function RequestsPage() {
             <div className="font-semibold text-slate-800">
               Nhân viên khởi tạo yêu cầu
             </div>
-            <div className="text-[12px] text-slate-400">
-              {selectedRequest?.createdAt}
+            <div className="text-[12px] text-slate-600">
+              <span className="font-medium text-slate-800">{profile.fullName || 'Nhân viên'}</span>
+              {selectedRequest?.createdAt ? (
+                <span className="text-slate-500 font-mono"> — {selectedRequest.createdAt}</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1394,10 +1420,16 @@ export default function RequestsPage() {
               <div className="font-semibold text-slate-800">
                 Đồng nghiệp xác nhận đổi ca
               </div>
-              <div className="text-[12px] text-slate-500">
-                {selectedRequest.workflowStatus !== 'PENDING_PEER'
-                  ? 'Đã xác nhận chéo'
-                  : 'Đang chờ phản hồi'}
+              <div className="text-[12px] text-slate-600">
+                <span className="font-medium text-slate-800">
+                  {String((selectedRequest.rawDetails as any)?.swapWithEmployeeName || (selectedRequest.rawDetails as any)?.swapWithEmployeeCode || 'Đồng nghiệp đổi ca')}
+                </span>
+                <span className="text-slate-500">
+                  {' — '}
+                  {selectedRequest.workflowStatus !== 'PENDING_PEER'
+                    ? 'Đã xác nhận chéo'
+                    : 'Đang chờ phản hồi'}
+                </span>
               </div>
             </div>
           </div>
@@ -1420,10 +1452,22 @@ export default function RequestsPage() {
           </div>
           <div>
             <div className="font-semibold text-slate-800">
-              Cấp thẩm quyền phê duyệt:{' '}
-              <strong>{selectedRequest?.approver}</strong>
+              Người duyệt
             </div>
-            <div className="text-[12px] text-slate-500">
+            <div className="text-[12px] text-slate-600">
+              <span className="font-medium text-slate-800">
+                {selectedRequest?.approver && selectedRequest.approver !== '----'
+                  ? selectedRequest.approver
+                  : 'Cấp quản lý'}
+              </span>
+              {Boolean((selectedRequest?.rawDetails as any)?.approvedAt || (selectedRequest?.rawDetails as any)?.updatedAt) && selectedRequest?.workflowStatus !== 'PENDING_APPROVAL' ? (
+                <span className="text-slate-500 font-mono">
+                  {' — '}
+                  {formatDateTime(String((selectedRequest?.rawDetails as any)?.approvedAt || (selectedRequest?.rawDetails as any)?.updatedAt))}
+                </span>
+              ) : null}
+            </div>
+            <div className="text-[11px] text-slate-500">
               {selectedRequest?.requestStatus === 'CANCELLED'
                 ? 'Đã rút / hủy'
                 : selectedRequest?.workflowStatus === 'APPROVED'
@@ -1704,6 +1748,7 @@ export default function RequestsPage() {
               lastError={selectedProcedure.lastError}
               fallbackStepName={selectedProcedure.currentStepName}
               fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+              approverName={selectedRequest?.approver}
               showWaitingLabel={false}
               emptyFallback={workflowFallback}
             />
@@ -2276,6 +2321,7 @@ export default function RequestsPage() {
               lastError={selectedProcedure.lastError}
               fallbackStepName={selectedProcedure.currentStepName}
               fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+              approverName={selectedRequest?.approver}
               showWaitingLabel={false}
               emptyFallback={
                 workflowFallback
