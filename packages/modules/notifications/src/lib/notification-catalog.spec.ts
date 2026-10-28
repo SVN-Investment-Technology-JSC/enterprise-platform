@@ -718,4 +718,25 @@ describe('hợp đồng, đơn bán Bán hàng', () => {
     expect(resolved?.template.title).toBe(title);
     expect(resolved?.template.body).toBe('Nội dung.');
   });
+
+  it.each([
+    ['crm.receivable.overdue', { entryId: 'e-1', customerId: 'c-1', dueDate: '2026-10-01' }, 'Khoản phải thu quá hạn', 'e-1:crm.receivable.overdue:2026-10-01'],
+    ['crm.customer.credit-exceeded', { customerId: 'c-1', creditLimit: 100 }, 'Khách hàng vượt hạn mức công nợ', 'c-1:crm.customer.credit-exceeded:100'],
+  ])('%s báo người phụ trách khách và kế toán công nợ, mở sổ công nợ', async (type, extra, title, sourceId) => {
+    const resolved = await registry.resolve(
+      event(type, {
+        ...extra,
+        recipientUserIds: ['user-owner', 'user-kt'],
+        actorUserId: null,
+        summary: 'Khách KH001 còn nợ quá hạn.',
+        deepLink: '/modules/crm#receivables/c-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner', 'user-kt']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.deepLink).toBe('/modules/crm#receivables/c-1');
+    expect(resolved?.template.sourceId).toBe(sourceId);
+  });
 });

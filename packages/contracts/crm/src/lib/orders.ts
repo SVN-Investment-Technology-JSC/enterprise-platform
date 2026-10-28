@@ -9,6 +9,7 @@
 import type { CrmHistoryEntry, CrmReservationStatus } from './contracts.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
 import type { QuoteShipping } from './quotes.js';
+import type { OrderCreditRequest, OrderReceivableBalance } from './receivables.js';
 
 export const SALES_ORDER_SOURCES = ['QUOTE', 'CONTRACT', 'DIRECT'] as const;
 export type SalesOrderSource = (typeof SALES_ORDER_SOURCES)[number];
@@ -225,6 +226,8 @@ export interface SalesOrderSummary {
   readonly ownerUserId: string;
   /** Có đợt giao quá ngày dự kiến mà chưa xuất kho. */
   readonly late: boolean;
+  /** Số còn phải thu của đơn tính từ sổ công nợ (GĐ5); chưa có sổ thì rỗng. */
+  readonly outstanding?: number | null;
   readonly updatedAt: string;
 }
 
@@ -243,6 +246,10 @@ export interface SalesOrderDetail extends SalesOrderSummary {
   readonly closeReason: string | null;
   readonly history: readonly CrmHistoryEntry[];
   readonly createdAt: string;
+  /** Công nợ của đơn theo sổ (T5-11). */
+  readonly receivable?: OrderReceivableBalance | null;
+  /** Yêu cầu duyệt vượt hạn mức gần nhất (D5). */
+  readonly creditRequest?: OrderCreditRequest | null;
 }
 
 export interface SalesOrderListQuery {

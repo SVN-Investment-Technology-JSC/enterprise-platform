@@ -1500,6 +1500,36 @@ export interface InternalReturnReceiptRequest {
   readonly lines: readonly InternalReturnReceiptLine[];
 }
 
+/**
+ * `POST v1/internal/stock-documents`: chứng từ kho do phân hệ khác yêu cầu (Bán
+ * hàng: bảo hành chuyển hàng lỗi sang kho lỗi, loại bỏ hàng lỗi). Chỉ nhận
+ * điều chuyển (ghi sổ ngay, nguồn đã duyệt) và xuất khác (gửi duyệt, người có
+ * `inventory.document.approve` duyệt rồi ghi sổ). Khoá chống lặp bắt buộc như
+ * hai API trên.
+ */
+export interface InternalStockDocumentRequest {
+  readonly idempotencyKey: string;
+  readonly docType: 'TRANSFER' | 'ISSUE_OTHER';
+  readonly warehouseCode: string;
+  /** Bắt buộc với điều chuyển. */
+  readonly targetWarehouseCode?: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly documentDate?: string;
+  readonly note?: string;
+  readonly lines: readonly InternalIssueRequestLine[];
+}
+
+/**
+ * `POST v1/internal/serials/:serial/quality`, `POST v1/internal/lots/:id/quality`:
+ * đổi trạng thái chất lượng thay người kiểm định của phân hệ khác (kỹ thuật
+ * bảo hành ở Bán hàng). Lý do bắt buộc; `actorUserId` là người chịu trách nhiệm
+ * ghi vào lịch sử chất lượng.
+ */
+export interface InternalChangeQualityRequest extends ChangeQualityRequest {
+  readonly actorUserId?: string;
+}
+
 /** Kết quả của hai API nội bộ tạo chứng từ. */
 export interface InternalStockDocumentResult {
   readonly documentId: string;

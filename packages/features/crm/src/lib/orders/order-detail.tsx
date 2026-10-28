@@ -31,6 +31,7 @@ import {
   type OrderAction,
 } from '../crm-api';
 import { useCrm } from '../crm-context';
+import { OrderReceivablePanel } from '../receivables/order-receivable-panel';
 import {
   DELIVERY_STATUS_TONE,
   FULFILLMENT_ACTION_LABELS,
@@ -71,12 +72,14 @@ export function OrderDetail({
   onOpenCustomer,
   onOpenContract,
   onOpenQuote,
+  onOpenReceivables,
 }: {
   orderId: string;
   onBack: () => void;
   onOpenCustomer: (id: string) => void;
   onOpenContract: (id: string) => void;
   onOpenQuote: (id: string) => void;
+  onOpenReceivables?: (customerId: string) => void;
 }) {
   const { capabilities, people } = useCrm();
   const [detail, setDetail] = useState<SalesOrderDetail>();
@@ -312,8 +315,9 @@ export function OrderDetail({
           ) : null}
         </dl>
         {detail.status === 'DELIVERED' ? (
-          <p className={styles.muted}>Đơn tự hoàn tất khi còn phải thu bằng 0 (sổ công nợ có ở giai đoạn sau); quản lý kinh doanh có thể đóng tay kèm lý do.</p>
+          <p className={styles.muted}>Đơn tự hoàn tất khi còn phải thu bằng 0; quản lý kinh doanh có thể đóng tay kèm lý do (ví dụ đã xoá nợ bằng điều chỉnh).</p>
         ) : null}
+        <OrderReceivablePanel detail={detail} busy={busy} run={run} onOpenReceivables={onOpenReceivables} />
         {actions.length ? (
           <div className={styles.toolbar}>
             {actions.includes('edit') ? (

@@ -78,6 +78,36 @@ import type {
   SavePaymentTermsRequest,
   UpdateSalesOrderRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  CreateWarrantyCaseRequest,
+  InspectWarrantyLineRequest,
+  ResolveWarrantyLineRequest,
+  WarrantyActionRequest,
+  WarrantyCaseDetail,
+  WarrantyCaseListQuery,
+  WarrantyCaseSummary,
+  WarrantyLookupItem,
+  WarrantyLookupQuery,
+  WarrantySerialHistory,
+  WarrantySettings,
+} from '@enterprise-platform/contracts-crm';
+import type {
+  AdjustmentActionRequest,
+  AdjustmentListQuery,
+  CreateAdjustmentRequest,
+  CreateReceiptRequest,
+  CreditDecisionRequest,
+  CustomerAgingRow,
+  CustomerLedger,
+  ReceiptActionRequest,
+  ReceiptDetail,
+  ReceiptListQuery,
+  ReceiptSummary,
+  ReceivableAdjustment,
+  ReceivableAgingQuery,
+  ReceivableSettings,
+  ResendReceiptRequest,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -284,6 +314,32 @@ export const convertQuote = (quoteId: string) => send<ConvertQuoteResult>('POST'
 export const loadSalesSettings = () => request<SalesSettings>('/sales-settings', { cache: 'no-store' });
 export const saveSalesSettings = (body: SalesSettings) => send<SalesSettings>('PUT', '/sales-settings', body);
 
+// Công nợ, thu tiền, điều chỉnh, hạn mức (GĐ5)
+export const loadAging = (query: ReceivableAgingQuery) =>
+  request<CrmPage<CustomerAgingRow>>(`/receivables/aging${toQuery(query)}`, { cache: 'no-store' });
+export const loadLedger = (customerId: string) =>
+  request<CustomerLedger>(`/receivables/customers/${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+export const listReceipts = (query: ReceiptListQuery) =>
+  request<CrmPage<ReceiptSummary>>(`/receipts${toQuery(query)}`, { cache: 'no-store' });
+export const getReceipt = (id: string) => request<ReceiptDetail>(`/receipts/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createReceipt = (body: CreateReceiptRequest) => send<ReceiptDetail>('POST', '/receipts', body);
+export const resendReceipt = (id: string, body: ResendReceiptRequest) =>
+  send<ReceiptDetail>('POST', `/receipts/${encodeURIComponent(id)}/resend`, body);
+export const cancelReceipt = (id: string, body: ReceiptActionRequest) =>
+  send<ReceiptDetail>('POST', `/receipts/${encodeURIComponent(id)}/cancel`, body);
+export const listAdjustments = (query: AdjustmentListQuery) =>
+  request<CrmPage<ReceivableAdjustment>>(`/receivable-adjustments${toQuery(query)}`, { cache: 'no-store' });
+export const createAdjustment = (body: CreateAdjustmentRequest) => send<ReceivableAdjustment>('POST', '/receivable-adjustments', body);
+export const adjustmentAction = (id: string, action: 'approve' | 'cancel', body: AdjustmentActionRequest) =>
+  send<ReceivableAdjustment>('POST', `/receivable-adjustments/${encodeURIComponent(id)}/${action}`, body);
+export const loadReceivableSettings = () => request<ReceivableSettings>('/receivable-settings', { cache: 'no-store' });
+export const saveReceivableSettings = (body: Partial<ReceivableSettings>) =>
+  send<ReceivableSettings>('PUT', '/receivable-settings', body);
+export const decideOrderCredit = (orderId: string, decision: 'approve' | 'reject', body: CreditDecisionRequest) =>
+  send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(orderId)}/credit-approval/${decision}`, body);
+export const triggerPaymentTerm = (contractId: string, termId: string, date?: string) =>
+  send<void>('POST', `/contracts/${encodeURIComponent(contractId)}/payment-terms/${encodeURIComponent(termId)}/trigger`, { date: date || null });
+
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {
   try {
@@ -293,3 +349,23 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/';
   }
 }
+
+// Bảo hành, đổi trả (GĐ6)
+export const lookupWarranty = (query: WarrantyLookupQuery) =>
+  request<WarrantyLookupItem[]>(`/warranty/lookup${toQuery(query)}`, { cache: 'no-store' });
+export const loadSerialHistory = (serial: string) =>
+  request<WarrantySerialHistory>(`/warranty/serials/${encodeURIComponent(serial)}/history`, { cache: 'no-store' });
+export const listWarrantyCases = (query: WarrantyCaseListQuery) =>
+  request<CrmPage<WarrantyCaseSummary>>(`/warranty/cases${toQuery(query)}`, { cache: 'no-store' });
+export const getWarrantyCase = (id: string) =>
+  request<WarrantyCaseDetail>(`/warranty/cases/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createWarrantyCase = (body: CreateWarrantyCaseRequest) => send<WarrantyCaseDetail>('POST', '/warranty/cases', body);
+export type WarrantyAction = 'receive' | 'reject' | 'sync-documents' | 'close';
+export const warrantyAction = (id: string, action: WarrantyAction, body: WarrantyActionRequest) =>
+  send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/${action}`, body);
+export const inspectWarrantyLine = (id: string, lineId: string, body: InspectWarrantyLineRequest) =>
+  send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/inspect`, body);
+export const resolveWarrantyLine = (id: string, lineId: string, body: ResolveWarrantyLineRequest) =>
+  send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/resolve`, body);
+export const loadWarrantySettings = () => request<WarrantySettings>('/warranty/settings', { cache: 'no-store' });
+export const saveWarrantySettings = (body: WarrantySettings) => send<WarrantySettings>('PUT', '/warranty/settings', body);

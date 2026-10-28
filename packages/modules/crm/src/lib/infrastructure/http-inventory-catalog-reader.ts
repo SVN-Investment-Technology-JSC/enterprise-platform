@@ -26,6 +26,7 @@ interface WireMaterial {
   avgCost?: unknown;
   totalAvailable?: unknown;
   availableByWarehouse?: unknown;
+  warrantyMonths?: unknown;
 }
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -60,6 +61,7 @@ function toMaterial(row: WireMaterial): CatalogMaterial | null {
     avgCost: number(row.avgCost),
     totalAvailable: number(row.totalAvailable),
     availableByWarehouse: stocks,
+    warrantyMonths: number(row.warrantyMonths),
   };
 }
 

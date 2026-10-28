@@ -79,6 +79,13 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
       { title: 'Ngày đơn', dataIndex: 'orderDate', width: 110, render: (value: string) => formatDay(value) },
       { title: 'Giao dự kiến', dataIndex: 'expectedDeliveryDate', width: 120, render: (value: string | null) => formatDay(value) },
       { title: 'Tổng cộng', dataIndex: 'totalAmount', width: 150, align: 'right', render: (value: number) => formatMoney(value) },
+      {
+        title: 'Còn phải thu',
+        dataIndex: 'outstanding',
+        width: 140,
+        align: 'right',
+        render: (value: number | null | undefined) => (value ? formatMoney(value) : ''),
+      },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => personName(people, value) },
       {
         title: '',
@@ -125,7 +132,7 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
-        scroll={{ x: 1300 }}
+        scroll={{ x: 1440 }}
         onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có đơn bán nào.' }}
       />

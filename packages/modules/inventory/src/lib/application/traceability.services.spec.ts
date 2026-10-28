@@ -12,6 +12,7 @@ const LOT_ID = '11111111-1111-4111-8111-111111111111';
 class FakeTraceabilityStore implements TraceabilityStore {
   candidates: LotCandidate[] = [];
   decisions: unknown[] = [];
+  actors: string[] = [];
   quality: LotDetail['qualityStatus'] = 'PASSED';
 
   async listLots() {
@@ -30,13 +31,15 @@ class FakeTraceabilityStore implements TraceabilityStore {
     _tenantId: string,
     _serial: string,
     _materialCode: string | undefined,
-    _actorId: string,
+    actorId: string,
     decide: DecideQuality,
   ) {
+    this.actors.push(actorId);
     this.decisions.push(decide(this.quality, 'Serial SN001'));
     return { serialNumber: 'SN001' } as SerialHistory;
   }
-  async changeLotQuality(_tenantId: string, _lotId: string, _actorId: string, decide: DecideQuality) {
+  async changeLotQuality(_tenantId: string, _lotId: string, actorId: string, decide: DecideQuality) {
+    this.actors.push(actorId);
     this.decisions.push(decide(this.quality, 'Lô L01'));
     return { id: LOT_ID } as LotDetail;
   }
@@ -109,5 +112,33 @@ describe('LotService, SerialService, QualityService', () => {
     await expect(
       quality.changeSerial(actor({ canManage: true }), 'SN001', { qualityStatus: 'QUARANTINE', reason: 'x' }),
     ).resolves.toBeDefined();
+  });
+
+  it('T6-05: dịch vụ đổi chất lượng thay người kiểm định, ghi đúng người vào lịch sử', async () => {
+    const quality = new QualityService(store);
+    // Actor dịch vụ như guard dựng cho route `internal/`: ghi phát sinh, không có quyền chất lượng của người dùng.
+    const service = actor({ userId: 'service', canWriteQuality: false });
+    const inspectorId = '22222222-2222-4222-8222-222222222222';
+    store.quality = 'PENDING_INSPECTION';
+    await quality.changeSerialForService(service, 'SN001', { qualityStatus: 'PASSED', reason: 'Bảo hành BH2600001: Đạt', actorUserId: inspectorId });
+    await quality.changeLotForService(service, LOT_ID, { qualityStatus: 'DEFECTIVE', reason: 'Lỗi' });
+    expect(store.decisions).toEqual([
+      { to: 'PASSED', reason: 'Bảo hành BH2600001: Đạt' },
+      { to: 'DEFECTIVE', reason: 'Lỗi' },
+    ]);
+    expect(store.actors).toEqual([inspectorId, 'service']);
+    await expect(
+      quality.changeSerialForService(service, 'SN001', { qualityStatus: 'PASSED', reason: ' ' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      quality.changeSerialForService(service, 'SN001', { qualityStatus: 'PASSED', reason: 'x', actorUserId: 'abc' }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Người kiểm định (actorUserId) không hợp lệ.' });
+    await expect(
+      quality.changeSerialForService(actor({ canWriteTransactions: false }), 'SN001', { qualityStatus: 'PASSED', reason: 'x' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    store.quality = 'PASSED';
+    await expect(
+      quality.changeSerialForService(service, 'SN001', { qualityStatus: 'PASSED', reason: 'x' }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'QUALITY_STATUS_UNCHANGED' });
   });
 });

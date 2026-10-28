@@ -481,4 +481,60 @@ describe('StockDocumentService', () => {
       expect(error.message).toBe('Dòng 1: chỉ dòng nhập trả hàng bán mới tham chiếu dòng xuất gốc.');
     });
   });
+
+  describe('Chứng từ nội bộ cho bảo hành (T6-05)', () => {
+    const sourceId = '8d0f6c1e-2b8e-4f55-9d64-2f0d9a1c7e11';
+    const transfer = {
+      idempotencyKey: 'crm-warranty:1:line:transfer',
+      docType: 'TRANSFER' as const,
+      warehouseCode: ' QA-KHO-CL ',
+      targetWarehouseCode: ' QA-KHO-LOI ',
+      sourceType: 'crm_warranty',
+      sourceId,
+      lines: [{ materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN004'] }],
+    };
+
+    it('điều chuyển sang kho lỗi ghi sổ ngay, có nguồn và dấu nội dung', async () => {
+      const result = await service.createInternalDocument(clerk, transfer);
+      expect(result).toMatchObject({ docType: 'TRANSFER', status: 'POSTED' });
+      expect(store.created[0]).toMatchObject({
+        docType: 'TRANSFER',
+        warehouseCode: 'QA-KHO-CL',
+        targetWarehouseCode: 'QA-KHO-LOI',
+        sourceType: 'crm_warranty',
+        sourceId,
+        lines: [{ materialCode: 'QA-KHO-MAY', serials: ['SN004'], direction: 'OUT' }],
+      });
+      expect(store.created[0].requestHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('xuất khác (loại bỏ) tạo rồi gửi duyệt, không ghi sổ (TC-WAR-09)', async () => {
+      const result = await service.createInternalDocument(clerk, {
+        ...transfer,
+        docType: 'ISSUE_OTHER',
+        targetWarehouseCode: undefined,
+        idempotencyKey: 'crm-warranty:1:line:scrap',
+      });
+      expect(result).toMatchObject({ docType: 'ISSUE_OTHER', status: 'PENDING' });
+      expect(store.posts).toBe(0);
+    });
+
+    it('chỉ nhận điều chuyển, xuất khác; kiểm kho đến, khoá chống lặp, quyền', async () => {
+      const cases: [Record<string, unknown>, string][] = [
+        [{ docType: 'ISSUE_SALES' }, 'Chứng từ nội bộ chỉ nhận loại điều chuyển hoặc xuất khác.'],
+        [{ targetWarehouseCode: undefined }, 'Chứng từ điều chuyển phải có kho đến.'],
+        [{ targetWarehouseCode: 'QA-KHO-CL' }, 'Kho nguồn và kho đích phải khác nhau.'],
+        [{ docType: 'ISSUE_OTHER' }, 'Chỉ chứng từ điều chuyển mới có kho đến.'],
+        [{ idempotencyKey: '' }, 'Thiếu khoá chống lặp (idempotencyKey).'],
+      ];
+      for (const [patch, message] of cases) {
+        const error = await rejection(service.createInternalDocument(clerk, { ...transfer, ...patch } as never));
+        expect([error.statusCode, error.message]).toEqual([400, message]);
+      }
+      const denied = await rejection(
+        service.createInternalDocument(actor('viewer', { canWriteTransactions: false }), transfer),
+      );
+      expect(denied.statusCode).toBe(403);
+    });
+  });
 });

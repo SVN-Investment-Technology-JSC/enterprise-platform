@@ -58,6 +58,8 @@ describe('traceability-policy', () => {
     expect(requiresPassedQuality('ISSUE_WARRANTY', 'OUT')).toBe(true);
     expect(requiresPassedQuality('ISSUE_SALES', 'IN')).toBe(false);
     expect(requiresPassedQuality('TRANSFER', 'OUT')).toBe(false);
+    // Xuất khác có duyệt dùng để loại bỏ hàng Lỗi (bảo hành, T6-05).
+    expect(requiresPassedQuality('ISSUE_OTHER', 'OUT')).toBe(false);
     expect(requiresPassedQuality('ADJUSTMENT', 'OUT')).toBe(false);
     expect(requiresPassedQuality('RECEIPT_PURCHASE', 'OUT')).toBe(false);
   });

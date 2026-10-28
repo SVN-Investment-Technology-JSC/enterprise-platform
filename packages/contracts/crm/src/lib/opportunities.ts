@@ -363,6 +363,40 @@ export type CustomerTimelineEntry =
       readonly fromStatus: string | null;
       readonly toStatus: string | null;
       readonly reason: string | null;
+    }
+  | {
+      /**
+       * Công nợ: phát sinh nợ (giao hàng, đợt thanh toán), bút đảo; lần thu tiền
+       * (ghi nhận, phiếu ghi sổ, bị trả lại, bị đảo); điều chỉnh (lập, duyệt, huỷ).
+       */
+      readonly kind: 'receivable';
+      readonly id: string;
+      readonly at: string;
+      readonly actorId: string | null;
+      /** `entry` (dòng sổ nợ), `receipt` (lần thu), `adjustment` (điều chỉnh). */
+      readonly subject: 'entry' | 'receipt' | 'adjustment';
+      /** Id dòng sổ, lần thu hoặc điều chỉnh. */
+      readonly refId: string;
+      /** Mã đơn (dòng sổ), mã lần thu, mã điều chỉnh. */
+      readonly code: string | null;
+      /** Dòng sổ: DEBIT, REVERSAL; lần thu, điều chỉnh: thao tác (`create`, `post`...). */
+      readonly action: string;
+      readonly toStatus: string | null;
+      readonly amount: number | null;
+      readonly reason: string | null;
+    }
+  | {
+      /** Bảo hành, đổi trả: tiếp nhận, nhận hàng, kiểm định, xử lý, từ chối, đóng. */
+      readonly kind: 'warranty';
+      readonly id: string;
+      readonly at: string;
+      readonly actorId: string | null;
+      readonly caseId: string;
+      readonly caseCode: string;
+      readonly action: string;
+      readonly fromStatus: string | null;
+      readonly toStatus: string | null;
+      readonly reason: string | null;
     };
 
 export type CustomerTimelineKind = CustomerTimelineEntry['kind'];

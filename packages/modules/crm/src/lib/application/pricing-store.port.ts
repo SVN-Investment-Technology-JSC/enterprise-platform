@@ -159,6 +159,8 @@ export interface CatalogMaterial {
   /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */
   readonly totalAvailable?: number | null;
   readonly availableByWarehouse?: readonly CatalogMaterialStock[] | null;
+  /** Số tháng bảo hành của mặt hàng (tính hạn bảo hành khi không theo hợp đồng). */
+  readonly warrantyMonths?: number | null;
 }
 
 export interface CatalogMaterialStock {

@@ -1,3 +1,11 @@
+import { WARRANTY_STATUS_LABELS, type WarrantyStatus } from '@enterprise-platform/contracts-crm';
+import { WARRANTY_ACTION_LABELS } from './warranty/warranty.model';
+import {
+  ADJUSTMENT_STATUS_LABELS,
+  RECEIPT_STATUS_LABELS,
+  type AdjustmentStatus,
+  type ReceiptStatus,
+} from '@enterprise-platform/contracts-crm';
 import {
   ACTIVITY_TYPE_LABELS,
   CONTRACT_STATUS_LABELS,
@@ -129,10 +137,49 @@ export function describeTimelineEntry(entry: CustomerTimelineEntry): { title: st
       const status = entry.toStatus && entry.toStatus !== entry.fromStatus ? labels[entry.toStatus] : undefined;
       return { title: `${subject}: ${action}${status ? ` (${status})` : ''}`, detail: entry.reason ?? undefined };
     }
+    case 'receivable':
+      return describeReceivableEntry(entry);
+    case 'warranty': {
+      const action = WARRANTY_ACTION_LABELS[entry.action] ?? 'Cập nhật';
+      const status =
+        entry.toStatus && entry.toStatus !== entry.fromStatus && entry.toStatus in WARRANTY_STATUS_LABELS
+          ? ` (${WARRANTY_STATUS_LABELS[entry.toStatus as WarrantyStatus]})`
+          : '';
+      return { title: `Bảo hành ${entry.caseCode}: ${action}${status}`, detail: entry.reason ?? undefined };
+    }
     default:
       return { title: 'Sự kiện khác' };
   }
 }
+
+/** Mục công nợ trên dòng thời gian (T5-13): phát sinh nợ, lần thu, điều chỉnh. */
+function describeReceivableEntry(entry: Extract<CustomerTimelineEntry, { kind: 'receivable' }>): { title: string; detail?: string } {
+  const amount = entry.amount === null ? '' : ` ${formatMoney(Math.abs(entry.amount))}`;
+  if (entry.subject === 'entry') {
+    const title = entry.action === 'DEBIT' ? `Phát sinh nợ${amount}` : `Đảo nợ${amount}`;
+    return { title: entry.code ? `${title} (đơn ${entry.code})` : title, detail: entry.reason ?? undefined };
+  }
+  const action = RECEIVABLE_ACTION_LABELS[entry.action] ?? 'Cập nhật';
+  const subject = entry.subject === 'receipt' ? `Lần thu ${entry.code ?? ''}` : `Điều chỉnh ${entry.code ?? ''}`;
+  const status =
+    entry.toStatus && entry.subject === 'receipt' && entry.toStatus in RECEIPT_STATUS_LABELS
+      ? ` (${RECEIPT_STATUS_LABELS[entry.toStatus as ReceiptStatus]})`
+      : entry.toStatus && entry.subject === 'adjustment' && entry.toStatus in ADJUSTMENT_STATUS_LABELS
+        ? ` (${ADJUSTMENT_STATUS_LABELS[entry.toStatus as AdjustmentStatus]})`
+        : '';
+  return { title: `${subject.trim()}${amount}: ${action}${status}`, detail: entry.reason ?? undefined };
+}
+
+/** Nhãn thao tác trên lần thu, điều chỉnh công nợ (nhật ký, dòng thời gian). */
+export const RECEIVABLE_ACTION_LABELS: Readonly<Record<string, string>> = {
+  create: 'Ghi nhận',
+  resend: 'Sửa và gửi lại Tài chính',
+  post: 'Tài chính ghi sổ',
+  return: 'Tài chính trả lại',
+  reverse: 'Phiếu thu bị đảo',
+  cancel: 'Huỷ',
+  approve: 'Duyệt',
+};
 
 /** Nhãn thao tác trên báo giá (nhật ký, dòng thời gian). */
 export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {

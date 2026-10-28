@@ -486,14 +486,26 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(active).toMatchObject({ status: 'ACTIVE', reservation: { status: 'HELD' } });
     const reserved = [...inventory.reservations.entries()].find(([key]) => key === `crm-contract:${draft.id}`)?.[1];
     expect(reserved?.lines).toEqual([{ materialCode: 'QA-KHO-CAP', warehouseCode: 'KHO-H', quantity: 10 }]);
-    expect(active.history.map((entry) => [entry.action, entry.toStatus])).toEqual([
-      ['confirm', 'ACTIVE'],
-      ['create', 'DRAFT'],
-    ]);
+    // Cùng transaction xác nhận: đợt "khi ký" đến hạn (GĐ5, T5-05) nên nhật ký có thêm một mục cùng thời điểm.
+    expect(active.history.map((entry) => [entry.action, entry.toStatus])).toEqual(
+      expect.arrayContaining([
+        ['confirm', 'ACTIVE'],
+        ['payment-term-due', null],
+        ['create', 'DRAFT'],
+      ]),
+    );
+    expect(active.history).toHaveLength(3);
+    expect(active.paymentTerms.map((term) => term.status)).toEqual(['DUE', 'PENDING', 'PENDING']);
 
     // Huỷ hợp đồng chưa giao: nhả phần giữ.
     const cancelled = await contracts.cancel(nv, draft.id, { revision: active.revision, reason: 'Khách huỷ' });
     expect(cancelled).toMatchObject({ status: 'CANCELLED', reservation: { status: 'RELEASED' } });
+    // Huỷ hợp đồng: khoản phải thu của đợt đã đến hạn được đảo, nợ về 0.
+    const balance = await handle.pool.query<{ total: string }>(
+      `SELECT COALESCE(sum(amount), 0) AS total FROM crm_schema.receivable_entries WHERE contract_id = $1`,
+      [draft.id],
+    );
+    expect(Number(balance.rows[0].total)).toBe(0);
     expect(inventory.released).toContain(active.reservation?.reservationCode);
   });
 

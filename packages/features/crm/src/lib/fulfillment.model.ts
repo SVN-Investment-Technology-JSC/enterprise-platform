@@ -56,6 +56,10 @@ export const FULFILLMENT_ACTION_LABELS: Readonly<Record<string, string>> = {
   close: 'Đóng đơn',
   'auto-complete': 'Tự hoàn tất',
   'credit-check': 'Chờ duyệt hạn mức',
+  'credit-approve': 'Duyệt vượt hạn mức',
+  'credit-reject': 'Từ chối vượt hạn mức',
+  'credit-unreserved': 'Đã duyệt hạn mức nhưng chưa giữ được hàng',
+  'payment-term-due': 'Đợt thanh toán đến hạn',
   'request-issue': 'Yêu cầu xuất kho',
   deliver: 'Kho đã xuất',
   'deliver-service': 'Ghi nhận giao dịch vụ',
@@ -84,7 +88,8 @@ export function orderActions(detail: Pick<SalesOrderDetail, 'status' | 'lines'>,
   const next = SALES_ORDER_STATUS_TRANSITIONS[detail.status];
   const actions: OrderUiAction[] = [];
   if (detail.status === 'DRAFT') actions.push('edit');
-  if (next.includes('CONFIRMED') && detail.lines.length) actions.push('confirm');
+  // Chờ duyệt hạn mức chỉ sang Đã xác nhận qua quyết định duyệt (D5), không xác nhận tay.
+  if (next.includes('CONFIRMED') && detail.lines.length && detail.status !== 'CREDIT_PENDING') actions.push('confirm');
   if (['DRAFT', 'CREDIT_PENDING', 'CONFIRMED', 'DELIVERING', 'PARTIAL'].includes(detail.status)) actions.push('plan');
   if (next.includes('CANCELLED')) actions.push('cancel');
   if (next.includes('DONE') && (capabilities.isTenantAdmin || capabilities.canReadAll || capabilities.canManage)) actions.push('close');

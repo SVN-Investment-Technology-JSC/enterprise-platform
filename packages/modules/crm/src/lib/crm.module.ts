@@ -92,12 +92,10 @@ import {
   type SalesSettingsStore,
 } from './application/contract-store.port.js';
 import {
-  AllowAllCreditLimitCheck,
   CRM_CREDIT_LIMIT_CHECK,
   CRM_INTEGRATION_DISPATCHER,
   CRM_INVENTORY_CLIENT,
   CRM_ORDER_BALANCE_READER,
-  UnknownOrderBalanceReader,
   type CreditLimitCheck,
   type IntegrationDispatcher,
   type InventoryClient,
@@ -118,6 +116,35 @@ import { PostgresQuoteConversionStore } from './infrastructure/postgres-quote-co
 import { PostgresSalesOrderStore } from './infrastructure/postgres-sales-order.store.js';
 import { ContractsController } from './presentation/contracts.controller.js';
 import { SalesOrdersController } from './presentation/sales-orders.controller.js';
+import { CreditApprovalService, CreditLimitService } from './application/credit-limit.service.js';
+import { ReceivableAdjustmentService } from './application/receivable-adjustment.service.js';
+import { ReceivableService } from './application/receivable.service.js';
+import {
+  CRM_CREDIT_STORE,
+  CRM_FINANCE_CLIENT,
+  CRM_RECEIVABLE_STORE,
+  type CreditStore,
+  type FinanceClient,
+  type ReceivableStore,
+} from './application/receivable-store.port.js';
+import { HttpFinanceClient } from './infrastructure/http-finance-client.js';
+import { PostgresCreditStore } from './infrastructure/postgres-credit.store.js';
+import { PostgresReceivableStore } from './infrastructure/postgres-receivable.store.js';
+import { ReceivablesController } from './presentation/receivables.controller.js';
+import { WarrantyResolutionService } from './application/warranty-resolution.service.js';
+import { WarrantyService } from './application/warranty.service.js';
+import { ReceivableWarrantyCredit } from './application/warranty-credit.js';
+import {
+  CRM_WARRANTY_CREDIT,
+  CRM_WARRANTY_INVENTORY,
+  CRM_WARRANTY_STORE,
+  type WarrantyCreditPort,
+  type WarrantyInventory,
+  type WarrantyStore,
+} from './application/warranty.port.js';
+import { HttpWarrantyInventoryClient } from './infrastructure/http-warranty-inventory.js';
+import { PostgresWarrantyStore } from './infrastructure/postgres-warranty.store.js';
+import { WarrantyController } from './presentation/warranty.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -148,6 +175,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     InternalInstancesController,
     ContractsController,
     SalesOrdersController,
+    ReceivablesController,
+    WarrantyController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -288,13 +317,38 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     },
     // Hợp đồng, đơn bán, giao hàng (GĐ4). Kho gọi qua API nội bộ (INVENTORY_API_URL).
     { provide: CRM_INVENTORY_CLIENT, useFactory: () => new HttpInventoryClient() },
-    // Hạn mức công nợ (T5-10) và số còn phải thu (T5-11) có ở GĐ5; tạm thời cho qua và "chưa biết".
-    { provide: CRM_CREDIT_LIMIT_CHECK, useFactory: () => new AllowAllCreditLimitCheck() },
-    { provide: CRM_ORDER_BALANCE_READER, useFactory: () => new UnknownOrderBalanceReader() },
+    // Công nợ (GĐ5): sổ công nợ là bản đọc số còn phải thu của đơn (T5-11); hạn mức đọc từ sổ (T5-10).
+    // Tài chính gọi qua API nội bộ (FINANCE_API_URL).
+    { provide: CRM_FINANCE_CLIENT, useFactory: () => new HttpFinanceClient() },
+    store(CRM_RECEIVABLE_STORE, (database) => new PostgresReceivableStore(database)),
+    store(CRM_CREDIT_STORE, (database) => new PostgresCreditStore(database)),
+    { provide: CRM_ORDER_BALANCE_READER, useExisting: CRM_RECEIVABLE_STORE },
+    {
+      provide: CRM_CREDIT_LIMIT_CHECK,
+      useFactory: (credit: CreditStore, links: ApprovalLinks) => new CreditLimitService(credit, links),
+      inject: [CRM_CREDIT_STORE, CRM_APPROVAL_LINKS],
+    },
     {
       provide: CRM_INTEGRATION_DISPATCHER,
-      useFactory: (database: CrmDatabase, inventory: InventoryClient) => new PostgresIntegrationRequests(database, inventory),
-      inject: [CrmDatabase, CRM_INVENTORY_CLIENT],
+      useFactory: (database: CrmDatabase, inventory: InventoryClient, finance: FinanceClient) =>
+        new PostgresIntegrationRequests(database, inventory, finance),
+      inject: [CrmDatabase, CRM_INVENTORY_CLIENT, CRM_FINANCE_CLIENT],
+    },
+    {
+      provide: ReceivableService,
+      useFactory: (receivables: ReceivableStore, scopes: CrmDataScopeService, dispatcher: IntegrationDispatcher) =>
+        new ReceivableService(receivables, scopes, dispatcher),
+      inject: [CRM_RECEIVABLE_STORE, CrmDataScopeService, CRM_INTEGRATION_DISPATCHER],
+    },
+    {
+      provide: ReceivableAdjustmentService,
+      useFactory: (receivables: ReceivableStore, scopes: CrmDataScopeService) => new ReceivableAdjustmentService(receivables, scopes),
+      inject: [CRM_RECEIVABLE_STORE, CrmDataScopeService],
+    },
+    {
+      provide: CreditApprovalService,
+      useFactory: (credit: CreditStore, orders: SalesOrderService) => new CreditApprovalService(credit, orders),
+      inject: [CRM_CREDIT_STORE, SalesOrderService],
     },
     store(CRM_CONTRACT_STORE, (database) => new PostgresContractStore(database)),
     store(CRM_SALES_SETTINGS_STORE, (database) => new PostgresSalesSettingsStore(database)),
@@ -358,7 +412,27 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         new QuoteConversionService(conversion, quotes, scopes),
       inject: [CRM_QUOTE_CONVERSION_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
+    // Bảo hành (GĐ6). Kho qua API nội bộ; giảm trừ công nợ, hoàn tiền qua sổ công nợ GĐ5.
+    store(CRM_WARRANTY_STORE, (database) => new PostgresWarrantyStore(database)),
+    { provide: CRM_WARRANTY_INVENTORY, useFactory: () => new HttpWarrantyInventoryClient() },
+    {
+      provide: CRM_WARRANTY_CREDIT,
+      useFactory: (adjustments: ReceivableAdjustmentService) => new ReceivableWarrantyCredit(adjustments),
+      inject: [ReceivableAdjustmentService],
+    },
+    {
+      provide: WarrantyService,
+      useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, catalog: CatalogReader, scopes: CrmDataScopeService) =>
+        new WarrantyService(warranty, inventory, catalog, scopes),
+      inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_CATALOG_READER, CrmDataScopeService],
+    },
+    {
+      provide: WarrantyResolutionService,
+      useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, credit: WarrantyCreditPort, scopes: CrmDataScopeService) =>
+        new WarrantyResolutionService(warranty, inventory, credit, scopes),
+      inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_WARRANTY_CREDIT, CrmDataScopeService],
+    },
   ],
-  exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry],
+  exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],
 })
 export class CrmModule {}

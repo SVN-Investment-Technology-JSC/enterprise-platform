@@ -2,7 +2,7 @@
 
 import type { CustomerTimelineEntry } from '@enterprise-platform/contracts-crm';
 import { formatDateTime } from '@enterprise-platform/shared-ui';
-import { CalendarClock, CircleDot, FileSignature, FileText, ShoppingCart, Target } from 'lucide-react';
+import { CalendarClock, CircleDot, FileSignature, FileText, ShieldCheck, ShoppingCart, Target, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { errorMessage, loadTimeline } from '../crm-api';
 import { useCrm } from '../crm-context';
@@ -17,6 +17,8 @@ const ICONS: Partial<Record<CustomerTimelineEntry['kind'], ReactNode>> = {
   quote: <FileText size={14} />,
   contract: <FileSignature size={14} />,
   order: <ShoppingCart size={14} />,
+  receivable: <Wallet size={14} />,
+  warranty: <ShieldCheck size={14} />,
 };
 
 /**
@@ -30,12 +32,14 @@ export function CustomerTimeline({
   onOpenQuote,
   onOpenContract,
   onOpenOrder,
+  onOpenWarranty,
 }: {
   customerId: string;
   onOpenOpportunity: (id: string) => void;
   onOpenQuote?: (id: string) => void;
   onOpenContract?: (id: string) => void;
   onOpenOrder?: (id: string) => void;
+  onOpenWarranty?: (id: string) => void;
 }) {
   const { people } = useCrm();
   const [entries, setEntries] = useState<CustomerTimelineEntry[]>([]);
@@ -72,7 +76,9 @@ export function CustomerTimeline({
               ? () => onOpenContract(entry.contractId)
               : entry.kind === 'order' && onOpenOrder
                 ? () => onOpenOrder(entry.orderId)
-                : entry.kind === 'quote' && onOpenQuote
+                : entry.kind === 'warranty' && onOpenWarranty
+                  ? () => onOpenWarranty(entry.caseId)
+                  : entry.kind === 'quote' && onOpenQuote
                   ? () => onOpenQuote(entry.quoteId)
                   : 'opportunityId' in entry && entry.opportunityId
                     ? () => onOpenOpportunity(entry.opportunityId as string)

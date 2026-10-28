@@ -17,6 +17,7 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { CONTRACT_AUDIT_ENTITY } from './postgres-contract.store.js';
+import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
 import {
   lockOrder,
   markServiceLinesDelivered,
@@ -97,6 +98,7 @@ export async function applyStockIssued(
     const orderId = found.rows[0]?.order_id;
     if (!orderId) return 'ignored';
     await lockOrder(client, orderId, null);
+    const deliveredBefore = await deliveredSnapshot(client, orderId);
     const delivery = (
       await client.query<{ code: string; status: string }>(
         `SELECT code, status FROM crm_schema.delivery_plans WHERE id = $1 FOR UPDATE`,
@@ -212,6 +214,18 @@ export async function applyStockIssued(
       await client.query(`UPDATE crm_schema.delivery_plans SET status = 'REVERSED', updated_at = now() WHERE id = $1`, [deliveryId]);
       await markServiceLinesDelivered(client, deliveryId, -1);
     }
+    // Ghi nợ theo phần vừa giao (D3, T5-04) trước khi xét tự Hoàn tất.
+    await recognizeOrderDelivery(client, {
+      orderId,
+      deliveryId,
+      before: deliveredBefore,
+      sourceType: 'stock_issue',
+      sourceId: documentId,
+      reversesSourceId: reversesId,
+      documentCode: payload.documentCode ?? null,
+      date: vietnamDateOf(payload.postedAt),
+      actorId: null,
+    });
     await refreshOrderProgress(client, tenantId, orderId, balances, {
       action: reversal ? 'reverse-delivery' : 'deliver',
       actorId: null,

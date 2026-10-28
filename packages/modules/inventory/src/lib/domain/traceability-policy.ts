@@ -186,7 +186,8 @@ export function requiresPassedQuality(
   docType: StockDocumentType,
   direction: StockDocumentLineDirection,
 ): boolean {
-  return direction === 'OUT' && docType.startsWith('ISSUE_');
+  // Xuất khác (có duyệt) dùng để loại bỏ hàng Lỗi, Cách ly (bảo hành, T6-05), nên không đòi Đạt.
+  return direction === 'OUT' && docType.startsWith('ISSUE_') && docType !== 'ISSUE_OTHER';
 }
 
 /** Loại dòng lịch sử serial theo chứng từ. */

@@ -286,6 +286,10 @@ export class SalesOrderService {
     const order = await this.get(actor, id);
     const revision = this.expect(order, request?.revision);
     assertOrderTransition(order.status, 'CONFIRMED');
+    if (order.status === 'CREDIT_PENDING' && this.credit.requestApproval) {
+      // Có sổ công nợ (GĐ5): đơn chờ duyệt hạn mức chỉ được xác nhận qua quyết định duyệt.
+      throw new CrmConflictError('CREDIT_APPROVAL_PENDING', 'Đơn đang chờ duyệt vượt hạn mức công nợ; chưa xác nhận được.');
+    }
     if (!order.lines.length) throw new CrmValidationError('ORDER_EMPTY', 'Đơn chưa có dòng hàng nào.');
     const today = this.today();
     const contract = order.contractId ? await this.contracts.getContract(actor.tenantId, ALL, order.contractId) : undefined;
@@ -301,17 +305,57 @@ export class SalesOrderService {
       });
       if (decision.outcome === 'BLOCK') throw new CrmConflictError('CREDIT_LIMIT_EXCEEDED', decision.message);
       if (decision.outcome === 'APPROVAL') {
-        await this.orders.transition(
-          actor.tenantId,
-          id,
-          revision,
-          { from: 'DRAFT', to: 'CREDIT_PENDING', action: 'credit-check', reason: decision.message },
-          actor.userId,
-        );
+        if (this.credit.requestApproval) {
+          await this.credit.requestApproval({
+            tenantId: actor.tenantId,
+            orderId: id,
+            revision,
+            actorId: actor.userId,
+            orderAmount: order.totals.totalAmount,
+            message: decision.message,
+          });
+        } else {
+          await this.orders.transition(
+            actor.tenantId,
+            id,
+            revision,
+            { from: 'DRAFT', to: 'CREDIT_PENDING', action: 'credit-check', reason: decision.message },
+            actor.userId,
+          );
+        }
         return this.get(actor, id);
       }
     }
 
+    await this.reserveAndConfirm(actor.tenantId, order, revision, contract, today, actor.userId);
+    return this.get(actor, id);
+  }
+
+  /**
+   * Yêu cầu duyệt vượt hạn mức đã được duyệt (trực tiếp hoặc qua Quy trình, D5):
+   * giữ hàng rồi Chờ duyệt hạn mức → Đã xác nhận. Đơn không còn Chờ duyệt hạn mức
+   * thì bỏ qua (`false`). Không kiểm quyền người dùng: bên gọi đã kiểm người duyệt.
+   */
+  async confirmAfterCreditApproval(tenantId: string, orderId: string, actorId: string | null): Promise<boolean> {
+    const order = await this.orders.getOrder(tenantId, ALL, orderId, this.today());
+    if (!order || order.status !== 'CREDIT_PENDING') return false;
+    const today = this.today();
+    const contract = order.contractId ? await this.contracts.getContract(tenantId, ALL, order.contractId) : undefined;
+    if (contract) assertContractUsableForOrder(contract, today);
+    await this.reserveAndConfirm(tenantId, order, order.revision, contract, today, actorId ?? order.ownerUserId);
+    return true;
+  }
+
+  /** Giữ hàng ở Kho (hoặc dùng phần giữ của hợp đồng) rồi ghi Đã xác nhận; ghi lỗi thì nhả phần vừa giữ. */
+  private async reserveAndConfirm(
+    tenantId: string,
+    order: SalesOrderDetail,
+    revision: number,
+    contract: ContractDetail | undefined,
+    today: string,
+    actorId: string,
+  ): Promise<void> {
+    const id = order.id;
     const stock = order.lines.filter((line) => line.materialKind !== 'SERVICE');
     let reservations: OrderLineReservation[] = [];
     let expiresAt: string | null = null;
@@ -320,12 +364,12 @@ export class SalesOrderService {
       if (!order.warehouseCode) {
         throw new CrmValidationError('WAREHOUSE_REQUIRED', 'Vui lòng chọn kho giữ hàng cho đơn trước khi xác nhận.');
       }
-      const inherited = contract ? await this.inheritContractReservation(actor.tenantId, order, stock, contract) : null;
+      const inherited = contract ? await this.inheritContractReservation(tenantId, order, stock, contract) : null;
       if (inherited) {
         reservations = inherited;
         expiresAt = contract?.reservation?.expiresAt ?? null;
       } else {
-        own = await this.reserve(actor.tenantId, order, stock, today);
+        own = await this.reserve(tenantId, order, stock, today);
         expiresAt = own.expiresAt;
         reservations = stock.map((line) => ({
           lineId: line.id,
@@ -337,16 +381,15 @@ export class SalesOrderService {
       }
     }
     try {
-      await this.orders.confirm(actor.tenantId, id, revision, order.status, { expiresAt, lines: reservations }, actor.userId);
+      await this.orders.confirm(tenantId, id, revision, order.status, { expiresAt, lines: reservations }, actorId);
     } catch (error) {
       // Ghi đơn lỗi sau khi Kho đã giữ: nhả lại và đổi khoá cho lần sau.
       if (own) {
-        await this.inventory.release(actor.tenantId, own.reservationCode).catch(() => undefined);
-        await this.orders.bumpReserveAttempt(actor.tenantId, id).catch(() => undefined);
+        await this.inventory.release(tenantId, own.reservationCode).catch(() => undefined);
+        await this.orders.bumpReserveAttempt(tenantId, id).catch(() => undefined);
       }
       throw error;
     }
-    return this.get(actor, id);
   }
 
   async cancel(actor: CrmActor, id: string, request: SalesOrderActionRequest): Promise<SalesOrderDetail> {

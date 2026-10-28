@@ -32,6 +32,7 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { enqueueReservationRelease } from './integration-requests.js';
 import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { recognizeSignTerms, reverseContractTerms } from './receivable-recognition.js';
 
 /** Thực thể ghi vào `audit_log`. */
 export const CONTRACT_AUDIT_ENTITY = 'contract';
@@ -235,6 +236,8 @@ export class PostgresContractStore implements ContractStore {
         actorId,
         metadata: { code: locked.code, ...(reservation ? { reservationCode: reservation.reservationCode } : {}) },
       });
+      // Đợt thanh toán "khi ký" đến hạn ngay khi hợp đồng có hiệu lực (T5-05).
+      await recognizeSignTerms(client, id, actorId);
     });
   }
 
@@ -250,6 +253,8 @@ export class PostgresContractStore implements ContractStore {
       if (transition.to === 'CANCELLED' && locked.reservationStatus === 'HELD' && locked.reservationCode) {
         await releaseContractReservation(client, id, locked.reservationCode, `Huỷ hợp đồng ${locked.code}`);
       }
+      // Huỷ hợp đồng: đảo phần còn nợ của các đợt đã đến hạn, đợt chưa đến hạn thôi (T5-05).
+      if (transition.to === 'CANCELLED') await reverseContractTerms(client, id, locked.code, actorId);
       await writeAuditLog(client, {
         entityType: CONTRACT_AUDIT_ENTITY,
         entityId: id,

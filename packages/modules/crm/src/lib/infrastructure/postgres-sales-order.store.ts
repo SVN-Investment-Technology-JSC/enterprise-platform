@@ -36,6 +36,8 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { enqueueReservationRelease } from './integration-requests.js';
+import { cancelPendingCreditRequests, PostgresCreditStore } from './postgres-credit.store.js';
+import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
 import { readHistory } from './postgres-contract.store.js';
 import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
 
@@ -81,6 +83,7 @@ interface HeadRow {
   created_at: Date;
   updated_at: Date;
   cursor_at: string;
+  outstanding: string;
 }
 
 /** Cột đầu đơn; `$today` là tham số ngày hôm nay để tính cờ giao trễ. */
@@ -92,7 +95,8 @@ const headColumns = (today: string) => `
            WHERE d.order_id = o.id AND d.status IN ('PLANNED', 'REQUESTED') AND d.planned_date < ${today}::date) AS late,
   o.warehouse_code, o.delivery_address, o.note, o.price_date::text AS price_date, o.shipping_amount, o.shipping_vat_rate,
   o.gross_amount, o.discount_amount, o.net_amount, o.vat_amount, o.revision, o.reservation_expires_at, o.cancel_reason,
-  o.close_reason, o.created_at, o.updated_at, ${cursorAt('o.updated_at')} AS cursor_at`;
+  o.close_reason, o.created_at, o.updated_at, ${cursorAt('o.updated_at')} AS cursor_at,
+  (SELECT COALESCE(sum(e.amount), 0) FROM crm_schema.receivable_entries e WHERE e.order_id = o.id) AS outstanding`;
 
 const HEAD_FROM = `
   FROM crm_schema.sales_orders o
@@ -148,7 +152,7 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
     where.scope(scope, 'o.owner_user_id');
     const head = (await pool.query<HeadRow>(`SELECT ${headColumns(todayParam)} ${HEAD_FROM} ${where.where()}`, where.params)).rows[0];
     if (!head) return undefined;
-    const [lines, deliveries, deliveryLines, history] = await Promise.all([
+    const [lines, deliveries, deliveryLines, history, receivable, creditRequest] = await Promise.all([
       pool.query<LineRow>(`SELECT * FROM crm_schema.sales_order_lines WHERE order_id = $1 ORDER BY line_no`, [id]),
       pool.query<DeliveryRow>(
         `SELECT id, code, seq, planned_date::text AS planned_date, warehouse_code, address, note, status, issue_document_id,
@@ -167,7 +171,13 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
         [id],
       ),
       readHistory(pool, SALES_ORDER_AUDIT_ENTITY, id),
+      pool.query<{ debited: string | null; collected: string | null; adjusted: string | null; outstanding: string | null }>(
+        `SELECT debited, collected, adjusted, outstanding FROM crm_schema.receivable_order_balances WHERE order_id = $1`,
+        [id],
+      ),
+      new PostgresCreditStore(this.database).latestRequest(tenantId, id),
     ]);
+    const balance = receivable.rows[0];
     const plans = deliveries.rows.map((row) => toDelivery(row, deliveryLines.rows.filter((line) => line.delivery_id === row.id), today));
     const planned = new Map<string, number>();
     for (const plan of plans) {
@@ -201,6 +211,13 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
       closeReason: head.close_reason,
       history,
       createdAt: toIso(head.created_at) ?? '',
+      receivable: {
+        debited: num(balance?.debited),
+        collected: num(balance?.collected),
+        adjusted: num(balance?.adjusted),
+        outstanding: num(balance?.outstanding),
+      },
+      creditRequest: creditRequest ?? null,
     };
   }
 
@@ -318,6 +335,7 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
           WHERE order_id = $1 AND status IN ('PLANNED', 'REQUESTED')`,
         [id],
       );
+      if (from === 'CREDIT_PENDING') await cancelPendingCreditRequests(client, id);
       // Chỉ nhả phần giữ riêng của đơn; phần dùng của hợp đồng vẫn thuộc hợp đồng. Kho chỉ nhả phần chưa xuất.
       const own = await client.query<{ reservation_code: string }>(
         `SELECT DISTINCT reservation_code FROM crm_schema.sales_order_lines
@@ -443,8 +461,20 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
           });
         }
       } else {
-        // Đợt chỉ có dịch vụ: không qua Kho, ghi nhận đã giao ngay.
+        // Đợt chỉ có dịch vụ: không qua Kho, ghi nhận đã giao ngay và ghi nợ (D3).
+        const before = await deliveredSnapshot(client, orderId);
         await markServiceLinesDelivered(client, deliveryId, 1);
+        await recognizeOrderDelivery(client, {
+          orderId,
+          deliveryId,
+          before,
+          sourceType: 'service_delivery',
+          sourceId: deliveryId,
+          reversesSourceId: null,
+          documentCode: null,
+          date: vietnamDateOf(null),
+          actorId,
+        });
         await refreshOrderProgress(client, tenantId, orderId, this.balances, {
           action: 'deliver-service',
           actorId,
@@ -653,7 +683,7 @@ async function bumpRevision(client: CrmSqlClient, orderId: string, actorId: stri
   );
 }
 
-async function setStatus(
+export async function setStatus(
   client: CrmSqlClient,
   orderId: string,
   from: SalesOrderStatus,
@@ -743,7 +773,7 @@ export async function refreshOrderProgress(
   const metadata = { code: order.rows[0].code, ...options.metadata };
   if (next !== current) await setStatus(client, orderId, current, next, options.action, options.actorId, null, metadata);
   if (next === 'DELIVERED') {
-    const outstanding = await balances.outstanding(tenantId, orderId);
+    const outstanding = await balances.outstanding(tenantId, orderId, client);
     if (outstanding === 0) {
       await setStatus(client, orderId, 'DELIVERED', 'DONE', 'auto-complete', null, 'Đã giao đủ và còn phải thu bằng 0', metadata);
       return 'DONE';
@@ -858,6 +888,7 @@ function toSummary(row: HeadRow): SalesOrderSummary {
     totalAmount: num(row.total_amount),
     ownerUserId: row.owner_user_id,
     late: row.late && !['CANCELLED', 'DONE'].includes(row.status),
+    outstanding: num(row.outstanding),
     updatedAt: toIso(row.updated_at) ?? '',
   };
 }

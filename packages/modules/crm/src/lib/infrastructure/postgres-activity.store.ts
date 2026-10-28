@@ -160,7 +160,7 @@ export class PostgresActivityStore implements ActivityStore {
 }
 
 interface TimelineRow {
-  kind: 'opportunity-stage' | 'activity' | 'quote' | 'contract' | 'order';
+  kind: 'opportunity-stage' | 'activity' | 'quote' | 'contract' | 'order' | 'warranty' | 'receivable';
   id: string;
   at: Date;
   actor_id: string | null;
@@ -215,6 +215,15 @@ export class PostgresTimelineStore implements TimelineStore {
     orders.add(`so.customer_id = ${customer}::uuid`);
     orders.scope(scope, 'so.owner_user_id');
 
+    const warranty = new SqlConditions(stages.params);
+    warranty.add(`w.customer_id = ${customer}::uuid`);
+    warranty.scope(scope, 'w.owner_user_id', 'w.assignee_user_id');
+
+    // Công nợ (T5-13): phát sinh nợ và bút đảo giao hàng từ sổ; lần thu, điều chỉnh từ nhật ký.
+    const receivables = new SqlConditions(stages.params);
+    receivables.add(`rc.id = ${customer}::uuid`);
+    receivables.scope(scope, 'rc.owner_user_id');
+
     const outer = new SqlConditions(stages.params);
     outer.after(cursor, 't.at', 't.id');
 
@@ -251,6 +260,34 @@ export class PostgresTimelineStore implements TimelineStore {
            FROM crm_schema.audit_log l
            JOIN crm_schema.sales_orders so ON so.id = l.entity_id AND l.entity_type = 'sales_order'
            ${orders.where()}
+         UNION ALL
+         SELECT 'warranty', l.id, l.at, l.actor_id, NULL, NULL, l.from_status, l.to_status, l.reason,
+                l.action, w.code, NULL, NULL, w.id, NULL
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.warranty_cases w ON w.id = l.entity_id AND l.entity_type = 'warranty_case'
+           ${warranty.where()}
+         UNION ALL
+         SELECT 'receivable', e.id, e.created_at, e.created_by, NULL, NULL, NULL, NULL, e.description,
+                e.kind, ro.code, 'entry', NULL, e.id, e.amount::text
+           FROM crm_schema.receivable_entries e
+           JOIN crm_schema.customers rc ON rc.id = e.customer_id
+           LEFT JOIN crm_schema.sales_orders ro ON ro.id = e.order_id
+           ${receivables.where()} AND (e.kind = 'DEBIT' OR (e.kind = 'REVERSAL' AND e.receipt_id IS NULL))
+         UNION ALL
+         SELECT 'receivable', l.id, l.at, l.actor_id, NULL, NULL, l.from_status, l.to_status, l.reason,
+                l.action, r.code, 'receipt', NULL, r.id, r.amount::text
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.receipts r ON r.id = l.entity_id AND l.entity_type = 'receipt'
+           JOIN crm_schema.customers rc ON rc.id = r.customer_id
+           ${receivables.where()}
+         UNION ALL
+         SELECT 'receivable', l.id, l.at, l.actor_id, NULL, NULL, l.from_status, l.to_status, l.reason,
+                l.action, d.code, 'adjustment', NULL, d.id,
+                (CASE WHEN d.direction = 'DECREASE' THEN -d.amount ELSE d.amount END)::text
+           FROM crm_schema.audit_log l
+           JOIN crm_schema.receivable_adjustments d ON d.id = l.entity_id AND l.entity_type = 'receivable_adjustment'
+           JOIN crm_schema.customers rc ON rc.id = d.customer_id
+           ${receivables.where()}
        ) t
        ${outer.where()}
        ORDER BY t.at DESC, t.id DESC
@@ -277,6 +314,35 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
       versionNo: row.version_no === null ? null : Number(row.version_no),
       reason: row.reason,
       opportunityId: row.opportunity_id,
+    };
+  }
+  if (row.kind === 'receivable') {
+    return {
+      kind: 'receivable',
+      id: row.id,
+      at,
+      actorId: row.actor_id,
+      subject: (row.status ?? 'entry') as 'entry' | 'receipt' | 'adjustment',
+      refId: row.quote_id ?? '',
+      code: row.subject,
+      action: row.activity_type ?? '',
+      toStatus: row.to_stage,
+      amount: row.version_no === null ? null : Number(row.version_no),
+      reason: row.reason,
+    };
+  }
+  if (row.kind === 'warranty') {
+    return {
+      kind: 'warranty',
+      id: row.id,
+      at,
+      actorId: row.actor_id,
+      caseId: row.quote_id ?? '',
+      caseCode: row.subject ?? '',
+      action: row.activity_type ?? '',
+      fromStatus: row.from_stage,
+      toStatus: row.to_stage,
+      reason: row.reason,
     };
   }
   if (row.kind === 'contract' || row.kind === 'order') {

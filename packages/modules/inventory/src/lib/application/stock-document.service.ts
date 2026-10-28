@@ -6,6 +6,7 @@ import {
   type CreateStockDocumentRequest,
   type InternalIssueRequest,
   type InternalReturnReceiptRequest,
+  type InternalStockDocumentRequest,
   type InternalStockDocumentResult,
   type PostedStockDocument,
   type RejectStockDocumentRequest,
@@ -299,6 +300,52 @@ export class StockDocumentService {
       { inboundQuality: 'PENDING_INSPECTION' },
     );
     return internalResult(posted.document);
+  }
+
+  /**
+   * Chứng từ kho do dịch vụ khác yêu cầu (bảo hành của Bán hàng): điều chuyển
+   * thì tạo và ghi sổ ngay (nguồn đã duyệt, mục 5.6); xuất khác thì tạo rồi gửi
+   * duyệt, người duyệt chứng từ kho duyệt và ghi sổ trên màn Kho. Cùng khoá cùng
+   * nội dung trả chứng từ đã tạo (trạng thái hiện tại), khác nội dung thì 409.
+   */
+  async createInternalDocument(
+    actor: InventoryActor,
+    input: InternalStockDocumentRequest,
+  ): Promise<InternalStockDocumentResult> {
+    requireStockWriter(actor);
+    const docType = input?.docType;
+    if (docType !== 'TRANSFER' && docType !== 'ISSUE_OTHER') {
+      throw new InventoryError('VALIDATION', 'Chứng từ nội bộ chỉ nhận loại điều chuyển hoặc xuất khác.');
+    }
+    const header = normalizeInternalHeader(input);
+    const targetWarehouseCode = input.targetWarehouseCode?.trim() || undefined;
+    requireTarget(docType, header.warehouseCode, targetWarehouseCode);
+    if (docType !== 'TRANSFER' && targetWarehouseCode) {
+      throw new InventoryError('VALIDATION', 'Chỉ chứng từ điều chuyển mới có kho đến.');
+    }
+    const lines = normalizeLines(
+      docType,
+      (input.lines ?? []).map((line) => ({
+        materialCode: line?.materialCode,
+        quantity: line?.quantity,
+        serials: line?.serials,
+        lot: line?.lotNo ? { lotNo: line.lotNo } : undefined,
+        note: line?.note,
+      })),
+    );
+    const requestHash = internalRequestHash([docType, header, targetWarehouseCode ?? null, lines]);
+    const document = { docType, ...header, targetWarehouseCode, requestHash, createdBy: actor.userId, lines };
+    if (docType === 'TRANSFER') {
+      const posted = await this.documents.createAndPost(actor.tenantId, document, actor.userId);
+      return internalResult(posted.document);
+    }
+    const created = await this.documents.create(actor.tenantId, document);
+    if (created.status !== 'DRAFT') return internalResult(created);
+    const submitted = await this.documents.change(actor.tenantId, created.id, (current) => {
+      assertTransition(current, 'PENDING');
+      return { kind: 'transition', to: 'PENDING', actorId: actor.userId };
+    });
+    return internalResult(submitted.document);
   }
 
   private async allowSelfApproval(tenantId: string): Promise<boolean> {

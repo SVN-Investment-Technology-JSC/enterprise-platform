@@ -86,6 +86,18 @@ export interface CreditLimitCheck {
     readonly orderId: string;
     readonly orderAmount: number;
   }): Promise<CreditDecision>;
+  /**
+   * Đưa đơn Nháp sang Chờ duyệt hạn mức cùng yêu cầu duyệt (và phiên Quy trình
+   * nếu cấu hình duyệt qua Quy trình). Bản GĐ4 không có: chỉ đổi trạng thái đơn.
+   */
+  requestApproval?(input: {
+    readonly tenantId: string;
+    readonly orderId: string;
+    readonly revision: number;
+    readonly actorId: string;
+    readonly orderAmount: number;
+    readonly message: string;
+  }): Promise<void>;
 }
 
 export class AllowAllCreditLimitCheck implements CreditLimitCheck {
@@ -100,7 +112,16 @@ export class AllowAllCreditLimitCheck implements CreditLimitCheck {
  * không tự Hoàn tất, chỉ đóng tay có lý do.
  */
 export interface OrderBalanceReader {
-  outstanding(tenantId: string, orderId: string): Promise<number | 'unknown'>;
+  /**
+   * `within`: kết nối của transaction đang mở (đã khoá đơn) để thấy cả dòng sổ
+   * vừa ghi trong cùng transaction; không có thì đọc bằng pool.
+   */
+  outstanding(tenantId: string, orderId: string, within?: BalanceQueryRunner): Promise<number | 'unknown'>;
+}
+
+/** Phần tối thiểu của kết nối SQL mà bên đọc số còn phải thu cần. */
+export interface BalanceQueryRunner {
+  query<TRow = Record<string, unknown>>(text: string, values?: unknown[]): Promise<{ rows: TRow[] }>;
 }
 
 export class UnknownOrderBalanceReader implements OrderBalanceReader {

@@ -31,8 +31,8 @@ interface ErrorBody {
  */
 export class HttpInventoryClient implements InventoryClient {
   constructor(
-    private readonly baseUrl: string = process.env['INVENTORY_API_URL'] ?? 'http://localhost:3336/api/inventory',
-    private readonly token: () => string | undefined = () => process.env['INTERNAL_SERVICE_TOKEN'],
+    protected readonly baseUrl: string = process.env['INVENTORY_API_URL'] ?? 'http://localhost:3336/api/inventory',
+    protected readonly token: () => string | undefined = () => process.env['INTERNAL_SERVICE_TOKEN'],
   ) {}
 
   async reserve(tenantId: string, request: ReserveStockRequest): Promise<ReservedStock> {
@@ -75,7 +75,7 @@ export class HttpInventoryClient implements InventoryClient {
     return { documentId: body.documentId, documentCode: body.documentCode, status: typeof body.status === 'string' ? body.status : 'DRAFT' };
   }
 
-  private async post<T>(tenantId: string, path: string, payload: unknown): Promise<T> {
+  protected async post<T>(tenantId: string, path: string, payload: unknown): Promise<T> {
     const token = this.token();
     if (!token) throw inventoryWriteUnavailable();
     let response: Response;

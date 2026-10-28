@@ -51,6 +51,7 @@ export function CustomerDetail({
   onOpenQuote,
   onOpenContract,
   onOpenOrder,
+  onOpenWarranty,
 }: {
   customerId: string;
   onBack: () => void;
@@ -58,6 +59,7 @@ export function CustomerDetail({
   onOpenQuote?: (id: string) => void;
   onOpenContract?: (id: string) => void;
   onOpenOrder?: (id: string) => void;
+  onOpenWarranty?: (id: string) => void;
 }) {
   const { people } = useCrm();
   const canWrite = useCanWrite();
@@ -158,6 +160,7 @@ export function CustomerDetail({
           onOpenQuote={onOpenQuote}
           onOpenContract={onOpenContract}
           onOpenOrder={onOpenOrder}
+          onOpenWarranty={onOpenWarranty}
         /> : null}
       {editing ? (
         <CustomerFormDialog

@@ -341,6 +341,92 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
       expect(await balance('QA-KHO-CL', 'QA-KHO-CAP')).toEqual({ quantity: 2, reserved: 0, blocked: 2, available: 0 });
       const { rows } = await pool.query(`SELECT quality_status FROM inventory_schema.lots WHERE id = $1`, [line.lotId]);
       expect(rows[0].quality_status).toBe('PENDING_INSPECTION');
+
+      // T6-05: dịch vụ đổi chất lượng lô thay người kiểm định; hàng trở lại khả dụng.
+      await quality.changeLotForService(service, line.lotId as string, { qualityStatus: 'PASSED', reason: 'Bảo hành: kiểm định Đạt' });
+      expect(await balance('QA-KHO-CL', 'QA-KHO-CAP')).toEqual({ quantity: 2, reserved: 0, blocked: 0, available: 2 });
+    });
+  });
+
+  describe('Chứng từ nội bộ cho bảo hành (T6-05)', () => {
+    const inspectorId = randomUUID();
+
+    async function serialState(serial: string) {
+      const { rows } = await pool.query(
+        `SELECT s.quality_status, s.stock_state, w.code
+           FROM inventory_schema.serial_tracking s
+           LEFT JOIN inventory_schema.warehouses w ON w.id = s.current_warehouse_id
+          WHERE s.serial_number = $1`,
+        [serial],
+      );
+      return rows[0];
+    }
+
+    beforeAll(async () => {
+      await app.createWarehouse(admin, { code: 'QA-KHO-LOI', name: 'Kho lỗi' });
+    });
+
+    it('TC-WAR-09: hàng Lỗi đổi chất lượng rồi điều chuyển sang kho lỗi, ghi sổ ngay; gọi lại cùng khoá không lặp', async () => {
+      const warrantyId = randomUUID();
+      await documents.receiveReturn(service, {
+        idempotencyKey: `warranty-${warrantyId}:receive`,
+        warehouseCode: 'QA-KHO-CL',
+        sourceType: 'crm_warranty',
+        sourceId: warrantyId,
+        lines: [{ materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN031'] }],
+      });
+      await quality.changeSerialForService(service, 'SN031', {
+        qualityStatus: 'DEFECTIVE',
+        reason: 'Bảo hành: kiểm định Lỗi',
+        actorUserId: inspectorId,
+      });
+      const history = await pool.query(
+        `SELECT actor_id FROM inventory_schema.serial_movements m
+           JOIN inventory_schema.serial_tracking s ON s.id = m.serial_id
+          WHERE s.serial_number = 'SN031' AND m.movement_type = 'QUALITY_CHANGE'`,
+      );
+      expect(history.rows.map((row) => row.actor_id)).toContain(inspectorId);
+
+      const request = {
+        idempotencyKey: `warranty-${warrantyId}:transfer`,
+        docType: 'TRANSFER' as const,
+        warehouseCode: 'QA-KHO-CL',
+        targetWarehouseCode: 'QA-KHO-LOI',
+        sourceType: 'crm_warranty',
+        sourceId: warrantyId,
+        lines: [{ materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN031'] }],
+      };
+      const result = await documents.createInternalDocument(service, request);
+      expect(result).toMatchObject({ docType: 'TRANSFER', status: 'POSTED' });
+      expect(await serialState('SN031')).toEqual({ quality_status: 'DEFECTIVE', stock_state: 'IN_STOCK', code: 'QA-KHO-LOI' });
+      expect(await balance('QA-KHO-LOI', 'QA-KHO-MAY')).toEqual({ quantity: 1, reserved: 0, blocked: 1, available: 0 });
+
+      const replay = await documents.createInternalDocument(service, request);
+      expect(replay.documentId).toBe(result.documentId);
+      expect((await balance('QA-KHO-LOI', 'QA-KHO-MAY')).quantity).toBe(1);
+      expect((await rejection(documents.createInternalDocument(service, { ...request, targetWarehouseCode: 'QA-KHO-2' }))).statusCode).toBe(409);
+    });
+
+    it('TC-WAR-09: loại bỏ lập xuất khác chờ duyệt; duyệt rồi ghi sổ được với serial Lỗi', async () => {
+      const warrantyId = randomUUID();
+      await quality.changeSerialForService(service, 'SN033', { qualityStatus: 'DEFECTIVE', reason: 'Bảo hành: hỏng' });
+      const result = await documents.createInternalDocument(service, {
+        idempotencyKey: `warranty-${warrantyId}:scrap`,
+        docType: 'ISSUE_OTHER',
+        warehouseCode: 'QA-KHO',
+        sourceType: 'crm_warranty',
+        sourceId: warrantyId,
+        lines: [{ materialCode: 'QA-KHO-MAY', quantity: 1, serials: ['SN033'] }],
+      });
+      expect(result).toMatchObject({ docType: 'ISSUE_OTHER', status: 'PENDING' });
+      expect(await serialState('SN033')).toMatchObject({ stock_state: 'IN_STOCK', quality_status: 'DEFECTIVE' });
+
+      await documents.approve(admin, result.documentId);
+      await documents.post(clerk, result.documentId);
+      expect(await serialState('SN033')).toMatchObject({ stock_state: 'ISSUED', quality_status: 'DEFECTIVE' });
+      const events = await outbox('inventory.stock.issued', result.documentId);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ docType: 'ISSUE_OTHER', sourceType: 'crm_warranty', sourceId: warrantyId });
     });
   });
 });

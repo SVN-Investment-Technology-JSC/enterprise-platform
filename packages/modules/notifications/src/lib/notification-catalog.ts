@@ -997,6 +997,30 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Công nợ Bán hàng (job của Bán hàng): khoản nợ quá hạn (mỗi khoản một lần cho mỗi hạn), khách vượt hạn mức công nợ
+  // (mỗi đợt vượt một lần). Người nhận ghi sẵn trong payload: người phụ trách khách, đơn và kế toán công nợ theo cấu hình.
+  ...(
+    [
+      ['crm.receivable.overdue', 'Khoản phải thu quá hạn', 'entryId', 'dueDate'],
+      ['crm.customer.credit-exceeded', 'Khách hàng vượt hạn mức công nợ', 'customerId', 'creditLimit'],
+    ] as const
+  ).map(([eventType, title, idField, keyField]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category: 'deadline',
+      priority: 'actionable',
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Công nợ khách hàng cần xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#receivables'),
+        sourceType: 'crm_receivable',
+        sourceId: `${id(payload, idField)}:${eventType}:${String(payload[keyField] ?? '')}`,
+      }),
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],

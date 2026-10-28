@@ -42,6 +42,10 @@ import { ContractDetail } from './contracts/contract-detail';
 import { ContractsPage } from './contracts/contracts-page';
 import { OrderDetail } from './orders/order-detail';
 import { OrdersPage } from './orders/orders-page';
+import { CustomerLedger } from './receivables/customer-ledger';
+import { ReceivablesPage } from './receivables/receivables-page';
+import { WarrantyDetail } from './warranty/warranty-detail';
+import { WarrantyPage } from './warranty/warranty-page';
 import salesStyles from './sales.module.scss';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 
@@ -205,6 +209,7 @@ function SalesView({
           onOpenQuote={openQuote}
           onOpenContract={openContract}
           onOpenOrder={openOrder}
+          onOpenWarranty={(id) => navigate('warranty', id)}
         />
       ) : (
         <CustomerList onOpen={openCustomer} />
@@ -255,9 +260,34 @@ function SalesView({
           onOpenCustomer={openCustomer}
           onOpenContract={openContract}
           onOpenQuote={openQuote}
+          onOpenReceivables={(customerId) => navigate('receivables', customerId)}
         />
       ) : (
         <OrdersPage onOpen={openOrder} />
+      );
+    case 'receivables':
+      return sub ? (
+        <CustomerLedger
+          key={sub}
+          customerId={sub}
+          onBack={() => navigate('receivables')}
+          onOpenCustomer={openCustomer}
+          onOpenOrder={openOrder}
+        />
+      ) : (
+        <ReceivablesPage onOpenCustomer={(customerId) => navigate('receivables', customerId)} />
+      );
+    case 'warranty':
+      return sub ? (
+        <WarrantyDetail
+          key={sub}
+          caseId={sub}
+          onBack={() => navigate('warranty')}
+          onOpenCustomer={openCustomer}
+          onOpenOrder={openOrder}
+        />
+      ) : (
+        <WarrantyPage onOpen={(id) => navigate('warranty', id)} />
       );
     case 'activities':
       return <ActivitiesPage focusId={sub} />;

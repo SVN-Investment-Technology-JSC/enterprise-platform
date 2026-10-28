@@ -1,5 +1,7 @@
 import type { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
-import { UnknownOrderBalanceReader, type InventoryClient, type OrderBalanceReader } from '../application/fulfillment.port.js';
+import { type InventoryClient, type OrderBalanceReader } from '../application/fulfillment.port.js';
+import type { CreditApprovalService } from '../application/credit-limit.service.js';
+import type { FinanceClient } from '../application/receivable-store.port.js';
 import { vietnamToday } from '../application/pricing.service.js';
 import { CrmDatabase } from './crm.database.js';
 import { HttpInventoryClient } from './http-inventory-client.js';
@@ -14,10 +16,14 @@ import {
   type StockIssuedPayload,
 } from './inventory-events.js';
 import { PostgresContractStore } from './postgres-contract.store.js';
+import { applyWarrantyIssued, applyWarrantyReturned, INVENTORY_STOCK_RETURNED, type WarrantyStockEventPayload } from './warranty-events.js';
 import { PostgresQuoteStore } from './postgres-quote.store.js';
 import { PostgresSalesOrderStore } from './postgres-sales-order.store.js';
 import { notifyLateDeliveries } from '../application/delivery-late.job.js';
 import { applyQuoteProcedureResult, PostgresApprovalLinks, type ProcedureCompletedPayload } from './quote-procedure-links.js';
+import { HttpFinanceClient } from './http-finance-client.js';
+import { PostgresReceivableStore } from './postgres-receivable.store.js';
+import { createCreditApprovals, CRM_RECEIVABLE_BINDINGS, handleReceivableEvent, runReceivableJobs } from './receivable-events.js';
 
 /** Hàng đợi của Bán hàng trên exchange `enterprise.events` (`apps/worker/src/main.ts`). */
 export const CRM_INTEGRATION_QUEUE = 'crm.integrations.v1';
@@ -34,6 +40,10 @@ export const CRM_INTEGRATION_BINDINGS: readonly string[] = [
   PROCEDURE_INSTANCE_COMPLETED,
   INVENTORY_STOCK_ISSUED,
   INVENTORY_RESERVATION_EXPIRED,
+  // Bảo hành (T6-04): nhập trả vào kho cách ly đã ghi sổ.
+  INVENTORY_STOCK_RETURNED,
+  // Công nợ (T5-07): phiếu thu nguồn Bán hàng được ghi sổ, trả lại, đảo.
+  ...CRM_RECEIVABLE_BINDINGS,
 ];
 
 /**
@@ -68,19 +78,42 @@ export interface CrmJobs {
 export function createCrmIntegrationEvents(
   references: TenantDatabaseRegistry,
   pools: PostgresPoolRegistry,
-  options: { readonly balances?: OrderBalanceReader } = {},
+  options: {
+    readonly balances?: OrderBalanceReader;
+    readonly inventory?: InventoryClient;
+    readonly finance?: FinanceClient;
+    readonly procedures?: HttpProcedureClient;
+  } = {},
 ): CrmEventHandler {
   const database = new CrmDatabase(references, pools);
-  const balances = options.balances ?? new UnknownOrderBalanceReader();
+  // Số còn phải thu đọc từ sổ công nợ (GĐ5): đơn giao đủ và hết nợ thì tự Hoàn tất (Q8).
+  const balances = options.balances ?? new PostgresReceivableStore(database);
+  let approvals: CreditApprovalService | undefined;
+  const creditApprovals = () =>
+    (approvals ??= createCreditApprovals(database, {
+      inventory: options.inventory ?? new HttpInventoryClient(),
+      finance: options.finance ?? new HttpFinanceClient(),
+      procedures: options.procedures ?? new HttpProcedureClient(),
+    }));
   return {
     ready: (tenantId) => crmTablesReady(references, pools, tenantId),
     handle: async (tenantId, type, payload) => {
+      // Phiếu thu Tài chính, duyệt vượt hạn mức trên Quy trình (GĐ5).
+      if (await handleReceivableEvent(database, creditApprovals, tenantId, type, payload)) return;
       if (type === PROCEDURE_INSTANCE_COMPLETED) {
         const event = (payload ?? {}) as ProcedureCompletedPayload;
         // Hồ sơ của phân hệ khác: bỏ qua nhanh, không mở transaction.
         if (event.sourceType !== 'crm_quote') return;
         if (!(await quoteTablesReady(database, tenantId))) return;
         await applyQuoteProcedureResult(database, tenantId, event);
+        return;
+      }
+      if ((type === INVENTORY_STOCK_ISSUED || type === INVENTORY_STOCK_RETURNED) && (payload as WarrantyStockEventPayload | null)?.sourceType === 'crm_warranty') {
+        // Chứng từ của yêu cầu bảo hành: nhập trả, xuất khác loại bỏ, xuất thay thế (T6-04, T6-06).
+        if (!(await warrantyTablesReady(database, tenantId))) return;
+        const event = payload as WarrantyStockEventPayload;
+        if (type === INVENTORY_STOCK_RETURNED) await applyWarrantyReturned(database, tenantId, event);
+        else await applyWarrantyIssued(database, tenantId, event);
         return;
       }
       if (type === INVENTORY_STOCK_ISSUED) {
@@ -112,14 +145,25 @@ export function createCrmIntegrationEvents(
 export function createCrmJobs(
   references: TenantDatabaseRegistry,
   pools: PostgresPoolRegistry,
-  options: { readonly now?: () => Date; readonly procedures?: HttpProcedureClient; readonly inventory?: InventoryClient } = {},
+  options: {
+    readonly now?: () => Date;
+    readonly procedures?: HttpProcedureClient;
+    readonly inventory?: InventoryClient;
+    readonly finance?: FinanceClient;
+  } = {},
 ): CrmJobs {
   const database = new CrmDatabase(references, pools);
   const quotes = new PostgresQuoteStore(database);
   const contracts = new PostgresContractStore(database);
-  const orders = new PostgresSalesOrderStore(database, new UnknownOrderBalanceReader());
-  const links = new PostgresApprovalLinks(database, options.procedures ?? new HttpProcedureClient());
-  const requests = new PostgresIntegrationRequests(database, options.inventory ?? new HttpInventoryClient());
+  const orders = new PostgresSalesOrderStore(database, new PostgresReceivableStore(database));
+  const procedures = options.procedures ?? new HttpProcedureClient();
+  const inventory = options.inventory ?? new HttpInventoryClient();
+  const finance = options.finance ?? new HttpFinanceClient();
+  const links = new PostgresApprovalLinks(database, procedures);
+  // Gửi lại lệnh sang Kho (nhả giữ hàng) và Tài chính (tạo phiếu thu, TC-INT-08).
+  const requests = new PostgresIntegrationRequests(database, inventory, finance);
+  let approvals: CreditApprovalService | undefined;
+  const creditApprovals = () => (approvals ??= createCreditApprovals(database, { inventory, finance, procedures }));
   const now = options.now ?? (() => new Date());
   const lastRun = new Map<string, { expiry: number; sync: number }>();
   return {
@@ -141,6 +185,8 @@ export function createCrmJobs(
         // Hợp đồng quá ngày kết thúc (mục 5.3), đợt giao quá ngày dự kiến chưa xuất (T4-14).
         await contracts.expireDue(tenantId, today, QUOTE_EXPIRY_BATCH);
         await notifyLateDeliveries(orders, tenantId, today, QUOTE_EXPIRY_BATCH);
+        // Đợt thanh toán theo ngày, cảnh báo quá hạn và vượt hạn mức, đơn đã duyệt hạn mức chờ giữ hàng (GĐ5).
+        await runReceivableJobs(database, creditApprovals, tenantId, today);
       }
       if (dueSync) await requests.dispatch(tenantId);
     },
@@ -153,6 +199,13 @@ async function salesTablesReady(database: CrmDatabase, tenantId: string): Promis
   const result = await pool.query<{ ready: boolean }>(
     `SELECT to_regclass('crm_schema.delivery_issue_documents') IS NOT NULL AS ready`,
   );
+  return result.rows[0]?.ready === true;
+}
+
+/** Migration bảo hành (0010) đã chạy chưa. */
+async function warrantyTablesReady(database: CrmDatabase, tenantId: string): Promise<boolean> {
+  const pool = await database.pool(tenantId);
+  const result = await pool.query<{ ready: boolean }>(`SELECT to_regclass('crm_schema.warranty_documents') IS NOT NULL AS ready`);
   return result.rows[0]?.ready === true;
 }
 
