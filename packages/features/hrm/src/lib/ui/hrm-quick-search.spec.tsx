@@ -30,6 +30,11 @@ const mockHrmEmployeeOptions = hrmEmployeeOptions as jest.MockedFunction<
 const mockHrmFetch = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
 
 describe('HrmQuickSearch', () => {
+  beforeAll(() => {
+    // jsdom không cài scrollIntoView
+    Element.prototype.scrollIntoView = jest.fn();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockHrmEmployeeOptions.mockResolvedValue([
@@ -145,7 +150,7 @@ describe('HrmQuickSearch', () => {
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    const overlay = screen.getByRole('presentation');
+    const overlay = screen.getByRole('dialog').parentElement as HTMLElement;
     fireEvent.mouseDown(overlay);
     expect(onClose).toHaveBeenCalledTimes(2);
   });

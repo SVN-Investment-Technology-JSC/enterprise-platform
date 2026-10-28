@@ -507,6 +507,7 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
   >([]);
 
   const permissions = useHrmPermissions();
+  const canReadEmployee = permissions.can('hrm.employee.read');
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -546,7 +547,6 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
     let alive = true;
     const timer = setTimeout(() => {
       setLoading(true);
-      const canReadEmployee = permissions.can('hrm.employee.read');
 
       const promises: [
         Promise<{ data: HrmEmployeeProfile[] }>,
@@ -579,7 +579,7 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
       alive = false;
       clearTimeout(timer);
     };
-  }, [term, open, permissions]);
+  }, [term, open, canReadEmployee]);
 
   // Tổng hợp danh sách kết quả
   const rows = useMemo<ResultRow[]>(() => {
