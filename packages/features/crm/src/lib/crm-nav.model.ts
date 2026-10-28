@@ -48,7 +48,7 @@ export const CRM_PAGES: readonly CrmPage[] = [
     id: 'overview',
     label: 'Tổng quan',
     group: 'Bán hàng',
-    summary: 'Giới thiệu phân hệ, phạm vi dữ liệu, quyền của bạn và lối vào từng mục.',
+    summary: 'Doanh thu, lợi nhuận, cơ hội, công nợ so với kỳ trước và các việc cần chú ý trong phạm vi của bạn.',
   },
   {
     id: 'customers',

@@ -22,8 +22,6 @@ import {
   CRM_ACCESS_DENIED_MESSAGE,
   CRM_PAGES,
   CRM_VIEWS,
-  crmCapabilityLabels,
-  crmScopeLabel,
   isCrmAccessDenied,
   visibleCrmPages,
   type CrmPage,
@@ -33,6 +31,7 @@ import styles from './crm.module.scss';
 import { ActivityPanel } from './activities/activity-panel';
 import { CrmAntdProvider } from './components/crm-ui';
 import { CrmDataProvider, peopleOptions, useCrm } from './crm-context';
+import { CrmDashboard } from './dashboard/dashboard-page';
 import { CustomerDetail } from './customers/customer-detail';
 import { CustomerList } from './customers/customer-list';
 import { LeadsPage } from './leads/leads-page';
@@ -139,8 +138,8 @@ export function CrmScreen() {
     >
       {denied ? (
         <AccessDenied />
-      ) : !status ? null : current.id === 'overview' ? (
-        <Overview status={status} onOpen={navigate} />
+      ) : !status ? null : current.id === 'overview' && status.tablesReady ? (
+        <CrmDashboard capabilities={capabilities} navigate={navigate} />
       ) : status.tablesReady ? (
         <CrmAntdProvider>
           <CrmDataProvider capabilities={capabilities} currentUserId={status.userId}>
@@ -151,48 +150,6 @@ export function CrmScreen() {
         <Placeholder page={current} />
       )}
     </ModuleShell>
-  );
-}
-
-function Overview({ status, onOpen }: { status: CrmStatus; onOpen: (view: CrmView) => void }) {
-  const capabilities = status.capabilities;
-  const pages = visibleCrmPages(capabilities).filter((page) => page.id !== 'overview');
-  return (
-    <div className={styles.page}>
-      <section className={styles.panel} aria-label="Quyền của bạn">
-        <h2 className={styles.title}>Phân hệ Bán hàng</h2>
-        <p className={styles.muted}>
-          Quản lý trọn chu trình bán hàng: khách hàng, lead và cơ hội; báo giá, hợp đồng và đơn bán; công nợ, bảo hành
-          và báo cáo. Chọn một mục dưới đây để mở.
-        </p>
-        <dl className={styles.facts}>
-          <dt>Phạm vi dữ liệu</dt>
-          <dd>{crmScopeLabel(capabilities)}</dd>
-          <dt>Quyền của bạn</dt>
-          <dd>
-            <ul className={styles.tags}>
-              {crmCapabilityLabels(capabilities).map((label) => (
-                <li key={label}>{label}</li>
-              ))}
-            </ul>
-          </dd>
-        </dl>
-      </section>
-      <ul className={styles.grid}>
-        {pages.map((page) => (
-          <li key={page.id}>
-            <button type="button" className={styles.card} onClick={() => onOpen(page.id)}>
-              <span className={styles.cardHead}>
-                {ICONS[page.id]}
-                <strong>{page.label}</strong>
-                <span className={styles.badge}>{page.group}</span>
-              </span>
-              <span className={styles.muted}>{page.summary}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

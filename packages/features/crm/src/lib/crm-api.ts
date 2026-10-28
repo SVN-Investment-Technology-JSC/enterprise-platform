@@ -119,6 +119,7 @@ import type {
   SalesReport,
   SalesReportQuery,
 } from '@enterprise-platform/contracts-crm';
+import type { DashboardQuery, SalesDashboard } from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -393,3 +394,7 @@ export const loadSalesAlerts = (query: SalesAlertQuery) =>
   request<SalesAlertList>(`/reports/alerts${toQuery(query)}`, { cache: 'no-store' });
 export const loadReceivableReport = (query: ReceivableReportQuery) =>
   request<ReceivableReport>(`/reports/receivables${toQuery(query)}`, { cache: 'no-store' });
+
+// Dashboard Tổng quan: chỉ cần `crm.read`, số liệu theo phạm vi của người xem.
+export const loadDashboard = (query: DashboardQuery) =>
+  request<SalesDashboard>(`/dashboard${toQuery(query)}`, { cache: 'no-store' });

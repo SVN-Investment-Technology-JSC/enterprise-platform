@@ -8,3 +8,4 @@ export * from './lib/orders.js';
 export * from './lib/warranty.js';
 export * from './lib/receivables.js';
 export * from './lib/reports.js';
+export * from './lib/dashboard.js';

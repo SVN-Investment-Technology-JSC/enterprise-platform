@@ -149,6 +149,10 @@ import { SalesReportService } from './application/sales-report.service.js';
 import { CRM_SALES_REPORT_STORE, type SalesReportStore } from './application/sales-report-store.port.js';
 import { PostgresSalesReportStore } from './infrastructure/postgres-sales-report.store.js';
 import { ReportsController } from './presentation/reports.controller.js';
+import { SalesDashboardService } from './application/sales-dashboard.service.js';
+import { CRM_SALES_DASHBOARD_STORE, type SalesDashboardStore } from './application/sales-dashboard-store.port.js';
+import { PostgresSalesDashboardStore } from './infrastructure/postgres-sales-dashboard.store.js';
+import { DashboardController } from './presentation/dashboard.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -182,6 +186,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     ReceivablesController,
     WarrantyController,
     ReportsController,
+    DashboardController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -444,6 +449,14 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (reports: SalesReportStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
         new SalesReportService(reports, scopes, settings),
       inject: [CRM_SALES_REPORT_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
+    },
+    // Dashboard Tổng quan: `crm.read`, số liệu theo phạm vi dữ liệu của người xem.
+    store(CRM_SALES_DASHBOARD_STORE, (database) => new PostgresSalesDashboardStore(database)),
+    {
+      provide: SalesDashboardService,
+      useFactory: (dashboard: SalesDashboardStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
+        new SalesDashboardService(dashboard, scopes, settings),
+      inject: [CRM_SALES_DASHBOARD_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],
