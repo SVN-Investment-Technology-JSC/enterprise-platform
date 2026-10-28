@@ -74,7 +74,8 @@ export const DEFAULT_CONTRACT_EXPIRING_DAYS = 30;
 
 /**
  * Trạng thái phần giữ hàng của hợp đồng hoặc dòng đơn (bản ghi phía Bán hàng).
- * `COMPLETED` (chỉ hợp đồng): Kho đã xuất đủ mọi dòng của phần giữ.
+ * `COMPLETED`: hợp đồng, Kho đã xuất đủ mọi dòng của phần giữ; dòng đơn dùng
+ * phần giữ của hợp đồng, dòng đã giao đủ số đặt (T8-09).
  */
 export const RESERVATION_STATUSES = ['HELD', 'RELEASED', 'EXPIRED', 'COMPLETED'] as const;
 export type CrmReservationStatus = (typeof RESERVATION_STATUSES)[number];

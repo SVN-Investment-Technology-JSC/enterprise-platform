@@ -85,9 +85,13 @@ export function contractActions(detail: Pick<ContractDetail, 'status'>, capabili
   return actions;
 }
 
+/** Đợt ghi nhận bằng tay được: nghiệm thu, và giao đủ khi còn đơn treo không giao (T8-08). */
+const MANUAL_TRIGGER_CONDITIONS: readonly PaymentTerm['condition'][] = ['ACCEPTANCE', 'FULL_DELIVERY'];
+
 /**
- * Nút "Ghi nhận nghiệm thu" của đợt thanh toán điều kiện nghiệm thu (T5-18):
- * hợp đồng Hiệu lực hoặc Hoàn thành, đợt chưa đến hạn, người có quyền hợp đồng.
+ * Nút "Ghi nhận" của đợt thanh toán điều kiện nghiệm thu (T5-18) hoặc giao đủ
+ * hàng (T8-08): hợp đồng Hiệu lực hoặc Hoàn thành, đợt chưa đến hạn, người có
+ * quyền hợp đồng.
  */
 export function canTriggerPaymentTerm(
   contract: Pick<ContractDetail, 'status'>,
@@ -96,7 +100,14 @@ export function canTriggerPaymentTerm(
 ): boolean {
   if (!(capabilities.isTenantAdmin || capabilities.canWriteContract)) return false;
   if (contract.status !== 'ACTIVE' && contract.status !== 'COMPLETED') return false;
-  return term.condition === 'ACCEPTANCE' && term.status === 'PENDING';
+  return MANUAL_TRIGGER_CONDITIONS.includes(term.condition) && term.status === 'PENDING';
+}
+
+/** Chữ nút, tiêu đề hộp thoại và ô ngày khi ghi nhận đợt bằng tay, theo điều kiện của đợt. */
+export function paymentTermTriggerLabels(term: Pick<PaymentTerm, 'condition'>): { action: string; dateLabel: string } {
+  return term.condition === 'FULL_DELIVERY'
+    ? { action: 'Ghi nhận giao đủ', dateLabel: 'Ngày giao đủ' }
+    : { action: 'Ghi nhận nghiệm thu', dateLabel: 'Ngày nghiệm thu' };
 }
 
 /** Tuỳ chọn ô chọn kho (T4-19): kho đang hoạt động; kho đang chọn luôn có mặt (kể cả đã ngừng hay Kho không trả). */

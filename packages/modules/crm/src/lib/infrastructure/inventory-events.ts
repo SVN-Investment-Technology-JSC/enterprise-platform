@@ -201,6 +201,9 @@ export async function applyStockIssued(
         );
       }
     }
+    // Dòng đơn dùng phần giữ của hợp đồng đã xuất đủ: phần giữ của dòng sang Đã
+    // xuất đủ (T8-09). Chứng từ đảo không trả lại (Kho cũng không trả phần giữ khi đảo).
+    if (!reversesId) await completeContractReservationLines(client, orderId);
     await client.query(
       `UPDATE crm_schema.delivery_issue_documents SET quantity = $2, cost_amount = $3 WHERE document_id = $1`,
       [documentId, quantityTotal, costTotal],
@@ -382,6 +385,23 @@ export async function recordContractReservationIssue(client: CrmSqlClient, lines
       });
     }
   }
+}
+
+/**
+ * Dòng hàng kho của đơn đang dùng phần giữ của hợp đồng (Đang giữ) đã giao đủ
+ * số đặt: phần giữ của dòng sang Đã xuất đủ (COMPLETED), số đang giữ về 0
+ * (T8-09). Trả số dòng đổi.
+ */
+export async function completeContractReservationLines(client: CrmSqlClient, orderId: string): Promise<number> {
+  const result = await client.query<{ id: string }>(
+    `UPDATE crm_schema.sales_order_lines
+        SET reservation_status = 'COMPLETED', reserved_quantity = 0, updated_at = now()
+      WHERE order_id = $1 AND reservation_source = 'CONTRACT' AND reservation_status = 'HELD'
+        AND material_kind <> 'SERVICE' AND delivered_quantity >= quantity
+      RETURNING id`,
+    [orderId],
+  );
+  return result.rows.length;
 }
 
 /**

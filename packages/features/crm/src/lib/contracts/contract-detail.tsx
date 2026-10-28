@@ -38,6 +38,7 @@ import {
   FULFILLMENT_ACTION_LABELS,
   ORDER_STATUS_TONE,
   canTriggerPaymentTerm,
+  paymentTermTriggerLabels,
   contractActions,
   formatDay,
   formatQuantity,
@@ -536,7 +537,7 @@ export function ContractDetail({
                       setTriggering(saved);
                     }}
                   >
-                    Ghi nhận nghiệm thu
+                    {paymentTermTriggerLabels(saved).action}
                   </button>
                 ) : null;
               },
@@ -607,7 +608,7 @@ export function ContractDetail({
       {triggering ? (
         <CrmDialog
           open
-          title="Ghi nhận nghiệm thu"
+          title={paymentTermTriggerLabels(triggering).action}
           subtitle={`${triggering.name} · ${formatMoney(triggering.amount)}`}
           submitLabel="Ghi nhận"
           submitting={busy}
@@ -621,8 +622,13 @@ export function ContractDetail({
             })
           }
         >
-          <Field label="Ngày nghiệm thu" hint="Để trống là hôm nay; hạn thanh toán tính từ ngày này">
-            <DatePickerInput value={triggerDate || undefined} onChange={(value) => setTriggerDate(value)} height={34} aria-label="Ngày nghiệm thu" />
+          <Field label={paymentTermTriggerLabels(triggering).dateLabel} hint="Để trống là hôm nay; hạn thanh toán tính từ ngày này">
+            <DatePickerInput
+              value={triggerDate || undefined}
+              onChange={(value) => setTriggerDate(value)}
+              height={34}
+              aria-label={paymentTermTriggerLabels(triggering).dateLabel}
+            />
           </Field>
         </CrmDialog>
       ) : null}

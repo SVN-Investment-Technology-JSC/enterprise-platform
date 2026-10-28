@@ -1,5 +1,14 @@
 import { CRM_NO_CAPABILITIES, type DeliveryPlan, type SalesOrderLine } from '@enterprise-platform/contracts-crm';
-import { canRequestDelivery, canTriggerPaymentTerm, contractActions, warehouseOptions, orderActions, paymentTermTotals, remainingToPlan } from './fulfillment.model';
+import {
+  canRequestDelivery,
+  canTriggerPaymentTerm,
+  contractActions,
+  warehouseOptions,
+  orderActions,
+  paymentTermTotals,
+  paymentTermTriggerLabels,
+  remainingToPlan,
+} from './fulfillment.model';
 
 const writer = { ...CRM_NO_CAPABILITIES, canWriteContract: true, canWriteOrder: true };
 
@@ -19,6 +28,15 @@ describe('màn hợp đồng, đơn bán', () => {
     expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, status: 'DUE' }, writer)).toBe(false);
     expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, condition: 'SIGN' }, writer)).toBe(false);
     expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, term, { ...CRM_NO_CAPABILITIES, canWriteReceivable: true })).toBe(false);
+  });
+
+  it('T8-08: đợt "khi giao đủ hàng" chưa đến hạn cũng có nút ghi nhận bằng tay, chữ theo điều kiện', () => {
+    const term = { condition: 'FULL_DELIVERY', status: 'PENDING' } as const;
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, term, writer)).toBe(true);
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, status: 'DUE' }, writer)).toBe(false);
+    expect(canTriggerPaymentTerm({ status: 'ACTIVE' }, { ...term, condition: 'DATE' }, writer)).toBe(false);
+    expect(paymentTermTriggerLabels(term)).toEqual({ action: 'Ghi nhận giao đủ', dateLabel: 'Ngày giao đủ' });
+    expect(paymentTermTriggerLabels({ condition: 'ACCEPTANCE' })).toEqual({ action: 'Ghi nhận nghiệm thu', dateLabel: 'Ngày nghiệm thu' });
   });
 
   it('TC-ORD-04: ô chọn kho xuất: kho đang hoạt động, giữ kho đang chọn kể cả đã ngừng hay không còn', () => {

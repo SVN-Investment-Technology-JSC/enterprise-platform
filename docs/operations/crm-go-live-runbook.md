@@ -142,7 +142,7 @@ node tools/inventory/find-duplicate-serials.mjs --database-url=postgres://user:p
 
 ### 4.2. Ảnh chụp tồn kho
 
-Script đối soát tự động (`tools/inventory/reconcile-stock.mjs`) chưa có trong repo. Trước đợt 1, lưu ảnh chụp tồn bằng truy vấn chỉ đọc và đính kèm phiếu deploy:
+Trước đợt 1, chụp tồn bằng `tools/inventory/reconcile-stock.mjs` (chỉ đọc, xem `tools/inventory/README.md`) và đính kèm phiếu deploy; sau deploy chạy lại với `--compare <ảnh trước>`, mã thoát 0 là khớp, 1 là lệch. Nếu không chạy được script, dùng truy vấn chỉ đọc dưới đây:
 
 ```sql
 -- Tồn theo kho, mặt hàng
@@ -175,6 +175,10 @@ node tools/inventory/init-avg-cost.mjs --database-url=postgres://... --dry-run -
 - Mã thoát 1 khi lỗi hoặc khi 0016 chưa chạy.
 
 Quy tắc tính: bình quân gia quyền di động theo từng dòng tồn (kho, mặt hàng), 4 chữ số thập phân; nhập đơn giá 0 giữ nguyên bình quân; chân nhận của điều chuyển lấy giá chân xuất; xuất lấy bình quân hiện tại; chứng từ đảo lấy giá dòng gốc.
+
+### 4.4. Lệch serial, lô do dữ liệu cũ (sau migration 0013, 0014)
+
+Dữ liệu nhập trước khi Kho quản lý serial và lô theo sổ có thể lệch với tồn dù sổ kho khớp: serial khai trên màn khai serial cũ kèm kho mà không có phiếu nhập được 0013 coi là Trong kho (thừa serial so với tồn); số nhập trước 0014 không có lô vì lô cũ chỉ nằm ở trình duyệt (tổng lô nhỏ hơn tồn). Phát hiện bằng `node tools/inventory/reconcile-stock.mjs --database-url=... > sau-migration.json`: tóm tắt báo `lệch serial`, `lệch lô` theo cặp kho/mặt hàng, còn `lệch sổ kho` bằng 0. Tra serial thừa là serial Trong kho không có dòng nào ở `serial_movements` (chưa từng nhập, xuất theo chứng từ) rồi đối chiếu với kiểm đếm thực tế. Xử lý bằng chứng từ điều chỉnh (thủ kho lập, quản lý kho duyệt, ghi sổ), ghi rõ lý do ở ghi chú, không sửa thẳng DB: serial khai thừa thì một dòng giảm có serial đó và một dòng tăng cùng số lượng không serial (tồn giữ nguyên); phần tồn chưa có lô thì một dòng giảm không lô và một dòng tăng cùng số lượng vào lô tồn cũ (ví dụ `TONCU-<ngày>`). Đơn giá để trống thì lấy bình quân hiện tại nên giá vốn không đổi. Chạy lại script đến khi cả ba loại lệch bằng 0. Ví dụ trên `svn` (T8-10): QA-KHO-HN/QA-KHO-LAP tồn 105 nhưng 106 serial Trong kho do `SN-TRUNG01`; QA-KHO-HN/QA-KHO-MUC tồn 125 nhưng tổng lô 75 do 50 hộp nhập ngày 27/10/2026, trước 0014.
 
 ## 5. Kiểm tra sau deploy
 
@@ -289,7 +293,7 @@ Chỉ rollback bằng image. Không xoá bảng, không xoá dòng ledger migrat
 | Mục | Ghi chú |
 |---|---|
 | R15: phạm vi nhóm với tenant không bật HRM | Snapshot tổ chức ở Tenant Core JOIN thẳng `hrm_schema`, có thể lỗi với tenant không bật HRM; đang chờ nhóm Platform sửa. Khi Core lỗi, Bán hàng trả lỗi tạm thời chứ không mở rộng phạm vi. Trước khi bật cho tenant không có HRM, phải kiểm thử. |
-| Đối soát tồn tự động | `tools/inventory/reconcile-stock.mjs` (T8-02) chưa có; dùng truy vấn ở mục 4.2. Biên bản đối soát trên bản sao dữ liệu thật chưa làm. |
+| Đối soát tồn tự động | Đã có `tools/inventory/reconcile-stock.mjs` (mục 4.2). Biên bản đối soát trên bản sao dữ liệu production chưa làm. |
 | UAT, hồi quy | T8-01 đến T8-05 chưa xong; đợt 2 chỉ chạy khi UAT đạt. |
 | Thu hồi duyệt sau khi khách chấp nhận | Quy trình thu hồi kết quả duyệt của báo giá đã được khách chấp nhận chưa được xử lý tự động. |
 | Gia hạn hợp đồng | Không tự gia hạn phần giữ hàng của hợp đồng (P2). |

@@ -539,7 +539,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     expect((await contracts.get(nv, draft.id)).paymentTerms.map((term) => term.status)).toEqual(['DUE', 'DUE', 'DUE']);
   });
 
-  it('TC-CON-06b: 30% khi ký, 70% khi giao đủ hàng: giao một phần (kể cả giao đủ một đơn khi đơn khác chưa giao) không ghi nợ 70%, giao đủ mọi đơn thì ghi', async () => {
+  it('TC-CON-06b: 30% khi ký, 70% khi giao đủ hàng: giao một phần (kể cả giao đủ một đơn khi đơn khác chưa giao) không ghi nợ 70%, giao đủ mọi đơn đã cam kết thì ghi (đơn Nháp bỏ dở không chặn)', async () => {
     const customerId = await newCustomer();
     const draft = await contracts.create(nv, {
       type: 'SALE',
@@ -594,6 +594,9 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
 
     const first = await contractOrder(3, [3]);
     const second = await contractOrder(2, [1, 1]);
+    // T8-08: đơn Nháp bị bỏ dở chưa là cam kết, không chặn đợt giao đủ.
+    const abandoned = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity: 1 }] });
+    expect(abandoned.status).toBe('DRAFT');
     expect(await termDebits()).toEqual([3_000_000]);
     // Đơn thứ nhất giao đủ nhưng đơn thứ hai chưa giao: chưa ghi nợ 70%.
     await deliver(first.id, 0, 3);

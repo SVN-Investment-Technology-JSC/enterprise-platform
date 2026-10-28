@@ -535,7 +535,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect((await contracts.get(nv, active.id)).status).toBe('EXPIRED');
     await expect(orders.create(nv, { contractId: frame.id })).rejects.toMatchObject({ statusCode: 409, message: 'Hợp đồng đã hết hiệu lực.' });
   });
-  it('phần giữ của hợp đồng: Kho xuất đủ theo phần giữ thì hợp đồng hiện Đã xuất đủ; Kho nhả thì Đã nhả', async () => {
+  it('phần giữ của hợp đồng: Kho xuất đủ theo phần giữ thì hợp đồng và dòng đơn hiện Đã xuất đủ; Kho nhả thì Đã nhả', async () => {
     inventory.available.set('KHO-R|QA-KHO-CAP', 20);
     const draft = await contracts.create(nv, {
       type: 'SALE',
@@ -581,13 +581,18 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     // Xuất một phần theo phần giữ: vẫn Đang giữ (Kho: Xuất một phần).
     const firstDocument = await issue(first.id, 4);
     expect((await contracts.get(nv, draft.id)).reservation).toMatchObject({ status: 'HELD' });
+    // Dòng đơn xuất một phần: phần giữ của dòng vẫn Đang giữ.
+    expect((await orders.get(nv, order.id)).lines[0]).toMatchObject({ reservationStatus: 'HELD', deliveredQuantity: 4 });
     await issue(second.id, 6);
     const completed = await contracts.get(nv, draft.id);
     expect(completed.reservation).toMatchObject({ status: 'COMPLETED', reservationCode: reservation?.reservationCode });
     expect(completed.history.map((entry) => entry.action)).toContain('reservation-completed');
+    // T8-09: dòng đơn dùng phần giữ của hợp đồng xuất đủ thì phần giữ của dòng sang Đã xuất đủ.
+    expect((await orders.get(nv, order.id)).lines[0]).toMatchObject({ reservationStatus: 'COMPLETED', reservedQuantity: 0, deliveredQuantity: 10 });
     // Đảo chứng từ không trả phần giữ (như Kho): vẫn Đã xuất đủ.
     await issue(first.id, 4, firstDocument);
     expect((await contracts.get(nv, draft.id)).reservation?.status).toBe('COMPLETED');
+    expect((await orders.get(nv, order.id)).lines[0]).toMatchObject({ reservationStatus: 'COMPLETED', deliveredQuantity: 6 });
     // Phần giữ không còn Đang giữ: sự kiện nhả về sau bị bỏ qua.
     expect(
       await applyReservationReleased(handle.database, tenantId, { reservationCode: reservation?.reservationCode, sourceType: 'crm_contract', sourceId: draft.id }),

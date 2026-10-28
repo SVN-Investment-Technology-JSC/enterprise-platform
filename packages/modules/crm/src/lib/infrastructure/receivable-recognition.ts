@@ -13,7 +13,8 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
  * - Đơn thuộc hợp đồng có đợt: không ghi theo xuất kho (TC-AR-02); mỗi lần giao
  *   kích hoạt đợt "khi giao hàng" kế tiếp chưa đến hạn (TC-CON-06); đợt "khi
  *   giao đủ hàng" đến hạn ở lần giao làm mọi dòng (hàng kho và dịch vụ) của mọi
- *   đơn chưa huỷ thuộc hợp đồng giao đủ số lượng (`contractFullyDelivered`).
+ *   đơn đã cam kết (không Nháp, không huỷ) thuộc hợp đồng giao đủ số lượng
+ *   (`contractFullyDelivered`).
  * - Đợt "khi ký" ghi khi xác nhận hợp đồng; đợt "theo ngày" do job ghi khi tới
  *   ngày; đợt "khi nghiệm thu" ghi bằng tay (tới khi có nghiệm thu, CON-04).
  *
@@ -336,18 +337,25 @@ async function recognizeNextDeliveryTerm(
 }
 
 /**
- * Mọi đơn chưa huỷ thuộc hợp đồng đã giao đủ: mỗi dòng (hàng kho và dịch vụ) có
- * số đã giao không nhỏ hơn số đặt, và hợp đồng có ít nhất một dòng đơn như vậy.
- * Đơn Nháp, Chờ duyệt hạn mức vẫn tính là chưa giao (đơn sẽ còn giao); bỏ qua đơn
- * đã huỷ. Gọi trong transaction đã khoá đơn vừa giao, đọc số sau khi áp chứng từ.
+ * Trạng thái đơn không tính khi xét hợp đồng giao đủ: đơn Nháp chưa là cam kết
+ * (đơn nháp bị bỏ dở không chặn đợt "khi giao đủ hàng", T8-08), đơn đã huỷ.
+ * Đơn Chờ duyệt hạn mức vẫn tính là chưa giao (đơn sẽ còn giao).
+ */
+export const FULL_DELIVERY_IGNORED_ORDER_STATUSES: readonly string[] = ['DRAFT', 'CANCELLED'];
+
+/**
+ * Mọi đơn đã cam kết thuộc hợp đồng đã giao đủ: mỗi dòng (hàng kho và dịch vụ)
+ * có số đã giao không nhỏ hơn số đặt, và hợp đồng có ít nhất một dòng đơn như
+ * vậy. Bỏ qua đơn trong `FULL_DELIVERY_IGNORED_ORDER_STATUSES`. Gọi trong
+ * transaction đã khoá đơn vừa giao, đọc số sau khi áp chứng từ.
  */
 export async function contractFullyDelivered(client: CrmSqlClient, contractId: string): Promise<boolean> {
   const result = await client.query<{ total: number; open: number }>(
     `SELECT count(*)::int AS total, count(*) FILTER (WHERE l.delivered_quantity < l.quantity)::int AS open
        FROM crm_schema.sales_order_lines l
        JOIN crm_schema.sales_orders o ON o.id = l.order_id
-      WHERE o.contract_id = $1 AND o.status <> 'CANCELLED'`,
-    [contractId],
+      WHERE o.contract_id = $1 AND o.status <> ALL($2::text[])`,
+    [contractId, [...FULL_DELIVERY_IGNORED_ORDER_STATUSES]],
   );
   const row = result.rows[0];
   return !!row && row.total > 0 && row.open === 0;
