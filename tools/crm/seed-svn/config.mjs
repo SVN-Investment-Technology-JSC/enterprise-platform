@@ -25,6 +25,8 @@ export function buildConfig(tenantSlug) {
     inventoryApi: (process.env.INVENTORY_API_URL ?? 'http://localhost:3336/api/inventory').replace(/\/$/, ''),
     workspaceApi: (process.env.WORKSPACE_API_URL ?? 'http://localhost:3337/api/workspace').replace(/\/$/, ''),
     crmApi: (process.env.CRM_API_URL ?? 'http://localhost:3344/api/crm').replace(/\/$/, ''),
+    financeApi: (process.env.FINANCE_API_URL ?? 'http://localhost:3341/api/finance').replace(/\/$/, ''),
+    procedureApi: (process.env.PROCEDURE_API_URL ?? 'http://localhost:3334/api/procedure').replace(/\/$/, ''),
     tenantDatabase: {
       host: process.env.SVN_SEED_TENANT_DB_HOST ?? 'localhost',
       port: Number(process.env.SVN_SEED_TENANT_DB_PORT ?? 55436),

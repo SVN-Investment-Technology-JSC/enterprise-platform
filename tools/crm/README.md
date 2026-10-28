@@ -8,12 +8,17 @@ email hoặc tên) được bỏ qua, quyền của vai trò được chỉnh v�
 node tools/crm/seed-svn.mjs --step=tenant [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=legacy [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=crm [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=pricing [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=finance [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=warranty [--tenant=svn]
 ```
 
 ## Cần có
 
 - Stack local đang chạy: API Platform (3333), inventory-api (3336), workspace-api (3337), crm-api (3344), worker
-  (khởi tạo phân hệ cho tenant). Xem `infrastructure/docker/compose.local.yml` và `pnpm dev`.
+  (khởi tạo phân hệ cho tenant, chuyển sự kiện giữa phân hệ). Từ bước `pricing` cần thêm procedure-api (3334), từ
+  bước `finance` cần finance-api (3341). Xem `infrastructure/docker/compose.local.yml` và `pnpm dev`.
 - Biến môi trường. Script tự nạp `.env` ở gốc repo nếu có; biến đặt trong shell được ưu tiên.
 
 | Biến | Bắt buộc | Ý nghĩa |
@@ -23,10 +28,11 @@ node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
 | `INTERNAL_SERVICE_TOKEN` | Có (đã có trong `.env`) | Gọi route nội bộ: organization context, giữ hàng cũ. |
 | `SVN_SEED_SUPERADMIN_EMAIL` | Không | Mặc định `superadmin@platform.local`. |
 | `SVN_SEED_PLATFORM_API_URL` | Không | Mặc định `http://localhost:3333/api`. |
-| `INVENTORY_API_URL`, `WORKSPACE_API_URL`, `CRM_API_URL` | Không | Lấy từ `.env`; mặc định cổng local. |
+| `INVENTORY_API_URL`, `WORKSPACE_API_URL`, `CRM_API_URL`, `FINANCE_API_URL`, `PROCEDURE_API_URL` | Không | Lấy từ `.env`; mặc định cổng local. |
 | `SVN_SEED_TENANT_DB_HOST`, `SVN_SEED_TENANT_DB_PORT` | Không | DB của tenant mới; mặc định `localhost:55436`. |
 | `SVN_SEED_PROVISION_TIMEOUT_MS` | Không | Thời gian chờ worker khởi tạo phân hệ; mặc định 5 phút. |
 | `SVN_SEED_OUTPUT_DIR` | Không | Thư mục ghi ảnh chụp tồn của bước `legacy`; mặc định thư mục tạm của hệ điều hành. |
+| `SVN_SEED_EVENT_TIMEOUT_MS` | Không | Thời gian chờ Bán hàng nhận kết quả xuất kho (qua worker) ở bước `finance`, `warranty`; mặc định 90 giây. |
 
 ## Thứ tự chạy
 
@@ -34,8 +40,8 @@ node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
 2. `--step=legacy` (T0-19), ngay sau bước 1 và **trước** khi áp migration Kho mới.
 3. Cập nhật code, chạy migration mới (worker nâng cấp phân hệ cho tenant).
 4. `--step=inventory` (T1-33), sau khi migration Kho mới đã áp.
-5. Các bước của giai đoạn sau, sẽ thêm vào cùng script: `crm` (T2-24), `pricing` (T3-18), `finance` (T5-14),
-   `warranty` (T6-10).
+5. `--step=crm` (T2-24), `--step=pricing` (T3-18), `--step=finance` (T5-14), `--step=warranty` (T6-10), đúng thứ tự
+   này: `pricing` cần nhóm khách của `crm`; `finance` và `warranty` cần khách của `crm` và bảng giá của `pricing`.
 
 Tenant `svn2`, `svn3`, `svn-perf` chỉ chạy bước `tenant` với `--tenant=<slug>`.
 
@@ -80,6 +86,65 @@ Dữ liệu Kho mới cho Bán hàng, chỉ qua API chứng từ kho (`v1/stock-
 - Cuối bước in hạn dùng, chất lượng từng lô, gợi ý FEFO xuất 10 (mong đợi L02 rồi L01, không có L03, L04) và số serial
   dự phòng, serial Cách ly.
 - Chạy vào tháng 12 thì L02 đã quá hạn theo lịch; test FEFO khi đó cần tenant mới seed lại.
+
+## Bước `crm`
+
+Mỗi nhân viên tự tạo dữ liệu của mình (đăng nhập bằng tài khoản đó) để test phạm vi dữ liệu (TC-PERM-02, TC-PERM-04).
+
+- Chạy chuyển khách Workspace sang Bán hàng trước (cùng hàm với `migrate-workspace-customers.mjs`, bằng QTV).
+- QTBH tạo 3 nhóm khách: `QA-CRM-DL1` "Đại lý cấp 1", `QA-CRM-VIP` "VIP", `QA-CRM-DA` "Dự án".
+- 30 khách `QA-CRM-KH01` đến `KH30`: NV1 có KH01 đến KH10, NV2 có KH11 đến KH20, NV3 có KH21 đến KH30; nhóm xoay
+  vòng DL1, VIP, Dự án; MST riêng (KH01 mang `0101234567` cho TC-CUS-05, TC-OPP-03), tỉnh và khu vực Bắc, Trung,
+  Nam, thời hạn thanh toán 30 ngày. Mỗi khách một người liên hệ chính, KH01, KH06... thêm kế toán trưởng.
+- 10 lead `QA-CRM Lead 01` đến `10` chia NV1, NV2, NV3: Mới, Đang chăm sóc, một Không tiềm năng; lead 10 cùng MST KH01.
+- 15 cơ hội `QA-CRM CH01` đến `CH15` ở đủ 7 giai đoạn (NV1 có cả 7). Cơ hội Thắng cần báo giá được khách chấp nhận:
+  script lập báo giá dòng `QA-KHO-BT` giá nhập tay, gửi duyệt (TN hoặc QL duyệt trực tiếp nếu cần), gửi khách, khách
+  chấp nhận, rồi chuyển Thắng. Bước này chạy trước `pricing` nên cách duyệt báo giá lúc đó là DIRECT.
+- Mỗi nhân viên 3 hoạt động: gọi điện quá hạn 3 ngày (mở), gặp khách sau 3 ngày (mở), email 7 ngày trước (đã xong).
+- Cuối bước in số khách theo người phụ trách, số khách NV1 thấy (10) và số thẻ kanban theo giai đoạn.
+
+## Bước `pricing`
+
+- QTBH: bảng giá chuẩn `QA-CRM-BG-CHUAN` (`QA-KHO-CAP` 1.000.000, `QA-KHO-LAP` 20.000.000, `QA-KHO-MUC` 400.000,
+  `QA-KHO-BT` 5.000.000, `QA-KHO-PM` 12.000.000, VAT 10%) và bảng giá Đại lý cấp 1 `QA-CRM-BG-DL1` gán nhóm
+  `QA-CRM-DL1` (CAP 950.000, LAP 19.000.000, MUC 380.000), hiệu lực từ 1/1 năm nay.
+- Chính sách `QA-CRM-CS-BAC` bậc số lượng 1-9 giảm 2%, 10-49 giảm 5%, từ 50 giảm 8%; chương trình `QA-CRM-CS-T12`
+  giảm 3% từ 1/12 đến 31/12 năm nay, cộng dồn; trần tổng 10%. Ngưỡng duyệt NV 5%, TN 15%, QL không giới hạn, biên
+  lợi nhuận tối thiểu 10%.
+- QTV tạo và công bố ở Quy trình hai định nghĩa nhóm "Kinh doanh": `QA-CRM-DUYET-BG` "Duyệt báo giá" (bước 1 mọi
+  nhân viên gửi, bước 2 chức danh `SVN-KD-TN` duyệt) và `QA-CRM-DUYET-HM` "Duyệt vượt hạn mức công nợ" (bước 2 chức
+  danh `SVN-KD-QL`). QTBH gắn `approval_bindings` QUOTE và ORDER_CREDIT vào hai quy trình này. Không tạo, công bố được
+  quy trình thì gắn DIRECT và in lý do.
+- Cuối bước in thử tính giá 9, 10, 50 `QA-KHO-CAP` (2%, 5%, 8%; 9 cái thành tiền 8.820.000), 50 cái ngày 15/12 (chạm
+  trần 10%), giá nhóm Đại lý và cách duyệt hiện tại.
+
+## Bước `finance`
+
+- QTV: tài khoản `QA-TC-TM` (quỹ tiền mặt) và `QA-TC-VCB` (ngân hàng Vietcombank), cài đặt Tài chính không cho tự duyệt.
+- Hạn mức và dư nợ: KH01 hạn mức 200 triệu, nợ 50 triệu quá hạn 30 ngày (dưới hạn mức); KH02 hạn mức 100 triệu, nợ 95
+  triệu quá hạn 61 ngày (sát hạn mức); KH03 hạn mức 50 triệu, nợ 80 triệu quá hạn 91 ngày (vượt hạn mức).
+- Khoản quá hạn tạo bằng hợp đồng mua bán (dòng dịch vụ `QA-KHO-BT`) có ngày ký trong quá khứ và một đợt thanh toán
+  "khi ký" 100%, hạn 0 ngày: xác nhận hợp đồng ghi nợ đúng ngày ký. Không dùng đơn giao hàng vì Bán hàng ghi nợ theo
+  ngày Kho ghi sổ chứng từ xuất (luôn là hôm nay), xem mục giới hạn dưới đây.
+- Thêm một đơn của NV1 cho KH01 (2 `QA-KHO-CAP`) giao hôm nay: thủ kho TK ghi sổ chứng từ xuất, Bán hàng ghi nợ chưa
+  đến hạn.
+- Cuối bước in dư nợ, hạn mức, khoản quá hạn theo nhóm tuổi nợ của 3 khách (đọc bằng KT).
+
+## Bước `warranty`
+
+- NV1 lập đơn `QA-KHO-LAP` 1 cái, đợt giao và ngày chứng từ xuất đặt ở mốc quá khứ, TK chọn serial và ghi sổ: `SN031`
+  (KH08, 3 tháng trước), `SN032` (KH09, 11 tháng), `SN033` (KH10, 13 tháng), `SN034` theo hợp đồng nguyên tắc bảo hành
+  24 tháng (KH08) và `SN035` theo hợp đồng 6 tháng (KH09), cùng 8 tháng trước. Hợp đồng do QTV tạo, người phụ trách NV1.
+- Cuối bước KTV tra cứu từng serial, in ngày giao, nguồn và hạn bảo hành, cảnh báo serial có ngày giao khác mốc.
+
+### Giới hạn: không lùi được ngày giao qua API
+
+Bán hàng lấy ngày giao (mốc bảo hành, ngày ghi nợ, dòng doanh thu) từ `postedAt` của sự kiện `inventory.stock.issued`;
+Kho đặt giá trị này bằng `now()` lúc ghi sổ (`postgres-stock-document.store.ts`, `UPDATE ... posted_at = now()`), không
+theo `documentDate`. Vì vậy đơn seed luôn giao "hôm nay": `SN031` đến `SN035` hiện có hạn tính từ ngày chạy seed (đúng
+nguồn hạn MATERIAL 12 tháng, CONTRACT 24 và 6 tháng, nhưng chưa có serial sắp hết hạn hay đã hết hạn). Chứng từ xuất
+vẫn mang ngày chứng từ quá khứ. Muốn test hạn theo mốc thời gian cần Kho phát `postedAt` theo ngày chứng từ, hoặc
+chỉnh dữ liệu trực tiếp ở DB thử (ngoài phạm vi script này).
 
 ## Chuyển khách hàng Workspace sang Bán hàng (T2-15)
 
