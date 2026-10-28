@@ -907,6 +907,137 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       },
     }),
   ),
+  // Nhắc hoạt động Bán hàng (gọi điện, email, gặp mặt, công việc): notification-worker quét
+  // `crm_schema.activities` đang mở, nhắc trước hạn theo cấu hình (mặc định 30 phút) và khi quá hạn.
+  ...(['due-soon', 'overdue'] as const).map((kind) =>
+    directPolicy({
+      eventType: `crm.activity.${kind}`,
+      module: 'crm',
+      category: 'deadline',
+      priority: kind === 'overdue' ? 'actionable' : 'informational',
+      recipients: { kind: 'payload', fields: ['assigneeUserId'] },
+      template: ({ payload }) => {
+        const due = formatDue(payload.dueAt);
+        const subject = text(payload, 'title', 'Hoạt động bán hàng');
+        return {
+          title: kind === 'overdue' ? 'Hoạt động bán hàng đã quá hạn' : 'Hoạt động bán hàng sắp đến hạn',
+          body: `${subject}${due ? ` (hạn ${due})` : ''}`,
+          deepLink: `/modules/crm#activities/${encodeURIComponent(id(payload, 'activityId'))}`,
+          sourceType: 'crm_activity_deadline',
+          // Gồm hạn để dời hạn thì là thông báo mới, không gộp vào thông báo theo hạn cũ.
+          sourceId: `${id(payload, 'activityId')}:${kind}:${text(payload, 'dueAt', '')}`,
+        };
+      },
+    }),
+  ),
+  // Báo giá Bán hàng: cần duyệt (báo cấp trên khi duyệt trực tiếp), kết quả duyệt (báo người gửi), hết hạn (báo người
+  // phụ trách). Người nhận ghi sẵn trong payload (`recipientUserIds`).
+  ...(
+    [
+      ['crm.quote.approval-requested', 'approval', 'actionable', 'Báo giá cần duyệt'],
+      ['crm.quote.approval-decided', 'result', 'actionable', 'Kết quả duyệt báo giá'],
+      ['crm.quote.expired', 'deadline', 'informational', 'Báo giá đã hết hạn'],
+    ] as const
+  ).map(([eventType, category, priority, title]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category,
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Báo giá có cập nhật mới.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#quotes'),
+        sourceType: 'crm_quote',
+        sourceId: `${id(payload, 'quoteId')}:${String(payload.versionNo ?? '')}:${eventType}`,
+      }),
+    }),
+  ),
+  // Hợp đồng sắp hết hạn (nguồn lịch của notification-worker, trước N ngày theo cấu hình `contract.expiring`): báo
+  // người phụ trách hợp đồng.
+  directPolicy({
+    eventType: 'crm.contract.expiring',
+    module: 'crm',
+    category: 'deadline',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['ownerUserId'] },
+    template: ({ payload }) => ({
+      title: 'Hợp đồng sắp hết hạn',
+      body: text(payload, 'summary', 'Hợp đồng bán hàng sắp hết hạn.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#contracts'),
+      sourceType: 'crm_contract',
+      // Gồm ngày kết thúc để gia hạn rồi sắp hết hạn lần nữa là thông báo mới.
+      sourceId: `${id(payload, 'contractId')}:expiring:${text(payload, 'endDate', '')}`,
+    }),
+  }),
+  // Đơn bán: đợt giao trễ (job của Bán hàng), phần giữ hàng hết hạn ở Kho (đơn hoặc hợp đồng). Người nhận ghi sẵn
+  // trong payload (`recipientUserIds`, người phụ trách).
+  ...(
+    [
+      ['crm.delivery.late', 'deadline', 'Đợt giao hàng bị trễ', 'crm_delivery', 'deliveryId'],
+      ['crm.order.reservation-lost', 'reservation', 'Đơn bán mất phần giữ hàng', 'crm_order', 'orderId'],
+      ['crm.contract.reservation-lost', 'reservation', 'Hợp đồng mất phần giữ hàng', 'crm_contract', 'contractId'],
+      ['crm.contract.reservation-released', 'reservation', 'Đã nhả phần giữ hàng của hợp đồng', 'crm_contract', 'contractId'],
+    ] as const
+  ).map(([eventType, category, title, sourceType, idField]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category,
+      priority: 'actionable',
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Đơn bán có cập nhật cần xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#orders'),
+        sourceType,
+        sourceId: `${id(payload, idField)}:${eventType}:${text(payload, eventType === 'crm.delivery.late' ? 'plannedDate' : 'reservationCode', '')}`,
+      }),
+    }),
+  ),
+  // Duyệt vượt hạn mức qua Quy trình lỗi vĩnh viễn: yêu cầu chuyển sang duyệt trực tiếp trong Bán hàng, báo người lập đơn.
+  directPolicy({
+    eventType: 'crm.order.credit-approval-redirected',
+    module: 'crm',
+    category: 'approval',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Duyệt vượt hạn mức chuyển sang duyệt trực tiếp',
+      body: text(payload, 'summary', 'Yêu cầu duyệt vượt hạn mức của đơn bán đã chuyển sang duyệt trực tiếp.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#orders'),
+      sourceType: 'crm_order',
+      sourceId: `${id(payload, 'orderId')}:crm.order.credit-approval-redirected:${text(payload, 'creditRequestId', '')}`,
+    }),
+  }),
+  // Công nợ Bán hàng (job của Bán hàng): khoản nợ quá hạn (mỗi khoản một lần cho mỗi hạn), khách vượt hạn mức công nợ
+  // (mỗi đợt vượt một lần). Người nhận ghi sẵn trong payload: người phụ trách khách, đơn và kế toán công nợ theo cấu hình.
+  ...(
+    [
+      ['crm.receivable.overdue', 'Khoản phải thu quá hạn', 'entryId', 'dueDate'],
+      ['crm.customer.credit-exceeded', 'Khách hàng vượt hạn mức công nợ', 'customerId', 'creditLimit'],
+    ] as const
+  ).map(([eventType, title, idField, keyField]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category: 'deadline',
+      priority: 'actionable',
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Công nợ khách hàng cần xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#receivables'),
+        sourceType: 'crm_receivable',
+        sourceId: `${id(payload, idField)}:${eventType}:${String(payload[keyField] ?? '')}`,
+      }),
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],

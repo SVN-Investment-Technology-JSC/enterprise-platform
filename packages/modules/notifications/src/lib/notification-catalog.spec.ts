@@ -644,3 +644,101 @@ describe('social P2 visibility and report notifications', () => {
     expect(resolved?.template.deepLink).toBe('/modules/social/pending?tab=reports');
   });
 });
+
+describe('nhắc hoạt động Bán hàng', () => {
+  it.each(['crm.activity.due-soon', 'crm.activity.overdue'])('%s báo người được giao, mở đúng hoạt động', async (type) => {
+    const resolved = await registry.resolve(
+      event(type, { activityId: 'act-1', title: 'Gọi lại khách', dueAt: '2026-10-05T02:30:00.000Z', assigneeUserId: 'user-b' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe(type.endsWith('overdue') ? 'Hoạt động bán hàng đã quá hạn' : 'Hoạt động bán hàng sắp đến hạn');
+    expect(resolved?.template.body).toBe('Gọi lại khách (hạn 05/10/2026 09:30)');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#activities/act-1');
+  });
+});
+
+
+describe('báo giá Bán hàng', () => {
+  it('cần duyệt: báo người trong payload, mở đúng báo giá, không báo chính người gửi', async () => {
+    const resolved = await registry.resolve(
+      event('crm.quote.approval-requested', {
+        quoteId: 'q-1',
+        quoteCode: 'BG2600001',
+        versionNo: 1,
+        recipientUserIds: ['user-tn', 'user-nv'],
+        actorUserId: 'user-nv',
+        summary: 'Báo giá BG2600001 (Công ty A) cần duyệt: Dòng 1 (CAP): Chiết khấu vượt hạn mức vai trò nhân viên (12% > 5%).',
+        deepLink: '/modules/crm#quotes/q-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-tn']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe('Báo giá cần duyệt');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#quotes/q-1');
+  });
+
+  it.each(['crm.quote.approval-decided', 'crm.quote.expired'])('%s báo người gửi hoặc người phụ trách', async (type) => {
+    const resolved = await registry.resolve(
+      event(type, { quoteId: 'q-2', versionNo: 2, recipientUserIds: ['user-nv'], actorUserId: null, summary: 'Báo giá BG2600002 đã hết hạn hiệu lực.', deepLink: '/modules/crm#quotes/q-2' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-nv']);
+    expect(resolved?.template.body).toBe('Báo giá BG2600002 đã hết hạn hiệu lực.');
+  });
+});
+
+describe('hợp đồng, đơn bán Bán hàng', () => {
+  it('crm.contract.expiring báo người phụ trách hợp đồng, mở đúng hợp đồng', async () => {
+    const resolved = await registry.resolve(
+      event('crm.contract.expiring', {
+        contractId: 'k-1', contractCode: 'HD2600001', endDate: '2026-11-26', ownerUserId: 'user-owner', daysLeft: 30,
+        summary: 'Hợp đồng HD2600001 hết hạn ngày 26/11/2026, còn 30 ngày.', deepLink: '/modules/crm#contracts/k-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe('Hợp đồng sắp hết hạn');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#contracts/k-1');
+  });
+
+  it.each([
+    ['crm.delivery.late', { deliveryId: 'd-1', plannedDate: '2026-10-26' }, 'Đợt giao hàng bị trễ'],
+    ['crm.order.reservation-lost', { orderId: 'o-1', reservationCode: 'R1' }, 'Đơn bán mất phần giữ hàng'],
+    ['crm.contract.reservation-lost', { contractId: 'k-1', reservationCode: 'R2' }, 'Hợp đồng mất phần giữ hàng'],
+    ['crm.contract.reservation-released', { contractId: 'k-1', reservationCode: 'R3' }, 'Đã nhả phần giữ hàng của hợp đồng'],
+    ['crm.order.credit-approval-redirected', { orderId: 'o-1', creditRequestId: 'q-1' }, 'Duyệt vượt hạn mức chuyển sang duyệt trực tiếp'],
+  ])('%s báo người phụ trách trong payload', async (type, extra, title) => {
+    const resolved = await registry.resolve(
+      event(type, { ...extra, recipientUserIds: ['user-owner'], actorUserId: null, summary: 'Nội dung.', deepLink: '/modules/crm#orders/o-1' }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner']);
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.body).toBe('Nội dung.');
+  });
+
+  it.each([
+    ['crm.receivable.overdue', { entryId: 'e-1', customerId: 'c-1', dueDate: '2026-10-01' }, 'Khoản phải thu quá hạn', 'e-1:crm.receivable.overdue:2026-10-01'],
+    ['crm.customer.credit-exceeded', { customerId: 'c-1', creditLimit: 100 }, 'Khách hàng vượt hạn mức công nợ', 'c-1:crm.customer.credit-exceeded:100'],
+  ])('%s báo người phụ trách khách và kế toán công nợ, mở sổ công nợ', async (type, extra, title, sourceId) => {
+    const resolved = await registry.resolve(
+      event(type, {
+        ...extra,
+        recipientUserIds: ['user-owner', 'user-kt'],
+        actorUserId: null,
+        summary: 'Khách KH001 còn nợ quá hạn.',
+        deepLink: '/modules/crm#receivables/c-1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-owner', 'user-kt']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.deepLink).toBe('/modules/crm#receivables/c-1');
+    expect(resolved?.template.sourceId).toBe(sourceId);
+  });
+});

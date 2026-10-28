@@ -227,6 +227,21 @@
     },
     {
       "path": "./packages/features/chat"
+    },
+    {
+      "path": "./packages/contracts/crm"
+    },
+    {
+      "path": "./packages/modules/crm"
+    },
+    {
+      "path": "./apps/crm-api"
+    },
+    {
+      "path": "./apps/crm-web"
+    },
+    {
+      "path": "./packages/features/crm"
     }
   ]
 }

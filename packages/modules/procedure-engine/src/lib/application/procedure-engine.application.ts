@@ -166,9 +166,19 @@ function autoCompleteKey(startKey: string): string {
 }
 
 /** Nguồn được tự hoàn thành bước S của người khởi tạo (chỉ qua dịch vụ nội bộ). */
-const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = ['hrm_request', 'finance_voucher'];
+export const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = [
+  'hrm_request',
+  'finance_voucher',
+  'crm_quote',
+  'crm_order_credit',
+];
 /** Nguồn phải được hỏi trước khi huỷ hiệu lực hồ sơ: module nguồn có thể đã ghi sổ/áp dụng kết quả. */
-const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = ['hrm_request', 'finance_voucher'];
+export const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = [
+  'hrm_request',
+  'finance_voucher',
+  'crm_quote',
+  'crm_order_credit',
+];
 
 /** Kết quả tự hoàn thành bước S khi khởi tạo hồ sơ. */
 export interface ProcedureAutoCompleteOutcome {
@@ -1726,7 +1736,7 @@ export class ProcedureEngineApplication {
     ) {
       throw new ProcedureEngineError(
         'validation',
-        'autoCompleteInitiatorStep chỉ nhận từ dịch vụ nội bộ với sourceType hrm_request hoặc finance_voucher.',
+        `autoCompleteInitiatorStep chỉ nhận từ dịch vụ nội bộ với sourceType ${AUTO_COMPLETE_SOURCE_TYPES.join(', ')}.`,
       );
     }
     if (!input.title?.trim() || input.title.trim().length > 255) {
@@ -2254,7 +2264,7 @@ export class ProcedureEngineApplication {
     if (input.autoCompleteInitiatorStep && !AUTO_COMPLETE_SOURCE_TYPES.includes(input.sourceType as string)) {
       throw new ProcedureEngineError(
         'validation',
-        'autoCompleteInitiatorStep chỉ nhận khi sourceType là hrm_request hoặc finance_voucher.',
+        `autoCompleteInitiatorStep chỉ nhận khi sourceType là ${AUTO_COMPLETE_SOURCE_TYPES.join(', ')}.`,
       );
     }
 

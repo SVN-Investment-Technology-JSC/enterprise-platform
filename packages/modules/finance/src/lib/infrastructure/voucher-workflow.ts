@@ -1,4 +1,4 @@
-import type { FinanceVoucherKind } from '@enterprise-platform/contracts-finance';
+import { FINANCE_SOURCE_MODULE_PROCEDURE, type FinanceSourceModule, type FinanceVoucherKind } from '@enterprise-platform/contracts-finance';
 import { canApprove, canCreate, type FinanceActor } from '../domain/finance.access.js';
 import { conflict, forbidden, invalid, invalidMany, notFound } from '../domain/finance.error.js';
 import { assertPostingDateAllowed, validateForSubmit, type NormalizedVoucher } from '../domain/voucher.rules.js';
@@ -231,7 +231,15 @@ export async function approveVoucher(db: Db, tenantId: string, actor: FinanceAct
  * Ghi sổ và chuyển phiếu sang ĐÃ DUYỆT: dùng chung cho duyệt trực tiếp và cho kết quả "đã duyệt" của quy trình.
  * Chặn theo khoá sổ, ngày hạch toán, trạng thái tài khoản và số dư; lỗi nào cũng xảy ra TRƯỚC khi ghi dòng sổ cái nào.
  */
-export async function postApproval(db: Db, tenantId: string, row: Row, decider: Decider, note?: string): Promise<void> {
+export async function postApproval(
+  db: Db,
+  tenantId: string,
+  row: Row,
+  decider: Decider,
+  note?: string,
+  /** Trường thêm vào sự kiện `finance.voucher.status-changed` (nguồn của phiếu có nguồn ngoài Quy trình). */
+  eventExtra?: Readonly<Record<string, unknown>>,
+): Promise<void> {
   const settings = await loadSettings(db, tenantId);
   const postingDate = dateOnly(row.posting_date);
   assertPostingDateAllowed(postingDate, settings.booksLockedUntil, todayVn());
@@ -245,7 +253,7 @@ export async function postApproval(db: Db, tenantId: string, row: Row, decider: 
     [tenantId, String(row.id), decider.userId, decider.displayName, note?.trim() || null],
   );
   await addEvent(db, tenantId, String(row.id), 'APPROVED', decider, note);
-  await notifyOutcome(db, notificationFacts(tenantId, posted), 'APPROVED', decider.userId, decider.displayName, note ?? null);
+  await notifyOutcome(db, notificationFacts(tenantId, posted), 'APPROVED', decider.userId, decider.displayName, note ?? null, eventExtra);
 }
 
 /** Đưa phiếu về trạng thái đã xử lý không ghi sổ (từ chối hoặc huỷ), dùng chung cho thao tác thủ công và kết quả quy trình. */
@@ -313,27 +321,58 @@ export async function cancelVoucher(db: Db, tenantId: string, actor: FinanceActo
 export async function reverseVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string, note: string | undefined): Promise<void> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
-  // Phiếu tạo từ hồ sơ chỉ đảo theo hồ sơ: huỷ hiệu lực hồ sơ thì phiếu tự đảo.
+  // Phiếu tạo từ hồ sơ quy trình chỉ đảo theo hồ sơ: huỷ hiệu lực hồ sơ thì phiếu tự đảo. Phiếu nguồn phân hệ khác (Bán hàng)
+  // thì người có quyền duyệt đảo thủ công như phiếu thường; sự kiện REVERSED mang nguồn để phân hệ đó đảo phần của mình.
+  let external: Row | undefined;
   if (row.approval_mode === 'INHERITED') {
-    const source = (await db.query(`SELECT instance_code FROM finance_schema.voucher_sources WHERE tenant_id=$1 AND voucher_id=$2`, [tenantId, id]))
-      .rows[0] as Row | undefined;
-    throw conflict(
-      'FINANCE_SOURCE_MANAGED',
-      `Phiếu thuộc hồ sơ ${source ? String(source.instance_code) : 'quy trình'}; huỷ hiệu lực hồ sơ để đảo phiếu.`,
-    );
+    const source = (
+      await db.query(`SELECT * FROM finance_schema.voucher_sources WHERE tenant_id=$1 AND voucher_id=$2 FOR UPDATE`, [tenantId, id])
+    ).rows[0] as Row | undefined;
+    if (!source || isProcedureSource(source))
+      throw conflict(
+        'FINANCE_SOURCE_MANAGED',
+        `Phiếu thuộc hồ sơ ${source ? String(source.instance_code) : 'quy trình'}; huỷ hiệu lực hồ sơ để đảo phiếu.`,
+      );
+    external = source;
   }
   if (!canApprove(actor, kind)) throw forbidden('Bạn không có quyền huỷ phiếu đã ghi sổ.');
   if (row.status !== 'APPROVED') throw conflict('FINANCE_VOUCHER_STATE', 'Chỉ đảo được phiếu đã duyệt và ghi sổ.');
   const reason = note?.trim();
   if (!reason) throw invalid('Nhập lý do huỷ phiếu đã ghi sổ.');
-  await postReversal(db, tenantId, row, actor, reason);
+  await postReversal(db, tenantId, row, actor, reason, external ? sourceEventFields(external) : undefined);
+  if (external)
+    await db.query(
+      `UPDATE finance_schema.voucher_sources SET status='REVERSED', handling_by=NULL, handling_by_name=NULL, handling_since=NULL, updated_at=now()
+        WHERE tenant_id=$1 AND voucher_id=$2`,
+      [tenantId, id],
+    );
+}
+
+/** Nguồn Quy trình (mặc định cho dòng tạo trước khi có cột `source_module`). */
+export function isProcedureSource(source: Row): boolean {
+  return (optStr(source.source_module) ?? FINANCE_SOURCE_MODULE_PROCEDURE) === FINANCE_SOURCE_MODULE_PROCEDURE;
+}
+
+/** Trường nguồn đưa vào sự kiện của phiếu có nguồn. */
+export function sourceEventFields(source: Row): { sourceModule: FinanceSourceModule; sourceRef: string | null } {
+  return {
+    sourceModule: (optStr(source.source_module) ?? FINANCE_SOURCE_MODULE_PROCEDURE) as FinanceSourceModule,
+    sourceRef: optStr(source.source_ref),
+  };
 }
 
 /**
  * Ghi bút toán đảo (ngày hôm nay) và chuyển phiếu đã ghi sổ sang ĐÃ HUỶ. Dùng chung cho thao tác thủ công và cho phiếu có nguồn
  * khi hồ sơ bị huỷ hiệu lực; người gọi kiểm quyền và trạng thái. Khoá sổ hoặc số dư không đủ thì ném lỗi trước khi ghi gì.
  */
-export async function postReversal(db: Db, tenantId: string, row: Row, decider: Decider, reason: string): Promise<void> {
+export async function postReversal(
+  db: Db,
+  tenantId: string,
+  row: Row,
+  decider: Decider,
+  reason: string,
+  eventExtra?: Readonly<Record<string, unknown>>,
+): Promise<void> {
   const settings = await loadSettings(db, tenantId);
   const today = todayVn();
   assertPostingDateAllowed(today, settings.booksLockedUntil, today);
@@ -344,7 +383,7 @@ export async function postReversal(db: Db, tenantId: string, row: Row, decider: 
     [tenantId, String(row.id), decider.userId, decider.displayName, reason],
   );
   await addEvent(db, tenantId, String(row.id), 'REVERSED', decider, reason);
-  await notifyOutcome(db, notificationFacts(tenantId, row), 'REVERSED', decider.userId, decider.displayName, reason);
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'REVERSED', decider.userId, decider.displayName, reason, eventExtra);
 }
 
 /** Lỗi nếu đảo phiếu này vào hôm nay: kỳ hiện tại đã khoá sổ, hoặc tài khoản không đủ số dư cho bút toán đảo. Chỉ đọc. */

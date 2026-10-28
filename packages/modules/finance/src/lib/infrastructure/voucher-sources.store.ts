@@ -25,7 +25,17 @@ import { FinanceError, conflict, forbidden, invalid, invalidMany, notFound } fro
 import { FINANCE_SYSTEM_ACTOR_ID } from '../domain/procedure-attributes.js';
 import { isValidDate, type NormalizedVoucher } from '../domain/voucher.rules.js';
 import { dateOnly, iso, num, optStr, todayVn, type Db } from './finance.database.js';
-import { closeWithoutPosting, postApproval, postReversal, reversalBlocker, submitErrors, type Decider } from './voucher-workflow.js';
+import { loadSettings } from './catalogs.store.js';
+import {
+  closeWithoutPosting,
+  isProcedureSource,
+  postApproval,
+  postReversal,
+  reversalBlocker,
+  sourceEventFields,
+  submitErrors,
+  type Decider,
+} from './voucher-workflow.js';
 import {
   addEvent,
   allocationColumns,
@@ -194,8 +204,11 @@ export async function planRequestedVoucher(
 
 /* --------------------------------- Sự kiện --------------------------------- */
 
-/** Ghi sự kiện cho Procedure vào outbox trong giao dịch hiện tại. */
-async function emit(
+/**
+ * Ghi sự kiện của phiếu có nguồn vào outbox trong giao dịch hiện tại. Nguồn Quy trình tương quan theo hồ sơ; nguồn khác theo
+ * `sourceRef` (không có thì theo phiếu).
+ */
+export async function emitSourceEvent(
   db: Db,
   tenantId: string,
   type: string,
@@ -208,7 +221,7 @@ async function emit(
     version: 1,
     tenantId,
     source: 'finance',
-    correlationId: payload.instanceId,
+    correlationId: payload.instanceId ?? ('sourceRef' in payload ? payload.sourceRef : null) ?? voucherId,
     payload,
   });
   await db.query(
@@ -238,7 +251,8 @@ export function mapSource(source: Row, canAct: boolean | null, canActReason: str
   const snapshot = (source.snapshot ?? {}) as { values?: FinanceStepVoucherRequestedValues; projectId?: string; workItemId?: string };
   const handler = activeHandler(source, now);
   return {
-    instanceId: String(source.instance_id),
+    ...sourceEventFields(source),
+    instanceId: optStr(source.instance_id),
     instanceCode: String(source.instance_code),
     instanceTitle: optStr(source.instance_title),
     definitionName: optStr(source.definition_name),
@@ -328,23 +342,25 @@ export async function applyVoucherRequested(
       ],
     );
     const voucher = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE id=$1`, [voucherId])).rows[0] as Row;
-    await emit(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, voucher));
+    await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, voucher));
     return 'created';
   }
 
   const voucherId = String(existing.voucher_id);
   const voucher = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, voucherId])).rows[0] as Row;
   if (voucher.status === 'APPROVED' && existing.status === 'POSTED') {
-    await emit(db, tenantId, FINANCE_VOUCHER_POSTED, voucherId, {
+    await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_POSTED, voucherId, {
       instanceId: payload.instanceId,
       stepInstanceId: payload.stepInstanceId,
       activation: payload.activation,
       voucherId,
       code: String(voucher.code),
+      voucherCode: String(voucher.code),
       amount: num(voucher.total_amount),
       postedAt: iso(voucher.posted_at ?? voucher.decided_at ?? new Date()),
       postedBy: String(voucher.decided_by ?? payload.initiatedBy),
       ...(voucher.decided_by_name ? { postedByName: String(voucher.decided_by_name) } : {}),
+      ...sourceEventFields(existing),
     });
     return 'reposted';
   }
@@ -353,7 +369,7 @@ export async function applyVoucherRequested(
   if (payload.activation === num(existing.activation)) {
     // Đã trả hồ sơ về ở lần này: sự kiện giao lại của chính lần đó không mở lại phiếu.
     if (existing.status !== 'OPEN') return 'ignored';
-    await emit(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, voucher));
+    await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, voucher));
     return 'relinked';
   }
 
@@ -397,7 +413,7 @@ export async function applyVoucherRequested(
     `Hồ sơ ${payload.instanceCode} quay lại bước Tài chính (lần ${payload.activation}); cập nhật theo hồ sơ.${plan.allocationNote ? ` ${plan.allocationNote}` : ''}`,
   );
   const updated = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE id=$1`, [voucherId])).rows[0] as Row;
-  await emit(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, updated));
+  await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, linkedPayload(payload, updated));
   return 'updated';
 }
 
@@ -528,26 +544,37 @@ export async function postSourcedVoucher(
   note?: string,
 ): Promise<void> {
   const { row, source } = await lockSourced(db, tenantId, actor, voucherId, action, true);
+  const procedureSource = isProcedureSource(source);
+  // Nguồn Quy trình: hồ sơ đã được duyệt ở quy trình. Nguồn khác chưa qua ai duyệt, nên áp quy tắc không tự duyệt như phiếu thường.
+  if (!procedureSource && row.created_by === actor.userId && !(await loadSettings(db, tenantId)).allowSelfApproval)
+    throw forbidden('Không được tự duyệt phiếu do mình lập.');
   const errors = await submitErrors(db, tenantId, await loadVoucherRecord(db, tenantId, voucherId));
   if (errors.length) throw invalidMany('FINANCE_POST_INVALID', errors);
-  await postApproval(db, tenantId, row, actor, note);
+  const fields = sourceEventFields(source);
+  await postApproval(db, tenantId, row, actor, note, procedureSource ? undefined : fields);
   const posted = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, voucherId])).rows[0] as Row;
   await db.query(
     `UPDATE finance_schema.voucher_sources SET status='POSTED', handling_by=NULL, handling_by_name=NULL, handling_since=NULL, updated_at=now()
       WHERE tenant_id=$1 AND voucher_id=$2`,
     [tenantId, voucherId],
   );
-  await emit(db, tenantId, FINANCE_VOUCHER_POSTED, voucherId, {
-    instanceId: String(source.instance_id),
-    stepInstanceId: String(source.step_instance_id),
-    activation: num(source.activation),
+  await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_POSTED, voucherId, {
+    ...procedureStepOf(source),
     voucherId,
     code: String(posted.code),
+    voucherCode: String(posted.code),
     amount: num(posted.total_amount),
     postedAt: iso(posted.posted_at),
     postedBy: actor.userId,
     postedByName: actor.displayName,
+    ...fields,
   });
+}
+
+/** Bước quy trình mà sự kiện nhắm tới; nguồn khác để null (Quy trình bỏ qua sự kiện đó). */
+function procedureStepOf(source: Row): { instanceId: string | null; stepInstanceId: string | null; activation: number | null } {
+  if (!isProcedureSource(source)) return { instanceId: null, stepInstanceId: null, activation: null };
+  return { instanceId: String(source.instance_id), stepInstanceId: String(source.step_instance_id), activation: num(source.activation) };
 }
 
 /** Trả hồ sơ về: phiếu vẫn là nháp, chỉ xem được cho tới khi hồ sơ quay lại bước Tài chính. Bắt buộc lý do. */
@@ -568,14 +595,13 @@ export async function returnSourcedVoucher(
     [tenantId, voucherId],
   );
   await addEvent(db, tenantId, voucherId, 'RETURNED', actor, text.slice(0, 2000));
-  await emit(db, tenantId, FINANCE_VOUCHER_RETURNED, voucherId, {
-    instanceId: String(source.instance_id),
-    stepInstanceId: String(source.step_instance_id),
-    activation: num(source.activation),
+  await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_RETURNED, voucherId, {
+    ...procedureStepOf(source),
     voucherId,
     reason: text.slice(0, 2000),
     actorId: actor.userId,
     actorName: actor.displayName,
+    ...sourceEventFields(source),
   });
 }
 
@@ -583,7 +609,7 @@ export async function returnSourcedVoucher(
 export async function openSourceCandidates(db: Db, tenantId: string, kind: FinanceVoucherKind, limit: number): Promise<Row[]> {
   return (
     await db.query(
-      `SELECT s.voucher_id, s.instance_id, s.step_instance_id, s.activation, s.assignee_ids, s.assignee_subjects
+      `SELECT s.voucher_id, s.instance_id, s.step_instance_id, s.activation, s.assignee_ids, s.assignee_subjects, s.source_module, v.created_by
          FROM finance_schema.voucher_sources s JOIN finance_schema.vouchers v ON v.id = s.voucher_id
         WHERE s.tenant_id=$1 AND v.kind=$2 AND s.status='OPEN' AND v.status='DRAFT'
         ORDER BY s.updated_at DESC LIMIT $3`,

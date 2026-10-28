@@ -11,6 +11,7 @@ import {
   type FinanceInstanceReversalCheck,
   type FinanceIntegrationCapabilities,
   type FinanceVoucherSource,
+  type FinanceVoucherSourceState,
   type FinanceApprovalBinding,
   type FinanceProcedureActionRequest,
   type SaveFinanceApprovalBindingRequest,
@@ -110,10 +111,19 @@ import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
   approveVoucher,
   cancelVoucher,
+  isProcedureSource,
   rejectVoucher,
   reverseVoucher,
   submitVoucher,
 } from '../infrastructure/voucher-workflow.js';
+import {
+  applyExternalSourceRequest,
+  cancelExternalSource,
+  externalSourceState,
+  externalSourceStateOfVoucher,
+  parseExternalSourceRequest,
+  planExternalVoucher,
+} from '../infrastructure/external-sources.store.js';
 import {
   canViewVoucher,
   createVoucher,
@@ -309,8 +319,11 @@ export class FinanceApplication {
   private async vouchersAwaitingMe(pool: Pg, actor: FinanceActor, kind: FinanceVoucherKind): Promise<string[]> {
     if (!canApprove(actor, kind)) return [];
     const candidates = await openSourceCandidates(pool, actor.tenantId, kind, TO_POST_CANDIDATE_LIMIT);
+    const settings = await loadSettings(pool, actor.tenantId);
     const checks = await Promise.all(
       candidates.map(async (row) => {
+        // Nguồn ngoài Quy trình (Bán hàng): mọi người duyệt phiếu thu đều ghi sổ được, trừ người lập khi không cho tự duyệt.
+        if (!isProcedureSource(row)) return row.created_by !== actor.userId || settings.allowSelfApproval ? String(row.voucher_id) : null;
         const direct = ((row.assignee_ids as string[] | null) ?? []).includes(actor.userId);
         if (direct) return String(row.voucher_id);
         const subjects = (row.assignee_subjects as unknown[] | null) ?? [];
@@ -363,19 +376,32 @@ export class FinanceApplication {
     if (summary.approvalMode === 'INHERITED') {
       const sourceRow = await loadSourceRow(db, actor.tenantId, id);
       if (sourceRow) {
+        const procedureSource = isProcedureSource(sourceRow);
         const waiting = summary.status === 'DRAFT' && sourceRow.status === 'OPEN' && canApprove(actor, kind);
-        const decision = waiting ? await this.stepDecision(actor, sourceRow) : { canAct: null, reason: null };
-        source = mapSource(sourceRow, decision.canAct, decision.reason);
+        const decision = !waiting
+          ? { canAct: null, reason: null }
+          : procedureSource
+            ? await this.stepDecision(actor, sourceRow)
+            : { canAct: true, reason: null };
+        // Nguồn ngoài Quy trình chưa qua ai duyệt: người lập không tự ghi sổ khi cài đặt không cho tự duyệt (vẫn trả lại được).
+        const selfBlocked = !procedureSource && summary.createdBy === actor.userId && !settings.allowSelfApproval;
+        source = mapSource(
+          sourceRow,
+          selfBlocked && decision.canAct ? false : decision.canAct,
+          selfBlocked && decision.canAct ? 'Không được tự duyệt phiếu do mình lập.' : decision.reason,
+        );
         const handler = activeHandler(sourceRow);
         const heldByOther = Boolean(handler && handler.userId !== actor.userId);
         const act = decision.canAct === true;
         permissions.sourced = {
           canEditSourced: act && !heldByOther,
-          canPost: act && !heldByOther,
+          canPost: act && !heldByOther && !selfBlocked,
           canReturnSource: act && !heldByOther,
           canTakeOver: act && heldByOther,
           canRetryReversal: sourceRow.status === 'REVERSAL_PENDING' && summary.status === 'APPROVED' && canApprove(actor, kind),
         };
+        // Phiếu nguồn Bán hàng đã ghi sổ: người có quyền duyệt đảo thủ công như phiếu thường (nguồn Quy trình chỉ đảo theo hồ sơ).
+        if (!procedureSource) permissions.canReverse = summary.status === 'APPROVED' && canApprove(actor, kind);
       }
     }
     return {
@@ -610,6 +636,8 @@ export class FinanceApplication {
     if (!canApprove(actor, row.kind)) throw forbidden('Bạn không có quyền ghi sổ loại phiếu này.');
     const source = await loadSourceRow(pool, actor.tenantId, id);
     if (!source) throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu không tạo từ hồ sơ quy trình.');
+    // Nguồn ngoài Quy trình không có bước để hỏi: quyền duyệt loại phiếu là đủ (tự duyệt kiểm lúc ghi sổ, trong giao dịch).
+    if (!isProcedureSource(source)) return num(source.activation);
     const result = await procedureStepCanAct(actor.tenantId, String(source.instance_id), String(source.step_instance_id), {
       userId: actor.userId,
       activation: num(source.activation),
@@ -674,6 +702,37 @@ export class FinanceApplication {
     const activation = await this.confirmStep(actor, id);
     await this.database.transaction(actor.tenantId, (db) => takeOverSourcedVoucher(db, actor.tenantId, actor, id, { activation }));
     return this.voucher(actor, id);
+  }
+
+  /* -------------------- Phiếu có nguồn từ phân hệ khác (API nội bộ) -------------------- */
+
+  /**
+   * Phân hệ khác (Bán hàng) yêu cầu tạo phiếu thu nháp có nguồn. Hỏi Workspace (nếu có dự án) NGOÀI giao dịch, rồi tạo hoặc trả lại
+   * phiếu cũ theo khoá chống lặp trong một giao dịch.
+   */
+  async createExternalVoucherSource(tenantId: string, body: unknown): Promise<FinanceVoucherSourceState> {
+    const request = parseExternalSourceRequest(body);
+    const plan = await planExternalVoucher(request, (allocation) => resolveWorkspaceLinks(tenantId, { allocation, relatedProjectIds: [] }, null));
+    return this.database.transaction(tenantId, async (db) => {
+      const { voucherId } = await applyExternalSourceRequest(db, tenantId, request, plan);
+      return externalSourceStateOfVoucher(db, tenantId, voucherId);
+    });
+  }
+
+  /** Bên nguồn huỷ bản ghi nguồn: phiếu còn nháp thì ĐÃ HUỶ, nguồn đóng (dịch vụ nội bộ, không có người dùng). */
+  async cancelExternalVoucherSource(
+    tenantId: string,
+    sourceModule: string | undefined,
+    sourceRef: string,
+    body: { reason?: unknown } | undefined,
+  ): Promise<FinanceVoucherSourceState> {
+    const reason = typeof body?.reason === 'string' ? body.reason.slice(0, 1000) : null;
+    return this.database.transaction(tenantId, (db) => cancelExternalSource(db, tenantId, sourceModule ?? '', sourceRef, reason));
+  }
+
+  /** Trạng thái phiếu của một bản ghi nguồn (đối soát khi bên nguồn mất sự kiện). */
+  async externalVoucherSourceState(tenantId: string, sourceModule: string | undefined, sourceRef: string): Promise<FinanceVoucherSourceState> {
+    return externalSourceState(await this.database.pool(tenantId), tenantId, sourceModule ?? '', sourceRef);
   }
 
   /** Procedure hỏi lúc công bố quy trình có bước Tài chính (dịch vụ nội bộ, không có người dùng). */

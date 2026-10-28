@@ -387,6 +387,11 @@ export interface Customer {
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Id khách ở Bán hàng mà dòng này là bản sao (D1); vắng là khách tạo trong
+   * Workspace, chưa gắn với Bán hàng.
+   */
+  readonly crmCustomerId?: string;
 }
 
 /** Dòng danh sách khách hàng, kèm vài số liệu tổng hợp để khỏi gọi thêm API. */
@@ -405,6 +410,35 @@ export interface CreateCustomerRequest {
 export interface UpdateCustomerRequest {
   readonly name?: string;
   readonly note?: string | null;
+}
+
+/**
+ * Khách hàng Bán hàng để chọn ở form dự án khi tenant bật phân hệ crm (D1).
+ * Workspace tra qua API nội bộ của Bán hàng; chọn một khách thì Workspace tạo
+ * (hoặc gắn) bản sao cục bộ rồi dự án trỏ tới bản sao đó.
+ */
+export interface CrmCustomerOption {
+  readonly crmCustomerId: string;
+  readonly code: string;
+  readonly name: string;
+  readonly taxCode: string | null;
+  /** Bản sao trong Workspace, nếu đã có. */
+  readonly customerId?: string;
+}
+
+/** `GET /v1/crm-customers`: `enabled = false` khi tenant không bật Bán hàng (danh sách rỗng). */
+export interface CrmCustomerSearchResult {
+  readonly enabled: boolean;
+  readonly items: readonly CrmCustomerOption[];
+}
+
+/**
+ * `POST /v1/crm-customers/:crmCustomerId/link`. `customerId` (chỉ quản trị)
+ * chỉ định khách Workspace có sẵn để gắn, dùng khi chuyển khách cũ sang Bán
+ * hàng mà mã ở hai bên khác nhau; vắng thì gắn theo mã hoặc tạo bản sao mới.
+ */
+export interface LinkCrmCustomerRequest {
+  readonly customerId?: string;
 }
 
 export const CONTRACT_STATUSES = ['draft', 'active', 'completed', 'cancelled'] as const;

@@ -6,6 +6,8 @@ import type {
   InventoryItem,
   CreateAssetRequest,
   CreateMaterialRequest,
+  InternalMaterialCatalogItem,
+  InternalMaterialCatalogQuery,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -34,9 +36,23 @@ export interface AppendTransactionInput {
   readonly createdBy: string;
 }
 
+/** Giá vốn, serial và lô của phần đã lắp trên một đơn vị (xem `item.installedTracking`). */
+export interface InstalledTracking {
+  /** Bình quân đơn giá các bút toán lắp có ghi giá; không có thì chưa biết. */
+  readonly unitCost?: number;
+  readonly serials: readonly string[];
+  /** Lô còn nằm trên đơn vị, hạn dùng gần nhất trước. */
+  readonly lots: readonly { readonly lotNo: string; readonly quantity: number }[];
+}
+
 export interface CreateReservationInput {
   readonly referenceType: string;
   readonly referenceId?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly idempotencyKey?: string;
+  /** Băm nội dung yêu cầu (`reservationRequestHash`), so khi gọi lại cùng khoá. */
+  readonly requestHash?: string;
   readonly expiresAt?: string;
   readonly createdBy: string;
   readonly items: ReadonlyArray<{
@@ -76,6 +92,16 @@ export interface InventoryStore {
     update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
     countTransactions(tenantId: string, code: string): Promise<number>;
+    /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
+    hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Danh mục cho phân hệ khác (T1-24): một trang theo mã, kèm tồn khả dụng và
+     * giá bình quân theo kho. Lấy `limit + 1` dòng để biết còn trang sau.
+     */
+    catalog(
+      tenantId: string,
+      query: InternalMaterialCatalogQuery,
+    ): Promise<InternalMaterialCatalogItem[]>;
   };
 
   /**
@@ -111,6 +137,19 @@ export interface InventoryStore {
     ): Promise<{ unitId: string; unitCode: string; sourceId: string } | 'not_found'>;
     /** Đơn vị đã tháo hết thì ngừng dùng, không xoá. */
     deactivateUnit(tenantId: string, unitCode: string): Promise<void>;
+    /**
+     * Thứ đã xuất khỏi kho để lắp vào đơn vị (hoặc vào chính mã `itemId`): giá
+     * vốn bình quân lúc xuất, serial đang Đã xuất theo chứng từ lắp, lô còn
+     * nằm trên đơn vị. Dùng khi tháo, thanh lý để nhập về đúng giá, serial, lô.
+     */
+    installedTracking(tenantId: string, itemId: string): Promise<InstalledTracking>;
+    /**
+     * Serial của chính mã `materialCode` đang ở ngoài kho (Đã xuất hoặc chưa vào sổ
+     * kho), cho thanh lý mã theo serial mà không ghi serial. Serial gắn với
+     * `itemId` (lần luân chuyển gần nhất mang nguồn là mã này) xếp trước, rồi theo
+     * ngày tạo và số serial.
+     */
+    outstandingSerials(tenantId: string, materialCode: string, itemId?: string): Promise<string[]>;
     /** Tháo khỏi cây, trả về kho. Từ chối khi vật tư còn con. */
     returnToStock(
       tenantId: string,
@@ -172,9 +211,28 @@ export interface InventoryStore {
   };
 
   reservation: {
+    /**
+     * Giữ tất cả dòng hoặc không dòng nào: khoá dòng tồn theo thứ tự (kho, vật
+     * tư), thiếu một dòng thì ném `ReservationInsufficientStockError` kèm mọi dòng
+     * thiếu. Có khoá chống lặp đã dùng thì trả giữ hàng cũ nếu cùng `requestHash`,
+     * khác thì ném `IdempotencyKeyConflictError`. Ghi `inventory.reservation.created`
+     * vào outbox trong cùng transaction.
+     */
     create(tenantId: string, input: CreateReservationInput): Promise<Reservation>;
     list(tenantId: string): Promise<Reservation[]>;
     findByCode(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    /** Giữ hàng đã tạo bằng khoá chống lặp này, kèm băm nội dung lần đầu. */
+    findByIdempotencyKey(
+      tenantId: string,
+      idempotencyKey: string,
+    ): Promise<{ reservation: Reservation; requestHash?: string } | null>;
+    /**
+     * Nhả phần chưa xuất của các giữ hàng quá hạn (RESERVED, PARTIALLY_ISSUED),
+     * đặt EXPIRED, ghi `inventory.reservation.expired`. Mỗi giữ hàng một
+     * transaction, khoá `FOR UPDATE SKIP LOCKED` để không chờ đường xuất đang giữ
+     * khoá; tối đa `limit` giữ hàng mỗi lần. Trả các giữ hàng vừa hết hạn.
+     */
+    expireDue(tenantId: string, limit: number): Promise<Reservation[]>;
     /**
      * Nhả giữ chỗ: trả số lượng về khả dụng và đóng phiếu.
      *
@@ -182,7 +240,11 @@ export interface InventoryStore {
      * bên gọi là Quy trình, nhả sau khi transaction của nó đã commit nên có thể
      * thử lại.
      */
-    release(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    release(
+      tenantId: string,
+      reservationCode: string,
+      actorUserId?: string,
+    ): Promise<Reservation | null>;
     findByReference(
       tenantId: string,
       referenceType: string,
@@ -193,14 +255,16 @@ export interface InventoryStore {
   serial: {
     list(tenantId: string): Promise<SerialTracking[]>;
     listByMaterial(tenantId: string, materialCode: string): Promise<SerialTracking[]>;
-    /** Khai một loạt sê-ri; trả số dòng thật sự được thêm (bỏ qua số đã có). */
+    /**
+     * Khai một loạt sê-ri vào danh mục cá thể, chưa vào sổ kho; trả số dòng thật
+     * sự được thêm (bỏ qua số đã có). Sê-ri chỉ vào kho qua chứng từ nhập.
+     */
     register(
       tenantId: string,
       materialCode: string,
       serialNumbers: readonly string[],
       currentStatus: string,
       locationType: string,
-      warehouseCode?: string,
     ): Promise<number>;
     update(
       tenantId: string,

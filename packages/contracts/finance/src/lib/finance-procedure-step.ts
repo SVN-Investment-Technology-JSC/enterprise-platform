@@ -73,26 +73,48 @@ export interface FinanceVoucherLinkedPayload {
   readonly amount: number;
 }
 
+/**
+ * Phân hệ tạo ra phiếu có nguồn. Sự kiện `posted`/`returned` mang trường này để mỗi bên nghe chỉ lấy phiếu của mình: Quy trình
+ * lọc theo `instanceId` (null với nguồn khác), Bán hàng lọc `sourceModule = 'crm'`.
+ */
+export const FINANCE_SOURCE_MODULE_PROCEDURE = 'procedure-engine';
+export const FINANCE_SOURCE_MODULE_CRM = 'crm';
+/** Phân hệ được tạo phiếu có nguồn qua `POST /v1/internal/voucher-sources`. */
+export const FINANCE_EXTERNAL_SOURCE_MODULES = [FINANCE_SOURCE_MODULE_CRM] as const;
+export type FinanceExternalSourceModule = (typeof FINANCE_EXTERNAL_SOURCE_MODULES)[number];
+export type FinanceSourceModule = typeof FINANCE_SOURCE_MODULE_PROCEDURE | FinanceExternalSourceModule;
+
+/**
+ * Ba trường `instanceId`, `stepInstanceId`, `activation` chỉ có với nguồn Quy trình; nguồn khác để null (Quy trình bỏ qua sự kiện
+ * không nhắm tới bước nào). `sourceModule`, `sourceRef`, `voucherCode` là trường thêm sau, không thay trường cũ.
+ */
 export interface FinanceVoucherPostedPayload {
-  readonly instanceId: string;
-  readonly stepInstanceId: string;
-  readonly activation: number;
+  readonly instanceId: string | null;
+  readonly stepInstanceId: string | null;
+  readonly activation: number | null;
   readonly voucherId: string;
   readonly code: string;
+  /** Như `code` (mã chính thức sau ghi sổ). */
+  readonly voucherCode: string;
   readonly amount: number;
   readonly postedAt: string;
   readonly postedBy: string;
   readonly postedByName?: string;
+  readonly sourceModule: FinanceSourceModule;
+  /** Id bản ghi bên phân hệ nguồn (id lần thu của Bán hàng); null với nguồn Quy trình. */
+  readonly sourceRef: string | null;
 }
 
 export interface FinanceVoucherReturnedPayload {
-  readonly instanceId: string;
-  readonly stepInstanceId: string;
-  readonly activation: number;
+  readonly instanceId: string | null;
+  readonly stepInstanceId: string | null;
+  readonly activation: number | null;
   readonly voucherId: string;
   readonly reason: string;
   readonly actorId: string;
   readonly actorName?: string;
+  readonly sourceModule: FinanceSourceModule;
+  readonly sourceRef: string | null;
 }
 
 /* ------------------------------- API nội bộ ------------------------------- */
@@ -131,15 +153,20 @@ export type FinanceSourceLockedField =
  * OPEN: chờ kế toán ghi sổ; RETURNED: đã trả hồ sơ về, chờ hồ sơ quay lại; POSTED: đã ghi sổ; CLOSED: hồ sơ huỷ/huỷ hiệu lực.
  * REVERSAL_PENDING: hồ sơ đã bị huỷ hiệu lực nhưng chưa đảo được phiếu đã ghi sổ (khoá sổ, số dư...); không tự thử lại,
  * người có quyền ghi sổ bấm "Đảo lại" sau khi xử lý nguyên nhân.
+ * REVERSED: phiếu nguồn ngoài Quy trình (Bán hàng) đã ghi sổ rồi bị người có quyền duyệt đảo thủ công.
  */
-export type FinanceVoucherSourceStatus = 'OPEN' | 'RETURNED' | 'POSTED' | 'CLOSED' | 'REVERSAL_PENDING';
+export type FinanceVoucherSourceStatus = 'OPEN' | 'RETURNED' | 'POSTED' | 'CLOSED' | 'REVERSAL_PENDING' | 'REVERSED';
 
 /** Khoá mềm "đang xử lý" hết hạn sau khoảng này không có thao tác. */
 export const FINANCE_SOURCE_HANDLING_TTL_MINUTES = 30;
 
 /** Nguồn hồ sơ quy trình của một phiếu tạo từ bước Tài chính (`approvalMode = 'INHERITED'`). */
 export interface FinanceVoucherSource {
-  instanceId: string;
+  sourceModule: FinanceSourceModule;
+  /** Id bản ghi bên phân hệ nguồn; null với nguồn Quy trình. */
+  sourceRef: string | null;
+  /** Hồ sơ quy trình; null với nguồn khác (khi đó `instanceCode` là mã bản ghi bên nguồn, chỉ để hiển thị). */
+  instanceId: string | null;
   instanceCode: string;
   instanceTitle: string | null;
   definitionName: string | null;
@@ -195,4 +222,44 @@ export interface FinancePostSourcedRequest {
   note?: string;
   /** Phiên bản đang xem, để không ghi sổ phiếu đã bị người khác sửa. */
   revision?: number;
+}
+
+/* ------------------------- Nguồn ngoài Quy trình (Bán hàng) ------------------------- */
+
+/**
+ * `POST /api/finance/v1/internal/voucher-sources` (service token): phân hệ khác yêu cầu tạo phiếu thu nháp có nguồn (INHERITED).
+ * Gọi lặp cùng `idempotencyKey` và cùng nội dung trả lại đúng phiếu cũ; cùng khoá mà khác nội dung thì 409.
+ */
+export interface CreateFinanceVoucherSourceRequest {
+  readonly idempotencyKey: string;
+  readonly sourceModule: FinanceExternalSourceModule;
+  /** Id bản ghi bên nguồn (id lần thu). Một bản ghi = một phiếu. */
+  readonly sourceRef: string;
+  /** Mã bản ghi bên nguồn để hiển thị trên phiếu (ví dụ mã lần thu); không có thì lấy theo `sourceRef`. */
+  readonly sourceCode?: string;
+  readonly kind: 'RECEIPT';
+  readonly amount: number;
+  readonly content: string;
+  readonly counterpartyName: string;
+  /** YYYY-MM-DD. */
+  readonly voucherDate: string;
+  /** Người ghi nhận bên nguồn: là người lập phiếu, không được tự ghi sổ khi cài đặt không cho tự duyệt. */
+  readonly initiatedBy: string;
+  readonly initiatedByName?: string;
+  readonly description?: string;
+  /** Hạch toán theo dự án Workspace (tuỳ chọn); xác nhận được với Workspace thì bị khoá. */
+  readonly projectId?: string;
+}
+
+/** Trạng thái phiếu của một bản ghi nguồn (`GET /api/finance/v1/internal/voucher-sources/:sourceRef?sourceModule=crm`). */
+export interface FinanceVoucherSourceState {
+  readonly voucherId: string;
+  readonly voucherCode: string;
+  /** Trạng thái phiếu (DRAFT, APPROVED, CANCELLED...). */
+  readonly status: string;
+  readonly sourceStatus: FinanceVoucherSourceStatus;
+  readonly sourceModule: FinanceSourceModule;
+  readonly sourceRef: string;
+  readonly amount: number;
+  readonly postedAt: string | null;
 }

@@ -1,0 +1,464 @@
+import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
+import { Module } from '@nestjs/common';
+import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
+import { CRM_DIAGNOSTICS } from './application/crm-store.port.js';
+import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from './application/customer-group.service.js';
+import { CustomerService } from './application/customer.service.js';
+import { CrmDataScopeService } from './application/data-scope.js';
+import { LeadService } from './application/lead.service.js';
+import { OpportunityService } from './application/opportunity.service.js';
+import { DiscountPolicyService } from './application/discount-policy.service.js';
+import { PriceListService } from './application/price-list.service.js';
+import { PricingService } from './application/pricing.service.js';
+import {
+  CRM_CATALOG_READER,
+  CRM_DISCOUNT_POLICY_STORE,
+  CRM_PRICE_LIST_STORE,
+  CRM_PRICING_STORE,
+  type CatalogReader,
+  type DiscountPolicyStore,
+  type PriceListStore,
+  type PricingStore,
+} from './application/pricing-store.port.js';
+import { REPORTING_LINE_READER } from './application/organization-scope.port.js';
+import {
+  CRM_ACTIVITY_STORE,
+  CRM_CUSTOMER_GROUP_STORE,
+  CRM_CUSTOMER_STORE,
+  CRM_LEAD_STORE,
+  CRM_OPPORTUNITY_STORE,
+  CRM_PEOPLE_DIRECTORY,
+  CRM_SETTINGS_STORE,
+  CRM_TIMELINE_STORE,
+  type ActivityStore,
+  type CustomerGroupStore,
+  type CustomerStore,
+  type LeadStore,
+  type OpportunityStore,
+  type PeopleDirectory,
+  type SettingsStore,
+  type TimelineStore,
+} from './application/sales-store.port.js';
+import { CrmDatabase } from './infrastructure/crm.database.js';
+import { HttpOrganizationScope } from './infrastructure/http-organization-scope.js';
+import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
+import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
+import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
+import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
+import { PostgresCustomerGroupStore, PostgresSettingsStore } from './infrastructure/postgres-settings.store.js';
+import { HttpInventoryCatalogReader } from './infrastructure/http-inventory-catalog-reader.js';
+import { HttpProcedureClient } from './infrastructure/http-procedure-client.js';
+import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
+import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
+import { PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
+import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
+import { QuoteService } from './application/quote.service.js';
+import {
+  CRM_APPROVAL_LINKS,
+  CRM_PROCEDURE_CLIENT,
+  CRM_QUOTE_SETTINGS_STORE,
+  CRM_QUOTE_STORE,
+  type ApprovalLinks,
+  type ProcedureClient,
+  type QuoteSettingsStore,
+  type QuoteStore,
+} from './application/quote-store.port.js';
+import type { ReportingLineReader } from './application/organization-scope.port.js';
+import {
+  ApprovalSettingsController,
+  InternalInstancesController,
+  QuotesController,
+} from './presentation/quotes.controller.js';
+import {
+  PostgresDiscountPolicyStore,
+  PostgresPriceListStore,
+  PostgresPricingStore,
+} from './infrastructure/postgres-pricing.store.js';
+import { CrmController } from './presentation/crm.controller.js';
+import { DiscountPoliciesController } from './presentation/discount-policies.controller.js';
+import { PriceListsController, PricingController } from './presentation/price-lists.controller.js';
+import { CrmSettingsController, CustomersController } from './presentation/customers.controller.js';
+import { InternalCustomersController } from './presentation/internal-customers.controller.js';
+import {
+  ActivitiesController,
+  LeadsController,
+  OpportunitiesController,
+} from './presentation/opportunities.controller.js';
+import { ContractService } from './application/contract.service.js';
+import {
+  CRM_CONTRACT_STORE,
+  CRM_SALES_SETTINGS_STORE,
+  type ContractStore,
+  type SalesSettingsStore,
+} from './application/contract-store.port.js';
+import {
+  CRM_CREDIT_LIMIT_CHECK,
+  CRM_INTEGRATION_DISPATCHER,
+  CRM_INVENTORY_CLIENT,
+  CRM_ORDER_BALANCE_READER,
+  type CreditLimitCheck,
+  type IntegrationDispatcher,
+  type InventoryClient,
+  type OrderBalanceReader,
+} from './application/fulfillment.port.js';
+import { QuoteConversionService } from './application/quote-conversion.service.js';
+import {
+  CRM_QUOTE_CONVERSION_STORE,
+  CRM_SALES_ORDER_STORE,
+  type QuoteConversionStore,
+  type SalesOrderStore,
+} from './application/sales-order-store.port.js';
+import { SalesOrderService } from './application/sales-order.service.js';
+import { HttpInventoryClient } from './infrastructure/http-inventory-client.js';
+import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
+import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
+import { PostgresQuoteConversionStore } from './infrastructure/postgres-quote-conversion.store.js';
+import { PostgresSalesOrderStore } from './infrastructure/postgres-sales-order.store.js';
+import { ContractsController } from './presentation/contracts.controller.js';
+import { SalesOrdersController } from './presentation/sales-orders.controller.js';
+import { CreditApprovalService, CreditLimitService } from './application/credit-limit.service.js';
+import { ReceivableAdjustmentService } from './application/receivable-adjustment.service.js';
+import { ReceivableService } from './application/receivable.service.js';
+import {
+  CRM_CREDIT_STORE,
+  CRM_FINANCE_CLIENT,
+  CRM_RECEIVABLE_STORE,
+  type CreditStore,
+  type FinanceClient,
+  type ReceivableStore,
+} from './application/receivable-store.port.js';
+import { HttpFinanceClient } from './infrastructure/http-finance-client.js';
+import { PostgresCreditStore } from './infrastructure/postgres-credit.store.js';
+import { PostgresReceivableStore } from './infrastructure/postgres-receivable.store.js';
+import { ReceivablesController } from './presentation/receivables.controller.js';
+import { WarrantyResolutionService } from './application/warranty-resolution.service.js';
+import { WarrantyService } from './application/warranty.service.js';
+import { ReceivableWarrantyCredit } from './application/warranty-credit.js';
+import {
+  CRM_WARRANTY_CREDIT,
+  CRM_WARRANTY_INVENTORY,
+  CRM_WARRANTY_STORE,
+  type WarrantyCreditPort,
+  type WarrantyInventory,
+  type WarrantyStore,
+} from './application/warranty.port.js';
+import { HttpWarrantyInventoryClient } from './infrastructure/http-warranty-inventory.js';
+import { PostgresWarrantyStore } from './infrastructure/postgres-warranty.store.js';
+import { WarrantyController } from './presentation/warranty.controller.js';
+import { SalesReportService } from './application/sales-report.service.js';
+import { CRM_SALES_REPORT_STORE, type SalesReportStore } from './application/sales-report-store.port.js';
+import { PostgresSalesReportStore } from './infrastructure/postgres-sales-report.store.js';
+import { ReportsController } from './presentation/reports.controller.js';
+import { SalesDashboardService } from './application/sales-dashboard.service.js';
+import { CRM_SALES_DASHBOARD_STORE, type SalesDashboardStore } from './application/sales-dashboard-store.port.js';
+import { PostgresSalesDashboardStore } from './infrastructure/postgres-sales-dashboard.store.js';
+import { DashboardController } from './presentation/dashboard.controller.js';
+
+/** Store Postgres dựng từ `CrmDatabase`. */
+function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
+  return { provide: token, useFactory: create, inject: [CrmDatabase] };
+}
+
+/**
+ * Composition root của Bán hàng.
+ *
+ * Dựng tường minh bằng `useFactory` như `SharedModule`: các lớp là lớp thường,
+ * không gắn `@Injectable`. Export hai registry để guard của app đăng ký
+ * database của tenant sau mỗi access-decision.
+ */
+@Module({
+  controllers: [
+    CrmController,
+    CustomersController,
+    CrmSettingsController,
+    InternalCustomersController,
+    LeadsController,
+    OpportunitiesController,
+    ActivitiesController,
+    PriceListsController,
+    DiscountPoliciesController,
+    PricingController,
+    QuotesController,
+    ApprovalSettingsController,
+    InternalInstancesController,
+    ContractsController,
+    SalesOrdersController,
+    ReceivablesController,
+    WarrantyController,
+    ReportsController,
+    DashboardController,
+  ],
+  providers: [
+    TenantDatabaseRegistry,
+    PostgresPoolRegistry,
+    {
+      provide: CrmDatabase,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new CrmDatabase(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    { provide: CRM_DIAGNOSTICS, useExisting: CrmDatabase },
+    {
+      // Một thực thể cho cả app: bản sao 60 giây của cơ cấu tổ chức nằm trong nó.
+      provide: HttpOrganizationScope,
+      useFactory: () => new HttpOrganizationScope(),
+    },
+    { provide: REPORTING_LINE_READER, useExisting: HttpOrganizationScope },
+    { provide: CRM_PEOPLE_DIRECTORY, useExisting: HttpOrganizationScope },
+    {
+      provide: CrmDataScopeService,
+      useFactory: (reportingLines: HttpOrganizationScope) => new CrmDataScopeService(reportingLines),
+      inject: [REPORTING_LINE_READER],
+    },
+    store(CRM_CUSTOMER_STORE, (database) => new PostgresCustomerStore(database)),
+    store(CRM_CUSTOMER_GROUP_STORE, (database) => new PostgresCustomerGroupStore(database)),
+    store(CRM_SETTINGS_STORE, (database) => new PostgresSettingsStore(database)),
+    store(CRM_LEAD_STORE, (database) => new PostgresLeadStore(database)),
+    store(CRM_OPPORTUNITY_STORE, (database) => new PostgresOpportunityStore(database)),
+    store(CRM_ACTIVITY_STORE, (database) => new PostgresActivityStore(database)),
+    store(CRM_TIMELINE_STORE, (database) => new PostgresTimelineStore(database)),
+    {
+      provide: CustomerService,
+      useFactory: (customers: CustomerStore, scopes: CrmDataScopeService) => new CustomerService(customers, scopes),
+      inject: [CRM_CUSTOMER_STORE, CrmDataScopeService],
+    },
+    {
+      provide: CustomerGroupService,
+      useFactory: (groups: CustomerGroupStore) => new CustomerGroupService(groups),
+      inject: [CRM_CUSTOMER_GROUP_STORE],
+    },
+    {
+      provide: CrmSettingsService,
+      useFactory: (settings: SettingsStore) => new CrmSettingsService(settings),
+      inject: [CRM_SETTINGS_STORE],
+    },
+    {
+      provide: CrmPeopleService,
+      useFactory: (directory: PeopleDirectory) => new CrmPeopleService(directory),
+      inject: [CRM_PEOPLE_DIRECTORY],
+    },
+    {
+      provide: LeadService,
+      useFactory: (leads: LeadStore, scopes: CrmDataScopeService) => new LeadService(leads, scopes),
+      inject: [CRM_LEAD_STORE, CrmDataScopeService],
+    },
+    {
+      provide: OpportunityService,
+      useFactory: (opportunities: OpportunityStore, customers: CustomerStore, scopes: CrmDataScopeService) =>
+        new OpportunityService(opportunities, customers, scopes),
+      inject: [CRM_OPPORTUNITY_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService],
+    },
+    {
+      provide: ActivityService,
+      useFactory: (
+        activities: ActivityStore,
+        customers: CustomerStore,
+        opportunities: OpportunityStore,
+        scopes: CrmDataScopeService,
+      ) => new ActivityService(activities, customers, opportunities, scopes),
+      inject: [CRM_ACTIVITY_STORE, CRM_CUSTOMER_STORE, CRM_OPPORTUNITY_STORE, CrmDataScopeService],
+    },
+    {
+      provide: CustomerTimelineService,
+      useFactory: (timeline: TimelineStore, customers: CustomerStore, scopes: CrmDataScopeService) =>
+        new CustomerTimelineService(timeline, customers, scopes),
+      inject: [CRM_TIMELINE_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService],
+    },
+    // Giá (GĐ3a). Danh mục Kho đọc qua API nội bộ `GET /v1/internal/materials` (INVENTORY_API_URL).
+    { provide: CRM_CATALOG_READER, useFactory: () => new HttpInventoryCatalogReader() },
+    store(CRM_PRICE_LIST_STORE, (database) => new PostgresPriceListStore(database)),
+    store(CRM_DISCOUNT_POLICY_STORE, (database) => new PostgresDiscountPolicyStore(database)),
+    store(CRM_PRICING_STORE, (database) => new PostgresPricingStore(database)),
+    {
+      provide: PriceListService,
+      useFactory: (lists: PriceListStore, catalog: CatalogReader) => new PriceListService(lists, catalog),
+      inject: [CRM_PRICE_LIST_STORE, CRM_CATALOG_READER],
+    },
+    {
+      provide: DiscountPolicyService,
+      useFactory: (policies: DiscountPolicyStore) => new DiscountPolicyService(policies),
+      inject: [CRM_DISCOUNT_POLICY_STORE],
+    },
+    {
+      provide: PricingService,
+      useFactory: (pricing: PricingStore, customers: CustomerService, catalog: CatalogReader) =>
+        new PricingService(pricing, customers, catalog),
+      inject: [CRM_PRICING_STORE, CustomerService, CRM_CATALOG_READER],
+    },
+    // Báo giá (GĐ3b). Quy trình gọi qua API (PROCEDURE_API_URL).
+    { provide: CRM_PROCEDURE_CLIENT, useFactory: () => new HttpProcedureClient() },
+    store(CRM_QUOTE_STORE, (database) => new PostgresQuoteStore(database)),
+    store(CRM_QUOTE_SETTINGS_STORE, (database) => new PostgresQuoteSettingsStore(database)),
+    {
+      provide: CRM_APPROVAL_LINKS,
+      useFactory: (database: CrmDatabase, procedures: ProcedureClient) => new PostgresApprovalLinks(database, procedures),
+      inject: [CrmDatabase, CRM_PROCEDURE_CLIENT],
+    },
+    {
+      provide: QuoteService,
+      useFactory: (
+        quotes: QuoteStore,
+        settings: QuoteSettingsStore,
+        pricing: PricingStore,
+        catalog: CatalogReader,
+        customers: CustomerStore,
+        opportunities: OpportunityStore,
+        scopes: CrmDataScopeService,
+        links: ApprovalLinks,
+        reportingLines: ReportingLineReader,
+      ) => new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines),
+      inject: [
+        CRM_QUOTE_STORE,
+        CRM_QUOTE_SETTINGS_STORE,
+        CRM_PRICING_STORE,
+        CRM_CATALOG_READER,
+        CRM_CUSTOMER_STORE,
+        CRM_OPPORTUNITY_STORE,
+        CrmDataScopeService,
+        CRM_APPROVAL_LINKS,
+        REPORTING_LINE_READER,
+      ],
+    },
+    {
+      provide: QuoteApprovalSettingsService,
+      useFactory: (settings: QuoteSettingsStore, procedures: ProcedureClient) =>
+        new QuoteApprovalSettingsService(settings, procedures),
+      inject: [CRM_QUOTE_SETTINGS_STORE, CRM_PROCEDURE_CLIENT],
+    },
+    // Hợp đồng, đơn bán, giao hàng (GĐ4). Kho gọi qua API nội bộ (INVENTORY_API_URL).
+    { provide: CRM_INVENTORY_CLIENT, useFactory: () => new HttpInventoryClient() },
+    // Công nợ (GĐ5): sổ công nợ là bản đọc số còn phải thu của đơn (T5-11); hạn mức đọc từ sổ (T5-10).
+    // Tài chính gọi qua API nội bộ (FINANCE_API_URL).
+    { provide: CRM_FINANCE_CLIENT, useFactory: () => new HttpFinanceClient() },
+    store(CRM_RECEIVABLE_STORE, (database) => new PostgresReceivableStore(database)),
+    store(CRM_CREDIT_STORE, (database) => new PostgresCreditStore(database)),
+    { provide: CRM_ORDER_BALANCE_READER, useExisting: CRM_RECEIVABLE_STORE },
+    {
+      provide: CRM_CREDIT_LIMIT_CHECK,
+      useFactory: (credit: CreditStore, links: ApprovalLinks) => new CreditLimitService(credit, links),
+      inject: [CRM_CREDIT_STORE, CRM_APPROVAL_LINKS],
+    },
+    {
+      provide: CRM_INTEGRATION_DISPATCHER,
+      useFactory: (database: CrmDatabase, inventory: InventoryClient, finance: FinanceClient) =>
+        new PostgresIntegrationRequests(database, inventory, finance),
+      inject: [CrmDatabase, CRM_INVENTORY_CLIENT, CRM_FINANCE_CLIENT],
+    },
+    {
+      provide: ReceivableService,
+      useFactory: (receivables: ReceivableStore, scopes: CrmDataScopeService, dispatcher: IntegrationDispatcher) =>
+        new ReceivableService(receivables, scopes, dispatcher),
+      inject: [CRM_RECEIVABLE_STORE, CrmDataScopeService, CRM_INTEGRATION_DISPATCHER],
+    },
+    {
+      provide: ReceivableAdjustmentService,
+      useFactory: (receivables: ReceivableStore, scopes: CrmDataScopeService) => new ReceivableAdjustmentService(receivables, scopes),
+      inject: [CRM_RECEIVABLE_STORE, CrmDataScopeService],
+    },
+    {
+      provide: CreditApprovalService,
+      useFactory: (credit: CreditStore, orders: SalesOrderService) => new CreditApprovalService(credit, orders),
+      inject: [CRM_CREDIT_STORE, SalesOrderService],
+    },
+    store(CRM_CONTRACT_STORE, (database) => new PostgresContractStore(database)),
+    store(CRM_SALES_SETTINGS_STORE, (database) => new PostgresSalesSettingsStore(database)),
+    store(CRM_QUOTE_CONVERSION_STORE, (database) => new PostgresQuoteConversionStore(database)),
+    {
+      provide: CRM_SALES_ORDER_STORE,
+      useFactory: (database: CrmDatabase, balances: OrderBalanceReader) => new PostgresSalesOrderStore(database, balances),
+      inject: [CrmDatabase, CRM_ORDER_BALANCE_READER],
+    },
+    {
+      provide: ContractService,
+      useFactory: (
+        contracts: ContractStore,
+        customers: CustomerStore,
+        catalog: CatalogReader,
+        scopes: CrmDataScopeService,
+        inventory: InventoryClient,
+        settings: SalesSettingsStore,
+        dispatcher: IntegrationDispatcher,
+      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher),
+      inject: [
+        CRM_CONTRACT_STORE,
+        CRM_CUSTOMER_STORE,
+        CRM_CATALOG_READER,
+        CrmDataScopeService,
+        CRM_INVENTORY_CLIENT,
+        CRM_SALES_SETTINGS_STORE,
+        CRM_INTEGRATION_DISPATCHER,
+      ],
+    },
+    {
+      provide: SalesOrderService,
+      useFactory: (
+        orders: SalesOrderStore,
+        contracts: ContractStore,
+        customers: CustomerStore,
+        pricing: PricingStore,
+        catalog: CatalogReader,
+        scopes: CrmDataScopeService,
+        inventory: InventoryClient,
+        settings: SalesSettingsStore,
+        credit: CreditLimitCheck,
+        dispatcher: IntegrationDispatcher,
+      ) => new SalesOrderService(orders, contracts, customers, pricing, catalog, scopes, inventory, settings, credit, dispatcher),
+      inject: [
+        CRM_SALES_ORDER_STORE,
+        CRM_CONTRACT_STORE,
+        CRM_CUSTOMER_STORE,
+        CRM_PRICING_STORE,
+        CRM_CATALOG_READER,
+        CrmDataScopeService,
+        CRM_INVENTORY_CLIENT,
+        CRM_SALES_SETTINGS_STORE,
+        CRM_CREDIT_LIMIT_CHECK,
+        CRM_INTEGRATION_DISPATCHER,
+      ],
+    },
+    {
+      provide: QuoteConversionService,
+      useFactory: (conversion: QuoteConversionStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new QuoteConversionService(conversion, quotes, scopes),
+      inject: [CRM_QUOTE_CONVERSION_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
+    },
+    // Bảo hành (GĐ6). Kho qua API nội bộ; giảm trừ công nợ, hoàn tiền qua sổ công nợ GĐ5.
+    store(CRM_WARRANTY_STORE, (database) => new PostgresWarrantyStore(database)),
+    { provide: CRM_WARRANTY_INVENTORY, useFactory: () => new HttpWarrantyInventoryClient() },
+    {
+      provide: CRM_WARRANTY_CREDIT,
+      useFactory: (adjustments: ReceivableAdjustmentService) => new ReceivableWarrantyCredit(adjustments),
+      inject: [ReceivableAdjustmentService],
+    },
+    {
+      provide: WarrantyService,
+      useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, catalog: CatalogReader, scopes: CrmDataScopeService) =>
+        new WarrantyService(warranty, inventory, catalog, scopes),
+      inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_CATALOG_READER, CrmDataScopeService],
+    },
+    {
+      provide: WarrantyResolutionService,
+      useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, credit: WarrantyCreditPort, scopes: CrmDataScopeService) =>
+        new WarrantyResolutionService(warranty, inventory, credit, scopes),
+      inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_WARRANTY_CREDIT, CrmDataScopeService],
+    },
+    // Báo cáo (GĐ7): doanh thu đọc `sales_facts`; chuyển đổi, cảnh báo, công nợ đọc bảng nghiệp vụ.
+    store(CRM_SALES_REPORT_STORE, (database) => new PostgresSalesReportStore(database)),
+    {
+      provide: SalesReportService,
+      useFactory: (reports: SalesReportStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
+        new SalesReportService(reports, scopes, settings),
+      inject: [CRM_SALES_REPORT_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
+    },
+    // Dashboard Tổng quan: `crm.read`, số liệu theo phạm vi dữ liệu của người xem.
+    store(CRM_SALES_DASHBOARD_STORE, (database) => new PostgresSalesDashboardStore(database)),
+    {
+      provide: SalesDashboardService,
+      useFactory: (dashboard: SalesDashboardStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
+        new SalesDashboardService(dashboard, scopes, settings),
+      inject: [CRM_SALES_DASHBOARD_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
+    },
+  ],
+  exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],
+})
+export class CrmModule {}

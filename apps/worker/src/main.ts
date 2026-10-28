@@ -15,8 +15,10 @@ import {
   TransientConsumerError,
 } from '@enterprise-platform/adapter-events';
 import {
+  CRM_CUSTOMER_EVENTS,
   FLEET_BOOKING_RESULT_EVENTS,
   HRM_FLEET_BOOKING_CONFIRMED,
+  isCrmCustomerEvent,
   type IntegrationEventEnvelope,
 } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
@@ -58,6 +60,7 @@ import {
   PROCEDURE_WORKSPACE_EVENT_TYPES,
 } from '@enterprise-platform/module-procedure-engine';
 import {
+  createWorkspaceCrmCustomerEvents,
   createWorkspaceProcedureEvents,
   WORKSPACE_PROCEDURE_EVENT_TYPES,
   isProjectRequestEvent,
@@ -72,6 +75,13 @@ import {
   SOCIAL_INTEGRATION_BINDINGS,
   SOCIAL_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-social';
+import {
+  createCrmIntegrationEvents,
+  createCrmJobs,
+  CRM_INTEGRATION_BINDINGS,
+  CRM_INTEGRATION_QUEUE,
+} from '@enterprise-platform/module-crm';
+import { createInventoryJobs } from '@enterprise-platform/module-inventory';
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
@@ -150,13 +160,20 @@ const workspaceConsumer = new RabbitMqConsumer(
     queue: WORKSPACE_INTEGRATION_QUEUE,
     // Một hàng đợi, một consumer: liên kết công việc ↔ quy trình và đơn từ do
     // module khác gửi. Hai consumer trên cùng hàng đợi sẽ chia sự kiện cho nhau.
-    bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS],
+    // `crm.customer.*`: bản sao khách hàng Bán hàng (D1).
+    bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES, ...WORKSPACE_INTEGRATION_BINDINGS, ...CRM_CUSTOMER_EVENTS],
   },
 );
 // Bài tự sinh của Mạng nội bộ (chúc mừng sinh nhật, kỷ niệm...) nghe sự kiện của phân hệ khác.
 const socialConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: SOCIAL_INTEGRATION_QUEUE, bindings: [...SOCIAL_INTEGRATION_BINDINGS] },
+);
+// Bán hàng nhận sự kiện của Kho, Tài chính, Quy trình qua hàng đợi riêng. Hiện bind `procedure.instance.completed`
+// (kết quả duyệt báo giá `crm_quote`); module tự lọc theo sourceType. Thêm loại sự kiện ở CRM_INTEGRATION_BINDINGS.
+const crmConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: CRM_INTEGRATION_QUEUE, bindings: [...CRM_INTEGRATION_BINDINGS] },
 );
 // Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Khoá VAPID lấy theo
 // từng công ty (biến môi trường WEB_PUSH_VAPID_* nếu có, không thì cặp khoá tự sinh trong DB công ty).
@@ -173,9 +190,13 @@ const procedureConsumer = new RabbitMqConsumer(
 );
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
+const workspaceCrmCustomerEvents = createWorkspaceCrmCustomerEvents(moduleDatabases, tenantPools);
 const procedureWorkspaceEvents = createProcedureWorkspaceEvents(moduleDatabases, tenantPools);
 const socialActivityEvents = createSocialActivityEvents(moduleDatabases, tenantPools);
 const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
+const crmIntegrationEvents = createCrmIntegrationEvents(moduleDatabases, tenantPools);
+const crmJobs = createCrmJobs(moduleDatabases, tenantPools);
+const inventoryJobs = createInventoryJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -228,7 +249,7 @@ void workspaceConsumer
       : handleLinkEvent(
           event,
           { moduleKey: 'workspace', queue: WORKSPACE_INTEGRATION_QUEUE },
-          workspaceProcedureEvents,
+          isCrmCustomerEvent(event.type) ? workspaceCrmCustomerEvents : workspaceProcedureEvents,
         ),
   )
   .catch((error) =>
@@ -244,6 +265,16 @@ void socialConsumer
   .catch((error) =>
     console.error(
       'Social consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void crmConsumer
+  .start((event) =>
+    handleLinkEvent(event, { moduleKey: 'crm', queue: CRM_INTEGRATION_QUEUE }, crmIntegrationEvents),
+  )
+  .catch((error) =>
+    console.error(
+      'CRM consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -595,7 +626,39 @@ async function processSocialJobs(database: TenantDatabaseReference) {
   if (dueVideoSweep) await socialJobs.sweepVideos(tenantId);
 }
 
-/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance và Social jobs, tuần tự. */
+/**
+ * Việc định kỳ của Bán hàng, chạy trong withActiveTenant (khóa SHARED) của tick, chỉ cho tenant đã bật phân hệ crm
+ * và đã chạy migration nền: hết hạn báo giá, tạo phiên Quy trình cho báo giá chờ duyệt. Module tự giãn nhịp.
+ */
+async function processCrmJobs(database: TenantDatabaseReference) {
+  if (!(await moduleEnabled(database.tenantId, 'crm'))) return;
+  moduleDatabases.register(database);
+  if (!(await crmJobs.ready(database.tenantId))) return;
+  await crmJobs.run(database.tenantId);
+}
+
+const INVENTORY_RESERVATION_EXPIRY_INTERVAL_MS = 60_000;
+const inventoryLastRun = new Map<string, number>();
+
+/**
+ * Việc định kỳ của Kho, chạy trong withActiveTenant (khóa SHARED) của tick: nhả giữ hàng hết hạn mỗi 60 giây cho
+ * từng tenant đã bật phân hệ inventory và đã chạy migration 0012. Mốc chạy giữ trong bộ nhớ như Mạng nội bộ; chạy
+ * lại an toàn vì giữ hàng đã EXPIRED không còn khớp điều kiện nhả.
+ */
+async function processInventoryJobs(database: TenantDatabaseReference) {
+  const tenantId = database.tenantId;
+  const now = Date.now();
+  if (now - (inventoryLastRun.get(tenantId) ?? 0) < INVENTORY_RESERVATION_EXPIRY_INTERVAL_MS) return;
+  if (!(await moduleEnabled(tenantId, 'inventory'))) return;
+  moduleDatabases.register(database);
+  if (!(await inventoryJobs.ready(tenantId))) return;
+  // Đặt mốc trước khi chạy để một lần lỗi không làm tick 1 giây gọi lại liên tục.
+  inventoryLastRun.set(tenantId, now);
+  const expired = await inventoryJobs.expireReservations(tenantId);
+  if (expired.length) console.info(`[inventory] Tenant ${tenantId}: nhả ${expired.length} giữ hàng hết hạn.`);
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social, CRM và Inventory jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
 ): Promise<void> {
@@ -604,7 +667,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -771,6 +834,7 @@ async function shutdown() {
     financeConsumer.close(),
     workspaceConsumer.close(),
     socialConsumer.close(),
+    crmConsumer.close(),
     chatPushConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),

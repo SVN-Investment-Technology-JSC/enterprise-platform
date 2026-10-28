@@ -4657,3 +4657,179 @@
   background: transparent;
   box-shadow: none;
 }
+
+/* ---- Chứng từ kho, duyệt, yêu cầu xuất (T1-28 đến T1-31) --------------- */
+
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.55rem;
+  color: #b91c1c;
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btnDanger:hover:not(:disabled) { background: #fef2f2; border-color: #f87171; }
+.btnDanger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.docDot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+.docActions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.docActionBlock { display: flex; flex-direction: column; align-items: flex-end; }
+.docFooter { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; }
+.docHint { margin: 0.35rem 0; color: #64748b; font-size: 0.8125rem; }
+.docWarn {
+  margin: 0.6rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #fde68a;
+  border-radius: 0.55rem;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 0.8125rem;
+}
+.docSubTitle { margin: 1rem 0 0.5rem; font-size: 0.875rem; font-weight: 700; color: #0f172a; }
+
+.docField { display: flex; flex-direction: column; gap: 0.25rem; min-width: 11rem; color: #475569; font-size: 0.75rem; font-weight: 700; }
+.docField input,
+.docField textarea {
+  padding: 0.42rem 0.6rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.45rem;
+  color: #182538;
+  background: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+.docField input:disabled { background: #f8fafc; color: #64748b; }
+.docFieldWide { grid-column: span 2; }
+
+.docHeaderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.docFilterRow { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: flex-end; margin: 0 0 0.85rem; }
+.docLinesHead { display: flex; align-items: center; justify-content: space-between; margin: 0.5rem 0; }
+.docRowError td { background: #fef2f2 !important; }
+
+.docNumber,
+.docText,
+.docLotInputs input {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+.docNumber { text-align: right; font-variant-numeric: tabular-nums; }
+.docLotInputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
+
+.docLinkButton {
+  padding: 0.25rem 0.55rem;
+  border: 1px dashed #93c5fd;
+  border-radius: 0.4rem;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.docLinkButton:disabled { opacity: 0.5; cursor: not-allowed; }
+.docLinkWarn { border-color: #fbbf24; color: #92400e; background: #fffbeb; }
+.docIconButton {
+  display: inline-flex;
+  padding: 0.3rem;
+  border: 0;
+  border-radius: 0.4rem;
+  color: #94a3b8;
+  background: transparent;
+  cursor: pointer;
+}
+.docIconButton:hover:not(:disabled) { color: #b91c1c; background: #fef2f2; }
+.docIconButton:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.docChips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.docChip {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  color: #1e40af;
+  background: #eff6ff;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+.docChip button { border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
+.docSerialGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.35rem;
+  max-height: 22rem;
+  margin-top: 0.5rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.docSerialItem {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.4rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.docSerialText { font-family: ui-monospace, monospace; font-size: 0.8125rem; word-break: break-word; }
+
+.docInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.docInfoGrid > div { display: flex; flex-direction: column; gap: 0.15rem; }
+.docInfoGrid span { color: #64748b; font-size: 0.75rem; font-weight: 700; }
+.docInfoGrid small { color: #64748b; font-size: 0.75rem; word-break: break-all; }
+.docAuditGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.6rem; }
+.docAuditItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+}
+.docAuditItem span { color: #64748b; font-size: 0.75rem; font-weight: 700; }
+.docAuditItem small { color: #64748b; }
+
+.docSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 42fr) minmax(0, 58fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 1200px) {
+  .docSplit { grid-template-columns: minmax(0, 1fr); }
+}
+
+.stockTip {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  cursor: help;
+  text-decoration: underline dotted #94a3b8;
+  text-underline-offset: 3px;
+}

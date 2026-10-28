@@ -102,6 +102,8 @@ export async function notifyOutcome(
   deciderUserId: string,
   deciderName: string | null,
   note: string | null,
+  /** Trường thêm vào payload (ví dụ `sourceModule`, `sourceRef` của phiếu nguồn Bán hàng để Bán hàng lọc sự kiện của mình). */
+  extra: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
   const text = OUTCOME_TEXT[outcome];
   const by = deciderName ? ` bởi ${deciderName}` : '';
@@ -112,6 +114,7 @@ export async function notifyOutcome(
     title: text.title,
     summary: `${subjectOf(facts)} ${text.verb}${by}.${reason}`.slice(0, 500),
     actorUserId: deciderUserId,
+    ...extra,
   });
 }
 

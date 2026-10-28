@@ -283,6 +283,85 @@ importers:
 
   apps/api-e2e: {}
 
+  apps/crm-api:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/contracts-crm':
+        specifier: workspace:*
+        version: link:../../packages/contracts/crm
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../packages/contracts/identity
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-crm':
+        specifier: workspace:*
+        version: link:../../packages/modules/crm
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../../packages/platform/module-access
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.2.1)(@nestjs/websockets@11.2.7)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      cookie-parser:
+        specifier: ^1.4.7
+        version: 1.4.7
+      jose:
+        specifier: ^6.2.9
+        version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      reflect-metadata:
+        specifier: ^0.2.0
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.0
+        version: 7.8.1
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@nestjs/testing':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/cookie-parser':
+        specifier: ^1.4.10
+        version: 1.4.10(@types/express@5.0.6)
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+
+  apps/crm-web:
+    dependencies:
+      '@enterprise-platform/feature-crm':
+        specifier: workspace:*
+        version: link:../../packages/features/crm
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+
   apps/finance-api:
     dependencies:
       '@enterprise-platform/adapter-database':
@@ -1290,12 +1369,18 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-crm':
+        specifier: workspace:*
+        version: link:../../packages/modules/crm
       '@enterprise-platform/module-finance':
         specifier: workspace:*
         version: link:../../packages/modules/finance
       '@enterprise-platform/module-hrm':
         specifier: workspace:*
         version: link:../../packages/modules/hrm
+      '@enterprise-platform/module-inventory':
+        specifier: workspace:*
+        version: link:../../packages/modules/inventory
       '@enterprise-platform/module-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/modules/procedure-engine
@@ -1487,6 +1572,12 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  packages/contracts/crm:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/data-import: {}
 
   packages/contracts/finance:
@@ -1602,6 +1693,30 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+
+  packages/features/crm:
+    dependencies:
+      '@enterprise-platform/contracts-crm':
+        specifier: workspace:*
+        version: link:../../contracts/crm
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      antd:
+        specifier: ^6.6.4
+        version: 6.6.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      xlsx:
+        specifier: ^0.18.5
+        version: 0.18.5
 
   packages/features/finance:
     dependencies:
@@ -1719,6 +1834,9 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      antd:
+        specifier: ^6.6.4
+        version: 6.6.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react:
         specifier: ^1.31.0
         version: 1.31.0(react@19.2.8)
@@ -1875,6 +1993,31 @@ importers:
       xlsx-js-style:
         specifier: 1.2.0
         version: 1.2.0
+
+  packages/modules/crm:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/contracts-crm':
+        specifier: workspace:*
+        version: link:../../contracts/crm
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/modules/finance:
     dependencies:

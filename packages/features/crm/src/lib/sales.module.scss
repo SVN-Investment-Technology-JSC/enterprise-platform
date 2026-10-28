@@ -1,0 +1,798 @@
+// Màn khách hàng, lead, cơ hội, hoạt động của Bán hàng (GĐ2).
+//
+// Màu, bo góc lấy từ biến `--ep-*` của khung sáng; giá trị sau dấu phẩy là dự
+// phòng. Hộp thoại dựng qua portal vào `document.body`, ngoài vỏ trang, nên
+// `.overlay` khai lại bộ biến (như Hệ dùng chung). Kích thước, màu nút và ô
+// nhập theo skill `ui-design` (mục 4.3, 5.3, 5.5).
+
+@mixin ep-tokens {
+  --ep-surface: #ffffff;
+  --ep-surface-soft: #fafbfc;
+  --ep-hover: #f4f6f9;
+  --ep-border: #eef0f3;
+  --ep-border-strong: #e5e7eb;
+  --ep-text: #18181b;
+  --ep-text-sub: #4b5563;
+  --ep-text-muted: #6b7280;
+  --ep-link: #1d4ed8;
+  --ep-danger: #b91c1c;
+  --ep-radius-sm: 6px;
+  --ep-radius: 8px;
+  --ep-radius-lg: 12px;
+}
+
+@mixin scroll-reveal {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+
+  &:hover {
+    scrollbar-color: #cbd5e1 transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+    }
+  }
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel,
+.tableCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius-lg, 12px);
+  background: var(--ep-surface, #ffffff);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+}
+
+.title {
+  margin: 0;
+  color: var(--ep-text, #18181b);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sectionTitle {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.muted {
+  margin: 0;
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 13px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 18px;
+  margin: 0;
+  font-size: 13.5px;
+
+  dt {
+    color: var(--ep-text-muted, #6b7280);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ep-text, #18181b);
+    overflow-wrap: anywhere;
+  }
+}
+
+.alert,
+.warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ep-radius, 8px);
+  font-size: 13px;
+}
+
+.alert {
+  background: #fef2f2;
+  color: var(--ep-danger, #b91c1c);
+}
+
+.warning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #78350f;
+
+  ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+}
+
+.overdue {
+  color: #c0392b;
+  font-weight: 600;
+}
+
+// --- Thanh công cụ đầu bảng ---------------------------------------------------
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.search {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.filter {
+  flex: 0 1 200px;
+  min-width: 170px;
+}
+
+// --- Nút ---------------------------------------------------------------------
+
+@mixin button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.buttonPrimary {
+  @include button-base;
+
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  box-shadow: 0 1px 3px rgb(37 99 235 / 20%);
+  color: #ffffff !important;
+
+  &:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  &:disabled {
+    border-color: #93c5fd;
+    background: #93c5fd;
+    opacity: 1;
+  }
+}
+
+.buttonGhost {
+  @include button-base;
+
+  border: 1px solid #d1d5db;
+  background: transparent;
+  color: #4b5563;
+
+  &:hover:not(:disabled) {
+    background: #f1f5f9;
+  }
+}
+
+.buttonDanger {
+  @include button-base;
+
+  border: 1px solid #c0392b;
+  background: #c0392b;
+  color: #ffffff !important;
+}
+
+.buttonDangerGhost {
+  @include button-base;
+
+  border: 1px solid #f5b7b1;
+  background: transparent;
+  color: #c0392b;
+
+  &:hover:not(:disabled) {
+    background: #fef2f2;
+  }
+}
+
+.iconButton {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub, #4b5563);
+  cursor: pointer;
+
+  &:hover {
+    background: #e5e5e5;
+  }
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ep-link, #1d4ed8);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.rowActions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+@mixin row-action {
+  padding: 2px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rowAction {
+  @include row-action;
+
+  color: #374151;
+
+  &:hover {
+    border-color: #2563eb;
+    color: #1d4ed8;
+  }
+}
+
+.rowActionPrimary {
+  @include row-action;
+
+  border-color: #2563eb;
+  color: #1d4ed8;
+
+  &:hover {
+    background: #eff6ff;
+  }
+}
+
+.rowActionDanger {
+  @include row-action;
+
+  color: #c0392b;
+
+  &:hover {
+    border-color: #c0392b;
+  }
+}
+
+// --- Nhãn trạng thái (chấm màu, không dùng emoji) -----------------------------
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &::before {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentcolor;
+    content: '';
+  }
+}
+
+.pill_neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.pill_info {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.pill_success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.pill_warning {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.pill_danger {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.cellWithPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+// --- Ô nhập ------------------------------------------------------------------
+
+.input,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #333333;
+  font: inherit;
+  font-size: 14px;
+
+  &:focus {
+    border-color: #2563eb;
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(37 99 235 / 15%);
+  }
+
+  &:disabled {
+    background: #f8fafc;
+    color: #64748b;
+  }
+}
+
+.input {
+  height: 38px;
+  padding: 0 12px;
+}
+
+.textarea {
+  padding: 8px 12px;
+  resize: vertical;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+
+  @media (width <= 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+.fieldLabel {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.required {
+  color: #dc2626;
+}
+
+.fieldHint {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.fieldError {
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.formActions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+// --- Hộp thoại ---------------------------------------------------------------
+
+.overlay {
+  @include ep-tokens;
+
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px;
+  background: rgb(0 0 0 / 45%);
+  backdrop-filter: blur(4px);
+  color: var(--ep-text);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(500px, 100%);
+  max-height: 88vh;
+  border-radius: 8px;
+  background: #f5f5f5;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  overflow: hidden;
+  animation: crm-dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dialogWide {
+  width: min(720px, 100%);
+}
+
+@keyframes crm-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dialogHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 8px;
+
+  h3 {
+    margin: 0;
+    color: #333333;
+    font-size: 22px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+}
+
+.dialogBody {
+  @include scroll-reveal;
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 24px 24px;
+  overflow-y: auto;
+}
+
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+
+  @media (width <= 480px) {
+    flex-direction: column-reverse;
+
+    button {
+      width: 100%;
+    }
+  }
+}
+
+// --- Chân bảng ---------------------------------------------------------------
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -18px -16px;
+  padding: 10px 14px;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0 0 var(--ep-radius-lg, 12px) var(--ep-radius-lg, 12px);
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.pagerButtons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    color: #0f172a;
+  }
+}
+
+.pagerButton {
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: #2563eb;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+// --- Hồ sơ khách hàng --------------------------------------------------------
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detailTitle {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+
+  h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+  }
+}
+
+.tabs,
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+}
+
+.tabs {
+  align-self: flex-start;
+}
+
+.tab,
+.tabActive,
+.segment,
+.segmentActive {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub, #4b5563);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover, #f4f6f9);
+  }
+}
+
+.tabActive,
+.segmentActive {
+  background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  color: var(--ep-accent-text, #8a6400);
+
+  &:hover {
+    background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  }
+}
+
+// --- Dòng thời gian ----------------------------------------------------------
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timelineItem {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 8px 0 8px 4px;
+  border-left: 2px solid var(--ep-border, #eef0f3);
+  padding-left: 14px;
+}
+
+.timelineIcon {
+  position: absolute;
+  top: 10px;
+  left: -11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ep-surface, #ffffff);
+  color: #2563eb;
+}
+
+.timelineTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.timelineMeta {
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 12px;
+}
+
+.drawerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+// --- Kanban ------------------------------------------------------------------
+
+.kanban {
+  @include scroll-reveal;
+
+  display: grid;
+  grid-auto-columns: minmax(230px, 1fr);
+  grid-auto-flow: column;
+  gap: 10px;
+  min-height: 60vh;
+  overflow-x: auto;
+}
+
+.kanbanColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px dashed transparent;
+  border-radius: var(--ep-radius-lg, 12px);
+  background: #f1f5f9;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.kanbanDroppable {
+  border-color: #93c5fd;
+}
+
+.kanbanBlocked {
+  opacity: 0.55;
+}
+
+.kanbanOver {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.kanbanHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.kanbanCards {
+  @include scroll-reveal;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+}
+
+.kanbanCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+  font-size: 13px;
+  cursor: pointer;
+
+  &[draggable='true'] {
+    cursor: grab;
+  }
+
+  &:hover,
+  &:focus-visible {
+    border-color: #93c5fd;
+    outline: none;
+  }
+}
+
+.kanbanMeta {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.kanbanOwner {
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 12px;
+}

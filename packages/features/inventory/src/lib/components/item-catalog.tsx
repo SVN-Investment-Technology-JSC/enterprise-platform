@@ -46,6 +46,18 @@ import styles from '../inventory.module.scss';
  * nhau ở chỗ nó đang nằm trong kho hay đã lắp vào một vị trí. Gọi tên theo trạng
  * thái thì người đọc không phải học thêm hai từ mới cho cùng một thứ.
  */
+/**
+ * Giải thích bốn con số tồn (INV-07, mục 10 BRD). Không có cột "đang vận chuyển"
+ * ở MVP (quyết định Q2).
+ */
+const STOCK_COLUMN_TIP = {
+  onHand: 'Tồn thực tế: số hàng đang nằm trong kho theo sổ, gồm cả phần đã giữ và hàng chưa Đạt.',
+  reserved: 'Đã giữ: phần tồn đã giữ cho đơn bán hoặc lệnh công tác, chưa xuất kho.',
+  blocked:
+    'Chờ kiểm định/không đạt: hàng ở trạng thái Cách ly, Lỗi hoặc Chờ kiểm định; vẫn trong kho nhưng không được xuất.',
+  available: 'Khả dụng = tồn thực tế − đã giữ − chờ kiểm định/không đạt; là số còn bán hoặc xuất được.',
+} as const;
+
 const KIND_LABEL: Readonly<Record<InventoryItem['kind'], string>> = {
   STOCK: 'Trong kho',
   ASSET: 'Lắp đặt',
@@ -253,6 +265,12 @@ export function ItemCatalog({
     (stockByCode.get(item.code) ?? []).reduce((sum, row) => sum + row.quantity, 0);
   const reserved = (item: InventoryItem) =>
     (stockByCode.get(item.code) ?? []).reduce((sum, row) => sum + row.quantityReserved, 0);
+  /** Phần tồn không Đạt (Cách ly, Lỗi, Chờ kiểm định): có trong kho nhưng không được xuất. */
+  const blocked = (item: InventoryItem) =>
+    (stockByCode.get(item.code) ?? []).reduce((sum, row) => sum + (row.quantityBlocked ?? 0), 0);
+  /** Khả dụng = thực tế − đã giữ − không Đạt; lấy cột `available` server tính sẵn. */
+  const available = (item: InventoryItem) =>
+    (stockByCode.get(item.code) ?? []).reduce((sum, row) => sum + row.available, 0);
 
   /**
    * Số đang nằm ngoài hiện trường — đã lắp lên một vật tư khác.
@@ -488,8 +506,18 @@ export function ItemCatalog({
               <th style={{ width: '160px' }}>Vị trí sử dụng</th>
               <th style={{ width: '100px' }} className={styles.center}>Tổng sở hữu</th>
               <th style={{ width: '100px' }} className={styles.center}>Đang sử dụng</th>
-              <th style={{ width: '90px' }} className={styles.center}>Đang giữ</th>
-              <th style={{ width: '90px' }} className={styles.center}>Khả dụng</th>
+              <th style={{ width: '90px' }} className={styles.center}>
+                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.onHand}>Thực tế</span>
+              </th>
+              <th style={{ width: '90px' }} className={styles.center}>
+                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.reserved}>Đã giữ</span>
+              </th>
+              <th style={{ width: '110px' }} className={styles.center}>
+                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.blocked}>Chờ kiểm định/không đạt</span>
+              </th>
+              <th style={{ width: '90px' }} className={styles.center}>
+                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.available}>Khả dụng</span>
+              </th>
               {onPatch ? <th style={{ width: '100px' }} className={styles.center}>Thao tác</th> : null}
             </tr>
           </thead>
@@ -588,10 +616,16 @@ export function ItemCatalog({
                       {inUse(item) > 0 ? formatNumber(inUse(item)) : <span className={styles.muted}>0</span>}
                     </td>
                     <td className={`${styles.numeric} ${styles.center}`}>
+                      {formatNumber(onHand(item))}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {reserved(item) > 0 ? formatNumber(reserved(item)) : <span className={styles.muted}>0</span>}
                     </td>
                     <td className={`${styles.numeric} ${styles.center}`}>
-                      {formatNumber(onHand(item) - reserved(item))}
+                      {blocked(item) > 0 ? formatNumber(blocked(item)) : <span className={styles.muted}>0</span>}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.center}`}>
+                      <strong>{formatNumber(available(item))}</strong>
                     </td>
                     {onPatch ? (
                       <td className={styles.center} onClick={(e) => e.stopPropagation()}>
@@ -612,7 +646,7 @@ export function ItemCatalog({
             })}
             {paginatedRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className={styles.empty}>
+                <td colSpan={onPatch ? 11 : 10} className={styles.empty}>
                   Không có mục nào khớp bộ lọc tìm kiếm.
                 </td>
               </tr>
@@ -1127,8 +1161,13 @@ export function ItemCatalog({
                               {formatNumber(row.quantity)} {activeItem.unit ?? ''}
                             </span>
                             <div className={styles.drawerStockMeta}>
-                              <span>Giữ chỗ: {formatNumber(row.quantityReserved)}</span>
-                              <span>
+                              <span title={STOCK_COLUMN_TIP.reserved}>Đã giữ: {formatNumber(row.quantityReserved)}</span>
+                              {row.quantityBlocked ? (
+                                <span title={STOCK_COLUMN_TIP.blocked}>
+                                  Chờ kiểm định/không đạt: {formatNumber(row.quantityBlocked)}
+                                </span>
+                              ) : null}
+                              <span title={STOCK_COLUMN_TIP.available}>
                                 Khả dụng: <strong>{formatNumber(row.available)}</strong>
                               </span>
                             </div>

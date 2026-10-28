@@ -7,7 +7,6 @@ import type {
   InventoryItem,
   InventorySettingsSnapshot,
   Material,
-  LotTracking,
 } from '@enterprise-platform/contracts-inventory';
 import {
   DashboardCardPicker,
@@ -32,6 +31,9 @@ import { ReturnToStockDialog } from './components/return-to-stock-dialog';
 import { MaterialForm } from './components/material-form';
 import { MovementForm, type MovementInput } from './components/movement-form';
 import { LedgerTable } from './components/ledger-table';
+import { StockDocumentApproval, StockDocumentList } from './components/stock-document-list';
+import { IssueRequestPanel } from './components/issue-request-panel';
+import { InventoryReports } from './components/inventory-reports';
 import {
   createAsset,
   createMaterial,
@@ -52,16 +54,13 @@ import {
   type ProcedureWorkOrder,
   loadInventoryWorkspace,
   loadLedger,
-  loadLots,
   loadInstallations,
   loadReservations,
-  registerSerials,
   loadTenantHomePath,
   receiveStock,
   retireMaterial,
   uninstallMaterial,
   saveInventorySetting,
-  saveLots,
   transferStock,
   updateMaterial,
   type InventoryLedgerRow,
@@ -78,13 +77,28 @@ import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 import { InventoryPermissionsContext } from './inventory-permissions';
 
-type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
+type Tab =
+  | 'dashboard'
+  | 'items'
+  | 'stock'
+  | 'transactions'
+  | 'documents'
+  | 'approvals'
+  | 'issue-requests'
+  | 'assets'
+  | 'ledger'
+  | 'reports'
+  | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
   { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành' },
   { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành' },
+  { id: 'documents', label: 'Chứng từ kho', group: 'Chứng từ' },
+  { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
+  { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
+  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
@@ -115,7 +129,12 @@ export function InventoryScreen() {
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
-  const uiPermissions = useMemo(() => ({ canManage, canWriteTransactions }), [canManage, canWriteTransactions]);
+  const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
+  const canApproveDocuments = workspace?.permissions?.canApproveDocuments ?? false;
+  const uiPermissions = useMemo(
+    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments }),
+    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments],
+  );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
@@ -423,51 +442,22 @@ export function InventoryScreen() {
       const txCodes: string[] = [];
       let totalSerialsAdded = 0;
 
-      // Lô hiện được quản lý cùng dữ liệu kho trên client; chỉ cập nhật sau khi bút toán
-      // thành công để tránh số lượng lô đi trước sổ cái.
-      const persistLotMovement = async (
-        item: (typeof lineItems)[number],
-        action: 'receipt' | 'issue' | 'transfer',
-        warehouseCode: string,
-        destinationWarehouseCode?: string,
-      ) => {
-        if (action === 'receipt' && item.receiptLot) {
-          const lots = await loadLots(item.materialCode);
-          const existing = lots.find((lot) => lot.lotNumber === item.receiptLot?.lotNumber && lot.warehouseCode === warehouseCode);
-          const incoming: LotTracking = {
-            id: existing?.id ?? `lot-${Date.now()}-${item.materialCode}`,
-            materialCode: item.materialCode,
-            lotNumber: item.receiptLot.lotNumber,
-            status: item.receiptLot.status,
-            quantity: (existing?.quantity ?? 0) + item.quantity,
-            unit: item.unit,
-            warehouseCode,
-            manufactureDate: item.receiptLot.manufactureDate,
-            expiryDate: item.receiptLot.expiryDate,
-            supplier: item.receiptLot.supplier,
-            coCqNumber: item.receiptLot.coCqNumber,
-            createdAt: existing?.createdAt ?? new Date().toISOString(),
-          };
-          await saveLots(item.materialCode, existing ? lots.map((lot) => lot.id === existing.id ? incoming : lot) : [incoming, ...lots]);
-          return;
-        }
-        if (!item.lotAllocations?.length) return;
-        const lots = await loadLots(item.materialCode);
-        const allocationById = new Map(item.lotAllocations.map((lot) => [lot.lotId, lot.quantity]));
-        await saveLots(item.materialCode, lots.flatMap((lot) => {
-          const quantity = allocationById.get(lot.id);
-          if (!quantity) return lot;
-          if (action === 'transfer' && destinationWarehouseCode) {
-            if (quantity >= lot.quantity) return { ...lot, warehouseCode: destinationWarehouseCode };
-            // Chuyển một phần lô: giữ lại số dư tại kho nguồn và tạo phần cùng mã lô tại kho đích.
-            return [
-              { ...lot, quantity: lot.quantity - quantity },
-              { ...lot, id: `${lot.id}-transfer-${Date.now()}`, quantity, warehouseCode: destinationWarehouseCode },
-            ];
-          }
-          return { ...lot, quantity: Math.max(0, lot.quantity - quantity) };
-        }));
-      };
+      // Lô lưu ở server: phiếu nhập gửi kèm lô (tạo mới hoặc cộng vào lô cùng số
+      // lô), phiếu xuất và chuyển gửi phân bổ theo lô; cùng một chứng từ với bút toán.
+      const lotAllocations = (item: (typeof lineItems)[number]) =>
+        item.lotAllocations?.length
+          ? item.lotAllocations.map((lot) => ({ lotNo: lot.lotNumber, quantity: lot.quantity }))
+          : undefined;
+      const receiptLot = (item: (typeof lineItems)[number]) =>
+        item.receiptLot
+          ? {
+              lotNo: item.receiptLot.lotNumber,
+              manufacturedOn: item.receiptLot.manufactureDate,
+              expiresOn: item.receiptLot.expiryDate,
+              supplier: item.receiptLot.supplier,
+              certificateNo: item.receiptLot.coCqNumber,
+            }
+          : undefined;
 
       if (movement.kind === 'receipt') {
         for (const item of lineItems) {
@@ -483,35 +473,27 @@ export function InventoryScreen() {
             movement.movementDate ? `Ngày nhận: ${movement.movementDate}` : '',
           ].filter(Boolean).join(' | ');
           const lineFullNote = item.lineNote ? `${lineNoteBase} (${item.lineNote})` : lineNoteBase;
+          // Sê-ri đi cùng phiếu nhập (T8-11): chỉ chứng từ nhập mới đưa sê-ri vào
+          // kho, khai riêng sau phiếu thì sê-ri chưa vào sổ kho. Số sê-ri lệch số
+          // lượng thì server từ chối cả dòng, không ghi nửa vời.
+          const serials = item.serialNumbers ?? [];
           const tx = await receiveStock({
             warehouseCode: wh,
             materialCode: item.materialCode,
             quantity: item.quantity,
             unitCost: item.unitCost,
             note: lineFullNote,
+            lot: receiptLot(item),
+            serials: serials.length > 0 ? [...serials] : undefined,
           });
           txCodes.push(tx.transactionCode);
-          await persistLotMovement(item, 'receipt', wh);
-
-          const serials = item.serialNumbers ?? [];
-          if (serials.length > 0) {
-            try {
-              const res = await registerSerials({
-                materialCode: item.materialCode,
-                warehouseCode: wh,
-                serialNumbers: [...serials],
-              });
-              totalSerialsAdded += res.added;
-            } catch {
-              // Bỏ qua lỗi sê-ri để không hỏng phiếu nhập
-            }
-          }
+          totalSerialsAdded += serials.length;
         }
 
         const refText = txCodes.join(', ');
         await openOrderFor(movement, refText);
         return `Đã nhập kho ${lineItems.length} mặt hàng — chứng từ [${refText}]${
-          totalSerialsAdded > 0 ? `, đã khai ${totalSerialsAdded} sê-ri` : ''
+          totalSerialsAdded > 0 ? `, đã nhập ${totalSerialsAdded} sê-ri vào kho` : ''
         }.`;
       }
 
@@ -532,16 +514,15 @@ export function InventoryScreen() {
               note: lineNote,
             });
             txCodes.push(tx.transactionCode);
-            await persistLotMovement(item, 'issue', wh);
           } else {
             const tx = await issueStock({
               warehouseCode: wh,
               materialCode: item.materialCode,
               quantity: item.quantity,
               note: lineNote,
+              lots: lotAllocations(item),
             });
             txCodes.push(tx.transactionCode);
-            await persistLotMovement(item, 'issue', wh);
           }
         }
 
@@ -569,9 +550,9 @@ export function InventoryScreen() {
           materialCode: item.materialCode,
           quantity: item.quantity,
           note: lineNote,
+          lots: lotAllocations(item),
         });
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);
-        await persistLotMovement(item, 'transfer', fromWh, toWh);
       }
 
       const refText = txCodes.join(', ');
@@ -815,6 +796,11 @@ export function InventoryScreen() {
               description={`Tháo dỡ ${uninstallTarget.asset.code} khỏi cây và nhập ${uninstallTarget.line.materialCode} ngược về kho. Đang lắp ${uninstallTarget.line.quantity} ${uninstallTarget.line.unit ?? ''}.`}
               unit={uninstallTarget.line.unit}
               maxQuantity={uninstallTarget.line.quantity}
+              serialMaterialCode={
+                workspace.materials.find((item) => item.code === uninstallTarget.line.materialCode)?.isSerialized
+                  ? uninstallTarget.line.materialCode
+                  : undefined
+              }
               warehouses={workspace.warehouses}
               procedures={procedures}
               busy={busy}
@@ -827,6 +813,7 @@ export function InventoryScreen() {
                     warehouseCode: input.warehouseCode,
                     quantity: input.quantity,
                     note: input.note,
+                    serials: input.serials,
                   });
                   if (selectedAssetId === asset.id) setSelectedAssetId(undefined);
 
@@ -974,6 +961,34 @@ export function InventoryScreen() {
               onNotice={(msg) => setNotice(msg)}
             />
           ) : null}
+
+          {tab === 'documents' ? (
+            <StockDocumentList
+              warehouses={workspace.warehouses}
+              materials={workspace.materials}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
+            />
+          ) : null}
+
+          {tab === 'approvals' ? (
+            <StockDocumentApproval
+              warehouses={workspace.warehouses}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
+            />
+          ) : null}
+
+          {tab === 'issue-requests' ? (
+            <IssueRequestPanel
+              warehouses={workspace.warehouses}
+              materials={workspace.materials}
+              onNotice={setNotice}
+              onStockChanged={() => void reload()}
+            />
+          ) : null}
+
+          {tab === 'reports' ? <InventoryReports warehouses={workspace.warehouses} /> : null}
 
           {tab === 'settings' ? (
             <ModuleSettingsView

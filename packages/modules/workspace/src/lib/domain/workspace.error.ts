@@ -360,6 +360,37 @@ export class CustomerCodeConflictError extends WorkspaceError {
   }
 }
 
+/**
+ * Tenant bật Bán hàng: khách hàng là bản sao của Bán hàng (D1), không tạo, sửa,
+ * xoá trong Workspace. Chặn ở server, không chỉ ẩn nút.
+ */
+export class CustomerManagedByCrmError extends WorkspaceError {
+  constructor() {
+    super(
+      'CUSTOMER_MANAGED_BY_CRM',
+      'Khách hàng do phân hệ CRM quản lý. Hãy tạo hoặc sửa khách hàng ở CRM.',
+      409,
+    );
+    Object.setPrototypeOf(this, CustomerManagedByCrmError.prototype);
+  }
+}
+
+/** Không gắn được bản sao khách Bán hàng vì mã hoặc khách Workspace đã thuộc khách Bán hàng khác. */
+export class CrmCustomerLinkConflictError extends WorkspaceError {
+  constructor(message: string) {
+    super('CRM_CUSTOMER_LINK_CONFLICT', message, 409);
+    Object.setPrototypeOf(this, CrmCustomerLinkConflictError.prototype);
+  }
+}
+
+/** Tenant không bật Bán hàng nên không tra được khách ở đó. */
+export class CrmNotEnabledError extends WorkspaceError {
+  constructor() {
+    super('CRM_NOT_ENABLED', 'Công ty chưa bật phân hệ CRM.', 409);
+    Object.setPrototypeOf(this, CrmNotEnabledError.prototype);
+  }
+}
+
 /** Hợp đồng không tồn tại. */
 export class ContractNotFoundError extends WorkspaceError {
   constructor() {

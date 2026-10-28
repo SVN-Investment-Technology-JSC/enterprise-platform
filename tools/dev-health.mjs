@@ -121,6 +121,20 @@ const checks = [
     path: '/api/social/health/ready',
     validate: (body) => body?.status === 'ready' && body?.service === 'social-api',
   },
+  {
+    service: 'CRM Web',
+    path: '/modules/crm',
+  },
+  {
+    service: 'CRM API · live',
+    path: '/api/crm/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'crm-api',
+  },
+  {
+    service: 'CRM API · ready',
+    path: '/api/crm/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'crm-api',
+  },
 ];
 
 async function checkService(check) {

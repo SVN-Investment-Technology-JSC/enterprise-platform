@@ -1,5 +1,7 @@
 import {
+  COSTING_METHODS,
   INVENTORY_SETTINGS_KEYS,
+  type CostingMethod,
   type InventoryCatalogSettings,
   type InventorySettings,
   type InventorySettingsKey,
@@ -57,6 +59,10 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'catalog.material': DEFAULT_CATALOG,
   'catalog.asset': DEFAULT_CATALOG,
   'catalog.unit': { units: DEFAULT_UNITS },
+  // Q5: mặc định không tự duyệt, giống Tài chính.
+  'documents.approval': { allowSelfApproval: false },
+  // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
+  'costing.method': { method: 'MOVING_AVERAGE' },
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -116,6 +122,19 @@ const NORMALIZERS: {
     // Danh mục rỗng sẽ khoá mất form tạo vật tư — không chọn được đơn vị nào thì
     // không lưu được gì. Rơi về mặc định thay vì tự khoá cả module.
     return { units: units.length > 0 ? units : [...DEFAULT_UNITS] };
+  },
+  // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.
+  'documents.approval': (value) => ({
+    allowSelfApproval: (value as { allowSelfApproval?: unknown } | null)?.allowSelfApproval === true,
+  }),
+  // Giá trị lạ rơi về bình quân: chỉ phương pháp có trong union đóng mới được lưu.
+  'costing.method': (value) => {
+    const method = (value as { method?: unknown } | null)?.method;
+    return {
+      method: (COSTING_METHODS as readonly unknown[]).includes(method)
+        ? (method as CostingMethod)
+        : 'MOVING_AVERAGE',
+    };
   },
 };
 

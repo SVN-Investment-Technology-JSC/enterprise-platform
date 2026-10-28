@@ -1,57 +1,64 @@
 'use client';
 import { useInventoryPermissions } from '../inventory-permissions';
 
-import type { LotStatus, LotTracking, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { useCallback, useEffect, useState } from 'react';
 import {
-  Calendar,
-  Clock,
-  Layers,
-  Plus,
-  Building,
-  FileCheck,
-  X,
-} from 'lucide-react';
-import { formatDate } from '@enterprise-platform/shared-ui';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { loadLots, saveLots } from '../inventory-api';
-import { LOT_STATUS_BADGE, LOT_STATUS_LABEL } from '../inventory-labels';
+  QUALITY_STATUSES,
+  type Lot,
+  type QualityStatus,
+  type Warehouse,
+} from '@enterprise-platform/contracts-inventory';
+import { Table, type TableColumnsType } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Layers, ShieldCheck, X } from 'lucide-react';
+import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { changeLotQuality, loadLots } from '../inventory-api';
+import { QUALITY_STATUS_BADGE, QUALITY_STATUS_LABEL, formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
+const QUALITY_OPTIONS = QUALITY_STATUSES.map((status) => ({
+  value: status,
+  label: QUALITY_STATUS_LABEL[status],
+}));
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Lô của một mặt hàng, đọc từ server (T1-18). Lô sinh ra khi nhập kho có khai lô
+ * và cộng trừ theo phiếu xuất, chuyển; ở đây chỉ xem tồn từng kho và đổi trạng
+ * thái chất lượng (cần quyền `inventory.quality.write`, bắt buộc ghi lý do).
+ */
 export function LotPanel({
   materialCode,
   materialName,
   unit,
-  warehouses = [],
   busy,
 }: {
   materialCode: string;
   materialName?: string;
   unit?: string;
+  /** Giữ cho nơi gọi cũ; tồn theo kho nay lấy từ chính lô. */
   warehouses?: readonly Warehouse[];
   busy?: boolean;
 }) {
-  const { canManage } = useInventoryPermissions();
-  const [lots, setLots] = useState<LotTracking[]>([]);
+  const { canWriteQuality } = useInventoryPermissions();
+  const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // Form khai báo lô mới
-  const [lotNumber, setLotNumber] = useState('');
-  const [status, setStatus] = useState<LotStatus>('PASSED');
-  const [quantity, setQuantity] = useState('50');
-  const [warehouseCode, setWarehouseCode] = useState(warehouses[0]?.code ?? 'WH-CENTRAL');
-  const [manufactureDate, setManufactureDate] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-  const [supplier, setSupplier] = useState('');
-  const [coCqNumber, setCoCqNumber] = useState('');
-  const [note, setNote] = useState('');
+  const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState<Lot>();
+  const [nextStatus, setNextStatus] = useState<QualityStatus>('PASSED');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setError(undefined);
     try {
-      const data = await loadLots(materialCode);
-      setLots(data);
+      setLots(await loadLots(materialCode));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Không tải được danh sách lô.');
     } finally {
       setLoading(false);
     }
@@ -61,442 +68,219 @@ export function LotPanel({
     void reload();
   }, [reload]);
 
-  const handleCreateLot = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!lotNumber.trim()) return;
-
-    const newLot: LotTracking = {
-      id: `lot-${Date.now()}`,
-      materialCode,
-      lotNumber: lotNumber.trim().toUpperCase(),
-      status,
-      quantity: Number(quantity) || 1,
-      unit: unit ?? 'Đơn vị',
-      warehouseCode,
-      manufactureDate: manufactureDate || undefined,
-      expiryDate: expiryDate || undefined,
-      supplier: supplier.trim() || undefined,
-      coCqNumber: coCqNumber.trim() || undefined,
-      note: note.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    };
-
-    const nextLots = [newLot, ...lots];
-    setLots(nextLots);
-    await saveLots(materialCode, nextLots);
-
-    // Reset form
-    setLotNumber('');
-    setNote('');
-    setCoCqNumber('');
-    setShowAddModal(false);
+  const openQualityDialog = (lot: Lot) => {
+    setEditing(lot);
+    setNextStatus(lot.qualityStatus === 'PASSED' ? 'QUARANTINE' : 'PASSED');
+    setReason('');
+    setSaveError(undefined);
   };
 
-  const handleUpdateStatus = async (lotId: string, newStatus: LotStatus) => {
-    const nextLots = lots.map((lot) =>
-      lot.id === lotId ? { ...lot, status: newStatus } : lot,
-    );
-    setLots(nextLots);
-    await saveLots(materialCode, nextLots);
+  const saveQuality = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editing || !reason.trim()) return;
+    setSaving(true);
+    setSaveError(undefined);
+    try {
+      await changeLotQuality(editing.id, { qualityStatus: nextStatus, reason: reason.trim() });
+      setEditing(undefined);
+      await reload();
+    } catch (failure) {
+      setSaveError(failure instanceof Error ? failure.message : 'Không đổi được trạng thái chất lượng.');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const today = todayIso();
+  const columns: TableColumnsType<Lot> = [
+    {
+      title: 'Số lô',
+      dataIndex: 'lotNo',
+      key: 'lotNo',
+      render: (value: string) => <strong style={{ fontFamily: 'ui-monospace, monospace' }}>{value}</strong>,
+    },
+    {
+      title: 'Hạn dùng',
+      dataIndex: 'expiresOn',
+      key: 'expiresOn',
+      sorter: (left, right) => (left.expiresOn ?? '9999-12-31').localeCompare(right.expiresOn ?? '9999-12-31'),
+      render: (value: string | undefined) =>
+        value ? (
+          <span style={{ color: value < today ? '#b91c1c' : undefined, fontWeight: value < today ? 600 : undefined }}>
+            {formatDate(value)}
+            {value < today ? ' (hết hạn)' : ''}
+          </span>
+        ) : (
+          'Không thời hạn'
+        ),
+    },
+    {
+      title: 'Ngày sản xuất',
+      dataIndex: 'manufacturedOn',
+      key: 'manufacturedOn',
+      render: (value: string | undefined) => formatDate(value, '—'),
+    },
+    {
+      title: 'Chất lượng',
+      dataIndex: 'qualityStatus',
+      key: 'qualityStatus',
+      render: (value: QualityStatus) => {
+        const badge = QUALITY_STATUS_BADGE[value];
+        return (
+          <span
+            style={{
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontWeight: 600,
+              background: badge.bg,
+              color: badge.text,
+              border: `1px solid ${badge.border}`,
+            }}
+          >
+            {QUALITY_STATUS_LABEL[value]}
+          </span>
+        );
+      },
+    },
+    {
+      title: `Tồn theo kho${unit ? ` (${unit})` : ''}`,
+      key: 'balances',
+      render: (_: unknown, lot: Lot) =>
+        lot.balances.filter((balance) => balance.quantity > 0).length === 0 ? (
+          <span style={{ color: '#64748b' }}>Đã xuất hết</span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {lot.balances
+              .filter((balance) => balance.quantity > 0)
+              .map((balance) => (
+                <span key={balance.warehouseId}>
+                  {balance.warehouseCode}: <strong>{formatNumber(balance.quantity)}</strong>
+                  {balance.available !== balance.quantity ? ` (khả dụng ${formatNumber(balance.available)})` : ''}
+                </span>
+              ))}
+          </div>
+        ),
+    },
+    {
+      title: 'Nhà cung cấp, CO/CQ',
+      key: 'supplier',
+      render: (_: unknown, lot: Lot) => [lot.supplier, lot.certificateNo].filter(Boolean).join(' · ') || '—',
+    },
+    {
+      title: '',
+      key: 'actions',
+      width: 150,
+      render: (_: unknown, lot: Lot) =>
+        canWriteQuality ? (
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={busy}
+            onClick={() => openQualityDialog(lot)}
+          >
+            Đổi chất lượng
+          </button>
+        ) : null,
+    },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Banner & Nút khai báo Lô mới */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
           padding: '12px 16px',
           background: '#f8fafc',
           border: '1px solid #e2e8f0',
           borderRadius: '8px',
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Layers size={16} color="#2563eb" />
-            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
-              Quản lý danh sách Lô / Mẻ hàng (Batch & Lot Tracking)
-            </h4>
-          </div>
-          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
-            Theo dõi tình trạng chất lượng, hạn sử dụng (FEFO) và chứng chỉ CO/CQ của từng lô nhập.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Layers size={16} color="#2563eb" />
+          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+            Lô hàng và hạn dùng
+          </h4>
         </div>
-
-        <button
-          type="button"
-          className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-          onClick={() => setShowAddModal(true)}
-          disabled={!canManage || busy}
-        >
-          <Plus size={14} />
-          <span>Khai báo Lô mới</span>
-        </button>
+        <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+          Lô được tạo khi lập phiếu nhập có khai báo lô; phiếu xuất gợi ý lô theo hạn dùng gần nhất (FEFO). Lô
+          không ở trạng thái Đạt không tính vào tồn khả dụng.
+        </p>
       </div>
 
-      {/* Bảng dữ liệu các Lô */}
-      {loading ? (
-        <p className={styles.empty}>Đang tải dữ liệu lô…</p>
-      ) : lots.length === 0 ? (
-        <div
-          style={{
-            padding: '24px',
-            textAlign: 'center',
-            background: '#ffffff',
-            border: '1.5px dashed #cbd5e1',
-            borderRadius: '8px',
-            color: '#64748b',
-          }}
-        >
-          <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#334155' }}>
-            Chưa có thông tin Lô (Batch/Lot) cho vật tư này.
-          </p>
-          <p style={{ margin: '4px 0 12px', fontSize: '13px' }}>
-            Vật tư chưa được chia theo mẻ hoặc được quản lý theo số lượng thông thường.
-          </p>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={() => setShowAddModal(true)}
-            disabled={!canManage}
-          >
-            + Khai báo Lô hàng đầu tiên
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {lots.map((lot) => {
-            const badge = LOT_STATUS_BADGE[lot.status] ?? {
-              bg: '#f1f5f9',
-              text: '#475569',
-              border: '#cbd5e1',
-            };
-            return (
-              <div
-                key={lot.id}
-                style={{
-                  padding: '14px 16px',
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                }}
-              >
-                {/* Dòng tiêu đề của Lô */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span
-                      style={{
-                        fontFamily: 'ui-monospace, monospace',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: '#1e40af',
-                        background: '#eff6ff',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        border: '1px solid #bfdbfe',
-                      }}
-                    >
-                      {lot.lotNumber}
-                    </span>
-                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>
-                      Số lượng: <strong>{lot.quantity}</strong> {lot.unit}
-                    </span>
-                  </div>
+      {error ? <p className={styles.empty}>{error}</p> : null}
 
-                  {/* Dropdown chỉnh sửa nhanh Tình trạng của Lô */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '13px', color: '#64748b' }}>Tình trạng:</span>
-                    <select
-                      value={lot.status}
-                      disabled={!canManage || busy}
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        background: badge.bg,
-                        color: badge.text,
-                        border: `1px solid ${badge.border}`,
-                        outline: 'none',
-                        cursor: 'pointer',
-                      }}
-                      onChange={(e) => handleUpdateStatus(lot.id, e.target.value as LotStatus)}
-                    >
-                      {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
-                        <option key={val} value={val}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+      <Table<Lot>
+        rowKey="id"
+        size="small"
+        loading={loading}
+        columns={columns}
+        dataSource={lots}
+        pagination={lots.length > 20 ? { pageSize: 20 } : false}
+        locale={{ emptyText: 'Chưa có lô nào cho vật tư này. Lập phiếu nhập có khai báo lô để tạo lô.' }}
+      />
 
-                {/* Các thông số chi tiết của Lô */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: '8px',
-                    padding: '8px 10px',
-                    background: '#f8fafc',
-                    borderRadius: '6px',
-                    fontSize: '13px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Building size={13} color="#64748b" />
-                    <span>Kho lưu: <strong>{lot.warehouseCode}</strong></span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Calendar size={13} color="#64748b" />
-                    <span>NSX: {formatDate(lot.manufactureDate, '—')}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Clock size={13} color="#b45309" />
-                    <span>
-                      Hạn dùng:{' '}
-                      <strong style={{ color: lot.status === 'NEAR_EXPIRY' ? '#b45309' : lot.status === 'EXPIRED' ? '#dc2626' : '#0f172a' }}>
-                        {lot.expiryDate ? formatDate(lot.expiryDate) : '— (Không thời hạn)'}
-                      </strong>
-                    </span>
-                  </div>
-                  {lot.coCqNumber ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <FileCheck size={13} color="#16a34a" />
-                      <span>CO/CQ: <strong>{lot.coCqNumber}</strong></span>
-                    </div>
-                  ) : null}
-                </div>
-
-                {lot.note ? (
-                  <div style={{ fontSize: '13px', color: '#475569', fontStyle: 'italic' }}>
-                    Ghi chú: {lot.note}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Modal Popup Khai báo Lô mới */}
-      {showAddModal && canManage ? (
-        <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
+      {editing ? (
+        <div className={styles.modalOverlay} onClick={() => setEditing(undefined)}>
           <div
             className={styles.modalDialog}
-            style={{
-              maxWidth: '520px',
-              background: '#ffffff',
-              borderRadius: '8px',
-              padding: '24px',
-            }}
-            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '480px', background: '#ffffff', borderRadius: '8px', padding: '24px' }}
+            onClick={(event) => event.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>
-                  Khai báo Lô hàng mới (Batch / Lot)
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                  Đổi trạng thái chất lượng lô {editing.lotNo}
                 </h3>
                 <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
-                  Vật tư: <strong>{materialName ?? materialCode}</strong> ({materialCode})
+                  {materialName ?? materialCode} ({materialCode}) · đang {QUALITY_STATUS_LABEL[editing.qualityStatus]}
                 </p>
               </div>
-              <button
-                type="button"
-                className={styles.closeButton}
-                onClick={() => setShowAddModal(false)}
-              >
+              <button type="button" className={styles.closeButton} onClick={() => setEditing(undefined)}>
                 <X size={18} />
               </button>
             </div>
-
-            <form onSubmit={handleCreateLot} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Mã số Lô (Batch / Lot No) <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: LOT-2026-Q3-01"
-                    value={lotNumber}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setLotNumber(e.target.value)}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={quantity}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setQuantity(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Kho lưu trữ
-                  </label>
-                  <select
-                    value={warehouseCode}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setWarehouseCode(e.target.value)}
-                  >
-                    {warehouses.map((w) => (
-                      <option key={w.code} value={w.code}>
-                        {w.name} ({w.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Tình trạng kiểm định
-                  </label>
-                  <select
-                    value={status}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setStatus(e.target.value as LotStatus)}
-                  >
-                    {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
-                      <option key={val} value={val}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Ngày sản xuất (MFG)
-                  </label>
-                  <DatePickerInput value={manufactureDate} onChange={setManufactureDate} height={36} />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Hạn sử dụng (EXP)
-                  </label>
-                  <DatePickerInput value={expiryDate} onChange={setExpiryDate} height={36} />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Nhà cung cấp / Xuất xứ
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="VD: Schneider Electric"
-                    value={supplier}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setSupplier(e.target.value)}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Số chứng chỉ CO/CQ
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="VD: CO-2026/992"
-                    value={coCqNumber}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      outline: 'none',
-                    }}
-                    onChange={(e) => setCoCqNumber(e.target.value)}
-                  />
-                </div>
-              </div>
-
+            <form onSubmit={saveQuality} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                  Ghi chú kiểm định
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ghi chú thêm về lô hàng…"
-                  value={note}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '14px',
-                    outline: 'none',
-                  }}
-                  onChange={(e) => setNote(e.target.value)}
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>Trạng thái mới</label>
+                <SearchableSelect
+                  options={QUALITY_OPTIONS.filter((option) => option.value !== editing.qualityStatus)}
+                  value={nextStatus}
+                  onChange={(value) => setNextStatus(value as QualityStatus)}
+                  clearable={false}
+                  placeholder="Chọn trạng thái chất lượng"
+                  emptyText="Không có trạng thái phù hợp"
                 />
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  className={styles.modalCancelBtn}
-                  onClick={() => setShowAddModal(false)}
-                >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                  Lý do <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={reason}
+                  placeholder="VD: Bao bì rách, chờ kiểm định lại"
+                  style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </div>
+              {nextStatus !== 'PASSED' ? (
+                <p style={{ margin: 0, fontSize: '13px', color: '#b45309' }}>
+                  Toàn bộ tồn của lô ở mọi kho sẽ không tính vào tồn khả dụng cho đến khi lô về trạng thái Đạt.
+                </p>
+              ) : null}
+              {saveError ? <p style={{ margin: 0, fontSize: '13px', color: '#b91c1c' }}>{saveError}</p> : null}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className={styles.modalCancelBtn} onClick={() => setEditing(undefined)}>
                   Huỷ
                 </button>
                 <button
                   type="submit"
                   className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                  disabled={!lotNumber.trim()}
+                  disabled={saving || !reason.trim()}
                 >
-                  Lưu thông tin Lô
+                  <ShieldCheck size={14} />
+                  <span>{saving ? 'Đang lưu…' : 'Lưu trạng thái'}</span>
                 </button>
               </div>
             </form>

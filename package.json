@@ -10,7 +10,7 @@
   "scripts": {
     "check": "nx run-many -t lint typecheck test build --nxBail",
     "check:affected": "nx affected -t lint typecheck test build --nxBail",
-    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,finance-web,shared-web,social-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,finance-api,workspace-api,shared-api,social-api,realtime-api,notification-worker,worker,video-worker --configuration=development --parallel=2 --outputStyle=stream",
+    "dev": "node tools/dev.mjs run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,workspace-web,hrm-web,finance-web,shared-web,social-web,crm-web,api,procedure-api,maintenance-api,inventory-api,hrm-api,finance-api,workspace-api,shared-api,social-api,crm-api,realtime-api,notification-worker,worker,video-worker --configuration=development --parallel=2 --outputStyle=stream",
     "dev:api": "node tools/dev.mjs serve api",
     "dev:web": "node tools/dev.mjs dev web",
     "dev:worker": "node tools/dev.mjs serve worker",
@@ -42,6 +42,9 @@
     "dev:social": "node tools/dev.mjs run-many -t dev serve --projects=social-web,social-api --parallel=2 --outputStyle=stream",
     "dev:social-api": "node tools/dev.mjs serve social-api",
     "dev:social-web": "node tools/dev.mjs dev social-web",
+    "dev:crm": "node tools/dev.mjs run-many -t dev serve --projects=crm-web,crm-api --parallel=2 --outputStyle=stream",
+    "dev:crm-api": "node tools/dev.mjs serve crm-api",
+    "dev:crm-web": "node tools/dev.mjs dev crm-web",
     "dev:status": "node tools/dev-health.mjs",
     "prod:tunnel": "node tools/prod-tunnel.mjs",
     "dev:gateway": "node tools/dev-gateway.mjs",

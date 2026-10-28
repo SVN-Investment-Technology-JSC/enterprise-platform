@@ -169,3 +169,28 @@ describe('CustomerService.remove', () => {
     await expect(service.remove(actor, id)).rejects.toThrow(/dự án/);
   });
 });
+
+describe('CustomerService khi tenant bật Bán hàng (D1)', () => {
+  it('bật Bán hàng: tạo, sửa, xoá khách trả 409 CUSTOMER_MANAGED_BY_CRM; đọc vẫn được', async () => {
+    const { service: local, id, store } = await seeded();
+    const enabled = jest.fn().mockResolvedValue(true);
+    const service = new CustomerService(store, { enabled });
+    const managed = { statusCode: 409, code: 'CUSTOMER_MANAGED_BY_CRM' };
+    await expect(service.create(actor, { code: 'KH02', name: 'B' })).rejects.toMatchObject(managed);
+    await expect(service.update(actor, id, { name: 'B' })).rejects.toMatchObject(managed);
+    await expect(service.remove(actor, id)).rejects.toMatchObject(managed);
+    await expect(service.list(actor)).resolves.toHaveLength(1);
+    await expect(service.detail(actor, id)).resolves.toMatchObject({ customer: { id } });
+    expect(enabled).toHaveBeenCalledWith('t1');
+    // Không truyền nguồn Bán hàng: hành vi như cũ (TC-INT-14).
+    await expect(local.update(actor, id, { name: 'C' })).resolves.toMatchObject({ name: 'C' });
+  });
+
+  it('không bật Bán hàng: hành vi như cũ', async () => {
+    const { store } = makeStore();
+    const service = new CustomerService(store, { enabled: jest.fn().mockResolvedValue(false) });
+    const created = await service.create(actor, { code: 'KH03', name: 'C' });
+    await expect(service.update(actor, created.id, { name: 'D' })).resolves.toMatchObject({ name: 'D' });
+    await expect(service.remove(actor, created.id)).resolves.toBeUndefined();
+  });
+});

@@ -193,6 +193,8 @@ services:
       # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
       FINANCE_API_URL: http://finance-api:3341/api/finance
+      # Procedure hỏi Bán hàng trước khi huỷ hiệu lực phiên duyệt báo giá, đơn bán (chỉ đọc).
+      CRM_API_URL: http://crm-api:3344/api/crm
       S3_INTERNAL_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9010
       S3_REGION: us-east-1
@@ -292,6 +294,8 @@ services:
       PORT: '3337'
       # Workspace hỏi HRM trước khi gửi yêu cầu huỷ hiệu lực đơn từ (chỉ đọc).
       HRM_API_URL: http://hrm-api:3339/api/hrm
+      # Tenant bật Bán hàng: Workspace tra khách hàng ở Bán hàng (chỉ đọc).
+      CRM_API_URL: http://crm-api:3344/api/crm
       # Tài liệu của dự án dùng presigned URL qua MinIO, giống Inventory.
       # Thiếu các biến này thì adapter rơi về localhost:9010 — tức chính
       # container workspace-api — và mọi lần tải tệp lên đều hỏng.
@@ -376,6 +380,25 @@ services:
     init: true
     restart: unless-stopped
 
+  crm-api:
+    build:
+      context: ../..
+      dockerfile: apps/crm-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3344'
+      # Báo giá: danh mục, tồn khả dụng, giá vốn từ Kho; phiên duyệt vượt ngưỡng ở Quy trình.
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      FINANCE_API_URL: http://finance-api:3341/api/finance
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -446,6 +469,9 @@ services:
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       HRM_API_URL: http://hrm-api:3339/api/hrm
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Job của Bán hàng gửi lại phiếu thu sang Tài chính và gọi lại Bán hàng khi cần.
+      FINANCE_API_URL: http://finance-api:3341/api/finance
+      CRM_API_URL: http://crm-api:3344/api/crm
       # Gửi thông báo đẩy cho tin chat (hàng core.chat.push.v1). Khoá VAPID không bắt buộc (như api); WEB_PUSH_SUBJECT là
       # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
@@ -623,6 +649,16 @@ services:
     init: true
     restart: unless-stopped
 
+  crm-web:
+    build:
+      context: ../..
+      dockerfile: apps/crm-web/Dockerfile
+    depends_on:
+      crm-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -636,6 +672,7 @@ services:
       - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
       - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
       - ../nginx/social-maintenance.html:/usr/share/nginx/html/social-maintenance.html:ro
+      - ../nginx/crm-maintenance.html:/usr/share/nginx/html/crm-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

@@ -11,7 +11,12 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { getUnitQuantityConfig } from '../inventory-labels';
+import type { LotAllocation } from '../stock-document.model';
+import { LotPickerDrawer, SerialPickerDrawer } from './stock-document-parts';
 import styles from '../inventory.module.scss';
+
+/** Drawer chọn serial, lô mở chồng lên hộp thoại (`modalOverlay` z-index 1000). */
+const PICKER_Z_INDEX = 1100;
 
 /**
  * Lắp vật tư từ kho vào một thiết bị.
@@ -49,6 +54,15 @@ export function InstallMaterialDialog({
   );
   const [quantity, setQuantity] = useState('1');
   const [note, setNote] = useState('');
+  // Vật tư theo serial phải chỉ đủ serial; vật tư theo lô chọn lô hoặc để máy chủ
+  // tự chọn theo FEFO. Đổi vật tư, kho hay số lượng thì chọn lại.
+  const [serials, setSerials] = useState<string[]>([]);
+  const [lots, setLots] = useState<LotAllocation[]>([]);
+  const [picker, setPicker] = useState<'serial' | 'lot'>();
+  useEffect(() => {
+    setSerials([]);
+    setLots([]);
+  }, [materialCode, warehouseCode, quantity]);
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -143,7 +157,10 @@ export function InstallMaterialDialog({
   const amount = Number(quantity);
   const valid = Number.isFinite(amount) && amount > 0;
   const short = available !== undefined && valid && amount > available;
-  const ready = materialCode !== '' && warehouseCode !== '' && valid && !short;
+  const serialized = Boolean(picked?.isSerialized);
+  const serialsMissing = serialized && serials.length !== amount;
+  const ready = materialCode !== '' && warehouseCode !== '' && valid && !short && !serialsMissing;
+  const pickedWarehouse = warehouses.find((item) => item.code === warehouseCode);
 
   return (
     <div className={styles.modalOverlay} onClick={onCancel}>
@@ -228,6 +245,10 @@ export function InstallMaterialDialog({
               warehouseCode,
               quantity: amount,
               note: note.trim() || undefined,
+              serials: serialized ? serials : undefined,
+              lots: !serialized && lots.length > 0
+                ? lots.map((lot) => ({ lotNo: lot.lotNo, quantity: lot.quantity }))
+                : undefined,
             });
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
@@ -486,6 +507,39 @@ export function InstallMaterialDialog({
             </div>
           </div>
 
+          {/* Serial hoặc lô xuất lắp: theo đúng sổ kho, như chứng từ xuất */}
+          {materialCode && warehouseCode && valid ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                {serialized ? (
+                  <>
+                    Serial lắp <span style={{ color: '#dc2626' }}>*</span>
+                  </>
+                ) : (
+                  'Lô xuất'
+                )}
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => setPicker(serialized ? 'serial' : 'lot')}
+                >
+                  {serialized ? `Chọn serial (${serials.length}/${amount})` : 'Chọn lô'}
+                </button>
+                <span style={{ fontSize: '13px', color: serialsMissing ? '#b91c1c' : '#475569' }}>
+                  {serialized
+                    ? serials.length > 0
+                      ? serials.join(', ')
+                      : `Vật tư theo dõi theo serial: chọn đủ ${amount} serial đang trong kho ${warehouseCode}.`
+                    : lots.length > 0
+                      ? lots.map((lot) => `${lot.lotNo}: ${lot.quantity}`).join('; ')
+                      : 'Không chọn lô: nếu vật tư quản lý theo lô, hệ thống tự lấy lô hạn dùng gần nhất trước (FEFO).'}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           {/* Cảnh báo thiếu tồn (Chỉ hiện khi vượt quá khả dụng) */}
           {short ? (
             <div
@@ -579,6 +633,43 @@ export function InstallMaterialDialog({
           </div>
         </form>
       </div>
+      {picker === 'serial' && picked ? (
+        <div onClick={(event) => event.stopPropagation()}>
+          <SerialPickerDrawer
+            open
+            materialCode={picked.code}
+            materialName={picked.name}
+            warehouse={pickedWarehouse}
+            quantity={amount}
+            value={serials}
+            inbound={false}
+            zIndex={PICKER_Z_INDEX}
+            onApply={(next) => {
+              setSerials(next);
+              setPicker(undefined);
+            }}
+            onClose={() => setPicker(undefined)}
+          />
+        </div>
+      ) : null}
+      {picker === 'lot' && picked ? (
+        <div onClick={(event) => event.stopPropagation()}>
+          <LotPickerDrawer
+            open
+            materialCode={picked.code}
+            warehouseCode={warehouseCode}
+            quantity={amount}
+            unit={picked.unit}
+            current={lots.length === 1 ? lots[0].lotNo : undefined}
+            zIndex={PICKER_Z_INDEX}
+            onApply={(allocations) => {
+              setLots(allocations);
+              setPicker(undefined);
+            }}
+            onClose={() => setPicker(undefined)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

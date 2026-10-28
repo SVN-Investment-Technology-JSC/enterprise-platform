@@ -3,9 +3,11 @@ import type {
   Asset,
   AssetBomLine,
   AssetDocument,
+  ChangeQualityRequest,
   CreateAssetDocumentResponse,
   CreateAssetRequest,
   CreateMaterialRequest,
+  CreateStockDocumentRequest,
   CreateStockReservationRequest,
   CreateWarehouseRequest,
   InstallItemRequest,
@@ -14,23 +16,40 @@ import type {
   InventorySettingsKey,
   InventorySettingsSnapshot,
   InventoryTransaction,
+  Lot,
+  LotAllocationInput,
+  LotDetail,
+  LotSuggestion,
   Material,
   MaterialInventory,
   RegisterSerialsRequest,
   Reservation,
   RetireResult,
   ReturnItemToStockRequest,
+  SerialHistory,
   SerialTracking,
   SettingsEntry,
+  PostedStockDocument,
+  StockDocument,
+  StockDocumentListQuery,
+  StockDocumentLotInput,
+  StockDocumentPage,
   UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
   UpdateSerialRequest,
+  UpdateStockDocumentRequest,
   UpdateWarehouseRequest,
   Warehouse,
   StocktakeSession,
   StocktakeLine,
   CreateStocktakeRequest,
+  StockApprovalReport,
+  StockApprovalReportQuery,
+  StockMovementReport,
+  StockMovementReportQuery,
+  StockReport,
+  StockReportQuery,
 } from '@enterprise-platform/contracts-inventory';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -78,7 +97,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Everything the screen needs, fetched together so a tab switch never waits on the network. */
 export interface InventoryWorkspace {
-  readonly permissions?: { canManage: boolean; canWriteTransactions: boolean };
+  readonly permissions?: {
+    canManage: boolean;
+    canWriteTransactions: boolean;
+    canWriteQuality?: boolean;
+    canApproveDocuments?: boolean;
+  };
   readonly warehouses: Warehouse[];
   readonly materials: Material[];
   readonly assets: Asset[];
@@ -506,64 +530,107 @@ export function updateSerial(
   );
 }
 
-// ---------------------------------------------------------------- Quản lý Lô (Batch / Lot)
-const LOTS_STORAGE_KEY = 'ep:inventory:lot_tracking';
+// ---------------------------------------------------------------- Lô, serial, chất lượng
 
-export async function loadLots(materialCode: string): Promise<import('@enterprise-platform/contracts-inventory').LotTracking[]> {
-  try {
-    if (typeof window === 'undefined') return [];
-    const raw = localStorage.getItem(`${LOTS_STORAGE_KEY}:${materialCode}`);
-    if (raw) return JSON.parse(raw);
-
-    // Mẫu ban đầu cho các vật tư tiêu biểu khi chưa có dữ liệu lưu
-    if (materialCode.includes('DAU') || materialCode.includes('CAP') || materialCode === 'VT-001') {
-      const defaultLots: import('@enterprise-platform/contracts-inventory').LotTracking[] = [
-        {
-          id: `lot-${materialCode}-01`,
-          materialCode,
-          lotNumber: `LOT-2026-Q1-A01`,
-          status: 'PASSED',
-          quantity: 120,
-          unit: 'Thùng / Cuộn',
-          warehouseCode: 'WH-CENTRAL',
-          manufactureDate: '2026-01-15',
-          expiryDate: '2028-01-15',
-          supplier: 'Tổng công ty Dầu khí / Cáp điện',
-          coCqNumber: 'CO-CQ-VN-2026/889',
-          note: 'Hàng nhập khẩu chính hãng, đã kiểm định chất lượng',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: `lot-${materialCode}-02`,
-          materialCode,
-          lotNumber: `LOT-2025-Q4-B02`,
-          status: 'NEAR_EXPIRY',
-          quantity: 35,
-          unit: 'Thùng / Cuộn',
-          warehouseCode: 'WH-BACKUP',
-          manufactureDate: '2025-04-10',
-          expiryDate: '2026-10-10',
-          supplier: 'Nhà phân phối Miền Bắc',
-          coCqNumber: 'CO-CQ-VN-2025/112',
-          note: 'Cận hạn dùng dưới 60 ngày - Ưu tiên xuất theo FEFO',
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      localStorage.setItem(`${LOTS_STORAGE_KEY}:${materialCode}`, JSON.stringify(defaultLots));
-      return defaultLots;
-    }
-    return [];
-  } catch {
-    return [];
-  }
+/**
+ * Lô của một mặt hàng, kèm tồn từng kho. Lô lưu ở server (T1-18): tạo và cộng
+ * trừ qua phiếu nhập, xuất, chuyển; giao diện không còn giữ lô trong trình duyệt.
+ */
+export function loadLots(materialCode: string): Promise<Lot[]> {
+  return request<Lot[]>(`/lots?materialCode=${encodeURIComponent(materialCode)}`);
 }
 
-export async function saveLots(
+/** Gợi ý lô xuất theo FEFO: hạn dùng gần nhất trước, bỏ lô hết hạn và lô không Đạt. */
+export function suggestLots(
   materialCode: string,
-  lots: import('@enterprise-platform/contracts-inventory').LotTracking[],
-): Promise<void> {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(`${LOTS_STORAGE_KEY}:${materialCode}`, JSON.stringify(lots));
+  warehouseCode: string,
+  quantity: number,
+): Promise<LotSuggestion> {
+  const query = new URLSearchParams({ materialCode, warehouseCode, quantity: String(quantity) });
+  return request<LotSuggestion>(`/lots/suggest?${query.toString()}`);
+}
+
+/** Đổi trạng thái chất lượng của lô; bắt buộc có lý do. */
+export function changeLotQuality(lotId: string, input: ChangeQualityRequest): Promise<LotDetail> {
+  return request<LotDetail>(`/lots/${encodeURIComponent(lotId)}/quality`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Đổi trạng thái chất lượng của một serial; bắt buộc có lý do. */
+export function changeSerialQuality(serial: string, input: ChangeQualityRequest): Promise<SerialHistory> {
+  return request<SerialHistory>(`/serials/${encodeURIComponent(serial)}/quality`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Lịch sử nhập, xuất, chuyển và đổi chất lượng của một serial. */
+export function loadSerialHistory(serial: string, materialCode?: string): Promise<SerialHistory> {
+  const query = materialCode ? `?materialCode=${encodeURIComponent(materialCode)}` : '';
+  return request<SerialHistory>(`/serials/${encodeURIComponent(serial)}/history${query}`);
+}
+
+// ---------------------------------------------------------------- Chứng từ kho (T1-28 đến T1-31)
+
+/** Danh sách chứng từ kho, mới nhất trước; lọc theo loại, trạng thái, kho, nguồn, khoảng ngày. */
+export function loadStockDocuments(query: StockDocumentListQuery = {}): Promise<StockDocumentPage> {
+  const params = new URLSearchParams();
+  if (query.docType) params.set('docType', query.docType);
+  if (query.docTypes?.length) params.set('docTypes', query.docTypes.join(','));
+  if (query.status) params.set('status', query.status);
+  if (query.warehouseCode) params.set('warehouseCode', query.warehouseCode);
+  if (query.sourceType) params.set('sourceType', query.sourceType);
+  if (query.fromDate) params.set('fromDate', query.fromDate);
+  if (query.toDate) params.set('toDate', query.toDate);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.offset !== undefined) params.set('offset', String(query.offset));
+  const suffix = params.toString();
+  return request<StockDocumentPage>(`/stock-documents${suffix ? `?${suffix}` : ''}`);
+}
+
+export function loadStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}`);
+}
+
+export function createStockDocument(input: CreateStockDocumentRequest): Promise<StockDocument> {
+  return request<StockDocument>('/stock-documents', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateStockDocument(id: string, input: UpdateStockDocumentRequest): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/submit`, { method: 'POST' });
+}
+
+export function approveStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+}
+
+export function rejectStockDocument(id: string, reason: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function postStockDocument(id: string): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>(`/stock-documents/${encodeURIComponent(id)}/post`, { method: 'POST' });
+}
+
+export function cancelStockDocument(id: string): Promise<StockDocument> {
+  return request<StockDocument>(`/stock-documents/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+}
+
+/** Chứng từ đảo của chứng từ đã ghi sổ; server ghi sổ ngay. */
+export function reverseStockDocument(id: string): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>(`/stock-documents/${encodeURIComponent(id)}/reverse`, { method: 'POST' });
 }
 
 /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
@@ -595,6 +662,10 @@ export function receiveStock(input: {
   quantity: number;
   unitCost?: number;
   note?: string;
+  /** Lô nhận vào: tạo lô mới hoặc cộng vào lô cùng số lô. */
+  lot?: StockDocumentLotInput;
+  /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
+  serials?: readonly string[];
 }): Promise<InventoryTransaction> {
   return request<InventoryTransaction>('/receipts', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -604,6 +675,8 @@ export function issueStock(input: {
   materialCode: string;
   quantity: number;
   note?: string;
+  /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
+  lots?: readonly LotAllocationInput[];
 }): Promise<InventoryTransaction> {
   return request<InventoryTransaction>('/issues', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -614,6 +687,8 @@ export function transferStock(input: {
   materialCode: string;
   quantity: number;
   note?: string;
+  /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
+  lots?: readonly LotAllocationInput[];
 }): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
   return request<{ out: InventoryTransaction; in: InventoryTransaction }>('/transfers', {
     method: 'POST',
@@ -1360,4 +1435,32 @@ export async function rejectStocktakeSession(sessionId: string, reason?: string)
     localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
   }
   return updatedSession;
+}
+
+// ---------------------------------------------------------------- Báo cáo kho (T7-06, T7-07)
+
+/** Chuỗi query từ object lọc: bỏ giá trị rỗng, false và undefined. */
+function reportQuery(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '' || value === false) continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+/** Tồn theo kho, lô hoặc serial với bốn loại tồn; có phân trang và tổng của cả tập đã lọc. */
+export function loadStockReport(query: StockReportQuery): Promise<StockReport> {
+  return request<StockReport>(`/reports/stock${reportQuery(query)}`);
+}
+
+/** Nhập, xuất, điều chuyển, nhập trả, điều chỉnh, chứng từ đảo theo kỳ. */
+export function loadMovementReport(query: StockMovementReportQuery): Promise<StockMovementReport> {
+  return request<StockMovementReport>(`/reports/movements${reportQuery(query)}`);
+}
+
+/** Lịch sử chứng từ phải duyệt: người lập, người duyệt, thời điểm, lý do. */
+export function loadApprovalReport(query: StockApprovalReportQuery): Promise<StockApprovalReport> {
+  return request<StockApprovalReport>(`/reports/approvals${reportQuery(query)}`);
 }

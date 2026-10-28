@@ -8,8 +8,10 @@ import type {
   CreateWarehouseRequest,
   InstallItemRequest,
   InventorySettingsKey,
+  LotAllocationInput,
   RegisterSerialsRequest,
   ReturnItemToStockRequest,
+  StockDocumentLotInput,
   UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -19,7 +21,7 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
-import { InventoryError } from '../domain/inventory.error.js';
+import { toInventoryError } from '../domain/inventory.error.js';
 
 interface InventoryRequest {
   inventoryActor?: InventoryActor;
@@ -43,6 +45,8 @@ export class InventoryController {
     return {
       canManage: actor.canManage,
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
+      canWriteQuality: actor.canWriteQuality ?? actor.canManage,
+      canApproveDocuments: actor.canApproveDocuments ?? actor.canManage,
     };
   }
 
@@ -231,6 +235,10 @@ export class InventoryController {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      /** Lô nhận vào: tạo lô mới hoặc cộng vào lô cùng số lô. */
+      lot?: StockDocumentLotInput;
+      /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
+      serials?: readonly string[];
     },
   ) {
     return this.execute(() => this.app.receiveStock(this.actor(request), body));
@@ -248,6 +256,8 @@ export class InventoryController {
       referenceType?: string;
       referenceId?: string;
       note?: string;
+      /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
+      lots?: readonly LotAllocationInput[];
     },
   ) {
     return this.execute(() => this.app.issueStock(this.actor(request), body));
@@ -264,6 +274,8 @@ export class InventoryController {
       materialCode: string;
       quantity: number;
       note?: string;
+      /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
+      lots?: readonly LotAllocationInput[];
     },
   ) {
     return this.execute(() => this.app.transferStock(this.actor(request), body));
@@ -339,17 +351,7 @@ export class InventoryController {
     });
   }
 
-  /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
-  /**
-   * Danh mục vật tư cho module khác. `available` là tồn khả dụng gộp mọi kho,
-   * đọc tươi mỗi lần gọi — không bao giờ đóng băng, khác với `name`/`unit`.
-   */
-  @Get('internal/materials')
-  async listMaterialsForServices(@Req() request: InventoryRequest) {
-    return this.execute(async () => ({
-      materials: await this.app.listMaterialsWithStock(this.actor(request)),
-    }));
-  }
+  // `GET internal/materials` (danh mục cho phân hệ khác) ở InternalCatalogController.
 
   /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
   @Get('internal/materials/:code')
@@ -508,10 +510,17 @@ export class InventoryController {
     try {
       return await operation();
     } catch (error) {
-      if (!(error instanceof InventoryError)) throw error;
+      // Trùng serial ở tầng DB (23505) cũng trả 409 thay vì 500.
+      const known = toInventoryError(error);
+      if (!known) throw error;
       throw new HttpException(
-        { statusCode: error.statusCode, code: error.code, message: error.message },
-        error.statusCode,
+        {
+          ...known.details,
+          statusCode: known.statusCode,
+          code: known.code,
+          message: known.message,
+        },
+        known.statusCode,
       );
     }
   }

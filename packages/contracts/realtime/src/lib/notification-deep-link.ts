@@ -31,7 +31,7 @@ export function notificationDeepLink(value: string | undefined): string | undefi
   // Bảng điều khiển của core (kèm `#chat/<id>` để mở khung chat): luôn có, không phụ thuộc phân hệ.
   if (path === '/dashboard') return `${path}${url.search}${url.hash}`;
   if (['/workspace', '/inventory', '/maintenance'].includes(path)) return `/modules${path}${url.search}${url.hash}`;
-  if (/^\/modules\/(procedure|workspace|hrm|finance|inventory|maintenance|social)(\/|$)/.test(path) ||
+  if (/^\/modules\/(procedure|workspace|hrm|finance|inventory|maintenance|social|crm)(\/|$)/.test(path) ||
       ['/applications', '/login'].includes(path)) return `${path}${url.search}${url.hash}`;
   return undefined;
 }
