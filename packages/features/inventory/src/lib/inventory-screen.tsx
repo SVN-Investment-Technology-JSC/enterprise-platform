@@ -33,6 +33,7 @@ import { MovementForm, type MovementInput } from './components/movement-form';
 import { LedgerTable } from './components/ledger-table';
 import { StockDocumentApproval, StockDocumentList } from './components/stock-document-list';
 import { IssueRequestPanel } from './components/issue-request-panel';
+import { InventoryReports } from './components/inventory-reports';
 import {
   createAsset,
   createMaterial,
@@ -87,6 +88,7 @@ type Tab =
   | 'issue-requests'
   | 'assets'
   | 'ledger'
+  | 'reports'
   | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
@@ -97,6 +99,7 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
   { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
+  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
@@ -987,6 +990,8 @@ export function InventoryScreen() {
               onStockChanged={() => void reload()}
             />
           ) : null}
+
+          {tab === 'reports' ? <InventoryReports warehouses={workspace.warehouses} /> : null}
 
           {tab === 'settings' ? (
             <ModuleSettingsView

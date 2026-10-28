@@ -58,6 +58,28 @@ export class InternalCatalogController {
     );
   }
 
+  /**
+   * Danh mục kho cho phân hệ khác (T4-19): `GET v1/internal/warehouses?search=&codes=&ids=&includeInactive=`
+   * trả `{ warehouses }`. Mặc định chỉ kho đang dùng.
+   */
+  @Get('internal/warehouses')
+  listWarehouses(
+    @Req() request: InventoryRequest,
+    @Query('search') search?: string,
+    @Query('codes') codes?: string,
+    @Query('ids') ids?: string,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return this.execute(() =>
+      this.app.listWarehouseCatalog(this.actor(request), {
+        search,
+        codes: list(codes),
+        ids: list(ids),
+        includeInactive: includeInactive === 'true',
+      }),
+    );
+  }
+
   private actor(request: InventoryRequest): InventoryActor {
     if (!request.inventoryActor) {
       throw new HttpException(

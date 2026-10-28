@@ -44,6 +44,12 @@ import type {
   StocktakeSession,
   StocktakeLine,
   CreateStocktakeRequest,
+  StockApprovalReport,
+  StockApprovalReportQuery,
+  StockMovementReport,
+  StockMovementReportQuery,
+  StockReport,
+  StockReportQuery,
 } from '@enterprise-platform/contracts-inventory';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -1427,4 +1433,32 @@ export async function rejectStocktakeSession(sessionId: string, reason?: string)
     localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
   }
   return updatedSession;
+}
+
+// ---------------------------------------------------------------- Báo cáo kho (T7-06, T7-07)
+
+/** Chuỗi query từ object lọc: bỏ giá trị rỗng, false và undefined. */
+function reportQuery(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '' || value === false) continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+/** Tồn theo kho, lô hoặc serial với bốn loại tồn; có phân trang và tổng của cả tập đã lọc. */
+export function loadStockReport(query: StockReportQuery): Promise<StockReport> {
+  return request<StockReport>(`/reports/stock${reportQuery(query)}`);
+}
+
+/** Nhập, xuất, điều chuyển, nhập trả, điều chỉnh, chứng từ đảo theo kỳ. */
+export function loadMovementReport(query: StockMovementReportQuery): Promise<StockMovementReport> {
+  return request<StockMovementReport>(`/reports/movements${reportQuery(query)}`);
+}
+
+/** Lịch sử chứng từ phải duyệt: người lập, người duyệt, thời điểm, lý do. */
+export function loadApprovalReport(query: StockApprovalReportQuery): Promise<StockApprovalReport> {
+  return request<StockApprovalReport>(`/reports/approvals${reportQuery(query)}`);
 }

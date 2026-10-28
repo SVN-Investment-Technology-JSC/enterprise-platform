@@ -18,6 +18,13 @@ import {
   type TraceabilityStore,
 } from './application/traceability-store.port.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
+import {
+  INVENTORY_REPORT_STORE,
+  type InventoryReportStore,
+} from './application/inventory-report-store.port.js';
+import { InventoryReportService } from './application/inventory-report.service.js';
+import { PostgresInventoryReportStore } from './infrastructure/postgres-inventory-report.store.js';
+import { InventoryReportsController } from './presentation/inventory-reports.controller.js';
 import { InventoryController } from './presentation/inventory.controller.js';
 import { InternalCatalogController } from './presentation/internal-catalog.controller.js';
 import { InternalDocumentsController } from './presentation/internal-documents.controller.js';
@@ -33,6 +40,7 @@ import { StockDocumentController } from './presentation/stock-document.controlle
     SerialController,
     InternalCatalogController,
     InternalDocumentsController,
+    InventoryReportsController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -84,6 +92,17 @@ import { StockDocumentController } from './presentation/stock-document.controlle
       inject: [TRACEABILITY_STORE],
     },
     {
+      provide: INVENTORY_REPORT_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresInventoryReportStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: InventoryReportService,
+      useFactory: (store: InventoryReportStore) => new InventoryReportService(store),
+      inject: [INVENTORY_REPORT_STORE],
+    },
+    {
       provide: AssetDocumentService,
       useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
         new AssetDocumentService(references, pools),
@@ -96,6 +115,7 @@ import { StockDocumentController } from './presentation/stock-document.controlle
     LotService,
     SerialService,
     QualityService,
+    InventoryReportService,
     AssetDocumentService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

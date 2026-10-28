@@ -19,6 +19,8 @@ import type {
   CreateStockReservationRequest,
   InternalMaterialCatalogPage,
   InternalMaterialCatalogQuery,
+  InternalWarehouseCatalogPage,
+  InternalWarehouseCatalogQuery,
   InventoryItem,
   InventorySettingsKey,
   InventorySettingsSnapshot,
@@ -69,6 +71,7 @@ import {
 } from './inventory-settings.js';
 import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
 import { normalizeLotInput, splitByLots } from '../domain/traceability-policy.js';
+import { filterWarehouseCatalog } from '../domain/inventory-report.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -166,6 +169,15 @@ export class InventoryApplication {
     const warehouse = await this.store.warehouse.findByCode(actor.tenantId, code);
     if (!warehouse) throw new WarehouseNotFoundError(code);
     return warehouse;
+  }
+
+  /** Danh mục kho cho phân hệ khác (T4-19), lọc theo mã, id, chuỗi tìm. */
+  async listWarehouseCatalog(
+    actor: InventoryActor,
+    query: InternalWarehouseCatalogQuery,
+  ): Promise<InternalWarehouseCatalogPage> {
+    const warehouses = await this.store.warehouse.listAll(actor.tenantId);
+    return { warehouses: filterWarehouseCatalog(warehouses, query) };
   }
 
   listWarehouses(actor: InventoryActor): Promise<Warehouse[]> {

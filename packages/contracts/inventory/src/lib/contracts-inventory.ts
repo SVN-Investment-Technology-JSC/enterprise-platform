@@ -1538,3 +1538,301 @@ export interface InternalStockDocumentResult {
   readonly status: StockDocumentStatus;
   readonly document: StockDocument;
 }
+
+// ---------------------------------------------------------------- Danh mục kho cho phân hệ khác (T4-19)
+
+/**
+ * `GET v1/internal/warehouses?search=&codes=&ids=&includeInactive=`: kho cho
+ * phân hệ khác chọn (Bán hàng chọn kho xuất trong kế hoạch giao). Mặc định chỉ
+ * kho đang dùng; `includeInactive=true` trả cả kho đã ngừng để hiện tên kho cũ.
+ */
+export interface InternalWarehouseCatalogQuery {
+  /** Tìm theo mã hoặc tên, không phân biệt hoa thường. */
+  readonly search?: string;
+  readonly codes?: readonly string[];
+  readonly ids?: readonly string[];
+  readonly includeInactive?: boolean;
+}
+
+export interface InternalWarehouseCatalogItem {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly isActive: boolean;
+  /** Kho vật lý hay kho ảo (hàng đang luân chuyển). */
+  readonly type: WarehouseType;
+}
+
+export interface InternalWarehouseCatalogPage {
+  readonly warehouses: readonly InternalWarehouseCatalogItem[];
+}
+
+// ---------------------------------------------------------------- Báo cáo kho (T7-06, T7-07)
+
+/** Báo cáo tồn xem theo kho (mặt hàng tại kho), theo lô, hoặc theo serial. */
+export const STOCK_REPORT_GROUPS = ['WAREHOUSE', 'LOT', 'SERIAL'] as const;
+export type StockReportGroupBy = (typeof STOCK_REPORT_GROUPS)[number];
+
+/**
+ * `GET v1/reports/stock`. Lọc theo mặt hàng (mã hoặc tên), nhóm vật tư, kho;
+ * `expiringWithinDays` chỉ dùng cho báo cáo theo lô và gồm cả lô đã hết hạn.
+ * Dòng tồn bằng 0 bị ẩn trừ khi `includeZero`. Serial mặc định chỉ lấy serial
+ * Trong kho; `stockState=ALL` lấy mọi trạng thái.
+ */
+export interface StockReportQuery {
+  readonly groupBy?: StockReportGroupBy;
+  readonly search?: string;
+  readonly materialCode?: string;
+  readonly category?: MaterialCategory;
+  readonly warehouseCode?: string;
+  readonly expiringWithinDays?: number;
+  readonly qualityStatus?: QualityStatus;
+  readonly stockState?: SerialStockState | 'ALL';
+  readonly includeZero?: boolean;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/**
+ * Bốn loại tồn (INV-07). Theo Q2, MVP không có cột hàng đang vận chuyển.
+ * `available` = `onHand` − `reserved` − `blocked`.
+ */
+export interface StockQuantities {
+  /** Tồn thực tế. */
+  readonly onHand: number;
+  /** Đã giữ cho đơn bán, công việc. */
+  readonly reserved: number;
+  /** Chờ kiểm định, cách ly hoặc lỗi: có trong kho nhưng không được xuất. */
+  readonly blocked: number;
+  /** Khả dụng. */
+  readonly available: number;
+}
+
+interface StockReportMaterialColumns {
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly unit?: string;
+  readonly category?: MaterialCategory;
+}
+
+/** Một mặt hàng tại một kho (cộng mọi vị trí trong kho). */
+export interface StockReportWarehouseRow extends StockQuantities, StockReportMaterialColumns {
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  /** Giá vốn bình quân hiện tại tại kho. */
+  readonly avgCost: number;
+  /** Giá trị tồn = tồn thực tế × giá bình quân, làm tròn 2 chữ số. */
+  readonly stockValue: number;
+}
+
+/** Một lô tại một kho. */
+export interface StockReportLotRow extends StockQuantities, StockReportMaterialColumns {
+  readonly lotId: string;
+  readonly lotNo: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  readonly manufacturedOn?: string;
+  /** Hạn dùng, dạng YYYY-MM-DD. */
+  readonly expiresOn?: string;
+  /** Số ngày còn lại tới hạn dùng theo giờ Việt Nam; âm là đã hết hạn. */
+  readonly daysToExpiry?: number;
+  readonly qualityStatus: QualityStatus;
+}
+
+/** Một serial; `warehouseCode` trống khi serial không ở kho nào (đã xuất). */
+export interface StockReportSerialRow extends StockReportMaterialColumns {
+  readonly serialId: string;
+  readonly serialNumber: string;
+  readonly warehouseId?: string;
+  readonly warehouseCode?: string;
+  readonly warehouseName?: string;
+  readonly stockState?: SerialStockState;
+  readonly qualityStatus: QualityStatus;
+  readonly updatedAt: string;
+}
+
+/** Tổng của cả tập đã lọc (không chỉ trang đang xem). */
+export interface StockReportTotals extends StockQuantities {
+  /** Chỉ báo cáo theo kho có giá trị tồn. */
+  readonly stockValue?: number;
+}
+
+/** Tổng của báo cáo serial: đếm số serial. */
+export interface SerialReportTotals {
+  readonly serials: number;
+  /** Serial Trong kho. */
+  readonly inStock: number;
+  /** Serial Trong kho nhưng không Đạt. */
+  readonly blocked: number;
+  /** Serial Trong kho và Đạt. */
+  readonly available: number;
+}
+
+interface StockReportPageBase {
+  /** Số dòng của cả tập đã lọc. */
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  /** Thời điểm lấy số liệu (ISO). */
+  readonly asOf: string;
+}
+
+export type StockReport =
+  | (StockReportPageBase & {
+      readonly groupBy: 'WAREHOUSE';
+      readonly rows: readonly StockReportWarehouseRow[];
+      readonly totals: StockReportTotals;
+    })
+  | (StockReportPageBase & {
+      readonly groupBy: 'LOT';
+      readonly rows: readonly StockReportLotRow[];
+      readonly totals: StockReportTotals;
+    })
+  | (StockReportPageBase & {
+      readonly groupBy: 'SERIAL';
+      readonly rows: readonly StockReportSerialRow[];
+      readonly totals: SerialReportTotals;
+    });
+
+/**
+ * Nhóm nghiệp vụ của báo cáo nhập xuất (RPT-05). Chứng từ đảo tách riêng để số
+ * nhập, xuất gốc không bị lẫn số sửa sai.
+ */
+export const STOCK_MOVEMENT_CATEGORIES = [
+  'RECEIPT',
+  'ISSUE',
+  'TRANSFER',
+  'SALES_RETURN',
+  'ADJUSTMENT',
+  'REVERSAL',
+] as const;
+export type StockMovementCategory = (typeof STOCK_MOVEMENT_CATEGORIES)[number];
+
+/**
+ * `GET v1/reports/movements`. Kỳ tính theo ngày ghi sổ (giờ Việt Nam), gồm cả
+ * hai đầu; bỏ trống thì lấy từ đầu tháng tới hôm nay.
+ */
+export interface StockMovementReportQuery {
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly warehouseCode?: string;
+  readonly docType?: StockDocumentType;
+  readonly category?: StockMovementCategory;
+  readonly search?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/** Số lượng và giá trị theo chiều nhập, xuất. */
+export interface StockMovementAmounts {
+  readonly quantityIn: number;
+  readonly quantityOut: number;
+  readonly valueIn: number;
+  readonly valueOut: number;
+  /** Số bút toán sổ kho. */
+  readonly entries: number;
+}
+
+export interface StockMovementSummaryRow extends StockMovementAmounts {
+  readonly category: StockMovementCategory;
+}
+
+/** Một nhóm, một loại chứng từ, một kho. `docType` trống là bút toán không có chứng từ. */
+export interface StockMovementBreakdownRow extends StockMovementAmounts {
+  readonly category: StockMovementCategory;
+  readonly docType?: StockDocumentType;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+}
+
+/** Một bút toán sổ kho trong kỳ. `quantity` âm là xuất. */
+export interface StockMovementLine {
+  readonly transactionId: string;
+  readonly transactionCode: string;
+  readonly postedAt: string;
+  readonly category: StockMovementCategory;
+  readonly ledgerType: TransactionType;
+  readonly documentId?: string;
+  readonly documentCode?: string;
+  readonly docType?: StockDocumentType;
+  readonly reversesDocumentCode?: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly unit?: string;
+  readonly quantity: number;
+  readonly unitCost: number;
+  /** |số lượng| × đơn giá, làm tròn 2 chữ số. */
+  readonly value: number;
+  readonly createdBy: string;
+  readonly note?: string;
+}
+
+export interface StockMovementReport {
+  readonly fromDate: string;
+  readonly toDate: string;
+  /** Đủ sáu nhóm theo thứ tự `STOCK_MOVEMENT_CATEGORIES`, nhóm không phát sinh là 0. */
+  readonly summary: readonly StockMovementSummaryRow[];
+  readonly breakdown: readonly StockMovementBreakdownRow[];
+  readonly totals: StockMovementAmounts;
+  /** Trang bút toán chi tiết. */
+  readonly lines: readonly StockMovementLine[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+/**
+ * `GET v1/reports/approvals`: lịch sử chứng từ phải duyệt (điều chỉnh, nhập khác,
+ * xuất khác) theo ngày chứng từ. Lý do là ghi chú của chứng từ; người duyệt,
+ * từ chối, ghi sổ là id người dùng.
+ */
+export interface StockApprovalReportQuery {
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly warehouseCode?: string;
+  readonly docType?: StockDocumentType;
+  readonly status?: StockDocumentStatus;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StockApprovalReportRow {
+  readonly documentId: string;
+  readonly documentCode: string;
+  readonly docType: StockDocumentType;
+  readonly status: StockDocumentStatus;
+  readonly documentDate: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  readonly reason?: string;
+  readonly rejectReason?: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly submittedBy?: string;
+  readonly submittedAt?: string;
+  readonly approvedBy?: string;
+  readonly approvedAt?: string;
+  readonly rejectedBy?: string;
+  readonly rejectedAt?: string;
+  readonly postedBy?: string;
+  readonly postedAt?: string;
+  readonly lineCount: number;
+  readonly quantityIn: number;
+  readonly quantityOut: number;
+  /** Tổng giá vốn các dòng sau ghi sổ; chứng từ chưa ghi sổ là 0. */
+  readonly value: number;
+}
+
+export interface StockApprovalReport {
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly rows: readonly StockApprovalReportRow[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}

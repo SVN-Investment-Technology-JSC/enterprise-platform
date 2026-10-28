@@ -20,3 +20,7 @@ export * from './lib/presentation/serial.controller.js';
 export * from './lib/presentation/internal-catalog.controller.js';
 export * from './lib/presentation/internal-documents.controller.js';
 export * from './lib/domain/costing.js';
+export * from './lib/domain/inventory-report.js';
+export * from './lib/application/inventory-report-store.port.js';
+export * from './lib/application/inventory-report.service.js';
+export * from './lib/presentation/inventory-reports.controller.js';
