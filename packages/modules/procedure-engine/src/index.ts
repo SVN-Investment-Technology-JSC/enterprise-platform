@@ -16,3 +16,5 @@ export * from './lib/application/finance-step-events.js';
 export * from './lib/workspace-link-events.factory.js';
 export * from './lib/application/finance-integration.port.js';
 export * from './lib/domain/procedure-finance-step.js';
+export * from './lib/application/procedure-task-approval.service.js';
+export * from './lib/presentation/procedure-task-approval.controller.js';

@@ -101,7 +101,7 @@ describe('ModuleAccess', () => {
       expect(JSON.parse(String(init.body))).toMatchObject({ moduleKey: 'inventory' });
     });
 
-    it('Platform lỗi thì 503 và không cache', async () => {
+    it('Platform lỗi liên tục thì 503 và không cache', async () => {
       const fetcher = jest.fn(async () => jsonResponse({}, 500));
       const access = new ModuleAccess({
         moduleKey: 'workspace',
@@ -114,7 +114,47 @@ describe('ModuleAccess', () => {
       await expect(access.decision(tenantUser, 'workspace.read')).rejects.toMatchObject({
         status: 503,
       });
+      // Mỗi lượt hỏi một lần và thử lại một lần; lượt sau vẫn hỏi lại, không dùng kết quả lỗi cũ.
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    });
+
+    it('Platform lỗi nhất thời (5xx) thì thử lại một lần và trả kết quả', async () => {
+      const fetcher = jest
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({}, 500))
+        .mockResolvedValueOnce(jsonResponse({ allowed: true }));
+      const access = new ModuleAccess({
+        moduleKey: 'inventory',
+        fetcher: fetcher as unknown as typeof fetch,
+        verifyToken: async () => tenantUser,
+      });
+      await expect(access.decision(tenantUser, 'inventory.read')).resolves.toEqual({ allowed: true });
       expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it('không kết nối được Platform thì thử lại một lần', async () => {
+      const fetcher = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+        .mockResolvedValueOnce(jsonResponse({ allowed: true }));
+      const access = new ModuleAccess({
+        moduleKey: 'inventory',
+        fetcher: fetcher as unknown as typeof fetch,
+        verifyToken: async () => tenantUser,
+      });
+      await expect(access.decision(tenantUser, 'inventory.read')).resolves.toEqual({ allowed: true });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it('lỗi 4xx của Platform không thử lại', async () => {
+      const fetcher = jest.fn(async () => jsonResponse({}, 401));
+      const access = new ModuleAccess({
+        moduleKey: 'inventory',
+        fetcher: fetcher as unknown as typeof fetch,
+        verifyToken: async () => tenantUser,
+      });
+      await expect(access.decision(tenantUser, 'inventory.read')).rejects.toMatchObject({ status: 503 });
+      expect(fetcher).toHaveBeenCalledTimes(1);
     });
   });
 

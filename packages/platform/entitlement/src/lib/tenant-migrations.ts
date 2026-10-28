@@ -535,6 +535,16 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0017-service-kind',
       path: 'tenant/inventory/0017-service-kind.sql',
     },
+    // 0018-0020: đánh số lại từ 0011-0013 cũ (chưa merge) để nối tiếp các migration đã có trên dev/release.
+    { version: '0018-inventory-lots', path: 'tenant/inventory/0018-inventory-lots.sql' },
+    {
+      version: '0019-asset-custodian-and-tests',
+      path: 'tenant/inventory/0019-asset-custodian-and-tests.sql',
+    },
+    {
+      version: '0020-movement-counterparty',
+      path: 'tenant/inventory/0020-movement-counterparty.sql',
+    },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

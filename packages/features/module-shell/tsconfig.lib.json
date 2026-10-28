@@ -30,6 +30,9 @@
       "path": "../chat/tsconfig.lib.json"
     },
     {
+      "path": "../../contracts/task-approval/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/identity/tsconfig.lib.json"
     },
     {

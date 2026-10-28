@@ -1,9 +1,12 @@
 'use client';
 
 import type { Material, TransactionType } from '@enterprise-platform/contracts-inventory';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { InventoryLedgerRow } from '../inventory-api';
+import { exportLedgerToExcel } from '../inventory-export';
 import {
   TRANSACTION_TYPE_LABEL,
   formatDateTime,
@@ -29,6 +32,22 @@ export function LedgerTable({
 
   const all = rows ?? [];
 
+  const typeOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả loại giao dịch' },
+      ...Object.entries(TRANSACTION_TYPE_LABEL).map(([val, lbl]) => ({ value: val, label: lbl })),
+    ],
+    [],
+  );
+
+  const warehouseOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả kho' },
+      ...[...warehouseById].map(([id, code]) => ({ value: id, label: code })),
+    ],
+    [warehouseById],
+  );
+
   const visible = useMemo(
     () =>
       all.filter((entry) => {
@@ -45,38 +64,56 @@ export function LedgerTable({
 
   const filtered = Boolean(type || warehouseId || from || to);
 
+  const handleExport = () => {
+    exportLedgerToExcel({
+      rows: visible,
+      materialById,
+      warehouseById,
+    });
+  };
+
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Nhật ký giao dịch</h2>
-        <span className={styles.countHint}>
-          {formatNumber(visible.length)}
-          {filtered ? ` / ${formatNumber(all.length)}` : ''} giao dịch
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span className={styles.countHint}>
+            {formatNumber(visible.length)}
+            {filtered ? ` / ${formatNumber(all.length)}` : ''} giao dịch
+          </span>
+          <button
+            type="button"
+            className={`${styles.action} ${styles.actionGhost}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '36px' }}
+            onClick={handleExport}
+            title="Xuất nhật ký giao dịch ra tệp Excel"
+          >
+            <Download size={15} />
+            <span>Xuất Excel</span>
+          </button>
+        </div>
       </div>
 
       <div className={styles.filterRow}>
-        <label>
+        <label style={{ minWidth: '13rem' }}>
           Loại giao dịch
-          <select value={type} onChange={(event) => setType(event.target.value)}>
-            <option value="">Tất cả</option>
-            {Object.entries(TRANSACTION_TYPE_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={typeOptions}
+            value={type}
+            placeholder="Tất cả"
+            onChange={(val) => setType(val)}
+            clearable
+          />
         </label>
-        <label>
+        <label style={{ minWidth: '11rem' }}>
           Kho
-          <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-            <option value="">Tất cả</option>
-            {[...warehouseById].map(([id, code]) => (
-              <option key={id} value={id}>
-                {code}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={warehouseOptions}
+            value={warehouseId}
+            placeholder="Tất cả"
+            onChange={(val) => setWarehouseId(val)}
+            clearable
+          />
         </label>
         <label>
           Từ ngày

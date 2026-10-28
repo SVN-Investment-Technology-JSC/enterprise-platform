@@ -145,24 +145,18 @@ export function AssetListModal({
     setPage(1);
   };
 
-  // Logic chọn Checkbox nhiều thiết bị
-  const isAllPageChecked =
-    pagedAssets.length > 0 && pagedAssets.every((asset) => checkedIds.has(asset.id));
-  const isSomePageChecked =
-    pagedAssets.some((asset) => checkedIds.has(asset.id)) && !isAllPageChecked;
+  // Logic chọn Checkbox nhiều thiết bị (toàn bộ danh sách)
+  const isAllAssetsChecked =
+    sortedAssets.length > 0 && sortedAssets.every((asset) => checkedIds.has(asset.id));
+  const isSomeAssetsChecked =
+    sortedAssets.some((asset) => checkedIds.has(asset.id)) && !isAllAssetsChecked;
 
-  const handleToggleCheckAllPage = () => {
-    const next = new Set(checkedIds);
-    if (isAllPageChecked) {
-      for (const a of pagedAssets) {
-        next.delete(a.id);
-      }
+  const handleToggleCheckAll = () => {
+    if (isAllAssetsChecked) {
+      setCheckedIds(new Set());
     } else {
-      for (const a of pagedAssets) {
-        next.add(a.id);
-      }
+      setCheckedIds(new Set(sortedAssets.map((a) => a.id)));
     }
-    setCheckedIds(next);
   };
 
   const handleToggleCheckAsset = (assetId: string) => {
@@ -490,13 +484,13 @@ export function AssetListModal({
                 >
                   <input
                     type="checkbox"
-                    title="Chọn / Bỏ chọn toàn bộ trang hiện tại"
-                    aria-label="Chọn toàn bộ trang"
-                    checked={isAllPageChecked}
+                    title={isAllAssetsChecked ? 'Bỏ chọn toàn bộ' : `Chọn toàn bộ ${sortedAssets.length} thiết bị`}
+                    aria-label="Chọn toàn bộ thiết bị"
+                    checked={isAllAssetsChecked}
                     ref={(el) => {
-                      if (el) el.indeterminate = isSomePageChecked;
+                      if (el) el.indeterminate = isSomeAssetsChecked;
                     }}
-                    onChange={handleToggleCheckAllPage}
+                    onChange={handleToggleCheckAll}
                     style={{ cursor: 'pointer' }}
                   />
                 </th>

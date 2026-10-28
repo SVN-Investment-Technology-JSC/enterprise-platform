@@ -929,6 +929,47 @@ describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => 
     expect(await screen.findByTestId('detail-reason')).toBeTruthy();
     expect(screen.getByTestId('detail-description').textContent).toContain('Tự nguyện hoàn thiện báo cáo');
   });
+
+  it('thẻ chi tiết đơn hiển thị khối trao đổi và ý kiến khi chọn đơn', async () => {
+    rows();
+    render(<RequestsPage />);
+    await showAllMonths();
+    fireEvent.click(await screen.findByTestId(`request-row-${ID.ot}`));
+    const card = await screen.findByTestId('request-detail-card');
+    expect(within(card).getByRole('region', { name: 'Trao đổi về đơn' })).toBeTruthy();
+    expect(within(card).getByText(/Trao đổi và ý kiến/)).toBeTruthy();
+  });
+
+  it('khi gõ @ hiện gợi ý nhắc tên, click sang đơn khác sẽ đóng popup gợi ý', async () => {
+    rows();
+    hrmFetchMock.mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('/request-comments/mention-candidates')) {
+        return Promise.resolve({
+          data: [
+            { userId: 'u1', name: 'Nguyễn Tấn Thịnh', employeeCode: 'SVN-021', department: 'Phòng Thí nghiệm' },
+          ],
+        } as any);
+      }
+      return Promise.resolve({ data: [] } as any);
+    });
+    render(<RequestsPage />);
+    await showAllMonths();
+    fireEvent.click(await screen.findByTestId(`request-row-${ID.ot}`));
+
+    const textarea = await screen.findByLabelText('Nội dung trao đổi');
+    fireEvent.change(textarea, { target: { value: '@', selectionStart: 1 } });
+
+    const listbox = await screen.findByRole('listbox', { name: 'Người có thể nhắc tên' });
+    expect(listbox).toBeTruthy();
+    expect(screen.getByText('Nguyễn Tấn Thịnh')).toBeTruthy();
+
+    fireEvent.mouseDown(screen.getByTestId(`request-row-${ID.sick}`));
+    fireEvent.click(screen.getByTestId(`request-row-${ID.sick}`));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox', { name: 'Người có thể nhắc tên' })).toBeNull();
+    });
+  });
 });
 
 describe('Đơn từ của tôi: tháng, thẻ tổng quan và lọc theo trạng thái', () => {

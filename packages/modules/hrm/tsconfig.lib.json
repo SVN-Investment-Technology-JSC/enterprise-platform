@@ -21,6 +21,9 @@
       "path": "../../platform/identity/tsconfig.lib.json"
     },
     {
+      "path": "../../contracts/task-approval/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/procedure-engine/tsconfig.lib.json"
     },
     {

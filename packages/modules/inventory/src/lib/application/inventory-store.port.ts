@@ -19,7 +19,11 @@ import type {
   UpdateAssetRequest,
   UpdateMaterialRequest,
   Warehouse,
+  AssetTestRecord,
+  CreateAssetTestRecordRequest,
+  AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
+import type { InventoryActor } from './inventory.application.js';
 
 /** Ledger entry to append. Balances are derived from these, never written directly. */
 export interface AppendTransactionInput {
@@ -282,6 +286,16 @@ export interface InventoryStore {
     ): Promise<Record<string, unknown>[] | null>;
   };
 
+  custody: {
+    listByEmployee(tenantId: string, employeeId: string): Promise<Material[]>;
+    assign(tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null>;
+  };
+
+  assetTest: {
+    listByAsset(tenantId: string, assetId: string): Promise<AssetTestRecord[]>;
+    create(tenantId: string, input: CreateAssetTestRecordRequest): Promise<AssetTestRecord>;
+  };
+
   /**
    * Phụ tùng tiêu chuẩn của một thiết bị. Bảng `asset_boms` đã có từ migration
    * đầu tiên nhưng chưa từng được nối dây.
@@ -312,6 +326,9 @@ export interface InventoryStore {
       expectedVersion?: number,
     ): Promise<SettingsEntry<unknown> | null>;
   };
+
+  /** Danh sách nhân sự có thể tham gia tổ kiểm kê kèm cờ phân quyền kho hasWarehouseAccess */
+  listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]>;
 }
 
 export const INVENTORY_STORE = 'INVENTORY_STORE';

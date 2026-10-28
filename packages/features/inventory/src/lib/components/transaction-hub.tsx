@@ -10,9 +10,11 @@ import type {
   ProcedureOption,
 } from '../inventory-api';
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Eye } from 'lucide-react';
 import { MovementForm, type MovementInput } from './movement-form';
 import { BatchRequisitionModal } from './batch-requisition-modal';
 import { StocktakeHub } from './stocktake-hub';
+import { MovementDetailDrawer } from './movement-detail-drawer';
 import {
   loadProcedureRequisitions,
   loadProcedureOptions,
@@ -49,6 +51,8 @@ export function TransactionHub({
   onSubmitMovement,
   onReload,
   onNotice,
+  hideSubTabs = false,
+  onOpenProfile,
 }: {
   workspace: InventoryWorkspace;
   ledger?: readonly InventoryLedgerRow[];
@@ -56,7 +60,10 @@ export function TransactionHub({
   onSubmitMovement: (input: MovementInput) => Promise<void>;
   onReload?: () => Promise<void>;
   onNotice?: (message: string) => void;
+  hideSubTabs?: boolean;
+  onOpenProfile?: (materialCode: string) => void;
 }) {
+  const [selectedTx, setSelectedTx] = useState<InventoryLedgerRow | null>(null);
   const [popupMovement, setPopupMovement] = useState<{
     open: boolean;
     kind?: 'receipt' | 'issue' | 'transfer';
@@ -245,34 +252,37 @@ export function TransactionHub({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Header & Sub-Tab Switcher */}
-      <div className={styles.sectionHeading} style={{ marginBottom: 0 }}>
-        <div>
-          <span className={styles.eyebrow}>Tác nghiệp kho bãi</span>
-          <h1>Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
-            Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
-          </p>
-        </div>
-      </div>
+      {/* Header & Sub-Tab Switcher (ẩn khi nhúng vào Sub-tab của Kho) */}
+      {!hideSubTabs ? (
+        <>
+          <div className={styles.sectionHeading} style={{ marginBottom: 0 }}>
+            <div>
+              <span className={styles.eyebrow}>Tác nghiệp kho bãi</span>
+              <h1>Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
+              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+                Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
+              </p>
+            </div>
+          </div>
 
-      {/* Sub-Tabs: Giao dịch kho vs Kiểm kê kho */}
-      <div className={styles.tabs} style={{ margin: '0 0 0.5rem 0' }}>
-        <button
-          type="button"
-          className={`${styles.tab} ${activeSubTab === 'ledger' ? styles.tabActive : ''}`}
-          onClick={() => setActiveSubTab('ledger')}
-        >
-          Sổ giao dịch &amp; Xuất nhập
-        </button>
-        <button
-          type="button"
-          className={`${styles.tab} ${activeSubTab === 'stocktake' ? styles.tabActive : ''}`}
-          onClick={() => setActiveSubTab('stocktake')}
-        >
-          Kiểm kê kho &amp; Đối soát
-        </button>
-      </div>
+          <div className={styles.tabs} style={{ margin: '0 0 0.5rem 0' }}>
+            <button
+              type="button"
+              className={`${styles.tab} ${activeSubTab === 'ledger' ? styles.tabActive : ''}`}
+              onClick={() => setActiveSubTab('ledger')}
+            >
+              Sổ giao dịch &amp; Xuất nhập
+            </button>
+            <button
+              type="button"
+              className={`${styles.tab} ${activeSubTab === 'stocktake' ? styles.tabActive : ''}`}
+              onClick={() => setActiveSubTab('stocktake')}
+            >
+              Kiểm kê kho &amp; Đối soát
+            </button>
+          </div>
+        </>
+      ) : null}
 
       {activeSubTab === 'stocktake' ? (
         <StocktakeHub
@@ -366,6 +376,7 @@ export function TransactionHub({
                   <th style={{ textAlign: 'center', padding: '8px' }}>Số lượng</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Ghi chú / Tham chiếu</th>
                   <th style={{ textAlign: 'right', padding: '8px' }}>Thời gian</th>
+                  <th style={{ textAlign: 'center', padding: '8px', width: '90px' }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
@@ -373,10 +384,35 @@ export function TransactionHub({
                   const material = materialById.get(row.materialId);
                   const warehouse = warehouseById.get(row.warehouseId);
                   const isReceipt = row.quantity > 0;
+                  const isSelected = selectedTx?.id === row.id;
                   return (
-                    <tr key={row.id}>
+                    <tr
+                      key={row.id}
+                      className={`${styles.clickable} ${isSelected ? styles.tableRowActive : ''}`}
+                      onClick={() => setSelectedTx(row)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td style={{ fontWeight: 600, color: '#2563eb', padding: '8px' }}>
-                        {row.transactionCode}
+                        <button
+                          type="button"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            font: 'inherit',
+                            color: '#2563eb',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTx(row);
+                          }}
+                          title="Mở ngăn kéo xem chi tiết phiếu xuất nhập kho"
+                        >
+                          {row.transactionCode}
+                        </button>
                       </td>
                       <td style={{ padding: '8px' }}>
                         <span
@@ -440,13 +476,38 @@ export function TransactionHub({
                       >
                         {formatDateTime(row.createdAt)}
                       </td>
+                      <td
+                        style={{ textAlign: 'center', padding: '8px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className={styles.reset}
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: '12px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: '#2563eb',
+                            borderColor: '#bfdbfe',
+                            background: '#eff6ff',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setSelectedTx(row)}
+                          title="Mở ngăn kéo xem chi tiết phiếu xuất nhập"
+                        >
+                          <Eye size={12} />
+                          <span>Chi tiết</span>
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {pagedLedger.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}
                     >
                       Không có giao dịch nào khớp bộ lọc.
@@ -574,6 +635,15 @@ export function TransactionHub({
           }}
         />
       ) : null}
+
+      {/* Drawer Xem Chi Tiết Giao Dịch Xuất Nhập Kho */}
+      <MovementDetailDrawer
+        transaction={selectedTx}
+        workspace={workspace}
+        ledger={ledger}
+        onClose={() => setSelectedTx(null)}
+        onSelectTransaction={(tx) => setSelectedTx(tx)}
+      />
     </div>
   );
 }

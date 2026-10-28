@@ -1753,6 +1753,19 @@ export default function RequestsPage() {
               emptyFallback={workflowFallback}
             />
           }
+          thread={
+            selectedRequest ? (
+              <RequestThread
+                kind={selectedRequest.kind}
+                requestId={selectedRequest.id}
+                highlightCommentId={
+                  selectedRequest.id === notificationRequestId && notificationCommentId
+                    ? notificationCommentId
+                    : undefined
+                }
+              />
+            ) : null
+          }
           actions={
             detailRow ? (
               <>

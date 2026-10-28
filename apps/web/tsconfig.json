@@ -72,6 +72,9 @@
       "path": "../../packages/contracts/tenancy"
     },
     {
+      "path": "../../packages/contracts/task-approval"
+    },
+    {
       "path": "../../packages/contracts/organization"
     },
     {

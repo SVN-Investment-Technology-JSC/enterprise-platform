@@ -90,6 +90,8 @@ export interface CreateMaterialRequest {
   readonly code: string;
   readonly name: string;
   readonly category: MaterialCategory;
+  /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt (catalog.asset.types). */
+  readonly type?: AssetType;
   readonly unit: string;
   readonly minStock?: number;
   readonly maxStock?: number;
@@ -106,6 +108,8 @@ export interface CreateMaterialRequest {
   readonly kind?: MaterialKind;
   /** Số tháng bảo hành mặc định khi bán; bỏ trống là chưa khai. */
   readonly warrantyMonths?: number | null;
+  readonly assignedEmployeeId?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 }
 
 export interface UpdateMaterialRequest {
@@ -136,6 +140,8 @@ export interface UpdateMaterialRequest {
   readonly kind?: MaterialKind;
   /** `null` xoá số tháng bảo hành đã khai. */
   readonly warrantyMonths?: number | null;
+  readonly assignedEmployeeId?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 }
 
 /**
@@ -457,6 +463,9 @@ export interface Material {
   readonly kind: MaterialKind;
   /** Số tháng bảo hành mặc định; không có là chưa khai. */
   readonly warrantyMonths?: number;
+  readonly assignedEmployeeId?: string;
+  readonly assignedAt?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 }
 
 export interface SerialTracking {
@@ -636,6 +645,41 @@ export interface LotAllocationInput {
   readonly quantity: number;
 }
 
+export type AssetTestResultStatus = 'PASSED' | 'FAILED' | 'WARNING';
+
+export interface AssetTestRecord {
+  readonly id: string;
+  readonly assetId: string;
+  readonly assetCode?: string;
+  readonly testCode: string;
+  readonly testType: string;
+  readonly testDate: string;
+  readonly nextTestDate?: string;
+  readonly resultStatus: AssetTestResultStatus;
+  readonly measuredParameters: Record<string, unknown>;
+  readonly leadTester: string;
+  readonly testingAgency?: string;
+  readonly certificateNumber?: string;
+  readonly attachmentUrls?: readonly string[];
+  readonly note?: string;
+  readonly createdAt: string;
+}
+
+export interface CreateAssetTestRecordRequest {
+  readonly assetId: string;
+  readonly testCode: string;
+  readonly testType: string;
+  readonly testDate: string;
+  readonly nextTestDate?: string;
+  readonly resultStatus: AssetTestResultStatus;
+  readonly measuredParameters?: Record<string, unknown>;
+  readonly leadTester: string;
+  readonly testingAgency?: string;
+  readonly certificateNumber?: string;
+  readonly attachmentUrls?: readonly string[];
+  readonly note?: string;
+}
+
 /**
  * Khai sê-ri cho một mã vật tư.
  *
@@ -684,6 +728,34 @@ export interface MaterialInventory {
   readonly updatedAt: string;
 }
 
+/** Loại đối tác của một lần nhập (nơi nhập đến từ) hoặc xuất (nơi xuất đi đến). */
+export type MovementCounterpartyType =
+  | 'SUPPLIER'
+  | 'DEPARTMENT'
+  | 'CUSTOMER'
+  | 'PROJECT'
+  | 'ASSET'
+  | 'WAREHOUSE';
+
+export const MOVEMENT_COUNTERPARTY_TYPES: readonly MovementCounterpartyType[] = [
+  'SUPPLIER',
+  'DEPARTMENT',
+  'CUSTOMER',
+  'PROJECT',
+  'ASSET',
+  'WAREHOUSE',
+];
+
+/** Nơi nhập/xuất của cả phiếu, áp cho mọi dòng của phiếu. */
+export interface MovementCounterparty {
+  readonly type: MovementCounterpartyType;
+  /** Tên nhà cung cấp, phòng ban, khách hàng, dự án hoặc mã thiết bị. */
+  readonly name: string;
+  readonly address?: string;
+  /** Số hóa đơn / chứng từ gốc. */
+  readonly documentNumber?: string;
+}
+
 export interface InventoryTransaction {
   readonly id: string;
   readonly transactionCode: string;
@@ -698,6 +770,13 @@ export interface InventoryTransaction {
   readonly referenceId?: string;
   readonly workflowStatus: WorkflowStatus;
   readonly note?: string;
+  /** Nơi nhập đến từ / nơi xuất đi đến. Dòng cũ trước migration 0013 không có. */
+  readonly counterpartyType?: MovementCounterpartyType;
+  readonly counterpartyName?: string;
+  readonly counterpartyAddress?: string;
+  /** Chuyển kho: kho đích (dòng xuất) hoặc kho nguồn (dòng nhập). */
+  readonly counterpartyWarehouseId?: string;
+  readonly documentNumber?: string;
   readonly createdBy: string;
   readonly createdAt: string;
   /** Chứng từ kho sinh ra bút toán; bút toán trước migration 0011 không có. */
@@ -1180,6 +1259,8 @@ export interface StocktakeSession {
   readonly status: StocktakeStatus;
   readonly scopeType: StocktakeScopeType;
   readonly scopeCategories?: readonly string[];
+  readonly specificMaterialCodes?: readonly string[];
+  readonly stocktakeDate?: string;
   readonly snapshotAt?: string;
   readonly leadAuditor?: string;
   readonly auditors?: readonly string[];
@@ -1199,6 +1280,7 @@ export interface CreateStocktakeRequest {
   readonly code?: string;
   readonly title: string;
   readonly warehouseCode: string;
+  readonly stocktakeDate?: string;
   readonly scopeType: StocktakeScopeType;
   readonly scopeCategories?: readonly string[];
   readonly specificMaterialCodes?: readonly string[];
@@ -1855,4 +1937,14 @@ export interface StockApprovalReport {
   readonly total: number;
   readonly limit: number;
   readonly offset: number;
+}
+
+export interface AuditorCandidate {
+  readonly id: string;
+  readonly name: string;
+  readonly code?: string;
+  readonly department?: string;
+  readonly position?: string;
+  readonly email?: string;
+  readonly hasWarehouseAccess: boolean;
 }

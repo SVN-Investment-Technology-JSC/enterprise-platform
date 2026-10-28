@@ -39,6 +39,11 @@ const nextConfig = {
     )
       .trim()
       .replace(/\/$/, '');
+    const inventoryApiBaseUrl = (
+      process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336'
+    )
+      .trim()
+      .replace(/\/$/, '');
 
     return [
       {
@@ -48,6 +53,10 @@ const nextConfig = {
       {
         source: '/api/procedure/:path*',
         destination: `${procedureApiBaseUrl}/api/procedure/:path*`,
+      },
+      {
+        source: '/api/inventory/:path*',
+        destination: `${inventoryApiBaseUrl}/api/inventory/:path*`,
       },
       {
         source: '/api/:path*',

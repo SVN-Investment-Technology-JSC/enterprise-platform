@@ -24,3 +24,4 @@ export {
   receiveWorkspaceReversalRequest,
   WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED as HRM_WORKSPACE_REVERSAL_BINDING,
 } from './lib/infrastructure/hrm-request-reversal.js';
+export * from './lib/application/hrm-task-approval.service.js';

@@ -6,6 +6,7 @@ import type {
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import {
   ForbiddenException,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -41,6 +42,7 @@ export interface ModuleAccessOptions {
  * module, nên nó ở lại với module.
  */
 export class ModuleAccess {
+  private readonly logger = new Logger(ModuleAccess.name);
   private readonly fetcher: typeof fetch;
   private readonly verifyToken: (token: string) => Promise<AuthenticatedPrincipal>;
 
@@ -107,39 +109,56 @@ export class ModuleAccess {
    * **Không cache.** Bản cache 30 giây từng có ở đây đã được gỡ theo hướng của
    * `dev/release`: đổi quyền hay tắt module phải có hiệu lực ngay, chờ hết hạn
    * cache là để người vừa bị thu quyền vẫn thao tác được thêm nửa phút.
-   * Platform không trả lời được thì từ chối an toàn.
+   *
+   * Thử lại đúng một lần khi Platform trả 5xx hoặc không kết nối được: một lượt nạp
+   * màn hình bắn hàng chục request cùng lúc, và một lỗi nhất thời ở Platform không
+   * được làm cả loạt bị từ chối. Lỗi 4xx không thử lại. Vẫn không trả lời được thì
+   * từ chối an toàn, và ghi nguyên nhân thật vào log.
    */
   async decision(
     principal: TenantUserPrincipal,
     permission: string,
   ): Promise<AccessDecisionResponse> {
-    try {
-      const response = await this.fetcher(
-        process.env.PLATFORM_ACCESS_DECISION_URL ??
-          'http://localhost:3333/api/platform/internal/v1/access-decisions',
-        {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '',
-          },
-          body: JSON.stringify({
-            sessionId: principal.sessionId,
-            userId: principal.userId,
-            tenantId: principal.tenantId,
-            moduleKey: this.options.moduleKey,
-            permission,
-          }),
-        },
-      );
-      if (!response.ok) throw new Error(`Platform access decision returned ${response.status}.`);
-      return (await response.json()) as AccessDecisionResponse;
-    } catch {
-      throw new ServiceUnavailableException({
-        code: 'PLATFORM_ACCESS_UNAVAILABLE',
-        message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.',
-      });
+    const url =
+      process.env.PLATFORM_ACCESS_DECISION_URL ??
+      'http://localhost:3333/api/platform/internal/v1/access-decisions';
+    const init: RequestInit = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '',
+      },
+      body: JSON.stringify({
+        sessionId: principal.sessionId,
+        userId: principal.userId,
+        tenantId: principal.tenantId,
+        moduleKey: this.options.moduleKey,
+        permission,
+      }),
+    };
+
+    let cause: unknown;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const response = await this.fetcher(url, init);
+        if (response.ok) return (await response.json()) as AccessDecisionResponse;
+        cause = new Error(`Platform access decision returned ${response.status}.`);
+        if (response.status < 500) break;
+      } catch (error) {
+        cause = error;
+      }
+      if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 100));
     }
+
+    this.logger.error(
+      `Không hỏi được quyết định truy cập của Platform (module ${this.options.moduleKey}, quyền ${permission}): ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    throw new ServiceUnavailableException({
+      code: 'PLATFORM_ACCESS_UNAVAILABLE',
+      message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.',
+    });
   }
 
   /**

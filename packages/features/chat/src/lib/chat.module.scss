@@ -644,7 +644,7 @@ $danger: #dc2626;
   margin-top: 2px;
 
   &:hover .tools,
-  &:focus-within .tools {
+  &:has(:focus-visible) .tools {
     opacity: 1;
     pointer-events: auto;
   }

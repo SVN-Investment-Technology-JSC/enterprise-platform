@@ -21,6 +21,7 @@
   "dependencies": {
     "@enterprise-platform/contracts-assistant": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-task-approval": "workspace:*",
     "@enterprise-platform/feature-chat": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "react": "^19.2.8"

@@ -38,12 +38,15 @@ import {
   UuidProcedureIdGenerator,
 } from './infrastructure/system-procedure-services.js';
 import { ProcedureEngineController } from './presentation/procedure-engine.controller.js';
+import { ProcedureTaskApprovalController } from './presentation/procedure-task-approval.controller.js';
+import { ProcedureTaskApprovalService } from './application/procedure-task-approval.service.js';
 
 @Module({
-  controllers: [ProcedureEngineController],
+  controllers: [ProcedureEngineController, ProcedureTaskApprovalController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
+    ProcedureTaskApprovalService,
     {
       provide: PostgresProcedureStore,
       useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
@@ -119,6 +122,12 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
       ],
     },
   ],
-  exports: [ProcedureEngineApplication, ProcedureAttachmentService, TenantDatabaseRegistry, PostgresPoolRegistry],
+  exports: [
+    ProcedureEngineApplication,
+    ProcedureAttachmentService,
+    ProcedureTaskApprovalService,
+    TenantDatabaseRegistry,
+    PostgresPoolRegistry,
+  ],
 })
 export class ProcedureEngineModule {}

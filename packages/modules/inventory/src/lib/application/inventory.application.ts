@@ -28,6 +28,7 @@ import type {
   LotAllocationInput,
   Material,
   MaterialInventory,
+  MovementCounterparty,
   Reservation,
   RetireResult,
   ReturnItemToStockRequest,
@@ -38,6 +39,9 @@ import type {
   UpdateMaterialRequest,
   UpdateSettingsRequest,
   Warehouse,
+  AssetTestRecord,
+  CreateAssetTestRecordRequest,
+  AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
 import type { InstalledTracking, InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_STORE } from './inventory-store.port.js';
@@ -71,7 +75,10 @@ import {
   isInventorySettingsKey,
   normalizeInventorySetting,
 } from './inventory-settings.js';
-import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
+import {
+  INVENTORY_SETTINGS_KEYS,
+  MOVEMENT_COUNTERPARTY_TYPES,
+} from '@enterprise-platform/contracts-inventory';
 import {
   normalizeLineSerials,
   normalizeLotInput,
@@ -693,6 +700,14 @@ export class InventoryApplication {
    * Postgres và tầng trên biến thành 500 — người dùng nhận "Internal server
    * error" cho một lỗi nhập liệu. Bắt ở đây mới trả về 400 kèm câu giải thích.
    */
+  /** Đơn giá bỏ trống là chưa khai báo; có giá thì phải là số hữu hạn và không âm (0 là giá hợp lệ). */
+  private requirePurchasePrice(price: number | undefined): void {
+    if (price === undefined || price === null) return;
+    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
+      throw new InventoryError('VALIDATION', 'Đơn giá phải là số không âm.');
+    }
+  }
+
   private requireValidYear(year: number | undefined): void {
     if (year === undefined) return;
     if (!Number.isInteger(year) || year < 1900 || year > 2200) {
@@ -867,6 +882,7 @@ export class InventoryApplication {
       lot?: StockDocumentLotInput;
       /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng (T8-11). */
       serials?: readonly string[];
+      counterparty?: MovementCounterparty;
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
@@ -895,7 +911,7 @@ export class InventoryApplication {
           serials,
         },
       ],
-    });
+    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
     return posted[0];
   }
 
@@ -916,6 +932,7 @@ export class InventoryApplication {
       referenceId?: string;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      counterparty?: MovementCounterparty;
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
@@ -936,7 +953,7 @@ export class InventoryApplication {
         unitCost: 0,
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
-    });
+    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
     return posted[0];
   }
 
@@ -977,6 +994,95 @@ export class InventoryApplication {
       })),
     });
     return { out, in: inbound };
+  }
+
+  /**
+   * Phiếu nhập hoặc xuất nhiều dòng, ghi nguyên tử: một dòng lỗi (thiếu tồn, sai
+   * mã vật tư) thì không dòng nào được ghi.
+   *
+   * Ghi qua chứng từ kho (cùng đường với nhập/xuất một dòng) nên giá vốn và kiểm
+   * tồn khả dụng đi đúng luật chung. Không xử lý sê-ri hay lô.
+   */
+  async recordMovementLines(
+    actor: InventoryActor,
+    input: {
+      kind: 'receipt' | 'issue';
+      /** Nơi nhập đến từ / nơi xuất đi đến, áp cho mọi dòng của phiếu. */
+      counterparty?: MovementCounterparty;
+      lines: readonly {
+        warehouseCode: string;
+        materialCode: string;
+        quantity: number;
+        unitCost?: number;
+        note?: string;
+      }[];
+    },
+  ): Promise<InventoryTransaction[]> {
+    this.requireStockWriter(actor);
+    if (!input?.lines?.length) {
+      throw new InventoryError('VALIDATION', 'Phiếu phải có ít nhất một dòng.');
+    }
+    if (input.kind !== 'receipt' && input.kind !== 'issue') {
+      throw new InventoryError('VALIDATION', 'Loại phiếu không hợp lệ.');
+    }
+    for (const line of input.lines) this.requirePositive(line.quantity);
+    // Một phiếu một kho. Nạp nhiều kho một lần đi đường nhập Excel hàng loạt, không phải phiếu.
+    const warehouses = new Set(input.lines.map((line) => line.warehouseCode?.trim().toUpperCase()));
+    if (warehouses.size > 1) {
+      throw new InventoryError('VALIDATION', 'Một phiếu chỉ được thực hiện trong một kho.');
+    }
+    const counterparty = this.normalizeCounterparty(input.counterparty);
+    const receipt = input.kind === 'receipt';
+    // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
+    const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
+    return this.postLegacyDocument(
+      actor,
+      {
+        docType: receipt ? 'RECEIPT_OTHER' : 'ISSUE_OTHER',
+        warehouseCode: input.lines[0].warehouseCode,
+        note: note || undefined,
+        createdBy: actor.userId,
+        lines: input.lines.map((line) => ({
+          materialCode: line.materialCode,
+          quantity: line.quantity,
+          direction: receipt ? ('IN' as const) : ('OUT' as const),
+          unitCost: receipt ? (line.unitCost ?? 0) : 0,
+        })),
+      },
+      { counterparty },
+    );
+  }
+
+  /**
+   * Chuẩn hoá nơi nhập/xuất do client gửi. Không gửi gì thì để trống: các caller cũ
+   * (quy trình, bảo trì) chưa khai báo thông tin này. Loại WAREHOUSE do chuyển kho
+   * tự gán, client không được tự khai vì nó phải đi kèm id kho đối ứng.
+   */
+  private normalizeCounterparty(
+    counterparty: MovementCounterparty | undefined,
+  ): MovementCounterparty | undefined {
+    if (!counterparty) return undefined;
+    if (
+      !MOVEMENT_COUNTERPARTY_TYPES.includes(counterparty.type) ||
+      counterparty.type === 'WAREHOUSE'
+    ) {
+      throw new InventoryError('VALIDATION', 'Loại nơi nhập/xuất không hợp lệ.');
+    }
+    const name = counterparty.name?.trim();
+    if (!name) throw new InventoryError('VALIDATION', 'Phải nhập tên nơi nhập/xuất.');
+    if (name.length > 255) {
+      throw new InventoryError('VALIDATION', 'Tên nơi nhập/xuất tối đa 255 ký tự.');
+    }
+    const documentNumber = counterparty.documentNumber?.trim() || undefined;
+    if (documentNumber && documentNumber.length > 100) {
+      throw new InventoryError('VALIDATION', 'Số chứng từ tối đa 100 ký tự.');
+    }
+    return {
+      type: counterparty.type,
+      name,
+      address: counterparty.address?.trim() || undefined,
+      documentNumber,
+    };
   }
 
   /**
@@ -1127,6 +1233,7 @@ export class InventoryApplication {
 
   async createMaterial(actor: InventoryActor, input: CreateMaterialRequest): Promise<Material> {
     this.requireValidYear(input.manufactureYear);
+    this.requirePurchasePrice(input.purchasePrice);
     this.requireManager(actor);
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
@@ -1160,6 +1267,7 @@ export class InventoryApplication {
     patch: UpdateMaterialRequest,
   ): Promise<Material> {
     this.requireValidYear(patch.manufactureYear);
+    this.requirePurchasePrice(patch.purchasePrice);
     this.requireManager(actor);
     const current = await this.store.material.findAnyByCode(actor.tenantId, code);
     if (!current) throw new MaterialNotFoundError(code);
@@ -1358,6 +1466,33 @@ export class InventoryApplication {
     return { ...saved, value: normalizeInventorySetting(key, saved.value) };
   }
 
+  // --- Trang thiết bị nhân sự (HRM Custody) ---
+  async listEmployeeCustody(actor: InventoryActor, employeeId: string): Promise<Material[]> {
+    return this.store.custody.listByEmployee(actor.tenantId, employeeId);
+  }
+
+  async assignCustody(
+    actor: InventoryActor,
+    materialCode: string,
+    employeeId: string | null,
+  ): Promise<Material | null> {
+    this.requireStockWriter(actor);
+    return this.store.custody.assign(actor.tenantId, materialCode, employeeId);
+  }
+
+  // --- Biên bản thí nghiệm / đo kiểm tài sản ---
+  async listAssetTests(actor: InventoryActor, assetId: string): Promise<AssetTestRecord[]> {
+    return this.store.assetTest.listByAsset(actor.tenantId, assetId);
+  }
+
+  async createAssetTest(
+    actor: InventoryActor,
+    input: CreateAssetTestRecordRequest,
+  ): Promise<AssetTestRecord> {
+    this.requireStockWriter(actor);
+    return this.store.assetTest.create(actor.tenantId, input);
+  }
+
   private requireManager(actor: InventoryActor): void {
     if (!actor.canManage) {
       throw new InvalidReservationError('Bạn không có quyền sửa danh mục kho.');
@@ -1375,6 +1510,10 @@ export class InventoryApplication {
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new InvalidReservationError('Số lượng phải là số dương.');
     }
+  }
+
+  listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]> {
+    return this.store.listAuditorCandidates(actor);
   }
 }
 

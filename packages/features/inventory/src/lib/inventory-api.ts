@@ -43,6 +43,7 @@ import type {
   Warehouse,
   StocktakeSession,
   StocktakeLine,
+  MovementCounterparty,
   CreateStocktakeRequest,
   StockApprovalReport,
   StockApprovalReportQuery,
@@ -133,6 +134,17 @@ export async function loadInventoryWorkspace(): Promise<InventoryWorkspace> {
   );
 
   return { warehouses, materials, assets, stock: perWarehouse.flat(), permissions };
+}
+
+/**
+ * Tồn của một kho đọc trực tiếp từ server.
+ *
+ * Form xuất/chuyển kho dùng nó thay cho `workspace.stock`: bản trong workspace có
+ * thể cũ (nạp lại sau một lần ghi bị lỗi thì giữ dữ liệu trước đó), mà kiểm tồn
+ * trên số cũ sẽ cho qua hoặc chặn nhầm một phiếu.
+ */
+export function loadWarehouseStock(warehouseCode: string): Promise<MaterialInventory[]> {
+  return request<MaterialInventory[]>(`/warehouses/${encodeURIComponent(warehouseCode)}/stock`);
 }
 
 export type InventoryLedgerRow = InventoryTransaction;
@@ -633,6 +645,43 @@ export function reverseStockDocument(id: string): Promise<PostedStockDocument> {
   return request<PostedStockDocument>(`/stock-documents/${encodeURIComponent(id)}/reverse`, { method: 'POST' });
 }
 
+// ---------------------------------------------------------------- Trang thiết bị cá nhân (HRM Custody)
+export function loadEmployeeCustody(
+  employeeId: string,
+): Promise<import('@enterprise-platform/contracts-inventory').Material[]> {
+  return request<import('@enterprise-platform/contracts-inventory').Material[]>(
+    `/custody/employees/${encodeURIComponent(employeeId)}`,
+  );
+}
+
+export function assignCustody(
+  materialCode: string,
+  employeeId: string | null,
+): Promise<import('@enterprise-platform/contracts-inventory').Material> {
+  return request<import('@enterprise-platform/contracts-inventory').Material>('/custody/assign', {
+    method: 'POST',
+    body: JSON.stringify({ materialCode, employeeId }),
+  });
+}
+
+// ---------------------------------------------------------------- Nhật ký Thí nghiệm & Đo kiểm
+export function loadAssetTests(
+  assetId: string,
+): Promise<import('@enterprise-platform/contracts-inventory').AssetTestRecord[]> {
+  return request<import('@enterprise-platform/contracts-inventory').AssetTestRecord[]>(
+    `/assets/${encodeURIComponent(assetId)}/tests`,
+  );
+}
+
+export function createAssetTest(
+  input: import('@enterprise-platform/contracts-inventory').CreateAssetTestRecordRequest,
+): Promise<import('@enterprise-platform/contracts-inventory').AssetTestRecord> {
+  return request<import('@enterprise-platform/contracts-inventory').AssetTestRecord>('/assets/tests', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
 export function loadAllWarehouses(): Promise<Warehouse[]> {
   return request<Warehouse[]>('/warehouses/all');
@@ -666,6 +715,7 @@ export function receiveStock(input: {
   lot?: StockDocumentLotInput;
   /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
   serials?: readonly string[];
+  counterparty?: MovementCounterparty;
 }): Promise<InventoryTransaction> {
   return request<InventoryTransaction>('/receipts', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -677,8 +727,29 @@ export function issueStock(input: {
   note?: string;
   /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
   lots?: readonly LotAllocationInput[];
+  /** Nơi xuất đi đến (bộ phận, khách, dự án…). */
+  counterparty?: MovementCounterparty;
 }): Promise<InventoryTransaction> {
   return request<InventoryTransaction>('/issues', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Ghi nhiều dòng nhập hoặc xuất của một phiếu: một dòng lỗi thì không dòng nào được ghi. */
+export function recordMovementBatch(input: {
+  kind: 'receipt' | 'issue';
+  /** Nơi nhập đến từ / nơi xuất đi đến của cả phiếu. */
+  counterparty?: MovementCounterparty;
+  lines: {
+    warehouseCode: string;
+    materialCode: string;
+    quantity: number;
+    unitCost?: number;
+    note?: string;
+  }[];
+}): Promise<InventoryTransaction[]> {
+  return request<InventoryTransaction[]>('/movements/batch', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export function transferStock(input: {
@@ -1183,6 +1254,160 @@ export async function loadStocktakeLines(sessionId: string, workspace?: Inventor
   return [];
 }
 
+export interface AuditorCandidate {
+  readonly id: string;
+  readonly name: string;
+  readonly code?: string;
+  readonly department?: string;
+  readonly position?: string;
+  readonly email?: string;
+  readonly hasWarehouseAccess?: boolean;
+}
+
+export const DEFAULT_WAREHOUSE_AUDITORS: readonly AuditorCandidate[] = [
+  {
+    id: 'auditor-1',
+    name: 'Trần Văn Hưng',
+    code: 'NV-KHO-01',
+    position: 'Thủ kho trưởng',
+    department: 'Bộ phận Kho vận',
+    hasWarehouseAccess: true,
+  },
+  {
+    id: 'auditor-2',
+    name: 'Nguyễn Văn An',
+    code: 'NV-KT-02',
+    position: 'Kế toán vật tư',
+    department: 'Phòng Kế toán',
+    hasWarehouseAccess: true,
+  },
+  {
+    id: 'auditor-3',
+    name: 'Lê Thị Mai',
+    code: 'NV-KHO-03',
+    position: 'Nhân viên thủ kho',
+    department: 'Bộ phận Kho vận',
+    hasWarehouseAccess: true,
+  },
+  {
+    id: 'auditor-4',
+    name: 'Phạm Minh Đức',
+    code: 'NV-QL-04',
+    position: 'Quản lý kho tổng',
+    department: 'Ban Quản trị Cơ sở',
+    hasWarehouseAccess: true,
+  },
+  {
+    id: 'auditor-5',
+    name: 'Hoàng Quốc Việt',
+    code: 'NV-KT-05',
+    position: 'Kỹ thuật viên vật tư',
+    department: 'Bộ phận Kỹ thuật',
+    hasWarehouseAccess: true,
+  },
+];
+
+let cachedAuditors: AuditorCandidate[] | null = null;
+
+export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
+  if (cachedAuditors && cachedAuditors.length > 0) return cachedAuditors;
+
+  // 1. Tải danh sách nhân sự kèm thông tin phân quyền kho chính xác từ Inventory API
+  try {
+    const list = await request<AuditorCandidate[]>('/auditor-candidates');
+    if (Array.isArray(list) && list.length > 0) {
+      cachedAuditors = list;
+      return list;
+    }
+  } catch {
+    // Không gọi được endpoint mới, tiếp tục fallback
+  }
+
+  // 2. Thử tải từ HRM Employee Directory nếu có
+  try {
+    const res = await authFetch('/api/hrm/v1/employees?page_size=100');
+    if (res.ok) {
+      const json = (await res.json()) as { data?: any[] };
+      if (Array.isArray(json?.data) && json.data.length > 0) {
+        const candidates: AuditorCandidate[] = json.data.map((emp) => {
+          const dept = emp.departmentName || emp.department || '';
+          const pos = emp.positionTitle || emp.position || '';
+          const d = dept.toLowerCase();
+          const p = pos.toLowerCase();
+          const isWh =
+            d.includes('kho') ||
+            d.includes('vật tư') ||
+            d.includes('hậu cần') ||
+            d.includes('logistics') ||
+            p.includes('kho') ||
+            p.includes('vật tư') ||
+            p.includes('thủ kho') ||
+            p.includes('kế toán kho') ||
+            p.includes('kế toán vật tư');
+          return {
+            id: emp.employeeId || emp.id || emp.employeeCode,
+            name: emp.fullName || emp.name,
+            code: emp.employeeCode || emp.code,
+            department: dept,
+            position: pos,
+            email: emp.workEmail || emp.email,
+            hasWarehouseAccess: isWh,
+          };
+        });
+        candidates.sort((a, b) => (b.hasWarehouseAccess ? 1 : 0) - (a.hasWarehouseAccess ? 1 : 0));
+        cachedAuditors = candidates;
+        return candidates;
+      }
+    }
+  } catch {
+    // Không truy cập được HRM, thử tiếp nguồn khác
+  }
+
+  // 2. Thử tải từ Directory của Workspace nếu có
+  try {
+    const res = await authFetch('/api/workspace/v1/directory');
+    if (res.ok) {
+      const json = (await res.json()) as { people?: any[] };
+      if (Array.isArray(json?.people) && json.people.length > 0) {
+        const candidates: AuditorCandidate[] = json.people.map((p) => {
+          const unit = Array.isArray(p.unitNames) ? p.unitNames.join(', ') : '';
+          const pos = p.positionName || '';
+          const u = unit.toLowerCase();
+          const pLower = pos.toLowerCase();
+          const isWh =
+            u.includes('kho') ||
+            u.includes('vật tư') ||
+            u.includes('hậu cần') ||
+            u.includes('logistics') ||
+            pLower.includes('kho') ||
+            pLower.includes('vật tư') ||
+            pLower.includes('thủ kho') ||
+            pLower.includes('kế toán kho') ||
+            pLower.includes('kế toán vật tư');
+          return {
+            id: p.userId,
+            name: p.displayName || p.name,
+            code: undefined,
+            department: unit,
+            position: pos,
+            email: p.email,
+            hasWarehouseAccess: isWh,
+          };
+        });
+        candidates.sort((a, b) => (b.hasWarehouseAccess ? 1 : 0) - (a.hasWarehouseAccess ? 1 : 0));
+        cachedAuditors = candidates;
+        return candidates;
+      }
+    }
+  } catch {
+    // Bỏ qua
+  }
+
+  // 3. Fallback danh sách nhân sự kho chuẩn
+  cachedAuditors = [...DEFAULT_WAREHOUSE_AUDITORS];
+  return cachedAuditors;
+}
+
 export async function createStocktakeSession(
   input: CreateStocktakeRequest,
   workspace: InventoryWorkspace,
@@ -1203,10 +1428,12 @@ export async function createStocktakeSession(
     status: 'DRAFT',
     scopeType: input.scopeType,
     scopeCategories: input.scopeCategories,
+    specificMaterialCodes: input.specificMaterialCodes,
+    stocktakeDate: input.stocktakeDate || new Date().toISOString().slice(0, 10),
     leadAuditor: input.leadAuditor || 'Thủ kho trưởng',
     auditors: input.auditors || [],
     note: input.note,
-    totalItems: 0,
+    totalItems: input.specificMaterialCodes?.length ?? 0,
     countedItems: 0,
     differenceItems: 0,
     totalVarianceValue: 0,
@@ -1229,37 +1456,88 @@ export async function startStocktakeCounting(
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
 
-  // Tạo snapshot từ số tồn hiện tại của kho
-  const stockRows = workspace.stock.filter((s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode);
   const matMap = new Map(workspace.materials.map((m) => [m.id, m]));
+  const matByCode = new Map(workspace.materials.map((m) => [m.code, m]));
 
-  const lines: StocktakeLine[] = stockRows.map((item, idx) => {
-    const mat = matMap.get(item.materialId) || {
-      id: item.materialId,
-      code: `VT-${100 + idx}`,
-      name: `Vật tư ${idx + 1}`,
-      unit: 'Cái',
-      purchasePrice: 200000,
-    };
-    return {
-      id: `line-${sessionId}-${idx}`,
-      sessionId,
-      materialId: mat.id,
-      materialCode: mat.code,
-      materialName: mat.name,
-      unit: mat.unit || 'Cái',
-      binLocation: undefined,
-      isSerialized: Boolean((mat as any).isSerialized),
-      isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
-      systemQuantity: item.quantity,
-      difference: 0,
-      unitCost: (mat as any).purchasePrice || 200000,
-      differenceValue: 0,
-      status: 'UNCOUNTED',
-      updatedAt: new Date().toISOString(),
-      audits: [],
-    };
-  });
+  let lines: StocktakeLine[] = [];
+
+  if (
+    session.scopeType === 'SPECIFIC_ITEMS' &&
+    session.specificMaterialCodes &&
+    session.specificMaterialCodes.length > 0
+  ) {
+    lines = session.specificMaterialCodes.map((code, idx) => {
+      const mat = matByCode.get(code);
+      const stockRow = workspace.stock.find(
+        (s) =>
+          (s.materialCode === code || (mat && s.materialId === mat.id)) &&
+          (s.warehouseCode === session.warehouseCode || !s.warehouseCode),
+      );
+      const systemQty = stockRow?.quantity ?? 0;
+      return {
+        id: `line-${sessionId}-${idx}`,
+        sessionId,
+        materialId: mat?.id ?? `mat-${code}`,
+        materialCode: code,
+        materialName: mat?.name ?? code,
+        unit: mat?.unit || 'Cái',
+        binLocation: undefined,
+        isSerialized: Boolean(mat?.isSerialized),
+        isLotTracked: code.includes('DAU') || code.includes('CAP'),
+        systemQuantity: systemQty,
+        difference: 0,
+        unitCost: (mat as any)?.purchasePrice || 200000,
+        differenceValue: 0,
+        status: 'UNCOUNTED',
+        updatedAt: new Date().toISOString(),
+        audits: [],
+      };
+    });
+  } else {
+    let stockRows = workspace.stock.filter(
+      (s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode,
+    );
+
+    if (
+      session.scopeType === 'CATEGORY' &&
+      session.scopeCategories &&
+      session.scopeCategories.length > 0
+    ) {
+      const catSet = new Set(session.scopeCategories);
+      stockRows = stockRows.filter((item) => {
+        const mat = matMap.get(item.materialId) || matByCode.get(item.materialCode ?? '');
+        return mat?.type && catSet.has(mat.type);
+      });
+    }
+
+    lines = stockRows.map((item, idx) => {
+      const mat = matMap.get(item.materialId) || matByCode.get(item.materialCode ?? '') || {
+        id: item.materialId,
+        code: item.materialCode || `VT-${100 + idx}`,
+        name: `Vật tư ${idx + 1}`,
+        unit: 'Cái',
+        purchasePrice: 200000,
+      };
+      return {
+        id: `line-${sessionId}-${idx}`,
+        sessionId,
+        materialId: mat.id,
+        materialCode: mat.code,
+        materialName: mat.name,
+        unit: mat.unit || 'Cái',
+        binLocation: undefined,
+        isSerialized: Boolean((mat as any).isSerialized),
+        isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
+        systemQuantity: item.quantity,
+        difference: 0,
+        unitCost: (mat as any).purchasePrice || 200000,
+        differenceValue: 0,
+        status: 'UNCOUNTED',
+        updatedAt: new Date().toISOString(),
+        audits: [],
+      };
+    });
+  }
 
   const updatedSession: StocktakeSession = {
     ...session,

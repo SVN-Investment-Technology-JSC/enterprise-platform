@@ -242,6 +242,9 @@
     },
     {
       "path": "./packages/features/crm"
+    },
+    {
+      "path": "./packages/contracts/task-approval"
     }
   ]
 }
