@@ -85,3 +85,36 @@ node tools/inventory/reconcile-stock.mjs --tenant=svn --compare=/tmp/svn-truoc.j
 - Mã thoát: 0 khi chụp xong hoặc so khớp; 1 khi `--compare` thấy khác biệt; 2 khi lỗi tham số, kết nối hoặc DB chưa có
   phân hệ Kho.
 - Tự kiểm: chụp hai lần liên tiếp khi không ai ghi sổ rồi `--compare` phải báo "Khớp".
+
+## Đưa serial về Trong kho sau rollback và triển khai lại
+
+Bản trước 0013 khai serial (`POST /serials`, nhập kho kèm serial theo đường cũ) với `stock_state` NULL. Nếu hệ thống bị
+rollback về bản cũ một thời gian rồi triển khai lại bản mới, serial khai trong khoảng đó ở trạng thái "chưa vào sổ kho":
+bản mới không cho xuất, lắp hay chuyển chúng. `tools/inventory/backfill-serial-stock-state.mjs` áp lại đúng điều kiện
+backfill của `migrations/tenant/inventory/0013-serial-quality.sql` (serial `stock_state` NULL, có kho hiện tại, không
+gắn thiết bị) cho các serial đó:
+
+```bash
+# Xem trước (mặc định, transaction READ ONLY, không ghi gì):
+node tools/inventory/backfill-serial-stock-state.mjs --tenant=svn
+# Kèm danh sách dòng tồn có khả dụng âm:
+node tools/inventory/backfill-serial-stock-state.mjs --tenant=svn --report-negative
+# Ghi:
+node tools/inventory/backfill-serial-stock-state.mjs --tenant=svn --apply
+# Hoặc --database-url=postgres://user:pass@host:5432/<db tenant>, hoặc biến INVENTORY_DATABASE_URL; --json cho JSON.
+```
+
+- `--tenant=<tên DB>` lấy URL từ `TENANT_DATABASE_URL_TEMPLATE` (biến môi trường hoặc `.env` ở gốc repo), như
+  `reconcile-stock.mjs`. Không có `--apply` thì chỉ xem trước.
+- Không vượt tồn: với mỗi cặp (kho, mặt hàng), số serial Trong kho sau khi đưa không vượt phần nguyên của
+  `material_inventory.quantity`. Serial khai trước được ưu tiên; serial còn lại in với `action = BO_QUA` và lý do. Thủ
+  kho kiểm đếm các serial bỏ qua rồi xử lý bằng chứng từ (nhập thêm hoặc điều chỉnh), không sửa tay `stock_state`.
+- Serial không có kho hiện tại hoặc đang gắn thiết bị không đổi (giống 0013). Script không ghi `serial_movements`,
+  như backfill của 0013.
+- `--report-negative` liệt kê dòng `material_inventory` có `available` âm: bản cũ xuất không trừ phần không Đạt
+  (`quantity_blocked`), nên khả dụng có thể âm. Script chỉ báo; thủ kho xử lý bằng chứng từ (đổi trạng thái chất lượng,
+  xuất khác hàng lỗi hoặc điều chỉnh) sau khi kiểm đếm.
+- Khi ghi, script khoá các dòng tồn và serial chưa vào sổ kho trong lúc tính, nên chứng từ ghi sổ cùng lúc phải chờ;
+  chạy ngoài giờ làm việc. Chạy lại an toàn: serial đã đưa vào thì không còn là ứng viên.
+- Bảng ra stdout (`action`, kho, mặt hàng, serial, lý do), tóm tắt ra stderr, mật khẩu che `***`. Mã thoát 0 khi chạy
+  được, 1 khi lỗi tham số, kết nối hoặc DB chưa chạy 0013.

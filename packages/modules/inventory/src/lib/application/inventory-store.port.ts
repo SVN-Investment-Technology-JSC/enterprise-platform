@@ -36,6 +36,15 @@ export interface AppendTransactionInput {
   readonly createdBy: string;
 }
 
+/** Giá vốn, serial và lô của phần đã lắp trên một đơn vị (xem `item.installedTracking`). */
+export interface InstalledTracking {
+  /** Bình quân đơn giá các bút toán lắp có ghi giá; không có thì chưa biết. */
+  readonly unitCost?: number;
+  readonly serials: readonly string[];
+  /** Lô còn nằm trên đơn vị, hạn dùng gần nhất trước. */
+  readonly lots: readonly { readonly lotNo: string; readonly quantity: number }[];
+}
+
 export interface CreateReservationInput {
   readonly referenceType: string;
   readonly referenceId?: string;
@@ -128,6 +137,19 @@ export interface InventoryStore {
     ): Promise<{ unitId: string; unitCode: string; sourceId: string } | 'not_found'>;
     /** Đơn vị đã tháo hết thì ngừng dùng, không xoá. */
     deactivateUnit(tenantId: string, unitCode: string): Promise<void>;
+    /**
+     * Thứ đã xuất khỏi kho để lắp vào đơn vị (hoặc vào chính mã `itemId`): giá
+     * vốn bình quân lúc xuất, serial đang Đã xuất theo chứng từ lắp, lô còn
+     * nằm trên đơn vị. Dùng khi tháo, thanh lý để nhập về đúng giá, serial, lô.
+     */
+    installedTracking(tenantId: string, itemId: string): Promise<InstalledTracking>;
+    /**
+     * Serial của chính mã `materialCode` đang ở ngoài kho (Đã xuất hoặc chưa vào sổ
+     * kho), cho thanh lý mã theo serial mà không ghi serial. Serial gắn với
+     * `itemId` (lần luân chuyển gần nhất mang nguồn là mã này) xếp trước, rồi theo
+     * ngày tạo và số serial.
+     */
+    outstandingSerials(tenantId: string, materialCode: string, itemId?: string): Promise<string[]>;
     /** Tháo khỏi cây, trả về kho. Từ chối khi vật tư còn con. */
     returnToStock(
       tenantId: string,

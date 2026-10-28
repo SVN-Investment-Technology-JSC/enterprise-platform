@@ -60,9 +60,9 @@ import { StockDocumentController } from './presentation/stock-document.controlle
     },
     {
       provide: InventoryApplication,
-      useFactory: (store: InventoryStore, documents: StockDocumentStore) =>
-        new InventoryApplication(store, documents),
-      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE],
+      useFactory: (store: InventoryStore, documents: StockDocumentStore, traceability: TraceabilityStore) =>
+        new InventoryApplication(store, documents, traceability),
+      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE, TRACEABILITY_STORE],
     },
     {
       provide: StockDocumentService,

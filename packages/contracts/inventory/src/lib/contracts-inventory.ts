@@ -202,6 +202,16 @@ export interface InstallItemRequest {
   /** Mặc định 1. */
   readonly quantity?: number;
   readonly note?: string;
+  /**
+   * Serial lắp vào thiết bị. Bắt buộc với vật tư theo dõi theo serial, số phần
+   * tử bằng số lượng; serial phải đang Trong kho, Đạt tại kho xuất.
+   */
+  readonly serials?: readonly string[];
+  /**
+   * Lấy từ lô nào. Bỏ trống thì máy chủ tự chọn lô theo FEFO khi vật tư có tồn
+   * theo lô tại kho xuất; vật tư không theo lô thì bỏ qua.
+   */
+  readonly lots?: readonly LotAllocationInput[];
 }
 
 /** Tháo bớt một đơn vị đang lắp, nhập ngược về kho. */
@@ -209,6 +219,10 @@ export interface UninstallMaterialRequest {
   readonly warehouseCode: string;
   readonly quantity?: number;
   readonly note?: string;
+  /** Serial tháo ra. Bắt buộc với vật tư theo serial, số phần tử bằng số lượng. */
+  readonly serials?: readonly string[];
+  /** Nhập về lô nào. Bỏ trống thì trả về đúng các lô đã xuất khi lắp. */
+  readonly lots?: readonly LotAllocationInput[];
 }
 
 export interface ReturnItemToStockRequest {
@@ -216,6 +230,8 @@ export interface ReturnItemToStockRequest {
   /** Mặc định 1: thiết bị tháo ra là một cá thể. */
   readonly quantity?: number;
   readonly note?: string;
+  /** Serial nhập về. Bắt buộc khi mã theo dõi theo serial, số phần tử bằng số lượng. */
+  readonly serials?: readonly string[];
 }
 
 /**

@@ -354,7 +354,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       if (created.status === 'POSTED') {
         return { document: created, transactions: await this.loadLedger(client, id) };
       }
-      const transactions = await this.postLocked(client, tenantId, created, postedBy, options);
+      const ready = options.autoPickSerials ? await this.pickSerials(client, created) : created;
+      const transactions = await this.postLocked(client, tenantId, ready, postedBy, options);
       const document = await this.load(client, id, false);
       if (!document) throw new StockDocumentNotFoundError(id);
       return { document, transactions };
@@ -420,6 +421,62 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
   }
 
   // ------------------------------------------------------------------ nội bộ
+
+  /**
+   * Ghi serial cho dòng xuất của mặt hàng theo serial còn trống serial (xem
+   * `PostOptions.autoPickSerials`). Chọn tất định: serial Trong kho, Đạt tại kho
+   * xuất, nhập trước trước (`created_at`), rồi theo số serial; khoá FOR UPDATE nên
+   * hai lần lắp cùng lúc không lấy trùng serial. Trả chứng từ đã đọc lại.
+   */
+  private async pickSerials(client: Queryable, document: StockDocument): Promise<StockDocument> {
+    const pending = document.lines.filter(
+      (line) => line.direction === 'OUT' && !line.serials?.length && !line.lotId,
+    );
+    if (pending.length === 0) return document;
+    const serialized = await client.query<Row>(
+      `SELECT id FROM inventory_schema.materials WHERE id = ANY($1::uuid[]) AND is_serialized`,
+      [[...new Set(pending.map((line) => line.materialId))]],
+    );
+    const serializedIds = new Set(serialized.rows.map((row) => str(row.id)));
+    let picked = false;
+    for (const line of pending) {
+      if (!serializedIds.has(line.materialId)) continue;
+      if (!Number.isInteger(line.quantity)) {
+        throw new InventoryError(
+          'VALIDATION',
+          `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial nên số lượng phải là số nguyên.`,
+        );
+      }
+      const taken = document.lines.flatMap((other) => other.serials ?? []);
+      const rows = await client.query<Row>(
+        `SELECT s.serial_number
+           FROM inventory_schema.serial_tracking s
+          WHERE s.material_id = $1 AND s.current_warehouse_id = $2
+            AND s.stock_state = 'IN_STOCK' AND s.quality_status = 'PASSED'
+            AND NOT (upper(btrim(s.serial_number)) = ANY($3::text[]))
+          ORDER BY s.created_at, upper(btrim(s.serial_number)), s.id
+          LIMIT $4
+          FOR UPDATE OF s`,
+        [line.materialId, document.warehouseId, taken.map((serial) => serial.trim().toUpperCase()), line.quantity],
+      );
+      if (rows.rows.length < line.quantity) {
+        throw new InventoryError(
+          'SERIALS_REQUIRED',
+          `${line.materialCode} theo dõi theo serial: kho ${document.warehouseCode} chỉ còn ${rows.rows.length} serial Trong kho, Đạt, không đủ ${line.quantity}. Nhập kho kèm serial hoặc chọn serial cụ thể.`,
+        );
+      }
+      const serials = rows.rows.map((row) => str(row.serial_number));
+      await client.query(
+        `UPDATE inventory_schema.stock_document_lines SET serial_numbers = $2 WHERE id = $1`,
+        [line.id, serials],
+      );
+      picked = true;
+    }
+    if (!picked) return document;
+    const reloaded = await this.load(client, document.id, false);
+    if (!reloaded) throw new StockDocumentNotFoundError(document.id);
+    return reloaded;
+  }
 
   private async load(
     client: Queryable,
@@ -982,7 +1039,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           newLedgerCode(),
           movement.warehouseId,
           movement.materialId,
-          movement.type,
+          options.returnToStock && movement.delta > 0 ? 'RETURN' : movement.type,
           movement.delta,
           costs[index].unitCost,
           outLeg ? 'inventory_transaction' : (document.sourceType ?? null),
@@ -1002,7 +1059,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       RETURNING posted_at`,
       [document.id, postedBy],
     );
-    await tracking.record(client, postedBy);
+    await tracking.record(client, postedBy, options.returnToStock ? 'RETURN' : undefined);
 
     // T1-27: sự kiện xuất kho, nhập trả trong cùng transaction với ghi sổ.
     const eventKind = stockEventKind(document.docType);

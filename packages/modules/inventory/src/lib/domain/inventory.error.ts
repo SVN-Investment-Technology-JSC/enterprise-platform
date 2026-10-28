@@ -192,3 +192,29 @@ export class DocumentIdempotencyConflictError extends InventoryError {
     Object.setPrototypeOf(this, DocumentIdempotencyConflictError.prototype);
   }
 }
+
+/** Unique `(material_id, upper(btrim(serial_number)))` của migration 0013. */
+export const SERIAL_UNIQUE_CONSTRAINT = 'uq_serial_tracking_material_serial';
+
+export class SerialDuplicateError extends InventoryError {
+  constructor() {
+    super(
+      'SERIAL_DUPLICATE',
+      'Số serial đã có cho vật tư này (không phân biệt chữ hoa, chữ thường). Kiểm tra lại danh sách serial.',
+      409,
+    );
+  }
+}
+
+/**
+ * Đổi lỗi Postgres mà người dùng gây ra được thành lỗi nghiệp vụ: trùng serial
+ * (23505 trên unique serial) thành 409 SERIAL_DUPLICATE thay vì 500. Lỗi nghiệp vụ
+ * trả nguyên; lỗi khác trả null để bên gọi ném lại như cũ.
+ */
+export function toInventoryError(error: unknown): InventoryError | null {
+  if (error instanceof InventoryError) return error;
+  if (typeof error !== 'object' || error === null) return null;
+  const { code, constraint } = error as { code?: unknown; constraint?: unknown };
+  if (code === '23505' && constraint === SERIAL_UNIQUE_CONSTRAINT) return new SerialDuplicateError();
+  return null;
+}

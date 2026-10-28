@@ -21,7 +21,7 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
-import { InventoryError } from '../domain/inventory.error.js';
+import { toInventoryError } from '../domain/inventory.error.js';
 
 interface InventoryRequest {
   inventoryActor?: InventoryActor;
@@ -510,15 +510,17 @@ export class InventoryController {
     try {
       return await operation();
     } catch (error) {
-      if (!(error instanceof InventoryError)) throw error;
+      // Trùng serial ở tầng DB (23505) cũng trả 409 thay vì 500.
+      const known = toInventoryError(error);
+      if (!known) throw error;
       throw new HttpException(
         {
-          ...error.details,
-          statusCode: error.statusCode,
-          code: error.code,
-          message: error.message,
+          ...known.details,
+          statusCode: known.statusCode,
+          code: known.code,
+          message: known.message,
         },
-        error.statusCode,
+        known.statusCode,
       );
     }
   }

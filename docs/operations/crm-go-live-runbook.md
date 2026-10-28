@@ -288,6 +288,32 @@ Báo trước cho thủ kho, kế toán, người dùng Workspace:
 
 Chỉ rollback bằng image. Không xoá bảng, không xoá dòng ledger migration để "làm lại" trên tenant đã có dữ liệu thật. Mỗi lần đổi image vẫn làm hệ thống dừng khoảng 2 phút và do người phụ trách deploy thực hiện. Giữ ảnh chụp tồn và biên bản đối soát cùng phiếu deploy.
 
+### 8.1. Sau khi rollback và triển khai lại
+
+Khi Kho (và Bán hàng) phải chạy image cũ một thời gian rồi mới triển khai lại bản mới, schema mới vẫn còn nhưng code cũ không biết các cột, bảng mới. Trong lúc rollback:
+
+1. Tắt entitlement `crm` của mọi tenant đã bật (mục 8, dòng đầu) để không ai ghi Bán hàng khi `crm-api` không khớp Kho. Workspace quay về cho tạo, sửa khách hàng.
+2. Báo thủ kho hạn chế ghi sổ, nhất là hàng theo serial, lô và hàng đang Chờ kiểm định, Lỗi.
+
+Những gì code cũ làm sai trên schema mới, cần dọn sau khi triển khai lại:
+
+| Code cũ | Hậu quả |
+|---|---|
+| Không biết `quantity_blocked` | Xuất, lắp không trừ phần không Đạt: `available` có thể âm, hàng Chờ kiểm định, Lỗi bị xuất như hàng Đạt. |
+| Không cập nhật `avg_cost` | Nhập, xuất trong khoảng rollback không đổi giá vốn bình quân; giá vốn lệch so với sổ kho. |
+| Khai serial (`POST /serials`, nhập kèm serial) với `stock_state` NULL | Bản mới coi serial đó là "chưa vào sổ kho", không xuất, lắp, chuyển được. Lắp vật tư theo serial ở bản cũ trừ tồn nhưng serial vẫn Trong kho. |
+| Khai serial trùng khác hoa thường (`SN001`, ` sn001`) | Unique của 0013 chặn, code cũ trả 500 thay vì báo trùng. Không mất dữ liệu; bản mới trả 409 `SERIAL_DUPLICATE`. |
+
+Sau khi triển khai lại bản mới, trên từng tenant có Kho, theo thứ tự (ngoài giờ làm việc):
+
+1. `node tools/inventory/init-avg-cost.mjs --database-url=<URL DB tenant> --dry-run`, kế toán xem, rồi chạy ghi (mục 4.3). Bình quân tính lại từ sổ kho nên bù được phần code cũ bỏ qua.
+2. `node tools/inventory/backfill-serial-stock-state.mjs --tenant=<db> --report-negative` (xem trước), rồi `--apply`. Serial báo `BO_QUA` (vượt tồn) và dòng `available` âm: thủ kho kiểm đếm rồi xử lý bằng chứng từ, không sửa DB. Xem `tools/inventory/README.md`.
+3. `node tools/inventory/reconcile-stock.mjs --tenant=<db> --compare=<ảnh chụp trước rollback>`: mọi khác biệt phải giải thích được bằng chứng từ ghi trong khoảng rollback; `serialMismatch` còn lại (ví dụ lắp hàng theo serial ở bản cũ) xử lý bằng chứng từ.
+4. Bật lại `crm` (mục 6.1), rồi chạy `tools/crm/migrate-workspace-customers.mjs --tenant=<slug> --dry-run` và chạy thật (mục 6.4) để gắn khách hàng Workspace tạo trong khoảng rollback.
+5. Kiểm lại mục 5.1, 5.2 và lưu output các script vào phiếu deploy.
+
+Lỗi có từ trước, không sửa trong bản này: `POST /api/inventory/v1/items/:code/return` (Thanh lý về kho) nhận mã bất kỳ, kể cả mã chưa từng xuất hay lắp, nên tạo được tồn mà không có lần xuất tương ứng. Bản cũ cũng vậy. Chỉ cấp quyền `inventory.manage` cho người cần và đối soát bằng `reconcile-stock.mjs` sau rollback.
+
 ## 9. Hạn chế đã biết và việc còn mở
 
 | Mục | Ghi chú |
@@ -303,6 +329,7 @@ Chỉ rollback bằng image. Không xoá bảng, không xoá dòng ledger migrat
 | Chất lượng từng serial | Chưa có màn đổi chất lượng serial bằng tay; chỉ đổi qua chứng từ bảo hành. Lô đổi được trên màn Kho. |
 | Duyệt chứng từ kho theo giá trị | Không có ngưỡng theo giá trị; duyệt theo loại chứng từ. |
 | Kho bảo hành mặc định | Mã kho kiểm thử, phải cấu hình lại cho từng tenant (mục 6.3). |
+| Thanh lý về kho nhận mã bất kỳ | `POST items/:code/return` tạo tồn không cần lần xuất trước (có từ bản cũ), xem mục 8.1. |
 | Seed tenant thí điểm | `tools/crm/seed-svn.mjs`, `seed-perf.mjs`, `measure-perf.mjs` chỉ dùng cho local/thí điểm; không chạy trên môi trường thật. |
 
 ## 10. Bảng kiểm nhanh cho người phụ trách deploy

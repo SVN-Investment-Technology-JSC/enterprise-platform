@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   AppendTransactionInput,
   CreateReservationInput,
+  InstalledTracking,
   InventoryStore,
 } from '../application/inventory-store.port.js';
 import {
@@ -936,6 +937,76 @@ export class PostgresInventoryStore implements InventoryStore {
           WHERE code = $1 AND kind = 'ASSET'`,
         [unitCode],
       );
+    },
+
+    installedTracking: async (tenantId: string, itemId: string): Promise<InstalledTracking> => {
+      const pool = await this.poolFor(tenantId);
+      // Bút toán lắp cũ (trước khi đi qua chứng từ) ghi giá 0: bỏ qua, để bên gọi
+      // dùng bình quân hiện tại thay vì kéo giá vốn về 0.
+      const cost = await pool.query<Row>(
+        `SELECT SUM(-t.quantity * t.unit_cost) / NULLIF(SUM(-t.quantity), 0) AS unit_cost
+           FROM inventory_schema.inventory_transactions t
+          WHERE t.reference_type = 'asset' AND t.reference_id = $1
+            AND t.quantity < 0 AND t.unit_cost > 0`,
+        [itemId],
+      );
+      // Serial còn Đã xuất mà lần luân chuyển kho gần nhất là chứng từ lắp vào đơn vị này.
+      const serials = await pool.query<Row>(
+        `SELECT s.serial_number
+           FROM inventory_schema.serial_tracking s
+           JOIN LATERAL (
+             SELECT mv.source_type, mv.source_id
+               FROM inventory_schema.serial_movements mv
+              WHERE mv.serial_id = s.id AND mv.movement_type <> 'QUALITY_CHANGE'
+              ORDER BY mv.occurred_at DESC, mv.id DESC
+              LIMIT 1
+           ) last ON true
+          WHERE s.stock_state = 'ISSUED'
+            AND last.source_type = 'asset' AND last.source_id = $1
+          ORDER BY s.serial_number`,
+        [itemId],
+      );
+      // Lô: xuất lắp trừ nhập tháo (kể cả chứng từ đảo) của các chứng từ gắn đơn vị.
+      const lots = await pool.query<Row>(
+        `SELECT lot.lot_no,
+                SUM(CASE WHEN l.direction = 'OUT' THEN l.quantity ELSE -l.quantity END) AS quantity
+           FROM inventory_schema.stock_document_lines l
+           JOIN inventory_schema.stock_documents d ON d.id = l.document_id
+           JOIN inventory_schema.lots lot ON lot.id = l.lot_id
+          WHERE d.status = 'POSTED' AND d.source_type = 'asset' AND d.source_id = $1
+          GROUP BY lot.lot_no, lot.expires_on
+         HAVING SUM(CASE WHEN l.direction = 'OUT' THEN l.quantity ELSE -l.quantity END) > 0
+          ORDER BY lot.expires_on NULLS LAST, lot.lot_no`,
+        [itemId],
+      );
+      const unitCost = cost.rows[0]?.unit_cost;
+      return {
+        unitCost: unitCost == null ? undefined : Math.round(Number(unitCost) * 10_000) / 10_000,
+        serials: serials.rows.map((row) => String(row.serial_number)),
+        lots: lots.rows.map((row) => ({ lotNo: String(row.lot_no), quantity: num(row.quantity) })),
+      };
+    },
+
+    outstandingSerials: async (tenantId: string, materialCode: string, itemId?: string): Promise<string[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT s.serial_number
+           FROM inventory_schema.serial_tracking s
+           JOIN inventory_schema.materials m ON m.id = s.material_id
+           LEFT JOIN LATERAL (
+             SELECT mv.source_type, mv.source_id
+               FROM inventory_schema.serial_movements mv
+              WHERE mv.serial_id = s.id AND mv.movement_type <> 'QUALITY_CHANGE'
+              ORDER BY mv.occurred_at DESC, mv.id DESC
+              LIMIT 1
+           ) last ON true
+          WHERE m.code = $1
+            AND (s.stock_state = 'ISSUED' OR (s.stock_state IS NULL AND s.current_warehouse_id IS NULL))
+          ORDER BY (last.source_type = 'asset' AND last.source_id = $2::uuid) IS TRUE DESC,
+                   s.created_at, upper(btrim(s.serial_number)), s.id`,
+        [materialCode, itemId ?? null],
+      );
+      return result.rows.map((row) => String(row.serial_number));
     },
 
     /**

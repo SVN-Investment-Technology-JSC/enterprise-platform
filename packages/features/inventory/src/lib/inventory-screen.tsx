@@ -796,6 +796,11 @@ export function InventoryScreen() {
               description={`Tháo dỡ ${uninstallTarget.asset.code} khỏi cây và nhập ${uninstallTarget.line.materialCode} ngược về kho. Đang lắp ${uninstallTarget.line.quantity} ${uninstallTarget.line.unit ?? ''}.`}
               unit={uninstallTarget.line.unit}
               maxQuantity={uninstallTarget.line.quantity}
+              serialMaterialCode={
+                workspace.materials.find((item) => item.code === uninstallTarget.line.materialCode)?.isSerialized
+                  ? uninstallTarget.line.materialCode
+                  : undefined
+              }
               warehouses={workspace.warehouses}
               procedures={procedures}
               busy={busy}
@@ -808,6 +813,7 @@ export function InventoryScreen() {
                     warehouseCode: input.warehouseCode,
                     quantity: input.quantity,
                     note: input.note,
+                    serials: input.serials,
                   });
                   if (selectedAssetId === asset.id) setSelectedAssetId(undefined);
 

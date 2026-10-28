@@ -1,4 +1,9 @@
-import type { QualityStatus, SerialStockState, StockDocument } from '@enterprise-platform/contracts-inventory';
+import type {
+  QualityStatus,
+  SerialMovementType,
+  SerialStockState,
+  StockDocument,
+} from '@enterprise-platform/contracts-inventory';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { InventoryError } from '../domain/inventory.error.js';
 import {
@@ -144,8 +149,9 @@ export class StockDocumentTracking {
   }
 
   /** Mỗi serial một dòng lịch sử, cùng transaction với ghi sổ. */
-  async record(client: Queryable, actorId: string): Promise<void> {
-    const type = serialMovementType(this.document.docType, Boolean(this.document.reversesDocumentId));
+  async record(client: Queryable, actorId: string, movementType?: SerialMovementType): Promise<void> {
+    const type =
+      movementType ?? serialMovementType(this.document.docType, Boolean(this.document.reversesDocumentId));
     for (const change of this.serialChanges) {
       const { op } = change;
       await client.query(

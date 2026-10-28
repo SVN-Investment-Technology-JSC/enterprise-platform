@@ -60,6 +60,18 @@ export interface PostOptions {
    * bộ dùng Chờ kiểm định để hàng không tính vào khả dụng.
    */
   readonly inboundQuality?: QualityStatus;
+  /**
+   * Nhập lại hàng đã xuất ra hiện trường (tháo khỏi thiết bị, thanh lý về kho):
+   * bút toán nhập ghi loại RETURN và lịch sử serial ghi RETURN như đường cũ.
+   */
+  readonly returnToStock?: boolean;
+  /**
+   * Dòng xuất của mặt hàng theo serial mà chưa ghi serial: tự chọn đủ số serial
+   * Trong kho, Đạt tại kho xuất (serial nhập trước, rồi theo số serial), khoá
+   * FOR UPDATE trong cùng transaction ghi sổ. Không đủ thì 400 SERIALS_REQUIRED.
+   * Dùng cho đường lắp cũ không gửi serial.
+   */
+  readonly autoPickSerials?: boolean;
 }
 
 export interface StockDocumentPatch {

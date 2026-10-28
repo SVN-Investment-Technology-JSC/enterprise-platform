@@ -55,6 +55,7 @@ export function SerialPickerDrawer({
   value,
   inbound,
   readOnly,
+  zIndex,
   onApply,
   onClose,
 }: {
@@ -66,6 +67,8 @@ export function SerialPickerDrawer({
   value: readonly string[];
   inbound: boolean;
   readOnly?: boolean;
+  /** Mở chồng lên hộp thoại khác (lắp, tháo vật tư) thì cần nổi cao hơn hộp thoại đó. */
+  zIndex?: number;
   onApply: (serials: string[]) => void;
   onClose: () => void;
 }) {
@@ -146,6 +149,7 @@ export function SerialPickerDrawer({
       open={open}
       onClose={onClose}
       size={520}
+      zIndex={zIndex}
       destroyOnHidden
       title={
         <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
@@ -277,6 +281,7 @@ export function LotPickerDrawer({
   quantity,
   unit,
   current,
+  zIndex,
   onApply,
   onClose,
 }: {
@@ -286,6 +291,8 @@ export function LotPickerDrawer({
   quantity: number;
   unit?: string;
   current?: string;
+  /** Xem `SerialPickerDrawer`. */
+  zIndex?: number;
   onApply: (allocations: LotAllocation[]) => void;
   onClose: () => void;
 }) {
@@ -343,6 +350,7 @@ export function LotPickerDrawer({
       open={open}
       onClose={onClose}
       size={560}
+      zIndex={zIndex}
       destroyOnHidden
       title={
         <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
