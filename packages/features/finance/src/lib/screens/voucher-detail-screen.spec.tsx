@@ -226,6 +226,8 @@ describe('Chi tiết phiếu', () => {
       canActReason: null,
       reversalReason: null,
       reversalError: null,
+      sourceModule: 'procedure-engine',
+      sourceRef: null,
       ...over,
     });
     const sourced = (over: Partial<FinanceVoucher> = {}) =>
