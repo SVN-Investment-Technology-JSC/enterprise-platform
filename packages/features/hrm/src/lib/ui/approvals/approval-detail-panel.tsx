@@ -242,19 +242,6 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                       Thời lượng làm thêm giờ nhân viên đăng ký theo khung giờ đề xuất.
                     </p>
                   </div>
-                ) : key === 'approvedMinutes' ? (
-                  <div>
-                    <span className="font-mono font-semibold text-slate-900">
-                      {typeof val === 'number' && val > 0
-                        ? `${val} phút`
-                        : row.status === 'PENDING'
-                          ? 'Chưa duyệt (sẽ ghi nhận sau khi duyệt)'
-                          : '0 phút'}
-                    </span>
-                    <p className="mt-0.5 text-[11px] font-normal text-slate-500">
-                      Số phút làm thêm giờ được phê duyệt chính thức để ghi nhận chấm công và tính lương.
-                    </p>
-                  </div>
                 ) : typeof val === 'boolean' ? (
                   val ? 'Có' : 'Không'
                 ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (

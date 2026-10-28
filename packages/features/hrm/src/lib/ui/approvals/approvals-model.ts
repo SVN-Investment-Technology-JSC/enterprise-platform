@@ -80,7 +80,6 @@ export const detailFields: Record<string, string> = {
   startTime: 'Bắt đầu',
   endTime: 'Kết thúc',
   plannedMinutes: 'Phút OT đăng ký',
-  approvedMinutes: 'Phút OT được duyệt',
   destination: 'Địa điểm công tác',
   allowOt: 'Cho phép OT',
   daysCount: 'Số ngày công tác',
