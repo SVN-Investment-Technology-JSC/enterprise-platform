@@ -1,7 +1,9 @@
 'use client';
 
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Button } from './button';
+import { Input } from './input';
 import { Popover, PopoverContent } from './popover';
 import styles from './multi-select.module.scss';
 
@@ -22,7 +24,18 @@ export interface MultiSelectProps {
   readonly max?: number;
   readonly disabled?: boolean;
   readonly 'aria-label'?: string;
+  /**
+   * Có thì dưới danh sách hiện dòng thêm nhanh một mục: nhập tên, Enter hoặc bấm nút. Trả mục mới; ô tự chọn mục đó
+   * (nếu chưa đủ `max`). Lỗi ném ra được hiện ngay dưới dòng nhập.
+   */
+  readonly onCreate?: (name: string) => Promise<MultiSelectOption>;
+  readonly createPlaceholder?: string;
+  readonly createLabel?: string;
+  readonly createMaxLength?: number;
 }
+
+/** Cùng cỡ với các ô trong hộp soạn bài. */
+const CREATE_CONTROL_CLASS = 'h-[38px] rounded-md px-3 text-[13.5px]!';
 
 const norm = (text: string) =>
   text
@@ -46,10 +59,17 @@ export function MultiSelect({
   max,
   disabled = false,
   'aria-label': ariaLabel,
+  onCreate,
+  createPlaceholder = 'Tên mục mới',
+  createLabel = 'Thêm',
+  createMaxLength,
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
@@ -77,7 +97,10 @@ export function MultiSelect({
   }, [open]);
 
   useEffect(() => {
-    if (!open) setQuery('');
+    if (!open) {
+      setQuery('');
+      setCreateError(undefined);
+    }
   }, [open]);
   useEffect(() => setActive(0), [query]);
   useEffect(() => {
@@ -87,6 +110,22 @@ export function MultiSelect({
   const toggle = (value: string) => {
     if (values.includes(value)) onChange(values.filter((item) => item !== value));
     else if (!full) onChange([...values, value]);
+  };
+
+  const create = async () => {
+    const name = newName.trim();
+    if (!onCreate || !name || creating) return;
+    setCreating(true);
+    setCreateError(undefined);
+    try {
+      const option = await onCreate(name);
+      setNewName('');
+      if (!values.includes(option.value) && !full) onChange([...values, option.value]);
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : 'Không thêm được.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const onTriggerKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -217,6 +256,43 @@ export function MultiSelect({
             })}
           </ul>
         )}
+        {onCreate ? (
+          <>
+            <hr className={styles.divider} />
+            <div className={styles.add}>
+              <Input
+                className={`${CREATE_CONTROL_CLASS} ${styles.addInput}`}
+                value={newName}
+                maxLength={createMaxLength}
+                placeholder={createPlaceholder}
+                aria-label={createPlaceholder}
+                disabled={creating}
+                onChange={(event) => setNewName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void create();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className={`${CREATE_CONTROL_CLASS} font-semibold`}
+                disabled={!newName.trim() || creating}
+                onClick={() => void create()}
+              >
+                <Plus size={14} aria-hidden="true" />
+                {createLabel}
+              </Button>
+            </div>
+            {createError ? (
+              <p role="alert" className={styles.addError}>
+                {createError}
+              </p>
+            ) : null}
+          </>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

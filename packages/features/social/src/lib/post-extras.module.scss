@@ -548,6 +548,41 @@
   gap: 8px;
 }
 
+/* Tay nắm kéo bài sang thư mục khác (màn Đã lưu): chỉ hiện khi rê chuột vào thẻ bài. */
+.dragGrip {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ep-radius-sm, 6px);
+  background: transparent;
+  color: var(--ep-text-muted, #6b7280);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+
+  &:hover {
+    background: var(--ep-hover, #f4f6f9);
+    color: var(--ep-text, #18181b);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
+  }
+}
+
+.listItem:hover .dragGrip,
+.dragGrip:focus-visible {
+  opacity: 1;
+}
+
 .itemActions {
   display: flex;
   flex-wrap: wrap;

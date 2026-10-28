@@ -3,15 +3,15 @@
 import {
   SOCIAL_COMMENT_MAX,
   SOCIAL_COMMENT_MAX_ATTACHMENTS,
+  SOCIAL_COMMENT_MAX_DEPTH,
   SOCIAL_REACTION_LABELS,
-  SOCIAL_REACTION_TYPES,
   type SocialAttachment,
   type SocialComment,
   type SocialMe,
   type SocialReactionType,
   type SocialUserRef,
 } from '@enterprise-platform/contracts-social';
-import { ImagePlus, PenLine, RotateCw, SendHorizontal, X } from 'lucide-react';
+import { Ellipsis, ImagePlus, PenLine, Pencil, RotateCw, SendHorizontal, ThumbsUp, Trash2, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import extras from '../post-extras.module.scss';
 import {
@@ -72,11 +72,12 @@ import { ComposerVideoTile } from './composer-video-tile';
 import { MentionLink } from './mention-link';
 import { ImageGrid } from './image-grid';
 import { PeopleList, usePeopleSearch } from './people-picker';
-import { ReactorsDialog } from './reactors-dialog';
+import { ReactionSummary } from './reaction-summary';
 import { Popover, PopoverContent } from '../ui/popover';
 import { ReactionIcon } from './reaction-icon';
 import { ReactionPicker } from './reaction-picker';
 import { Avatar, ConfirmDialog, userSubtitle } from './ui';
+import { UserAvatar } from './user-avatar';
 import { VideoAttachment } from './video-attachment';
 
 /** Cách bỏ tệp chưa gửi: lời gọi thường khi gỡ tệp hay đóng ô, `keepalive` khi đóng tab. */
@@ -747,6 +748,18 @@ interface CommentRowProps {
   readonly highlight?: boolean;
   /** Tải lại bình luận để lấy URL video ký mới khi URL cũ hết hạn hoặc khi video đang xử lý đã xong. */
   readonly onRefreshMedia?: () => Promise<void>;
+  /** Đang hiện các trả lời bên dưới: kéo đường nối từ ảnh đại diện xuống chuỗi trả lời. */
+  readonly threadOpen?: boolean;
+}
+
+/** Cột trái của một dòng bình luận: ảnh đại diện, và đường nối xuống các trả lời khi chuỗi đang mở. */
+function CommentRail({ user, threadOpen }: { readonly user: SocialUserRef; readonly threadOpen: boolean }) {
+  return (
+    <div className={styles.commentRail}>
+      <UserAvatar user={user} size={30} />
+      {threadOpen ? <span className={styles.commentRailLine} aria-hidden="true" /> : null}
+    </div>
+  );
 }
 
 function CommentRow({
@@ -757,13 +770,15 @@ function CommentRow({
   onRemoved,
   highlight = false,
   onRefreshMedia,
+  threadOpen = false,
 }: CommentRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlight) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [highlight]);
   const [editing, setEditing] = useState(false);
-  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -783,9 +798,24 @@ function CommentRow({
       setError(errorMessage(cause, 'Không lưu được phản ứng.'));
     }
   };
-  const reactionTypes = SOCIAL_REACTION_TYPES.filter((type) => (comment.reactionCounts[type] ?? 0) > 0).sort(
-    (a, b) => (comment.reactionCounts[b] ?? 0) - (comment.reactionCounts[a] ?? 0),
-  );
+  // Menu "⋯" (Sửa, Xoá): đóng khi bấm ra ngoài hoặc nhấn Esc.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+  const canEdit = comment.capabilities.canEdit;
+  const canDelete = comment.capabilities.canDelete;
 
   const commentImages = comment.attachments.filter((item) => !item.isVideo);
   const commentVideos = comment.attachments.filter((item) => item.isVideo);
@@ -809,7 +839,7 @@ function CommentRow({
   if (comment.deleted) {
     return (
       <div className={styles.comment}>
-        <Avatar user={comment.author} size={30} />
+        <CommentRail user={comment.author} threadOpen={threadOpen} />
         <div className={styles.commentMain}>
           <p className={styles.commentDeleted}>Bình luận đã bị xoá.</p>
         </div>
@@ -819,7 +849,7 @@ function CommentRow({
 
   return (
     <div className={styles.comment} ref={rowRef} data-highlight={highlight}>
-      <Avatar user={comment.author} size={30} />
+      <CommentRail user={comment.author} threadOpen={threadOpen} />
       <div className={styles.commentMain}>
         {editing && decoded ? (
           <CommentInput
@@ -838,7 +868,7 @@ function CommentRow({
           />
         ) : (
           <>
-            <div className={styles.commentBubbleWrap} data-has-reactions={comment.reactionTotal > 0}>
+            <div className={styles.commentBubbleWrap}>
               <div className={styles.commentBubble}>
                 <div className={styles.commentHead}>
                   <span className={styles.commentAuthor} title={userSubtitle(comment.author) || undefined}>
@@ -870,25 +900,51 @@ function CommentRow({
                   </p>
                 ) : null}
               </div>
-              {comment.reactionTotal > 0 ? (
-                <button
-                  type="button"
-                  className={styles.commentReactions}
-                  aria-label="Xem người đã bày tỏ phản ứng"
-                  onClick={() => setReactorsOpen(true)}
-                  title={reactionTypes
-                    .map((type) => `${SOCIAL_REACTION_LABELS[type]}: ${comment.reactionCounts[type]}`)
-                    .join(', ')}
-                >
-                  <span className={styles.reactionIcons}>
-                    {reactionTypes.slice(0, 3).map((type) => (
-                      <span key={type} className={styles.reactionDotSmall}>
-                        <ReactionIcon type={type} size={14} />
-                      </span>
-                    ))}
-                  </span>
-                  {comment.reactionTotal > 1 ? comment.reactionTotal.toLocaleString('vi-VN') : null}
-                </button>
+              {canEdit || canDelete ? (
+                <div className={styles.commentMenu} ref={menuRef} data-open={menuOpen}>
+                  <button
+                    type="button"
+                    className={styles.commentMenuButton}
+                    aria-label="Tuỳ chọn bình luận"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={() => setMenuOpen((value) => !value)}
+                  >
+                    <Ellipsis size={16} aria-hidden="true" />
+                  </button>
+                  {menuOpen ? (
+                    <div className={extras.postMenu} role="menu">
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={extras.postMenuItem}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setEditing(true);
+                          }}
+                        >
+                          <Pencil size={15} aria-hidden="true" />
+                          Sửa bình luận
+                        </button>
+                      ) : null}
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`${extras.postMenuItem} ${extras.postMenuDanger}`}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setConfirming(true);
+                          }}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          Xoá bình luận
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             {commentImages.length > 0 ? (
@@ -898,7 +954,7 @@ function CommentRow({
             ) : null}
             {commentVideos.map((video) => (
               <div key={video.id} className={styles.commentVideo}>
-                <VideoAttachment attachment={video} onRequestRefresh={onRefreshMedia} />
+                <VideoAttachment attachment={video} fit className={styles.commentVideoFit} onRequestRefresh={onRefreshMedia} />
               </div>
             ))}
             <div className={styles.commentMeta}>
@@ -909,12 +965,14 @@ function CommentRow({
                     className={styles.commentReactButton}
                     data-active={Boolean(comment.myReaction)}
                     data-type={comment.myReaction}
+                    aria-label={comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
+                    title={comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
                     onClick={(event) => {
                       event.currentTarget.blur();
                       void react(comment.myReaction ? null : 'like');
                     }}
                   >
-                    {comment.myReaction ? SOCIAL_REACTION_LABELS[comment.myReaction] : 'Thích'}
+                    {comment.myReaction ? <ReactionIcon type={comment.myReaction} size={17} /> : <ThumbsUp size={17} aria-hidden="true" />}
                   </button>
                   <ReactionPicker
                     value={comment.myReaction}
@@ -924,27 +982,21 @@ function CommentRow({
               ) : null}
               {comment.editedAt ? <span title={formatFullTime(comment.editedAt)}>Đã sửa</span> : null}
               {canComment ? (
-                <button type="button" className={styles.linkButton} onClick={() => onReply(comment)}>
+                <button type="button" className={`${styles.linkButton} ${styles.commentReplyButton}`} onClick={() => onReply(comment)}>
                   Trả lời
                 </button>
               ) : null}
-              {comment.capabilities.canEdit ? (
-                <button type="button" className={styles.linkButton} onClick={() => setEditing(true)}>
-                  Sửa
-                </button>
-              ) : null}
-              {comment.capabilities.canDelete ? (
-                <button type="button" className={styles.linkButton} onClick={() => setConfirming(true)}>
-                  Xoá
-                </button>
-              ) : null}
+              <ReactionSummary
+                counts={comment.reactionCounts}
+                total={comment.reactionTotal}
+                load={() => loadCommentReactors(comment.id)}
+                iconSize={17}
+                className={styles.commentReactionSummary}
+              />
             </div>
           </>
         )}
       </div>
-      {reactorsOpen ? (
-        <ReactorsDialog load={() => loadCommentReactors(comment.id)} onClose={() => setReactorsOpen(false)} />
-      ) : null}
       <ConfirmDialog
         open={confirming}
         title="Xoá bình luận"
@@ -959,11 +1011,13 @@ function CommentRow({
   );
 }
 
-/* ------------------------------------------------------ bình luận gốc + trả lời */
+/* ------------------------------------------------------ một bình luận + các trả lời */
 
-interface RootCommentProps {
+interface CommentNodeProps {
   readonly postId: string;
   readonly comment: SocialComment;
+  /** Cấp của bình luận này: gốc là 1, tối đa `SOCIAL_COMMENT_MAX_DEPTH`. */
+  readonly depth: number;
   readonly canComment: boolean;
   readonly onChanged: (comment: SocialComment) => void;
   readonly onRemoved: (comment: SocialComment) => void;
@@ -971,9 +1025,22 @@ interface RootCommentProps {
   readonly focusId?: string;
   /** Người đang đăng nhập: hiện ảnh và tên ở ô trả lời, và không tự nhắc tên chính mình. */
   readonly me?: SocialUserRef;
+  /** Cấp cuối không có ô trả lời riêng: nhờ cấp trên mở ô trả lời, tự nhắc tên người được trả lời. */
+  readonly onReplyAbove?: (target: SocialComment) => void;
 }
 
-function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCountChange, focusId, me }: RootCommentProps) {
+function CommentNode({
+  postId,
+  comment,
+  depth,
+  canComment,
+  onChanged,
+  onRemoved,
+  onCountChange,
+  focusId,
+  me,
+  onReplyAbove,
+}: CommentNodeProps) {
   const [replies, setReplies] = useState<readonly SocialComment[]>([]);
   const [cursor, setCursor] = useState<string>();
   const [expanded, setExpanded] = useState(false);
@@ -981,6 +1048,7 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
   const [error, setError] = useState<string>();
   const [replyTo, setReplyTo] = useState<SocialUserRef>();
   const [replying, setReplying] = useState(false);
+  const isLastLevel = depth >= SOCIAL_COMMENT_MAX_DEPTH;
 
   const fetchReplies = useCallback(
     async (from?: string) => {
@@ -1004,8 +1072,8 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
     void fetchReplies();
   };
 
-  // Đích là một trả lời thì mở sẵn các trả lời để tìm thấy nó.
-  const needsReplies = Boolean(focusId && focusId !== comment.id && comment.replyCount > 0);
+  // Đích là một trả lời (ở bất kỳ cấp nào bên dưới) thì mở sẵn các trả lời để tìm thấy nó.
+  const needsReplies = Boolean(!isLastLevel && focusId && focusId !== comment.id && comment.replyCount > 0);
   useEffect(() => {
     if (needsReplies) {
       setExpanded(true);
@@ -1025,91 +1093,101 @@ function RootComment({ postId, comment, canComment, onChanged, onRemoved, onCoun
   const replyKey = `${comment.id}-${replyTo?.id ?? 'root'}`;
 
   return (
-    <li className={styles.thread}>
+    <div className={styles.thread}>
       <CommentRow
         comment={comment}
         canComment={canComment}
-        onReply={startReply}
+        onReply={isLastLevel ? (target) => onReplyAbove?.(target) : startReply}
         onChanged={onChanged}
         onRemoved={onRemoved}
         highlight={focusId === comment.id}
+        threadOpen={!isLastLevel && expanded && replies.length > 0}
         onRefreshMedia={async () => {
-          const fresh = await findFreshComment(loadComments, postId, comment.id);
+          const fresh = await findFreshComment(loadComments, postId, comment.id, comment.parentId);
           if (fresh) onChanged(fresh);
         }}
       />
-      <div className={styles.replies}>
-        {comment.replyCount > 0 && !expanded ? (
-          <button type="button" className={styles.linkButton} onClick={showReplies}>
-            Xem {comment.replyCount.toLocaleString('vi-VN')} trả lời
-          </button>
-        ) : null}
-        {expanded ? (
-          <>
-            <ul className={styles.commentList}>
-              {replies.map((reply) => (
-                <li key={reply.id}>
-                  <CommentRow
-                    comment={reply}
-                    canComment={canComment}
-                    highlight={focusId === reply.id}
-                    onRefreshMedia={async () => {
-                      const fresh = await findFreshComment(loadComments, postId, reply.id, comment.id);
-                      if (fresh) setReplies((list) => list.map((item) => (item.id === fresh.id ? fresh : item)));
-                    }}
-                    onReply={startReply}
-                    onChanged={(next) => setReplies((list) => list.map((item) => (item.id === next.id ? next : item)))}
-                    onRemoved={(removed) => {
-                      setReplies((list) => list.filter((item) => item.id !== removed.id));
-                      onChanged({ ...comment, replyCount: Math.max(0, comment.replyCount - 1) });
-                      onCountChange(-1);
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
-            {loading ? <p className={styles.muted}>Đang tải…</p> : null}
-            {error ? (
-              <p role="alert" className={styles.fieldError}>
-                {error}{' '}
+      {isLastLevel ? null : (
+        <div className={styles.replies}>
+          {comment.replyCount > 0 && !expanded ? (
+            <button type="button" className={`${styles.linkButton} ${styles.repliesToggle}`} onClick={showReplies}>
+              Xem {comment.replyCount.toLocaleString('vi-VN')} phản hồi
+            </button>
+          ) : null}
+          {expanded ? (
+            <>
+              <ul className={styles.commentList}>
+                {replies.map((reply) => (
+                  <li key={reply.id}>
+                    <CommentNode
+                      postId={postId}
+                      comment={reply}
+                      depth={depth + 1}
+                      canComment={canComment}
+                      focusId={focusId}
+                      me={me}
+                      onCountChange={onCountChange}
+                      onReplyAbove={startReply}
+                      onChanged={(next) => setReplies((list) => list.map((item) => (item.id === next.id ? next : item)))}
+                      onRemoved={(removed) => {
+                        // Còn trả lời con thì giữ chỗ bám (hiện "đã bị xoá"), nếu không thì bỏ hẳn khỏi danh sách.
+                        setReplies((list) =>
+                          removed.replyCount > 0
+                            ? list.map((item) => (item.id === removed.id ? { ...item, deleted: true, body: '' } : item))
+                            : list.filter((item) => item.id !== removed.id),
+                        );
+                        if (removed.replyCount === 0) {
+                          onChanged({ ...comment, replyCount: Math.max(0, comment.replyCount - 1) });
+                        }
+                        onCountChange(-1);
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {loading ? <p className={styles.muted}>Đang tải…</p> : null}
+              {error ? (
+                <p role="alert" className={styles.fieldError}>
+                  {error}{' '}
+                  <button type="button" className={styles.linkButton} onClick={() => void fetchReplies(cursor)}>
+                    Thử lại
+                  </button>
+                </p>
+              ) : null}
+              {cursor && !loading ? (
                 <button type="button" className={styles.linkButton} onClick={() => void fetchReplies(cursor)}>
-                  Thử lại
+                  Xem thêm phản hồi
                 </button>
-              </p>
-            ) : null}
-            {cursor && !loading ? (
-              <button type="button" className={styles.linkButton} onClick={() => void fetchReplies(cursor)}>
-                Xem thêm trả lời
-              </button>
-            ) : null}
-          </>
-        ) : null}
-        {replying && canComment ? (
-          <CommentInput
-            key={replyKey}
-            initialText={replyDraft.length > 0 ? `@${replyDraft[0]?.name} ` : ''}
-            initialPicks={replyDraft}
-            placeholder={me ? `Trả lời với vai trò ${me.name}` : 'Viết trả lời…'}
-            avatar={me}
-            submitLabel="Trả lời"
-            autoFocus
-            onCancel={() => setReplying(false)}
-            onSubmit={async (body, mentionUserIds, attachmentIds) => {
-              const created = await createComment(postId, { body, parentId: comment.id, mentionUserIds, attachmentIds });
-              if (!expanded) {
-                setExpanded(true);
-                await fetchReplies();
-              } else {
-                setReplies((list) => mergePages(list, [created]));
-              }
-              onChanged({ ...comment, replyCount: comment.replyCount + 1 });
-              onCountChange(1);
-              setReplying(false);
-            }}
-          />
-        ) : null}
-      </div>
-    </li>
+              ) : null}
+            </>
+          ) : null}
+          {replying && canComment ? (
+            <CommentInput
+              key={replyKey}
+              initialText={replyDraft.length > 0 ? `@${replyDraft[0]?.name} ` : ''}
+              initialPicks={replyDraft}
+              placeholder={me ? `Trả lời với vai trò ${me.name}` : 'Viết trả lời…'}
+              avatar={me}
+              submitLabel="Trả lời"
+              autoFocus
+              onCancel={() => setReplying(false)}
+              onSubmit={async (body, mentionUserIds, attachmentIds) => {
+                const created = await createComment(postId, { body, parentId: comment.id, mentionUserIds, attachmentIds });
+                if (!expanded) {
+                  setExpanded(true);
+                  await fetchReplies();
+                } else {
+                  setReplies((list) => mergePages(list, [created]));
+                }
+                onChanged({ ...comment, replyCount: comment.replyCount + 1 });
+                onCountChange(1);
+                setReplying(false);
+              }}
+            />
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1129,7 +1207,7 @@ export interface CommentSectionProps {
   readonly focusCommentId?: string;
 }
 
-/** Luồng bình luận hai cấp của một bài: tải khi mở, phân trang bằng con trỏ. */
+/** Luồng bình luận (tối đa ba cấp) của một bài: tải khi mở, phân trang bằng con trỏ. */
 export function CommentSection({ postId, postAuthorId, me, canComment, commentsDisabled = false, onCountChange, focusCommentId }: CommentSectionProps) {
   const [items, setItems] = useState<readonly SocialComment[]>([]);
   const [cursor, setCursor] = useState<string>();
@@ -1189,10 +1267,11 @@ export function CommentSection({ postId, postAuthorId, me, canComment, commentsD
       {items.length > 0 ? (
         <ul className={styles.commentList}>
           {items.map((comment) => (
-            <RootComment
-              key={comment.id}
+            <li key={comment.id}>
+            <CommentNode
               postId={postId}
               comment={comment}
+              depth={1}
               canComment={canComment}
               focusId={focusCommentId}
               me={me.user}
@@ -1207,6 +1286,7 @@ export function CommentSection({ postId, postAuthorId, me, canComment, commentsD
                 );
               }}
             />
+            </li>
           ))}
         </ul>
       ) : null}

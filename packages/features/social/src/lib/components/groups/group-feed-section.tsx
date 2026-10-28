@@ -1,12 +1,11 @@
 'use client';
 
 import type { SocialGroupDetail, SocialGroupTopic } from '@enterprise-platform/contracts-social';
-import { BarChart3, Image as ImageIcon, Megaphone } from 'lucide-react';
 import { useSocialSession, type SocialComposerMode } from '../../social-context';
 import { SocialLink } from '../../social-navigation';
 import { SocialFeed } from '../feed/social-feed';
-import { Avatar } from '../ui';
-import s from './groups.module.scss';
+import { ComposerBox } from '../shell/composer-box';
+import { FILTER_CHIP } from './group-ui';
 
 /**
  * Bảng tin của nhóm: ô "Đăng bài viết mới" với ba lối tắt, chip Tất cả / Bài thông báo / chủ đề và danh sách bài.
@@ -33,44 +32,28 @@ export function GroupFeedSection({
   const activeTopic = announcementsOnly ? undefined : topicId;
 
   return (
-    <div className={s.feedSection}>
+    <div className="flex min-w-0 flex-col gap-2">
       {session && isMember ? (
         caps.canPost ? (
-          <div className={s.composeBox}>
-            <div className={s.composeTop}>
-              <Avatar user={session.me.user} size={32} />
-              <button type="button" className={s.composeTrigger} onClick={() => compose()}>
-                Đăng bài viết mới
-              </button>
-            </div>
-            <div className={s.composeShortcuts}>
-              <button type="button" onClick={() => compose('media')}>
-                <ImageIcon size={15} aria-hidden="true" />
-                Ảnh/Video/File
-              </button>
-              <button type="button" onClick={() => compose('poll')}>
-                <BarChart3 size={15} aria-hidden="true" />
-                Bình chọn
-              </button>
-              {caps.canManage ? (
-                <button type="button" onClick={() => compose('announcement')}>
-                  <Megaphone size={15} aria-hidden="true" />
-                  Thông báo
-                </button>
-              ) : null}
-            </div>
-          </div>
+          <ComposerBox
+            user={session.me.user}
+            placeholder="Đăng bài mới vào nhóm"
+            canAnnounce={caps.canManage}
+            onCompose={compose}
+          />
         ) : (
-          <p className={s.noticeMuted}>Nhóm chỉ cho phép một số người đăng bài.</p>
+          <p className="m-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-[7px] text-[12.5px] text-slate-500">
+            Nhóm chỉ cho phép một số người đăng bài.
+          </p>
         )
       ) : null}
 
-      <div className={s.chipRow} role="tablist" aria-label="Lọc bài trong nhóm">
+      <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Lọc bài trong nhóm">
         <SocialLink
           to={{ name: 'group', groupId: group.id }}
           role="tab"
           aria-selected={!announcementsOnly && !activeTopic}
-          className={s.filterChip}
+          className={FILTER_CHIP}
           data-active={!announcementsOnly && !activeTopic}
           onClick={() => onTopicChange(undefined)}
         >
@@ -80,7 +63,7 @@ export function GroupFeedSection({
           to={{ name: 'group', groupId: group.id, section: 'announcements' }}
           role="tab"
           aria-selected={announcementsOnly}
-          className={s.filterChip}
+          className={FILTER_CHIP}
           data-active={announcementsOnly}
         >
           Bài thông báo
@@ -91,7 +74,7 @@ export function GroupFeedSection({
             to={{ name: 'group', groupId: group.id }}
             role="tab"
             aria-selected={activeTopic === topic.id}
-            className={s.filterChip}
+            className={FILTER_CHIP}
             data-active={activeTopic === topic.id}
             onClick={() => onTopicChange(topic.id)}
           >

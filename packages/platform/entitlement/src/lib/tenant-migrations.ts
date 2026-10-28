@@ -703,6 +703,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0008-social-post-media-layout', path: 'tenant/social/0008-social-post-media-layout.sql' },
     { version: '0009-social-post-topics', path: 'tenant/social/0009-social-post-topics.sql' },
     { version: '0010-social-more-reactions', path: 'tenant/social/0010-social-more-reactions.sql' },
+    { version: '0011-social-bookmark-folders', path: 'tenant/social/0011-social-bookmark-folders.sql' },
   ],
 };
 

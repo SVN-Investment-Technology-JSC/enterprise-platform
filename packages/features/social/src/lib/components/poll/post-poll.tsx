@@ -16,7 +16,8 @@ import styles from '../../post-extras.module.scss';
 import base from '../../social.module.scss';
 import { errorMessage } from '../../social-api';
 import { closePoll, loadPollVoters, votePoll } from '../../social-posts-api';
-import { Avatar, ConfirmDialog, Dialog, userSubtitle } from '../ui';
+import { ConfirmDialog, Dialog, userSubtitle } from '../ui';
+import { UserAvatar } from '../user-avatar';
 
 export interface PostPollProps {
   readonly postId: string;
@@ -278,7 +279,7 @@ function VotersDialog({
                   key={`${voter.user.id}-${voter.optionId}`}
                   className={styles.person}
                 >
-                  <Avatar user={voter.user} size={28} />
+                  <UserAvatar user={voter.user} size={28} />
                   <span>
                     {voter.user.name}
                     {userSubtitle(voter.user) ? (

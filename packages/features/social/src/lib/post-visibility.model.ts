@@ -134,6 +134,7 @@ export type PostMenuAction =
   | 'history'
   | 'toggleComments'
   | 'edit'
+  | 'moveFolder'
   | 'delete';
 
 export interface PostMenuItem {

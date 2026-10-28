@@ -12,20 +12,21 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Copy, Truck, X } from 'lucide-react';
+import { Copy, Trash2, Truck } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
 import { ITEM_TYPE_LABELS, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { Input, Label, Textarea } from './form-controls';
 import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
 import { TitleInput } from './title-input';
 import { TransportSection } from './transport-section';
 import { useSourceTransport, type SourceTransportState } from './use-source-transport';
 
-/** Chiều cao ô trong form tạo nhiều việc: gọn hơn form thường để mỗi việc nằm trên ít dòng. */
-const COMPACT = 32;
+/** Mọi ô trong form tạo nhiều việc cao bằng nhau. */
+const FIELD_HEIGHT = 36;
 
 /** Một công việc sẽ tạo, đủ mọi trường của riêng nó. */
 export interface DraftRow {
@@ -109,9 +110,9 @@ export interface AssigneeChoices {
 }
 
 /**
- * Một công việc trong form "Công việc mới": dòng đầu là tên, người phụ trách, ngày và giờ; dòng hai là phân loại
- * (loại, ưu tiên, công việc cha, cách thực hiện); dòng ba là người cùng làm và nhãn; dòng bốn là mô tả, kèm khối
- * phương tiện mở khi cần.
+ * Một công việc trong form "Công việc mới", xếp trên lưới 4 cột đều nhau: tên (cả hàng); loại, ưu tiên, công việc
+ * cha, cách thực hiện; người phụ trách, ngày bắt đầu, ngày kết thúc, giờ; người cùng làm và nhãn (mỗi ô nửa hàng);
+ * mô tả (cả hàng), kèm khối phương tiện mở khi cần.
  */
 export function WorkItemDraftEditor({
   open,
@@ -158,180 +159,222 @@ export function WorkItemDraftEditor({
 
   return (
     <section className={styles.draftItem} aria-label={`Công việc ${index + 1}`}>
-      <span className={styles.draftIndex}>{index + 1}</span>
+      <header className={styles.draftHead}>
+        <span className={styles.draftIndex}>Công việc {index + 1}</span>
+        <div className={styles.draftActions}>
+          {isPhase ? null : (
+            <button
+              type="button"
+              className={
+                showTransport || hasTransport
+                  ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
+                  : `${styles.draftIconButton} ${styles.draftIconTruck}`
+              }
+              aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
+              aria-pressed={showTransport || hasTransport}
+              title="Phương tiện đi lại"
+              disabled={hasTransport}
+              onClick={() => setShowTransport((current) => !current)}
+            >
+              <Truck size={15} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
+            aria-label={`Nhân bản công việc ${index + 1}`}
+            title="Nhân bản (chép mọi trường trừ tên)"
+            onClick={onDuplicate}
+          >
+            <Copy size={15} />
+          </button>
+          <button
+            type="button"
+            className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
+            aria-label={`Bỏ công việc ${index + 1}`}
+            title="Bỏ công việc này"
+            disabled={!removable}
+            onClick={onRemove}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </header>
 
-      <div className={styles.draftBody}>
-        <div className={styles.draftLineMain}>
-          <label className={styles.draftField}>
-            <span>Tên công việc</span>
-            <TitleInput
-              value={row.title}
-              history={history}
-              ariaLabel={`Tên công việc ${index + 1}`}
-              placeholder={index === 0 ? 'Gõ tên, hoặc dán nhiều dòng để tạo nhiều việc' : undefined}
-              onChange={(title) => onChange({ title })}
-              onPasteLines={onPasteLines}
+      <div className={styles.draftGrid}>
+        <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+          <Label>Tên công việc</Label>
+          <TitleInput
+            value={row.title}
+            history={history}
+            ariaLabel={`Tên công việc ${index + 1}`}
+            placeholder={index === 0 ? 'Gõ tên, hoặc dán nhiều dòng để tạo nhiều việc' : undefined}
+            onChange={(title) => onChange({ title })}
+            onPasteLines={onPasteLines}
+          />
+        </div>
+
+        <div className={styles.draftField}>
+          <Label>Loại</Label>
+          <Choice
+            label={`Loại ${index + 1}`}
+            value={row.itemType}
+            height={FIELD_HEIGHT}
+            options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
+            onChange={(value) => onChange({ itemType: value as WorkItemType })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label>Ưu tiên</Label>
+          <Choice
+            label={`Độ ưu tiên ${index + 1}`}
+            value={row.priority}
+            height={FIELD_HEIGHT}
+            options={priorityKeys().map((priority) => ({
+              value: priority,
+              label: priorityLabel(priority),
+            }))}
+            onChange={(value) => onChange({ priority: value as WorkItemPriority })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label>Công việc cha</Label>
+          <Choice
+            label={`Công việc cha ${index + 1}`}
+            value={row.parentId}
+            height={FIELD_HEIGHT}
+            options={[{ value: '', label: 'Gốc dự án' }, ...parentOptions]}
+            onChange={(value) => onChange({ parentId: value })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label>Cách thực hiện</Label>
+          {isPhase ? (
+            <span className={styles.draftNone}>Nhóm không có cách thực hiện</span>
+          ) : (
+            <Choice
+              label={`Cách thực hiện ${index + 1}`}
+              value={row.executionType}
+              height={FIELD_HEIGHT}
+              options={[
+                { value: 'manual', label: 'Thủ công' },
+                { value: 'procedure', label: 'Theo quy trình' },
+              ]}
+              onChange={(value) => onChange({ executionType: value as 'manual' | 'procedure' })}
             />
-          </label>
-          <div className={styles.draftField}>
-            <span>Người phụ trách</span>
-            {isPhase ? (
-              <span className={styles.draftNone}>Nhóm không giao người</span>
+          )}
+        </div>
+        {!isPhase && row.executionType === 'procedure' ? (
+          <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+            <Label>Quy trình</Label>
+            {procedures === undefined ? (
+              <span className={styles.draftNone}>Đang tải quy trình…</span>
+            ) : procedures.length === 0 ? (
+              <span className={styles.draftNone}>Không đọc được quy trình nào.</span>
             ) : (
               <Choice
-                label={`Người phụ trách ${index + 1}`}
-                value={row.assigneeUserId}
-                height={COMPACT}
-                emptyOption="Chưa giao"
-                options={assigneeChoices.options}
-                extra={assigneeChoices.extra}
-                renderOption={renderAssignee}
-                onChange={(value) => onChange({ assigneeUserId: value })}
+                label={`Quy trình ${index + 1}`}
+                value={row.procedureDefinitionId}
+                height={FIELD_HEIGHT}
+                required
+                placeholder="Chọn quy trình…"
+                options={procedures.map((procedure) => ({
+                  value: procedure.id,
+                  label: `${procedure.code} · ${procedure.name}`,
+                }))}
+                onChange={(value) => onChange({ procedureDefinitionId: value })}
               />
             )}
           </div>
-          <div className={styles.draftField}>
-            <span>Bắt đầu</span>
-            <DatePickerInput
-              height={COMPACT}
-              value={row.plannedStart}
-              onChange={(value) => onChange({ plannedStart: value })}
-            />
-          </div>
-          <div className={styles.draftField}>
-            <span>Kết thúc</span>
-            <DatePickerInput
-              height={COMPACT}
-              value={row.plannedEnd}
-              onChange={(value) => onChange({ plannedEnd: value })}
-            />
-          </div>
-          <label className={styles.draftField}>
-            <span>Giờ</span>
-            {isPhase ? (
-              <span className={styles.draftNone}>—</span>
-            ) : (
-              <input
-                type="number"
-                min={0}
-                step="0.5"
-                aria-label={`Giờ ước lượng ${index + 1}`}
-                value={row.estimateHours}
-                onChange={(event) => onChange({ estimateHours: event.target.value })}
-              />
-            )}
-          </label>
-        </div>
+        ) : null}
 
-        <div className={styles.draftLine}>
-          <div className={styles.draftField}>
-            <span>Loại</span>
+        <div className={styles.draftField}>
+          <Label>Người phụ trách</Label>
+          {isPhase ? (
+            <span className={styles.draftNone}>Nhóm không giao người</span>
+          ) : (
             <Choice
-              label={`Loại ${index + 1}`}
-              value={row.itemType}
-              height={COMPACT}
-              options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
-              onChange={(value) => onChange({ itemType: value as WorkItemType })}
+              label={`Người phụ trách ${index + 1}`}
+              value={row.assigneeUserId}
+              height={FIELD_HEIGHT}
+              emptyOption="Chưa giao"
+              options={assigneeChoices.options}
+              extra={assigneeChoices.extra}
+              renderOption={renderAssignee}
+              onChange={(value) => onChange({ assigneeUserId: value })}
             />
-          </div>
-          <div className={styles.draftField}>
-            <span>Ưu tiên</span>
-            <Choice
-              label={`Độ ưu tiên ${index + 1}`}
-              value={row.priority}
-              height={COMPACT}
-              options={priorityKeys().map((priority) => ({
-                value: priority,
-                label: priorityLabel(priority),
-              }))}
-              onChange={(value) => onChange({ priority: value as WorkItemPriority })}
-            />
-          </div>
-          <div className={styles.draftField}>
-            <span>Công việc cha</span>
-            <Choice
-              label={`Công việc cha ${index + 1}`}
-              value={row.parentId}
-              height={COMPACT}
-              options={[{ value: '', label: 'Gốc dự án' }, ...parentOptions]}
-              onChange={(value) => onChange({ parentId: value })}
-            />
-          </div>
-          {isPhase ? null : (
-            <div className={styles.draftField}>
-              <span>Cách thực hiện</span>
-              <Choice
-                label={`Cách thực hiện ${index + 1}`}
-                value={row.executionType}
-                height={COMPACT}
-                options={[
-                  { value: 'manual', label: 'Thủ công' },
-                  { value: 'procedure', label: 'Theo quy trình' },
-                ]}
-                onChange={(value) => onChange({ executionType: value as 'manual' | 'procedure' })}
-              />
-            </div>
           )}
-          {!isPhase && row.executionType === 'procedure' ? (
-            <div className={styles.draftField}>
-              <span>Quy trình</span>
-              {procedures === undefined ? (
-                <span className={styles.draftNone}>Đang tải quy trình…</span>
-              ) : procedures.length === 0 ? (
-                <span className={styles.draftNone}>Không đọc được quy trình nào.</span>
-              ) : (
-                <Choice
-                  label={`Quy trình ${index + 1}`}
-                  value={row.procedureDefinitionId}
-                  height={COMPACT}
-                  required
-                  placeholder="Chọn quy trình…"
-                  options={procedures.map((procedure) => ({
-                    value: procedure.id,
-                    label: `${procedure.code} · ${procedure.name}`,
-                  }))}
-                  onChange={(value) => onChange({ procedureDefinitionId: value })}
-                />
-              )}
-            </div>
-          ) : null}
         </div>
-
-        <div className={styles.draftLine}>
-          {isPhase ? null : (
-            <div className={styles.draftField}>
-              <span>Người thực hiện cùng</span>
-              <ProjectPeoplePicker
-                people={participantPeople}
-                memberIds={memberIds}
-                selected={row.participantUserIds}
-                exclude={row.assigneeUserId ? [row.assigneeUserId] : []}
-                nameOf={nameOf}
-                loaded={directoryLoaded}
-                onChange={(participantUserIds) => onChange({ participantUserIds })}
-              />
-            </div>
-          )}
-          <div className={styles.draftField}>
-            <span>Nhãn</span>
-            <TagPicker selected={row.tagIds} onChange={(tagIds) => onChange({ tagIds })} />
-          </div>
+        <div className={styles.draftField}>
+          <Label>Bắt đầu</Label>
+          <DatePickerInput
+            height={FIELD_HEIGHT}
+            value={row.plannedStart}
+            onChange={(value) => onChange({ plannedStart: value })}
+          />
         </div>
-
-        <div className={styles.draftLine}>
-          <label className={`${styles.draftField} ${styles.draftFieldGrow}`}>
-            <span>Mô tả</span>
-            <textarea
-              rows={1}
-              aria-label={`Mô tả ${index + 1}`}
-              value={row.description}
-              onChange={(event) => onChange({ description: event.target.value })}
+        <div className={styles.draftField}>
+          <Label>Kết thúc</Label>
+          <DatePickerInput
+            height={FIELD_HEIGHT}
+            value={row.plannedEnd}
+            onChange={(value) => onChange({ plannedEnd: value })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label htmlFor={`draft-hours-${row.key}`}>Giờ ước lượng</Label>
+          {isPhase ? (
+            <span className={styles.draftNone}>—</span>
+          ) : (
+            <Input
+              id={`draft-hours-${row.key}`}
+              type="number"
+              min={0}
+              step="0.5"
+              placeholder="0"
+              aria-label={`Giờ ước lượng ${index + 1}`}
+              value={row.estimateHours}
+              onChange={(event) => onChange({ estimateHours: event.target.value })}
             />
-          </label>
+          )}
+        </div>
+      
+
+        {isPhase ? null : (
+          <div className={`${styles.draftField} ${styles.draftSpanHalf}`}>
+            <Label>Người thực hiện cùng</Label>
+            <ProjectPeoplePicker
+              people={participantPeople}
+              memberIds={memberIds}
+              selected={row.participantUserIds}
+              exclude={row.assigneeUserId ? [row.assigneeUserId] : []}
+              nameOf={nameOf}
+              loaded={directoryLoaded}
+              onChange={(participantUserIds) => onChange({ participantUserIds })}
+            />
+          </div>
+        )}
+        <div
+          className={`${styles.draftField} ${isPhase ? styles.draftSpanAll : styles.draftSpanHalf}`}
+        >
+          <Label>Nhãn</Label>
+          <TagPicker selected={row.tagIds} onChange={(tagIds) => onChange({ tagIds })} />
+        </div>
+
+        <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+          <Label htmlFor={`draft-note-${row.key}`}>Mô tả</Label>
+          <Textarea
+            id={`draft-note-${row.key}`}
+            rows={2}
+            placeholder="Mô tả ngắn về công việc (không bắt buộc)"
+            aria-label={`Mô tả ${index + 1}`}
+            value={row.description}
+            onChange={(event) => onChange({ description: event.target.value })}
+          />
         </div>
 
         {!isPhase && (showTransport || hasTransport) ? (
-          <div className={styles.draftTransport}>
+          <div className={`${styles.draftTransport} ${styles.draftSpanAll}`}>
             <TransportSection
               state={transport}
               editableRange
@@ -339,45 +382,6 @@ export function WorkItemDraftEditor({
             />
           </div>
         ) : null}
-      </div>
-
-      <div className={styles.draftActions}>
-        {isPhase ? null : (
-          <button
-            type="button"
-            className={
-              showTransport || hasTransport
-                ? `${styles.iconButton} ${styles.iconButtonActive}`
-                : styles.iconButton
-            }
-            aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
-            aria-pressed={showTransport || hasTransport}
-            title="Phương tiện đi lại"
-            disabled={hasTransport}
-            onClick={() => setShowTransport((current) => !current)}
-          >
-            <Truck size={13} />
-          </button>
-        )}
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label={`Nhân bản công việc ${index + 1}`}
-          title="Nhân bản (chép mọi trường trừ tên)"
-          onClick={onDuplicate}
-        >
-          <Copy size={13} />
-        </button>
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label={`Bỏ công việc ${index + 1}`}
-          title="Bỏ công việc này"
-          disabled={!removable}
-          onClick={onRemove}
-        >
-          <X size={13} />
-        </button>
       </div>
     </section>
   );

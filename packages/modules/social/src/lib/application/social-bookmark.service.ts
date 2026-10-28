@@ -1,10 +1,16 @@
-import type {
-  SetSocialBookmarkRequest,
-  SocialBookmarkState,
-  SocialFeedPage,
+import {
+  SOCIAL_BOOKMARK_FOLDERS_MAX,
+  SOCIAL_BOOKMARK_FOLDER_NAME_MAX,
+  type CreateSocialBookmarkFolderRequest,
+  type UpdateSocialBookmarkFolderRequest,
+  type SetSocialBookmarkRequest,
+  type SocialBookmarkFolder,
+  type SocialBookmarkFolderList,
+  type SocialBookmarkState,
+  type SocialFeedPage,
 } from '@enterprise-platform/contracts-social';
-import { decodeCursor, encodeCursor, normalizeLimit } from '../domain/social-rules.js';
-import { SocialValidationError } from '../domain/social.error.js';
+import { decodeCursor, encodeCursor, isUuid, normalizeLimit } from '../domain/social-rules.js';
+import { SocialBookmarkFolderNotFoundError, SocialValidationError } from '../domain/social.error.js';
 import type { PostViewAssembler } from './ports/post-view-assembler.port.js';
 import type { PostVisibilityPort } from './ports/post-visibility.port.js';
 import type { SocialActor } from './social-actor.js';
@@ -25,15 +31,93 @@ export class SocialBookmarkService {
   async set(actor: SocialActor, postId: string, request: SetSocialBookmarkRequest): Promise<SocialBookmarkState> {
     if (typeof request?.bookmarked !== 'boolean') throw new SocialValidationError('Thiếu trạng thái lưu bài.');
     await this.deps.access.requirePublished(actor, postId);
-    await this.deps.store.setBookmark(actor.tenantId, postId, actor.userId, request.bookmarked);
-    return { bookmarked: request.bookmarked };
+    const folderId = request.bookmarked ? await this.resolveFolder(actor, request.folderId) : undefined;
+    await this.deps.store.setBookmark(actor.tenantId, postId, actor.userId, request.bookmarked, folderId);
+    return { bookmarked: request.bookmarked, ...(folderId ? { folderId } : {}) };
   }
 
-  async list(actor: SocialActor, query: { cursor?: string; limit?: number | string } = {}): Promise<SocialFeedPage> {
+  /** `undefined` giữ thư mục cũ, `null` về chưa phân loại; thư mục không phải của người dùng thì báo không tồn tại. */
+  private async resolveFolder(actor: SocialActor, folderId: string | null | undefined): Promise<string | null | undefined> {
+    if (folderId === undefined || folderId === null) return folderId;
+    if (!isUuid(folderId) || !(await this.deps.store.bookmarkFolderExists(actor.tenantId, actor.userId, folderId))) {
+      throw new SocialBookmarkFolderNotFoundError();
+    }
+    return folderId.toLowerCase();
+  }
+
+  async listFolders(actor: SocialActor): Promise<SocialBookmarkFolderList> {
+    const { folders, unfiledCount } = await this.deps.store.listBookmarkFolders(actor.tenantId, actor.userId);
+    const sorted = [...folders].sort(
+      (a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id),
+    );
+    return {
+      items: sorted,
+      unfiledCount,
+      total: sorted.reduce((sum, folder) => sum + folder.count, unfiledCount),
+    };
+  }
+
+  async createFolder(actor: SocialActor, request: CreateSocialBookmarkFolderRequest): Promise<SocialBookmarkFolder> {
+    const name = typeof request?.name === 'string' ? request.name.trim() : '';
+    if (!name) throw new SocialValidationError('Vui lòng nhập tên thư mục.');
+    if (name.length > SOCIAL_BOOKMARK_FOLDER_NAME_MAX) {
+      throw new SocialValidationError(`Tên thư mục tối đa ${SOCIAL_BOOKMARK_FOLDER_NAME_MAX} ký tự.`);
+    }
+    const { folders } = await this.deps.store.listBookmarkFolders(actor.tenantId, actor.userId);
+    const existing = folders.find((folder) => folder.name.toLowerCase() === name.toLowerCase());
+    if (existing) return existing;
+    if (folders.length >= SOCIAL_BOOKMARK_FOLDERS_MAX) {
+      throw new SocialValidationError(`Mỗi người chỉ tạo tối đa ${SOCIAL_BOOKMARK_FOLDERS_MAX} thư mục đã lưu.`);
+    }
+    return this.deps.store.createBookmarkFolder(actor.tenantId, actor.userId, name);
+  }
+
+  /** Đổi tên: cùng quy tắc tên với tạo mới; trùng tên một thư mục khác (không phân biệt hoa thường) thì báo lỗi. */
+  async renameFolder(actor: SocialActor, folderId: string, request: UpdateSocialBookmarkFolderRequest): Promise<SocialBookmarkFolder> {
+    const name = typeof request?.name === 'string' ? request.name.trim() : '';
+    if (!name) throw new SocialValidationError('Vui lòng nhập tên thư mục.');
+    if (name.length > SOCIAL_BOOKMARK_FOLDER_NAME_MAX) {
+      throw new SocialValidationError(`Tên thư mục tối đa ${SOCIAL_BOOKMARK_FOLDER_NAME_MAX} ký tự.`);
+    }
+    const id = await this.requireFolder(actor, folderId);
+    const { folders } = await this.deps.store.listBookmarkFolders(actor.tenantId, actor.userId);
+    if (folders.some((folder) => folder.id !== id && folder.name.toLowerCase() === name.toLowerCase())) {
+      throw new SocialValidationError('Đã có thư mục cùng tên.');
+    }
+    await this.deps.store.renameBookmarkFolder(actor.tenantId, actor.userId, id, name);
+    const current = folders.find((folder) => folder.id === id);
+    return { id, name, count: current?.count ?? 0 };
+  }
+
+  /** Xoá thư mục; bài đã lưu trong đó về "chưa phân loại". */
+  async deleteFolder(actor: SocialActor, folderId: string): Promise<void> {
+    const id = await this.requireFolder(actor, folderId);
+    await this.deps.store.deleteBookmarkFolder(actor.tenantId, actor.userId, id);
+  }
+
+  private async requireFolder(actor: SocialActor, folderId: string): Promise<string> {
+    if (!isUuid(folderId) || !(await this.deps.store.bookmarkFolderExists(actor.tenantId, actor.userId, folderId))) {
+      throw new SocialBookmarkFolderNotFoundError();
+    }
+    return folderId.toLowerCase();
+  }
+
+  async list(
+    actor: SocialActor,
+    query: { cursor?: string; limit?: number | string; folderId?: string } = {},
+  ): Promise<SocialFeedPage> {
+    const folderId = query.folderId?.trim() ? query.folderId.trim().toLowerCase() : undefined;
+    if (folderId !== undefined && folderId !== 'none' && !isUuid(folderId)) {
+      throw new SocialValidationError('Thư mục đã lưu không hợp lệ.');
+    }
     const limit = normalizeLimit(query.limit);
     const cursor = decodeCursor(query.cursor);
     const scope = await this.deps.visibility.scopeFor(actor);
-    const rows = await this.deps.store.listBookmarks(actor.tenantId, actor.userId, scope, { limit: limit + 1, cursor });
+    const rows = await this.deps.store.listBookmarks(actor.tenantId, actor.userId, scope, {
+      limit: limit + 1,
+      cursor,
+      ...(folderId ? { folderId } : {}),
+    });
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const last = page[page.length - 1];

@@ -518,7 +518,7 @@
   gap: 16px;
   align-items: start;
 
-  @media (width <= 720px) {
+  @media (width <=720px) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -534,7 +534,7 @@
   border-left: 1px solid var(--ep-border-strong);
   background: linear-gradient(135deg, #eef4ff 0%, #f7f9ff 55%, #fffbea 100%);
 
-  @media (width <= 720px) {
+  @media (width <=720px) {
     border-top: 1px solid var(--ep-border-strong);
     border-left: 0;
   }
@@ -722,7 +722,7 @@
 
   // Ô chọn (Choice) giãn theo chỗ trống: thiếu chỗ thì xuống dòng và chiếm
   // đủ hàng, thay vì đứng ở bề rộng mặc định của <input> rồi cắt chữ.
-  > [data-choice] {
+  >[data-choice] {
     flex: 1 1 360px;
     min-width: 220px;
     max-width: 420px;
@@ -804,6 +804,7 @@
 
 .panel .table,
 .documentDetail .table {
+
   th:first-child,
   td:first-child {
     padding-left: 0;
@@ -1069,7 +1070,7 @@
   align-items: start;
 }
 
-@media (width <= 1100px) {
+@media (width <=1100px) {
   .workspaceLayout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1096,7 +1097,7 @@
   overflow: hidden;
 }
 
-@media (width <= 1100px) {
+@media (width <=1100px) {
   .sidebar {
     position: static;
     max-height: 26rem;
@@ -1170,7 +1171,7 @@
   border-top: 1px dashed var(--ep-border);
 }
 
-.catalogItem + .catalogItem {
+.catalogItem+.catalogItem {
   margin-top: 2px;
 }
 
@@ -1568,14 +1569,14 @@
   align-items: center;
   margin-top: 10px;
 
-  > input {
+  >input {
     @include input-base;
 
     min-width: 0;
   }
 }
 
-@media (width <= 760px) {
+@media (width <=760px) {
   .inlineForm {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1700,7 +1701,7 @@
   gap: 12px;
   padding: 3px 0;
 
-  & + & {
+  &+& {
     border-top: 1px dashed var(--ep-line);
   }
 }
@@ -1764,6 +1765,10 @@
   font-size: 14px;
   line-height: 1.5;
   overflow-y: auto;
+}
+
+.overlayCentered {
+  align-items: center;
 }
 
 .dialog {
@@ -1957,7 +1962,7 @@
   }
 
   /* Card hẹp: ngày và khoảng giờ xếp dọc để hai ô giờ không bị bóp. */
-  @media (width <= 420px) {
+  @media (width <=420px) {
     .fieldRowDateTime {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -2964,6 +2969,7 @@
 }
 
 @keyframes typingDot {
+
   0%,
   80%,
   100% {
@@ -3324,7 +3330,7 @@
   align-items: start;
 }
 
-@media (width <= 1100px) {
+@media (width <=1100px) {
   .explorer {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3354,7 +3360,7 @@
   }
 }
 
-@media (width <= 1100px) {
+@media (width <=1100px) {
   .explorerTree {
     position: static;
     max-height: 22rem;
@@ -3436,7 +3442,7 @@
   align-items: start;
 }
 
-@media (width <= 1280px) {
+@media (width <=1280px) {
   .documentSplit {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3449,7 +3455,7 @@
   background: var(--ep-surface);
   overflow-x: auto;
 
-  > .muted {
+  >.muted {
     margin: 0;
     padding: 24px;
     font-style: italic;
@@ -4318,7 +4324,7 @@
     border: 2px solid var(--ep-surface);
   }
 
-  .avatar + .avatar {
+  .avatar+.avatar {
     margin-left: -8px;
   }
 }
@@ -4510,7 +4516,7 @@
   inset: 0;
   z-index: 55;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   padding: 4vh 24px;
   background: rgb(10 12 18 / 55%);
@@ -4518,13 +4524,17 @@
   font-family: var(--ep-font);
   font-size: 14px;
   line-height: 1.5;
-  overflow-y: auto;
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .itemDialog {
   display: flex;
   flex-direction: column;
   width: min(76rem, 100%);
+
+  /* Cao cố định theo khung nhìn: nội dung dài thì cuộn trong thân hộp. */
+  height: min(62rem, 100%);
   border-radius: var(--ep-radius-xl);
   background: var(--ep-bg);
   box-shadow: var(--ep-shadow-dialog);
@@ -4578,10 +4588,16 @@
   grid-template-columns: minmax(0, 1fr) 20rem;
   gap: 16px;
   align-items: start;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
   padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
-@media (width <= 1000px) {
+@media (width <=1000px) {
   .itemDialogBody {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4600,7 +4616,7 @@
   padding: 0;
   list-style: none;
 
-  li + li {
+  li+li {
     border-top: 1px solid var(--ep-line);
   }
 }
@@ -4630,7 +4646,7 @@
 .docLinks {
   white-space: nowrap;
 
-  > * + * {
+  >*+* {
     margin-left: 4px;
   }
 }
@@ -4751,7 +4767,7 @@
     box-sizing: content-box;
   }
 
-  .avatarSmall + .avatarSmall {
+  .avatarSmall+.avatarSmall {
     margin-left: -8px;
   }
 }
@@ -4811,6 +4827,7 @@
 .cellNowrap {
   white-space: nowrap;
 }
+
 /* Ngăn chi tiết đơn từ (tab "Đơn từ"): nhãn trái, giá trị phải. */
 .detailGrid {
   display: grid;
@@ -4936,7 +4953,7 @@
   gap: 6px;
   width: 260px;
 
-  > [role='group'] {
+  >[role='group'] {
     flex: 1;
     min-width: 0;
   }
@@ -5024,13 +5041,13 @@
   min-width: 0;
   cursor: pointer;
 
-  > span:first-of-type {
+  >span:first-of-type {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  > span:last-child {
+  >span:last-child {
     margin-left: auto;
     padding-right: 6px;
     font-size: 12px;
@@ -5056,7 +5073,7 @@
   align-items: center;
   gap: 8px;
 
-  > [role='group'] {
+  >[role='group'] {
     width: 180px;
   }
 }
@@ -5172,68 +5189,146 @@
   }
 }
 
-/* Form "Công việc mới" tạo được nhiều việc, mỗi việc đủ mọi trường của riêng nó: một khối gọn (ô cao 32px). */
+/* Form "Công việc mới" tạo được nhiều việc, mỗi việc đủ mọi trường của riêng nó: một khối gọn (ô cao 36px). */
 .dialogExtraWide {
-  width: min(76rem, 100%);
+  width: min(57rem, 100%);
 }
 
 .draftList {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   // Co theo bề rộng khung chứa, không theo màn hình: form còn được nhúng trong thẻ hẹp của Trợ lý.
   container-type: inline-size;
 }
 
 .draftItem {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 10px 10px 10px 8px;
-  border: 1px solid var(--ep-border);
-  border-radius: var(--ep-radius-md);
-  background: var(--ep-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 0;
 
-  &:focus-within {
-    border-color: var(--ep-border-strong);
-    box-shadow: var(--ep-shadow-pop);
+  &:first-child {
+    padding-top: 4px;
   }
+
+  // Vạch ngăn rõ ràng giữa hai công việc liền nhau.
+  & + & {
+    border-top: 2px solid var(--ep-border-strong);
+  }
+}
+
+.draftHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 8px;
+  background: #f1f3f6;
 }
 
 .draftIndex {
-  padding-top: 20px;
-  color: var(--ep-text-muted);
-  font-size: 12px;
+  color: var(--ep-text);
+  font-size: 13px;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
-.draftBody {
+.draftActions {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+  align-items: center;
+  gap: 6px;
 }
 
-.draftLineMain {
+.draftIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  // Nút nổi: có bóng, rê chuột thì nhấc lên, bấm thì lún xuống.
+  box-shadow: 0 1px 2px rgb(16 24 40 / 10%), 0 2px 4px rgb(16 24 40 / 8%);
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+    box-shadow: 0 3px 8px rgb(16 24 40 / 16%);
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    box-shadow: 0 1px 2px rgb(16 24 40 / 12%);
+    transform: translateY(0);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.draftIconTruck {
+  color: #d99a00;
+
+  &:hover:not(:disabled) {
+    border-color: #f5c000;
+    background: #fff8db;
+    color: #b87f00;
+  }
+}
+
+.draftIconCopy {
+  color: #2563eb;
+
+  &:hover:not(:disabled) {
+    border-color: #93b4f5;
+    background: #eef4ff;
+    color: #1d4ed8;
+  }
+}
+
+.draftIconRemove {
+  color: #ef2b2b;
+
+  &:hover:not(:disabled) {
+    border-color: #f5a3a3;
+    background: #fff0f0;
+    color: #d11414;
+  }
+}
+
+.draftIconButtonActive {
+  border-color: #f5c000;
+  background: #fff8db;
+}
+
+/* Lưới 4 cột đều nhau; mọi ô cao 36px. Hẹp thì xuống 2 cột, rồi 1 cột. */
+.draftGrid {
   display: grid;
-  grid-template-columns: minmax(14rem, 1fr) 13rem 9rem 9rem 4.5rem;
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 12px;
 }
 
-.draftLine {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.draftSpanAll {
+  grid-column: 1 / -1;
+}
 
-  > .draftField {
-    flex: 1 1 12rem;
-  }
-
-  > .draftFieldGrow {
-    flex-basis: 100%;
-  }
+.draftSpanHalf {
+  grid-column: span 2;
 }
 
 .draftField {
@@ -5242,85 +5337,81 @@
   gap: 3px;
   min-width: 0;
 
-  > span:first-child {
-    color: var(--ep-text-muted);
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-  }
-
-  input,
+  input:not([type='checkbox']):not([type='radio']),
   textarea {
     @include input-base;
 
-    min-height: 32px;
-    padding: 0 8px;
-    background: var(--ep-surface-soft);
-    font-size: 13px;
+    width: 100%;
+    background: var(--ep-surface);
   }
 
   input:not([type='checkbox']):not([type='radio']) {
-    height: 32px;
+    height: 36px;
   }
 
-  textarea {
-    padding-top: 6px;
-    padding-bottom: 6px;
-    resize: vertical;
-  }
-
-  :global(.ant-picker) input,
-  :global(.ant-picker) input:focus {
+  :global(.ant-picker) input:not([type='checkbox']):not([type='radio']),
+  :global(.ant-picker) input:not([type='checkbox']):not([type='radio']):focus {
     min-height: 0;
+    height: auto;
+    width: auto;
+    border-radius: 0;
     padding: 0;
     border: 0;
     background: transparent;
     box-shadow: none;
     outline: none;
   }
+}
 
-  .titleInput input {
-    min-height: 32px;
-    height: 32px;
+.uiLabel {
+  color: var(--ep-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.uiInput,
+.uiTextarea {
+  @include input-base;
+
+  width: 100%;
+  background: var(--ep-surface);
+
+  &::placeholder {
+    color: var(--ep-text-muted);
   }
 
-  .chip,
-  .tagChip {
-    font-size: 12px;
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
+}
+
+.uiInput {
+  height: 36px;
+}
+
+.uiTextarea {
+  min-height: 64px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .draftNone {
   display: flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 36px;
   color: var(--ep-text-muted);
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
 .draftTransport {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px dashed var(--ep-border-strong);
   border-radius: var(--ep-radius-md);
   background: var(--ep-surface-soft);
-}
-
-.draftActions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 18px;
-
-  .iconButton {
-    width: 26px;
-    height: 26px;
-  }
-}
-
-.iconButtonActive {
-  border-color: var(--ep-accent-strong);
-  background: var(--ep-accent-soft);
 }
 
 .draftFoot {
@@ -5330,13 +5421,19 @@
   gap: 12px;
 }
 
-@container (width <= 900px) {
-  .draftLineMain {
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+@container (width <=700px) {
+  .draftGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 
-    > :first-child {
-      grid-column: 1 / -1;
-    }
+@container (width <=520px) {
+  .draftGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .draftSpanHalf {
+    grid-column: 1 / -1;
   }
 }
 
@@ -5401,7 +5498,7 @@
     margin-bottom: 8px;
   }
 
-  > p {
+  >p {
     grid-column: 1 / -1;
     margin: 0;
   }
@@ -5436,7 +5533,7 @@
   align-items: center;
   gap: 8px;
 
-  > [role='group'] {
+  >[role='group'] {
     flex: 1;
     min-width: 0;
   }
@@ -5462,7 +5559,7 @@
   min-height: 480px;
   min-width: 0;
 
-  > section {
+  >section {
     flex: 1;
     min-width: 0;
   }
@@ -5520,7 +5617,7 @@
   padding: 16px 18px;
   overflow-y: auto;
 
-  > .emptyState {
+  >.emptyState {
     margin: auto;
   }
 }
@@ -5663,7 +5760,7 @@
   }
 }
 
-@media (width <= 1100px) {
+@media (width <=1100px) {
   .taskSplit {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
@@ -5681,7 +5778,7 @@
   gap: 2px 4px;
   font-size: 12.5px;
 
-  > span {
+  >span {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -5779,7 +5876,7 @@
   align-items: flex-end;
   gap: 10px;
 
-  > [data-choice] {
+  >[data-choice] {
     flex: 1 1 12rem;
     min-width: 0;
   }
@@ -5855,7 +5952,7 @@ button.kpiCard {
   gap: 14px;
 }
 
-@media (width <= 960px) {
+@media (width <=960px) {
   .reportGrid {
     grid-template-columns: 1fr;
   }
@@ -6056,7 +6153,7 @@ button.kpiCard {
   }
 }
 
-.reportBarList button > span:first-of-type {
+.reportBarList button>span:first-of-type {
   flex: 0 0 90px;
 }
 
@@ -6224,7 +6321,7 @@ button.kpiCard {
 .filterOperator {
   position: relative;
 
-  > button {
+  >button {
     padding: 0;
     border: 0;
     background: transparent;
@@ -6262,12 +6359,12 @@ button.kpiCard {
   align-items: center;
   gap: 8px;
 
-  > * {
+  >* {
     flex: 1;
     min-width: 0;
   }
 
-  > span {
+  >span {
     flex: none;
   }
 }
@@ -6278,7 +6375,7 @@ button.kpiCard {
   align-items: center;
   gap: 6px;
 
-  > div:last-child {
+  >div:last-child {
     flex: 1 1 12rem;
   }
 }
@@ -6309,7 +6406,7 @@ button.kpiCard {
   flex-wrap: wrap;
   gap: 6px;
 
-  > .filterMenu {
+  >.filterMenu {
     flex-basis: 100%;
   }
 }
@@ -6325,7 +6422,7 @@ button.kpiCard {
   background: var(--ep-surface);
   box-shadow: var(--ep-shadow-pop);
 
-  > button {
+  >button {
     padding: 8px 10px;
     border: 0;
     border-radius: var(--ep-radius-sm);
@@ -6341,12 +6438,12 @@ button.kpiCard {
     }
   }
 
-  > p {
+  >p {
     margin: 6px 10px;
   }
 }
 
-.filterMenu > button.filterMenuActive {
+.filterMenu>button.filterMenuActive {
   background: var(--ep-hover);
   font-weight: 600;
 }
@@ -6658,7 +6755,7 @@ button.kpiCard {
   border-radius: 999px;
   background: var(--ep-line);
 
-  > span {
+  >span {
     position: absolute;
     inset: 0 auto 0 0;
     border-radius: inherit;

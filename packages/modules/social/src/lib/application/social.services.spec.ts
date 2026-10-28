@@ -249,10 +249,15 @@ class FakeStore implements SocialStore {
     if (row) this.attachments_.set(attachmentId, { ...row, commentId });
   }
 
+  /** Trả lời còn hiện: chưa xoá, hoặc đã xoá nhưng còn trả lời con chưa xoá. */
+  private visibleChild(comment: StoredComment): boolean {
+    return !comment.deleted || this.comments_.some((r) => r.parentId === comment.id && !r.deleted);
+  }
+
   private commentView(comment: StoredComment): CommentRow {
     return {
       ...comment,
-      replyCount: this.comments_.filter((c) => c.parentId === comment.id && !c.deleted).length,
+      replyCount: this.comments_.filter((c) => c.parentId === comment.id && this.visibleChild(c)).length,
     };
   }
 
@@ -265,10 +270,10 @@ class FakeStore implements SocialStore {
       this.comments_
         .filter((c) =>
           query.parentId
-            ? c.parentId === query.parentId && !c.deleted
+            ? c.parentId === query.parentId && this.visibleChild(c)
             : c.postId === query.postId &&
               !c.parentId &&
-              (!c.deleted || this.comments_.some((r) => r.parentId === c.id && !r.deleted)),
+              (!c.deleted || this.comments_.some((r) => r.parentId === c.id && this.visibleChild(r))),
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
         .filter((c) => !query.cursor || c.createdAt > query.cursor.at || (c.createdAt === query.cursor.at && c.id > query.cursor.id))
@@ -318,6 +323,10 @@ class FakeStore implements SocialStore {
     update: async (_t, id, patch) => {
       const topic = this.topics_.get(id);
       if (topic) this.topics_.set(id, { ...topic, ...patch });
+    },
+    remove: async (_t, id) => {
+      this.topics_.delete(id);
+      for (const post of this.posts_) if (post.topicId === id) Reflect.deleteProperty(post, 'topicId');
     },
   };
 
@@ -771,13 +780,27 @@ describe('phản ứng', () => {
 });
 
 describe('bình luận', () => {
-  it('chỉ hai cấp: trả lời bình luận gốc được, trả lời một trả lời thì bị từ chối', async () => {
+  it('tối đa ba cấp: trả lời được tới cấp ba, cấp bốn thì bị từ chối', async () => {
     const { posts, comments } = setup();
     const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
     const root = await comments.create(bob, post.id, { body: 'gốc' });
     const reply = await comments.create(alice, post.id, { body: 'trả lời', parentId: root.id });
     expect(reply.parentId).toBe(root.id);
-    await expectCode(comments.create(bob, post.id, { body: 'cấp ba', parentId: reply.id }), 'VALIDATION');
+    const third = await comments.create(bob, post.id, { body: 'cấp ba', parentId: reply.id });
+    expect(third.parentId).toBe(reply.id);
+    await expectCode(comments.create(alice, post.id, { body: 'cấp bốn', parentId: third.id }), 'VALIDATION');
+  });
+
+  it('trả lời cấp hai đã xoá vẫn hiện chỗ bám khi còn trả lời cấp ba', async () => {
+    const { posts, comments } = setup();
+    const post = await posts.create(alice, { bodyHtml: '<p>x</p>' });
+    const root = await comments.create(bob, post.id, { body: 'gốc' });
+    const reply = await comments.create(alice, post.id, { body: 'trả lời', parentId: root.id });
+    await comments.create(bob, post.id, { body: 'cấp ba', parentId: reply.id });
+    await comments.remove(alice, reply.id);
+    const replies = await comments.list(alice, post.id, { parentId: root.id });
+    expect(replies.items[0]).toMatchObject({ deleted: true, body: '', replyCount: 1 });
+    expect((await comments.list(alice, post.id)).items[0]?.replyCount).toBe(1);
   });
 
   it('liệt kê bình luận gốc kèm replyCount, rồi trả lời theo parentId', async () => {
@@ -1625,6 +1648,21 @@ describe('chuyên mục', () => {
     await expectCode(topics.create(manager, { name: 'tin TỨC' }), 'TOPIC_NAME_TAKEN');
     expect((await topics.update(manager, topic.id, { name: 'Tin nội bộ' })).name).toBe('Tin nội bộ');
     await expectCode(topics.update(alice, topic.id, { name: 'x' }), 'FORBIDDEN');
+  });
+
+  it('xoá chuyên mục: chỉ người quản lý, bài viết vẫn còn nhưng không gắn chuyên mục nữa', async () => {
+    const { topics, posts } = setup();
+    const manager = actor(ALICE, { canManage: true });
+    const topic = await topics.create(manager, { name: 'Sắp xoá' });
+    const post = await posts.create(alice, { bodyHtml: '<p>x</p>', topicId: topic.id });
+    await expectCode(topics.remove(alice, topic.id), 'FORBIDDEN');
+    await expectCode(topics.remove(manager, randomUUID()), 'TOPIC_NOT_FOUND');
+
+    await topics.remove(manager, topic.id);
+    expect((await topics.list(manager)).items).toEqual([]);
+    const kept = await posts.get(alice, post.id);
+    expect(kept.topic).toBeUndefined();
+    await expectCode(topics.remove(manager, topic.id), 'TOPIC_NOT_FOUND');
   });
 
   it('người thường chỉ thấy chuyên mục đang dùng, kèm số bài', async () => {

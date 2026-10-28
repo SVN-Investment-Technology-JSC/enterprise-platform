@@ -9,8 +9,7 @@ import { SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
 import { GroupGlyph } from '../groups/group-visuals';
 import { listGroupMembers } from '../groups/social-groups-api';
-import { PersonHover } from '../person-card';
-import { Avatar } from '../ui';
+import { UserAvatar } from '../user-avatar';
 
 /** Số nhóm hiện ở thẻ "Nhóm của bạn"; lấy dư để nhóm ưu tiên không bị cắt mất. */
 const GROUP_LIMIT = 6;
@@ -70,9 +69,7 @@ function GroupMemberAvatars({ group }: { readonly group: SocialGroupSummary }) {
   return (
     <span className={styles.groupCardMembers}>
       {users.map((user) => (
-        <PersonHover key={user.id} userId={user.id} name={user.name} label={user.name} className={styles.noticeReactor}>
-          <Avatar user={user} size={22} />
-        </PersonHover>
+        <UserAvatar key={user.id} user={user} size={22} className={styles.noticeReactor} />
       ))}
       {rest > 0 ? <span className={styles.noticeReactorMore}>+{formatCount(rest)}</span> : null}
     </span>

@@ -58,7 +58,9 @@ const COMMENT_SELECT = `SELECT c.id, c.post_id, c.parent_id, c.author_id, c.body
        ${isoColumn('c.edited_at')} AS edited_at,
        (c.deleted_at IS NOT NULL) AS deleted,
        (SELECT count(*) FROM social_schema.comments r
-         WHERE r.parent_id = c.id AND r.deleted_at IS NULL)::int AS reply_count
+         WHERE r.parent_id = c.id AND (r.deleted_at IS NULL OR EXISTS (
+               SELECT 1 FROM social_schema.comments g
+                WHERE g.parent_id = r.id AND g.deleted_at IS NULL)))::int AS reply_count
   FROM social_schema.comments c`;
 
 export const ATTACHMENT_COLUMNS = `a.id, a.post_id, a.comment_id, a.uploaded_by, a.file_name, a.content_type, a.size_bytes,
@@ -589,13 +591,18 @@ export class PostgresSocialStore implements SocialStore {
         let where: string;
         if (query.parentId) {
           values.push(query.parentId);
-          where = `c.parent_id = $1 AND c.deleted_at IS NULL`;
+          // Trả lời đã xoá vẫn hiện nếu còn trả lời con, để chuỗi không mất chỗ bám.
+          where = `c.parent_id = $1 AND (c.deleted_at IS NULL OR EXISTS (
+                     SELECT 1 FROM social_schema.comments g
+                      WHERE g.parent_id = c.id AND g.deleted_at IS NULL))`;
         } else {
           values.push(query.postId);
-          // Bình luận gốc đã xoá vẫn hiện nếu còn trả lời, để chuỗi không mất chỗ bám.
+          // Bình luận gốc đã xoá vẫn hiện nếu còn trả lời (trực tiếp hoặc ở cấp dưới), để chuỗi không mất chỗ bám.
           where = `c.post_id = $1 AND c.parent_id IS NULL AND (c.deleted_at IS NULL OR EXISTS (
                      SELECT 1 FROM social_schema.comments r
-                      WHERE r.parent_id = c.id AND r.deleted_at IS NULL))`;
+                      WHERE r.parent_id = c.id AND (r.deleted_at IS NULL OR EXISTS (
+                            SELECT 1 FROM social_schema.comments g
+                             WHERE g.parent_id = r.id AND g.deleted_at IS NULL))))`;
         }
         if (query.cursor) {
           values.push(query.cursor.at, query.cursor.id);
@@ -761,6 +768,24 @@ export class PostgresSocialStore implements SocialStore {
           throw error;
         }
       }),
+
+    remove: (tenantId: string, topicId: string): Promise<void> =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          // Chuyên mục chính của bài chuyển sang chuyên mục kế tiếp của chính bài đó (hoặc rỗng nếu không còn).
+          await client.query(
+            `UPDATE social_schema.posts p
+                SET topic_id = (SELECT pt.topic_id FROM social_schema.post_topics pt
+                                 WHERE pt.post_id = p.id AND pt.topic_id <> $1
+                                 ORDER BY pt.position, pt.topic_id LIMIT 1)
+              WHERE p.topic_id = $1`,
+            [topicId],
+          );
+          // `post_topics` xoá theo (ON DELETE CASCADE); `posts.topic_id` còn sót thì về NULL (ON DELETE SET NULL).
+          const result = await client.query(`DELETE FROM social_schema.topics WHERE id = $1`, [topicId]);
+          if (result.rowCount === 0) throw new SocialTopicNotFoundError();
+        }),
+      ),
   };
 
   readonly attachments = {

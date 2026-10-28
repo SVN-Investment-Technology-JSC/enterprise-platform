@@ -2,7 +2,7 @@
 
 import type { SocialAttachment } from '@enterprise-platform/contracts-social';
 import { LoaderCircle, TriangleAlert } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import styles from '../social.module.scss';
 import { useExclusiveVideoPlayback } from '../use-exclusive-video-playback';
 import { useNearViewport, usePauseWhenOutOfView } from '../use-viewport-visibility';
@@ -15,6 +15,11 @@ export interface VideoAttachmentProps {
   /** URL xem video sống 1 giờ: cha tải lại dữ liệu để lấy URL mới khi liên kết hết hạn. */
   readonly onRequestRefresh?: VideoRefresh;
   readonly className?: string;
+  /**
+   * Video của bài đăng: rộng đủ khung bài, cao theo đúng tỉ lệ video (không dải đen). Video dọc hay quá cao thì co bề
+   * ngang lại để chiều cao không vượt trần theo màn hình; không bị chặn 560px như video trong bình luận.
+   */
+  readonly fit?: boolean;
 }
 
 export const VIDEO_EXPIRED_MESSAGE = 'Liên kết video đã hết hạn, hãy tải lại trang.';
@@ -48,7 +53,7 @@ export function shouldRefreshOnError(state: { readonly started: boolean; readonl
   return state.started && !state.retried;
 }
 
-export function VideoAttachment({ attachment, onRemove, onRequestRefresh, className }: VideoAttachmentProps) {
+export function VideoAttachment({ attachment, onRemove, onRequestRefresh, className, fit = false }: VideoAttachmentProps) {
   useExclusiveVideoPlayback();
   const videoRef = useRef<HTMLVideoElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,8 +70,12 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
   const near = useNearViewport(rootRef, Boolean(url));
   const source = url && (posterUrl || near) ? url : undefined;
   const duration = formatVideoDuration(attachment.durationMs);
-  const rootClass = [styles.videoAttachment, className].filter(Boolean).join(' ');
+  const rootClass = [styles.videoAttachment, fit ? styles.videoFit : undefined, className].filter(Boolean).join(' ');
   const ratio = videoAspectRatio(attachment.width, attachment.height);
+  // Tỉ lệ dạng số cho CSS tính bề ngang tối đa theo trần chiều cao; không biết kích thước thì coi như 16:9.
+  const rootStyle = fit
+    ? ({ '--video-ar': attachment.width && attachment.height ? attachment.width / attachment.height : 16 / 9 } as CSSProperties)
+    : undefined;
 
   const handleError = useCallback(() => {
     const element = videoRef.current;
@@ -106,7 +115,7 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
     const failed = status === 'failed';
     const label = waitingForServer ? VIDEO_PROCESSING_MESSAGE : failed ? VIDEO_FAILED_MESSAGE : VIDEO_NOT_READY_MESSAGE;
     return (
-      <div className={rootClass}>
+      <div className={rootClass} style={rootStyle}>
         <div
           className={styles.videoPlaceholder}
           role={waitingForServer ? 'status' : failed ? 'alert' : 'img'}
@@ -130,7 +139,7 @@ export function VideoAttachment({ attachment, onRemove, onRequestRefresh, classN
   }
 
   return (
-    <div ref={rootRef} className={rootClass}>
+    <div ref={rootRef} className={rootClass} style={rootStyle}>
       <video
         ref={videoRef}
         key={url}

@@ -16,6 +16,8 @@ import type {
   CreateSocialPostRequest,
   PinSocialPostRequest,
   RejectSocialPostRequest,
+  CreateSocialBookmarkFolderRequest,
+  UpdateSocialBookmarkFolderRequest,
   SetSocialBookmarkRequest,
   SetSocialPollVoteRequest,
   UpdateSocialPostRequest,
@@ -145,10 +147,48 @@ export class SocialPublishingController {
   }
 
   @Get('bookmarks')
-  bookmarkList(@Req() request: SocialRequest, @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+  bookmarkList(
+    @Req() request: SocialRequest,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('folderId') folderId?: string,
+  ) {
     return this.execute(() =>
-      this.bookmarks.list(this.actor(request), { cursor: cursor || undefined, limit: numberOrUndefined(limit) }),
+      this.bookmarks.list(this.actor(request), {
+        cursor: cursor || undefined,
+        limit: numberOrUndefined(limit),
+        folderId: folderId || undefined,
+      }),
     );
+  }
+
+  @Get('bookmark-folders')
+  bookmarkFolders(@Req() request: SocialRequest) {
+    return this.execute(() => this.bookmarks.listFolders(this.actor(request)));
+  }
+
+  @Post('bookmark-folders')
+  createBookmarkFolder(@Req() request: SocialRequest, @Body() body: CreateSocialBookmarkFolderRequest) {
+    return this.execute(() =>
+      this.bookmarks.createFolder(this.actor(request), body ?? ({} as CreateSocialBookmarkFolderRequest)),
+    );
+  }
+
+  @Patch('bookmark-folders/:id')
+  renameBookmarkFolder(
+    @Req() request: SocialRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateSocialBookmarkFolderRequest,
+  ) {
+    return this.execute(() =>
+      this.bookmarks.renameFolder(this.actor(request), id, body ?? ({} as UpdateSocialBookmarkFolderRequest)),
+    );
+  }
+
+  @Delete('bookmark-folders/:id')
+  @HttpCode(204)
+  async deleteBookmarkFolder(@Req() request: SocialRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.bookmarks.deleteFolder(this.actor(request), id));
   }
 
   /* ------------------------------------------------------- xác nhận đã đọc */

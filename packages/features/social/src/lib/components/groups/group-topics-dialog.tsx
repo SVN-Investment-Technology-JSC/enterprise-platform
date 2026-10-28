@@ -8,9 +8,11 @@ import {
 import { Plus, Tag, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { errorMessage } from '../../social-api';
-import base from '../../social.module.scss';
+import { Button } from '../../ui/button';
+import { Input } from '../../ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip';
 import { ConfirmDialog, Dialog } from '../ui';
-import s from './groups.module.scss';
+import { CONTROL, EMPTY_LINE } from './group-ui';
 import { createGroupTopic, deleteGroupTopic, listGroupTopics, updateGroupTopic } from './social-groups-api';
 
 function TopicRow({
@@ -37,10 +39,11 @@ function TopicRow({
   };
 
   return (
-    <li className={s.topicRow}>
-      <Tag size={14} aria-hidden="true" />
-      <input
-        className={s.topicInput}
+    <li className="flex items-center gap-2 py-1 text-slate-500 not-first:border-t not-first:border-slate-100">
+      <Tag size={14} className="flex-none" aria-hidden="true" />
+      <Input
+        className="h-[30px] flex-1 border-transparent bg-transparent px-2 text-[13px] font-semibold text-slate-900 hover:border-slate-300 focus-visible:bg-white"
+
         value={name}
         maxLength={SOCIAL_GROUP_TOPIC_NAME_MAX}
         disabled={disabled}
@@ -54,17 +57,25 @@ function TopicRow({
           }
         }}
       />
-      <span className={s.topicCount}>{topic.postCount} bài</span>
-      <button
-        type="button"
-        className={base.iconButton}
-        aria-label={`Xoá chủ đề ${topic.name}`}
-        title="Xoá chủ đề"
-        disabled={disabled}
-        onClick={() => onDelete(topic)}
-      >
-        <Trash2 size={14} />
-      </button>
+      <span className="text-xs whitespace-nowrap">{topic.postCount} bài</span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-slate-500 hover:bg-red-50 hover:text-red-600"
+              aria-label={`Xoá chủ đề ${topic.name}`}
+              disabled={disabled}
+              onClick={() => onDelete(topic)}
+            />
+          }
+        >
+          <Trash2 size={14} aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipContent side="top">Xoá chủ đề</TooltipContent>
+      </Tooltip>
     </li>
   );
 }
@@ -159,9 +170,9 @@ export function GroupTopicsDialog({
   return (
     <>
       <Dialog open={open && !removing} title="Quản lý chủ đề" error={error} onClose={onClose}>
-        <div className={s.topicAdd}>
-          <input
-            className={base.input}
+        <div className="flex gap-2">
+          <Input
+            className={CONTROL}
             value={text}
             maxLength={SOCIAL_GROUP_TOPIC_NAME_MAX}
             placeholder={full ? `Tối đa ${SOCIAL_GROUP_TOPICS_MAX} chủ đề` : 'Tên chủ đề mới'}
@@ -175,19 +186,24 @@ export function GroupTopicsDialog({
               }
             }}
           />
-          <button type="button" onClick={() => void add()} className={base.buttonPrimary} disabled={!text.trim() || full || busy}>
-            <Plus size={14} />
+          <Button
+            type="button"
+            className="h-[38px] gap-1.5 rounded-md px-4 text-[13.5px] font-semibold"
+            onClick={() => void add()}
+            disabled={!text.trim() || full || busy}
+          >
+            <Plus size={14} aria-hidden="true" />
             Thêm mới
-          </button>
+          </Button>
         </div>
         {loading ? (
-          <p className={base.muted} aria-busy="true">
+          <p className={EMPTY_LINE} aria-busy="true">
             Đang tải…
           </p>
         ) : topics.length === 0 ? (
-          <p className={s.emptyLine}>Nhóm chưa có chủ đề nào.</p>
+          <p className={EMPTY_LINE}>Nhóm chưa có chủ đề nào.</p>
         ) : (
-          <ul className={s.topicList}>
+          <ul className="m-0 flex max-h-80 list-none flex-col overflow-y-auto p-0">
             {topics.map((topic) => (
               <TopicRow
                 key={topic.id}

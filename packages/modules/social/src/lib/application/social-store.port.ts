@@ -254,6 +254,11 @@ export interface SocialStore {
       topicId: string,
       patch: { readonly name?: string; readonly isActive?: boolean },
     ): Promise<void>;
+    /**
+     * Xoá chuyên mục. Bài viết giữ nguyên, chỉ không còn gắn chuyên mục này; bài còn chuyên mục khác thì chuyên mục
+     * chính (`posts.topic_id`) chuyển sang chuyên mục kế tiếp. Ném `SocialTopicNotFoundError` khi không có.
+     */
+    remove(tenantId: string, topicId: string): Promise<void>;
   };
 
   readonly attachments: {

@@ -1,4 +1,6 @@
 import type {
+  SocialBookmarkFolder,
+  SocialBookmarkFolderList,
   SocialBookmarkState,
   SocialFeedPage,
   SocialGroupPage,
@@ -17,6 +19,7 @@ import type {
   SocialSettings,
   UpdateSocialSettingsRequest,
 } from '@enterprise-platform/contracts-social';
+import { emitBookmarkChanged } from './bookmark-events';
 import { json, request } from './social-api';
 
 /** Hàm gọi API của mảng bài viết P2 (bình chọn, xác nhận đã đọc, duyệt, hẹn giờ, đã lưu). */
@@ -36,14 +39,43 @@ const noStore = { cache: 'no-store' } as const;
 
 /* ------------------------------------------------------------------- đã lưu */
 
-export const setBookmark = (postId: string, bookmarked: boolean) =>
+/** `folderId`: bỏ trống giữ thư mục cũ, `null` là chưa phân loại. */
+export const setBookmark = (
+  postId: string,
+  bookmarked: boolean,
+  folderId?: string | null,
+) =>
   request<SocialBookmarkState>(
     `${post(postId)}/bookmark`,
-    json('PUT', { bookmarked }),
+    json(
+      'PUT',
+      folderId === undefined ? { bookmarked } : { bookmarked, folderId },
+    ),
+  ).then((state) => {
+    // Thẻ "Bài đã lưu gần đây" nạp lại ngay.
+    emitBookmarkChanged();
+    return state;
+  });
+
+/** `folderId`: mã thư mục, `none` là chưa phân loại, bỏ trống là tất cả. */
+export const loadBookmarks = (cursor?: string, limit = 20, folderId?: string) =>
+  request<SocialFeedPage>(
+    `/bookmarks${query({ cursor, limit, folderId })}`,
+    noStore,
   );
 
-export const loadBookmarks = (cursor?: string, limit = 20) =>
-  request<SocialFeedPage>(`/bookmarks${query({ cursor, limit })}`, noStore);
+export const loadBookmarkFolders = () =>
+  request<SocialBookmarkFolderList>('/bookmark-folders', noStore);
+
+export const createBookmarkFolder = (name: string) =>
+  request<SocialBookmarkFolder>('/bookmark-folders', json('POST', { name }));
+
+export const renameBookmarkFolder = (id: string, name: string) =>
+  request<SocialBookmarkFolder>(`/bookmark-folders/${encodeURIComponent(id)}`, json('PATCH', { name }));
+
+/** Xoá thư mục; các bài đã lưu trong đó về "chưa phân loại". */
+export const deleteBookmarkFolder = (id: string) =>
+  request<void>(`/bookmark-folders/${encodeURIComponent(id)}`, json('DELETE'));
 
 /* ----------------------------------------------------------------- bình chọn */
 

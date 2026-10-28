@@ -8,9 +8,12 @@ import {
   SOCIAL_POST_KIND_LABELS,
   SOCIAL_POST_KINDS,
   SOCIAL_POST_TITLE_MAX,
+  SOCIAL_GROUP_TOPIC_NAME_MAX,
   SOCIAL_POST_TOPICS_MAX,
+  SOCIAL_TOPIC_NAME_MAX,
   type SocialAttachment,
   type SocialGroupSummary,
+  type SocialGroupTopic,
   type SocialMe,
   type SocialMediaLayout,
   type SocialPost,
@@ -47,17 +50,21 @@ import {
   vnToday,
   type PollDraft,
 } from '../post-extras.model';
+import { emitGroupTopicsChanged } from '../group-topic-events';
 import extras from '../post-extras.module.scss';
 import {
   attachmentErrorMessage,
   attachmentStatusApi,
   createPost,
+  createTopic,
   discardAttachment,
   discardAttachmentKeepalive,
+  errorMessage,
   updatePost,
   uploadAttachment,
 } from '../social-api';
 import { isUploadAborted } from '../attachment-upload';
+import { createGroupTopic, listGroupTopics } from './groups/social-groups-api';
 import {
   isCommentVideo,
   probeVideo,
@@ -161,6 +168,8 @@ export interface ComposerDialogProps {
   readonly defaultMode?: SocialComposerMode;
   /** Nhóm chọn sẵn khi soạn bài từ trang một nhóm. */
   readonly defaultGroupId?: string;
+  /** Người quản lý vừa tạo nhanh một chuyên mục trong ô chọn: nơi cha tải lại danh sách chuyên mục. */
+  readonly onTopicCreated?: (topic: SocialTopic) => void;
   readonly onClose: () => void;
   readonly onSaved: (post: SocialPost) => void;
 }
@@ -177,9 +186,13 @@ export function ComposerDialog({
   defaultKind,
   defaultMode,
   defaultGroupId,
+  onTopicCreated,
   onClose,
   onSaved,
 }: ComposerDialogProps) {
+  const canManageTopics = me.permissions.includes('social.manage');
+  // Chuyên mục tạo nhanh trong hộp này (danh sách `topics` của nơi cha chưa kịp tải lại).
+  const [createdTopics, setCreatedTopics] = useState<readonly SocialTopic[]>([]);
   const canModerate = me.permissions.includes('social.post.moderate');
   const scheduledParts = editing?.scheduledAt
     ? isoToVnParts(editing.scheduledAt)
@@ -205,6 +218,11 @@ export function ComposerDialog({
   const [topicIds, setTopicIds] = useState<readonly string[]>(() =>
     // Bài mới không tự chọn chuyên mục (kể cả khi đang lọc theo một chuyên mục); sửa bài thì nạp chuyên mục của bài.
     editing ? postTopics(editing).map((topic) => topic.id) : [],
+  );
+  // Chủ đề của nhóm (chỉ khi đăng vào nhóm): tuỳ chọn, tối đa một; không chọn thì bài chưa thuộc chủ đề nào.
+  const [groupTopics, setGroupTopics] = useState<readonly SocialGroupTopic[]>([]);
+  const [groupTopicIds, setGroupTopicIds] = useState<readonly string[]>(() =>
+    editing?.groupTopic ? [editing.groupTopic.id] : [],
   );
   const [mentions, setMentions] = useState(editing?.mentions ?? []);
   const [mentionsAll, setMentionsAll] = useState(false);
@@ -293,6 +311,23 @@ export function ComposerDialog({
     ? groups.find((item) => item.id === destination)
     : undefined;
   const inGroup = Boolean(destination);
+  const canManageGroupTopics = group?.myMembership?.role === 'admin' || canManageTopics;
+
+  // Nạp chủ đề của nhóm đang chọn; đổi nơi đăng thì bỏ chủ đề đã chọn (chủ đề thuộc về từng nhóm).
+  useEffect(() => {
+    if (!destination) {
+      setGroupTopics([]);
+      return undefined;
+    }
+    let alive = true;
+    listGroupTopics(destination)
+      .then((result) => alive && setGroupTopics(result.items))
+      .catch(() => alive && setGroupTopics([]));
+    return () => {
+      alive = false;
+    };
+  }, [destination]);
+
   // Quyền xem chỉ áp cho Tường công ty; bài nhóm luôn theo nhóm.
   const effectiveVisibility: SocialPostVisibility = inGroup
     ? 'company'
@@ -357,7 +392,7 @@ export function ComposerDialog({
   const noContent = empty && !pollOn;
 
   // Chuyên mục đã tắt chỉ còn hiện khi bài đang sửa vẫn mang nó (để thấy và bỏ được).
-  const topicOptions = topics
+  const topicOptions = [...topics, ...createdTopics.filter((made) => !topics.some((topic) => topic.id === made.id))]
     .filter((topic) => topic.isActive || topicIds.includes(topic.id))
     .map((topic) => ({ value: topic.id, label: topic.name }));
 
@@ -601,6 +636,8 @@ export function ComposerDialog({
           title: title.trim() || null,
           bodyHtml: html,
           topicIds: inGroup ? [] : [...topicIds],
+          // Bài nhóm: gắn chủ đề đã chọn, hoặc `null` để bỏ chủ đề.
+          ...(inGroup && groupTopicIds[0] !== editing.groupTopic?.id ? { groupTopicId: groupTopicIds[0] ?? null } : {}),
           attachmentIds,
           mediaLayout: layoutToSend,
           mentionUserIds,
@@ -629,6 +666,7 @@ export function ComposerDialog({
           mediaLayout: layoutToSend,
           mentionUserIds,
           ...(inGroup ? { groupId: destination } : {}),
+          ...(inGroup && groupTopicIds[0] ? { groupTopicId: groupTopicIds[0] } : {}),
           ...(canAnnounce ? { mentionsAll, pinned } : {}),
           ...(hasPoll ? { poll: buildPollRequest(pollDraft) } : {}),
           ...(requireRead && companyOnly
@@ -724,18 +762,22 @@ export function ComposerDialog({
       </div>
 
       <div className={styles.fieldRow}>
-        <SelectField label="Nơi đăng">
-          <SearchableSelect
-            options={destinationOptions}
-            value={destination}
-            height={CONTROL_HEIGHT}
-            disabled={Boolean(editing)}
-            onChange={(value) => {
-              setDestination(value);
-              if (value) setTopicIds([]);
-            }}
-          />
-        </SelectField>
+        {/* Mở từ trang một nhóm thì nơi đăng đã biết (chính nhóm đó), không cần chọn nên ẩn đi. */}
+        {defaultGroupId && !editing ? null : (
+          <SelectField label="Nơi đăng">
+            <SearchableSelect
+              options={destinationOptions}
+              value={destination}
+              height={CONTROL_HEIGHT}
+              disabled={Boolean(editing)}
+              onChange={(value) => {
+                setDestination(value);
+                if (value) setTopicIds([]);
+                setGroupTopicIds([]);
+              }}
+            />
+          </SelectField>
+        )}
         {canAnnounce && !editing ? (
           <SelectField label="Loại bài">
             <SearchableSelect
@@ -777,9 +819,52 @@ export function ComposerDialog({
             emptyText="Không có chuyên mục"
             max={SOCIAL_POST_TOPICS_MAX}
             aria-label="Chuyên mục"
+            {...(canManageTopics
+              ? {
+                  onCreate: async (name: string) => {
+                    const topic = await createTopic({ name }).catch((cause: unknown) => {
+                      throw new Error(errorMessage(cause, 'Không thêm được chuyên mục.'));
+                    });
+                    setCreatedTopics((list) => [...list, topic]);
+                    onTopicCreated?.(topic);
+                    return { value: topic.id, label: topic.name };
+                  },
+                  createPlaceholder: 'Tên chuyên mục mới',
+                  createLabel: 'Thêm chuyên mục',
+                  createMaxLength: SOCIAL_TOPIC_NAME_MAX,
+                }
+              : {})}
           />
         </SelectField>
-      ) : null}
+      ) : (
+        <SelectField label="Chủ đề" hint="Không bắt buộc. Không chọn thì bài chưa thuộc chủ đề nào của nhóm.">
+          <MultiSelect
+            options={groupTopics.map((topic) => ({ value: topic.id, label: topic.name }))}
+            values={groupTopicIds}
+            onChange={setGroupTopicIds}
+            placeholder="Chọn chủ đề (không bắt buộc)"
+            searchPlaceholder="Tìm chủ đề"
+            emptyText="Nhóm chưa có chủ đề"
+            max={1}
+            aria-label="Chủ đề"
+            {...(canManageGroupTopics
+              ? {
+                  onCreate: async (name: string) => {
+                    const topic = await createGroupTopic(destination, name).catch((cause: unknown) => {
+                      throw new Error(errorMessage(cause, 'Không thêm được chủ đề.'));
+                    });
+                    setGroupTopics((list) => [...list, topic]);
+                    emitGroupTopicsChanged(destination);
+                    return { value: topic.id, label: topic.name };
+                  },
+                  createPlaceholder: 'Tên chủ đề mới',
+                  createLabel: 'Thêm chủ đề',
+                  createMaxLength: SOCIAL_GROUP_TOPIC_NAME_MAX,
+                }
+              : {})}
+          />
+        </SelectField>
+      )}
 
       <div className={styles.field}>
         <span className={styles.fieldLabel}>
