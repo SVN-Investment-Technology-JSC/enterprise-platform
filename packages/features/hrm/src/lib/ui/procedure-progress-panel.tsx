@@ -9,7 +9,6 @@ import {
   PROCEDURE_POLL_INTERVAL_MS,
   procedureSyncNotice,
   shouldPollProcedureProgress,
-  summarizeRoleTitle,
   waitingApproverLabel,
   type ProcedureProgressData,
   type ProcedureSubmittedAttribute,
@@ -100,6 +99,7 @@ export interface ProcedureProgressPanelProps {
   /** Dự phòng khi API tiến độ chưa trả người/bước hiện tại. */
   fallbackStepName?: string | null;
   fallbackAssigneeName?: string | null;
+  approverName?: string | null;
   hasInstance?: boolean;
   /** Nội dung hiển thị khi đơn chưa có quy trình (không có instance). */
   emptyFallback?: React.ReactNode;
@@ -117,6 +117,7 @@ export function ProcedureProgressPanel({
   lastError,
   fallbackStepName,
   fallbackAssigneeName,
+  approverName,
   hasInstance = true,
   emptyFallback,
   showActivity = true,
@@ -213,7 +214,6 @@ export function ProcedureProgressPanel({
               const isCompleted = st.status === 'completed';
               const isRejected = st.status === 'rejected';
               const isActive = st.status === 'active' || st.status === 'ready';
-              const roleBadge = summarizeRoleTitle(st.roleTitle);
               return (
                 <div
                   key={st.id || idx}
@@ -238,40 +238,65 @@ export function ProcedureProgressPanel({
                       idx + 1
                     )}
                   </div>
-                  <div className="flex-1 space-y-0.5 min-w-0">
+                  <div className="flex-1 space-y-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span
                         className={`font-semibold text-xs ${isActive ? 'text-blue-900 font-bold' : 'text-slate-800'}`}
                       >
                         {st.name}
                       </span>
-                      {roleBadge && (
-                        <span
-                          className="max-w-[55%] truncate text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium"
-                          title={roleBadge.full}
-                          data-testid="step-role-title"
-                        >
-                          {roleBadge.text}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2">
-                      <span>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                          isCompleted
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : isRejected
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : isActive
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}
+                      >
                         {isCompleted
-                          ? `Đã xong${st.completedAt ? ` (${formatDate(st.completedAt)})` : ''}`
+                          ? 'Đã duyệt'
                           : isRejected
-                            ? 'Đã từ chối tại bước này'
+                            ? 'Đã từ chối'
                             : isActive
-                              ? 'Đang tiến hành xét duyệt'
-                              : 'Chờ đến lượt'}
+                              ? 'Đang xử lý'
+                              : 'Chờ duyệt'}
                       </span>
-                      {Boolean(st.slaHours) && !isCompleted && !isRejected && (
-                        <span className="text-amber-700 font-medium">
-                          SLA: {st.slaHours}h
-                          {st.slaDueAt && formatDate(st.slaDueAt)
-                            ? ` (hạn ${formatDate(st.slaDueAt)})`
-                            : ''}
+                    </div>
+
+                    {(st.roleTitle || ((isCompleted || isRejected) && approverName)) && (
+                      <div className="text-[11px] text-slate-700 flex items-center gap-1.5" data-testid="step-role-title">
+                        <span className="text-slate-500 font-normal">
+                          {isCompleted ? 'Người duyệt:' : isRejected ? 'Người từ chối:' : 'Người xử lý:'}
                         </span>
+                        <span className="font-semibold text-slate-900">{st.roleTitle || approverName}</span>
+                      </div>
+                    )}
+
+                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2">
+                      {isCompleted || isRejected ? (
+                        st.completedAt ? (
+                          <div className="flex items-center gap-1 font-mono text-slate-600">
+                            <span className="text-slate-500 font-sans">Thời gian:</span>
+                            <span>{formatDate(st.completedAt)}</span>
+                          </div>
+                        ) : null
+                      ) : isActive ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-blue-700 font-medium">Đang tiến hành xét duyệt</span>
+                          {Boolean(st.slaHours) && (
+                            <span className="text-amber-700 font-medium">
+                              SLA: {st.slaHours}h
+                              {st.slaDueAt && formatDate(st.slaDueAt)
+                                ? ` (hạn ${formatDate(st.slaDueAt)})`
+                                : ''}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span>Chờ đến lượt</span>
                       )}
                     </div>
                   </div>

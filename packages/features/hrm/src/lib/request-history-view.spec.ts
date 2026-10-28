@@ -93,4 +93,11 @@ describe('approverFallbackLabel', () => {
     expect(approverFallbackLabel(null, true)).toBe('Theo luồng phê duyệt');
     expect(approverFallbackLabel(null, false)).toBe('----');
   });
+
+  it('tra cứu tên người duyệt qua nameLookup khi approvedBy là UUID', () => {
+    const lookup = (id: string) => (id === '3f2b8a52-6c1d-4e35-9b0a-0d6f1a2b3c4d' ? 'Trần Văn B' : undefined);
+    expect(
+      approverFallbackLabel('3f2b8a52-6c1d-4e35-9b0a-0d6f1a2b3c4d', false, lookup),
+    ).toBe('Trần Văn B');
+  });
 });

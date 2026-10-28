@@ -18,6 +18,8 @@ import {
 } from './hrm-permissions';
 import { HrmCrumbsProvider } from './hrm-crumbs';
 
+import { HrmQuickSearch, type HrmQuickSearchTarget } from './ui/hrm-quick-search';
+
 const COLLAPSED_KEY = 'hrm_sidebar_collapsed';
 
 /** Trang form nhúng trong card của khung chat Trợ lý (`assistantFormPath` của contracts-assistant). */
@@ -58,6 +60,30 @@ function HrmShellContent({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   // Các bậc breadcrumb do màn hình hiện tại đặt thêm (xem hrm-crumbs.tsx).
   const [crumbs, setCrumbs] = useState<readonly string[]>([]);
+  // Trạng thái mở hộp thoại tìm kiếm nhanh toàn phân hệ (Ctrl+K)
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
+  const openQuickSearch = useCallback(() => setQuickSearchOpen(true), []);
+  const closeQuickSearch = useCallback(() => setQuickSearchOpen(false), []);
+
+  const onQuickPick = useCallback(
+    (target: HrmQuickSearchTarget) => {
+      closeQuickSearch();
+      if (target.kind === 'page') {
+        router.push(target.href);
+      } else if (target.kind === 'employee') {
+        router.push(
+          `/employees?search=${encodeURIComponent(target.employeeCode)}&id=${target.employeeId}`,
+        );
+      } else if (target.kind === 'position') {
+        router.push(
+          `/employees?search=${encodeURIComponent(target.positionName)}`,
+        );
+      } else if (target.kind === 'request-type') {
+        router.push(`/requests?create=${encodeURIComponent(target.code)}`);
+      }
+    },
+    [router, closeQuickSearch],
+  );
 
   useEffect(() => {
     try {
@@ -105,47 +131,53 @@ function HrmShellContent({ children }: { children: ReactNode }) {
 
   return (
     <HrmCrumbsProvider value={setCrumbs}>
-    <ModuleShell
-      appearance="light"
-      moduleKey="hrm"
-      title="Nhân sự"
-      nav={nav}
-      view={activeNavId}
-      onViewChange={onViewChange}
-      homeHref="/applications"
-      actor={permissions.displayName || undefined}
-      crumbs={crumbs}
-      collapsible
-      collapsed={collapsed}
-      onCollapsedChange={changeCollapsed}
-    >
-      <div className="hrm-workspace">
-        {permissions.loading ? (
-          <div role="status" className="flex items-center justify-center p-12 text-sm text-slate-500">
-            <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            Đang tải quyền HRM…
-          </div>
-        ) : permissions.error ? (
-          <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
-            <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>
-            <p>{permissions.error}</p>
-          </div>
-        ) : pagePermissions && !permissions.any(pagePermissions) ? (
-          <div
-            role="alert"
-            className="mx-auto mt-6 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 shadow-xs"
-          >
-            <div className="mb-2 text-base font-bold">Chưa được cấp quyền truy cập</div>
-            <p className="leading-relaxed">
-              Tài khoản của bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có thể cấp quyền tại màn hình
-              Phân quyền của ERP.
-            </p>
-          </div>
-        ) : (
-          children
-        )}
-      </div>
-    </ModuleShell>
+      <ModuleShell
+        appearance="light"
+        moduleKey="hrm"
+        title="Nhân sự"
+        nav={nav}
+        view={activeNavId}
+        onViewChange={onViewChange}
+        homeHref="/applications"
+        actor={permissions.displayName || undefined}
+        crumbs={crumbs}
+        collapsible
+        collapsed={collapsed}
+        onCollapsedChange={changeCollapsed}
+        onQuickSearch={openQuickSearch}
+      >
+        <div className="hrm-workspace">
+          {permissions.loading ? (
+            <div role="status" className="flex items-center justify-center p-12 text-sm text-slate-500">
+              <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              Đang tải quyền HRM…
+            </div>
+          ) : permissions.error ? (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
+              <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>
+              <p>{permissions.error}</p>
+            </div>
+          ) : pagePermissions && !permissions.any(pagePermissions) ? (
+            <div
+              role="alert"
+              className="mx-auto mt-6 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 shadow-xs"
+            >
+              <div className="mb-2 text-base font-bold">Chưa được cấp quyền truy cập</div>
+              <p className="leading-relaxed">
+                Tài khoản của bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có thể cấp quyền tại màn hình
+                Phân quyền của ERP.
+              </p>
+            </div>
+          ) : (
+            children
+          )}
+        </div>
+      </ModuleShell>
+      <HrmQuickSearch
+        open={quickSearchOpen}
+        onClose={closeQuickSearch}
+        onPick={onQuickPick}
+      />
     </HrmCrumbsProvider>
   );
 }

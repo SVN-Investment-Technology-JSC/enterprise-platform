@@ -105,6 +105,22 @@ export default function EmployeesManagementPage() {
         page++;
       } while (records.length < total);
       setEmployeesList(records);
+      const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const targetId = query?.get('id');
+      const targetSearch = query?.get('search');
+      if (targetSearch) {
+        setSearchTerm(targetSearch);
+      }
+      if (targetId) {
+        const found = records.find(
+          (row) => row.employeeId === targetId || (targetSearch && row.employeeCode === targetSearch),
+        );
+        if (found) {
+          setSelectedEmployee(found);
+          setIsEmployeeDrawerOpen(true);
+          return;
+        }
+      }
       setSelectedEmployee(
         (previous) =>
           records.find((row) => row.employeeId === previous?.employeeId) ??
@@ -121,6 +137,26 @@ export default function EmployeesManagementPage() {
       setIsLoading(false);
     }
   }, []);
+
+  // Lắng nghe thay đổi query trên URL khi đã ở trong trang (ví dụ chọn nhân viên từ tìm kiếm nhanh)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const query = new URLSearchParams(window.location.search);
+    const targetId = query.get('id');
+    const targetSearch = query.get('search');
+    if (targetSearch && targetSearch !== searchTerm) {
+      setSearchTerm(targetSearch);
+    }
+    if (targetId && employeesList.length > 0) {
+      const found = employeesList.find(
+        (row) => row.employeeId === targetId || (targetSearch && row.employeeCode === targetSearch),
+      );
+      if (found && selectedEmployee?.employeeId !== found.employeeId) {
+        setSelectedEmployee(found);
+        setIsEmployeeDrawerOpen(true);
+      }
+    }
+  }, [employeesList, searchTerm, selectedEmployee?.employeeId]);
 
   // Danh sách /employees không kèm người phụ thuộc và hợp đồng nên số trên tab luôn là 0 cho tới khi tab được mở.
   // Mở hồ sơ thì lấy hồ sơ chi tiết, chỉ nhận hai danh sách này; lỗi thì giữ nguyên, tab tự tải khi được mở.

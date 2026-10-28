@@ -42,6 +42,7 @@ export * from './lib/ui/button';
 export * from './lib/ui/card';
 export * from './lib/ui/dialog';
 export * from './lib/ui/input';
+export * from './lib/ui/hrm-quick-search';
 export * from './lib/hrm-api';
 export * from './lib/utils';
 
