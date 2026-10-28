@@ -784,6 +784,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
   /** Compatibility view for modules using units and members over the core node model. */
   async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      // Tenant không bật HRM thì không có hrm_schema: JOIN thẳng sẽ lỗi
+      // "relation does not exist" và làm hỏng mọi bên đọc sơ đồ tổ chức.
+      const hrmProfiles = await pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('hrm_schema.employee_profiles') IS NOT NULL AS "exists"`,
+      );
+      const hasHrmProfiles = hrmProfiles.rows[0]?.exists === true;
+      const profileColumns = hasHrmProfiles
+        ? `ep.employee_code AS "employeeCode", ep.employment_status AS "employmentStatus"`
+        : `NULL::text AS "employeeCode", NULL::text AS "employmentStatus"`;
+      const profileJoin = hasHrmProfiles
+        ? `LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.deleted_at IS NULL`
+        : '';
       const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
         pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", n.reports_to_position_id AS "reportsToPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
@@ -791,11 +803,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
           SELECT a.id AS "assignmentId", a.node_id AS "unitId", a.user_id AS "userId", a.employee_id AS "employeeId",
                  a.is_primary AS "isHead", a.reports_to_position_override_id AS "reportsToPositionOverrideId",
                  u.full_name AS "displayName", u.email,
-                 e.id AS "resolvedEmployeeId", ep.employee_code AS "employeeCode", ep.employment_status AS "employmentStatus"
+                 e.id AS "resolvedEmployeeId", ${profileColumns}
           FROM core_schema.organization_node_assignments a
           JOIN core_schema.users u ON u.id = a.user_id
           LEFT JOIN core_schema.employees e ON (e.id = a.employee_id OR (a.employee_id IS NULL AND e.user_id = a.user_id AND e.deleted_at IS NULL))
-          LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.deleted_at IS NULL
+          ${profileJoin}
           WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true
         `),
         pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
