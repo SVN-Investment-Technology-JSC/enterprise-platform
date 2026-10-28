@@ -37,13 +37,19 @@ export const CONTRACT_STATUS_TRANSITIONS: Readonly<Record<ContractStatus, readon
   CANCELLED: [],
 };
 
-export const PAYMENT_TERM_CONDITIONS = ['DATE', 'SIGN', 'DELIVERY', 'ACCEPTANCE'] as const;
+/**
+ * Điều kiện đến hạn của đợt thanh toán. `DELIVERY`: mỗi lần giao kích hoạt đợt
+ * "khi giao hàng" kế tiếp. `FULL_DELIVERY`: khi mọi dòng của mọi đơn chưa huỷ
+ * thuộc hợp đồng đã giao đủ số lượng.
+ */
+export const PAYMENT_TERM_CONDITIONS = ['DATE', 'SIGN', 'DELIVERY', 'FULL_DELIVERY', 'ACCEPTANCE'] as const;
 export type PaymentTermCondition = (typeof PAYMENT_TERM_CONDITIONS)[number];
 
 export const PAYMENT_TERM_CONDITION_LABELS: Readonly<Record<PaymentTermCondition, string>> = {
   DATE: 'Theo ngày',
   SIGN: 'Khi ký hợp đồng',
   DELIVERY: 'Khi giao hàng',
+  FULL_DELIVERY: 'Khi giao đủ hàng',
   ACCEPTANCE: 'Khi nghiệm thu',
 };
 
@@ -66,14 +72,18 @@ export const CONTRACT_LINES_MAX = 200;
 /** Cảnh báo hợp đồng sắp hết hạn trước số ngày này nếu chưa cấu hình (CON-06). */
 export const DEFAULT_CONTRACT_EXPIRING_DAYS = 30;
 
-/** Trạng thái phần giữ hàng của hợp đồng hoặc dòng đơn (bản ghi phía Bán hàng). */
-export const RESERVATION_STATUSES = ['HELD', 'RELEASED', 'EXPIRED'] as const;
+/**
+ * Trạng thái phần giữ hàng của hợp đồng hoặc dòng đơn (bản ghi phía Bán hàng).
+ * `COMPLETED` (chỉ hợp đồng): Kho đã xuất đủ mọi dòng của phần giữ.
+ */
+export const RESERVATION_STATUSES = ['HELD', 'RELEASED', 'EXPIRED', 'COMPLETED'] as const;
 export type CrmReservationStatus = (typeof RESERVATION_STATUSES)[number];
 
 export const RESERVATION_STATUS_LABELS: Readonly<Record<CrmReservationStatus, string>> = {
   HELD: 'Đang giữ',
   RELEASED: 'Đã nhả',
   EXPIRED: 'Hết hạn giữ',
+  COMPLETED: 'Đã xuất đủ',
 };
 
 /** Sự kiện outbox (skill `erp-events`). Nguồn lịch của notification-worker phát `crm.contract.expiring`. */

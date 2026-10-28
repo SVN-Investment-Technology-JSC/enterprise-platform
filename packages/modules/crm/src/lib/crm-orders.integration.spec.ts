@@ -29,7 +29,7 @@ import { vietnamToday } from './application/pricing.service.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
 import { CrmError } from './domain/crm.error.js';
 import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
-import { applyReservationExpired, applyStockIssued } from './infrastructure/inventory-events.js';
+import { applyReservationExpired, applyReservationReleased, applyStockIssued } from './infrastructure/inventory-events.js';
 import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
@@ -534,5 +534,83 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(await new PostgresContractStore(handle.database).expireDue(tenantId, today, 50)).toBeGreaterThanOrEqual(1);
     expect((await contracts.get(nv, active.id)).status).toBe('EXPIRED');
     await expect(orders.create(nv, { contractId: frame.id })).rejects.toMatchObject({ statusCode: 409, message: 'Hợp đồng đã hết hiệu lực.' });
+  });
+  it('phần giữ của hợp đồng: Kho xuất đủ theo phần giữ thì hợp đồng hiện Đã xuất đủ; Kho nhả thì Đã nhả', async () => {
+    inventory.available.set('KHO-R|QA-KHO-CAP', 20);
+    const draft = await contracts.create(nv, {
+      type: 'SALE',
+      customerId,
+      title: 'HĐ giữ hàng xuất đủ',
+      validFrom: today,
+      validTo: addDays(60),
+      value: 9_000_000,
+      warehouseCode: 'KHO-R',
+      lines: [{ materialId: CAP, quantity: 10, unitPrice: 900_000 }],
+    });
+    const active = await contracts.confirm(nv, draft.id, { revision: draft.revision });
+    const reservation = active.reservation;
+    expect(reservation).toMatchObject({ status: 'HELD' });
+    let order = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity: 10 }] });
+    order = await orders.confirm(nv, order.id, { revision: order.revision });
+    expect(order.lines[0]).toMatchObject({ reservationSource: 'CONTRACT', reservationId: reservation?.reservationId });
+    order = await orders.saveDelivery(nv, order.id, null, { revision: order.revision, plannedDate: addDays(1), lines: [{ orderLineId: order.lines[0].id, quantity: 4 }] });
+    order = await orders.saveDelivery(nv, order.id, null, { revision: order.revision, plannedDate: addDays(2), lines: [{ orderLineId: order.lines[0].id, quantity: 6 }] });
+    const balances = new UnknownOrderBalanceReader();
+    const issue = async (deliveryId: string, quantity: number, reversesDocumentId: string | null = null) => {
+      order = await orders.get(nv, order.id);
+      if (!reversesDocumentId) order = await orders.requestIssue(nv, order.id, deliveryId, { revision: order.revision });
+      const request = inventory.issues.get(`crm-delivery:${deliveryId}`);
+      const documentId = reversesDocumentId ? randomUUID() : request?.documentId;
+      await applyStockIssued(
+        handle.database,
+        tenantId,
+        {
+          documentId,
+          documentCode: `PX-${quantity}`,
+          sourceType: 'crm_delivery',
+          sourceId: deliveryId,
+          reversesDocumentId,
+          postedAt: new Date().toISOString(),
+          lines: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', quantity, costAmount: 0, direction: reversesDocumentId ? 'IN' : 'OUT', reservationId: reservation?.reservationId }],
+        },
+        balances,
+      );
+      return documentId as string;
+    };
+    const [first, second] = order.deliveries;
+    // Xuất một phần theo phần giữ: vẫn Đang giữ (Kho: Xuất một phần).
+    const firstDocument = await issue(first.id, 4);
+    expect((await contracts.get(nv, draft.id)).reservation).toMatchObject({ status: 'HELD' });
+    await issue(second.id, 6);
+    const completed = await contracts.get(nv, draft.id);
+    expect(completed.reservation).toMatchObject({ status: 'COMPLETED', reservationCode: reservation?.reservationCode });
+    expect(completed.history.map((entry) => entry.action)).toContain('reservation-completed');
+    // Đảo chứng từ không trả phần giữ (như Kho): vẫn Đã xuất đủ.
+    await issue(first.id, 4, firstDocument);
+    expect((await contracts.get(nv, draft.id)).reservation?.status).toBe('COMPLETED');
+    // Phần giữ không còn Đang giữ: sự kiện nhả về sau bị bỏ qua.
+    expect(
+      await applyReservationReleased(handle.database, tenantId, { reservationCode: reservation?.reservationCode, sourceType: 'crm_contract', sourceId: draft.id }),
+    ).toBe('ignored');
+
+    // Hợp đồng khác: Kho nhả tay phần giữ thì hợp đồng và dòng đơn dùng phần giữ đó sang Đã nhả.
+    const other = await contracts.create(nv, {
+      type: 'SALE',
+      customerId,
+      title: 'HĐ bị nhả ở Kho',
+      validFrom: today,
+      validTo: addDays(60),
+      value: 1_800_000,
+      warehouseCode: 'KHO-R',
+      lines: [{ materialId: CAP, quantity: 2, unitPrice: 900_000 }],
+    });
+    const otherActive = await contracts.confirm(nv, other.id, { revision: other.revision });
+    let otherOrder = await orders.create(nv, { contractId: other.id, lines: [{ materialId: CAP, quantity: 2 }] });
+    otherOrder = await orders.confirm(nv, otherOrder.id, { revision: otherOrder.revision });
+    const released = { reservationCode: otherActive.reservation?.reservationCode, sourceType: 'crm_contract', sourceId: other.id };
+    expect(await applyReservationReleased(handle.database, tenantId, released)).toBe('applied');
+    expect(await applyReservationReleased(handle.database, tenantId, released)).toBe('ignored');
+    expect((await contracts.get(nv, other.id)).reservation?.status).toBe('RELEASED');
+    expect((await orders.get(nv, otherOrder.id)).lines[0]).toMatchObject({ reservationStatus: 'RELEASED', reservedQuantity: 0 });
   });
 });

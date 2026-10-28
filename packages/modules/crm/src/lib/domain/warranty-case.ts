@@ -154,3 +154,38 @@ export function lineRefundAmount(orderLine: { readonly quantity: number; readonl
   if (!(orderLine.quantity > 0)) return 0;
   return Math.round((orderLine.lineTotal / orderLine.quantity) * quantity * 100) / 100;
 }
+
+/** Mã lỗi khi chưa chọn kho bảo hành ở Cấu hình > Bảo hành. */
+export const WARRANTY_WAREHOUSE_NOT_CONFIGURED = 'WARRANTY_WAREHOUSE_NOT_CONFIGURED';
+export const WARRANTY_WAREHOUSE_NOT_CONFIGURED_MESSAGE =
+  'Chưa cấu hình kho cách ly hoặc kho hàng lỗi cho bảo hành. Vào Cấu hình > Bảo hành để chọn kho.';
+export const WARRANTY_RESTOCK_WAREHOUSE_NOT_CONFIGURED_MESSAGE =
+  'Chưa cấu hình kho nhập lại hàng Đạt cho bảo hành. Vào Cấu hình > Bảo hành để chọn kho.';
+
+/**
+ * Mã kho bảo hành đã cấu hình; chưa có thì 409 (không có kho mặc định, kho thử
+ * nghiệm cũ đã bỏ ở migration 0013).
+ */
+export function requireWarrantyWarehouse(
+  code: string | null | undefined,
+  message: string = WARRANTY_WAREHOUSE_NOT_CONFIGURED_MESSAGE,
+): string {
+  const value = code?.trim();
+  if (!value) throw new CrmConflictError(WARRANTY_WAREHOUSE_NOT_CONFIGURED, message);
+  return value;
+}
+
+/**
+ * Kho đích khi điều chuyển hàng ra khỏi kho cách ly: Nhập lại về kho đã xuất
+ * (không biết thì kho nhập lại theo cấu hình), Chuyển kho lỗi về kho lỗi.
+ */
+export function warrantyTransferTarget(
+  disposition: WarrantyDisposition,
+  deliveryWarehouseCode: string | null,
+  settings: { readonly defectWarehouseCode: string | null; readonly restockWarehouseCode: string | null },
+): string {
+  if (disposition === 'RESTOCK') {
+    return requireWarrantyWarehouse(deliveryWarehouseCode ?? settings.restockWarehouseCode, WARRANTY_RESTOCK_WAREHOUSE_NOT_CONFIGURED_MESSAGE);
+  }
+  return requireWarrantyWarehouse(settings.defectWarehouseCode);
+}

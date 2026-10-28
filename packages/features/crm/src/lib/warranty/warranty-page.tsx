@@ -4,6 +4,7 @@ import {
   WARRANTY_CAUSE_LABELS,
   WARRANTY_SOURCE_LABELS,
   WARRANTY_STATUS_LABELS,
+  type CrmWarehouseOption,
   type WarrantyCause,
   type WarrantyCaseSummary,
   type WarrantyLookupItem,
@@ -21,12 +22,13 @@ import {
   createWarrantyCase,
   errorMessage,
   listWarrantyCases,
+  loadWarehouses,
   loadWarrantySettings,
   lookupWarranty,
   saveWarrantySettings,
 } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
-import { formatDay } from '../fulfillment.model';
+import { formatDay, warehouseOptions } from '../fulfillment.model';
 import { personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { WARRANTY_STATUS_TONE, coverageLabel } from './warranty.model';
@@ -314,32 +316,45 @@ function IntakeDialog({
   );
 }
 
-/** Kho cách ly nhận hàng bảo hành, kho lỗi nhận hàng kiểm định Lỗi, kho nhập lại hàng Đạt (`crm.manage`). */
+/**
+ * Kho cách ly nhận hàng bảo hành, kho lỗi nhận hàng kiểm định Lỗi, kho nhập lại
+ * hàng Đạt (`crm.manage`). Chọn từ danh mục kho của Kho; không có kho mặc định,
+ * chưa chọn thì nhận hàng, chuyển kho bảo hành bị chặn.
+ */
 function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
   const [quarantine, setQuarantine] = useState('');
   const [defect, setDefect] = useState('');
   const [restock, setRestock] = useState('');
+  const [warehouses, setWarehouses] = useState<readonly CrmWarehouseOption[]>([]);
+  const [warehouseError, setWarehouseError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     loadWarrantySettings()
       .then((settings) => {
-        setQuarantine(settings.quarantineWarehouseCode);
-        setDefect(settings.defectWarehouseCode);
-        setRestock(settings.restockWarehouseCode);
+        setQuarantine(settings.quarantineWarehouseCode ?? '');
+        setDefect(settings.defectWarehouseCode ?? '');
+        setRestock(settings.restockWarehouseCode ?? '');
+        const current = [settings.quarantineWarehouseCode, settings.defectWarehouseCode, settings.restockWarehouseCode].filter(
+          (code): code is string => !!code,
+        );
+        return loadWarehouses(current)
+          .then(setWarehouses)
+          .catch((cause) => setWarehouseError(errorMessage(cause, 'Không tải được danh sách kho.')));
       })
       .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình.')));
   }, []);
 
   async function save() {
+    if (!quarantine || !defect) return setError('Vui lòng chọn kho cách ly và kho hàng lỗi.');
     setSaving(true);
     setError(undefined);
     try {
       await saveWarrantySettings({
-        quarantineWarehouseCode: quarantine.trim(),
-        defectWarehouseCode: defect.trim(),
-        restockWarehouseCode: restock.trim(),
+        quarantineWarehouseCode: quarantine,
+        defectWarehouseCode: defect,
+        restockWarehouseCode: restock || null,
       });
       toast.success('Đã lưu kho bảo hành.');
       onClose();
@@ -350,17 +365,30 @@ function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const select = (value: string, onChange: (value: string) => void, placeholder: string, clearable = false) => (
+    <SearchableSelect
+      options={warehouseOptions(warehouses, value || null)}
+      value={value}
+      placeholder={placeholder}
+      searchPlaceholder="Tìm theo mã hoặc tên kho"
+      emptyText="Không có kho phù hợp"
+      clearable={clearable}
+      onChange={onChange}
+    />
+  );
+
   return (
-    <CrmDialog open title="Kho bảo hành" subtitle="Mã kho của phân hệ Kho" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open title="Kho bảo hành" subtitle="Chọn kho từ danh mục kho của phân hệ Kho" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+      {warehouseError ? <p className={styles.alert}>{warehouseError}</p> : null}
       <div className={styles.fieldGrid}>
         <Field label="Kho cách ly" required hint="Hàng bảo hành nhận về, Chờ kiểm định">
-          <input className={styles.input} maxLength={50} value={quarantine} onChange={(event) => setQuarantine(event.target.value.toUpperCase())} />
+          {select(quarantine, setQuarantine, 'Chọn kho cách ly')}
         </Field>
-        <Field label="Kho lỗi" required hint="Hàng kiểm định Lỗi chuyển sang">
-          <input className={styles.input} maxLength={50} value={defect} onChange={(event) => setDefect(event.target.value.toUpperCase())} />
+        <Field label="Kho hàng lỗi" required hint="Hàng kiểm định Lỗi chuyển sang">
+          {select(defect, setDefect, 'Chọn kho hàng lỗi')}
         </Field>
-        <Field label="Kho nhập lại hàng Đạt" required hint="Dùng khi không biết kho đã xuất serial, dòng hàng">
-          <input className={styles.input} maxLength={50} value={restock} onChange={(event) => setRestock(event.target.value.toUpperCase())} />
+        <Field label="Kho nhập lại hàng Đạt" hint="Dùng khi không biết kho đã xuất serial, dòng hàng">
+          {select(restock, setRestock, 'Chọn kho nhập lại', true)}
         </Field>
       </div>
     </CrmDialog>

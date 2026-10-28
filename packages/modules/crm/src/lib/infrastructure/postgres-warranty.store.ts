@@ -1,7 +1,4 @@
 import {
-  DEFAULT_WARRANTY_DEFECT_WAREHOUSE,
-  DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE,
-  DEFAULT_WARRANTY_RESTOCK_WAREHOUSE,
   WARRANTY_STATUS_LABELS,
   type CrmPage,
   type WarrantyCaseDetail,
@@ -890,14 +887,15 @@ export class PostgresWarrantyStore implements WarrantyStore {
       `SELECT key, value FROM crm_schema.settings WHERE key = ANY($1::text[])`,
       [[WARRANTY_QUARANTINE_SETTING_KEY, WARRANTY_DEFECT_SETTING_KEY, WARRANTY_RESTOCK_SETTING_KEY]],
     );
-    const read = (key: string, fallback: string) => {
+    // Không có kho mặc định (migration 0013): chưa cấu hình thì `null`.
+    const read = (key: string) => {
       const code = result.rows.find((row) => row.key === key)?.value?.code;
-      return typeof code === 'string' && code.trim() ? code.trim() : fallback;
+      return typeof code === 'string' && code.trim() ? code.trim() : null;
     };
     return {
-      quarantineWarehouseCode: read(WARRANTY_QUARANTINE_SETTING_KEY, DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE),
-      defectWarehouseCode: read(WARRANTY_DEFECT_SETTING_KEY, DEFAULT_WARRANTY_DEFECT_WAREHOUSE),
-      restockWarehouseCode: read(WARRANTY_RESTOCK_SETTING_KEY, DEFAULT_WARRANTY_RESTOCK_WAREHOUSE),
+      quarantineWarehouseCode: read(WARRANTY_QUARANTINE_SETTING_KEY),
+      defectWarehouseCode: read(WARRANTY_DEFECT_SETTING_KEY),
+      restockWarehouseCode: read(WARRANTY_RESTOCK_SETTING_KEY),
     };
   }
 
@@ -908,6 +906,10 @@ export class PostgresWarrantyStore implements WarrantyStore {
         [WARRANTY_DEFECT_SETTING_KEY, settings.defectWarehouseCode],
         [WARRANTY_RESTOCK_SETTING_KEY, settings.restockWarehouseCode],
       ] as const) {
+        if (!code) {
+          await client.query(`DELETE FROM crm_schema.settings WHERE key = $1`, [key]);
+          continue;
+        }
         await client.query(
           `INSERT INTO crm_schema.settings (key, value, updated_by) VALUES ($1, $2::jsonb, $3)
            ON CONFLICT (key) DO UPDATE

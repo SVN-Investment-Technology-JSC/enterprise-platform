@@ -240,7 +240,7 @@ async function runE2E(config, sessions, ctx) {
         revision: contract.revision,
         terms: [
           { name: 'Đợt 1: 30% khi ký', percent: 30, condition: 'SIGN', dueDays: 0 },
-          { name: 'Đợt 2: 70% khi giao đủ', percent: 70, condition: 'DELIVERY', dueDays: 0 },
+          { name: 'Đợt 2: 70% khi giao đủ', percent: 70, condition: 'FULL_DELIVERY', dueDays: 0 },
         ],
       });
       expect(contract.paymentTerms.length === 2, 'Nhập 2 đợt thanh toán 30% và 70%', contract.paymentTerms.map((t) => `${t.name} ${vnd(t.amount)}`).join('; '));
@@ -258,7 +258,7 @@ async function runE2E(config, sessions, ctx) {
       const term1 = contract.paymentTerms.find((t) => t.condition === 'SIGN');
       const debit = ledger.entries.find((e) => e.kind === 'DEBIT' && e.contractId === s.contractId && near(e.amount, term1.amount));
       s.term1 = term1;
-      s.term2 = contract.paymentTerms.find((t) => t.condition === 'DELIVERY');
+      s.term2 = contract.paymentTerms.find((t) => t.condition === 'FULL_DELIVERY');
       expect(debit, 'Khoản phải thu đợt 1 phát sinh', debit ? `${vnd(debit.amount)} hạn ${debit.dueDate}` : `sổ: ${ledger.entries.map((e) => `${e.kind} ${e.amount}`).join(', ')}`);
     }],
 
@@ -291,10 +291,9 @@ async function runE2E(config, sessions, ctx) {
       expect(Number(lap.actualCost) > 0 && lap.deliveredQuantity === 8, 'Giá vốn thực tế về đơn', `đã giao ${lap.deliveredQuantity}, giá vốn ${vnd(lap.actualCost)}`);
       const ledger = await (await as('KT')).get(`${crm}/v1/receivables/customers/${s.customerId}`);
       const term2Early = ledger.entries.find((e) => e.kind === 'DEBIT' && e.contractId === s.contractId && near(e.amount, s.term2.amount));
-      if (term2Early) {
-        record(11, 'TK', 'Đợt 2 (70% "khi giao đủ") chưa phát sinh khi mới giao một phần', 'WARN',
-          `đã ghi nợ ${vnd(term2Early.amount)} ngay ở đợt giao 1: điều kiện DELIVERY kích hoạt ở lần giao đầu, không có điều kiện "giao đủ"`);
-      }
+      // Điều kiện FULL_DELIVERY: chỉ ghi nợ khi mọi đơn của hợp đồng giao đủ.
+      expect(!term2Early, 'Đợt 2 (70% "khi giao đủ hàng") chưa phát sinh khi mới giao một phần',
+        term2Early ? `đã ghi nợ ${vnd(term2Early.amount)} ngay ở đợt giao 1` : 'chưa có khoản đợt 2');
     }],
 
     [12, 'TK', async (expect) => {
@@ -302,7 +301,11 @@ async function runE2E(config, sessions, ctx) {
       expect(order.status === 'DELIVERED' || order.status === 'DONE', 'Đơn Đã giao đủ', order.status);
       const ledger = await (await as('KT')).get(`${crm}/v1/receivables/customers/${s.customerId}`);
       const debit = ledger.entries.find((e) => e.kind === 'DEBIT' && e.contractId === s.contractId && near(e.amount, s.term2.amount));
-      expect(debit, 'Khoản phải thu đợt 2 phát sinh', debit ? `${vnd(debit.amount)} ngày ${debit.entryDate}` : 'chưa có');
+      expect(debit, 'Khoản phải thu đợt 2 phát sinh khi giao đủ', debit ? `${vnd(debit.amount)} ngày ${debit.entryDate}` : 'chưa có');
+      // Kho đã xuất đủ phần giữ của hợp đồng: hợp đồng hiện "Đã xuất đủ" như bên Kho, không còn "Đang giữ".
+      const contract = await (await as('KT')).get(`${crm}/v1/contracts/${s.contractId}`);
+      expect(contract.reservation?.status === 'COMPLETED', 'Giữ hàng của hợp đồng: Đã xuất đủ',
+        `${contract.reservation?.reservationCode ?? '-'} ${contract.reservation?.status ?? '-'}`);
       s.order = order;
     }],
 

@@ -32,6 +32,7 @@ import {
  */
 export const INVENTORY_STOCK_ISSUED = 'inventory.stock.issued';
 export const INVENTORY_RESERVATION_EXPIRED = 'inventory.reservation.expired';
+export const INVENTORY_RESERVATION_RELEASED = 'inventory.reservation.released';
 
 /** Phần payload `inventory.stock.issued` Bán hàng đọc. */
 export interface StockIssuedPayload {
@@ -48,10 +49,12 @@ export interface StockIssuedPayload {
     readonly costAmount?: number | string;
     readonly serials?: readonly string[];
     readonly direction?: string;
+    /** Phần giữ Kho đã trừ khi xuất dòng này (phần giữ của đơn hoặc của hợp đồng). */
+    readonly reservationId?: string | null;
   }[];
 }
 
-/** Phần payload `inventory.reservation.expired` Bán hàng đọc. */
+/** Phần payload `inventory.reservation.expired` và `.released` Bán hàng đọc. */
 export interface ReservationExpiredPayload {
   readonly reservationCode?: string;
   readonly sourceType?: string | null;
@@ -126,6 +129,8 @@ export async function applyStockIssued(
       [documentId, deliveryId, (payload.documentCode ?? '').slice(0, 100) || documentId, reversesId],
     );
     if (!claimed.rows.length) return 'ignored';
+    // Khoá hợp đồng trước dòng đơn (cùng thứ tự với huỷ hợp đồng nhả phần giữ).
+    if (!reversesId) await recordContractReservationIssue(client, payload.lines ?? []);
 
     const targets = (
       await client.query<{ id: string; order_line_id: string; material_id: string; planned_quantity: string; delivered_quantity: string; serials: string[] | null }>(
@@ -318,6 +323,132 @@ export async function applyReservationExpired(
     });
   }
   return 'ignored';
+}
+
+/**
+ * Cộng số Kho đã xuất theo phần giữ của hợp đồng (dòng có `reservationId` là
+ * phần giữ của hợp đồng); đủ số đã giữ của mọi mặt hàng thì phần giữ sang Đã
+ * xuất đủ, như trạng thái Xuất đủ bên Kho. Chứng từ đảo không trừ lại vì Kho
+ * cũng không trả phần giữ khi đảo.
+ */
+export async function recordContractReservationIssue(client: CrmSqlClient, lines: NonNullable<StockIssuedPayload['lines']>): Promise<void> {
+  const byReservation = new Map<string, Map<string, number>>();
+  for (const raw of lines) {
+    const reservationId = String(raw.reservationId ?? '').toLowerCase();
+    const materialId = String(raw.materialId ?? '').toLowerCase();
+    const quantity = Math.abs(Number(raw.quantity ?? 0));
+    if (raw.direction === 'IN' || !isUuid(reservationId) || !isUuid(materialId) || !Number.isFinite(quantity) || quantity <= 0) continue;
+    const issued = byReservation.get(reservationId) ?? new Map<string, number>();
+    issued.set(materialId, round3((issued.get(materialId) ?? 0) + quantity));
+    byReservation.set(reservationId, issued);
+  }
+  for (const [reservationId, issued] of byReservation) {
+    const contract = (
+      await client.query<{ id: string; code: string; reservation_code: string | null; reservation_issued: Record<string, number | string> | null }>(
+        `SELECT id, code, reservation_code, reservation_issued FROM crm_schema.contracts
+          WHERE reservation_id = $1 AND reservation_status = 'HELD' FOR UPDATE`,
+        [reservationId],
+      )
+    ).rows[0];
+    if (!contract) continue;
+    const total: Record<string, number> = {};
+    for (const [materialId, quantity] of Object.entries(contract.reservation_issued ?? {})) total[materialId] = Number(quantity) || 0;
+    for (const [materialId, quantity] of issued) total[materialId] = round3((total[materialId] ?? 0) + quantity);
+    const covered = (
+      await client.query<{ material_id: string; quantity: string }>(
+        `SELECT material_id, sum(quantity) AS quantity FROM crm_schema.contract_lines
+          WHERE contract_id = $1 AND material_kind <> 'SERVICE' AND quantity IS NOT NULL
+          GROUP BY material_id`,
+        [contract.id],
+      )
+    ).rows;
+    const completed = covered.length > 0 && covered.every((row) => (total[row.material_id] ?? 0) >= Number(row.quantity));
+    await client.query(
+      `UPDATE crm_schema.contracts
+          SET reservation_issued = $2::jsonb,
+              reservation_status = CASE WHEN $3 THEN 'COMPLETED' ELSE reservation_status END,
+              updated_at = now()
+        WHERE id = $1`,
+      [contract.id, JSON.stringify(total), completed],
+    );
+    if (completed) {
+      await writeAuditLog(client, {
+        entityType: CONTRACT_AUDIT_ENTITY,
+        entityId: contract.id,
+        action: 'reservation-completed',
+        actorId: null,
+        reason: `Kho đã xuất đủ phần giữ hàng ${contract.reservation_code ?? ''}.`,
+        metadata: { code: contract.code, reservationCode: contract.reservation_code },
+      });
+    }
+  }
+}
+
+/**
+ * Kho báo phần giữ đã nhả (người dùng Kho nhả tay, hoặc lệnh nhả của chính Bán
+ * hàng): hợp đồng, dòng đơn còn "Đang giữ" phần giữ đó sang Đã nhả. Lệnh nhả do
+ * Bán hàng gửi đã đánh dấu trước nên sự kiện về sau bị bỏ qua.
+ */
+export async function applyReservationReleased(
+  database: CrmDatabase,
+  tenantId: string,
+  payload: ReservationExpiredPayload,
+): Promise<'applied' | 'ignored'> {
+  const code = payload.reservationCode?.trim();
+  if (!code || !isUuid(payload.sourceId)) return 'ignored';
+  const sourceId = payload.sourceId;
+  if (payload.sourceType !== CRM_ORDER_SOURCE_TYPE && payload.sourceType !== CRM_CONTRACT_SOURCE_TYPE) return 'ignored';
+  return database.transaction(tenantId, async (client) => {
+    let applied = false;
+    if (payload.sourceType === CRM_CONTRACT_SOURCE_TYPE) {
+      const contract = await client.query<{ code: string }>(
+        `UPDATE crm_schema.contracts SET reservation_status = 'RELEASED', updated_at = now()
+          WHERE id = $1 AND reservation_code = $2 AND reservation_status = 'HELD'
+          RETURNING code`,
+        [sourceId, code],
+      );
+      const row = contract.rows[0];
+      if (row) {
+        applied = true;
+        await writeAuditLog(client, {
+          entityType: CONTRACT_AUDIT_ENTITY,
+          entityId: sourceId,
+          action: 'reservation-released',
+          actorId: null,
+          reason: `Phần giữ hàng ${code} đã được nhả ở Kho.`,
+          metadata: { code: row.code, reservationCode: code },
+        });
+      }
+    }
+    // Phần giữ của hợp đồng không còn Đang giữ (đã xuất đủ, đã nhả): dòng đơn giữ nguyên.
+    if (payload.sourceType === CRM_CONTRACT_SOURCE_TYPE && !applied) return 'ignored';
+    const lines = await client.query<{ order_id: string }>(
+      `UPDATE crm_schema.sales_order_lines
+          SET reservation_status = 'RELEASED', reserved_quantity = 0, updated_at = now()
+        WHERE reservation_code = $1 AND reservation_status = 'HELD'
+          AND (reservation_source = 'CONTRACT' OR order_id = $2)
+        RETURNING order_id`,
+      [code, sourceId],
+    );
+    for (const orderId of new Set(lines.rows.map((line) => line.order_id))) {
+      applied = true;
+      const order = (
+        await client.query<{ code: string }>(
+          `UPDATE crm_schema.sales_orders SET revision = revision + 1, updated_at = now() WHERE id = $1 RETURNING code`,
+          [orderId],
+        )
+      ).rows[0];
+      await writeAuditLog(client, {
+        entityType: SALES_ORDER_AUDIT_ENTITY,
+        entityId: orderId,
+        action: 'reservation-released',
+        actorId: null,
+        reason: `Phần giữ hàng ${code} đã được nhả ở Kho.`,
+        metadata: { code: order?.code ?? null, reservationCode: code },
+      });
+    }
+    return applied ? 'applied' : 'ignored';
+  });
 }
 
 async function expireOrderLines(client: CrmSqlClient, condition: string, values: unknown[]): Promise<number> {

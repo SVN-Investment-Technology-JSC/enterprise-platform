@@ -16,6 +16,7 @@ import {
   lineDocumentKey,
   lineRefundAmount,
   needsResend,
+  warrantyTransferTarget,
 } from '../domain/warranty-case.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
@@ -90,6 +91,10 @@ export class WarrantyResolutionService {
     assertResolution({ result: line.inspectionResult, disposition, remedy, hasOrderLine: !!line.orderLineId });
     if (remedy === 'REPLACE' && !replacementWarehouseCode) {
       throw new CrmValidationError('WAREHOUSE_REQUIRED', 'Vui lòng nhập kho xuất hàng thay thế.');
+    }
+    // Kho đích phải cấu hình trước khi chốt hướng xử lý: chưa có thì 409, không lưu gì.
+    if (disposition === 'RESTOCK' || disposition === 'MOVE_TO_DEFECT') {
+      warrantyTransferTarget(disposition, line.deliveryWarehouseCode, await this.store.settings(actor.tenantId));
     }
     let creditAmount: number | null = null;
     if ((remedy === 'REFUND' || remedy === 'CREDIT') && line.orderLineId) {
@@ -188,7 +193,7 @@ export class WarrantyResolutionService {
         if (!quarantine) throw new CrmConflictError('GOODS_NOT_RECEIVED', 'Hàng chưa được nhận về kho cách ly.');
         // Nhập lại (T6-11): hàng Đạt về kho đã xuất serial, dòng; không biết thì kho nhập lại theo cấu hình.
         const restock = kind === 'TRANSFER' && line.disposition === 'RESTOCK';
-        const target = restock ? (line.deliveryWarehouseCode ?? settings.restockWarehouseCode) : settings.defectWarehouseCode;
+        const target = warrantyTransferTarget(restock ? 'RESTOCK' : 'MOVE_TO_DEFECT', line.deliveryWarehouseCode, settings);
         if (restock && target.toUpperCase() === quarantine.toUpperCase()) {
           // Kho xuất ban đầu chính là kho cách ly: hàng đã ở đúng chỗ, không cần điều chuyển.
           return { ...base, status: 'POSTED', payload: { targetWarehouseCode: target, skipped: true } };

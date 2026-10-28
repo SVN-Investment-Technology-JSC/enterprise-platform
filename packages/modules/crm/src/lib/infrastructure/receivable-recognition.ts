@@ -11,7 +11,9 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
  *   (luỹ kế sau trừ luỹ kế trước, làm tròn đến đồng), hạn = ngày giao + thời hạn
  *   thanh toán của khách; chứng từ đảo ghi REVERSAL vào khoản nợ của chứng từ gốc.
  * - Đơn thuộc hợp đồng có đợt: không ghi theo xuất kho (TC-AR-02); mỗi lần giao
- *   kích hoạt đợt "khi giao hàng" kế tiếp chưa đến hạn (TC-CON-06).
+ *   kích hoạt đợt "khi giao hàng" kế tiếp chưa đến hạn (TC-CON-06); đợt "khi
+ *   giao đủ hàng" đến hạn ở lần giao làm mọi dòng (hàng kho và dịch vụ) của mọi
+ *   đơn chưa huỷ thuộc hợp đồng giao đủ số lượng (`contractFullyDelivered`).
  * - Đợt "khi ký" ghi khi xác nhận hợp đồng; đợt "theo ngày" do job ghi khi tới
  *   ngày; đợt "khi nghiệm thu" ghi bằng tay (tới khi có nghiệm thu, CON-04).
  *
@@ -157,13 +159,16 @@ export async function recognizeOrderDelivery(
   if (order.contract_id && (await contractHasTerms(client, order.contract_id))) {
     // Hợp đồng có đợt thanh toán: nợ theo đợt, không theo xuất kho (TC-AR-02).
     if (forward && !input.reversesSourceId) {
-      await recognizeNextDeliveryTerm(client, {
+      const options = {
         contractId: order.contract_id,
         orderId: input.orderId,
         deliveryId: input.deliveryId,
         date: input.date,
         actorId: input.actorId,
-      });
+      };
+      // Đợt "khi giao hàng" xét trước: nó chặn theo `delivery_id` đã có khoản theo đợt.
+      await recognizeNextDeliveryTerm(client, options);
+      await recognizeFullDeliveryTerms(client, options);
     }
     return;
   }
@@ -230,7 +235,7 @@ interface TermRow {
   seq: number;
   name: string;
   amount: string;
-  condition: 'DATE' | 'SIGN' | 'DELIVERY' | 'ACCEPTANCE';
+  condition: 'DATE' | 'SIGN' | 'DELIVERY' | 'FULL_DELIVERY' | 'ACCEPTANCE';
   due_date: string | null;
   due_days: number | null;
   customer_id: string;
@@ -331,8 +336,45 @@ async function recognizeNextDeliveryTerm(
 }
 
 /**
+ * Mọi đơn chưa huỷ thuộc hợp đồng đã giao đủ: mỗi dòng (hàng kho và dịch vụ) có
+ * số đã giao không nhỏ hơn số đặt, và hợp đồng có ít nhất một dòng đơn như vậy.
+ * Đơn Nháp, Chờ duyệt hạn mức vẫn tính là chưa giao (đơn sẽ còn giao); bỏ qua đơn
+ * đã huỷ. Gọi trong transaction đã khoá đơn vừa giao, đọc số sau khi áp chứng từ.
+ */
+export async function contractFullyDelivered(client: CrmSqlClient, contractId: string): Promise<boolean> {
+  const result = await client.query<{ total: number; open: number }>(
+    `SELECT count(*)::int AS total, count(*) FILTER (WHERE l.delivered_quantity < l.quantity)::int AS open
+       FROM crm_schema.sales_order_lines l
+       JOIN crm_schema.sales_orders o ON o.id = l.order_id
+      WHERE o.contract_id = $1 AND o.status <> 'CANCELLED'`,
+    [contractId],
+  );
+  const row = result.rows[0];
+  return !!row && row.total > 0 && row.open === 0;
+}
+
+/**
+ * Lần giao làm hợp đồng giao đủ: mọi đợt "khi giao đủ hàng" còn chờ đến hạn
+ * (TC-CON-06b). Giao một phần không kích hoạt. Chứng từ đảo sau đó không đảo
+ * khoản đã ghi (như đợt "khi giao hàng"); điều chỉnh bằng bút toán điều chỉnh.
+ */
+async function recognizeFullDeliveryTerms(
+  client: CrmSqlClient,
+  options: { readonly contractId: string; readonly orderId: string; readonly deliveryId: string; readonly date: string; readonly actorId: string | null },
+): Promise<void> {
+  const terms = (
+    await client.query<TermRow>(
+      `${TERM_SELECT} WHERE t.contract_id = $1 AND t.condition = 'FULL_DELIVERY' AND t.status = 'PENDING' ORDER BY t.seq FOR UPDATE OF t`,
+      [options.contractId],
+    )
+  ).rows;
+  if (!terms.length || !(await contractFullyDelivered(client, options.contractId))) return;
+  for (const term of terms) await recognizeTerm(client, term, options);
+}
+
+/**
  * Ghi nhận bằng tay một đợt "khi nghiệm thu" (hoặc "khi giao hàng" chưa tự kích
- * hoạt). Trả `false` khi đợt không còn chờ.
+ * hoạt, hay "khi giao đủ hàng" khi còn đơn treo không giao). Trả `false` khi đợt không còn chờ.
  */
 export async function recognizeTermManually(
   client: CrmSqlClient,
@@ -348,7 +390,7 @@ export async function recognizeTermManually(
     )
   ).rows[0];
   if (!term) return 'not-found';
-  if (term.condition !== 'ACCEPTANCE' && term.condition !== 'DELIVERY') return 'invalid-condition';
+  if (term.condition !== 'ACCEPTANCE' && term.condition !== 'DELIVERY' && term.condition !== 'FULL_DELIVERY') return 'invalid-condition';
   if (term.status !== 'PENDING') return 'not-pending';
   return (await recognizeTerm(client, term, { date, actorId })) ? 'applied' : 'not-pending';
 }

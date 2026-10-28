@@ -19,7 +19,7 @@ import {
 import { CrmConflictError, CrmError, CrmForbiddenError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, normalizeSearch, optionalEnum, optionalId, optionalText, requiredText, requiredVersion } from '../domain/fields.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
-import { receiveIdempotencyKey } from '../domain/warranty-case.js';
+import { receiveIdempotencyKey, requireWarrantyWarehouse } from '../domain/warranty-case.js';
 import { computeWarranty, vietnamDate } from '../domain/warranty-period.js';
 import { requireSalesManager } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -325,13 +325,10 @@ export class WarrantyService {
     requireWarrantyWriter(actor);
     const detail = await this.get(actor, id);
     const settings = await this.store.settings(actor.tenantId);
-    const warehouseCode = await this.store.requestGoods(
-      actor.tenantId,
-      id,
-      requiredVersion(request?.revision),
-      detail.quarantineWarehouseCode ?? settings.quarantineWarehouseCode,
-      actor.userId,
-    );
+    // Không có kho mặc định: chưa chọn kho cách ly, kho lỗi thì không nhận hàng (409).
+    const quarantine = requireWarrantyWarehouse(detail.quarantineWarehouseCode ?? settings.quarantineWarehouseCode);
+    requireWarrantyWarehouse(settings.defectWarehouseCode);
+    const warehouseCode = await this.store.requestGoods(actor.tenantId, id, requiredVersion(request?.revision), quarantine, actor.userId);
     const key = receiveIdempotencyKey(id);
     try {
       const receipt = await this.inventory.receiveReturn(actor.tenantId, {
@@ -403,12 +400,12 @@ export class WarrantyService {
     if (quarantineWarehouseCode === defectWarehouseCode) {
       throw new CrmValidationError('SAME_WAREHOUSE', 'Kho cách ly và kho lỗi phải khác nhau.');
     }
-    // Kho nhập lại hàng Đạt (T6-11): không gửi thì giữ cấu hình đang có.
+    // Kho nhập lại hàng Đạt (T6-11): không gửi thì giữ cấu hình đang có; gửi rỗng thì bỏ cấu hình.
     const restockWarehouseCode =
       request?.restockWarehouseCode === undefined
         ? (await this.store.settings(actor.tenantId)).restockWarehouseCode
-        : requiredText(request.restockWarehouseCode, WAREHOUSE_CODE_MAX, 'mã kho nhập lại').toUpperCase();
-    if (restockWarehouseCode === quarantineWarehouseCode) {
+        : (optionalText(request.restockWarehouseCode, WAREHOUSE_CODE_MAX, 'mã kho nhập lại')?.toUpperCase() ?? null);
+    if (restockWarehouseCode && restockWarehouseCode === quarantineWarehouseCode) {
       throw new CrmValidationError('SAME_WAREHOUSE', 'Kho nhập lại hàng Đạt phải khác kho cách ly.');
     }
     await this.store.saveSettings(actor.tenantId, { quarantineWarehouseCode, defectWarehouseCode, restockWarehouseCode }, actor.userId);

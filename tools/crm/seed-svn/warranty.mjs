@@ -6,10 +6,28 @@
 // sự kiện `inventory.stock.issued`, mà Kho đặt bằng `now()` lúc ghi sổ (postgres-stock-document.store.ts), không theo
 // `documentDate`. Script vẫn đặt ngày giao dự kiến và ngày chứng từ xuất bằng mốc quá khứ, nhưng hạn bảo hành tính từ
 // hôm nay. Cuối bước in hạn thực tế và cảnh báo mốc nào lệch.
+//
+// Kho bảo hành không còn mặc định (crm migration 0013): đầu bước ghi cấu hình kho cách ly, kho lỗi, kho nhập lại của
+// tenant thử nghiệm bằng QTV (`PUT /v1/warranty/settings`), đã đúng thì bỏ qua.
 import { addMonths, createSessions, daysBetween, materialsByCode, requireCustomers, vnToday } from './common.mjs';
 import { ensureContract, ensureDeliveredOrder } from './sales-flow.mjs';
 
 const MATERIAL = 'QA-KHO-LAP';
+/** Kho của bước `inventory` dùng cho bảo hành trên tenant thử nghiệm. */
+const WARRANTY_WAREHOUSES = { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: 'QA-KHO-LOI', restockWarehouseCode: 'QA-KHO-HN' };
+
+async function ensureWarrantyWarehouses(config, admin, log) {
+  log.section('Kho bảo hành');
+  const current = await admin.get(`${config.crmApi}/v1/warranty/settings`);
+  const same = Object.entries(WARRANTY_WAREHOUSES).every(([key, code]) => current?.[key] === code);
+  const label = `cách ly ${WARRANTY_WAREHOUSES.quarantineWarehouseCode}, lỗi ${WARRANTY_WAREHOUSES.defectWarehouseCode}, nhập lại ${WARRANTY_WAREHOUSES.restockWarehouseCode}`;
+  if (same) {
+    log.skip(`Kho bảo hành đã cấu hình (${label}).`);
+    return;
+  }
+  await admin.put(`${config.crmApi}/v1/warranty/settings`, WARRANTY_WAREHOUSES);
+  log.created(`Kho bảo hành: ${label}.`);
+}
 
 function cases(today) {
   return [
@@ -25,6 +43,7 @@ export async function runWarrantyStep(config, log) {
   log.section(`Bước warranty cho ${config.tenantSlug}`);
   const sessions = createSessions(config);
   const admin = await sessions.as('QTV');
+  await ensureWarrantyWarehouses(config, admin, log);
   const today = vnToday();
   const list = cases(today);
   const customers = await requireCustomers(config, admin, [...new Set(list.map((item) => item.customer))]);

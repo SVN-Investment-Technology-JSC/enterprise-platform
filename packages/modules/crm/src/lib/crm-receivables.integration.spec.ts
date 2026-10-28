@@ -539,6 +539,81 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     expect((await contracts.get(nv, draft.id)).paymentTerms.map((term) => term.status)).toEqual(['DUE', 'DUE', 'DUE']);
   });
 
+  it('TC-CON-06b: 30% khi ký, 70% khi giao đủ hàng: giao một phần (kể cả giao đủ một đơn khi đơn khác chưa giao) không ghi nợ 70%, giao đủ mọi đơn thì ghi', async () => {
+    const customerId = await newCustomer();
+    const draft = await contracts.create(nv, {
+      type: 'SALE',
+      customerId,
+      title: 'HĐ 30/70 giao đủ',
+      validFrom: today,
+      validTo: addDays(today, 60),
+      value: 10_000_000,
+      warehouseCode: 'KHO-1',
+      lines: [{ materialId: CAP, quantity: 5, unitPrice: 1_000_000 }],
+    });
+    const withTerms = await contracts.savePaymentTerms(nv, draft.id, {
+      revision: draft.revision,
+      terms: [
+        { name: 'Ký', percent: 30, condition: 'SIGN' },
+        { name: 'Giao đủ hàng', percent: 70, condition: 'FULL_DELIVERY', dueDays: 20 },
+      ],
+    });
+    expect(withTerms.paymentTerms.map((term) => [term.condition, term.amount])).toEqual([
+      ['SIGN', 3_000_000],
+      ['FULL_DELIVERY', 7_000_000],
+    ]);
+    await contracts.confirm(nv, draft.id, { revision: withTerms.revision });
+
+    /** Lập đơn thuộc hợp đồng với một đợt giao mỗi số lượng trong `parts`. */
+    const contractOrder = async (quantity: number, parts: number[]) => {
+      let detail = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity }] });
+      detail = await orders.confirm(nv, detail.id, { revision: detail.revision });
+      for (const [index, part] of parts.entries()) {
+        detail = await orders.saveDelivery(nv, detail.id, null, {
+          revision: detail.revision,
+          plannedDate: addDays(today, index + 1),
+          lines: [{ orderLineId: detail.lines[0].id, quantity: part }],
+        });
+      }
+      return detail;
+    };
+    const deliver = async (orderId: string, index: number, quantity: number) => {
+      let detail = await orders.get(nv, orderId);
+      const delivery = detail.deliveries[index];
+      detail = await orders.requestIssue(nv, orderId, delivery.id, { revision: detail.revision });
+      const issue = inventory.issues.get(`crm-delivery:${delivery.id}`);
+      await applyStockIssued(
+        handle.database,
+        tenantId,
+        { documentId: issue?.documentId, documentCode: issue?.documentCode, sourceType: 'crm_delivery', sourceId: delivery.id, lines: [{ materialId: CAP, quantity, costAmount: 0 }] },
+        receivableStore,
+      );
+    };
+    const termDebits = async () =>
+      (await receivables.ledger(kt, customerId)).openItems.map((item) => item.amount).sort((a, b) => a - b);
+
+    const first = await contractOrder(3, [3]);
+    const second = await contractOrder(2, [1, 1]);
+    expect(await termDebits()).toEqual([3_000_000]);
+    // Đơn thứ nhất giao đủ nhưng đơn thứ hai chưa giao: chưa ghi nợ 70%.
+    await deliver(first.id, 0, 3);
+    expect((await orders.get(nv, first.id)).status).toMatch(/^(DELIVERED|DONE)$/);
+    expect(await termDebits()).toEqual([3_000_000]);
+    // Đơn thứ hai giao một phần: vẫn chưa.
+    await deliver(second.id, 0, 1);
+    expect(await termDebits()).toEqual([3_000_000]);
+    expect((await contracts.get(nv, draft.id)).paymentTerms.map((term) => term.status)).toEqual(['DUE', 'PENDING']);
+    // Lần giao làm mọi đơn giao đủ: ghi 7.000.000 hạn +20 ngày, đúng một lần.
+    await deliver(second.id, 1, 1);
+    const ledger = await receivables.ledger(kt, customerId);
+    expect(ledger.openItems.map((item) => [item.amount, item.dueDate]).sort((a, b) => Number(a[0]) - Number(b[0]))).toEqual([
+      [3_000_000, addDays(today, 30)],
+      [7_000_000, addDays(today, 20)],
+    ]);
+    expect(ledger.balance).toBe(10_000_000);
+    expect((await contracts.get(nv, draft.id)).paymentTerms.map((term) => term.status)).toEqual(['DUE', 'DUE']);
+  });
+
   it('TC-AR-06: job báo khoản quá hạn và khách vượt hạn mức một lần; TC-CUS-10: dòng thời gian có công nợ', async () => {
     const customerId = await newCustomer(1_000_000);
     await debit(customerId, 2_000_000, addDays(today, -1));

@@ -9,8 +9,10 @@ import { HttpProcedureClient } from './http-procedure-client.js';
 import { PostgresIntegrationRequests } from './integration-requests.js';
 import {
   applyReservationExpired,
+  applyReservationReleased,
   applyStockIssued,
   INVENTORY_RESERVATION_EXPIRED,
+  INVENTORY_RESERVATION_RELEASED,
   INVENTORY_STOCK_ISSUED,
   type ReservationExpiredPayload,
   type StockIssuedPayload,
@@ -51,6 +53,8 @@ export const CRM_INTEGRATION_BINDINGS: readonly string[] = [
   PROCEDURE_INSTANCE_REVERSED,
   INVENTORY_STOCK_ISSUED,
   INVENTORY_RESERVATION_EXPIRED,
+  // Phần giữ bị nhả ở Kho: hợp đồng, dòng đơn sang Đã nhả.
+  INVENTORY_RESERVATION_RELEASED,
   // Bảo hành (T6-04): nhập trả vào kho cách ly đã ghi sổ.
   INVENTORY_STOCK_RETURNED,
   // Công nợ (T5-07): phiếu thu nguồn Bán hàng được ghi sổ, trả lại, đảo.
@@ -147,6 +151,13 @@ export function createCrmIntegrationEvents(
         if (event.sourceType !== 'crm_order' && event.sourceType !== 'crm_contract') return;
         if (!(await salesTablesReady(database, tenantId))) return;
         await applyReservationExpired(database, tenantId, event);
+        return;
+      }
+      if (type === INVENTORY_RESERVATION_RELEASED) {
+        const event = (payload ?? {}) as ReservationExpiredPayload;
+        if (event.sourceType !== 'crm_order' && event.sourceType !== 'crm_contract') return;
+        if (!(await salesTablesReady(database, tenantId))) return;
+        await applyReservationReleased(database, tenantId, event);
       }
     },
   };

@@ -198,8 +198,13 @@ class FakeWarrantyStore implements WarrantyStore {
   async serialCases() {
     return [];
   }
+  warehouses: { quarantineWarehouseCode: string | null; defectWarehouseCode: string | null; restockWarehouseCode: string | null } = {
+    quarantineWarehouseCode: 'QA-KHO-CL',
+    defectWarehouseCode: 'QA-KHO-LOI',
+    restockWarehouseCode: 'QA-KHO-HN',
+  };
   async settings() {
-    return { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: 'QA-KHO-LOI', restockWarehouseCode: 'QA-KHO-HN' };
+    return this.warehouses;
   }
   async saveSettings() {
     return undefined;
@@ -351,6 +356,21 @@ describe('WarrantyService (T6-02 đến T6-04)', () => {
     expect(store.documents.get(`crm-warranty:${CASE_ID}:receive`)).toMatchObject({ status: 'POSTED', documentCode: 'NK-1' });
   });
 
+  it('chưa cấu hình kho cách ly hoặc kho lỗi thì không nhận hàng (409), không gọi Kho', async () => {
+    await service.create(actor(), { cause: 'TECHNICAL_FAULT', lines: [{ serial: 'SN031' }] });
+    store.warehouses = { quarantineWarehouseCode: null, defectWarehouseCode: 'QA-KHO-LOI', restockWarehouseCode: null };
+    const missingQuarantine = await rejection(service.receiveGoods(actor(), CASE_ID, { revision: 1 }));
+    expect([missingQuarantine.statusCode, missingQuarantine.code, missingQuarantine.message]).toEqual([
+      409,
+      'WARRANTY_WAREHOUSE_NOT_CONFIGURED',
+      'Chưa cấu hình kho cách ly hoặc kho hàng lỗi cho bảo hành. Vào Cấu hình > Bảo hành để chọn kho.',
+    ]);
+    store.warehouses = { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: null, restockWarehouseCode: null };
+    expect((await rejection(service.receiveGoods(actor(), CASE_ID, { revision: 1 }))).code).toBe('WARRANTY_WAREHOUSE_NOT_CONFIGURED');
+    expect(inventory.calls).toEqual([]);
+    expect(store.documents.size).toBe(0);
+  });
+
   it('cấu hình kho cần quyền quản trị bán hàng, hai kho phải khác nhau', async () => {
     expect((await rejection(service.saveSettings(actor(), { quarantineWarehouseCode: 'A', defectWarehouseCode: 'B' }))).statusCode).toBe(403);
     const manager = actor({ canManage: true });
@@ -402,6 +422,20 @@ describe('WarrantyResolutionService (T6-05, T6-06)', () => {
     line.deliveryWarehouseCode = null;
     await resolution.resolve(actor(), CASE_ID, 'line-1', { revision: 1, disposition: 'RESTOCK', remedy: 'NONE' });
     expect(inventory.calls[1].args).toMatchObject({ warehouseCode: 'QA-KHO-CL', targetWarehouseCode: 'QA-KHO-HN' });
+  });
+
+  it('chưa cấu hình kho lỗi (hoặc kho nhập lại khi không biết kho xuất) thì không chốt chuyển kho (409), không lưu hướng xử lý', async () => {
+    store.inspected('DEFECTIVE');
+    store.warehouses = { quarantineWarehouseCode: 'QA-KHO-CL', defectWarehouseCode: null, restockWarehouseCode: null };
+    const moved = await rejection(resolution.resolve(actor(), CASE_ID, 'line-1', { revision: 1, disposition: 'MOVE_TO_DEFECT', remedy: 'NONE' }));
+    expect([moved.statusCode, moved.code]).toEqual([409, 'WARRANTY_WAREHOUSE_NOT_CONFIGURED']);
+    store.inspected('PASSED');
+    const line = store.detail?.lines[0] as { deliveryWarehouseCode: string | null };
+    line.deliveryWarehouseCode = null;
+    const restocked = await rejection(resolution.resolve(actor(), CASE_ID, 'line-1', { revision: 1, disposition: 'RESTOCK', remedy: 'NONE' }));
+    expect([restocked.statusCode, restocked.message]).toEqual([409, 'Chưa cấu hình kho nhập lại hàng Đạt cho bảo hành. Vào Cấu hình > Bảo hành để chọn kho.']);
+    expect(inventory.calls).toEqual([]);
+    expect(store.documents.size).toBe(0);
   });
 
   it('TC-WAR-09, TC-WAR-10: Lỗi, chuyển kho lỗi và đổi hàng: ba chứng từ theo thứ tự, khoá theo dòng', async () => {

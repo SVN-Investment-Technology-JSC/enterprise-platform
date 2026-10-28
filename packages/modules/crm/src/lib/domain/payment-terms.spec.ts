@@ -17,6 +17,20 @@ describe('đợt thanh toán (T4-03)', () => {
     expect(terms[1]).toMatchObject({ condition: 'DELIVERY', dueDays: 15, percent: 50 });
   });
 
+  it('điều kiện "Khi giao đủ hàng" (FULL_DELIVERY) hợp lệ; điều kiện lạ trả 400', () => {
+    const terms = normalizePaymentTerms(
+      [
+        { name: 'Tạm ứng', percent: 30, condition: 'SIGN' },
+        { name: 'Giao đủ', percent: 70, condition: 'FULL_DELIVERY', dueDays: 30 },
+      ],
+      VALUE,
+    );
+    expect(terms[1]).toMatchObject({ condition: 'FULL_DELIVERY', amount: 70_000_000, dueDays: 30 });
+    expect(() => normalizePaymentTerms([{ name: 'X', percent: 100, condition: 'PARTIAL_DELIVERY' }], VALUE)).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'INVALID_CONDITION' }),
+    );
+  });
+
   it('TC-CON-05: tổng phần trăm 90% hoặc tổng tiền 90 triệu trả 400', () => {
     expect(() =>
       normalizePaymentTerms(

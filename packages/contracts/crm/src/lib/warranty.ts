@@ -148,11 +148,6 @@ export const WARRANTY_SOURCE_LABELS: Readonly<Record<WarrantySource, string>> = 
   NONE: 'Không có bảo hành',
 };
 
-/** Kho cách ly, kho lỗi mặc định khi chưa cấu hình (`crm_schema.settings`). */
-export const DEFAULT_WARRANTY_QUARANTINE_WAREHOUSE = 'QA-KHO-CL';
-export const DEFAULT_WARRANTY_DEFECT_WAREHOUSE = 'QA-KHO-LOI';
-/** Kho nhận hàng Đạt nhập lại khi không biết kho xuất ban đầu của serial, dòng (T6-11). */
-export const DEFAULT_WARRANTY_RESTOCK_WAREHOUSE = 'QA-KHO-HN';
 /** Số dòng tối đa của một yêu cầu bảo hành. */
 export const WARRANTY_LINES_MAX = 50;
 
@@ -348,11 +343,16 @@ export interface ResolveWarrantyLineRequest {
   readonly note?: string | null;
 }
 
+/**
+ * Kho bảo hành theo mã kho của Kho (`crm_schema.settings`). Không có giá trị
+ * mặc định: `null` là chưa cấu hình; nhận hàng, chuyển kho bị chặn tới khi
+ * người quản trị chọn kho.
+ */
 export interface WarrantySettings {
-  readonly quarantineWarehouseCode: string;
-  readonly defectWarehouseCode: string;
+  readonly quarantineWarehouseCode: string | null;
+  readonly defectWarehouseCode: string | null;
   /** Kho nhận lại hàng Đạt khi không biết kho xuất ban đầu (T6-11). */
-  readonly restockWarehouseCode: string;
+  readonly restockWarehouseCode: string | null;
 }
 
 /** Lịch sử một serial: bước kho (từ Kho) và các yêu cầu bảo hành có serial đó. */

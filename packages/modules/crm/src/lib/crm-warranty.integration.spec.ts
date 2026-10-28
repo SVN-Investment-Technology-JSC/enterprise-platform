@@ -245,6 +245,22 @@ integration('Bán hàng GĐ6: bảo hành, đổi trả (PostgreSQL)', () => {
     const created = await warranty.create(ktv, { cause: 'TECHNICAL_FAULT', description: 'Không lên nguồn', lines: [{ serial: 'SN032' }] });
     expect(created.lines[0].coverage.warrantyUntil).toBe(original.coverage.warrantyUntil);
 
+    // Migration 0013 bỏ kho thử nghiệm mặc định: chưa cấu hình thì không nhận hàng (409), không gọi Kho.
+    expect(await warranty.settings(ktv)).toEqual({ quarantineWarehouseCode: null, defectWarehouseCode: null, restockWarehouseCode: null });
+    await expect(warranty.receiveGoods(ktv, created.id, { revision: created.revision })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARRANTY_WAREHOUSE_NOT_CONFIGURED',
+      message: 'Chưa cấu hình kho cách ly hoặc kho hàng lỗi cho bảo hành. Vào Cấu hình > Bảo hành để chọn kho.',
+    });
+    expect(inventory.documents.has(`crm-warranty:${created.id}:receive`)).toBe(false);
+    expect((await warranty.get(ktv, created.id)).status).toBe('RECEIVED');
+    const manager = actor(randomUUID(), { canManage: true });
+    expect(await warranty.saveSettings(manager, { quarantineWarehouseCode: 'qa-kho-cl', defectWarehouseCode: 'QA-KHO-LOI', restockWarehouseCode: 'QA-KHO-HN' })).toEqual({
+      quarantineWarehouseCode: 'QA-KHO-CL',
+      defectWarehouseCode: 'QA-KHO-LOI',
+      restockWarehouseCode: 'QA-KHO-HN',
+    });
+
     // Nhận hàng: Chờ nhận hàng, chứng từ nhập trả vào kho cách ly; bấm lại không tạo chứng từ thứ hai.
     let detail = await warranty.receiveGoods(ktv, created.id, { revision: created.revision });
     expect(detail).toMatchObject({ status: 'AWAITING_GOODS', quarantineWarehouseCode: 'QA-KHO-CL' });

@@ -52,3 +52,36 @@ node tools/inventory/init-avg-cost.mjs --database-url=postgres://user:pass@host:
   khoá mọi dòng tồn trong lúc tính nên chứng từ ghi sổ cùng lúc phải chờ; chạy ngoài giờ làm việc.
 - Mã thoát: 0 khi chạy được, 1 khi lỗi tham số, kết nối hoặc DB chưa chạy 0016.
 - Kế toán đối chiếu bảng `--dry-run` với bảng tính tay của 5 mặt hàng mẫu trước khi ghi (TC-MIG-04).
+
+## Đối soát tồn kho trước, sau UAT (T8-02)
+
+`tools/inventory/reconcile-stock.mjs` chụp tồn kho của một DB tenant theo từng cặp (kho, mặt hàng) rồi so hai bản chụp,
+để chứng minh UAT hoặc một lần deploy không làm lệch tồn ngoài các chứng từ đã biết. Script chỉ đọc: mở transaction
+`REPEATABLE READ READ ONLY` (kiểm `transaction_read_only = on` trước khi đọc, rồi `ROLLBACK`), không ghi gì.
+
+```bash
+# Chụp (JSON mặc định; --format=csv để mở bằng bảng tính; --out=<file> thay cho stdout):
+node tools/inventory/reconcile-stock.mjs --tenant=svn --out=/tmp/svn-truoc.json
+node tools/inventory/reconcile-stock.mjs --database-url=postgres://user:pass@host:5432/<db tenant> --format=csv > ton.csv
+# So với bản chụp trước:
+node tools/inventory/reconcile-stock.mjs --tenant=svn --compare=/tmp/svn-truoc.json
+```
+
+- `--tenant=<tên DB>` lấy URL từ `TENANT_DATABASE_URL_TEMPLATE` (biến môi trường hoặc `.env` ở gốc repo, thay
+  `{databaseName}`); hoặc `--database-url`, hoặc biến `INVENTORY_DATABASE_URL`. Dòng tóm tắt ra stderr, mật khẩu che `***`.
+- Mỗi dòng (khoá `warehouse_code/material_code`; serial đã xuất khỏi kho nằm ở kho `-`):
+  - `quantity`, `quantity_reserved`, `quantity_blocked`, `available`: cộng mọi vị trí của `material_inventory`;
+    `avg_cost` là giá vốn bình quân đang lưu (nhiều vị trí thì bình quân theo tồn).
+  - `ledger_quantity`, `ledger_entries`: tổng số lượng có dấu và số dòng của sổ kho `inventory_transactions`
+    (nhập dương, xuất âm); `ledger_diff` = `quantity - ledger_quantity`, phải bằng 0.
+  - `serials`: số serial theo `stock_state|quality_status` ở kho hiện tại (`serial_tracking`); `serials_in_stock`: số
+    serial `IN_STOCK`.
+  - `lot_count`, `lot_quantity`, `lot_reserved`, `lot_blocked`: cộng `lot_balances` của các lô thuộc mặt hàng.
+- `summary` liệt kê dòng lệch: `ledgerMismatch` (tồn khác sổ kho), `serialMismatch` (mặt hàng quản lý serial có số serial
+  `IN_STOCK` khác tồn), `lotMismatch` (mặt hàng có lô mà tổng lô khác tồn, ví dụ tồn cũ nhập trước khi quản lý lô).
+  Đây là thông tin để thủ kho xem, không làm script thất bại.
+- `--compare` so mọi chỉ số trên theo từng khoá (bỏ qua `takenAt`), in từng khác biệt dạng
+  `kho/mặt hàng: chỉ số cũ -> mới`.
+- Mã thoát: 0 khi chụp xong hoặc so khớp; 1 khi `--compare` thấy khác biệt; 2 khi lỗi tham số, kết nối hoặc DB chưa có
+  phân hệ Kho.
+- Tự kiểm: chụp hai lần liên tiếp khi không ai ghi sổ rồi `--compare` phải báo "Khớp".

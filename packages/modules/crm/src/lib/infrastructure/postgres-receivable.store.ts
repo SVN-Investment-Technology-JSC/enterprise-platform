@@ -879,7 +879,7 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
       const outcome = await recognizeTermManually(client, contractId, termId, date, actorId);
       if (outcome === 'not-found') throw new CrmNotFoundError('Không tìm thấy đợt thanh toán.');
       if (outcome === 'invalid-condition') {
-        throw new CrmConflictError('TERM_CONDITION', 'Chỉ ghi nhận bằng tay đợt điều kiện nghiệm thu hoặc giao hàng.');
+        throw new CrmConflictError('TERM_CONDITION', 'Chỉ ghi nhận bằng tay đợt điều kiện nghiệm thu, giao hàng hoặc giao đủ hàng.');
       }
       if (outcome === 'not-pending') throw new CrmConflictError('TERM_NOT_PENDING', 'Đợt thanh toán đã đến hạn hoặc đã thu.');
       await client.query(`UPDATE crm_schema.contracts SET revision = revision + 1, updated_at = now(), updated_by = $2 WHERE id = $1`, [

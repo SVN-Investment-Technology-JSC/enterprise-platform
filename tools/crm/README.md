@@ -134,6 +134,9 @@ Mỗi nhân viên tự tạo dữ liệu của mình (đăng nhập bằng tài 
 
 ## Bước `warranty`
 
+- Đầu bước QTV cấu hình kho bảo hành của tenant thử nghiệm: kho cách ly `QA-KHO-CL`, kho lỗi `QA-KHO-LOI`, kho nhập lại
+  hàng Đạt `QA-KHO-HN` (kho của bước `inventory`). Từ crm migration 0013 không còn kho mặc định; chưa cấu hình thì nhận
+  hàng, chuyển kho bảo hành bị chặn (409).
 - NV1 lập đơn `QA-KHO-LAP` 1 cái, đợt giao và ngày chứng từ xuất đặt ở mốc quá khứ, TK chọn serial và ghi sổ: `SN031`
   (KH08, 3 tháng trước), `SN032` (KH09, 11 tháng), `SN033` (KH10, 13 tháng), `SN034` theo hợp đồng nguyên tắc bảo hành
   24 tháng (KH08) và `SN035` theo hợp đồng 6 tháng (KH09), cùng 8 tháng trước. Hợp đồng do QTV tạo, người phụ trách NV1.
