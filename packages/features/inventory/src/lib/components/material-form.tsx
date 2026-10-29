@@ -33,7 +33,6 @@ const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
 export function MaterialForm({
   editing,
   units = [],
-  types = [],
   busy,
   onCancel,
   onSubmit,
@@ -41,8 +40,6 @@ export function MaterialForm({
   editing?: Material;
   /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
   units?: readonly string[];
-  /** Danh mục loại vật tư / thiết bị do admin cấu hình; tuỳ chọn. */
-  types?: readonly string[];
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaterialRequest) => void;
@@ -50,7 +47,6 @@ export function MaterialForm({
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
   const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
-  const [type, setType] = useState(editing?.type ?? '');
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
@@ -84,10 +80,6 @@ export function MaterialForm({
     label: u,
   }));
 
-  const typeOptions = (types.includes(type) || !type ? types : [...types, type]).map((t) => ({
-    value: t,
-    label: t,
-  }));
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -109,7 +101,6 @@ export function MaterialForm({
       code: cleanCode,
       name: cleanName,
       category,
-      type: type.trim() || undefined,
       unit: cleanUnit,
       minStock: isService ? 0 : Number(minStock) || 0,
       maxStock: isService ? 0 : Number(maxStock) || 0,
@@ -194,26 +185,6 @@ export function MaterialForm({
                 />
               </label>
 
-              <label>
-                Loại vật tư
-                {types.length > 0 ? (
-                  <SearchableSelect
-                    options={typeOptions}
-                    value={type}
-                    placeholder="— Chọn loại vật tư —"
-                    emptyText="Không tìm thấy loại vật tư"
-                    onChange={(val) => setType(val)}
-                    clearable
-                    style={{ width: '100%' }}
-                  />
-                ) : (
-                  <input
-                    placeholder="VD: Thiết bị, Chi tiết, Linh kiện..."
-                    value={type}
-                    onChange={(event) => setType(event.target.value)}
-                  />
-                )}
-              </label>
 
               <label>
                 Đơn vị tính *
