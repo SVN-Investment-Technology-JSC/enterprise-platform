@@ -103,7 +103,7 @@ export function BoardGrid({
   return (
     <div
       data-testid="board-grid-frame"
-      className={`flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white ${
+      className={`isolate flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white ${
         fullHeight ? 'flex-1' : 'max-h-[max(480px,calc(100dvh-20rem))]'
       }`}
     >
