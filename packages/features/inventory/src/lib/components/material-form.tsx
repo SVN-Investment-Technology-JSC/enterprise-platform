@@ -9,6 +9,7 @@ import type {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { MATERIAL_CATEGORY_LABEL, currencyLabel } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
@@ -23,7 +24,7 @@ const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
  * Form Thêm mới / Chỉnh sửa Vật tư (Chuẩn danh mục Master Data ERP/WMS).
  *
  * Chỉ chịu trách nhiệm khai báo định nghĩa vật tư:
- * - Thông tin SKU: Mã, tên, đơn vị tính, ngưỡng tồn min/max.
+ * - Thông tin SKU: Mã, tên, đơn vị tính, ngưỡng tồn min/max, nhóm vật tư, loại vật tư.
  * - Định dạng quản lý định danh: Theo Sê-ri (Serial), Theo Lô (Lot/Batch), hoặc Thông thường.
  *
  * Nghiệp vụ chuẩn: Việc phát sinh số Lô hàng (Lot Number), Hạn sử dụng, CO/CQ hoặc
@@ -32,6 +33,7 @@ const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
 export function MaterialForm({
   editing,
   units = [],
+  types = [],
   busy,
   onCancel,
   onSubmit,
@@ -39,12 +41,16 @@ export function MaterialForm({
   editing?: Material;
   /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
   units?: readonly string[];
+  /** Danh mục loại vật tư / thiết bị do admin cấu hình; tuỳ chọn. */
+  types?: readonly string[];
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaterialRequest) => void;
 }) {
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
+  const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
+  const [type, setType] = useState(editing?.type ?? '');
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
@@ -53,6 +59,10 @@ export function MaterialForm({
     editing?.warrantyMonths === undefined ? '' : String(editing.warrantyMonths),
   );
   const isService = kind === 'SERVICE';
+  // Chuỗi rỗng là chưa khai báo giá, khác hẳn với 0.
+  const [purchasePrice, setPurchasePrice] = useState(
+    editing?.purchasePrice === undefined ? '' : String(editing.purchasePrice),
+  );
 
   // Xác định phương thức quản lý ban đầu khi sửa hoặc tạo mới
   const initialMode: MaterialTrackingMode = editing?.isSerialized
@@ -61,6 +71,23 @@ export function MaterialForm({
     ? 'LOT'
     : 'NONE';
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
+
+  const categoryOptions = (Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCategory[]).map(
+    (cat) => ({
+      value: cat,
+      label: MATERIAL_CATEGORY_LABEL[cat],
+    }),
+  );
+
+  const unitOptions = (units.includes(unit) || !unit ? units : [...units, unit]).map((u) => ({
+    value: u,
+    label: u,
+  }));
+
+  const typeOptions = (types.includes(type) || !type ? types : [...types, type]).map((t) => ({
+    value: t,
+    label: t,
+  }));
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -75,14 +102,18 @@ export function MaterialForm({
       trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
     const isSerialized = !isService && trackingMode === 'SERIAL';
     const warranty = warrantyMonths.trim();
+    const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
+    if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
 
     onSubmit({
       code: cleanCode,
       name: cleanName,
       category,
+      type: type.trim() || undefined,
       unit: cleanUnit,
       minStock: isService ? 0 : Number(minStock) || 0,
       maxStock: isService ? 0 : Number(maxStock) || 0,
+      purchasePrice: price,
       isSerialized,
       kind,
       // Ô trống khi sửa là xoá số tháng đã khai.
@@ -152,20 +183,50 @@ export function MaterialForm({
               </label>
 
               <label>
+                Nhóm vật tư *
+                <SearchableSelect
+                  options={categoryOptions}
+                  value={category}
+                  placeholder="— Chọn nhóm vật tư —"
+                  emptyText="Không có dữ liệu"
+                  onChange={(val) => setCategory(val as MaterialCategory)}
+                  style={{ width: '100%' }}
+                />
+              </label>
+
+              <label>
+                Loại vật tư
+                {types.length > 0 ? (
+                  <SearchableSelect
+                    options={typeOptions}
+                    value={type}
+                    placeholder="— Chọn loại vật tư —"
+                    emptyText="Không tìm thấy loại vật tư"
+                    onChange={(val) => setType(val)}
+                    clearable
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <input
+                    placeholder="VD: Thiết bị, Chi tiết, Linh kiện..."
+                    value={type}
+                    onChange={(event) => setType(event.target.value)}
+                  />
+                )}
+              </label>
+
+              <label>
                 Đơn vị tính *
                 {units.length > 0 ? (
-                  <select
-                    required
+                  <SearchableSelect
+                    options={unitOptions}
                     value={unit}
-                    onChange={(event) => setUnit(event.target.value)}
-                  >
-                    <option value="">— Chọn đơn vị —</option>
-                    {(units.includes(unit) || !unit ? units : [...units, unit]).map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="— Chọn đơn vị —"
+                    emptyText="Không tìm thấy đơn vị tính"
+                    onChange={(val) => setUnit(val)}
+                    clearable
+                    style={{ width: '100%' }}
+                  />
                 ) : (
                   <input
                     required
@@ -226,6 +287,20 @@ export function MaterialForm({
                   </label>
                 </>
               ) : null}
+              <label>
+                Đơn giá ({currencyLabel(editing?.currency)})
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Chưa khai báo"
+                  value={purchasePrice}
+                  onChange={(event) => setPurchasePrice(event.target.value)}
+                />
+                {editing?.purchasePrice !== undefined ? (
+                  <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
+                ) : null}
+              </label>
             </div>
 
             {/* 2. CHỌN DUY NHẤT 1 PHƯƠNG THỨC QUẢN LÝ (MUTUALLY EXCLUSIVE) */}

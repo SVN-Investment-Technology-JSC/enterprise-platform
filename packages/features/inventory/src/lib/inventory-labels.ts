@@ -106,6 +106,18 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN').format(value);
 }
 
+/** Nhãn tiền tệ hiển thị; không khai báo hoặc VND thì dùng "đ". */
+export function currencyLabel(currency?: string): string {
+  return !currency || currency.toUpperCase() === 'VND' ? 'đ' : currency;
+}
+
+/** Đơn giá vật tư. Chưa khai báo (không có giá) khác hẳn với 0 đ nên hiện "—". */
+export function formatMaterialPrice(price?: number, currency?: string): string {
+  return price === undefined || price === null
+    ? '—'
+    : `${formatNumber(price)} ${currencyLabel(currency)}`;
+}
+
 export function formatDateTime(value?: string): string {
   return value ? formatSharedDateTime(value, '—') : '—';
 }
