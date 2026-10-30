@@ -20,6 +20,8 @@ export interface DialogProps {
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
+  /** Có thì lúc đang gửi nút Huỷ thành "Dừng" (tải lên nhiều tệp), thay vì bị khoá. */
+  readonly onStop?: () => void;
   readonly children: ReactNode;
 }
 
@@ -41,6 +43,7 @@ export function Dialog({
   error,
   onClose,
   onSubmit,
+  onStop,
   children,
 }: DialogProps) {
   const [mounted, setMounted] = useState(false);
@@ -120,9 +123,15 @@ export function Dialog({
             </div>
           ) : null}
           <footer className={styles.dialogFoot}>
-            <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
-              Huỷ
-            </button>
+            {submitting && onStop ? (
+              <button type="button" className={styles.buttonGhost} onClick={onStop}>
+                Dừng
+              </button>
+            ) : (
+              <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
+                Huỷ
+              </button>
+            )}
             <button
               type="submit"
               className={danger ? styles.buttonDanger : styles.buttonPrimary}

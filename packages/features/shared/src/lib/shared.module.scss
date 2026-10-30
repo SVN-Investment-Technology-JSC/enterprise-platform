@@ -1138,6 +1138,53 @@
   list-style: none;
 }
 
+/* Tải lên: hai nút chọn tệp / thư mục, tóm tắt, danh sách dài cuộn trong khung, thanh tiến độ. */
+.pickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.uploadSummary {
+  margin: 0;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.pathList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .fileList {
+    max-height: 11rem;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+}
+
+.pathListTitle {
+  color: var(--ep-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.uploadProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+
+  progress {
+    width: 100%;
+    height: 6px;
+    accent-color: var(--ep-accent);
+  }
+}
+
 .preview {
   display: flex;
   flex-direction: column;

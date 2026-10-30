@@ -28,7 +28,7 @@ import { QuickEditDialog, type QuickEditField, type QuickEditTarget } from './qu
 import { KIND_OPTIONS } from './record-fields';
 import { ShareDialog } from './share-dialog';
 import { TrashPanel } from './trash-panel';
-import { UploadDialog } from './upload-dialog';
+import { UploadDialog, type UploadMode, type UploadSummary } from './upload-dialog';
 import { VersionDialog } from './version-dialog';
 
 type StatusFilter = 'active' | 'expiring' | 'archived';
@@ -50,6 +50,12 @@ interface PendingSelection {
 }
 
 const PENDING_SELECTION_TTL_MS = 5000;
+
+/** Lời báo sau một lượt tải: số tệp đã lên, số tệp bỏ qua vì đã có trong thư mục. */
+function uploadMessage({ uploaded, skipped }: UploadSummary): string {
+  if (uploaded === 0) return `Các tệp đã có, bỏ qua ${skipped} tệp.`;
+  return skipped > 0 ? `Đã tải lên ${uploaded} tệp, bỏ qua ${skipped} tệp đã có.` : `Đã tải lên ${uploaded} tệp.`;
+}
 
 export interface LibraryRequest {
   readonly kind: 'upload' | 'folder';
@@ -122,6 +128,8 @@ export function LibraryView({
   const [shareTarget, setShareTarget] = useState<SharedFolder>();
   /** Thư mục mà hộp thoại Tải lên mở sẵn khi chọn từ menu; rỗng là thư mục đang xem. */
   const [uploadFolderId, setUploadFolderId] = useState<string>();
+  /** Mở từ "Tải thư mục lên" thì hộp thoại bật ngay hộp chọn thư mục của máy. */
+  const [uploadMode, setUploadMode] = useState<UploadMode>('files');
   const menuId = useRef(0);
 
   const current = folderId ? folders.find((folder) => folder.id === folderId) : undefined;
@@ -319,6 +327,7 @@ export function LibraryView({
     if (request.kind === 'folder') setFolderTarget({ parentId: folderIdRef.current });
     else {
       setUploadFolderId(undefined);
+      setUploadMode('files');
       setUploadOpen(true);
     }
   }, [request]);
@@ -540,7 +549,9 @@ export function LibraryView({
       case 'new-folder':
         return setFolderTarget({ parentId: folder.id });
       case 'upload':
+      case 'upload-folder':
         setUploadFolderId(folder.id);
+        setUploadMode(id === 'upload-folder' ? 'folder' : 'files');
         return setUploadOpen(true);
       case 'share':
         return setShareTarget(folder);
@@ -566,8 +577,9 @@ export function LibraryView({
 
   const runRootAction = (id: MenuActionId) => {
     if (id === 'new-folder') setFolderTarget({ parentId: undefined });
-    else if (id === 'upload') {
+    else if (id === 'upload' || id === 'upload-folder') {
       setUploadFolderId(undefined);
+      setUploadMode(id === 'upload-folder' ? 'folder' : 'files');
       setUploadOpen(true);
     }
   };
@@ -728,6 +740,7 @@ export function LibraryView({
       />
       <UploadDialog
         open={uploadOpen}
+        mode={uploadMode}
         folders={folders}
         writable={writable}
         defaultFolderId={uploadFolderId ?? folderId}
@@ -735,11 +748,11 @@ export function LibraryView({
           setUploadOpen(false);
           setUploadFolderId(undefined);
         }}
-        onUploaded={(documentId, targetFolderId) => {
-          toast.success('Đã tải tài liệu lên.');
+        onUploaded={(summary) => {
+          toast.success(uploadMessage(summary));
           onStorageChanged();
           refresh();
-          selectIn(targetFolderId, { type: 'document', id: documentId });
+          if (summary.select) selectIn(summary.folderId, summary.select);
         }}
       />
       <VersionDialog

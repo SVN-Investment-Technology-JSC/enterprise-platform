@@ -34,6 +34,8 @@ const API = '/api/shared/v1';
 export interface SharedApiError {
   readonly code?: string;
   readonly message?: string;
+  /** Tải lên hỏng sau khi đã tạo tài liệu: tài liệu đó đang chờ tệp. */
+  readonly documentId?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -224,10 +226,17 @@ export async function uploadDocument(
     contentType: contentTypeOf(file),
     sizeBytes: file.size,
   });
-  await uploadToStorage(created.uploadUrl, file);
-  // Chỉ báo xong sau khi PUT thành công; hỏng giữa chừng thì phiên bản ở lại
-  // trạng thái "chưa tải lên xong" và không ai tải xuống được một tệp rỗng.
-  await completeUpload(created.document.id, created.version.id, file.size);
+  try {
+    await uploadToStorage(created.uploadUrl, file);
+    // Chỉ báo xong sau khi PUT thành công; hỏng giữa chừng thì phiên bản ở lại
+    // trạng thái "chưa tải lên xong" và không ai tải xuống được một tệp rỗng.
+    await completeUpload(created.document.id, created.version.id, file.size);
+  } catch (cause) {
+    // Kèm id tài liệu đã tạo: lần tải lại điền tệp vào đúng tài liệu này, không tạo thêm.
+    // Lấy từng trường: lỗi mạng là `Error`, `message` của nó không trải ra được.
+    const error = cause as SharedApiError | undefined;
+    throw { code: error?.code, message: error?.message, documentId: created.document.id } satisfies SharedApiError;
+  }
   return created;
 }
 
