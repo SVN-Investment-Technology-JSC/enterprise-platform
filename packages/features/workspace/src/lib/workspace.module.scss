@@ -7596,6 +7596,99 @@ button.kpiCard {
   }
 }
 
+/*
+ * Ô "thêm mục mới" ở chân danh sách của chip: một hàng gồm ô tên, ô mã và nút. Kiểu ô nhập / nút của shadcn/ui
+ * (cao 32px, bo 6px, viền mảnh, vòng sáng khi focus) thay cho kiểu viên thuốc của chip. Chip ép kiểu viên thuốc cho
+ * mọi ô nhập bên trong bằng !important nên phải ghi đè với độ ưu tiên cao hơn.
+ */
+.chipCreate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipCreate input,
+.inlineChip .chipCreate input {
+  box-sizing: border-box;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--ep-border) !important;
+  border-radius: 6px !important;
+  background: var(--ep-surface) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  color: var(--ep-text) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+
+  &::placeholder {
+    color: var(--ep-text-muted);
+  }
+
+  &:focus {
+    border-color: var(--ep-accent-strong) !important;
+    box-shadow: 0 0 0 3px rgb(255 201 10 / 25%);
+    outline: none;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.chipCreateName {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.chipCreateCode {
+  flex: 0 0 68px;
+  width: 68px;
+  min-width: 0;
+}
+
+.chipCreateAdd,
+.inlineChip .chipCreateAdd {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--ep-accent-strong);
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--ep-accent), var(--ep-accent-strong));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  color: #1a1a1a;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+}
+
+.chipCreateError {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
 .progressValueManual {
   color: #2563eb;
 }

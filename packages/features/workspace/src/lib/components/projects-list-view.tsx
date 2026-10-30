@@ -28,6 +28,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EMPTY_PROJECT_FILTER, matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import { initialTasksWarning } from '../project-created';
+import { mergeUpdated } from '../merge-updated';
+import { createProjectGroupNamed } from '../project-group-create';
 import { toast } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, projectStatusKeys } from '../workspace-labels';
@@ -113,6 +115,8 @@ export function ProjectsListView({
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
+  /** Chỉ quản trị tenant được thêm nhóm; người khác không thấy ô thêm nhóm trong chip. */
+  const [canCreateGroup, setCanCreateGroup] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
   /** Dự án đang làm, hay danh sách lưu trữ (dự án đã hoàn thành tự vào lưu trữ). */
@@ -154,16 +158,18 @@ export function ProjectsListView({
 
   const reload = useCallback(async () => {
     try {
-      const [items, archived, customerList, typeList] = await Promise.all([
+      const [items, archived, customerList, typeList, groupList] = await Promise.all([
         api.listAllProjects(20, { archived: scope === 'archived' ? 'only' : 'exclude' }),
         api.listProjects({ archived: 'only', pageSize: 1 }),
         api.listCustomers(),
         api.listProjectTypes(),
+        api.listProjectGroups(),
       ]);
       setProjects(items);
       setArchivedTotal(archived.total);
       setCustomers(customerList);
       setTypes(typeList.items);
+      setCanCreateGroup(groupList.canEdit);
       setError(undefined);
     } catch (cause) {
       setError(messageOf(cause, 'Không tải được danh sách dự án.'));
@@ -251,7 +257,7 @@ export function ProjectsListView({
         .updateProject(projectId, patch)
         .then((updated) => {
           setProjects((current) =>
-            current.map((project) => (project.id === updated.id ? { ...project, ...updated } : project)),
+            current.map((project) => (project.id === updated.id ? mergeUpdated(project, updated, patch) : project)),
           );
           // Báo bằng toast: banner trên đầu bảng đẩy cả bảng xuống mỗi lần sửa.
           toast.success(savedProjectText(patch, code));
@@ -388,6 +394,15 @@ export function ProjectsListView({
     description: customer.name,
   }));
   const groupCellOptions = types.map((type) => ({ value: type.name, label: type.name }));
+
+  /** Thêm nhóm ngay trong chip; trả tên nhóm vừa tạo để chip chọn luôn. */
+  const createGroup = useCallback(async (name: string, code: string): Promise<string> => {
+    const created = await createProjectGroupNamed(name, code);
+    setTypes((current) =>
+      current.some((type) => type.name === created) ? current : [...current, { name: created, count: 0 }],
+    );
+    return created;
+  }, []);
 
   return (
     <div className={styles.listPage}>
@@ -575,6 +590,7 @@ export function ProjectsListView({
                 customerOf={customerOf}
                 customerOptions={customerCellOptions}
                 groupOptions={groupCellOptions}
+                onCreateGroup={canCreateGroup ? createGroup : undefined}
                 onPatch={patchProject}
                 onEditTags={(id) => setTagIds([id])}
                 tagOf={tags.find}
@@ -672,6 +688,7 @@ function GroupRows({
   customerOf,
   customerOptions,
   groupOptions,
+  onCreateGroup,
   onPatch,
   onEditTags,
   tagOf,
@@ -690,6 +707,8 @@ function GroupRows({
   customerOf: (id?: string) => CustomerSummary | undefined;
   customerOptions: readonly { value: string; label: string; description: string }[];
   groupOptions: readonly { value: string; label: string }[];
+  /** Có thì chip nhóm có ô thêm nhóm mới ở cuối danh sách. */
+  onCreateGroup?: (name: string, code: string) => Promise<string>;
   onPatch: PatchProject;
   onEditTags: (id: string) => void;
   tagOf: (tagId: string) => Tag | undefined;
@@ -787,6 +806,18 @@ function GroupRows({
                 lead={<Folder size={13} aria-hidden />}
                 maxWidth={150}
                 disabled={!canEdit || busy}
+                create={
+                  onCreateGroup
+                    ? {
+                        namePlaceholder: 'Tên nhóm mới',
+                        codePlaceholder: 'Mã',
+                        codeLabel: 'Mã viết tắt (tuỳ chọn)',
+                        addLabel: 'Thêm',
+                        addTitle: 'Thêm nhóm',
+                        onCreate: onCreateGroup,
+                      }
+                    : undefined
+                }
                 onChange={(value) =>
                   onPatch(project.id, { projectType: value || null }, 'Không đổi được nhóm dự án.')
                 }

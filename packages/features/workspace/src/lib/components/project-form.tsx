@@ -22,11 +22,13 @@ import {
   createCustomer,
   linkCrmCustomer,
   listCustomers,
+  listProjectGroups,
   listProjectTypes,
   loadProjectArchiveSettings,
   previewProjectCode,
   searchCrmCustomers,
 } from '../workspace-api';
+import { createProjectGroupNamed } from '../project-group-create';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -125,6 +127,8 @@ export function ProjectForm({
   const [submitting, setSubmitting] = useState(false);
   /** Nhóm dự án trong danh mục (quản trị sửa ở Cài đặt). */
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
+  /** Chỉ quản trị tenant được thêm nhóm; người khác không thấy ô thêm nhóm trong danh sách. */
+  const [canCreateGroup, setCanCreateGroup] = useState(false);
   /** Khách hàng để chọn làm chủ quản của dự án. */
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   /** Mở phần tạo nhanh khách hàng mới ngay trong hộp dự án. */
@@ -157,6 +161,9 @@ export function ProjectForm({
     listProjectTypes()
       .then((result) => setTypes(result.items))
       .catch(() => setTypes([]));
+    listProjectGroups()
+      .then((result) => setCanCreateGroup(result.canEdit))
+      .catch(() => setCanCreateGroup(false));
     listCustomers()
       .then((items) => setCustomers(items))
       .catch(() => setCustomers([]));
@@ -422,6 +429,24 @@ export function ProjectForm({
               ? [{ value: form.projectType, label: form.projectType }]
               : []),
           ]}
+          create={
+            canCreateGroup
+              ? {
+                  namePlaceholder: 'Tên nhóm mới',
+                  codePlaceholder: 'Mã',
+                  codeLabel: 'Mã viết tắt (tuỳ chọn)',
+                  addLabel: 'Thêm',
+                  addTitle: 'Thêm nhóm',
+                  onCreate: async (name, code) => {
+                    const created = await createProjectGroupNamed(name, code);
+                    setTypes((current) =>
+                      current.some((type) => type.name === created) ? current : [...current, { name: created, count: 0 }],
+                    );
+                    return created;
+                  },
+                }
+              : undefined
+          }
           onChange={(value) => set({ projectType: value })}
         />
       </Field>
