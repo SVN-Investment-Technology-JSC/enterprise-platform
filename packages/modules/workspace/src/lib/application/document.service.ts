@@ -40,6 +40,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import {
+  assertProjectWritable,
   hasProjectRole,
   requireProjectRole,
   seesAllProjects,
@@ -105,7 +106,7 @@ export class DocumentService {
     } else {
       // Thư mục chung của dự án: mọi thành viên (trừ người chỉ xem) tự tạo và
       // quản lý được, không cần thêm quyền nào ở cấp Platform.
-      requireProjectRole(await this.projects.access(actor, input.projectId), 'member');
+      await this.requireProjectMember(actor, input.projectId);
     }
 
     let depth = 0;
@@ -233,6 +234,7 @@ export class DocumentService {
 
     const access = await this.projects.access(actor, input.projectId);
     requireProjectRole(access, 'member');
+    assertProjectWritable(access.project);
     if (!actor.canWriteDocuments) throw new ProjectForbiddenError();
 
     // Gốc phải là kho chung hoặc kho của chính dự án này.
@@ -294,7 +296,7 @@ export class DocumentService {
     // được thư mục rỗng. Kho cấp đơn vị dùng chung cả tenant: vẫn cần quyền
     // xoá riêng, người soạn tài liệu không đương nhiên được dọn cây đó.
     if (folder.projectId) {
-      requireProjectRole(await this.projects.access(actor, folder.projectId), 'member');
+      await this.requireProjectMember(actor, folder.projectId);
     } else if (!actor.canDeleteDocuments) {
       throw new ProjectForbiddenError();
     }
@@ -646,6 +648,7 @@ export class DocumentService {
     if (document.projectId) {
       const access = await this.projects.access(actor, document.projectId);
       requireProjectRole(access, 'manager');
+      assertProjectWritable(access.project);
     } else if (!actor.canManage && !actor.isTenantAdmin) {
       throw new ProjectForbiddenError();
     }
@@ -729,7 +732,7 @@ export class DocumentService {
    */
   private async requireFolderWrite(actor: WorkspaceActor, folder: DocumentFolder): Promise<void> {
     if (folder.projectId) {
-      requireProjectRole(await this.projects.access(actor, folder.projectId), 'member');
+      await this.requireProjectMember(actor, folder.projectId);
       return;
     }
     if (!actor.canManage && !actor.isTenantAdmin) throw new ProjectForbiddenError();
@@ -773,7 +776,11 @@ export class DocumentService {
     }
     // Tài liệu dùng chung gắn được vào mục của bất kỳ dự án nào — miễn người
     // gọi thấy được dự án đó.
-    if (targetProjectId) await this.projects.access(actor, targetProjectId);
+    if (targetProjectId) {
+      const access = await this.projects.access(actor, targetProjectId);
+      // Gắn tài liệu là ghi vào đích: đích thuộc dự án đã lưu trữ thì từ chối, kể cả tài liệu dùng chung.
+      assertProjectWritable(access.project);
+    }
   }
 
   private async loadVisible(
@@ -797,7 +804,14 @@ export class DocumentService {
       if (!actor.canManage && !actor.isTenantAdmin) throw new ProjectForbiddenError();
       return;
     }
-    requireProjectRole(await this.projects.access(actor, projectId), 'member');
+    await this.requireProjectMember(actor, projectId);
+  }
+
+  /** Thành viên có quyền cập nhật, và dự án chưa lưu trữ. */
+  private async requireProjectMember(actor: WorkspaceActor, projectId: string): Promise<void> {
+    const access = await this.projects.access(actor, projectId);
+    requireProjectRole(access, 'member');
+    assertProjectWritable(access.project);
   }
 
   /**

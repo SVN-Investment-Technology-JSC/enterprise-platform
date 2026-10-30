@@ -5,7 +5,7 @@ import {
   WorkItemNotFoundError,
 } from '../domain/workspace.error.js';
 import type { FleetTransportService } from './fleet-transport.service.js';
-import { permissionsOf, type ProjectService } from './project.service.js';
+import { assertProjectWritable, permissionsOf, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -35,6 +35,7 @@ export class WorkItemDeletionService {
     // chủ nhiệm). KHÔNG dùng `hasProjectPermission` vì nó cho quản trị tenant
     // đi tắt — yêu cầu nghiệp vụ là phải giữ vai trò có quyền xoá trong dự án.
     const access = await this.projects.access(actor, item.projectId);
+    assertProjectWritable(access.project);
     if (!permissionsOf(access).has('work_item.delete')) {
       throw new ProjectPermissionForbiddenError(PROJECT_PERMISSION_LABELS['work_item.delete']);
     }

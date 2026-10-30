@@ -105,6 +105,8 @@ export class ChatService {
     const target = await this.resolve(actor, input.entityType, input.entityId);
     // Nhắn tin là ghi; `viewer` chỉ đọc.
     requireProjectRole(target.access, 'member');
+    // Dự án đã lưu trữ: tenant chọn chặn hay vẫn cho nhắn (Cấu hình chung).
+    await this.projects.requireChatOpen(actor.tenantId, target.access.project);
 
     const body = requireBody(input.body);
     const parentId = await this.resolveParent(actor, input.parentId);
@@ -152,7 +154,8 @@ export class ChatService {
     messageId: string,
     input: UpdateChatMessageRequest,
   ): Promise<ChatMessage> {
-    const { message, projectId } = await this.loadMessage(actor, messageId);
+    const { message, projectId, access } = await this.loadMessage(actor, messageId);
+    await this.projects.requireChatOpen(actor.tenantId, access.project);
     if (message.createdBy !== actor.userId) {
       throw new ChatEditForbiddenError('Chỉ người gửi mới sửa được tin nhắn của mình.');
     }
@@ -191,7 +194,8 @@ export class ChatService {
    */
   async remove(actor: WorkspaceActor, messageId: string): Promise<ChatMessage> {
     // Vẫn đi qua `loadMessage` để người ngoài dự án nhận 403 trước, không biết tin có tồn tại.
-    const { message } = await this.loadMessage(actor, messageId);
+    const { message, access } = await this.loadMessage(actor, messageId);
+    await this.projects.requireChatOpen(actor.tenantId, access.project);
     if (message.createdBy !== actor.userId) {
       throw new ChatEditForbiddenError('Chỉ người gửi mới thu hồi được tin nhắn của mình.');
     }

@@ -30,7 +30,7 @@ import {
 } from '../domain/workspace.error.js';
 import type { DirectoryService } from './directory.service.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
-import { requireProjectRole, type ProjectService } from './project.service.js';
+import { assertProjectWritable, requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { EventException, WorkspaceStore } from './workspace-store.port.js';
 
@@ -108,6 +108,7 @@ export class CalendarService {
     if (input.projectId) {
       const access = await this.projects.access(actor, input.projectId);
       requireProjectRole(access, 'member');
+      assertProjectWritable(access.project);
     }
 
     const participantUserIds = normaliseParticipants(input.participantUserIds);
@@ -160,6 +161,7 @@ export class CalendarService {
     if (event.organizerUserId !== actor.userId && !actor.isTenantAdmin) {
       throw new EventOrganizerOnlyError();
     }
+    await this.requireEventProjectWritable(actor, event);
 
     const scope: RecurrenceScope = input.scope ?? 'all';
     if (scope !== 'all' && !event.recurrenceRule) {
@@ -246,6 +248,7 @@ export class CalendarService {
     if (event.organizerUserId !== actor.userId && !actor.isTenantAdmin) {
       throw new EventOrganizerOnlyError();
     }
+    await this.requireEventProjectWritable(actor, event);
 
     if (scope === 'following') {
       if (!event.recurrenceRule) {
@@ -520,6 +523,13 @@ export class CalendarService {
       conflictingEventId: slot.eventId,
       message: 'Người này đã có lịch khác trùng khoảng thời gian.',
     }));
+  }
+
+  /** Sự kiện của dự án đã lưu trữ chỉ xem: sửa, đổi người mời hay huỷ đều phải mở lưu trữ trước. */
+  private async requireEventProjectWritable(actor: WorkspaceActor, event: CalendarEvent): Promise<void> {
+    if (!event.projectId) return;
+    const project = await this.store.project.findById(actor.tenantId, event.projectId);
+    if (project) assertProjectWritable(project);
   }
 
   /** Nạp sự kiện và kiểm quyền xem. */
