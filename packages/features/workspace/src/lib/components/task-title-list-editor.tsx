@@ -2,7 +2,7 @@
 
 import { MAX_PROJECT_TEMPLATE_TASKS, MAX_PROJECT_TEMPLATE_TITLE_LENGTH } from '@enterprise-platform/contracts-workspace';
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
 
 export interface TaskTitleListEditorProps {
@@ -13,6 +13,8 @@ export interface TaskTitleListEditorProps {
   readonly disabled?: boolean;
   readonly max?: number;
   readonly emptyText?: string;
+  /** Nút phụ đặt cạnh nút "Thêm công việc" (ví dụ "Dùng mẫu gợi ý"). */
+  readonly extraActions?: ReactNode;
 }
 
 /**
@@ -26,6 +28,7 @@ export function TaskTitleListEditor({
   disabled = false,
   max = MAX_PROJECT_TEMPLATE_TASKS,
   emptyText = 'Chưa có công việc nào.',
+  extraActions,
 }: TaskTitleListEditorProps) {
   const inputs = useRef(new Map<number, HTMLInputElement>());
   const atLimit = titles.length >= max;
@@ -112,10 +115,13 @@ export function TaskTitleListEditor({
         </ol>
       ) : null}
       {disabled ? null : (
-        <button type="button" className={styles.buttonSmall} disabled={atLimit} onClick={() => add()}>
-          <Plus size={14} /> Thêm công việc
-          {atLimit ? ` (tối đa ${max})` : ''}
-        </button>
+        <div className={styles.taskTitleActions}>
+          <button type="button" className={styles.buttonSmall} disabled={atLimit} onClick={() => add()}>
+            <Plus size={14} /> Thêm công việc
+            {atLimit ? ` (tối đa ${max})` : ''}
+          </button>
+          {extraActions}
+        </div>
       )}
     </div>
   );

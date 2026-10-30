@@ -7580,8 +7580,9 @@ button.kpiCard {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--ep-border);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ep-border-strong);
+  background: #eef0f4;
 
   h3 {
     margin: 0;
@@ -7593,7 +7594,7 @@ button.kpiCard {
 
   p {
     margin: 0;
-    color: var(--ep-text-muted);
+    color: var(--ep-text-sub);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -7749,15 +7750,6 @@ button.kpiCard {
   }
 }
 
-.gsFoot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--ep-border);
-  background: var(--ep-surface-soft);
-}
 
 /* Ô nhập trong danh sách tên công việc: cùng bộ khung ô nhập shadcn như `.uiInput`, kể cả ngoài hộp thoại. */
 .taskTitleRow input:not([type='checkbox']):not([type='radio']) {
@@ -7765,4 +7757,48 @@ button.kpiCard {
 
   height: 36px;
   background: var(--ep-surface);
+}
+
+.taskTitleActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Thanh lưu chung của Cấu hình chung: dính đáy khung cuộn, luôn có mặt để bố cục không xê dịch. */
+.gsActionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 12px;
+  background: var(--ep-surface);
+  box-shadow: 0 -4px 12px rgb(16 24 40 / 8%);
+}
+
+.gsActionHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--ep-text-muted);
+  font-size: 13px;
+}
+
+.gsActionHintDirty {
+  color: var(--ep-text);
+  font-weight: 600;
+
+  &::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ep-accent-strong);
+  }
 }

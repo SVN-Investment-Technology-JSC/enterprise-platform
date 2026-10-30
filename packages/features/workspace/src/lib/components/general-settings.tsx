@@ -7,7 +7,8 @@ import {
   type ReopenProjectPolicy,
   type SaveProjectArchiveSettingsRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from '@enterprise-platform/shared-ui';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { TaskTitleListEditor } from './task-title-list-editor';
@@ -17,18 +18,8 @@ import { TaskTitleListEditor } from './task-title-list-editor';
  * Tailwind nên các khối này viết bằng SCSS cùng ngôn ngữ thiết kế, như `form-controls.tsx`.
  */
 
-/** Một thẻ cấu hình: đầu thẻ (tên và mô tả), thân là các dòng ngăn bằng vạch mảnh, chân thẻ tuỳ chọn. */
-function SettingsCard({
-  title,
-  description,
-  footer,
-  children,
-}: {
-  title: string;
-  description: string;
-  footer?: ReactNode;
-  children: ReactNode;
-}) {
+/** Một thẻ cấu hình: đầu thẻ nền xám (tên và mô tả), thân trắng là các dòng ngăn bằng vạch mảnh. */
+function SettingsCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
     <section className={styles.gsCard} aria-label={title}>
       <header className={styles.gsHead}>
@@ -36,7 +27,6 @@ function SettingsCard({
         <p>{description}</p>
       </header>
       <div className={styles.gsBody}>{children}</div>
-      {footer ? <footer className={styles.gsFoot}>{footer}</footer> : null}
     </section>
   );
 }
@@ -145,56 +135,85 @@ const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = 
   },
 ];
 
+/** Bản đang soạn của mọi cấu hình trên trang; so với bản đã lưu để biết có thay đổi hay không. */
+interface Draft {
+  readonly defaultTasksEnabled: boolean;
+  readonly defaultTaskTitles: readonly string[];
+  readonly autoArchive: boolean;
+  readonly reopenProject: ReopenProjectPolicy;
+  readonly chatOnArchived: ChatOnArchivedPolicy;
+}
+
+const draftOf = (settings: Settings): Draft => ({
+  defaultTasksEnabled: settings.defaultTasksEnabled,
+  defaultTaskTitles: [...settings.defaultTaskTitles],
+  autoArchive: settings.autoArchive,
+  reopenProject: settings.reopenProject,
+  chatOnArchived: settings.chatOnArchived,
+});
+
+/** Danh sách tên đã làm sạch như server sẽ lưu: bỏ dòng trống, bỏ khoảng trắng thừa. */
+const cleanTitles = (titles: readonly string[]): string[] =>
+  titles.map((title) => title.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
 /**
- * Cấu hình chung: những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant, chia thẻ theo chủ đề. Mỗi thay đổi lưu
- * ngay (riêng danh sách công việc mẫu lưu bằng nút ở chân thẻ); lưu hỏng thì trả về lựa chọn cũ. Dự án đã lưu trữ luôn
- * chỉ xem; các lựa chọn ở đây chỉ quyết định phần còn lại của vòng đời lưu trữ.
+ * Cấu hình chung: những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant, chia thẻ theo chủ đề.
+ *
+ * Mọi điều khiển chỉ sửa bản nháp; thanh dưới cùng có một nút "Lưu cấu hình" cho cả trang, chỉ bật khi bản nháp khác bản
+ * đã lưu, và chỉ gửi những trường đã đổi. Kết quả báo bằng toast nên bố cục không xê dịch. Dự án đã lưu trữ luôn chỉ
+ * xem; các lựa chọn ở đây chỉ quyết định phần còn lại của vòng đời lưu trữ.
  */
 export function GeneralSettings() {
   const [settings, setSettings] = useState<Settings>();
-  const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
+  const [draft, setDraft] = useState<Draft>();
+  const [loadError, setLoadError] = useState<string>();
   const [saving, setSaving] = useState(false);
-  /** Danh sách công việc mẫu đang soạn; chỉ lưu khi bấm "Lưu danh sách". */
-  const [templateTitles, setTemplateTitles] = useState<string[]>([]);
 
   useEffect(() => {
     api
       .loadProjectArchiveSettings()
       .then((loaded) => {
         setSettings(loaded);
-        setTemplateTitles([...loaded.defaultTaskTitles]);
+        setDraft(draftOf(loaded));
       })
-      .catch((cause: { message?: string }) => setError(cause?.message ?? 'Không tải được cấu hình chung.'));
+      .catch((cause: { message?: string }) => setLoadError(cause?.message ?? 'Không tải được cấu hình chung.'));
   }, []);
 
-  const save = async (patch: SaveProjectArchiveSettingsRequest, message: string) => {
-    if (!settings) return;
-    const previous = settings;
-    // Đổi ngay trên màn; lưu hỏng thì trả về lựa chọn cũ.
-    setSettings({ ...settings, ...patch });
+  /** Những trường bản nháp khác bản đã lưu; rỗng nghĩa là không có gì để lưu. */
+  const patch = useMemo<SaveProjectArchiveSettingsRequest>(() => {
+    if (!settings || !draft) return {};
+    const changes: { -readonly [K in keyof SaveProjectArchiveSettingsRequest]: SaveProjectArchiveSettingsRequest[K] } = {};
+    if (draft.defaultTasksEnabled !== settings.defaultTasksEnabled) changes.defaultTasksEnabled = draft.defaultTasksEnabled;
+    if (JSON.stringify(cleanTitles(draft.defaultTaskTitles)) !== JSON.stringify(settings.defaultTaskTitles)) {
+      changes.defaultTaskTitles = cleanTitles(draft.defaultTaskTitles);
+    }
+    if (draft.autoArchive !== settings.autoArchive) changes.autoArchive = draft.autoArchive;
+    if (draft.reopenProject !== settings.reopenProject) changes.reopenProject = draft.reopenProject;
+    if (draft.chatOnArchived !== settings.chatOnArchived) changes.chatOnArchived = draft.chatOnArchived;
+    return changes;
+  }, [settings, draft]);
+  const dirty = Object.keys(patch).length > 0;
+
+  const save = async () => {
+    if (!dirty || saving) return;
     setSaving(true);
-    setError(undefined);
-    setNotice(undefined);
     try {
       const saved = await api.saveProjectArchiveSettings(patch);
       setSettings(saved);
-      // Chỉ nạp lại danh sách khi chính lần lưu này là lưu danh sách: bật tắt công tắc hay đổi nút chọn không được xoá
-      // phần đang soạn dở.
-      if (patch.defaultTaskTitles !== undefined) setTemplateTitles([...saved.defaultTaskTitles]);
-      setNotice(message);
+      setDraft(draftOf(saved));
+      toast.success('Đã lưu cấu hình chung.');
     } catch (cause) {
-      setSettings(previous);
-      setError((cause as { message?: string })?.message ?? 'Không lưu được cấu hình.');
+      // Giữ nguyên bản nháp để người dùng sửa tiếp hoặc thử lại.
+      toast.error((cause as { message?: string })?.message ?? 'Không lưu được cấu hình chung.');
     } finally {
       setSaving(false);
     }
   };
 
-  if (!settings) {
-    return error ? (
+  if (!settings || !draft) {
+    return loadError ? (
       <p role="alert" className={styles.alert}>
-        {error}
+        {loadError}
       </p>
     ) : (
       <p className={styles.muted}>Đang tải cấu hình…</p>
@@ -202,50 +221,13 @@ export function GeneralSettings() {
   }
 
   const locked = !settings.canEdit || saving;
-  const cleanedTemplate = templateTitles.map((title) => title.trim()).filter(Boolean);
-  const templateDirty = JSON.stringify(cleanedTemplate) !== JSON.stringify(settings.defaultTaskTitles);
+  const update = (changes: Partial<Draft>) => setDraft({ ...draft, ...changes });
 
   return (
     <div className={styles.gsStack}>
-      {settings.canEdit ? null : (
-        <p className={styles.gsNote}>Chỉ quản trị viên được đổi cấu hình này; bạn đang xem ở chế độ chỉ đọc.</p>
-      )}
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p role="status" className={styles.notice}>
-          {notice}
-        </p>
-      ) : null}
-
       <SettingsCard
         title="Tạo dự án"
         description="Công việc được tạo sẵn khi tạo dự án mới. Người tạo vẫn thêm hoặc bớt được cho từng dự án."
-        footer={
-          settings.canEdit ? (
-            <>
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                disabled={locked}
-                onClick={() => setTemplateTitles([...DEFAULT_PROJECT_TASK_TITLES])}
-              >
-                Dùng mẫu gợi ý
-              </button>
-              <button
-                type="button"
-                className={styles.buttonPrimary}
-                disabled={locked || !templateDirty}
-                onClick={() => void save({ defaultTaskTitles: cleanedTemplate }, 'Đã lưu danh sách công việc mẫu.')}
-              >
-                Lưu danh sách
-              </button>
-            </>
-          ) : undefined
-        }
       >
         <SettingRow
           label="Tự tạo sẵn công việc khi tạo dự án"
@@ -253,16 +235,9 @@ export function GeneralSettings() {
           control={
             <Switch
               label="Tự tạo sẵn công việc"
-              checked={settings.defaultTasksEnabled}
+              checked={draft.defaultTasksEnabled}
               disabled={locked}
-              onChange={(defaultTasksEnabled) =>
-                void save(
-                  { defaultTasksEnabled },
-                  defaultTasksEnabled
-                    ? 'Đã bật: dự án mới tự tạo sẵn công việc theo danh sách mẫu.'
-                    : 'Đã tắt: dự án mới không tự tạo sẵn công việc.',
-                )
-              }
+              onChange={(defaultTasksEnabled) => update({ defaultTasksEnabled })}
             />
           }
         />
@@ -273,10 +248,19 @@ export function GeneralSettings() {
           </div>
           <TaskTitleListEditor
             idPrefix="Công việc mẫu"
-            titles={templateTitles}
+            titles={draft.defaultTaskTitles}
             disabled={locked}
             emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
-            onChange={setTemplateTitles}
+            onChange={(defaultTaskTitles) => update({ defaultTaskTitles })}
+            extraActions={
+              <button
+                type="button"
+                className={styles.buttonSmall}
+                onClick={() => update({ defaultTaskTitles: [...DEFAULT_PROJECT_TASK_TITLES] })}
+              >
+                Dùng mẫu gợi ý
+              </button>
+            }
           />
         </div>
       </SettingsCard>
@@ -291,16 +275,9 @@ export function GeneralSettings() {
           control={
             <Switch
               label="Tự đóng hồ sơ"
-              checked={settings.autoArchive}
+              checked={draft.autoArchive}
               disabled={locked}
-              onChange={(autoArchive) =>
-                void save(
-                  { autoArchive },
-                  autoArchive
-                    ? 'Đã bật: dự án tự đóng hồ sơ khi mọi công việc đã hoàn thành hoặc đã huỷ.'
-                    : 'Đã tắt: dự án chỉ đóng hồ sơ khi có người bấm "Đóng hồ sơ".',
-                )
-              }
+              onChange={(autoArchive) => update({ autoArchive })}
             />
           }
         />
@@ -311,17 +288,10 @@ export function GeneralSettings() {
           </div>
           <RadioChoices
             name="reopen-project"
-            value={settings.reopenProject}
+            value={draft.reopenProject}
             options={REOPEN_PROJECT_OPTIONS}
             disabled={locked}
-            onChange={(reopenProject) =>
-              void save(
-                { reopenProject },
-                reopenProject === 'reactivate'
-                  ? 'Đã lưu: mở lưu trữ dự án Hoàn thành thì dự án về Đang chạy.'
-                  : 'Đã lưu: mở lưu trữ dự án Hoàn thành thì dự án giữ nguyên trạng thái.',
-              )
-            }
+            onChange={(reopenProject) => update({ reopenProject })}
           />
         </div>
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
@@ -331,20 +301,35 @@ export function GeneralSettings() {
           </div>
           <RadioChoices
             name="chat-on-archived"
-            value={settings.chatOnArchived}
+            value={draft.chatOnArchived}
             options={CHAT_ON_ARCHIVED_OPTIONS}
             disabled={locked}
-            onChange={(chatOnArchived) =>
-              void save(
-                { chatOnArchived },
-                chatOnArchived === 'allow'
-                  ? 'Đã lưu: dự án đã lưu trữ vẫn nhắn tin được.'
-                  : 'Đã lưu: dự án đã lưu trữ không nhắn tin được.',
-              )
-            }
+            onChange={(chatOnArchived) => update({ chatOnArchived })}
           />
         </div>
       </SettingsCard>
+
+      {/* Thanh lưu chung: luôn có mặt, chỉ đổi trạng thái bật tắt nên bố cục không xê dịch. */}
+      <div className={styles.gsActionBar}>
+        <span className={`${styles.gsActionHint} ${dirty ? styles.gsActionHintDirty : ''}`}>
+          {!settings.canEdit
+            ? 'Chỉ quản trị viên được đổi cấu hình này.'
+            : dirty
+              ? 'Có thay đổi chưa lưu.'
+              : 'Chưa có thay đổi nào.'}
+        </span>
+        <button
+          type="button"
+          className={styles.buttonGhost}
+          disabled={!dirty || locked}
+          onClick={() => setDraft(draftOf(settings))}
+        >
+          Hoàn tác
+        </button>
+        <button type="button" className={styles.buttonPrimary} disabled={!dirty || locked} onClick={() => void save()}>
+          {saving ? 'Đang lưu…' : 'Lưu cấu hình'}
+        </button>
+      </div>
     </div>
   );
 }
