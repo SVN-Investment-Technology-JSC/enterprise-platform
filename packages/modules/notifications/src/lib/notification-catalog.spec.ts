@@ -75,6 +75,22 @@ describe('workspace project and document notifications', () => {
     expect(resolved?.recipients).toEqual(['user-b', 'user-c']);
   });
 
+  it('tells every member except the actor which status a project moved to', async () => {
+    const resolved = await registry.resolve(
+      event('workspace.project.status-changed', {
+        projectId: 'project-1',
+        name: 'Dự án A',
+        fromStatus: 'active',
+        toStatus: 'on_hold',
+        recipientUserIds: ['user-a', 'user-b'],
+        actorUserId: 'user-a',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-b']);
+    expect(resolved?.template.body).toBe('Dự án "Dự án A" đã chuyển sang trạng thái Tạm dừng.');
+  });
+
   it('gives each document version its own source so a second version can notify again', async () => {
     const first = await registry.resolve(
       event('workspace.document.published', { documentId: 'doc-1', versionId: 'v1', name: 'Bản vẽ', recipientUserIds: ['user-b'] }),

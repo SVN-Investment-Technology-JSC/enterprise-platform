@@ -200,11 +200,20 @@ describe('ProjectService.update — ràng buộc đóng hồ sơ', () => {
 });
 
 describe('ProjectService.unarchive — mở lưu trữ dự án đã hoàn thành', () => {
-  function archiveStore(archivedAt?: string) {
+  function archiveStore(archivedAt?: string, reopenPolicy?: string) {
     const updates: UpdateProjectRequest[] = [];
+    const archivedCalls: boolean[] = [];
     const store = {
+      settings: {
+        get: async (_t: string, key: string) =>
+          key === 'project_reopen_policy' && reopenPolicy ? { policy: reopenPolicy } : undefined,
+      },
       project: {
         findById: async () => ({ id: 'p1', status: 'completed', archivedAt }) as never,
+        setArchived: async (_t: string, _id: string, archived: boolean) => {
+          archivedCalls.push(archived);
+          return { id: 'p1' } as never;
+        },
         update: async (_t: string, _id: string, input: UpdateProjectRequest) => {
           updates.push(input);
           return { id: 'p1', status: input.status } as never;
@@ -215,8 +224,15 @@ describe('ProjectService.unarchive — mở lưu trữ dự án đã hoàn thàn
           userId === 'owner' ? 'owner' : userId === 'viewer' ? 'viewer' : undefined,
       },
     } as unknown as WorkspaceStore;
-    return { store, updates };
+    return { store, updates, archivedCalls };
   }
+
+  it('cài đặt "giữ nguyên": chỉ bỏ dấu lưu trữ, dự án vẫn Hoàn thành', async () => {
+    const { store, updates, archivedCalls } = archiveStore('2026-10-20T00:00:00.000Z', 'keep');
+    await new ProjectService(store).unarchive(owner, 'p1');
+    expect(updates).toEqual([]);
+    expect(archivedCalls).toEqual([false]);
+  });
 
   it('chủ nhiệm mở lưu trữ: dự án về đang chạy', async () => {
     const { store, updates } = archiveStore('2026-10-20T00:00:00.000Z');

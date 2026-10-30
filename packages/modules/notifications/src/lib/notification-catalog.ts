@@ -16,7 +16,16 @@ function workspaceTargetLink(payload: Payload, kind: 'work-item' | 'calendar', k
   return `/modules/workspace${query.size ? `?${query}` : ''}#projects/${kind}/${encodeURIComponent(id(payload, key))}`;
 }
 
-const VIETNAM_TIME = new Intl.DateTimeFormat('vi-VN', {
+/** Tên trạng thái dự án trong thông báo; khoá là giá trị `ProjectStatus`. */
+const PROJECT_STATUS_TEXT: Readonly<Record<string, string>> = {
+  planning: 'Lập kế hoạch',
+  active: 'Đang chạy',
+  on_hold: 'Tạm dừng',
+  completed: 'Hoàn thành',
+  cancelled: 'Đã huỷ',
+};
+
+const VIETNAM_TIME =new Intl.DateTimeFormat('vi-VN', {
   timeZone: 'Asia/Ho_Chi_Minh',
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
 });
@@ -690,6 +699,24 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
         }),
       }),
   ),
+  directPolicy({
+    eventType: 'workspace.project.status-changed',
+    module: 'workspace',
+    category: 'project',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: 'Trạng thái dự án đã thay đổi',
+      body: `Dự án "${text(payload, 'name', 'Dự án')}" đã chuyển sang trạng thái ${
+        PROJECT_STATUS_TEXT[text(payload, 'toStatus', '')] ?? 'mới'
+      }.`,
+      deepLink: `/modules/workspace?project=${encodeURIComponent(id(payload, 'projectId'))}#projects/project/${encodeURIComponent(id(payload, 'projectId'))}`,
+      sourceType: 'workspace_project_status',
+      // Mỗi lần đổi là một thông báo riêng; khoá chỉ theo projectId sẽ bị ràng buộc duy nhất nuốt các lần sau.
+      sourceId: `${id(payload, 'projectId')}:${event.id}`,
+    }),
+  }),
   directPolicy({
     eventType: 'hrm.request.status-changed',
     module: 'hrm',

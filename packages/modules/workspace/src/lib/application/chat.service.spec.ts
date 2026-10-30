@@ -4,7 +4,12 @@ import type {
   SendChatMessageRequest,
   WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
-import { CHAT_PAGE_SIZE } from '@enterprise-platform/contracts-workspace';
+import {
+  CHAT_FEED_PAGE_SIZES,
+  CHAT_FEED_SEARCH_MAX_LENGTH,
+  CHAT_FEED_THREAD_LIMIT,
+  CHAT_PAGE_SIZE,
+} from '@enterprise-platform/contracts-workspace';
 import { ChatService } from './chat.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -338,5 +343,158 @@ describe('ChatService — tài liệu đính kèm', () => {
     await expect(
       serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentId: 'ghost' }),
     ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('ChatService — trao đổi công việc theo trang', () => {
+  type Call = {
+    projectId: string;
+    page: number;
+    pageSize: number;
+    query: { search?: string; onlyWithChat?: boolean };
+  };
+  const feedStore = (calls: Call[]) => {
+    const made = makeStore({ roles: { me: 'viewer' } });
+    const chat = (made.store as unknown as { chat: Record<string, unknown> }).chat;
+    chat.listProjectFeedPage = async (
+      _tenant: string,
+      projectId: string,
+      page: number,
+      pageSize: number,
+      query: Call['query'],
+    ) => {
+      calls.push({ projectId, page, pageSize, query });
+      return { items: [], total: 0, page, pageSize };
+    };
+    return made;
+  };
+
+  it('thành viên chỉ-xem cũng đọc được, đúng trang và cỡ trang, không đánh dấu đã đọc', async () => {
+    const calls: Call[] = [];
+    const { store, marked } = feedStore(calls);
+    await expect(serviceFor(store).projectFeed(actorOf('me'), 'p1', 2, 20)).resolves.toMatchObject({ page: 2 });
+    expect(calls).toEqual([{ projectId: 'p1', page: 2, pageSize: 20, query: { search: undefined, onlyWithChat: false } }]);
+    expect(marked).toHaveLength(0);
+  });
+
+  it.each(CHAT_FEED_PAGE_SIZES)('nhận cỡ trang %s', async (size) => {
+    const calls: Call[] = [];
+    const { store } = feedStore(calls);
+    await serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, size);
+    expect(calls[0].pageSize).toBe(size);
+  });
+
+  it('người ngoài dự án và dự án không tồn tại đều bị từ chối trước khi đọc', async () => {
+    const calls: Call[] = [];
+    const { store } = feedStore(calls);
+    await expect(serviceFor(store).projectFeed(actorOf('stranger'), 'p1', 1, 10)).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    await expect(serviceFor(store).projectFeed(actorOf('me'), 'ghost', 1, 10)).rejects.toMatchObject({
+      code: 'PROJECT_NOT_FOUND',
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('chuẩn hoá từ khoá (cắt khoảng trắng, rỗng thì bỏ) và chuyển bộ lọc xuống store', async () => {
+    const calls: Call[] = [];
+    const { store } = feedStore(calls);
+    await serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, 10, { search: '  báo giá  ', onlyWithChat: true });
+    await serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, 10, { search: '   ' });
+    expect(calls[0].query).toEqual({ search: 'báo giá', onlyWithChat: true });
+    expect(calls[1].query).toEqual({ search: undefined, onlyWithChat: false });
+  });
+
+  it('từ khoá quá dài bị từ chối trước khi đọc', async () => {
+    const calls: Call[] = [];
+    const { store } = feedStore(calls);
+    await expect(
+      serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, 10, { search: 'x'.repeat(CHAT_FEED_SEARCH_MAX_LENGTH + 1) }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('từ khoá chứa byte NUL bị từ chối trước khi tới Postgres', async () => {
+    const calls: Call[] = [];
+    const { store } = feedStore(calls);
+    await expect(
+      serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, 10, { search: 'a\u0000b' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, 1e18, Number.POSITIVE_INFINITY])('từ chối số trang không hợp lệ (%s)', async (page) => {
+    const { store } = feedStore([]);
+    await expect(serviceFor(store).projectFeed(actorOf('me'), 'p1', page, 10)).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+  });
+
+  it.each([0, 5, 15, 100, Number.NaN])('từ chối cỡ trang ngoài danh sách cho phép (%s)', async (size) => {
+    const { store } = feedStore([]);
+    await expect(serviceFor(store).projectFeed(actorOf('me'), 'p1', 1, size)).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+  });
+});
+
+describe('ChatService — xem trao đổi một công việc (chỉ đọc)', () => {
+  const threadStore = (item: { id: string; projectId: string } | undefined, channel: { id: string } | undefined) => {
+    const made = makeStore({ roles: { me: 'viewer' } });
+    const store = made.store as unknown as {
+      workItem: Record<string, unknown>;
+      chat: Record<string, unknown>;
+    };
+    store.workItem.findById = async () => item;
+    store.chat.findChannel = async () => channel;
+    return made;
+  };
+
+  it('trả tin mới nhất của công việc, đúng giới hạn, không đánh dấu đã đọc', async () => {
+    const { store, listed, marked } = threadStore({ id: 'w1', projectId: 'p1' }, { id: 'c1' });
+    const thread = await serviceFor(store).projectFeedThread(actorOf('me'), 'p1', 'w1');
+    expect(thread.messages).toHaveLength(2);
+    expect(listed).toEqual([{ limit: CHAT_FEED_THREAD_LIMIT, before: undefined }]);
+    expect(marked).toHaveLength(0);
+  });
+
+  it('lấy trang cũ hơn bằng before, và từ chối before không phải id', async () => {
+    const { store, listed } = threadStore({ id: 'w1', projectId: 'p1' }, { id: 'c1' });
+    const before = '11111111-2222-3333-4444-555555555555';
+    await serviceFor(store).projectFeedThread(actorOf('me'), 'p1', 'w1', before);
+    expect(listed).toEqual([{ limit: CHAT_FEED_THREAD_LIMIT, before }]);
+    await expect(
+      serviceFor(store).projectFeedThread(actorOf('me'), 'p1', 'w1', 'không-phải-id'),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(listed).toHaveLength(1);
+  });
+
+  it('công việc chưa có kênh thì trả luồng rỗng', async () => {
+    const { store, listed } = threadStore({ id: 'w1', projectId: 'p1' }, undefined);
+    await expect(serviceFor(store).projectFeedThread(actorOf('me'), 'p1', 'w1')).resolves.toEqual({
+      messages: [],
+      hasMore: false,
+    });
+    expect(listed).toHaveLength(0);
+  });
+
+  it('không đọc xuyên dự án: việc của dự án khác hay không tồn tại bị từ chối', async () => {
+    const other = threadStore({ id: 'w9', projectId: 'p2' }, { id: 'c9' });
+    await expect(serviceFor(other.store).projectFeedThread(actorOf('me'), 'p1', 'w9')).rejects.toMatchObject({
+      code: 'WORK_ITEM_NOT_FOUND',
+    });
+    const missing = threadStore(undefined, undefined);
+    await expect(serviceFor(missing.store).projectFeedThread(actorOf('me'), 'p1', 'w0')).rejects.toMatchObject({
+      code: 'WORK_ITEM_NOT_FOUND',
+    });
+    expect(other.listed).toHaveLength(0);
+  });
+
+  it('người ngoài dự án bị từ chối', async () => {
+    const { store, listed } = threadStore({ id: 'w1', projectId: 'p1' }, { id: 'c1' });
+    await expect(serviceFor(store).projectFeedThread(actorOf('stranger'), 'p1', 'w1')).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    expect(listed).toHaveLength(0);
   });
 });

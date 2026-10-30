@@ -14,7 +14,11 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { priorityTone } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { CreateOptionFooter, type CreateOption } from './create-option-footer';
 import { ContextMenu } from './project-tree';
+
+/** Cấu hình ô "thêm mục mới" ở cuối danh sách của `ChipSelect` (xem `CreateOption`). */
+export type ChipCreate = CreateOption;
 
 /** Chiều cao chip trong bảng và trên thanh lọc. */
 export const CHIP_HEIGHT = 28;
@@ -77,6 +81,7 @@ export function ChipSelect({
   maxWidth = 180,
   title,
   toned = true,
+  create,
 }: {
   label: string;
   value: string;
@@ -97,6 +102,11 @@ export function ChipSelect({
   title?: string;
   /** `false`: chip giữ nền trắng, màu chỉ ở biểu tượng và trong danh sách (vd mức ưu tiên). */
   toned?: boolean;
+  /**
+   * Có thì cuối danh sách xổ ra có ô thêm mục mới: gõ tên (và mã nếu có) rồi bấm nút thêm. `onCreate` trả giá trị của
+   * mục vừa tạo; chip chọn luôn mục đó. Thêm được thì chỉ cần mục đó có trong `options` ở lần vẽ kế tiếp.
+   */
+  create?: ChipCreate;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const all: readonly ToneOption[] =
@@ -149,6 +159,19 @@ export function ChipSelect({
         height={CHIP_HEIGHT}
         searchInDropdown
         clearable={false}
+        dropdownFooter={
+          create
+            ? ({ close }) => (
+                <CreateOptionFooter
+                  create={create}
+                  onCreated={(created) => {
+                    if (created !== value) onChange(created);
+                    close();
+                  }}
+                />
+              )
+            : undefined
+        }
         style={{ '--ss-pad-l': `${10 + leadPx}px`, '--ss-pad-r': '30px' } as CSSProperties}
         onChange={(next) => {
           if (next !== value) onChange(next);

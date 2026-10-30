@@ -4,6 +4,7 @@ import {
   WORK_ITEM_TYPES,
   type DirectoryPerson,
   type WorkItemPriority,
+  type WorkItemReopenPolicy,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
 import {
@@ -12,12 +13,15 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Copy, Trash2, Truck } from 'lucide-react';
+import { Copy, Info, Trash2, Truck } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
+import { cloneCompletion, emptyCompletion, type CompletionDraft } from '../completion-draft';
 import { ITEM_TYPE_LABELS, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { CompletionConditionsEditor } from './completion-conditions-editor';
+import { ReopenPolicyField } from './reopen-policy-field';
 import { Input, Label, Textarea } from './form-controls';
 import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
@@ -44,6 +48,11 @@ export interface DraftRow {
   plannedEnd: string;
   estimateHours: string;
   procedureDefinitionId: string;
+  completion: CompletionDraft;
+  /** Ai được hoàn tác việc này sau khi hoàn thành. */
+  reopenPolicy: WorkItemReopenPolicy;
+  /** Cha đã hoàn thành: true là mở lại cha rồi tạo, false là chưa chọn (không tạo được). */
+  reopenParent: boolean;
 }
 
 export type DraftFields = Omit<DraftRow, 'key'>;
@@ -62,11 +71,17 @@ const BLANK: DraftFields = {
   plannedEnd: '',
   estimateHours: '',
   procedureDefinitionId: '',
+  completion: emptyCompletion(),
+  reopenPolicy: 'assignee',
+  reopenParent: false,
 };
 
 let lastKey = 0;
 
-/** Dòng mới với khoá riêng; ô nào không truyền thì để trống. */
+/**
+ * Dòng mới với khoá riêng; ô nào không truyền thì để trống. Điều kiện hoàn thành được chép độc lập và bỏ id:
+ * dòng nháp luôn là việc sắp tạo, không phải điều kiện đã lưu của việc khác.
+ */
 export function draftRow(from: Partial<DraftFields> = {}): DraftRow {
   lastKey += 1;
   return {
@@ -74,6 +89,7 @@ export function draftRow(from: Partial<DraftFields> = {}): DraftRow {
     ...from,
     participantUserIds: [...(from.participantUserIds ?? [])],
     tagIds: [...(from.tagIds ?? [])],
+    completion: cloneCompletion(from.completion ?? BLANK.completion),
     key: lastKey,
   };
 }
@@ -98,7 +114,8 @@ export interface WorkItemDraftEditorProps {
   readonly directoryLoaded: boolean;
   /** Thành viên dự án: đứng đầu ô "Người thực hiện cùng", người còn lại gập sau nút "Ngoài dự án". */
   readonly memberIds: ReadonlySet<string>;
-  readonly parentOptions: ReadonlyArray<{ value: string; label: string }>;
+  /** `done`: công việc cha đã hoàn thành, thêm việc con vào đó phải mở lại cha. */
+  readonly parentOptions: ReadonlyArray<{ value: string; label: string; done?: boolean }>;
   /** `undefined` là đang tải danh sách quy trình. */
   readonly procedures: readonly ProcedureOption[] | undefined;
 }
@@ -135,6 +152,7 @@ export function WorkItemDraftEditor({
   procedures,
 }: WorkItemDraftEditorProps) {
   const isPhase = row.itemType === 'phase';
+  const doneParent = row.parentId ? parentOptions.find((option) => option.value === row.parentId && option.done) : undefined;
   const [showTransport, setShowTransport] = useState(false);
 
   // Mỗi việc một khối phương tiện riêng: khung giờ gợi ý theo ngày của chính việc đó.
@@ -159,134 +177,60 @@ export function WorkItemDraftEditor({
 
   return (
     <section className={styles.draftItem} aria-label={`Công việc ${index + 1}`}>
-      <header className={styles.draftHead}>
-        <span className={styles.draftIndex}>Công việc {index + 1}</span>
-        <div className={styles.draftActions}>
-          {isPhase ? null : (
-            <button
-              type="button"
-              className={
-                showTransport || hasTransport
-                  ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
-                  : `${styles.draftIconButton} ${styles.draftIconTruck}`
-              }
-              aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
-              aria-pressed={showTransport || hasTransport}
-              title="Phương tiện đi lại"
-              disabled={hasTransport}
-              onClick={() => setShowTransport((current) => !current)}
-            >
-              <Truck size={15} />
-            </button>
-          )}
-          <button
-            type="button"
-            className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
-            aria-label={`Nhân bản công việc ${index + 1}`}
-            title="Nhân bản (chép mọi trường trừ tên)"
-            onClick={onDuplicate}
-          >
-            <Copy size={15} />
-          </button>
-          <button
-            type="button"
-            className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
-            aria-label={`Bỏ công việc ${index + 1}`}
-            title="Bỏ công việc này"
-            disabled={!removable}
-            onClick={onRemove}
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
-      </header>
-
       <div className={styles.draftGrid}>
         <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
-          <Label>Tên công việc</Label>
-          <TitleInput
-            value={row.title}
-            history={history}
-            ariaLabel={`Tên công việc ${index + 1}`}
-            placeholder={index === 0 ? 'Gõ tên, hoặc dán nhiều dòng để tạo nhiều việc' : undefined}
-            onChange={(title) => onChange({ title })}
-            onPasteLines={onPasteLines}
-          />
-        </div>
-
-        <div className={styles.draftField}>
-          <Label>Loại</Label>
-          <Choice
-            label={`Loại ${index + 1}`}
-            value={row.itemType}
-            height={FIELD_HEIGHT}
-            options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
-            onChange={(value) => onChange({ itemType: value as WorkItemType })}
-          />
-        </div>
-        <div className={styles.draftField}>
-          <Label>Ưu tiên</Label>
-          <Choice
-            label={`Độ ưu tiên ${index + 1}`}
-            value={row.priority}
-            height={FIELD_HEIGHT}
-            options={priorityKeys().map((priority) => ({
-              value: priority,
-              label: priorityLabel(priority),
-            }))}
-            onChange={(value) => onChange({ priority: value as WorkItemPriority })}
-          />
-        </div>
-        <div className={styles.draftField}>
-          <Label>Công việc cha</Label>
-          <Choice
-            label={`Công việc cha ${index + 1}`}
-            value={row.parentId}
-            height={FIELD_HEIGHT}
-            options={[{ value: '', label: 'Gốc dự án' }, ...parentOptions]}
-            onChange={(value) => onChange({ parentId: value })}
-          />
-        </div>
-        <div className={styles.draftField}>
-          <Label>Cách thực hiện</Label>
-          {isPhase ? (
-            <span className={styles.draftNone}>Nhóm không có cách thực hiện</span>
-          ) : (
-            <Choice
-              label={`Cách thực hiện ${index + 1}`}
-              value={row.executionType}
-              height={FIELD_HEIGHT}
-              options={[
-                { value: 'manual', label: 'Thủ công' },
-                { value: 'procedure', label: 'Theo quy trình' },
-              ]}
-              onChange={(value) => onChange({ executionType: value as 'manual' | 'procedure' })}
-            />
-          )}
-        </div>
-        {!isPhase && row.executionType === 'procedure' ? (
-          <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
-            <Label>Quy trình</Label>
-            {procedures === undefined ? (
-              <span className={styles.draftNone}>Đang tải quy trình…</span>
-            ) : procedures.length === 0 ? (
-              <span className={styles.draftNone}>Không đọc được quy trình nào.</span>
-            ) : (
-              <Choice
-                label={`Quy trình ${index + 1}`}
-                value={row.procedureDefinitionId}
-                height={FIELD_HEIGHT}
-                required
-                placeholder="Chọn quy trình…"
-                options={procedures.map((procedure) => ({
-                  value: procedure.id,
-                  label: `${procedure.code} · ${procedure.name}`,
-                }))}
-                onChange={(value) => onChange({ procedureDefinitionId: value })}
+          <Label>{removable ? `Công việc ${index + 1}` : 'Tên công việc'}</Label>
+          <div className={styles.draftTitleRow}>
+            <div className={styles.draftTitleInput}>
+              <TitleInput
+                value={row.title}
+                history={history}
+                ariaLabel={`Tên công việc ${index + 1}`}
+                placeholder={index === 0 ? 'Gõ tên, hoặc dán nhiều dòng để tạo nhiều việc' : undefined}
+                onChange={(title) => onChange({ title })}
+                onPasteLines={onPasteLines}
               />
-            )}
+            </div>
+            <div className={styles.draftActions}>
+              {isPhase ? null : (
+                <button
+                  type="button"
+                  className={
+                    showTransport || hasTransport
+                      ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
+                      : `${styles.draftIconButton} ${styles.draftIconTruck}`
+                  }
+                  aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
+                  aria-pressed={showTransport || hasTransport}
+                  title="Phương tiện đi lại"
+                  disabled={hasTransport}
+                  onClick={() => setShowTransport((current) => !current)}
+                >
+                  <Truck size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
+                aria-label={`Nhân bản công việc ${index + 1}`}
+                title="Nhân bản (chép mọi trường trừ tên)"
+                onClick={onDuplicate}
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                type="button"
+                className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
+                aria-label={`Bỏ công việc ${index + 1}`}
+                title="Bỏ công việc này"
+                disabled={!removable}
+                onClick={onRemove}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </div>
-        ) : null}
+        </div>
 
         <div className={styles.draftField}>
           <Label>Người phụ trách</Label>
@@ -322,6 +266,57 @@ export function WorkItemDraftEditor({
           />
         </div>
         <div className={styles.draftField}>
+          <Label>Ưu tiên</Label>
+          <Choice
+            label={`Độ ưu tiên ${index + 1}`}
+            value={row.priority}
+            height={FIELD_HEIGHT}
+            options={priorityKeys().map((priority) => ({
+              value: priority,
+              label: priorityLabel(priority),
+            }))}
+            onChange={(value) => onChange({ priority: value as WorkItemPriority })}
+          />
+        </div>
+
+        <div className={styles.draftField}>
+          <Label>Loại</Label>
+          <Choice
+            label={`Loại ${index + 1}`}
+            value={row.itemType}
+            height={FIELD_HEIGHT}
+            options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
+            onChange={(value) => onChange({ itemType: value as WorkItemType })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label>Công việc cha</Label>
+          <Choice
+            label={`Công việc cha ${index + 1}`}
+            value={row.parentId}
+            height={FIELD_HEIGHT}
+            options={[{ value: '', label: 'Gốc dự án' }, ...parentOptions]}
+            onChange={(value) => onChange({ parentId: value })}
+          />
+        </div>
+        <div className={styles.draftField}>
+          <Label>Cách thực hiện</Label>
+          {isPhase ? (
+            <span className={styles.draftNone}>Nhóm không có cách thực hiện</span>
+          ) : (
+            <Choice
+              label={`Cách thực hiện ${index + 1}`}
+              value={row.executionType}
+              height={FIELD_HEIGHT}
+              options={[
+                { value: 'manual', label: 'Thủ công' },
+                { value: 'procedure', label: 'Theo quy trình' },
+              ]}
+              onChange={(value) => onChange({ executionType: value as 'manual' | 'procedure' })}
+            />
+          )}
+        </div>
+        <div className={styles.draftField}>
           <Label htmlFor={`draft-hours-${row.key}`}>Giờ ước lượng</Label>
           {isPhase ? (
             <span className={styles.draftNone}>—</span>
@@ -338,7 +333,58 @@ export function WorkItemDraftEditor({
             />
           )}
         </div>
-      
+        {!isPhase && row.executionType === 'procedure' ? (
+          <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+            <Label>Quy trình</Label>
+            {procedures === undefined ? (
+              <span className={styles.draftNone}>Đang tải quy trình…</span>
+            ) : procedures.length === 0 ? (
+              <span className={styles.draftNone}>Không đọc được quy trình nào.</span>
+            ) : (
+              <Choice
+                label={`Quy trình ${index + 1}`}
+                value={row.procedureDefinitionId}
+                height={FIELD_HEIGHT}
+                required
+                placeholder="Chọn quy trình…"
+                options={procedures.map((procedure) => ({
+                  value: procedure.id,
+                  label: `${procedure.code} · ${procedure.name}`,
+                }))}
+                onChange={(value) => onChange({ procedureDefinitionId: value })}
+              />
+            )}
+          </div>
+        ) : null}
+
+        {doneParent ? (
+          <div
+            className={`${styles.parentDoneNotice} ${styles.draftSpanAll}`}
+            role="group"
+            aria-label={`Công việc cha đã hoàn thành ${index + 1}`}
+          >
+            <span className={styles.parentDoneIcon} aria-hidden="true">
+              <Info size={16} />
+            </span>
+            <div className={styles.parentDoneText}>
+              <strong>Công việc cha đã hoàn thành</strong>
+              <span className={styles.fieldHint}>Thêm việc con vào đây thì cha không còn đúng là đã xong.</span>
+            </div>
+            <div className={styles.parentDoneChoice}>
+              <Choice
+                label={`Cách xử lý công việc cha đã hoàn thành ${index + 1}`}
+                value={row.reopenParent ? 'reopen' : 'block'}
+                height={FIELD_HEIGHT}
+                selectOnly
+                options={[
+                  { value: 'reopen', label: 'Mở lại công việc cha rồi tạo' },
+                  { value: 'block', label: 'Không tạo ở đây (chọn cha khác)' },
+                ]}
+                onChange={(value) => onChange({ reopenParent: value === 'reopen' })}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {isPhase ? null : (
           <div className={`${styles.draftField} ${styles.draftSpanHalf}`}>
@@ -372,6 +418,21 @@ export function WorkItemDraftEditor({
             onChange={(event) => onChange({ description: event.target.value })}
           />
         </div>
+
+        {isPhase ? null : (
+          <div className={`${styles.draftOptions} ${styles.draftSpanAll}`}>
+            <CompletionConditionsEditor
+              idPrefix={`draft-${row.key}`}
+              value={row.completion}
+              onChange={(completion) => onChange({ completion })}
+            />
+            <ReopenPolicyField
+              idPrefix={`draft-${row.key}`}
+              value={row.reopenPolicy}
+              onChange={(reopenPolicy) => onChange({ reopenPolicy })}
+            />
+          </div>
+        )}
 
         {!isPhase && (showTransport || hasTransport) ? (
           <div className={`${styles.draftTransport} ${styles.draftSpanAll}`}>

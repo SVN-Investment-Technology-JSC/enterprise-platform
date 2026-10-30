@@ -1,12 +1,18 @@
 import {
   CHAT_EDIT_WINDOW_MINUTES,
   CHAT_ENTITY_TYPES,
+  CHAT_FEED_PAGE_SIZES,
+  CHAT_FEED_SEARCH_MAX_LENGTH,
+  CHAT_FEED_THREAD_LIMIT,
   CHAT_PAGE_SIZE,
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
   type ChatThread,
   type ChatTypingRecipients,
+  type ProjectChatFeedPage,
+  type ProjectChatFeedQuery,
+  type ProjectChatThread,
   type SendChatMessageRequest,
   type SendChatMessageResponse,
   type UnreadSummary,
@@ -22,6 +28,9 @@ import {
 import { requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
+
+/** Số trang tối đa của màn "Trao đổi công việc"; chặn số quá lớn làm OFFSET vượt giới hạn của Postgres. */
+const MAX_FEED_PAGE = 100_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,6 +85,59 @@ export class ChatService {
   }
 
   /**
+   * Một trang danh sách công việc của dự án kèm tóm tắt trao đổi (10, 20 hoặc 50 công việc mỗi trang).
+   *
+   * Chỉ cần quyền xem dự án (không có quyền xem riêng từng công việc), và dự án đã lưu trữ vẫn đọc
+   * được. KHÔNG đánh dấu đã đọc: xem tổng hợp không được làm mất số chưa đọc ở từng công việc.
+   */
+  async projectFeed(
+    actor: WorkspaceActor,
+    projectId: string,
+    page: number,
+    pageSize: number,
+    query: ProjectChatFeedQuery = {},
+  ): Promise<ProjectChatFeedPage> {
+    if (!Number.isInteger(page) || page < 1 || page > MAX_FEED_PAGE) {
+      throw new WorkspaceValidationError(`Số trang phải là số nguyên từ 1 đến ${MAX_FEED_PAGE}.`);
+    }
+    if (!(CHAT_FEED_PAGE_SIZES as readonly number[]).includes(pageSize)) {
+      throw new WorkspaceValidationError(`Cỡ trang phải là một trong: ${CHAT_FEED_PAGE_SIZES.join(', ')}.`);
+    }
+    const search = query.search?.trim() || undefined;
+    if (search && search.length > CHAT_FEED_SEARCH_MAX_LENGTH) {
+      throw new WorkspaceValidationError(`Từ khoá tìm kiếm tối đa ${CHAT_FEED_SEARCH_MAX_LENGTH} ký tự.`);
+    }
+    // Postgres không nhận byte NUL trong chuỗi, nên chặn ở đây thay vì để thành lỗi 500.
+    if (search?.includes('\u0000')) throw new WorkspaceValidationError('Từ khoá tìm kiếm chứa ký tự không hợp lệ.');
+    await this.projects.access(actor, projectId);
+    return this.store.chat.listProjectFeedPage(actor.tenantId, projectId, page, pageSize, {
+      search,
+      onlyWithChat: query.onlyWithChat === true,
+    });
+  }
+
+  /**
+   * Trao đổi của một công việc trong dự án, chỉ để đọc: `CHAT_FEED_THREAD_LIMIT` tin mới nhất, hoặc trang liền
+   * trước tin `before`; KHÔNG đánh dấu đã đọc. Công việc phải thuộc đúng dự án trên đường dẫn, để không đọc xuyên dự án.
+   */
+  async projectFeedThread(
+    actor: WorkspaceActor,
+    projectId: string,
+    workItemId: string,
+    before?: string,
+  ): Promise<ProjectChatThread> {
+    if (before !== undefined && !UUID.test(before)) {
+      throw new WorkspaceValidationError('Mốc phân trang "before" phải là id tin nhắn.');
+    }
+    await this.projects.access(actor, projectId);
+    const item = await this.store.workItem.findById(actor.tenantId, workItemId);
+    if (!item || item.projectId !== projectId) throw new WorkItemNotFoundError(workItemId);
+    const channel = await this.store.chat.findChannel(actor.tenantId, 'work_item', workItemId);
+    if (!channel) return { messages: [], hasMore: false };
+    return this.store.chat.listMessages(actor.tenantId, channel.id, CHAT_FEED_THREAD_LIMIT, before);
+  }
+
+  /**
    * Những người cần biết "có người đang nhập" ở một node: thành viên dự án và những người đã
    * mở luồng chat này (quản trị tenant xem được dự án mà không phải thành viên), trừ chính người hỏi.
    *
@@ -105,6 +167,8 @@ export class ChatService {
     const target = await this.resolve(actor, input.entityType, input.entityId);
     // Nhắn tin là ghi; `viewer` chỉ đọc.
     requireProjectRole(target.access, 'member');
+    // Dự án đã lưu trữ: tenant chọn chặn hay vẫn cho nhắn (Cấu hình chung).
+    await this.projects.requireChatOpen(actor.tenantId, target.access.project);
 
     const body = requireBody(input.body);
     const parentId = await this.resolveParent(actor, input.parentId);
@@ -152,7 +216,8 @@ export class ChatService {
     messageId: string,
     input: UpdateChatMessageRequest,
   ): Promise<ChatMessage> {
-    const { message, projectId } = await this.loadMessage(actor, messageId);
+    const { message, projectId, access } = await this.loadMessage(actor, messageId);
+    await this.projects.requireChatOpen(actor.tenantId, access.project);
     if (message.createdBy !== actor.userId) {
       throw new ChatEditForbiddenError('Chỉ người gửi mới sửa được tin nhắn của mình.');
     }
@@ -191,7 +256,8 @@ export class ChatService {
    */
   async remove(actor: WorkspaceActor, messageId: string): Promise<ChatMessage> {
     // Vẫn đi qua `loadMessage` để người ngoài dự án nhận 403 trước, không biết tin có tồn tại.
-    const { message } = await this.loadMessage(actor, messageId);
+    const { message, access } = await this.loadMessage(actor, messageId);
+    await this.projects.requireChatOpen(actor.tenantId, access.project);
     if (message.createdBy !== actor.userId) {
       throw new ChatEditForbiddenError('Chỉ người gửi mới thu hồi được tin nhắn của mình.');
     }

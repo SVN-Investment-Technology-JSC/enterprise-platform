@@ -25,6 +25,11 @@ export interface DialogProps {
   readonly size?: 'default' | 'wide' | 'extraWide';
   /** Căn hộp thoại giữa màn hình theo chiều dọc thay vì sát mép trên. */
   readonly centered?: boolean;
+  /**
+   * Chiều cao cố định theo màn hình (tối đa 90vh) thay vì co theo nội dung: nội dung tự chia vùng và để từng vùng
+   * cuộn riêng, hộp thoại không cuộn cả khối.
+   */
+  readonly fixedHeight?: boolean;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -51,6 +56,7 @@ export function Dialog({
   error,
   size = 'default',
   centered = false,
+  fixedHeight = false,
   onClose,
   onSubmit,
   children,
@@ -167,13 +173,13 @@ export function Dialog({
       onMouseDown={requestClose}
     >
       <div
-        className={
-          size === 'wide'
-            ? `${styles.dialog} ${styles.dialogWide}`
-            : size === 'extraWide'
-              ? `${styles.dialog} ${styles.dialogExtraWide}`
-              : styles.dialog
-        }
+        className={[
+          styles.dialog,
+          size === 'wide' ? styles.dialogWide : size === 'extraWide' ? styles.dialogExtraWide : '',
+          fixedHeight ? styles.dialogFixed : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label={title}

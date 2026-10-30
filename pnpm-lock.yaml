@@ -1981,6 +1981,9 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      '@reduxjs/toolkit':
+        specifier: ^2.12.0
+        version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
       docx-preview:
         specifier: ^0.4.1
         version: 0.4.1
@@ -1990,6 +1993,9 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      react-redux:
+        specifier: ^9.3.0
+        version: 9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1)
       xlsx-js-style:
         specifier: 1.2.0
         version: 1.2.0

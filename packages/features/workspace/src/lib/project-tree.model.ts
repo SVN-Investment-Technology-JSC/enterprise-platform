@@ -118,7 +118,7 @@ export function buildWorkItemTree(
  */
 export function parentCandidateOptions(
   items: readonly WorkItem[],
-): { id: string; label: string }[] {
+): { id: string; label: string; done: boolean }[] {
   return buildWorkItemTree(items, new Set(items.map((node) => node.id)))
     .filter(
       (row) =>
@@ -129,7 +129,8 @@ export function parentCandidateOptions(
     )
     .map((row) => ({
       id: row.item.id,
-      label: `${'  '.repeat(row.depth)}${row.item.code} · ${row.item.title}`,
+      label: `${'  '.repeat(row.depth)}${row.item.code} · ${row.item.title}${row.item.status === 'done' ? ' (đã hoàn thành)' : ''}`,
+      done: row.item.status === 'done',
     }));
 }
 

@@ -6,8 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog } from './dialog';
-import { OrgPicker } from './org-picker';
-import { PeoplePicker } from './people-picker';
+import { MemberAddPanel } from './member-add-panel';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
 
@@ -24,9 +23,6 @@ interface Row {
   readonly userId: string;
   readonly role: ProjectRole;
 }
-
-/** Hai cách thêm người: gõ tên, hay tích đơn vị / chức danh trên cây tổ chức. */
-type AddMode = 'name' | 'org';
 
 /**
  * Thêm, gỡ, đổi vai trò thành viên dự án.
@@ -47,7 +43,6 @@ export function MembersDialog({
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
   const [rows, setRows] = useState<Row[]>([]);
-  const [mode, setMode] = useState<AddMode>('name');
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
@@ -107,12 +102,11 @@ export function MembersDialog({
     }
   };
 
-  const memberRoleOptions = roleOptions(projectRoles, false);
-
   return (
     <Dialog
       open={open}
-      size="wide"
+      size="extraWide"
+      fixedHeight
       title="Thành viên dự án"
       subtitle={`${rows.length} thành viên`}
       submitLabel="Lưu"
@@ -121,105 +115,66 @@ export function MembersDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <ul className={`${styles.memberList} ${styles.memberListScroll}`}>
-        {rows.map((row) => {
-          const person = directory.find(row.userId);
-          const lockedOwner = row.role === 'owner' && !canTransferOwner;
-          return (
-            <li key={row.userId}>
-              <span className={styles.memberName}>
-                {directory.nameOf(row.userId)}
-                {person?.positionName || person?.unitNames.length ? (
-                  <span className={styles.muted}>
-                    {' '}
-                    ·{' '}
-                    {[person.positionName, person.unitNames.join(', ')]
-                      .filter(Boolean)
-                      .join(' · ')}
+      <div className={styles.membersLayout}>
+        <section className={styles.membersCurrent} aria-label="Thành viên hiện tại">
+          <span className={styles.fieldLabel}>Thành viên hiện tại ({rows.length})</span>
+          <ul className={`${styles.memberList} ${styles.membersCurrentList}`}>
+            {rows.map((row) => {
+              const person = directory.find(row.userId);
+              const lockedOwner = row.role === 'owner' && !canTransferOwner;
+              return (
+                <li key={row.userId}>
+                  <span className={styles.memberName}>
+                    {directory.nameOf(row.userId)}
+                    {person?.positionName || person?.unitNames.length ? (
+                      <span className={styles.muted}>
+                        {' '}
+                        ·{' '}
+                        {[person.positionName, person.unitNames.join(', ')]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-              </span>
-              <span className={`${styles.memberRole} ${styles.memberRoleEdit}`}>
-                <Choice
-                  label={`Vai trò của ${directory.nameOf(row.userId)}`}
-                  value={row.role}
-                  disabled={lockedOwner}
-                  title={lockedOwner ? 'Chỉ chủ nhiệm mới trao được vai trò chủ nhiệm.' : undefined}
-                  options={roleOptions(
-                    projectRoles,
-                    canTransferOwner || row.role === 'owner',
-                  )}
-                  onChange={(value) => setRole(row.userId, value)}
-                />
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  aria-label={`Gỡ ${directory.nameOf(row.userId)}`}
-                  disabled={row.role === 'owner'}
-                  title={row.role === 'owner' ? 'Trao vai trò chủ nhiệm cho người khác trước khi gỡ.' : undefined}
-                  onClick={() => setRows((current) => current.filter((entry) => entry.userId !== row.userId))}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+                  <span className={`${styles.memberRole} ${styles.memberRoleEdit}`}>
+                    <Choice
+                      selectOnly
+                      label={`Vai trò của ${directory.nameOf(row.userId)}`}
+                      value={row.role}
+                      disabled={lockedOwner}
+                      title={lockedOwner ? 'Chỉ chủ nhiệm mới trao được vai trò chủ nhiệm.' : undefined}
+                      options={roleOptions(
+                        projectRoles,
+                        canTransferOwner || row.role === 'owner',
+                      )}
+                      onChange={(value) => setRole(row.userId, value)}
+                    />
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label={`Gỡ ${directory.nameOf(row.userId)}`}
+                      disabled={row.role === 'owner'}
+                      title={row.role === 'owner' ? 'Trao vai trò chủ nhiệm cho người khác trước khi gỡ.' : undefined}
+                      onClick={() => setRows((current) => current.filter((entry) => entry.userId !== row.userId))}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
 
-      <section className={styles.memberAdd} aria-label="Thêm người">
-        <div className={styles.memberAddHead}>
-          <span className={styles.fieldLabel}>Thêm người</span>
-          <div className={styles.segmented} role="tablist" aria-label="Cách thêm người">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'name'}
-              className={mode === 'name' ? styles.segmentActive : styles.segment}
-              onClick={() => setMode('name')}
-            >
-              Theo tên
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'org'}
-              className={mode === 'org' ? styles.segmentActive : styles.segment}
-              onClick={() => setMode('org')}
-            >
-              Theo đơn vị / chức danh
-            </button>
-          </div>
-        </div>
-
-        {mode === 'name' ? (
-          <>
-            <PeoplePicker
-              people={directory.people}
-              // Người đã thêm hiện thành dòng có ô vai trò ở trên, nên ô tìm không
-              // giữ lại "chip": chọn xong là thêm ngay rồi xoá từ khoá.
-              selected={[]}
-              onChange={(userIds) => addPeople(userIds)}
-              nameOf={directory.nameOf}
-              exclude={rows.map((row) => row.userId)}
-              degraded={directory.degraded}
-              loaded={directory.loaded}
-            />
-            <span className={styles.fieldHint}>
-              Người vừa chọn hiện thành một dòng bên trên; chọn vai trò ngay tại dòng đó.
-            </span>
-          </>
-        ) : (
-          <OrgPicker
-            nodes={directory.orgNodes}
-            people={directory.people}
-            exclude={rows.map((row) => row.userId)}
-            roleOptions={memberRoleOptions}
-            defaultRole="member"
-            onAdd={addPeople}
-          />
-        )}
-      </section>
+        <MemberAddPanel
+          people={directory.people}
+          orgNodes={directory.orgNodes}
+          exclude={rows.map((row) => row.userId)}
+          degraded={directory.degraded}
+          loaded={directory.loaded}
+          onAdd={(userIds) => addPeople(userIds)}
+        />
+      </div>
     </Dialog>
   );
 }

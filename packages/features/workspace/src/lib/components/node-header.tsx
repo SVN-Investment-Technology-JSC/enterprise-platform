@@ -172,17 +172,16 @@ export function NodeHeader({
               <MoreHorizontal size={14} />
             </button>
           ) : null}
-          <button type="button" className={styles.buttonGhost} disabled={!canEdit} onClick={onEdit}>
-            <Pencil size={14} /> Chỉnh sửa
-          </button>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            disabled={!canWrite}
-            onClick={onAddChild}
-          >
-            <Plus size={14} /> Thêm công việc con
-          </button>
+          {canEdit ? (
+            <button type="button" className={styles.buttonGhost} onClick={onEdit}>
+              <Pencil size={14} /> Chỉnh sửa
+            </button>
+          ) : null}
+          {canWrite ? (
+            <button type="button" className={styles.buttonPrimary} onClick={onAddChild}>
+              <Plus size={14} /> Thêm công việc con
+            </button>
+          ) : null}
           {quickAction ? (
             <button type="button" className={styles.buttonGhost} onClick={quickAction.onClick}>
               {quickAction.label}

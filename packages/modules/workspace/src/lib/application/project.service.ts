@@ -1,11 +1,17 @@
 import {
   CLOSED_WORK_ITEM_STATUSES,
+  DEFAULT_CHAT_ON_ARCHIVED_POLICY,
+  DEFAULT_PROJECT_TASK_TITLES,
+  DEFAULT_REOPEN_PROJECT_POLICY,
   DEFAULT_ROLE_PERMISSIONS,
   WORKSPACE_CODE_MAX_LENGTH,
   PROJECT_PERMISSION_LABELS,
   PROJECT_PERMISSIONS,
   PROJECT_ROLES,
   PROJECT_STATUSES,
+  CHAT_ON_ARCHIVED_POLICIES,
+  REOPEN_PROJECT_POLICIES,
+  type ChatOnArchivedPolicy,
   type CreateProjectRequest,
   type Paged,
   type Project,
@@ -16,6 +22,7 @@ import {
   type ProjectStatus,
   type ProjectSummary,
   type ProjectTypeOption,
+  type ReopenProjectPolicy,
   type SaveProjectArchiveSettingsRequest,
   type SetProjectMembersRequest,
   type SystemProjectRole,
@@ -23,6 +30,7 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import {
+  ProjectArchivedError,
   ProjectCodeConflictError,
   ProjectForbiddenError,
   ProjectHasOpenWorkItemsError,
@@ -32,6 +40,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import { parseManualPercent } from '../domain/progress.rules.js';
+import { cleanTaskTitles } from '../domain/project-template.rules.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProjectCodeService } from './project-code.service.js';
@@ -45,6 +54,12 @@ const MAX_PAGE_SIZE = 60;
 
 /** Khoá của tuỳ chọn "tự đóng hồ sơ" trong `workspace_settings`. Mặc định tắt. */
 const AUTO_ARCHIVE_KEY = 'project_auto_archive';
+/** Khoá cách xử lý dự án đã Hoàn thành khi có công việc được hoàn tác. Mặc định `reactivate`. */
+const REOPEN_PROJECT_KEY = 'project_reopen_policy';
+/** Khoá cách xử lý trao đổi (chat) của dự án đã lưu trữ. Mặc định `block`. */
+const CHAT_ARCHIVED_KEY = 'project_chat_on_archived';
+/** Khoá mẫu công việc tạo sẵn khi tạo dự án: `{ enabled, titles }`. Mặc định tắt, kèm mẫu gợi ý. */
+const DEFAULT_TASKS_KEY = 'project_default_tasks';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -76,6 +91,14 @@ export function seesAllProjects(
   who: { readonly isTenantAdmin: boolean; readonly canAdminProjects?: boolean },
 ): boolean {
   return who.isTenantAdmin || who.canAdminProjects === true;
+}
+
+/**
+ * Dự án đã lưu trữ chỉ xem. Gọi ngay sau khi kiểm quyền ở mọi đường ghi vào dự án (công việc, tài liệu, lịch,
+ * thành viên, tài chính...). Chỉ `archive` / `unarchive` đứng ngoài luật này.
+ */
+export function assertProjectWritable(project: Pick<Project, 'code' | 'archivedAt'>): void {
+  if (project.archivedAt) throw new ProjectArchivedError(project.code);
 }
 
 /** Quyền thật của thành viên (không tính cờ quản trị tenant). */
@@ -314,6 +337,7 @@ export class ProjectService {
     input: UpdateProjectRequest,
   ): Promise<Project> {
     const access = await this.access(actor, projectId);
+    assertProjectWritable(access.project);
     // Đổi trạng thái là quyền riêng; sửa các trường khác cần cập nhật toàn bộ dự án.
     const touchesOther = Object.entries(input ?? {}).some(
       ([key, value]) => key !== 'status' && value !== undefined,
@@ -418,25 +442,139 @@ export class ProjectService {
   async archiveSettings(actor: WorkspaceActor): Promise<ProjectArchiveSettings> {
     return {
       autoArchive: await this.autoArchiveEnabled(actor.tenantId),
+      reopenProject: await this.reopenProjectPolicy(actor.tenantId),
+      chatOnArchived: await this.chatOnArchivedPolicy(actor.tenantId),
+      ...(await this.defaultTaskSettings(actor.tenantId)),
       canEdit: actor.canManage || actor.isTenantAdmin,
     };
   }
 
+  /** Lưu từng phần: trường nào gửi lên thì đổi, trường vắng giữ nguyên. */
   async saveArchiveSettings(
     actor: WorkspaceActor,
     input: SaveProjectArchiveSettingsRequest,
   ): Promise<ProjectArchiveSettings> {
     if (!(actor.canManage || actor.isTenantAdmin)) throw new ProjectForbiddenError();
-    if (typeof input?.autoArchive !== 'boolean') {
-      throw new WorkspaceValidationError('Chọn Có hoặc Không cho "Tự đóng hồ sơ".');
+    if (
+      input?.autoArchive === undefined &&
+      input?.reopenProject === undefined &&
+      input?.chatOnArchived === undefined &&
+      input?.defaultTasksEnabled === undefined &&
+      input?.defaultTaskTitles === undefined
+    ) {
+      throw new WorkspaceValidationError('Không có cài đặt nào để lưu.');
     }
-    await this.store.settings.set(
-      actor.tenantId,
-      AUTO_ARCHIVE_KEY,
-      { enabled: input.autoArchive },
-      actor.userId,
-    );
+    if (input.autoArchive !== undefined) {
+      if (typeof input.autoArchive !== 'boolean') {
+        throw new WorkspaceValidationError('Chọn Có hoặc Không cho "Tự đóng hồ sơ".');
+      }
+      await this.store.settings.set(
+        actor.tenantId,
+        AUTO_ARCHIVE_KEY,
+        { enabled: input.autoArchive },
+        actor.userId,
+      );
+    }
+    if (input.reopenProject !== undefined) {
+      if (!(REOPEN_PROJECT_POLICIES as readonly string[]).includes(input.reopenProject)) {
+        throw new WorkspaceValidationError('Chọn cách xử lý dự án khi công việc được hoàn tác.');
+      }
+      await this.store.settings.set(
+        actor.tenantId,
+        REOPEN_PROJECT_KEY,
+        { policy: input.reopenProject },
+        actor.userId,
+      );
+    }
+    if (input.chatOnArchived !== undefined) {
+      if (!(CHAT_ON_ARCHIVED_POLICIES as readonly string[]).includes(input.chatOnArchived)) {
+        throw new WorkspaceValidationError('Chọn chặn hay cho nhắn trong dự án đã lưu trữ.');
+      }
+      await this.store.settings.set(
+        actor.tenantId,
+        CHAT_ARCHIVED_KEY,
+        { policy: input.chatOnArchived },
+        actor.userId,
+      );
+    }
+    if (input.defaultTasksEnabled !== undefined || input.defaultTaskTitles !== undefined) {
+      if (input.defaultTasksEnabled !== undefined && typeof input.defaultTasksEnabled !== 'boolean') {
+        throw new WorkspaceValidationError('Chọn Bật hoặc Tắt cho "Tạo sẵn công việc khi tạo dự án".');
+      }
+      const current = await this.defaultTaskSettings(actor.tenantId);
+      await this.store.settings.set(
+        actor.tenantId,
+        DEFAULT_TASKS_KEY,
+        {
+          enabled: input.defaultTasksEnabled ?? current.defaultTasksEnabled,
+          titles:
+            input.defaultTaskTitles === undefined ? [...current.defaultTaskTitles] : cleanTaskTitles(input.defaultTaskTitles),
+        },
+        actor.userId,
+      );
+    }
     return this.archiveSettings(actor);
+  }
+
+  /** Mẫu công việc tạo sẵn của tenant: tắt và mẫu gợi ý khi chưa cấu hình. */
+  async defaultTaskSettings(
+    tenantId: string,
+  ): Promise<{ defaultTasksEnabled: boolean; defaultTaskTitles: readonly string[] }> {
+    const value = (await this.store.settings.get(tenantId, DEFAULT_TASKS_KEY)) as
+      | { enabled?: unknown; titles?: unknown }
+      | undefined;
+    let titles: readonly string[] = DEFAULT_PROJECT_TASK_TITLES;
+    if (Array.isArray(value?.titles)) {
+      try {
+        titles = cleanTaskTitles(value?.titles);
+      } catch {
+        // Giá trị lưu hỏng thì quay về mẫu gợi ý, không để cả màn tạo dự án lỗi.
+        titles = DEFAULT_PROJECT_TASK_TITLES;
+      }
+    }
+    return { defaultTasksEnabled: value?.enabled === true, defaultTaskTitles: titles };
+  }
+
+  /** Như `access` nhưng từ chối khi dự án đã lưu trữ: dùng cho mọi đường ghi. */
+  async writableAccess(actor: WorkspaceActor, projectId: string): Promise<ProjectAccess> {
+    const access = await this.access(actor, projectId);
+    assertProjectWritable(access.project);
+    return access;
+  }
+
+  /**
+   * Nhắn tin trong dự án đã lưu trữ: tenant chọn chặn hay vẫn cho. Dự án chưa lưu trữ luôn qua.
+   */
+  async requireChatOpen(tenantId: string, project: Pick<Project, 'code' | 'archivedAt'>): Promise<void> {
+    if (!project.archivedAt) return;
+    if ((await this.chatOnArchivedPolicy(tenantId)) === 'allow') return;
+    throw new ProjectArchivedError(project.code);
+  }
+
+  private async chatOnArchivedPolicy(tenantId: string): Promise<ChatOnArchivedPolicy> {
+    const value = (await this.store.settings.get(tenantId, CHAT_ARCHIVED_KEY)) as { policy?: unknown } | undefined;
+    return (CHAT_ON_ARCHIVED_POLICIES as readonly unknown[]).includes(value?.policy)
+      ? (value?.policy as ChatOnArchivedPolicy)
+      : DEFAULT_CHAT_ON_ARCHIVED_POLICY;
+  }
+
+  /**
+   * Một công việc đã hoàn thành vừa được hoàn tác (hoặc mở lại để thêm việc con). Dự án đang `completed` thì về
+   * `active` nếu tenant chọn `reactivate` — chuyển trạng thái tự bỏ dấu lưu trữ do hoàn thành; chọn `keep` thì giữ
+   * nguyên trạng thái. Dự án ở trạng thái khác không bị đụng tới.
+   */
+  async onItemReopened(tenantId: string, actorUserId: string, projectId: string): Promise<void> {
+    const project = await this.store.project.findById(tenantId, projectId);
+    if (!project || project.status !== 'completed') return;
+    if ((await this.reopenProjectPolicy(tenantId)) !== 'reactivate') return;
+    await this.store.project.update(tenantId, projectId, { status: 'active' }, actorUserId);
+  }
+
+  private async reopenProjectPolicy(tenantId: string): Promise<ReopenProjectPolicy> {
+    const value = (await this.store.settings.get(tenantId, REOPEN_PROJECT_KEY)) as { policy?: unknown } | undefined;
+    return (REOPEN_PROJECT_POLICIES as readonly unknown[]).includes(value?.policy)
+      ? (value?.policy as ReopenProjectPolicy)
+      : DEFAULT_REOPEN_PROJECT_POLICY;
   }
 
   /**
@@ -463,8 +601,8 @@ export class ProjectService {
   }
 
   /**
-   * Mở lưu trữ: dự án về danh sách đang làm. Dự án đã Hoàn thành thì về "Đang chạy" để thêm công việc; dự án
-   * đóng hồ sơ thủ công thì giữ nguyên trạng thái của nó.
+   * Mở lưu trữ: dự án về danh sách đang làm và được sửa lại. Dự án đã Hoàn thành thì về "Đang chạy" hoặc giữ
+   * trạng thái Hoàn thành, theo cài đặt của tenant; dự án đóng hồ sơ thủ công thì giữ nguyên trạng thái của nó.
    */
   async unarchive(actor: WorkspaceActor, projectId: string): Promise<Project> {
     const access = await this.access(actor, projectId);
@@ -472,7 +610,7 @@ export class ProjectService {
     if (!access.project.archivedAt) {
       throw new WorkspaceValidationError('Dự án này không nằm trong lưu trữ.');
     }
-    if (access.project.status === 'completed') {
+    if (access.project.status === 'completed' && (await this.reopenProjectPolicy(actor.tenantId)) === 'reactivate') {
       return this.store.project.update(actor.tenantId, projectId, { status: 'active' }, actor.userId);
     }
     return this.store.project.setArchived(actor.tenantId, projectId, false);
@@ -482,6 +620,7 @@ export class ProjectService {
   async cancel(actor: WorkspaceActor, projectId: string): Promise<Project> {
     const access = await this.access(actor, projectId);
     requireProjectRole(access, 'owner');
+    assertProjectWritable(access.project);
     return this.store.project.update(actor.tenantId, projectId, { status: 'cancelled' }, actor.userId);
   }
 
@@ -497,6 +636,7 @@ export class ProjectService {
   ): Promise<readonly ProjectMember[]> {
     const access = await this.access(actor, projectId);
     requireProjectPermission(access, 'project.manage_members');
+    assertProjectWritable(access.project);
 
     const members = input.members ?? [];
     // Không có chủ nhiệm thì không ai huỷ hay đổi chủ được dự án nữa; nhiều

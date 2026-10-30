@@ -197,6 +197,13 @@
   }
 }
 
+/* Chân danh sách: cố định dưới các mục, ngăn bằng đường kẻ. */
+.dropdownFooter {
+  padding: 8px;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
 .optionsList {
   list-style: none;
   margin: 0;

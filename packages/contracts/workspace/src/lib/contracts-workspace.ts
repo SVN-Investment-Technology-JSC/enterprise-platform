@@ -165,6 +165,73 @@ export type WorkItemPriority = (typeof WORK_ITEM_PRIORITIES)[number] | (string &
 export const DEFAULT_WORK_ITEM_PRIORITY = 'normal';
 
 /**
+ * Cách tính số điều kiện hoàn thành phải được xác nhận trước khi hoàn thành công việc.
+ * `all`: đủ mọi điều kiện · `at_least`: đủ ít nhất `minRequired` điều kiện · `none`: không bắt buộc điều kiện nào.
+ */
+export const COMPLETION_RULES = ['all', 'at_least', 'none'] as const;
+export type CompletionRule = (typeof COMPLETION_RULES)[number];
+
+/** Số điều kiện tối đa của một công việc, và độ dài tối đa của một điều kiện. */
+export const MAX_COMPLETION_CONDITIONS = 20;
+export const MAX_COMPLETION_CONDITION_LENGTH = 300;
+
+export interface WorkItemCompletionCondition {
+  readonly id: string;
+  readonly label: string;
+}
+
+/** Điều kiện công việc phải đạt trước khi hoàn thành. Công việc không có điều kiện thì hoàn thành chỉ cần xác nhận. */
+export interface WorkItemCompletionPolicy {
+  readonly rule: CompletionRule;
+  /** Chỉ có khi `rule = 'at_least'`: số điều kiện tối thiểu, từ 1 đến số điều kiện. */
+  readonly minRequired?: number;
+  readonly conditions: readonly WorkItemCompletionCondition[];
+}
+
+/** Điều kiện khi tạo hoặc sửa; `id` có khi giữ lại điều kiện đã có, thiếu thì là điều kiện mới. */
+export interface WorkItemCompletionInput {
+  readonly rule: CompletionRule;
+  readonly minRequired?: number;
+  readonly conditions: readonly { readonly id?: string; readonly label: string }[];
+}
+
+/** Ảnh chụp những điều kiện đã xác nhận lúc hoàn thành, lưu ở nhật ký trạng thái. */
+export interface WorkItemCompletionEvidence {
+  readonly rule: CompletionRule;
+  readonly minRequired?: number;
+  readonly conditions: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly confirmed: boolean;
+  }[];
+}
+
+/**
+ * Số điều kiện phải xác nhận để được hoàn thành. Dùng chung cho server (chặn thật) và
+ * giao diện (bật nút), để hai bên không lệch luật.
+ */
+export function requiredConfirmations(policy: WorkItemCompletionPolicy | undefined): number {
+  if (!policy || policy.conditions.length === 0) return 0;
+  if (policy.rule === 'none') return 0;
+  if (policy.rule === 'at_least') {
+    return Math.min(Math.max(policy.minRequired ?? 1, 1), policy.conditions.length);
+  }
+  return policy.conditions.length;
+}
+
+/** `true` khi các điều kiện đã xác nhận đủ để hoàn thành công việc. */
+export function completionSatisfied(
+  policy: WorkItemCompletionPolicy | undefined,
+  confirmedIds: Iterable<string>,
+): boolean {
+  if (!policy) return true;
+  const known = new Set(policy.conditions.map((condition) => condition.id));
+  let confirmed = 0;
+  for (const id of new Set(confirmedIds)) if (known.has(id)) confirmed += 1;
+  return confirmed >= requiredConfirmations(policy);
+}
+
+/**
  * `phase` chỉ chứa việc con, không gán người và không có giờ ước lượng.
  * `milestone` là mốc thời điểm, không hiện trên bảng Kanban.
  */
@@ -305,7 +372,32 @@ export interface CreateProjectRequest {
   readonly tagIds?: readonly string[];
   readonly startDate?: string;
   readonly endDate?: string;
+  /**
+   * Tên các công việc tạo sẵn cùng dự án, theo thứ tự (mỗi tên là một công việc cấp gốc, chưa giao ai).
+   * Vắng: theo cấu hình chung của tenant (bật thì tạo theo danh sách mẫu, tắt thì không tạo). `[]`: không tạo.
+   */
+  readonly initialTasks?: readonly string[];
 }
+
+/** Kết quả tạo công việc tạo sẵn kèm dự án mới. Việc nào lỗi thì dự án vẫn được tạo. */
+export interface InitialTasksResult {
+  readonly created: number;
+  readonly failed: number;
+}
+
+/** Trả về của `POST /projects`: dự án mới, kèm kết quả tạo sẵn công việc khi có. */
+export type ProjectCreatedResponse = Project & { readonly initialTasks?: InitialTasksResult };
+
+/** Giới hạn danh sách công việc tạo sẵn (mẫu của tenant và danh sách lúc tạo dự án). */
+export const MAX_PROJECT_TEMPLATE_TASKS = 30;
+export const MAX_PROJECT_TEMPLATE_TITLE_LENGTH = 200;
+/** Mẫu gợi ý khi tenant chưa tự đặt. */
+export const DEFAULT_PROJECT_TASK_TITLES: readonly string[] = [
+  'Hợp đồng',
+  'Triển khai',
+  'Chi phí thực hiện',
+  'Nghiệm thu hoàn thành',
+];
 
 /** Mã dự án không có mặt: đã tạo thì không đổi được. */
 export interface UpdateProjectRequest {
@@ -361,12 +453,46 @@ export interface SaveProjectGroupRequest {
 export interface ProjectArchiveSettings {
   /** Tự đóng hồ sơ (đưa vào Lưu trữ) khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ. */
   readonly autoArchive: boolean;
+  /** Mở lưu trữ dự án đã Hoàn thành: về Đang chạy hay giữ nguyên trạng thái Hoàn thành. */
+  readonly reopenProject: ReopenProjectPolicy;
+  /** Trao đổi (chat) trong dự án đã lưu trữ: chặn hay vẫn cho nhắn. */
+  readonly chatOnArchived: ChatOnArchivedPolicy;
+  /** Tạo dự án mới thì tự tạo sẵn công việc theo danh sách mẫu bên dưới. */
+  readonly defaultTasksEnabled: boolean;
+  /** Danh sách công việc mẫu theo thứ tự; người tạo dự án thêm hoặc bớt được cho từng dự án. */
+  readonly defaultTaskTitles: readonly string[];
   readonly canEdit: boolean;
 }
 
 export interface SaveProjectArchiveSettingsRequest {
-  readonly autoArchive: boolean;
+  readonly autoArchive?: boolean;
+  readonly reopenProject?: ReopenProjectPolicy;
+  readonly chatOnArchived?: ChatOnArchivedPolicy;
+  readonly defaultTasksEnabled?: boolean;
+  readonly defaultTaskTitles?: readonly string[];
 }
+
+/** Dự án đã lưu trữ chỉ xem; riêng trao đổi do tenant chọn: `block` chặn nhắn, `allow` vẫn cho nhắn. Mặc định `block`. */
+export const CHAT_ON_ARCHIVED_POLICIES = ['block', 'allow'] as const;
+export type ChatOnArchivedPolicy = (typeof CHAT_ON_ARCHIVED_POLICIES)[number];
+export const DEFAULT_CHAT_ON_ARCHIVED_POLICY: ChatOnArchivedPolicy = 'block';
+
+/**
+ * Ai được hoàn tác (mở lại) một công việc đã hoàn thành, do người tạo việc chọn:
+ * `assignee` người phụ trách / cùng thực hiện và quản lý dự án · `manager` chỉ quản lý dự án ·
+ * `none` không hoàn tác được (chỉ chủ nhiệm huỷ hiệu lực rồi lập việc điều chỉnh). Mặc định `assignee`.
+ */
+export const WORK_ITEM_REOPEN_POLICIES = ['assignee', 'manager', 'none'] as const;
+export type WorkItemReopenPolicy = (typeof WORK_ITEM_REOPEN_POLICIES)[number];
+export const DEFAULT_WORK_ITEM_REOPEN_POLICY: WorkItemReopenPolicy = 'assignee';
+
+/**
+ * Cài đặt của tenant khi mở lưu trữ một dự án đang `completed`: `reactivate` đưa dự án về Đang chạy,
+ * `keep` chỉ bỏ dấu lưu trữ và giữ nguyên trạng thái Hoàn thành.
+ */
+export const REOPEN_PROJECT_POLICIES = ['reactivate', 'keep'] as const;
+export type ReopenProjectPolicy = (typeof REOPEN_PROJECT_POLICIES)[number];
+export const DEFAULT_REOPEN_PROJECT_POLICY: ReopenProjectPolicy = 'reactivate';
 
 export interface SetProjectMembersRequest {
   readonly members: readonly { readonly userId: string; readonly role: ProjectRole }[];
@@ -533,6 +659,10 @@ export interface WorkItem {
   readonly reversal?: WorkItemReversal;
   /** Công việc này là công việc điều chỉnh của một công việc đã huỷ hiệu lực. */
   readonly adjustmentOfId?: string;
+  /** Điều kiện phải xác nhận trước khi hoàn thành; vắng khi công việc không đặt điều kiện. */
+  readonly completion?: WorkItemCompletionPolicy;
+  /** Ai được hoàn tác công việc sau khi hoàn thành. Vắng nghĩa là `assignee`. */
+  readonly reopenPolicy?: WorkItemReopenPolicy;
 }
 
 export interface WorkItemReversal {
@@ -608,6 +738,15 @@ export interface CreateWorkItemRequest {
   readonly adjustmentOfId?: string;
   /** Phương tiện di chuyển; xe công ty được giữ chỗ trên Lịch xe của HRM. */
   readonly transport?: TransportInput | null;
+  /** Điều kiện phải xác nhận trước khi hoàn thành; bỏ trống là không đặt điều kiện. */
+  readonly completion?: WorkItemCompletionInput | null;
+  /** Ai được hoàn tác công việc sau khi hoàn thành; bỏ trống là `assignee`. */
+  readonly reopenPolicy?: WorkItemReopenPolicy;
+  /**
+   * Công việc cha đã hoàn thành: `true` mở lại cha (và các cha đã xong phía trên) về Đang làm rồi mới tạo;
+   * bỏ trống thì từ chối với mã `PARENT_ITEM_DONE`.
+   */
+  readonly reopenParent?: boolean;
 }
 
 export interface UpdateWorkItemRequest {
@@ -627,11 +766,17 @@ export interface UpdateWorkItemRequest {
   readonly manualProgressPercent?: number | null;
   /** Bỏ trống: giữ nguyên; `null`: bỏ phương tiện (trả xe nếu đang giữ). */
   readonly transport?: TransportInput | null;
+  /** Bỏ trống: giữ nguyên; `null`: bỏ hết điều kiện; còn lại thay toàn bộ. */
+  readonly completion?: WorkItemCompletionInput | null;
+  /** Bỏ trống: giữ nguyên. Chỉ quản lý hoặc người tạo việc đổi được, và không đổi khi việc đã hoàn thành. */
+  readonly reopenPolicy?: WorkItemReopenPolicy;
 }
 
 export interface ChangeWorkItemStatusRequest {
   readonly status: WorkItemStatus;
   readonly note?: string;
+  /** Id các điều kiện hoàn thành người dùng đã tích; chỉ xét khi chuyển sang `done`. */
+  readonly confirmedConditionIds?: readonly string[];
 }
 
 /** Đổi cha và vị trí trong cây cùng lúc. */
@@ -754,6 +899,8 @@ export interface WorkItemStatusHistoryEntry {
   readonly toStatus?: WorkItemStatus;
   /** Chỉ có ở dòng sửa trường. */
   readonly changes?: readonly WorkItemFieldChange[];
+  /** Điều kiện hoàn thành đã xác nhận, chỉ có ở dòng chuyển sang Hoàn thành của việc có đặt điều kiện. */
+  readonly completionEvidence?: WorkItemCompletionEvidence;
   readonly note?: string;
   readonly createdBy: string;
   readonly createdAt: string;
@@ -1014,6 +1161,55 @@ export interface ChatReader {
   readonly userId: string;
   /** Tin mới nhất người này đã đọc tới; vắng nếu mốc đọc cũ hơn mọi tin còn lại. */
   readonly messageId?: string;
+}
+
+/** Các cỡ trang người dùng chọn được ở màn "Trao đổi công việc"; phần tử đầu là mặc định. */
+export const CHAT_FEED_PAGE_SIZES = [10, 20, 50] as const;
+export const CHAT_FEED_PAGE_SIZE = CHAT_FEED_PAGE_SIZES[0];
+
+/** Độ dài tối đa của từ khoá tìm kiếm ở màn "Trao đổi công việc". */
+export const CHAT_FEED_SEARCH_MAX_LENGTH = 100;
+
+/** Bộ lọc của danh sách công việc ở màn "Trao đổi công việc". */
+export interface ProjectChatFeedQuery {
+  /** Tìm theo mã, tiêu đề công việc hoặc nội dung tin nhắn (không phân biệt hoa thường). */
+  readonly search?: string;
+  /** Chỉ công việc đã có ít nhất một tin nhắn chưa thu hồi. */
+  readonly onlyWithChat?: boolean;
+}
+
+/** Một công việc trong danh sách của màn "Trao đổi công việc": chỉ tóm tắt, tin nhắn lấy riêng khi chọn. */
+export interface ProjectChatFeedItem {
+  readonly workItemId: string;
+  /** Tin mới nhất (chưa thu hồi); vắng nghĩa là công việc chưa có trao đổi nào. */
+  readonly latestAt?: string;
+  readonly latestBy?: string;
+  /** Đầu nội dung tin mới nhất, để xem trước ngay trong danh sách. */
+  readonly latestBody?: string;
+  readonly messageCount: number;
+}
+
+/**
+ * Một trang danh sách công việc của dự án (kể cả công việc lồng nhau): công việc có tin mới nhất
+ * đứng trước, rồi tới công việc chưa có tin. Chỉ để đọc: không đánh dấu đã đọc và không gồm chat
+ * chung của dự án.
+ */
+export interface ProjectChatFeedPage {
+  readonly items: readonly ProjectChatFeedItem[];
+  /** Tổng số công việc của dự án, để dựng thanh phân trang. */
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+/** Số tin mỗi lần xem trao đổi của một công việc ở màn này; tin cũ hơn lấy thêm bằng `before`. */
+export const CHAT_FEED_THREAD_LIMIT = 30;
+
+/** Trao đổi của một công việc, cũ → mới, chỉ để đọc (không đánh dấu đã đọc). */
+export interface ProjectChatThread {
+  readonly messages: readonly ChatMessage[];
+  /** Còn tin cũ hơn: xin trang kế bằng `before` = id tin đầu danh sách. */
+  readonly hasMore: boolean;
 }
 
 /** Danh sách người nhận tín hiệu "đang nhập" của một node, không gồm người hỏi. */
