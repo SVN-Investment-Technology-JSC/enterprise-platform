@@ -70,6 +70,8 @@ import { ProjectForm } from './project-form';
 import { ProjectHeader } from './project-header';
 import { ContextMenu, type ContextAction, type SelectedNode } from './project-tree';
 import { TabActivity } from './tab-activity';
+import { invalidateChatFeed } from '../chat-feed-store';
+import { TabChats } from './tab-chats';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
@@ -84,7 +86,7 @@ import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending'
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity' | 'chats';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
@@ -95,7 +97,10 @@ const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'activity', label: 'Hoạt động' },
 ];
 
-const TAB_IDS = TABS.map((entry) => entry.id);
+/** Trao đổi công việc có nút riêng, tách khỏi dãy tab, nhưng vẫn là một màn của trang (`?tab=chats`). */
+const CHATS_TAB: TabId = 'chats';
+
+const TAB_IDS: readonly TabId[] = [...TABS.map((entry) => entry.id), CHATS_TAB];
 const PROJECT_ACTION_KEYS = [
   WORKSPACE_ASSISTANT_ACTIONS.createWorkItem.key,
   WORKSPACE_ASSISTANT_ACTIONS.createEvent.key,
@@ -1200,6 +1205,7 @@ export function ProjectsView({
             </div>
           ) : null}
 
+          <div className={styles.tabRow}>
           <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
             {visibleTabs.map((entry) => {
               const count = tabCount(entry.id);
@@ -1217,6 +1223,17 @@ export function ProjectsView({
                 </button>
               );
             })}
+          </div>
+          <button
+            type="button"
+            className={tab === CHATS_TAB ? styles.tabSideActive : styles.tabSide}
+            aria-pressed={tab === CHATS_TAB}
+            title="Xem trao đổi của mọi công việc trong dự án"
+            onClick={() => setTab(CHATS_TAB)}
+          >
+            <MessageSquare size={14} aria-hidden />
+            Trao đổi công việc
+          </button>
           </div>
 
           {tab === 'work-items' ? (
@@ -1272,6 +1289,15 @@ export function ProjectsView({
           ) : null}
           {tab === 'activity' ? (
             <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
+          ) : null}
+          {tab === CHATS_TAB ? (
+            <TabChats
+              projectId={detail.project.id}
+              items={detail.items}
+              members={detail.members}
+              documents={projectDocuments}
+              onOpen={openItem}
+            />
           ) : null}
         </>
       ) : null}
@@ -1408,7 +1434,12 @@ export function ProjectsView({
         onDocumentUploaded={() => setCalendarToken((token) => token + 1)}
         currentUserId={me}
         onClose={() => setChatOpen(false)}
-        onChanged={() => openId && void refreshUnread(openId)}
+        onChanged={() => {
+          if (!openId) return;
+          void refreshUnread(openId);
+          // Tín hiệu realtime không gửi cho chính người nhắn, nên màn "Trao đổi công việc" phải được báo tại chỗ.
+          invalidateChatFeed(openId, selected.kind === 'work-item' ? [selected.id] : []);
+        }}
       />
 
       <ProjectForm

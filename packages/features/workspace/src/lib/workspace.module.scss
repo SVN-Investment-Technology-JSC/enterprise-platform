@@ -997,6 +997,401 @@
 }
 
 .tab,
+/* Dãy tab và nút "Trao đổi công việc" đứng cùng hàng nhưng tách khỏi nhau. */
+.tabRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.tabSide,
+.tabSideActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  color: #374151;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.tabSideActive {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ep-accent), var(--ep-accent-strong));
+  color: #1a1a1a;
+}
+
+/*
+ * Trao đổi công việc: MỘT khối hai cột. Trái là danh sách công việc theo trang, phải là trao đổi của công việc đang chọn.
+ * Mỗi cột tự cuộn, nên không có thẻ nào chồng thẻ.
+ */
+.chatFeed {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  height: calc(100vh - 230px);
+  min-height: 460px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  overflow: hidden;
+
+  @media (max-width: 900px) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(220px, 40%) minmax(0, 1fr);
+  }
+}
+
+.chatFeedList {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--ep-border);
+
+  @media (max-width: 900px) {
+    border-right: 0;
+    border-bottom: 1px solid var(--ep-border);
+  }
+}
+
+/* Ô tìm kiếm và bộ lọc nằm trên danh sách công việc. */
+.chatFeedTools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ep-border);
+
+  .searchField {
+    flex: none;
+  }
+
+  // Ô tìm theo kiểu shadcn `Input`: cao 36px, bo 6px, viền mảnh, vòng sáng khi focus.
+  input[type='search'] {
+    height: 36px;
+    padding: 0 30px 0 32px;
+    border: 1px solid var(--ep-border-strong);
+    border-radius: 6px;
+    outline: 0;
+    background: var(--ep-surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+    color: var(--ep-text);
+    font: inherit;
+    font-size: 13.5px;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+    appearance: none;
+
+    &::placeholder {
+      color: var(--ep-text-muted);
+    }
+
+    &:focus-visible {
+      border-color: var(--ep-accent-strong);
+      box-shadow: 0 0 0 3px rgb(217 171 0 / 25%);
+    }
+
+    &::-webkit-search-cancel-button {
+      display: none;
+    }
+  }
+
+  // Ô tích theo kiểu shadcn `Checkbox`: 16px, bo 4px, đầy màu nhấn khi tích.
+  .checkbox {
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  input[type='checkbox'] {
+    position: relative;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1px solid var(--ep-border-strong);
+    border-radius: 4px;
+    background: var(--ep-surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+    appearance: none;
+
+    &:checked {
+      border-color: var(--ep-accent-strong);
+      background: var(--ep-accent-strong);
+
+      &::after {
+        position: absolute;
+        top: 1px;
+        left: 4.5px;
+        width: 4px;
+        height: 8px;
+        border: solid #1a1a1a;
+        border-width: 0 2px 2px 0;
+        content: '';
+        transform: rotate(45deg);
+      }
+    }
+
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgb(217 171 0 / 25%);
+    }
+  }
+}
+
+.chatFeedClear {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+}
+
+/* Chỗ khớp từ khoá tìm kiếm. */
+.chatFeedMark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgb(255 201 10 / 45%);
+  color: inherit;
+}
+
+/* "Xem tin cũ hơn" nằm đầu danh sách tin, vì tin cũ hơn nằm phía trên. */
+.chatFeedOlder {
+  align-self: center;
+  padding: 5px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-link);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+  }
+
+  &:disabled {
+    color: var(--ep-text-muted);
+    cursor: default;
+  }
+}
+
+.chatFeedRows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.chatFeedRow,
+.chatFeedRowActive {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 14px 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ep-line);
+  border-left: 3px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.chatFeedRowActive {
+  border-left-color: var(--ep-accent-strong);
+  background: var(--ep-surface-soft);
+}
+
+.chatFeedRowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chatFeedRowTitle {
+  overflow: hidden;
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatFeedRowPreview,
+.chatFeedRowEmpty {
+  overflow: hidden;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatFeedRowEmpty {
+  color: var(--ep-text-muted);
+  font-style: italic;
+}
+
+.chatFeedWhen {
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chatFeedFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+
+  > :first-child {
+    width: 112px;
+  }
+
+  nav {
+    margin-top: 0;
+  }
+}
+
+.chatFeedThread {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+
+  > .muted {
+    padding: 16px;
+  }
+}
+
+.chatFeedThreadHead {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+}
+
+.chatFeedPath {
+  margin: 0 0 2px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+/* Tên công việc là liên kết mở hộp chi tiết; không cần chữ "Mở công việc" riêng. */
+.chatFeedLink {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+
+  svg {
+    flex: none;
+    color: var(--ep-text-muted);
+  }
+
+  &:hover {
+    color: var(--ep-link);
+
+    svg {
+      color: var(--ep-link);
+    }
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.chatFeedLinkText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatFeedMessages {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.chatFeedMessage {
+  min-width: 0;
+}
+
+.chatFeedReply {
+  margin: 8px 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ep-line);
+}
+
+.chatFeedDeleted {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
 .tabActive {
   flex: none;
   min-height: 34px;

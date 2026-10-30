@@ -17,6 +17,9 @@ import type {
   ChatEntityType,
   ChatMessage,
   ChatThread,
+  ProjectChatFeedPage,
+  ProjectChatFeedQuery,
+  ProjectChatThread,
   CompleteUploadRequest,
   Contract,
   CostEntry,
@@ -481,6 +484,32 @@ export const editChatMessage = (id: string, body: UpdateChatMessageRequest) =>
 
 export const deleteChatMessage = (id: string) =>
   request<ChatMessage>(`/chat/messages/${id}`, { method: 'DELETE' });
+
+/**
+ * Một trang danh sách công việc của dự án kèm tóm tắt trao đổi, chỉ để đọc: không đánh dấu đã đọc.
+ * `page` bắt đầu từ 1; `pageSize` là một trong `CHAT_FEED_PAGE_SIZES`; `query` là từ khoá và bộ lọc.
+ */
+export const loadProjectChatFeed = (
+  projectId: string,
+  page: number,
+  pageSize: number,
+  query: ProjectChatFeedQuery = {},
+) => {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (query.search) params.set('q', query.search);
+  if (query.onlyWithChat) params.set('hasChat', '1');
+  return request<ProjectChatFeedPage>(`/projects/${projectId}/chat-feed?${params}`, { cache: 'no-store' });
+};
+
+/**
+ * Trao đổi của một công việc, chỉ để đọc: không đánh dấu đã đọc. Không có `before` thì là các tin mới nhất;
+ * có `before` (id tin cũ nhất đang có) thì là trang liền trước nó.
+ */
+export const loadProjectChatThread = (projectId: string, workItemId: string, before?: string) =>
+  request<ProjectChatThread>(
+    `/projects/${projectId}/chat-feed/${workItemId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    { cache: 'no-store' },
+  );
 
 /** Số tin chưa đọc của cả cây, một lời gọi cho mọi node. */
 export const loadUnread = (projectId: string) =>
