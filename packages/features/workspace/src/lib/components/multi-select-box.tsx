@@ -39,7 +39,7 @@ export interface MultiSelectBoxProps {
 }
 
 /** Chừa chỗ cho chip "+n" khi đo số chip vừa ô (px). */
-const MORE_WIDTH = 44;
+const MORE_WIDTH = 40;
 /** Danh sách thấp hơn mức này mà phía trên rộng hơn thì lật lên trên. */
 const FLIP_BELOW = 200;
 
@@ -69,7 +69,14 @@ export function MultiSelectBox({
   /** Số chip hiện trong ô; phần còn lại gộp thành "+n". Rỗng là hiện đủ. */
   const [limit, setLimit] = useState<number>();
   const [measuredKey, setMeasuredKey] = useState('');
-  const [placement, setPlacement] = useState<{ up: boolean; maxHeight: number }>({ up: false, maxHeight: 320 });
+  /** Vị trí danh sách theo cửa sổ (`position: fixed`), nên không bị khung cuộn hay hộp thoại nhỏ cắt. */
+  const [placement, setPlacement] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    up: boolean;
+    maxHeight: number;
+  }>({ left: 0, top: 0, width: 0, up: false, maxHeight: 320 });
   const measureKey = `${chips.map((chip) => `${chip.id}:${chip.label}`).join(',')}|${width}`;
   const measuring = measuredKey !== measureKey;
 
@@ -93,6 +100,13 @@ export function MultiSelectBox({
       setMeasuredKey(measureKey);
       return;
     }
+    // Vừa khít thì hiện hết, không gộp "+n". So bằng scrollWidth (có phần lẻ) với dung sai 1px: offsetLeft, offsetWidth và
+    // clientWidth đều làm tròn nên cộng lại có thể lệch 1px và chip cuối bị gộp oan dù còn chỗ.
+    if (list.scrollWidth <= list.clientWidth + 1) {
+      setLimit(undefined);
+      setMeasuredKey(measureKey);
+      return;
+    }
     const room = list.clientWidth;
     let fit = 0;
     for (let index = 0; index < items.length; index += 1) {
@@ -105,16 +119,32 @@ export function MultiSelectBox({
     setMeasuredKey(measureKey);
   }, [measuring, measureKey]);
 
-  // Chỗ trống tính theo khung cuộn của hộp thoại (không phải cả cửa sổ), vì danh sách nổi trong đó.
+  // Danh sách định vị theo cửa sổ, bám theo ô khi cuộn hay đổi cỡ. Dùng `fixed` thay vì `absolute` trong khung cuộn:
+  // hộp thoại nhỏ (ví dụ "Gắn nhãn dự án") có vùng cuộn thấp hơn danh sách, nên `absolute` bị cắt hoặc lật vào chỗ không có.
   useLayoutEffect(() => {
-    if (!open || !control.current) return;
-    const rect = control.current.getBoundingClientRect();
-    const scroller = control.current.closest(`.${styles.dialogScroll}`);
-    const bounds = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
-    const below = bounds.bottom - rect.bottom - 12;
-    const above = rect.top - bounds.top - 12;
-    const up = below < FLIP_BELOW && above > below;
-    setPlacement({ up, maxHeight: Math.max(140, Math.min(320, up ? above : below)) });
+    if (!open) return undefined;
+    const place = () => {
+      const element = control.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - 12;
+      const above = rect.top - 12;
+      const up = below < FLIP_BELOW && above > below;
+      setPlacement({
+        left: rect.left,
+        top: up ? rect.top - 4 : rect.bottom + 4,
+        width: rect.width,
+        up,
+        maxHeight: Math.max(140, Math.min(320, up ? above : below)),
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
   }, [open, chips.length, width]);
 
   // Bấm ra ngoài thì đóng danh sách.
@@ -219,8 +249,17 @@ export function MultiSelectBox({
 
       {open ? (
         <div
-          className={`${styles.multiDropdown} ${placement.up ? styles.multiDropdownUp : ''}`}
-          style={{ maxHeight: placement.maxHeight }}
+          className={styles.multiDropdown}
+          style={{
+            position: 'fixed',
+            left: placement.left,
+            top: placement.top,
+            width: placement.width,
+            right: 'auto',
+            bottom: 'auto',
+            maxHeight: placement.maxHeight,
+            transform: placement.up ? 'translateY(-100%)' : undefined,
+          }}
         >
           {hidden > 0 ? (
             <div className={styles.groupPickerSelected}>
