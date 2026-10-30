@@ -157,6 +157,61 @@ export class ChildIncompleteError extends WorkspaceError {
   }
 }
 
+/** Chưa xác nhận đủ điều kiện hoàn thành mà công việc đặt ra. */
+export class CompletionConditionsUnmetError extends WorkspaceError {
+  constructor(required: number, confirmed: number, total: number) {
+    super(
+      'COMPLETION_CONDITIONS_UNMET',
+      required >= total
+        ? `Cần xác nhận đủ ${total} điều kiện hoàn thành (mới xác nhận ${confirmed}).`
+        : `Cần xác nhận ít nhất ${required}/${total} điều kiện hoàn thành (mới xác nhận ${confirmed}).`,
+      409,
+    );
+    Object.setPrototypeOf(this, CompletionConditionsUnmetError.prototype);
+  }
+}
+
+/**
+ * Tạo việc con dưới một công việc đã hoàn thành mà người tạo chưa chọn mở lại công việc cha.
+ * Giao diện bắt mã này để hỏi người dùng; gửi lại với `reopenParent: true` để mở cha rồi tạo.
+ */
+export class ParentItemDoneError extends WorkspaceError {
+  constructor(code: string) {
+    super(
+      'PARENT_ITEM_DONE',
+      `Công việc ${code} đã hoàn thành. Hãy mở lại công việc đó về "Đang làm" để thêm việc con, hoặc chọn công việc cha khác.`,
+      409,
+    );
+    Object.setPrototypeOf(this, ParentItemDoneError.prototype);
+  }
+}
+
+/** Dự án đã lưu trữ chỉ xem: mọi thao tác ghi bị chặn cho tới khi mở lưu trữ. */
+export class ProjectArchivedError extends WorkspaceError {
+  constructor(code: string) {
+    super(
+      'PROJECT_ARCHIVED',
+      `Dự án ${code} đã lưu trữ nên chỉ xem được. Hãy mở lưu trữ dự án trước khi chỉnh sửa.`,
+      409,
+    );
+    Object.setPrototypeOf(this, ProjectArchivedError.prototype);
+  }
+}
+
+/** Công việc đã hoàn thành và người tạo việc không cho hoàn tác (hoặc chỉ quản lý được hoàn tác). */
+export class ReopenNotAllowedError extends WorkspaceError {
+  constructor(code: string, policy: 'manager' | 'none') {
+    super(
+      'REOPEN_NOT_ALLOWED',
+      policy === 'none'
+        ? `Công việc ${code} không cho hoàn tác sau khi hoàn thành. Chủ nhiệm dự án có thể huỷ hiệu lực rồi lập công việc điều chỉnh.`
+        : `Công việc ${code} chỉ quản lý dự án được hoàn tác sau khi hoàn thành.`,
+      409,
+    );
+    Object.setPrototypeOf(this, ReopenNotAllowedError.prototype);
+  }
+}
+
 /**
  * Không thể đóng hồ sơ dự án khi còn công việc chưa hoàn thành.
  *

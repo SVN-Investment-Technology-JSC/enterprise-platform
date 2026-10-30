@@ -70,6 +70,7 @@ import type {
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
   WorkItem,
+  WorkItemCompletionEvidence,
   WorkItemCost,
   WorkItemDependency,
   WorkItemStatus,
@@ -129,6 +130,8 @@ export interface WorkItemProgressRow {
   /** Tiến độ nhập tay; `null` khi dùng giá trị tự tính. */
   readonly manualPercent?: number | null;
   readonly estimateHours: number | null;
+  /** Có điều kiện hoàn thành bắt buộc: không được tự hoàn thành khi việc con xong. */
+  readonly requiresConfirmation?: boolean;
 }
 
 
@@ -448,6 +451,8 @@ export interface WorkspaceStore {
       note: string | undefined,
       /** Ngày ghi vào `actual_start`/`actual_end`, theo múi giờ tenant. */
       today: string,
+      /** Điều kiện hoàn thành đã xác nhận, ghi vào dòng nhật ký của lần hoàn thành này. */
+      completionEvidence?: WorkItemCompletionEvidence,
     ): Promise<WorkItem>;
     /**
      * Huỷ hiệu lực: chuyển `cancelled` kèm dấu huỷ, ghi nhật ký và phát

@@ -724,6 +724,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/workspace/0030-workspace-standalone-inline-edit.sql',
     },
     { version: '0031-crm-customer-link', path: 'tenant/workspace/0031-crm-customer-link.sql' },
+    {
+      version: '0032-workspace-completion-conditions',
+      path: 'tenant/workspace/0032-workspace-completion-conditions.sql',
+    },
+    { version: '0033-workspace-reopen-policy', path: 'tenant/workspace/0033-workspace-reopen-policy.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

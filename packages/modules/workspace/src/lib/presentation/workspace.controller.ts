@@ -62,6 +62,7 @@ import type {
   UpdateWorkItemRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
+import { createProjectWithInitialTasks } from '../application/project-initial-tasks.js';
 import { ProjectService } from '../application/project.service.js';
 import { ProjectCodeService } from '../application/project-code.service.js';
 import { WorkspaceLabelService } from '../application/workspace-label.service.js';
@@ -308,7 +309,9 @@ export class WorkspaceController {
   @Post('projects')
   @HttpCode(201)
   createProject(@Req() request: WorkspaceRequest, @Body() body: CreateProjectRequest) {
-    return this.execute(() => this.projects.create(this.actor(request), body ?? {}));
+    return this.execute(() =>
+      createProjectWithInitialTasks(this.projects, this.workItems, this.actor(request), body ?? ({} as CreateProjectRequest)),
+    );
   }
 
   /**
