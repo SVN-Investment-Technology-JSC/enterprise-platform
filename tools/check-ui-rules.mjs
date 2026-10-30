@@ -26,7 +26,6 @@ const BASELINE = {
   'packages/features/inventory/src/lib/components/inventory-dashboard.tsx': { select: 1 },
   'packages/features/inventory/src/lib/components/item-catalog.tsx': { select: 5 },
   'packages/features/inventory/src/lib/components/ledger-table.tsx': { select: 2 },
-  'packages/features/inventory/src/lib/components/material-form.tsx': { select: 1 },
   'packages/features/inventory/src/lib/components/serial-panel.tsx': { select: 2 },
   'packages/features/inventory/src/lib/components/stock-table.tsx': { select: 1 },
   'packages/features/inventory/src/lib/components/transaction-hub.tsx': { select: 3 },
