@@ -423,6 +423,13 @@ export function ChatDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Ngăn kéo mở thì ẩn nút chat nổi của khung, vì nút nằm đúng chỗ nút Gửi và che mất nó.
+  useEffect(() => {
+    if (!open) return undefined;
+    document.body.setAttribute('data-side-drawer', 'open');
+    return () => document.body.removeAttribute('data-side-drawer');
+  }, [open]);
+
   const suggestions = mention ? suggestMembers(members, mention.term, directory.nameOf) : [];
 
   // Đổi từ khoá thì chọn lại từ đầu danh sách.
@@ -594,6 +601,9 @@ export function ChatDrawer({
   const minute = Math.floor(Date.now() / 60_000);
 
   return (
+    <>
+    {/* Lớp mờ phủ màn bên dưới: chặn bấm nhầm khi ngăn kéo chưa thu, và bấm vào đó thì thu ngăn kéo lại. */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside
       className={styles.drawer}
       role="complementary"
@@ -872,6 +882,7 @@ export function ChatDrawer({
         }}
       />
     </aside>
+    </>
   );
 }
 

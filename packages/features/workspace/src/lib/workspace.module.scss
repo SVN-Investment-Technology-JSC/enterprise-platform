@@ -2785,6 +2785,29 @@
   }
 }
 
+/* Lớp mờ dưới ngăn kéo (z-index 65), trên hộp thoại thường (60) nên bấm ra ngoài luôn tới được lớp này. */
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 64;
+  background: rgb(15 23 42 / 32%);
+  animation: drawerBackdropIn 180ms ease;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes drawerBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes drawerSlideIn {
   from {
     opacity: 0.6;
