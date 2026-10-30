@@ -833,6 +833,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+/* Mục cài đặt `bare`: nội dung tự dựng thẻ, chỉ cần co đúng cột. */
+.sectionBare {
+  min-width: 0;
+}
+
 .sectionHead {
   margin-bottom: 1rem;
 }

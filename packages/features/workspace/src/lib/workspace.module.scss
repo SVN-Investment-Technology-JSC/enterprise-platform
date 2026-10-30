@@ -7473,127 +7473,15 @@ button.kpiCard {
 }
 
 /* Cấu hình chung: nhóm dòng cài đặt, mỗi dòng nhãn bên trái và điều khiển bên phải. */
-.settingGroup {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--ep-border-strong);
-  border-radius: var(--ep-radius);
-  background: var(--ep-surface);
 
-  h4 {
-    margin: 0;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--ep-border);
-    border-radius: var(--ep-radius) var(--ep-radius) 0 0;
-    background: #f1f3f6;
-    font-size: 14px;
-    font-weight: 700;
-  }
-}
 
-.settingRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
-  align-items: center;
-  gap: 8px 24px;
-  padding: 14px 16px;
 
-  & + & {
-    border-top: 1px solid var(--ep-border);
-  }
 
-  @media (max-width: 720px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.settingText {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-
-  .fieldHint {
-    margin: 0;
-  }
-}
-
-.settingControl {
-  display: flex;
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-.settingRadios {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
 
 /* Nút gạt Bật / Tắt. */
-.switchTrack {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 78px;
-  height: 28px;
-  padding: 0 10px 0 32px;
-  border: 1px solid var(--ep-border-strong);
-  border-radius: 999px;
-  background: #e5e8ed;
-  color: var(--ep-text-sub);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
 
-  &:focus-visible {
-    @include focus-ring;
-  }
 
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-}
 
-.switchThumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(15 23 42 / 30%);
-  transition: transform 0.15s ease;
-}
-
-.switchOn {
-  border-color: var(--ep-accent-strong);
-  background: var(--ep-accent);
-  color: #1a1a1a;
-
-  .switchThumb {
-    transform: translateX(0);
-  }
-}
-
-.switchTrack.switchOn {
-  padding: 0 32px 0 10px;
-
-  .switchThumb {
-    left: auto;
-    right: 3px;
-  }
-}
 
 /* Danh sách tên công việc tạo sẵn (mẫu của tenant và danh sách lúc tạo dự án). */
 .taskTitleList {
@@ -7665,14 +7553,216 @@ button.kpiCard {
 }
 
 /* Dòng cài đặt xếp dọc: nhãn ở trên, điều khiển rộng đầy bên dưới (danh sách dài không nén vào cột phải). */
-.settingRowStack {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
+
+/* Cấu hình chung (GeneralSettings): thẻ theo bộ khung shadcn/ui. Mỗi chủ đề một thẻ, trong thẻ là các dòng ngăn bằng vạch mảnh. */
+.gsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
-.settingActions {
+.gsNote {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 13px;
+}
+
+.gsCard {
+  overflow: hidden;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 12px;
+  background: var(--ep-surface);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 6%);
+}
+
+.gsHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ep-border);
+
+  h3 {
+    margin: 0;
+    color: var(--ep-text);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 0;
+    color: var(--ep-text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.gsBody {
+  display: flex;
+  flex-direction: column;
+
+  > * + * {
+    border-top: 1px solid var(--ep-border);
+  }
+}
+
+.gsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 32px;
+  padding: 16px 20px;
+}
+
+.gsRowStack {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.gsRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  strong {
+    color: var(--ep-text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--ep-text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.gsRowControl {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+/* Nút gạt kiểu shadcn: đường ray 36x20, nút tròn trắng. */
+.gsSwitchWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gsSwitch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.gsSwitchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 30%);
+  transition: transform 0.15s ease;
+}
+
+.gsSwitchOn {
+  background: var(--ep-accent-strong);
+
+  .gsSwitchThumb {
+    transform: translateX(16px);
+  }
+}
+
+.gsSwitchText {
+  min-width: 24px;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Nhóm nút chọn: mỗi lựa chọn có tên và một dòng hệ quả. */
+.gsRadios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.gsRadio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+
+  input {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: var(--ep-accent-strong);
+    cursor: pointer;
+  }
+}
+
+.gsRadioText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  strong {
+    color: var(--ep-text);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--ep-text-muted);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+}
+
+.gsFoot {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+}
+
+/* Ô nhập trong danh sách tên công việc: cùng bộ khung ô nhập shadcn như `.uiInput`, kể cả ngoài hộp thoại. */
+.taskTitleRow input:not([type='checkbox']):not([type='radio']) {
+  @include input-base;
+
+  height: 36px;
+  background: var(--ep-surface);
 }

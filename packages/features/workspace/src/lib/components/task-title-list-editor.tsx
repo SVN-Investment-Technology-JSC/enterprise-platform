@@ -112,7 +112,7 @@ export function TaskTitleListEditor({
         </ol>
       ) : null}
       {disabled ? null : (
-        <button type="button" className={styles.completionAdd} disabled={atLimit} onClick={() => add()}>
+        <button type="button" className={styles.buttonSmall} disabled={atLimit} onClick={() => add()}>
           <Plus size={14} /> Thêm công việc
           {atLimit ? ` (tối đa ${max})` : ''}
         </button>

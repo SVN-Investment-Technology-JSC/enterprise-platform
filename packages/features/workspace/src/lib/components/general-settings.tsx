@@ -12,20 +12,49 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { TaskTitleListEditor } from './task-title-list-editor';
 
-/** Một dòng cài đặt: nhãn và mô tả bên trái, điều khiển bên phải. */
-function SettingRow({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
+/*
+ * Cấu hình chung của Workspace, dựng theo bộ khung shadcn/ui (Card, Switch, Radio Group, Button). Workspace không chạy
+ * Tailwind nên các khối này viết bằng SCSS cùng ngôn ngữ thiết kế, như `form-controls.tsx`.
+ */
+
+/** Một thẻ cấu hình: đầu thẻ (tên và mô tả), thân là các dòng ngăn bằng vạch mảnh, chân thẻ tuỳ chọn. */
+function SettingsCard({
+  title,
+  description,
+  footer,
+  children,
+}: {
+  title: string;
+  description: string;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div className={styles.settingRow}>
-      <div className={styles.settingText}>
+    <section className={styles.gsCard} aria-label={title}>
+      <header className={styles.gsHead}>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </header>
+      <div className={styles.gsBody}>{children}</div>
+      {footer ? <footer className={styles.gsFoot}>{footer}</footer> : null}
+    </section>
+  );
+}
+
+/** Dòng cấu hình: nhãn và mô tả bên trái, nút gạt bên phải. */
+function SettingRow({ label, hint, control }: { label: string; hint: string; control: ReactNode }) {
+  return (
+    <div className={styles.gsRow}>
+      <div className={styles.gsRowText}>
         <strong>{label}</strong>
-        <span className={styles.fieldHint}>{hint}</span>
+        <span>{hint}</span>
       </div>
-      <div className={styles.settingControl}>{children}</div>
+      <div className={styles.gsRowControl}>{control}</div>
     </div>
   );
 }
 
-/** Nút gạt Bật / Tắt cho cài đặt có hai khả năng và nghĩa "có hoặc không". */
+/** Nút gạt Bật / Tắt cho cài đặt hai khả năng mang nghĩa "có hoặc không". */
 function Switch({
   checked,
   onChange,
@@ -38,23 +67,31 @@ function Switch({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      className={`${styles.switchTrack} ${checked ? styles.switchOn : ''}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className={styles.switchThumb} />
-      <span className={styles.switchText}>{checked ? 'Bật' : 'Tắt'}</span>
-    </button>
+    <span className={styles.gsSwitchWrap}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        className={`${styles.gsSwitch} ${checked ? styles.gsSwitchOn : ''}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className={styles.gsSwitchThumb} />
+      </button>
+      <span className={styles.gsSwitchText}>{checked ? 'Bật' : 'Tắt'}</span>
+    </span>
   );
 }
 
-/** Nhóm nút chọn một trong nhiều khả năng, mỗi khả năng có nhãn riêng. */
-function RadioGroup<T extends string>({
+interface ChoiceOption<T extends string> {
+  readonly value: T;
+  readonly label: string;
+  readonly description: string;
+}
+
+/** Chọn một trong nhiều khả năng; mỗi khả năng có tên và một dòng giải thích hệ quả. */
+function RadioChoices<T extends string>({
   name,
   value,
   options,
@@ -63,41 +100,55 @@ function RadioGroup<T extends string>({
 }: {
   name: string;
   value: T;
-  options: readonly { readonly value: T; readonly label: string }[];
+  options: readonly ChoiceOption<T>[];
   onChange: (next: T) => void;
   disabled?: boolean;
 }) {
   return (
-    <fieldset className={styles.settingRadios} disabled={disabled}>
+    <fieldset className={styles.gsRadios} disabled={disabled}>
       {options.map((option) => (
-        <label key={option.value} className={styles.checkbox}>
-          <input
-            type="radio"
-            name={name}
-            checked={value === option.value}
-            onChange={() => onChange(option.value)}
-          />
-          {option.label}
+        <label key={option.value} className={styles.gsRadio}>
+          <input type="radio" name={name} checked={value === option.value} onChange={() => onChange(option.value)} />
+          <span className={styles.gsRadioText}>
+            <strong>{option.label}</strong>
+            <span>{option.description}</span>
+          </span>
         </label>
       ))}
     </fieldset>
   );
 }
 
-const REOPEN_PROJECT_OPTIONS: readonly { value: ReopenProjectPolicy; label: string }[] = [
-  { value: 'reactivate', label: 'Đưa dự án về Đang chạy' },
-  { value: 'keep', label: 'Giữ nguyên trạng thái Hoàn thành' },
+const REOPEN_PROJECT_OPTIONS: readonly ChoiceOption<ReopenProjectPolicy>[] = [
+  {
+    value: 'reactivate',
+    label: 'Đưa dự án về Đang chạy',
+    description: 'Dự án rời Lưu trữ và quay lại trạng thái Đang chạy để làm tiếp.',
+  },
+  {
+    value: 'keep',
+    label: 'Giữ nguyên trạng thái Hoàn thành',
+    description: 'Chỉ bỏ dấu lưu trữ để chỉnh sửa; dự án vẫn ở trạng thái Hoàn thành.',
+  },
 ];
 
-const CHAT_ON_ARCHIVED_OPTIONS: readonly { value: ChatOnArchivedPolicy; label: string }[] = [
-  { value: 'block', label: 'Chặn, chỉ đọc lại tin cũ' },
-  { value: 'allow', label: 'Vẫn cho nhắn tin' },
+const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = [
+  {
+    value: 'block',
+    label: 'Chặn nhắn tin',
+    description: 'Không ai nhắn, sửa hay thu hồi tin được; chỉ đọc lại tin cũ.',
+  },
+  {
+    value: 'allow',
+    label: 'Vẫn cho nhắn tin',
+    description: 'Thành viên tiếp tục trao đổi dù dự án đã lưu trữ.',
+  },
 ];
 
 /**
- * Cấu hình chung của Workspace: những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant. Mỗi thay đổi lưu ngay,
- * lưu hỏng thì trả về lựa chọn cũ. Dự án đã lưu trữ luôn chỉ xem; các lựa chọn dưới đây chỉ quyết định phần còn lại của
- * vòng đời lưu trữ.
+ * Cấu hình chung: những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant, chia thẻ theo chủ đề. Mỗi thay đổi lưu
+ * ngay (riêng danh sách công việc mẫu lưu bằng nút ở chân thẻ); lưu hỏng thì trả về lựa chọn cũ. Dự án đã lưu trữ luôn
+ * chỉ xem; các lựa chọn ở đây chỉ quyết định phần còn lại của vòng đời lưu trữ.
  */
 export function GeneralSettings() {
   const [settings, setSettings] = useState<Settings>();
@@ -155,60 +206,27 @@ export function GeneralSettings() {
   const templateDirty = JSON.stringify(cleanedTemplate) !== JSON.stringify(settings.defaultTaskTitles);
 
   return (
-    <div className={styles.roleSettings}>
-      <p className={styles.muted}>
-        Cấu hình áp dụng cho mọi dự án của tenant. Dự án đã lưu trữ chỉ xem; muốn chỉnh sửa phải mở lưu trữ trước.
-        {settings.canEdit ? '' : ' Chỉ quản trị viên được đổi cấu hình này.'}
-      </p>
+    <div className={styles.gsStack}>
+      {settings.canEdit ? null : (
+        <p className={styles.gsNote}>Chỉ quản trị viên được đổi cấu hình này; bạn đang xem ở chế độ chỉ đọc.</p>
+      )}
+      {error ? (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className={styles.notice}>
+          {notice}
+        </p>
+      ) : null}
 
-      <section className={styles.settingGroup} aria-label="Tạo dự án">
-        <h4>Tạo dự án</h4>
-
-        <SettingRow
-          label="Tự tạo sẵn công việc khi tạo dự án"
-          hint="Bật thì form tạo dự án điền sẵn danh sách công việc mẫu bên dưới và tạo chúng cùng dự án. Người tạo vẫn thêm hoặc bớt được cho từng dự án. Tắt thì dự án mới trống."
-        >
-          <Switch
-            label="Tự tạo sẵn công việc"
-            checked={settings.defaultTasksEnabled}
-            disabled={locked}
-            onChange={(defaultTasksEnabled) =>
-              void save(
-                { defaultTasksEnabled },
-                defaultTasksEnabled
-                  ? 'Đã bật: dự án mới tự tạo sẵn công việc theo danh sách mẫu.'
-                  : 'Đã tắt: dự án mới không tự tạo sẵn công việc.',
-              )
-            }
-          />
-        </SettingRow>
-
-        <div className={`${styles.settingRow} ${styles.settingRowStack}`}>
-          <div className={styles.settingText}>
-            <strong>Danh sách công việc mẫu</strong>
-            <span className={styles.fieldHint}>
-              Mỗi dòng là một công việc cấp gốc, tạo theo đúng thứ tự này, chưa giao ai. Tối đa 30 công việc.
-            </span>
-          </div>
-          <TaskTitleListEditor
-            idPrefix="Công việc mẫu"
-            titles={templateTitles}
-            disabled={locked}
-            emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
-            onChange={setTemplateTitles}
-          />
-          {settings.canEdit ? (
-            <div className={styles.settingActions}>
-              <button
-                type="button"
-                className={styles.buttonPrimary}
-                disabled={locked || !templateDirty}
-                onClick={() =>
-                  void save({ defaultTaskTitles: cleanedTemplate }, 'Đã lưu danh sách công việc mẫu.')
-                }
-              >
-                Lưu danh sách
-              </button>
+      <SettingsCard
+        title="Tạo dự án"
+        description="Công việc được tạo sẵn khi tạo dự án mới. Người tạo vẫn thêm hoặc bớt được cho từng dự án."
+        footer={
+          settings.canEdit ? (
+            <>
               <button
                 type="button"
                 className={styles.buttonGhost}
@@ -217,38 +235,81 @@ export function GeneralSettings() {
               >
                 Dùng mẫu gợi ý
               </button>
-            </div>
-          ) : null}
+              <button
+                type="button"
+                className={styles.buttonPrimary}
+                disabled={locked || !templateDirty}
+                onClick={() => void save({ defaultTaskTitles: cleanedTemplate }, 'Đã lưu danh sách công việc mẫu.')}
+              >
+                Lưu danh sách
+              </button>
+            </>
+          ) : undefined
+        }
+      >
+        <SettingRow
+          label="Tự tạo sẵn công việc khi tạo dự án"
+          hint="Bật thì form tạo dự án điền sẵn danh sách mẫu bên dưới và tạo chúng cùng dự án. Tắt thì dự án mới trống."
+          control={
+            <Switch
+              label="Tự tạo sẵn công việc"
+              checked={settings.defaultTasksEnabled}
+              disabled={locked}
+              onChange={(defaultTasksEnabled) =>
+                void save(
+                  { defaultTasksEnabled },
+                  defaultTasksEnabled
+                    ? 'Đã bật: dự án mới tự tạo sẵn công việc theo danh sách mẫu.'
+                    : 'Đã tắt: dự án mới không tự tạo sẵn công việc.',
+                )
+              }
+            />
+          }
+        />
+        <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+          <div className={styles.gsRowText}>
+            <strong>Danh sách công việc mẫu</strong>
+            <span>Mỗi dòng là một công việc cấp gốc, tạo theo đúng thứ tự này, chưa giao ai. Tối đa 30 công việc.</span>
+          </div>
+          <TaskTitleListEditor
+            idPrefix="Công việc mẫu"
+            titles={templateTitles}
+            disabled={locked}
+            emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
+            onChange={setTemplateTitles}
+          />
         </div>
-      </section>
+      </SettingsCard>
 
-      <section className={styles.settingGroup} aria-label="Lưu trữ dự án">
-        <h4>Lưu trữ dự án</h4>
-
+      <SettingsCard
+        title="Lưu trữ dự án"
+        description="Dự án đã lưu trữ chỉ xem; muốn chỉnh sửa phải mở lưu trữ trước. Các lựa chọn dưới đây quyết định phần còn lại của vòng đời lưu trữ."
+      >
         <SettingRow
           label="Tự đóng hồ sơ khi mọi công việc đã xong"
           hint="Dự án có mọi công việc hoàn thành hoặc đã huỷ tự vào Lưu trữ. Đóng hồ sơ thủ công luôn dùng được, kể cả khi còn việc chưa xong."
-        >
-          <Switch
-            label="Tự đóng hồ sơ"
-            checked={settings.autoArchive}
-            disabled={locked}
-            onChange={(autoArchive) =>
-              void save(
-                { autoArchive },
-                autoArchive
-                  ? 'Đã bật: dự án tự đóng hồ sơ khi mọi công việc đã hoàn thành hoặc đã huỷ.'
-                  : 'Đã tắt: dự án chỉ đóng hồ sơ khi có người bấm "Đóng hồ sơ".',
-              )
-            }
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Khi mở lưu trữ dự án đã Hoàn thành"
-          hint="Dự án đã Hoàn thành luôn nằm trong Lưu trữ. Mở lại để chỉnh sửa thì chọn đưa dự án về Đang chạy, hay chỉ bỏ dấu lưu trữ và giữ trạng thái Hoàn thành."
-        >
-          <RadioGroup
+          control={
+            <Switch
+              label="Tự đóng hồ sơ"
+              checked={settings.autoArchive}
+              disabled={locked}
+              onChange={(autoArchive) =>
+                void save(
+                  { autoArchive },
+                  autoArchive
+                    ? 'Đã bật: dự án tự đóng hồ sơ khi mọi công việc đã hoàn thành hoặc đã huỷ.'
+                    : 'Đã tắt: dự án chỉ đóng hồ sơ khi có người bấm "Đóng hồ sơ".',
+                )
+              }
+            />
+          }
+        />
+        <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+          <div className={styles.gsRowText}>
+            <strong>Khi mở lưu trữ dự án đã Hoàn thành</strong>
+            <span>Dự án đã Hoàn thành luôn nằm trong Lưu trữ. Chọn điều gì xảy ra khi mở lại để chỉnh sửa.</span>
+          </div>
+          <RadioChoices
             name="reopen-project"
             value={settings.reopenProject}
             options={REOPEN_PROJECT_OPTIONS}
@@ -262,13 +323,13 @@ export function GeneralSettings() {
               )
             }
           />
-        </SettingRow>
-
-        <SettingRow
-          label="Trao đổi trong dự án đã lưu trữ"
-          hint="Chặn thì không ai nhắn, sửa hay thu hồi tin được, chỉ đọc lại. Vẫn cho nhắn thì thành viên dự án tiếp tục trao đổi dù dự án đã lưu trữ."
-        >
-          <RadioGroup
+        </div>
+        <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+          <div className={styles.gsRowText}>
+            <strong>Trao đổi trong dự án đã lưu trữ</strong>
+            <span>Áp dụng cho trao đổi cấp dự án và cấp công việc.</span>
+          </div>
+          <RadioChoices
             name="chat-on-archived"
             value={settings.chatOnArchived}
             options={CHAT_ON_ARCHIVED_OPTIONS}
@@ -282,19 +343,8 @@ export function GeneralSettings() {
               )
             }
           />
-        </SettingRow>
-      </section>
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p role="status" className={styles.notice}>
-          {notice}
-        </p>
-      ) : null}
+        </div>
+      </SettingsCard>
     </div>
   );
 }

@@ -121,6 +121,7 @@ const SETTINGS_SECTIONS = [
   {
     id: 'general',
     label: 'Cấu hình chung',
+    bare: true,
     description:
       'Những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant: tự đóng hồ sơ, mở lưu trữ dự án đã hoàn thành, trao đổi trong dự án lưu trữ.',
     render: () => <GeneralSettings />,
