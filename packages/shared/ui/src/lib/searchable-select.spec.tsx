@@ -244,3 +244,40 @@ describe('SearchableSelect ô lọc riêng của nhóm phụ', () => {
     expect(screen.getByLabelText('Tên')).toBeTruthy();
   });
 });
+
+describe('SearchableSelect dropdownFooter', () => {
+  it('hiện chân dưới danh sách; bấm hay gõ trong chân không đóng danh sách; close() đóng danh sách', () => {
+    render(
+      <SearchableSelect
+        options={options}
+        value="a"
+        searchInDropdown
+        dropdownFooter={({ close }) => (
+          <div>
+            <input aria-label="Thêm mới" />
+            <button type="button" onClick={close}>
+              Xong
+            </button>
+          </div>
+        )}
+      />,
+    );
+    expect(screen.queryByLabelText('Thêm mới')).toBeNull();
+    fireEvent.click(screen.getByRole('textbox'));
+    const footerInput = screen.getByLabelText('Thêm mới');
+    // Bấm vào chân (mousedown + click ở pha capture) không bị coi là bấm ra ngoài.
+    fireEvent.mouseDown(footerInput);
+    fireEvent.click(footerInput);
+    fireEvent.change(footerInput, { target: { value: 'abc' } });
+    expect(screen.queryByRole('listbox')).not.toBeNull();
+    expect((screen.getByLabelText('Thêm mới') as HTMLInputElement).value).toBe('abc');
+    fireEvent.click(screen.getByText('Xong'));
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('không có dropdownFooter thì không dựng chân', () => {
+    render(<SearchableSelect options={options} value="a" searchInDropdown />);
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.queryByText('Xong')).toBeNull();
+  });
+});

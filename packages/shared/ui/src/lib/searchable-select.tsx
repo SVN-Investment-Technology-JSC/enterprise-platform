@@ -51,6 +51,12 @@ export interface SearchableSelectProps {
    * tìm cả trong nhóm. Đang chọn một mục của nhóm thì nhóm mở sẵn.
    */
   readonly extra?: SearchableSelectExtra;
+  /**
+   * Chân của danh sách xổ ra (kiểu "custom dropdown menu" của antd): vùng cố định dưới danh sách, không cuộn theo
+   * các mục, dùng cho ô "thêm mục mới". Nằm trong khung danh sách nên bấm vào đó không bị tính là bấm ra ngoài.
+   * Hàm nhận `close` để đóng danh sách sau khi xong việc (vd vừa thêm và chọn xong).
+   */
+  readonly dropdownFooter?: (controls: { readonly close: () => void }) => ReactNode;
 }
 
 /** Nhóm phụ của `SearchableSelect`. */
@@ -112,6 +118,9 @@ function dropdownPlacement(
   };
   return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room), origin, upward };
 }
+
+/** Chiều cao dành cho chân danh sách (hai hàng: ô nhập và nút), trừ vào chiều cao tối đa của danh sách. */
+const DROPDOWN_FOOTER_RESERVE = 92;
 
 /** Giá trị CSS có hiệu lực: không rỗng (môi trường không hỗ trợ thuộc tính) và không phải `none`. */
 const isSet = (value: string | undefined, unset = 'none'): boolean => Boolean(value) && value !== unset;
@@ -177,6 +186,7 @@ export function SearchableSelect({
   onChange,
   renderOption,
   extra,
+  dropdownFooter,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
@@ -675,7 +685,7 @@ export function SearchableSelect({
             role="listbox"
             ref={listRef}
             className={styles.optionsList}
-            style={{ maxHeight: placement.listMaxHeight }}
+            style={{ maxHeight: placement.listMaxHeight - (dropdownFooter ? DROPDOWN_FOOTER_RESERVE : 0) }}
           >
             {filteredOptions.length === 0 && !(extra && extraTotal > 0) ? (
               <li className={styles.emptyState}>{emptyText}</li>
@@ -718,6 +728,16 @@ export function SearchableSelect({
               <li className={styles.emptyState}>{emptyText}</li>
             ) : null}
           </ul>
+          {dropdownFooter ? (
+            <div className={styles.dropdownFooter}>
+              {dropdownFooter({
+                close: () => {
+                  setIsOpen(false);
+                  setQuery(selectedOptionLabelRef.current);
+                },
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
