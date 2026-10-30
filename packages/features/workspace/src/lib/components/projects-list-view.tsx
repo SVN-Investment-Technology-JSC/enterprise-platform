@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EMPTY_PROJECT_FILTER, matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import { initialTasksWarning } from '../project-created';
+import { toast } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -44,6 +45,16 @@ import { useDirectory } from './use-directory';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
+
+/** Lời báo thành công theo trường vừa sửa ngay trên bảng; `code` là mã dự án để biết dòng nào. */
+function savedProjectText(patch: UpdateProjectRequest, code?: string): string {
+  const subject = code ? ` dự án ${code}` : ' dự án';
+  if (patch.status !== undefined) return `Đã đổi trạng thái${subject} sang "${PROJECT_STATUS_LABELS[patch.status]}".`;
+  if (patch.projectType !== undefined) return `Đã đổi nhóm${subject}.`;
+  if (patch.customerId !== undefined) return `Đã cập nhật khách hàng${subject}.`;
+  if (patch.manualProgressPercent !== undefined) return `Đã lưu tiến độ${subject}.`;
+  return `Đã lưu thay đổi${subject}.`;
+}
 
 /** Tên nhóm cho dự án chưa gắn nhóm. */
 const UNCLASSIFIED = 'Chưa phân loại';
@@ -104,7 +115,6 @@ export function ProjectsListView({
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
   /** Dự án đang làm, hay danh sách lưu trữ (dự án đã hoàn thành tự vào lưu trữ). */
   const [scope, setScope] = useState<'active' | 'archived'>('active');
   /** Số dự án trong lưu trữ, hiện trên nút chuyển sang danh sách lưu trữ. */
@@ -236,23 +246,24 @@ export function ProjectsListView({
   const patchProject = useCallback<PatchProject>(
     (projectId, patch, fallback) => {
       setSavingProject(projectId);
-      setNotice(undefined);
+      const code = projects.find((project) => project.id === projectId)?.code;
       api
         .updateProject(projectId, patch)
         .then((updated) => {
-          setError(undefined);
           setProjects((current) =>
             current.map((project) => (project.id === updated.id ? { ...project, ...updated } : project)),
           );
+          // Báo bằng toast: banner trên đầu bảng đẩy cả bảng xuống mỗi lần sửa.
+          toast.success(savedProjectText(patch, code));
           // Đổi nhóm làm thanh bên đổi theo.
           if (patch.projectType !== undefined) onProjectsChanged?.();
           // Hoàn thành có thể tự đóng hồ sơ (vào Lưu trữ): tải lại để dự án rời đúng danh sách.
           if (patch.status !== undefined) void reload();
         })
-        .catch((cause) => setError(messageOf(cause, fallback)))
+        .catch((cause) => toast.error(messageOf(cause, fallback)))
         .finally(() => setSavingProject(undefined));
     },
-    [onProjectsChanged, reload],
+    [onProjectsChanged, reload, projects],
   );
 
   const closeProject = useCallback(
@@ -261,12 +272,12 @@ export function ProjectsListView({
         // Đóng hồ sơ chỉ đưa vào Lưu trữ, không đổi trạng thái dự án.
         await api.archiveProject(projectId);
         setError(undefined);
-        setNotice('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ, trạng thái giữ nguyên.');
+        toast.success('Đã đóng hồ sơ; dự án đã chuyển vào Lưu trữ, trạng thái giữ nguyên.');
         await reload();
         onProjectsChanged?.();
       } catch (cause) {
         // Server chặn khi dự án còn công việc chưa đóng: nói rõ cho người dùng.
-        setError(messageOf(cause, 'Không đóng được hồ sơ dự án.'));
+        toast.error(messageOf(cause, 'Không đóng được hồ sơ dự án.'));
       }
     },
     [reload, onProjectsChanged],
@@ -278,11 +289,11 @@ export function ProjectsListView({
       try {
         const project = await api.unarchiveProject(projectId);
         setError(undefined);
-        setNotice(`Đã mở lưu trữ ${project.code}; dự án về lại danh sách đang làm.`);
+        toast.success(`Đã mở lưu trữ ${project.code}; dự án về lại danh sách đang làm.`);
         await reload();
         onProjectsChanged?.();
       } catch (cause) {
-        setError(messageOf(cause, 'Không mở được lưu trữ dự án.'));
+        toast.error(messageOf(cause, 'Không mở được lưu trữ dự án.'));
       }
     },
     [reload, onProjectsChanged],
@@ -335,7 +346,7 @@ export function ProjectsListView({
     ) => {
       const created = await api.createProject(input);
       const warning = initialTasksWarning(created);
-      if (warning) setError(warning);
+      if (warning) toast.warning(warning);
       // Số tiền và thành viên đi đường riêng, cùng cách như trong ProjectsView.
       if (contractValue !== undefined) {
         await api.updateProjectFinance(created.id, { contractValue });
@@ -431,7 +442,6 @@ export function ProjectsListView({
               onClick={() => {
                 setScope(value);
                 setSelected(new Set());
-                setNotice(undefined);
               }}
             >
               {value === 'active' ? 'Đang làm' : 'Lưu trữ'}
@@ -528,10 +538,6 @@ export function ProjectsListView({
       {error ? (
         <p role="alert" className={styles.alert}>
           {error}
-        </p>
-      ) : notice ? (
-        <p role="status" className={styles.notice}>
-          {notice}
         </p>
       ) : null}
 
@@ -732,9 +738,10 @@ function GroupRows({
         const busy = savingId === project.id;
         // Server vẫn kiểm quyền; ở đây chỉ khoá ô để người không có quyền khỏi bấm rồi nhận lỗi.
         // Dự án đã lưu trữ chỉ xem: muốn sửa phải mở lưu trữ (nút ở cuối dòng) trước.
-        const canEdit = !busy && !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_all'));
-        const canEditStatus =
-          !busy && !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_status'));
+        // Quyền quyết định CẤU TRÚC dòng (ô nhãn, nút); đang lưu (`busy`) chỉ khoá điều khiển, để dòng không đổi hình
+        // và các cột không bị xê dịch.
+        const canEdit = !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_all'));
+        const canEditStatus = !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_status'));
         const customer = customerOf(project.customerId);
         const statusChoices = projectStatusKeys()
           // Huỷ dự án đi qua hộp riêng (kèm lý do) ở trang chi tiết.
@@ -779,7 +786,7 @@ function GroupRows({
                 options={groupOptions}
                 lead={<Folder size={13} aria-hidden />}
                 maxWidth={150}
-                disabled={!canEdit}
+                disabled={!canEdit || busy}
                 onChange={(value) =>
                   onPatch(project.id, { projectType: value || null }, 'Không đổi được nhóm dự án.')
                 }
@@ -797,7 +804,7 @@ function GroupRows({
                         key={tagId}
                         tone={{ bg: `${color}14`, fg: color }}
                         title={canEdit ? 'Bấm để sửa nhãn' : tag.name}
-                        onClick={canEdit ? () => onEditTags(project.id) : undefined}
+                        onClick={canEdit && !busy ? () => onEditTags(project.id) : undefined}
                       >
                         <span className={styles.chipDot} />
                         {tag.name}
@@ -822,7 +829,7 @@ function GroupRows({
                 options={customerOptions}
                 lead={<Building2 size={13} aria-hidden />}
                 maxWidth={150}
-                disabled={!canEdit}
+                disabled={!canEdit || busy}
                 onChange={(value) =>
                   onPatch(project.id, { customerId: value || null }, 'Không đổi được khách hàng.')
                 }
@@ -834,7 +841,7 @@ function GroupRows({
                 value={project.status}
                 options={statusChoices}
                 dot
-                disabled={!canEditStatus}
+                disabled={!canEditStatus || busy}
                 onChange={(status) =>
                   onPatch(project.id, { status: status as ProjectStatus }, 'Không đổi được trạng thái dự án.')
                 }
@@ -846,7 +853,7 @@ function GroupRows({
                 value={project.progressPercent}
                 manual={Boolean(project.progressManual)}
                 auto={project.autoProgressPercent}
-                disabled={!canEdit}
+                disabled={!canEdit || busy}
                 onCommit={(next) =>
                   onPatch(project.id, { manualProgressPercent: next }, 'Không lưu được tiến độ.')
                 }
