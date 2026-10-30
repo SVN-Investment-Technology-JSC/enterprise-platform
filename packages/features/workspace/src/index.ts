@@ -7,6 +7,7 @@ export * from './lib/calendar-grid.model';
 export * from './lib/components/projects-view';
 export * from './lib/components/inline-cells';
 export * from './lib/components/choice';
+export * from './lib/components/tab-work';
 export * from './lib/merge-updated';
 export * from './lib/components/tab-chats';
 export * from './lib/components/customers-view';

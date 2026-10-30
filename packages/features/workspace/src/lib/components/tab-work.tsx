@@ -9,7 +9,8 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ChevronDown, ChevronRight, CornerDownRight, Diamond, Plus, Workflow } from 'lucide-react';
-import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { Provider } from 'react-redux';
 import { buildWorkItemTree } from '../project-tree.model';
 import * as api from '../workspace-api';
 import {
@@ -28,12 +29,26 @@ import {
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { Pager } from './pager';
 import { GanttChart } from './gantt-chart';
 import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
 import type { PendingProcedure } from '../procedure-pending';
 import { tagColor, useTags } from './use-tags';
+import {
+  WORK_COLUMNS,
+  WORK_TABLE_PAGE_SIZE,
+  WORK_TABLE_PAGE_SIZES,
+  WORK_TITLE_MIN_WIDTH,
+  useWorkColumns,
+  useWorkTableField,
+  workTableStore,
+} from '../work-table-store';
+import { ColumnPicker } from './column-picker';
+
+const PAGE_SIZE_OPTIONS = WORK_TABLE_PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / trang` }));
+const NO_COLLAPSED: readonly string[] = [];
 
 /** Ba cách xem cùng một danh sách công việc. */
 type WorkView = 'table' | 'kanban' | 'gantt';
@@ -188,13 +203,26 @@ function TabWorkImpl({
 }: TabWorkProps) {
   const directory = useDirectory();
   const tags = useTags();
-  const [view, setView] = useState<WorkView>('table');
-  const [showChildren, setShowChildren] = useState(true);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const [filter, setFilter] = useState<WorkFilter>(NO_FILTER);
+  // Trạng thái xem nằm trong Redux theo dự án (xem work-table-store): quay lại tab vẫn đúng trang, bộ lọc, nhánh thu gọn.
+  const [view, setView] = useWorkTableField<WorkView>(projectId, 'view', 'table');
+  const [showChildren, setShowChildren] = useWorkTableField(projectId, 'showChildren', true);
+  const [collapsedIds, setCollapsedIds] = useWorkTableField<readonly string[]>(projectId, 'collapsed', NO_COLLAPSED);
+  const collapsed = useMemo<ReadonlySet<string>>(() => new Set(collapsedIds), [collapsedIds]);
+  const [filter, setFilter] = useWorkTableField<WorkFilter>(projectId, 'filter', NO_FILTER);
   const { status, priority, person, tag, due } = filter;
-  const [sort, setSort] = useState<WorkSort>('wbs');
-  const [direction, setDirection] = useState<SortDirection>('asc');
+  const [sort, setSort] = useWorkTableField<WorkSort>(projectId, 'sort', 'wbs');
+  const [direction, setDirection] = useWorkTableField<SortDirection>(projectId, 'direction', 'asc');
+  // Cột hiển thị do từng người chọn (áp cho mọi dự án, lưu theo người dùng).
+  const columns = useWorkColumns(currentUserId);
+  const showCol = (id: (typeof WORK_COLUMNS)[number]['id']) => !columns.hidden.has(id);
+  const colWidth = (id: (typeof WORK_COLUMNS)[number]['id']) => ({ width: WORK_COLUMNS.find((column) => column.id === id)?.width });
+  // Đã tuỳ chỉnh: bảng rộng đủ chỗ cho đúng các cột đã chọn và cuộn ngang nếu khung hẹp hơn.
+  const customMinWidth =
+    WORK_TITLE_MIN_WIDTH +
+    WORK_COLUMNS.filter((column) => !columns.hidden.has(column.id)).reduce((sum, column) => sum + column.width, 0);
+  const visibleColumnCount = 1 + WORK_COLUMNS.filter((column) => !columns.hidden.has(column.id)).length;
+  const [page, setPage] = useWorkTableField(projectId, 'page', 1);
+  const [pageSize, setPageSize] = useWorkTableField<number>(projectId, 'pageSize', WORK_TABLE_PAGE_SIZE);
   const compare = useMemo(() => workComparator(sort, direction), [sort, direction]);
   const setField = (patch: Partial<WorkFilter>) =>
     setFilter((current) => ({ ...current, ...patch }));
@@ -209,7 +237,6 @@ function TabWorkImpl({
   useEffect(() => {
     let alive = true;
     setSavedId('');
-    setFilter(NO_FILTER);
     void api
       .listSavedFilters('work_items', projectId)
       .then((result) => {
@@ -294,6 +321,26 @@ function TabWorkImpl({
     return buildWorkItemTree(items, new Set(matched.map((item) => item.id)), hidden, compare);
   }, [items, matched, collapsed, showChildren, compare]);
 
+  // Đổi bộ lọc, sắp xếp hay kiểu hiện việc con thì về trang 1 (lần dựng đầu giữ trang đã nhớ).
+  const resetKey = `${status}|${priority}|${person}|${tag}|${due}|${sort}|${direction}|${showChildren}`;
+  const lastResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (lastResetKey.current === resetKey) return;
+    lastResetKey.current = resetKey;
+    setPage(1);
+  }, [resetKey, setPage]);
+
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  // Thu gọn nhánh hay xoá việc làm số trang ít đi: lùi về trang cuối.
+  useEffect(() => {
+    if (page > pages) setPage(pages);
+  }, [page, pages, setPage]);
+  const currentPage = Math.min(page, pages);
+  const pageRows = useMemo(
+    () => rows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [rows, currentPage, pageSize],
+  );
+
   const ganttRows = useMemo(
     () =>
       buildWorkItemTree(items, new Set(matched.map((item) => item.id)), undefined, compare).map(
@@ -341,12 +388,7 @@ function TabWorkImpl({
   }, [externalRefs]);
 
   const toggle = (id: string) =>
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setCollapsedIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
 
   const openMenu = (event: MouseEvent, item: WorkItem) => {
     event.preventDefault();
@@ -379,6 +421,14 @@ function TabWorkImpl({
               />
               Hiện việc con
             </label>
+          ) : null}
+          {view === 'table' ? (
+            <ColumnPicker
+              hidden={columns.hidden}
+              customized={columns.customized}
+              onChange={columns.setHidden}
+              onReset={columns.reset}
+            />
           ) : null}
           {/* Không có quyền ghi (người xem, dự án đã lưu trữ) thì ẩn hẳn nút, không để nút mờ. */}
           {canWrite ? (
@@ -547,31 +597,66 @@ function TabWorkImpl({
       {view === 'table' ? (
         <div className={styles.tableCard}>
           <div className={styles.tableScroll}>
-            <table className={`${styles.table} ${styles.wbsTable}`}>
+            <table
+              className={[styles.table, styles.wbsTable, columns.customized ? styles.wbsTableCustom : ''].filter(Boolean).join(' ')}
+              style={columns.customized ? { minWidth: customMinWidth } : undefined}
+            >
               <thead>
                 <tr>
                   <th>Công việc</th>
-                  <th>Người thực hiện</th>
-                  <th>Ưu tiên</th>
-                  <th>Trạng thái</th>
-                  <th>Bắt đầu</th>
-                  <th>Thời hạn</th>
-                  <th title="Ngày cập nhật trạng thái gần nhất">Trạng thái cuối</th>
-                  <th>Tiến độ</th>
-                  <th>Quy trình</th>
+                  {showCol('people') ? (
+                    <th className={styles.wbsColPeople} style={colWidth('people')}>
+                      Người thực hiện
+                    </th>
+                  ) : null}
+                  {showCol('priority') ? (
+                    <th className={styles.wbsColPriority} style={colWidth('priority')}>
+                      Ưu tiên
+                    </th>
+                  ) : null}
+                  {showCol('status') ? (
+                    <th className={styles.wbsColStatus} style={colWidth('status')}>
+                      Trạng thái
+                    </th>
+                  ) : null}
+                  {showCol('start') ? (
+                    <th className={styles.wbsColStart} style={colWidth('start')}>
+                      Bắt đầu
+                    </th>
+                  ) : null}
+                  {showCol('due') ? (
+                    <th className={styles.wbsColDate} style={colWidth('due')}>
+                      Thời hạn
+                    </th>
+                  ) : null}
+                  {showCol('last') ? (
+                    <th className={styles.wbsColLast} style={colWidth('last')} title="Ngày cập nhật trạng thái gần nhất">
+                      Trạng thái cuối
+                    </th>
+                  ) : null}
+                  {showCol('progress') ? (
+                    <th className={styles.wbsColProgress} style={colWidth('progress')}>
+                      Tiến độ
+                    </th>
+                  ) : null}
+                  {showCol('process') ? (
+                    <th className={styles.wbsColProcess} style={colWidth('process')}>
+                      Quy trình
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className={styles.muted}>
+                    <td colSpan={visibleColumnCount} className={styles.muted}>
                       {filtering
                         ? 'Không có công việc nào khớp bộ lọc.'
                         : 'Dự án chưa có công việc nào.'}
                     </td>
                   </tr>
                 ) : null}
-                {rows.map((row) => {
+                {pageRows.map((row, rowIndex) => {
                   const { item } = row;
                   const tone = workItemStatusTone(item);
                   const procedure = procedureOf.get(item.id);
@@ -579,7 +664,13 @@ function TabWorkImpl({
                   return (
                     <tr
                       key={item.id}
-                      className={row.hasChildren ? styles.wbsGroupRow : undefined}
+                      className={[
+                        row.hasChildren ? styles.wbsGroupRow : '',
+                        // Việc gốc mới (trừ dòng đầu bảng): vạch đậm ngăn với nhóm việc gốc phía trên.
+                        row.depth === 0 && rowIndex > 0 ? styles.wbsRootStart : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       onClick={() => onOpen(item)}
                       onContextMenu={(event) => openMenu(event, item)}
                     >
@@ -597,7 +688,12 @@ function TabWorkImpl({
                               onClick={(event) => {
                                 event.stopPropagation();
                                 if (showChildren) toggle(item.id);
-                                else setShowChildren(true);
+                                else {
+                                  // Đang tắt "Hiện việc con": bật lại và mở đúng nhánh này. Nhánh có thể còn nằm trong
+                                  // danh sách thu gọn từ trước, nên phải gỡ nó, không thì ô được tích mà nhánh vẫn đóng.
+                                  setShowChildren(true);
+                                  setCollapsedIds((current) => current.filter((entry) => entry !== item.id));
+                                }
                               }}
                             >
                               {row.expanded ? (
@@ -651,10 +747,13 @@ function TabWorkImpl({
                           ) : null}
                         </span>
                       </td>
-                      <td>
+                      {showCol('people') ? (
+<td className={styles.wbsColPeople}>
                         <People userIds={peopleOf(item)} nameOf={directory.nameOf} />
                       </td>
-                      <td>
+) : null}
+                      {showCol('priority') ? (
+<td className={styles.wbsColPriority}>
                         {row.hasChildren ? null : (
                           <span
                             className={styles.pill}
@@ -667,7 +766,9 @@ function TabWorkImpl({
                           </span>
                         )}
                       </td>
-                      <td>
+) : null}
+                      {showCol('status') ? (
+<td className={styles.wbsColStatus}>
                         <span
                           className={styles.pill}
                           style={{ background: tone.bg, color: tone.fg }}
@@ -675,12 +776,18 @@ function TabWorkImpl({
                           {workItemStatusLabel(item)}
                         </span>
                       </td>
-                      <td>{formatShortDate(item.plannedStart)}</td>
-                      <td className={overdue ? styles.cellDanger : undefined}>
+) : null}
+                      {showCol('start') ? (
+<td className={styles.wbsColStart}>{formatShortDate(item.plannedStart)}</td>
+) : null}
+                      {showCol('due') ? (
+<td className={[styles.wbsColDate, overdue ? styles.cellDanger : ''].filter(Boolean).join(' ')}>
                         {formatShortDate(item.plannedEnd)}
                       </td>
-                      <td
-                        className={styles.muted}
+) : null}
+                      {showCol('last') ? (
+<td
+                        className={`${styles.muted} ${styles.wbsColLast}`}
                         title={
                           item.statusChangedAt
                             ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}`
@@ -689,7 +796,9 @@ function TabWorkImpl({
                       >
                         {formatShortTimestamp(item.statusChangedAt)}
                       </td>
-                      <td>
+) : null}
+                      {showCol('progress') ? (
+<td className={styles.wbsColProgress}>
                         {item.reversal ? (
                           // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
                           <span className={styles.muted} title="Đã huỷ hiệu lực, không tính tiến độ">
@@ -714,7 +823,9 @@ function TabWorkImpl({
                           </span>
                         )}
                       </td>
-                      <td>
+) : null}
+                      {showCol('process') ? (
+<td className={styles.wbsColProcess}>
                         {procedure ? (
                           <a
                             className={styles.wbsProcedure}
@@ -734,12 +845,29 @@ function TabWorkImpl({
                           </span>
                         ) : null}
                       </td>
+) : null}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          {rows.length > 0 ? (
+            <div className={styles.wbsFoot}>
+              <Choice
+                label="Số việc mỗi trang"
+                value={String(pageSize)}
+                options={PAGE_SIZE_OPTIONS}
+                onChange={(value) => {
+                  setPageSize(Number(value));
+                  setPage(1);
+                }}
+                selectOnly
+                height={32}
+              />
+              <Pager page={currentPage} pages={pages} total={rows.length} pageSize={pageSize} onPage={setPage} />
+            </div>
+          ) : null}
           {canWrite ? (
             <button type="button" className={styles.wbsAddGroup} onClick={onAddRoot}>
               <Plus size={14} /> Thêm nhóm công việc
@@ -798,4 +926,10 @@ function People({
  * state nào khác của `ProjectsView` không liên quan tới bảng) không vẽ lại cả bảng;
  * nơi gọi phải truyền hàm ổn định (`useCallback`), nếu không `memo` không có tác dụng.
  */
-export const TabWork = memo(TabWorkImpl);
+export const TabWork = memo(function TabWork(props: TabWorkProps) {
+  return (
+    <Provider store={workTableStore}>
+      <TabWorkImpl {...props} />
+    </Provider>
+  );
+});

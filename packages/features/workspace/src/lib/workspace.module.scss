@@ -2853,6 +2853,11 @@
   background: var(--ep-surface-soft);
 }
 
+/* Việc gốc mới: vạch đậm phía trên (đổ bóng trong để không đổi chiều cao dòng, giữ thẳng hàng với hình vẽ). */
+.ganttLabelRoot {
+  box-shadow: inset 0 2px 0 var(--ep-border-strong);
+}
+
 .ganttLabel {
   display: flex;
   align-items: center;
@@ -4825,13 +4830,205 @@
   text-transform: uppercase;
 }
 
+/*
+ * Bảng công việc: cột cố định để vừa khung (cột Công việc lấy phần còn lại, tên dài thì cắt chữ), bớt dần cột phụ khi khung
+ * hẹp, hết cách thì cuộn ngang. Đo theo bề ngang của khung bảng chứ không theo cửa sổ, vì thanh bên có thể thu gọn.
+ */
+.tableCard:has(.wbsTable) {
+  container-type: inline-size;
+}
+
 .wbsTable {
+  min-width: 1130px;
+  table-layout: fixed;
+
   tbody tr {
     cursor: pointer;
   }
 
+  th,
   td {
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Việc gốc mới: vạch đậm tách các nhóm việc gốc (kèm việc con) khỏi nhau. */
+  tbody tr.wbsRootStart td {
+    border-top: 2px solid var(--ep-border-strong);
+  }
+
+  @container (max-width: 1135px) {
+    min-width: 880px;
+
+    .wbsColLast,
+    .wbsColProcess {
+      display: none;
+    }
+  }
+
+  @container (max-width: 920px) {
+    min-width: 800px;
+
+    .wbsColStart {
+      display: none;
+    }
+  }
+}
+
+/*
+ * Người dùng đã tự chọn cột: hiện đúng các cột đó (không tự bớt theo bề ngang khung như bố cục mặc định), bề rộng tối
+ * thiểu do TS đặt trực tiếp trên bảng, khung hẹp hơn thì cuộn ngang.
+ */
+.wbsTable.wbsTableCustom {
+  .wbsColLast,
+  .wbsColProcess,
+  .wbsColStart {
+    display: table-cell;
+  }
+}
+
+/* Nút và bảng chọn cột hiển thị. */
+.columnPicker {
+  position: relative;
+}
+
+.columnPickerButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.columnPickerCount {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ep-accent);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.columnPickerPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  width: 230px;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(0 0 0 / 12%), 0 8px 10px -6px rgb(0 0 0 / 6%);
+}
+
+.columnPickerTitle {
+  margin: 0;
+  padding: 6px 8px 4px;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.columnPickerItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--ep-text);
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  input[type='checkbox'] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--ep-accent-strong);
+  }
+
+  span:first-of-type {
+    flex: 1;
+  }
+
+  input:disabled ~ span {
+    color: var(--ep-text-sub);
+  }
+}
+
+.columnPickerFoot {
+  margin-top: 4px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--ep-line);
+}
+
+.columnPickerReset {
+  width: 100%;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-link);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+  }
+
+  &:disabled {
+    color: var(--ep-text-muted);
+    cursor: default;
+  }
+}
+
+/* Chân bảng: cỡ trang và phân trang. */
+.wbsFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--ep-line);
+  background: var(--ep-surface-soft);
+
+  > :first-child {
+    width: 112px;
+  }
+
+  nav {
+    margin-top: 0;
   }
 }
 
@@ -4843,8 +5040,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 20rem;
-  max-width: 34rem;
+  min-width: 0;
 }
 
 .wbsTitle {
@@ -7400,6 +7596,99 @@ button.kpiCard {
   }
 }
 
+/*
+ * Ô "thêm mục mới" ở chân danh sách của chip: một hàng gồm ô tên, ô mã và nút. Kiểu ô nhập / nút của shadcn/ui
+ * (cao 32px, bo 6px, viền mảnh, vòng sáng khi focus) thay cho kiểu viên thuốc của chip. Chip ép kiểu viên thuốc cho
+ * mọi ô nhập bên trong bằng !important nên phải ghi đè với độ ưu tiên cao hơn.
+ */
+.chipCreate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipCreate input,
+.inlineChip .chipCreate input {
+  box-sizing: border-box;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--ep-border) !important;
+  border-radius: 6px !important;
+  background: var(--ep-surface) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  color: var(--ep-text) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+
+  &::placeholder {
+    color: var(--ep-text-muted);
+  }
+
+  &:focus {
+    border-color: var(--ep-accent-strong) !important;
+    box-shadow: 0 0 0 3px rgb(255 201 10 / 25%);
+    outline: none;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.chipCreateName {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.chipCreateCode {
+  flex: 0 0 68px;
+  width: 68px;
+  min-width: 0;
+}
+
+.chipCreateAdd,
+.inlineChip .chipCreateAdd {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--ep-accent-strong);
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--ep-accent), var(--ep-accent-strong));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  color: #1a1a1a;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+}
+
+.chipCreateError {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
 .chipFilter input {
   border-color: var(--ep-border) !important;
   background: var(--ep-surface) !important;
@@ -7594,99 +7883,6 @@ button.kpiCard {
   &:disabled {
     cursor: default;
   }
-}
-
-/*
- * Ô "thêm mục mới" ở chân danh sách của chip: một hàng gồm ô tên, ô mã và nút. Kiểu ô nhập / nút của shadcn/ui
- * (cao 32px, bo 6px, viền mảnh, vòng sáng khi focus) thay cho kiểu viên thuốc của chip. Chip ép kiểu viên thuốc cho
- * mọi ô nhập bên trong bằng !important nên phải ghi đè với độ ưu tiên cao hơn.
- */
-.chipCreate {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.chipCreate input,
-.inlineChip .chipCreate input {
-  box-sizing: border-box;
-  height: 32px !important;
-  min-height: 32px !important;
-  padding: 0 10px !important;
-  border: 1px solid var(--ep-border) !important;
-  border-radius: 6px !important;
-  background: var(--ep-surface) !important;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
-  color: var(--ep-text) !important;
-  font-size: 13px !important;
-  font-weight: 400 !important;
-
-  &::placeholder {
-    color: var(--ep-text-muted);
-  }
-
-  &:focus {
-    border-color: var(--ep-accent-strong) !important;
-    box-shadow: 0 0 0 3px rgb(255 201 10 / 25%);
-    outline: none;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-  }
-}
-
-.chipCreateName {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-.chipCreateCode {
-  flex: 0 0 68px;
-  width: 68px;
-  min-width: 0;
-}
-
-.chipCreateAdd,
-.inlineChip .chipCreateAdd {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--ep-accent-strong);
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--ep-accent), var(--ep-accent-strong));
-  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
-  color: #1a1a1a;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    filter: brightness(0.97);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--ep-accent-strong);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-}
-
-.chipCreateError {
-  flex-basis: 100%;
-  margin: 0;
-  color: #b91c1c;
-  font-size: 12px;
 }
 
 .progressValueManual {
