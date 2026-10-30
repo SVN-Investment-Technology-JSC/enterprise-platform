@@ -51,6 +51,7 @@ import {
 import { sameUnread } from '../chat.model';
 import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
+import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
@@ -902,7 +903,12 @@ export function ProjectsView({
   };
 
   /** Như `run`, kèm kết quả: thao tác thành công hay không. */
-  const attempt = async (operation: () => Promise<unknown>, fallback: string): Promise<boolean> => {
+  const attempt = async (
+    operation: () => Promise<unknown>,
+    fallback: string,
+    /** Báo lỗi bằng toast thay vì banner đầu trang (banner đẩy cả trang xuống). */
+    errorAsToast = false,
+  ): Promise<boolean> => {
     try {
       await operation();
       if (openId) await refreshDetail(openId);
@@ -911,7 +917,8 @@ export function ProjectsView({
       setError(undefined);
       return true;
     } catch (cause) {
-      setError(message(cause, fallback));
+      if (errorAsToast) toast.error(message(cause, fallback));
+      else setError(message(cause, fallback));
       return false;
     }
   };
@@ -1172,12 +1179,18 @@ export function ProjectsView({
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
             canChangeStatus={canChangeProjectStatus}
-            onChangeStatus={(status) =>
-              run(
+            onChangeStatus={async (status) => {
+              const changed = await attempt(
                 () => api.updateProject(detail.project.id, { status }),
                 'Không đổi được trạng thái dự án.',
-              )
-            }
+                true,
+              );
+              if (changed) {
+                toast.success(
+                  `Dự án ${detail.project.name} đã chuyển sang trạng thái ${PROJECT_STATUS_LABELS[status]}.`,
+                );
+              }
+            }}
           />
 
           {archived ? (

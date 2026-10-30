@@ -964,6 +964,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               actorUserId: actorUserId ?? null,
             },
           });
+        } else if (project.status !== previous) {
+          // Các trạng thái còn lại (lập kế hoạch, đang chạy, tạm dừng, huỷ) dùng một sự kiện chung. Hoàn thành đã có
+          // `completed` riêng nên không phát thêm, kẻo thành viên nhận hai thông báo cho một lần chuyển.
+          await writeOutbox(client, tenantId, {
+            type: 'workspace.project.status-changed',
+            aggregateType: 'workspace-project',
+            aggregateId: project.id,
+            payload: {
+              projectId: project.id,
+              code: project.code,
+              name: project.name,
+              fromStatus: previous,
+              toStatus: project.status,
+              recipientUserIds: await projectMemberIds(client, project.id),
+              actorUserId: actorUserId ?? null,
+            },
+          });
         }
         return project;
       });

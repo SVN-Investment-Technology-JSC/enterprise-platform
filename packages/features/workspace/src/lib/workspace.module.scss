@@ -7074,8 +7074,13 @@ button.kpiCard {
 
   height: 38px;
   min-height: 38px;
-  background: var(--ep-surface-soft);
+  background: var(--ep-surface);
   font-weight: 400;
+}
+
+.filterValues :global(.ant-picker),
+.filterValues :global(.ant-select-selector) {
+  background: var(--ep-surface);
 }
 
 .filterValues :global(.ant-picker) input,
