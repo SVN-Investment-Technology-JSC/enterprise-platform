@@ -7520,33 +7520,60 @@ button.kpiCard {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  /* Cao tối đa khoảng 5 dòng; nhiều hơn thì chỉ cuộn dọc trong danh sách, không kéo dài cả trang. Đệm nhỏ để vòng focus
+     của ô nhập không bị cắt. */
+  max-height: 224px;
   margin: 0;
-  padding: 0;
+  padding: 2px 6px 2px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
+  /* Thanh cuộn mảnh: 6px, nền trong, tay nắm xám nhạt. */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #cbd5e1;
+
+    &:hover {
+      background: #94a3b8;
+    }
+  }
 }
 
 .taskTitleRow {
   display: flex;
   align-items: center;
   gap: 8px;
-
-  input {
-    flex: 1;
-    min-width: 0;
-  }
 }
 
 .taskTitleTools {
+  position: absolute;
+  top: 50%;
+  right: 6px;
   display: inline-flex;
-  flex: none;
   align-items: center;
   gap: 2px;
+  transform: translateY(-50%);
+  /* Ẩn cho tới khi rê chuột hoặc focus vào dòng; ẩn thì không bấm trúng nhầm. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
 
   button {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     padding: 0;
     border: 0;
     border-radius: 6px;
@@ -7662,6 +7689,7 @@ button.kpiCard {
   span {
     color: var(--ep-text-muted);
     font-size: 13px;
+    font-style: italic;
     line-height: 1.5;
   }
 }
@@ -7829,6 +7857,36 @@ button.kpiCard {
 
   height: 36px;
   background: var(--ep-surface);
+}
+
+/* Ô nhập và bộ nút cuối ô: con trỏ chỉ thành bàn tay khi rê đúng vào nút. */
+.taskTitleField {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+
+  input:not([type='checkbox']):not([type='radio']) {
+    width: 100%;
+  }
+
+  &:hover .taskTitleTools,
+  &:focus-within .taskTitleTools {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Màn cảm ứng không có rê chuột: luôn hiện bộ nút. */
+  @media (hover: none) {
+    .taskTitleTools {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+/* Chừa chỗ bên phải cho bộ nút để chữ dài không chui xuống dưới nút. */
+.taskTitleFieldTools input:not([type='checkbox']):not([type='radio']) {
+  padding-right: 92px;
 }
 
 .taskTitleActions {

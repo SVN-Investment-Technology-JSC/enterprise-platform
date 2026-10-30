@@ -61,6 +61,7 @@ export function TaskTitleListEditor({
               <span className={styles.completionIndex} aria-hidden="true">
                 {index + 1}
               </span>
+              <div className={`${styles.taskTitleField} ${disabled ? '' : styles.taskTitleFieldTools}`}>
               <input
                 ref={(element) => {
                   if (element) inputs.current.set(index, element);
@@ -110,6 +111,7 @@ export function TaskTitleListEditor({
                   </button>
                 </span>
               )}
+              </div>
             </li>
           ))}
         </ol>
