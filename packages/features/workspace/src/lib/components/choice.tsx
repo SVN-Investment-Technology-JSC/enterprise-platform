@@ -37,6 +37,8 @@ export interface ChoiceProps {
   readonly renderOption?: (option: SearchableSelectOption) => ReactNode;
   /** Nhóm phụ gập sau một nút, xếp sau danh sách chính (vd "Ngoài dự án"). */
   readonly extra?: SearchableSelectExtra;
+  /** Danh sách ngắn, cố định: chỉ bấm chọn, không gõ và không có ô tìm trong danh sách. */
+  readonly selectOnly?: boolean;
 }
 
 export function Choice({
@@ -53,6 +55,7 @@ export function Choice({
   height,
   renderOption,
   extra,
+  selectOnly,
 }: ChoiceProps) {
   const all = emptyOption === undefined ? options : [{ value: '', label: emptyOption }, ...options];
   const box = useRef<HTMLDivElement>(null);
@@ -80,6 +83,8 @@ export function Choice({
         className={className}
         height={height}
         extra={extra}
+        searchInDropdown={selectOnly}
+        hideDropdownSearch={selectOnly}
         clearable={emptyOption !== undefined}
         placeholder={placeholder ?? emptyOption ?? `Chọn ${label.toLowerCase()}…`}
         // Chọn xong thì bỏ focus khỏi ô nhập. Danh sách đã tự đóng, nhưng ô

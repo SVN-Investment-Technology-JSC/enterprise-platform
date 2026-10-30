@@ -38,6 +38,11 @@ export interface SearchableSelectProps {
    * xổ ra. Mặc định (false) vẫn là gõ trực tiếp trên ô để lọc.
    */
   readonly searchInDropdown?: boolean;
+  /**
+   * Chỉ có nghĩa khi `searchInDropdown`: bỏ luôn ô tìm trong danh sách. Dùng cho danh sách ngắn, cố định (vài
+   * lựa chọn) — chỉ bấm chọn, không có chỗ nào để gõ; phím mũi tên, Enter, Esc vẫn hoạt động trên ô bên ngoài.
+   */
+  readonly hideDropdownSearch?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -167,6 +172,7 @@ export function SearchableSelect({
   style,
   height,
   searchInDropdown = false,
+  hideDropdownSearch = false,
   clearable = true,
   onChange,
   renderOption,
@@ -305,7 +311,8 @@ export function SearchableSelect({
       const timer = setTimeout(() => {
         if (searchInDropdown) {
           // Kiểu chọn thuần tuý: đưa con trỏ vào ô tìm trong danh sách, ô ngoài giữ nguyên giá trị đã chọn.
-          dropdownSearchRef.current?.focus();
+          // Không có ô tìm thì giữ focus ở ô ngoài (chỉ đọc) để phím mũi tên và Esc còn dùng được.
+          (hideDropdownSearch ? inputRef : dropdownSearchRef).current?.focus();
           return;
         }
         inputRef.current?.focus();
@@ -317,7 +324,7 @@ export function SearchableSelect({
     }
     setQuery(selectedOptionLabelRef.current);
     return undefined;
-  }, [isOpen, searchInDropdown]);
+  }, [isOpen, searchInDropdown, hideDropdownSearch]);
 
   // Đặt danh sách theo ô nhập, và đặt lại khi trang hay khung chứa cuộn,
   // hoặc cửa sổ đổi cỡ, để nó luôn bám đúng ô.
@@ -640,7 +647,7 @@ export function SearchableSelect({
           className={`${styles.dropdown} ${placement.upward ? styles.dropdownUp : ''}`}
           style={placement.box}
         >
-          {searchInDropdown ? (
+          {searchInDropdown && !hideDropdownSearch ? (
             <div className={styles.dropdownSearch}>
               <span className={styles.dropdownSearchIcon}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

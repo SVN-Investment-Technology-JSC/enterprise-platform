@@ -1788,7 +1788,12 @@
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px 12px;
-  border-bottom: 1px solid var(--ep-border);
+  border-bottom: 1px solid var(--ep-border-strong);
+  /* Đầu hộp thoại nền xám nhạt để tách khỏi vùng nhập liệu; góc trên theo khung hộp thoại. */
+  border-radius: inherit;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: #e5e8ed;
 
   h3 {
     margin: 0;
@@ -1808,13 +1813,16 @@
     padding: 6px;
     border: 0;
     border-radius: var(--ep-radius);
-    background: transparent;
-    color: var(--ep-text-muted);
+    background: rgb(239 68 68 / 10%);
+    color: #ef4444;
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
 
     &:hover {
-      background: var(--ep-hover);
-      color: var(--ep-text);
+      background: rgb(239 68 68 / 20%);
+      color: #dc2626;
     }
   }
 }
@@ -5214,7 +5222,7 @@
 
   // Vạch ngăn rõ ràng giữa hai công việc liền nhau.
   & + & {
-    border-top: 2px solid var(--ep-border-strong);
+    border-top: 1px solid var(--ep-border-strong);
   }
 }
 
@@ -5242,19 +5250,22 @@
 
 .draftIconButton {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 1px solid var(--ep-border-strong);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ep-surface);
   color: var(--ep-text-sub);
   cursor: pointer;
 
-  // Nút nổi: có bóng, rê chuột thì nhấc lên, bấm thì lún xuống.
-  box-shadow: 0 1px 2px rgb(16 24 40 / 10%), 0 2px 4px rgb(16 24 40 / 8%);
+  /* Nút nổi: có bóng, rê chuột thì nhấc lên, bấm thì lún xuống. */
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 10%),
+    0 3px 6px rgb(16 24 40 / 10%);
   transition:
     background-color 0.15s ease,
     box-shadow 0.15s ease,
@@ -5262,12 +5273,12 @@
 
   &:hover:not(:disabled) {
     background: var(--ep-hover);
-    box-shadow: 0 3px 8px rgb(16 24 40 / 16%);
+    box-shadow: 0 4px 10px rgb(16 24 40 / 18%);
     transform: translateY(-1px);
   }
 
   &:active:not(:disabled) {
-    box-shadow: 0 1px 2px rgb(16 24 40 / 12%);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 14%);
     transform: translateY(0);
   }
 
@@ -5278,6 +5289,7 @@
   &:disabled {
     cursor: not-allowed;
     opacity: 0.45;
+    box-shadow: none;
   }
 }
 
@@ -5349,6 +5361,13 @@
     height: 36px;
   }
 
+  /* input-base đặt padding dọc 0 cho ô một dòng; ô nhiều dòng cần đệm trên dưới để chữ không sát mép. */
+  textarea {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    line-height: 1.45;
+  }
+
   :global(.ant-picker) input:not([type='checkbox']):not([type='radio']),
   :global(.ant-picker) input:not([type='checkbox']):not([type='radio']):focus {
     min-height: 0;
@@ -5414,11 +5433,287 @@
   background: var(--ep-surface-soft);
 }
 
+.draftTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.draftTitleInput {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Một khung duy nhất cho các quy định khi hoàn thành; mỗi mục là một hàng ngăn bằng vạch mảnh. */
+.draftOptions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+
+  > * {
+    padding: 12px 14px;
+  }
+
+  > * + * {
+    border-top: 1px solid var(--ep-border);
+  }
+}
+
+.reopenText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reopenChoice {
+  min-width: 0;
+}
+
+.parentDoneText {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  .fieldHint {
+    margin: 0;
+  }
+}
+
+.parentDoneChoice {
+  flex: 0 1 300px;
+  min-width: 220px;
+}
+
 .draftFoot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+
+/* Điều kiện hoàn thành: khối cấu hình trong form tạo/sửa việc, và checklist ở hộp xác nhận hoàn thành. */
+.completionBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Đầu khối nền trắng; thân khối nền nhạt để ô nhập trắng nổi lên. */
+.completionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.completionBadge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+}
+
+.completionHeadText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.completionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.completionCount {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.completionSub {
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.completionAdd {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ep-accent-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-accent);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.completionNote {
+  margin: 0;
+}
+
+.completionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 42px;
+}
+
+.completionHint {
+  margin: 0;
+}
+
+.completionRule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+
+  > :first-child {
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+}
+
+.completionMin {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  white-space: nowrap;
+
+  input {
+    width: 64px;
+    text-align: center;
+  }
+}
+
+.completionList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.completionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.completionIndex {
+  display: inline-flex;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* Checklist trong hộp xác nhận hoàn thành. */
+.completeList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.completeItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-size: 13.5px;
+  line-height: 1.4;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    accent-color: var(--ep-accent-strong);
+  }
+
+  &[data-checked] {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-soft);
+  }
+}
+
+.completeProgress {
+  margin: 0;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+}
+
+.completeProgress[data-ready] {
+  color: var(--ep-success);
 }
 
 @container (width <=700px) {
@@ -6875,4 +7170,509 @@ button.kpiCard {
 /* Thắng `.groupRow th .countPill` (cách lề 8px cho số đếm đơn lẻ trước đây). */
 .groupRow th .groupCounts .countPill {
   margin-left: 0;
+}
+/* Quy định hoàn tác sau khi hoàn thành và thông báo công việc cha đã xong (form tạo/sửa việc). */
+.reopenField {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  align-items: center;
+  gap: 6px 16px;
+
+  .fieldHint {
+    margin: 0;
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.reopenLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.parentDoneNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-accent-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-accent-soft);
+}
+
+.parentDoneIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--ep-surface);
+  color: var(--ep-text);
+}
+
+.parentDoneBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+
+  .fieldHint {
+    margin: 0;
+  }
+}
+
+/* Chọn nhiều người kiểu Select nhiều lựa chọn (ProjectPeoplePicker): chip nằm trong ô vạch dưới, dư thì gộp "+n". */
+.multiControl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px 0 11px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  cursor: text;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+
+  &:focus-within,
+  &.multiControlOpen {
+    border-color: var(--ep-accent-strong);
+    box-shadow: 0 0 0 2px var(--ep-accent-soft);
+  }
+
+  /* Ô gõ trần trong dòng: thắng luật `.draftField input` (khung, nền, chiều cao 36px). */
+  input:not([type='checkbox']):not([type='radio']) {
+    flex: 1 1 80px;
+    width: auto;
+    min-width: 60px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+    font-size: 13.5px;
+
+    &:focus {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      outline: none;
+    }
+  }
+}
+
+.multiChips {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: calc(100% - 110px);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.multiChip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  max-width: 150px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border: 1px solid rgb(217 171 0 / 45%);
+  border-radius: 6px;
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-size: 12.5px;
+
+  button {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+
+    &:hover {
+      background: rgb(217 171 0 / 25%);
+    }
+  }
+}
+
+.multiChipOutside {
+  border-style: dashed;
+}
+
+.multiChipFull {
+  max-width: 100%;
+}
+
+.multiChipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multiMore {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 6px;
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Khung neo cho danh sách xổ ra: danh sách nổi (absolute) nên mở ra không đẩy, không làm giật các ô bên dưới. */
+.multiBox {
+  position: relative;
+}
+
+.multiDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 14%), 0 8px 10px -6px rgb(15 23 42 / 8%);
+
+  /* Danh sách bên trong không tự viền và tự cuộn nữa: khung ngoài lo việc đó. */
+  .groupPickerList {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+.multiDropdownUp {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+/* Chân danh sách nhãn: ô nhập tên nhãn mới và nút thêm, như dropdown tuỳ biến của Ant Design. */
+.multiFooter {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface);
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.multiFooterError {
+  margin: 0;
+  padding: 0 10px 8px;
+  color: var(--ep-danger);
+}
+
+.groupPickerList button.tagOption {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+
+  &[aria-selected='true'] {
+    background: var(--ep-accent-soft);
+    font-weight: 600;
+  }
+}
+
+.tagOptionName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multiChevron {
+  flex: none;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+
+.groupPickerSelected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.groupPickerSelectedTitle {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Dải báo dự án đã lưu trữ (chỉ xem) dưới đầu trang dự án. */
+.archivedBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--ep-border-strong);
+  border-left: 3px solid #64748b;
+  border-radius: var(--ep-radius);
+  background: #f1f3f6;
+  color: var(--ep-text);
+  font-size: 13px;
+}
+
+.archivedBannerText {
+  flex: 1 1 320px;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+/* Cấu hình chung: nhóm dòng cài đặt, mỗi dòng nhãn bên trái và điều khiển bên phải. */
+.settingGroup {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+
+  h4 {
+    margin: 0;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--ep-border);
+    border-radius: var(--ep-radius) var(--ep-radius) 0 0;
+    background: #f1f3f6;
+    font-size: 14px;
+    font-weight: 700;
+  }
+}
+
+.settingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: center;
+  gap: 8px 24px;
+  padding: 14px 16px;
+
+  & + & {
+    border-top: 1px solid var(--ep-border);
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.settingText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  .fieldHint {
+    margin: 0;
+  }
+}
+
+.settingControl {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.settingRadios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Nút gạt Bật / Tắt. */
+.switchTrack {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 78px;
+  height: 28px;
+  padding: 0 10px 0 32px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 999px;
+  background: #e5e8ed;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.switchThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 30%);
+  transition: transform 0.15s ease;
+}
+
+.switchOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent);
+  color: #1a1a1a;
+
+  .switchThumb {
+    transform: translateX(0);
+  }
+}
+
+.switchTrack.switchOn {
+  padding: 0 32px 0 10px;
+
+  .switchThumb {
+    left: auto;
+    right: 3px;
+  }
+}
+
+/* Danh sách tên công việc tạo sẵn (mẫu của tenant và danh sách lúc tạo dự án). */
+.taskTitleList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.taskTitleRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.taskTitleTools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ep-text-sub);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--ep-hover);
+      color: var(--ep-text);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.3;
+    }
+  }
+
+  .taskTitleRemove {
+    color: #ef4444;
+
+    &:hover:not(:disabled) {
+      background: rgb(239 68 68 / 12%);
+      color: #dc2626;
+    }
+  }
+}
+
+/* Dòng cài đặt xếp dọc: nhãn ở trên, điều khiển rộng đầy bên dưới (danh sách dài không nén vào cột phải). */
+.settingRowStack {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.settingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
