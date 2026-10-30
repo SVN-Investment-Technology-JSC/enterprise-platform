@@ -1170,7 +1170,7 @@ export function ProjectsView({
               {canUnarchive ? (
                 <Confirm
                   title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
-                  description="Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang Hoàn thành về Đang chạy hoặc giữ nguyên trạng thái, theo Cấu hình chung."
+                  description={'Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang "Hoàn thành" về "Đang chạy" hoặc giữ nguyên trạng thái, theo Cấu hình chung.'}
                   okText="Mở lưu trữ"
                   onConfirm={() =>
                     run(() => api.unarchiveProject(detail.project.id), 'Không mở được lưu trữ dự án.')

@@ -122,13 +122,13 @@ function RadioChoices<T extends string>({
 const REOPEN_PROJECT_OPTIONS: readonly ChoiceOption<ReopenProjectPolicy>[] = [
   {
     value: 'reactivate',
-    label: 'Đưa dự án về Đang chạy',
-    description: 'Dự án rời Lưu trữ và quay lại trạng thái Đang chạy để làm tiếp.',
+    label: 'Đưa dự án về "Đang chạy"',
+    description: 'Dự án rời Lưu trữ và quay lại trạng thái "Đang chạy" để làm tiếp.',
   },
   {
     value: 'keep',
-    label: 'Giữ nguyên trạng thái Hoàn thành',
-    description: 'Chỉ bỏ dấu lưu trữ để chỉnh sửa; dự án vẫn ở trạng thái Hoàn thành.',
+    label: 'Giữ nguyên trạng thái "Hoàn thành"',
+    description: 'Chỉ bỏ dấu lưu trữ để chỉnh sửa; dự án vẫn ở trạng thái "Hoàn thành".',
   },
 ];
 
@@ -293,8 +293,8 @@ export function GeneralSettings() {
         />
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
-            <strong>Khi mở lưu trữ dự án đã Hoàn thành</strong>
-            <span>Dự án đã Hoàn thành luôn nằm trong Lưu trữ. Chọn điều gì xảy ra khi mở lại để chỉnh sửa.</span>
+            <strong>{'Khi mở lưu trữ dự án đã "Hoàn thành"'}</strong>
+            <span>{'Dự án đã "Hoàn thành" luôn nằm trong Lưu trữ. Chọn điều gì xảy ra khi mở lại để chỉnh sửa.'}</span>
           </div>
           <RadioChoices
             name="reopen-project"
