@@ -1163,6 +1163,55 @@ export interface ChatReader {
   readonly messageId?: string;
 }
 
+/** Các cỡ trang người dùng chọn được ở màn "Trao đổi công việc"; phần tử đầu là mặc định. */
+export const CHAT_FEED_PAGE_SIZES = [10, 20, 50] as const;
+export const CHAT_FEED_PAGE_SIZE = CHAT_FEED_PAGE_SIZES[0];
+
+/** Độ dài tối đa của từ khoá tìm kiếm ở màn "Trao đổi công việc". */
+export const CHAT_FEED_SEARCH_MAX_LENGTH = 100;
+
+/** Bộ lọc của danh sách công việc ở màn "Trao đổi công việc". */
+export interface ProjectChatFeedQuery {
+  /** Tìm theo mã, tiêu đề công việc hoặc nội dung tin nhắn (không phân biệt hoa thường). */
+  readonly search?: string;
+  /** Chỉ công việc đã có ít nhất một tin nhắn chưa thu hồi. */
+  readonly onlyWithChat?: boolean;
+}
+
+/** Một công việc trong danh sách của màn "Trao đổi công việc": chỉ tóm tắt, tin nhắn lấy riêng khi chọn. */
+export interface ProjectChatFeedItem {
+  readonly workItemId: string;
+  /** Tin mới nhất (chưa thu hồi); vắng nghĩa là công việc chưa có trao đổi nào. */
+  readonly latestAt?: string;
+  readonly latestBy?: string;
+  /** Đầu nội dung tin mới nhất, để xem trước ngay trong danh sách. */
+  readonly latestBody?: string;
+  readonly messageCount: number;
+}
+
+/**
+ * Một trang danh sách công việc của dự án (kể cả công việc lồng nhau): công việc có tin mới nhất
+ * đứng trước, rồi tới công việc chưa có tin. Chỉ để đọc: không đánh dấu đã đọc và không gồm chat
+ * chung của dự án.
+ */
+export interface ProjectChatFeedPage {
+  readonly items: readonly ProjectChatFeedItem[];
+  /** Tổng số công việc của dự án, để dựng thanh phân trang. */
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+/** Số tin mỗi lần xem trao đổi của một công việc ở màn này; tin cũ hơn lấy thêm bằng `before`. */
+export const CHAT_FEED_THREAD_LIMIT = 30;
+
+/** Trao đổi của một công việc, cũ → mới, chỉ để đọc (không đánh dấu đã đọc). */
+export interface ProjectChatThread {
+  readonly messages: readonly ChatMessage[];
+  /** Còn tin cũ hơn: xin trang kế bằng `before` = id tin đầu danh sách. */
+  readonly hasMore: boolean;
+}
+
 /** Danh sách người nhận tín hiệu "đang nhập" của một node, không gồm người hỏi. */
 export interface ChatTypingRecipients {
   readonly userIds: readonly string[];

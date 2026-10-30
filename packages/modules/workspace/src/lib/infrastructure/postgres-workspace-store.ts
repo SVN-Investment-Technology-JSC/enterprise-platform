@@ -10,6 +10,8 @@ import type {
   CalendarEvent,
   ChatChannel,
   ChatEntityType,
+  ProjectChatFeedPage,
+  ProjectChatFeedQuery,
   ChatMessage,
   ChatReader,
   Contract,
@@ -3022,6 +3024,67 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const hasMore = result.rows.length > limit;
       const messages = result.rows.slice(0, limit).map(mapMessage).reverse();
       return { messages, hasMore };
+    },
+
+    listProjectFeedPage: async (
+      tenantId: string,
+      projectId: string,
+      page: number,
+      pageSize: number,
+      query: ProjectChatFeedQuery,
+    ): Promise<ProjectChatFeedPage> => {
+      const pool = await this.poolFor(tenantId);
+      // Mọi kênh đều lưu `project_id` và mỗi công việc (ở mọi cấp) có kênh riêng, nên không cần đệ quy.
+      // Xếp theo tin mới nhất giảm dần, công việc chưa có tin xuống cuối theo thứ tự tạo. Tin xem trước và
+      // tổng số tin lấy cùng một lượt: `DISTINCT ON` giữ tin mới nhất của mỗi công việc, cửa sổ đếm cả nhóm.
+      const conditions = ['w.project_id = $1'];
+      const params: unknown[] = [projectId];
+      if (query.search) {
+        // Tìm theo mã, tiêu đề hoặc nội dung tin chưa thu hồi; `%`, `_` và `\` người dùng gõ được coi là chữ thường.
+        params.push(`%${escapeLike(query.search)}%`);
+        const like = `$${params.length}`;
+        conditions.push(`(w.code ILIKE ${like} OR w.title ILIKE ${like} OR EXISTS (
+            SELECT 1 FROM workspace_schema.chat_channels sc
+              JOIN workspace_schema.chat_messages sm ON sm.channel_id = sc.id AND sm.is_deleted = false
+             WHERE sc.entity_type = 'work_item' AND sc.entity_id = w.id AND sm.body ILIKE ${like}))`);
+      }
+      if (query.onlyWithChat) conditions.push('l.message_count IS NOT NULL');
+      const from = `WITH latest AS (
+             SELECT DISTINCT ON (c.entity_id)
+                    c.entity_id AS work_item_id, m.created_at, m.body, m.created_by,
+                    count(*) OVER (PARTITION BY c.entity_id)::int AS message_count
+               FROM workspace_schema.chat_channels c
+               JOIN workspace_schema.chat_messages m ON m.channel_id = c.id AND m.is_deleted = false
+              WHERE c.project_id = $1 AND c.entity_type = 'work_item'
+              ORDER BY c.entity_id, m.created_at DESC, m.id DESC)
+           SELECT %COLUMNS%
+             FROM workspace_schema.work_items w
+             LEFT JOIN latest l ON l.work_item_id = w.id
+            WHERE ${conditions.join(' AND ')}`;
+      const [total, rows] = await Promise.all([
+        pool.query<Row>(from.replace('%COLUMNS%', 'count(*)::int AS total'), params),
+        pool.query<Row>(
+          `${from.replace(
+            '%COLUMNS%',
+            'w.id, l.created_at AS latest_at, l.body AS latest_body, l.created_by AS latest_by, COALESCE(l.message_count, 0) AS message_count',
+          )}
+            ORDER BY l.created_at DESC NULLS LAST, w.created_at, w.id
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+          [...params, pageSize, (page - 1) * pageSize],
+        ),
+      ]);
+      return {
+        items: rows.rows.map((row) => ({
+          workItemId: str(row.id),
+          latestAt: row.latest_at == null ? undefined : iso(row.latest_at),
+          latestBy: opt(row.latest_by),
+          latestBody: row.latest_body == null ? undefined : str(row.latest_body).slice(0, 160),
+          messageCount: num(row.message_count),
+        })),
+        total: num(total.rows[0]?.total),
+        page,
+        pageSize,
+      };
     },
 
     findMessage: async (tenantId: string, messageId: string) => {

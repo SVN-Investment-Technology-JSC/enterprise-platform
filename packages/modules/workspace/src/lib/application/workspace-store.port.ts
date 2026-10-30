@@ -3,6 +3,8 @@ import type {
   ChatChannel,
   ChatEntityType,
   ChatMessage,
+  ProjectChatFeedPage,
+  ProjectChatFeedQuery,
   ChatReader,
   Contract,
   ContractStatus,
@@ -843,6 +845,17 @@ export interface WorkspaceStore {
       limit: number,
       beforeMessageId?: string,
     ): Promise<{ readonly messages: readonly ChatMessage[]; readonly hasMore: boolean }>;
+    /**
+     * Một trang trao đổi của các công việc trong dự án: công việc có tin mới nhất trước, rồi công việc
+     * chưa có tin. Chỉ đọc: không đánh dấu đã đọc, không gồm chat chung của dự án.
+     */
+    listProjectFeedPage(
+      tenantId: string,
+      projectId: string,
+      page: number,
+      pageSize: number,
+      query: ProjectChatFeedQuery,
+    ): Promise<ProjectChatFeedPage>;
     findMessage(tenantId: string, messageId: string): Promise<ChatMessage | undefined>;
     /**
      * Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction.
