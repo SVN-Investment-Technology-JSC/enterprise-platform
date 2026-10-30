@@ -638,7 +638,8 @@
   padding: 0;
   list-style: none;
 
-  li {
+  // Chỉ dòng con trực tiếp: `li` của danh sách xổ ra của ô chọn nằm sâu bên trong và không được ăn rule này.
+  > li {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -996,7 +997,6 @@
   overflow-x: auto;
 }
 
-.tab,
 /* Dãy tab và nút "Trao đổi công việc" đứng cùng hàng nhưng tách khỏi nhau. */
 .tabRow {
   display: flex;
@@ -1392,6 +1392,7 @@
   font-style: italic;
 }
 
+.tab,
 .tabActive {
   flex: none;
   min-height: 34px;
@@ -5366,18 +5367,78 @@
   width: min(52rem, 100%);
 }
 
-/* Danh sách thành viên dài thì cuộn riêng, khu "Thêm người" luôn thấy được. */
-.memberListScroll {
-  max-height: 38vh;
+/* Hộp thoại cao cố định theo màn hình: nội dung tự chia vùng, từng vùng cuộn riêng. */
+.dialogFixed {
+  height: min(42rem, 90vh);
+
+  .dialogScroll {
+    overflow: hidden;
+  }
+}
+
+/* Thành viên dự án: hai cột (hiện tại | thêm mới), hẹp thì xếp chồng và cả hộp thoại cuộn dọc. */
+.membersLayout {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  min-height: 0;
+
+  @media (width <= 800px) {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+}
+
+.membersCurrent,
+.addPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.addPanel {
+  padding-left: 20px;
+  border-left: 1px solid var(--ep-line);
+
+  input:not([type='checkbox']) {
+    @include input-base;
+  }
+
+  @media (width <= 800px) {
+    padding-left: 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--ep-line);
+    border-left: 0;
+  }
+}
+
+/* Danh sách thành viên hiện tại cuộn riêng. */
+.membersCurrentList {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
+
+  /* Cột flex có chiều cao bị khống chế: nếu để co lại, dòng nhiều chữ bị ép thấp hơn nội dung và chữ chồng lên nhau. */
+  > li {
+    flex: none;
+  }
+
+  @media (width <= 800px) {
+    flex: none;
+    max-height: 40vh;
+  }
 }
 
 .memberRoleEdit {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  width: 260px;
+  width: 200px;
 
   >[role='group'] {
     flex: 1;
@@ -5385,20 +5446,7 @@
   }
 }
 
-.memberAdd {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ep-line);
-
-  input:not([type='checkbox']) {
-    @include input-base;
-  }
-}
-
-.memberAddHead {
+.addPanelHead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5406,46 +5454,97 @@
   gap: 8px;
 }
 
-/* Cây cơ cấu tổ chức có ô tích để thêm người theo đơn vị / chức danh. */
-.orgPicker {
+.addPanel .searchBox {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+
+  >svg {
+    position: absolute;
+    left: 10px;
+    color: var(--ep-text-sub);
+    pointer-events: none;
+  }
+
+  input:not([type='checkbox']) {
+    width: 100%;
+    padding-left: 32px;
+  }
 }
 
-.orgTree {
-  max-height: 32vh;
+/* Vùng danh sách nhân sự / cây đơn vị: cuộn riêng, chiếm phần còn lại của cột. */
+.addScroll {
+  flex: 1 1 auto;
+  min-height: 160px;
   margin: 0;
-  padding: 6px;
+  padding: 2px 4px 2px 0;
   overflow-y: auto;
   list-style: none;
-  border: 1px solid var(--ep-border);
-  border-radius: var(--ep-radius);
+  border-top: 1px solid var(--ep-line);
+  border-bottom: 1px solid var(--ep-line);
 
-  li {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-height: 30px;
-    border-radius: var(--ep-radius-sm);
-    font-size: 13px;
-
-    &:hover {
-      background: var(--ep-hover);
-    }
+  @media (width <= 800px) {
+    flex: none;
+    max-height: 40vh;
   }
 
   input[type='checkbox'] {
     flex: none;
     width: 15px;
     height: 15px;
-    margin: 0 4px 0 0;
+    margin: 0;
     accent-color: var(--ep-accent-strong);
     cursor: pointer;
+
+    &:disabled {
+      cursor: default;
+    }
   }
 }
 
-.orgToggle {
+.personRow,
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-radius: var(--ep-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+}
+
+.personRow {
+  padding: 4px 6px;
+}
+
+.personText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+
+  >* {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  >.muted {
+    font-size: 12px;
+  }
+}
+
+.treeChildren {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.treeToggle {
   display: inline-grid;
   flex: none;
   place-items: center;
@@ -5459,49 +5558,41 @@
   cursor: pointer;
 }
 
-.orgLabel {
+.treeLabel {
   display: inline-flex;
   flex: 1;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  cursor: pointer;
-
-  >span:first-of-type {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  >span:last-child {
-    margin-left: auto;
-    padding-right: 6px;
-    font-size: 12px;
-  }
 }
 
-.orgIcon {
+.treeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeCount {
+  margin-left: auto;
+  padding-right: 6px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.treeIcon {
   flex: none;
   color: var(--ep-text-sub);
 }
 
-.orgPickerFoot {
+.addFoot {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   font-size: 12.5px;
-}
-
-.orgPickerActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  >[role='group'] {
-    width: 180px;
-  }
 }
 
 /* Cài đặt: vai trò trong dự án. */
