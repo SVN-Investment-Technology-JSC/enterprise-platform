@@ -304,6 +304,27 @@ integration('Workspace: điều kiện hoàn thành công việc (PostgreSQL)', 
     expect(await store.workItem.listByProject(tenantId, empty.id)).toHaveLength(0);
   });
 
+  it('hoàn thành thì tiến độ 100%, hoàn tác thì về 0% (việc lá và việc có con)', async () => {
+    const progressOf = async (id: string) => (await store.workItem.findById(tenantId, id))?.progressPercent;
+
+    const leaf = await create('Tiến độ việc lá');
+    await start(leaf.id);
+    await service.changeStatus(actor, leaf.id, { status: 'done' });
+    expect(await progressOf(leaf.id)).toBe(100);
+    await service.changeStatus(actor, leaf.id, { status: 'in_progress' });
+    expect(await progressOf(leaf.id)).toBe(0);
+
+    const parent = await create('Cha tiến độ');
+    const child = await create('Con tiến độ', { parentId: parent.id });
+    await start(child.id);
+    await service.changeStatus(actor, child.id, { status: 'done' });
+    expect(await progressOf(parent.id)).toBe(100);
+    await service.changeStatus(actor, child.id, { status: 'in_progress' });
+    expect(await progressOf(child.id)).toBe(0);
+    expect(await progressOf(parent.id)).toBe(0);
+    expect((await store.workItem.findById(tenantId, parent.id))?.status).toBe('in_progress');
+  });
+
   it('xoá việc kéo theo xoá điều kiện (ON DELETE CASCADE)', async () => {
     const created = await create('Xoá', { completion: { rule: 'all', conditions: [{ label: 'A' }] } });
     await pool.query(`DELETE FROM workspace_schema.work_items WHERE id = $1`, [created.id]);

@@ -1587,8 +1587,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   actual_start = CASE WHEN $2::varchar = 'in_progress' AND actual_start IS NULL
                                       THEN $3::date ELSE actual_start END,
                   actual_end   = CASE WHEN $2::varchar IN ('done','cancelled') THEN $3::date ELSE NULL END,
+                  -- Hoàn thành là 100%; về Chưa làm là 0%; hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ
+                  -- 100% của lần hoàn thành. Việc có con được tính lại từ con ở bước cuộn tiến độ sau đó.
                   progress_percent = CASE WHEN $2::varchar = 'done' THEN 100
                                           WHEN $2::varchar = 'todo' THEN 0
+                                          WHEN $4::varchar = 'done' THEN 0
                                           ELSE progress_percent END,
                   -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
                   manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
@@ -1596,7 +1599,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   updated_at = now()
             WHERE id = $1
             RETURNING ${WORK_ITEM_COLUMNS}`,
-          [workItemId, next, today],
+          [workItemId, next, today, str(current.status)],
         );
         const item = mapWorkItem(updated.rows[0] as Row);
 
@@ -5917,8 +5920,10 @@ async function setStandaloneStatus(
             actual_start = CASE WHEN $3::varchar = 'in_progress' AND actual_start IS NULL
                                 THEN $4::date ELSE actual_start END,
             actual_end   = CASE WHEN $3::varchar IN ('done','cancelled') THEN $4::date ELSE NULL END,
+            -- Hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ 100% của lần hoàn thành.
             progress_percent = CASE WHEN $3::varchar = 'done' THEN 100
                                     WHEN $3::varchar = 'todo' THEN 0
+                                    WHEN $2::varchar = 'done' THEN 0
                                     ELSE progress_percent END,
             -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
             manual_progress_percent = CASE WHEN $3::varchar = 'done' THEN NULL
