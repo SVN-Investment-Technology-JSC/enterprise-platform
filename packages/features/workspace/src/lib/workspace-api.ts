@@ -63,6 +63,7 @@ import type {
   ProjectMember,
   ProjectSummary,
   ProjectArchiveSettings,
+  ProjectCreatedResponse,
   ProjectCodePreview,
   ProjectCodeSettings,
   SaveWorkspaceLabelSettingsRequest,
@@ -273,7 +274,7 @@ export const getProject = (id: string) =>
   request<ProjectSummary>(`/projects/${id}`, { cache: 'no-store' });
 
 export const createProject = (body: CreateProjectRequest) =>
-  request<Project>('/projects', { method: 'POST', body: JSON.stringify(body) });
+  request<ProjectCreatedResponse>('/projects', { method: 'POST', body: JSON.stringify(body) });
 
 export const updateProject = (id: string, body: UpdateProjectRequest) =>
   request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -301,6 +302,9 @@ export const listProjectActivity = (projectId: string) =>
 
 export const createWorkItem = (body: CreateWorkItemRequest) =>
   request<WorkItem>('/work-items', { method: 'POST', body: JSON.stringify(body) });
+
+export const getWorkItem = (id: string) =>
+  request<WorkItem>(`/work-items/${id}`, { cache: 'no-store' });
 
 export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });

@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EMPTY_PROJECT_FILTER, matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
+import { initialTasksWarning } from '../project-created';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -271,7 +272,7 @@ export function ProjectsListView({
     [reload, onProjectsChanged],
   );
 
-  /** Mở lưu trữ: dự án về "Đang chạy", rời danh sách lưu trữ để thêm công việc. */
+  /** Mở lưu trữ: dự án rời danh sách lưu trữ và chỉnh sửa được; trạng thái Hoàn thành về Đang chạy hoặc giữ nguyên theo cài đặt. */
   const unarchive = useCallback(
     async (projectId: string) => {
       try {
@@ -333,6 +334,8 @@ export function ProjectsListView({
       members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
     ) => {
       const created = await api.createProject(input);
+      const warning = initialTasksWarning(created);
+      if (warning) setError(warning);
       // Số tiền và thành viên đi đường riêng, cùng cách như trong ProjectsView.
       if (contractValue !== undefined) {
         await api.updateProjectFinance(created.id, { contractValue });
@@ -728,9 +731,10 @@ function GroupRows({
         const checked = selected.has(project.id);
         const busy = savingId === project.id;
         // Server vẫn kiểm quyền; ở đây chỉ khoá ô để người không có quyền khỏi bấm rồi nhận lỗi.
-        const canEdit = !busy && Boolean(project.myPermissions?.includes('project.update_all'));
+        // Dự án đã lưu trữ chỉ xem: muốn sửa phải mở lưu trữ (nút ở cuối dòng) trước.
+        const canEdit = !busy && !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_all'));
         const canEditStatus =
-          !busy && Boolean(project.myPermissions?.includes('project.update_status'));
+          !busy && !project.archivedAt && Boolean(project.myPermissions?.includes('project.update_status'));
         const customer = customerOf(project.customerId);
         const statusChoices = projectStatusKeys()
           // Huỷ dự án đi qua hộp riêng (kèm lý do) ở trang chi tiết.
@@ -853,7 +857,7 @@ function GroupRows({
                 {project.archivedAt ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
-                    description="Dự án về lại danh sách đang làm để thêm công việc. Dự án đang Hoàn thành thì chuyển về Đang chạy; trạng thái khác giữ nguyên."
+                    description="Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang Hoàn thành về Đang chạy hoặc giữ nguyên trạng thái, theo Cấu hình chung."
                     okText="Mở lưu trữ"
                     onConfirm={() => onUnarchive(project.id)}
                   >

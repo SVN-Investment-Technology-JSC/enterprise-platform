@@ -73,6 +73,10 @@ export interface ChatDrawerProps {
   readonly title: string;
   readonly members: readonly ProjectMember[];
   readonly canWrite: boolean;
+  /** Lời giải thích thay cho ô nhập khi không nhắn được; vắng thì dùng câu mặc định về quyền xem. */
+  readonly readOnlyNote?: string;
+  /** Tắt nút tải tệp mới lên (dự án đã lưu trữ chặn ghi tài liệu dù vẫn cho nhắn tin). Mặc định bật. */
+  readonly canUpload?: boolean;
   readonly currentUserId: string;
   readonly onClose: () => void;
   /** Gọi sau mỗi lần ghi, để cây tải lại chấm đỏ. */
@@ -117,6 +121,8 @@ export function ChatDrawer({
   title,
   members,
   canWrite,
+  readOnlyNote,
+  canUpload = true,
   currentUserId,
   onClose,
   onChanged,
@@ -758,7 +764,7 @@ export function ChatDrawer({
                 tài liệu hay kho chưa có thư mục chung: hộp thoại tải lên tự
                 tạo thư mục riêng cho dự án.
               */}
-              {canWrite ? (
+              {canWrite && canUpload ? (
                 <button
                   type="button"
                   className={styles.iconButton}
@@ -845,7 +851,7 @@ export function ChatDrawer({
         </div>
       ) : (
         <p className={styles.drawerFoot}>
-          <span className={styles.muted}>Bạn chỉ có quyền xem, không gửi được tin nhắn.</span>
+          <span className={styles.muted}>{readOnlyNote ?? 'Bạn chỉ có quyền xem, không gửi được tin nhắn.'}</span>
         </p>
       )}
 

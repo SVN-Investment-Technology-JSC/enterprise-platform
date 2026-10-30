@@ -380,14 +380,16 @@ function TabWorkImpl({
               Hiện việc con
             </label>
           ) : null}
-          <button
-            type="button"
-            className={`${styles.buttonPrimary} ${styles.workToolbarAdd}`}
-            disabled={!canWrite}
-            onClick={onAddRoot}
-          >
-            <Plus size={15} /> Thêm công việc
-          </button>
+          {/* Không có quyền ghi (người xem, dự án đã lưu trữ) thì ẩn hẳn nút, không để nút mờ. */}
+          {canWrite ? (
+            <button
+              type="button"
+              className={`${styles.buttonPrimary} ${styles.workToolbarAdd}`}
+              onClick={onAddRoot}
+            >
+              <Plus size={15} /> Thêm công việc
+            </button>
+          ) : null}
         </div>
 
         <div className={styles.workFilters}>

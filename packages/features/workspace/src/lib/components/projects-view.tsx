@@ -36,7 +36,7 @@ import {
   useRealtimeEvent,
   type WorkspaceChatSignal,
 } from '@enterprise-platform/shared-ui';
-import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
+import { ArchiveRestore, MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -52,6 +52,9 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { CompleteWorkItemDialog } from './complete-work-item-dialog';
+import { Confirm } from './confirm-box';
+import { initialTasksWarning } from '../project-created';
 import { DeleteWorkItemDialog } from './delete-work-item-dialog';
 import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
@@ -234,6 +237,8 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  /** Việc đang hỏi xác nhận hoàn thành (kèm điều kiện hoàn thành nếu có). */
+  const [completingItem, setCompletingItem] = useState<WorkItem>();
   const [deletingItem, setDeletingItem] = useState<WorkItem>();
   const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
@@ -703,7 +708,8 @@ export function ProjectsView({
   const role = detail?.project.myRole;
   // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
   // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
-  const permissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+  const archived = Boolean(detail?.project.archivedAt);
+  const grantedPermissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
     const given =
       detail?.project.myPermissions ??
       (role
@@ -713,6 +719,13 @@ export function ProjectsView({
         : PROJECT_PERMISSIONS);
     return new Set(given);
   }, [detail?.project.myPermissions, role]);
+  // Dự án đã lưu trữ chỉ xem: không còn quyền ghi nào, nên mọi nút chức năng bên dưới tự ẩn. Việc duy nhất còn lại là
+  // "Mở lưu trữ", dành cho người có quyền đổi trạng thái dự án.
+  const permissions = useMemo<ReadonlySet<ProjectPermission>>(
+    () => (archived ? new Set<ProjectPermission>() : grantedPermissions),
+    [archived, grantedPermissions],
+  );
+  const canUnarchive = archived && grantedPermissions.has('project.update_status');
   const canWrite =
     permissions.has('project.update_all') || permissions.has('project.update_related');
   const canManage = permissions.has('project.update_all');
@@ -756,7 +769,26 @@ export function ProjectsView({
       alive = false;
     };
   }, [selectedItem, procedureRef, detail, canWrite, openId, refreshDetail]);
-  const canOwn = role === 'owner' || !role;
+  const canOwn = (role === 'owner' || !role) && !archived;
+  /** Tenant chọn vẫn cho nhắn trong dự án đã lưu trữ (Cấu hình chung); mặc định chặn. */
+  const [chatOnArchivedAllowed, setChatOnArchivedAllowed] = useState(false);
+  useEffect(() => {
+    if (!archived) return undefined;
+    let alive = true;
+    api
+      .loadProjectArchiveSettings()
+      .then((settings) => {
+        if (alive) setChatOnArchivedAllowed(settings.chatOnArchived === 'allow');
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [archived]);
+  const chatCanWrite = archived
+    ? chatOnArchivedAllowed &&
+      (grantedPermissions.has('project.update_all') || grantedPermissions.has('project.update_related'))
+    : canWrite;
 
   /**
    * Tin chưa đọc của CHÍNH luồng chat cấp dự án. Nút Trao đổi ở đầu trang mở đúng luồng này, nên số trên
@@ -769,7 +801,13 @@ export function ProjectsView({
 
   /* --------------------------------------------------- Menu chuột phải */
 
+  /** Dự án đã lưu trữ chỉ xem: menu chỉ còn mở trao đổi và tải lại, các lệnh ghi bị ẩn hẳn. */
   const actionsFor = (node: SelectedNode): ContextAction[] => {
+    const all = allActionsFor(node);
+    return archived ? all.filter((action) => action.id === 'open-chat' || action.id === 'refresh') : all;
+  };
+
+  const allActionsFor = (node: SelectedNode): ContextAction[] => {
     if (node.kind === 'project') {
       return [
         { id: 'add-root-item', label: 'Thêm công việc cấp gốc', disabled: !canWrite },
@@ -878,24 +916,29 @@ export function ProjectsView({
   const quickActionFor = (item: WorkItem) => {
     const performer =
       item.assigneeUserId === me || (item.participantUserIds ?? []).includes(me);
-    if (!performer || item.reversal || item.itemType === 'phase') return undefined;
+    if (archived || item.reversal || item.itemType === 'phase') return undefined;
+    // Việc đã hoàn thành: "Hoàn tác" đưa về Đang làm, theo quy định người tạo việc đã chọn (server kiểm lại).
+    if (item.status === 'done') {
+      const policy = item.reopenPolicy ?? 'assignee';
+      const allowed = policy !== 'none' && canWrite && (canManage || (policy === 'assignee' && performer));
+      return allowed
+        ? {
+            label: 'Hoàn tác',
+            onClick: () =>
+              void run(
+                () => api.changeWorkItemStatus(item.id, { status: 'in_progress' }),
+                'Không hoàn tác được công việc.',
+              ),
+          }
+        : undefined;
+    }
+    if (!performer) return undefined;
     const target = { kind: 'work-item' as const, id: item.id };
     if (item.status === 'todo') {
       return { label: 'Bắt đầu làm', onClick: () => onAction('start', target) };
     }
     if (item.status === 'in_progress' || item.status === 'review') {
-      return {
-        label: 'Hoàn thành',
-        onClick: () =>
-          void attempt(
-            () => api.changeWorkItemStatus(item.id, { status: 'done' }),
-            'Không đổi được trạng thái.',
-          ).then((done) => {
-            // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về.
-            const back = done ? returnPathFor(item.id) : undefined;
-            if (back) window.location.assign(back);
-          }),
-      };
+      return { label: 'Hoàn thành', onClick: () => setCompletingItem(item) };
     }
     return undefined;
   };
@@ -949,7 +992,8 @@ export function ProjectsView({
         if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'in_progress' }), 'Không đổi được trạng thái.');
         return;
       case 'complete':
-        if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'done' }), 'Không đổi được trạng thái.');
+        // Hỏi xác nhận (và điều kiện hoàn thành nếu có) — xem CompleteWorkItemDialog.
+        if (item) setCompletingItem(item);
         return;
       case 'cancel-item':
         // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
@@ -1002,6 +1046,11 @@ export function ProjectsView({
           return;
         }
         setCancellingItem(item);
+        return;
+      }
+      // Hoàn thành luôn qua hộp xác nhận (kèm điều kiện hoàn thành nếu việc có đặt), kể cả khi kéo thẻ Kanban.
+      if (next === 'done' && item.status !== 'done') {
+        setCompletingItem(item);
         return;
       }
       await api.changeWorkItemStatus(item.id, { status: next });
@@ -1110,6 +1159,31 @@ export function ProjectsView({
             }
           />
 
+          {archived ? (
+            <div className={styles.archivedBanner} role="status">
+              <span className={styles.archivedBannerText}>
+                <strong>Dự án đã lưu trữ, chỉ xem.</strong>{' '}
+                {canUnarchive
+                  ? 'Mở lưu trữ để chỉnh sửa công việc, tài liệu và lịch của dự án.'
+                  : 'Cần người có quyền đổi trạng thái dự án mở lưu trữ trước khi chỉnh sửa.'}
+              </span>
+              {canUnarchive ? (
+                <Confirm
+                  title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
+                  description="Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang Hoàn thành về Đang chạy hoặc giữ nguyên trạng thái, theo Cấu hình chung."
+                  okText="Mở lưu trữ"
+                  onConfirm={() =>
+                    run(() => api.unarchiveProject(detail.project.id), 'Không mở được lưu trữ dự án.')
+                  }
+                >
+                  <button type="button" className={styles.buttonGhost}>
+                    <ArchiveRestore size={14} aria-hidden="true" /> Mở lưu trữ
+                  </button>
+                </Confirm>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
             {visibleTabs.map((entry) => {
               const count = tabCount(entry.id);
@@ -1160,7 +1234,7 @@ export function ProjectsView({
             <DocumentPanel
               projectId={detail.project.id}
               canWrite={canWrite}
-              canDelete={canDelete}
+              canDelete={canDelete && !archived}
               currentUserId={me}
               compact
               workItems={detail.items}
@@ -1284,7 +1358,7 @@ export function ProjectsView({
             projectId={detail.project.id}
             linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
             canWrite={canWrite}
-            canDelete={canDelete}
+            canDelete={canDelete && !archived}
             currentUserId={me}
             compact
             workItems={detail.items}
@@ -1305,7 +1379,13 @@ export function ProjectsView({
               : ''
         }
         members={detail?.members ?? []}
-        canWrite={canWrite}
+        canWrite={chatCanWrite}
+        canUpload={!archived}
+        readOnlyNote={
+          archived && !chatCanWrite && !chatOnArchivedAllowed
+            ? 'Dự án đã lưu trữ nên không nhắn tin được. Quản trị viên có thể bật nhắn tin trong Cài đặt, mục Cấu hình chung.'
+            : undefined
+        }
         documents={projectDocuments}
         folders={projectFolders}
         projectId={openId}
@@ -1323,6 +1403,8 @@ export function ProjectsView({
         financeEnabled={projectForm.edit ? Boolean(detail?.project.finance) : true}
         onCreate={async (input: CreateProjectRequest, contractValue, members) => {
           const created = await api.createProject(input);
+          const warning = initialTasksWarning(created);
+          if (warning) setError(warning);
           // Số tiền đi đường riêng: endpoint tài chính có hàng rào quyền khác.
           if (contractValue !== undefined) {
             await api.updateProjectFinance(created.id, { contractValue });
@@ -1467,6 +1549,25 @@ export function ProjectsView({
           if (!detail) return;
           await api.setMembers(detail.project.id, { members });
           await refreshDetail(detail.project.id);
+        }}
+      />
+
+      <CompleteWorkItemDialog
+        target={completingItem}
+        onClose={() => setCompletingItem(undefined)}
+        onConfirm={async (confirmedConditionIds) => {
+          const item = completingItem;
+          if (!item) return;
+          // Lỗi ném ra để hộp thoại tự hiện, giữ hộp mở cho người dùng sửa rồi bấm lại.
+          await api.changeWorkItemStatus(item.id, { status: 'done', confirmedConditionIds });
+          setCompletingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          await refreshList();
+          onProjectsChanged?.();
+          setError(undefined);
+          // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về.
+          const back = returnPathFor(item.id);
+          if (back) window.location.assign(back);
         }}
       />
 

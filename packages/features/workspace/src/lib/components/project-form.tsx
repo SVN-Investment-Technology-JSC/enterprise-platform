@@ -15,7 +15,7 @@ import {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { orgUnitOptions } from '../org-units';
 import {
@@ -23,6 +23,7 @@ import {
   linkCrmCustomer,
   listCustomers,
   listProjectTypes,
+  loadProjectArchiveSettings,
   previewProjectCode,
   searchCrmCustomers,
 } from '../workspace-api';
@@ -32,6 +33,7 @@ import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
 import { TagPicker } from './tag-picker';
+import { TaskTitleListEditor } from './task-title-list-editor';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
 
@@ -143,6 +145,12 @@ export function ProjectForm({
   /** Mã dự kiến theo quy tắc ở Cài đặt (chỉ khi tạo); đổi nhóm dự án thì tính lại. */
   const [codePreview, setCodePreview] = useState<ProjectCodePreview>();
   const [newMembers, setNewMembers] = useState<Array<{ userId: string; role: ProjectRole }>>([]);
+  /** Công việc tạo sẵn cùng dự án (chỉ khi tạo): lấy mẫu của tenant nếu bật, người tạo thêm hoặc bớt được. */
+  const [initialTasks, setInitialTasks] = useState<string[]>([]);
+  /** Đã biết cấu hình của tenant; chưa biết thì để server tự quyết khi gửi. */
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  /** Người dùng đã tự sửa danh sách: mẫu tải về chậm không được ghi đè. */
+  const tasksTouched = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -153,6 +161,26 @@ export function ProjectForm({
       .then((items) => setCustomers(items))
       .catch(() => setCustomers([]));
   }, [open]);
+
+  // Mỗi lần mở form tạo: nạp mẫu công việc tạo sẵn của tenant. Tắt thì danh sách rỗng, người tạo vẫn thêm tay được.
+  useEffect(() => {
+    if (!open || project) return;
+    let alive = true;
+    tasksTouched.current = false;
+    setInitialTasks([]);
+    setTemplateLoaded(false);
+    loadProjectArchiveSettings()
+      .then((settings) => {
+        if (!alive) return;
+        if (!tasksTouched.current) setInitialTasks(settings.defaultTasksEnabled ? [...settings.defaultTaskTitles] : []);
+        setTemplateLoaded(true);
+      })
+      // Không đọc được cấu hình: coi như không có mẫu để danh sách thấy trên màn và danh sách gửi đi là một.
+      .catch(() => alive && setTemplateLoaded(true));
+    return () => {
+      alive = false;
+    };
+  }, [open, project]);
 
   // Hỏi Bán hàng mỗi lần mở và khi gõ tìm (chờ một nhịp để không gọi mỗi phím). Tenant không bật Bán hàng thì
   // server trả `enabled = false`, form giữ danh mục Workspace như cũ.
@@ -354,6 +382,12 @@ export function ProjectForm({
           tagIds: form.tagIds,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
+          // Biết mẫu của tenant hoặc người dùng đã sửa thì gửi danh sách rõ ràng (rỗng là không tạo); chưa biết thì để
+          // server theo cấu hình chung.
+          initialTasks:
+            templateLoaded || tasksTouched.current
+              ? initialTasks.map((title) => title.trim()).filter(Boolean)
+              : undefined,
         }, contractValue, members);
       }
       onClose();
@@ -621,6 +655,27 @@ export function ProjectForm({
           ) : null}
         </div>
       ) : null}
+
+      {project ? null : (
+        <Field
+          label="Công việc tạo sẵn"
+          hint={
+            initialTasks.length > 0
+              ? `Tạo sẵn ${initialTasks.filter((title) => title.trim()).length} công việc cấp gốc cùng dự án, chưa giao ai. Thêm, bớt hoặc đổi thứ tự cho dự án này; mẫu chung sửa ở Cài đặt > Cấu hình chung.`
+              : 'Không bắt buộc: thêm các công việc cấp gốc để tạo sẵn cùng dự án. Mẫu chung sửa ở Cài đặt > Cấu hình chung.'
+          }
+        >
+          <TaskTitleListEditor
+            idPrefix="Công việc tạo sẵn"
+            titles={initialTasks}
+            emptyText="Chưa tạo sẵn công việc nào."
+            onChange={(next) => {
+              tasksTouched.current = true;
+              setInitialTasks(next);
+            }}
+          />
+        </Field>
+      )}
 
       {/*
         Thêm người ngay lúc lập dự án: người tạo luôn là chủ nhiệm. Mỗi người
