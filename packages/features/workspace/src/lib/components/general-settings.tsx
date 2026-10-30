@@ -80,7 +80,10 @@ interface ChoiceOption<T extends string> {
   readonly description: string;
 }
 
-/** Chọn một trong nhiều khả năng; mỗi khả năng có tên và một dòng giải thích hệ quả. */
+/**
+ * Chọn một trong nhiều khả năng, dạng ô chọn kiểu shadcn "radio card": mỗi khả năng là một ô có nút tròn, tên và một dòng
+ * giải thích hệ quả. Các ô xếp lưới tự co: còn chỗ thì 2, 3 ô một hàng, màn hẹp thì xuống từng hàng.
+ */
 function RadioChoices<T extends string>({
   name,
   value,
@@ -97,8 +100,15 @@ function RadioChoices<T extends string>({
   return (
     <fieldset className={styles.gsRadios} disabled={disabled}>
       {options.map((option) => (
-        <label key={option.value} className={styles.gsRadio}>
-          <input type="radio" name={name} checked={value === option.value} onChange={() => onChange(option.value)} />
+        <label key={option.value} className={`${styles.gsRadio} ${value === option.value ? styles.gsRadioOn : ''}`}>
+          <input
+            type="radio"
+            className={styles.gsRadioInput}
+            name={name}
+            checked={value === option.value}
+            onChange={() => onChange(option.value)}
+          />
+          <span className={styles.gsRadioDot} aria-hidden="true" />
           <span className={styles.gsRadioText}>
             <strong>{option.label}</strong>
             <span>{option.description}</span>
