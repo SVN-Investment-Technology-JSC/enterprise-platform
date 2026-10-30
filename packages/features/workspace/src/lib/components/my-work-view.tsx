@@ -17,11 +17,13 @@ import {
   type UpdateStandaloneTaskRequest,
   type UpdateWorkItemRequest,
   type WorkItemPriority,
+  type WorkItem,
   type WorkItemStatus,
   WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
 import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
-import { formatTime } from '@enterprise-platform/shared-ui';
+import { formatTime, toast } from '@enterprise-platform/shared-ui';
+import { statusToastText, toastStatusChanged } from '../status-toast';
 import {
   ArrowUpDown,
   AtSign,
@@ -234,31 +236,43 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         : current,
     );
 
-  const changeStatus = async (itemId: string, next: WorkItemStatus) => {
+  const changeStatus = async (item: WorkItem, next: WorkItemStatus) => {
+    const itemId = item.id;
     setError(undefined);
     setSavingItem(itemId);
     try {
       // Cùng endpoint với màn Dự án, nên mọi ràng buộc — việc con chưa đóng,
       // tiền nhiệm FS chưa xong — vẫn áp dụng nguyên vẹn ở đây.
       await api.changeWorkItemStatus(itemId, { status: next });
+      // Báo ngay khi Bắt đầu hoặc Hoàn tác xong, trước khi tải lại bảng.
+      toastStatusChanged(item.status, next, item.code);
       // Tải lại: việc đóng thì rời bảng, số đếm đầu trang cũng đổi.
       await reload();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
+      toast.error((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
     } finally {
       setSavingItem(undefined);
     }
   };
 
   /** Việc ngoài dự án: đổi trạng thái hay sửa xong thì tải lại (nhóm hạn, việc chờ duyệt, số đếm đều có thể đổi). */
-  const runTask = async (taskId: string, operation: () => Promise<unknown>, fallback: string) => {
+  const runTask = async (
+    taskId: string,
+    operation: () => Promise<unknown>,
+    fallback: string,
+    /** Chỉ truyền khi thao tác là đổi trạng thái: báo thành công (và lỗi) bằng toast. */
+    onStatusChanged?: () => void,
+  ) => {
     setError(undefined);
     setSavingItem(taskId);
     try {
       await operation();
+      onStatusChanged?.();
       await reload();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? fallback);
+      const text = (cause as { message?: string })?.message ?? fallback;
+      setError(text);
+      if (onStatusChanged) toast.error(text);
     } finally {
       setSavingItem(undefined);
     }
@@ -565,7 +579,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                             onStatus={(next) =>
                               next === 'done'
                                 ? setCompleting(entry.item)
-                                : void changeStatus(entry.item.id, next)
+                                : void changeStatus(entry.item, next)
                             }
                             onPatch={(patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
                           />
@@ -627,6 +641,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                           entry.task.id,
                           () => api.changeStandaloneTaskStatus(entry.task.id, { status: next }),
                           'Không đổi được trạng thái.',
+                          () => toastStatusChanged(entry.task.status, next, entry.task.code),
                         )
                       }
                       onPatch={(patch, fallback) =>
@@ -784,6 +799,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
           if (!completing) return;
           // Lỗi ném ra để hộp thoại tự hiện; cùng endpoint nên việc con chưa đóng, tiền nhiệm FS… vẫn chặn như màn Dự án.
           await api.changeWorkItemStatus(completing.id, { status: 'done', confirmedConditionIds });
+          toast.success(statusToastText('complete', completing.code));
           setCompleting(undefined);
           await reload();
         }}

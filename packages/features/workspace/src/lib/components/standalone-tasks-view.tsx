@@ -15,7 +15,8 @@ import {
   WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
 import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
-import { returnPathFor } from '@enterprise-platform/shared-ui';
+import { returnPathFor, toast } from '@enterprise-platform/shared-ui';
+import { RETURN_AFTER_TOAST_MS, toastStatusChanged } from '../status-toast';
 import {
   ChevronRight,
   ExternalLink,
@@ -589,7 +590,9 @@ function TaskDetail({
       if (next) onChanged(next);
       return true;
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không thực hiện được thao tác.');
+      const text = (cause as { message?: string })?.message ?? 'Không thực hiện được thao tác.';
+      setError(text);
+      toast.error(text);
       return false;
     } finally {
       setBusy(false);
@@ -598,9 +601,10 @@ function TaskDetail({
 
   const move = (status: WorkItemStatus, note?: string) =>
     attempt(() => api.changeStandaloneTaskStatus(task.id, { status, note })).then((done) => {
-      // Mở việc từ trang chủ (`?returnTo=`): nộp kết quả hay duyệt xong thì tự quay về.
+      if (done) toastStatusChanged(task.status, status, task.code);
+      // Mở việc từ trang chủ (`?returnTo=`): nộp kết quả hay duyệt xong thì tự quay về, sau một nhịp để kịp đọc toast.
       const back = done && (status === 'done' || status === 'review') ? returnPathFor(task.id) : undefined;
-      if (back) window.location.assign(back);
+      if (back) setTimeout(() => window.location.assign(back), RETURN_AFTER_TOAST_MS);
     });
 
   /** Chỉ các dòng đổi trạng thái; nhật ký còn có dòng sửa trường xen giữa. */

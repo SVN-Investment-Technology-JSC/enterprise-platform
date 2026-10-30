@@ -33,9 +33,11 @@ import { CHAT_UNREAD_POLL_MS, WORKSPACE_ASSISTANT_ACTIONS } from '@enterprise-pl
 import { useAssistantSaved } from '@enterprise-platform/feature-module-shell';
 import {
   returnPathFor,
+  toast,
   useRealtimeEvent,
   type WorkspaceChatSignal,
 } from '@enterprise-platform/shared-ui';
+import { RETURN_AFTER_TOAST_MS, toastStatusChanged } from '../status-toast';
 import { ArchiveRestore, MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -910,6 +912,23 @@ export function ProjectsView({
   };
 
   /**
+   * Đổi trạng thái một việc rồi báo ngay bằng toast: thành công thì "Đã bắt đầu / Đã hoàn tác…", thất bại thì lời của
+   * server. Dùng cho Bắt đầu và Hoàn tác (không qua hộp xác nhận), nên toast là phản hồi chính.
+   */
+  const changeStatusWithToast = async (item: WorkItem, next: WorkItemStatus, fallback: string): Promise<void> => {
+    try {
+      await api.changeWorkItemStatus(item.id, { status: next });
+      if (openId) await refreshDetail(openId);
+      await refreshList();
+      onProjectsChanged?.();
+      setError(undefined);
+      toastStatusChanged(item.status, next, item.code);
+    } catch (cause) {
+      toast.error(message(cause, fallback));
+    }
+  };
+
+  /**
    * Nút nhanh trên đầu trang công việc cho người thực hiện (phụ trách hoặc cùng làm): bắt đầu khi chưa
    * làm, hoàn thành khi đang làm / chờ duyệt. Việc đã huỷ hiệu lực hay không phải của mình thì không hiện.
    */
@@ -924,11 +943,7 @@ export function ProjectsView({
       return allowed
         ? {
             label: 'Hoàn tác',
-            onClick: () =>
-              void run(
-                () => api.changeWorkItemStatus(item.id, { status: 'in_progress' }),
-                'Không hoàn tác được công việc.',
-              ),
+            onClick: () => void changeStatusWithToast(item, 'in_progress', 'Không hoàn tác được công việc.'),
           }
         : undefined;
     }
@@ -989,7 +1004,7 @@ export function ProjectsView({
         setItemForm({ open: true, edit: item });
         return;
       case 'start':
-        if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'in_progress' }), 'Không đổi được trạng thái.');
+        if (item) void changeStatusWithToast(item, 'in_progress', 'Không đổi được trạng thái.');
         return;
       case 'complete':
         // Hỏi xác nhận (và điều kiện hoàn thành nếu có) — xem CompleteWorkItemDialog.
@@ -1055,6 +1070,7 @@ export function ProjectsView({
       }
       await api.changeWorkItemStatus(item.id, { status: next });
       if (openProjectId) await refreshDetail(openProjectId);
+      toastStatusChanged(item.status, next, item.code);
     },
     [canCancelItem, openProjectId, refreshDetail],
   );
@@ -1565,9 +1581,10 @@ export function ProjectsView({
           await refreshList();
           onProjectsChanged?.();
           setError(undefined);
-          // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về.
+          toastStatusChanged(item.status, 'done', item.code);
+          // Mở công việc từ trang chủ (`?returnTo=`): hoàn thành xong thì tự quay về, sau một nhịp để kịp đọc toast.
           const back = returnPathFor(item.id);
-          if (back) window.location.assign(back);
+          if (back) setTimeout(() => window.location.assign(back), RETURN_AFTER_TOAST_MS);
         }}
       />
 
