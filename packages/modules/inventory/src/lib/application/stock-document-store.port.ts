@@ -1,4 +1,5 @@
 import type {
+  MovementCounterparty,
   PostedStockDocument,
   StockDocument,
   StockDocumentLineDirection,
@@ -72,6 +73,8 @@ export interface PostOptions {
    * Dùng cho đường lắp cũ không gửi serial.
    */
   readonly autoPickSerials?: boolean;
+  /** Nơi nhập đến từ / nơi xuất đi đến (nhà cung cấp, bộ phận, khách…), ghi lên các dòng sổ cái của chứng từ. */
+  readonly counterparty?: MovementCounterparty;
 }
 
 export interface StockDocumentPatch {
