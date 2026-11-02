@@ -1,7 +1,6 @@
 import {
   DASHBOARD_LIST_LIMIT,
   DASHBOARD_PERIODS,
-  OPEN_OPPORTUNITY_STAGES,
   type DashboardQuery,
   type DashboardScopeLevel,
   type SalesDashboard,
@@ -65,10 +64,8 @@ export class SalesDashboardService {
     const current = sales(figures.current);
     const before = sales(figures.previous);
     const winRate = (raw: DashboardPeriodFigures) => percentOf(raw.won, raw.won + raw.lost);
-    const byStage = new Map(stages.map((row) => [row.stage, row]));
-    const pipeline = OPEN_OPPORTUNITY_STAGES.map(
-      (stage) => byStage.get(stage) ?? { stage, count: 0, value: 0, weightedValue: 0 },
-    );
+    // Phễu đã đủ dòng theo cấu hình luồng (kể cả giai đoạn 0 cơ hội), store trả đúng thứ tự.
+    const pipeline = stages;
 
     return {
       period,

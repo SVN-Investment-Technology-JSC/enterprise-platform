@@ -45,6 +45,7 @@ describe('CrmDataScopeService', () => {
     await expect(new CrmDataScopeService(port).resolve(actor('truong-nhom'))).resolves.toEqual({
       kind: 'users',
       userIds: ['truong-nhom', 'nv-a', 'nv-b'],
+      selfUserId: 'truong-nhom',
     });
     expect(snapshot).toHaveBeenCalledWith('t1');
   });
@@ -54,6 +55,7 @@ describe('CrmDataScopeService', () => {
     await expect(new CrmDataScopeService(port).resolve(actor('nv-a'))).resolves.toEqual({
       kind: 'users',
       userIds: ['nv-a'],
+      selfUserId: 'nv-a',
     });
   });
 

@@ -69,7 +69,7 @@ async function main() {
   };
   const database = { pool: async () => traced, transaction: async () => Promise.reject(new Error('read only')) };
 
-  const [{ PostgresCustomerStore }, { PostgresOpportunityStore }, { PostgresSalesOrderStore }, { PostgresSalesReportStore }, { PostgresReceivableStore }, { decodeCursor }] =
+  const [{ PostgresCustomerStore }, { PostgresOpportunityStore }, { PostgresSalesOrderStore }, { PostgresSalesReportStore }, { PostgresReceivableStore }, { decodeCursor }, { PostgresPipelineConfigReader }] =
     await Promise.all([
       load('infrastructure/postgres-customer.store.js'),
       load('infrastructure/postgres-opportunity.store.js'),
@@ -77,6 +77,7 @@ async function main() {
       load('infrastructure/postgres-sales-report.store.js'),
       load('infrastructure/postgres-receivable.store.js'),
       load('domain/pagination.js'),
+      load('infrastructure/postgres-pipeline-config.store.js'),
     ]);
   const customers = new PostgresCustomerStore(database);
   const opportunities = new PostgresOpportunityStore(database);
@@ -84,6 +85,9 @@ async function main() {
   const reports = new PostgresSalesReportStore(database);
 
   const tenant = 'perf';
+  // Luồng mặc định (phase 2): kanban cần luồng được chọn
+  const defaultPipeline = (await new PostgresPipelineConfigReader(database).loadPipelines(tenant)).find((p) => p.isDefault);
+  if (!defaultPipeline) throw new Error('DB chưa có luồng mặc định (migration 0017).');
   const all = { kind: 'all' };
   const team = { kind: 'users', userIds: seed.teams[0].members };
   const mine = { kind: 'users', userIds: [seed.teams[0].members[1]] };
@@ -119,7 +123,7 @@ async function main() {
       ['TC-PERF-01', `khách trang 100 (${label})`, async (cursor) => listCustomers(cursor), () => cursorOfPage((cursor) => listCustomers(cursor), 100)],
       ['TC-PERF-02', `cơ hội trang 1 (${label})`, () => listOpportunities()],
       ['TC-PERF-02', `cơ hội trang 100 (${label})`, async (cursor) => listOpportunities(cursor), () => cursorOfPage(listOpportunities, 100)],
-      ['TC-PERF-02', `kanban cơ hội (${label})`, () => opportunities.board(tenant, scope, {}, 50)],
+      ['TC-PERF-02', `kanban cơ hội (${label})`, () => opportunities.board(tenant, scope, {}, 50, defaultPipeline)],
       ['TC-PERF-03', `đơn trang 1 (${label})`, () => listOrders()],
       ['TC-PERF-03', `đơn giao trễ (${label})`, () => listOrders(undefined, { late: true })],
       ['TC-PERF-03', `đơn trang 100 (${label})`, async (cursor) => listOrders(cursor), () => cursorOfPage((cursor) => listOrders(cursor), 100)],

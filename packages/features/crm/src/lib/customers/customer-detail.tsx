@@ -2,10 +2,8 @@
 
 import {
   CUSTOMER_KIND_LABELS,
-  OPPORTUNITY_STAGE_LABELS,
   type CustomerContact,
   type CustomerDetail as CustomerDetailData,
-  type OpportunityStage,
   type OpportunitySummary,
 } from '@enterprise-platform/contracts-crm';
 import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
@@ -26,7 +24,7 @@ import {
   updateContact,
 } from '../crm-api';
 import { useCanWrite, useCrm } from '../crm-context';
-import { formatMoney, personName } from '../sales.model';
+import { formatMoney, personName, stageTone } from '../sales.model';
 import styles from '../sales.module.scss';
 import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
 import { CustomerFormDialog } from './customer-form';
@@ -352,11 +350,9 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
       { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
       {
         title: 'Giai đoạn',
-        dataIndex: 'stage',
+        key: 'stage',
         width: 150,
-        render: (value: OpportunityStage) => (
-          <StatusPill tone={value === 'WON' ? 'success' : value === 'LOST' ? 'danger' : 'info'}>{OPPORTUNITY_STAGE_LABELS[value]}</StatusPill>
-        ),
+        render: (_: unknown, row) => <StatusPill tone={stageTone(row.stageInfo.semantic)}>{row.stageInfo.name}</StatusPill>,
       },
       { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, render: (value: string) => personName(people, value) },

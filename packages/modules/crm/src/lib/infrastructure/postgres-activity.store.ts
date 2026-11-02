@@ -4,7 +4,6 @@ import type {
   ActivityType,
   CrmPage,
   CustomerTimelineEntry,
-  OpportunityStage,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
@@ -166,8 +165,8 @@ interface TimelineRow {
   actor_id: string | null;
   opportunity_id: string | null;
   opportunity_name: string | null;
-  from_stage: OpportunityStage | null;
-  to_stage: OpportunityStage | null;
+  from_stage: string | null;
+  to_stage: string | null;
   reason: string | null;
   activity_type: ActivityType | null;
   subject: string | null;
@@ -381,7 +380,7 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
       actorId: row.actor_id,
       opportunityId: row.opportunity_id ?? '',
       opportunityName: row.opportunity_name ?? '',
-      stage: row.to_stage as OpportunityStage,
+      stage: row.to_stage as string,
     };
   }
   return {
@@ -392,7 +391,7 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
     opportunityId: row.opportunity_id ?? '',
     opportunityName: row.opportunity_name ?? '',
     fromStage: row.from_stage,
-    toStage: row.to_stage as OpportunityStage,
+    toStage: row.to_stage as string,
     reason: row.reason,
   };
 }

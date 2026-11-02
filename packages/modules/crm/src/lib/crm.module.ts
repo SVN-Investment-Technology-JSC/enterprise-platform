@@ -7,6 +7,7 @@ import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { StageAssigneeResolver } from './application/stage-assignee.resolver.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { PriceListService } from './application/price-list.service.js';
 import { PricingService } from './application/pricing.service.js';
@@ -47,6 +48,9 @@ import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/p
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { CRM_PIPELINE_CONFIG, type PipelineConfigProvider } from './application/pipeline-config.port.js';
 import { PostgresCustomerGroupStore, PostgresSettingsStore } from './infrastructure/postgres-settings.store.js';
 import { HttpInventoryCatalogReader } from './infrastructure/http-inventory-catalog-reader.js';
 import { HttpProcedureClient } from './infrastructure/http-procedure-client.js';
@@ -218,6 +222,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     store(CRM_SETTINGS_STORE, (database) => new PostgresSettingsStore(database)),
     store(CRM_LEAD_STORE, (database) => new PostgresLeadStore(database)),
     store(CRM_OPPORTUNITY_STORE, (database) => new PostgresOpportunityStore(database)),
+    store(CRM_PIPELINE_CONFIG, (database) => new CachedPipelineConfig(new PostgresPipelineConfigReader(database))),
     store(CRM_ACTIVITY_STORE, (database) => new PostgresActivityStore(database)),
     store(CRM_TIMELINE_STORE, (database) => new PostgresTimelineStore(database)),
     {
@@ -247,9 +252,24 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     },
     {
       provide: OpportunityService,
-      useFactory: (opportunities: OpportunityStore, customers: CustomerStore, scopes: CrmDataScopeService) =>
-        new OpportunityService(opportunities, customers, scopes),
-      inject: [CRM_OPPORTUNITY_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService],
+      useFactory: (
+        opportunities: OpportunityStore,
+        customers: CustomerStore,
+        scopes: CrmDataScopeService,
+        pipelines: PipelineConfigProvider,
+        organization: HttpOrganizationScope,
+      ) =>
+        new OpportunityService(
+          opportunities,
+          customers,
+          scopes,
+          pipelines,
+          undefined,
+          undefined,
+          new StageAssigneeResolver(organization),
+          organization,
+        ),
+      inject: [CRM_OPPORTUNITY_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService, CRM_PIPELINE_CONFIG, HttpOrganizationScope],
     },
     {
       provide: ActivityService,

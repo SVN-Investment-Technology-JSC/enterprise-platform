@@ -22,15 +22,21 @@ import {
   type LeadListQuery,
   type OpportunityBoard,
   type OpportunityDetail,
+  type MyStageTask,
   type OpportunityListQuery,
+  type OpportunityStagePlan,
   type OpportunitySummary,
+  type Pipeline,
+  type StageRequirementCheck,
   type SaveContactRequest,
   type SaveCustomerGroupRequest,
   type TaxCodeMatch,
   type UpdateActivityRequest,
   type UpdateCustomerRequest,
   type UpdateLeadRequest,
+  type SkipStageRequest,
   type UpdateOpportunityRequest,
+  type UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
 import type {
   BulkPriceListItemsRequest,
@@ -129,6 +135,8 @@ export interface CrmApiError {
   readonly code?: string;
   readonly message?: string;
   readonly matches?: readonly TaxCodeMatch[];
+  /** Điều kiện chuyển giai đoạn còn thiếu (STAGE_REQUIREMENTS_NOT_MET, ACCEPTED_QUOTE_REQUIRED). */
+  readonly missing?: readonly { kind: string; ref: string; message: string }[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -212,8 +220,14 @@ export const convertLead = (id: string, body: ConvertLeadRequest) =>
 // Cơ hội
 export const listOpportunities = (query: OpportunityListQuery) =>
   request<CrmPage<OpportunitySummary>>(`/opportunities${toQuery(query)}`, { cache: 'no-store' });
-export const loadBoard = (query: { ownerUserId?: string; q?: string }) =>
+export const loadBoard = (query: { ownerUserId?: string; q?: string; pipelineId?: string }) =>
   request<OpportunityBoard>(`/opportunities/board${toQuery(query)}`, { cache: 'no-store' });
+export const listPipelines = () => request<readonly Pipeline[]>('/opportunities/pipelines');
+export const getStageRequirements = (id: string, stage: string) =>
+  request<readonly StageRequirementCheck[]>(
+    `/opportunities/${encodeURIComponent(id)}/stage-requirements${toQuery({ stage })}`,
+    { cache: 'no-store' },
+  );
 export const getOpportunity = (id: string) => request<OpportunityDetail>(`/opportunities/${encodeURIComponent(id)}`);
 export const createOpportunity = (body: CreateOpportunityRequest) =>
   send<OpportunityDetail>('POST', '/opportunities', body);
@@ -221,6 +235,22 @@ export const updateOpportunity = (id: string, body: UpdateOpportunityRequest) =>
   send<OpportunityDetail>('PATCH', `/opportunities/${encodeURIComponent(id)}`, body);
 export const changeOpportunityStage = (id: string, body: ChangeOpportunityStageRequest) =>
   send<OpportunityDetail>('PATCH', `/opportunities/${encodeURIComponent(id)}/stage`, body);
+export const getStagePlan = (id: string) =>
+  request<OpportunityStagePlan>(`/opportunities/${encodeURIComponent(id)}/stage-plan`, { cache: 'no-store' });
+export const updateStageAssignee = (id: string, stageId: string, body: UpdateStageAssigneeRequest) =>
+  send<OpportunityStagePlan>(
+    'PATCH',
+    `/opportunities/${encodeURIComponent(id)}/stage-plan/${encodeURIComponent(stageId)}/assignee`,
+    body,
+  );
+export const skipStage = (id: string, stageId: string, body: SkipStageRequest) =>
+  send<OpportunityStagePlan>(
+    'POST',
+    `/opportunities/${encodeURIComponent(id)}/stage-plan/${encodeURIComponent(stageId)}/skip`,
+    body,
+  );
+export const listMyStageTasks = () =>
+  request<readonly MyStageTask[]>('/opportunities/my-stage-tasks', { cache: 'no-store' });
 
 // Hoạt động
 export const listActivities = (query: ActivityListQuery) =>

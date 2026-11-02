@@ -180,7 +180,8 @@ export class PostgresQuoteStore implements QuoteStore {
 
   async listQuotes(tenantId: string, scope: CrmDataScope, filter: QuoteFilter): Promise<CrmPage<QuoteSummary>> {
     const where = new SqlConditions();
-    where.scope(scope, 'q.owner_user_id');
+    // Người được gán một giai đoạn của dự án thấy báo giá của dự án đó (ASG-02), chỉ để đọc.
+    where.opportunityScope(scope, 'q.owner_user_id', 'q.opportunity_id');
     if (filter.status) where.add(`q.status = ${where.param(filter.status)}`);
     if (filter.customerId) where.add(`q.customer_id = ${where.param(filter.customerId)}::uuid`);
     if (filter.opportunityId) where.add(`q.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
@@ -207,7 +208,7 @@ export class PostgresQuoteStore implements QuoteStore {
 
   async getQuote(tenantId: string, scope: CrmDataScope, id: string, versionNo?: number): Promise<QuoteDetail | undefined> {
     const pool = await this.database.pool(tenantId);
-    const head = await readHead(pool, scope, id);
+    const head = await readHead(pool, scope, id, true);
     if (!head) return undefined;
     const version = await readVersion(pool, id, versionNo ?? head.current_version);
     if (!version) return undefined;
@@ -911,10 +912,17 @@ async function insertLines(client: CrmSqlClient, versionId: string, lines: reado
 // Đọc
 // ---------------------------------------------------------------------------
 
-async function readHead(client: CrmSqlClient, scope: CrmDataScope, id: string): Promise<HeadRow | undefined> {
+async function readHead(
+  client: CrmSqlClient,
+  scope: CrmDataScope,
+  id: string,
+  readOnly = false,
+): Promise<HeadRow | undefined> {
   const where = new SqlConditions();
   where.add(`q.id = ${where.param(id)}::uuid`);
-  where.scope(scope, 'q.owner_user_id');
+  // Đọc: người được gán giai đoạn của dự án thấy báo giá của dự án (ASG-02); ghi vẫn theo người phụ trách.
+  if (readOnly) where.opportunityScope(scope, 'q.owner_user_id', 'q.opportunity_id');
+  else where.scope(scope, 'q.owner_user_id');
   const result = await client.query<HeadRow>(`SELECT ${HEAD_COLUMNS} ${HEAD_FROM} ${where.where()}`, where.params);
   return result.rows[0];
 }

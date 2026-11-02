@@ -982,6 +982,23 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Dự án bán hàng: người đảm nhận một giai đoạn được gán hoặc đổi. Người nhận (người cũ và mới, trừ người thực
+  // hiện) ghi sẵn trong payload (`recipientUserIds`).
+  directPolicy({
+    eventType: 'crm.opportunity.stage-assigned',
+    module: 'crm',
+    category: 'assignment',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Giai đoạn dự án bán hàng thay đổi người đảm nhận',
+      body: text(payload, 'summary', 'Người đảm nhận giai đoạn của dự án bán hàng đã thay đổi.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#opportunities'),
+      sourceType: 'crm_opportunity_stage',
+      sourceId: `${id(payload, 'opportunityId')}:${id(payload, 'stageId')}:${text(payload, 'assigneeUserId', 'none')}`,
+    }),
+  }),
   // Hợp đồng sắp hết hạn (nguồn lịch của notification-worker, trước N ngày theo cấu hình `contract.expiring`): báo
   // người phụ trách hợp đồng.
   directPolicy({

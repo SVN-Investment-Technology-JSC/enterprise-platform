@@ -1,11 +1,11 @@
 'use client';
 
 import {
-  OPPORTUNITY_STAGE_LABELS,
   QUOTE_STATUS_LABELS,
   type OpportunityDetail,
-  type OpportunityStage,
+  type OpportunityStagePlan,
   type QuoteSummary,
+  type StageRequirementCheck,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, formatDateTime, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
@@ -19,6 +19,8 @@ import {
   createOpportunity,
   errorMessage,
   getOpportunity,
+  getStagePlan,
+  getStageRequirements,
   listCustomers,
   listQuotes,
   updateOpportunity,
@@ -26,8 +28,23 @@ import {
 import { peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import { QUOTE_STATUS_TONE } from '../quotes/quote.model';
 import { CreateQuoteDialog } from '../quotes/quotes-page';
-import { canDropStage, formatMoney, personName } from '../sales.model';
+import {
+  buildSkipStages,
+  canEditStageAssignee,
+  canLeaveCurrentStage,
+  defaultPipeline,
+  describeStageError,
+  formatMoney,
+  personName,
+  skippableStartStages,
+  stageLabelByCode,
+  stageNeedsReason,
+  stageOptions,
+  stageTone,
+} from '../sales.model';
 import styles from '../sales.module.scss';
+import { StagePlanPanel } from './stage-plan';
+import { usePipelines } from './use-pipelines';
 
 const digits = (value: string) => value.replace(/[^\d]/g, '');
 
@@ -44,6 +61,9 @@ export function OpportunityFormDialog({
   onSaved: (opportunity: OpportunityDetail) => void;
 }) {
   const { people } = useCrm();
+  const { pipelines } = usePipelines();
+  const [pipelineId, setPipelineId] = useState('');
+  const [skipped, setSkipped] = useState<Record<string, string>>({});
   const [customerId, setCustomerId] = useState(opportunity?.customerId ?? customer?.id ?? '');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerOptions, setCustomerOptions] = useState(
@@ -75,6 +95,9 @@ export function OpportunityFormDialog({
     if (!Number.isInteger(percent) || percent < 0 || percent > 100) return setError('Xác suất phải là số nguyên từ 0 đến 100.');
     setSubmitting(true);
     setError(undefined);
+    const selectedPipeline = pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id));
+    const skip = opportunity ? { skipStages: [] } : buildSkipStages(selectedPipeline, skipped);
+    if (skip.error) return setError(skip.error);
     const fields = {
       name: name.trim(),
       probability: percent,
@@ -87,7 +110,7 @@ export function OpportunityFormDialog({
     try {
       const saved = opportunity
         ? await updateOpportunity(opportunity.id, { ...fields, version: opportunity.version })
-        : await createOpportunity({ ...fields, customerId });
+        : await createOpportunity({ ...fields, customerId, pipelineId: pipelineId || null, ...(skip.skipStages.length ? { skipStages: skip.skipStages } : {}) });
       toast.success('Đã lưu dự án bán hàng.');
       onSaved(saved);
     } catch (cause) {
@@ -117,6 +140,19 @@ export function OpportunityFormDialog({
             </span>
           )}
         </Field>
+        {!opportunity && pipelines.filter((item) => item.active).length > 1 ? (
+          <Field label="Luồng bán hàng" hint="Dự án vào giai đoạn đầu của luồng" wide>
+            <SearchableSelect
+              options={pipelines.filter((item) => item.active).map((item) => ({ value: item.id, label: item.name }))}
+              value={pipelineId || defaultPipeline(pipelines)?.id || ''}
+              placeholder="Chọn luồng bán hàng"
+              onChange={(value) => {
+                setPipelineId(value);
+                setSkipped({});
+              }}
+            />
+          </Field>
+        ) : null}
         <Field label="Tên dự án bán hàng" required wide>
           <input className={styles.input} value={name} maxLength={300} autoFocus onChange={(event) => setName(event.target.value)} />
         </Field>
@@ -135,6 +171,39 @@ export function OpportunityFormDialog({
         <Field label="Người phụ trách" hint={opportunity ? undefined : 'Mặc định là bạn'}>
           <SearchableSelect options={peopleOptions(people)} value={ownerUserId} placeholder="Chọn người phụ trách" clearable onChange={setOwnerUserId} />
         </Field>
+        {!opportunity && skippableStartStages(pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id))).length ? (
+          <Field label="Bỏ qua giai đoạn" hint="Tuỳ chọn: giai đoạn không cần làm với dự án này; phải ghi lý do" wide>
+            {skippableStartStages(pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id))).map((stage) => (
+              <div key={stage.id}>
+                <label className={styles.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={stage.code in skipped}
+                    onChange={(event) =>
+                      setSkipped((current) => {
+                        const next = { ...current };
+                        if (event.target.checked) next[stage.code] = '';
+                        else delete next[stage.code];
+                        return next;
+                      })
+                    }
+                  />
+                  Bỏ qua {stage.name}
+                </label>
+                {stage.code in skipped ? (
+                  <input
+                    className={styles.input}
+                    value={skipped[stage.code]}
+                    maxLength={2000}
+                    placeholder={`Lý do bỏ qua ${stage.name}`}
+                    aria-label={`Lý do bỏ qua ${stage.name}`}
+                    onChange={(event) => setSkipped((current) => ({ ...current, [stage.code]: event.target.value }))}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </Field>
+        ) : null}
         <Field label="Nhu cầu" wide>
           <textarea className={styles.textarea} rows={3} value={need} maxLength={4000} onChange={(event) => setNeed(event.target.value)} />
         </Field>
@@ -143,32 +212,38 @@ export function OpportunityFormDialog({
   );
 }
 
-/** Hộp nhập lý do khi chuyển cơ hội sang Thua (bắt buộc). */
+/**
+ * Hộp nhập lý do khi chuyển dự án bán hàng sang giai đoạn bắt buộc lý do
+ * (Thua, hoặc giai đoạn có điều kiện lý do). `stage` để hiện tên giai đoạn đích.
+ */
 export function LostReasonDialog({
   name,
+  stage,
   onClose,
   onConfirm,
 }: {
   name: string;
+  stage?: { name: string; semantic: 'OPEN' | 'WON' | 'LOST' };
   onClose: () => void;
   onConfirm: (reason: string) => Promise<void>;
 }) {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
+  const lost = !stage || stage.semantic === 'LOST';
   async function submit() {
-    if (!reason.trim()) return setError('Phải ghi lý do thua.');
+    if (!reason.trim()) return setError(lost ? 'Phải ghi lý do thua.' : 'Phải ghi lý do chuyển giai đoạn.');
     setSubmitting(true);
     try {
       await onConfirm(reason.trim());
     } catch (cause) {
-      setError(errorMessage(cause, 'Không chuyển được giai đoạn.'));
+      setError(describeStageError(cause, 'Không chuyển được giai đoạn.'));
       setSubmitting(false);
     }
   }
   return (
-    <CrmDialog open danger title="Chuyển dự án bán hàng sang Thua" subtitle={name} submitLabel="Xác nhận thua" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
-      <Field label="Lý do thua" required>
+    <CrmDialog open danger={lost} title={lost ? 'Chuyển dự án bán hàng sang Thua' : `Chuyển dự án bán hàng sang ${stage?.name}`} subtitle={name} submitLabel={lost ? 'Xác nhận thua' : 'Xác nhận chuyển'} submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+      <Field label={lost ? 'Lý do thua' : 'Lý do chuyển giai đoạn'} required>
         <textarea className={styles.textarea} rows={4} value={reason} maxLength={2000} autoFocus onChange={(event) => setReason(event.target.value)} />
       </Field>
     </CrmDialog>
@@ -192,13 +267,17 @@ export function OpportunityDrawer({
   onOpenCustomer: (id: string) => void;
   onOpenQuote: (id: string) => void;
 }) {
-  const { people } = useCrm();
+  const { people, capabilities, currentUserId } = useCrm();
   const canWrite = useCanWrite();
   const [detail, setDetail] = useState<OpportunityDetail>();
+  const [plan, setPlan] = useState<OpportunityStagePlan>();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState(false);
   const [losing, setLosing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [target, setTarget] = useState('');
+  const [checks, setChecks] = useState<readonly StageRequirementCheck[]>([]);
+  const [moveError, setMoveError] = useState<string>();
 
   useEffect(() => {
     setDetail(undefined);
@@ -207,23 +286,59 @@ export function OpportunityDrawer({
       .catch((cause) => setError(errorMessage(cause, 'Không tải được dự án bán hàng.')));
   }, [opportunityId]);
 
-  async function move(stage: OpportunityStage, reason?: string) {
+  // Kế hoạch giai đoạn: tải lại khi dự án đổi giai đoạn (version đổi).
+  useEffect(() => {
+    if (!detail) return;
+    let alive = true;
+    getStagePlan(detail.id)
+      .then((next) => alive && setPlan(next))
+      .catch(() => alive && setPlan(undefined));
+    return () => {
+      alive = false;
+    };
+  }, [detail?.id, detail?.version]);
+
+  // Điều kiện của giai đoạn đích đang chọn: hiện trước khi bấm chuyển.
+  useEffect(() => {
+    setChecks([]);
+    setMoveError(undefined);
+    if (!detail || !target) return;
+    let alive = true;
+    getStageRequirements(detail.id, target)
+      .then((next) => alive && setChecks(next))
+      .catch(() => alive && setChecks([]));
+    return () => {
+      alive = false;
+    };
+  }, [detail?.id, detail?.version, target]);
+
+  async function move(stage: string, reason?: string, askReason = false) {
     if (!detail) return;
     setBusy(true);
+    setMoveError(undefined);
     try {
       const next = await changeOpportunityStage(detail.id, { stage, reason, version: detail.version });
       setDetail(next);
       setLosing(false);
+      setTarget('');
       onChanged();
     } catch (cause) {
-      if (stage === 'LOST') throw cause;
-      toast.error(errorMessage(cause, 'Không chuyển được giai đoạn.'));
+      if (askReason) throw cause;
+      setMoveError(describeStageError(cause, 'Không chuyển được giai đoạn.'));
     } finally {
       setBusy(false);
     }
   }
 
-  const targets = detail ? (Object.keys(OPPORTUNITY_STAGE_LABELS) as OpportunityStage[]).filter((stage) => canDropStage(detail.stage, stage)) : [];
+  const targets = detail?.nextStages ?? [];
+  const targetStage = targets.find((stage) => stage.code === target);
+  
+  const open = detail ? detail.stageInfo.semantic === 'OPEN' : false;
+  // Ẩn nút chuyển giai đoạn với người không phải chủ, không đảm nhận giai đoạn hiện tại, không có crm.manage (server vẫn trả 403).
+  const canLeave = detail ? canLeaveCurrentStage(capabilities, currentUserId, detail, plan?.items) : false;
+  const canEditPlan = detail ? canEditStageAssignee(capabilities, currentUserId, detail) : false;
+  const blocking = checks.filter((check) => check.required && check.met === false);
+  const hints = checks.filter((check) => !check.required && check.met === false);
 
   return (
     <Drawer open size={720} title={detail ? detail.name : 'Dự án bán hàng'} onClose={onClose} destroyOnHidden>
@@ -239,9 +354,10 @@ export function OpportunityDrawer({
             </dd>
             <dt>Giai đoạn</dt>
             <dd>
-              <StatusPill tone={detail.stage === 'WON' ? 'success' : detail.stage === 'LOST' ? 'danger' : 'info'}>
-                {OPPORTUNITY_STAGE_LABELS[detail.stage]}
-              </StatusPill>
+              <StatusPill tone={stageTone(detail.stageInfo.semantic)}>{detail.stageInfo.name}</StatusPill>
+            </dd>
+            <dt>Luồng</dt>
+            <dd>{detail.pipeline.name}
             </dd>
             <dt>Xác suất</dt>
             <dd>{detail.probability}%</dd>
@@ -264,26 +380,63 @@ export function OpportunityDrawer({
               </>
             ) : null}
           </dl>
-          {canWrite && targets.length ? (
+          {canWrite && (canLeave || open) ? (
             <div className={styles.toolbar}>
-              {targets.map((stage) => (
-                <button
-                  key={stage}
-                  type="button"
-                  disabled={busy}
-                  className={stage === 'LOST' ? styles.buttonDangerGhost : styles.buttonGhost}
-                  onClick={() => (stage === 'LOST' ? setLosing(true) : void move(stage))}
-                >
-                  Chuyển sang {OPPORTUNITY_STAGE_LABELS[stage]}
-                </button>
-              ))}
-              {detail.stage !== 'WON' && detail.stage !== 'LOST' ? (
+              {targets.length && canLeave ? (
+                <>
+                  <SearchableSelect
+                    className={styles.filter}
+                    options={stageOptions(targets)}
+                    value={target}
+                    placeholder="Chọn giai đoạn tiếp theo"
+                    onChange={setTarget}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !targetStage}
+                    className={targetStage?.semantic === 'LOST' ? styles.buttonDangerGhost : styles.buttonGhost}
+                    onClick={() => {
+                      if (!targetStage) return;
+                      if (stageNeedsReason({ semantic: targetStage.semantic, requirements: checks.map((check) => ({ ...check, sortOrder: 0 })) })) setLosing(true);
+                      else void move(targetStage.code);
+                    }}
+                  >
+                    Chuyển giai đoạn
+                  </button>
+                </>
+              ) : null}
+              {open ? (
                 <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
                   Sửa
                 </button>
               ) : null}
             </div>
           ) : null}
+          {moveError ? <p className={styles.alert}>{moveError}</p> : null}
+          {blocking.length ? (
+            <div className={styles.alert}>
+              <strong>Chưa đủ điều kiện chuyển sang {targetStage?.name}:</strong>
+              <ul>
+                {blocking.map((check) => (
+                  <li key={`${check.kind}:${check.ref}`}>{check.message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {hints.length ? (
+            <div className={styles.muted}>
+              <strong>Nên có:</strong>
+              <ul>
+                {hints.map((check) => (
+                  <li key={`${check.kind}:${check.ref}`}>{check.message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <StagePlanPanel opportunity={detail} plan={plan} canEdit={canWrite && canEditPlan} canSkip={canWrite && canLeave} onPlan={(next) => {
+            setPlan(next);
+            getOpportunity(detail.id).then(setDetail).catch(() => undefined);
+          }} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>
           <ol className={styles.timeline}>
@@ -291,8 +444,9 @@ export function OpportunityDrawer({
               <li key={entry.id} className={styles.timelineItem}>
                 <div>
                   <div className={styles.timelineTitle}>
-                    {entry.fromStage ? `${OPPORTUNITY_STAGE_LABELS[entry.fromStage]} → ` : 'Tạo ở '}
-                    {OPPORTUNITY_STAGE_LABELS[entry.toStage]}
+                    {entry.kind === 'SKIP'
+                      ? `Bỏ qua giai đoạn ${entry.toStageName ?? stageLabelByCode(entry.toStage)}`
+                      : `${entry.fromStage ? `${entry.fromStageName ?? stageLabelByCode(entry.fromStage)} → ` : 'Tạo ở '}${entry.toStageName ?? stageLabelByCode(entry.toStage)}`}
                   </div>
                   {entry.reason ? <div className={styles.muted}>Lý do: {entry.reason}</div> : null}
                   <div className={styles.timelineMeta}>
@@ -318,7 +472,7 @@ export function OpportunityDrawer({
         />
       ) : null}
       {losing && detail ? (
-        <LostReasonDialog name={detail.name} onClose={() => setLosing(false)} onConfirm={(reason) => move('LOST', reason)} />
+        <LostReasonDialog name={detail.name} stage={targetStage} onClose={() => setLosing(false)} onConfirm={(reason) => move(target, reason, true)} />
       ) : null}
     </Drawer>
   );
@@ -348,7 +502,8 @@ function OpportunityQuotes({
       .catch(() => setQuotes([]));
   }, [opportunity.id, refresh]);
 
-  const open = opportunity.stage !== 'WON' && opportunity.stage !== 'LOST';
+  const open = opportunity.stageInfo.semantic === 'OPEN';
+  const needsAcceptedQuote = opportunity.nextStages.some((stage) => stage.semantic === 'WON');
   return (
     <>
       <h4 className={styles.sectionTitle}>Báo giá</h4>
@@ -367,8 +522,8 @@ function OpportunityQuotes({
       ) : (
         <p className={styles.muted}>Chưa có báo giá.</p>
       )}
-      {opportunity.stage === 'NEGOTIATION' && !quotes.some((quote) => quote.status === 'ACCEPTED') ? (
-        <p className={styles.muted}>Cần một báo giá được khách chấp nhận trước khi chuyển sang Thắng.</p>
+      {needsAcceptedQuote && !quotes.some((quote) => quote.status === 'ACCEPTED') ? (
+        <p className={styles.muted}>Cần một báo giá được khách chấp nhận trước khi chuyển sang giai đoạn Thắng.</p>
       ) : null}
       {open && canWriteQuote ? (
         <div className={styles.toolbar}>

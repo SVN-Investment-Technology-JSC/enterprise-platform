@@ -228,7 +228,14 @@ integration('Bán hàng: dashboard Tổng quan (PostgreSQL)', () => {
     expect(kpis.pipeline).toEqual({ count: 2, value: 14_000_000, weightedValue: 5_400_000 });
     expect(kpis.receivables).toEqual({ balance: 8_000_000, overdue: 7_000_000, overdueCustomers: 2 });
     expect(kpis.pendingQuotes).toEqual({ count: 2, value: 4_000_000 });
-    expect(dashboard.pipeline.find((row) => row.stage === 'NEW')).toEqual({ stage: 'NEW', count: 1, value: 4_000_000, weightedValue: 400_000 });
+    expect(dashboard.pipeline.find((row) => row.stage === 'NEW')).toEqual({
+      stage: 'NEW',
+      name: 'Mới',
+      semantic: 'OPEN',
+      count: 1,
+      value: 4_000_000,
+      weightedValue: 400_000,
+    });
     expect(dashboard.topCustomers.map((row) => row.code)).toEqual(['DB-C2', 'DB-C1']);
     expect(dashboard.topProducts[0]).toMatchObject({ code: 'DB-M1', revenue: 3_000_000, quantity: 6 });
 
@@ -247,5 +254,76 @@ integration('Bán hàng: dashboard Tổng quan (PostgreSQL)', () => {
     expect(mine.kpis.pipeline.value).toBeLessThanOrEqual(all.kpis.pipeline.value);
     expect(mine.kpis.receivables.balance).toBeLessThanOrEqual(all.kpis.receivables.balance);
     expect(mine.kpis.pendingQuotes.count).toBeLessThanOrEqual(all.kpis.pendingQuotes.count);
+  });
+
+  it('TC-P2REG-08: luồng mặc định cho số liệu giống cách gom theo mã giai đoạn cũ', async () => {
+    for (const [who, level] of [
+      [nv1, 'mine'],
+      [ql, 'all'],
+    ] as const) {
+      const dashboard = await service.dashboard(who, MARCH);
+      expect(dashboard.scope).toBe(level);
+      const scoped = who === nv1 ? 'AND o.owner_user_id = $1::uuid' : '';
+      const args = who === nv1 ? [NV1] : [];
+      // Cách tính trước P2B-09: gom theo mã `stage` cứng.
+      const legacyClosed = await sql(
+        `SELECT count(*) FILTER (WHERE o.stage = 'WON')::int AS won, count(*) FILTER (WHERE o.stage = 'LOST')::int AS lost
+           FROM crm_schema.opportunities o
+          WHERE o.stage IN ('WON', 'LOST') AND o.closed_at >= '2025-03-01T00:00:00+07:00' AND o.closed_at < '2025-04-01T00:00:00+07:00' ${scoped}`,
+        args,
+      );
+      const legacyPipeline = await sql(
+        `SELECT o.stage, count(*)::int AS n, COALESCE(sum(o.expected_value), 0)::float AS value
+           FROM crm_schema.opportunities o
+          WHERE o.stage IN ('NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION') ${scoped}
+          GROUP BY o.stage`,
+        args,
+      );
+      expect(dashboard.kpis.winRate).toMatchObject({ won: legacyClosed.rows[0].won, lost: legacyClosed.rows[0].lost });
+      expect(dashboard.pipeline.map((row) => row.stage)).toEqual(['NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION']);
+      for (const row of dashboard.pipeline) {
+        const old = legacyPipeline.rows.find((r: { stage: string }) => r.stage === row.stage);
+        expect([row.count, row.value]).toEqual([old?.n ?? 0, old?.value ?? 0]);
+      }
+    }
+  });
+
+  it('TC-PL-12: luồng tuỳ biến tên lạ vẫn gom đúng theo nghĩa giai đoạn', async () => {
+    const before = await service.dashboard(ql, MARCH);
+    const pipeline = (
+      await sql(`INSERT INTO crm_schema.pipelines (code, name, sort_order) VALUES ('CUSTOM-DB', 'Luồng riêng', 50) RETURNING id`)
+    ).rows[0].id as string;
+    const stage = async (code: string, name: string, semantic: string, order: number) =>
+      (
+        await sql(
+          `INSERT INTO crm_schema.pipeline_stages (pipeline_id, code, name, semantic, sort_order) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [pipeline, code, name, semantic, order],
+        )
+      ).rows[0].id as string;
+    const open = await stage('TIEP-CAN', 'Tiếp cận', 'OPEN', 5);
+    const won = await stage('CHOT', 'Chốt', 'WON', 90);
+    const lost = await stage('ROT', 'Rớt', 'LOST', 99);
+    for (const [owner, customer, stageId, code, value, closedAt] of [
+      [NV1, 'C1', won, 'CHOT', 2_000_000, vnAt('2025-03-20')],
+      [NVB, 'C2', won, 'CHOT', 2_000_000, vnAt('2025-03-21')],
+      [NVB, 'C2', lost, 'ROT', 1_000_000, vnAt('2025-03-22')],
+      [NV1, 'C1', open, 'TIEP-CAN', 3_000_000, null],
+    ] as const) {
+      await sql(
+        `INSERT INTO crm_schema.opportunities (customer_id, name, stage, pipeline_id, stage_id, probability, expected_value, owner_user_id, closed_at, lost_reason)
+         VALUES ($1, 'Cơ hội riêng', $2::varchar, $3, $4, 50, $5, $6, $7::timestamptz, CASE WHEN $2::varchar = 'ROT' THEN 'Giá cao' END)`,
+        [ids.get(customer), code, pipeline, stageId, value, owner, closedAt],
+      );
+    }
+    const after = await service.dashboard(ql, MARCH);
+    expect(after.kpis.winRate).toMatchObject({ won: before.kpis.winRate.won + 2, lost: before.kpis.winRate.lost + 1 });
+    expect(after.kpis.winRate.value).toBe(66.67);
+    expect(after.kpis.pipeline.count).toBe(before.kpis.pipeline.count + 1);
+    // Phễu: chỉ giai đoạn OPEN; giai đoạn mới chen theo sort_order (5 trước NEW = 10); WON/LOST không có dòng.
+    expect(after.pipeline.map((row) => row.stage)).toEqual(['TIEP-CAN', 'NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION']);
+    expect(after.pipeline[0]).toEqual({ stage: 'TIEP-CAN', name: 'Tiếp cận', semantic: 'OPEN', count: 1, value: 3_000_000, weightedValue: 1_500_000 });
+    // Phạm vi vẫn đúng: NV1 chỉ thấy 1 thắng của mình ở luồng riêng.
+    const mine = await service.dashboard(nv1, MARCH);
+    expect(mine.kpis.winRate).toMatchObject({ won: 2, lost: 1 });
   });
 });

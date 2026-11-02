@@ -1,6 +1,7 @@
 import type { CrmDataScope } from '../application/data-scope.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import { encodeCursor } from '../domain/pagination.js';
+import { opportunityScopeSql } from './opportunity-scope-sql.js';
 import { ownerScopeSql } from './owner-scope-sql.js';
 
 /**
@@ -32,6 +33,17 @@ export class SqlConditions {
     const fragments = columns.map((column) => ownerScopeSql(scope, column, index));
     this.params.push(...fragments[0].params);
     this.add(fragments.length === 1 ? fragments[0].sql : `(${fragments.map((fragment) => fragment.sql).join(' OR ')})`);
+  }
+
+  /**
+   * Phạm vi cho đối tượng gắn với cơ hội: theo người phụ trách hoặc cơ hội được giao một giai đoạn cho
+   * người gọi (xem `opportunityScopeSql`).
+   */
+  opportunityScope(scope: CrmDataScope, ownerColumn: string, opportunityColumn: string): void {
+    if (scope.kind === 'all') return;
+    const fragment = opportunityScopeSql(scope, ownerColumn, opportunityColumn, this.params.length + 1);
+    this.params.push(...fragment.params);
+    this.add(fragment.sql);
   }
 
   /** Vị trí sau con trỏ theo thứ tự `(at DESC, id DESC)`. */

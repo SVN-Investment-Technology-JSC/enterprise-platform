@@ -169,7 +169,7 @@ export class QuoteService {
     if (opportunityId) {
       const opportunity = await this.opportunities.getOpportunity(actor.tenantId, scope, opportunityId);
       if (!opportunity) throw new CrmNotFoundError('Không tìm thấy cơ hội.');
-      if (opportunity.stage === 'WON' || opportunity.stage === 'LOST') {
+      if (opportunity.stageInfo.semantic !== 'OPEN') {
         throw new CrmConflictError('OPPORTUNITY_CLOSED', 'Cơ hội đã đóng (Thắng hoặc Thua), không lập báo giá được.');
       }
       if (customerId && customerId !== opportunity.customerId) {

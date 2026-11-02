@@ -7,6 +7,8 @@ import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
 import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
@@ -75,7 +77,12 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
     customers = new CustomerService(customerStore, scopes);
     groups = new CustomerGroupService(new PostgresCustomerGroupStore(handle.database));
     leads = new LeadService(leadStore, scopes);
-    opportunities = new OpportunityService(opportunityStore, customerStore, scopes);
+    opportunities = new OpportunityService(
+      opportunityStore,
+      customerStore,
+      scopes,
+      new CachedPipelineConfig(new PostgresPipelineConfigReader(handle.database)),
+    );
     activities = new ActivityService(new PostgresActivityStore(handle.database), customerStore, opportunityStore, scopes);
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
   }, 120_000);
@@ -83,6 +90,16 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
   afterAll(async () => {
     await handle?.drop();
   }, 60_000);
+
+  const stageIds = async (pipelineId: string): Promise<Record<string, string>> =>
+    Object.fromEntries(
+      (
+        await handle.pool.query<{ code: string; id: string }>(
+          `SELECT code, id FROM crm_schema.pipeline_stages WHERE pipeline_id = $1`,
+          [pipelineId],
+        )
+      ).rows.map((row) => [row.code, row.id]),
+    );
 
   const count = async (table: string) =>
     (await handle.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM crm_schema.${table}`)).rows[0].n;
@@ -469,15 +486,27 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
 
     it('hai người cùng kéo một thẻ: người sau nhận 409, lịch sử chỉ một dòng', async () => {
       const created = await opportunities.create(seller(NV1), { customerId, name: 'Kéo cùng lúc' });
-      await opportunityStore.changeStage(tenantId, created.id, { from: 'NEW', to: 'CONTACTED', reason: null }, NV1);
+      const ids = await stageIds(created.pipeline.id);
+      const base = { pipelineId: created.pipeline.id, fromStageId: ids.NEW, from: 'NEW', fromSemantic: 'OPEN' as const, fromSortOrder: 10, toSortOrder: 20 };
+      await opportunityStore.changeStage(
+        tenantId,
+        created.id,
+        { ...base, toStageId: ids.CONTACTED, to: 'CONTACTED', toSemantic: 'OPEN', reason: null },
+        NV1,
+      );
       await expect(
-        opportunityStore.changeStage(tenantId, created.id, { from: 'NEW', to: 'LOST', reason: 'x' }, NV1),
+        opportunityStore.changeStage(
+          tenantId,
+          created.id,
+          { ...base, toStageId: ids.LOST, to: 'LOST', toSemantic: 'LOST', reason: 'x' },
+          NV1,
+        ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'STAGE_CHANGED' });
       const detail = await opportunities.get(seller(NV1), created.id);
       expect(detail.history).toHaveLength(2);
     });
 
-    it('TC-OPP-06: xác suất ngoài 0–100 bị chặn ở service và ở DB', async () => {
+    it('TC-OPP-06: xác suất ngoài 0–100 bị chặn ở service và ở DB; Thua thiếu lý do bị service chặn', async () => {
       await expect(opportunities.create(seller(NV1), { customerId, name: 'X', probability: 101 })).rejects.toMatchObject({ statusCode: 400 });
       await expect(
         handle.pool.query(
@@ -485,13 +514,18 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
           [customerId, NV1],
         ),
       ).rejects.toMatchObject({ code: '23514' });
-      // Thua thiếu lý do bị CHECK chặn kể cả khi ghi thẳng DB.
-      await expect(
-        handle.pool.query(
-          `INSERT INTO crm_schema.opportunities (customer_id, name, stage, owner_user_id) VALUES ($1, 'X', 'LOST', $2)`,
-          [customerId, NV1],
-        ),
-      ).rejects.toMatchObject({ code: '23514' });
+      // Từ GĐ B, DB không còn CHECK "Thua cần lý do" (giai đoạn thua là cấu hình): service chặn
+      // theo nghĩa LOST của giai đoạn đích và không ghi gì khi thiếu lý do.
+      const open = await opportunities.create(seller(NV1), { customerId, name: 'Thua thiếu lý do' });
+      for (const reason of [undefined, '', '   ']) {
+        await expect(opportunities.changeStage(seller(NV1), open.id, { stage: 'LOST', reason })).rejects.toMatchObject({
+          statusCode: 400,
+          code: 'LOST_REASON_REQUIRED',
+          message: 'Phải ghi lý do thua.',
+        });
+      }
+      await expect(opportunities.get(seller(NV1), open.id)).resolves.toMatchObject({ stage: 'NEW', lostReason: null });
+      expect((await opportunities.get(seller(NV1), open.id)).history).toHaveLength(1);
     });
 
     it('BUG-CRM-001: tìm cơ hội theo `%`, `_` như chuỗi thường; tìm theo từ vẫn đúng', async () => {

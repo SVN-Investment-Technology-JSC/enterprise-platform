@@ -142,7 +142,7 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
   };
 }
 
-function setup(current: QuoteVersion, options: { currentVersion?: number; binding?: Partial<ApprovalBinding>; procedure?: QuoteDetail['procedure'] } = {}) {
+function setup(current: QuoteVersion, options: { currentVersion?: number; binding?: Partial<ApprovalBinding>; procedure?: QuoteDetail['procedure']; opportunities?: unknown } = {}) {
   const currentVersion = options.currentVersion ?? current.versionNo;
   const editable = (): EditableQuote => ({
     head: {
@@ -183,6 +183,7 @@ function setup(current: QuoteVersion, options: { currentVersion?: number; bindin
   });
   const quotes = {
     getQuote: jest.fn(async () => detail()),
+    createQuote: jest.fn(async () => QUOTE_ID),
     loadForEdit: jest.fn(async () => editable()),
     saveVersion: jest.fn(async () => 2),
     submit: jest.fn(async (_t: string, _q: string, _b: unknown, submission: { procedure: unknown }) => (submission.procedure ? 'link-1' : null)),
@@ -223,7 +224,7 @@ function setup(current: QuoteVersion, options: { currentVersion?: number; bindin
     pricing,
     fakeCatalog,
     {} as CustomerStore,
-    {} as OpportunityStore,
+    (options.opportunities ?? {}) as OpportunityStore,
     scopes,
     links,
     reportingLines,
@@ -369,5 +370,24 @@ describe('QuoteService', () => {
       throw new Error('down');
     };
     await expect(broken.service.get(seller, QUOTE_ID)).resolves.toMatchObject({ version: { lines: [{ availableStock: null }] } });
+  });
+
+  it('TC-PL-17: lập báo giá theo nghĩa giai đoạn, không theo mã cứng (luồng có "Chốt"/"Rớt")', async () => {
+    const stageOf = (code: string, semantic: 'OPEN' | 'WON' | 'LOST') => ({ id: `s-${code}`, code, name: code, semantic });
+    const oppWith = (stageInfo: ReturnType<typeof stageOf>) => ({
+      getOpportunity: jest.fn(async () => ({ id: 'o1', customerId: 'c1', ownerUserId: NV1, stage: stageInfo.code, stageInfo })),
+    });
+    for (const [code, semantic] of [['CLOSED_WON', 'WON'], ['CLOSED_LOST', 'LOST']] as const) {
+      const { service, quotes } = setup(version('DRAFT'), { opportunities: oppWith(stageOf(code, semantic)) });
+      await expect(service.create(seller, { opportunityId: '50000000-0000-4000-8000-000000000001' })).rejects.toMatchObject({
+        code: 'OPPORTUNITY_CLOSED',
+      });
+      expect(quotes.getQuote).not.toHaveBeenCalled();
+    }
+    // Mã lạ nhưng nghĩa OPEN: không bị chặn; mã "WON" nhưng nghĩa OPEN cũng không bị chặn.
+    for (const code of ['PROPOSAL', 'WON']) {
+      const { service } = setup(version('DRAFT'), { opportunities: oppWith(stageOf(code, 'OPEN')) });
+      await expect(service.create(seller, { opportunityId: '50000000-0000-4000-8000-000000000001' })).resolves.toBeDefined();
+    }
   });
 });

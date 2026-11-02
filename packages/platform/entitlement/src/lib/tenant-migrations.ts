@@ -130,6 +130,9 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0014-contract-reservation-completed', path: 'tenant/crm/0014-contract-reservation-completed.sql' },
     { version: '0015-order-line-reservation-completed', path: 'tenant/crm/0015-order-line-reservation-completed.sql' },
     { version: '0016-order-reservation-completed', path: 'tenant/crm/0016-order-reservation-completed.sql' },
+    { version: '0017-pipelines', path: 'tenant/crm/0017-pipelines.sql' },
+    { version: '0018-opportunity-pipeline', path: 'tenant/crm/0018-opportunity-pipeline.sql' },
+    { version: '0019-opportunity-stage-plan', path: 'tenant/crm/0019-opportunity-stage-plan.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },

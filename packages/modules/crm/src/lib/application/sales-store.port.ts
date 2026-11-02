@@ -11,15 +11,19 @@ import type {
   CustomerTimelineEntry,
   Lead,
   LeadStatus,
+  MyStageTask,
   OpportunityBoard,
   OpportunityDetail,
-  OpportunityStage,
+  OpportunityStagePlanItem,
   OpportunitySummary,
+  Pipeline,
+  StageSemantic,
   TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmCustomerReference } from '@enterprise-platform/contracts-integration';
 import type { CustomerCodeRule } from '../domain/customer-code.js';
 import type { KeysetCursor } from '../domain/pagination.js';
+import type { PlannedStage } from '../domain/stage-plan.js';
 import type { CrmDataScope } from './data-scope.js';
 
 /**
@@ -227,7 +231,9 @@ export interface LeadStore {
 
 export interface OpportunityFilter {
   readonly q?: string;
-  readonly stage?: OpportunityStage;
+  /** Mã giai đoạn. */
+  readonly stage?: string;
+  readonly pipelineId?: string;
   readonly ownerUserId?: string;
   readonly customerId?: string;
   readonly cursor?: KeysetCursor;
@@ -244,9 +250,45 @@ export interface OpportunityRecord {
   readonly ownerUserId: string;
 }
 
+/** Luồng và giai đoạn đầu cho cơ hội mới (service đã chọn từ cấu hình). */
+export interface OpportunityPlacement {
+  readonly pipelineId: string;
+  readonly stageId: string;
+  readonly stageCode: string;
+  /**
+   * Kế hoạch giai đoạn đã dựng ở service (người đảm nhận theo quy tắc, giai đoạn bỏ qua). Không có thì
+   * store lập kế hoạch cho mọi giai đoạn đang bật của luồng, chưa gán người (chuyển đổi lead).
+   */
+  readonly plan?: readonly PlannedStage[];
+  /** Tên giai đoạn theo id, để ghi nhật ký và sự kiện gán người. */
+  readonly stageNames?: Readonly<Record<string, { code: string; name: string }>>;
+}
+
+/** Thay đổi người đảm nhận một giai đoạn của riêng dự án. */
+export interface StageAssigneeChange {
+  readonly stageId: string;
+  readonly assigneeUserId: string | null;
+  /** `undefined` giữ hạn cũ; `null` xoá hạn. */
+  readonly dueDate?: string | null;
+}
+
+export interface StageSkip {
+  readonly stageId: string;
+  readonly reason: string;
+}
+
 export interface StageChange {
-  readonly from: OpportunityStage;
-  readonly to: OpportunityStage;
+  readonly pipelineId: string;
+  /** Giai đoạn hiện tại (id và mã); chỉ đổi khi cơ hội vẫn đang ở đó. */
+  readonly fromStageId: string;
+  readonly from: string;
+  readonly fromSemantic: StageSemantic;
+  readonly toStageId: string;
+  readonly to: string;
+  readonly toSemantic: StageSemantic;
+  /** Thứ tự giai đoạn trong luồng, để cập nhật kế hoạch (tiến hoặc lùi). */
+  readonly fromSortOrder: number;
+  readonly toSortOrder: number;
   readonly reason: string | null;
   /** Không có thì không so phiên bản (chỉ so giai đoạn hiện tại). */
   readonly expectedVersion?: number;
@@ -255,9 +297,12 @@ export interface StageChange {
    * transaction nếu cơ hội chưa có báo giá còn hiệu lực (OPP-05).
    */
   readonly draftQuoteValidUntil?: string;
-  /** Sang Thắng: phải có báo giá Khách chấp nhận, kiểm trong transaction. */
-  readonly requireAcceptedQuote?: boolean;
-  /** Sang Thua: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
+  /**
+   * Giai đoạn đích có điều kiện QUOTE_APPROVED bắt buộc: kiểm lại trong
+   * transaction (chống đua); thiếu thì 409 `ACCEPTED_QUOTE_REQUIRED` kèm thông báo này.
+   */
+  readonly requireAcceptedQuote?: { readonly message: string };
+  /** Sang nghĩa LOST: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
   readonly declineOpenQuotes?: boolean;
 }
 
@@ -272,15 +317,19 @@ export interface OpportunityStore {
     scope: CrmDataScope,
     filter: { readonly ownerUserId?: string; readonly q?: string },
     perStageLimit: number,
+    pipeline: Pipeline,
   ): Promise<OpportunityBoard>;
   getOpportunity(tenantId: string, scope: CrmDataScope, id: string): Promise<OpportunityDetail | undefined>;
-  /** Tạo ở giai đoạn Mới, ghi dòng lịch sử đầu tiên và nhật ký. Trả id. */
+  /** Tạo ở giai đoạn đầu của luồng đã chọn, ghi dòng lịch sử đầu tiên và nhật ký. Trả id. */
   createOpportunity(
     tenantId: string,
     customerId: string,
     record: OpportunityRecord,
     actorId: string,
+    placement: OpportunityPlacement,
   ): Promise<string>;
+  /** Cơ hội có báo giá Khách chấp nhận không (đọc trước để nêu đủ điều kiện thiếu). */
+  hasAcceptedQuote(tenantId: string, opportunityId: string): Promise<boolean>;
   updateOpportunity(
     tenantId: string,
     id: string,
@@ -290,10 +339,33 @@ export interface OpportunityStore {
   ): Promise<void>;
   /**
    * Đổi giai đoạn chỉ khi giai đoạn hiện tại vẫn là `change.from` (và phiên
-   * bản khớp nếu có); ghi lịch sử và `audit_log` cùng transaction. Ai đó vừa
-   * đổi trước: 409.
+   * bản khớp nếu có); ghi `stage` và `stage_id`, lịch sử, `audit_log` và sự kiện
+   * outbox `crm.opportunity.stage-changed` cùng transaction. Ai đó vừa đổi trước: 409.
    */
   changeStage(tenantId: string, id: string, change: StageChange, actorId: string): Promise<void>;
+  /**
+   * Kế hoạch giai đoạn của cơ hội theo thứ tự luồng. Không kiểm phạm vi: bên gọi đã đọc được cơ hội
+   * (`getOpportunity` đã lọc phạm vi).
+   */
+  getStagePlan(tenantId: string, opportunityId: string): Promise<OpportunityStagePlanItem[]>;
+  /**
+   * Gán hoặc ghi đè người đảm nhận một giai đoạn chưa xong (PENDING hoặc ACTIVE) của riêng cơ hội: ghi
+   * `audit_log` và sự kiện `crm.opportunity.stage-assigned` cùng transaction. Giai đoạn DONE hoặc SKIPPED
+   * thì 409; giai đoạn không có trong kế hoạch thì 404. Không đổi người thì không ghi gì.
+   */
+  setStageAssignee(
+    tenantId: string,
+    opportunityId: string,
+    change: StageAssigneeChange,
+    actorId: string,
+  ): Promise<void>;
+  /**
+   * Bỏ qua một giai đoạn PENDING của cơ hội đang mở; khoá dòng cơ hội để không đua với chuyển giai đoạn.
+   * Ghi `audit_log` (`skip_stage`). Giai đoạn không còn PENDING: 409.
+   */
+  skipStage(tenantId: string, opportunityId: string, skip: StageSkip, actorId: string): Promise<void>;
+  /** "Việc của tôi": giai đoạn ACTIVE hoặc PENDING giao cho `userId` ở cơ hội còn mở, ACTIVE trước. */
+  listMyStageTasks(tenantId: string, userId: string, limit: number): Promise<MyStageTask[]>;
 }
 
 // ---------------------------------------------------------------------------

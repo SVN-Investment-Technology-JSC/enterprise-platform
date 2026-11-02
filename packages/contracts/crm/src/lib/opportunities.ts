@@ -2,6 +2,178 @@
  * Lead, cơ hội, hoạt động và dòng thời gian khách hàng (GĐ2).
  */
 
+/** Mã luồng mặc định nạp sẵn ở migration 0017. */
+export const DEFAULT_PIPELINE_CODE = 'SALES_STANDARD';
+
+/** Nghĩa của giai đoạn: báo cáo và dashboard gom theo nghĩa, không theo mã. */
+export const STAGE_SEMANTICS = ['OPEN', 'WON', 'LOST'] as const;
+export type StageSemantic = (typeof STAGE_SEMANTICS)[number];
+
+export const STAGE_SEMANTIC_LABELS: Readonly<Record<StageSemantic, string>> = {
+  OPEN: 'Đang chạy',
+  WON: 'Thắng',
+  LOST: 'Thua',
+};
+
+export const PIPELINE_PROFILES = ['STANDARD', 'TENDER'] as const;
+export type PipelineProfile = (typeof PIPELINE_PROFILES)[number];
+
+/**
+ * Loại điều kiện chuyển VÀO một giai đoạn:
+ * - `FIELD`: `ref` là tên trường cơ hội (`OPPORTUNITY_REQUIRED_FIELDS`), phải có giá trị;
+ * - `QUOTE_APPROVED`: có báo giá Khách chấp nhận;
+ * - `REASON`: phải ghi lý do;
+ * - `DOCUMENT_TYPE`: `ref` là mã loại tài liệu (chỗ cắm cho GĐ C).
+ */
+export const STAGE_REQUIREMENT_KINDS = ['FIELD', 'QUOTE_APPROVED', 'REASON', 'DOCUMENT_TYPE'] as const;
+export type StageRequirementKind = (typeof STAGE_REQUIREMENT_KINDS)[number];
+
+/** Trường cơ hội dùng được trong điều kiện `FIELD`, kèm nhãn tiếng Việt. */
+export const OPPORTUNITY_REQUIRED_FIELDS = {
+  need: 'Nhu cầu',
+  budget: 'Ngân sách',
+  expectedValue: 'Giá trị dự kiến',
+  expectedCloseDate: 'Ngày chốt dự kiến',
+} as const;
+export type OpportunityRequiredField = keyof typeof OPPORTUNITY_REQUIRED_FIELDS;
+
+export interface StageRequirement {
+  readonly kind: StageRequirementKind;
+  /** Tên trường (FIELD), mã loại tài liệu (DOCUMENT_TYPE); chuỗi rỗng với loại khác. */
+  readonly ref: string;
+  /** `false`: không chặn, chỉ vào danh sách "cần có" (gợi ý). */
+  readonly required: boolean;
+  /** Thông báo tiếng Việt khi thiếu. */
+  readonly message: string;
+  readonly sortOrder: number;
+}
+
+/**
+ * Quy tắc gán người đảm nhận mặc định của giai đoạn: `FIXED_USER` (param = id người dùng),
+ * `PROJECT_OWNER`, `DIRECT_MANAGER`, `MANAGER_LEVEL` (param = số bậc cấp trên), `POSITION`
+ * (param = id chức danh trong sơ đồ tổ chức; người đang giữ chức danh được gán).
+ */
+export const STAGE_ASSIGNEE_RULES = [
+  'NONE',
+  'FIXED_USER',
+  'PROJECT_OWNER',
+  'DIRECT_MANAGER',
+  'MANAGER_LEVEL',
+  'POSITION',
+] as const;
+export type StageAssigneeRule = (typeof STAGE_ASSIGNEE_RULES)[number];
+
+export interface PipelineStage {
+  readonly id: string;
+  readonly pipelineId: string;
+  /** Mã giai đoạn, duy nhất trong luồng; là giá trị của `OpportunitySummary.stage`. */
+  readonly code: string;
+  readonly name: string;
+  readonly semantic: StageSemantic;
+  readonly sortOrder: number;
+  readonly defaultProbability: number;
+  /** `false` là đã tắt: cơ hội đang ở đó vẫn xem và chuyển đi được, không chuyển mới vào. */
+  readonly active: boolean;
+  readonly skippable: boolean;
+  readonly assigneeRule: StageAssigneeRule;
+  readonly assigneeParam: string | null;
+  /** Id các giai đoạn đích được phép chuyển tới từ giai đoạn này (cùng luồng). */
+  readonly nextStageIds: readonly string[];
+  /** Điều kiện chuyển vào giai đoạn này. */
+  readonly requirements: readonly StageRequirement[];
+}
+
+export interface Pipeline {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly profile: PipelineProfile;
+  readonly isDefault: boolean;
+  readonly active: boolean;
+  readonly sortOrder: number;
+  /** Theo `sortOrder`, gồm cả giai đoạn đã tắt. */
+  readonly stages: readonly PipelineStage[];
+}
+
+/** Tham chiếu gọn tới luồng, nhúng vào cơ hội. */
+export interface PipelineRef {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+}
+
+/** Tham chiếu gọn tới giai đoạn (có nhãn và nghĩa), nhúng vào cơ hội. */
+export interface StageRef {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly semantic: StageSemantic;
+}
+
+/** Kết quả kiểm một điều kiện chuyển giai đoạn với một cơ hội cụ thể. */
+export interface StageRequirementCheck {
+  readonly kind: StageRequirementKind;
+  readonly ref: string;
+  readonly required: boolean;
+  readonly message: string;
+  /** `true` đã đạt; `null` chưa kiểm được (ví dụ DOCUMENT_TYPE khi chưa có kho tài liệu). */
+  readonly met: boolean | null;
+}
+
+/** Sự kiện outbox khi cơ hội đổi giai đoạn (`aggregateType` `crm-opportunity`). */
+export const CRM_OPPORTUNITY_STAGE_CHANGED = 'crm.opportunity.stage-changed';
+
+/**
+ * Payload sự kiện đổi giai đoạn. `fromStage`, `stage` là MÃ giai đoạn (như
+ * trường `stage` của cơ hội); `semantic`, `pipelineId`, `stageId`... là trường
+ * thêm ở GĐ B, trường cũ không đổi tên hay đổi nghĩa.
+ */
+export interface CrmOpportunityStageChangedPayload {
+  readonly opportunityId: string;
+  readonly customerId: string;
+  readonly name: string;
+  readonly ownerUserId: string;
+  readonly fromStage: string;
+  readonly stage: string;
+  readonly reason: string | null;
+  readonly actorUserId: string | null;
+  readonly semantic: StageSemantic;
+  readonly pipelineId: string;
+  readonly stageId: string;
+  readonly fromStageId: string;
+  readonly fromSemantic: StageSemantic;
+}
+
+/** Sự kiện outbox khi người đảm nhận một giai đoạn của dự án được gán hoặc đổi (`aggregateType` `crm-opportunity`). */
+export const CRM_OPPORTUNITY_STAGE_ASSIGNED = 'crm.opportunity.stage-assigned';
+
+/**
+ * Payload sự kiện gán người đảm nhận giai đoạn. `recipientUserIds` là người cũ (nếu có) và người
+ * mới, trừ người thực hiện; `assigneeUserId` rỗng khi bỏ gán. `cause`: `CREATED` (kế hoạch lúc tạo
+ * dự án), `OVERRIDE` (sửa tay theo dự án).
+ */
+export interface CrmOpportunityStageAssignedPayload {
+  readonly opportunityId: string;
+  readonly name: string;
+  readonly stageId: string;
+  readonly stageCode: string;
+  readonly stageName: string;
+  readonly assigneeUserId: string | null;
+  readonly previousAssigneeUserId: string | null;
+  readonly actorUserId: string | null;
+  readonly cause: 'CREATED' | 'OVERRIDE';
+  readonly recipientUserIds: readonly string[];
+  readonly summary: string;
+  readonly deepLink: string;
+}
+
+/**
+ * LƯU Ý (GĐ B): các hằng `OPPORTUNITY_STAGES`, `OPEN_OPPORTUNITY_STAGES`,
+ * `OPPORTUNITY_STAGE_LABELS`, `OPPORTUNITY_STAGE_TRANSITIONS` dưới đây chỉ là
+ * dữ liệu mẫu của luồng mặc định "Bán hàng thông thường" (khớp migration
+ * 0017) và để code phase 1 còn dùng tạm. Server KHÔNG dùng chúng để kiểm logic:
+ * giai đoạn, nghĩa và bước chuyển đọc từ cấu hình luồng (`Pipeline`).
+ */
 export const OPPORTUNITY_STAGES = [
   'NEW',
   'CONTACTED',
@@ -53,7 +225,10 @@ export interface OpportunitySummary {
   readonly customerId: string;
   readonly customerCode: string;
   readonly customerName: string;
-  readonly stage: OpportunityStage;
+  /** Mã giai đoạn (tương thích phase 1); nhãn và nghĩa ở `stageInfo`. */
+  readonly stage: string;
+  readonly pipeline: PipelineRef;
+  readonly stageInfo: StageRef;
   readonly probability: number;
   readonly expectedValue: number | null;
   readonly expectedCloseDate: string | null;
@@ -64,11 +239,74 @@ export interface OpportunitySummary {
 
 export interface OpportunityStageHistoryEntry {
   readonly id: string;
-  readonly fromStage: OpportunityStage | null;
-  readonly toStage: OpportunityStage;
+  readonly fromStage: string | null;
+  readonly toStage: string;
+  /** Id và tên giai đoạn lúc chuyển; `null` với lịch sử cũ không còn khớp luồng. */
+  readonly fromStageId: string | null;
+  readonly toStageId: string | null;
+  readonly fromStageName: string | null;
+  readonly toStageName: string | null;
   readonly actorId: string | null;
   readonly reason: string | null;
   readonly at: string;
+  /** `CHANGE` chuyển giai đoạn; `SKIP` bỏ qua giai đoạn (`toStage` là giai đoạn bỏ qua, `fromStage` rỗng). */
+  readonly kind: 'CHANGE' | 'SKIP';
+}
+
+export const STAGE_PLAN_STATUSES = ['PENDING', 'ACTIVE', 'DONE', 'SKIPPED'] as const;
+export type StagePlanStatus = (typeof STAGE_PLAN_STATUSES)[number];
+
+/** Một dòng kế hoạch giai đoạn của dự án. */
+export interface OpportunityStagePlanItem {
+  readonly stage: StageRef;
+  readonly sortOrder: number;
+  readonly status: StagePlanStatus;
+  readonly skippable: boolean;
+  readonly assigneeUserId: string | null;
+  /** Vì sao chưa có người (quy tắc không tìm được người, Tenant Core lỗi...); rỗng khi đã gán hoặc không cần. */
+  readonly assigneeWarning: string | null;
+  readonly assignedBy: string | null;
+  readonly assignedAt: string | null;
+  readonly dueDate: string | null;
+  readonly skippedReason: string | null;
+  readonly skippedBy: string | null;
+  readonly skippedAt: string | null;
+}
+
+export interface OpportunityStagePlan {
+  readonly opportunityId: string;
+  readonly items: readonly OpportunityStagePlanItem[];
+}
+
+/** Gán hoặc ghi đè người đảm nhận một giai đoạn của riêng dự án; `null` là bỏ gán. */
+export interface UpdateStageAssigneeRequest {
+  readonly assigneeUserId: string | null;
+  readonly dueDate?: string | null;
+}
+
+/** Bỏ qua một giai đoạn (cần lý do). */
+export interface SkipStageRequest {
+  readonly reason: string;
+}
+
+/** Giai đoạn bỏ qua ngay lúc tạo dự án. */
+export interface CreateOpportunitySkippedStage {
+  /** Mã giai đoạn trong luồng được chọn. */
+  readonly stage: string;
+  readonly reason: string;
+}
+
+/** Một việc "Việc của tôi": giai đoạn của dự án giao cho người gọi (ACTIVE hoặc PENDING). */
+export interface MyStageTask {
+  readonly opportunityId: string;
+  readonly opportunityName: string;
+  readonly customerId: string;
+  readonly customerName: string;
+  readonly stage: StageRef;
+  readonly status: 'PENDING' | 'ACTIVE';
+  readonly dueDate: string | null;
+  readonly ownerUserId: string;
+  readonly updatedAt: string;
 }
 
 export interface OpportunityDetail extends OpportunitySummary {
@@ -79,6 +317,8 @@ export interface OpportunityDetail extends OpportunitySummary {
   readonly closedAt: string | null;
   readonly createdAt: string;
   readonly history: readonly OpportunityStageHistoryEntry[];
+  /** Giai đoạn đích chuyển được ngay từ giai đoạn hiện tại (đã bỏ giai đoạn tắt), theo thứ tự luồng. */
+  readonly nextStages: readonly StageRef[];
 }
 
 export interface OpportunityFields {
@@ -93,6 +333,10 @@ export interface OpportunityFields {
 
 export interface CreateOpportunityRequest extends OpportunityFields {
   readonly customerId: string;
+  /** Rỗng thì dùng luồng mặc định; cơ hội vào giai đoạn đầu (đang bật, nghĩa OPEN) của luồng. */
+  readonly pipelineId?: string | null;
+  /** Giai đoạn bỏ qua ngay từ đầu (chỉ giai đoạn `skippable`, không phải giai đoạn đầu); mỗi mục cần lý do. */
+  readonly skipStages?: readonly CreateOpportunitySkippedStage[];
 }
 
 export interface UpdateOpportunityRequest extends OpportunityFields {
@@ -101,7 +345,8 @@ export interface UpdateOpportunityRequest extends OpportunityFields {
 
 /** Chuyển giai đoạn. Thua bắt buộc `reason`. */
 export interface ChangeOpportunityStageRequest {
-  readonly stage: OpportunityStage;
+  /** Mã giai đoạn đích trong luồng của cơ hội. */
+  readonly stage: string;
   readonly reason?: string | null;
   /** Bản đang xem; khác bản trong DB thì 409. Không gửi thì không so. */
   readonly version?: number;
@@ -109,7 +354,9 @@ export interface ChangeOpportunityStageRequest {
 
 export interface OpportunityListQuery {
   readonly q?: string;
-  readonly stage?: OpportunityStage;
+  /** Mã giai đoạn (kết hợp `pipelineId` khi nhiều luồng trùng mã). */
+  readonly stage?: string;
+  readonly pipelineId?: string;
   readonly ownerUserId?: string;
   readonly customerId?: string;
   readonly cursor?: string;
@@ -118,13 +365,16 @@ export interface OpportunityListQuery {
 
 /** Một cột kanban: các thẻ mới cập nhật nhất và tổng của cả cột. */
 export interface OpportunityBoardColumn {
-  readonly stage: OpportunityStage;
+  readonly stage: string;
+  readonly stageInfo: StageRef;
   readonly total: number;
   readonly totalValue: number;
   readonly items: readonly OpportunitySummary[];
 }
 
 export interface OpportunityBoard {
+  readonly pipeline: PipelineRef;
+  /** Cột theo thứ tự giai đoạn của luồng; giai đoạn tắt chỉ có cột khi còn cơ hội. */
   readonly columns: readonly OpportunityBoardColumn[];
   /** Số thẻ tối đa trả về mỗi cột. */
   readonly perStageLimit: number;
@@ -298,7 +548,7 @@ export type CustomerTimelineEntry =
       readonly actorId: string | null;
       readonly opportunityId: string;
       readonly opportunityName: string;
-      readonly stage: OpportunityStage;
+      readonly stage: string;
     }
   | {
       readonly kind: 'opportunity-stage-changed';
@@ -307,8 +557,8 @@ export type CustomerTimelineEntry =
       readonly actorId: string | null;
       readonly opportunityId: string;
       readonly opportunityName: string;
-      readonly fromStage: OpportunityStage;
-      readonly toStage: OpportunityStage;
+      readonly fromStage: string;
+      readonly toStage: string;
       readonly reason: string | null;
     }
   | {

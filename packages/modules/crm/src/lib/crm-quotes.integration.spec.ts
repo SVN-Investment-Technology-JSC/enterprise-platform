@@ -11,6 +11,8 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
@@ -128,7 +130,12 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     const customerStore = new PostgresCustomerStore(handle.database);
     const opportunityStore = new PostgresOpportunityStore(handle.database);
     const customers = new CustomerService(customerStore, scopes);
-    opportunities = new OpportunityService(opportunityStore, customerStore, scopes);
+    opportunities = new OpportunityService(
+      opportunityStore,
+      customerStore,
+      scopes,
+      new CachedPipelineConfig(new PostgresPipelineConfigReader(handle.database)),
+    );
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
     links = new PostgresApprovalLinks(handle.database, procedure);
     const settingsStore = new PostgresQuoteSettingsStore(handle.database);
