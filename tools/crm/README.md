@@ -12,6 +12,7 @@ node tools/crm/seed-svn.mjs --step=crm [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=pricing [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=finance [--tenant=svn]
 node tools/crm/seed-svn.mjs --step=warranty [--tenant=svn]
+node tools/crm/seed-svn.mjs --step=phase2 [--tenant=svn]
 ```
 
 ## Cần có
@@ -42,6 +43,8 @@ node tools/crm/seed-svn.mjs --step=warranty [--tenant=svn]
 4. `--step=inventory` (T1-33), sau khi migration Kho mới đã áp.
 5. `--step=crm` (T2-24), `--step=pricing` (T3-18), `--step=finance` (T5-14), `--step=warranty` (T6-10), đúng thứ tự
    này: `pricing` cần nhóm khách của `crm`; `finance` và `warranty` cần khách của `crm` và bảng giá của `pricing`.
+
+6. `--step=phase2` (P2H-01), sau bước 5 và sau khi migration phase 2 (0017 trở đi) đã áp. Xem mục "Bước `phase2`".
 
 Tenant `svn2`, `svn3`, `svn-perf` chỉ chạy bước `tenant` với `--tenant=<slug>`.
 
@@ -170,11 +173,33 @@ node tools/crm/backdate-deliveries.mjs --tenant=svn [--dry-run]
   `SN032` còn khoảng 1 tháng, `SN033` hết hạn, `SN034` còn khoảng 16 tháng (CONTRACT 24), `SN035` hết hạn (CONTRACT 6),
   khớp TC-WAR-01, 02, 03, 05.
 
-## UAT tự động (TC-UAT-01 đến 09)
+## Bước `phase2` (P2H-01)
+
+Dữ liệu phase 2 theo `docs/crm/TEST_PHASE2.md` mục 1.3, chỉ qua API thật, mọi dữ liệu có tiền tố `QA-P2` (luồng mã
+`QA_P2_5GD`). Luồng "Bán hàng thông thường" và "Chào thầu" đã có từ migration nên không tạo lại. Chạy lại được (khớp
+theo mã luồng, tên cơ hội, tên tài liệu); mỗi nhóm việc lỗi chỉ cảnh báo, không chặn nhóm sau.
+
+- Luồng thử "Bán hàng 5 giai đoạn" tạo từ mẫu `SALES_SIMPLE` (Mới, Báo giá, Đàm phán, Thắng, Thua), Báo giá bỏ qua được,
+  gán người: Mới và Báo giá theo chủ dự án, Đàm phán theo quản lý trực tiếp. Dự án ở Mới, Báo giá, Đàm phán; một dự án
+  bỏ qua Báo giá, một dự án đã đổi người đảm nhận Đàm phán sang NV3.
+- Cơ hội thầu: HSMT (không liên danh), Chuẩn bị (liên danh, có đối tác), Chờ duyệt phương án (liên danh), Đã nộp (không
+  liên danh, TN đã duyệt phương án). Hai cơ hội sau cần hồ sơ pháp lý và dự toán trên S3.
+- PAKD ở ba trạng thái Đang soạn, Chờ duyệt, Đã duyệt (TN duyệt) trên ba báo giá của NV1 cho khách `QA-CRM-KH01`.
+- Tài liệu mẫu trên khách `QA-CRM-KH01` và dự án "QA-P2 5GD Báo giá"; in số khách có và không có nhóm (từ bước `crm`).
+- Cài đặt PAKD đặt về mặc định (so theo lợi nhuận, ngưỡng 5%).
+- Cần S3 (MinIO, hoặc `node tools/crm/mock-s3.mjs` với `S3_*_ENDPOINT` trỏ về nó) cho tài liệu và hồ sơ thầu; thiếu S3
+  thì các phần đó bị bỏ qua kèm cảnh báo. Cần các bước `inventory` và `crm` đã chạy.
+
+## UAT tự động (TC-UAT-01 đến 09, TC-P2UAT-01 đến 08)
 
 ```bash
-node tools/crm/uat-e2e.mjs --tenant=svn [--roles-only]
+node tools/crm/uat-e2e.mjs --tenant=svn [--roles-only] [--phase2]
 ```
+
+- Mặc định chạy 66 bước phase 1 rồi nhóm bước phase 2 `UAT-P2-xx` (luồng tuỳ biến, PAKD, tài liệu, chào thầu, gợi ý
+  chăm sóc, cấu hình luồng). `--phase2` chỉ chạy nhóm phase 2. Bước cần S3 hiện `SKIP` kèm lý do (không tính là đạt)
+  khi S3 không sẵn. Nhóm phase 2 tự dựng luồng thử `QA_P2U_<số>` (tắt ở cuối) và dữ liệu `QA-P2U-<số>`; không cần chạy
+  `--step=phase2` trước.
 
 - Chạy 21 bước TC-UAT-01 (`docs/crm/TEST.md` mục 3.9) qua API thật, đăng nhập đúng tài khoản từng bước (NV1, TN,
   QTBH, TK, KT, QTV, KTV, QL); duyệt báo giá bằng TN trên Procedure Engine

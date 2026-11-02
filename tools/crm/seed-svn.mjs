@@ -6,6 +6,7 @@
 //   node tools/crm/seed-svn.mjs --step=legacy [--tenant=svn]
 //   node tools/crm/seed-svn.mjs --step=inventory [--tenant=svn]
 //   node tools/crm/seed-svn.mjs --step=crm|pricing|finance|warranty [--tenant=svn]
+//   node tools/crm/seed-svn.mjs --step=phase2 [--tenant=svn]   (sau các bước trên; dữ liệu QA-P2, cần S3 cho tài liệu)
 //
 // Biến môi trường và thứ tự chạy: tools/crm/README.md.
 import { parseArgs } from 'node:util';
@@ -19,6 +20,7 @@ const STEPS = {
   pricing: async () => (await import('./seed-svn/pricing.mjs')).runPricingStep,
   finance: async () => (await import('./seed-svn/finance.mjs')).runFinanceStep,
   warranty: async () => (await import('./seed-svn/warranty.mjs')).runWarrantyStep,
+  phase2: async () => (await import('./seed-svn/phase2.mjs')).runPhase2Step,
 };
 
 const log = {
