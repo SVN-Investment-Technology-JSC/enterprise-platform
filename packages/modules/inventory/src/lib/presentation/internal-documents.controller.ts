@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpException, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpException, Param, Post, Req } from '@nestjs/common';
 import type {
   InternalChangeQualityRequest,
   InternalIssueRequest,
@@ -6,6 +6,7 @@ import type {
   InternalStockDocumentRequest,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryActor } from '../application/inventory.application.js';
+import { AssetDocumentService } from '../application/asset-document.service.js';
 import { QualityService } from '../application/quality.service.js';
 import { StockDocumentService } from '../application/stock-document.service.js';
 import { toInventoryError } from '../domain/inventory.error.js';
@@ -25,7 +26,14 @@ export class InternalDocumentsController {
   constructor(
     private readonly documents: StockDocumentService,
     private readonly quality: QualityService,
+    private readonly assetDocuments: AssetDocumentService,
   ) {}
+
+  /** Tài liệu của thiết bị (chỉ đọc) cho Bảo hành; siêu dữ liệu và URL tải ký 5 phút. */
+  @Get('materials/:materialId/documents')
+  listMaterialDocuments(@Req() request: InventoryRequest, @Param('materialId') materialId: string) {
+    return this.execute(() => this.assetDocuments.listForService(this.actor(request), materialId));
+  }
 
   /** Chứng từ xuất nháp (xuất bán hoặc xuất bảo hành) gắn giữ hàng và nguồn. */
   @Post('issue-requests')

@@ -133,6 +133,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0017-pipelines', path: 'tenant/crm/0017-pipelines.sql' },
     { version: '0018-opportunity-pipeline', path: 'tenant/crm/0018-opportunity-pipeline.sql' },
     { version: '0019-opportunity-stage-plan', path: 'tenant/crm/0019-opportunity-stage-plan.sql' },
+    { version: '0020-documents', path: 'tenant/crm/0020-documents.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },

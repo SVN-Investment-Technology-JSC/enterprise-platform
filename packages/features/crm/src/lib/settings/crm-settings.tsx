@@ -23,9 +23,10 @@ import { DiscountPoliciesPage } from '../pricing/discount-policies-page';
 import { PriceListsPage } from '../pricing/price-lists-page';
 import { QuotePreviewPanel } from '../pricing/quote-preview-panel';
 import { ApprovalSettingsPage } from './approval-settings';
+import { DocumentTypeSettings } from './document-type-settings';
 
 /** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
-export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval';
+export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types';
 
 const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
   { id: 'general', label: 'Chung' },
@@ -33,6 +34,7 @@ const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
   { id: 'discount-policies', label: 'Chính sách chiết khấu' },
   { id: 'quote-preview', label: 'Thử tính giá' },
   { id: 'approval', label: 'Duyệt báo giá' },
+  { id: 'document-types', label: 'Loại tài liệu' },
 ];
 
 export function settingsTab(value: string | undefined): CrmSettingsTab {
@@ -70,6 +72,8 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
         <QuotePreviewPanel />
       ) : current === 'approval' ? (
         <ApprovalSettingsPage />
+      ) : current === 'document-types' ? (
+        <DocumentTypeSettings />
       ) : (
         <>
           <GeneralSettings />

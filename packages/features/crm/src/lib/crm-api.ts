@@ -94,6 +94,7 @@ import type {
   WarrantyCaseDetail,
   WarrantyCaseListQuery,
   WarrantyCaseSummary,
+  WarrantyDeviceDocument,
   WarrantyLookupItem,
   WarrantyLookupQuery,
   WarrantySerialHistory,
@@ -117,6 +118,23 @@ import type {
   ResendReceiptRequest,
 } from '@enterprise-platform/contracts-crm';
 import type {
+  CompleteDocumentUploadRequest,
+  CreateDocumentFolderRequest,
+  CreateDocumentRequest,
+  CreateDocumentResponse,
+  CreateDocumentVersionRequest,
+  CrmDocument,
+  CrmDocumentAudience,
+  CrmDocumentDetail,
+  CrmDocumentFolder,
+  CrmDocumentType,
+  CrmDocumentVersion,
+  DocumentDownloadTicket,
+  DocumentListQuery,
+  DocumentUploadTicket,
+  UpdateDocumentRequest,
+} from '@enterprise-platform/contracts-crm';
+import type {
   ConversionReport,
   ConversionReportQuery,
   ReceivableReport,
@@ -127,6 +145,7 @@ import type {
   SalesReportQuery,
 } from '@enterprise-platform/contracts-crm';
 import type { DashboardQuery, SalesDashboard } from '@enterprise-platform/contracts-crm';
+import type { CreateDocumentTypeRequest, UpdateDocumentTypeRequest } from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -408,7 +427,16 @@ export const listWarrantyCases = (query: WarrantyCaseListQuery) =>
   request<CrmPage<WarrantyCaseSummary>>(`/warranty/cases${toQuery(query)}`, { cache: 'no-store' });
 export const getWarrantyCase = (id: string) =>
   request<WarrantyCaseDetail>(`/warranty/cases/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const listWarrantyDeviceDocuments = (id: string) =>
+  request<WarrantyDeviceDocument[]>(`/warranty/cases/${encodeURIComponent(id)}/device-documents`, { cache: 'no-store' });
 export const createWarrantyCase = (body: CreateWarrantyCaseRequest) => send<WarrantyCaseDetail>('POST', '/warranty/cases', body);
+/** Loại tài liệu; `includeInactive` chỉ có hiệu lực với người có `crm.manage`. */
+export const listDocumentTypes = (includeInactive = false) =>
+  request<CrmDocumentType[]>(`/document-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createDocumentType = (body: CreateDocumentTypeRequest) => send<CrmDocumentType>('POST', '/document-types', body);
+export const updateDocumentType = (id: string, body: UpdateDocumentTypeRequest) =>
+  send<CrmDocumentType>('PATCH', `/document-types/${encodeURIComponent(id)}`, body);
+
 export type WarrantyAction = 'receive' | 'reject' | 'sync-documents' | 'close';
 export const warrantyAction = (id: string, action: WarrantyAction, body: WarrantyActionRequest) =>
   send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/${action}`, body);
@@ -432,3 +460,25 @@ export const loadReceivableReport = (query: ReceivableReportQuery) =>
 // Dashboard Tổng quan: chỉ cần `crm.read`, số liệu theo phạm vi của người xem.
 export const loadDashboard = (query: DashboardQuery) =>
   request<SalesDashboard>(`/dashboard${toQuery(query)}`, { cache: 'no-store' });
+
+// Kho tài liệu (GĐ C): máy chủ chỉ cấp URL ký, trình duyệt PUT thẳng file lên kho lưu trữ.
+export const listDocuments = (query: DocumentListQuery) =>
+  request<CrmDocument[]>(`/documents${toQuery(query)}`, { cache: 'no-store' });
+export const getDocument = (id: string) => request<CrmDocumentDetail>(`/documents/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createDocument = (body: CreateDocumentRequest) => send<CreateDocumentResponse>('POST', '/documents', body);
+export const updateDocument = (id: string, body: UpdateDocumentRequest) =>
+  send<CrmDocument>('PATCH', `/documents/${encodeURIComponent(id)}`, body);
+export const deleteDocument = (id: string) => send<void>('DELETE', `/documents/${encodeURIComponent(id)}`);
+export const createDocumentVersion = (id: string, body: CreateDocumentVersionRequest) =>
+  send<DocumentUploadTicket>('POST', `/documents/${encodeURIComponent(id)}/versions`, body);
+export const completeDocumentUpload = (id: string, versionId: string, body: CompleteDocumentUploadRequest) =>
+  send<CrmDocumentVersion>('POST', `/documents/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/complete`, body);
+export const getDocumentDownload = (id: string, version?: number) =>
+  request<DocumentDownloadTicket>(`/documents/${encodeURIComponent(id)}/download${toQuery({ version })}`, { cache: 'no-store' });
+export const lockDocument = (id: string) => send<CrmDocument>('POST', `/documents/${encodeURIComponent(id)}/lock`);
+export const unlockDocument = (id: string) => send<CrmDocument>('POST', `/documents/${encodeURIComponent(id)}/unlock`);
+export const setDocumentAudience = (id: string, audience: CrmDocumentAudience) =>
+  send<CrmDocument>('PATCH', `/documents/${encodeURIComponent(id)}/audience`, { audience });
+export const listDocumentFolders = (entityType: string, entityId: string) =>
+  request<CrmDocumentFolder[]>(`/document-folders${toQuery({ entityType, entityId })}`, { cache: 'no-store' });
+export const createDocumentFolder = (body: CreateDocumentFolderRequest) => send<CrmDocumentFolder>('POST', '/document-folders', body);

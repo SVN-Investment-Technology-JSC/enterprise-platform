@@ -489,6 +489,12 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'crm.warranty.write', group: 'CRM', label: 'Xử lý bảo hành và đổi trả' },
   { key: 'crm.report.read', group: 'CRM', label: 'Xem báo cáo CRM' },
   {
+    key: 'crm.document.write',
+    group: 'CRM',
+    label: 'Tải lên, khoá và đổi đối tượng xem tài liệu CRM',
+  },
+  { key: 'crm.document.delete', group: 'CRM', label: 'Xoá tài liệu CRM' },
+  {
     key: 'crm.manage',
     group: 'CRM',
     label: 'Quản trị bán hàng: bảng giá, chính sách, nhóm khách hàng, hạn mức và cấu hình',
@@ -595,7 +601,8 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'social.post.write': ['social.read'],
   // Bán hàng: mọi quyền nghiệp vụ đều cần xem được phân hệ. `crm.manage` là quản trị cấu hình,
   // cố ý không kéo theo quyền lập báo giá, đơn, hợp đồng hay thu tiền.
-  'crm.manage': ['crm.read', 'crm.read.all'],
+  // Tài liệu: quản trị bán hàng tải lên và mở khoá được; quyền xoá cấp đích danh (như Workspace, Hệ dùng chung).
+  'crm.manage': ['crm.read', 'crm.read.all', 'crm.document.write'],
   'crm.read.all': ['crm.read'],
   'crm.opportunity.write': ['crm.read'],
   'crm.quote.write': ['crm.read'],
@@ -605,6 +612,8 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'crm.receivable.write': ['crm.read'],
   'crm.warranty.write': ['crm.read'],
   'crm.report.read': ['crm.read'],
+  'crm.document.write': ['crm.read'],
+  'crm.document.delete': ['crm.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */

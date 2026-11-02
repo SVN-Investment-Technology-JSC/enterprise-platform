@@ -96,6 +96,8 @@ describe('CrmAccessGuard', () => {
       canWriteReceivable: false,
       canWriteWarranty: false,
       canReadReport: false,
+      canWriteDocument: false,
+      canDeleteDocument: false,
       canManage: false,
     });
   });
@@ -117,6 +119,21 @@ describe('CrmAccessGuard', () => {
     const { guard, context, request } = user(['crm.manage']);
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.crmActor).toMatchObject({ canManage: true, canReadAll: true, canWriteQuote: false });
+  });
+
+  it('quyền tài liệu: crm.document.write và crm.document.delete tách riêng; crm.manage kéo theo ghi, không kéo theo xoá', async () => {
+    const writer = user(['crm.document.write']);
+    await expect(writer.guard.canActivate(writer.context)).resolves.toBe(true);
+    expect(writer.request.crmActor).toMatchObject({ canWriteDocument: true, canDeleteDocument: false });
+    const deleter = user(['crm.document.delete']);
+    await expect(deleter.guard.canActivate(deleter.context)).resolves.toBe(true);
+    expect(deleter.request.crmActor).toMatchObject({ canWriteDocument: false, canDeleteDocument: true });
+    const manager = user(['crm.manage']);
+    await expect(manager.guard.canActivate(manager.context)).resolves.toBe(true);
+    expect(manager.request.crmActor).toMatchObject({ canWriteDocument: true, canDeleteDocument: false });
+    const reader = user(['crm.read']);
+    await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
+    expect(reader.request.crmActor).toMatchObject({ canWriteDocument: false, canDeleteDocument: false });
   });
 
   it('quản trị tenant có mọi cờ', async () => {
@@ -146,6 +163,20 @@ describe('CrmAccessGuard', () => {
       method: 'POST',
       headers: { authorization: 'Bearer token' },
     });
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['POST', '/documents'],
+    ['POST', '/documents/abc/versions'],
+    ['POST', '/documents/abc/lock'],
+    ['PATCH', '/documents/abc/audience'],
+    ['DELETE', '/documents/abc'],
+    ['POST', '/document-folders'],
+    ['POST', '/document-types'],
+  ])('TC-DOC-21: %s %s thiếu CSRF thì 403 trước khi hỏi Platform', async (method, path) => {
+    const { guard, context, fetch } = setup({ path, method, headers: { authorization: 'Bearer token' } });
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
     expect(fetch).not.toHaveBeenCalled();
   });

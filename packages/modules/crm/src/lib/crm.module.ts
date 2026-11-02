@@ -41,7 +41,7 @@ import {
   type TimelineStore,
 } from './application/sales-store.port.js';
 import { CrmDatabase } from './infrastructure/crm.database.js';
-import { INVENTORY_ACCESS_READER } from './application/inventory-access.port.js';
+import { INVENTORY_ACCESS_READER, type InventoryAccessReader } from './application/inventory-access.port.js';
 import { HttpInventoryAccess } from './infrastructure/http-inventory-access.js';
 import { HttpOrganizationScope } from './infrastructure/http-organization-scope.js';
 import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
@@ -148,6 +148,12 @@ import {
   type WarrantyInventory,
   type WarrantyStore,
 } from './application/warranty.port.js';
+import {
+  CRM_WARRANTY_DEVICE_DOCUMENTS,
+  WarrantyDeviceDocumentService,
+  type WarrantyDeviceDocumentReader,
+} from './application/warranty-device-documents.service.js';
+import { HttpWarrantyDeviceDocuments } from './infrastructure/http-warranty-device-documents.js';
 import { HttpWarrantyInventoryClient } from './infrastructure/http-warranty-inventory.js';
 import { PostgresWarrantyStore } from './infrastructure/postgres-warranty.store.js';
 import { WarrantyController } from './presentation/warranty.controller.js';
@@ -159,6 +165,16 @@ import { SalesDashboardService } from './application/sales-dashboard.service.js'
 import { CRM_SALES_DASHBOARD_STORE, type SalesDashboardStore } from './application/sales-dashboard-store.port.js';
 import { PostgresSalesDashboardStore } from './infrastructure/postgres-sales-dashboard.store.js';
 import { DashboardController } from './presentation/dashboard.controller.js';
+import { DocumentService, DocumentTypeService } from './application/document.service.js';
+import {
+  CRM_DOCUMENT_STORAGE,
+  CRM_DOCUMENT_STORE,
+  type DocumentStorage,
+  type DocumentStore,
+} from './application/document-store.port.js';
+import { PostgresDocumentStore, PostgresOpportunityDocumentChecker } from './infrastructure/postgres-document.store.js';
+import { S3DocumentStorage } from './infrastructure/s3-document-storage.js';
+import { DocumentTypesController, DocumentsController } from './presentation/documents.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -193,6 +209,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     WarrantyController,
     ReportsController,
     DashboardController,
+    DocumentsController,
+    DocumentTypesController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -258,6 +276,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         scopes: CrmDataScopeService,
         pipelines: PipelineConfigProvider,
         organization: HttpOrganizationScope,
+        database: CrmDatabase,
       ) =>
         new OpportunityService(
           opportunities,
@@ -265,11 +284,19 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
           scopes,
           pipelines,
           undefined,
-          undefined,
+          // Cổng điều kiện DOCUMENT_TYPE (P2C-11): loại tài liệu còn hiệu lực của cơ hội đọc từ kho tài liệu CRM.
+          new PostgresOpportunityDocumentChecker(database),
           new StageAssigneeResolver(organization),
           organization,
         ),
-      inject: [CRM_OPPORTUNITY_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService, CRM_PIPELINE_CONFIG, HttpOrganizationScope],
+      inject: [
+        CRM_OPPORTUNITY_STORE,
+        CRM_CUSTOMER_STORE,
+        CrmDataScopeService,
+        CRM_PIPELINE_CONFIG,
+        HttpOrganizationScope,
+        CrmDatabase,
+      ],
     },
     {
       provide: ActivityService,
@@ -459,6 +486,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         new WarrantyService(warranty, inventory, catalog, scopes),
       inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_CATALOG_READER, CrmDataScopeService],
     },
+    { provide: CRM_WARRANTY_DEVICE_DOCUMENTS, useFactory: () => new HttpWarrantyDeviceDocuments() },
+    {
+      provide: WarrantyDeviceDocumentService,
+      useFactory: (warranty: WarrantyService, access: InventoryAccessReader, reader: WarrantyDeviceDocumentReader) =>
+        new WarrantyDeviceDocumentService(warranty, access, reader),
+      inject: [WarrantyService, INVENTORY_ACCESS_READER, CRM_WARRANTY_DEVICE_DOCUMENTS],
+    },
     {
       provide: WarrantyResolutionService,
       useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, credit: WarrantyCreditPort, scopes: CrmDataScopeService) =>
@@ -480,6 +514,20 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (dashboard: SalesDashboardStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
         new SalesDashboardService(dashboard, scopes, settings),
       inject: [CRM_SALES_DASHBOARD_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
+    },
+    // Tài liệu (GĐ C): siêu dữ liệu trong `crm_schema`, file trên S3/MinIO qua URL ký 300 giây.
+    store(CRM_DOCUMENT_STORE, (database) => new PostgresDocumentStore(database)),
+    { provide: CRM_DOCUMENT_STORAGE, useFactory: () => new S3DocumentStorage() },
+    {
+      provide: DocumentService,
+      useFactory: (documents: DocumentStore, storage: DocumentStorage, scopes: CrmDataScopeService) =>
+        new DocumentService(documents, storage, scopes),
+      inject: [CRM_DOCUMENT_STORE, CRM_DOCUMENT_STORAGE, CrmDataScopeService],
+    },
+    {
+      provide: DocumentTypeService,
+      useFactory: (documents: DocumentStore) => new DocumentTypeService(documents),
+      inject: [CRM_DOCUMENT_STORE],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],

@@ -34,6 +34,10 @@ export interface CrmCapabilities {
   readonly canWriteWarranty: boolean;
   /** `crm.report.read`: xem báo cáo Bán hàng. */
   readonly canReadReport: boolean;
+  /** `crm.document.write`: tải lên, phiên bản mới, khoá, đổi đối tượng xem tài liệu. */
+  readonly canWriteDocument: boolean;
+  /** `crm.document.delete`: xoá tài liệu (cấp đích danh, không đi theo `crm.manage`). */
+  readonly canDeleteDocument: boolean;
   /** `crm.manage`: bảng giá, chính sách, nhóm khách, hạn mức, cấu hình. */
   readonly canManage: boolean;
 }
@@ -50,6 +54,8 @@ export const CRM_NO_CAPABILITIES: CrmCapabilities = {
   canWriteReceivable: false,
   canWriteWarranty: false,
   canReadReport: false,
+  canWriteDocument: false,
+  canDeleteDocument: false,
   canManage: false,
 };
 

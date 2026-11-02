@@ -12,6 +12,7 @@ import { useDebounced } from '../components/use-debounced';
 import { useKeysetPage } from '../components/use-keyset-page';
 import { convertLead, createLead, errorMessage, listLeads, updateLead } from '../crm-api';
 import { labelOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { personName, taxCodeLooksValid } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -39,6 +40,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
   const [ownerUserId, setOwnerUserId] = useState('');
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
   const [converting, setConverting] = useState<Lead | null>(null);
+  const [documentsOf, setDocumentsOf] = useState<Lead | null>(null);
   const q = useDebounced(search.trim(), 350);
   const list = useKeysetPage(JSON.stringify({ q, status, ownerUserId }), (cursor) =>
     listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, cursor, limit: 30 }),
@@ -57,10 +59,13 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
       {
         title: '',
         key: 'actions',
-        width: 270,
+        width: 340,
         render: (_: unknown, row) =>
           row.status === 'CONVERTED' ? (
             <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
               {row.convertedCustomerId ? (
                 <button type="button" className={styles.rowAction} onClick={() => onOpenCustomer(row.convertedCustomerId as string)}>
                   Khách hàng
@@ -74,6 +79,9 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
             </span>
           ) : canWrite ? (
             <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
               {row.status !== 'DISQUALIFIED' ? (
                 <button type="button" className={styles.rowActionPrimary} onClick={() => setConverting(row)}>
                   Chuyển thành khách hàng và dự án bán hàng
@@ -83,7 +91,13 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
                 Sửa
               </button>
             </span>
-          ) : null,
+          ) : (
+            <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
+            </span>
+          ),
       },
     ],
     [people, canWrite, onOpenCustomer, onOpenOpportunity],
@@ -122,6 +136,11 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
             list.reload();
           }}
         />
+      ) : null}
+      {documentsOf ? (
+        <CrmDialog open wide title="Tài liệu của lead" subtitle={documentsOf.name} submitLabel="Đóng" onClose={() => setDocumentsOf(null)} onSubmit={() => setDocumentsOf(null)}>
+          <DocumentsPanel entityType="lead" entityId={documentsOf.id} />
+        </CrmDialog>
       ) : null}
       {converting ? (
         <ConvertLeadDialog

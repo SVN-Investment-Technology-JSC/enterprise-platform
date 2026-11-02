@@ -12,6 +12,7 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Drawer } from 'antd';
 import { useEffect, useState } from 'react';
 import { ActivityPanel } from '../activities/activity-panel';
+import { DocumentsPanel } from '../documents';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import {
@@ -458,6 +459,7 @@ export function OpportunityDrawer({
           </ol>
           <h4 className={styles.sectionTitle}>Hoạt động</h4>
           <ActivityPanel scope={{ opportunityId: detail.id }} />
+          <DocumentsPanel entityType="opportunity" entityId={detail.id} showTitle />
         </div>
       ) : null}
       {editing && detail ? (

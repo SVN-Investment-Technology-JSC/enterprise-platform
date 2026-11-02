@@ -29,6 +29,8 @@ export function crmCapabilities(actor: CrmActor): CrmCapabilities {
     canWriteReceivable: actor.canWriteReceivable,
     canWriteWarranty: actor.canWriteWarranty,
     canReadReport: actor.canReadReport,
+    canWriteDocument: actor.canWriteDocument,
+    canDeleteDocument: actor.canDeleteDocument,
     canManage: actor.canManage,
   };
 }

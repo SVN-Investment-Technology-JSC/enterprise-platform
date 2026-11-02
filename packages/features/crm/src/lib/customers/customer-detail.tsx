@@ -24,6 +24,7 @@ import {
   updateContact,
 } from '../crm-api';
 import { useCanWrite, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { formatMoney, personName, stageTone } from '../sales.model';
 import styles from '../sales.module.scss';
 import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
@@ -31,13 +32,14 @@ import { CustomerFormDialog } from './customer-form';
 import { KIND_TONE } from './customer-list';
 import { CustomerTimeline } from './customer-timeline';
 
-type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'timeline';
+type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'documents' | 'timeline';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'info', label: 'Thông tin' },
   { id: 'contacts', label: 'Người liên hệ' },
   { id: 'opportunities', label: 'Dự án bán hàng' },
   { id: 'activities', label: 'Hoạt động' },
+  { id: 'documents', label: 'Tài liệu' },
   { id: 'timeline', label: 'Dòng thời gian' },
 ];
 
@@ -152,6 +154,7 @@ export function CustomerDetail({
       {tab === 'contacts' ? <ContactsTab customer={customer} onChanged={setCustomer} /> : null}
       {tab === 'opportunities' ? <CustomerOpportunities customer={customer} onOpen={onOpenOpportunity} /> : null}
       {tab === 'activities' ? <ActivityPanel scope={{ customerId: customer.id }} /> : null}
+      {tab === 'documents' ? <DocumentsPanel entityType="customer" entityId={customer.id} /> : null}
       {tab === 'timeline' ? <CustomerTimeline
           customerId={customer.id}
           onOpenOpportunity={onOpenOpportunity}

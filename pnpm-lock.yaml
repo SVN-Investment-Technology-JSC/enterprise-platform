@@ -2017,6 +2017,9 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
       '@enterprise-platform/contracts-crm':
         specifier: workspace:*
         version: link:../../contracts/crm

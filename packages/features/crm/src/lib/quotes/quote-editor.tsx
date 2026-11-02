@@ -35,6 +35,7 @@ import local from '../pricing/pricing.module.scss';
 import { QUOTE_ACTION_LABELS, formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { QuoteCompare } from './quote-compare';
+import { DocumentsPanel } from '../documents';
 import {
   addLinesLabel,
   buildLines,
@@ -479,6 +480,8 @@ export function QuoteEditor({
           </dd>
         </dl>
       </section>
+
+      <DocumentsPanel entityType="quote" entityId={detail.id} showTitle />
 
       <section className={styles.panel} aria-label="Lịch sử">
         <h3 className={styles.sectionTitle}>Lịch sử duyệt</h3>

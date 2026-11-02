@@ -33,6 +33,7 @@ import {
   type ContractAction,
 } from '../crm-api';
 import { labelOptions, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import {
   CONTRACT_STATUS_TONE,
   FULFILLMENT_ACTION_LABELS,
@@ -582,6 +583,8 @@ export function ContractDetail({
           locale={{ emptyText: 'Chưa có đơn nào từ hợp đồng này.' }}
         />
       </section>
+
+      <DocumentsPanel entityType="contract" entityId={detail.id} showTitle />
 
       <section className={styles.panel} aria-label="Nhật ký">
         <h3 className={styles.sectionTitle}>Nhật ký</h3>

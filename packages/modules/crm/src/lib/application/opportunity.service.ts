@@ -66,7 +66,10 @@ export const OPPORTUNITY_BOARD_PER_STAGE = 50;
  * liệu thì không truyền, điều kiện DOCUMENT_TYPE chỉ vào danh sách "cần có".
  */
 export interface OpportunityDocumentChecker {
+  /** `refs` là MÃ loại tài liệu (`document_types.code`); trả những mã mà cơ hội đã có tài liệu còn hiệu lực. */
   presentDocumentTypes(tenantId: string, opportunityId: string, refs: readonly string[]): Promise<ReadonlySet<string>>;
+  /** Tên hiển thị theo mã, để thông báo thiếu tài liệu nêu đúng tên loại (không có thì dùng mã). */
+  documentTypeNames?(tenantId: string, refs: readonly string[]): Promise<ReadonlyMap<string, string>>;
 }
 
 /**
@@ -406,6 +409,10 @@ export class OpportunityService {
       this.documents && documentRefs.length
         ? await this.documents.presentDocumentTypes(tenantId, current.id, documentRefs)
         : undefined;
+    const names =
+      this.documents?.documentTypeNames && documentRefs.length
+        ? await this.documents.documentTypeNames(tenantId, documentRefs)
+        : undefined;
     const context: RequirementContext = {
       fields: {
         need: current.need,
@@ -417,7 +424,7 @@ export class OpportunityService {
       hasAcceptedQuote,
       ...(present ? { documentTypeMet: (ref: string) => present.has(ref) } : {}),
     };
-    return evaluateRequirements(to, context);
+    return withDocumentTypeNames(evaluateRequirements(to, context), names);
   }
 
   /** Luồng được chọn (rỗng thì luồng mặc định); luồng tắt không cho tạo cơ hội mới (`forCreate`). */
@@ -484,4 +491,21 @@ export function opportunityRecord(
     budget: optionalMoney(request.budget, 'ngân sách'),
     ownerUserId: optionalId(request.ownerUserId, 'người phụ trách') ?? defaultOwner,
   };
+}
+
+/**
+ * Điều kiện DOCUMENT_TYPE chưa đạt thì thông báo phải nêu TÊN loại tài liệu (không chỉ mã `ref`): thông báo
+ * cấu hình sẵn đã chứa tên thì giữ nguyên, chưa có thì nối thêm tên loại thiếu.
+ */
+function withDocumentTypeNames(
+  checks: StageRequirementCheck[],
+  names: ReadonlyMap<string, string> | undefined,
+): StageRequirementCheck[] {
+  if (!names) return checks;
+  return checks.map((check) => {
+    if (check.kind !== 'DOCUMENT_TYPE' || check.met !== false) return check;
+    const name = names.get(check.ref);
+    if (!name || check.message.includes(name)) return check;
+    return { ...check, message: `${check.message} Loại tài liệu cần có: "${name}".` };
+  });
 }

@@ -33,6 +33,7 @@ import {
   type OrderAction,
 } from '../crm-api';
 import { useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { OrderReceivablePanel } from '../receivables/order-receivable-panel';
 import {
   DELIVERY_STATUS_TONE,
@@ -429,6 +430,8 @@ export function OrderDetail({
           <p className={styles.muted}>Chưa có đợt giao nào.</p>
         )}
       </section>
+
+      <DocumentsPanel entityType="sales_order" entityId={detail.id} showTitle />
 
       <section className={styles.panel} aria-label="Nhật ký">
         <h3 className={styles.sectionTitle}>Nhật ký</h3>

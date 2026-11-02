@@ -70,6 +70,8 @@ export class CrmAccessGuard implements CanActivate {
       canWriteReceivable: can('crm.receivable.write'),
       canWriteWarranty: can('crm.warranty.write'),
       canReadReport: can('crm.report.read'),
+      canWriteDocument: can('crm.document.write'),
+      canDeleteDocument: can('crm.document.delete'),
       canManage: can('crm.manage'),
     };
     return true;
@@ -97,6 +99,8 @@ export class CrmAccessGuard implements CanActivate {
       canWriteReceivable: false,
       canWriteWarranty: false,
       canReadReport: false,
+      canWriteDocument: false,
+      canDeleteDocument: false,
       canManage: false,
     };
     return true;
