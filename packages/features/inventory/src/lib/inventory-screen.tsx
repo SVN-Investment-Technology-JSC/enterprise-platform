@@ -27,6 +27,7 @@ import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
+import { CustodyPanel } from './components/custody-panel';
 import { InstallMaterialDialog } from './components/install-material-dialog';
 import { ReturnToStockDialog } from './components/return-to-stock-dialog';
 import { MaterialForm } from './components/material-form';
@@ -50,6 +51,7 @@ import {
   openMovementWorkOrder,
   returnItemToStock,
   updateAsset,
+  assignCustody,
   type ProcedureOption,
   type ProcedureWorkOrder,
   loadInventoryWorkspace,
@@ -85,6 +87,7 @@ type Tab =
   | 'approvals'
   | 'issue-requests'
   | 'assets'
+  | 'custody'
   | 'ledger'
   | 'reports'
   | 'settings';
@@ -99,6 +102,7 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
   { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
+  { id: 'custody', label: 'Tài sản', group: 'Vận hành' },
   { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
@@ -1341,6 +1345,22 @@ export function InventoryScreen() {
                 )}
               </section>
             </div>
+          ) : null}
+
+          {tab === 'custody' ? (
+            <CustodyPanel
+              candidates={workspace.assets}
+              canManage={canManage}
+              busy={busy}
+              onAssign={(asset, employeeId) =>
+                perform(async () => {
+                  await assignCustody(asset.code, employeeId);
+                  return employeeId
+                    ? `Đã cấp phát ${asset.code}.`
+                    : `Đã thu hồi ${asset.code}.`;
+                })
+              }
+            />
           ) : null}
 
           {tab === 'ledger' ? (

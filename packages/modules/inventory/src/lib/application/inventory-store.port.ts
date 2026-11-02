@@ -288,6 +288,8 @@ export interface InventoryStore {
 
   custody: {
     listByEmployee(tenantId: string, employeeId: string): Promise<Material[]>;
+    /** Mọi tài sản đang có người nhận, mới cấp trước. */
+    listAssigned(tenantId: string): Promise<Material[]>;
     assign(tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null>;
   };
 
