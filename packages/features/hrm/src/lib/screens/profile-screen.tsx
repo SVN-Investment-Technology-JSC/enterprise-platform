@@ -2,6 +2,7 @@
 
 import { HrmFamilyPanel } from '../ui/hrm-family-panel';
 import { HrmContractPanel } from '../ui/hrm-contract-panel';
+import { HrmCustodyPanel } from '../ui/hrm-custody-panel';
 import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
 import type {
   HrmEmployeeDependent,
@@ -874,6 +875,9 @@ export default function HrmProfilePage() {
 
       {/* Người phụ thuộc */}
       <HrmFamilyPanel rows={dependents} onChanged={setDependents} />
+
+      {/* Vật tư, tài sản công ty cấp phát */}
+      {employeeId && <HrmCustodyPanel employeeId={employeeId} />}
 
       {/* Ngăn kéo: quá trình công tác và hợp đồng */}
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>

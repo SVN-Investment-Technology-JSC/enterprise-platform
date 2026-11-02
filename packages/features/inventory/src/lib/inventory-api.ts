@@ -654,6 +654,11 @@ export function loadEmployeeCustody(
   );
 }
 
+/** Mọi tài sản đã cấp phát cho nhân viên. */
+export function loadCustody(): Promise<import('@enterprise-platform/contracts-inventory').Material[]> {
+  return request<import('@enterprise-platform/contracts-inventory').Material[]>('/custody');
+}
+
 export function assignCustody(
   materialCode: string,
   employeeId: string | null,

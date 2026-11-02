@@ -1684,9 +1684,19 @@ export class PostgresInventoryStore implements InventoryStore {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.materials
-          WHERE assigned_employee_id = $1 AND is_active = true
+          WHERE assigned_employee_id = $1 AND kind = 'ASSET' AND is_active = true
           ORDER BY code`,
         [employeeId],
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    listAssigned: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials
+          WHERE assigned_employee_id IS NOT NULL AND kind = 'ASSET' AND is_active = true
+          ORDER BY assigned_at DESC NULLS LAST, code`,
       );
       return result.rows.map(mapMaterial);
     },
@@ -1697,7 +1707,7 @@ export class PostgresInventoryStore implements InventoryStore {
         `UPDATE inventory_schema.materials
             SET assigned_employee_id = $2,
                 assigned_at = CASE WHEN $2 IS NULL THEN NULL ELSE now() END
-          WHERE code = $1
+          WHERE code = $1 AND kind = 'ASSET'
          RETURNING *`,
         [materialCode, employeeId],
       );

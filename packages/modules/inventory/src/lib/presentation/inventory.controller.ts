@@ -527,6 +527,11 @@ export class InventoryController {
   }
 
   // --- Cấp phát trang thiết bị nhân sự (HRM Custody) ---
+  @Get('custody')
+  listAssignedCustody(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAssignedCustody(this.actor(request)));
+  }
+
   @Get('custody/employees/:employeeId')
   listEmployeeCustody(
     @Req() request: InventoryRequest,

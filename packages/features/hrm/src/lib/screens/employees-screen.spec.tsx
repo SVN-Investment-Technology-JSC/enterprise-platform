@@ -433,7 +433,7 @@ describe('EmployeesScreen', () => {
       expect(within(dialog).getByRole('region', { name: title })).toBeTruthy();
     expect(within(dialog).getByRole('progressbar', { name: 'Mức hoàn thiện hồ sơ' })).toBeTruthy();
     const tabs = within(dialog).getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['Ảnh và giấy tờ', 'Người phụ thuộc (0)', 'Hợp đồng (0)']);
+    expect(tabs).toEqual(['Ảnh và giấy tờ', 'Người phụ thuộc (0)', 'Hợp đồng (0)', 'Vật tư']);
     expect(within(dialog).getByTestId('employee-tab-documents')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('tab', { name: /Hợp đồng/ }));
     expect(within(dialog).getByTestId('employee-tab-contracts')).toBeTruthy();
@@ -464,6 +464,7 @@ describe('EmployeesScreen', () => {
         'Ảnh và giấy tờ',
         'Người phụ thuộc (2)',
         'Hợp đồng (1)',
+        'Vật tư',
       ]),
     );
     expect(within(dialog).getByTestId('employee-tab-documents')).toBeTruthy();

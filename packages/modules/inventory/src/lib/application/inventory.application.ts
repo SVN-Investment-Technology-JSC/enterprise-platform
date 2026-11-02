@@ -1471,13 +1471,19 @@ export class InventoryApplication {
     return this.store.custody.listByEmployee(actor.tenantId, employeeId);
   }
 
+  async listAssignedCustody(actor: InventoryActor): Promise<Material[]> {
+    return this.store.custody.listAssigned(actor.tenantId);
+  }
+
   async assignCustody(
     actor: InventoryActor,
     materialCode: string,
     employeeId: string | null,
   ): Promise<Material | null> {
     this.requireStockWriter(actor);
-    return this.store.custody.assign(actor.tenantId, materialCode, employeeId);
+    const assigned = await this.store.custody.assign(actor.tenantId, materialCode, employeeId);
+    if (!assigned) throw new AssetNotFoundError(materialCode);
+    return assigned;
   }
 
   // --- Biên bản thí nghiệm / đo kiểm tài sản ---
