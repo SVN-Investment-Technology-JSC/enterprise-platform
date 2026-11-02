@@ -18,6 +18,7 @@ interface PipelineRow {
   is_default: boolean;
   active: boolean;
   sort_order: number;
+  care_suggestion: boolean;
 }
 
 interface StageRow {
@@ -59,7 +60,7 @@ export class PostgresPipelineConfigReader implements PipelineConfigReader {
     const pool = await this.database.pool(tenantId);
     const [pipelines, stages, transitions, requirements] = await Promise.all([
       pool.query<PipelineRow>(
-        `SELECT id, code, name, profile, is_default, active, sort_order
+        `SELECT id, code, name, profile, is_default, active, sort_order, care_suggestion
            FROM crm_schema.pipelines ORDER BY sort_order, code`,
       ),
       pool.query<StageRow>(
@@ -93,6 +94,7 @@ export class PostgresPipelineConfigReader implements PipelineConfigReader {
       isDefault: pipeline.is_default,
       active: pipeline.active,
       sortOrder: pipeline.sort_order,
+      careSuggestion: pipeline.care_suggestion,
       stages: stages.rows
         .filter((stage) => stage.pipeline_id === pipeline.id)
         .map((stage): PipelineStage => ({

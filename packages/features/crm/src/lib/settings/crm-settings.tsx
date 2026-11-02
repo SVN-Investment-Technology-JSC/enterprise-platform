@@ -24,6 +24,7 @@ import { PriceListsPage } from '../pricing/price-lists-page';
 import { QuotePreviewPanel } from '../pricing/quote-preview-panel';
 import { ApprovalSettingsPage } from './approval-settings';
 import { DocumentTypeSettings } from './document-type-settings';
+import { PipelineCareSettings } from './pipeline-care-settings';
 
 /** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
 export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types';
@@ -78,6 +79,7 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
         <>
           <GeneralSettings />
           <SalesSettingsPanel />
+          <PipelineCareSettings />
           <CustomerGroups />
         </>
       )}

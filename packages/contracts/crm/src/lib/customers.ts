@@ -74,6 +74,8 @@ export interface CustomerDetail extends CustomerSummary {
   readonly creditLimit: number | null;
   readonly paymentTermDays: number | null;
   readonly note: string | null;
+  /** Chân dung khách hàng: ghi chú tự do (P2F-03); `null` là chưa ghi. */
+  readonly profileNote: string | null;
   readonly version: number;
   readonly createdAt: string;
   readonly contacts: readonly CustomerContact[];
@@ -111,6 +113,16 @@ export interface UpdateCustomerRequest extends CustomerFields {
   readonly version: number;
   readonly confirmDuplicateTaxCode?: boolean;
 }
+
+/** Lưu khối "Chân dung khách hàng" (P2F-03). Chuỗi rỗng hoặc `null` là xoá. */
+export interface SaveCustomerProfileRequest {
+  readonly profileNote: string | null;
+  /** `version` đang xem; khác bản trong DB thì 409. */
+  readonly version: number;
+}
+
+/** Độ dài tối đa của chân dung khách hàng. */
+export const CUSTOMER_PROFILE_NOTE_MAX = 4000;
 
 export interface CustomerListQuery {
   readonly q?: string;

@@ -87,6 +87,9 @@ function order(extra: Partial<SalesOrderDetail> = {}): SalesOrderDetail {
     warehouseCode: 'KHO-1',
     deliveryAddress: null,
     note: null,
+    infoNote: null,
+    infoNotedBy: null,
+    infoNotedAt: null,
     priceDate: null,
     shipping: { amount: 0, vatRate: 10 },
     totals: { grossAmount: 0, discountAmount: 0, netAmount: 0, shippingAmount: 0, vatAmount: 0, totalAmount: 11_000_000 },
@@ -108,6 +111,7 @@ function setup(detail = order(), contract?: ContractDetail) {
     getOrder: jest.fn().mockResolvedValue(detail),
     createOrder: jest.fn().mockResolvedValue(ORDER),
     updateDraft: jest.fn(),
+    saveInfoNote: jest.fn().mockResolvedValue(undefined),
     confirm: jest.fn().mockResolvedValue(undefined),
     transition: jest.fn().mockResolvedValue(undefined),
     cancel: jest.fn().mockResolvedValue(undefined),
@@ -276,6 +280,27 @@ describe('SalesOrderService: xác nhận và giữ hàng (T4-09)', () => {
   it('không có quyền đơn bán: 403', async () => {
     const { service } = setup();
     await expect(service.confirm(actor({ canWriteOrder: false }), ORDER, { revision: 5 })).rejects.toMatchObject({ statusCode: 403 });
+  });
+});
+
+describe('SalesOrderService: ghi chú thông tin đơn hàng (P2F-03)', () => {
+  it('TC-CARE-08: cắt khoảng trắng, rỗng là xoá, gửi revision và người ghi cho store; sửa được khi đã xác nhận', async () => {
+    const { store, service } = setup(order({ status: 'CONFIRMED' }));
+    await service.saveInfoNote(actor(), ORDER, { revision: 5, infoNote: '  Giao giờ hành chính  ' });
+    expect(store.saveInfoNote).toHaveBeenCalledWith(TENANT, ORDER, 5, 'Giao giờ hành chính', USER);
+    await service.saveInfoNote(actor(), ORDER, { revision: 5, infoNote: ' ' });
+    expect(store.saveInfoNote).toHaveBeenLastCalledWith(TENANT, ORDER, 5, null, USER);
+  });
+
+  it('không quyền đơn bán 403; quá 4000 ký tự 400; đơn huỷ 409; thiếu revision báo lỗi', async () => {
+    const { store, service } = setup();
+    await expect(service.saveInfoNote(actor({ canWriteOrder: false }), ORDER, { revision: 5, infoNote: 'x' })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.saveInfoNote(actor(), ORDER, { revision: 5, infoNote: 'x'.repeat(4001) })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.saveInfoNote(actor(), ORDER, { infoNote: 'x' } as never)).rejects.toBeInstanceOf(CrmError);
+    const cancelled = setup(order({ status: 'CANCELLED' }));
+    await expect(cancelled.service.saveInfoNote(actor(), ORDER, { revision: 5, infoNote: 'x' })).rejects.toMatchObject({ statusCode: 409 });
+    expect(store.saveInfoNote).not.toHaveBeenCalled();
+    expect(cancelled.store.saveInfoNote).not.toHaveBeenCalled();
   });
 });
 

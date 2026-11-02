@@ -132,6 +132,11 @@ export interface SalesOrderStore {
     lines: readonly OrderLineRecord[] | undefined,
     actorId: string,
   ): Promise<void>;
+  /**
+   * Ghi chú thông tin đơn hàng (P2F-03): ghi người và thời điểm, tăng `revision`, ghi `audit_log`. Sửa được ở mọi
+   * trạng thái trừ Đã huỷ.
+   */
+  saveInfoNote(tenantId: string, id: string, revision: number, infoNote: string | null, actorId: string): Promise<void>;
   /** Nháp (hoặc Chờ duyệt hạn mức) → Đã xác nhận, ghi phần giữ hàng từng dòng. */
   confirm(tenantId: string, id: string, revision: number, from: SalesOrderStatus, confirmation: OrderConfirmation, actorId: string): Promise<void>;
   /** Chuyển không kèm tác động phụ: sang Chờ duyệt hạn mức, đóng tay sang Hoàn tất. */

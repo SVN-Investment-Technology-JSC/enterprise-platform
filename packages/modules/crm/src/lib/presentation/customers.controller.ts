@@ -10,6 +10,7 @@ import type {
   CustomerTimelineEntry,
   SaveContactRequest,
   SaveCustomerGroupRequest,
+  SaveCustomerProfileRequest,
   TaxCodeMatch,
   UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -78,6 +79,15 @@ export class CustomersController {
     @Body() body: SaveContactRequest,
   ): Promise<CustomerDetail> {
     return runCrm(() => this.customers.addContact(crmActor(request), id, body ?? ({} as never)));
+  }
+
+  @Put('customers/:id/profile')
+  saveProfile(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Body() body: SaveCustomerProfileRequest,
+  ): Promise<CustomerDetail> {
+    return runCrm(() => this.customers.saveProfile(crmActor(request), id, body ?? ({} as never)));
   }
 
   @Patch('customers/:id/contacts/:contactId')

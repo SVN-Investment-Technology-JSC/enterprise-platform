@@ -31,6 +31,7 @@ import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
 import { CustomerFormDialog } from './customer-form';
 import { KIND_TONE } from './customer-list';
 import { CustomerTimeline } from './customer-timeline';
+import { ProfileNotePanel } from './profile-note-panel';
 
 type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'documents' | 'timeline';
 
@@ -149,6 +150,7 @@ export function CustomerDetail({
             <dt>Ngày tạo</dt>
             <dd>{formatDate(customer.createdAt)}</dd>
           </dl>
+          <ProfileNotePanel customer={customer} canEdit={canWrite} onSaved={setCustomer} />
         </section>
       ) : null}
       {tab === 'contacts' ? <ContactsTab customer={customer} onChanged={setCustomer} /> : null}

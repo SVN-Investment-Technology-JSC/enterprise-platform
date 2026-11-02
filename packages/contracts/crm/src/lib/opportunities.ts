@@ -100,8 +100,20 @@ export interface Pipeline {
   readonly isDefault: boolean;
   readonly active: boolean;
   readonly sortOrder: number;
+  /** Gợi ý tạo lịch chăm sóc lại khi cơ hội Thua (P2F-02). Luồng `TENDER` không bao giờ gợi ý. */
+  readonly careSuggestion: boolean;
   /** Theo `sortOrder`, gồm cả giai đoạn đã tắt. */
   readonly stages: readonly PipelineStage[];
+}
+
+/** Bật hoặc tắt gợi ý chăm sóc lại của một luồng. */
+export interface UpdatePipelineCareSuggestionRequest {
+  readonly careSuggestion: boolean;
+}
+
+/** Kết quả đánh giá gợi ý chăm sóc lại sau khi cơ hội chuyển sang Thua. */
+export interface CareSuggestion {
+  readonly enabled: boolean;
 }
 
 /** Tham chiếu gọn tới luồng, nhúng vào cơ hội. */
@@ -319,12 +331,18 @@ export interface MyStageTask {
 }
 
 export interface OpportunityDetail extends OpportunitySummary {
+  /** Chỉ có ở phản hồi đổi giai đoạn sang Thua (P2F-01); nơi khác không có. */
+  readonly careSuggestion?: CareSuggestion;
   readonly need: string | null;
   readonly budget: number | null;
   /** Tổng giá trị dự toán (đồng); `null` là chưa nhập. Đối chiếu với PAKD ở giao diện. */
   readonly estimateTotalValue: number | null;
   /** Giá vốn dự kiến của dự toán (đồng); `null` là chưa nhập. */
   readonly estimateCostValue: number | null;
+  /** Đối thủ cạnh tranh (P2F-03); `null` là chưa nhập. */
+  readonly competitorName: string | null;
+  /** Giá đối thủ chào (đồng, >= 0); `null` là chưa nhập. */
+  readonly competitorPrice: number | null;
   readonly lostReason: string | null;
   readonly leadId: string | null;
   readonly closedAt: string | null;
@@ -344,6 +362,9 @@ export interface OpportunityFields {
   /** Không gửi (`undefined`) thì giữ nguyên; `null` xoá giá trị. Phải >= 0. */
   readonly estimateTotalValue?: number | null;
   readonly estimateCostValue?: number | null;
+  /** Không gửi thì giữ nguyên; `null` xoá. Tên tối đa 300 ký tự, giá phải >= 0. */
+  readonly competitorName?: string | null;
+  readonly competitorPrice?: number | null;
   readonly ownerUserId?: string | null;
 }
 

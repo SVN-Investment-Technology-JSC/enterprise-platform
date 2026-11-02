@@ -32,6 +32,7 @@ export function buildPipeline(input: {
   readonly profile?: PipelineProfile;
   readonly isDefault?: boolean;
   readonly active?: boolean;
+  readonly careSuggestion?: boolean;
   readonly stages: readonly StageSpec[];
   /** Cặp `[mã từ, mã đến]`. */
   readonly transitions: readonly (readonly [string, string])[];
@@ -71,6 +72,7 @@ export function buildPipeline(input: {
     isDefault: input.isDefault ?? false,
     active: input.active ?? true,
     sortOrder: 0,
+    careSuggestion: input.careSuggestion ?? (input.profile ?? 'STANDARD') !== 'TENDER',
     stages,
   };
 }

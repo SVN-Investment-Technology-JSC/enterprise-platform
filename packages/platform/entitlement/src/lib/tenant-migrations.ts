@@ -139,6 +139,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0023-tender', path: 'tenant/crm/0023-tender.sql' },
     { version: '0024-tender-pipeline', path: 'tenant/crm/0024-tender-pipeline.sql' },
     { version: '0025-tender-reminder', path: 'tenant/crm/0025-tender-reminder.sql' },
+    { version: '0026-pipeline-care-suggestion', path: 'tenant/crm/0026-pipeline-care-suggestion.sql' },
+    { version: '0027-care-notes', path: 'tenant/crm/0027-care-notes.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },

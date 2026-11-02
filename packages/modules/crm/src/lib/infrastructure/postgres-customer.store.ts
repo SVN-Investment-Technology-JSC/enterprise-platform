@@ -17,7 +17,7 @@ import type {
 } from '../application/sales-store.port.js';
 import { CrmConflictError, CrmStaleVersionError, CrmValidationError } from '../domain/crm.error.js';
 import { CUSTOMER_CODE_SETTING_KEY, formatCustomerCode, parseCustomerCodeRule } from '../domain/customer-code.js';
-import type { CrmSqlClient } from './audit-log.js';
+import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCustomerEvent } from './crm-outbox.js';
 import {
@@ -48,6 +48,7 @@ interface CustomerRow {
   credit_limit: string | null;
   payment_term_days: number | null;
   note: string | null;
+  profile_note: string | null;
   owner_user_id: string;
   version: number;
   created_at: Date;
@@ -69,7 +70,7 @@ interface ContactRow {
 
 const CUSTOMER_COLUMNS = `
   c.id, c.code, c.name, c.tax_code, c.address, c.province, c.region, c.industry, c.phone, c.email,
-  c.group_id, g.name AS group_name, c.kind, c.credit_limit, c.payment_term_days, c.note,
+  c.group_id, g.name AS group_name, c.kind, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
   c.owner_user_id, c.version, c.created_at, c.updated_at, pc.full_name AS primary_contact_name,
   ${cursorAt('c.updated_at')} AS cursor_at`;
 
@@ -177,6 +178,40 @@ export class PostgresCustomerStore implements CustomerStore {
     } catch (error) {
       throw translateCustomerError(error);
     }
+  }
+
+  saveProfileNote(
+    tenantId: string,
+    id: string,
+    profileNote: string | null,
+    expectedVersion: number,
+    actorId: string,
+  ): Promise<boolean> {
+    return this.database.transaction(tenantId, async (client) => {
+      const before = await client.query<{ profile_note: string | null; version: number }>(
+        `SELECT profile_note, version FROM crm_schema.customers WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const old = before.rows[0];
+      if (!old) return false;
+      if (Number(old.version) !== expectedVersion) throw new CrmStaleVersionError();
+      await client.query(
+        `UPDATE crm_schema.customers
+            SET profile_note = $2, version = version + 1, updated_at = now(), updated_by = $3
+          WHERE id = $1`,
+        [id, profileNote, actorId],
+      );
+      if ((old.profile_note ?? null) !== profileNote) {
+        await writeAuditLog(client, {
+          entityType: 'customer',
+          entityId: id,
+          action: 'update_profile_note',
+          actorId,
+          metadata: { fromLength: old.profile_note?.length ?? 0, toLength: profileNote?.length ?? 0 },
+        });
+      }
+      return true;
+    });
   }
 
   addContact(tenantId: string, customerId: string, record: ContactRecord, actorId: string): Promise<string> {
@@ -412,6 +447,7 @@ function toDetail(row: CustomerRow, contacts: CustomerContact[]): CustomerDetail
     creditLimit: toNumber(row.credit_limit),
     paymentTermDays: row.payment_term_days,
     note: row.note,
+    profileNote: row.profile_note,
     version: row.version,
     createdAt: toIso(row.created_at) ?? '',
     contacts,

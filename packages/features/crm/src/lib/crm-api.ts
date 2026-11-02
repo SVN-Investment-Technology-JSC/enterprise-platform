@@ -30,6 +30,7 @@ import {
   type StageRequirementCheck,
   type SaveContactRequest,
   type SaveCustomerGroupRequest,
+  type SaveCustomerProfileRequest,
   type TaxCodeMatch,
   type UpdateActivityRequest,
   type UpdateCustomerRequest,
@@ -45,6 +46,7 @@ import {
   type UpdateOpportunityRequest,
   type UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
+import { asTenderProfile } from './tender/tender.model';
 import type {
   BulkPriceListItemsRequest,
   DiscountPolicy,
@@ -90,6 +92,7 @@ import type {
   SalesSettings,
   SaveContractRequest,
   SaveDeliveryPlanRequest,
+  SaveOrderInfoNoteRequest,
   SavePaymentTermsRequest,
   UpdateSalesOrderRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -218,6 +221,8 @@ export const findTaxCodeMatches = (taxCode: string, excludeId?: string) =>
 export const createCustomer = (body: CreateCustomerRequest) => send<CustomerDetail>('POST', '/customers', body);
 export const updateCustomer = (id: string, body: UpdateCustomerRequest) =>
   send<CustomerDetail>('PATCH', `/customers/${encodeURIComponent(id)}`, body);
+export const saveCustomerProfile = (id: string, body: SaveCustomerProfileRequest) =>
+  send<CustomerDetail>('PUT', `/customers/${encodeURIComponent(id)}/profile`, body);
 export const addContact = (customerId: string, body: SaveContactRequest) =>
   send<CustomerDetail>('POST', `/customers/${encodeURIComponent(customerId)}/contacts`, body);
 export const updateContact = (customerId: string, contactId: string, body: SaveContactRequest) =>
@@ -255,6 +260,9 @@ export const listOpportunities = (query: OpportunityListQuery) =>
 export const loadBoard = (query: { ownerUserId?: string; q?: string; pipelineId?: string }) =>
   request<OpportunityBoard>(`/opportunities/board${toQuery(query)}`, { cache: 'no-store' });
 export const listPipelines = () => request<readonly Pipeline[]>('/opportunities/pipelines');
+/** Bật hoặc tắt gợi ý chăm sóc lại khi Thua của một luồng (chỉ `crm.manage`); trả lại các luồng. */
+export const setPipelineCareSuggestion = (pipelineId: string, careSuggestion: boolean) =>
+  send<readonly Pipeline[]>('PUT', `/opportunities/pipelines/${encodeURIComponent(pipelineId)}/care-suggestion`, { careSuggestion });
 export const getStageRequirements = (id: string, stage: string) =>
   request<readonly StageRequirementCheck[]>(
     `/opportunities/${encodeURIComponent(id)}/stage-requirements${toQuery({ stage })}`,
@@ -286,7 +294,8 @@ export const listMyStageTasks = () =>
 
 // Hồ sơ thầu (luồng Chào thầu)
 const tenderPath = (id: string) => `/opportunities/${encodeURIComponent(id)}/tender`;
-export const getTender = (id: string) => request<TenderProfile | null>(tenderPath(id), { cache: 'no-store' });
+export const getTender = async (id: string): Promise<TenderProfile | null> =>
+  asTenderProfile(await request<TenderProfile | null>(tenderPath(id), { cache: 'no-store' }));
 export const createTender = (id: string, body: CreateTenderProfileRequest) => send<TenderProfile>('POST', tenderPath(id), body);
 export const updateTender = (id: string, body: UpdateTenderProfileRequest) => send<TenderProfile>('PUT', tenderPath(id), body);
 export const addTenderPartner = (id: string, body: SaveTenderPartnerRequest) =>
@@ -408,6 +417,8 @@ export const getOrder = (id: string) => request<SalesOrderDetail>(`/orders/${enc
 export const createOrder = (body: CreateSalesOrderRequest) => send<SalesOrderDetail>('POST', '/orders', body);
 export const updateOrder = (id: string, body: UpdateSalesOrderRequest) =>
   send<SalesOrderDetail>('PATCH', `/orders/${encodeURIComponent(id)}`, body);
+export const saveOrderInfoNote = (id: string, body: SaveOrderInfoNoteRequest) =>
+  send<SalesOrderDetail>('PUT', `/orders/${encodeURIComponent(id)}/info-note`, body);
 export type OrderAction = 'confirm' | 'cancel' | 'close';
 export const orderAction = (id: string, action: OrderAction, body: SalesOrderActionRequest) =>
   send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(id)}/${action}`, body);

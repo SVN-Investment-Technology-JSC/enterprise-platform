@@ -52,6 +52,8 @@ interface OpportunityRow {
   budget: string | null;
   estimate_total_value: string | null;
   estimate_cost_value: string | null;
+  competitor_name: string | null;
+  competitor_price: string | null;
   lost_reason: string | null;
   lead_id: string | null;
   owner_user_id: string;
@@ -106,7 +108,7 @@ const OPPORTUNITY_COLUMNS = `
   o.id, o.name, o.customer_id, c.code AS customer_code, c.name AS customer_name, o.stage,
   o.pipeline_id, p.code AS pipeline_code, p.name AS pipeline_name,
   o.stage_id, s.name AS stage_name, s.semantic AS stage_semantic, o.probability,
-  o.expected_value, o.expected_close_date::text AS expected_close_date, o.need, o.budget, o.estimate_total_value, o.estimate_cost_value, o.lost_reason,
+  o.expected_value, o.expected_close_date::text AS expected_close_date, o.need, o.budget, o.estimate_total_value, o.estimate_cost_value, o.competitor_name, o.competitor_price, o.lost_reason,
   o.lead_id, o.owner_user_id, o.closed_at, o.version, o.created_at, o.updated_at,
   ${cursorAt('o.updated_at')} AS cursor_at`;
 
@@ -230,6 +232,8 @@ export class PostgresOpportunityStore implements OpportunityStore {
       budget: toNumber(row.budget),
       estimateTotalValue: toNumber(row.estimate_total_value),
       estimateCostValue: toNumber(row.estimate_cost_value),
+      competitorName: row.competitor_name,
+      competitorPrice: toNumber(row.competitor_price),
       lostReason: row.lost_reason,
       leadId: row.lead_id,
       closedAt: toIso(row.closed_at),
@@ -276,8 +280,13 @@ export class PostgresOpportunityStore implements OpportunityStore {
   ): Promise<void> {
     // Một transaction: sửa cơ hội và ghi audit khi dự toán đổi (giá trị cũ đọc cùng lúc, khoá dòng).
     await this.database.transaction(tenantId, async (client) => {
-      const before = await client.query<{ estimate_total_value: string | null; estimate_cost_value: string | null }>(
-        `SELECT estimate_total_value, estimate_cost_value FROM crm_schema.opportunities WHERE id = $1 FOR UPDATE`,
+      const before = await client.query<{
+        estimate_total_value: string | null;
+        estimate_cost_value: string | null;
+        competitor_name: string | null;
+        competitor_price: string | null;
+      }>(
+        `SELECT estimate_total_value, estimate_cost_value, competitor_name, competitor_price FROM crm_schema.opportunities WHERE id = $1 FOR UPDATE`,
         [id],
       );
       // Chỉ sửa được khi giai đoạn còn mở (nghĩa OPEN), không theo mã.
@@ -285,11 +294,12 @@ export class PostgresOpportunityStore implements OpportunityStore {
         `UPDATE crm_schema.opportunities o
             SET name = $3, probability = $4, expected_value = $5, expected_close_date = $6::date, need = $7,
                 budget = $8, owner_user_id = $9, estimate_total_value = $10, estimate_cost_value = $11,
+                competitor_name = $13, competitor_price = $14,
                 version = o.version + 1, updated_at = now(), updated_by = $12
           WHERE o.id = $1 AND o.version = $2
             AND EXISTS (SELECT 1 FROM crm_schema.pipeline_stages s WHERE s.id = o.stage_id AND s.semantic = 'OPEN')
         RETURNING o.id`,
-        [id, expectedVersion, ...opportunityValues(record), actorId],
+        [id, expectedVersion, ...opportunityValues(record), actorId, record.competitorName ?? null, record.competitorPrice ?? null],
       );
       if (!result.rows.length) throw new CrmStaleVersionError();
       const old = before.rows[0];
@@ -297,6 +307,19 @@ export class PostgresOpportunityStore implements OpportunityStore {
       const fromCost = toNumber(old?.estimate_cost_value ?? null);
       const toTotal = record.estimateTotalValue ?? null;
       const toCost = record.estimateCostValue ?? null;
+      const fromCompetitorName = old?.competitor_name ?? null;
+      const fromCompetitorPrice = toNumber(old?.competitor_price ?? null);
+      const toCompetitorName = record.competitorName ?? null;
+      const toCompetitorPrice = record.competitorPrice ?? null;
+      if (fromCompetitorName !== toCompetitorName || fromCompetitorPrice !== toCompetitorPrice) {
+        await writeAuditLog(client, {
+          entityType: OPPORTUNITY_AUDIT_ENTITY,
+          entityId: id,
+          action: 'update_competitor',
+          actorId,
+          metadata: { fromCompetitorName, toCompetitorName, fromCompetitorPrice, toCompetitorPrice },
+        });
+      }
       if (fromTotal === toTotal && fromCost === toCost) return;
       await writeAuditLog(client, {
         entityType: OPPORTUNITY_AUDIT_ENTITY,
@@ -529,6 +552,28 @@ export class PostgresOpportunityStore implements OpportunityStore {
     });
   }
 
+  setPipelineCareSuggestion(tenantId: string, pipelineId: string, enabled: boolean, actorId: string): Promise<boolean> {
+    return this.database.transaction(tenantId, async (client) => {
+      const before = await client.query<{ care_suggestion: boolean }>(
+        `SELECT care_suggestion FROM crm_schema.pipelines WHERE id = $1::uuid FOR UPDATE`,
+        [pipelineId],
+      );
+      if (!before.rows[0]) return false;
+      await client.query(
+        `UPDATE crm_schema.pipelines SET care_suggestion = $2, updated_at = now(), updated_by = $3::uuid WHERE id = $1::uuid`,
+        [pipelineId, enabled, actorId],
+      );
+      await writeAuditLog(client, {
+        entityType: 'pipeline',
+        entityId: pipelineId,
+        action: 'set_care_suggestion',
+        actorId,
+        metadata: { from: before.rows[0].care_suggestion, to: enabled },
+      });
+      return true;
+    });
+  }
+
   async listMyStageTasks(tenantId: string, userId: string, limit: number): Promise<MyStageTask[]> {
     const pool = await this.database.pool(tenantId);
     const result = await pool.query<{
@@ -679,10 +724,21 @@ export async function insertOpportunity(
   const result = await client.query<{ id: string }>(
     `INSERT INTO crm_schema.opportunities
        (name, probability, expected_value, expected_close_date, need, budget, owner_user_id, estimate_total_value,
-        estimate_cost_value, customer_id, lead_id, created_by, updated_by, pipeline_id, stage_id, stage)
-     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13::uuid, $14::uuid, $15)
+        estimate_cost_value, customer_id, lead_id, created_by, updated_by, pipeline_id, stage_id, stage,
+        competitor_name, competitor_price)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13::uuid, $14::uuid, $15, $16, $17)
      RETURNING id`,
-    [...opportunityValues(record), customerId, leadId, actorId, target.pipelineId, target.stageId, target.stageCode],
+    [
+      ...opportunityValues(record),
+      customerId,
+      leadId,
+      actorId,
+      target.pipelineId,
+      target.stageId,
+      target.stageCode,
+      record.competitorName ?? null,
+      record.competitorPrice ?? null,
+    ],
   );
   const id = result.rows[0]?.id;
   if (!id) throw new Error('crm_schema.opportunities insert returned no row.');

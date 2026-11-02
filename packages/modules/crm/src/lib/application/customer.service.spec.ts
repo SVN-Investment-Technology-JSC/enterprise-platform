@@ -33,6 +33,7 @@ function customer(overrides: Partial<CustomerDetail> = {}): CustomerDetail {
     creditLimit: 1000,
     paymentTermDays: 30,
     note: null,
+    profileNote: null,
     version: 3,
     createdAt: '2026-10-27T00:00:00.000Z',
     contacts: [
@@ -53,6 +54,7 @@ function setup(options: { scope?: CrmDataScope; existing?: CustomerDetail; match
     findByTaxCode: jest.fn().mockResolvedValue(options.matches ?? []),
     createCustomer: jest.fn().mockResolvedValue(existing.id),
     updateCustomer: jest.fn().mockResolvedValue(undefined),
+    saveProfileNote: jest.fn().mockResolvedValue(true),
     addContact: jest.fn().mockResolvedValue(CONTACT_ID),
     updateContact: jest.fn().mockResolvedValue(true),
     deleteContact: jest.fn().mockResolvedValue(true),
@@ -131,6 +133,18 @@ describe('CustomerService', () => {
       3,
       NV1,
     );
+  });
+
+  it('chân dung: cắt khoảng trắng, rỗng là xoá, gửi version cho store; người chỉ đọc 403, quá dài 400', async () => {
+    const { store, service } = setup();
+    await service.saveProfile(writer, CUSTOMER_ID, { profileNote: '  Mua theo quý  ', version: 3 });
+    expect(store.saveProfileNote).toHaveBeenCalledWith('t1', CUSTOMER_ID, 'Mua theo quý', 3, NV1);
+    await service.saveProfile(writer, CUSTOMER_ID, { profileNote: '  ', version: 3 });
+    expect(store.saveProfileNote).toHaveBeenLastCalledWith('t1', CUSTOMER_ID, null, 3, NV1);
+    await expect(service.saveProfile(reader, CUSTOMER_ID, { profileNote: 'x', version: 3 })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.saveProfile(writer, CUSTOMER_ID, { profileNote: 'x'.repeat(4001), version: 3 })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.saveProfile(writer, CUSTOMER_ID, { profileNote: 'x' } as never)).rejects.toMatchObject({ statusCode: 400 });
+    expect(store.saveProfileNote).toHaveBeenCalledTimes(2);
   });
 
   it('đặt người liên hệ chính gửi cờ chính cho store; người liên hệ lạ trả 404', async () => {

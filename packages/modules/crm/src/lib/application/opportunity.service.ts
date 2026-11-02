@@ -41,6 +41,7 @@ import {
   tenderSideEffects,
   type RequirementContext,
 } from '../domain/opportunity.js';
+import { evaluateCareSuggestion } from '../domain/care-suggestion.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
 import {
   assertSkippable,
@@ -50,7 +51,7 @@ import {
   validateCreationSkips,
   type PlannedStage,
 } from '../domain/stage-plan.js';
-import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
+import { assertOwnerInScope, requireSalesManager, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
 import type { PipelineConfigProvider } from './pipeline-config.port.js';
@@ -242,6 +243,8 @@ export class OpportunityService {
           request.estimateTotalValue === undefined ? current.estimateTotalValue : request.estimateTotalValue,
         estimateCostValue:
           request.estimateCostValue === undefined ? current.estimateCostValue : request.estimateCostValue,
+        competitorName: request.competitorName === undefined ? current.competitorName : request.competitorName,
+        competitorPrice: request.competitorPrice === undefined ? current.competitorPrice : request.competitorPrice,
         ownerUserId: request.ownerUserId ?? current.ownerUserId,
       },
       current.ownerUserId,
@@ -307,7 +310,32 @@ export class OpportunityService {
       },
       actor.userId,
     );
-    return this.require(actor.tenantId, { kind: 'all' }, id);
+    const detail = await this.require(actor.tenantId, { kind: 'all' }, id);
+    const careSuggestion = evaluateCareSuggestion(pipeline, to.semantic);
+    return careSuggestion ? { ...detail, careSuggestion } : detail;
+  }
+
+  /**
+   * Bật hoặc tắt gợi ý chăm sóc lại khi Thua của một luồng (P2F-02). Chỉ `crm.manage`; luồng `TENDER`
+   * không dùng gợi ý này. Ghi `audit_log` và huỷ cache cấu hình luồng để lần đổi giai đoạn sau dùng cờ mới.
+   */
+  async setCareSuggestion(actor: CrmActor, pipelineId: string, request: unknown): Promise<readonly Pipeline[]> {
+    requireSalesManager(actor);
+    if (!isUuid(pipelineId)) throw new CrmNotFoundError('Không tìm thấy luồng.');
+    const enabled = (request as { careSuggestion?: unknown } | null)?.careSuggestion;
+    if (typeof enabled !== 'boolean') {
+      throw new CrmValidationError('INVALID_CARE_SUGGESTION', 'Vui lòng chọn bật hoặc tắt gợi ý chăm sóc lại.');
+    }
+    const pipelines = await this.pipelineConfig.pipelines(actor.tenantId);
+    const target = pipelines.find((pipeline) => pipeline.id === pipelineId.toLowerCase());
+    if (!target) throw new CrmNotFoundError('Không tìm thấy luồng.');
+    if (target.profile === 'TENDER') {
+      throw new CrmValidationError('CARE_SUGGESTION_NOT_APPLICABLE', 'Luồng chào thầu không dùng gợi ý chăm sóc lại.');
+    }
+    const found = await this.opportunities.setPipelineCareSuggestion(actor.tenantId, target.id, enabled, actor.userId);
+    this.pipelineConfig.invalidate(actor.tenantId);
+    if (!found) throw new CrmNotFoundError('Không tìm thấy luồng.');
+    return this.pipelineConfig.pipelines(actor.tenantId);
   }
 
   /** Kế hoạch giai đoạn của dự án (người đảm nhận, trạng thái, bỏ qua, hạn). Ngoài phạm vi: 404. */
@@ -529,6 +557,8 @@ export function opportunityRecord(
     budget?: unknown;
     estimateTotalValue?: unknown;
     estimateCostValue?: unknown;
+    competitorName?: unknown;
+    competitorPrice?: unknown;
     ownerUserId?: unknown;
   },
   defaultOwner: string,
@@ -542,6 +572,8 @@ export function opportunityRecord(
     budget: optionalMoney(request.budget, 'ngân sách'),
     estimateTotalValue: optionalMoney(request.estimateTotalValue, 'tổng giá trị dự toán'),
     estimateCostValue: optionalMoney(request.estimateCostValue, 'giá vốn dự kiến của dự toán'),
+    competitorName: optionalText(request.competitorName, 300, 'tên đối thủ'),
+    competitorPrice: optionalMoney(request.competitorPrice, 'giá đối thủ'),
     ownerUserId: optionalId(request.ownerUserId, 'người phụ trách') ?? defaultOwner,
   };
 }

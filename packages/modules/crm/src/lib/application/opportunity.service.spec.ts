@@ -45,6 +45,8 @@ function opportunity(
     budget: null,
     estimateTotalValue: null,
     estimateCostValue: null,
+    competitorName: null,
+    competitorPrice: null,
     lostReason: null,
     leadId: null,
     closedAt: null,
@@ -77,6 +79,7 @@ function setup(
     getStagePlan: jest.fn().mockResolvedValue(options.plan ?? []),
     setStageAssignee: jest.fn().mockResolvedValue(undefined),
     skipStage: jest.fn().mockResolvedValue(undefined),
+    setPipelineCareSuggestion: jest.fn().mockResolvedValue(true),
     listMyStageTasks: jest.fn().mockResolvedValue([]),
   } as unknown as jest.Mocked<OpportunityStore>;
   const customers = {
@@ -528,5 +531,58 @@ describe('OpportunityService, kế hoạch giai đoạn, bỏ qua, quyền chuy�
     await expect(service.changeStage(writer, OPP_ID, { stage: 'B' })).rejects.toMatchObject({ statusCode: 409 });
     await service.changeStage(writer, OPP_ID, { stage: 'C' });
     expect(opportunities.changeStage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('OpportunityService, gợi ý chăm sóc lại khi Thua (P2F-01, P2F-02)', () => {
+  const manager: CrmActor = { ...writer, canManage: true };
+  const tender = buildPipeline({
+    code: 'TENDER_X',
+    profile: 'TENDER',
+    stages: [
+      { code: 'HSMT', name: 'HSMT', semantic: 'OPEN' },
+      { code: 'LOST', name: 'Trượt', semantic: 'LOST' },
+    ],
+    transitions: [['HSMT', 'LOST']],
+  });
+
+  it('TC-CARE-01: Thua ở luồng thường bật cờ thì phản hồi gợi ý bật', async () => {
+    const { service } = setup(opportunity(SEVEN, 'NEGOTIATION'));
+    const detail = await service.changeStage(writer, OPP_ID, { stage: 'LOST', reason: 'Giá cao' });
+    expect(detail.careSuggestion).toEqual({ enabled: true });
+  });
+
+  it('chuyển sang giai đoạn khác Thua thì không có careSuggestion', async () => {
+    const { service } = setup(opportunity(SEVEN, 'NEW'));
+    const detail = await service.changeStage(writer, OPP_ID, { stage: 'CONTACTED' });
+    expect(detail.careSuggestion).toBeUndefined();
+  });
+
+  it('TC-CARE-04: luồng TENDER Trượt thì gợi ý tắt', async () => {
+    const { service } = setup(opportunity(tender, 'HSMT'), { pipelines: [tender] });
+    const detail = await service.changeStage(writer, OPP_ID, { stage: 'LOST', reason: 'Mất thầu' });
+    expect(detail.careSuggestion).toEqual({ enabled: false });
+  });
+
+  it('TC-CARE-05: tắt cờ thì không gợi ý; ghi qua store và huỷ cache cấu hình', async () => {
+    const off = { ...SEVEN, careSuggestion: false };
+    const { opportunities, pipelines, service } = setup(opportunity(SEVEN, 'NEGOTIATION'), { pipelines: [off] });
+    const detail = await service.changeStage(writer, OPP_ID, { stage: 'LOST', reason: 'Giá cao' });
+    expect(detail.careSuggestion).toEqual({ enabled: false });
+
+    await service.setCareSuggestion(manager, SEVEN.id, { careSuggestion: true });
+    expect(opportunities.setPipelineCareSuggestion).toHaveBeenCalledWith('t1', SEVEN.id, true, NV1);
+    expect(pipelines.invalidate).toHaveBeenCalledWith('t1');
+  });
+
+  it('chỉ crm.manage được đổi cờ; giá trị sai 400; luồng TENDER 400; luồng lạ 404', async () => {
+    const { opportunities, service } = setup(opportunity(SEVEN, 'NEW'), { pipelines: [SEVEN, tender] });
+    await expect(service.setCareSuggestion(writer, SEVEN.id, { careSuggestion: false })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.setCareSuggestion(manager, SEVEN.id, { careSuggestion: 'x' })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.setCareSuggestion(manager, tender.id, { careSuggestion: true })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      service.setCareSuggestion(manager, '99999999-0000-4000-8000-000000000009', { careSuggestion: true }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(opportunities.setPipelineCareSuggestion).not.toHaveBeenCalled();
   });
 });

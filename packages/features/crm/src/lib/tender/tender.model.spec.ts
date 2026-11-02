@@ -8,6 +8,7 @@ import {
   isTenderConflict,
   isTenderPipeline,
   parseWinningPrice,
+  asTenderProfile,
   tenderActions,
   tenderErrorMessage,
   toLocalInput,
@@ -112,5 +113,13 @@ describe('tender.model', () => {
     expect(tenderErrorMessage({ missing: [{ message: 'Phương án chưa duyệt' }] }, 'x')).toContain('Phương án chưa duyệt');
     expect(tenderErrorMessage({ code: 'PLAN_LOCKED', message: 'Phương án đang chờ duyệt' }, 'x')).toBe('Phương án đang chờ duyệt');
     expect(tenderErrorMessage(undefined, 'dự phòng')).toBe('dự phòng');
+  });
+
+  it('asTenderProfile: thân rỗng, null và đối tượng không có hồ sơ đều là chưa có hồ sơ', () => {
+    expect(asTenderProfile(undefined)).toBeNull();
+    expect(asTenderProfile(null)).toBeNull();
+    expect(asTenderProfile({})).toBeNull();
+    const profile = { id: 'p1', plan: { status: 'DRAFT', submittedBy: null } };
+    expect(asTenderProfile(profile)).toBe(profile);
   });
 });

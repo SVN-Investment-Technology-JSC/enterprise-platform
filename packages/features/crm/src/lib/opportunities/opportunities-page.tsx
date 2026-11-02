@@ -32,6 +32,8 @@ import {
   stageTone,
 } from '../sales.model';
 import styles from '../sales.module.scss';
+import { CareSuggestionDialog } from './care-suggestion-dialog';
+import { shouldOfferCareFollowUp } from './care-suggestion.model';
 import { MyStageTasks } from './my-stage-tasks';
 import { LostReasonDialog, OpportunityDrawer, OpportunityFormDialog } from './opportunity-dialogs';
 import { usePipelines } from './use-pipelines';
@@ -326,6 +328,8 @@ function OpportunityKanban({
   const [dragging, setDragging] = useState<{ id: string; from: string }>();
   const [over, setOver] = useState<string>();
   const [pendingLost, setPendingLost] = useState<{ card: OpportunitySummary; to: string }>();
+  /** Dự án vừa Thua ở luồng bật gợi ý: hiện hộp thoại tạo lịch chăm sóc lại (P2F-01). */
+  const [careFor, setCareFor] = useState<{ id: string; name: string; ownerUserId: string }>();
 
   const pipelineId = pipeline?.id;
   const load = useCallback(() => {
@@ -350,6 +354,7 @@ function OpportunityKanban({
     try {
       const saved = await changeOpportunityStage(card.id, { stage: to, reason, version: card.version });
       setBoard((current) => (current ? replaceCard(current, saved) : current));
+      if (shouldOfferCareFollowUp(saved)) setCareFor({ id: saved.id, name: saved.name, ownerUserId: saved.ownerUserId });
     } catch (cause) {
       setBoard(previous);
       throw cause;
@@ -448,6 +453,7 @@ function OpportunityKanban({
           }}
         />
       ) : null}
+      {careFor ? <CareSuggestionDialog opportunity={careFor} onClose={() => setCareFor(undefined)} /> : null}
     </div>
   );
 }

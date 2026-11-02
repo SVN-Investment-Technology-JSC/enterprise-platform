@@ -44,6 +44,9 @@ import {
   stageTone,
 } from '../sales.model';
 import styles from '../sales.module.scss';
+import { CompetitorPanel } from './competitor-panel';
+import { CareSuggestionDialog } from './care-suggestion-dialog';
+import { shouldOfferCareFollowUp } from './care-suggestion.model';
 import { EstimatePanel } from './estimate-panel';
 import { StagePlanPanel } from './stage-plan';
 import { TenderPanel } from '../tender/tender-panel';
@@ -285,6 +288,8 @@ export function OpportunityDrawer({
   const [target, setTarget] = useState('');
   const [checks, setChecks] = useState<readonly StageRequirementCheck[]>([]);
   const [moveError, setMoveError] = useState<string>();
+  /** Dự án vừa Thua ở luồng bật gợi ý: hiện hộp thoại tạo lịch chăm sóc lại (P2F-01). */
+  const [careFor, setCareFor] = useState<Pick<OpportunityDetail, 'id' | 'name' | 'ownerUserId'>>();
 
   useEffect(() => {
     setDetail(undefined);
@@ -329,6 +334,7 @@ export function OpportunityDrawer({
       setLosing(false);
       setTarget('');
       onChanged();
+      if (shouldOfferCareFollowUp(next)) setCareFor({ id: next.id, name: next.name, ownerUserId: next.ownerUserId });
     } catch (cause) {
       if (askReason) throw cause;
       setMoveError(describeStageError(cause, 'Không chuyển được giai đoạn.'));
@@ -455,6 +461,7 @@ export function OpportunityDrawer({
             />
           ) : null}
           <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
+          <CompetitorPanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>
           <ol className={styles.timeline}>
@@ -493,6 +500,7 @@ export function OpportunityDrawer({
       {losing && detail ? (
         <LostReasonDialog name={detail.name} stage={targetStage} onClose={() => setLosing(false)} onConfirm={(reason) => move(target, reason, true)} />
       ) : null}
+      {careFor ? <CareSuggestionDialog opportunity={careFor} onClose={() => setCareFor(undefined)} /> : null}
     </Drawer>
   );
 }

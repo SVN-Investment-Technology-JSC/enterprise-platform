@@ -21,10 +21,11 @@ import type {
   StageRequirementCheck,
   UpdateActivityRequest,
   UpdateLeadRequest,
+  UpdatePipelineCareSuggestionRequest,
   UpdateOpportunityRequest,
   UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ActivityService } from '../application/activity.service.js';
 import { LeadService } from '../application/lead.service.js';
 import { OpportunityService } from '../application/opportunity.service.js';
@@ -117,6 +118,16 @@ export class OpportunitiesController {
     @Body() body: UpdateOpportunityRequest,
   ): Promise<OpportunityDetail> {
     return runCrm(() => this.opportunities.update(crmActor(request), id, body ?? ({} as never)));
+  }
+
+  /** Bật hoặc tắt gợi ý chăm sóc lại khi Thua của một luồng (chỉ `crm.manage`); trả lại các luồng. */
+  @Put('opportunities/pipelines/:pipelineId/care-suggestion')
+  setCareSuggestion(
+    @Req() request: CrmRequest,
+    @Param('pipelineId') pipelineId: string,
+    @Body() body: UpdatePipelineCareSuggestionRequest,
+  ): Promise<readonly Pipeline[]> {
+    return runCrm(() => this.opportunities.setCareSuggestion(crmActor(request), pipelineId, body));
   }
 
   /** Chuyển giai đoạn theo máy trạng thái; sai bảng chuyển 409, Thua thiếu lý do 400. */

@@ -28,6 +28,8 @@ export interface CrmDialogProps {
   readonly title: string;
   readonly subtitle?: string;
   readonly submitLabel?: string;
+  /** Nhãn nút đóng (mặc định "Huỷ"). */
+  readonly cancelLabel?: string;
   readonly submitting?: boolean;
   readonly danger?: boolean;
   readonly wide?: boolean;
@@ -48,6 +50,7 @@ export function CrmDialog({
   title,
   subtitle,
   submitLabel = 'Lưu',
+  cancelLabel = 'Huỷ',
   submitting = false,
   danger = false,
   wide = false,
@@ -103,7 +106,7 @@ export function CrmDialog({
           ) : null}
           <div className={styles.dialogFoot}>
             <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
-              Huỷ
+              {cancelLabel}
             </button>
             <button type="submit" className={danger ? styles.buttonDanger : styles.buttonPrimary} disabled={submitting}>
               {submitting ? 'Đang lưu…' : submitLabel}

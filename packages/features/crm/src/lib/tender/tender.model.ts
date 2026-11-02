@@ -28,6 +28,16 @@ export function isTenderPipeline(pipeline: { readonly profile: string } | undefi
   return pipeline?.profile === 'TENDER';
 }
 
+/**
+ * Server trả 200 với thân rỗng khi dự án chưa có hồ sơ thầu; `request` biến thân rỗng thành `{}`. Chỉ coi là hồ sơ
+ * khi có `id` và `plan`, còn lại là chưa có hồ sơ (`null`).
+ */
+export function asTenderProfile(value: unknown): TenderProfile | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<TenderProfile>;
+  return candidate.id && candidate.plan ? (candidate as TenderProfile) : null;
+}
+
 export type TenderUiAction = 'edit' | 'submit' | 'approve' | 'reject' | 'result' | 'partners';
 
 /**

@@ -99,6 +99,17 @@ export interface CustomerStore {
     expectedVersion: number,
     actorId: string,
   ): Promise<void>;
+  /**
+   * Lưu chân dung khách hàng (P2F-03), tăng `version`; sai `expectedVersion`: 409. Ghi `audit_log` trong cùng
+   * transaction. `false` khi khách không còn.
+   */
+  saveProfileNote(
+    tenantId: string,
+    id: string,
+    profileNote: string | null,
+    expectedVersion: number,
+    actorId: string,
+  ): Promise<boolean>;
   /** Người liên hệ đầu tiên luôn là người chính. Trả id. */
   addContact(tenantId: string, customerId: string, record: ContactRecord, actorId: string): Promise<string>;
   /** `false` khi người liên hệ không thuộc khách này. */
@@ -250,6 +261,9 @@ export interface OpportunityRecord {
   /** Dự toán (P2D-09); bỏ trống (lead chuyển đổi) là chưa nhập. */
   readonly estimateTotalValue?: number | null;
   readonly estimateCostValue?: number | null;
+  /** Đối thủ và giá đối thủ (P2F-03); bỏ trống là chưa nhập. */
+  readonly competitorName?: string | null;
+  readonly competitorPrice?: number | null;
   readonly ownerUserId: string;
 }
 
@@ -378,6 +392,8 @@ export interface OpportunityStore {
    * Ghi `audit_log` (`skip_stage`). Giai đoạn không còn PENDING: 409.
    */
   skipStage(tenantId: string, opportunityId: string, skip: StageSkip, actorId: string): Promise<void>;
+  /** Bật hoặc tắt gợi ý chăm sóc lại của luồng (kèm `audit_log`); `false` khi không có luồng. */
+  setPipelineCareSuggestion(tenantId: string, pipelineId: string, enabled: boolean, actorId: string): Promise<boolean>;
   /** "Việc của tôi": giai đoạn ACTIVE hoặc PENDING giao cho `userId` ở cơ hội còn mở, ACTIVE trước. */
   listMyStageTasks(tenantId: string, userId: string, limit: number): Promise<MyStageTask[]>;
 }

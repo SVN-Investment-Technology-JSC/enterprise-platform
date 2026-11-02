@@ -7,6 +7,8 @@ import {
   type CustomerListQuery,
   type CustomerSummary,
   type SaveContactRequest,
+  type SaveCustomerProfileRequest,
+  CUSTOMER_PROFILE_NOTE_MAX,
   type TaxCodeMatch,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -122,6 +124,23 @@ export class CustomerService {
       requiredVersion(request.version),
       actor.userId,
     );
+    return this.require(actor.tenantId, { kind: 'all' }, id);
+  }
+
+  /** Chân dung khách hàng (P2F-03): chỉ người có quyền sửa khách, khách phải trong phạm vi dữ liệu. */
+  async saveProfile(actor: CrmActor, id: string, request: SaveCustomerProfileRequest): Promise<CustomerDetail> {
+    requireSalesWriter(actor);
+    const scope = await this.scopes.resolve(actor);
+    await this.require(actor.tenantId, scope, id);
+    const profileNote = optionalText(request?.profileNote, CUSTOMER_PROFILE_NOTE_MAX, 'chân dung khách hàng');
+    const saved = await this.customers.saveProfileNote(
+      actor.tenantId,
+      id,
+      profileNote,
+      requiredVersion(request?.version),
+      actor.userId,
+    );
+    if (!saved) throw new CrmNotFoundError(CUSTOMER_NOT_FOUND);
     return this.require(actor.tenantId, { kind: 'all' }, id);
   }
 

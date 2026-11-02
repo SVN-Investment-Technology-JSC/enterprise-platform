@@ -43,7 +43,7 @@ const stage = (code: string, semantic: StageRef['semantic'], next: string[], ext
 });
 
 const pipeline: Pipeline = {
-  ...pipelineRef, profile: 'STANDARD', isDefault: true, active: true, sortOrder: 0,
+  ...pipelineRef, profile: 'STANDARD', isDefault: true, active: true, sortOrder: 0, careSuggestion: true,
   stages: [
     stage('NEW', 'OPEN', ['CONTACTED', 'LOST']),
     stage('CONTACTED', 'OPEN', ['NEW', 'LOST', 'OFF']),
@@ -213,7 +213,7 @@ describe('kế hoạch giai đoạn và quyền thao tác', () => {
 
 describe('bỏ qua giai đoạn lúc tạo dự án', () => {
   const skipPipeline: Pipeline = {
-    ...pipelineRef, profile: 'STANDARD', isDefault: true, active: true, sortOrder: 0,
+    ...pipelineRef, profile: 'STANDARD', isDefault: true, active: true, sortOrder: 0, careSuggestion: true,
     stages: [
       stage('NEW', 'OPEN', ['SURVEY'], { skippable: true }),
       stage('SURVEY', 'OPEN', ['WON'], { skippable: true }),
