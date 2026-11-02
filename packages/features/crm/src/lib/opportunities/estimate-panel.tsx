@@ -1,12 +1,12 @@
 'use client';
 
-import type { OpportunityDetail } from '@enterprise-platform/contracts-crm';
+import { BUSINESS_PLAN_STATUS_LABELS, type OpportunityDetail } from '@enterprise-platform/contracts-crm';
 import { useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
 import { errorMessage, updateOpportunity } from '../crm-api';
 import { formatMoney } from '../sales.model';
 import styles from '../sales.module.scss';
-import { digitsOnly, parseEstimateInput, summarizeEstimate, compareEstimateWithPlan, type BusinessPlanFigures } from './estimate.model';
+import { digitsOnly, parseEstimateInput, summarizeEstimate, compareEstimateWithPlan, planFiguresOf } from './estimate.model';
 
 /**
  * Khối "Dự toán" trong ngăn chi tiết dự án: tổng giá trị dự toán và giá vốn dự kiến. File dự toán đính ở khối
@@ -15,12 +15,10 @@ import { digitsOnly, parseEstimateInput, summarizeEstimate, compareEstimateWithP
 export function EstimatePanel({
   opportunity,
   canEdit,
-  plan = null,
   onSaved,
 }: {
   opportunity: OpportunityDetail;
   canEdit: boolean;
-  plan?: BusinessPlanFigures | null;
   onSaved: (saved: OpportunityDetail) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -29,7 +27,8 @@ export function EstimatePanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const summary = summarizeEstimate(opportunity.estimateTotalValue, opportunity.estimateCostValue);
-  const comparison = compareEstimateWithPlan(opportunity.estimateTotalValue, opportunity.estimateCostValue, plan);
+  const businessPlan = opportunity.latestBusinessPlan ?? null;
+  const comparison = compareEstimateWithPlan(opportunity.estimateTotalValue, opportunity.estimateCostValue, planFiguresOf(businessPlan));
 
   function open() {
     setTotal(opportunity.estimateTotalValue?.toString() ?? '');
@@ -77,6 +76,22 @@ export function EstimatePanel({
           </>
         ) : null}
       </dl>
+      {businessPlan ? (
+        <dl className={styles.facts}>
+          <dt>PAKD đối chiếu</dt>
+          <dd>
+            {businessPlan.quoteCode} · phiên bản {businessPlan.versionNo} · {BUSINESS_PLAN_STATUS_LABELS[businessPlan.status]}
+          </dd>
+          <dt>Doanh thu theo PAKD</dt>
+          <dd>{formatMoney(businessPlan.revenue)}</dd>
+          {businessPlan.costVisible && businessPlan.totalCost !== null ? (
+            <>
+              <dt>Tổng chi phí theo PAKD</dt>
+              <dd>{formatMoney(businessPlan.totalCost)}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
       <p className={styles.muted}>{comparison.message}</p>
       {comparison.status === 'DIFFERENT' ? (
         <p className={styles.alert}>

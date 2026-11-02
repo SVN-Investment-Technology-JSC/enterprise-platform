@@ -46,10 +46,17 @@ export function summarizeEstimate(total: number | null, cost: number | null): Es
   return { profit, marginPercent: total > 0 ? Math.round((profit / total) * 10000) / 100 : null };
 }
 
-/** Số liệu của PAKD (khi đã có) để đối chiếu; chưa có PAKD thì truyền `null`. */
+/** Số liệu của PAKD (khi đã có) để đối chiếu; chưa có PAKD thì truyền `null`. `totalCost` là `null` khi không có quyền xem giá vốn. */
 export interface BusinessPlanFigures {
   readonly totalValue: number;
-  readonly totalCost: number;
+  readonly totalCost: number | null;
+}
+
+/** Số liệu đối chiếu từ PAKD mới nhất của dự án (server đã bỏ giá vốn nếu người xem không có quyền). */
+export function planFiguresOf(
+  summary: { readonly revenue: number; readonly totalCost: number | null } | null | undefined,
+): BusinessPlanFigures | null {
+  return summary ? { totalValue: summary.revenue, totalCost: summary.totalCost } : null;
 }
 
 export interface EstimateComparison {
@@ -73,7 +80,7 @@ export function compareEstimateWithPlan(
     return { status: 'NO_ESTIMATE', message: 'Chưa nhập dự toán để đối chiếu với phương án kinh doanh.', totalDelta: null, costDelta: null };
   }
   const totalDelta = total === null ? null : total - plan.totalValue;
-  const costDelta = cost === null ? null : cost - plan.totalCost;
+  const costDelta = cost === null || plan.totalCost === null ? null : cost - plan.totalCost;
   const same = (totalDelta ?? 0) === 0 && (costDelta ?? 0) === 0;
   return {
     status: same ? 'MATCH' : 'DIFFERENT',

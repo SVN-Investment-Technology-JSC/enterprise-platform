@@ -430,6 +430,43 @@ export class PostgresOpportunityStore implements OpportunityStore {
     });
   }
 
+  async latestBusinessPlan(tenantId: string, opportunityId: string) {
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<{
+      quote_id: string;
+      quote_code: string;
+      version_no: number;
+      status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+      revenue: string;
+      total_cost: string;
+      profit: string;
+    }>(
+      `SELECT q.id AS quote_id, q.code AS quote_code, v.version_no, p.status, p.revenue, p.total_cost, p.profit
+         FROM (SELECT id, code FROM crm_schema.quotes
+                WHERE opportunity_id = $1::uuid
+                ORDER BY created_at DESC, id DESC LIMIT 1) q
+         JOIN crm_schema.business_plans p ON p.quote_id = q.id
+         JOIN crm_schema.quote_versions v ON v.id = p.quote_version_id
+        ORDER BY (p.status = 'APPROVED') DESC,
+                 CASE WHEN p.status = 'APPROVED' THEN p.decided_at END DESC NULLS LAST,
+                 v.version_no DESC
+        LIMIT 1`,
+      [opportunityId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          quoteId: row.quote_id,
+          quoteCode: row.quote_code,
+          versionNo: row.version_no,
+          status: row.status,
+          revenue: Number(row.revenue),
+          totalCost: Number(row.total_cost),
+          profit: Number(row.profit),
+        }
+      : undefined;
+  }
+
   async getStagePlan(tenantId: string, opportunityId: string): Promise<OpportunityStagePlanItem[]> {
     const pool = await this.database.pool(tenantId);
     const result = await pool.query<PlanRow>(

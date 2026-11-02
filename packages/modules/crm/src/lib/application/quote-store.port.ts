@@ -5,8 +5,12 @@ import type {
   CrmQuoteApprovalRequestedPayload,
   ProcedureDefinitionOption,
   QuoteApprovalReason,
+  QuoteAdjustmentMode,
   QuoteApprovalSettings,
+  QuoteCustomFields,
   QuoteDetail,
+  QuoteFee,
+  QuoteOrderAmountInput,
   QuoteLine,
   QuoteShipping,
   QuoteStatus,
@@ -61,18 +65,59 @@ export interface EditableQuote {
   readonly version: QuoteVersion;
 }
 
+/** Mẫu, loại và chế độ chọn lúc lập báo giá (GĐI); rỗng thì store dùng mẫu và loại mặc định. */
+export interface NewQuoteForm {
+  readonly templateId: string | null;
+  readonly quoteTypeId: string | null;
+  readonly discountMode: QuoteAdjustmentMode;
+  readonly taxMode: QuoteAdjustmentMode;
+}
+
 export interface NewQuoteRecord {
   readonly opportunityId: string | null;
   readonly customerId: string;
   readonly ownerUserId: string;
   readonly validUntil: string | null;
   readonly note: string | null;
+  /** Mã nhập tay; rỗng thì sinh theo mẫu mã đã cấu hình. Trùng mã: 409. */
+  readonly code?: string | null;
+  /** Rỗng: `Báo giá <mã>`. */
+  readonly quoteName?: string | null;
+  readonly quoteDate?: string | null;
+  readonly form?: NewQuoteForm | null;
+  /** Giá trị trường tuỳ biến đã kiểm (P2I-06). */
+  readonly customFields?: QuoteCustomFields;
 }
 
 /** Dòng đã tính giá, giá vốn, sẵn sàng ghi. */
 export type QuoteLineRecord = Omit<QuoteLine, 'availableStock'> & { readonly priceReferenceId: string | null };
 
+/** Trường theo mẫu của phiên bản (phần người dùng nhập); số đã tính nằm ở `QuoteFormWrite`. */
+export interface QuoteFormInput {
+  readonly quoteName: string | null;
+  readonly quoteDate: string | null;
+  readonly templateId: string | null;
+  readonly quoteTypeId: string | null;
+  readonly discountMode: QuoteAdjustmentMode;
+  readonly taxMode: QuoteAdjustmentMode;
+  /** Phần trăm hoặc số tiền, tối đa một trong hai khác rỗng. */
+  readonly orderDiscount: QuoteOrderAmountInput;
+  readonly orderTax: QuoteOrderAmountInput;
+  readonly fees: readonly QuoteFee[];
+  /** Giá trị trường tuỳ biến của phiên bản (đã gộp, đã kiểm). */
+  readonly customFields: QuoteCustomFields;
+}
+
+export interface QuoteFormWrite extends QuoteFormInput {
+  readonly orderDiscountTotal: number;
+  readonly orderTaxTotal: number;
+  readonly feesAmount: number;
+}
+
 export interface QuoteVersionWrite {
+  /** Đổi mã báo giá (chỉ khi sửa tại chỗ ở Nháp); rỗng là giữ. */
+  readonly code?: string | null;
+  readonly form: QuoteFormWrite;
   readonly validUntil: string | null;
   readonly priceDate: string | null;
   readonly pricedOn: string | null;

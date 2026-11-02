@@ -65,6 +65,7 @@ function setup(
     acceptedQuote?: boolean;
     documents?: OpportunityDocumentChecker;
     plan?: OpportunityStagePlanItem[];
+    businessPlan?: { quoteId: string; quoteCode: string; versionNo: number; status: 'APPROVED'; revenue: number; totalCost: number; profit: number };
   } = {},
 ) {
   const scope: CrmDataScope = { kind: 'users', userIds: [NV1] };
@@ -77,6 +78,7 @@ function setup(
     updateOpportunity: jest.fn().mockResolvedValue(undefined),
     hasAcceptedQuote: jest.fn().mockResolvedValue(options.acceptedQuote ?? false),
     getStagePlan: jest.fn().mockResolvedValue(options.plan ?? []),
+    latestBusinessPlan: jest.fn().mockResolvedValue(options.businessPlan),
     setStageAssignee: jest.fn().mockResolvedValue(undefined),
     skipStage: jest.fn().mockResolvedValue(undefined),
     setPipelineCareSuggestion: jest.fn().mockResolvedValue(true),
@@ -194,6 +196,15 @@ describe('OpportunityService, luồng mặc định 7 giai đoạn', () => {
     const detail = await service.get(writer, OPP_ID);
     expect(detail.nextStages.map((stage) => stage.code)).toEqual(['QUOTING', 'WON', 'LOST']);
     expect(detail.nextStages[1]).toMatchObject({ name: 'Thắng', semantic: 'WON' });
+  });
+
+  it('TC-BP-12: chi tiết kèm PAKD mới nhất; thiếu quyền xem giá vốn thì giá vốn, lợi nhuận là null', async () => {
+    const businessPlan = { quoteId: 'q1', quoteCode: 'BG-1', versionNo: 2, status: 'APPROVED' as const, revenue: 1000, totalCost: 700, profit: 300 };
+    const { service } = setup(opportunity(SEVEN, 'NEGOTIATION'), { businessPlan });
+    expect((await service.get(writer, OPP_ID)).latestBusinessPlan).toEqual({ ...businessPlan, costVisible: false, totalCost: null, profit: null });
+    expect((await service.get({ ...writer, canViewQuoteCost: true }, OPP_ID)).latestBusinessPlan).toEqual({ ...businessPlan, costVisible: true });
+    const none = setup(opportunity(SEVEN, 'NEGOTIATION'));
+    expect((await none.service.get(writer, OPP_ID)).latestBusinessPlan).toBeNull();
   });
 
   it('TC-OPP-06: tạo với xác suất ngoài 0–100 trả 400; 50 lưu được ở giai đoạn đầu của luồng mặc định', async () => {

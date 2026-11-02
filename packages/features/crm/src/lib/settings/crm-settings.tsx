@@ -25,9 +25,10 @@ import { QuotePreviewPanel } from '../pricing/quote-preview-panel';
 import { ApprovalSettingsPage } from './approval-settings';
 import { DocumentTypeSettings } from './document-type-settings';
 import { PipelineSettings } from './pipeline-settings';
+import { QuoteFormSettings } from './quote-form-settings';
 
 /** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
-export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types' | 'pipelines';
+export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types' | 'pipelines' | 'quote-forms';
 
 const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
   { id: 'general', label: 'Chung' },
@@ -37,6 +38,7 @@ const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
   { id: 'approval', label: 'Duyệt báo giá' },
   { id: 'document-types', label: 'Loại tài liệu' },
   { id: 'pipelines', label: 'Cấu hình luồng' },
+  { id: 'quote-forms', label: 'Mẫu và loại báo giá' },
 ];
 
 export function settingsTab(value: string | undefined): CrmSettingsTab {
@@ -78,6 +80,8 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
         <DocumentTypeSettings />
       ) : current === 'pipelines' ? (
         <PipelineSettings />
+      ) : current === 'quote-forms' ? (
+        <QuoteFormSettings />
       ) : (
         <>
           <GeneralSettings />

@@ -7,6 +7,7 @@
  */
 import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -61,6 +62,22 @@ export const QUOTE_LINES_MAX = 200;
 export const CRM_QUOTE_APPROVAL_REQUESTED = 'crm.quote.approval-requested';
 export const CRM_QUOTE_APPROVAL_DECIDED = 'crm.quote.approval-decided';
 export const CRM_QUOTE_EXPIRED = 'crm.quote.expired';
+/** Báo người theo dõi báo giá khi gửi duyệt hoặc đổi trạng thái (P2I-07). Sự kiện thêm, không thay sự kiện cũ. */
+export const CRM_QUOTE_STATUS_CHANGED = 'crm.quote.status-changed';
+
+export interface CrmQuoteStatusChangedPayload {
+  readonly quoteId: string;
+  readonly quoteCode: string;
+  readonly versionNo: number;
+  readonly fromStatus: QuoteStatus;
+  readonly toStatus: QuoteStatus;
+  /** Rỗng khi hệ thống tự đổi (hết hạn). */
+  readonly actorUserId: string | null;
+  /** Người theo dõi báo giá, trừ người thao tác. */
+  readonly recipientUserIds: readonly string[];
+  readonly summary: string;
+  readonly deepLink: string;
+}
 
 export interface CrmQuoteApprovalRequestedPayload {
   readonly quoteId: string;
@@ -194,6 +211,8 @@ export interface QuoteVersion {
   readonly note: string | null;
   readonly shipping: QuoteShipping;
   readonly totals: QuoteTotals;
+  /** Trường theo mẫu: tên, ngày, mẫu, loại, chiết khấu và thuế tổng đơn, phí trên hợp đồng (GĐI). */
+  readonly form: QuoteFormData;
   /**
    * `true` khi người xem không có quyền xem giá vốn, lợi nhuận (`crm.quote.cost.read`): các trường giá vốn,
    * lợi nhuận, biên trả về 0 hoặc rỗng, không phải số thật.
@@ -226,6 +245,7 @@ export interface QuoteSummary {
   readonly ownerUserId: string;
   readonly status: QuoteStatus;
   readonly currentVersion: number;
+  readonly quoteName: string | null;
   readonly validUntil: string | null;
   readonly totalAmount: number;
   readonly updatedAt: string;
@@ -292,6 +312,17 @@ export interface CreateQuoteRequest {
   readonly validUntil?: string | null;
   readonly note?: string | null;
   readonly ownerUserId?: string | null;
+  /** Mã nhập tay hoặc đã sinh bằng `POST /v1/quotes/code/generate`; rỗng thì hệ thống sinh. Trùng mã: 409. */
+  readonly code?: string | null;
+  /** Rỗng: `Báo giá <mã>`. */
+  readonly quoteName?: string | null;
+  readonly quoteDate?: string | null;
+  /** Rỗng: mẫu mặc định. */
+  readonly templateId?: string | null;
+  /** Rỗng: loại mặc định. */
+  readonly quoteTypeId?: string | null;
+  /** Giá trị trường tuỳ biến theo id định nghĩa; kiểm kiểu và lựa chọn, chưa ép bắt buộc (báo giá chưa có dòng). */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
 }
 
 export interface UpdateQuoteVersionRequest {
@@ -300,6 +331,24 @@ export interface UpdateQuoteVersionRequest {
   readonly priceDate?: string | null;
   readonly note?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null; readonly cost?: number | null } | null;
+  /** Đổi mã khi còn Nháp; trùng mã: 409. */
+  readonly code?: string;
+  readonly quoteName?: string | null;
+  readonly quoteDate?: string | null;
+  /** Đổi mẫu thì chế độ chiết khấu và thuế theo mẫu mới. Báo giá đã có mẫu không được bỏ mẫu. */
+  readonly templateId?: string | null;
+  readonly quoteTypeId?: string | null;
+  /** Chỉ nhập được khi mẫu chiết khấu theo tổng đơn; `null` là xoá. */
+  readonly orderDiscount?: QuoteOrderAmountInput | null;
+  /** Chỉ nhập được khi mẫu thuế theo tổng đơn; `null` là xoá. */
+  readonly orderTax?: QuoteOrderAmountInput | null;
+  /** Thay toàn bộ danh sách khoản phí. */
+  readonly fees?: readonly QuoteFee[];
+  /**
+   * Giá trị trường tuỳ biến theo id định nghĩa; chỉ gửi trường cần đổi (`null` là xoá). Khi lưu, trường bắt buộc còn
+   * thiếu thì 400 nêu tên trường.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
 }
 
 export interface SaveQuoteLineRequest {

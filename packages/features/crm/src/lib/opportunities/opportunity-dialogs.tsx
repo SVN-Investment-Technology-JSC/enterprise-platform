@@ -460,7 +460,7 @@ export function OpportunityDrawer({
               }}
             />
           ) : null}
-          <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
+          <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail({ ...saved, latestBusinessPlan: detail.latestBusinessPlan }); onChanged(); }} />
           <CompetitorPanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>

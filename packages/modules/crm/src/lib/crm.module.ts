@@ -63,6 +63,12 @@ import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
 import { PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import { QuoteService } from './application/quote.service.js';
+import { QuoteFormService } from './application/quote-form.service.js';
+import { CRM_QUOTE_FORM_STORE, type QuoteFormStore } from './application/quote-form-store.port.js';
+import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
+import { QuoteRelationService } from './application/quote-relation.service.js';
+import { CRM_QUOTE_RELATION_STORE, type QuoteRelationStore } from './application/quote-relation-store.port.js';
+import { PostgresQuoteRelationStore } from './infrastructure/postgres-quote-relation.store.js';
 import { BusinessPlanService } from './application/business-plan.service.js';
 import { CRM_BUSINESS_PLAN_STORE, type BusinessPlanStore } from './application/business-plan-store.port.js';
 import { PostgresBusinessPlanStore } from './infrastructure/postgres-business-plan.store.js';
@@ -81,6 +87,8 @@ import type { ReportingLineReader } from './application/organization-scope.port.
 import {
   ApprovalSettingsController,
   InternalInstancesController,
+  QuoteFormController,
+  QuoteRelationController,
   QuotesController,
 } from './presentation/quotes.controller.js';
 import {
@@ -214,6 +222,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     DiscountPoliciesController,
     PricingController,
     QuotesController,
+    QuoteFormController,
+    QuoteRelationController,
     ApprovalSettingsController,
     BusinessPlansController,
     InternalInstancesController,
@@ -408,8 +418,9 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         links: ApprovalLinks,
         reportingLines: ReportingLineReader,
         plans: BusinessPlanService,
+        form: QuoteFormStore,
       ) =>
-        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans),
+        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans, form),
       inject: [
         CRM_QUOTE_STORE,
         CRM_QUOTE_SETTINGS_STORE,
@@ -421,7 +432,23 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CRM_APPROVAL_LINKS,
         REPORTING_LINE_READER,
         BusinessPlanService,
+        CRM_QUOTE_FORM_STORE,
       ],
+    },
+    // Báo giá theo mẫu (GĐI): mẫu, loại, mã báo giá.
+    store(CRM_QUOTE_FORM_STORE, (database) => new PostgresQuoteFormStore(database)),
+    {
+      provide: QuoteFormService,
+      useFactory: (form: QuoteFormStore) => new QuoteFormService(form),
+      inject: [CRM_QUOTE_FORM_STORE],
+    },
+    // Người theo dõi và đối tượng liên quan của báo giá (P2I-07).
+    store(CRM_QUOTE_RELATION_STORE, (database) => new PostgresQuoteRelationStore(database)),
+    {
+      provide: QuoteRelationService,
+      useFactory: (relations: QuoteRelationStore, scopes: CrmDataScopeService, people: PeopleDirectory) =>
+        new QuoteRelationService(relations, scopes, people),
+      inject: [CRM_QUOTE_RELATION_STORE, CrmDataScopeService, CRM_PEOPLE_DIRECTORY],
     },
     // Phương án kinh doanh (GĐ D): gắn phiên bản báo giá, nối vào duyệt báo giá và so lệch khi sửa.
     store(CRM_BUSINESS_PLAN_STORE, (database) => new PostgresBusinessPlanStore(database)),

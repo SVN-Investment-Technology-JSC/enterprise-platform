@@ -566,3 +566,49 @@ export const setStageTransitions = (id: string, stageId: string, toStageIds: rea
   send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/transitions`, { toStageIds });
 export const setStageRequirements = (id: string, stageId: string, body: SetStageRequirementsRequest) =>
   send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/requirements`, body);
+
+// Mẫu báo giá, loại báo giá, mã báo giá (GĐ I; ghi cần crm.manage).
+import type {
+  GeneratedQuoteCode,
+  QuoteCodeSettings,
+  QuoteTemplate,
+  QuoteType,
+  SaveQuoteCodeSettingsRequest,
+  SaveQuoteTemplateRequest,
+  SaveQuoteTypeRequest,
+} from '@enterprise-platform/contracts-crm';
+
+export const listQuoteTemplates = (includeInactive = false) =>
+  request<QuoteTemplate[]>(`/quote-templates${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createQuoteTemplate = (body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('POST', '/quote-templates', body);
+export const updateQuoteTemplate = (id: string, body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('PUT', `/quote-templates/${encodeURIComponent(id)}`, body);
+export const listQuoteTypes = (includeInactive = false) =>
+  request<QuoteType[]>(`/quote-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createQuoteType = (body: SaveQuoteTypeRequest) => send<QuoteType>('POST', '/quote-types', body);
+export const updateQuoteType = (id: string, body: SaveQuoteTypeRequest) => send<QuoteType>('PUT', `/quote-types/${encodeURIComponent(id)}`, body);
+export const loadQuoteCodeSettings = () => request<QuoteCodeSettings>('/quote-code-settings', { cache: 'no-store' });
+export const saveQuoteCodeSettings = (body: SaveQuoteCodeSettingsRequest) => send<QuoteCodeSettings>('PUT', '/quote-code-settings', body);
+export const generateQuoteCode = () => send<GeneratedQuoteCode>('POST', '/quotes/code/generate');
+
+// Trường tuỳ biến, người theo dõi, đối tượng liên quan của báo giá (P2I-06, P2I-07)
+import type {
+  AddQuoteLinkRequest,
+  CustomFieldDefinition,
+  QuoteFollower,
+  QuoteLink,
+  SaveCustomFieldRequest,
+} from '@enterprise-platform/contracts-crm';
+
+export const listQuoteCustomFields = () =>
+  request<CustomFieldDefinition[]>(`/custom-fields${toQuery({ entityType: 'quote' })}`, { cache: 'no-store' });
+export const createCustomField = (body: SaveCustomFieldRequest) => send<CustomFieldDefinition>('POST', '/custom-fields', { entityType: 'quote', ...body });
+export const updateCustomField = (id: string, body: SaveCustomFieldRequest) =>
+  send<CustomFieldDefinition>('PUT', `/custom-fields/${encodeURIComponent(id)}`, { entityType: 'quote', ...body });
+export const listQuoteFollowers = (quoteId: string) => request<QuoteFollower[]>(`${quotePath(quoteId)}/followers`, { cache: 'no-store' });
+export const addQuoteFollower = (quoteId: string, userId: string) => send<QuoteFollower>('POST', `${quotePath(quoteId)}/followers`, { userId });
+export const removeQuoteFollower = (quoteId: string, userId: string) =>
+  send<void>('DELETE', `${quotePath(quoteId)}/followers/${encodeURIComponent(userId)}`);
+export const listQuoteLinks = (quoteId: string) => request<QuoteLink[]>(`${quotePath(quoteId)}/links`, { cache: 'no-store' });
+export const addQuoteLink = (quoteId: string, body: AddQuoteLinkRequest) => send<QuoteLink>('POST', `${quotePath(quoteId)}/links`, body);
+export const removeQuoteLink = (quoteId: string, linkId: string) =>
+  send<void>('DELETE', `${quotePath(quoteId)}/links/${encodeURIComponent(linkId)}`);

@@ -377,6 +377,25 @@ export interface OpportunityStore {
    */
   getStagePlan(tenantId: string, opportunityId: string): Promise<OpportunityStagePlanItem[]>;
   /**
+   * PAKD mới nhất của cơ hội (P2D-09), một truy vấn: báo giá mới nhất của cơ hội, phiên bản đã duyệt gần nhất,
+   * không có thì phiên bản mới nhất có PAKD. Trả đủ số liệu; service lọc theo quyền xem giá vốn. Không kiểm phạm vi.
+   */
+  latestBusinessPlan(
+    tenantId: string,
+    opportunityId: string,
+  ): Promise<
+    | {
+        readonly quoteId: string;
+        readonly quoteCode: string;
+        readonly versionNo: number;
+        readonly status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+        readonly revenue: number;
+        readonly totalCost: number;
+        readonly profit: number;
+      }
+    | undefined
+  >;
+  /**
    * Gán hoặc ghi đè người đảm nhận một giai đoạn chưa xong (PENDING hoặc ACTIVE) của riêng cơ hội: ghi
    * `audit_log` và sự kiện `crm.opportunity.stage-assigned` cùng transaction. Giai đoạn DONE hoặc SKIPPED
    * thì 409; giai đoạn không có trong kế hoạch thì 404. Không đổi người thì không ghi gì.

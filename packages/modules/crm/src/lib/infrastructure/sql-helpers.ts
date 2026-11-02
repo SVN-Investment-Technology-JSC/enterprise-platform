@@ -39,9 +39,9 @@ export class SqlConditions {
    * Phạm vi cho đối tượng gắn với cơ hội: theo người phụ trách hoặc cơ hội được giao một giai đoạn cho
    * người gọi (xem `opportunityScopeSql`).
    */
-  opportunityScope(scope: CrmDataScope, ownerColumn: string, opportunityColumn: string): void {
+  opportunityScope(scope: CrmDataScope, ownerColumn: string, opportunityColumn: string, quoteIdColumn?: string): void {
     if (scope.kind === 'all') return;
-    const fragment = opportunityScopeSql(scope, ownerColumn, opportunityColumn, this.params.length + 1);
+    const fragment = opportunityScopeSql(scope, ownerColumn, opportunityColumn, this.params.length + 1, quoteIdColumn);
     this.params.push(...fragment.params);
     this.add(fragment.sql);
   }

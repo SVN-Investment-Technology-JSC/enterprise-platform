@@ -1,4 +1,4 @@
-import { compareEstimateWithPlan, digitsOnly, parseEstimateInput, summarizeEstimate } from './estimate.model';
+import { compareEstimateWithPlan, digitsOnly, parseEstimateInput, planFiguresOf, summarizeEstimate } from './estimate.model';
 
 describe('dự toán của dự án bán hàng (P2D-09, TC-BP-12)', () => {
   it('chỉ giữ chữ số khi nhập', () => {
@@ -24,5 +24,13 @@ describe('dự toán của dự án bán hàng (P2D-09, TC-BP-12)', () => {
     expect(compareEstimateWithPlan(null, null, plan).status).toBe('NO_ESTIMATE');
     expect(compareEstimateWithPlan(1000, 700, plan)).toMatchObject({ status: 'MATCH', totalDelta: 0, costDelta: 0 });
     expect(compareEstimateWithPlan(1200, 700, plan)).toMatchObject({ status: 'DIFFERENT', totalDelta: 200, costDelta: 0 });
+  });
+
+  it('không có quyền xem giá vốn: chỉ đối chiếu doanh thu, không so giá vốn', () => {
+    expect(planFiguresOf(null)).toBeNull();
+    const hidden = planFiguresOf({ revenue: 1000, totalCost: null });
+    expect(hidden).toEqual({ totalValue: 1000, totalCost: null });
+    expect(compareEstimateWithPlan(1000, 5, hidden)).toMatchObject({ status: 'MATCH', totalDelta: 0, costDelta: null });
+    expect(compareEstimateWithPlan(900, 5, hidden)).toMatchObject({ status: 'DIFFERENT', totalDelta: -100, costDelta: null });
   });
 });

@@ -982,6 +982,23 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Báo giá Bán hàng: báo người theo dõi khi báo giá gửi duyệt hoặc đổi trạng thái (P2I-07). Người nhận ghi sẵn trong
+  // payload (`recipientUserIds`: người theo dõi, trừ người thao tác và người đã nhận thông báo khác của cùng bước).
+  directPolicy({
+    eventType: 'crm.quote.status-changed',
+    module: 'crm',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Báo giá bạn theo dõi có thay đổi',
+      body: text(payload, 'summary', 'Báo giá bạn theo dõi có cập nhật mới.'),
+      deepLink: text(payload, 'deepLink', '/modules/crm#quotes'),
+      sourceType: 'crm_quote',
+      sourceId: `${id(payload, 'quoteId')}:${String(payload.versionNo ?? '')}:crm.quote.status-changed:${text(payload, 'toStatus', '')}`,
+    }),
+  }),
   // Phương án chào thầu: cần duyệt (báo cấp trên khi duyệt trực tiếp) và kết quả duyệt (báo người trình).
   ...(
     [

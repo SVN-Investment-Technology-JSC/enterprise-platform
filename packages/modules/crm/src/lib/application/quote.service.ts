@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   QUOTE_DEFAULT_VALIDITY_DAYS,
   QUOTE_LINES_INVALID_CODE,
+  QUOTE_FEES_MAX,
   QUOTE_LINES_MAX,
   QUOTE_STATUS_LABELS,
   QUOTE_STATUSES,
@@ -11,7 +12,13 @@ import {
   type CrmPage,
   type QuoteApprovalReason,
   type QuoteComparison,
+  type QuoteAdjustmentMode,
   type QuoteDecisionRequest,
+  type QuoteCustomFields,
+  type QuoteFee,
+  type QuoteOrderAmountInput,
+  type QuoteTemplate,
+  type QuoteType,
   type QuoteDetail,
   type QuoteListQuery,
   type QuoteRevisionRequest,
@@ -30,6 +37,8 @@ import { decodeCursor, pageLimit } from '../domain/pagination.js';
 import { priceQuote, type PricingLineInput } from '../domain/pricing-engine.js';
 import { assertCustomerTransition, assertQuoteTransition, planQuoteEdit, type QuoteEditPlan } from '../domain/quote.js';
 import { evaluateQuoteApproval, quoteRoleTier } from '../domain/quote-approval-policy.js';
+import { normalizeManualQuoteCode } from '../domain/quote-code.js';
+import { applyQuoteAdjustments } from '../domain/quote-totals.js';
 import { compareQuoteVersions, costLine, quoteTotals } from '../domain/quote-version.js';
 import { computeNearestSuperiorUserIds } from '../domain/reporting-line.js';
 import { assertOwnerInScope, canViewQuoteCost } from './crm-access.js';
@@ -44,18 +53,27 @@ import type { CatalogMaterial, CatalogReader, PricingStore } from './pricing-sto
 import type {
   ApprovalLinks,
   EditableQuote,
+  QuoteFormInput,
   QuoteLineRecord,
   QuoteSettingsStore,
   QuoteStore,
   QuoteVersionRef,
   QuoteVersionWrite,
 } from './quote-store.port.js';
+import type { QuoteFormStore } from './quote-form-store.port.js';
+import { applyCustomFields } from '../domain/custom-fields.js';
 import type { CustomerStore, OpportunityStore } from './sales-store.port.js';
 
 const QUOTE_NOT_FOUND = 'Không tìm thấy báo giá.';
 const QUANTITY_MAX = 999_999_999;
 const AMOUNT_MAX = 1e13;
 const CATALOG_SEARCH_LIMIT = 30;
+
+/** Phần sửa một phiên bản trước khi tính giá: dòng và trường theo mẫu do người dùng nhập. */
+type QuoteChange = Omit<QuoteVersionWrite, 'pricedOn' | 'totals' | 'lines' | 'form'> & {
+  lines: LineDraft[];
+  form: QuoteFormInput;
+};
 
 /** Dòng trước khi tính giá: phần người dùng nhập cộng bản chụp danh mục. */
 interface LineDraft {
@@ -134,6 +152,8 @@ export class QuoteService {
     private readonly now: () => Date = () => new Date(),
     /** Phương án kinh doanh (GĐ D); rỗng thì báo giá chạy như trước khi có PAKD. */
     private readonly plans?: QuoteBusinessPlans,
+    /** Mẫu, loại, mã báo giá (GĐI); rỗng thì báo giá chạy như phase 1 (theo dòng, không mẫu). */
+    private readonly form?: QuoteFormStore,
   ) {}
 
   private today(): string {
@@ -192,9 +212,33 @@ export class QuoteService {
     assertOwnerInScope(scope, ownerUserId);
     const validUntil = optionalDate(request?.validUntil, 'hạn hiệu lực') ?? addDays(this.today(), QUOTE_DEFAULT_VALIDITY_DAYS);
     if (validUntil < this.today()) throw new CrmValidationError('INVALID_DATE', 'Hạn hiệu lực không được trước hôm nay.');
+    const code = normalizeManualQuoteCode(request?.code);
+    if (code && (await this.form?.codeExists(actor.tenantId, code))) throw codeExists();
+    // Mẫu và loại bắt buộc: không chọn thì dùng mẫu, loại mặc định; mẫu hoặc loại tắt thì không chọn được.
+    const template = await this.pickTemplate(actor.tenantId, request?.templateId);
+    const type = await this.pickType(actor.tenantId, request?.quoteTypeId);
     const id = await this.quotes.createQuote(
       actor.tenantId,
-      { opportunityId, customerId: customerId as string, ownerUserId, validUntil, note: optionalText(request?.note, 4000, 'ghi chú') },
+      {
+        opportunityId,
+        customerId: customerId as string,
+        ownerUserId,
+        validUntil,
+        note: optionalText(request?.note, 4000, 'ghi chú'),
+        code,
+        quoteName: optionalText(request?.quoteName, 300, 'tên báo giá'),
+        quoteDate: optionalDate(request?.quoteDate, 'ngày báo giá'),
+        // Trường tuỳ biến: kiểm kiểu và lựa chọn; bắt buộc chỉ ép khi lưu (báo giá mới chưa có dòng hàng).
+        customFields: await this.customFields({}, request?.customFields, false, actor.tenantId),
+        form: this.form
+          ? {
+              templateId: template?.id ?? null,
+              quoteTypeId: type?.id ?? null,
+              discountMode: template?.discountMode ?? 'LINE',
+              taxMode: template?.taxMode ?? 'LINE',
+            }
+          : null,
+      },
       actor.userId,
     );
     return this.get(actor, id);
@@ -205,7 +249,7 @@ export class QuoteService {
   // -------------------------------------------------------------------------
 
   async updateVersion(actor: CrmActor, id: string, versionNo: unknown, request: UpdateQuoteVersionRequest): Promise<QuoteDetail> {
-    return this.edit(actor, id, versionNo, request?.revision, (quote, lines) => {
+    return this.edit(actor, id, versionNo, request?.revision, async (quote, lines) => {
       const version = quote.version;
       const validUntil =
         request.validUntil === undefined ? version.validUntil : optionalDate(request.validUntil, 'hạn hiệu lực');
@@ -218,8 +262,123 @@ export class QuoteService {
         priceDate: request.priceDate === undefined ? version.priceDate : optionalDate(request.priceDate, 'ngày tính giá'),
         note: request.note === undefined ? version.note : optionalText(request.note, 4000, 'ghi chú'),
         shipping: request.shipping === undefined ? version.shipping : shippingOf(request.shipping),
+        ...(await this.formChange(actor, quote, request)),
       };
     });
+  }
+
+  /**
+   * Trường theo mẫu khi sửa (P2I-04, P2I-05): đổi mã (chỉ khi Nháp, trùng mã 409), tên, ngày, mẫu, loại, chiết khấu
+   * và thuế tổng đơn, phí. Báo giá đã có mẫu hoặc loại thì không bỏ trống được; báo giá cũ chưa có thì không bắt
+   * buộc. Đổi mẫu thì chế độ theo mẫu mới; chuyển về chế độ theo dòng thì xoá chiết khấu, thuế tổng đơn đã nhập.
+   */
+  private async formChange(
+    actor: CrmActor,
+    quote: EditableQuote,
+    request: UpdateQuoteVersionRequest,
+  ): Promise<{ code?: string | null; form: QuoteFormInput }> {
+    const current = quote.version.form;
+    let code: string | null = null;
+    if (request.code !== undefined) {
+      code = normalizeManualQuoteCode(request.code);
+      if (!code) throw new CrmValidationError('REQUIRED', 'Vui lòng nhập mã báo giá.');
+      if (quote.version.status !== 'DRAFT') {
+        throw new CrmConflictError('QUOTE_NOT_DRAFT', 'Chỉ đổi được mã báo giá khi báo giá còn ở trạng thái Nháp.');
+      }
+      if (code !== quote.head.code && (await this.form?.codeExists(actor.tenantId, code, quote.head.id))) throw codeExists();
+    }
+    let templateId = current.templateId;
+    let discountMode: QuoteAdjustmentMode = current.discountMode;
+    let taxMode: QuoteAdjustmentMode = current.taxMode;
+    if (request.templateId !== undefined) {
+      if (request.templateId === null || request.templateId === '') {
+        if (current.templateId) throw new CrmValidationError('TEMPLATE_REQUIRED', 'Vui lòng chọn mẫu báo giá.');
+      } else if (!isUuid(request.templateId) || request.templateId.toLowerCase() !== current.templateId) {
+        const template = await this.pickTemplate(actor.tenantId, request.templateId);
+        templateId = template?.id ?? null;
+        discountMode = template?.discountMode ?? 'LINE';
+        taxMode = template?.taxMode ?? 'LINE';
+      }
+    }
+    let quoteTypeId = current.quoteTypeId;
+    if (request.quoteTypeId !== undefined) {
+      if (request.quoteTypeId === null || request.quoteTypeId === '') {
+        if (current.quoteTypeId) throw new CrmValidationError('QUOTE_TYPE_REQUIRED', 'Vui lòng chọn loại báo giá.');
+      } else if (!isUuid(request.quoteTypeId) || request.quoteTypeId.toLowerCase() !== current.quoteTypeId) {
+        quoteTypeId = (await this.pickType(actor.tenantId, request.quoteTypeId))?.id ?? null;
+      }
+    }
+    const keep = (amount: typeof current.orderDiscount): QuoteOrderAmountInput =>
+      amount.inputKind === 'PERCENT'
+        ? { percent: amount.percent, amount: null }
+        : amount.inputKind === 'AMOUNT'
+          ? { percent: null, amount: amount.amount }
+          : { percent: null, amount: null };
+    const modeChanged = discountMode !== current.discountMode || taxMode !== current.taxMode;
+    const orderDiscount =
+      request.orderDiscount !== undefined
+        ? orderAmountOf(request.orderDiscount, 'chiết khấu tổng đơn')
+        : modeChanged && discountMode === 'LINE'
+          ? EMPTY_ORDER_AMOUNT
+          : keep(current.orderDiscount);
+    const orderTax =
+      request.orderTax !== undefined
+        ? orderAmountOf(request.orderTax, 'thuế tổng đơn')
+        : modeChanged && taxMode === 'LINE'
+          ? EMPTY_ORDER_AMOUNT
+          : keep(current.orderTax);
+    return {
+      ...(code ? { code } : {}),
+      form: {
+        quoteName: request.quoteName === undefined ? current.quoteName : optionalText(request.quoteName, 300, 'tên báo giá'),
+        quoteDate: request.quoteDate === undefined ? current.quoteDate : optionalDate(request.quoteDate, 'ngày báo giá'),
+        templateId,
+        quoteTypeId,
+        discountMode,
+        taxMode,
+        orderDiscount,
+        orderTax,
+        fees: request.fees === undefined ? current.fees : feesOf(request.fees),
+        // Lưu báo giá thì trường tuỳ biến bắt buộc phải có giá trị (TC-QF-11); xem thì không bị chặn.
+        customFields: await this.customFields(current.customFields, request.customFields, true, actor.tenantId),
+      },
+    };
+  }
+
+  /** Gộp phần sửa trường tuỳ biến vào giá trị hiện có theo định nghĩa đang bật; không có kho mẫu thì giữ nguyên. */
+  private async customFields(
+    current: QuoteCustomFields,
+    patch: UpdateQuoteVersionRequest['customFields'],
+    enforceRequired: boolean,
+    tenantId: string,
+  ): Promise<QuoteCustomFields> {
+    if (!this.form) return current;
+    return applyCustomFields(await this.form.listCustomFields(tenantId, 'quote', false), current, patch, enforceRequired);
+  }
+
+  /** Mẫu chọn lúc lập hoặc đổi: có id thì phải tồn tại và đang bật; không có id thì mẫu mặc định (không có form store: rỗng). */
+  private async pickTemplate(tenantId: string, id: unknown): Promise<QuoteTemplate | null> {
+    if (id !== undefined && id !== null && id !== '') {
+      if (!isUuid(id)) throw new CrmValidationError('INVALID_REFERENCE', 'Mẫu báo giá không hợp lệ.');
+      const template = await this.form?.getTemplate(tenantId, id.toLowerCase());
+      if (!template) throw new CrmValidationError('TEMPLATE_NOT_FOUND', 'Không tìm thấy mẫu báo giá.');
+      if (!template.active) throw new CrmValidationError('TEMPLATE_INACTIVE', 'Mẫu báo giá này đã tắt, vui lòng chọn mẫu khác.');
+      return template;
+    }
+    if (!this.form) return null;
+    return (await this.form.listTemplates(tenantId, false)).find((template) => template.isDefault) ?? null;
+  }
+
+  private async pickType(tenantId: string, id: unknown): Promise<QuoteType | null> {
+    if (id !== undefined && id !== null && id !== '') {
+      if (!isUuid(id)) throw new CrmValidationError('INVALID_REFERENCE', 'Loại báo giá không hợp lệ.');
+      const type = await this.form?.getType(tenantId, id.toLowerCase());
+      if (!type) throw new CrmValidationError('QUOTE_TYPE_NOT_FOUND', 'Không tìm thấy loại báo giá.');
+      if (!type.active) throw new CrmValidationError('QUOTE_TYPE_INACTIVE', 'Loại báo giá này đã tắt, vui lòng chọn loại khác.');
+      return type;
+    }
+    if (!this.form) return null;
+    return (await this.form.listTypes(tenantId, false)).find((type) => type.isDefault) ?? null;
   }
 
   async addLine(actor: CrmActor, id: string, versionNo: unknown, request: SaveQuoteLineRequest): Promise<QuoteDetail> {
@@ -539,10 +698,7 @@ export class QuoteService {
     id: string,
     versionNo: unknown,
     revision: unknown,
-    change: (
-      quote: EditableQuote,
-      lines: LineDraft[],
-    ) => Omit<QuoteVersionWrite, 'pricedOn' | 'totals' | 'lines'> & { lines: LineDraft[] } | Promise<Omit<QuoteVersionWrite, 'pricedOn' | 'totals' | 'lines'> & { lines: LineDraft[] }>,
+    change: (quote: EditableQuote, lines: LineDraft[]) => QuoteChange | Promise<QuoteChange>,
     forcePlan?: QuoteEditPlan,
   ): Promise<QuoteDetail> {
     requireQuoteWriter(actor);
@@ -582,7 +738,7 @@ export class QuoteService {
   private async price(
     tenantId: string,
     quote: EditableQuote,
-    next: Omit<QuoteVersionWrite, 'pricedOn' | 'totals' | 'lines'> & { lines: LineDraft[] },
+    next: QuoteChange,
   ): Promise<QuoteVersionWrite> {
     const date = next.priceDate ?? this.today();
     const materialIds = [...new Set(next.lines.map((line) => line.materialId))];
@@ -627,6 +783,18 @@ export class QuoteService {
       contractPrices,
       discountCapPercent: cap,
       shipping: shipping.amount > 0 ? { amount: shipping.amount, vatRate: shipping.vatRate } : null,
+      // Mẫu báo giá quyết định chiết khấu, VAT theo dòng hay theo tổng đơn (P2I-03); mẫu theo dòng giữ đúng phase 1.
+      discountMode: next.form.discountMode,
+      taxMode: next.form.taxMode,
+    });
+    const adjusted = applyQuoteAdjustments({
+      discountMode: next.form.discountMode,
+      taxMode: next.form.taxMode,
+      pricing: priced.totals,
+      shippingVatAmount: priced.shipping?.vatAmount ?? 0,
+      orderDiscount: next.form.orderDiscount,
+      orderTax: next.form.orderTax,
+      fees: next.form.fees,
     });
     const records: QuoteLineRecord[] = priced.lines.map((pricedLine, index) => {
       const line = lines[index];
@@ -668,7 +836,7 @@ export class QuoteService {
       };
     });
     const totals = quoteTotals(
-      priced.totals,
+      adjusted.totals,
       records.map((record) => ({ estUnitCost: record.estUnitCost, estCost: record.estCost, margin: record.margin })),
       shipping.cost,
     );
@@ -680,6 +848,13 @@ export class QuoteService {
       shipping,
       totals,
       lines: records,
+      ...(next.code ? { code: next.code } : {}),
+      form: {
+        ...next.form,
+        orderDiscountTotal: adjusted.orderDiscount.amount,
+        orderTaxTotal: adjusted.orderTax.amount,
+        feesAmount: adjusted.feesAmount,
+      },
     };
   }
 
@@ -788,9 +963,68 @@ function linesInvalid(errors: readonly QuoteLineError[]): CrmValidationError {
   );
 }
 
-function unchanged(quote: EditableQuote) {
+function unchanged(quote: EditableQuote): Omit<QuoteChange, 'lines'> {
   const version = quote.version;
-  return { validUntil: version.validUntil, priceDate: version.priceDate, note: version.note, shipping: version.shipping };
+  const form = version.form;
+  const input = (amount: typeof form.orderDiscount): QuoteOrderAmountInput =>
+    amount.inputKind === 'PERCENT'
+      ? { percent: amount.percent, amount: null }
+      : amount.inputKind === 'AMOUNT'
+        ? { percent: null, amount: amount.amount }
+        : EMPTY_ORDER_AMOUNT;
+  return {
+    validUntil: version.validUntil,
+    priceDate: version.priceDate,
+    note: version.note,
+    shipping: version.shipping,
+    form: {
+      quoteName: form.quoteName,
+      quoteDate: form.quoteDate,
+      templateId: form.templateId,
+      quoteTypeId: form.quoteTypeId,
+      discountMode: form.discountMode,
+      taxMode: form.taxMode,
+      orderDiscount: input(form.orderDiscount),
+      orderTax: input(form.orderTax),
+      fees: form.fees,
+      customFields: form.customFields,
+    },
+  };
+}
+
+const EMPTY_ORDER_AMOUNT: QuoteOrderAmountInput = { percent: null, amount: null };
+
+function codeExists(): CrmConflictError {
+  return new CrmConflictError('QUOTE_CODE_EXISTS', 'Mã báo giá đã tồn tại. Vui lòng nhập mã khác hoặc bấm sinh lại.');
+}
+
+/** Chiết khấu hoặc thuế tổng đơn từ request: `null` là xoá; tiền nguyên đồng, phần trăm tối đa 4 chữ số thập phân. */
+function orderAmountOf(value: QuoteOrderAmountInput | null, label: string): QuoteOrderAmountInput {
+  if (value === null) return EMPTY_ORDER_AMOUNT;
+  if (typeof value !== 'object') throw new CrmValidationError('INVALID', `${label.charAt(0).toUpperCase()}${label.slice(1)} không hợp lệ.`);
+  const read = (input: unknown, max: number, name: string, decimals: number): number | null =>
+    input === undefined || input === null || input === '' ? null : boundedNumber(input, 0, max, name, decimals);
+  const percent = read(value.percent, 100, `${label} theo phần trăm`, 4);
+  const amount = read(value.amount, AMOUNT_MAX, `${label} theo số tiền`, 0);
+  if (percent !== null && amount !== null) {
+    throw new CrmValidationError('ORDER_AMOUNT_CONFLICT', `Chỉ nhập ${label} theo phần trăm hoặc theo số tiền, không nhập cả hai.`);
+  }
+  return { percent, amount };
+}
+
+/** Các khoản phí trên hợp đồng: thay toàn bộ danh sách; tiền nguyên đồng. */
+function feesOf(value: unknown): QuoteFee[] {
+  if (!Array.isArray(value)) throw new CrmValidationError('INVALID', 'Danh sách phí không hợp lệ.');
+  if (value.length > QUOTE_FEES_MAX) {
+    throw new CrmValidationError('TOO_MANY_FEES', `Mỗi báo giá tối đa ${QUOTE_FEES_MAX} khoản phí.`);
+  }
+  return value.map((fee: { feeType?: unknown; amount?: unknown }, index) => {
+    if (!fee || typeof fee !== 'object') throw new CrmValidationError('INVALID', `Khoản phí ${index + 1} không hợp lệ.`);
+    return {
+      feeType: requiredText(fee.feeType, 200, `loại phí của khoản ${index + 1}`),
+      amount: boundedNumber(fee.amount, 0, AMOUNT_MAX, `số tiền phí của khoản ${index + 1}`, 0),
+    };
+  });
 }
 
 function quantityOf(value: unknown): number {

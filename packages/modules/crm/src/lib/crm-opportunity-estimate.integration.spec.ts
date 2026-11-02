@@ -161,4 +161,63 @@ integration('Bán hàng GĐ D: tổng giá trị và giá vốn dự toán của
     const present = await new PostgresOpportunityDocumentChecker(handle.database).presentDocumentTypes(tenantId, oppId, ['ESTIMATE']);
     expect(present.has('ESTIMATE')).toBe(true);
   });
+  it('TC-BP-12: PAKD mới nhất của dự án để đối chiếu; không có quyền xem giá vốn thì không nhận giá vốn, lợi nhuận', async () => {
+    const [{ customer_id: customerId }] = await query<{ customer_id: string }>(
+      `SELECT customer_id FROM crm_schema.opportunities WHERE id = $1`,
+      [oppId],
+    );
+    expect((await opportunities.get(actor, oppId)).latestBusinessPlan).toBeNull();
+    const addQuote = async (code: string, createdAt: string) =>
+      (
+        await query<{ id: string }>(
+          `INSERT INTO crm_schema.quotes (code, opportunity_id, customer_id, owner_user_id, created_at)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [code, oppId, customerId, NV1, createdAt],
+        )
+      )[0].id;
+    const addPlan = async (quoteId: string, versionNo: number, status: string, revenue: number, totalCost: number, decidedAt: string | null) => {
+      const [version] = await query<{ id: string }>(
+        `INSERT INTO crm_schema.quote_versions (quote_id, version_no) VALUES ($1, $2) RETURNING id`,
+        [quoteId, versionNo],
+      );
+      await query(
+        `INSERT INTO crm_schema.business_plans (quote_id, quote_version_id, status, revenue, total_cost, profit, decided_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+        [quoteId, version.id, status, revenue, totalCost, revenue - totalCost, decidedAt, NV1],
+      );
+    };
+    // Báo giá cũ có PAKD khác; chỉ báo giá mới nhất được xét.
+    const oldQuote = await addQuote('BG-EST-OLD', '2026-01-01T00:00:00Z');
+    await addPlan(oldQuote, 1, 'APPROVED', 111, 11, '2026-01-02T00:00:00Z');
+    const quote = await addQuote('BG-EST-NEW', '2026-02-01T00:00:00Z');
+    await addPlan(quote, 1, 'APPROVED', 1_000, 700, '2026-02-02T00:00:00Z');
+    await addPlan(quote, 2, 'APPROVED', 1_100, 800, '2026-02-05T00:00:00Z');
+    await addPlan(quote, 3, 'DRAFT', 9_999, 9_000, null);
+    const viewer = { ...actor, canViewQuoteCost: true };
+    const full = (await opportunities.get(viewer, oppId)).latestBusinessPlan;
+    expect(full).toEqual({
+      quoteId: quote,
+      quoteCode: 'BG-EST-NEW',
+      versionNo: 2,
+      status: 'APPROVED',
+      revenue: 1_100,
+      costVisible: true,
+      totalCost: 800,
+      profit: 300,
+    });
+    const hidden = (await opportunities.get(actor, oppId)).latestBusinessPlan;
+    expect(hidden).toEqual({
+      quoteId: quote,
+      quoteCode: 'BG-EST-NEW',
+      versionNo: 2,
+      status: 'APPROVED',
+      revenue: 1_100,
+      costVisible: false,
+      totalCost: null,
+      profit: null,
+    });
+    expect(JSON.stringify(hidden)).not.toContain('800');
+    // Ngoài phạm vi dữ liệu: như không có cơ hội.
+    await expect(opportunities.get({ ...actor, userId: randomUUID() }, oppId)).rejects.toMatchObject({ statusCode: 404 });
+  });
 });

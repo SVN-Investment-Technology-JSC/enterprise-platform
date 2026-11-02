@@ -51,7 +51,7 @@ import {
   validateCreationSkips,
   type PlannedStage,
 } from '../domain/stage-plan.js';
-import { assertOwnerInScope, requireSalesManager, requireSalesWriter } from './crm-access.js';
+import { assertOwnerInScope, canViewQuoteCost, requireSalesManager, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
 import type { PipelineConfigProvider } from './pipeline-config.port.js';
@@ -190,7 +190,20 @@ export class OpportunityService {
 
   async get(actor: CrmActor, id: string): Promise<OpportunityDetail> {
     const scope = await this.scopes.resolve(actor);
-    return this.require(actor.tenantId, scope, id);
+    const detail = await this.require(actor.tenantId, scope, id);
+    const plan = await this.opportunities.latestBusinessPlan(actor.tenantId, detail.id);
+    if (!plan) return { ...detail, latestBusinessPlan: null };
+    // Không có quyền xem giá vốn thì chỉ nhận doanh thu; giá vốn, lợi nhuận không rời server.
+    const costVisible = canViewQuoteCost(actor);
+    return {
+      ...detail,
+      latestBusinessPlan: {
+        ...plan,
+        costVisible,
+        totalCost: costVisible ? plan.totalCost : null,
+        profit: costVisible ? plan.profit : null,
+      },
+    };
   }
 
   async create(actor: CrmActor, request: CreateOpportunityRequest): Promise<OpportunityDetail> {

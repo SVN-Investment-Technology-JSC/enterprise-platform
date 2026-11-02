@@ -330,7 +330,24 @@ export interface MyStageTask {
   readonly updatedAt: string;
 }
 
+/**
+ * PAKD mới nhất của dự án (P2D-09): của báo giá mới nhất, phiên bản đã duyệt gần nhất, không có thì phiên bản
+ * mới nhất có PAKD. Người không có quyền xem giá vốn chỉ nhận doanh thu (`goodsCost`, `totalCost`, `profit` là `null`).
+ */
+export interface OpportunityBusinessPlanSummary {
+  readonly quoteId: string;
+  readonly quoteCode: string;
+  readonly versionNo: number;
+  readonly status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  readonly revenue: number;
+  readonly costVisible: boolean;
+  readonly totalCost: number | null;
+  readonly profit: number | null;
+}
+
 export interface OpportunityDetail extends OpportunitySummary {
+  /** Chỉ có ở phản hồi `GET` một cơ hội; `null` là dự án chưa có PAKD. Nơi khác không có. */
+  readonly latestBusinessPlan?: OpportunityBusinessPlanSummary | null;
   /** Chỉ có ở phản hồi đổi giai đoạn sang Thua (P2F-01); nơi khác không có. */
   readonly careSuggestion?: CareSuggestion;
   readonly need: string | null;
