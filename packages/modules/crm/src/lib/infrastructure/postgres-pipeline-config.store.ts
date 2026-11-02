@@ -10,6 +10,11 @@ import type {
 import type { PipelineConfigReader } from '../application/pipeline-config.port.js';
 import type { CrmDatabase } from './crm.database.js';
 
+/** Pool hoặc client của transaction: chỉ cần `query`. */
+export interface PipelineQueryable {
+  query<TRow = Record<string, unknown>>(text: string, values?: unknown[]): Promise<{ rows: TRow[] }>;
+}
+
 interface PipelineRow {
   id: string;
   code: string;
@@ -57,7 +62,13 @@ export class PostgresPipelineConfigReader implements PipelineConfigReader {
   constructor(private readonly database: CrmDatabase) {}
 
   async loadPipelines(tenantId: string): Promise<readonly Pipeline[]> {
-    const pool = await this.database.pool(tenantId);
+    return loadPipelinesFrom(await this.database.pool(tenantId));
+  }
+}
+
+/** Đọc toàn bộ cấu hình luồng qua `pool` hoặc client của một transaction (bốn truy vấn đọc). */
+export async function loadPipelinesFrom(pool: PipelineQueryable): Promise<readonly Pipeline[]> {
+  {
     const [pipelines, stages, transitions, requirements] = await Promise.all([
       pool.query<PipelineRow>(
         `SELECT id, code, name, profile, is_default, active, sort_order, care_suggestion

@@ -12,3 +12,4 @@ export * from './lib/dashboard.js';
 export * from './lib/documents.js';
 export * from './lib/business-plan.js';
 export * from './lib/tender.js';
+export * from './lib/pipeline-config.js';

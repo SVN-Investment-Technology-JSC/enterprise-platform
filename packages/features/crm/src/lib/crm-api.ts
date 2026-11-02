@@ -537,3 +537,32 @@ export const setDocumentAudience = (id: string, audience: CrmDocumentAudience) =
 export const listDocumentFolders = (entityType: string, entityId: string) =>
   request<CrmDocumentFolder[]>(`/document-folders${toQuery({ entityType, entityId })}`, { cache: 'no-store' });
 export const createDocumentFolder = (body: CreateDocumentFolderRequest) => send<CrmDocumentFolder>('POST', '/document-folders', body);
+
+// Cấu hình luồng (P2G-03, chỉ crm.manage): mọi thao tác ghi trả về danh sách luồng mới.
+import type {
+  AdminPipeline,
+  CreatePipelineRequest,
+  CreateStageRequest,
+  PipelineTemplate,
+  SetStageRequirementsRequest,
+  UpdatePipelineRequest,
+  UpdateStageRequest,
+} from '@enterprise-platform/contracts-crm';
+
+const pipelinePath = (id: string) => `/pipelines/${encodeURIComponent(id)}`;
+const stagePath = (id: string, stageId: string) => `${pipelinePath(id)}/stages/${encodeURIComponent(stageId)}`;
+export const listAdminPipelines = () => request<AdminPipeline[]>('/pipelines', { cache: 'no-store' });
+export const listPipelineTemplates = () => request<PipelineTemplate[]>('/pipelines/templates', { cache: 'no-store' });
+export const createPipeline = (body: CreatePipelineRequest) => send<AdminPipeline[]>('POST', '/pipelines', body);
+export const updatePipeline = (id: string, body: UpdatePipelineRequest) => send<AdminPipeline[]>('PATCH', pipelinePath(id), body);
+export const setDefaultPipeline = (id: string) => send<AdminPipeline[]>('PUT', `${pipelinePath(id)}/default`);
+export const reorderPipelines = (pipelineIds: readonly string[]) => send<AdminPipeline[]>('PUT', '/pipelines/order', { pipelineIds });
+export const deletePipeline = (id: string) => send<AdminPipeline[]>('DELETE', pipelinePath(id));
+export const createPipelineStage = (id: string, body: CreateStageRequest) => send<AdminPipeline[]>('POST', `${pipelinePath(id)}/stages`, body);
+export const updatePipelineStage = (id: string, stageId: string, body: UpdateStageRequest) => send<AdminPipeline[]>('PATCH', stagePath(id, stageId), body);
+export const reorderPipelineStages = (id: string, stageIds: readonly string[]) => send<AdminPipeline[]>('PUT', `${pipelinePath(id)}/stages/order`, { stageIds });
+export const deletePipelineStage = (id: string, stageId: string) => send<AdminPipeline[]>('DELETE', stagePath(id, stageId));
+export const setStageTransitions = (id: string, stageId: string, toStageIds: readonly string[]) =>
+  send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/transitions`, { toStageIds });
+export const setStageRequirements = (id: string, stageId: string, body: SetStageRequirementsRequest) =>
+  send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/requirements`, body);

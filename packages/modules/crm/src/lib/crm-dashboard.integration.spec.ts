@@ -178,7 +178,7 @@ integration('Bán hàng: dashboard Tổng quan (PostgreSQL)', () => {
 
   afterAll(async () => {
     await handle?.drop();
-  });
+  }, 30_000);
 
   it('NV1 chỉ thấy số của mình', async () => {
     const dashboard = await service.dashboard(nv1, MARCH);

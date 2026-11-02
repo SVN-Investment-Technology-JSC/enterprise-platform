@@ -183,6 +183,10 @@ import {
 import { PostgresDocumentStore, PostgresOpportunityDocumentChecker } from './infrastructure/postgres-document.store.js';
 import { S3DocumentStorage } from './infrastructure/s3-document-storage.js';
 import { DocumentTypesController, DocumentsController } from './presentation/documents.controller.js';
+import { PipelineConfigService } from './application/pipeline-config.service.js';
+import { CRM_PIPELINE_ADMIN_STORE, type PipelineAdminStore } from './application/pipeline-admin-store.port.js';
+import { PostgresPipelineAdminStore } from './infrastructure/postgres-pipeline-admin.store.js';
+import { PipelinesController } from './presentation/pipelines.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -221,6 +225,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     DashboardController,
     DocumentsController,
     DocumentTypesController,
+    PipelinesController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -251,6 +256,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     store(CRM_LEAD_STORE, (database) => new PostgresLeadStore(database)),
     store(CRM_OPPORTUNITY_STORE, (database) => new PostgresOpportunityStore(database)),
     store(CRM_PIPELINE_CONFIG, (database) => new CachedPipelineConfig(new PostgresPipelineConfigReader(database))),
+    // Cấu hình luồng cho quản trị viên (GĐ G): ghi qua store riêng, huỷ cache ngay sau commit.
+    store(CRM_PIPELINE_ADMIN_STORE, (database) => new PostgresPipelineAdminStore(database)),
+    {
+      provide: PipelineConfigService,
+      useFactory: (store: PipelineAdminStore, config: PipelineConfigProvider) => new PipelineConfigService(store, config),
+      inject: [CRM_PIPELINE_ADMIN_STORE, CRM_PIPELINE_CONFIG],
+    },
     store(CRM_ACTIVITY_STORE, (database) => new PostgresActivityStore(database)),
     store(CRM_TIMELINE_STORE, (database) => new PostgresTimelineStore(database)),
     {
