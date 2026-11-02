@@ -250,3 +250,17 @@ export function stageSideEffects(
   }
   return {};
 }
+
+/**
+ * Lợi nhuận dự kiến của dự toán (tổng giá trị trừ giá vốn) và tỷ suất trên tổng giá trị (%, làm tròn 2 số lẻ).
+ * Thiếu một trong hai số hoặc tổng bằng 0 thì không tính được tỷ suất (`marginPercent` là `null`).
+ * Đối chiếu với phương án kinh doanh (PAKD) làm ở giao diện, vì phía server chỉ lưu và trả hai số.
+ */
+export function estimateMargin(
+  total: number | null | undefined,
+  cost: number | null | undefined,
+): { readonly profit: number; readonly marginPercent: number | null } | null {
+  if (total === null || total === undefined || cost === null || cost === undefined) return null;
+  const profit = total - cost;
+  return { profit, marginPercent: total > 0 ? Math.round((profit / total) * 10000) / 100 : null };
+}

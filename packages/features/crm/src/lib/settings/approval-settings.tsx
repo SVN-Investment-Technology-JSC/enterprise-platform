@@ -3,6 +3,8 @@
 import {
   APPROVAL_KIND_LABELS,
   APPROVAL_MODE_LABELS,
+  BUSINESS_PLAN_DEVIATION_MODE_LABELS,
+  type BusinessPlanDeviationMode,
   type ApprovalBinding,
   type ApprovalKind,
   type ApprovalMode,
@@ -15,11 +17,13 @@ import {
   errorMessage,
   listApprovalBindings,
   listProcedureOptions,
+  loadBusinessPlanSettings,
+  saveBusinessPlanSettings,
   loadQuoteApprovalSettings,
   saveApprovalBinding,
   saveQuoteApprovalSettings,
 } from '../crm-api';
-import { labelOptions } from '../crm-context';
+import { labelOptions, useCrm } from '../crm-context';
 import { parseNumber } from '../pricing/pricing.model';
 import styles from '../sales.module.scss';
 
@@ -33,8 +37,90 @@ export function ApprovalSettingsPage() {
   return (
     <>
       <ThresholdSettings />
+      <BusinessPlanSettings />
       <ApprovalBindings />
     </>
+  );
+}
+
+/**
+ * Cấu hình so lệch phương án kinh doanh (chỉ `crm.manage`): sửa báo giá đã có phương án đã duyệt, nếu lợi nhuận giảm
+ * (hoặc tỷ lệ chiết khấu tăng) quá ngưỡng thì phải trình duyệt lại. Bằng đúng ngưỡng thì không cần.
+ */
+function BusinessPlanSettings() {
+  const { capabilities } = useCrm();
+  const allowed = capabilities.isTenantAdmin || capabilities.canManage;
+  const [mode, setMode] = useState<BusinessPlanDeviationMode>('PROFIT');
+  const [threshold, setThreshold] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (!allowed) return;
+    loadBusinessPlanSettings()
+      .then((value) => {
+        setMode(value.mode);
+        setThreshold(String(value.thresholdPercent));
+        setLoaded(true);
+      })
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình so lệch phương án kinh doanh.')));
+  }, [allowed]);
+
+  if (!allowed) return null;
+
+  async function save() {
+    const value = parseNumber(threshold);
+    if (value === undefined || value < 0 || value > 100) return setError('Ngưỡng phải là số từ 0 đến 100.');
+    setSaving(true);
+    setError(undefined);
+    try {
+      const saved = await saveBusinessPlanSettings({ mode, thresholdPercent: value });
+      setMode(saved.mode);
+      setThreshold(String(saved.thresholdPercent));
+      toast.success('Đã lưu cấu hình so lệch phương án kinh doanh.');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được cấu hình so lệch phương án kinh doanh.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className={styles.panel} aria-label="So lệch phương án kinh doanh">
+      <h2 className={styles.title}>So lệch phương án kinh doanh</h2>
+      <p className={styles.muted}>
+        Khi sửa báo giá đã có phương án kinh doanh được duyệt, so với phương án đã duyệt gần nhất: theo lợi nhuận là lợi nhuận
+        giảm quá ngưỡng (%); theo chiết khấu là tỷ lệ chiết khấu tăng quá ngưỡng (điểm phần trăm). Vượt ngưỡng thì phải trình
+        duyệt lại, bằng đúng ngưỡng thì không.
+      </p>
+      {error ? <p className={styles.alert}>{error}</p> : null}
+      {loaded ? (
+        <form
+          className={styles.fieldGrid}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <Field label="Chế độ so lệch">
+            <SearchableSelect
+              options={labelOptions(BUSINESS_PLAN_DEVIATION_MODE_LABELS)}
+              value={mode}
+              onChange={(value) => setMode(value as BusinessPlanDeviationMode)}
+            />
+          </Field>
+          <Field label="Ngưỡng lệch (%)" required>
+            <input className={styles.input} inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} />
+          </Field>
+          <div className={styles.formActions}>
+            <button type="submit" className={styles.buttonPrimary} disabled={saving}>
+              {saving ? 'Đang lưu…' : 'Lưu cấu hình so lệch'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </section>
   );
 }
 

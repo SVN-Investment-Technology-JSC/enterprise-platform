@@ -312,6 +312,10 @@ export interface MyStageTask {
 export interface OpportunityDetail extends OpportunitySummary {
   readonly need: string | null;
   readonly budget: number | null;
+  /** Tổng giá trị dự toán (đồng); `null` là chưa nhập. Đối chiếu với PAKD ở giao diện. */
+  readonly estimateTotalValue: number | null;
+  /** Giá vốn dự kiến của dự toán (đồng); `null` là chưa nhập. */
+  readonly estimateCostValue: number | null;
   readonly lostReason: string | null;
   readonly leadId: string | null;
   readonly closedAt: string | null;
@@ -328,6 +332,9 @@ export interface OpportunityFields {
   readonly expectedCloseDate?: string | null;
   readonly need?: string | null;
   readonly budget?: number | null;
+  /** Không gửi (`undefined`) thì giữ nguyên; `null` xoá giá trị. Phải >= 0. */
+  readonly estimateTotalValue?: number | null;
+  readonly estimateCostValue?: number | null;
   readonly ownerUserId?: string | null;
 }
 

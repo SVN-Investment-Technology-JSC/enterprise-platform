@@ -44,6 +44,7 @@ import {
   type QuoteEditPlan,
 } from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
+import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
@@ -438,6 +439,9 @@ export class PostgresQuoteStore implements QuoteStore {
           payload,
         });
       }
+      if (submission.outcome === 'PENDING' && submission.businessPlan) {
+        await attachPlanToQuoteSubmit(client, submission.businessPlan, actorId);
+      }
       return linkId;
     });
   }
@@ -681,6 +685,10 @@ export async function applyDecision(
     reason: transition.reason,
     metadata: { versionNo: locked.versionNo, ...metadata },
   });
+  // PAKD đi cùng hồ sơ duyệt được duyệt hoặc từ chối cùng báo giá (cả duyệt trực tiếp và kết quả Quy trình).
+  if (to === 'APPROVED' || to === 'REJECTED') {
+    await syncPlanWithQuoteDecision(client, locked.versionId, to, transition.reason, actorId);
+  }
   if ((to === 'APPROVED' || to === 'REJECTED') && locked.submittedBy) {
     const approved = to === 'APPROVED';
     const payload: CrmQuoteApprovalDecidedPayload = {

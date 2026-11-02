@@ -50,6 +50,8 @@ interface OpportunityRow {
   expected_close_date: string | null;
   need: string | null;
   budget: string | null;
+  estimate_total_value: string | null;
+  estimate_cost_value: string | null;
   lost_reason: string | null;
   lead_id: string | null;
   owner_user_id: string;
@@ -104,7 +106,7 @@ const OPPORTUNITY_COLUMNS = `
   o.id, o.name, o.customer_id, c.code AS customer_code, c.name AS customer_name, o.stage,
   o.pipeline_id, p.code AS pipeline_code, p.name AS pipeline_name,
   o.stage_id, s.name AS stage_name, s.semantic AS stage_semantic, o.probability,
-  o.expected_value, o.expected_close_date::text AS expected_close_date, o.need, o.budget, o.lost_reason,
+  o.expected_value, o.expected_close_date::text AS expected_close_date, o.need, o.budget, o.estimate_total_value, o.estimate_cost_value, o.lost_reason,
   o.lead_id, o.owner_user_id, o.closed_at, o.version, o.created_at, o.updated_at,
   ${cursorAt('o.updated_at')} AS cursor_at`;
 
@@ -226,6 +228,8 @@ export class PostgresOpportunityStore implements OpportunityStore {
       ...toSummary(row),
       need: row.need,
       budget: toNumber(row.budget),
+      estimateTotalValue: toNumber(row.estimate_total_value),
+      estimateCostValue: toNumber(row.estimate_cost_value),
       lostReason: row.lost_reason,
       leadId: row.lead_id,
       closedAt: toIso(row.closed_at),
@@ -270,17 +274,43 @@ export class PostgresOpportunityStore implements OpportunityStore {
     expectedVersion: number,
     actorId: string,
   ): Promise<void> {
-    const pool = await this.database.pool(tenantId);
-    // Chỉ sửa được khi giai đoạn còn mở (nghĩa OPEN), không theo mã.
-    const result = await pool.query(
-      `UPDATE crm_schema.opportunities o
-          SET name = $3, probability = $4, expected_value = $5, expected_close_date = $6::date, need = $7,
-              budget = $8, owner_user_id = $9, version = o.version + 1, updated_at = now(), updated_by = $10
-        WHERE o.id = $1 AND o.version = $2
-          AND EXISTS (SELECT 1 FROM crm_schema.pipeline_stages s WHERE s.id = o.stage_id AND s.semantic = 'OPEN')`,
-      [id, expectedVersion, ...opportunityValues(record), actorId],
-    );
-    if (!result.rowCount) throw new CrmStaleVersionError();
+    // Một transaction: sửa cơ hội và ghi audit khi dự toán đổi (giá trị cũ đọc cùng lúc, khoá dòng).
+    await this.database.transaction(tenantId, async (client) => {
+      const before = await client.query<{ estimate_total_value: string | null; estimate_cost_value: string | null }>(
+        `SELECT estimate_total_value, estimate_cost_value FROM crm_schema.opportunities WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      // Chỉ sửa được khi giai đoạn còn mở (nghĩa OPEN), không theo mã.
+      const result = await client.query(
+        `UPDATE crm_schema.opportunities o
+            SET name = $3, probability = $4, expected_value = $5, expected_close_date = $6::date, need = $7,
+                budget = $8, owner_user_id = $9, estimate_total_value = $10, estimate_cost_value = $11,
+                version = o.version + 1, updated_at = now(), updated_by = $12
+          WHERE o.id = $1 AND o.version = $2
+            AND EXISTS (SELECT 1 FROM crm_schema.pipeline_stages s WHERE s.id = o.stage_id AND s.semantic = 'OPEN')
+        RETURNING o.id`,
+        [id, expectedVersion, ...opportunityValues(record), actorId],
+      );
+      if (!result.rows.length) throw new CrmStaleVersionError();
+      const old = before.rows[0];
+      const fromTotal = toNumber(old?.estimate_total_value ?? null);
+      const fromCost = toNumber(old?.estimate_cost_value ?? null);
+      const toTotal = record.estimateTotalValue ?? null;
+      const toCost = record.estimateCostValue ?? null;
+      if (fromTotal === toTotal && fromCost === toCost) return;
+      await writeAuditLog(client, {
+        entityType: OPPORTUNITY_AUDIT_ENTITY,
+        entityId: id,
+        action: 'update_estimate',
+        actorId,
+        metadata: {
+          fromEstimateTotalValue: fromTotal,
+          toEstimateTotalValue: toTotal,
+          fromEstimateCostValue: fromCost,
+          toEstimateCostValue: toCost,
+        },
+      });
+    });
   }
 
   changeStage(tenantId: string, id: string, change: StageChange, actorId: string): Promise<void> {
@@ -630,9 +660,9 @@ export async function insertOpportunity(
   const target = placement ?? (await defaultPlacement(client));
   const result = await client.query<{ id: string }>(
     `INSERT INTO crm_schema.opportunities
-       (name, probability, expected_value, expected_close_date, need, budget, owner_user_id, customer_id, lead_id,
-        created_by, updated_by, pipeline_id, stage_id, stage)
-     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $10, $11::uuid, $12::uuid, $13)
+       (name, probability, expected_value, expected_close_date, need, budget, owner_user_id, estimate_total_value,
+        estimate_cost_value, customer_id, lead_id, created_by, updated_by, pipeline_id, stage_id, stage)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13::uuid, $14::uuid, $15)
      RETURNING id`,
     [...opportunityValues(record), customerId, leadId, actorId, target.pipelineId, target.stageId, target.stageCode],
   );
@@ -786,6 +816,8 @@ function opportunityValues(record: OpportunityRecord): unknown[] {
     record.need,
     record.budget,
     record.ownerUserId,
+    record.estimateTotalValue ?? null,
+    record.estimateCostValue ?? null,
   ];
 }
 

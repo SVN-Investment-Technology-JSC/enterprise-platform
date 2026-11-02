@@ -10,3 +10,4 @@ export * from './lib/receivables.js';
 export * from './lib/reports.js';
 export * from './lib/dashboard.js';
 export * from './lib/documents.js';
+export * from './lib/business-plan.js';

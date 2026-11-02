@@ -64,3 +64,6 @@ export * from './lib/domain/document-rules.js';
 export * from './lib/infrastructure/postgres-document.store.js';
 export * from './lib/infrastructure/s3-document-storage.js';
 export * from './lib/presentation/documents.controller.js';
+export * from './lib/application/business-plan.service.js';
+export * from './lib/application/business-plan-store.port.js';
+export * from './lib/domain/business-plan.js';

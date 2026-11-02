@@ -5,6 +5,7 @@
  * Sửa phiên bản Đã duyệt, Đã gửi khách, Từ chối duyệt thì phiên bản đó chuyển
  * Đã thay thế và sinh phiên bản mới ở Nháp (mục 5.2 kế hoạch).
  */
+import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
 
 export const QUOTE_STATUSES = [
@@ -193,6 +194,11 @@ export interface QuoteVersion {
   readonly note: string | null;
   readonly shipping: QuoteShipping;
   readonly totals: QuoteTotals;
+  /**
+   * `true` khi người xem không có quyền xem giá vốn, lợi nhuận (`crm.quote.cost.read`): các trường giá vốn,
+   * lợi nhuận, biên trả về 0 hoặc rỗng, không phải số thật.
+   */
+  readonly costHidden?: boolean;
   readonly requiresApproval: boolean;
   readonly approvalReasons: readonly QuoteApprovalReason[];
   readonly submittedAt: string | null;
@@ -264,6 +270,8 @@ export interface QuoteDetail extends QuoteSummary {
    * duyệt ngay (rỗng là duyệt thẳng). Phiên bản khác: rỗng (null).
    */
   readonly approvalCheck: readonly QuoteApprovalReason[] | null;
+  /** PAKD của phiên bản đang xem; rỗng khi chưa lập. Người duyệt thấy doanh thu, giá vốn, lợi nhuận qua đây. */
+  readonly businessPlan?: BusinessPlanDetail | null;
 }
 
 export interface QuoteListQuery {

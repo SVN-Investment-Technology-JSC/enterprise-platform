@@ -483,6 +483,7 @@ export const TENANT_PERMISSION_ACTIONS = [
   },
   { key: 'crm.quote.write', group: 'CRM', label: 'Lập báo giá' },
   { key: 'crm.quote.approve', group: 'CRM', label: 'Duyệt báo giá' },
+  { key: 'crm.quote.cost.read', group: 'CRM', label: 'Xem giá vốn và lợi nhuận của báo giá, phương án kinh doanh' },
   { key: 'crm.order.write', group: 'CRM', label: 'Lập và xác nhận đơn bán' },
   { key: 'crm.contract.write', group: 'CRM', label: 'Quản lý hợp đồng' },
   { key: 'crm.receivable.write', group: 'CRM', label: 'Thu tiền và điều chỉnh công nợ' },
@@ -602,11 +603,13 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   // Bán hàng: mọi quyền nghiệp vụ đều cần xem được phân hệ. `crm.manage` là quản trị cấu hình,
   // cố ý không kéo theo quyền lập báo giá, đơn, hợp đồng hay thu tiền.
   // Tài liệu: quản trị bán hàng tải lên và mở khoá được; quyền xoá cấp đích danh (như Workspace, Hệ dùng chung).
-  'crm.manage': ['crm.read', 'crm.read.all', 'crm.document.write'],
+  // Giá vốn, lợi nhuận: người lập, duyệt báo giá và quản trị bán hàng đều thấy; người chỉ xem thì cấp riêng.
+  'crm.manage': ['crm.read', 'crm.read.all', 'crm.document.write', 'crm.quote.cost.read'],
   'crm.read.all': ['crm.read'],
   'crm.opportunity.write': ['crm.read'],
-  'crm.quote.write': ['crm.read'],
-  'crm.quote.approve': ['crm.read'],
+  'crm.quote.write': ['crm.read', 'crm.quote.cost.read'],
+  'crm.quote.approve': ['crm.read', 'crm.quote.cost.read'],
+  'crm.quote.cost.read': ['crm.read'],
   'crm.order.write': ['crm.read'],
   'crm.contract.write': ['crm.read'],
   'crm.receivable.write': ['crm.read'],

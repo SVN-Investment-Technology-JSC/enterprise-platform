@@ -207,6 +207,10 @@ export class OpportunityService {
           request.expectedCloseDate === undefined ? current.expectedCloseDate : request.expectedCloseDate,
         need: request.need === undefined ? current.need : request.need,
         budget: request.budget === undefined ? current.budget : request.budget,
+        estimateTotalValue:
+          request.estimateTotalValue === undefined ? current.estimateTotalValue : request.estimateTotalValue,
+        estimateCostValue:
+          request.estimateCostValue === undefined ? current.estimateCostValue : request.estimateCostValue,
         ownerUserId: request.ownerUserId ?? current.ownerUserId,
       },
       current.ownerUserId,
@@ -478,6 +482,8 @@ export function opportunityRecord(
     expectedCloseDate?: unknown;
     need?: unknown;
     budget?: unknown;
+    estimateTotalValue?: unknown;
+    estimateCostValue?: unknown;
     ownerUserId?: unknown;
   },
   defaultOwner: string,
@@ -489,6 +495,8 @@ export function opportunityRecord(
     expectedCloseDate: optionalDate(request.expectedCloseDate, 'ngày chốt dự kiến'),
     need: optionalText(request.need, 4000, 'nhu cầu'),
     budget: optionalMoney(request.budget, 'ngân sách'),
+    estimateTotalValue: optionalMoney(request.estimateTotalValue, 'tổng giá trị dự toán'),
+    estimateCostValue: optionalMoney(request.estimateCostValue, 'giá vốn dự kiến của dự toán'),
     ownerUserId: optionalId(request.ownerUserId, 'người phụ trách') ?? defaultOwner,
   };
 }

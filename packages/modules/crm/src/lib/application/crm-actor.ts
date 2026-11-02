@@ -31,6 +31,7 @@ export function crmCapabilities(actor: CrmActor): CrmCapabilities {
     canReadReport: actor.canReadReport,
     canWriteDocument: actor.canWriteDocument,
     canDeleteDocument: actor.canDeleteDocument,
+    canViewQuoteCost: actor.canViewQuoteCost,
     canManage: actor.canManage,
   };
 }

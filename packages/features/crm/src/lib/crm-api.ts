@@ -145,6 +145,12 @@ import type {
   SalesReportQuery,
 } from '@enterprise-platform/contracts-crm';
 import type { DashboardQuery, SalesDashboard } from '@enterprise-platform/contracts-crm';
+import type {
+  BusinessPlanDecisionRequest,
+  BusinessPlanDetail,
+  BusinessPlanDeviationSettings,
+  SaveBusinessPlanRequest,
+} from '@enterprise-platform/contracts-crm';
 import type { CreateDocumentTypeRequest, UpdateDocumentTypeRequest } from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -343,6 +349,20 @@ export const loadQuoteApprovalSettings = () =>
   request<QuoteApprovalSettings>('/quote-approval/settings', { cache: 'no-store' });
 export const saveQuoteApprovalSettings = (body: QuoteApprovalSettings) =>
   send<QuoteApprovalSettings>('PUT', '/quote-approval/settings', body);
+
+// Phương án kinh doanh (PAKD) của phiên bản báo giá
+const planPath = (id: string, versionNo: number) => `${quotePath(id, versionNo)}/business-plan`;
+export const getBusinessPlan = (id: string, versionNo: number) =>
+  request<BusinessPlanDetail | null>(planPath(id, versionNo), { cache: 'no-store' });
+export const saveBusinessPlan = (id: string, versionNo: number, body: SaveBusinessPlanRequest) =>
+  send<BusinessPlanDetail>('PUT', planPath(id, versionNo), body);
+export type BusinessPlanAction = 'submit' | 'approve' | 'reject';
+export const businessPlanAction = (id: string, versionNo: number, action: BusinessPlanAction, body: BusinessPlanDecisionRequest) =>
+  send<BusinessPlanDetail>('POST', `${planPath(id, versionNo)}/${action}`, body);
+export const loadBusinessPlanSettings = () =>
+  request<BusinessPlanDeviationSettings>('/quote-approval/business-plan-settings', { cache: 'no-store' });
+export const saveBusinessPlanSettings = (body: BusinessPlanDeviationSettings) =>
+  send<BusinessPlanDeviationSettings>('PUT', '/quote-approval/business-plan-settings', body);
 
 // Hợp đồng
 export const listContracts = (query: ContractListQuery) =>

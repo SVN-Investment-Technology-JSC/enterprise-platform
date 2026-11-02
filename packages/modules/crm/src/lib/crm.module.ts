@@ -59,6 +59,10 @@ import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
 import { PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import { QuoteService } from './application/quote.service.js';
+import { BusinessPlanService } from './application/business-plan.service.js';
+import { CRM_BUSINESS_PLAN_STORE, type BusinessPlanStore } from './application/business-plan-store.port.js';
+import { PostgresBusinessPlanStore } from './infrastructure/postgres-business-plan.store.js';
+import { BusinessPlansController } from './presentation/business-plans.controller.js';
 import {
   CRM_APPROVAL_LINKS,
   CRM_PROCEDURE_CLIENT,
@@ -202,6 +206,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     PricingController,
     QuotesController,
     ApprovalSettingsController,
+    BusinessPlansController,
     InternalInstancesController,
     ContractsController,
     SalesOrdersController,
@@ -356,7 +361,9 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         scopes: CrmDataScopeService,
         links: ApprovalLinks,
         reportingLines: ReportingLineReader,
-      ) => new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines),
+        plans: BusinessPlanService,
+      ) =>
+        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans),
       inject: [
         CRM_QUOTE_STORE,
         CRM_QUOTE_SETTINGS_STORE,
@@ -367,7 +374,16 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CrmDataScopeService,
         CRM_APPROVAL_LINKS,
         REPORTING_LINE_READER,
+        BusinessPlanService,
       ],
+    },
+    // Phương án kinh doanh (GĐ D): gắn phiên bản báo giá, nối vào duyệt báo giá và so lệch khi sửa.
+    store(CRM_BUSINESS_PLAN_STORE, (database) => new PostgresBusinessPlanStore(database)),
+    {
+      provide: BusinessPlanService,
+      useFactory: (plans: BusinessPlanStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new BusinessPlanService(plans, quotes, scopes),
+      inject: [CRM_BUSINESS_PLAN_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
     {
       provide: QuoteApprovalSettingsService,

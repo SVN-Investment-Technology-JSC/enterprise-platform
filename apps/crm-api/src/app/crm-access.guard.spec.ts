@@ -98,6 +98,7 @@ describe('CrmAccessGuard', () => {
       canReadReport: false,
       canWriteDocument: false,
       canDeleteDocument: false,
+      canViewQuoteCost: false,
       canManage: false,
     });
   });
@@ -134,6 +135,23 @@ describe('CrmAccessGuard', () => {
     const reader = user(['crm.read']);
     await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
     expect(reader.request.crmActor).toMatchObject({ canWriteDocument: false, canDeleteDocument: false });
+  });
+
+  it('quyền xem giá vốn, lợi nhuận: người lập, duyệt báo giá, quản trị có; người chỉ xem cơ hội thì không (TC-BP-09)', async () => {
+    const cases: Array<[string[], boolean]> = [
+      [['crm.read'], false],
+      [['crm.opportunity.write'], false],
+      [['crm.read.all', 'crm.report.read'], false],
+      [['crm.quote.write'], true],
+      [['crm.quote.approve'], true],
+      [['crm.manage'], true],
+      [['crm.quote.cost.read'], true],
+    ];
+    for (const [actions, expected] of cases) {
+      const { guard, context, request } = user(actions);
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect({ actions, seen: request.crmActor?.canViewQuoteCost }).toEqual({ actions, seen: expected });
+    }
   });
 
   it('quản trị tenant có mọi cờ', async () => {

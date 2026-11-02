@@ -43,6 +43,8 @@ function opportunity(
     updatedAt: '',
     need: null,
     budget: null,
+    estimateTotalValue: null,
+    estimateCostValue: null,
     lostReason: null,
     leadId: null,
     closedAt: null,
@@ -221,6 +223,38 @@ describe('OpportunityService, luồng mặc định 7 giai đoạn', () => {
         code: 'OPPORTUNITY_CLOSED',
       });
     }
+  });
+});
+
+describe('OpportunityService, dự toán (P2D-09)', () => {
+  it('lưu hai số dự toán; không gửi thì giữ giá trị cũ, gửi null thì xoá', async () => {
+    const { opportunities, service } = setup(opportunity(SEVEN, 'NEW', { estimateTotalValue: 500, estimateCostValue: 300 }));
+    await service.update(writer, OPP_ID, { name: 'Dự án A', version: 2, estimateTotalValue: 900 });
+    expect(opportunities.updateOpportunity).toHaveBeenLastCalledWith(
+      't1',
+      OPP_ID,
+      expect.objectContaining({ estimateTotalValue: 900, estimateCostValue: 300 }),
+      2,
+      NV1,
+    );
+    await service.update(writer, OPP_ID, { name: 'Dự án A', version: 2, estimateCostValue: null });
+    expect(opportunities.updateOpportunity).toHaveBeenLastCalledWith(
+      't1',
+      OPP_ID,
+      expect.objectContaining({ estimateTotalValue: 500, estimateCostValue: null }),
+      2,
+      NV1,
+    );
+  });
+
+  it.each([
+    ['estimateTotalValue', 'Tổng giá trị dự toán phải là số không âm.'],
+    ['estimateCostValue', 'Giá vốn dự kiến của dự toán phải là số không âm.'],
+  ])('%s âm hoặc không phải số: 400, không ghi', async (field, message) => {
+    const { opportunities, service } = setup(opportunity(SEVEN, 'NEW'));
+    await expect(service.update(writer, OPP_ID, { name: 'Dự án A', version: 2, [field]: -1 })).rejects.toMatchObject({ statusCode: 400, message });
+    await expect(service.update(writer, OPP_ID, { name: 'Dự án A', version: 2, [field]: 'abc' as unknown as number })).rejects.toMatchObject({ statusCode: 400 });
+    expect(opportunities.updateOpportunity).not.toHaveBeenCalled();
   });
 });
 

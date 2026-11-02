@@ -72,6 +72,7 @@ export class CrmAccessGuard implements CanActivate {
       canReadReport: can('crm.report.read'),
       canWriteDocument: can('crm.document.write'),
       canDeleteDocument: can('crm.document.delete'),
+      canViewQuoteCost: can('crm.quote.cost.read'),
       canManage: can('crm.manage'),
     };
     return true;
@@ -101,6 +102,7 @@ export class CrmAccessGuard implements CanActivate {
       canReadReport: false,
       canWriteDocument: false,
       canDeleteDocument: false,
+      canViewQuoteCost: false,
       canManage: false,
     };
     return true;

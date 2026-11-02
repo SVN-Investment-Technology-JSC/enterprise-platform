@@ -38,6 +38,11 @@ export interface CrmCapabilities {
   readonly canWriteDocument: boolean;
   /** `crm.document.delete`: xoá tài liệu (cấp đích danh, không đi theo `crm.manage`). */
   readonly canDeleteDocument: boolean;
+  /**
+   * `crm.quote.cost.read`: xem giá vốn, lợi nhuận của báo giá và phương án kinh doanh. Người lập, duyệt báo giá và
+   * quản trị bán hàng có sẵn (quyền bao hàm); người chỉ xem cơ hội, báo giá thì không.
+   */
+  readonly canViewQuoteCost: boolean;
   /** `crm.manage`: bảng giá, chính sách, nhóm khách, hạn mức, cấu hình. */
   readonly canManage: boolean;
 }
@@ -56,6 +61,7 @@ export const CRM_NO_CAPABILITIES: CrmCapabilities = {
   canReadReport: false,
   canWriteDocument: false,
   canDeleteDocument: false,
+  canViewQuoteCost: false,
   canManage: false,
 };
 

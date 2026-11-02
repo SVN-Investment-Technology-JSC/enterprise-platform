@@ -247,6 +247,9 @@ export interface OpportunityRecord {
   readonly expectedCloseDate: string | null;
   readonly need: string | null;
   readonly budget: number | null;
+  /** Dự toán (P2D-09); bỏ trống (lead chuyển đổi) là chưa nhập. */
+  readonly estimateTotalValue?: number | null;
+  readonly estimateCostValue?: number | null;
   readonly ownerUserId: string;
 }
 

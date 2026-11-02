@@ -5,6 +5,7 @@ import {
   assertStageTransition,
   blockingRequirements,
   canTransition,
+  estimateMargin,
   evaluateRequirements,
   findStage,
   firstStage,
@@ -239,5 +240,16 @@ describe('điều kiện chuyển giai đoạn', () => {
 
   it('không có điều kiện thì không chặn', () => {
     expect(evaluateRequirements(gate([]), context())).toEqual([]);
+  });
+});
+
+describe('lợi nhuận dự toán (P2D-09)', () => {
+  it('tính lợi nhuận và tỷ suất; thiếu số hoặc tổng bằng 0 thì không có tỷ suất', () => {
+    expect(estimateMargin(1000, 750)).toEqual({ profit: 250, marginPercent: 25 });
+    expect(estimateMargin(3, 2)).toEqual({ profit: 1, marginPercent: 33.33 });
+    expect(estimateMargin(500, 600)).toEqual({ profit: -100, marginPercent: -20 });
+    expect(estimateMargin(0, 0)).toEqual({ profit: 0, marginPercent: null });
+    expect(estimateMargin(null, 100)).toBeNull();
+    expect(estimateMargin(100, undefined)).toBeNull();
   });
 });

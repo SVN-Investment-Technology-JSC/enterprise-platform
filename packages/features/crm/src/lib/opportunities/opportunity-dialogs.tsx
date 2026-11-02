@@ -44,6 +44,7 @@ import {
   stageTone,
 } from '../sales.model';
 import styles from '../sales.module.scss';
+import { EstimatePanel } from './estimate-panel';
 import { StagePlanPanel } from './stage-plan';
 import { usePipelines } from './use-pipelines';
 
@@ -438,6 +439,7 @@ export function OpportunityDrawer({
             setPlan(next);
             getOpportunity(detail.id).then(setDetail).catch(() => undefined);
           }} />
+          <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>
           <ol className={styles.timeline}>

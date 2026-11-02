@@ -1,6 +1,7 @@
 import type {
   AddQuoteLinesRequest,
   ApprovalBinding,
+  BusinessPlanDeviationSettings,
   CreateQuoteRequest,
   CrmCatalogMaterial,
   CrmPage,
@@ -17,6 +18,7 @@ import type {
   UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { BusinessPlanService } from '../application/business-plan.service.js';
 import { QuoteApprovalSettingsService } from '../application/quote-approval-settings.service.js';
 import type { QuoteStore } from '../application/quote-store.port.js';
 import { CRM_QUOTE_STORE } from '../application/quote-store.port.js';
@@ -175,7 +177,10 @@ export class QuotesController {
 /** Cách duyệt theo loại và ngưỡng duyệt báo giá: đọc với `crm.read`, sửa với `crm.manage`. */
 @Controller('v1')
 export class ApprovalSettingsController {
-  constructor(@Inject(QuoteApprovalSettingsService) private readonly settings: QuoteApprovalSettingsService) {}
+  constructor(
+    @Inject(QuoteApprovalSettingsService) private readonly settings: QuoteApprovalSettingsService,
+    @Inject(BusinessPlanService) private readonly plans: BusinessPlanService,
+  ) {}
 
   @Get('approval-bindings')
   bindings(@Req() request: CrmRequest): Promise<ApprovalBinding[]> {
@@ -211,6 +216,17 @@ export class ApprovalSettingsController {
   @Put('quote-approval/settings')
   saveApprovalSettings(@Req() request: CrmRequest, @Body() payload: unknown): Promise<QuoteApprovalSettings> {
     return runCrm(() => this.settings.saveApprovalSettings(crmActor(request), payload));
+  }
+
+  /** Cách so lệch PAKD khi sửa báo giá đã duyệt (theo lợi nhuận hay chiết khấu) và ngưỡng: đọc `crm.read`, sửa `crm.manage`. */
+  @Get('quote-approval/business-plan-settings')
+  businessPlanSettings(@Req() request: CrmRequest): Promise<BusinessPlanDeviationSettings> {
+    return runCrm(() => this.plans.deviationSettings(crmActor(request)));
+  }
+
+  @Put('quote-approval/business-plan-settings')
+  saveBusinessPlanSettings(@Req() request: CrmRequest, @Body() payload: unknown): Promise<BusinessPlanDeviationSettings> {
+    return runCrm(() => this.plans.saveDeviationSettings(crmActor(request), payload));
   }
 }
 

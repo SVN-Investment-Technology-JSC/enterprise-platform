@@ -14,6 +14,7 @@ import type {
   QuoteTotals,
   QuoteVersion,
 } from '@enterprise-platform/contracts-crm';
+import type { PlanAttachment } from './business-plan-store.port.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import type { QuoteEditPlan } from '../domain/quote.js';
 import type { CrmDataScope } from './data-scope.js';
@@ -96,6 +97,8 @@ export interface QuoteSubmission {
   readonly procedure: { readonly definitionId: string; readonly title: string } | null;
   /** Sự kiện báo cần duyệt (khi `PENDING`). */
   readonly approvalRequested: Omit<CrmQuoteApprovalRequestedPayload, 'mode'> | null;
+  /** PAKD đang soạn đính vào hồ sơ duyệt: khoá và mở vòng duyệt trong cùng transaction (chỉ khi `PENDING`). */
+  readonly businessPlan?: PlanAttachment | null;
 }
 
 export interface QuoteTransition {

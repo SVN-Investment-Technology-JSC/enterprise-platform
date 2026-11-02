@@ -32,3 +32,12 @@ export function assertOwnerInScope(scope: CrmDataScope, ownerUserId: string): vo
     throw new CrmValidationError('OWNER_OUT_OF_SCOPE', 'Chỉ giao được cho bạn hoặc cấp dưới của bạn.');
   }
 }
+
+/**
+ * Xem giá vốn, lợi nhuận của báo giá và phương án kinh doanh (`crm.quote.cost.read`). Người lập, duyệt báo giá
+ * và quản trị bán hàng được quyền này qua quyền bao hàm; cờ của họ được liệt kê lại ở đây để actor dựng tay
+ * (test, tác vụ nền) cũng cho kết quả giống guard. Người chỉ có quyền xem cơ hội, báo giá thì không.
+ */
+export function canViewQuoteCost(actor: CrmActor): boolean {
+  return actor.canViewQuoteCost || actor.canWriteQuote || actor.canApproveQuote || actor.canManage || actor.isTenantAdmin;
+}

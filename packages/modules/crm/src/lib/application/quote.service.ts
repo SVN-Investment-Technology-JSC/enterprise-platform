@@ -32,7 +32,9 @@ import { assertCustomerTransition, assertQuoteTransition, planQuoteEdit, type Qu
 import { evaluateQuoteApproval, quoteRoleTier } from '../domain/quote-approval-policy.js';
 import { compareQuoteVersions, costLine, quoteTotals } from '../domain/quote-version.js';
 import { computeNearestSuperiorUserIds } from '../domain/reporting-line.js';
-import { assertOwnerInScope } from './crm-access.js';
+import { assertOwnerInScope, canViewQuoteCost } from './crm-access.js';
+import type { QuoteBusinessPlans } from './business-plan.service.js';
+import type { PlanAttachment } from './business-plan-store.port.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
 import type { ReportingLineReader } from './organization-scope.port.js';
@@ -130,6 +132,8 @@ export class QuoteService {
     private readonly links: ApprovalLinks,
     private readonly reportingLines: ReportingLineReader,
     private readonly now: () => Date = () => new Date(),
+    /** Phương án kinh doanh (GĐ D); rỗng thì báo giá chạy như trước khi có PAKD. */
+    private readonly plans?: QuoteBusinessPlans,
   ) {}
 
   private today(): string {
@@ -153,11 +157,13 @@ export class QuoteService {
   async get(actor: CrmActor, id: string, versionNo?: unknown): Promise<QuoteDetail> {
     const detail = await this.require(actor, id, versionNo === undefined || versionNo === '' ? undefined : versionNoOf(versionNo));
     const version = await this.withStock(actor.tenantId, detail.version);
+    const costVisible = canViewQuoteCost(actor);
     const approvalCheck =
-      version.status === 'DRAFT' && version.versionNo === detail.currentVersion && version.lines.length
-        ? await this.evaluate(actor, version)
+      costVisible && version.status === 'DRAFT' && version.versionNo === detail.currentVersion && version.lines.length
+        ? (await this.evaluate(actor, detail.id, version, false)).reasons
         : null;
-    return { ...detail, version, approvalCheck };
+    const businessPlan = this.plans ? await this.plans.detail(actor, detail.id, version) : null;
+    return { ...detail, version: costVisible ? version : hideCost(version), approvalCheck, businessPlan };
   }
 
   async create(actor: CrmActor, request: CreateQuoteRequest): Promise<QuoteDetail> {
@@ -325,7 +331,14 @@ export class QuoteService {
   async compare(actor: CrmActor, id: string, from: unknown, to: unknown): Promise<QuoteComparison> {
     const left = await this.require(actor, id, versionNoOf(from));
     const right = await this.require(actor, id, versionNoOf(to));
-    return compareQuoteVersions(left.id, left.version, right.version);
+    const comparison = compareQuoteVersions(left.id, left.version, right.version);
+    if (canViewQuoteCost(actor)) return comparison;
+    return {
+      ...comparison,
+      from: hideCost(comparison.from),
+      to: hideCost(comparison.to),
+      totalsDelta: { ...comparison.totalsDelta, profit: 0 },
+    };
   }
 
   async catalogMaterials(actor: CrmActor, query: { search?: unknown; limit?: unknown }): Promise<CrmCatalogMaterial[]> {
@@ -365,7 +378,7 @@ export class QuoteService {
     if (quote.version.validUntil && quote.version.validUntil < this.today()) {
       throw new CrmConflictError('QUOTE_EXPIRED', 'Báo giá đã quá hạn hiệu lực; vui lòng đổi hạn trước khi gửi duyệt.');
     }
-    const reasons = await this.evaluate(actor, quote.version);
+    const { reasons, attachment } = await this.evaluate(actor, id, quote.version, true);
     if (!reasons.length) {
       await this.quotes.submit(
         actor.tenantId,
@@ -407,6 +420,7 @@ export class QuoteService {
           summary: `Báo giá ${quote.head.code} (${quote.head.customerName}) cần duyệt: ${reasons[0].message}`.slice(0, 500),
           deepLink: quoteDeepLink(id),
         },
+        businessPlan: attachment,
       },
       actor.userId,
     );
@@ -436,15 +450,23 @@ export class QuoteService {
   }
 
   /** Lý do cần duyệt nếu `actor` gửi phiên bản này (theo vai trò của chính actor). */
-  private async evaluate(actor: CrmActor, version: QuoteVersion): Promise<QuoteApprovalReason[]> {
+  private async evaluate(
+    actor: CrmActor,
+    quoteId: string,
+    version: QuoteVersion,
+    forSubmit: boolean,
+  ): Promise<{ reasons: QuoteApprovalReason[]; attachment: PlanAttachment | null }> {
     const settings = await this.settings.approvalSettings(actor.tenantId);
-    return evaluateQuoteApproval({
+    const reasons = evaluateQuoteApproval({
       settings,
       tier: quoteRoleTier(actor),
       lines: version.lines,
       totalDiscountPercent: version.totals.discountPercent,
       marginPercent: version.totals.marginPercent,
     });
+    // PAKD (P2D-04, P2D-05): PAKD đang soạn cần duyệt cùng báo giá; lệch PAKD đã duyệt gần nhất thì buộc trình lại.
+    const plan = this.plans ? await this.plans.check(actor.tenantId, quoteId, version, forSubmit) : null;
+    return { reasons: [...reasons, ...(plan?.reasons ?? [])], attachment: plan?.attachment ?? null };
   }
 
   private async decide(
@@ -735,6 +757,21 @@ export class QuoteService {
     if (!quote) throw new CrmNotFoundError('Không tìm thấy phiên bản báo giá.');
     return quote;
   }
+}
+
+const COST_REASON_CODES: readonly string[] = ['MARGIN_BELOW_MIN', 'COST_UNKNOWN', 'PLAN_DEVIATION'];
+
+/** Ẩn giá vốn, lợi nhuận, biên của phiên bản cho người không có quyền xem (TC-BP-09); đặt cờ `costHidden`. */
+function hideCost(version: QuoteVersion): QuoteVersion {
+  return {
+    ...version,
+    costHidden: true,
+    approvalReasons: version.approvalReasons.map((reason) =>
+      COST_REASON_CODES.includes(reason.code) ? { code: reason.code, message: 'Chi tiết liên quan giá vốn, lợi nhuận không hiển thị với quyền của bạn.' } : reason,
+    ),
+    totals: { ...version.totals, estCost: 0, profit: 0, marginPercent: null },
+    lines: version.lines.map((line) => ({ ...line, estUnitCost: null, estCost: 0, margin: null })),
+  };
 }
 
 function lineErrorOf(line: number, input: unknown, error: CrmValidationError): QuoteLineError {

@@ -34,6 +34,7 @@ import { formatPercent, parseNumber } from '../pricing/pricing.model';
 import local from '../pricing/pricing.module.scss';
 import { QUOTE_ACTION_LABELS, formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
+import { BusinessPlanPanel } from './business-plan-panel';
 import { QuoteCompare } from './quote-compare';
 import { DocumentsPanel } from '../documents';
 import {
@@ -480,6 +481,8 @@ export function QuoteEditor({
           </dd>
         </dl>
       </section>
+
+      <BusinessPlanPanel detail={detail} onChanged={() => void load(viewing)} />
 
       <DocumentsPanel entityType="quote" entityId={detail.id} showTitle />
 
