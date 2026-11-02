@@ -146,25 +146,28 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
 /** Lập hợp đồng (phần đầu; dòng giá khung, đợt thanh toán thêm ở màn chi tiết) hoặc sửa phần đầu hợp đồng Nháp. */
 export function ContractFormDialog({
   contract,
+  draft,
   onClose,
   onSaved,
 }: {
   contract?: ContractDetail;
+  /** Giá trị điền sẵn khi lập mới (ví dụ từ kết quả trúng thầu). */
+  draft?: Pick<SaveContractRequest, 'type' | 'customerId' | 'title' | 'value' | 'validFrom' | 'ownerUserId'>;
   onClose: () => void;
   onSaved: (detail: ContractDetail) => void;
 }) {
   const { people } = useCrm();
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
-  const [type, setType] = useState<string>(contract?.type ?? 'SALE');
-  const [customerId, setCustomerId] = useState(contract?.customerId ?? '');
-  const [title, setTitle] = useState(contract?.title ?? '');
+  const [type, setType] = useState<string>(contract?.type ?? draft?.type ?? 'SALE');
+  const [customerId, setCustomerId] = useState(contract?.customerId ?? draft?.customerId ?? '');
+  const [title, setTitle] = useState(contract?.title ?? draft?.title ?? '');
   const [signedDate, setSignedDate] = useState(contract?.signedDate ?? '');
-  const [validFrom, setValidFrom] = useState(contract?.validFrom ?? '');
+  const [validFrom, setValidFrom] = useState(contract?.validFrom ?? draft?.validFrom ?? '');
   const [validTo, setValidTo] = useState(contract?.validTo ?? '');
-  const [value, setValue] = useState(contract ? String(contract.value) : '');
+  const [value, setValue] = useState(contract ? String(contract.value) : draft?.value != null ? String(draft.value) : '');
   const [warrantyMonths, setWarrantyMonths] = useState(contract?.warrantyMonths === null || !contract ? '' : String(contract.warrantyMonths));
   const [warehouseCode, setWarehouseCode] = useState(contract?.warehouseCode ?? '');
-  const [ownerUserId, setOwnerUserId] = useState(contract?.ownerUserId ?? '');
+  const [ownerUserId, setOwnerUserId] = useState(contract?.ownerUserId ?? draft?.ownerUserId ?? '');
   const [note, setNote] = useState(contract?.note ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();

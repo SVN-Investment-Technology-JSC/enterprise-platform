@@ -6,7 +6,11 @@ import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from './ap
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
-import { OpportunityService } from './application/opportunity.service.js';
+import { OpportunityService, type OpportunityTenderReader } from './application/opportunity.service.js';
+import { TenderService } from './application/tender.service.js';
+import { CRM_TENDER_STORE, type TenderStore } from './application/tender-store.port.js';
+import { PostgresTenderStore } from './infrastructure/postgres-tender.store.js';
+import { TenderController } from './presentation/tender.controller.js';
 import { StageAssigneeResolver } from './application/stage-assignee.resolver.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { PriceListService } from './application/price-list.service.js';
@@ -200,6 +204,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     InternalCustomersController,
     LeadsController,
     OpportunitiesController,
+    TenderController,
     ActivitiesController,
     PriceListsController,
     DiscountPoliciesController,
@@ -282,6 +287,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         pipelines: PipelineConfigProvider,
         organization: HttpOrganizationScope,
         database: CrmDatabase,
+        tender: OpportunityTenderReader,
       ) =>
         new OpportunityService(
           opportunities,
@@ -293,6 +299,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
           new PostgresOpportunityDocumentChecker(database),
           new StageAssigneeResolver(organization),
           organization,
+          // Cổng điều kiện TENDER_PLAN_APPROVED, TENDER_FIELD (P2E-03): hồ sơ thầu của cơ hội.
+          tender,
         ),
       inject: [
         CRM_OPPORTUNITY_STORE,
@@ -301,6 +309,32 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CRM_PIPELINE_CONFIG,
         HttpOrganizationScope,
         CrmDatabase,
+        CRM_TENDER_STORE,
+      ],
+    },
+    // Chào thầu (GĐ E): hồ sơ thầu, đối tác liên danh, duyệt phương án, kết quả thầu.
+    store(CRM_TENDER_STORE, (database) => new PostgresTenderStore(database)),
+    {
+      provide: TenderService,
+      useFactory: (
+        tender: TenderStore,
+        opportunityStore: OpportunityStore,
+        scopes: CrmDataScopeService,
+        pipelines: PipelineConfigProvider,
+        opportunities: OpportunityService,
+        settings: QuoteSettingsStore,
+        links: ApprovalLinks,
+        reportingLines: ReportingLineReader,
+      ) => new TenderService(tender, opportunityStore, scopes, pipelines, opportunities, settings, links, reportingLines),
+      inject: [
+        CRM_TENDER_STORE,
+        CRM_OPPORTUNITY_STORE,
+        CrmDataScopeService,
+        CRM_PIPELINE_CONFIG,
+        OpportunityService,
+        CRM_QUOTE_SETTINGS_STORE,
+        CRM_APPROVAL_LINKS,
+        REPORTING_LINE_READER,
       ],
     },
     {

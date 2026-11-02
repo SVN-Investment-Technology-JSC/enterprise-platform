@@ -1,5 +1,6 @@
 import {
   CONVERSION_STAGES,
+  TENDER_REPORT_STATUSES,
   SALES_ALERT_KINDS,
   SALES_REPORT_DIMENSIONS,
   SALES_REPORT_MAX_ROWS,
@@ -12,11 +13,15 @@ import {
   type SalesAlertQuery,
   type SalesReport,
   type SalesReportQuery,
+  type TenderReport,
+  type TenderReportQuery,
+  type TenderReportStatus,
+  type TenderStatusFigure,
 } from '@enterprise-platform/contracts-crm';
 import { CrmForbiddenError } from '../domain/crm.error.js';
 import { optionalEnum, optionalId, optionalText } from '../domain/fields.js';
 import { addDays } from '../domain/receivables.js';
-import { conversionSteps, resolvePeriod, salesFigures } from '../domain/sales-report.js';
+import { conversionSteps, resolvePeriod, salesFigures, tenderWinRate } from '../domain/sales-report.js';
 import { roundVnd } from '../domain/pricing-engine.js';
 import type { SalesSettingsStore } from './contract-store.port.js';
 import type { CrmActor } from './crm-actor.js';
@@ -108,6 +113,27 @@ export class SalesReportService {
       kind: optionalEnum(query?.kind, SALES_ALERT_KINDS, 'loại cảnh báo'),
     });
     return { items, contractExpiringDays };
+  }
+
+  /** Tỷ lệ trúng thầu theo luồng và giá trị theo trạng thái (TND-03, TC-TND-11). */
+  async tender(actor: CrmActor, query: TenderReportQuery): Promise<TenderReport> {
+    requireReportReader(actor);
+    const period = resolvePeriod(query?.from, query?.to, this.today());
+    const scope = await this.scopes.resolve(actor);
+    const rows = await this.store.tenderByPipeline(actor.tenantId, scope, {
+      ...period,
+      ownerUserId: optionalId(query?.ownerUserId, 'người phụ trách') ?? undefined,
+    });
+    const sums = Object.fromEntries(TENDER_REPORT_STATUSES.map((status) => [status, { count: 0, value: 0 }])) as Record<
+      TenderReportStatus,
+      TenderStatusFigure
+    >;
+    for (const row of rows) {
+      for (const status of TENDER_REPORT_STATUSES) {
+        sums[status] = { count: sums[status].count + row.byStatus[status].count, value: roundVnd(sums[status].value + row.byStatus[status].value) };
+      }
+    }
+    return { ...period, rows, totals: { byStatus: sums, winRatePercent: tenderWinRate(sums.WON.count, sums.LOST.count) } };
   }
 
   /** Công nợ theo khách, đơn quá hạn, doanh thu chưa thu (RPT-07, TC-RPT-07). */

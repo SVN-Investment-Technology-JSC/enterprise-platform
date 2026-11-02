@@ -70,7 +70,7 @@ export class PostgresApprovalLinks implements ApprovalLinks {
     const lease = randomUUID();
     const claimed = await pool.query<{
       id: string;
-      source_type: 'crm_quote' | 'crm_order_credit';
+      source_type: 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan';
       definition_id: string;
       title: string;
       initiated_by: string;

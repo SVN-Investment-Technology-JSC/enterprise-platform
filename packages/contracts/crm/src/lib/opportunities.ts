@@ -23,9 +23,18 @@ export type PipelineProfile = (typeof PIPELINE_PROFILES)[number];
  * - `FIELD`: `ref` là tên trường cơ hội (`OPPORTUNITY_REQUIRED_FIELDS`), phải có giá trị;
  * - `QUOTE_APPROVED`: có báo giá Khách chấp nhận;
  * - `REASON`: phải ghi lý do;
- * - `DOCUMENT_TYPE`: `ref` là mã loại tài liệu (chỗ cắm cho GĐ C).
+ * - `DOCUMENT_TYPE`: `ref` là mã loại tài liệu (chỗ cắm cho GĐ C);
+ * - `TENDER_PLAN_APPROVED`: hồ sơ thầu của cơ hội có phương án chào thầu đã duyệt (GĐ E);
+ * - `TENDER_FIELD`: `ref` là tên trường hồ sơ thầu (`TENDER_REQUIRED_FIELDS`), phải có giá trị (GĐ E).
  */
-export const STAGE_REQUIREMENT_KINDS = ['FIELD', 'QUOTE_APPROVED', 'REASON', 'DOCUMENT_TYPE'] as const;
+export const STAGE_REQUIREMENT_KINDS = [
+  'FIELD',
+  'QUOTE_APPROVED',
+  'REASON',
+  'DOCUMENT_TYPE',
+  'TENDER_PLAN_APPROVED',
+  'TENDER_FIELD',
+] as const;
 export type StageRequirementKind = (typeof STAGE_REQUIREMENT_KINDS)[number];
 
 /** Trường cơ hội dùng được trong điều kiện `FIELD`, kèm nhãn tiếng Việt. */

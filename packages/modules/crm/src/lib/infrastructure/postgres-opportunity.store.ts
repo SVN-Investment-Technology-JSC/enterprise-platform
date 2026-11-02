@@ -386,6 +386,24 @@ export class PostgresOpportunityStore implements OpportunityStore {
         await ensureDraftQuoteForOpportunity(client, id, change.draftQuoteValidUntil, actorId);
       }
       if (change.declineOpenQuotes) await declineQuotesForLostOpportunity(client, tenantId, id, actorId);
+      if (change.markTenderSubmitted) {
+        await client.query(
+          `UPDATE crm_schema.tender_profiles SET submitted_at = COALESCE(submitted_at, now()), updated_at = now(), updated_by = $2::uuid
+            WHERE opportunity_id = $1::uuid`,
+          [id, actorId],
+        );
+      }
+      if (change.syncTenderResult && (change.toSemantic === 'WON' || change.toSemantic === 'LOST')) {
+        await client.query(
+          `UPDATE crm_schema.tender_profiles
+              SET result = $2::varchar,
+                  lost_reason = CASE WHEN $2::varchar = 'LOST' THEN COALESCE(lost_reason, $3::varchar) ELSE lost_reason END,
+                  result_recorded_at = now(), result_recorded_by = $4::uuid, updated_at = now(), updated_by = $4::uuid
+            WHERE opportunity_id = $1::uuid AND result IS NULL`,
+          [id, change.toSemantic, change.reason, actorId],
+        );
+      }
+      if (change.inTransaction) await change.inTransaction(client);
     });
   }
 

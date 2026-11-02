@@ -50,11 +50,13 @@ export function OpportunitiesPage({
   onFocus,
   onOpenCustomer,
   onOpenQuote,
+  onOpenContract,
 }: {
   focusId?: string;
   onFocus: (id: string | undefined) => void;
   onOpenCustomer: (id: string) => void;
   onOpenQuote: (id: string) => void;
+  onOpenContract?: (id: string) => void;
 }) {
   const { people } = useCrm();
   const canWrite = useCanWrite();
@@ -134,6 +136,7 @@ export function OpportunitiesPage({
           onChanged={() => setRefresh((value) => value + 1)}
           onOpenCustomer={onOpenCustomer}
           onOpenQuote={onOpenQuote}
+          onOpenContract={onOpenContract}
         />
       ) : null}
     </div>

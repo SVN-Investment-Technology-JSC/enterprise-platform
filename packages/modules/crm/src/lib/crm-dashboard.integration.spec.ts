@@ -280,6 +280,7 @@ integration('Bán hàng: dashboard Tổng quan (PostgreSQL)', () => {
         args,
       );
       expect(dashboard.kpis.winRate).toMatchObject({ won: legacyClosed.rows[0].won, lost: legacyClosed.rows[0].lost });
+      // Phễu chỉ gồm luồng profile STANDARD: bốn giai đoạn mở của luồng mẫu "Chào thầu" (0024) không lẫn vào.
       expect(dashboard.pipeline.map((row) => row.stage)).toEqual(['NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION']);
       for (const row of dashboard.pipeline) {
         const old = legacyPipeline.rows.find((r: { stage: string }) => r.stage === row.stage);
@@ -320,7 +321,9 @@ integration('Bán hàng: dashboard Tổng quan (PostgreSQL)', () => {
     expect(after.kpis.winRate.value).toBe(66.67);
     expect(after.kpis.pipeline.count).toBe(before.kpis.pipeline.count + 1);
     // Phễu: chỉ giai đoạn OPEN; giai đoạn mới chen theo sort_order (5 trước NEW = 10); WON/LOST không có dòng.
-    expect(after.pipeline.map((row) => row.stage)).toEqual(['TIEP-CAN', 'NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION']);
+    expect(after.pipeline.map((row) => row.stage)).toEqual([
+      'TIEP-CAN', 'NEW', 'CONTACTED', 'DISCOVERY', 'QUOTING', 'NEGOTIATION',
+    ]);
     expect(after.pipeline[0]).toEqual({ stage: 'TIEP-CAN', name: 'Tiếp cận', semantic: 'OPEN', count: 1, value: 3_000_000, weightedValue: 1_500_000 });
     // Phạm vi vẫn đúng: NV1 chỉ thấy 1 thắng của mình ở luồng riêng.
     const mine = await service.dashboard(nv1, MARCH);

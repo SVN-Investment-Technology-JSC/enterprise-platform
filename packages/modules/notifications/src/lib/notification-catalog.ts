@@ -982,6 +982,53 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Phương án chào thầu: cần duyệt (báo cấp trên khi duyệt trực tiếp) và kết quả duyệt (báo người trình).
+  ...(
+    [
+      ['crm.tender-plan.approval-requested', 'approval', 'actionable', 'Phương án chào thầu cần duyệt'],
+      ['crm.tender-plan.approval-decided', 'result', 'actionable', 'Kết quả duyệt phương án chào thầu'],
+    ] as const
+  ).map(([eventType, category, priority, title]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category,
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Phương án chào thầu có cập nhật mới.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#opportunities'),
+        sourceType: 'crm_tender_plan',
+        sourceId: `${id(payload, 'profileId')}:${String(payload.roundNo ?? '')}:${eventType}`,
+      }),
+    }),
+  ),
+  // Nhắc hạn nộp thầu (job của Bán hàng): sắp đến hạn và quá hạn, báo chủ dự án và người nộp (`recipientUserIds`).
+  ...(
+    [
+      ['crm.tender.deadline-due-soon', 'informational', 'Gói thầu sắp đến hạn nộp'],
+      ['crm.tender.deadline-overdue', 'actionable', 'Gói thầu đã quá hạn nộp'],
+    ] as const
+  ).map(([eventType, priority, title]) =>
+    directPolicy({
+      eventType,
+      module: 'crm',
+      category: 'deadline',
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload }) => ({
+        title,
+        body: text(payload, 'summary', 'Gói thầu có hạn nộp cần xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/crm#opportunities'),
+        sourceType: 'crm_tender_deadline',
+        // Gồm hạn nộp để dời hạn thì là thông báo mới, không gộp vào thông báo theo hạn cũ.
+        sourceId: `${id(payload, 'profileId')}:${eventType}:${text(payload, 'submissionDeadline', '')}`,
+      }),
+    }),
+  ),
   // Dự án bán hàng: người đảm nhận một giai đoạn được gán hoặc đổi. Người nhận (người cũ và mới, trừ người thực
   // hiện) ghi sẵn trong payload (`recipientUserIds`).
   directPolicy({

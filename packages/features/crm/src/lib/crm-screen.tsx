@@ -230,6 +230,7 @@ function SalesView({
           onFocus={(id) => navigate('opportunities', id)}
           onOpenCustomer={openCustomer}
           onOpenQuote={openQuote}
+          onOpenContract={openContract}
         />
       );
     case 'quotes':

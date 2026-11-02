@@ -122,13 +122,15 @@ export class PostgresSalesDashboardStore implements SalesDashboardStore {
         params.values,
       ),
       pool.query<{ cur_won: number; cur_lost: number; prev_won: number; prev_lost: number }>(
-        // Thắng/thua theo NGHĨA của giai đoạn (`pipeline_stages.semantic`), không theo mã.
+        // Thắng/thua theo NGHĨA của giai đoạn (`pipeline_stages.semantic`), không theo mã. Chỉ luồng profile STANDARD:
+        // kết quả chào thầu thuộc báo cáo thầu (`GET /v1/reports/tender`), không lẫn vào tỷ lệ thắng Tổng quan.
         `SELECT count(*) FILTER (WHERE ps.semantic = 'WON' AND ${closed.current})::int AS cur_won,
                 count(*) FILTER (WHERE ps.semantic = 'LOST' AND ${closed.current})::int AS cur_lost,
                 count(*) FILTER (WHERE ps.semantic = 'WON' AND ${closed.previous})::int AS prev_won,
                 count(*) FILTER (WHERE ps.semantic = 'LOST' AND ${closed.previous})::int AS prev_lost
            FROM crm_schema.opportunities o
            JOIN crm_schema.pipeline_stages ps ON ps.id = o.stage_id
+           JOIN crm_schema.pipelines pl ON pl.id = ps.pipeline_id AND pl.profile = 'STANDARD'
           WHERE ps.semantic IN ('WON', 'LOST')
             AND ((${closed.current}) OR (${closed.previous}))
             AND ${params.on('o.owner_user_id')}`,
@@ -181,7 +183,8 @@ export class PostgresSalesDashboardStore implements SalesDashboardStore {
   async pipeline(tenantId: string, scope: CrmDataScope): Promise<DashboardStageRow[]> {
     const pool = await this.database.pool(tenantId);
     const params = new ScopedParams(scope, []);
-    // Phễu theo `pipeline_stages` (nghĩa OPEN), gom theo mã giai đoạn qua mọi luồng; phạm vi dữ liệu
+    // Phễu theo `pipeline_stages` (nghĩa OPEN), gom theo mã giai đoạn qua các luồng profile STANDARD (giai đoạn của
+    // luồng Chào thầu thuộc báo cáo thầu, không lẫn vào phễu Tổng quan); phạm vi dữ liệu
     // nằm trong điều kiện JOIN để giai đoạn bật không có cơ hội vẫn ra dòng 0.
     const result = await pool.query<{ code: string; name: string; n: number; value: string; weighted: string }>(
       `SELECT s.code,
@@ -191,7 +194,7 @@ export class PostgresSalesDashboardStore implements SalesDashboardStore {
          FROM crm_schema.pipeline_stages s
          JOIN crm_schema.pipelines p ON p.id = s.pipeline_id
          LEFT JOIN crm_schema.opportunities o ON o.stage_id = s.id AND ${params.on('o.owner_user_id')}
-        WHERE s.semantic = 'OPEN' AND ((s.active AND p.active) OR o.id IS NOT NULL)
+        WHERE s.semantic = 'OPEN' AND p.profile = 'STANDARD' AND ((s.active AND p.active) OR o.id IS NOT NULL)
         GROUP BY s.code
         ORDER BY min(s.sort_order), s.code`,
       params.values,

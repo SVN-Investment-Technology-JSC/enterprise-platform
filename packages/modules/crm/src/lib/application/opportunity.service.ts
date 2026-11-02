@@ -1,5 +1,6 @@
 import {
   type ChangeOpportunityStageRequest,
+  type TenderRequiredField,
   type CreateOpportunityRequest,
   type CrmPage,
   type MyStageTask,
@@ -37,6 +38,7 @@ import {
   normalizeProbability,
   stageRef,
   stageSideEffects,
+  tenderSideEffects,
   type RequirementContext,
 } from '../domain/opportunity.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
@@ -53,7 +55,13 @@ import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
 import type { PipelineConfigProvider } from './pipeline-config.port.js';
 import { vietnamToday } from './pricing.service.js';
-import type { CustomerStore, OpportunityRecord, OpportunityStore, PeopleDirectory } from './sales-store.port.js';
+import type {
+  CustomerStore,
+  OpportunityRecord,
+  OpportunityStore,
+  PeopleDirectory,
+  StageChangeTransaction,
+} from './sales-store.port.js';
 import { resolveStageAssignee, type StageAssigneeRequest, type StageAssigneeResult } from './stage-assignee.resolver.js';
 
 const OPPORTUNITY_NOT_FOUND = 'Không tìm thấy cơ hội.';
@@ -88,6 +96,28 @@ export interface StageAssigneeLookup {
   resolve(request: StageAssigneeRequest): Promise<StageAssigneeResult>;
 }
 
+/**
+ * Chỗ cắm điều kiện TENDER_PLAN_APPROVED, TENDER_FIELD (GĐ E): trạng thái hồ sơ thầu của cơ hội; cơ hội chưa có
+ * hồ sơ thì trả `null` (các điều kiện thầu chưa đạt).
+ */
+export interface OpportunityTenderReader {
+  requirementState(
+    tenantId: string,
+    opportunityId: string,
+  ): Promise<{
+    readonly planApproved: boolean;
+    readonly fields: Readonly<Partial<Record<TenderRequiredField, unknown>>>;
+  } | null>;
+}
+
+/** Tuỳ chọn khi đổi giai đoạn do một nghiệp vụ khác gọi (kết quả thầu, GĐ E). */
+export interface ChangeStageOptions {
+  /** Giá trị trường hồ sơ thầu sắp ghi cùng lần chuyển, thay cho giá trị đang lưu khi kiểm điều kiện. */
+  readonly pendingTenderFields?: Readonly<Partial<Record<TenderRequiredField, unknown>>>;
+  /** Việc thêm trong cùng transaction với lần đổi giai đoạn. */
+  readonly inTransaction?: (client: StageChangeTransaction) => Promise<void>;
+}
+
 /** Số việc tối đa trả cho "Việc của tôi". */
 export const MY_STAGE_TASKS_LIMIT = 100;
 
@@ -104,6 +134,7 @@ export class OpportunityService {
     private readonly documents?: OpportunityDocumentChecker,
     private readonly assignees?: StageAssigneeLookup,
     private readonly people?: PeopleDirectory,
+    private readonly tender?: OpportunityTenderReader,
   ) {}
 
   /** Mọi luồng của tenant kèm giai đoạn, bước chuyển, điều kiện (cache ngắn). */
@@ -230,6 +261,7 @@ export class OpportunityService {
     actor: CrmActor,
     id: string,
     request: ChangeOpportunityStageRequest,
+    options: ChangeStageOptions = {},
   ): Promise<OpportunityDetail> {
     requireSalesWriter(actor);
     const code = typeof request.stage === 'string' ? request.stage.trim() : '';
@@ -250,7 +282,7 @@ export class OpportunityService {
     const plan = await this.opportunities.getStagePlan(actor.tenantId, id);
     this.assertCanLeaveStage(actor, current, plan);
     const reason = assertStageTransition(pipeline, from, to, request.reason, skippedStageIds(plan));
-    const checks = await this.checkRequirements(actor.tenantId, current, to, reason);
+    const checks = await this.checkRequirements(actor.tenantId, current, to, reason, options.pendingTenderFields);
     assertRequirementsMet(checks);
     const quoteRequirement = checks.find((check) => check.kind === 'QUOTE_APPROVED' && check.required);
     await this.opportunities.changeStage(
@@ -270,6 +302,8 @@ export class OpportunityService {
         expectedVersion: request.version === undefined ? undefined : requiredVersion(request.version),
         ...(quoteRequirement ? { requireAcceptedQuote: { message: quoteRequirement.message } } : {}),
         ...stageSideEffects(to, vietnamToday(this.now())),
+        ...tenderSideEffects(to),
+        ...(options.inTransaction ? { inTransaction: options.inTransaction } : {}),
       },
       actor.userId,
     );
@@ -403,6 +437,7 @@ export class OpportunityService {
     current: OpportunityDetail,
     to: Pipeline['stages'][number],
     reason: string | null,
+    pendingTenderFields?: Readonly<Partial<Record<TenderRequiredField, unknown>>>,
   ): Promise<StageRequirementCheck[]> {
     const kinds = new Set(to.requirements.map((requirement) => requirement.kind));
     const hasAcceptedQuote = kinds.has('QUOTE_APPROVED')
@@ -417,6 +452,8 @@ export class OpportunityService {
       this.documents?.documentTypeNames && documentRefs.length
         ? await this.documents.documentTypeNames(tenantId, documentRefs)
         : undefined;
+    const needsTender = this.tender && to.requirements.some((r) => r.kind === 'TENDER_PLAN_APPROVED' || r.kind === 'TENDER_FIELD');
+    const tender = needsTender ? await this.tender?.requirementState(tenantId, current.id) : undefined;
     const context: RequirementContext = {
       fields: {
         need: current.need,
@@ -427,6 +464,14 @@ export class OpportunityService {
       reason,
       hasAcceptedQuote,
       ...(present ? { documentTypeMet: (ref: string) => present.has(ref) } : {}),
+      ...(needsTender
+        ? {
+            tender: {
+              planApproved: tender?.planApproved ?? false,
+              fields: { ...(tender?.fields ?? {}), ...(pendingTenderFields ?? {}) },
+            },
+          }
+        : {}),
     };
     return withDocumentTypeNames(evaluateRequirements(to, context), names);
   }

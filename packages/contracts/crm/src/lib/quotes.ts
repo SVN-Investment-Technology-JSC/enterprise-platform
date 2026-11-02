@@ -391,12 +391,13 @@ export interface CrmCatalogMaterial {
 // Cách duyệt và ngưỡng duyệt
 // ---------------------------------------------------------------------------
 
-export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT'] as const;
+export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN'] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
 export const APPROVAL_KIND_LABELS: Readonly<Record<ApprovalKind, string>> = {
   QUOTE: 'Báo giá vượt ngưỡng',
   ORDER_CREDIT: 'Đơn bán vượt hạn mức công nợ',
+  TENDER_PLAN: 'Phương án chào thầu',
 };
 
 export const APPROVAL_MODES = ['DIRECT', 'PROCEDURE'] as const;

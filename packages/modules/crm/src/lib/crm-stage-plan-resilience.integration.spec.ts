@@ -249,6 +249,7 @@ integration('Bán hàng GĐ B: tổ chức lỗi, tenant không HRM, phễu vớ
     const row = (code: string) => result.pipeline.find((entry) => entry.stage === code)!;
     // Đúng số dự án đang mở theo giai đoạn hiện tại: Mới {mốc, B}, Đã liên hệ {D}, Khảo sát {C}, Báo giá {A}.
     expect(result.pipeline.map((entry) => [entry.stage, entry.count - (baseline.get(entry.stage) ?? 0)])).toEqual([
+      // Phễu chỉ gồm luồng profile STANDARD: giai đoạn của luồng mẫu "Chào thầu" (0024) không lẫn vào.
       ['NEW', 2], ['CONTACTED', 1], ['DISCOVERY', 1], ['QUOTING', 1], ['NEGOTIATION', 0],
     ]);
     // Giai đoạn bỏ qua không sinh dòng đếm riêng: tổng dòng = số dự án mở, không đếm đôi.

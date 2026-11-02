@@ -280,6 +280,11 @@ export interface StageSkip {
   readonly reason: string;
 }
 
+/** Kết nối của transaction đang mở (cổng hẹp, tầng application không import hạ tầng). */
+export interface StageChangeTransaction {
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 export interface StageChange {
   readonly pipelineId: string;
   /** Giai đoạn hiện tại (id và mã); chỉ đổi khi cơ hội vẫn đang ở đó. */
@@ -307,6 +312,12 @@ export interface StageChange {
   readonly requireAcceptedQuote?: { readonly message: string };
   /** Sang nghĩa LOST: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
   readonly declineOpenQuotes?: boolean;
+  /** Sang Đã nộp (GĐ E): ghi ngày nộp vào hồ sơ thầu của cơ hội (nếu có), chưa ghi thì mới ghi. */
+  readonly markTenderSubmitted?: boolean;
+  /** Sang Trúng hoặc Trượt (GĐ E): ghi kết quả vào hồ sơ thầu của cơ hội (nếu có và chưa có kết quả). */
+  readonly syncTenderResult?: boolean;
+  /** Việc thêm cần làm trong CÙNG transaction, chạy sau khi đã đổi giai đoạn; ném lỗi thì cả lần chuyển rollback. */
+  readonly inTransaction?: (client: StageChangeTransaction) => Promise<void>;
 }
 
 export interface OpportunityStore {

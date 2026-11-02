@@ -46,6 +46,8 @@ import {
 import styles from '../sales.module.scss';
 import { EstimatePanel } from './estimate-panel';
 import { StagePlanPanel } from './stage-plan';
+import { TenderPanel } from '../tender/tender-panel';
+import { isTenderPipeline } from '../tender/tender.model';
 import { usePipelines } from './use-pipelines';
 
 const digits = (value: string) => value.replace(/[^\d]/g, '');
@@ -262,15 +264,18 @@ export function OpportunityDrawer({
   onChanged,
   onOpenCustomer,
   onOpenQuote,
+  onOpenContract,
 }: {
   opportunityId: string;
   onClose: () => void;
   onChanged: () => void;
   onOpenCustomer: (id: string) => void;
   onOpenQuote: (id: string) => void;
+  onOpenContract?: (id: string) => void;
 }) {
   const { people, capabilities, currentUserId } = useCrm();
   const canWrite = useCanWrite();
+  const { pipelines } = usePipelines();
   const [detail, setDetail] = useState<OpportunityDetail>();
   const [plan, setPlan] = useState<OpportunityStagePlan>();
   const [error, setError] = useState<string>();
@@ -439,6 +444,16 @@ export function OpportunityDrawer({
             setPlan(next);
             getOpportunity(detail.id).then(setDetail).catch(() => undefined);
           }} />
+          {isTenderPipeline(pipelines.find((item) => item.id === detail.pipeline.id)) ? (
+            <TenderPanel
+              opportunity={detail}
+              onOpenContract={onOpenContract}
+              onChanged={() => {
+                getOpportunity(detail.id).then(setDetail).catch(() => undefined);
+                onChanged();
+              }}
+            />
+          ) : null}
           <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>

@@ -35,6 +35,13 @@ import {
   type UpdateCustomerRequest,
   type UpdateLeadRequest,
   type SkipStageRequest,
+  type CreateTenderProfileRequest,
+  type RecordTenderResultRequest,
+  type SaveTenderPartnerRequest,
+  type TenderDecisionRequest,
+  type TenderProfile,
+  type TenderVersionRequest,
+  type UpdateTenderProfileRequest,
   type UpdateOpportunityRequest,
   type UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -276,6 +283,23 @@ export const skipStage = (id: string, stageId: string, body: SkipStageRequest) =
   );
 export const listMyStageTasks = () =>
   request<readonly MyStageTask[]>('/opportunities/my-stage-tasks', { cache: 'no-store' });
+
+// Hồ sơ thầu (luồng Chào thầu)
+const tenderPath = (id: string) => `/opportunities/${encodeURIComponent(id)}/tender`;
+export const getTender = (id: string) => request<TenderProfile | null>(tenderPath(id), { cache: 'no-store' });
+export const createTender = (id: string, body: CreateTenderProfileRequest) => send<TenderProfile>('POST', tenderPath(id), body);
+export const updateTender = (id: string, body: UpdateTenderProfileRequest) => send<TenderProfile>('PUT', tenderPath(id), body);
+export const addTenderPartner = (id: string, body: SaveTenderPartnerRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/partners`, body);
+export const updateTenderPartner = (id: string, partnerId: string, body: SaveTenderPartnerRequest) =>
+  send<TenderProfile>('PUT', `${tenderPath(id)}/partners/${encodeURIComponent(partnerId)}`, body);
+export const deleteTenderPartner = (id: string, partnerId: string) =>
+  send<TenderProfile>('DELETE', `${tenderPath(id)}/partners/${encodeURIComponent(partnerId)}`);
+export type TenderPlanAction = 'submit' | 'approve' | 'reject';
+export const tenderPlanAction = (id: string, action: TenderPlanAction, body: TenderVersionRequest | TenderDecisionRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/plan/${action}`, body);
+export const recordTenderResult = (id: string, body: RecordTenderResultRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/result`, body);
 
 // Hoạt động
 export const listActivities = (query: ActivityListQuery) =>

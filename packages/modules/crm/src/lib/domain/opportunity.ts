@@ -7,6 +7,9 @@ import {
   type StageRef,
   type StageRequirement,
   type StageRequirementCheck,
+  type TenderRequiredField,
+  TENDER_REQUIRED_FIELDS,
+  TENDER_STAGE_CODES,
 } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmValidationError } from './crm.error.js';
 
@@ -157,6 +160,15 @@ export interface RequirementContext {
    * "chưa kiểm" (`met = null`), không chặn.
    */
   readonly documentTypeMet?: (ref: string) => boolean;
+  /**
+   * Hồ sơ thầu của cơ hội cho điều kiện TENDER_PLAN_APPROVED, TENDER_FIELD (GĐ E). Cơ hội chưa có hồ sơ thì
+   * truyền `planApproved = false` và `fields` rỗng. Không truyền (chưa nối kho hồ sơ thầu): điều kiện ở trạng
+   * thái "chưa kiểm" (`met = null`), không chặn.
+   */
+  readonly tender?: {
+    readonly planApproved: boolean;
+    readonly fields: Readonly<Partial<Record<TenderRequiredField, unknown>>>;
+  };
 }
 
 function hasValue(value: unknown): boolean {
@@ -177,6 +189,12 @@ function defaultMessage(requirement: StageRequirement, to: Pick<StageRef, 'name'
       return `Phải ghi lý do khi chuyển sang "${to.name}".`;
     case 'DOCUMENT_TYPE':
       return `Cần có tài liệu "${requirement.ref}" trước khi chuyển sang "${to.name}".`;
+    case 'TENDER_PLAN_APPROVED':
+      return `Phương án chào thầu cần được duyệt trước khi chuyển sang "${to.name}".`;
+    case 'TENDER_FIELD': {
+      const label = TENDER_REQUIRED_FIELDS[requirement.ref as TenderRequiredField] ?? requirement.ref;
+      return `Cần điền "${label}" của hồ sơ thầu trước khi chuyển sang "${to.name}".`;
+    }
   }
 }
 
@@ -198,6 +216,12 @@ export function evaluateRequirements(to: PipelineStage, context: RequirementCont
           break;
         case 'DOCUMENT_TYPE':
           met = context.documentTypeMet ? context.documentTypeMet(requirement.ref) : null;
+          break;
+        case 'TENDER_PLAN_APPROVED':
+          met = context.tender ? context.tender.planApproved : null;
+          break;
+        case 'TENDER_FIELD':
+          met = context.tender ? hasValue(context.tender.fields[requirement.ref as TenderRequiredField]) : null;
           break;
       }
       return {
@@ -249,6 +273,20 @@ export function stageSideEffects(
     return { draftQuoteValidUntil: date.toISOString().slice(0, 10) };
   }
   return {};
+}
+
+/**
+ * Tác động phụ lên hồ sơ thầu (nếu cơ hội có; GĐ E), store làm trong cùng transaction: sang giai đoạn Đã nộp thì
+ * ghi ngày nộp; sang giai đoạn có nghĩa Trúng hoặc Trượt thì ghi kết quả tương ứng (chưa có kết quả thì mới ghi).
+ */
+export function tenderSideEffects(to: Pick<StageRef, 'code' | 'semantic'>): {
+  markTenderSubmitted?: boolean;
+  syncTenderResult?: boolean;
+} {
+  return {
+    ...(to.code === TENDER_STAGE_CODES.SUBMITTED ? { markTenderSubmitted: true } : {}),
+    ...(to.semantic !== 'OPEN' ? { syncTenderResult: true } : {}),
+  };
 }
 
 /**

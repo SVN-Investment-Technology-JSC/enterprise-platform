@@ -11,6 +11,7 @@ import {
   firstStage,
   normalizeProbability,
   stageSideEffects,
+  tenderSideEffects,
   type RequirementContext,
 } from './opportunity.js';
 import { buildPipeline, fiveStagePipeline, sevenStagePipeline } from './pipeline-fixture.js';
@@ -240,6 +241,34 @@ describe('điều kiện chuyển giai đoạn', () => {
 
   it('không có điều kiện thì không chặn', () => {
     expect(evaluateRequirements(gate([]), context())).toEqual([]);
+  });
+
+  it('TC-TND-06: TENDER_PLAN_APPROVED và TENDER_FIELD (hình thức nộp) thiếu thì chặn, nêu rõ thiếu gì', () => {
+    const to = gate([
+      { kind: 'TENDER_PLAN_APPROVED' },
+      { kind: 'TENDER_FIELD', ref: 'submissionMethod' },
+    ]);
+    const blocked = evaluateRequirements(to, context({ tender: { planApproved: false, fields: { submissionMethod: null } } }));
+    expect(blocked.map((check) => check.met)).toEqual([false, false]);
+    expect(blocked[0].message).toContain('Phương án chào thầu cần được duyệt');
+    expect(blocked[1].message).toContain('Hình thức nộp');
+    expect(() => assertRequirementsMet(blocked)).toThrow(CrmConflictError);
+    const ok = evaluateRequirements(to, context({ tender: { planApproved: true, fields: { submissionMethod: 'ONLINE' } } }));
+    expect(ok.map((check) => check.met)).toEqual([true, true]);
+    expect(() => assertRequirementsMet(ok)).not.toThrow();
+  });
+
+  it('điều kiện thầu khi chưa nối kho hồ sơ thầu: chưa kiểm được (met = null), không chặn', () => {
+    const checks = evaluateRequirements(gate([{ kind: 'TENDER_PLAN_APPROVED' }]), context());
+    expect(checks[0].met).toBeNull();
+    expect(() => assertRequirementsMet(checks)).not.toThrow();
+  });
+
+  it('tác động phụ lên hồ sơ thầu: Đã nộp ghi ngày nộp, nghĩa WON hoặc LOST ghi kết quả, giai đoạn mở khác không', () => {
+    expect(tenderSideEffects({ code: 'SUBMITTED', semantic: 'OPEN' })).toEqual({ markTenderSubmitted: true });
+    expect(tenderSideEffects({ code: 'WON', semantic: 'WON' })).toEqual({ syncTenderResult: true });
+    expect(tenderSideEffects({ code: 'LOST', semantic: 'LOST' })).toEqual({ syncTenderResult: true });
+    expect(tenderSideEffects({ code: 'PREPARE', semantic: 'OPEN' })).toEqual({});
   });
 });
 

@@ -61,7 +61,8 @@ async function createDb(include: (file: string) => boolean): Promise<TempDb> {
   return { pool: ready, drop: async () => { try { await dropTestDatabase(admin, ready, name); } finally { await admin.end(); } } };
 }
 
-const isPhase1 = (file: string) => !PIPELINE_FILES.includes(file);
+/** Các file trước 0017: dữ liệu phase 1 chưa có luồng (các file sau 0019 như 0023 cần bảng luồng nên không nằm ở đây). */
+const isPhase1 = (file: string) => file < '0017';
 
 async function seedPhase1(pool: Pool): Promise<{ opportunities: string[] }> {
   const owner = randomUUID();
@@ -278,10 +279,13 @@ integration('Migration luồng cơ hội 0017-0019 (PostgreSQL)', () => {
     it('TC-P2MIG-03/04: DB trống chạy hết 0001 tới mới nhất, luồng mặc định có sẵn, chạy lại cả bộ không lỗi', async () => {
       const db = await createDb(() => true);
       try {
-        expect(await count(db.pool, 'pipelines')).toBe(1);
-        expect(await count(db.pool, 'pipeline_stages')).toBe(7);
-        for (const file of await crmFiles()) if (PIPELINE_FILES.includes(file)) await applyFile(db.pool, file);
-        expect(await count(db.pool, 'pipeline_stages')).toBe(7);
+        // Luồng mặc định (7 giai đoạn) và luồng mẫu "Chào thầu" (6 giai đoạn, 0024); chỉ một luồng mặc định.
+        expect(await count(db.pool, 'pipelines')).toBe(2);
+        expect(await count(db.pool, 'pipeline_stages')).toBe(13);
+        expect(Number((await db.pool.query(`SELECT count(*) AS n FROM crm_schema.pipelines WHERE is_default`)).rows[0].n)).toBe(1);
+        for (const file of await crmFiles()) if (PIPELINE_FILES.includes(file) || file >= '0023') await applyFile(db.pool, file);
+        expect(await count(db.pool, 'pipelines')).toBe(2);
+        expect(await count(db.pool, 'pipeline_stages')).toBe(13);
       } finally {
         await db.drop();
       }

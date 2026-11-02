@@ -150,7 +150,7 @@ export interface QuoteSettingsStore {
 export interface StartProcedureInstance {
   readonly definitionId: string;
   readonly title: string;
-  readonly sourceType: 'crm_quote' | 'crm_order_credit';
+  readonly sourceType: 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan';
   readonly sourceId: string;
   readonly idempotencyKey: string;
   readonly initiatedBy: string;
