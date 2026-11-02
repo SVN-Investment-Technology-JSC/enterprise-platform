@@ -79,7 +79,7 @@ export function ActivityPanel({
       ...(showTarget
         ? [
             {
-              title: 'Khách hàng / cơ hội',
+              title: 'Khách hàng / dự án bán hàng',
               key: 'target',
               width: 220,
               ellipsis: true,

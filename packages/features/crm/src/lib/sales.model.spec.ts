@@ -3,8 +3,10 @@ import {
   canDropStage,
   describeTimelineEntry,
   formatMoney,
+  groupCodeFromName,
   isOverdue,
   moveCard,
+  normalizeGroupName,
   personName,
   replaceCard,
   taxCodeLooksValid,
@@ -75,7 +77,21 @@ describe('tiện ích hiển thị', () => {
       kind: 'opportunity-stage-changed', id: 'h', at: '', actorId: null, opportunityId: 'o',
       opportunityName: 'Dự án A', fromStage: 'NEGOTIATION', toStage: 'LOST', reason: 'Giá cao',
     };
-    expect(describeTimelineEntry(changed)).toEqual({ title: 'Cơ hội "Dự án A": Đàm phán → Thua', detail: 'Lý do: Giá cao' });
+    expect(describeTimelineEntry(changed)).toEqual({ title: 'Dự án bán hàng "Dự án A": Đàm phán → Thua', detail: 'Lý do: Giá cao' });
     expect(describeTimelineEntry({ kind: 'quote-sent' } as unknown as CustomerTimelineEntry)).toEqual({ title: 'Sự kiện khác' });
+  });
+});
+
+describe('mã và tên nhóm khách hàng', () => {
+  it('sinh mã từ tên có dấu', () => {
+    expect(groupCodeFromName('Đại lý cấp 1')).toBe('DAI-LY-CAP-1');
+    expect(groupCodeFromName('  Khách (VIP)  ')).toBe('KHACH-VIP');
+    expect(groupCodeFromName('???')).toBe('');
+    expect(groupCodeFromName('a'.repeat(60))).toHaveLength(50);
+  });
+
+  it('so trùng tên không phân biệt hoa thường, dấu, khoảng trắng', () => {
+    expect(normalizeGroupName('  Đại   LÝ ')).toBe(normalizeGroupName('dai ly'));
+    expect(normalizeGroupName('Đại lý')).not.toBe(normalizeGroupName('Đại lý 2'));
   });
 });

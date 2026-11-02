@@ -40,6 +40,8 @@ import {
   type TimelineStore,
 } from './application/sales-store.port.js';
 import { CrmDatabase } from './infrastructure/crm.database.js';
+import { INVENTORY_ACCESS_READER } from './application/inventory-access.port.js';
+import { HttpInventoryAccess } from './infrastructure/http-inventory-access.js';
 import { HttpOrganizationScope } from './infrastructure/http-organization-scope.js';
 import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
@@ -198,6 +200,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
     { provide: CRM_DIAGNOSTICS, useExisting: CrmDatabase },
+    { provide: INVENTORY_ACCESS_READER, useFactory: () => new HttpInventoryAccess() },
     {
       // Một thực thể cho cả app: bản sao 60 giây của cơ cấu tổ chức nằm trong nó.
       provide: HttpOrganizationScope,

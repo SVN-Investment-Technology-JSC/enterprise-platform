@@ -57,6 +57,7 @@ import type {
   QuoteListQuery,
   QuoteSummary,
   SaveApprovalBindingRequest,
+  AddQuoteLinesRequest,
   SaveQuoteLineRequest,
   UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -267,6 +268,9 @@ export const updateQuoteVersion = (id: string, versionNo: number, body: UpdateQu
   send<QuoteDetail>('PATCH', quotePath(id, versionNo), body);
 export const addQuoteLine = (id: string, versionNo: number, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines`, body);
+/** Thêm nhiều dòng một lần (tất cả hoặc không); lỗi 400 `LINES_INVALID` kèm `errors` theo dòng. */
+export const addQuoteLines = (id: string, versionNo: number, body: AddQuoteLinesRequest) =>
+  send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines/batch`, body);
 export const updateQuoteLine = (id: string, versionNo: number, lineId: string, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('PATCH', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}`, body);
 export const removeQuoteLine = (id: string, versionNo: number, lineId: string, revision: number) =>

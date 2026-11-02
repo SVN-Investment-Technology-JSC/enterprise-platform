@@ -59,6 +59,7 @@ export class CrmAccessGuard implements CanActivate {
       tenantId: decision.principal.tenantId,
       userId: decision.principal.userId,
       displayName: decision.principal.displayName,
+      sessionId: decision.principal.sessionId,
       isTenantAdmin: tenantAdmin,
       canReadAll: can('crm.read.all'),
       canWriteOpportunity: can('crm.opportunity.write'),

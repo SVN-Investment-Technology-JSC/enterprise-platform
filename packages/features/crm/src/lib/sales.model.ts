@@ -112,10 +112,10 @@ export function taxCodeLooksValid(value: string): boolean {
 export function describeTimelineEntry(entry: CustomerTimelineEntry): { title: string; detail?: string } {
   switch (entry.kind) {
     case 'opportunity-created':
-      return { title: `Tạo cơ hội "${entry.opportunityName}"`, detail: OPPORTUNITY_STAGE_LABELS[entry.stage] };
+      return { title: `Tạo dự án bán hàng "${entry.opportunityName}"`, detail: OPPORTUNITY_STAGE_LABELS[entry.stage] };
     case 'opportunity-stage-changed':
       return {
-        title: `Cơ hội "${entry.opportunityName}": ${OPPORTUNITY_STAGE_LABELS[entry.fromStage]} → ${OPPORTUNITY_STAGE_LABELS[entry.toStage]}`,
+        title: `Dự án bán hàng "${entry.opportunityName}": ${OPPORTUNITY_STAGE_LABELS[entry.fromStage]} → ${OPPORTUNITY_STAGE_LABELS[entry.toStage]}`,
         detail: entry.reason ? `Lý do: ${entry.reason}` : undefined,
       };
     case 'activity':
@@ -197,3 +197,28 @@ export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {
   'procedure-reversed': 'Quy trình thu hồi kết quả duyệt',
 };
 
+
+const stripTones = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+
+/** Chuẩn hoá tên nhóm để so trùng: bỏ dấu, bỏ khác biệt hoa thường và khoảng trắng thừa. */
+export function normalizeGroupName(name: string): string {
+  return stripTones(name).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Mã nhóm sinh từ tên khi tạo nhanh trong form khách (server yêu cầu mã `A-Z 0-9 . _ -`, tối đa 50 ký tự):
+ * "Đại lý cấp 1" thành "DAI-LY-CAP-1". Tên không còn ký tự hợp lệ nào thì trả chuỗi rỗng.
+ */
+export function groupCodeFromName(name: string): string {
+  return stripTones(name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+    .replace(/-+$/, '');
+}

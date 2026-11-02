@@ -61,10 +61,10 @@ export function OpportunitiesPage({
         </div>
         {canWrite ? (
           <button type="button" className={styles.buttonPrimary} onClick={() => setCreating(true)}>
-            <Plus size={14} /> Thêm cơ hội
+            <Plus size={14} /> Thêm dự án bán hàng
           </button>
         ) : null}
-        <input className={`${styles.input} ${styles.search}`} type="search" placeholder="Tìm theo tên cơ hội…" maxLength={100} value={search} onChange={(event) => setSearch(event.target.value)} />
+        <input className={`${styles.input} ${styles.search}`} type="search" placeholder="Tìm theo tên dự án bán hàng…" maxLength={100} value={search} onChange={(event) => setSearch(event.target.value)} />
         <SearchableSelect className={styles.filter} options={peopleOptions(people)} value={ownerUserId} placeholder="Mọi người phụ trách" clearable onChange={setOwnerUserId} />
         {mode === 'table' ? (
           <SearchableSelect className={styles.filter} options={labelOptions(OPPORTUNITY_STAGE_LABELS)} value={stage} placeholder="Mọi giai đoạn" clearable onChange={setStage} />
@@ -117,7 +117,7 @@ function OpportunityTable({
   );
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
-      { title: 'Cơ hội', dataIndex: 'name', ellipsis: true },
+      { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
       { title: 'Khách hàng', key: 'customer', width: 220, ellipsis: true, render: (_: unknown, row) => `${row.customerCode} - ${row.customerName}` },
       {
         title: 'Giai đoạn',
@@ -156,9 +156,9 @@ function OpportunityTable({
         pagination={false}
         scroll={{ x: 1100 }}
         onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
-        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Không có cơ hội nào.' }}
+        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Không có dự án bán hàng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="cơ hội" onPrevious={list.previous} onNext={list.next} />
+      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="dự án bán hàng" onPrevious={list.previous} onNext={list.next} />
     </section>
   );
 }
@@ -188,7 +188,7 @@ function OpportunityKanban({
         setBoard(next);
         setError(undefined);
       })
-      .catch((cause) => setError(errorMessage(cause, 'Không tải được kanban cơ hội.')));
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được kanban dự án bán hàng.')));
   }, [q, ownerUserId]);
 
   useEffect(() => load(), [load, refresh]);
@@ -283,7 +283,7 @@ function OpportunityKanban({
                 </article>
               ))}
               {column.total > column.items.length ? (
-                <p className={styles.muted}>Còn {column.total - column.items.length} cơ hội, xem ở dạng bảng.</p>
+                <p className={styles.muted}>Còn {column.total - column.items.length} dự án bán hàng, xem ở dạng bảng.</p>
               ) : null}
             </div>
           </section>

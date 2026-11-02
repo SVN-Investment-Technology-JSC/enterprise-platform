@@ -4,6 +4,7 @@ import {
   CRM_DUPLICATE_TAX_CODE,
   CUSTOMER_KIND_LABELS,
   type CustomerDetail,
+  type CustomerGroup,
   type CustomerKind,
   type TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
@@ -12,13 +13,14 @@ import { useEffect, useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
 import {
   createCustomer,
+  createGroup,
   errorMessage,
   findTaxCodeMatches,
   updateCustomer,
   type CrmApiError,
 } from '../crm-api';
 import { groupOptions, labelOptions, peopleOptions, useCrm } from '../crm-context';
-import { taxCodeLooksValid } from '../sales.model';
+import { groupCodeFromName, normalizeGroupName, taxCodeLooksValid } from '../sales.model';
 import styles from '../sales.module.scss';
 
 interface FormState {
@@ -77,7 +79,9 @@ export function CustomerFormDialog({
   onClose: () => void;
   onSaved: (customer: CustomerDetail) => void;
 }) {
-  const { people, groups } = useCrm();
+  const { people, groups, capabilities, reloadGroups } = useCrm();
+  const canManageGroups = capabilities.isTenantAdmin || capabilities.canManage;
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [form, setForm] = useState<FormState>(() => initialState(customer));
   const [matches, setMatches] = useState<readonly TaxCodeMatch[]>([]);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
@@ -157,6 +161,7 @@ export function CustomerFormDialog({
   ) : null;
 
   return (
+    <>
     <CrmDialog
       open
       wide
@@ -166,7 +171,7 @@ export function CustomerFormDialog({
       submitting={submitting}
       error={error}
       notice={duplicateNotice}
-      onClose={onClose}
+      onClose={creatingGroup ? () => undefined : onClose}
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
@@ -191,8 +196,9 @@ export function CustomerFormDialog({
             options={groupOptions(groups)}
             value={form.groupId}
             placeholder="Chọn nhóm"
-            emptyText="Chưa có nhóm nào"
+            emptyText={canManageGroups ? 'Chưa có nhóm nào' : 'Chưa có nhóm nào. Hãy nhờ quản trị viên tạo nhóm trong Cài đặt.'}
             clearable
+            footerAction={canManageGroups ? { label: 'Tạo nhóm mới', onClick: () => setCreatingGroup(true) } : undefined}
             onChange={(value) => set('groupId', value)}
           />
         </Field>
@@ -233,6 +239,68 @@ export function CustomerFormDialog({
           <textarea className={styles.textarea} rows={3} value={form.note} maxLength={2000} onChange={(event) => set('note', event.target.value)} />
         </Field>
       </div>
+    </CrmDialog>
+    {creatingGroup ? (
+      <QuickGroupDialog
+        groups={groups}
+        onClose={() => setCreatingGroup(false)}
+        onCreated={(group) => {
+          reloadGroups();
+          set('groupId', group.id);
+          setCreatingGroup(false);
+        }}
+      />
+    ) : null}
+    </>
+  );
+}
+
+/**
+ * Hộp thoại rút gọn tạo nhóm khách hàng ngay trong form khách. Mã nhóm sinh từ tên; tên trùng nhóm đã có thì báo lỗi,
+ * không đóng form khách nên nội dung đã nhập còn nguyên.
+ */
+function QuickGroupDialog({
+  groups,
+  onClose,
+  onCreated,
+}: {
+  groups: readonly CustomerGroup[];
+  onClose: () => void;
+  onCreated: (group: CustomerGroup) => void;
+}) {
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return setError('Vui lòng nhập tên nhóm.');
+    const code = groupCodeFromName(trimmed);
+    if (!code) return setError('Tên nhóm cần có ít nhất một chữ cái hoặc chữ số.');
+    if (groups.some((group) => normalizeGroupName(group.name) === normalizeGroupName(trimmed))) {
+      return setError('Nhóm khách hàng này đã tồn tại. Hãy chọn nhóm có sẵn hoặc đặt tên khác.');
+    }
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const group = await createGroup({ code, name: trimmed, description: null });
+      toast.success('Đã tạo nhóm khách hàng.');
+      onCreated(group);
+    } catch (cause) {
+      setError(
+        (cause as CrmApiError).code === 'GROUP_CODE_EXISTS'
+          ? 'Nhóm khách hàng này đã tồn tại. Hãy chọn nhóm có sẵn hoặc đặt tên khác.'
+          : errorMessage(cause, 'Không tạo được nhóm.'),
+      );
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog open title="Tạo nhóm khách hàng" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+      <Field label="Tên nhóm" required>
+        <input className={styles.input} value={name} maxLength={200} autoFocus onChange={(event) => setName(event.target.value)} />
+      </Field>
     </CrmDialog>
   );
 }

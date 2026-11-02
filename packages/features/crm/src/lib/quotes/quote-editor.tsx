@@ -4,6 +4,8 @@ import {
   PRICE_SOURCE_LABELS,
   QUOTE_STATUS_LABELS,
   type CrmCatalogMaterial,
+  type QuoteLineError,
+  type QuoteLineInput,
   type QuoteDetail,
   type QuoteLine,
 } from '@enterprise-platform/contracts-crm';
@@ -16,7 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import {
-  addQuoteLine,
+  addQuoteLines,
   convertQuote,
   errorMessage,
   getQuote,
@@ -33,6 +35,17 @@ import local from '../pricing/pricing.module.scss';
 import { QUOTE_ACTION_LABELS, formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { QuoteCompare } from './quote-compare';
+import {
+  addLinesLabel,
+  buildLines,
+  describeLineErrors,
+  duplicatePicks,
+  duplicateWarning,
+  lineErrorsOf,
+  setPicked,
+  setPickedQuantity,
+  type PickedMap,
+} from './quote-line-picker.model';
 import { QUOTE_STATUS_TONE, quoteActions } from './quote.model';
 
 /** Thông báo khi thao tác xong. */
@@ -315,7 +328,7 @@ export function QuoteEditor({
           </dd>
           {detail.opportunityId ? (
             <>
-              <dt>Cơ hội</dt>
+              <dt>Dự án bán hàng</dt>
               <dd>
                 <button type="button" className={styles.linkButton} onClick={() => onOpenOpportunity(detail.opportunityId as string)}>
                   {detail.opportunityName}
@@ -513,12 +526,22 @@ export function QuoteEditor({
 
       {picking ? (
         <MaterialPicker
+          existingMaterialIds={new Set(version.lines.map((line) => line.materialId))}
           onClose={() => setPicking(false)}
-          onPick={async (material, quantity) => {
-            const done = await run(() =>
-              addQuoteLine(detail.id, version.versionNo, { revision: version.revision, materialId: material.id, quantity }),
-            );
-            if (done) setPicking(false);
+          onAdd={async (lines) => {
+            setBusy(true);
+            try {
+              const next = await addQuoteLines(detail.id, version.versionNo, { revision: version.revision, lines });
+              setViewing(undefined);
+              setDetail(next);
+              toast.success(`Đã thêm ${lines.length} dòng vào báo giá.`);
+              setPicking(false);
+              return undefined;
+            } catch (cause) {
+              return { message: errorMessage(cause, 'Không thêm được các dòng.'), lineErrors: lineErrorsOf(cause) };
+            } finally {
+              setBusy(false);
+            }
           }}
         />
       ) : null}
@@ -612,21 +635,35 @@ function ApprovalNotice({ detail }: { detail: QuoteDetail }) {
   );
 }
 
-/** Chọn mặt hàng từ danh mục Kho (`GET /catalog/materials`), kèm tồn khả dụng và giá vốn bình quân. */
+/** Kết quả thêm lô thất bại: câu chung và lỗi theo dòng (nếu có). */
+interface AddFailure {
+  readonly message: string;
+  readonly lineErrors: readonly QuoteLineError[];
+}
+
+/**
+ * Chọn nhiều mặt hàng từ danh mục Kho (`GET /catalog/materials`) rồi thêm một lần
+ * (`POST .../lines/batch`, tất cả hoặc không). Tập đã chọn giữ khi đổi từ khoá tìm.
+ */
 function MaterialPicker({
+  existingMaterialIds,
   onClose,
-  onPick,
+  onAdd,
 }: {
+  existingMaterialIds: ReadonlySet<string>;
   onClose: () => void;
-  onPick: (material: CrmCatalogMaterial, quantity: number) => Promise<void>;
+  onAdd: (lines: QuoteLineInput[]) => Promise<AddFailure | undefined>;
 }) {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<readonly CrmCatalogMaterial[]>([]);
-  const [selected, setSelected] = useState<CrmCatalogMaterial>();
-  const [quantity, setQuantity] = useState('1');
+  const [picked, setPickedState] = useState<PickedMap>(new Map());
+  const [onlyPicked, setOnlyPicked] = useState(false);
+  const [confirmingDuplicates, setConfirmingDuplicates] = useState(false);
+  const [invalidIds, setInvalidIds] = useState<readonly string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [lineErrors, setLineErrors] = useState<readonly string[]>([]);
   const q = useDebounced(search.trim(), 300);
 
   useEffect(() => {
@@ -645,8 +682,28 @@ function MaterialPicker({
     };
   }, [q]);
 
+  const update = (next: PickedMap) => {
+    setPickedState(next);
+    setConfirmingDuplicates(false);
+    setInvalidIds([]);
+    setLineErrors([]);
+    setError(undefined);
+  };
+  const duplicates = duplicatePicks(picked, existingMaterialIds);
+  const rows = onlyPicked ? [...picked.values()].map((entry) => entry.material) : [...items];
+
   const columns: ColumnsType<CrmCatalogMaterial> = [
-    { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
+    {
+      title: 'Mã',
+      dataIndex: 'code',
+      width: 150,
+      render: (value: string, row) => (
+        <span>
+          <span className={styles.mono}>{value}</span>
+          {existingMaterialIds.has(row.id) ? <div className={styles.muted}>Đã có trong báo giá</div> : null}
+        </span>
+      ),
+    },
     { title: 'Tên', dataIndex: 'name', ellipsis: true },
     { title: 'ĐVT', dataIndex: 'unit', width: 70 },
     {
@@ -663,22 +720,73 @@ function MaterialPicker({
       align: 'right',
       render: (value: number | null) => (value === null ? '' : formatMoney(value)),
     },
+    {
+      title: 'Số lượng',
+      key: 'quantity',
+      width: 110,
+      render: (_: unknown, row) => {
+        const entry = picked.get(row.id);
+        if (!entry) return null;
+        return (
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            aria-label={`Số lượng ${row.code}`}
+            aria-invalid={invalidIds.includes(row.id) || undefined}
+            value={entry.quantity}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => update(setPickedQuantity(picked, row.id, event.target.value))}
+          />
+        );
+      },
+    },
   ];
 
   async function save() {
-    if (!selected) return setError('Vui lòng chọn một mặt hàng.');
-    const amount = parseNumber(quantity);
-    if (amount === undefined || amount <= 0) return setError('Số lượng phải lớn hơn 0.');
+    const built = buildLines(picked);
+    if (!built.ok) {
+      setInvalidIds(built.invalidIds);
+      return setError(built.error);
+    }
+    if (duplicates.length && !confirmingDuplicates) {
+      setConfirmingDuplicates(true);
+      return;
+    }
     setSaving(true);
     try {
-      await onPick(selected, amount);
+      const failure = await onAdd(built.lines);
+      if (failure) {
+        setError(failure.message);
+        setLineErrors(describeLineErrors(failure.lineErrors, picked));
+      }
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <CrmDialog open wide title="Thêm dòng báo giá" subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog
+      open
+      wide
+      title="Thêm dòng báo giá"
+      subtitle="Chọn một hoặc nhiều mặt hàng từ danh mục Kho"
+      submitLabel={addLinesLabel(picked.size, confirmingDuplicates)}
+      submitting={saving}
+      error={error}
+      notice={
+        confirmingDuplicates && duplicates.length ? (
+          <p role="alert">{duplicateWarning(duplicates)}</p>
+        ) : lineErrors.length ? (
+          <ul role="alert">
+            {lineErrors.map((text) => (
+              <li key={text}>{text}</li>
+            ))}
+          </ul>
+        ) : undefined
+      }
+      onClose={onClose}
+      onSubmit={() => void save()}
+    >
       <input
         className={`${styles.input} ${styles.search}`}
         type="search"
@@ -687,23 +795,38 @@ function MaterialPicker({
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
+      <div className={styles.muted}>
+        Đã chọn {picked.size} mặt hàng
+        {picked.size ? (
+          <>
+            {' · '}
+            <button type="button" className={styles.linkButton} onClick={() => setOnlyPicked((value) => !value)}>
+              {onlyPicked ? 'Hiện kết quả tìm' : 'Chỉ hiện đã chọn'}
+            </button>
+            {' · '}
+            <button type="button" className={styles.linkButton} onClick={() => update(new Map())}>
+              Bỏ chọn tất cả
+            </button>
+          </>
+        ) : null}
+      </div>
       <Table<CrmCatalogMaterial>
         size="small"
         rowKey="id"
         loading={loading}
         columns={columns}
-        dataSource={[...items]}
+        dataSource={rows}
         pagination={false}
         scroll={{ y: 280 }}
-        rowSelection={{ type: 'radio', selectedRowKeys: selected ? [selected.id] : [], onChange: (_keys, rows) => setSelected(rows[0]) }}
-        onRow={(row) => ({ onClick: () => setSelected(row) })}
-        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
+        rowSelection={{
+          type: 'checkbox',
+          selectedRowKeys: [...picked.keys()],
+          onSelect: (row, on) => update(setPicked(picked, [row], on)),
+          onSelectAll: (on, _selected, changed) => update(setPicked(picked, changed, on)),
+        }}
+        onRow={(row) => ({ onClick: () => update(setPicked(picked, [row], !picked.has(row.id))) })}
+        locale={{ emptyText: loading ? 'Đang tải…' : onlyPicked ? 'Chưa chọn mặt hàng nào.' : 'Không có mặt hàng nào.' }}
       />
-      <div className={styles.fieldGrid}>
-        <Field label="Số lượng" required hint={selected?.unit ? `Đơn vị: ${selected.unit}` : undefined}>
-          <input className={styles.input} inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-        </Field>
-      </div>
     </CrmDialog>
   );
 }

@@ -68,7 +68,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
               ) : null}
               {row.convertedOpportunityId ? (
                 <button type="button" className={styles.rowAction} onClick={() => onOpenOpportunity(row.convertedOpportunityId as string)}>
-                  Cơ hội
+                  Dự án bán hàng
                 </button>
               ) : null}
             </span>
@@ -76,7 +76,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
             <span className={styles.rowActions}>
               {row.status !== 'DISQUALIFIED' ? (
                 <button type="button" className={styles.rowActionPrimary} onClick={() => setConverting(row)}>
-                  Chuyển thành khách hàng và cơ hội
+                  Chuyển thành khách hàng và dự án bán hàng
                 </button>
               ) : null}
               <button type="button" className={styles.rowAction} onClick={() => setEditing(row)}>
@@ -243,8 +243,8 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
       });
       toast.success(
         result.attachedToExistingCustomer
-          ? 'Đã tạo cơ hội và gắn vào khách hàng có cùng mã số thuế.'
-          : 'Đã tạo khách hàng và cơ hội từ lead.',
+          ? 'Đã tạo dự án bán hàng và gắn vào khách hàng có cùng mã số thuế.'
+          : 'Đã tạo khách hàng và dự án bán hàng từ lead.',
       );
       onConverted(result.opportunityId);
     } catch (cause) {
@@ -255,8 +255,8 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
   return (
     <CrmDialog
       open
-      title="Chuyển thành khách hàng và cơ hội"
-      subtitle="Tạo khách hàng (hoặc gắn vào khách có cùng mã số thuế) và một cơ hội ở giai đoạn Mới."
+      title="Chuyển thành khách hàng và dự án bán hàng"
+      subtitle="Tạo khách hàng (hoặc gắn vào khách có cùng mã số thuế) và một dự án bán hàng ở giai đoạn Mới."
       submitLabel="Chuyển đổi"
       submitting={submitting}
       error={error}
@@ -264,7 +264,7 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
-        <Field label="Tên cơ hội" wide>
+        <Field label="Tên dự án bán hàng" wide>
           <input className={styles.input} value={opportunityName} maxLength={300} autoFocus onChange={(event) => setOpportunityName(event.target.value)} />
         </Field>
         <Field label="Giá trị dự kiến (đồng)">

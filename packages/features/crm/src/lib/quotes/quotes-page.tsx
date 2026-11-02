@@ -56,7 +56,7 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
         ellipsis: true,
         render: (_: unknown, row) => `${row.customerCode} - ${row.customerName}`,
       },
-      { title: 'Cơ hội', dataIndex: 'opportunityName', width: 200, ellipsis: true },
+      { title: 'Dự án bán hàng', dataIndex: 'opportunityName', width: 200, ellipsis: true },
       { title: 'Phiên bản', dataIndex: 'currentVersion', width: 90, align: 'right', render: (value: number) => `v${value}` },
       {
         title: 'Trạng thái',
@@ -167,7 +167,7 @@ export function CreateQuoteDialog({
   }, [fixedOpportunityId]);
 
   async function save() {
-    if (!opportunityId && !customerId) return setError('Vui lòng chọn cơ hội hoặc khách hàng.');
+    if (!opportunityId && !customerId) return setError('Vui lòng chọn dự án bán hàng hoặc khách hàng.');
     setSaving(true);
     setError(undefined);
     try {
@@ -191,11 +191,11 @@ export function CreateQuoteDialog({
       <div className={styles.fieldGrid}>
         {fixedOpportunityId ? null : (
           <>
-            <Field label="Cơ hội" hint="Khách hàng và người phụ trách lấy theo cơ hội">
+            <Field label="Dự án bán hàng" hint="Khách hàng và người phụ trách lấy theo dự án bán hàng">
               <SearchableSelect
                 options={opportunities.map((item) => ({ value: item.id, label: item.name, description: item.customerName }))}
                 value={opportunityId}
-                placeholder="Không gắn cơ hội"
+                placeholder="Không gắn dự án bán hàng"
                 clearable
                 onChange={setOpportunityId}
               />

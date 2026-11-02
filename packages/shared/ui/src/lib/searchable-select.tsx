@@ -57,6 +57,17 @@ export interface SearchableSelectProps {
    * Hàm nhận `close` để đóng danh sách sau khi xong việc (vd vừa thêm và chọn xong).
    */
   readonly dropdownFooter?: (controls: { readonly close: () => void }) => ReactNode;
+  /**
+   * Hành động đặt cuối danh sách (vd "Tạo nhóm mới"), hiện cả khi danh sách rỗng hoặc không có kết quả tìm.
+   * Bấm thì đóng danh sách rồi gọi `onClick`. Mặc định không có, hành vi không đổi.
+   */
+  readonly footerAction?: SearchableSelectFooterAction;
+}
+
+/** Hành động cuối danh sách của `SearchableSelect`. */
+export interface SearchableSelectFooterAction {
+  readonly label: string;
+  readonly onClick: () => void;
 }
 
 /** Nhóm phụ của `SearchableSelect`. */
@@ -187,6 +198,7 @@ export function SearchableSelect({
   renderOption,
   extra,
   dropdownFooter,
+  footerAction,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
@@ -737,6 +749,22 @@ export function SearchableSelect({
                 },
               })}
             </div>
+          ) : null}
+          {footerAction ? (
+            <button
+              type="button"
+              className={styles.footerAction}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsOpen(false);
+                setQuery(selectedOptionLabelRef.current);
+                footerAction.onClick();
+              }}
+            >
+              {footerAction.label}
+            </button>
           ) : null}
         </div>
       ) : null}

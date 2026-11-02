@@ -1,4 +1,5 @@
 import type {
+  AddQuoteLinesRequest,
   ApprovalBinding,
   CreateQuoteRequest,
   CrmCatalogMaterial,
@@ -85,6 +86,17 @@ export class QuotesController {
     @Body() payload: Payload<SaveQuoteLineRequest>,
   ): Promise<QuoteDetail> {
     return runCrm(() => this.quotes.addLine(crmActor(request), id, versionNo, body(payload)));
+  }
+
+  /** Thêm nhiều dòng một lần cho báo giá Nháp: tất cả hoặc không dòng nào. */
+  @Post('quotes/:id/versions/:versionNo/lines/batch')
+  addLines(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('versionNo') versionNo: string,
+    @Body() payload: Payload<AddQuoteLinesRequest>,
+  ): Promise<QuoteDetail> {
+    return runCrm(() => this.quotes.addLines(crmActor(request), id, versionNo, body(payload)));
   }
 
   @Patch('quotes/:id/versions/:versionNo/lines/:lineId')

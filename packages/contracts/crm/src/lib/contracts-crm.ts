@@ -63,4 +63,8 @@ export interface CrmStatus {
   /** Migration nền (0001) đã chạy xong. */
   readonly tablesReady: boolean;
   readonly capabilities: CrmCapabilities;
+  /** Tenant có module Kho đang hoạt động. Lỗi đọc từ Platform thì `false`. */
+  readonly inventoryEntitled: boolean;
+  /** Người dùng có quyền vào Kho (`inventory.read`). Chỉ để ẩn hiện nút; Kho vẫn tự kiểm quyền. */
+  readonly canAccessInventory: boolean;
 }

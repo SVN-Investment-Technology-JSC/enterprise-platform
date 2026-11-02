@@ -70,7 +70,7 @@ export function OpportunityFormDialog({
 
   async function submit() {
     if (!customerId) return setError('Vui lòng chọn khách hàng.');
-    if (!name.trim()) return setError('Vui lòng nhập tên cơ hội.');
+    if (!name.trim()) return setError('Vui lòng nhập tên dự án bán hàng.');
     const percent = Number(probability || 0);
     if (!Number.isInteger(percent) || percent < 0 || percent > 100) return setError('Xác suất phải là số nguyên từ 0 đến 100.');
     setSubmitting(true);
@@ -88,10 +88,10 @@ export function OpportunityFormDialog({
       const saved = opportunity
         ? await updateOpportunity(opportunity.id, { ...fields, version: opportunity.version })
         : await createOpportunity({ ...fields, customerId });
-      toast.success('Đã lưu cơ hội.');
+      toast.success('Đã lưu dự án bán hàng.');
       onSaved(saved);
     } catch (cause) {
-      setError(errorMessage(cause, 'Không lưu được cơ hội.'));
+      setError(errorMessage(cause, 'Không lưu được dự án bán hàng.'));
     } finally {
       setSubmitting(false);
     }
@@ -101,7 +101,7 @@ export function OpportunityFormDialog({
     <CrmDialog
       open
       wide
-      title={opportunity ? 'Sửa cơ hội' : 'Thêm cơ hội'}
+      title={opportunity ? 'Sửa dự án bán hàng' : 'Thêm dự án bán hàng'}
       submitting={submitting}
       error={error}
       onClose={onClose}
@@ -117,7 +117,7 @@ export function OpportunityFormDialog({
             </span>
           )}
         </Field>
-        <Field label="Tên cơ hội" required wide>
+        <Field label="Tên dự án bán hàng" required wide>
           <input className={styles.input} value={name} maxLength={300} autoFocus onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field label="Xác suất thắng (%)">
@@ -167,7 +167,7 @@ export function LostReasonDialog({
     }
   }
   return (
-    <CrmDialog open danger title="Chuyển cơ hội sang Thua" subtitle={name} submitLabel="Xác nhận thua" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+    <CrmDialog open danger title="Chuyển dự án bán hàng sang Thua" subtitle={name} submitLabel="Xác nhận thua" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
       <Field label="Lý do thua" required>
         <textarea className={styles.textarea} rows={4} value={reason} maxLength={2000} autoFocus onChange={(event) => setReason(event.target.value)} />
       </Field>
@@ -204,7 +204,7 @@ export function OpportunityDrawer({
     setDetail(undefined);
     getOpportunity(opportunityId)
       .then(setDetail)
-      .catch((cause) => setError(errorMessage(cause, 'Không tải được cơ hội.')));
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được dự án bán hàng.')));
   }, [opportunityId]);
 
   async function move(stage: OpportunityStage, reason?: string) {
@@ -226,7 +226,7 @@ export function OpportunityDrawer({
   const targets = detail ? (Object.keys(OPPORTUNITY_STAGE_LABELS) as OpportunityStage[]).filter((stage) => canDropStage(detail.stage, stage)) : [];
 
   return (
-    <Drawer open size={720} title={detail ? detail.name : 'Cơ hội'} onClose={onClose} destroyOnHidden>
+    <Drawer open size={720} title={detail ? detail.name : 'Dự án bán hàng'} onClose={onClose} destroyOnHidden>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {detail ? (
         <div className={styles.drawerBody}>

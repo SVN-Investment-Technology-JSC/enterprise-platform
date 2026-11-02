@@ -71,7 +71,7 @@ describe('dashboard.model', () => {
     expect(cards.revenue.title).toBe('1.250.000.000 ₫');
     expect(cards.profit).toMatchObject({ value: '250 triệu', delta: { tone: 'bad' }, hint: 'Biên 20% (-10 điểm)' });
     expect(cards.newOrders).toMatchObject({ value: '4', delta: { text: 'Kỳ trước chưa có số liệu' } });
-    expect(cards.pipeline).toMatchObject({ value: '14 triệu', hint: '3 cơ hội · theo xác suất 5,4 triệu', view: 'opportunities' });
+    expect(cards.pipeline).toMatchObject({ value: '14 triệu', hint: '3 dự án bán hàng · theo xác suất 5,4 triệu', view: 'opportunities' });
     expect(cards.winRate).toMatchObject({ value: '66,7%', hint: '2 thắng · 1 thua trong kỳ', view: 'opportunities' });
     expect(cards.receivables).toMatchObject({ value: '8 triệu', danger: true, hint: 'Quá hạn 7 triệu · 2 khách', view: 'receivables' });
     expect(cards.pendingQuotes).toMatchObject({ value: '0', hint: 'Không có báo giá chờ duyệt', view: 'quotes' });
@@ -94,7 +94,7 @@ describe('dashboard.model', () => {
       ).map((card) => [card.key, card]),
     );
     expect(cards.profit.hint).toBe('Biên lợi nhuận: chưa có doanh thu');
-    expect(cards.winRate).toMatchObject({ value: '—', delta: undefined, hint: 'Chưa có cơ hội đóng trong kỳ' });
+    expect(cards.winRate).toMatchObject({ value: '—', delta: undefined, hint: 'Chưa có dự án bán hàng đóng trong kỳ' });
     expect(cards.receivables).toMatchObject({ danger: false, hint: 'Không có khoản quá hạn' });
   });
 

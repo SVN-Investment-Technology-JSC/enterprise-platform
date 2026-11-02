@@ -341,7 +341,7 @@ function ConversionTab({ filters, nameOf, today }: { filters: Filters; nameOf: (
     <section className={styles.tableCard} aria-label="Tỷ lệ chuyển đổi">
       <div className={styles.toolbar}>
         <span className={styles.muted}>
-          Đếm cơ hội, báo giá, hợp đồng, đơn bán tạo trong kỳ (trừ hợp đồng, đơn đã huỷ); tỷ lệ so với bước trước.
+          Đếm dự án bán hàng, báo giá, hợp đồng, đơn bán tạo trong kỳ (trừ hợp đồng, đơn đã huỷ); tỷ lệ so với bước trước.
         </span>
         <ExportButton disabled={!data} onExport={() => downloadWorkbook(exportFileName('ty-le-chuyen-doi', today), [conversionSheet(data as ConversionReport, nameOf)])} />
       </div>
@@ -372,7 +372,7 @@ function ConversionTab({ filters, nameOf, today }: { filters: Filters; nameOf: (
         dataSource={[...(data?.byOwner ?? [])]}
         pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 900 }}
-        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có cơ hội, báo giá, hợp đồng, đơn nào trong kỳ.' }}
+        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có dự án bán hàng, báo giá, hợp đồng, đơn nào trong kỳ.' }}
       />
     </section>
   );

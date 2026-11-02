@@ -182,6 +182,14 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       const group = await groups.create(admin, { code: 'DL1', name: 'Đại lý cấp 1' });
       const vip = await groups.create(admin, { code: 'VIP', name: 'VIP' });
       await expect(groups.create(admin, { code: 'vip', name: 'Trùng' })).rejects.toMatchObject({ statusCode: 409 });
+      // TC-FB-09: form khách sinh mã từ tên; tạo lại nhóm "Đại lý" trả 409 tiếng Việt, không có bản ghi thứ hai.
+      await groups.create(admin, { code: 'DAI-LY', name: 'Đại lý' });
+      await expect(groups.create(admin, { code: 'DAI-LY', name: 'Đại lý' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'GROUP_CODE_EXISTS',
+        message: 'Mã nhóm khách hàng đã tồn tại.',
+      });
+      expect((await groups.list(admin)).filter((item) => item.code === 'DAI-LY')).toHaveLength(1);
       const customer = await customers.create(seller(NV1), { name: 'Đại lý Hưng Thịnh', groupId: group.id });
       const inactive = await customers.update(seller(NV1), customer.id, { code: customer.code, name: customer.name, kind: 'INACTIVE', version: 1 });
       expect(inactive).toMatchObject({ kind: 'INACTIVE', groupId: group.id, groupName: 'Đại lý cấp 1' });

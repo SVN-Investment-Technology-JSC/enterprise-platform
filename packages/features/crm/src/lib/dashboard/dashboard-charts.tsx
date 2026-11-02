@@ -123,7 +123,7 @@ export function PipelineBars({ rows, onPick }: { readonly rows: readonly Dashboa
             </span>
             <span className={styles.barValue}>
               <strong>{formatVndCompact(row.value)}</strong>
-              <small>{formatCount(row.count)} cơ hội</small>
+              <small>{formatCount(row.count)} dự án bán hàng</small>
             </span>
           </button>
         </li>

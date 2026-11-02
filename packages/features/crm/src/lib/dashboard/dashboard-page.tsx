@@ -136,7 +136,7 @@ export function CrmDashboard({ capabilities, navigate }: CrmDashboardProps) {
         <>
           <p className={styles.scopeLine}>
             {SCOPE_TEXT[dashboard.scope]} · so với kỳ trước {formatDay(dashboard.previous.from)} –{' '}
-            {formatDay(dashboard.previous.to)} · công nợ, cơ hội, việc cần chú ý tính tại {formatDay(dashboard.asOf)}
+            {formatDay(dashboard.previous.to)} · công nợ, dự án bán hàng, việc cần chú ý tính tại {formatDay(dashboard.asOf)}
           </p>
 
           <div className={styles.kpiGrid}>
@@ -153,20 +153,20 @@ export function CrmDashboard({ capabilities, navigate }: CrmDashboardProps) {
                 <p className={styles.empty}>Chưa có doanh thu hay đơn bán mới trong kỳ.</p>
               )}
             </Panel>
-            <Panel title="Cơ hội đang mở theo giai đoạn" note="Bấm để mở Cơ hội">
+            <Panel title="Dự án bán hàng đang mở theo giai đoạn" note="Bấm để mở Dự án bán hàng">
               {dashboard.kpis.pipeline.count ? (
                 <>
                   <PipelineBars rows={dashboard.pipeline} onPick={() => navigate('opportunities')} />
                   <div className={styles.pipelineTotal}>
                     <span>
-                      {formatCount(dashboard.kpis.pipeline.count)} cơ hội · theo xác suất{' '}
+                      {formatCount(dashboard.kpis.pipeline.count)} dự án bán hàng · theo xác suất{' '}
                       <strong>{formatVndCompact(dashboard.kpis.pipeline.weightedValue)}</strong>
                     </span>
                     <strong>{formatVndCompact(dashboard.kpis.pipeline.value)}</strong>
                   </div>
                 </>
               ) : (
-                <p className={styles.empty}>Chưa có cơ hội đang mở.</p>
+                <p className={styles.empty}>Chưa có dự án bán hàng đang mở.</p>
               )}
             </Panel>
           </div>

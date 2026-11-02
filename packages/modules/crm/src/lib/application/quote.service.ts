@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   QUOTE_DEFAULT_VALIDITY_DAYS,
+  QUOTE_LINES_INVALID_CODE,
   QUOTE_LINES_MAX,
+  QUOTE_STATUS_LABELS,
   QUOTE_STATUSES,
   quoteDeepLink,
   type CreateQuoteRequest,
@@ -17,6 +19,8 @@ import {
   type QuoteStatus,
   type QuoteSummary,
   type QuoteVersion,
+  type AddQuoteLinesRequest,
+  type QuoteLineError,
   type SaveQuoteLineRequest,
   type UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -220,6 +224,53 @@ export class QuoteService {
       const line = await this.newLine(actor.tenantId, request, randomUUID());
       return { ...unchanged(quote), lines: [...lines, line] };
     });
+  }
+
+  /**
+   * Thêm lô dòng vào báo giá Nháp: kiểm từng dòng, có dòng lỗi thì không thêm dòng nào và
+   * trả lỗi theo dòng (400 `LINES_INVALID`). Một lần ghi, một lần tính giá. Báo giá không
+   * còn Nháp thì 409 (không tạo phiên bản mới như thêm từng dòng).
+   */
+  async addLines(actor: CrmActor, id: string, versionNo: unknown, request: AddQuoteLinesRequest): Promise<QuoteDetail> {
+    const inputs = request?.lines;
+    if (!Array.isArray(inputs) || inputs.length === 0) {
+      throw new CrmValidationError('LINES_REQUIRED', 'Vui lòng chọn ít nhất một mặt hàng.');
+    }
+    let existing = 0;
+    try {
+      return await this.edit(actor, id, versionNo, request?.revision, async (quote, lines) => {
+        if (quote.version.status !== 'DRAFT') {
+          throw new CrmConflictError(
+            'QUOTE_NOT_DRAFT',
+            `Báo giá ở trạng thái "${QUOTE_STATUS_LABELS[quote.version.status]}", không sửa được.`,
+          );
+        }
+        existing = lines.length;
+        if (lines.length + inputs.length > QUOTE_LINES_MAX) {
+          throw new CrmValidationError('TOO_MANY_LINES', `Mỗi phiên bản báo giá tối đa ${QUOTE_LINES_MAX} dòng.`);
+        }
+        const errors: QuoteLineError[] = [];
+        const added: LineDraft[] = [];
+        for (const [index, input] of inputs.entries()) {
+          try {
+            added.push(await this.newLine(actor.tenantId, input as SaveQuoteLineRequest, randomUUID()));
+          } catch (error) {
+            if (!(error instanceof CrmValidationError)) throw error;
+            errors.push(lineErrorOf(index + 1, input, error));
+          }
+        }
+        if (errors.length) throw linesInvalid(errors);
+        return { ...unchanged(quote), lines: [...lines, ...added] };
+      });
+    } catch (error) {
+      // Lỗi tính giá (chưa có giá bán...) mang số dòng trong toàn báo giá; đổi về số dòng của lô.
+      const position = error instanceof CrmValidationError ? error.details?.['line'] : undefined;
+      if (error instanceof CrmValidationError && error.code !== 'LINES_INVALID' && typeof position === 'number' && position > existing) {
+        const index = position - existing;
+        throw linesInvalid([lineErrorOf(index, inputs[index - 1], error)]);
+      }
+      throw error;
+    }
   }
 
   async updateLine(
@@ -684,6 +735,20 @@ export class QuoteService {
     if (!quote) throw new CrmNotFoundError('Không tìm thấy phiên bản báo giá.');
     return quote;
   }
+}
+
+function lineErrorOf(line: number, input: unknown, error: CrmValidationError): QuoteLineError {
+  const materialId = (input as { materialId?: unknown } | undefined)?.materialId;
+  return { line, materialId: typeof materialId === 'string' ? materialId : null, code: error.code, message: error.message };
+}
+
+function linesInvalid(errors: readonly QuoteLineError[]): CrmValidationError {
+  const lines = errors.map((entry) => entry.line).join(', ');
+  return new CrmValidationError(
+    QUOTE_LINES_INVALID_CODE,
+    `Có ${errors.length} dòng không hợp lệ (dòng ${lines}), chưa thêm dòng nào vào báo giá.`,
+    { errors },
+  );
 }
 
 function unchanged(quote: EditableQuote) {

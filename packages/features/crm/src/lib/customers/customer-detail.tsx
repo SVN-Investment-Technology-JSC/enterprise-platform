@@ -38,7 +38,7 @@ type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'timeline';
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'info', label: 'Thông tin' },
   { id: 'contacts', label: 'Người liên hệ' },
-  { id: 'opportunities', label: 'Cơ hội' },
+  { id: 'opportunities', label: 'Dự án bán hàng' },
   { id: 'activities', label: 'Hoạt động' },
   { id: 'timeline', label: 'Dòng thời gian' },
 ];
@@ -349,7 +349,7 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
   const list = useKeysetPage(`${customer.id}:${refresh}`, (cursor) => listOpportunities({ customerId: customer.id, cursor, limit: 20 }));
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
-      { title: 'Cơ hội', dataIndex: 'name', ellipsis: true },
+      { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
       {
         title: 'Giai đoạn',
         dataIndex: 'stage',
@@ -378,7 +378,7 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
       {canWrite ? (
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonPrimary} onClick={() => setCreating(true)}>
-            <Plus size={14} /> Thêm cơ hội
+            <Plus size={14} /> Thêm dự án bán hàng
           </button>
         </div>
       ) : null}
@@ -390,9 +390,9 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
-        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có cơ hội nào.' }}
+        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có dự án bán hàng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="cơ hội" onPrevious={list.previous} onNext={list.next} />
+      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="dự án bán hàng" onPrevious={list.previous} onNext={list.next} />
       {creating ? (
         <OpportunityFormDialog
           customer={customer}

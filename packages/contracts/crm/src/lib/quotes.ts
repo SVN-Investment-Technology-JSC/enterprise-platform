@@ -304,6 +304,26 @@ export interface SaveQuoteLineRequest {
   readonly overrideDiscountPercent?: number | null;
 }
 
+/** Một mặt hàng trong lô thêm dòng; `revision` chung nằm ở `AddQuoteLinesRequest`. */
+export type QuoteLineInput = Omit<SaveQuoteLineRequest, 'revision'>;
+
+/** Thêm nhiều dòng vào báo giá Nháp một lần: tất cả hoặc không dòng nào. */
+export interface AddQuoteLinesRequest {
+  readonly revision: number;
+  readonly lines: readonly QuoteLineInput[];
+}
+
+/** Lỗi của một dòng trong lô; `line` đánh số từ 1 theo thứ tự gửi lên. */
+export interface QuoteLineError {
+  readonly line: number;
+  readonly materialId: string | null;
+  readonly code: string;
+  readonly message: string;
+}
+
+/** Mã lỗi 400 khi lô có dòng lỗi; `details.errors` là danh sách `QuoteLineError`. */
+export const QUOTE_LINES_INVALID_CODE = 'LINES_INVALID';
+
 export interface QuoteRevisionRequest {
   readonly revision: number;
 }
