@@ -1,4 +1,8 @@
 import type {
+  AddQuoteDocumentReferenceRequest,
+  QuoteDocumentCandidate,
+  QuoteDocumentCandidateQuery,
+  QuoteDocumentReference,
   CompleteDocumentUploadRequest,
   CreateDocumentFolderRequest,
   CreateDocumentRequest,
@@ -19,6 +23,7 @@ import type {
 } from '@enterprise-platform/contracts-crm';
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { DocumentService, DocumentTypeService } from '../application/document.service.js';
+import { QuoteDocumentService } from '../application/quote-document.service.js';
 import { CrmValidationError } from '../domain/crm.error.js';
 import { crmActor, runCrm, type CrmRequest } from './crm-http.js';
 
@@ -154,5 +159,65 @@ export class DocumentTypesController {
     @Body() body: UpdateDocumentTypeRequest,
   ): Promise<CrmDocumentType> {
     return runCrm(() => this.types.update(crmActor(request), id, body ?? {}));
+  }
+}
+
+/**
+ * Tài liệu có sẵn đính kèm vào báo giá (Q-P2-11). Chọn từ khách hàng, dự án, báo giá cùng dự án trong phạm vi dữ liệu của
+ * người gọi; đính kèm, bỏ đính kèm cần `crm.document.write`. Không nhân bản file: tải xuống ký URL theo tài liệu nguồn.
+ */
+@Controller('v1')
+export class QuoteDocumentsController {
+  constructor(@Inject(QuoteDocumentService) private readonly references: QuoteDocumentService) {}
+
+  @Get('quotes/:id/document-candidates')
+  candidates(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Query() query: QuoteDocumentCandidateQuery,
+  ): Promise<QuoteDocumentCandidate[]> {
+    return runCrm(() => this.references.candidates(crmActor(request), id, query ?? {}));
+  }
+
+  @Get('quotes/:id/document-references')
+  list(@Req() request: CrmRequest, @Param('id') id: string): Promise<QuoteDocumentReference[]> {
+    return runCrm(() => this.references.list(crmActor(request), id));
+  }
+
+  @Post('quotes/:id/document-references')
+  add(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Body() body: AddQuoteDocumentReferenceRequest,
+  ): Promise<QuoteDocumentReference[]> {
+    return runCrm(() => this.references.add(crmActor(request), id, body ?? ({} as never)));
+  }
+
+  @Delete('quotes/:id/document-references/:referenceId')
+  remove(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('referenceId') referenceId: string,
+  ): Promise<QuoteDocumentReference[]> {
+    return runCrm(() => this.references.remove(crmActor(request), id, referenceId));
+  }
+
+  @Get('quotes/:id/document-references/:referenceId/download')
+  download(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('referenceId') referenceId: string,
+    @Query('version') version?: string,
+  ): Promise<DocumentDownloadTicket> {
+    return runCrm(async () => {
+      let versionNo: number | undefined;
+      if (version !== undefined && version !== '') {
+        versionNo = Number(version);
+        if (!Number.isInteger(versionNo) || versionNo < 1) {
+          throw new CrmValidationError('INVALID_VERSION', 'Số phiên bản không hợp lệ.');
+        }
+      }
+      return this.references.download(crmActor(request), id, referenceId, versionNo);
+    });
   }
 }

@@ -13,6 +13,7 @@ import {
   type CrmQuoteExpiredPayload,
   type CrmQuoteStatusChangedPayload,
   type QuoteCustomFields,
+  type QuotePromotionSnapshot,
   type DiscountStacking,
   type PriceSource,
   type ProcedureLinkStatus,
@@ -62,7 +63,7 @@ export const QUOTE_AUDIT_ENTITY = 'quote';
 /** Nguồn phiên Quy trình của báo giá. */
 export const CRM_QUOTE_SOURCE_TYPE = 'crm_quote';
 
-const STALE = () =>
+export const STALE = () =>
   new CrmConflictError('STALE_VERSION', 'Báo giá vừa được người khác cập nhật. Vui lòng tải lại rồi thao tác lại.');
 
 interface HeadRow {
@@ -137,6 +138,7 @@ interface VersionRow {
   order_tax_total: string;
   fees_amount: string;
   custom_fields: QuoteCustomFields | null;
+  promotions: QuotePromotionSnapshot[] | null;
 }
 
 interface LineRow {
@@ -201,7 +203,7 @@ const VERSION_COLUMNS = `
   v.created_at, v.quote_name, v.quote_date::text AS quote_date, v.template_id, t.name AS template_name,
   v.quote_type_id, qt.name AS quote_type_name, v.discount_mode, v.tax_mode, v.order_discount_percent,
   v.order_discount_amount, v.order_tax_percent, v.order_tax_amount, v.order_discount_total, v.order_tax_total,
-  v.fees_amount, v.custom_fields`;
+  v.fees_amount, v.custom_fields, v.promotions`;
 
 const num = (value: string | number | null | undefined): number => Number(value ?? 0);
 
@@ -398,6 +400,11 @@ export class PostgresQuoteStore implements QuoteStore {
       );
       await insertLines(client, versionId, write.lines, actorId);
       await insertFees(client, versionId, write.form, actorId);
+      // Khuyến mãi đã chọn (P2I-11) đi theo sang phiên bản mới.
+      await client.query(
+        `UPDATE crm_schema.quote_versions SET promotions = (SELECT promotions FROM crm_schema.quote_versions WHERE id = $2) WHERE id = $1`,
+        [versionId, base.versionId],
+      );
       await client.query(
         `UPDATE crm_schema.quotes
             SET current_version = $2, status = 'DRAFT', valid_until = $3, updated_at = now(), updated_by = $4
@@ -716,7 +723,7 @@ interface LockedVersion {
  * Khoá báo giá và phiên bản rồi so với bản service đã đọc: phải là phiên bản
  * hiện tại, cùng trạng thái, cùng `revision` (và đúng `requiredStatus` nếu có).
  */
-async function lockVersion(
+export async function lockVersion(
   client: CrmSqlClient,
   quoteId: string,
   base: QuoteVersionRef,
@@ -1284,6 +1291,7 @@ function toVersion(row: VersionRow, lines: QuoteLine[], fees: readonly { feeType
       discountPercent: num(row.discount_percent),
     },
     form: toForm(row, fees),
+    promotions: row.promotions ?? [],
     requiresApproval: row.requires_approval,
     approvalReasons: row.approval_reasons ?? [],
     submittedAt: toIso(row.submitted_at),

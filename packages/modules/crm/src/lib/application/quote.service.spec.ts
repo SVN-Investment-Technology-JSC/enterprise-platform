@@ -138,6 +138,7 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     respondedAt: null,
     supersededAt: null,
     createdAt: '',
+    promotions: [],
     form: {
       quoteName: null,
       quoteDate: null,

@@ -65,6 +65,9 @@ import {
   type OrderAmountText,
 } from './quote-form-edit.model';
 import { DocumentsPanel } from '../documents';
+import { canEditQuotePromotions } from '../promotions.model';
+import { QuoteDocumentReferences } from './quote-document-references';
+import { QuotePromotionsPanel } from './quote-promotions-panel';
 import {
   addLinesLabel,
   buildLines,
@@ -545,8 +548,8 @@ export function QuoteEditor({
         {version.note ? <p>{version.note}</p> : <p className={styles.muted}>Chưa có mô tả.</p>}
       </section>
 
-      {/* Đính kèm. Chưa có "chọn từ tài liệu đã có trong CRM" (Q-P2-11): cần API chọn tài liệu từ đối tượng khác. */}
       <DocumentsPanel entityType="quote" entityId={detail.id} showTitle />
+      <QuoteDocumentReferences quoteId={detail.id} canWrite={capabilities.isTenantAdmin || capabilities.canWriteDocument} />
 
       <section className={styles.panel} aria-label="Trường tuỳ biến">
         <h3 className={styles.sectionTitle}>Trường tuỳ biến</h3>
@@ -574,7 +577,15 @@ export function QuoteEditor({
         <LinksPanel quoteId={detail.id} editable={isCurrent && (capabilities.isTenantAdmin || capabilities.canWriteQuote)} />
       </section>
 
-      {/* Khuyến mãi: chưa làm, chờ chốt Q-P2-9 (P2I-11). */}
+      <QuotePromotionsPanel
+        quoteId={detail.id}
+        opportunityId={detail.opportunityId}
+        versionNo={version.versionNo}
+        revision={version.revision}
+        applied={version.promotions ?? []}
+        editable={canEditQuotePromotions(version.status, isCurrent, capabilities.isTenantAdmin || capabilities.canWriteQuote)}
+        onSaved={() => void load(viewing)}
+      />
 
       <section className={styles.panel} aria-label="Lịch sử">
         <h3 className={styles.sectionTitle}>Lịch sử duyệt</h3>

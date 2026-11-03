@@ -162,6 +162,19 @@ import type {
   SaveBusinessPlanRequest,
 } from '@enterprise-platform/contracts-crm';
 import type { CreateDocumentTypeRequest, UpdateDocumentTypeRequest } from '@enterprise-platform/contracts-crm';
+import type {
+  AddOpportunityPromotionRequest,
+  AddQuoteDocumentReferenceRequest,
+  OpportunityPromotion,
+  PromotionCatalogItem,
+  PromotionKind,
+  QuoteDocumentCandidate,
+  QuoteDocumentCandidateQuery,
+  QuoteDocumentReference,
+  SavePromotionCatalogRequest,
+  SaveQuotePromotionsRequest,
+  SaveQuotePromotionsResponse,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -612,3 +625,35 @@ export const listQuoteLinks = (quoteId: string) => request<QuoteLink[]>(`${quote
 export const addQuoteLink = (quoteId: string, body: AddQuoteLinkRequest) => send<QuoteLink>('POST', `${quotePath(quoteId)}/links`, body);
 export const removeQuoteLink = (quoteId: string, linkId: string) =>
   send<void>('DELETE', `${quotePath(quoteId)}/links/${encodeURIComponent(linkId)}`);
+
+// Khuyến mãi và chiết khấu (P2I-11)
+export const listPromotionCatalog = (query: { kind?: PromotionKind; includeInactive?: boolean } = {}) =>
+  request<PromotionCatalogItem[]>(`/promotions/catalog${toQuery({ kind: query.kind, includeInactive: query.includeInactive ? 'true' : undefined })}`, {
+    cache: 'no-store',
+  });
+export const createPromotionCatalog = (body: SavePromotionCatalogRequest) => send<PromotionCatalogItem>('POST', '/promotions/catalog', body);
+export const updatePromotionCatalog = (id: string, body: SavePromotionCatalogRequest) =>
+  send<PromotionCatalogItem>('PUT', `/promotions/catalog/${encodeURIComponent(id)}`, body);
+export const listOpportunityPromotions = (opportunityId: string) =>
+  request<OpportunityPromotion[]>(`/opportunities/${encodeURIComponent(opportunityId)}/promotions`, { cache: 'no-store' });
+export const addOpportunityPromotion = (opportunityId: string, body: AddOpportunityPromotionRequest) =>
+  send<OpportunityPromotion[]>('POST', `/opportunities/${encodeURIComponent(opportunityId)}/promotions`, body);
+export const removeOpportunityPromotion = (opportunityId: string, linkId: string) =>
+  send<OpportunityPromotion[]>('DELETE', `/opportunities/${encodeURIComponent(opportunityId)}/promotions/${encodeURIComponent(linkId)}`);
+export const saveQuotePromotions = (quoteId: string, versionNo: number, body: SaveQuotePromotionsRequest) =>
+  send<SaveQuotePromotionsResponse>('PUT', `/quotes/${encodeURIComponent(quoteId)}/versions/${versionNo}/promotions`, body);
+
+// Tài liệu có sẵn đính kèm vào báo giá (Q-P2-11)
+export const listQuoteDocumentCandidates = (quoteId: string, query: QuoteDocumentCandidateQuery = {}) =>
+  request<QuoteDocumentCandidate[]>(`/quotes/${encodeURIComponent(quoteId)}/document-candidates${toQuery(query)}`, { cache: 'no-store' });
+export const listQuoteDocumentReferences = (quoteId: string) =>
+  request<QuoteDocumentReference[]>(`/quotes/${encodeURIComponent(quoteId)}/document-references`, { cache: 'no-store' });
+export const addQuoteDocumentReference = (quoteId: string, body: AddQuoteDocumentReferenceRequest) =>
+  send<QuoteDocumentReference[]>('POST', `/quotes/${encodeURIComponent(quoteId)}/document-references`, body);
+export const removeQuoteDocumentReference = (quoteId: string, referenceId: string) =>
+  send<QuoteDocumentReference[]>('DELETE', `/quotes/${encodeURIComponent(quoteId)}/document-references/${encodeURIComponent(referenceId)}`);
+export const getQuoteDocumentReferenceDownload = (quoteId: string, referenceId: string, version?: number) =>
+  request<DocumentDownloadTicket>(
+    `/quotes/${encodeURIComponent(quoteId)}/document-references/${encodeURIComponent(referenceId)}/download${toQuery({ version })}`,
+    { cache: 'no-store' },
+  );

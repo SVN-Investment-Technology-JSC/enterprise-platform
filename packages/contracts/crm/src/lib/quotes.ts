@@ -7,6 +7,7 @@
  */
 import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 
 export const QUOTE_STATUSES = [
@@ -213,6 +214,8 @@ export interface QuoteVersion {
   readonly totals: QuoteTotals;
   /** Trường theo mẫu: tên, ngày, mẫu, loại, chiết khấu và thuế tổng đơn, phí trên hợp đồng (GĐI). */
   readonly form: QuoteFormData;
+  /** Khuyến mãi đã chụp trên phiên bản (P2I-11); thông tin kèm theo, không đổi tổng. */
+  readonly promotions: readonly QuotePromotionSnapshot[];
   /**
    * `true` khi người xem không có quyền xem giá vốn, lợi nhuận (`crm.quote.cost.read`): các trường giá vốn,
    * lợi nhuận, biên trả về 0 hoặc rỗng, không phải số thật.

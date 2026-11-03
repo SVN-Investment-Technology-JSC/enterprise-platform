@@ -48,6 +48,7 @@ import { CompetitorPanel } from './competitor-panel';
 import { CareSuggestionDialog } from './care-suggestion-dialog';
 import { shouldOfferCareFollowUp } from './care-suggestion.model';
 import { EstimatePanel } from './estimate-panel';
+import { OpportunityPromotionsPanel } from './opportunity-promotions-panel';
 import { StagePlanPanel } from './stage-plan';
 import { TenderPanel } from '../tender/tender-panel';
 import { isTenderPipeline } from '../tender/tender.model';
@@ -462,6 +463,7 @@ export function OpportunityDrawer({
           ) : null}
           <EstimatePanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail({ ...saved, latestBusinessPlan: detail.latestBusinessPlan }); onChanged(); }} />
           <CompetitorPanel opportunity={detail} canEdit={canWrite && open} onSaved={(saved) => { setDetail(saved); onChanged(); }} />
+          <OpportunityPromotionsPanel opportunityId={detail.id} canEdit={canWrite && open} />
           <OpportunityQuotes opportunity={detail} refresh={detail.version} onOpenQuote={onOpenQuote} />
           <h4 className={styles.sectionTitle}>Lịch sử giai đoạn</h4>
           <ol className={styles.timeline}>

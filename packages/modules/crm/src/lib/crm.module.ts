@@ -190,7 +190,14 @@ import {
 } from './application/document-store.port.js';
 import { PostgresDocumentStore, PostgresOpportunityDocumentChecker } from './infrastructure/postgres-document.store.js';
 import { S3DocumentStorage } from './infrastructure/s3-document-storage.js';
-import { DocumentTypesController, DocumentsController } from './presentation/documents.controller.js';
+import { DocumentTypesController, DocumentsController, QuoteDocumentsController } from './presentation/documents.controller.js';
+import { QuoteDocumentService } from './application/quote-document.service.js';
+import { CRM_QUOTE_DOCUMENT_STORE, type QuoteDocumentStore } from './application/quote-document-store.port.js';
+import { PostgresQuoteDocumentStore } from './infrastructure/postgres-quote-document.store.js';
+import { PromotionService } from './application/promotion.service.js';
+import { CRM_PROMOTION_STORE, type PromotionStore } from './application/promotion-store.port.js';
+import { PostgresPromotionStore } from './infrastructure/postgres-promotion.store.js';
+import { PromotionsController } from './presentation/promotions.controller.js';
 import { PipelineConfigService } from './application/pipeline-config.service.js';
 import { CRM_PIPELINE_ADMIN_STORE, type PipelineAdminStore } from './application/pipeline-admin-store.port.js';
 import { PostgresPipelineAdminStore } from './infrastructure/postgres-pipeline-admin.store.js';
@@ -235,6 +242,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     DashboardController,
     DocumentsController,
     DocumentTypesController,
+    QuoteDocumentsController,
+    PromotionsController,
     PipelinesController,
   ],
   providers: [
@@ -617,6 +626,22 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       provide: DocumentTypeService,
       useFactory: (documents: DocumentStore) => new DocumentTypeService(documents),
       inject: [CRM_DOCUMENT_STORE],
+    },
+    // Tài liệu có sẵn đính kèm vào báo giá (Q-P2-11): chỉ lưu liên kết, không nhân bản file.
+    store(CRM_QUOTE_DOCUMENT_STORE, (database) => new PostgresQuoteDocumentStore(database)),
+    {
+      provide: QuoteDocumentService,
+      useFactory: (refs: QuoteDocumentStore, documents: DocumentStore, storage: DocumentStorage, scopes: CrmDataScopeService) =>
+        new QuoteDocumentService(refs, documents, storage, scopes),
+      inject: [CRM_QUOTE_DOCUMENT_STORE, CRM_DOCUMENT_STORE, CRM_DOCUMENT_STORAGE, CrmDataScopeService],
+    },
+    // Khuyến mãi của báo giá (P2I-11): danh mục, lựa chọn của dự án, ảnh chụp trên phiên bản.
+    store(CRM_PROMOTION_STORE, (database) => new PostgresPromotionStore(database)),
+    {
+      provide: PromotionService,
+      useFactory: (promotions: PromotionStore, opportunities: OpportunityStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new PromotionService(promotions, opportunities, quotes, scopes),
+      inject: [CRM_PROMOTION_STORE, CRM_OPPORTUNITY_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],

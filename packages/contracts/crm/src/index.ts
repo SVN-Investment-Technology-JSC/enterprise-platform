@@ -14,3 +14,4 @@ export * from './lib/business-plan.js';
 export * from './lib/tender.js';
 export * from './lib/pipeline-config.js';
 export * from './lib/quote-form.js';
+export * from './lib/promotions.js';

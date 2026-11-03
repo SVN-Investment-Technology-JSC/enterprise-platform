@@ -207,3 +207,50 @@ export interface DocumentDownloadTicket {
   readonly contentType: string;
   readonly versionNo: number;
 }
+
+// ---------------------------------------------------------------------------
+// Tham chiếu tài liệu có sẵn vào báo giá (Q-P2-11)
+// ---------------------------------------------------------------------------
+
+/** Số tài liệu tham chiếu tối đa trên một báo giá. */
+export const QUOTE_DOCUMENT_REFERENCES_MAX = 50;
+
+/** Đối tượng nguồn mà tài liệu được chọn từ đó: khách của báo giá, dự án của báo giá, báo giá khác cùng dự án. */
+export const QUOTE_DOCUMENT_SOURCE_TYPES = ['customer', 'opportunity', 'quote'] as const;
+export type QuoteDocumentSourceType = (typeof QUOTE_DOCUMENT_SOURCE_TYPES)[number];
+
+export interface QuoteDocumentSource {
+  readonly entityType: QuoteDocumentSourceType;
+  readonly entityId: string;
+  /** Tên khách, tên dự án hoặc mã báo giá. */
+  readonly label: string;
+}
+
+/** Tài liệu ứng viên để chọn: tài liệu nguồn (đã có phiên bản tải xong) kèm nguồn của nó. */
+export interface QuoteDocumentCandidate {
+  readonly document: CrmDocument;
+  readonly source: QuoteDocumentSource;
+  /** `true` khi tài liệu đã được tham chiếu vào báo giá này. */
+  readonly attached: boolean;
+}
+
+/** Query `GET /v1/quotes/:id/document-candidates`. */
+export interface QuoteDocumentCandidateQuery {
+  /** Lọc theo nguồn; bỏ trống là mọi nguồn. */
+  readonly sourceType?: QuoteDocumentSourceType;
+  /** Tìm trong tên tài liệu và tên file (không phân biệt hoa thường). */
+  readonly search?: string;
+}
+
+export interface AddQuoteDocumentReferenceRequest {
+  readonly documentId: string;
+}
+
+/** Tham chiếu đã đính kèm. Tải xuống: `GET /v1/quotes/:id/document-references/:id/download`. */
+export interface QuoteDocumentReference {
+  readonly id: string;
+  readonly document: CrmDocument;
+  readonly source: QuoteDocumentSource;
+  readonly createdAt: string;
+  readonly createdBy: string;
+}

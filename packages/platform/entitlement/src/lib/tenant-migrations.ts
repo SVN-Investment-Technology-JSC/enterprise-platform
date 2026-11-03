@@ -144,6 +144,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0028-quote-form-fields', path: 'tenant/crm/0028-quote-form-fields.sql' },
     { version: '0029-quote-form-tables', path: 'tenant/crm/0029-quote-form-tables.sql' },
     { version: '0030-quote-custom-fields', path: 'tenant/crm/0030-quote-custom-fields.sql' },
+    { version: '0031-promotions', path: 'tenant/crm/0031-promotions.sql' },
+    { version: '0032-document-references', path: 'tenant/crm/0032-document-references.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
