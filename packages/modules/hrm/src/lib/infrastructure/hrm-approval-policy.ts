@@ -453,7 +453,7 @@ export function directBindingOf(
   };
 }
 
-async function loadBindingRows(db: Queryable, tenantId: string, kind: HrmRequestKind): Promise<BindingRow[]> {
+export async function loadBindingRows(db: Queryable, tenantId: string, kind: HrmRequestKind): Promise<BindingRow[]> {
   return (
     await db.query(
       `SELECT sub_type_code, mode, fallback_position_id, direct_approver_source, approver_position_id
@@ -581,20 +581,19 @@ export async function isDesignatedDirectApprover(
   return false;
 }
 
-/**
- * Mã các đơn loại `kind` đang chờ duyệt trực tiếp mà `userId` là người duyệt được cấu hình: quản lý trực tiếp của
- * người làm đơn, người giữ chức danh được chỉ định, hoặc người giữ chức danh duyệt dự phòng.
- * Đồng thời trả về `positionExcluded`: các đơn có nguồn POSITION mà `userId` KHÔNG giữ chức danh chỉ định/dự phòng
- * (cần loại trừ khỏi phạm vi cấp dưới để cấp trên không thấy đơn chờ duyệt).
- */
-export async function directApproverScopes(
+export interface DirectCandidate {
+  id: string;
+  employee_id: string;
+  created_at: Date | string | null;
+  sub_type_code: string | null;
+}
+
+/** Đơn loại `kind` đang chờ duyệt trực tiếp (chưa có hồ sơ quy trình đang chạy), kèm mã lý do để chọn cấu hình. */
+export async function loadDirectCandidates(
   db: Queryable,
   tenantId: string,
   kind: HrmRequestKind,
-  userId: string,
-): Promise<{ assigned: string[]; positionExcluded: string[] }> {
-  const positionIds = await heldPositionIds(db, userId);
-  const rows = await loadBindingRows(db, tenantId, kind);
+): Promise<DirectCandidate[]> {
   const table = HRM_REQUEST_TABLES[kind];
   let candidateSql: string;
   if (kind === 'leave') {
@@ -610,7 +609,7 @@ export async function directApproverScopes(
   } else {
     candidateSql = `SELECT r.id, r.employee_id, r.created_at, NULL::text AS sub_type_code FROM hrm_schema.${table} r`;
   }
-  const candidates = (
+  return (
     await db.query(
       `${candidateSql}
         WHERE r.tenant_id = $1 AND r.status IN ('PENDING', 'PEER_CONFIRMED')
@@ -621,7 +620,24 @@ export async function directApproverScopes(
         LIMIT 500`,
       [tenantId, kind],
     )
-  ).rows as { id: string; employee_id: string; created_at: Date | string | null; sub_type_code: string | null }[];
+  ).rows as DirectCandidate[];
+}
+
+/**
+ * Mã các đơn loại `kind` đang chờ duyệt trực tiếp mà `userId` là người duyệt được cấu hình: quản lý trực tiếp của
+ * người làm đơn, người giữ chức danh được chỉ định, hoặc người giữ chức danh duyệt dự phòng.
+ * Đồng thời trả về `positionExcluded`: các đơn có nguồn POSITION mà `userId` KHÔNG giữ chức danh chỉ định/dự phòng
+ * (cần loại trừ khỏi phạm vi cấp dưới để cấp trên không thấy đơn chờ duyệt).
+ */
+export async function directApproverScopes(
+  db: Queryable,
+  tenantId: string,
+  kind: HrmRequestKind,
+  userId: string,
+): Promise<{ assigned: string[]; positionExcluded: string[] }> {
+  const positionIds = await heldPositionIds(db, userId);
+  const rows = await loadBindingRows(db, tenantId, kind);
+  const candidates = await loadDirectCandidates(db, tenantId, kind);
   if (!candidates.length) return { assigned: [], positionExcluded: [] };
   const timeRule = await loadRequestTimeRule(db, tenantId, kind);
 
