@@ -172,11 +172,15 @@ export class PostgresOpportunityStore implements OpportunityStore {
     const pool = await this.database.pool(tenantId);
     const where = listConditions(scope, filter);
     const offset = (filter.page - 1) * filter.pageSize;
-    // Dự án của một khách liền nhau (mã khách, id khách), trong khách thì mới cập nhật trước; id làm thứ tự ổn định.
+    // Cập nhật gần nhất lên trước: khách có dự án vừa cập nhật lên đầu, trong khách thì dự án mới cập nhật trước. Dự
+    // án của một khách vẫn liền nhau (sắp theo mốc mới nhất của khách rồi id khách); id dự án làm thứ tự ổn định.
     const [rows, total] = await Promise.all([
       pool.query<OpportunityRow>(
-        `SELECT ${OPPORTUNITY_COLUMNS} ${OPPORTUNITY_FROM} ${where.where()}
-          ORDER BY c.code, o.customer_id, o.updated_at DESC, o.id DESC
+        `SELECT * FROM (
+           SELECT ${OPPORTUNITY_COLUMNS}, max(o.updated_at) OVER (PARTITION BY o.customer_id) AS customer_updated_at
+             ${OPPORTUNITY_FROM} ${where.where()}
+         ) ranked
+          ORDER BY customer_updated_at DESC, customer_id, updated_at DESC, id DESC
           LIMIT ${where.param(filter.pageSize)} OFFSET ${where.param(offset)}`,
         where.params,
       ),
@@ -201,7 +205,7 @@ export class PostgresOpportunityStore implements OpportunityStore {
                 coalesce(sum(o.expected_value), 0) AS total_value
            ${OPPORTUNITY_FROM} ${totals.where()}
           GROUP BY o.customer_id, c.code, c.name
-          ORDER BY c.code, o.customer_id`,
+          ORDER BY max(o.updated_at) DESC, o.customer_id`,
         totals.params,
       );
       customers = result.rows.map((row) => ({

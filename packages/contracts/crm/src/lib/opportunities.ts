@@ -433,8 +433,9 @@ export interface OpportunityCustomerTotal {
 }
 
 /**
- * Một trang dự án sắp theo khách (mã khách, rồi dự án cập nhật gần nhất). Dự án của một khách nằm liền nhau; khách có
- * dự án vắt sang trang sau thì xuất hiện ở cả hai trang. `customers` là tổng của các khách có mặt trên trang này.
+ * Một trang dự án sắp theo cập nhật gần nhất: khách có dự án vừa cập nhật lên đầu, trong khách thì dự án mới cập nhật
+ * trước. Dự án của một khách nằm liền nhau; khách có dự án vắt sang trang sau thì xuất hiện ở cả hai trang.
+ * `customers` là tổng của các khách có mặt trên trang này.
  */
 export interface OpportunityByCustomerPage {
   readonly items: readonly OpportunitySummary[];

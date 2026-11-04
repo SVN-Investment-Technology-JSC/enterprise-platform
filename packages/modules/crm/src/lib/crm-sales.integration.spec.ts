@@ -491,19 +491,21 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       const page1 = await opportunities.listByCustomer(seller(NV2), { q });
       expect(page1).toMatchObject({ page: 1, pageSize: 20, total: 25 });
       expect(page1.items).toHaveLength(20);
-      expect(page1.items.slice(0, 15).every((item) => item.customerId === first.id)).toBe(true);
-      expect(page1.items.slice(15).every((item) => item.customerId === second.id)).toBe(true);
-      // Trong một khách, dự án cập nhật gần nhất lên trước.
-      expect(page1.items[0].name).toBe('PGK-A dự án 15');
+      // Cập nhật gần nhất lên trước: khách B vừa có dự án mới nên lên đầu; dự án của một khách liền nhau.
+      expect(page1.items.slice(0, 10).every((item) => item.customerId === second.id)).toBe(true);
+      expect(page1.items.slice(10).every((item) => item.customerId === first.id)).toBe(true);
+      expect(page1.items[0].name).toBe('PGK-B dự án 10');
+      expect(page1.items[10].name).toBe('PGK-A dự án 15');
       expect(page1.customers).toEqual([
-        expect.objectContaining({ customerId: first.id, customerCode: 'PGK-A', count: 15, totalValue: 15_000 }),
         expect.objectContaining({ customerId: second.id, customerCode: 'PGK-B', count: 10, totalValue: 5000 }),
+        expect.objectContaining({ customerId: first.id, customerCode: 'PGK-A', count: 15, totalValue: 15_000 }),
       ]);
 
+      // Khách A vắt sang trang 2: vẫn có mặt kèm tổng của mọi trang.
       const page2 = await opportunities.listByCustomer(seller(NV2), { q, page: 2 });
       expect(page2.items).toHaveLength(5);
-      expect(page2.items.every((item) => item.customerId === second.id)).toBe(true);
-      expect(page2.customers).toEqual([expect.objectContaining({ customerId: second.id, count: 10 })]);
+      expect(page2.items.every((item) => item.customerId === first.id)).toBe(true);
+      expect(page2.customers).toEqual([expect.objectContaining({ customerId: first.id, count: 15 })]);
       const seen = new Set([...page1.items, ...page2.items].map((item) => item.id));
       expect(seen.size).toBe(25);
 
