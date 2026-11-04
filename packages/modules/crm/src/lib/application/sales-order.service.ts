@@ -17,6 +17,8 @@ import {
   type SalesOrderTotals,
   type SalesSettings,
   type SaveDeliveryPlanRequest,
+  type SaveOrderInfoNoteRequest,
+  ORDER_INFO_NOTE_MAX,
   type SaveSalesOrderLineRequest,
   type UpdateSalesOrderRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -33,7 +35,7 @@ import {
   optionalText,
   requiredText,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { priceQuote, type PricingLineInput } from '../domain/pricing-engine.js';
 import {
   assertOrderTransition,
@@ -156,6 +158,7 @@ export class SalesOrderService {
       late: query.late === true || query.late === 'true',
       today: this.today(),
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }
@@ -274,6 +277,19 @@ export class SalesOrderService {
       request.lines === undefined ? undefined : priced.lines,
       actor.userId,
     );
+    return this.get(actor, id);
+  }
+
+  /** Ghi chú thông tin đơn hàng (P2F-03): có người và thời điểm, sửa được cả khi đơn đã xác nhận. */
+  async saveInfoNote(actor: CrmActor, id: string, request: SaveOrderInfoNoteRequest): Promise<SalesOrderDetail> {
+    requireOrderWriter(actor);
+    const order = await this.get(actor, id);
+    const revision = this.expect(order, request?.revision);
+    if (order.status === 'CANCELLED') {
+      throw new CrmConflictError('ORDER_NOT_EDITABLE', 'Đơn đã huỷ, không ghi chú thêm được.');
+    }
+    const infoNote = optionalText(request?.infoNote, ORDER_INFO_NOTE_MAX, 'ghi chú thông tin đơn hàng');
+    await this.orders.saveInfoNote(actor.tenantId, id, revision, infoNote, actor.userId);
     return this.get(actor, id);
   }
 

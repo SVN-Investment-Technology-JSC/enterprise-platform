@@ -3,6 +3,7 @@ import {
   CRM_QUOTE_APPROVAL_DECIDED,
   CRM_QUOTE_APPROVAL_REQUESTED,
   CRM_QUOTE_EXPIRED,
+  CRM_QUOTE_STATUS_CHANGED,
   QUOTE_STATUS_LABELS,
   quoteDeepLink,
   type AppliedDiscountPolicy,
@@ -10,11 +11,16 @@ import {
   type CrmQuoteApprovalDecidedPayload,
   type CrmQuoteApprovalRequestedPayload,
   type CrmQuoteExpiredPayload,
+  type CrmQuoteStatusChangedPayload,
+  type QuoteCustomFields,
+  type QuotePromotionSnapshot,
   type DiscountStacking,
   type PriceSource,
   type ProcedureLinkStatus,
   type QuoteApprovalReason,
+  type QuoteAdjustmentMode,
   type QuoteDetail,
+  type QuoteFormData,
   type QuoteHistoryEntry,
   type QuoteLine,
   type QuoteProcedureLink,
@@ -22,12 +28,14 @@ import {
   type QuoteSummary,
   type QuoteVersion,
   type QuoteVersionSummary,
+  type QuoteOrderAmount,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
   EditableQuote,
   NewQuoteRecord,
   QuoteFilter,
+  QuoteFormWrite,
   QuoteHead,
   QuoteLineRecord,
   QuoteStore,
@@ -37,6 +45,7 @@ import type {
   QuoteVersionWrite,
 } from '../application/quote-store.port.js';
 import { CrmConflictError } from '../domain/crm.error.js';
+import { formatQuoteCodePattern, parseQuoteCodePattern, QUOTE_CODE_SETTING_KEY } from '../domain/quote-code.js';
 import {
   canQuoteSystemTransition,
   formatQuoteCode,
@@ -44,16 +53,17 @@ import {
   type QuoteEditPlan,
 } from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
+import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, constraintViolation, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 /** Thực thể ghi vào `audit_log`; `metadata.versionNo` là phiên bản liên quan. */
 export const QUOTE_AUDIT_ENTITY = 'quote';
 /** Nguồn phiên Quy trình của báo giá. */
 export const CRM_QUOTE_SOURCE_TYPE = 'crm_quote';
 
-const STALE = () =>
+export const STALE = () =>
   new CrmConflictError('STALE_VERSION', 'Báo giá vừa được người khác cập nhật. Vui lòng tải lại rồi thao tác lại.');
 
 interface HeadRow {
@@ -68,6 +78,7 @@ interface HeadRow {
   owner_user_id: string;
   status: QuoteStatus;
   current_version: number;
+  quote_name: string | null;
   valid_until: string | null;
   accepted_version: number | null;
   converted_at: Date | null;
@@ -111,6 +122,23 @@ interface VersionRow {
   responded_at: Date | null;
   superseded_at: Date | null;
   created_at: Date;
+  quote_name: string | null;
+  quote_date: string | null;
+  template_id: string | null;
+  template_name: string | null;
+  quote_type_id: string | null;
+  quote_type_name: string | null;
+  discount_mode: QuoteAdjustmentMode;
+  tax_mode: QuoteAdjustmentMode;
+  order_discount_percent: string | null;
+  order_discount_amount: string | null;
+  order_tax_percent: string | null;
+  order_tax_amount: string | null;
+  order_discount_total: string;
+  order_tax_total: string;
+  fees_amount: string;
+  custom_fields: QuoteCustomFields | null;
+  promotions: QuotePromotionSnapshot[] | null;
 }
 
 interface LineRow {
@@ -157,7 +185,7 @@ interface PolicyRow {
 const HEAD_COLUMNS = `
   q.id, q.code, q.opportunity_id, o.name AS opportunity_name, q.customer_id, c.code AS customer_code,
   c.name AS customer_name, c.group_id AS customer_group_id, q.owner_user_id, q.status, q.current_version,
-  q.valid_until::text AS valid_until, q.accepted_version, q.converted_at, v.total_amount, q.created_at, q.updated_at,
+  v.quote_name, q.valid_until::text AS valid_until, q.accepted_version, q.converted_at, v.total_amount, q.created_at, q.updated_at,
   ${cursorAt('q.updated_at')} AS cursor_at`;
 
 const HEAD_FROM = `
@@ -167,11 +195,15 @@ const HEAD_FROM = `
   LEFT JOIN crm_schema.quote_versions v ON v.quote_id = q.id AND v.version_no = q.current_version`;
 
 const VERSION_COLUMNS = `
-  id, version_no, status, revision, valid_until::text AS valid_until, price_date::text AS price_date,
-  priced_on::text AS priced_on, note, shipping_amount, shipping_vat_rate, shipping_cost, gross_amount, discount_amount,
-  net_amount, vat_amount, total_amount, est_cost, profit, margin_percent, discount_percent, requires_approval,
-  approval_reasons, submitted_at, submitted_by, approved_at, approved_by, rejected_at, rejected_by, decision_reason,
-  sent_at, responded_at, superseded_at, created_at`;
+  v.id, v.version_no, v.status, v.revision, v.valid_until::text AS valid_until, v.price_date::text AS price_date,
+  v.priced_on::text AS priced_on, v.note, v.shipping_amount, v.shipping_vat_rate, v.shipping_cost, v.gross_amount,
+  v.discount_amount, v.net_amount, v.vat_amount, v.total_amount, v.est_cost, v.profit, v.margin_percent,
+  v.discount_percent, v.requires_approval, v.approval_reasons, v.submitted_at, v.submitted_by, v.approved_at,
+  v.approved_by, v.rejected_at, v.rejected_by, v.decision_reason, v.sent_at, v.responded_at, v.superseded_at,
+  v.created_at, v.quote_name, v.quote_date::text AS quote_date, v.template_id, t.name AS template_name,
+  v.quote_type_id, qt.name AS quote_type_name, v.discount_mode, v.tax_mode, v.order_discount_percent,
+  v.order_discount_amount, v.order_tax_percent, v.order_tax_amount, v.order_discount_total, v.order_tax_total,
+  v.fees_amount, v.custom_fields, v.promotions`;
 
 const num = (value: string | number | null | undefined): number => Number(value ?? 0);
 
@@ -180,7 +212,8 @@ export class PostgresQuoteStore implements QuoteStore {
 
   async listQuotes(tenantId: string, scope: CrmDataScope, filter: QuoteFilter): Promise<CrmPage<QuoteSummary>> {
     const where = new SqlConditions();
-    where.scope(scope, 'q.owner_user_id');
+    // Người được gán một giai đoạn của dự án thấy báo giá của dự án đó (ASG-02), chỉ để đọc.
+    where.opportunityScope(scope, 'q.owner_user_id', 'q.opportunity_id', 'q.id');
     if (filter.status) where.add(`q.status = ${where.param(filter.status)}`);
     if (filter.customerId) where.add(`q.customer_id = ${where.param(filter.customerId)}::uuid`);
     if (filter.opportunityId) where.add(`q.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
@@ -194,20 +227,25 @@ export class PostgresQuoteStore implements QuoteStore {
           : code,
       );
     }
-    where.after(filter.cursor, 'q.updated_at', 'q.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<HeadRow>(
-      `SELECT ${HEAD_COLUMNS} ${HEAD_FROM} ${where.where()}
-        ORDER BY q.updated_at DESC, q.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${HEAD_COLUMNS}`,
+        from: `${HEAD_FROM}`,
+        orderBy: 'q.updated_at DESC, q.id DESC',
+        atColumn: 'q.updated_at',
+        idColumn: 'q.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getQuote(tenantId: string, scope: CrmDataScope, id: string, versionNo?: number): Promise<QuoteDetail | undefined> {
     const pool = await this.database.pool(tenantId);
-    const head = await readHead(pool, scope, id);
+    const head = await readHead(pool, scope, id, true);
     if (!head) return undefined;
     const version = await readVersion(pool, id, versionNo ?? head.current_version);
     if (!version) return undefined;
@@ -327,16 +365,25 @@ export class PostgresQuoteStore implements QuoteStore {
       await lockVersion(client, quoteId, base);
       if (plan === 'IN_PLACE') {
         await client.query(
-          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $20
+          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $34
             WHERE id = $1`,
           [base.versionId, ...versionWriteValues(write), actorId],
         );
         await client.query(`DELETE FROM crm_schema.quote_lines WHERE version_id = $1`, [base.versionId]);
         await insertLines(client, base.versionId, write.lines, actorId);
-        await client.query(
-          `UPDATE crm_schema.quotes SET valid_until = $2, updated_at = now(), updated_by = $3 WHERE id = $1`,
-          [quoteId, write.validUntil, actorId],
-        );
+        await client.query(`DELETE FROM crm_schema.quote_fees WHERE version_id = $1`, [base.versionId]);
+        await insertFees(client, base.versionId, write.form, actorId);
+        const renamed = await updateQuoteHead(client, quoteId, write, actorId);
+        if (renamed) {
+          await writeAuditLog(client, {
+            entityType: QUOTE_AUDIT_ENTITY,
+            entityId: quoteId,
+            action: 'change-code',
+            actorId,
+            reason: `Đổi mã báo giá thành ${renamed}`,
+            metadata: { versionNo: base.versionNo, code: renamed },
+          });
+        }
         return base.versionNo;
       }
       const nextNo = base.versionNo + 1;
@@ -357,6 +404,12 @@ export class PostgresQuoteStore implements QuoteStore {
         [versionId, ...versionWriteValues(write)],
       );
       await insertLines(client, versionId, write.lines, actorId);
+      await insertFees(client, versionId, write.form, actorId);
+      // Khuyến mãi đã chọn (P2I-11) đi theo sang phiên bản mới.
+      await client.query(
+        `UPDATE crm_schema.quote_versions SET promotions = (SELECT promotions FROM crm_schema.quote_versions WHERE id = $2) WHERE id = $1`,
+        [versionId, base.versionId],
+      );
       await client.query(
         `UPDATE crm_schema.quotes
             SET current_version = $2, status = 'DRAFT', valid_until = $3, updated_at = now(), updated_by = $4
@@ -437,6 +490,18 @@ export class PostgresQuoteStore implements QuoteStore {
           payload,
         });
       }
+      await writeStatusChanged(client, tenantId, {
+        quoteId,
+        versionNo: base.versionNo,
+        from: 'DRAFT',
+        to: status,
+        actorId,
+        // Cấp trên đã nhận thông báo "cần duyệt".
+        excludeUserIds: submission.approvalRequested?.recipientUserIds ?? [],
+      });
+      if (submission.outcome === 'PENDING' && submission.businessPlan) {
+        await attachPlanToQuoteSubmit(client, submission.businessPlan, actorId);
+      }
       return linkId;
     });
   }
@@ -510,6 +575,14 @@ export class PostgresQuoteStore implements QuoteStore {
           deepLink: quoteDeepLink(row.id),
         };
         await writeCrmOutbox(client, tenantId, { type: CRM_QUOTE_EXPIRED, aggregateType: 'crm-quote', aggregateId: row.id, payload });
+        await writeStatusChanged(client, tenantId, {
+          quoteId: row.id,
+          versionNo: row.version_no,
+          from: row.status,
+          to: 'EXPIRED',
+          actorId: null,
+          excludeUserIds: [row.owner_user_id],
+        });
       }
       return due.rows.length;
     });
@@ -543,22 +616,41 @@ export class PostgresQuoteStore implements QuoteStore {
  * bên gọi (tạo trực tiếp, hoặc khi cơ hội chuyển sang Báo giá). Trả id.
  */
 export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, actorId: string): Promise<string> {
-  const sequence = await client.query<{ seq: string; year: number }>(
-    `SELECT nextval('crm_schema.quote_code_seq') AS seq,
-            extract(year FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS year`,
-  );
-  const code = formatQuoteCode(sequence.rows[0].year, Number(sequence.rows[0].seq));
-  const quote = await client.query<{ id: string }>(
-    `INSERT INTO crm_schema.quotes (code, opportunity_id, customer_id, owner_user_id, valid_until, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`,
-    [code, record.opportunityId, record.customerId, record.ownerUserId, record.validUntil, actorId],
-  );
+  const code = record.code ?? (await generateQuoteCode(client));
+  let quote;
+  try {
+    quote = await client.query<{ id: string }>(
+      `INSERT INTO crm_schema.quotes (code, opportunity_id, customer_id, owner_user_id, valid_until, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`,
+      [code, record.opportunityId, record.customerId, record.ownerUserId, record.validUntil, actorId],
+    );
+  } catch (error) {
+    if (constraintViolation(error, '23505', 'uq_crm_quotes_code')) throw quoteCodeExists();
+    throw error;
+  }
   const id = quote.rows[0]?.id;
   if (!id) throw new Error('crm_schema.quotes insert returned no row.');
+  // Mẫu và loại: người dùng chọn thì theo đó, không thì mẫu và loại mặc định đang bật (báo giá tạo tự động khi cơ hội
+  // sang giai đoạn Báo giá cũng vậy). Chưa có mẫu nào (DB cũ) thì để rỗng, chế độ theo dòng.
+  const form = record.form ?? (await defaultForm(client));
   await client.query(
-    `INSERT INTO crm_schema.quote_versions (quote_id, version_no, valid_until, note, created_by, updated_by)
-     VALUES ($1, 1, $2, $3, $4, $4)`,
-    [id, record.validUntil, record.note, actorId],
+    `INSERT INTO crm_schema.quote_versions
+       (quote_id, version_no, valid_until, note, quote_name, quote_date, template_id, quote_type_id, discount_mode, tax_mode,
+        custom_fields, created_by, updated_by)
+     VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11)`,
+    [
+      id,
+      record.validUntil,
+      record.note,
+      record.quoteName ?? `Báo giá ${code}`,
+      record.quoteDate ?? null,
+      form.templateId,
+      form.quoteTypeId,
+      form.discountMode,
+      form.taxMode,
+      JSON.stringify(record.customFields ?? {}),
+      actorId,
+    ],
   );
   await writeAuditLog(client, {
     entityType: QUOTE_AUDIT_ENTITY,
@@ -567,9 +659,59 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
     toStatus: 'DRAFT',
     action: 'create',
     actorId,
-    metadata: { versionNo: 1, code, ...(record.opportunityId ? { opportunityId: record.opportunityId } : {}) },
+    metadata: {
+      versionNo: 1,
+      code,
+      ...(record.opportunityId ? { opportunityId: record.opportunityId } : {}),
+      ...(form.templateId ? { templateId: form.templateId } : {}),
+      ...(form.quoteTypeId ? { quoteTypeId: form.quoteTypeId } : {}),
+    },
   });
   return id;
+}
+
+function quoteCodeExists(): CrmConflictError {
+  return new CrmConflictError('QUOTE_CODE_EXISTS', 'Mã báo giá đã tồn tại. Vui lòng nhập mã khác hoặc bấm sinh lại.');
+}
+
+async function defaultForm(client: CrmSqlClient): Promise<NonNullable<NewQuoteRecord['form']>> {
+  const template = await client.query<{ id: string; discount_mode: QuoteAdjustmentMode; tax_mode: QuoteAdjustmentMode }>(
+    `SELECT id, discount_mode, tax_mode FROM crm_schema.quote_templates WHERE is_default AND active LIMIT 1`,
+  );
+  const type = await client.query<{ id: string }>(`SELECT id FROM crm_schema.quote_types WHERE is_default AND active LIMIT 1`);
+  return {
+    templateId: template.rows[0]?.id ?? null,
+    quoteTypeId: type.rows[0]?.id ?? null,
+    discountMode: template.rows[0]?.discount_mode ?? 'LINE',
+    taxMode: template.rows[0]?.tax_mode ?? 'LINE',
+  };
+}
+
+/**
+ * Mã báo giá kế tiếp (P2I-05). Có mẫu mã ở Cài đặt (`quote.code`): lấy số thứ tự từ `quote_code_form_seq`, ngày
+ * theo giờ Việt Nam, bỏ qua mã đã có. Chưa có mẫu: mã cũ `BG<yy><5 chữ số>` từ `quote_code_seq` như phase 1.
+ * Mỗi lần gọi chiếm một số (số bỏ không dùng lại).
+ */
+export async function generateQuoteCode(client: CrmSqlClient): Promise<string> {
+  const setting = await client.query<{ value: unknown }>(`SELECT value FROM crm_schema.settings WHERE key = $1`, [
+    QUOTE_CODE_SETTING_KEY,
+  ]);
+  const pattern = parseQuoteCodePattern(setting.rows[0]?.value);
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const sequence = await client.query<{ seq: string; year: number; month: number; day: number }>(
+      `SELECT nextval('crm_schema.${pattern ? 'quote_code_form_seq' : 'quote_code_seq'}') AS seq,
+              extract(year FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS year,
+              extract(month FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS month,
+              extract(day FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS day`,
+    );
+    const row = sequence.rows[0];
+    const code = pattern
+      ? formatQuoteCodePattern(pattern, { year: row.year, month: row.month, day: row.day }, Number(row.seq))
+      : formatQuoteCode(row.year, Number(row.seq));
+    const taken = await client.query(`SELECT 1 FROM crm_schema.quotes WHERE code = $1 LIMIT 1`, [code]);
+    if (!taken.rows.length) return code;
+  }
+  throw new Error('Could not generate a unique quote code.');
 }
 
 interface LockedVersion {
@@ -586,7 +728,7 @@ interface LockedVersion {
  * Khoá báo giá và phiên bản rồi so với bản service đã đọc: phải là phiên bản
  * hiện tại, cùng trạng thái, cùng `revision` (và đúng `requiredStatus` nếu có).
  */
-async function lockVersion(
+export async function lockVersion(
   client: CrmSqlClient,
   quoteId: string,
   base: QuoteVersionRef,
@@ -680,6 +822,10 @@ export async function applyDecision(
     reason: transition.reason,
     metadata: { versionNo: locked.versionNo, ...metadata },
   });
+  // PAKD đi cùng hồ sơ duyệt được duyệt hoặc từ chối cùng báo giá (cả duyệt trực tiếp và kết quả Quy trình).
+  if (to === 'APPROVED' || to === 'REJECTED') {
+    await syncPlanWithQuoteDecision(client, locked.versionId, to, transition.reason, actorId);
+  }
   if ((to === 'APPROVED' || to === 'REJECTED') && locked.submittedBy) {
     const approved = to === 'APPROVED';
     const payload: CrmQuoteApprovalDecidedPayload = {
@@ -702,6 +848,60 @@ export async function applyDecision(
       payload,
     });
   }
+  await writeStatusChanged(client, tenantId, {
+    quoteId: locked.quoteId,
+    versionNo: locked.versionNo,
+    from: transition.from,
+    to,
+    actorId,
+    // Người gửi đã nhận thông báo kết quả duyệt.
+    excludeUserIds: (to === 'APPROVED' || to === 'REJECTED') && locked.submittedBy ? [locked.submittedBy] : [],
+  });
+}
+
+/**
+ * Báo người theo dõi báo giá khi gửi duyệt hoặc đổi trạng thái (P2I-07): một sự kiện `crm.quote.status-changed` trong
+ * cùng transaction, người nhận là người theo dõi trừ người thao tác và người đã nhận thông báo khác của cùng bước.
+ * Không có người theo dõi thì không ghi sự kiện.
+ */
+export async function writeStatusChanged(
+  client: CrmSqlClient,
+  tenantId: string,
+  input: {
+    readonly quoteId: string;
+    readonly versionNo: number;
+    readonly from: QuoteStatus;
+    readonly to: QuoteStatus;
+    readonly actorId: string | null;
+    readonly excludeUserIds?: readonly string[];
+  },
+): Promise<void> {
+  const followers = await client.query<{ user_id: string }>(
+    `SELECT f.user_id FROM crm_schema.quote_followers f
+      WHERE f.quote_id = $1 AND f.user_id <> ALL($2::uuid[])
+      ORDER BY f.user_id`,
+    [input.quoteId, [...(input.excludeUserIds ?? []), ...(input.actorId ? [input.actorId] : [])]],
+  );
+  if (!followers.rows.length) return;
+  const quote = (await client.query<{ code: string }>(`SELECT code FROM crm_schema.quotes WHERE id = $1`, [input.quoteId])).rows[0];
+  if (!quote) return;
+  const payload: CrmQuoteStatusChangedPayload = {
+    quoteId: input.quoteId,
+    quoteCode: quote.code,
+    versionNo: input.versionNo,
+    fromStatus: input.from,
+    toStatus: input.to,
+    actorUserId: input.actorId,
+    recipientUserIds: followers.rows.map((row) => row.user_id),
+    summary: `Báo giá ${quote.code} (phiên bản ${input.versionNo}) chuyển sang "${QUOTE_STATUS_LABELS[input.to]}".`,
+    deepLink: quoteDeepLink(input.quoteId),
+  };
+  await writeCrmOutbox(client, tenantId, {
+    type: CRM_QUOTE_STATUS_CHANGED,
+    aggregateType: 'crm-quote',
+    aggregateId: input.quoteId,
+    payload,
+  });
 }
 
 /** Khoá phiên bản theo id (kết quả Quy trình), không so `revision`. */
@@ -827,10 +1027,14 @@ const VERSION_WRITE_SET = `
   valid_until = $2, price_date = $3, priced_on = $4, note = $5, shipping_amount = $6, shipping_vat_rate = $7,
   shipping_cost = $8, gross_amount = $9, discount_amount = $10, net_amount = $11, vat_amount = $12, total_amount = $13,
   est_cost = $14, profit = $15, margin_percent = $16, discount_percent = $17, requires_approval = $18,
-  approval_reasons = $19::jsonb`;
+  approval_reasons = $19::jsonb, quote_name = $20, quote_date = $21, template_id = $22, quote_type_id = $23,
+  discount_mode = $24, tax_mode = $25, order_discount_percent = $26, order_discount_amount = $27,
+  order_tax_percent = $28, order_tax_amount = $29, order_discount_total = $30, order_tax_total = $31, fees_amount = $32,
+  custom_fields = $33::jsonb`;
 
 function versionWriteValues(write: QuoteVersionWrite): unknown[] {
   const totals = write.totals;
+  const form = write.form;
   return [
     write.validUntil,
     write.priceDate,
@@ -850,7 +1054,52 @@ function versionWriteValues(write: QuoteVersionWrite): unknown[] {
     totals.discountPercent,
     false,
     '[]',
+    form.quoteName,
+    form.quoteDate,
+    form.templateId,
+    form.quoteTypeId,
+    form.discountMode,
+    form.taxMode,
+    form.orderDiscount.percent ?? null,
+    form.orderDiscount.amount ?? null,
+    form.orderTax.percent ?? null,
+    form.orderTax.amount ?? null,
+    form.orderDiscountTotal,
+    form.orderTaxTotal,
+    form.feesAmount,
+    JSON.stringify(form.customFields),
   ];
+}
+
+/** Đổi mã báo giá nếu có (trùng mã: 409), cập nhật hạn hiệu lực; trả mã mới khi mã đổi. */
+async function updateQuoteHead(
+  client: CrmSqlClient,
+  quoteId: string,
+  write: QuoteVersionWrite,
+  actorId: string,
+): Promise<string | null> {
+  try {
+    const result = await client.query<{ renamed: boolean }>(
+      `UPDATE crm_schema.quotes q
+          SET code = COALESCE($4, q.code), valid_until = $2, updated_at = now(), updated_by = $3
+        WHERE q.id = $1
+        RETURNING ($4::varchar IS NOT NULL AND $4::varchar <> (SELECT code FROM crm_schema.quotes WHERE id = $1)) AS renamed`,
+      [quoteId, write.validUntil, actorId, write.code ?? null],
+    );
+    return result.rows[0]?.renamed ? (write.code ?? null) : null;
+  } catch (error) {
+    if (constraintViolation(error, '23505', 'uq_crm_quotes_code')) throw quoteCodeExists();
+    throw error;
+  }
+}
+
+async function insertFees(client: CrmSqlClient, versionId: string, form: QuoteFormWrite, actorId: string) {
+  for (const [index, fee] of form.fees.entries()) {
+    await client.query(
+      `INSERT INTO crm_schema.quote_fees (version_id, line_no, fee_type, amount, created_by) VALUES ($1, $2, $3, $4, $5)`,
+      [versionId, index + 1, fee.feeType, fee.amount, actorId],
+    );
+  }
 }
 
 async function insertLines(client: CrmSqlClient, versionId: string, lines: readonly QuoteLineRecord[], actorId: string) {
@@ -911,21 +1160,37 @@ async function insertLines(client: CrmSqlClient, versionId: string, lines: reado
 // Đọc
 // ---------------------------------------------------------------------------
 
-async function readHead(client: CrmSqlClient, scope: CrmDataScope, id: string): Promise<HeadRow | undefined> {
+async function readHead(
+  client: CrmSqlClient,
+  scope: CrmDataScope,
+  id: string,
+  readOnly = false,
+): Promise<HeadRow | undefined> {
   const where = new SqlConditions();
   where.add(`q.id = ${where.param(id)}::uuid`);
-  where.scope(scope, 'q.owner_user_id');
+  // Đọc: người được gán giai đoạn của dự án thấy báo giá của dự án (ASG-02), người theo dõi thấy báo giá mình theo
+  // dõi (P2I-07); ghi vẫn theo người phụ trách.
+  if (readOnly) where.opportunityScope(scope, 'q.owner_user_id', 'q.opportunity_id', 'q.id');
+  else where.scope(scope, 'q.owner_user_id');
   const result = await client.query<HeadRow>(`SELECT ${HEAD_COLUMNS} ${HEAD_FROM} ${where.where()}`, where.params);
   return result.rows[0];
 }
 
 async function readVersion(client: CrmSqlClient, quoteId: string, versionNo: number): Promise<QuoteVersion | undefined> {
   const result = await client.query<VersionRow>(
-    `SELECT ${VERSION_COLUMNS} FROM crm_schema.quote_versions WHERE quote_id = $1 AND version_no = $2`,
+    `SELECT ${VERSION_COLUMNS}
+       FROM crm_schema.quote_versions v
+       LEFT JOIN crm_schema.quote_templates t ON t.id = v.template_id
+       LEFT JOIN crm_schema.quote_types qt ON qt.id = v.quote_type_id
+      WHERE v.quote_id = $1 AND v.version_no = $2`,
     [quoteId, versionNo],
   );
   const row = result.rows[0];
   if (!row) return undefined;
+  const fees = await client.query<{ fee_type: string; amount: string }>(
+    `SELECT fee_type, amount FROM crm_schema.quote_fees WHERE version_id = $1 ORDER BY line_no`,
+    [row.id],
+  );
   const lines = await client.query<LineRow>(
     `SELECT * FROM crm_schema.quote_lines WHERE version_id = $1 ORDER BY line_no`,
     [row.id],
@@ -952,7 +1217,11 @@ async function readVersion(client: CrmSqlClient, quoteId: string, versionNo: num
       },
     ]);
   }
-  return toVersion(row, lines.rows.map((line) => toLine(line, byLine.get(line.id) ?? [])));
+  return toVersion(
+    row,
+    lines.rows.map((line) => toLine(line, byLine.get(line.id) ?? [])),
+    fees.rows.map((fee) => ({ feeType: fee.fee_type, amount: num(fee.amount) })),
+  );
 }
 
 function toSummary(row: HeadRow): QuoteSummary {
@@ -967,13 +1236,43 @@ function toSummary(row: HeadRow): QuoteSummary {
     ownerUserId: row.owner_user_id,
     status: row.status,
     currentVersion: row.current_version,
+    quoteName: row.quote_name,
     validUntil: toDateOnly(row.valid_until),
     totalAmount: num(row.total_amount),
     updatedAt: toIso(row.updated_at) ?? '',
   };
 }
 
-function toVersion(row: VersionRow, lines: QuoteLine[]): QuoteVersion {
+function orderAmountOf(percent: string | null, amount: string | null, total: string, base: number): QuoteOrderAmount {
+  const totalValue = num(total);
+  const inputKind = percent !== null ? 'PERCENT' : amount !== null ? 'AMOUNT' : null;
+  if (inputKind === 'PERCENT') return { percent: num(percent), amount: totalValue, inputKind };
+  // Nhập số tiền: phần trăm tính ngược trên cơ sở tính (4 chữ số thập phân).
+  const derived = base > 0 && totalValue > 0 ? Math.round((totalValue / base) * 100 * 10_000) / 10_000 : 0;
+  return { percent: derived, amount: totalValue, inputKind };
+}
+
+function toForm(row: VersionRow, fees: readonly { feeType: string; amount: number }[]): QuoteFormData {
+  const discountTotal = num(row.order_discount_total);
+  return {
+    quoteName: row.quote_name,
+    quoteDate: toDateOnly(row.quote_date),
+    templateId: row.template_id,
+    templateName: row.template_name,
+    quoteTypeId: row.quote_type_id,
+    quoteTypeName: row.quote_type_name,
+    discountMode: row.discount_mode,
+    taxMode: row.tax_mode,
+    // Cơ sở chiết khấu tổng đơn = tiền hàng trước chiết khấu này; cơ sở thuế = tiền hàng sau chiết khấu.
+    orderDiscount: orderAmountOf(row.order_discount_percent, row.order_discount_amount, row.order_discount_total, num(row.net_amount) + discountTotal),
+    orderTax: orderAmountOf(row.order_tax_percent, row.order_tax_amount, row.order_tax_total, num(row.net_amount)),
+    fees,
+    feesAmount: num(row.fees_amount),
+    customFields: row.custom_fields ?? {},
+  };
+}
+
+function toVersion(row: VersionRow, lines: QuoteLine[], fees: readonly { feeType: string; amount: number }[]): QuoteVersion {
   return {
     id: row.id,
     versionNo: row.version_no,
@@ -996,6 +1295,8 @@ function toVersion(row: VersionRow, lines: QuoteLine[]): QuoteVersion {
       marginPercent: toNumber(row.margin_percent),
       discountPercent: num(row.discount_percent),
     },
+    form: toForm(row, fees),
+    promotions: row.promotions ?? [],
     requiresApproval: row.requires_approval,
     approvalReasons: row.approval_reasons ?? [],
     submittedAt: toIso(row.submitted_at),

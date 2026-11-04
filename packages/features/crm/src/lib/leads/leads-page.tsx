@@ -1,17 +1,18 @@
 'use client';
 
-import { LEAD_STATUS_LABELS, type Lead, type LeadStatus } from '@enterprise-platform/contracts-crm';
+import { CRM_LIST_PAGE_SIZE, LEAD_STATUS_LABELS, type Lead, type LeadStatus } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { convertLead, createLead, errorMessage, listLeads, updateLead } from '../crm-api';
 import { labelOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { personName, taxCodeLooksValid } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -39,9 +40,10 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
   const [ownerUserId, setOwnerUserId] = useState('');
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
   const [converting, setConverting] = useState<Lead | null>(null);
+  const [documentsOf, setDocumentsOf] = useState<Lead | null>(null);
   const q = useDebounced(search.trim(), 350);
-  const list = useKeysetPage(JSON.stringify({ q, status, ownerUserId }), (cursor) =>
-    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, cursor, limit: 30 }),
+  const list = usePagedList(JSON.stringify({ q, status, ownerUserId }), CRM_LIST_PAGE_SIZE, (page) =>
+    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<Lead>>(
@@ -57,10 +59,13 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
       {
         title: '',
         key: 'actions',
-        width: 270,
+        width: 340,
         render: (_: unknown, row) =>
           row.status === 'CONVERTED' ? (
             <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
               {row.convertedCustomerId ? (
                 <button type="button" className={styles.rowAction} onClick={() => onOpenCustomer(row.convertedCustomerId as string)}>
                   Khách hàng
@@ -68,22 +73,31 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
               ) : null}
               {row.convertedOpportunityId ? (
                 <button type="button" className={styles.rowAction} onClick={() => onOpenOpportunity(row.convertedOpportunityId as string)}>
-                  Cơ hội
+                  Dự án bán hàng
                 </button>
               ) : null}
             </span>
           ) : canWrite ? (
             <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
               {row.status !== 'DISQUALIFIED' ? (
                 <button type="button" className={styles.rowActionPrimary} onClick={() => setConverting(row)}>
-                  Chuyển thành khách hàng và cơ hội
+                  Chuyển thành khách hàng và dự án bán hàng
                 </button>
               ) : null}
               <button type="button" className={styles.rowAction} onClick={() => setEditing(row)}>
                 Sửa
               </button>
             </span>
-          ) : null,
+          ) : (
+            <span className={styles.rowActions}>
+              <button type="button" className={styles.rowAction} onClick={() => setDocumentsOf(row)}>
+                Tài liệu
+              </button>
+            </span>
+          ),
       },
     ],
     [people, canWrite, onOpenCustomer, onOpenOpportunity],
@@ -112,7 +126,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
         scroll={{ x: 1400 }}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có lead nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="lead" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="lead" onChange={list.goTo} />
       {editing ? (
         <LeadFormDialog
           lead={editing === 'new' ? undefined : editing}
@@ -122,6 +136,11 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
             list.reload();
           }}
         />
+      ) : null}
+      {documentsOf ? (
+        <CrmDialog open wide title="Tài liệu của lead" subtitle={documentsOf.name} submitLabel="Đóng" onClose={() => setDocumentsOf(null)} onSubmit={() => setDocumentsOf(null)}>
+          <DocumentsPanel entityType="lead" entityId={documentsOf.id} />
+        </CrmDialog>
       ) : null}
       {converting ? (
         <ConvertLeadDialog
@@ -243,8 +262,8 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
       });
       toast.success(
         result.attachedToExistingCustomer
-          ? 'Đã tạo cơ hội và gắn vào khách hàng có cùng mã số thuế.'
-          : 'Đã tạo khách hàng và cơ hội từ lead.',
+          ? 'Đã tạo dự án bán hàng và gắn vào khách hàng có cùng mã số thuế.'
+          : 'Đã tạo khách hàng và dự án bán hàng từ lead.',
       );
       onConverted(result.opportunityId);
     } catch (cause) {
@@ -255,8 +274,8 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
   return (
     <CrmDialog
       open
-      title="Chuyển thành khách hàng và cơ hội"
-      subtitle="Tạo khách hàng (hoặc gắn vào khách có cùng mã số thuế) và một cơ hội ở giai đoạn Mới."
+      title="Chuyển thành khách hàng và dự án bán hàng"
+      subtitle="Tạo khách hàng (hoặc gắn vào khách có cùng mã số thuế) và một dự án bán hàng ở giai đoạn Mới."
       submitLabel="Chuyển đổi"
       submitting={submitting}
       error={error}
@@ -264,7 +283,7 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
-        <Field label="Tên cơ hội" wide>
+        <Field label="Tên dự án bán hàng" wide>
           <input className={styles.input} value={opportunityName} maxLength={300} autoFocus onChange={(event) => setOpportunityName(event.target.value)} />
         </Field>
         <Field label="Giá trị dự kiến (đồng)">

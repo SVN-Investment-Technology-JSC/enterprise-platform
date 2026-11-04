@@ -11,6 +11,8 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
@@ -43,6 +45,7 @@ const integration = crmIntegrationEnabled() ? describe : describe.skip;
 
 const CAP = randomUUID();
 const BT = randomUUID();
+const NOPRICE = randomUUID();
 const TN = randomUUID();
 const NV1 = randomUUID();
 const ORGANIZATION: ReportingLineSnapshot = {
@@ -61,6 +64,7 @@ class FakeCatalog implements CatalogReader {
   readonly known: CatalogMaterial[] = [
     { id: CAP, code: 'QA-KHO-CAP', name: 'Cáp đồng', unit: 'Cái', category: 'Thiết bị', kind: 'STOCK', avgCost: 800_000, totalAvailable: 70 },
     { id: BT, code: 'QA-KHO-BT', name: 'Gói bảo trì', unit: 'Gói', category: null, kind: 'SERVICE', avgCost: null, totalAvailable: null },
+    { id: NOPRICE, code: 'QA-KHO-NOPRICE', name: 'Hàng chưa có giá', unit: 'Cái', category: null, kind: 'STOCK', avgCost: 100, totalAvailable: 5 },
   ];
   async materials(_tenantId: string, ids: readonly string[]) {
     return new Map(this.known.filter((material) => ids.includes(material.id)).map((material) => [material.id, material]));
@@ -126,7 +130,12 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     const customerStore = new PostgresCustomerStore(handle.database);
     const opportunityStore = new PostgresOpportunityStore(handle.database);
     const customers = new CustomerService(customerStore, scopes);
-    opportunities = new OpportunityService(opportunityStore, customerStore, scopes);
+    opportunities = new OpportunityService(
+      opportunityStore,
+      customerStore,
+      scopes,
+      new CachedPipelineConfig(new PostgresPipelineConfigReader(handle.database)),
+    );
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
     links = new PostgresApprovalLinks(handle.database, procedure);
     const settingsStore = new PostgresQuoteSettingsStore(handle.database);
@@ -208,6 +217,74 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
       expect.objectContaining({ materialCode: 'QA-KHO-BT', materialKind: 'SERVICE', estUnitCost: null, availableStock: null, lineAmount: 2_500_000 }),
     ]);
     expect(withService.version.totals).toMatchObject({ netAmount: 12_200_000, vatAmount: 1_220_000, totalAmount: 13_420_000, profit: 4_200_000 });
+  });
+
+  it('TC-FB-05: lô có dòng lỗi thì không thêm dòng nào, trả lỗi theo dòng bằng tiếng Việt', async () => {
+    const draft = await draftQuote();
+    const before = await quotes.get(nv1, draft.id);
+    const bad = await quotes
+      .addLines(nv1, draft.id, 1, {
+        revision: before.version.revision,
+        lines: [
+          { materialId: BT, quantity: 2 },
+          { materialId: randomUUID(), quantity: 1 },
+          { materialId: CAP, quantity: 0 },
+        ],
+      })
+      .catch((error: unknown) => error);
+    expect(bad).toMatchObject({
+      statusCode: 400,
+      code: 'LINES_INVALID',
+      details: {
+        errors: [
+          expect.objectContaining({ line: 2, code: 'MATERIAL_NOT_FOUND', message: 'Mặt hàng không có trong danh mục Kho.' }),
+          expect.objectContaining({ line: 3, code: 'INVALID_QUANTITY', message: 'Số lượng phải lớn hơn 0.' }),
+        ],
+      },
+    });
+    // Mặt hàng chưa có giá: lỗi từ bước tính giá cũng quy về số dòng của lô.
+    const noPrice = await quotes
+      .addLines(nv1, draft.id, 1, {
+        revision: before.version.revision,
+        lines: [{ materialId: BT, quantity: 1 }, { materialId: NOPRICE, quantity: 1 }],
+      })
+      .catch((error: unknown) => error);
+    expect(noPrice).toMatchObject({
+      statusCode: 400,
+      code: 'LINES_INVALID',
+      details: { errors: [expect.objectContaining({ line: 2, code: 'PRICE_NOT_FOUND' })] },
+    });
+    const after = await quotes.get(nv1, draft.id);
+    expect(after.version.lines).toHaveLength(1);
+    expect(after.version.revision).toBe(before.version.revision);
+  });
+
+  it('thêm lô hợp lệ: một lần ghi, giữ thứ tự, tính giá một lần', async () => {
+    const draft = await draftQuote();
+    const added = await quotes.addLines(nv1, draft.id, 1, {
+      revision: draft.version.revision,
+      lines: [{ materialId: BT, quantity: 5 }, { materialId: CAP, quantity: 1, overrideDiscountPercent: 0 }],
+    });
+    expect(added.version.lines.map((line) => [line.lineNo, line.materialCode, line.quantity])).toEqual([
+      [1, 'QA-KHO-CAP', 10],
+      [2, 'QA-KHO-BT', 5],
+      [3, 'QA-KHO-CAP', 1],
+    ]);
+    expect(added.version.revision).toBe(draft.version.revision + 1);
+    await expect(quotes.addLines(nv1, draft.id, 1, { revision: added.version.revision, lines: [] })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('TC-FB-06: báo giá không còn Nháp thì thêm lô trả 409, không tạo phiên bản mới', async () => {
+    const draft = await draftQuote();
+    let current = await quotes.submit(nv1, draft.id, 1, { revision: draft.version.revision });
+    current = await quotes.send(nv1, draft.id, 1, { revision: current.version.revision });
+    expect(current.status).toBe('SENT');
+    await expect(
+      quotes.addLines(nv1, draft.id, 1, { revision: current.version.revision, lines: [{ materialId: BT, quantity: 1 }] }),
+    ).rejects.toMatchObject({ statusCode: 409, message: 'Báo giá ở trạng thái "Đã gửi khách", không sửa được.' });
+    const after = await quotes.get(nv1, draft.id);
+    expect(after.currentVersion).toBe(1);
+    expect(after.version.lines).toHaveLength(1);
   });
 
   it('TC-QUO-08: không vượt ngưỡng thì duyệt thẳng, không có phiên Quy trình', async () => {

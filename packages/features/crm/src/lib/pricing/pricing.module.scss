@@ -90,3 +90,9 @@
   display: block;
   white-space: nowrap;
 }
+
+.exportBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

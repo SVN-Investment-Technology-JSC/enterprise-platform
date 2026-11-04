@@ -10,15 +10,24 @@ import type {
   CrmPage,
   Lead,
   LeadListQuery,
+  MyStageTask,
   OpportunityBoard,
+  OpportunityByCustomerPage,
+  OpportunityByCustomerQuery,
   OpportunityDetail,
   OpportunityListQuery,
+  OpportunityStagePlan,
   OpportunitySummary,
+  Pipeline,
+  SkipStageRequest,
+  StageRequirementCheck,
   UpdateActivityRequest,
   UpdateLeadRequest,
+  UpdatePipelineCareSuggestionRequest,
   UpdateOpportunityRequest,
+  UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ActivityService } from '../application/activity.service.js';
 import { LeadService } from '../application/lead.service.js';
 import { OpportunityService } from '../application/opportunity.service.js';
@@ -34,13 +43,31 @@ export class OpportunitiesController {
     return runCrm(() => this.opportunities.list(crmActor(request), query));
   }
 
+  @Get('opportunities/by-customer')
+  listByCustomer(@Req() request: CrmRequest, @Query() query: OpportunityByCustomerQuery): Promise<OpportunityByCustomerPage> {
+    return runCrm(() => this.opportunities.listByCustomer(crmActor(request), query));
+  }
+
   @Get('opportunities/board')
   board(
     @Req() request: CrmRequest,
     @Query('ownerUserId') ownerUserId?: string,
     @Query('q') q?: string,
+    @Query('pipelineId') pipelineId?: string,
   ): Promise<OpportunityBoard> {
-    return runCrm(() => this.opportunities.board(crmActor(request), { ownerUserId, q }));
+    return runCrm(() => this.opportunities.board(crmActor(request), { ownerUserId, q, pipelineId }));
+  }
+
+  /** Các luồng của tenant kèm giai đoạn, bước chuyển, điều kiện (đọc, có cache ngắn). */
+  @Get('opportunities/pipelines')
+  pipelines(@Req() request: CrmRequest): Promise<readonly Pipeline[]> {
+    return runCrm(() => this.opportunities.listPipelines(crmActor(request)));
+  }
+
+  /** "Việc của tôi": giai đoạn ACTIVE hoặc PENDING giao cho người gọi (`crm.read`). */
+  @Get('opportunities/my-stage-tasks')
+  myStageTasks(@Req() request: CrmRequest): Promise<readonly MyStageTask[]> {
+    return runCrm(() => this.opportunities.myStageTasks(crmActor(request)));
   }
 
   @Post('opportunities')
@@ -53,6 +80,44 @@ export class OpportunitiesController {
     return runCrm(() => this.opportunities.get(crmActor(request), id));
   }
 
+  /** Điều kiện chuyển vào giai đoạn `stage` và trạng thái đạt/chưa; `required = false` là gợi ý "cần có". */
+  @Get('opportunities/:id/stage-requirements')
+  stageRequirements(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Query('stage') stage?: string,
+  ): Promise<readonly StageRequirementCheck[]> {
+    return runCrm(() => this.opportunities.stageRequirements(crmActor(request), id, stage));
+  }
+
+  /** Kế hoạch giai đoạn của dự án: người đảm nhận, trạng thái, hạn, giai đoạn bỏ qua. */
+  @Get('opportunities/:id/stage-plan')
+  stagePlan(@Req() request: CrmRequest, @Param('id') id: string): Promise<OpportunityStagePlan> {
+    return runCrm(() => this.opportunities.stagePlan(crmActor(request), id));
+  }
+
+  /** Gán hoặc ghi đè người đảm nhận một giai đoạn của riêng dự án (chủ dự án hoặc `crm.manage`). */
+  @Patch('opportunities/:id/stage-plan/:stageId/assignee')
+  updateStageAssignee(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('stageId') stageId: string,
+    @Body() body: UpdateStageAssigneeRequest,
+  ): Promise<OpportunityStagePlan> {
+    return runCrm(() => this.opportunities.updateStageAssignee(crmActor(request), id, stageId, body ?? ({} as never)));
+  }
+
+  /** Bỏ qua một giai đoạn chưa tới (cần lý do; chủ dự án, người đảm nhận giai đoạn hiện tại hoặc `crm.manage`). */
+  @Post('opportunities/:id/stage-plan/:stageId/skip')
+  skipStage(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('stageId') stageId: string,
+    @Body() body: SkipStageRequest,
+  ): Promise<OpportunityStagePlan> {
+    return runCrm(() => this.opportunities.skipStage(crmActor(request), id, stageId, body ?? ({} as never)));
+  }
+
   @Patch('opportunities/:id')
   update(
     @Req() request: CrmRequest,
@@ -60,6 +125,16 @@ export class OpportunitiesController {
     @Body() body: UpdateOpportunityRequest,
   ): Promise<OpportunityDetail> {
     return runCrm(() => this.opportunities.update(crmActor(request), id, body ?? ({} as never)));
+  }
+
+  /** Bật hoặc tắt gợi ý chăm sóc lại khi Thua của một luồng (chỉ `crm.manage`); trả lại các luồng. */
+  @Put('opportunities/pipelines/:pipelineId/care-suggestion')
+  setCareSuggestion(
+    @Req() request: CrmRequest,
+    @Param('pipelineId') pipelineId: string,
+    @Body() body: UpdatePipelineCareSuggestionRequest,
+  ): Promise<readonly Pipeline[]> {
+    return runCrm(() => this.opportunities.setCareSuggestion(crmActor(request), pipelineId, body));
   }
 
   /** Chuyển giai đoạn theo máy trạng thái; sai bảng chuyển 409, Thua thiếu lý do 400. */

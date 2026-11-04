@@ -12,7 +12,7 @@ import { writeAuditLog } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { insertContact, insertCustomer } from './postgres-customer.store.js';
 import { insertOpportunity } from './postgres-opportunity.store.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toIso } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toIso , pagedList} from './sql-helpers.js';
 
 interface LeadRow {
   id: string;
@@ -60,15 +60,20 @@ export class PostgresLeadStore implements LeadStore {
       }
       where.add(branches.length ? `(${branches.join(' OR ')})` : 'FALSE');
     }
-    where.after(filter.cursor, 'l.updated_at', 'l.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<LeadRow>(
-      `SELECT ${LEAD_COLUMNS} FROM crm_schema.leads l ${where.where()}
-        ORDER BY l.updated_at DESC, l.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${LEAD_COLUMNS}`,
+        from: `FROM crm_schema.leads l`,
+        orderBy: 'l.updated_at DESC, l.id DESC',
+        atColumn: 'l.updated_at',
+        idColumn: 'l.id',
+      },
+      filter,
+      toLead,
     );
-    return keysetPage(result.rows, filter.limit, toLead);
   }
 
   async getLead(tenantId: string, scope: CrmDataScope, id: string): Promise<Lead | undefined> {

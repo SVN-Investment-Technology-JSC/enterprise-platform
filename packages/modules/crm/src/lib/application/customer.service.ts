@@ -1,12 +1,14 @@
 import {
   CRM_DUPLICATE_TAX_CODE,
-  CUSTOMER_KINDS,
+  DEFAULT_CUSTOMER_KIND,
   type CreateCustomerRequest,
   type CrmPage,
   type CustomerDetail,
   type CustomerListQuery,
   type CustomerSummary,
   type SaveContactRequest,
+  type SaveCustomerProfileRequest,
+  CUSTOMER_PROFILE_NOTE_MAX,
   type TaxCodeMatch,
   type UpdateCustomerRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -17,7 +19,6 @@ import {
   isUuid,
   normalizeSearch,
   optionalEmail,
-  optionalEnum,
   optionalId,
   optionalInteger,
   optionalMoney,
@@ -25,7 +26,8 @@ import {
   requiredText,
   requiredVersion,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
+import { optionalKindCode } from './customer-kind.service.js';
 import { normalizeTaxCode } from '../domain/tax-code.js';
 import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -57,9 +59,10 @@ export class CustomerService {
     return this.customers.listCustomers(actor.tenantId, scope, {
       q: normalizeSearch(query.q),
       groupId: optionalId(query.groupId, 'nhóm khách hàng') ?? undefined,
-      kind: optionalEnum(query.kind, CUSTOMER_KINDS, 'phân loại'),
+      kind: optionalKindCode(query.kind),
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }
@@ -122,6 +125,23 @@ export class CustomerService {
       requiredVersion(request.version),
       actor.userId,
     );
+    return this.require(actor.tenantId, { kind: 'all' }, id);
+  }
+
+  /** Chân dung khách hàng (P2F-03): chỉ người có quyền sửa khách, khách phải trong phạm vi dữ liệu. */
+  async saveProfile(actor: CrmActor, id: string, request: SaveCustomerProfileRequest): Promise<CustomerDetail> {
+    requireSalesWriter(actor);
+    const scope = await this.scopes.resolve(actor);
+    await this.require(actor.tenantId, scope, id);
+    const profileNote = optionalText(request?.profileNote, CUSTOMER_PROFILE_NOTE_MAX, 'chân dung khách hàng');
+    const saved = await this.customers.saveProfileNote(
+      actor.tenantId,
+      id,
+      profileNote,
+      requiredVersion(request?.version),
+      actor.userId,
+    );
+    if (!saved) throw new CrmNotFoundError(CUSTOMER_NOT_FOUND);
     return this.require(actor.tenantId, { kind: 'all' }, id);
   }
 
@@ -214,7 +234,7 @@ export class CustomerService {
       phone: optionalText(request.phone, 50, 'số điện thoại'),
       email: optionalEmail(request.email),
       groupId: optionalId(request.groupId, 'nhóm khách hàng'),
-      kind: optionalEnum(request.kind, CUSTOMER_KINDS, 'phân loại') ?? 'LEAD_CUSTOMER',
+      kind: optionalKindCode(request.kind) ?? DEFAULT_CUSTOMER_KIND,
       creditLimit: optionalMoney(request.creditLimit, 'hạn mức tín dụng'),
       paymentTermDays: optionalInteger(request.paymentTermDays, 0, 365, 'thời hạn thanh toán'),
       note: optionalText(request.note, 2000, 'ghi chú'),

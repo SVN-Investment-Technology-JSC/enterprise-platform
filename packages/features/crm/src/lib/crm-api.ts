@@ -1,4 +1,5 @@
 import {
+  CRM_LIST_PAGE_SIZE,
   CRM_API_ROOT,
   type Activity,
   type ActivityListQuery,
@@ -15,23 +16,42 @@ import {
   type CrmStatus,
   type CustomerDetail,
   type CustomerGroup,
+  type CustomerKindOption,
   type CustomerListQuery,
   type CustomerSummary,
   type CustomerTimelineEntry,
   type Lead,
   type LeadListQuery,
   type OpportunityBoard,
+  type OpportunityByCustomerPage,
+  type OpportunityByCustomerQuery,
   type OpportunityDetail,
+  type MyStageTask,
   type OpportunityListQuery,
+  type OpportunityStagePlan,
   type OpportunitySummary,
+  type Pipeline,
+  type StageRequirementCheck,
   type SaveContactRequest,
   type SaveCustomerGroupRequest,
+  type SaveCustomerKindRequest,
+  type SaveCustomerProfileRequest,
   type TaxCodeMatch,
   type UpdateActivityRequest,
   type UpdateCustomerRequest,
   type UpdateLeadRequest,
+  type SkipStageRequest,
+  type CreateTenderProfileRequest,
+  type RecordTenderResultRequest,
+  type SaveTenderPartnerRequest,
+  type TenderDecisionRequest,
+  type TenderProfile,
+  type TenderVersionRequest,
+  type UpdateTenderProfileRequest,
   type UpdateOpportunityRequest,
+  type UpdateStageAssigneeRequest,
 } from '@enterprise-platform/contracts-crm';
+import { asTenderProfile } from './tender/tender.model';
 import type {
   BulkPriceListItemsRequest,
   DiscountPolicy,
@@ -57,6 +77,7 @@ import type {
   QuoteListQuery,
   QuoteSummary,
   SaveApprovalBindingRequest,
+  AddQuoteLinesRequest,
   SaveQuoteLineRequest,
   UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -76,6 +97,7 @@ import type {
   SalesSettings,
   SaveContractRequest,
   SaveDeliveryPlanRequest,
+  SaveOrderInfoNoteRequest,
   SavePaymentTermsRequest,
   UpdateSalesOrderRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -87,6 +109,7 @@ import type {
   WarrantyCaseDetail,
   WarrantyCaseListQuery,
   WarrantyCaseSummary,
+  WarrantyDeviceDocument,
   WarrantyLookupItem,
   WarrantyLookupQuery,
   WarrantySerialHistory,
@@ -110,6 +133,23 @@ import type {
   ResendReceiptRequest,
 } from '@enterprise-platform/contracts-crm';
 import type {
+  CompleteDocumentUploadRequest,
+  CreateDocumentFolderRequest,
+  CreateDocumentRequest,
+  CreateDocumentResponse,
+  CreateDocumentVersionRequest,
+  CrmDocument,
+  CrmDocumentAudience,
+  CrmDocumentDetail,
+  CrmDocumentFolder,
+  CrmDocumentType,
+  CrmDocumentVersion,
+  DocumentDownloadTicket,
+  DocumentListQuery,
+  DocumentUploadTicket,
+  UpdateDocumentRequest,
+} from '@enterprise-platform/contracts-crm';
+import type {
   ConversionReport,
   ConversionReportQuery,
   ReceivableReport,
@@ -120,6 +160,26 @@ import type {
   SalesReportQuery,
 } from '@enterprise-platform/contracts-crm';
 import type { DashboardQuery, SalesDashboard } from '@enterprise-platform/contracts-crm';
+import type {
+  BusinessPlanDecisionRequest,
+  BusinessPlanDetail,
+  BusinessPlanDeviationSettings,
+  SaveBusinessPlanRequest,
+} from '@enterprise-platform/contracts-crm';
+import type { CreateDocumentTypeRequest, UpdateDocumentTypeRequest } from '@enterprise-platform/contracts-crm';
+import type {
+  AddOpportunityPromotionRequest,
+  AddQuoteDocumentReferenceRequest,
+  OpportunityPromotion,
+  PromotionCatalogItem,
+  PromotionKind,
+  QuoteDocumentCandidate,
+  QuoteDocumentCandidateQuery,
+  QuoteDocumentReference,
+  SavePromotionCatalogRequest,
+  SaveQuotePromotionsRequest,
+  SaveQuotePromotionsResponse,
+} from '@enterprise-platform/contracts-crm';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /** Lỗi API: thân lỗi đã có `code` và `message` tiếng Việt; có thể kèm dữ liệu thêm như `matches`. */
@@ -128,6 +188,8 @@ export interface CrmApiError {
   readonly code?: string;
   readonly message?: string;
   readonly matches?: readonly TaxCodeMatch[];
+  /** Điều kiện chuyển giai đoạn còn thiếu (STAGE_REQUIREMENTS_NOT_MET, ACCEPTED_QUOTE_REQUIRED). */
+  readonly missing?: readonly { kind: string; ref: string; message: string }[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -177,6 +239,8 @@ export const findTaxCodeMatches = (taxCode: string, excludeId?: string) =>
 export const createCustomer = (body: CreateCustomerRequest) => send<CustomerDetail>('POST', '/customers', body);
 export const updateCustomer = (id: string, body: UpdateCustomerRequest) =>
   send<CustomerDetail>('PATCH', `/customers/${encodeURIComponent(id)}`, body);
+export const saveCustomerProfile = (id: string, body: SaveCustomerProfileRequest) =>
+  send<CustomerDetail>('PUT', `/customers/${encodeURIComponent(id)}/profile`, body);
 export const addContact = (customerId: string, body: SaveContactRequest) =>
   send<CustomerDetail>('POST', `/customers/${encodeURIComponent(customerId)}/contacts`, body);
 export const updateContact = (customerId: string, contactId: string, body: SaveContactRequest) =>
@@ -187,7 +251,7 @@ export const deleteContact = (customerId: string, contactId: string) =>
   send<CustomerDetail>('DELETE', `/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}`);
 export const loadTimeline = (customerId: string, cursor?: string) =>
   request<CrmPage<CustomerTimelineEntry>>(
-    `/customers/${encodeURIComponent(customerId)}/timeline${toQuery({ cursor, limit: 30 })}`,
+    `/customers/${encodeURIComponent(customerId)}/timeline${toQuery({ cursor, limit: CRM_LIST_PAGE_SIZE })}`,
     { cache: 'no-store' },
   );
 
@@ -197,6 +261,11 @@ export const createGroup = (body: SaveCustomerGroupRequest) => send<CustomerGrou
 export const updateGroup = (id: string, body: SaveCustomerGroupRequest) =>
   send<CustomerGroup>('PATCH', `/customer-groups/${encodeURIComponent(id)}`, body);
 export const deleteGroup = (id: string) => send<void>('DELETE', `/customer-groups/${encodeURIComponent(id)}`);
+export const listKinds = () => request<CustomerKindOption[]>('/customer-kinds', { cache: 'no-store' });
+export const createKind = (body: SaveCustomerKindRequest) => send<CustomerKindOption>('POST', '/customer-kinds', body);
+export const updateKind = (code: string, body: SaveCustomerKindRequest) =>
+  send<CustomerKindOption>('PATCH', `/customer-kinds/${encodeURIComponent(code)}`, body);
+export const deleteKind = (code: string) => send<void>('DELETE', `/customer-kinds/${encodeURIComponent(code)}`);
 export const loadSettings = () => request<CrmSettings>('/settings', { cache: 'no-store' });
 export const saveSettings = (body: Partial<CrmSettings>) => send<CrmSettings>('PUT', '/settings', body);
 export const listPeople = () => request<CrmPerson[]>('/people');
@@ -211,8 +280,19 @@ export const convertLead = (id: string, body: ConvertLeadRequest) =>
 // Cơ hội
 export const listOpportunities = (query: OpportunityListQuery) =>
   request<CrmPage<OpportunitySummary>>(`/opportunities${toQuery(query)}`, { cache: 'no-store' });
-export const loadBoard = (query: { ownerUserId?: string; q?: string }) =>
+export const listOpportunitiesByCustomer = (query: OpportunityByCustomerQuery) =>
+  request<OpportunityByCustomerPage>(`/opportunities/by-customer${toQuery(query)}`, { cache: 'no-store' });
+export const loadBoard = (query: { ownerUserId?: string; q?: string; pipelineId?: string }) =>
   request<OpportunityBoard>(`/opportunities/board${toQuery(query)}`, { cache: 'no-store' });
+export const listPipelines = () => request<readonly Pipeline[]>('/opportunities/pipelines');
+/** Bật hoặc tắt gợi ý chăm sóc lại khi Thua của một luồng (chỉ `crm.manage`); trả lại các luồng. */
+export const setPipelineCareSuggestion = (pipelineId: string, careSuggestion: boolean) =>
+  send<readonly Pipeline[]>('PUT', `/opportunities/pipelines/${encodeURIComponent(pipelineId)}/care-suggestion`, { careSuggestion });
+export const getStageRequirements = (id: string, stage: string) =>
+  request<readonly StageRequirementCheck[]>(
+    `/opportunities/${encodeURIComponent(id)}/stage-requirements${toQuery({ stage })}`,
+    { cache: 'no-store' },
+  );
 export const getOpportunity = (id: string) => request<OpportunityDetail>(`/opportunities/${encodeURIComponent(id)}`);
 export const createOpportunity = (body: CreateOpportunityRequest) =>
   send<OpportunityDetail>('POST', '/opportunities', body);
@@ -220,6 +300,40 @@ export const updateOpportunity = (id: string, body: UpdateOpportunityRequest) =>
   send<OpportunityDetail>('PATCH', `/opportunities/${encodeURIComponent(id)}`, body);
 export const changeOpportunityStage = (id: string, body: ChangeOpportunityStageRequest) =>
   send<OpportunityDetail>('PATCH', `/opportunities/${encodeURIComponent(id)}/stage`, body);
+export const getStagePlan = (id: string) =>
+  request<OpportunityStagePlan>(`/opportunities/${encodeURIComponent(id)}/stage-plan`, { cache: 'no-store' });
+export const updateStageAssignee = (id: string, stageId: string, body: UpdateStageAssigneeRequest) =>
+  send<OpportunityStagePlan>(
+    'PATCH',
+    `/opportunities/${encodeURIComponent(id)}/stage-plan/${encodeURIComponent(stageId)}/assignee`,
+    body,
+  );
+export const skipStage = (id: string, stageId: string, body: SkipStageRequest) =>
+  send<OpportunityStagePlan>(
+    'POST',
+    `/opportunities/${encodeURIComponent(id)}/stage-plan/${encodeURIComponent(stageId)}/skip`,
+    body,
+  );
+export const listMyStageTasks = () =>
+  request<readonly MyStageTask[]>('/opportunities/my-stage-tasks', { cache: 'no-store' });
+
+// Hồ sơ thầu (luồng Chào thầu)
+const tenderPath = (id: string) => `/opportunities/${encodeURIComponent(id)}/tender`;
+export const getTender = async (id: string): Promise<TenderProfile | null> =>
+  asTenderProfile(await request<TenderProfile | null>(tenderPath(id), { cache: 'no-store' }));
+export const createTender = (id: string, body: CreateTenderProfileRequest) => send<TenderProfile>('POST', tenderPath(id), body);
+export const updateTender = (id: string, body: UpdateTenderProfileRequest) => send<TenderProfile>('PUT', tenderPath(id), body);
+export const addTenderPartner = (id: string, body: SaveTenderPartnerRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/partners`, body);
+export const updateTenderPartner = (id: string, partnerId: string, body: SaveTenderPartnerRequest) =>
+  send<TenderProfile>('PUT', `${tenderPath(id)}/partners/${encodeURIComponent(partnerId)}`, body);
+export const deleteTenderPartner = (id: string, partnerId: string) =>
+  send<TenderProfile>('DELETE', `${tenderPath(id)}/partners/${encodeURIComponent(partnerId)}`);
+export type TenderPlanAction = 'submit' | 'approve' | 'reject';
+export const tenderPlanAction = (id: string, action: TenderPlanAction, body: TenderVersionRequest | TenderDecisionRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/plan/${action}`, body);
+export const recordTenderResult = (id: string, body: RecordTenderResultRequest) =>
+  send<TenderProfile>('POST', `${tenderPath(id)}/result`, body);
 
 // Hoạt động
 export const listActivities = (query: ActivityListQuery) =>
@@ -267,6 +381,9 @@ export const updateQuoteVersion = (id: string, versionNo: number, body: UpdateQu
   send<QuoteDetail>('PATCH', quotePath(id, versionNo), body);
 export const addQuoteLine = (id: string, versionNo: number, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines`, body);
+/** Thêm nhiều dòng một lần (tất cả hoặc không); lỗi 400 `LINES_INVALID` kèm `errors` theo dòng. */
+export const addQuoteLines = (id: string, versionNo: number, body: AddQuoteLinesRequest) =>
+  send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines/batch`, body);
 export const updateQuoteLine = (id: string, versionNo: number, lineId: string, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('PATCH', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}`, body);
 export const removeQuoteLine = (id: string, versionNo: number, lineId: string, revision: number) =>
@@ -291,6 +408,20 @@ export const loadQuoteApprovalSettings = () =>
 export const saveQuoteApprovalSettings = (body: QuoteApprovalSettings) =>
   send<QuoteApprovalSettings>('PUT', '/quote-approval/settings', body);
 
+// Phương án kinh doanh (PAKD) của phiên bản báo giá
+const planPath = (id: string, versionNo: number) => `${quotePath(id, versionNo)}/business-plan`;
+export const getBusinessPlan = (id: string, versionNo: number) =>
+  request<BusinessPlanDetail | null>(planPath(id, versionNo), { cache: 'no-store' });
+export const saveBusinessPlan = (id: string, versionNo: number, body: SaveBusinessPlanRequest) =>
+  send<BusinessPlanDetail>('PUT', planPath(id, versionNo), body);
+export type BusinessPlanAction = 'submit' | 'approve' | 'reject';
+export const businessPlanAction = (id: string, versionNo: number, action: BusinessPlanAction, body: BusinessPlanDecisionRequest) =>
+  send<BusinessPlanDetail>('POST', `${planPath(id, versionNo)}/${action}`, body);
+export const loadBusinessPlanSettings = () =>
+  request<BusinessPlanDeviationSettings>('/quote-approval/business-plan-settings', { cache: 'no-store' });
+export const saveBusinessPlanSettings = (body: BusinessPlanDeviationSettings) =>
+  send<BusinessPlanDeviationSettings>('PUT', '/quote-approval/business-plan-settings', body);
+
 // Hợp đồng
 export const listContracts = (query: ContractListQuery) =>
   request<CrmPage<ContractSummary>>(`/contracts${toQuery(query)}`, { cache: 'no-store' });
@@ -311,6 +442,8 @@ export const getOrder = (id: string) => request<SalesOrderDetail>(`/orders/${enc
 export const createOrder = (body: CreateSalesOrderRequest) => send<SalesOrderDetail>('POST', '/orders', body);
 export const updateOrder = (id: string, body: UpdateSalesOrderRequest) =>
   send<SalesOrderDetail>('PATCH', `/orders/${encodeURIComponent(id)}`, body);
+export const saveOrderInfoNote = (id: string, body: SaveOrderInfoNoteRequest) =>
+  send<SalesOrderDetail>('PUT', `/orders/${encodeURIComponent(id)}/info-note`, body);
 export type OrderAction = 'confirm' | 'cancel' | 'close';
 export const orderAction = (id: string, action: OrderAction, body: SalesOrderActionRequest) =>
   send<SalesOrderDetail>('POST', `/orders/${encodeURIComponent(id)}/${action}`, body);
@@ -374,7 +507,16 @@ export const listWarrantyCases = (query: WarrantyCaseListQuery) =>
   request<CrmPage<WarrantyCaseSummary>>(`/warranty/cases${toQuery(query)}`, { cache: 'no-store' });
 export const getWarrantyCase = (id: string) =>
   request<WarrantyCaseDetail>(`/warranty/cases/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const listWarrantyDeviceDocuments = (id: string) =>
+  request<WarrantyDeviceDocument[]>(`/warranty/cases/${encodeURIComponent(id)}/device-documents`, { cache: 'no-store' });
 export const createWarrantyCase = (body: CreateWarrantyCaseRequest) => send<WarrantyCaseDetail>('POST', '/warranty/cases', body);
+/** Loại tài liệu; `includeInactive` chỉ có hiệu lực với người có `crm.manage`. */
+export const listDocumentTypes = (includeInactive = false) =>
+  request<CrmDocumentType[]>(`/document-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createDocumentType = (body: CreateDocumentTypeRequest) => send<CrmDocumentType>('POST', '/document-types', body);
+export const updateDocumentType = (id: string, body: UpdateDocumentTypeRequest) =>
+  send<CrmDocumentType>('PATCH', `/document-types/${encodeURIComponent(id)}`, body);
+
 export type WarrantyAction = 'receive' | 'reject' | 'sync-documents' | 'close';
 export const warrantyAction = (id: string, action: WarrantyAction, body: WarrantyActionRequest) =>
   send<WarrantyCaseDetail>('POST', `/warranty/cases/${encodeURIComponent(id)}/${action}`, body);
@@ -398,3 +540,132 @@ export const loadReceivableReport = (query: ReceivableReportQuery) =>
 // Dashboard Tổng quan: chỉ cần `crm.read`, số liệu theo phạm vi của người xem.
 export const loadDashboard = (query: DashboardQuery) =>
   request<SalesDashboard>(`/dashboard${toQuery(query)}`, { cache: 'no-store' });
+
+// Kho tài liệu (GĐ C): máy chủ chỉ cấp URL ký, trình duyệt PUT thẳng file lên kho lưu trữ.
+export const listDocuments = (query: DocumentListQuery) =>
+  request<CrmDocument[]>(`/documents${toQuery(query)}`, { cache: 'no-store' });
+export const getDocument = (id: string) => request<CrmDocumentDetail>(`/documents/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createDocument = (body: CreateDocumentRequest) => send<CreateDocumentResponse>('POST', '/documents', body);
+export const updateDocument = (id: string, body: UpdateDocumentRequest) =>
+  send<CrmDocument>('PATCH', `/documents/${encodeURIComponent(id)}`, body);
+export const deleteDocument = (id: string) => send<void>('DELETE', `/documents/${encodeURIComponent(id)}`);
+export const createDocumentVersion = (id: string, body: CreateDocumentVersionRequest) =>
+  send<DocumentUploadTicket>('POST', `/documents/${encodeURIComponent(id)}/versions`, body);
+export const completeDocumentUpload = (id: string, versionId: string, body: CompleteDocumentUploadRequest) =>
+  send<CrmDocumentVersion>('POST', `/documents/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/complete`, body);
+export const getDocumentDownload = (id: string, version?: number) =>
+  request<DocumentDownloadTicket>(`/documents/${encodeURIComponent(id)}/download${toQuery({ version })}`, { cache: 'no-store' });
+export const lockDocument = (id: string) => send<CrmDocument>('POST', `/documents/${encodeURIComponent(id)}/lock`);
+export const unlockDocument = (id: string) => send<CrmDocument>('POST', `/documents/${encodeURIComponent(id)}/unlock`);
+export const setDocumentAudience = (id: string, audience: CrmDocumentAudience) =>
+  send<CrmDocument>('PATCH', `/documents/${encodeURIComponent(id)}/audience`, { audience });
+export const listDocumentFolders = (entityType: string, entityId: string) =>
+  request<CrmDocumentFolder[]>(`/document-folders${toQuery({ entityType, entityId })}`, { cache: 'no-store' });
+export const createDocumentFolder = (body: CreateDocumentFolderRequest) => send<CrmDocumentFolder>('POST', '/document-folders', body);
+
+// Cấu hình luồng (P2G-03, chỉ crm.manage): mọi thao tác ghi trả về danh sách luồng mới.
+import type {
+  AdminPipeline,
+  CreatePipelineRequest,
+  CreateStageRequest,
+  PipelineTemplate,
+  SetStageRequirementsRequest,
+  UpdatePipelineRequest,
+  UpdateStageRequest,
+} from '@enterprise-platform/contracts-crm';
+
+const pipelinePath = (id: string) => `/pipelines/${encodeURIComponent(id)}`;
+const stagePath = (id: string, stageId: string) => `${pipelinePath(id)}/stages/${encodeURIComponent(stageId)}`;
+export const listAdminPipelines = () => request<AdminPipeline[]>('/pipelines', { cache: 'no-store' });
+export const listPipelineTemplates = () => request<PipelineTemplate[]>('/pipelines/templates', { cache: 'no-store' });
+export const createPipeline = (body: CreatePipelineRequest) => send<AdminPipeline[]>('POST', '/pipelines', body);
+export const updatePipeline = (id: string, body: UpdatePipelineRequest) => send<AdminPipeline[]>('PATCH', pipelinePath(id), body);
+export const setDefaultPipeline = (id: string) => send<AdminPipeline[]>('PUT', `${pipelinePath(id)}/default`);
+export const reorderPipelines = (pipelineIds: readonly string[]) => send<AdminPipeline[]>('PUT', '/pipelines/order', { pipelineIds });
+export const deletePipeline = (id: string) => send<AdminPipeline[]>('DELETE', pipelinePath(id));
+export const createPipelineStage = (id: string, body: CreateStageRequest) => send<AdminPipeline[]>('POST', `${pipelinePath(id)}/stages`, body);
+export const updatePipelineStage = (id: string, stageId: string, body: UpdateStageRequest) => send<AdminPipeline[]>('PATCH', stagePath(id, stageId), body);
+export const reorderPipelineStages = (id: string, stageIds: readonly string[]) => send<AdminPipeline[]>('PUT', `${pipelinePath(id)}/stages/order`, { stageIds });
+export const deletePipelineStage = (id: string, stageId: string) => send<AdminPipeline[]>('DELETE', stagePath(id, stageId));
+export const setStageTransitions = (id: string, stageId: string, toStageIds: readonly string[]) =>
+  send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/transitions`, { toStageIds });
+export const setStageRequirements = (id: string, stageId: string, body: SetStageRequirementsRequest) =>
+  send<AdminPipeline[]>('PUT', `${stagePath(id, stageId)}/requirements`, body);
+
+// Mẫu báo giá, loại báo giá, mã báo giá (GĐ I; ghi cần crm.manage).
+import type {
+  GeneratedQuoteCode,
+  QuoteCodeSettings,
+  QuoteTemplate,
+  QuoteType,
+  SaveQuoteCodeSettingsRequest,
+  SaveQuoteTemplateRequest,
+  SaveQuoteTypeRequest,
+} from '@enterprise-platform/contracts-crm';
+
+export const listQuoteTemplates = (includeInactive = false) =>
+  request<QuoteTemplate[]>(`/quote-templates${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createQuoteTemplate = (body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('POST', '/quote-templates', body);
+export const updateQuoteTemplate = (id: string, body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('PUT', `/quote-templates/${encodeURIComponent(id)}`, body);
+export const listQuoteTypes = (includeInactive = false) =>
+  request<QuoteType[]>(`/quote-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const createQuoteType = (body: SaveQuoteTypeRequest) => send<QuoteType>('POST', '/quote-types', body);
+export const updateQuoteType = (id: string, body: SaveQuoteTypeRequest) => send<QuoteType>('PUT', `/quote-types/${encodeURIComponent(id)}`, body);
+export const loadQuoteCodeSettings = () => request<QuoteCodeSettings>('/quote-code-settings', { cache: 'no-store' });
+export const saveQuoteCodeSettings = (body: SaveQuoteCodeSettingsRequest) => send<QuoteCodeSettings>('PUT', '/quote-code-settings', body);
+export const generateQuoteCode = () => send<GeneratedQuoteCode>('POST', '/quotes/code/generate');
+
+// Trường tuỳ biến, người theo dõi, đối tượng liên quan của báo giá (P2I-06, P2I-07)
+import type {
+  AddQuoteLinkRequest,
+  CustomFieldDefinition,
+  QuoteFollower,
+  QuoteLink,
+  SaveCustomFieldRequest,
+} from '@enterprise-platform/contracts-crm';
+
+export const listQuoteCustomFields = () =>
+  request<CustomFieldDefinition[]>(`/custom-fields${toQuery({ entityType: 'quote' })}`, { cache: 'no-store' });
+export const createCustomField = (body: SaveCustomFieldRequest) => send<CustomFieldDefinition>('POST', '/custom-fields', { entityType: 'quote', ...body });
+export const updateCustomField = (id: string, body: SaveCustomFieldRequest) =>
+  send<CustomFieldDefinition>('PUT', `/custom-fields/${encodeURIComponent(id)}`, { entityType: 'quote', ...body });
+export const listQuoteFollowers = (quoteId: string) => request<QuoteFollower[]>(`${quotePath(quoteId)}/followers`, { cache: 'no-store' });
+export const addQuoteFollower = (quoteId: string, userId: string) => send<QuoteFollower>('POST', `${quotePath(quoteId)}/followers`, { userId });
+export const removeQuoteFollower = (quoteId: string, userId: string) =>
+  send<void>('DELETE', `${quotePath(quoteId)}/followers/${encodeURIComponent(userId)}`);
+export const listQuoteLinks = (quoteId: string) => request<QuoteLink[]>(`${quotePath(quoteId)}/links`, { cache: 'no-store' });
+export const addQuoteLink = (quoteId: string, body: AddQuoteLinkRequest) => send<QuoteLink>('POST', `${quotePath(quoteId)}/links`, body);
+export const removeQuoteLink = (quoteId: string, linkId: string) =>
+  send<void>('DELETE', `${quotePath(quoteId)}/links/${encodeURIComponent(linkId)}`);
+
+// Khuyến mãi và chiết khấu (P2I-11)
+export const listPromotionCatalog = (query: { kind?: PromotionKind; includeInactive?: boolean } = {}) =>
+  request<PromotionCatalogItem[]>(`/promotions/catalog${toQuery({ kind: query.kind, includeInactive: query.includeInactive ? 'true' : undefined })}`, {
+    cache: 'no-store',
+  });
+export const createPromotionCatalog = (body: SavePromotionCatalogRequest) => send<PromotionCatalogItem>('POST', '/promotions/catalog', body);
+export const updatePromotionCatalog = (id: string, body: SavePromotionCatalogRequest) =>
+  send<PromotionCatalogItem>('PUT', `/promotions/catalog/${encodeURIComponent(id)}`, body);
+export const listOpportunityPromotions = (opportunityId: string) =>
+  request<OpportunityPromotion[]>(`/opportunities/${encodeURIComponent(opportunityId)}/promotions`, { cache: 'no-store' });
+export const addOpportunityPromotion = (opportunityId: string, body: AddOpportunityPromotionRequest) =>
+  send<OpportunityPromotion[]>('POST', `/opportunities/${encodeURIComponent(opportunityId)}/promotions`, body);
+export const removeOpportunityPromotion = (opportunityId: string, linkId: string) =>
+  send<OpportunityPromotion[]>('DELETE', `/opportunities/${encodeURIComponent(opportunityId)}/promotions/${encodeURIComponent(linkId)}`);
+export const saveQuotePromotions = (quoteId: string, versionNo: number, body: SaveQuotePromotionsRequest) =>
+  send<SaveQuotePromotionsResponse>('PUT', `/quotes/${encodeURIComponent(quoteId)}/versions/${versionNo}/promotions`, body);
+
+// Tài liệu có sẵn đính kèm vào báo giá (Q-P2-11)
+export const listQuoteDocumentCandidates = (quoteId: string, query: QuoteDocumentCandidateQuery = {}) =>
+  request<QuoteDocumentCandidate[]>(`/quotes/${encodeURIComponent(quoteId)}/document-candidates${toQuery(query)}`, { cache: 'no-store' });
+export const listQuoteDocumentReferences = (quoteId: string) =>
+  request<QuoteDocumentReference[]>(`/quotes/${encodeURIComponent(quoteId)}/document-references`, { cache: 'no-store' });
+export const addQuoteDocumentReference = (quoteId: string, body: AddQuoteDocumentReferenceRequest) =>
+  send<QuoteDocumentReference[]>('POST', `/quotes/${encodeURIComponent(quoteId)}/document-references`, body);
+export const removeQuoteDocumentReference = (quoteId: string, referenceId: string) =>
+  send<QuoteDocumentReference[]>('DELETE', `/quotes/${encodeURIComponent(quoteId)}/document-references/${encodeURIComponent(referenceId)}`);
+export const getQuoteDocumentReferenceDownload = (quoteId: string, referenceId: string, version?: number) =>
+  request<DocumentDownloadTicket>(
+    `/quotes/${encodeURIComponent(quoteId)}/document-references/${encodeURIComponent(referenceId)}/download${toQuery({ version })}`,
+    { cache: 'no-store' },
+  );

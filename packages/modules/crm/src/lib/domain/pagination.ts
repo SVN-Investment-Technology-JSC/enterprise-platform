@@ -41,3 +41,16 @@ export function pageLimit(raw: unknown): number {
   }
   return Math.min(number, CRM_PAGE_LIMIT_MAX);
 }
+
+/** Số trang tối đa nhận khi phân trang theo số trang. */
+export const PAGE_NUMBER_MAX = 100_000;
+
+/** Trang cần xem (từ 1) khi phân trang theo số trang; không gửi thì phân trang keyset như cũ. */
+export function pageNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const number = Number(raw);
+  if (!Number.isInteger(number) || number < 1 || number > PAGE_NUMBER_MAX) {
+    throw new CrmValidationError('INVALID_PAGE', 'Số trang không hợp lệ.');
+  }
+  return number;
+}

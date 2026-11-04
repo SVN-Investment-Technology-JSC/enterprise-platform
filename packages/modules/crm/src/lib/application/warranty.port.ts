@@ -80,6 +80,8 @@ export interface WarrantyCaseFilter {
   readonly customerId?: string;
   readonly serial?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

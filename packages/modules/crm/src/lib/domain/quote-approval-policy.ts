@@ -1,4 +1,13 @@
-import type { QuoteApprovalReason, QuoteApprovalSettings } from '@enterprise-platform/contracts-crm';
+import {
+  BUSINESS_PLAN_APPROVAL_REASON,
+  BUSINESS_PLAN_DEVIATION_REASON,
+  type BusinessPlanDeviationSettings,
+  type BusinessPlanFigures,
+  type BusinessPlanStatus,
+  type QuoteApprovalReason,
+  type QuoteApprovalSettings,
+} from '@enterprise-platform/contracts-crm';
+import { comparePlanFigures, type PlanDeviationResult } from './business-plan.js';
 import { CrmValidationError } from './crm.error.js';
 
 /**
@@ -133,4 +142,56 @@ function percent(raw: unknown, label: string): number {
     throw new CrmValidationError('INVALID_NUMBER', `${label} tối đa 2 chữ số thập phân.`);
   }
   return number;
+}
+
+// ---------------------------------------------------------------------------
+// Phương án kinh doanh (PAKD, GĐ D)
+// ---------------------------------------------------------------------------
+
+export interface PlanApprovalInput {
+  /** PAKD gắn phiên bản đang gửi duyệt; rỗng khi chưa lập. */
+  readonly plan: { readonly status: BusinessPlanStatus } | null;
+  /** Số liệu hiện tại của phiên bản (có PAKD thì kèm chi phí PAKD, chưa có thì kế thừa chi phí của PAKD đã duyệt). */
+  readonly current: Pick<BusinessPlanFigures, 'profit' | 'discountPercent'> | null;
+  /** PAKD đã duyệt gần nhất của các phiên bản trước; rỗng khi báo giá chưa có PAKD đã duyệt. */
+  readonly baseline: Pick<BusinessPlanFigures, 'profit' | 'discountPercent'> | null;
+  readonly settings: BusinessPlanDeviationSettings;
+}
+
+export interface PlanDeviationEvaluation {
+  readonly result: PlanDeviationResult | null;
+  readonly reasons: QuoteApprovalReason[];
+}
+
+/**
+ * Lý do cần duyệt do PAKD (P2D-04, P2D-05):
+ *
+ * - có PAKD đang soạn thì phải được duyệt cùng báo giá (`BUSINESS_PLAN`); PAKD đã duyệt thì không cần thêm;
+ * - phiên bản mới so với PAKD đã duyệt gần nhất của báo giá: vượt ngưỡng cấu hình thì buộc trình lại
+ *   (`PLAN_DEVIATION`). So với bản đã duyệt gần nhất chứ không phải bản liền trước, nên sửa nhỏ nhiều lần
+ *   vẫn dồn lệch và bị chặn.
+ *
+ * PAKD đang chờ duyệt hay bị từ chối là lỗi 409 ở service, không phải lý do.
+ */
+export function evaluatePlanApproval(input: PlanApprovalInput): PlanDeviationEvaluation {
+  const reasons: QuoteApprovalReason[] = [];
+  if (input.plan?.status === 'DRAFT') {
+    reasons.push({ code: BUSINESS_PLAN_APPROVAL_REASON, message: 'Báo giá có phương án kinh doanh kèm theo, cần được duyệt.' });
+  }
+  let result: PlanDeviationResult | null = null;
+  if (input.baseline && input.current) {
+    result = comparePlanFigures(input.settings.mode, input.baseline, input.current, input.settings.thresholdPercent);
+    if (result.exceeded) {
+      const threshold = percentText(input.settings.thresholdPercent);
+      const amount = result.deviationPercent === null ? 'không còn lợi nhuận' : percentText(result.deviationPercent);
+      reasons.push({
+        code: BUSINESS_PLAN_DEVIATION_REASON,
+        message:
+          input.settings.mode === 'PROFIT'
+            ? `Lợi nhuận giảm ${amount} so với phương án kinh doanh đã duyệt (vượt ngưỡng ${threshold}).`
+            : `Chiết khấu tăng ${amount} (điểm phần trăm) so với phương án kinh doanh đã duyệt (vượt ngưỡng ${threshold}).`,
+      });
+    }
+  }
+  return { result, reasons };
 }

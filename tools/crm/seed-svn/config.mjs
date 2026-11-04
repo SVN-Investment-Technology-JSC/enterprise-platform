@@ -54,19 +54,21 @@ export function buildConfig(tenantSlug) {
 /** Phân hệ bật cho tenant thí điểm. */
 export const ENTITLEMENTS = ['crm', 'inventory', 'finance', 'procedure-engine', 'workspace', 'hrm'];
 
-const SALES_STAFF = ['crm.read', 'crm.opportunity.write', 'crm.quote.write', 'crm.order.write'];
+// Tài liệu (GĐ C): nhân viên kinh doanh tải lên và quản lý tài liệu trong phạm vi dữ liệu của mình; xoá cấp riêng.
+const SALES_STAFF = ['crm.read', 'crm.opportunity.write', 'crm.quote.write', 'crm.order.write', 'crm.document.write'];
 // Trưởng nhóm và quản lý duyệt báo giá, vượt hạn mức trên Quy trình (TC-UAT-01 bước 7, TC-AR-11): cần vào được
 // Procedure Engine (`procedure.access`), không thì procedure-api trả 403 MODULE_ROLE_FORBIDDEN.
-const TEAM_LEAD = [...SALES_STAFF, 'crm.quote.approve', 'procedure.access'];
+// Giá vốn và lợi nhuận (PAKD): trưởng nhóm, quản lý thấy rõ ràng (quyền bao hàm từ lập, duyệt báo giá vẫn có).
+const TEAM_LEAD = [...SALES_STAFF, 'crm.quote.approve', 'crm.quote.cost.read', 'procedure.access'];
 
 /** Vai trò; mỗi vai trò có một Permission cùng tên (tiền tố "Quyền - "). Khớp theo tên khi chạy lại. */
 export const ROLES = {
   NV_A: { name: 'BH - Nhân viên kinh doanh nhóm A', actions: SALES_STAFF },
   NV_B: { name: 'BH - Nhân viên kinh doanh nhóm B', actions: SALES_STAFF },
   TN: { name: 'BH - Trưởng nhóm kinh doanh', actions: TEAM_LEAD },
-  QL: { name: 'BH - Quản lý kinh doanh', actions: [...TEAM_LEAD, 'crm.read.all', 'crm.report.read', 'inventory.read'] },
-  QTBH: { name: 'BH - Quản trị bán hàng', actions: ['crm.manage', 'crm.contract.write'] },
-  KTV: { name: 'BH - Kỹ thuật, CSKH', actions: ['crm.read', 'crm.read.all', 'crm.warranty.write'] },
+  QL: { name: 'BH - Quản lý kinh doanh', actions: [...TEAM_LEAD, 'crm.read.all', 'crm.report.read', 'crm.document.delete', 'inventory.read'] },
+  QTBH: { name: 'BH - Quản trị bán hàng', actions: ['crm.manage', 'crm.contract.write', 'crm.document.delete'] },
+  KTV: { name: 'BH - Kỹ thuật, CSKH', actions: ['crm.read', 'crm.read.all', 'crm.warranty.write', 'crm.document.write'] },
   TK: { name: 'Kho - Thủ kho', actions: ['inventory.read', 'inventory.transaction.write', 'inventory.quality.write'] },
   QLK: { name: 'Kho - Quản lý kho', actions: ['inventory.manage', 'inventory.document.approve'] },
   KT: {

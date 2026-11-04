@@ -483,11 +483,18 @@ export const TENANT_PERMISSION_ACTIONS = [
   },
   { key: 'crm.quote.write', group: 'CRM', label: 'Lập báo giá' },
   { key: 'crm.quote.approve', group: 'CRM', label: 'Duyệt báo giá' },
+  { key: 'crm.quote.cost.read', group: 'CRM', label: 'Xem giá vốn và lợi nhuận của báo giá, phương án kinh doanh' },
   { key: 'crm.order.write', group: 'CRM', label: 'Lập và xác nhận đơn bán' },
   { key: 'crm.contract.write', group: 'CRM', label: 'Quản lý hợp đồng' },
   { key: 'crm.receivable.write', group: 'CRM', label: 'Thu tiền và điều chỉnh công nợ' },
   { key: 'crm.warranty.write', group: 'CRM', label: 'Xử lý bảo hành và đổi trả' },
   { key: 'crm.report.read', group: 'CRM', label: 'Xem báo cáo CRM' },
+  {
+    key: 'crm.document.write',
+    group: 'CRM',
+    label: 'Tải lên, khoá và đổi đối tượng xem tài liệu CRM',
+  },
+  { key: 'crm.document.delete', group: 'CRM', label: 'Xoá tài liệu CRM' },
   {
     key: 'crm.manage',
     group: 'CRM',
@@ -595,16 +602,21 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'social.post.write': ['social.read'],
   // Bán hàng: mọi quyền nghiệp vụ đều cần xem được phân hệ. `crm.manage` là quản trị cấu hình,
   // cố ý không kéo theo quyền lập báo giá, đơn, hợp đồng hay thu tiền.
-  'crm.manage': ['crm.read', 'crm.read.all'],
+  // Tài liệu: quản trị bán hàng tải lên và mở khoá được; quyền xoá cấp đích danh (như Workspace, Hệ dùng chung).
+  // Giá vốn, lợi nhuận: người lập, duyệt báo giá và quản trị bán hàng đều thấy; người chỉ xem thì cấp riêng.
+  'crm.manage': ['crm.read', 'crm.read.all', 'crm.document.write', 'crm.quote.cost.read'],
   'crm.read.all': ['crm.read'],
   'crm.opportunity.write': ['crm.read'],
-  'crm.quote.write': ['crm.read'],
-  'crm.quote.approve': ['crm.read'],
+  'crm.quote.write': ['crm.read', 'crm.quote.cost.read'],
+  'crm.quote.approve': ['crm.read', 'crm.quote.cost.read'],
+  'crm.quote.cost.read': ['crm.read'],
   'crm.order.write': ['crm.read'],
   'crm.contract.write': ['crm.read'],
   'crm.receivable.write': ['crm.read'],
   'crm.warranty.write': ['crm.read'],
   'crm.report.read': ['crm.read'],
+  'crm.document.write': ['crm.read'],
+  'crm.document.delete': ['crm.read'],
 };
 
 /** Người giữ `held` có `action` không, kể cả khi được bao hàm bởi một action quản lý. */

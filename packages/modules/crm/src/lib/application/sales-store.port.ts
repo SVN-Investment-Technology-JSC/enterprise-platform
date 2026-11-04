@@ -7,19 +7,25 @@ import type {
   CustomerDetail,
   CustomerGroup,
   CustomerKind,
+  CustomerKindOption,
   CustomerSummary,
   CustomerTimelineEntry,
   Lead,
   LeadStatus,
+  MyStageTask,
   OpportunityBoard,
+  OpportunityByCustomerPage,
   OpportunityDetail,
-  OpportunityStage,
+  OpportunityStagePlanItem,
   OpportunitySummary,
+  Pipeline,
+  StageSemantic,
   TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmCustomerReference } from '@enterprise-platform/contracts-integration';
 import type { CustomerCodeRule } from '../domain/customer-code.js';
 import type { KeysetCursor } from '../domain/pagination.js';
+import type { PlannedStage } from '../domain/stage-plan.js';
 import type { CrmDataScope } from './data-scope.js';
 
 /**
@@ -32,6 +38,7 @@ import type { CrmDataScope } from './data-scope.js';
 
 export const CRM_CUSTOMER_STORE = Symbol('CRM_CUSTOMER_STORE');
 export const CRM_CUSTOMER_GROUP_STORE = Symbol('CRM_CUSTOMER_GROUP_STORE');
+export const CRM_CUSTOMER_KIND_STORE = Symbol('CRM_CUSTOMER_KIND_STORE');
 export const CRM_SETTINGS_STORE = Symbol('CRM_SETTINGS_STORE');
 export const CRM_LEAD_STORE = Symbol('CRM_LEAD_STORE');
 export const CRM_OPPORTUNITY_STORE = Symbol('CRM_OPPORTUNITY_STORE');
@@ -49,6 +56,8 @@ export interface CustomerFilter {
   readonly kind?: CustomerKind;
   readonly ownerUserId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -95,6 +104,17 @@ export interface CustomerStore {
     expectedVersion: number,
     actorId: string,
   ): Promise<void>;
+  /**
+   * Lưu chân dung khách hàng (P2F-03), tăng `version`; sai `expectedVersion`: 409. Ghi `audit_log` trong cùng
+   * transaction. `false` khi khách không còn.
+   */
+  saveProfileNote(
+    tenantId: string,
+    id: string,
+    profileNote: string | null,
+    expectedVersion: number,
+    actorId: string,
+  ): Promise<boolean>;
   /** Người liên hệ đầu tiên luôn là người chính. Trả id. */
   addContact(tenantId: string, customerId: string, record: ContactRecord, actorId: string): Promise<string>;
   /** `false` khi người liên hệ không thuộc khách này. */
@@ -146,6 +166,31 @@ export interface CustomerGroupStore {
   deleteGroup(tenantId: string, id: string): Promise<boolean>;
 }
 
+export interface CustomerKindRecord {
+  readonly code: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly sortOrder: number;
+}
+
+export interface CustomerKindStore {
+  listKinds(tenantId: string): Promise<CustomerKindOption[]>;
+  /** Trùng mã: 409. */
+  createKind(tenantId: string, record: CustomerKindRecord, actorId: string): Promise<CustomerKindOption>;
+  /**
+   * Sửa theo mã hiện tại; đổi mã thì khách thuộc phân loại đổi theo. `undefined` khi không có. Trùng mã: 409.
+   * Phân loại hệ thống không đổi mã được: 409.
+   */
+  updateKind(
+    tenantId: string,
+    code: string,
+    record: CustomerKindRecord,
+    actorId: string,
+  ): Promise<CustomerKindOption | undefined>;
+  /** `false` khi không có. Phân loại hệ thống hoặc đang có khách: 409. */
+  deleteKind(tenantId: string, code: string): Promise<boolean>;
+}
+
 export interface SettingsStore {
   customerCodeRule(tenantId: string): Promise<CustomerCodeRule>;
   saveCustomerCodeRule(tenantId: string, rule: CustomerCodeRule, actorId: string): Promise<void>;
@@ -166,6 +211,8 @@ export interface LeadFilter {
   readonly status?: LeadStatus;
   readonly ownerUserId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -227,11 +274,21 @@ export interface LeadStore {
 
 export interface OpportunityFilter {
   readonly q?: string;
-  readonly stage?: OpportunityStage;
+  /** Mã giai đoạn. */
+  readonly stage?: string;
+  readonly pipelineId?: string;
   readonly ownerUserId?: string;
   readonly customerId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
+}
+
+/** Bộ lọc của danh sách theo khách: như danh sách dự án, phân trang theo số trang. */
+export interface OpportunityByCustomerFilter extends Omit<OpportunityFilter, 'cursor' | 'limit' | 'customerId'> {
+  readonly page: number;
+  readonly pageSize: number;
 }
 
 export interface OpportunityRecord {
@@ -241,12 +298,59 @@ export interface OpportunityRecord {
   readonly expectedCloseDate: string | null;
   readonly need: string | null;
   readonly budget: number | null;
+  /** Dự toán (P2D-09); bỏ trống (lead chuyển đổi) là chưa nhập. */
+  readonly estimateTotalValue?: number | null;
+  readonly estimateCostValue?: number | null;
+  /** Đối thủ và giá đối thủ (P2F-03); bỏ trống là chưa nhập. */
+  readonly competitorName?: string | null;
+  readonly competitorPrice?: number | null;
   readonly ownerUserId: string;
 }
 
+/** Luồng và giai đoạn đầu cho cơ hội mới (service đã chọn từ cấu hình). */
+export interface OpportunityPlacement {
+  readonly pipelineId: string;
+  readonly stageId: string;
+  readonly stageCode: string;
+  /**
+   * Kế hoạch giai đoạn đã dựng ở service (người đảm nhận theo quy tắc, giai đoạn bỏ qua). Không có thì
+   * store lập kế hoạch cho mọi giai đoạn đang bật của luồng, chưa gán người (chuyển đổi lead).
+   */
+  readonly plan?: readonly PlannedStage[];
+  /** Tên giai đoạn theo id, để ghi nhật ký và sự kiện gán người. */
+  readonly stageNames?: Readonly<Record<string, { code: string; name: string }>>;
+}
+
+/** Thay đổi người đảm nhận một giai đoạn của riêng dự án. */
+export interface StageAssigneeChange {
+  readonly stageId: string;
+  readonly assigneeUserId: string | null;
+  /** `undefined` giữ hạn cũ; `null` xoá hạn. */
+  readonly dueDate?: string | null;
+}
+
+export interface StageSkip {
+  readonly stageId: string;
+  readonly reason: string;
+}
+
+/** Kết nối của transaction đang mở (cổng hẹp, tầng application không import hạ tầng). */
+export interface StageChangeTransaction {
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 export interface StageChange {
-  readonly from: OpportunityStage;
-  readonly to: OpportunityStage;
+  readonly pipelineId: string;
+  /** Giai đoạn hiện tại (id và mã); chỉ đổi khi cơ hội vẫn đang ở đó. */
+  readonly fromStageId: string;
+  readonly from: string;
+  readonly fromSemantic: StageSemantic;
+  readonly toStageId: string;
+  readonly to: string;
+  readonly toSemantic: StageSemantic;
+  /** Thứ tự giai đoạn trong luồng, để cập nhật kế hoạch (tiến hoặc lùi). */
+  readonly fromSortOrder: number;
+  readonly toSortOrder: number;
   readonly reason: string | null;
   /** Không có thì không so phiên bản (chỉ so giai đoạn hiện tại). */
   readonly expectedVersion?: number;
@@ -255,10 +359,19 @@ export interface StageChange {
    * transaction nếu cơ hội chưa có báo giá còn hiệu lực (OPP-05).
    */
   readonly draftQuoteValidUntil?: string;
-  /** Sang Thắng: phải có báo giá Khách chấp nhận, kiểm trong transaction. */
-  readonly requireAcceptedQuote?: boolean;
-  /** Sang Thua: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
+  /**
+   * Giai đoạn đích có điều kiện QUOTE_APPROVED bắt buộc: kiểm lại trong
+   * transaction (chống đua); thiếu thì 409 `ACCEPTED_QUOTE_REQUIRED` kèm thông báo này.
+   */
+  readonly requireAcceptedQuote?: { readonly message: string };
+  /** Sang nghĩa LOST: báo giá chưa kết thúc sang Khách từ chối trong cùng transaction (T3-21). */
   readonly declineOpenQuotes?: boolean;
+  /** Sang Đã nộp (GĐ E): ghi ngày nộp vào hồ sơ thầu của cơ hội (nếu có), chưa ghi thì mới ghi. */
+  readonly markTenderSubmitted?: boolean;
+  /** Sang Trúng hoặc Trượt (GĐ E): ghi kết quả vào hồ sơ thầu của cơ hội (nếu có và chưa có kết quả). */
+  readonly syncTenderResult?: boolean;
+  /** Việc thêm cần làm trong CÙNG transaction, chạy sau khi đã đổi giai đoạn; ném lỗi thì cả lần chuyển rollback. */
+  readonly inTransaction?: (client: StageChangeTransaction) => Promise<void>;
 }
 
 export interface OpportunityStore {
@@ -267,20 +380,30 @@ export interface OpportunityStore {
     scope: CrmDataScope,
     filter: OpportunityFilter,
   ): Promise<CrmPage<OpportunitySummary>>;
+  /** Sắp theo khách, phân trang theo số trang; kèm tổng của các khách có trên trang. */
+  listByCustomer(
+    tenantId: string,
+    scope: CrmDataScope,
+    filter: OpportunityByCustomerFilter,
+  ): Promise<OpportunityByCustomerPage>;
   board(
     tenantId: string,
     scope: CrmDataScope,
     filter: { readonly ownerUserId?: string; readonly q?: string },
     perStageLimit: number,
+    pipeline: Pipeline,
   ): Promise<OpportunityBoard>;
   getOpportunity(tenantId: string, scope: CrmDataScope, id: string): Promise<OpportunityDetail | undefined>;
-  /** Tạo ở giai đoạn Mới, ghi dòng lịch sử đầu tiên và nhật ký. Trả id. */
+  /** Tạo ở giai đoạn đầu của luồng đã chọn, ghi dòng lịch sử đầu tiên và nhật ký. Trả id. */
   createOpportunity(
     tenantId: string,
     customerId: string,
     record: OpportunityRecord,
     actorId: string,
+    placement: OpportunityPlacement,
   ): Promise<string>;
+  /** Cơ hội có báo giá Khách chấp nhận không (đọc trước để nêu đủ điều kiện thiếu). */
+  hasAcceptedQuote(tenantId: string, opportunityId: string): Promise<boolean>;
   updateOpportunity(
     tenantId: string,
     id: string,
@@ -290,10 +413,54 @@ export interface OpportunityStore {
   ): Promise<void>;
   /**
    * Đổi giai đoạn chỉ khi giai đoạn hiện tại vẫn là `change.from` (và phiên
-   * bản khớp nếu có); ghi lịch sử và `audit_log` cùng transaction. Ai đó vừa
-   * đổi trước: 409.
+   * bản khớp nếu có); ghi `stage` và `stage_id`, lịch sử, `audit_log` và sự kiện
+   * outbox `crm.opportunity.stage-changed` cùng transaction. Ai đó vừa đổi trước: 409.
    */
   changeStage(tenantId: string, id: string, change: StageChange, actorId: string): Promise<void>;
+  /**
+   * Kế hoạch giai đoạn của cơ hội theo thứ tự luồng. Không kiểm phạm vi: bên gọi đã đọc được cơ hội
+   * (`getOpportunity` đã lọc phạm vi).
+   */
+  getStagePlan(tenantId: string, opportunityId: string): Promise<OpportunityStagePlanItem[]>;
+  /**
+   * PAKD mới nhất của cơ hội (P2D-09), một truy vấn: báo giá mới nhất của cơ hội, phiên bản đã duyệt gần nhất,
+   * không có thì phiên bản mới nhất có PAKD. Trả đủ số liệu; service lọc theo quyền xem giá vốn. Không kiểm phạm vi.
+   */
+  latestBusinessPlan(
+    tenantId: string,
+    opportunityId: string,
+  ): Promise<
+    | {
+        readonly quoteId: string;
+        readonly quoteCode: string;
+        readonly versionNo: number;
+        readonly status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+        readonly revenue: number;
+        readonly totalCost: number;
+        readonly profit: number;
+      }
+    | undefined
+  >;
+  /**
+   * Gán hoặc ghi đè người đảm nhận một giai đoạn chưa xong (PENDING hoặc ACTIVE) của riêng cơ hội: ghi
+   * `audit_log` và sự kiện `crm.opportunity.stage-assigned` cùng transaction. Giai đoạn DONE hoặc SKIPPED
+   * thì 409; giai đoạn không có trong kế hoạch thì 404. Không đổi người thì không ghi gì.
+   */
+  setStageAssignee(
+    tenantId: string,
+    opportunityId: string,
+    change: StageAssigneeChange,
+    actorId: string,
+  ): Promise<void>;
+  /**
+   * Bỏ qua một giai đoạn PENDING của cơ hội đang mở; khoá dòng cơ hội để không đua với chuyển giai đoạn.
+   * Ghi `audit_log` (`skip_stage`). Giai đoạn không còn PENDING: 409.
+   */
+  skipStage(tenantId: string, opportunityId: string, skip: StageSkip, actorId: string): Promise<void>;
+  /** Bật hoặc tắt gợi ý chăm sóc lại của luồng (kèm `audit_log`); `false` khi không có luồng. */
+  setPipelineCareSuggestion(tenantId: string, pipelineId: string, enabled: boolean, actorId: string): Promise<boolean>;
+  /** "Việc của tôi": giai đoạn ACTIVE hoặc PENDING giao cho `userId` ở cơ hội còn mở, ACTIVE trước. */
+  listMyStageTasks(tenantId: string, userId: string, limit: number): Promise<MyStageTask[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +473,8 @@ export interface ActivityFilter {
   readonly assigneeUserId?: string;
   readonly status?: ActivityStatus;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

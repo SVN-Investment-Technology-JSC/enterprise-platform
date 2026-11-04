@@ -40,10 +40,13 @@ import { cancelPendingCreditRequests, PostgresCreditStore } from './postgres-cre
 import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
 import { recordSalesFacts, salesFactSnapshot } from './sales-facts.js';
 import { readHistory } from './postgres-contract.store.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 /** Thực thể ghi vào `audit_log`. */
 export const SALES_ORDER_AUDIT_ENTITY = 'sales_order';
+
+/** Trạng thái còn ghi được ghi chú thông tin đơn hàng: mọi trạng thái trừ Đã huỷ. */
+const ORDER_INFO_NOTE_STATUSES: readonly SalesOrderStatus[] = ['DRAFT', 'CREDIT_PENDING', 'CONFIRMED', 'DELIVERING', 'PARTIAL', 'DELIVERED', 'DONE'];
 
 const STALE = () =>
   new CrmConflictError('STALE_VERSION', 'Đơn bán vừa được người khác cập nhật. Vui lòng tải lại rồi thao tác lại.');
@@ -70,6 +73,9 @@ interface HeadRow {
   warehouse_code: string | null;
   delivery_address: string | null;
   note: string | null;
+  info_note: string | null;
+  info_noted_by: string | null;
+  info_noted_at: Date | null;
   price_date: string | null;
   shipping_amount: string;
   shipping_vat_rate: string;
@@ -94,7 +100,7 @@ const headColumns = (today: string) => `
   o.expected_delivery_date::text AS expected_delivery_date, o.total_amount, o.owner_user_id,
   EXISTS (SELECT 1 FROM crm_schema.delivery_plans d
            WHERE d.order_id = o.id AND d.status IN ('PLANNED', 'REQUESTED') AND d.planned_date < ${today}::date) AS late,
-  o.warehouse_code, o.delivery_address, o.note, o.price_date::text AS price_date, o.shipping_amount, o.shipping_vat_rate,
+  o.warehouse_code, o.delivery_address, o.note, o.info_note, o.info_noted_by, o.info_noted_at, o.price_date::text AS price_date, o.shipping_amount, o.shipping_vat_rate,
   o.gross_amount, o.discount_amount, o.net_amount, o.vat_amount, o.revision, o.reservation_expires_at, o.cancel_reason,
   o.close_reason, o.created_at, o.updated_at, ${cursorAt('o.updated_at')} AS cursor_at,
   (SELECT COALESCE(sum(e.amount), 0) FROM crm_schema.receivable_entries e WHERE e.order_id = o.id) AS outstanding`;
@@ -134,15 +140,20 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
           : code,
       );
     }
-    where.after(filter.cursor, 'o.updated_at', 'o.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<HeadRow>(
-      `SELECT ${headColumns(today)} ${HEAD_FROM} ${where.where()}
-        ORDER BY o.updated_at DESC, o.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${headColumns(today)}`,
+        from: `${HEAD_FROM}`,
+        orderBy: 'o.updated_at DESC, o.id DESC',
+        atColumn: 'o.updated_at',
+        idColumn: 'o.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getOrder(tenantId: string, scope: CrmDataScope, id: string, today: string): Promise<SalesOrderDetail | undefined> {
@@ -194,6 +205,9 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
       warehouseCode: head.warehouse_code,
       deliveryAddress: head.delivery_address,
       note: head.note,
+      infoNote: head.info_note,
+      infoNotedBy: head.info_noted_by,
+      infoNotedAt: toIso(head.info_noted_at),
       priceDate: toDateOnly(head.price_date),
       shipping: { amount: num(head.shipping_amount), vatRate: num(head.shipping_vat_rate) },
       totals: {
@@ -250,6 +264,30 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
         await client.query(`DELETE FROM crm_schema.sales_order_lines WHERE order_id = $1`, [id]);
         await insertOrderLines(client, id, lines);
       }
+    });
+  }
+
+  saveInfoNote(tenantId: string, id: string, revision: number, infoNote: string | null, actorId: string): Promise<void> {
+    return this.database.transaction(tenantId, async (client) => {
+      const locked = await lockOrder(client, id, revision, ORDER_INFO_NOTE_STATUSES);
+      const before = await client.query<{ info_note: string | null }>(
+        `SELECT info_note FROM crm_schema.sales_orders WHERE id = $1`,
+        [id],
+      );
+      await client.query(
+        `UPDATE crm_schema.sales_orders
+            SET info_note = $2, info_noted_by = $3, info_noted_at = now(),
+                revision = revision + 1, updated_at = now(), updated_by = $3
+          WHERE id = $1`,
+        [id, infoNote, actorId],
+      );
+      await writeAuditLog(client, {
+        entityType: SALES_ORDER_AUDIT_ENTITY,
+        entityId: id,
+        action: 'update_info_note',
+        actorId,
+        metadata: { code: locked.code, fromLength: before.rows[0]?.info_note?.length ?? 0, toLength: infoNote?.length ?? 0 },
+      });
     });
   }
 

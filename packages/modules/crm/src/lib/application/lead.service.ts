@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CUSTOMER_KIND,
   LEAD_STATUSES,
   type ConvertLeadRequest,
   type ConvertLeadResult,
@@ -20,7 +21,7 @@ import {
   requiredText,
   requiredVersion,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { normalizeTaxCode } from '../domain/tax-code.js';
 import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -51,6 +52,7 @@ export class LeadService {
       status: optionalEnum(query.status, LEAD_STATUSES, 'trạng thái'),
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }
@@ -127,7 +129,7 @@ export class LeadService {
           phone: lead.phone,
           email: lead.email,
           groupId: null,
-          kind: 'LEAD_CUSTOMER',
+          kind: DEFAULT_CUSTOMER_KIND,
           creditLimit: null,
           paymentTermDays: null,
           note: lead.note,

@@ -869,7 +869,9 @@ export type ProcedureInstanceSourceType =
   /** Duyệt phiên bản báo giá vượt ngưỡng của Bán hàng; sourceId là id lần gửi duyệt (`crm_schema.procedure_links`). */
   | 'crm_quote'
   /** Duyệt đơn bán vượt hạn mức công nợ của Bán hàng; sourceId là id lần gửi duyệt. */
-  | 'crm_order_credit';
+  | 'crm_order_credit'
+  /** Duyệt phương án chào thầu của Bán hàng; sourceId là id vòng duyệt (`crm_schema.tender_plan_rounds`). */
+  | 'crm_tender_plan';
 
 /**
  * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.

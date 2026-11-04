@@ -10,6 +10,7 @@ import type {
   SalesOrderSummary,
   SalesSettings,
   SaveDeliveryPlanRequest,
+  SaveOrderInfoNoteRequest,
   UpdateSalesOrderRequest,
 } from '@enterprise-platform/contracts-crm';
 import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
@@ -68,6 +69,11 @@ export class SalesOrdersController {
   @Patch('orders/:id')
   update(@Req() request: CrmRequest, @Param('id') id: string, @Body() payload: Payload<UpdateSalesOrderRequest>): Promise<SalesOrderDetail> {
     return runCrm(() => this.orders.update(crmActor(request), id, body(payload)));
+  }
+
+  @Put('orders/:id/info-note')
+  saveInfoNote(@Req() request: CrmRequest, @Param('id') id: string, @Body() payload: Payload<SaveOrderInfoNoteRequest>): Promise<SalesOrderDetail> {
+    return runCrm(() => this.orders.saveInfoNote(crmActor(request), id, body(payload)));
   }
 
   @Post('orders/:id/deliveries')

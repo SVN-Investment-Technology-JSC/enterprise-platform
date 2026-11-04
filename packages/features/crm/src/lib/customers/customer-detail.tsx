@@ -1,11 +1,8 @@
 'use client';
 
 import {
-  CUSTOMER_KIND_LABELS,
-  OPPORTUNITY_STAGE_LABELS,
   type CustomerContact,
   type CustomerDetail as CustomerDetailData,
-  type OpportunityStage,
   type OpportunitySummary,
 } from '@enterprise-platform/contracts-crm';
 import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
@@ -14,8 +11,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityPanel } from '../activities/activity-panel';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
 import {
   addContact,
   deleteContact,
@@ -26,20 +23,23 @@ import {
   updateContact,
 } from '../crm-api';
 import { useCanWrite, useCrm } from '../crm-context';
-import { formatMoney, personName } from '../sales.model';
+import { DocumentsPanel } from '../documents';
+import { formatMoney, personName, stageTone } from '../sales.model';
 import styles from '../sales.module.scss';
 import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
 import { CustomerFormDialog } from './customer-form';
-import { KIND_TONE } from './customer-list';
+import { kindTone } from './customer-list';
 import { CustomerTimeline } from './customer-timeline';
+import { ProfileNotePanel } from './profile-note-panel';
 
-type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'timeline';
+type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'documents' | 'timeline';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'info', label: 'Thông tin' },
   { id: 'contacts', label: 'Người liên hệ' },
-  { id: 'opportunities', label: 'Cơ hội' },
+  { id: 'opportunities', label: 'Dự án bán hàng' },
   { id: 'activities', label: 'Hoạt động' },
+  { id: 'documents', label: 'Tài liệu' },
   { id: 'timeline', label: 'Dòng thời gian' },
 ];
 
@@ -100,7 +100,7 @@ export function CustomerDetail({
         <div className={styles.detailTitle}>
           <span className={styles.mono}>{customer.code}</span>
           <h2>{customer.name}</h2>
-          <StatusPill tone={KIND_TONE[customer.kind]}>{CUSTOMER_KIND_LABELS[customer.kind]}</StatusPill>
+          <StatusPill tone={kindTone(customer.kind)}>{customer.kindName}</StatusPill>
         </div>
         {canWrite ? (
           <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
@@ -149,11 +149,13 @@ export function CustomerDetail({
             <dt>Ngày tạo</dt>
             <dd>{formatDate(customer.createdAt)}</dd>
           </dl>
+          <ProfileNotePanel customer={customer} canEdit={canWrite} onSaved={setCustomer} />
         </section>
       ) : null}
       {tab === 'contacts' ? <ContactsTab customer={customer} onChanged={setCustomer} /> : null}
       {tab === 'opportunities' ? <CustomerOpportunities customer={customer} onOpen={onOpenOpportunity} /> : null}
       {tab === 'activities' ? <ActivityPanel scope={{ customerId: customer.id }} /> : null}
+      {tab === 'documents' ? <DocumentsPanel entityType="customer" entityId={customer.id} /> : null}
       {tab === 'timeline' ? <CustomerTimeline
           customerId={customer.id}
           onOpenOpportunity={onOpenOpportunity}
@@ -346,30 +348,18 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
   const canWrite = useCanWrite();
   const [creating, setCreating] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const list = useKeysetPage(`${customer.id}:${refresh}`, (cursor) => listOpportunities({ customerId: customer.id, cursor, limit: 20 }));
+  const list = usePagedList(`${customer.id}:${refresh}`, 20, (page) => listOpportunities({ customerId: customer.id, page, limit: 20 }));
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
-      { title: 'Cơ hội', dataIndex: 'name', ellipsis: true },
+      { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
       {
         title: 'Giai đoạn',
-        dataIndex: 'stage',
+        key: 'stage',
         width: 150,
-        render: (value: OpportunityStage) => (
-          <StatusPill tone={value === 'WON' ? 'success' : value === 'LOST' ? 'danger' : 'info'}>{OPPORTUNITY_STAGE_LABELS[value]}</StatusPill>
-        ),
+        render: (_: unknown, row) => <StatusPill tone={stageTone(row.stageInfo.semantic)}>{row.stageInfo.name}</StatusPill>,
       },
       { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Xem
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -378,7 +368,7 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
       {canWrite ? (
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonPrimary} onClick={() => setCreating(true)}>
-            <Plus size={14} /> Thêm cơ hội
+            <Plus size={14} /> Thêm dự án bán hàng
           </button>
         </div>
       ) : null}
@@ -390,9 +380,10 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
-        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có cơ hội nào.' }}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
+        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có dự án bán hàng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="cơ hội" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="dự án bán hàng" onChange={list.goTo} />
       {creating ? (
         <OpportunityFormDialog
           customer={customer}

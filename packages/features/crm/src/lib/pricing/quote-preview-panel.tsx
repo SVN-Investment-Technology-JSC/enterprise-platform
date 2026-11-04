@@ -12,31 +12,30 @@ import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platf
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { Plus, X } from 'lucide-react';
+import { Download, Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { StatusPill } from '../components/crm-ui';
 import { errorMessage, getPriceList, listCustomers, listPriceLists, previewQuote } from '../crm-api';
 import { groupOptions, useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
 import local from './pricing.module.scss';
-import { formatMoney, formatPercent, parseNumber } from './pricing.model';
+import { buildPricingSheet, formatMoney, formatPercent, parseNumber } from './pricing.model';
 
 interface LineDraft {
   readonly key: number;
   materialId: string;
   unit: string;
   quantity: string;
-  category: string;
   overrideUnitPrice: string;
   overrideDiscountPercent: string;
 }
 
-type Material = Pick<PriceListItem, 'materialId' | 'materialCode' | 'materialName' | 'unit'>;
+type Material = Pick<PriceListItem, 'materialId' | 'materialCode' | 'materialName' | 'unit' | 'price'>;
 
 let lineKey = 0;
 function emptyLine(): LineDraft {
   lineKey += 1;
-  return { key: lineKey, materialId: '', unit: '', quantity: '1', category: '', overrideUnitPrice: '', overrideDiscountPercent: '' };
+  return { key: lineKey, materialId: '', unit: '', quantity: '1', overrideUnitPrice: '', overrideDiscountPercent: '' };
 }
 
 /**
@@ -88,6 +87,14 @@ export function QuotePreviewPanel() {
   );
   const customerOptions = customers.map((customer) => ({ value: customer.id, label: customer.name, badge: customer.code }));
 
+  // Giá gốc hiển thị: kết quả tính gần nhất nếu đúng mặt hàng (đã xét ngày, nhóm khách), chưa có thì giá trong bảng giá.
+  const listPriceOf = (line: LineDraft, index: number): number | undefined => {
+    if (!line.materialId) return undefined;
+    const priced = result?.lines.find((entry) => entry.index === index && entry.materialId === line.materialId);
+    if (priced) return priced.listPrice;
+    return materials.find((entry) => entry.materialId === line.materialId && entry.unit === line.unit)?.price;
+  };
+
   const update = (key: number, patch: Partial<LineDraft>) =>
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
 
@@ -102,7 +109,6 @@ export function QuotePreviewPanel() {
         materialCode: material?.materialCode,
         materialName: material?.materialName,
         unit: line.unit,
-        category: line.category.trim() || null,
         quantity: parseNumber(line.quantity) ?? Number.NaN,
         overrideUnitPrice: line.overrideUnitPrice.trim() ? (parseNumber(line.overrideUnitPrice) ?? Number.NaN) : null,
         overrideDiscountPercent: line.overrideDiscountPercent.trim()
@@ -177,7 +183,7 @@ export function QuotePreviewPanel() {
 
         <h3 className={styles.sectionTitle}>Dòng hàng</h3>
         <div className={local.previewLines}>
-          {lines.map((line) => (
+          {lines.map((line, index) => (
             <div key={line.key} className={local.previewLine}>
               <label className={local.inlineField}>
                 Mặt hàng
@@ -201,8 +207,14 @@ export function QuotePreviewPanel() {
                 <input className={styles.input} value={line.unit} onChange={(event) => update(line.key, { unit: event.target.value })} />
               </label>
               <label className={local.inlineField}>
-                Nhóm hàng
-                <input className={styles.input} value={line.category} onChange={(event) => update(line.key, { category: event.target.value })} />
+                Giá trước chiết khấu
+                <input
+                  className={styles.input}
+                  readOnly
+                  aria-label="Giá trước chiết khấu (giá gốc)"
+                  placeholder="Chọn mặt hàng"
+                  value={formatMoney(listPriceOf(line, index))}
+                />
               </label>
               <label className={local.inlineField}>
                 Ghi đè đơn giá
@@ -239,12 +251,21 @@ export function QuotePreviewPanel() {
   );
 }
 
+/** Ghi file Excel (xlsx) từ đúng kết quả đang hiện; tải thư viện khi bấm. */
+async function exportSheet(result: PricingResult): Promise<void> {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildPricingSheet(result)), 'Bảng tính giá');
+  XLSX.writeFile(workbook, `bang-tinh-gia-${result.date}.xlsx`);
+}
+
 function PreviewResult({ result }: { result: PricingResult }) {
   const columns = useMemo<ColumnsType<PricedLine>>(
     () => [
       {
         title: 'Mặt hàng',
         key: 'material',
+        width: 260,
         render: (_: unknown, row) => (
           <span>
             <span className={styles.mono}>{row.materialCode ?? ''}</span> {row.materialName ?? ''}
@@ -252,7 +273,7 @@ function PreviewResult({ result }: { result: PricingResult }) {
         ),
       },
       { title: 'SL', dataIndex: 'quantity', width: 70, align: 'right', render: (value: number, row) => `${formatMoney(value)} ${row.unit}` },
-      { title: 'Đơn giá gốc', dataIndex: 'listPrice', width: 120, align: 'right', render: (value: number) => formatMoney(value) },
+      { title: 'Giá trước CK (giá gốc)', dataIndex: 'listPrice', width: 150, align: 'right', render: (value: number) => formatMoney(value) },
       {
         title: 'Nguồn giá',
         key: 'source',
@@ -318,6 +339,11 @@ function PreviewResult({ result }: { result: PricingResult }) {
         <dt className={local.grandTotal}>Tổng cộng</dt>
         <dd className={local.grandTotal}>{formatMoney(totals.totalAmount)}</dd>
       </dl>
+      <div className={local.exportBar}>
+        <button type="button" className={styles.buttonGhost} onClick={() => void exportSheet(result)}>
+          <Download size={14} /> Xuất bảng tính giá
+        </button>
+      </div>
     </section>
   );
 }

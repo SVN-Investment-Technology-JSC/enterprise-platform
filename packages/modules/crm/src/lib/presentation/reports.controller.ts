@@ -7,6 +7,8 @@ import type {
   SalesAlertQuery,
   SalesReport,
   SalesReportQuery,
+  TenderReport,
+  TenderReportQuery,
 } from '@enterprise-platform/contracts-crm';
 import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 import { SalesReportService } from '../application/sales-report.service.js';
@@ -34,6 +36,11 @@ export class ReportsController {
   @Get('alerts')
   alerts(@Req() request: CrmRequest, @Query() query: SalesAlertQuery): Promise<SalesAlertList> {
     return runCrm(() => this.reports.alerts(crmActor(request), query));
+  }
+
+  @Get('tender')
+  tender(@Req() request: CrmRequest, @Query() query: TenderReportQuery): Promise<TenderReport> {
+    return runCrm(() => this.reports.tender(crmActor(request), query));
   }
 
   @Get('receivables')

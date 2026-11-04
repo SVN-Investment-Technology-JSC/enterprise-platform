@@ -22,6 +22,8 @@ import { applyWarrantyIssued, applyWarrantyReturned, INVENTORY_STOCK_RETURNED, t
 import { PostgresQuoteStore } from './postgres-quote.store.js';
 import { PostgresSalesOrderStore } from './postgres-sales-order.store.js';
 import { notifyLateDeliveries } from '../application/delivery-late.job.js';
+import { notifyTenderDeadlines } from '../application/tender-reminder.job.js';
+import { PostgresTenderReminderStore } from './postgres-tender-reminder.store.js';
 import {
   applyQuoteProcedureResult,
   applyQuoteProcedureReversed,
@@ -31,6 +33,7 @@ import {
   type ProcedureReversedPayload,
 } from './quote-procedure-links.js';
 import { HttpFinanceClient } from './http-finance-client.js';
+import { applyTenderPlanProcedureResult, CRM_TENDER_PLAN_SOURCE_TYPE } from './postgres-tender.store.js';
 import { PostgresReceivableStore } from './postgres-receivable.store.js';
 import { createCreditApprovals, CRM_RECEIVABLE_BINDINGS, handleReceivableEvent, runReceivableJobs } from './receivable-events.js';
 
@@ -117,6 +120,12 @@ export function createCrmIntegrationEvents(
       if (await handleReceivableEvent(database, creditApprovals, tenantId, type, payload)) return;
       if (type === PROCEDURE_INSTANCE_COMPLETED) {
         const event = (payload ?? {}) as ProcedureCompletedPayload;
+        // Duyệt phương án chào thầu qua Quy trình (GĐ E).
+        if (event.sourceType === CRM_TENDER_PLAN_SOURCE_TYPE) {
+          if (!(await tenderTablesReady(database, tenantId))) return;
+          await applyTenderPlanProcedureResult(database, tenantId, event);
+          return;
+        }
         // Hồ sơ của phân hệ khác: bỏ qua nhanh, không mở transaction.
         if (event.sourceType !== 'crm_quote') return;
         if (!(await quoteTablesReady(database, tenantId))) return;
@@ -185,6 +194,7 @@ export function createCrmJobs(
   const quotes = new PostgresQuoteStore(database);
   const contracts = new PostgresContractStore(database);
   const orders = new PostgresSalesOrderStore(database, new PostgresReceivableStore(database));
+  const tenderReminders = new PostgresTenderReminderStore(database);
   const procedures = options.procedures ?? new HttpProcedureClient();
   const inventory = options.inventory ?? new HttpInventoryClient();
   const finance = options.finance ?? new HttpFinanceClient();
@@ -218,6 +228,8 @@ export function createCrmJobs(
         await notifyLateDeliveries(orders, tenantId, today, QUOTE_EXPIRY_BATCH);
         // Đợt thanh toán theo ngày, cảnh báo quá hạn và vượt hạn mức, đơn đã duyệt hạn mức chờ giữ hàng (GĐ5).
         await runReceivableJobs(database, creditApprovals, tenantId, today);
+        // Nhắc hạn nộp thầu: trước hạn và quá hạn, một lần cho mỗi hạn (P2E-05).
+        if (await tenderReminderReady(database, tenantId)) await notifyTenderDeadlines(tenderReminders, tenantId, now(), QUOTE_EXPIRY_BATCH);
       }
       if (dueSync) await requests.dispatch(tenantId);
     },
@@ -233,6 +245,7 @@ async function reconcileProcedureLinks(
 ): Promise<void> {
   for (const event of await reconcileRunningLinks(database, procedures, tenantId)) {
     if (event.sourceType === 'crm_quote') await applyQuoteProcedureResult(database, tenantId, event);
+    else if (event.sourceType === CRM_TENDER_PLAN_SOURCE_TYPE) await applyTenderPlanProcedureResult(database, tenantId, event);
     else await handleReceivableEvent(database, approvals, tenantId, PROCEDURE_INSTANCE_COMPLETED, event);
   }
 }
@@ -250,6 +263,23 @@ async function salesTablesReady(database: CrmDatabase, tenantId: string): Promis
 async function warrantyTablesReady(database: CrmDatabase, tenantId: string): Promise<boolean> {
   const pool = await database.pool(tenantId);
   const result = await pool.query<{ ready: boolean }>(`SELECT to_regclass('crm_schema.warranty_documents') IS NOT NULL AS ready`);
+  return result.rows[0]?.ready === true;
+}
+
+/** Migration chào thầu (0023) đã chạy chưa. */
+async function tenderTablesReady(database: CrmDatabase, tenantId: string): Promise<boolean> {
+  const pool = await database.pool(tenantId);
+  const result = await pool.query<{ ready: boolean }>(`SELECT to_regclass('crm_schema.tender_plan_rounds') IS NOT NULL AS ready`);
+  return result.rows[0]?.ready === true;
+}
+
+/** Migration nhắc hạn nộp thầu (0025) đã chạy chưa. */
+async function tenderReminderReady(database: CrmDatabase, tenantId: string): Promise<boolean> {
+  const pool = await database.pool(tenantId);
+  const result = await pool.query<{ ready: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'crm_schema' AND table_name = 'tender_profiles'
+                     AND column_name = 'deadline_overdue_notified_for') AS ready`,
+  );
   return result.rows[0]?.ready === true;
 }
 

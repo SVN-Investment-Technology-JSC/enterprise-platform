@@ -56,7 +56,7 @@ export interface SalesDashboardStore {
   ): Promise<{ current: DashboardPeriodFigures; previous: DashboardPeriodFigures }>;
   /** Doanh thu theo ngày giao và số đơn mới theo ngày tạo; chỉ các ngày có số liệu. */
   dailyFigures(tenantId: string, scope: CrmDataScope, range: DashboardRange): Promise<DailyFigure[]>;
-  /** Cơ hội đang mở theo giai đoạn (chỉ giai đoạn có cơ hội). */
+  /** Phễu cơ hội đang mở theo giai đoạn OPEN của luồng (đủ dòng, đã xếp thứ tự; xem DashboardStageRow). */
   pipeline(tenantId: string, scope: CrmDataScope): Promise<DashboardStageRow[]>;
   topCustomers(tenantId: string, scope: CrmDataScope, range: DashboardRange, limit: number): Promise<DashboardTopCustomer[]>;
   topProducts(tenantId: string, scope: CrmDataScope, range: DashboardRange, limit: number): Promise<DashboardTopProduct[]>;

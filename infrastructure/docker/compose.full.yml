@@ -385,7 +385,7 @@ services:
       context: ../..
       dockerfile: apps/crm-api/Dockerfile
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3344'
       # Báo giá: danh mục, tồn khả dụng, giá vốn từ Kho; phiên duyệt vượt ngưỡng ở Quy trình.
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
@@ -395,6 +395,8 @@ services:
       api:
         condition: service_healthy
       migrator:
+        condition: service_completed_successfully
+      minio-init:
         condition: service_completed_successfully
     init: true
     restart: unless-stopped

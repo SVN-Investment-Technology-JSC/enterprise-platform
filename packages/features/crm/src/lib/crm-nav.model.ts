@@ -1,4 +1,4 @@
-import type { CrmCapabilities } from '@enterprise-platform/contracts-crm';
+import type { CrmCapabilities, CrmStatus } from '@enterprise-platform/contracts-crm';
 
 /**
  * Trang của phân hệ. `id` cũng là đoạn hash trên URL nên phải ổn định: đổi
@@ -29,11 +29,11 @@ export interface CrmPage {
 }
 
 export const CRM_VIEWS: readonly CrmView[] = [
-  'overview',
   'customers',
   'leads',
-  'opportunities',
   'activities',
+  'overview',
+  'opportunities',
   'quotes',
   'contracts',
   'orders',
@@ -43,36 +43,65 @@ export const CRM_VIEWS: readonly CrmView[] = [
   'settings',
 ];
 
-export const CRM_PAGES: readonly CrmPage[] = [
+/**
+ * Hai phần của module. `id` của từng trang (cũng là hash URL) không đổi khi trang
+ * chuyển phần; phần chỉ quyết định thanh bên đang liệt kê trang nào.
+ */
+export type CrmSectionId = 'care' | 'sales';
+
+export interface CrmSection {
+  readonly id: CrmSectionId;
+  readonly label: string;
+  /** Trang thuộc phần này, theo thứ tự menu. */
+  readonly views: readonly CrmView[];
+}
+
+export const CRM_SECTIONS: readonly CrmSection[] = [
+  { id: 'care', label: 'Quản lý khách hàng', views: ['customers', 'leads', 'activities'] },
   {
-    id: 'overview',
-    label: 'Tổng quan',
-    group: 'Bán hàng',
-    summary: 'Doanh thu, lợi nhuận, cơ hội, công nợ so với kỳ trước và các việc cần chú ý trong phạm vi của bạn.',
+    id: 'sales',
+    label: 'Bán hàng',
+    views: ['overview', 'opportunities', 'quotes', 'contracts', 'orders', 'receivables', 'warranty', 'reports'],
   },
+];
+
+/** Trang dùng chung, hiện ở cả hai phần (Cài đặt). */
+export const CRM_SHARED_VIEWS: readonly CrmView[] = ['settings'];
+
+/** Vào `/modules/crm` không hash thì mở phần này, trang này. */
+export const CRM_DEFAULT_SECTION: CrmSectionId = 'care';
+export const CRM_DEFAULT_VIEW: CrmView = 'customers';
+
+export const CRM_PAGES: readonly CrmPage[] = [
   {
     id: 'customers',
     label: 'Khách hàng',
-    group: 'Bán hàng',
+    group: 'Quản lý khách hàng',
     summary: 'Hồ sơ khách hàng, người liên hệ, nhóm khách và người phụ trách.',
   },
   {
     id: 'leads',
     label: 'Lead',
-    group: 'Bán hàng',
-    summary: 'Đầu mối tiềm năng; chuyển thành khách hàng và cơ hội bằng một thao tác.',
-  },
-  {
-    id: 'opportunities',
-    label: 'Cơ hội',
-    group: 'Bán hàng',
-    summary: 'Cơ hội theo giai đoạn: kanban kéo thả, dạng bảng, lịch sử chuyển giai đoạn.',
+    group: 'Quản lý khách hàng',
+    summary: 'Đầu mối tiềm năng; chuyển thành khách hàng và dự án bán hàng bằng một thao tác.',
   },
   {
     id: 'activities',
-    label: 'Hoạt động',
-    group: 'Bán hàng',
+    label: 'Hoạt động chăm sóc',
+    group: 'Quản lý khách hàng',
     summary: 'Gọi điện, email, gặp mặt, công việc; nhắc trước hạn và khi quá hạn.',
+  },
+  {
+    id: 'overview',
+    label: 'Tổng quan',
+    group: 'Bán hàng',
+    summary: 'Doanh thu, lợi nhuận, dự án bán hàng, công nợ so với kỳ trước và các việc cần chú ý trong phạm vi của bạn.',
+  },
+  {
+    id: 'opportunities',
+    label: 'Dự án bán hàng',
+    group: 'Bán hàng',
+    summary: 'Dự án bán hàng theo giai đoạn: kanban kéo thả, dạng bảng, lịch sử chuyển giai đoạn.',
   },
   {
     id: 'quotes',
@@ -123,6 +152,90 @@ export const CRM_PAGES: readonly CrmPage[] = [
 /** Trang người này được thấy, giữ nguyên thứ tự menu. */
 export function visibleCrmPages(capabilities: CrmCapabilities): CrmPage[] {
   return CRM_PAGES.filter((page) => page.visible?.(capabilities) ?? true);
+}
+
+/** Phần chứa trang; trang dùng chung (Cài đặt) không thuộc phần nào. */
+export function sectionOfView(view: CrmView): CrmSectionId | undefined {
+  return CRM_SECTIONS.find((section) => section.views.includes(view))?.id;
+}
+
+/**
+ * Các phần có ít nhất một trang người này được thấy, theo thứ tự hiển thị.
+ * Phần không còn trang nào thì ẩn. `pages` mặc định là `CRM_PAGES`.
+ */
+export function visibleCrmSections(
+  capabilities: CrmCapabilities,
+  pages: readonly CrmPage[] = CRM_PAGES,
+): CrmSection[] {
+  const shown = new Set(pages.filter((page) => page.visible?.(capabilities) ?? true).map((page) => page.id));
+  return CRM_SECTIONS.filter((section) => section.views.some((view) => shown.has(view)));
+}
+
+/** Trang đầu tiên được thấy của một phần (đích khi bấm bộ chuyển phần). */
+export function firstViewOfSection(
+  sectionId: CrmSectionId,
+  capabilities: CrmCapabilities,
+  pages: readonly CrmPage[] = CRM_PAGES,
+): CrmView | undefined {
+  const section = CRM_SECTIONS.find((entry) => entry.id === sectionId);
+  const shown = new Set(pages.filter((page) => page.visible?.(capabilities) ?? true).map((page) => page.id));
+  return section?.views.find((view) => shown.has(view));
+}
+
+/**
+ * Trang thật sự mở. Hash tới trang bị ẩn (mở link cũ khi không có quyền) thì rơi về
+ * trang đầu của phần mặc định, rồi tới trang đầu tiên được thấy.
+ */
+export function resolveCrmView(
+  view: CrmView,
+  capabilities: CrmCapabilities,
+  pages: readonly CrmPage[] = CRM_PAGES,
+): CrmView {
+  const shown = pages.filter((page) => page.visible?.(capabilities) ?? true);
+  if (shown.some((page) => page.id === view)) return view;
+  return firstViewOfSection(CRM_DEFAULT_SECTION, capabilities, pages) ?? shown[0]?.id ?? CRM_DEFAULT_VIEW;
+}
+
+/**
+ * Phần đang hiển thị: phần chứa trang đang mở; trang dùng chung giữ phần trước đó
+ * (nếu phần ấy còn hiện được), không có thì phần hiện được đầu tiên.
+ */
+export function activeCrmSection(
+  view: CrmView,
+  previous: CrmSectionId | undefined,
+  capabilities: CrmCapabilities,
+  pages: readonly CrmPage[] = CRM_PAGES,
+): CrmSectionId | undefined {
+  const sections = visibleCrmSections(capabilities, pages);
+  const own = sectionOfView(view);
+  if (own) return sections.some((section) => section.id === own) ? own : sections[0]?.id;
+  if (previous && sections.some((section) => section.id === previous)) return previous;
+  return sections[0]?.id;
+}
+
+/** Trang hiện trên thanh bên khi đang ở một phần: trang của phần đó cộng trang dùng chung. */
+export function viewsInSection(sectionId: CrmSectionId | undefined): readonly CrmView[] {
+  const section = CRM_SECTIONS.find((entry) => entry.id === sectionId);
+  return section ? [...section.views, ...CRM_SHARED_VIEWS] : [];
+}
+
+/** Đích của nút "Kho hàng". */
+export const CRM_INVENTORY_HREF = '/modules/inventory';
+export const CRM_INVENTORY_LABEL = 'Kho hàng';
+export const CRM_INVENTORY_DENIED_HINT = 'Bạn chưa được cấp quyền vào Kho';
+
+/** `hidden`: tenant chưa mua Kho; `enabled`: bấm được; `disabled`: hiện nhưng mờ, không bấm được. */
+export type CrmInventoryButtonState = 'hidden' | 'enabled' | 'disabled';
+
+/**
+ * Trạng thái nút Kho từ `GET v1/status`. Chưa có status, thiếu cờ hay cờ sai kiểu đều coi là `false`:
+ * không bao giờ mở nút bấm được khi không chắc. Chỉ là ẩn hiện; Kho vẫn tự kiểm quyền ở server.
+ */
+export function inventoryButtonState(
+  status: Partial<Pick<CrmStatus, 'inventoryEntitled' | 'canAccessInventory'>> | undefined,
+): CrmInventoryButtonState {
+  if (status?.inventoryEntitled !== true) return 'hidden';
+  return status.canAccessInventory === true ? 'enabled' : 'disabled';
 }
 
 /** Phạm vi dữ liệu hiện cho người dùng; quyền thật lọc ở API. */

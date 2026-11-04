@@ -1237,6 +1237,18 @@ export interface AssetDocument {
   readonly createdAt: string;
 }
 
+/** Tài liệu thiết bị cho phân hệ khác đọc (chỉ đọc): siêu dữ liệu và URL tải ký ngắn hạn, không có `object_key`. */
+export interface InternalAssetDocument {
+  readonly id: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number | null;
+  readonly note: string | null;
+  readonly createdAt: string;
+  readonly downloadUrl: string;
+  readonly expiresInSeconds: number;
+}
+
 export interface CreateAssetDocumentRequest {
   readonly fileName: string;
   readonly contentType: string;

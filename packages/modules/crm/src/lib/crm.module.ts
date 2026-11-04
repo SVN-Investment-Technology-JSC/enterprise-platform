@@ -3,10 +3,16 @@ import { Module } from '@nestjs/common';
 import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
 import { CRM_DIAGNOSTICS } from './application/crm-store.port.js';
 import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from './application/customer-group.service.js';
+import { CustomerKindService } from './application/customer-kind.service.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
-import { OpportunityService } from './application/opportunity.service.js';
+import { OpportunityService, type OpportunityTenderReader } from './application/opportunity.service.js';
+import { TenderService } from './application/tender.service.js';
+import { CRM_TENDER_STORE, type TenderStore } from './application/tender-store.port.js';
+import { PostgresTenderStore } from './infrastructure/postgres-tender.store.js';
+import { TenderController } from './presentation/tender.controller.js';
+import { StageAssigneeResolver } from './application/stage-assignee.resolver.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { PriceListService } from './application/price-list.service.js';
 import { PricingService } from './application/pricing.service.js';
@@ -24,6 +30,7 @@ import { REPORTING_LINE_READER } from './application/organization-scope.port.js'
 import {
   CRM_ACTIVITY_STORE,
   CRM_CUSTOMER_GROUP_STORE,
+  CRM_CUSTOMER_KIND_STORE,
   CRM_CUSTOMER_STORE,
   CRM_LEAD_STORE,
   CRM_OPPORTUNITY_STORE,
@@ -32,6 +39,7 @@ import {
   CRM_TIMELINE_STORE,
   type ActivityStore,
   type CustomerGroupStore,
+  type CustomerKindStore,
   type CustomerStore,
   type LeadStore,
   type OpportunityStore,
@@ -40,12 +48,21 @@ import {
   type TimelineStore,
 } from './application/sales-store.port.js';
 import { CrmDatabase } from './infrastructure/crm.database.js';
+import { INVENTORY_ACCESS_READER, type InventoryAccessReader } from './application/inventory-access.port.js';
+import { HttpInventoryAccess } from './infrastructure/http-inventory-access.js';
 import { HttpOrganizationScope } from './infrastructure/http-organization-scope.js';
 import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresCustomerGroupStore, PostgresSettingsStore } from './infrastructure/postgres-settings.store.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { CRM_PIPELINE_CONFIG, type PipelineConfigProvider } from './application/pipeline-config.port.js';
+import {
+  PostgresCustomerGroupStore,
+  PostgresCustomerKindStore,
+  PostgresSettingsStore,
+} from './infrastructure/postgres-settings.store.js';
 import { HttpInventoryCatalogReader } from './infrastructure/http-inventory-catalog-reader.js';
 import { HttpProcedureClient } from './infrastructure/http-procedure-client.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
@@ -53,6 +70,16 @@ import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
 import { PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import { QuoteService } from './application/quote.service.js';
+import { QuoteFormService } from './application/quote-form.service.js';
+import { CRM_QUOTE_FORM_STORE, type QuoteFormStore } from './application/quote-form-store.port.js';
+import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
+import { QuoteRelationService } from './application/quote-relation.service.js';
+import { CRM_QUOTE_RELATION_STORE, type QuoteRelationStore } from './application/quote-relation-store.port.js';
+import { PostgresQuoteRelationStore } from './infrastructure/postgres-quote-relation.store.js';
+import { BusinessPlanService } from './application/business-plan.service.js';
+import { CRM_BUSINESS_PLAN_STORE, type BusinessPlanStore } from './application/business-plan-store.port.js';
+import { PostgresBusinessPlanStore } from './infrastructure/postgres-business-plan.store.js';
+import { BusinessPlansController } from './presentation/business-plans.controller.js';
 import {
   CRM_APPROVAL_LINKS,
   CRM_PROCEDURE_CLIENT,
@@ -67,6 +94,8 @@ import type { ReportingLineReader } from './application/organization-scope.port.
 import {
   ApprovalSettingsController,
   InternalInstancesController,
+  QuoteFormController,
+  QuoteRelationController,
   QuotesController,
 } from './presentation/quotes.controller.js';
 import {
@@ -142,6 +171,12 @@ import {
   type WarrantyInventory,
   type WarrantyStore,
 } from './application/warranty.port.js';
+import {
+  CRM_WARRANTY_DEVICE_DOCUMENTS,
+  WarrantyDeviceDocumentService,
+  type WarrantyDeviceDocumentReader,
+} from './application/warranty-device-documents.service.js';
+import { HttpWarrantyDeviceDocuments } from './infrastructure/http-warranty-device-documents.js';
 import { HttpWarrantyInventoryClient } from './infrastructure/http-warranty-inventory.js';
 import { PostgresWarrantyStore } from './infrastructure/postgres-warranty.store.js';
 import { WarrantyController } from './presentation/warranty.controller.js';
@@ -153,6 +188,27 @@ import { SalesDashboardService } from './application/sales-dashboard.service.js'
 import { CRM_SALES_DASHBOARD_STORE, type SalesDashboardStore } from './application/sales-dashboard-store.port.js';
 import { PostgresSalesDashboardStore } from './infrastructure/postgres-sales-dashboard.store.js';
 import { DashboardController } from './presentation/dashboard.controller.js';
+import { DocumentService, DocumentTypeService } from './application/document.service.js';
+import {
+  CRM_DOCUMENT_STORAGE,
+  CRM_DOCUMENT_STORE,
+  type DocumentStorage,
+  type DocumentStore,
+} from './application/document-store.port.js';
+import { PostgresDocumentStore, PostgresOpportunityDocumentChecker } from './infrastructure/postgres-document.store.js';
+import { S3DocumentStorage } from './infrastructure/s3-document-storage.js';
+import { DocumentTypesController, DocumentsController, QuoteDocumentsController } from './presentation/documents.controller.js';
+import { QuoteDocumentService } from './application/quote-document.service.js';
+import { CRM_QUOTE_DOCUMENT_STORE, type QuoteDocumentStore } from './application/quote-document-store.port.js';
+import { PostgresQuoteDocumentStore } from './infrastructure/postgres-quote-document.store.js';
+import { PromotionService } from './application/promotion.service.js';
+import { CRM_PROMOTION_STORE, type PromotionStore } from './application/promotion-store.port.js';
+import { PostgresPromotionStore } from './infrastructure/postgres-promotion.store.js';
+import { PromotionsController } from './presentation/promotions.controller.js';
+import { PipelineConfigService } from './application/pipeline-config.service.js';
+import { CRM_PIPELINE_ADMIN_STORE, type PipelineAdminStore } from './application/pipeline-admin-store.port.js';
+import { PostgresPipelineAdminStore } from './infrastructure/postgres-pipeline-admin.store.js';
+import { PipelinesController } from './presentation/pipelines.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
 function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
@@ -174,12 +230,16 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     InternalCustomersController,
     LeadsController,
     OpportunitiesController,
+    TenderController,
     ActivitiesController,
     PriceListsController,
     DiscountPoliciesController,
     PricingController,
     QuotesController,
+    QuoteFormController,
+    QuoteRelationController,
     ApprovalSettingsController,
+    BusinessPlansController,
     InternalInstancesController,
     ContractsController,
     SalesOrdersController,
@@ -187,6 +247,11 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     WarrantyController,
     ReportsController,
     DashboardController,
+    DocumentsController,
+    DocumentTypesController,
+    QuoteDocumentsController,
+    PromotionsController,
+    PipelinesController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -198,6 +263,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
     { provide: CRM_DIAGNOSTICS, useExisting: CrmDatabase },
+    { provide: INVENTORY_ACCESS_READER, useFactory: () => new HttpInventoryAccess() },
     {
       // Một thực thể cho cả app: bản sao 60 giây của cơ cấu tổ chức nằm trong nó.
       provide: HttpOrganizationScope,
@@ -212,9 +278,18 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     },
     store(CRM_CUSTOMER_STORE, (database) => new PostgresCustomerStore(database)),
     store(CRM_CUSTOMER_GROUP_STORE, (database) => new PostgresCustomerGroupStore(database)),
+    store(CRM_CUSTOMER_KIND_STORE, (database) => new PostgresCustomerKindStore(database)),
     store(CRM_SETTINGS_STORE, (database) => new PostgresSettingsStore(database)),
     store(CRM_LEAD_STORE, (database) => new PostgresLeadStore(database)),
     store(CRM_OPPORTUNITY_STORE, (database) => new PostgresOpportunityStore(database)),
+    store(CRM_PIPELINE_CONFIG, (database) => new CachedPipelineConfig(new PostgresPipelineConfigReader(database))),
+    // Cấu hình luồng cho quản trị viên (GĐ G): ghi qua store riêng, huỷ cache ngay sau commit.
+    store(CRM_PIPELINE_ADMIN_STORE, (database) => new PostgresPipelineAdminStore(database)),
+    {
+      provide: PipelineConfigService,
+      useFactory: (store: PipelineAdminStore, config: PipelineConfigProvider) => new PipelineConfigService(store, config),
+      inject: [CRM_PIPELINE_ADMIN_STORE, CRM_PIPELINE_CONFIG],
+    },
     store(CRM_ACTIVITY_STORE, (database) => new PostgresActivityStore(database)),
     store(CRM_TIMELINE_STORE, (database) => new PostgresTimelineStore(database)),
     {
@@ -226,6 +301,11 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       provide: CustomerGroupService,
       useFactory: (groups: CustomerGroupStore) => new CustomerGroupService(groups),
       inject: [CRM_CUSTOMER_GROUP_STORE],
+    },
+    {
+      provide: CustomerKindService,
+      useFactory: (kinds: CustomerKindStore) => new CustomerKindService(kinds),
+      inject: [CRM_CUSTOMER_KIND_STORE],
     },
     {
       provide: CrmSettingsService,
@@ -244,9 +324,62 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     },
     {
       provide: OpportunityService,
-      useFactory: (opportunities: OpportunityStore, customers: CustomerStore, scopes: CrmDataScopeService) =>
-        new OpportunityService(opportunities, customers, scopes),
-      inject: [CRM_OPPORTUNITY_STORE, CRM_CUSTOMER_STORE, CrmDataScopeService],
+      useFactory: (
+        opportunities: OpportunityStore,
+        customers: CustomerStore,
+        scopes: CrmDataScopeService,
+        pipelines: PipelineConfigProvider,
+        organization: HttpOrganizationScope,
+        database: CrmDatabase,
+        tender: OpportunityTenderReader,
+      ) =>
+        new OpportunityService(
+          opportunities,
+          customers,
+          scopes,
+          pipelines,
+          undefined,
+          // Cổng điều kiện DOCUMENT_TYPE (P2C-11): loại tài liệu còn hiệu lực của cơ hội đọc từ kho tài liệu CRM.
+          new PostgresOpportunityDocumentChecker(database),
+          new StageAssigneeResolver(organization),
+          organization,
+          // Cổng điều kiện TENDER_PLAN_APPROVED, TENDER_FIELD (P2E-03): hồ sơ thầu của cơ hội.
+          tender,
+        ),
+      inject: [
+        CRM_OPPORTUNITY_STORE,
+        CRM_CUSTOMER_STORE,
+        CrmDataScopeService,
+        CRM_PIPELINE_CONFIG,
+        HttpOrganizationScope,
+        CrmDatabase,
+        CRM_TENDER_STORE,
+      ],
+    },
+    // Chào thầu (GĐ E): hồ sơ thầu, đối tác liên danh, duyệt phương án, kết quả thầu.
+    store(CRM_TENDER_STORE, (database) => new PostgresTenderStore(database)),
+    {
+      provide: TenderService,
+      useFactory: (
+        tender: TenderStore,
+        opportunityStore: OpportunityStore,
+        scopes: CrmDataScopeService,
+        pipelines: PipelineConfigProvider,
+        opportunities: OpportunityService,
+        settings: QuoteSettingsStore,
+        links: ApprovalLinks,
+        reportingLines: ReportingLineReader,
+      ) => new TenderService(tender, opportunityStore, scopes, pipelines, opportunities, settings, links, reportingLines),
+      inject: [
+        CRM_TENDER_STORE,
+        CRM_OPPORTUNITY_STORE,
+        CrmDataScopeService,
+        CRM_PIPELINE_CONFIG,
+        OpportunityService,
+        CRM_QUOTE_SETTINGS_STORE,
+        CRM_APPROVAL_LINKS,
+        REPORTING_LINE_READER,
+      ],
     },
     {
       provide: ActivityService,
@@ -306,7 +439,10 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         scopes: CrmDataScopeService,
         links: ApprovalLinks,
         reportingLines: ReportingLineReader,
-      ) => new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines),
+        plans: BusinessPlanService,
+        form: QuoteFormStore,
+      ) =>
+        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans, form),
       inject: [
         CRM_QUOTE_STORE,
         CRM_QUOTE_SETTINGS_STORE,
@@ -317,7 +453,32 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CrmDataScopeService,
         CRM_APPROVAL_LINKS,
         REPORTING_LINE_READER,
+        BusinessPlanService,
+        CRM_QUOTE_FORM_STORE,
       ],
+    },
+    // Báo giá theo mẫu (GĐI): mẫu, loại, mã báo giá.
+    store(CRM_QUOTE_FORM_STORE, (database) => new PostgresQuoteFormStore(database)),
+    {
+      provide: QuoteFormService,
+      useFactory: (form: QuoteFormStore) => new QuoteFormService(form),
+      inject: [CRM_QUOTE_FORM_STORE],
+    },
+    // Người theo dõi và đối tượng liên quan của báo giá (P2I-07).
+    store(CRM_QUOTE_RELATION_STORE, (database) => new PostgresQuoteRelationStore(database)),
+    {
+      provide: QuoteRelationService,
+      useFactory: (relations: QuoteRelationStore, scopes: CrmDataScopeService, people: PeopleDirectory) =>
+        new QuoteRelationService(relations, scopes, people),
+      inject: [CRM_QUOTE_RELATION_STORE, CrmDataScopeService, CRM_PEOPLE_DIRECTORY],
+    },
+    // Phương án kinh doanh (GĐ D): gắn phiên bản báo giá, nối vào duyệt báo giá và so lệch khi sửa.
+    store(CRM_BUSINESS_PLAN_STORE, (database) => new PostgresBusinessPlanStore(database)),
+    {
+      provide: BusinessPlanService,
+      useFactory: (plans: BusinessPlanStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new BusinessPlanService(plans, quotes, scopes),
+      inject: [CRM_BUSINESS_PLAN_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
     {
       provide: QuoteApprovalSettingsService,
@@ -436,6 +597,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         new WarrantyService(warranty, inventory, catalog, scopes),
       inject: [CRM_WARRANTY_STORE, CRM_WARRANTY_INVENTORY, CRM_CATALOG_READER, CrmDataScopeService],
     },
+    { provide: CRM_WARRANTY_DEVICE_DOCUMENTS, useFactory: () => new HttpWarrantyDeviceDocuments() },
+    {
+      provide: WarrantyDeviceDocumentService,
+      useFactory: (warranty: WarrantyService, access: InventoryAccessReader, reader: WarrantyDeviceDocumentReader) =>
+        new WarrantyDeviceDocumentService(warranty, access, reader),
+      inject: [WarrantyService, INVENTORY_ACCESS_READER, CRM_WARRANTY_DEVICE_DOCUMENTS],
+    },
     {
       provide: WarrantyResolutionService,
       useFactory: (warranty: WarrantyStore, inventory: WarrantyInventory, credit: WarrantyCreditPort, scopes: CrmDataScopeService) =>
@@ -457,6 +625,36 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       useFactory: (dashboard: SalesDashboardStore, scopes: CrmDataScopeService, settings: SalesSettingsStore) =>
         new SalesDashboardService(dashboard, scopes, settings),
       inject: [CRM_SALES_DASHBOARD_STORE, CrmDataScopeService, CRM_SALES_SETTINGS_STORE],
+    },
+    // Tài liệu (GĐ C): siêu dữ liệu trong `crm_schema`, file trên S3/MinIO qua URL ký 300 giây.
+    store(CRM_DOCUMENT_STORE, (database) => new PostgresDocumentStore(database)),
+    { provide: CRM_DOCUMENT_STORAGE, useFactory: () => new S3DocumentStorage() },
+    {
+      provide: DocumentService,
+      useFactory: (documents: DocumentStore, storage: DocumentStorage, scopes: CrmDataScopeService) =>
+        new DocumentService(documents, storage, scopes),
+      inject: [CRM_DOCUMENT_STORE, CRM_DOCUMENT_STORAGE, CrmDataScopeService],
+    },
+    {
+      provide: DocumentTypeService,
+      useFactory: (documents: DocumentStore) => new DocumentTypeService(documents),
+      inject: [CRM_DOCUMENT_STORE],
+    },
+    // Tài liệu có sẵn đính kèm vào báo giá (Q-P2-11): chỉ lưu liên kết, không nhân bản file.
+    store(CRM_QUOTE_DOCUMENT_STORE, (database) => new PostgresQuoteDocumentStore(database)),
+    {
+      provide: QuoteDocumentService,
+      useFactory: (refs: QuoteDocumentStore, documents: DocumentStore, storage: DocumentStorage, scopes: CrmDataScopeService) =>
+        new QuoteDocumentService(refs, documents, storage, scopes),
+      inject: [CRM_QUOTE_DOCUMENT_STORE, CRM_DOCUMENT_STORE, CRM_DOCUMENT_STORAGE, CrmDataScopeService],
+    },
+    // Khuyến mãi của báo giá (P2I-11): danh mục, lựa chọn của dự án, ảnh chụp trên phiên bản.
+    store(CRM_PROMOTION_STORE, (database) => new PostgresPromotionStore(database)),
+    {
+      provide: PromotionService,
+      useFactory: (promotions: PromotionStore, opportunities: OpportunityStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
+        new PromotionService(promotions, opportunities, quotes, scopes),
+      inject: [CRM_PROMOTION_STORE, CRM_OPPORTUNITY_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
     },
   ],
   exports: [CrmDatabase, CrmDataScopeService, TenantDatabaseRegistry, PostgresPoolRegistry, ReceivableAdjustmentService],

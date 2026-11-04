@@ -18,7 +18,7 @@ import {
   requiredText,
   requiredVersion,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
@@ -56,6 +56,7 @@ export class ActivityService {
       assigneeUserId: optionalId(query.assigneeUserId, 'người được giao') ?? undefined,
       status: optionalEnum(query.status, ACTIVITY_STATUSES, 'trạng thái'),
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

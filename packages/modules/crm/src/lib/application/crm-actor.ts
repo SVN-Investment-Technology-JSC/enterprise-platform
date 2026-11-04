@@ -12,6 +12,8 @@ export interface CrmActor extends CrmCapabilities {
   readonly tenantId: string;
   readonly userId: string;
   readonly displayName: string;
+  /** Phiên đăng nhập (chỉ có với người dùng thật), để hỏi Platform quyền vào Kho. */
+  readonly sessionId?: string;
 }
 
 /** Cờ quyền để trả cho giao diện (`GET /v1/status`), bỏ phần danh tính. */
@@ -27,6 +29,9 @@ export function crmCapabilities(actor: CrmActor): CrmCapabilities {
     canWriteReceivable: actor.canWriteReceivable,
     canWriteWarranty: actor.canWriteWarranty,
     canReadReport: actor.canReadReport,
+    canWriteDocument: actor.canWriteDocument,
+    canDeleteDocument: actor.canDeleteDocument,
+    canViewQuoteCost: actor.canViewQuoteCost,
     canManage: actor.canManage,
   };
 }

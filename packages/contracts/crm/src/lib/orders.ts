@@ -235,6 +235,10 @@ export interface SalesOrderDetail extends SalesOrderSummary {
   readonly warehouseCode: string | null;
   readonly deliveryAddress: string | null;
   readonly note: string | null;
+  /** Ghi chú thông tin đơn hàng (P2F-03), sửa được ở mọi trạng thái trừ Đã huỷ. */
+  readonly infoNote: string | null;
+  readonly infoNotedBy: string | null;
+  readonly infoNotedAt: string | null;
   readonly priceDate: string | null;
   readonly shipping: Omit<QuoteShipping, 'cost'>;
   readonly totals: SalesOrderTotals;
@@ -261,6 +265,8 @@ export interface SalesOrderListQuery {
   /** `true`: chỉ đơn có đợt giao trễ. */
   readonly late?: boolean | string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -297,6 +303,16 @@ export interface UpdateSalesOrderRequest {
   /** Thay toàn bộ dòng (chỉ đơn Nháp, không phải đơn từ báo giá); bỏ trống thì giữ dòng. */
   readonly lines?: readonly SaveSalesOrderLineRequest[];
 }
+
+/** Lưu ghi chú thông tin đơn hàng; chuỗi rỗng hoặc `null` là xoá. */
+export interface SaveOrderInfoNoteRequest {
+  /** `revision` của đơn đang xem; khác bản trong DB thì 409. */
+  readonly revision: number;
+  readonly infoNote: string | null;
+}
+
+/** Độ dài tối đa của ghi chú thông tin đơn hàng. */
+export const ORDER_INFO_NOTE_MAX = 4000;
 
 export interface SalesOrderActionRequest {
   readonly revision: number;

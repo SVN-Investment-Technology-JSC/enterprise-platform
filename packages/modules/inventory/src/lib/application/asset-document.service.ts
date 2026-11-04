@@ -6,6 +6,7 @@ import {
   type AssetDocument,
   type CreateAssetDocumentRequest,
   type CreateAssetDocumentResponse,
+  type InternalAssetDocument,
 } from '@enterprise-platform/contracts-inventory';
 import { randomUUID } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
@@ -46,6 +47,38 @@ export class AssetDocumentService {
       [assetCode],
     );
     return result.rows.map(mapDocument);
+  }
+
+  /**
+   * Cho phân hệ khác (Bán hàng: bảo hành), chỉ đọc: tài liệu của một thiết bị
+   * theo id mặt hàng, kèm URL tải ký 5 phút. Quyền của người dùng cuối do bên
+   * gọi kiểm trước; route này chỉ nhận xác thực dịch vụ. Id không phải UUID hoặc
+   * không có tài liệu thì trả danh sách rỗng, không lộ gì thêm.
+   */
+  async listForService(actor: InventoryActor, materialId: string): Promise<InternalAssetDocument[]> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(materialId)) return [];
+    const pool = await this.pools.forTenant(this.references.require(actor.tenantId));
+    const result = await pool.query<Row>(
+      `SELECT d.id, d.object_key, d.file_name, d.content_type, d.size_bytes, d.note, d.created_at
+         FROM inventory_schema.asset_documents d
+        WHERE d.asset_id = $1
+        ORDER BY d.created_at DESC, d.id
+        LIMIT 100`,
+      [materialId],
+    );
+    const expiresInSeconds = 300;
+    return Promise.all(
+      result.rows.map(async (row) => ({
+        id: String(row.id),
+        fileName: String(row.file_name),
+        contentType: String(row.content_type),
+        sizeBytes: row.size_bytes == null ? null : Number(row.size_bytes),
+        note: row.note == null ? null : String(row.note),
+        createdAt: mapDocument({ ...row, asset_code: '' }).createdAt,
+        downloadUrl: await this.storage.createDownloadUrl(String(row.object_key), expiresInSeconds),
+        expiresInSeconds,
+      })),
+    );
   }
 
   async create(

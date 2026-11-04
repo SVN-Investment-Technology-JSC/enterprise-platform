@@ -123,6 +123,17 @@ export interface ModuleShellProps<TViewId extends string = string> {
    * Ctrl+K (Cmd+K) mở cùng chỗ đó từ bất kỳ đâu trong module.
    */
   readonly onQuickSearch?: () => void;
+  /**
+   * Chỉ kiểu `light`: vùng cố định ở cuối thanh bên, ngay trên hàng nút chân (Trang chủ, Thu gọn, Cài đặt).
+   * Nằm ngoài vùng cuộn nên không cuộn theo menu và vẫn hiện khi thanh bên thu gọn; module tự vẽ nút khổ ngang
+   * và tự xử lý lúc `collapsed`. Không khai thì thanh bên giữ nguyên như cũ.
+   */
+  readonly pinnedFooter?: ReactNode;
+  /**
+   * Chỉ kiểu `light`: vùng đầu danh sách điều hướng, ví dụ bộ chuyển hai phần của module. Cuộn cùng menu.
+   * Không khai thì không đổi gì.
+   */
+  readonly navSwitcher?: ReactNode;
   /** Chỉ kiểu `light`: các mục riêng của module, vẽ dưới danh sách điều hướng. */
   readonly sidebarSections?: readonly ModuleSidebarSection[];
   /**

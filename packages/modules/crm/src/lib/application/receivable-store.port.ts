@@ -85,6 +85,8 @@ export interface AgingFilter {
   readonly overdue?: boolean;
   readonly today: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -92,6 +94,8 @@ export interface ReceiptFilter {
   readonly customerId?: string;
   readonly status?: ReceiptStatus;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -99,6 +103,8 @@ export interface AdjustmentFilter {
   readonly customerId?: string;
   readonly status?: AdjustmentStatus;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
