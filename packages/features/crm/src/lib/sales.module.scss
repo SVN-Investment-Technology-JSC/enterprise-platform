@@ -590,6 +590,45 @@
   }
 }
 
+.pagerCurrent {
+  min-width: 30px;
+  padding: 4px 10px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: default;
+}
+
+.pagerGap {
+  padding: 0 2px;
+  color: #94a3b8;
+}
+
+.pagerJump label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.pagerInput {
+  width: 56px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  font: inherit;
+  text-align: center;
+
+  &:focus {
+    border-color: #2563eb;
+    outline: none;
+  }
+}
+
 // --- Hồ sơ khách hàng --------------------------------------------------------
 
 .detailHead {
@@ -795,4 +834,14 @@
 .kanbanOwner {
   color: var(--ep-text-muted, #6b7280);
   font-size: 12px;
+}
+
+/* Hàng bảng bấm vào là mở. */
+.clickableRow {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+  }
 }

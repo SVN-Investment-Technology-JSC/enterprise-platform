@@ -224,6 +224,8 @@ export interface ContractListQuery {
   /** Chỉ hợp đồng Hiệu lực hết hạn trong số ngày này. */
   readonly expiringWithinDays?: number;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

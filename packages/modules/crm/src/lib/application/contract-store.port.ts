@@ -29,6 +29,8 @@ export interface ContractFilter {
   /** Chỉ hợp đồng Hiệu lực có ngày kết thúc trong `[today, expiringBefore]`. */
   readonly expiring?: { readonly today: string; readonly until: string };
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

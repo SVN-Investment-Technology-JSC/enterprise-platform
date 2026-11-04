@@ -101,7 +101,7 @@ try {
     const { context, page } = await login('nv1');
     await goto(page, '#quotes');
     // Dùng báo giá nháp mới nhất của NV1 (tạo bằng e2e-phase2a.mjs); dòng của nó có sẵn CAP và MUC
-    await page.locator('tr', { hasText: 'Nháp' }).first().getByText('Mở', { exact: true }).click();
+    await page.locator('tr', { hasText: 'Nháp' }).first().click();
     await page.waitForTimeout(2500);
     const rowsBefore = await page.locator('table tbody tr').count();
     await page.getByRole('button', { name: /Thêm dòng/ }).first().click();

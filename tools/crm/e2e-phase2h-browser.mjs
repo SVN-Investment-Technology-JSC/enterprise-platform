@@ -41,7 +41,7 @@ const stamp = Date.now() % 1_000_000;
 try {
   const { context, page } = await login('nv1');
   await page.goto(`${crmUrl}#customers`); await page.reload(); await page.waitForTimeout(3000);
-  await page.locator('tr', { hasText: 'QA-CRM-KH01' }).getByText('Xem', { exact: true }).first().click();
+  await page.locator('tr', { hasText: 'QA-CRM-KH01' }).first().click();
   await page.waitForTimeout(2500);
   await page.getByRole('tab', { name: /Dự án bán hàng/ }).click();
   await page.waitForTimeout(1200);

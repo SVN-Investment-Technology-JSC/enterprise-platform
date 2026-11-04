@@ -40,7 +40,7 @@ import { cancelPendingCreditRequests, PostgresCreditStore } from './postgres-cre
 import { deliveredSnapshot, recognizeOrderDelivery, vietnamDateOf } from './receivable-recognition.js';
 import { recordSalesFacts, salesFactSnapshot } from './sales-facts.js';
 import { readHistory } from './postgres-contract.store.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 /** Thực thể ghi vào `audit_log`. */
 export const SALES_ORDER_AUDIT_ENTITY = 'sales_order';
@@ -140,15 +140,20 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
           : code,
       );
     }
-    where.after(filter.cursor, 'o.updated_at', 'o.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<HeadRow>(
-      `SELECT ${headColumns(today)} ${HEAD_FROM} ${where.where()}
-        ORDER BY o.updated_at DESC, o.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${headColumns(today)}`,
+        from: `${HEAD_FROM}`,
+        orderBy: 'o.updated_at DESC, o.id DESC',
+        atColumn: 'o.updated_at',
+        idColumn: 'o.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getOrder(tenantId: string, scope: CrmDataScope, id: string, today: string): Promise<SalesOrderDetail | undefined> {

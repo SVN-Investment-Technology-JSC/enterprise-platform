@@ -23,7 +23,7 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Download } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { StatusPill } from '../components/crm-ui';
+import { rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import { errorMessage, loadConversionReport, loadReceivableReport, loadSalesAlerts, loadSalesReport } from '../crm-api';
 import { groupOptions, labelOptions, peopleOptions, useCrm } from '../crm-context';
@@ -409,17 +409,6 @@ function AlertsTab({
     { title: 'Mã', dataIndex: 'code', width: 140, render: (value: string) => <span className={styles.mono}>{value}</span> },
     { title: 'Nội dung', dataIndex: 'summary', ellipsis: true },
     { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 170, ellipsis: true, render: (value: string) => nameOf(value) },
-    {
-      title: '',
-      key: 'open',
-      width: 80,
-      fixed: 'right',
-      render: (_: unknown, row) => (
-        <button type="button" className={styles.rowAction} onClick={() => onOpen(row)}>
-          Mở
-        </button>
-      ),
-    },
   ];
   return (
     <section className={styles.tableCard} aria-label="Cảnh báo">
@@ -444,7 +433,7 @@ function AlertsTab({
         dataSource={[...(data?.items ?? [])]}
         pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1000 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row) })}
+        onRow={(row) => rowOpener(() => onOpen(row))}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có cảnh báo nào.' }}
       />
     </section>
@@ -522,17 +511,6 @@ function ReceivablesTab({
     { title: 'Quá hạn', dataIndex: 'daysOverdue', width: 100, align: 'right', render: (value: number) => `${value} ngày` },
     { title: 'Số tiền quá hạn', dataIndex: 'overdueAmount', width: 150, align: 'right', render: money },
     { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => nameOf(value) },
-    {
-      title: '',
-      key: 'open',
-      width: 80,
-      fixed: 'right',
-      render: (_: unknown, row) => (
-        <button type="button" className={styles.rowAction} onClick={() => onOpenOrder(row.orderId)}>
-          Mở
-        </button>
-      ),
-    },
   ];
   return (
     <section className={styles.tableCard} aria-label="Công nợ phải thu">
@@ -560,7 +538,7 @@ function ReceivablesTab({
         dataSource={[...(data?.customers ?? [])]}
         pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1500 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpenCustomer(row.customerId) })}
+        onRow={(row) => rowOpener(() => onOpenCustomer(row.customerId))}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Chưa có công nợ nào.' }}
       />
       <h3 className={styles.sectionTitle}>Đơn quá hạn thanh toán</h3>
@@ -572,7 +550,7 @@ function ReceivablesTab({
         dataSource={[...(data?.overdueOrders ?? [])]}
         pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1000 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpenOrder(row.orderId) })}
+        onRow={(row) => rowOpener(() => onOpenOrder(row.orderId))}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có đơn quá hạn.' }}
       />
     </section>

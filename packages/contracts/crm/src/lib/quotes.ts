@@ -304,6 +304,8 @@ export interface QuoteListQuery {
   readonly opportunityId?: string;
   readonly ownerUserId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

@@ -13,9 +13,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { createQuote, listCustomers, listOpportunities, listQuotes } from '../crm-api';
 import { buildCustomFields, generalInfoError, quoteFormErrorMessage, type CustomFieldTexts } from './quote-form-edit.model';
 import { CustomFieldsEditor, GeneralFields, useQuoteFormLookups, type GeneralState } from './quote-form-parts';
@@ -45,8 +45,8 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, ownerUserId };
-  const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
+    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<QuoteSummary>>(
@@ -69,16 +69,6 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
       { title: 'Tổng cộng', dataIndex: 'totalAmount', width: 150, align: 'right', render: (value: number) => formatMoney(value) },
       { title: 'Hiệu lực đến', dataIndex: 'validUntil', width: 120, render: formatDate },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 170, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 80,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -111,18 +101,10 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1200 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có báo giá nào.' }}
       />
-      <KeysetPager
-        page={list.page}
-        count={list.items.length}
-        hasNext={list.hasNext}
-        loading={list.loading}
-        noun="báo giá"
-        onPrevious={list.previous}
-        onNext={list.next}
-      />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="báo giá" onChange={list.goTo} />
       {creating ? (
         <CreateQuoteDialog
           onClose={() => setCreating(false)}

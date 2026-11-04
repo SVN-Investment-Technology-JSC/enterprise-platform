@@ -51,7 +51,7 @@ try {
   {
     const { context, page } = await login('nv1');
     await goto(page, '#customers');
-    await page.locator('tr', { hasText: 'QA-CRM-KH01' }).getByText('Xem', { exact: true }).first().click();
+    await page.locator('tr', { hasText: 'QA-CRM-KH01' }).first().click();
     await page.waitForTimeout(2000);
     await page.getByRole('tab', { name: /Tài liệu/ }).click();
     await page.waitForTimeout(1500);

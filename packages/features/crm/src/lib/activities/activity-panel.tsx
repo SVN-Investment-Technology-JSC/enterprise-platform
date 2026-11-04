@@ -13,8 +13,8 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { CrmDialog, Field, ListPager, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
 import { createActivity, errorMessage, getActivity, listActivities, updateActivity } from '../crm-api';
 import { labelOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import { isOverdue, personName } from '../sales.model';
@@ -59,8 +59,8 @@ export function ActivityPanel({
   const [handledFocus, setHandledFocus] = useState<string>();
 
   const key = JSON.stringify({ ...scope, status });
-  const list = useKeysetPage(key, (cursor) =>
-    listActivities({ ...scope, status: (status || undefined) as ActivityStatus | undefined, cursor, limit: 20 }),
+  const list = usePagedList(key, 20, (page) =>
+    listActivities({ ...scope, status: (status || undefined) as ActivityStatus | undefined, page, limit: 20 }),
   );
 
   // Mở hoạt động được trỏ tới từ thông báo (một lần cho mỗi id).
@@ -153,7 +153,7 @@ export function ActivityPanel({
         scroll={{ x: 1000 }}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có hoạt động nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="hoạt động" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="hoạt động" onChange={list.goTo} />
       {editing ? (
         <ActivityFormDialog
           activity={editing === 'new' ? undefined : editing}

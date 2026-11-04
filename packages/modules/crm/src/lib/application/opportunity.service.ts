@@ -46,7 +46,7 @@ import {
   type RequirementContext,
 } from '../domain/opportunity.js';
 import { evaluateCareSuggestion } from '../domain/care-suggestion.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import {
   assertSkippable,
   normalizeSkipReason,
@@ -170,6 +170,7 @@ export class OpportunityService {
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       customerId: optionalId(query.customerId, 'khách hàng') ?? undefined,
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

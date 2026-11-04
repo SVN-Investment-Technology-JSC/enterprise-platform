@@ -16,9 +16,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { createOrder, errorMessage, listContracts, listCustomers, listOrders } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { ORDER_STATUS_TONE, formatDay } from '../fulfillment.model';
@@ -46,8 +46,8 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, ownerUserId, late };
-  const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listOrders({ q, status: (status || undefined) as SalesOrderStatus | undefined, ownerUserId, late: late || undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
+    listOrders({ q, status: (status || undefined) as SalesOrderStatus | undefined, ownerUserId, late: late || undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<SalesOrderSummary>>(
@@ -88,16 +88,6 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
         render: (value: number | null | undefined) => (value ? formatMoney(value) : ''),
       },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -134,10 +124,10 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1440 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có đơn bán nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="đơn" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="đơn" onChange={list.goTo} />
       {creating ? (
         <CreateOrderDialog
           onClose={() => setCreating(false)}

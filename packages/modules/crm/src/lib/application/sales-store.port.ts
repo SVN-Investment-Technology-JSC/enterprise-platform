@@ -56,6 +56,8 @@ export interface CustomerFilter {
   readonly kind?: CustomerKind;
   readonly ownerUserId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -209,6 +211,8 @@ export interface LeadFilter {
   readonly status?: LeadStatus;
   readonly ownerUserId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -276,6 +280,8 @@ export interface OpportunityFilter {
   readonly ownerUserId?: string;
   readonly customerId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 
@@ -467,6 +473,8 @@ export interface ActivityFilter {
   readonly assigneeUserId?: string;
   readonly status?: ActivityStatus;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

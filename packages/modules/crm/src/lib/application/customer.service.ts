@@ -26,7 +26,7 @@ import {
   requiredText,
   requiredVersion,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { optionalKindCode } from './customer-kind.service.js';
 import { normalizeTaxCode } from '../domain/tax-code.js';
 import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
@@ -62,6 +62,7 @@ export class CustomerService {
       kind: optionalKindCode(query.kind),
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

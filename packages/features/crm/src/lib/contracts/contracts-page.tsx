@@ -17,9 +17,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { createContract, errorMessage, listContracts, listCustomers, updateContract } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { CONTRACT_STATUS_TONE, formatDay } from '../fulfillment.model';
@@ -48,14 +48,14 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, type, ownerUserId, expiring };
-  const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
     listContracts({
       q,
       status: (status || undefined) as ContractStatus | undefined,
       type: (type || undefined) as ContractType | undefined,
       ownerUserId,
       expiringWithinDays: expiring ? 30 : undefined,
-      cursor,
+      page,
       limit: CRM_LIST_PAGE_SIZE,
     }),
   );
@@ -80,16 +80,6 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
       },
       { title: 'Giá trị', dataIndex: 'value', width: 150, align: 'right', render: (value: number) => formatMoney(value) },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -127,10 +117,10 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1300 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có hợp đồng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="hợp đồng" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="hợp đồng" onChange={list.goTo} />
       {creating ? (
         <ContractFormDialog
           onClose={() => setCreating(false)}

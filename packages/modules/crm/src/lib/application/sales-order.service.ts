@@ -35,7 +35,7 @@ import {
   optionalText,
   requiredText,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { priceQuote, type PricingLineInput } from '../domain/pricing-engine.js';
 import {
   assertOrderTransition,
@@ -158,6 +158,7 @@ export class SalesOrderService {
       late: query.late === true || query.late === 'true',
       today: this.today(),
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

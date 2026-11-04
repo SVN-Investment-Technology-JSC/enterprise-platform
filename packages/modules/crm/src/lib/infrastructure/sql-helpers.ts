@@ -1,3 +1,5 @@
+import type { CrmPage } from '@enterprise-platform/contracts-crm';
+import type { Pool, QueryResultRow } from 'pg';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import { encodeCursor } from '../domain/pagination.js';
@@ -106,6 +108,50 @@ export function keysetPage<TRow extends { cursor_at: string; id: string }, TItem
     items: page.map(map),
     nextCursor: rows.length > limit && last ? encodeCursor({ at: last.cursor_at, id: last.id }) : null,
   };
+}
+
+/** Câu danh sách dùng chung cho hai cách phân trang. `columns`, `from`, `orderBy`, cột keyset là SQL cố định của store. */
+export interface PagedListQuery {
+  readonly columns: string;
+  readonly from: string;
+  readonly orderBy: string;
+  readonly atColumn: string;
+  readonly idColumn: string;
+}
+
+/**
+ * Chạy câu danh sách: có `page` thì phân trang theo số trang (OFFSET, kèm tổng số dòng để chọn trang bất kỳ); không
+ * thì keyset theo `cursor` như cũ. Tổng đếm bằng `count(*) OVER ()` trong cùng câu nên dùng được mọi tham số của `where`.
+ */
+export async function pagedList<TRow extends QueryResultRow & { cursor_at: string; id: string }, TItem>(
+  pool: Pick<Pool, 'query'>,
+  where: SqlConditions,
+  query: PagedListQuery,
+  filter: { readonly cursor?: KeysetCursor; readonly page?: number; readonly limit: number },
+  map: (row: TRow) => TItem,
+): Promise<CrmPage<TItem>> {
+  if (filter.page === undefined) {
+    where.after(filter.cursor, query.atColumn, query.idColumn);
+    const result = await pool.query<TRow>(
+      `SELECT ${query.columns} ${query.from} ${where.where()}
+        ORDER BY ${query.orderBy}
+        LIMIT ${where.param(filter.limit + 1)}`,
+      where.params,
+    );
+    return keysetPage(result.rows, filter.limit, map);
+  }
+  const whereSql = where.where();
+  const run = (offset: number) =>
+    pool.query<TRow & { page_total: number }>(
+      `SELECT ${query.columns}, count(*) OVER ()::int AS page_total ${query.from} ${whereSql}
+        ORDER BY ${query.orderBy}
+        LIMIT ${filter.limit} OFFSET ${offset}`,
+      where.params,
+    );
+  const result = await run((filter.page - 1) * filter.limit);
+  // Trang vượt quá số trang (dữ liệu vừa bị xoá bớt): không có dòng nào để đọc tổng, đếm lại từ đầu.
+  const total = result.rows.length ? Number(result.rows[0].page_total) : Number((await run(0)).rows[0]?.page_total ?? 0);
+  return { items: result.rows.map(map), nextCursor: null, page: filter.page, total };
 }
 
 /** Lỗi vi phạm ràng buộc của PostgreSQL (unique, khoá ngoại, check). */

@@ -56,7 +56,7 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
-import { SqlConditions, constraintViolation, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, constraintViolation, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 /** Thực thể ghi vào `audit_log`; `metadata.versionNo` là phiên bản liên quan. */
 export const QUOTE_AUDIT_ENTITY = 'quote';
@@ -227,15 +227,20 @@ export class PostgresQuoteStore implements QuoteStore {
           : code,
       );
     }
-    where.after(filter.cursor, 'q.updated_at', 'q.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<HeadRow>(
-      `SELECT ${HEAD_COLUMNS} ${HEAD_FROM} ${where.where()}
-        ORDER BY q.updated_at DESC, q.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${HEAD_COLUMNS}`,
+        from: `${HEAD_FROM}`,
+        orderBy: 'q.updated_at DESC, q.id DESC',
+        atColumn: 'q.updated_at',
+        idColumn: 'q.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getQuote(tenantId: string, scope: CrmDataScope, id: string, versionNo?: number): Promise<QuoteDetail | undefined> {

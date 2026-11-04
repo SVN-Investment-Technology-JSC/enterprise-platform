@@ -44,6 +44,8 @@ export interface QuoteFilter {
   readonly opportunityId?: string;
   readonly ownerUserId?: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

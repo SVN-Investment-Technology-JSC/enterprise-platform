@@ -114,7 +114,7 @@ try {
 
   // TC-CARE-06: chân dung khách
   await goto(page, '#customers');
-  await page.locator('tr', { hasText: 'QA-CRM-KH01' }).getByText('Xem', { exact: true }).first().click();
+  await page.locator('tr', { hasText: 'QA-CRM-KH01' }).first().click();
   await page.waitForTimeout(2500);
   t = await page.locator('body').innerText();
   check('TC-CARE-06 (trình duyệt) hồ sơ khách có khối "Chân dung khách hàng" và nội dung đã lưu', /Chân dung khách hàng/.test(t) && /giao hàng buổi sáng/.test(t), '');

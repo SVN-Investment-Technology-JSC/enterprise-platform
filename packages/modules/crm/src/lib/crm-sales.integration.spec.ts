@@ -509,6 +509,18 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       const seen = new Set([...page1.items, ...page2.items].map((item) => item.id));
       expect(seen.size).toBe(25);
 
+      // Danh sách thường cũng chọn được trang bất kỳ: có `page` thì trả tổng, không cần con trỏ.
+      const numbered = await opportunities.list(seller(NV2), { q, page: 2, limit: 20 });
+      expect(numbered).toMatchObject({ page: 2, total: 25, nextCursor: null });
+      expect(numbered.items).toHaveLength(5);
+      const keyset = await opportunities.list(seller(NV2), { q, limit: 20 });
+      expect(keyset.total).toBeUndefined();
+      expect(new Set([...keyset.items, ...numbered.items].map((item) => item.id)).size).toBe(25);
+      expect(await opportunities.list(seller(NV2), { q, page: 9, limit: 20 })).toMatchObject({ items: [], total: 25 });
+      await expect(opportunities.list(seller(NV2), { q, page: 0 })).rejects.toMatchObject({ statusCode: 400 });
+      const customerPage = await customers.list(seller(NV2), { q: 'PGK', page: 1, limit: 1 });
+      expect(customerPage).toMatchObject({ page: 1, total: 2 });
+
       // Phạm vi dữ liệu: NV3 nhóm khác không thấy; trang sai 400.
       expect((await opportunities.listByCustomer(seller(NV3), { q })).total).toBe(0);
       await expect(opportunities.listByCustomer(seller(NV2), { q, page: 0 })).rejects.toMatchObject({ statusCode: 400 });

@@ -66,7 +66,7 @@ try {
     const search = page.locator('input[placeholder*="Tìm"]').first();
     await search.fill('P2B-');
     await page.waitForTimeout(1800);
-    await page.locator('tr', { hasText: 'dự án thử' }).first().getByText('Xem', { exact: true }).click();
+    await page.locator('tr', { hasText: 'dự án thử' }).first().click();
     await page.waitForTimeout(2500);
     const detail = await page.locator('body').innerText();
     check('TC-ASG-06 chi tiết dự án có khối "Kế hoạch giai đoạn" với người đảm nhận', detail.includes('Kế hoạch giai đoạn') && /Đang làm|Chưa tới|Đã xong|Đã bỏ qua/.test(detail), '');

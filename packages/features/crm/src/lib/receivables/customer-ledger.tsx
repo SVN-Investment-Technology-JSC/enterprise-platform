@@ -23,8 +23,8 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
 import {
   cancelReceipt,
   createAdjustment,
@@ -272,7 +272,7 @@ export function CustomerLedger({
 
 function CustomerReceipts({ customerId, version, onOpen }: { customerId: string; version: number; onOpen: (id: string) => void }) {
   const { people } = useCrm();
-  const list = useKeysetPage(`${customerId}|${version}`, (cursor) => listReceipts({ customerId, cursor, limit: 20 }));
+  const list = usePagedList(`${customerId}|${version}`, 20, (page) => listReceipts({ customerId, page, limit: 20 }));
   const columns: ColumnsType<ReceiptSummary> = [
     { title: 'Mã', dataIndex: 'code', width: 120, render: (value: string) => <span className={styles.mono}>{value}</span> },
     { title: 'Ngày thu', dataIndex: 'receiptDate', width: 110, render: (value: string) => formatDay(value) },
@@ -287,16 +287,6 @@ function CustomerReceipts({ customerId, version, onOpen }: { customerId: string;
     },
     { title: 'Phiếu Tài chính', dataIndex: 'financeVoucherCode', width: 140, render: (value: string | null) => value ?? '' },
     { title: 'Người thu', dataIndex: 'createdBy', width: 150, ellipsis: true, render: (value: string) => personName(people, value) },
-    {
-      title: '',
-      key: 'actions',
-      width: 70,
-      render: (_: unknown, row) => (
-        <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-          Mở
-        </button>
-      ),
-    },
   ];
   return (
     <section className={styles.tableCard} aria-label="Lần thu tiền của khách">
@@ -310,10 +300,10 @@ function CustomerReceipts({ customerId, version, onOpen }: { customerId: string;
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1100 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có lần thu nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="lần thu" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="lần thu" onChange={list.goTo} />
     </section>
   );
 }

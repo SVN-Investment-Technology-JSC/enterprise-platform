@@ -11,8 +11,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityPanel } from '../activities/activity-panel';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
 import {
   addContact,
   deleteContact,
@@ -348,7 +348,7 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
   const canWrite = useCanWrite();
   const [creating, setCreating] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const list = useKeysetPage(`${customer.id}:${refresh}`, (cursor) => listOpportunities({ customerId: customer.id, cursor, limit: 20 }));
+  const list = usePagedList(`${customer.id}:${refresh}`, 20, (page) => listOpportunities({ customerId: customer.id, page, limit: 20 }));
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
       { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
@@ -360,16 +360,6 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
       },
       { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Xem
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -390,9 +380,10 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có dự án bán hàng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="dự án bán hàng" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="dự án bán hàng" onChange={list.goTo} />
       {creating ? (
         <OpportunityFormDialog
           customer={customer}

@@ -7,9 +7,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { convertLead, createLead, errorMessage, listLeads, updateLead } from '../crm-api';
 import { labelOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import { DocumentsPanel } from '../documents';
@@ -42,8 +42,8 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
   const [converting, setConverting] = useState<Lead | null>(null);
   const [documentsOf, setDocumentsOf] = useState<Lead | null>(null);
   const q = useDebounced(search.trim(), 350);
-  const list = useKeysetPage(JSON.stringify({ q, status, ownerUserId }), (cursor) =>
-    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(JSON.stringify({ q, status, ownerUserId }), CRM_LIST_PAGE_SIZE, (page) =>
+    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<Lead>>(
@@ -126,7 +126,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
         scroll={{ x: 1400 }}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có lead nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="lead" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="lead" onChange={list.goTo} />
       {editing ? (
         <LeadFormDialog
           lead={editing === 'new' ? undefined : editing}

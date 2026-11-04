@@ -33,7 +33,7 @@ import {
 } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmForbiddenError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, normalizeSearch, optionalDate, optionalEnum, optionalId, optionalText, requiredText } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { priceQuote, type PricingLineInput } from '../domain/pricing-engine.js';
 import { assertCustomerTransition, assertQuoteTransition, planQuoteEdit, type QuoteEditPlan } from '../domain/quote.js';
 import { evaluateQuoteApproval, quoteRoleTier } from '../domain/quote-approval-policy.js';
@@ -169,6 +169,7 @@ export class QuoteService {
       opportunityId: optionalId(query.opportunityId, 'cơ hội') ?? undefined,
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

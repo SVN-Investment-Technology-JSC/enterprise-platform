@@ -6,8 +6,8 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { KeysetPager, StatusPill } from '../components/crm-ui';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
 import { listCustomers } from '../crm-api';
 import { groupOptions, kindOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import { personName } from '../sales.model';
@@ -42,8 +42,8 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
   const q = useDebounced(search.trim(), 350);
 
   const filter = { q, groupId, kind, ownerUserId };
-  const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
+    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<CustomerSummary>>(
@@ -61,16 +61,6 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
       { title: 'Tỉnh/thành', dataIndex: 'province', width: 120, ellipsis: true },
       { title: 'Liên hệ chính', dataIndex: 'primaryContactName', width: 160, ellipsis: true },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 170, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 80,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Xem
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -120,18 +110,10 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1200 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Không có khách hàng nào.' }}
       />
-      <KeysetPager
-        page={list.page}
-        count={list.items.length}
-        hasNext={list.hasNext}
-        loading={list.loading}
-        noun="khách hàng"
-        onPrevious={list.previous}
-        onNext={list.next}
-      />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="khách hàng" onChange={list.goTo} />
       {creating ? (
         <CustomerFormDialog
           onClose={() => setCreating(false)}

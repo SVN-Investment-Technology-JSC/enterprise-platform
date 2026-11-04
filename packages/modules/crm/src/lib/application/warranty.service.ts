@@ -18,7 +18,7 @@ import {
 } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmError, CrmForbiddenError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, normalizeSearch, optionalEnum, optionalId, optionalText, requiredText, requiredVersion } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { receiveIdempotencyKey, requireWarrantyWarehouse } from '../domain/warranty-case.js';
 import { computeWarranty, vietnamDate } from '../domain/warranty-period.js';
 import { requireSalesManager } from './crm-access.js';
@@ -201,6 +201,7 @@ export class WarrantyService {
       customerId: optionalId(query?.customerId, 'khách hàng') ?? undefined,
       serial: query?.serial ? normalizeSerial(query.serial) : undefined,
       cursor: decodeCursor(query?.cursor),
+      page: pageNumber(query?.page),
       limit: pageLimit(query?.limit),
     });
   }

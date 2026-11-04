@@ -414,6 +414,8 @@ export interface OpportunityListQuery {
   readonly ownerUserId?: string;
   readonly customerId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -522,6 +524,8 @@ export interface LeadListQuery {
   readonly status?: LeadStatus;
   readonly ownerUserId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -611,6 +615,8 @@ export interface ActivityListQuery {
   readonly assigneeUserId?: string;
   readonly status?: ActivityStatus;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

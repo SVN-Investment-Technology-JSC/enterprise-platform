@@ -34,6 +34,8 @@ export interface SalesOrderFilter {
   readonly late?: boolean;
   readonly today: string;
   readonly cursor?: KeysetCursor;
+  /** Phân trang theo số trang (bỏ qua `cursor`). */
+  readonly page?: number;
   readonly limit: number;
 }
 

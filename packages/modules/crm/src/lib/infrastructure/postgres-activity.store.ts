@@ -15,7 +15,7 @@ import type {
 import type { KeysetCursor } from '../domain/pagination.js';
 import { CrmStaleVersionError } from '../domain/crm.error.js';
 import type { CrmDatabase } from './crm.database.js';
-import { SqlConditions, cursorAt, keysetPage, toIso } from './sql-helpers.js';
+import { SqlConditions, cursorAt, keysetPage, toIso , pagedList} from './sql-helpers.js';
 
 interface ActivityRow {
   id: string;
@@ -74,15 +74,20 @@ export class PostgresActivityStore implements ActivityStore {
     if (filter.opportunityId) where.add(`a.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
     if (filter.assigneeUserId) where.add(`a.assignee_user_id = ${where.param(filter.assigneeUserId)}::uuid`);
     if (filter.status) where.add(`a.status = ${where.param(filter.status)}`);
-    where.after(filter.cursor, 'a.created_at', 'a.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<ActivityRow>(
-      `SELECT ${ACTIVITY_COLUMNS} ${ACTIVITY_FROM} ${where.where()}
-        ORDER BY a.created_at DESC, a.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${ACTIVITY_COLUMNS}`,
+        from: `${ACTIVITY_FROM}`,
+        orderBy: 'a.created_at DESC, a.id DESC',
+        atColumn: 'a.created_at',
+        idColumn: 'a.id',
+      },
+      filter,
+      toActivity,
     );
-    return keysetPage(result.rows, filter.limit, toActivity);
   }
 
   async getActivity(tenantId: string, scope: CrmDataScope, id: string): Promise<Activity | undefined> {

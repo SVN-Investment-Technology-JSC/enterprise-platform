@@ -33,7 +33,7 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { declineQuotesForLostOpportunity, ensureDraftQuoteForOpportunity } from './postgres-quote.store.js';
 import type { CrmDatabase } from './crm.database.js';
-import { SqlConditions, cursorAt, keysetPage, nameSearchCondition, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, nameSearchCondition, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 interface OpportunityRow {
   id: string;
@@ -153,15 +153,20 @@ export class PostgresOpportunityStore implements OpportunityStore {
     filter: OpportunityFilter,
   ): Promise<CrmPage<OpportunitySummary>> {
     const where = listConditions(scope, filter);
-    where.after(filter.cursor, 'o.updated_at', 'o.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<OpportunityRow>(
-      `SELECT ${OPPORTUNITY_COLUMNS} ${OPPORTUNITY_FROM} ${where.where()}
-        ORDER BY o.updated_at DESC, o.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${OPPORTUNITY_COLUMNS}`,
+        from: `${OPPORTUNITY_FROM}`,
+        orderBy: 'o.updated_at DESC, o.id DESC',
+        atColumn: 'o.updated_at',
+        idColumn: 'o.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async listByCustomer(

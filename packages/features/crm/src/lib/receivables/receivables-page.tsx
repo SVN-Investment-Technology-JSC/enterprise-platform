@@ -20,9 +20,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import {
   adjustmentAction,
   errorMessage,
@@ -185,7 +185,7 @@ function AgingTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) =
         dataSource={[...rows]}
         pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1450 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpenCustomer(row.customerId) })}
+        onRow={(row) => rowOpener(() => onOpenCustomer(row.customerId))}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Chưa có công nợ nào.' }}
       />
     </section>
@@ -195,7 +195,7 @@ function AgingTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) =
 function ReceiptsTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) => void }) {
   const { people } = useCrm();
   const [status, setStatus] = useState('');
-  const list = useKeysetPage(status, (cursor) => listReceipts({ status: (status || undefined) as ReceiptStatus | undefined, cursor, limit: CRM_LIST_PAGE_SIZE }));
+  const list = usePagedList(status, CRM_LIST_PAGE_SIZE, (page) => listReceipts({ status: (status || undefined) as ReceiptStatus | undefined, page, limit: CRM_LIST_PAGE_SIZE }));
   const columns = useMemo<ColumnsType<ReceiptSummary>>(
     () => [
       { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
@@ -212,17 +212,6 @@ function ReceiptsTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string
       },
       { title: 'Phiếu Tài chính', dataIndex: 'financeVoucherCode', width: 140, render: (value: string | null) => value ?? <span className={styles.muted}>Chưa có</span> },
       { title: 'Người thu', dataIndex: 'createdBy', width: 150, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 80,
-        fixed: 'right',
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpenCustomer(row.customerId)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpenCustomer],
   );
@@ -239,10 +228,11 @@ function ReceiptsTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
+        onRow={(row) => rowOpener(() => onOpenCustomer(row.customerId))}
         scroll={{ x: 1400 }}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có lần thu nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="lần thu" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="lần thu" onChange={list.goTo} />
     </section>
   );
 }
@@ -252,8 +242,8 @@ export function AdjustmentsTable({ customerId, onOpenCustomer, onChanged }: { cu
   const { people, capabilities, currentUserId } = useCrm();
   const [status, setStatus] = useState('');
   const [acting, setActing] = useState<{ adjustment: ReceivableAdjustment; action: 'approve' | 'cancel' }>();
-  const list = useKeysetPage(`${customerId ?? ''}|${status}`, (cursor) =>
-    listAdjustments({ customerId, status: (status || undefined) as AdjustmentStatus | undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(`${customerId ?? ''}|${status}`, CRM_LIST_PAGE_SIZE, (page) =>
+    listAdjustments({ customerId, status: (status || undefined) as AdjustmentStatus | undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
   const columns: ColumnsType<ReceivableAdjustment> = [
     { title: 'Mã', dataIndex: 'code', width: 120, render: (value: string) => <span className={styles.mono}>{value}</span> },
@@ -287,11 +277,6 @@ export function AdjustmentsTable({ customerId, onOpenCustomer, onChanged }: { cu
               {action === 'approve' ? 'Duyệt' : 'Huỷ'}
             </button>
           ))}
-          {onOpenCustomer ? (
-            <button type="button" className={styles.rowAction} onClick={() => onOpenCustomer(row.customerId)}>
-              Mở
-            </button>
-          ) : null}
         </span>
       ),
     },
@@ -309,10 +294,11 @@ export function AdjustmentsTable({ customerId, onOpenCustomer, onChanged }: { cu
         columns={columns}
         dataSource={[...list.items]}
         pagination={false}
+        onRow={onOpenCustomer ? (row) => rowOpener(() => onOpenCustomer(row.customerId)) : undefined}
         scroll={{ x: 1300 }}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có điều chỉnh nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="điều chỉnh" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="điều chỉnh" onChange={list.goTo} />
       {acting ? (
         <AdjustmentActionDialog
           adjustment={acting.adjustment}

@@ -24,11 +24,11 @@ import {
   SqlConditions,
   constraintViolation,
   cursorAt,
-  keysetPage,
   prefixPattern,
   prefixTsQuery,
   toIso,
   toNumber,
+  pagedList,
 } from './sql-helpers.js';
 
 interface CustomerRow {
@@ -110,15 +110,20 @@ export class PostgresCustomerStore implements CustomerStore {
     if (filter.kind) where.add(`c.kind = ${where.param(filter.kind)}`);
     if (filter.ownerUserId) where.add(`c.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
     if (filter.q) addCustomerSearch(where, filter.q);
-    where.after(filter.cursor, 'c.updated_at', 'c.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<CustomerRow>(
-      `SELECT ${CUSTOMER_COLUMNS} ${CUSTOMER_FROM} ${where.where()}
-        ORDER BY c.updated_at DESC, c.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${CUSTOMER_COLUMNS}`,
+        from: `${CUSTOMER_FROM}`,
+        orderBy: 'c.updated_at DESC, c.id DESC',
+        atColumn: 'c.updated_at',
+        idColumn: 'c.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getCustomer(tenantId: string, scope: CrmDataScope, id: string): Promise<CustomerDetail | undefined> {

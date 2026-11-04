@@ -7,6 +7,9 @@
 export interface CrmPage<TItem> {
   readonly items: readonly TItem[];
   readonly nextCursor: string | null;
+  /** Khi gọi kèm `page` (phân trang theo số trang): trang đang xem và tổng số dòng khớp bộ lọc. */
+  readonly page?: number;
+  readonly total?: number;
 }
 
 /** Số dòng tối đa một trang danh sách. */
@@ -151,6 +154,8 @@ export interface CustomerListQuery {
   readonly kind?: CustomerKind;
   readonly ownerUserId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

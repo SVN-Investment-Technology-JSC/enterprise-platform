@@ -12,9 +12,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { KeysetPager, StatusPill } from '../components/crm-ui';
+import { ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import { changeOpportunityStage, errorMessage, listOpportunities, listOpportunitiesByCustomer, loadBoard } from '../crm-api';
 import { peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import {
@@ -163,8 +163,8 @@ function OpportunityTable({
   onOpen: (id: string) => void;
 }) {
   const { people } = useCrm();
-  const list = useKeysetPage(JSON.stringify({ q, ownerUserId, stage, pipelineId, refresh }), (cursor) =>
-    listOpportunities({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
+  const list = usePagedList(JSON.stringify({ q, ownerUserId, stage, pipelineId, refresh }), CRM_LIST_PAGE_SIZE, (page) =>
+    listOpportunities({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
@@ -187,16 +187,6 @@ function OpportunityTable({
       { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
       { title: 'Ngày chốt', dataIndex: 'expectedCloseDate', width: 110, render: (value: string | null) => formatDate(value) },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Xem
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -211,10 +201,10 @@ function OpportunityTable({
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1100 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Không có dự án bán hàng nào.' }}
       />
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="dự án bán hàng" onPrevious={list.previous} onNext={list.next} />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="dự án bán hàng" onChange={list.goTo} />
     </section>
   );
 }
@@ -248,7 +238,6 @@ function OpportunitiesByCustomer({
   );
   const groups = useMemo(() => (list.data ? groupByCustomer(list.data.items, list.data.customers) : []), [list.data]);
   const total = list.data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / CRM_LIST_PAGE_SIZE));
   const toggle = (id: string) =>
     setCollapsed((current) => {
       const next = new Set(current);
@@ -283,36 +272,19 @@ function OpportunitiesByCustomer({
                 showHeader={false}
                 pagination={false}
                 dataSource={[...group.items]}
+                onRow={(row) => rowOpener(() => onOpen(row.id))}
                 columns={[
                   { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
                   { title: 'Giai đoạn', key: 'stage', width: 150, render: (_: unknown, row) => <StatusPill tone={stageTone(row.stageInfo.semantic)}>{row.stageInfo.name}</StatusPill> },
                   { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
                   { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, ellipsis: true, render: (value: string) => personName(people, value) },
-                  {
-                    title: '',
-                    key: 'actions',
-                    width: 70,
-                    render: (_: unknown, row) => (
-                      <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-                        Xem
-                      </button>
-                    ),
-                  },
                 ]}
               />
             ) : null}
           </div>
         );
       })}
-      <KeysetPager
-        page={list.page}
-        count={total}
-        noun={`dự án bán hàng · ${pageCount} trang`}
-        hasNext={list.page < pageCount}
-        loading={list.loading}
-        onPrevious={() => list.goTo(list.page - 1)}
-        onNext={() => list.goTo(list.page + 1)}
-      />
+      <ListPager page={list.page} total={total} pageSize={CRM_LIST_PAGE_SIZE} loading={list.loading} noun="dự án bán hàng" onChange={list.goTo} />
     </section>
   );
 }
