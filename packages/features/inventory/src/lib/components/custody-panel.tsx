@@ -93,8 +93,9 @@ export function CustodyPanel({
   canManage: boolean;
   busy?: boolean;
   /** `employeeId = null` là thu hồi. */
-  onAssign: (asset: Pick<Material, 'code' | 'name'>, employeeId: string | null) => Promise<boolean | void> | void;
-  onDeclare: (input: CreateAssetRequest) => Promise<boolean | void> | void;
+  /** Cấp phát (có `employeeId`) từ chối (reject) khi lỗi để hộp thoại hiện lý do; thu hồi tự báo lỗi ở màn. */
+  onAssign: (asset: Pick<Material, 'code' | 'name'>, employeeId: string | null) => Promise<void> | void;
+  onDeclare: (input: CreateAssetRequest) => Promise<void> | void;
 }) {
   const [assets, setAssets] = useState<readonly Material[]>([]);
   const [loadError, setLoadError] = useState<string>();
@@ -288,11 +289,13 @@ export function CustodyPanel({
           initialCode={dialog.code}
           busy={busy}
           onCancel={closeDialog}
-          onSubmit={(asset, employeeId) => {
-            void Promise.resolve(onAssign(asset, employeeId)).then(async (ok) => {
+          onSubmit={async (asset, employeeId) => {
+            try {
+              await onAssign(asset, employeeId);
+            } finally {
               await reload();
-              if (ok !== false) closeDialog();
-            });
+            }
+            closeDialog();
           }}
         />
       ) : null}
@@ -300,11 +303,13 @@ export function CustodyPanel({
         <CustodyDeclareDialog
           busy={busy}
           onCancel={closeDialog}
-          onSubmit={(input) => {
-            void Promise.resolve(onDeclare(input)).then(async (ok) => {
+          onSubmit={async (input) => {
+            try {
+              await onDeclare(input);
+            } finally {
               await reload();
-              if (ok !== false) closeDialog();
-            });
+            }
+            closeDialog();
           }}
         />
       ) : null}

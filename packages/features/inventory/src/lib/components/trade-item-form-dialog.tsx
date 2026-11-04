@@ -1,54 +1,44 @@
 'use client';
 
-import type {
-  CreateMaterialRequest,
-  InventoryTradeCatalog,
-  Material,
-  UpdateMaterialRequest,
-} from '@enterprise-platform/contracts-inventory';
+import type { CreateMaterialRequest, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { FormError, submitErrorMessage } from './form-error';
 import styles from '../inventory.module.scss';
-import { TRADE_GROUP_LABEL, categoriesOf, tradeGroupOf, usageLabel, type TradeGroup } from '../trade-items.model';
+import { TRADE_GROUP_LABEL, categoriesOf, withCurrent, type TradeGroup } from '../trade-items.model';
 
 const labelStyle = { display: 'block' } as const;
 
-/** Danh mục kèm giá trị đang dùng, để một lần sửa không làm mất giá trị admin đã bỏ khỏi danh mục. */
-function withCurrent(options: readonly string[], current: string): { value: string; label: string }[] {
-  const all = current && !options.includes(current) ? [...options, current] : options;
-  return all.map((value) => ({ value, label: value }));
-}
-
 /**
- * Tạo mới hoặc sửa một mặt hàng kinh doanh. Khi sửa, mã và nhóm bị khoá:
- * đổi giữa hàng hóa và dịch vụ bị Kho chặn khi mã đã có tồn hoặc bút toán.
- * Phân loại và sử dụng chọn từ danh mục khai trong Cài đặt.
+ * Tạo mới một mặt hàng kinh doanh. Việc sửa làm ngay trên drawer chi tiết (`TradeItemDrawer`).
+ * Phân loại, đơn vị và sử dụng chọn từ danh mục khai trong Cài đặt.
  */
 export function TradeItemFormDialog({
-  item,
   catalog,
+  units = [],
   busy,
   onCancel,
   onCreate,
-  onUpdate,
 }: {
-  item?: Material;
   catalog?: InventoryTradeCatalog;
+  /** Danh mục đơn vị tính khai ở Cài đặt; rỗng thì cho gõ tự do để không chặn việc tạo mã. */
+  units?: readonly string[];
   busy?: boolean;
   onCancel: () => void;
-  onCreate: (input: CreateMaterialRequest) => void;
-  onUpdate: (code: string, patch: UpdateMaterialRequest) => void;
+  /** Gửi lên Kho; từ chối (reject) khi thất bại để form giữ lại dữ liệu và hiện lý do. */
+  onCreate: (input: CreateMaterialRequest) => Promise<void> | void;
 }) {
-  const editing = Boolean(item);
-  const [code, setCode] = useState(item?.code ?? '');
-  const [name, setName] = useState(item?.name ?? '');
-  const [barcode, setBarcode] = useState(item?.barcode ?? '');
-  const [group, setGroup] = useState<TradeGroup>(item ? tradeGroupOf(item) : 'GOODS');
-  const [category, setCategory] = useState(item?.tradeCategory ?? '');
-  const [unit, setUnit] = useState(item?.unit ?? '');
-  const [usage, setUsage] = useState(usageLabel(item?.tradeMode));
-  const [price, setPrice] = useState(item?.salePrice === undefined ? '' : String(item.salePrice));
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [group, setGroup] = useState<TradeGroup>('GOODS');
+  const [category, setCategory] = useState('');
+  const [unit, setUnit] = useState('');
+  const [usage, setUsage] = useState('');
+  const [price, setPrice] = useState('');
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState<string>();
 
   const groupOptions = useMemo(
     () => (Object.keys(TRADE_GROUP_LABEL) as TradeGroup[]).map((value) => ({ value, label: TRADE_GROUP_LABEL[value] })),
@@ -64,40 +54,36 @@ export function TradeItemFormDialog({
     [catalog, usage],
   );
 
+  const unitOptions = useMemo(() => withCurrent(units, unit), [units, unit]);
+
   const priceValue = price.trim() === '' ? undefined : Number(price);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
   const ready = code.trim() !== '' && name.trim() !== '' && unit.trim() !== '' && !priceInvalid;
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
-    if (item) {
-      onUpdate(item.code, {
+    setError(undefined);
+    try {
+      await onCreate({
+        code: code.trim().toUpperCase(),
         name: name.trim(),
         unit: unit.trim(),
+        category: 'CONSUMABLE',
+        kind: group === 'SERVICE' ? 'SERVICE' : 'STOCK',
         barcode: barcode.trim() || undefined,
         tradeCategory: category || undefined,
         tradeMode: usage || undefined,
         salePrice: priceValue,
         currency: priceValue === undefined ? undefined : 'VND',
+        description: description.trim() || undefined,
       });
-      return;
+    } catch (cause) {
+      setError(submitErrorMessage(cause, 'Không lưu được hàng hóa.'));
     }
-    onCreate({
-      code: code.trim().toUpperCase(),
-      name: name.trim(),
-      unit: unit.trim(),
-      category: 'CONSUMABLE',
-      kind: group === 'SERVICE' ? 'SERVICE' : 'STOCK',
-      barcode: barcode.trim() || undefined,
-      tradeCategory: category || undefined,
-      tradeMode: usage || undefined,
-      salePrice: priceValue,
-      currency: priceValue === undefined ? undefined : 'VND',
-    });
   };
 
-  const title = editing ? 'Sửa hàng hóa' : 'Tạo hàng hóa';
+  const title = 'Tạo hàng hóa';
 
   return (
     <div className={styles.modalOverlay} onClick={onCancel}>
@@ -126,8 +112,7 @@ export function TradeItemFormDialog({
                 <input
                   id="trade-code"
                   required
-                  autoFocus={!editing}
-                  readOnly={editing}
+                  autoFocus
                   placeholder="VD: VT-001"
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
@@ -140,7 +125,6 @@ export function TradeItemFormDialog({
                 <input
                   id="trade-name"
                   required
-                  autoFocus={editing}
                   placeholder="Tên hàng hóa hoặc dịch vụ"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
@@ -159,23 +143,19 @@ export function TradeItemFormDialog({
               </div>
               <div className={styles.formGroup}>
                 <label style={labelStyle}>Nhóm</label>
-                {editing ? (
-                  <input value={TRADE_GROUP_LABEL[group]} readOnly aria-label="Nhóm" />
-                ) : (
-                  <SearchableSelect
-                    options={groupOptions}
-                    value={group}
-                    placeholder="— Chọn nhóm —"
-                    onChange={(value) => {
-                      setGroup((value || 'GOODS') as TradeGroup);
-                      // Phân loại thuộc danh sách của nhóm cũ, không còn hợp lệ ở nhóm mới.
-                      setCategory('');
-                    }}
-                    clearable={false}
-                    height={42}
-                    style={{ width: '100%' }}
-                  />
-                )}
+                <SearchableSelect
+                  options={groupOptions}
+                  value={group}
+                  placeholder="— Chọn nhóm —"
+                  onChange={(value) => {
+                    setGroup((value || 'GOODS') as TradeGroup);
+                    // Phân loại thuộc danh sách của nhóm cũ, không còn hợp lệ ở nhóm mới.
+                    setCategory('');
+                  }}
+                  clearable={false}
+                  height={42}
+                  style={{ width: '100%' }}
+                />
               </div>
               <div className={styles.formGroup}>
                 <label style={labelStyle}>Phân loại</label>
@@ -195,13 +175,26 @@ export function TradeItemFormDialog({
                 <label style={labelStyle} htmlFor="trade-unit">
                   Đơn vị <span style={{ color: '#dc2626' }}>*</span>
                 </label>
-                <input
-                  id="trade-unit"
-                  required
-                  placeholder="Cái, Mét, Giờ…"
-                  value={unit}
-                  onChange={(event) => setUnit(event.target.value)}
-                />
+                {units.length > 0 ? (
+                  <SearchableSelect
+                    options={unitOptions}
+                    value={unit}
+                    placeholder="— Chọn đơn vị —"
+                    emptyText="Không tìm thấy đơn vị tính"
+                    onChange={(value) => setUnit(value || '')}
+                    clearable={false}
+                    height={42}
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <input
+                    id="trade-unit"
+                    required
+                    placeholder="Cái, Mét, Giờ…"
+                    value={unit}
+                    onChange={(event) => setUnit(event.target.value)}
+                  />
+                )}
               </div>
               <div className={styles.formGroup}>
                 <label style={labelStyle}>Sử dụng</label>
@@ -234,6 +227,20 @@ export function TradeItemFormDialog({
                 ) : null}
               </div>
             </div>
+            <div className={styles.formGroup}>
+              <label style={labelStyle} htmlFor="trade-description">
+                Mô tả
+              </label>
+              <textarea
+                id="trade-description"
+                rows={3}
+                maxLength={2000}
+                placeholder="Thông tin thêm về hàng hóa hoặc dịch vụ"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </div>
+            <FormError error={error} />
           </div>
 
           <div className={styles.modalFoot}>
@@ -241,7 +248,7 @@ export function TradeItemFormDialog({
               Huỷ
             </button>
             <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy || !ready}>
-              {busy ? 'Đang lưu…' : editing ? 'Lưu thay đổi' : 'Tạo mới'}
+              {busy ? 'Đang lưu…' : 'Tạo mới'}
             </button>
           </div>
         </form>

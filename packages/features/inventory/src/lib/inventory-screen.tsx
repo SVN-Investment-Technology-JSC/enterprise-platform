@@ -16,6 +16,7 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
+import { toast } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
@@ -167,16 +168,9 @@ export function InventoryScreen() {
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
-
-  // Tự động ẩn thông báo thành công sau 2 giây (2000ms)
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => {
-      setNotice(undefined);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  /** Kết quả thao tác hiện bằng toast (tự ẩn), như HRM; dải đầu trang chỉ còn cho lỗi tải dữ liệu. */
+  const notify = (message: string) => toast.success(message);
+  const notifyError = (message: string) => toast.error(message);
 
   const [homePath, setHomePath] = useState('/');
   const [busy, setBusy] = useState(false);
@@ -312,40 +306,28 @@ export function InventoryScreen() {
     return message;
   }, []);
 
-  /** Chạy một lệnh ghi rồi nạp lại; gom xử lý lỗi về một chỗ. */
-  const perform = async (run: () => Promise<string | void>) => {
+  /**
+   * Chạy một lệnh ghi rồi nạp lại; gom xử lý lỗi về một chỗ. Lỗi mặc định hiện ở dải thông báo
+   * đầu trang. Form hay hộp thoại đang mở truyền `rethrow` để nhận lỗi ngay trong khung của nó
+   * (dải đầu trang nằm sau lớp phủ nên người dùng không thấy), giữ nguyên dữ liệu đã nhập.
+   */
+  const perform = async (run: () => Promise<string | void>, options?: { rethrow?: boolean }) => {
     setBusy(true);
     setError(undefined);
-    setNotice(undefined);
     try {
       const message = await run();
       setForm(undefined);
       setEditingMaterial(undefined);
-      if (message) setNotice(message);
+      if (message) notify(message);
       // Thao tác đã ghi xong: nạp lại lỗi chỉ là chưa cập nhật màn hình, không phải ghi thất bại.
-      const reloadFailure = await reload();
-      if (reloadFailure && message) setError(`${message} ${reloadFailure}`);
+      // Nạp lại lỗi đã hiện ở dải đầu trang kèm nút "Tải lại"; không gộp vào thông báo thành công.
+      await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không hoàn tất được thao tác.');
+      if (options?.rethrow) throw cause;
+      notifyError(cause instanceof Error ? cause.message : 'Không hoàn tất được thao tác.');
     } finally {
       setBusy(false);
     }
-  };
-
-  /**
-   * Như `perform`, nhưng báo thao tác thành công hay không, để form đang mở giữ nguyên dữ liệu đã nhập khi thất bại.
-   */
-  const performTracked = async (run: () => Promise<string | void>): Promise<boolean> => {
-    let failed = false;
-    await perform(async () => {
-      try {
-        return await run();
-      } catch (cause) {
-        failed = true;
-        throw cause;
-      }
-    });
-    return !failed;
   };
 
   /** Work order vừa mở cho lệnh kho; hiện popup rồi tự đóng khi người dùng bấm. */
@@ -376,7 +358,7 @@ export function InventoryScreen() {
       });
       setMovementOrder(order);
     } catch (cause) {
-      setError(
+      notifyError(
         cause instanceof Error
           ? `Lệnh kho đã ghi nhận nhưng không mở được work order: ${cause.message}`
           : 'Lệnh kho đã ghi nhận nhưng không mở được work order.',
@@ -398,8 +380,7 @@ export function InventoryScreen() {
     void loadProcedureWorkOrders().then(setWorkOrders);
   }, [form, returnTarget, uninstallTarget, procedures.length]);
 
-  const submitMovement = (movement: MovementInput) =>
-    perform(async () => {
+  const runMovement = async (movement: MovementInput): Promise<string | void> => {
       if (!canWriteTransactions) throw new Error('Bạn không có quyền ghi giao dịch kho.');
       // Xác định danh sách dòng vật tư: ưu tiên movement.items, nếu rỗng thì fallback về single item
       const lineItems: readonly MovementLineItem[] =
@@ -569,7 +550,14 @@ export function InventoryScreen() {
       const refText = txCodes.join(', ');
       await openOrderFor(movement, refText);
       return `Đã chuyển kho ${lineItems.length} mặt hàng — chứng từ [${refText}].`;
-    });
+  };
+
+  /** Dùng cho đợt kiểm kê và các luồng không có form: lỗi hiện ở dải thông báo đầu trang. */
+  const submitMovement = (movement: MovementInput) => perform(() => runMovement(movement));
+
+  /** Dùng cho phiếu nhập/xuất đang mở: lỗi trả về cho form để hiện trong form. */
+  const submitMovementInDialog = (movement: MovementInput) =>
+    perform(() => runMovement(movement), { rethrow: true });
 
   /**
    * Xử lý nạp dữ liệu bổ sung từ tệp Excel trên Toolbar Tab Kho (hỗ trợ nhiều kho khác nhau)
@@ -693,7 +681,7 @@ export function InventoryScreen() {
       setError(undefined);
     } catch (cause) {
       // The API rechecks capabilities even if the screen has stale permissions.
-      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
     } finally {
       setSavingCards(false);
     }
@@ -715,7 +703,7 @@ export function InventoryScreen() {
       setAssetCatalogDraft((saved as InventorySettingsSnapshot['catalog.asset']).value);
       setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
     } finally {
       setSavingCards(false);
     }
@@ -737,7 +725,7 @@ export function InventoryScreen() {
       setUnitDraft((saved as InventorySettingsSnapshot['catalog.unit']).value.units ?? []);
       setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục đơn vị.');
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được danh mục đơn vị.');
     } finally {
       setSavingCards(false);
     }
@@ -759,7 +747,7 @@ export function InventoryScreen() {
       setTradeDraft((saved as InventorySettingsSnapshot['catalog.trade']).value);
       setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục hàng hóa.');
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được danh mục hàng hóa.');
     } finally {
       setSavingCards(false);
     }
@@ -828,7 +816,6 @@ export function InventoryScreen() {
               ) : null}
             </p>
           ) : null}
-          {notice ? <p className={styles.notice}>{notice}</p> : null}
         </>
       }
     >
@@ -845,15 +832,14 @@ export function InventoryScreen() {
               stock={workspace.stock}
               busy={busy}
               onCancel={() => setInstallTarget(undefined)}
-              onConfirm={(code, input) => {
-                setInstallTarget(undefined);
-                void perform(async () => {
+              onConfirm={(code, input) =>
+                perform(async () => {
                   const issue = await installItem(code, input);
                   return input.parentCode
                     ? `Đã xuất ${input.quantity} ${code} từ ${input.warehouseCode} và lắp vào ${input.parentCode} — phiếu ${issue.transactionCode}.`
                     : `Đã xuất ${input.quantity} ${code} từ ${input.warehouseCode} làm thiết bị gốc trên cây tài sản — phiếu ${issue.transactionCode}.`;
-                });
-              }}
+                }, { rethrow: true }).then(() => setInstallTarget(undefined))
+              }
             />
           ) : null}
 
@@ -871,8 +857,7 @@ export function InventoryScreen() {
               onCancel={() => setReturnTarget(undefined)}
               onConfirm={(input) => {
                 const { code, id, name } = returnTarget;
-                setReturnTarget(undefined);
-                void perform(async () => {
+                return perform(async () => {
                   const receipt = await returnItemToStock(code, input);
                   if (selectedAssetId === id) setSelectedAssetId(undefined);
 
@@ -884,7 +869,7 @@ export function InventoryScreen() {
                       });
                       setMovementOrder(order);
                     } catch (cause) {
-                      setError(
+                      notifyError(
                         cause instanceof Error
                           ? `Đã nhập về kho nhưng không mở được work order: ${cause.message}`
                           : 'Đã nhập về kho nhưng không mở được work order.',
@@ -893,7 +878,7 @@ export function InventoryScreen() {
                   }
 
                   return `Đã tháo dỡ ${code} về kho ${input.warehouseCode} — phiếu ${receipt.transactionCode}.`;
-                });
+                }, { rethrow: true }).then(() => setReturnTarget(undefined));
               }}
             />
           ) : null}
@@ -915,8 +900,7 @@ export function InventoryScreen() {
               onCancel={() => setUninstallTarget(undefined)}
               onConfirm={(input) => {
                 const { asset, line } = uninstallTarget;
-                setUninstallTarget(undefined);
-                void perform(async () => {
+                return perform(async () => {
                   const receipt = await uninstallMaterial(asset.code, {
                     warehouseCode: input.warehouseCode,
                     quantity: input.quantity,
@@ -933,7 +917,7 @@ export function InventoryScreen() {
                       });
                       setMovementOrder(order);
                     } catch (cause) {
-                      setError(
+                      notifyError(
                         cause instanceof Error
                           ? `Đã tháo về kho nhưng không mở được work order: ${cause.message}`
                           : 'Đã tháo về kho nhưng không mở được work order.',
@@ -942,7 +926,7 @@ export function InventoryScreen() {
                   }
 
                   return `Đã tháo ${input.quantity} ${line.materialCode} về kho ${input.warehouseCode} — phiếu ${receipt.transactionCode}.`;
-                });
+                }, { rethrow: true }).then(() => setUninstallTarget(undefined));
               }}
             />
           ) : null}
@@ -1013,7 +997,7 @@ export function InventoryScreen() {
                 setStockSubTab('stocktakes');
                 setShowStocktakeDialog(false);
                 setStocktakeInit(undefined);
-                setNotice(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu phiên đếm.`);
+                notify(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu phiên đếm.`);
               }}
             />
           ) : null}
@@ -1036,7 +1020,7 @@ export function InventoryScreen() {
               types={settings?.['catalog.asset'].value.types ?? []}
               reservations={reservations ?? []}
               workOrders={workOrders}
-              onSubmit={submitMovement}
+              onSubmit={submitMovementInDialog}
             />
           ) : null}
 
@@ -1045,6 +1029,7 @@ export function InventoryScreen() {
               editing={editingMaterial}
               units={settings?.['catalog.unit'].value.units ?? []}
               types={settings?.['catalog.asset'].value.types ?? []}
+              catalog={settings?.['catalog.trade']?.value}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -1058,7 +1043,7 @@ export function InventoryScreen() {
                   }
                   const created = await createMaterial(input);
                   return `Đã thêm vật tư ${created.code}.`;
-                })
+                }, { rethrow: true })
               }
             />
           ) : null}
@@ -1079,7 +1064,7 @@ export function InventoryScreen() {
                   const created = await createAsset(input);
                   setNewAssetParent(undefined);
                   return `Đã thêm vật tư ${created.code}.`;
-                })
+                }, { rethrow: true })
               }
             />
           ) : null}
@@ -1106,7 +1091,7 @@ export function InventoryScreen() {
             <StockDocumentList
               warehouses={workspace.warehouses}
               materials={workspace.materials}
-              onNotice={setNotice}
+              onNotice={notify}
               onStockChanged={() => void reload()}
             />
           ) : null}
@@ -1114,7 +1099,7 @@ export function InventoryScreen() {
           {tab === 'approvals' ? (
             <StockDocumentApproval
               warehouses={workspace.warehouses}
-              onNotice={setNotice}
+              onNotice={notify}
               onStockChanged={() => void reload()}
             />
           ) : null}
@@ -1123,12 +1108,12 @@ export function InventoryScreen() {
             <IssueRequestPanel
               warehouses={workspace.warehouses}
               materials={workspace.materials}
-              onNotice={setNotice}
+              onNotice={notify}
               onStockChanged={() => void reload()}
             />
           ) : null}
 
-          {tab === 'reports' ? <InventoryReports warehouses={workspace.warehouses} /> : null}
+          {tab === 'reports' ? <InventoryReports warehouses={workspace.warehouses} catalog={settings?.['catalog.trade']?.value} /> : null}
 
           {tab === 'settings' ? (
             <ModuleSettingsView
@@ -1290,7 +1275,9 @@ export function InventoryScreen() {
                   warehouses={workspace.warehouses}
                   stock={workspace.stock}
                   catalog={settings?.['catalog.trade']?.value}
+                  units={settings?.['catalog.unit']?.value.units}
                   onChanged={() => void reload()}
+                  onCatalogChanged={() => void loadInventorySettings().then(setSettings).catch(() => undefined)}
                 />
               ) : null}
 
@@ -1321,8 +1308,9 @@ export function InventoryScreen() {
                   ledger={ledger ?? []}
                   busy={busy}
                   onSubmitMovement={submitMovement}
+                  onSubmitMovementInDialog={submitMovementInDialog}
                   onReload={async () => { await reload(); }}
-                  onNotice={(msg) => setNotice(msg)}
+                  onNotice={notify}
                   hideSubTabs={true}
                   onOpenProfile={(code) => setProfileCode(code)}
                 />
@@ -1333,7 +1321,7 @@ export function InventoryScreen() {
                   workspace={workspace}
                   busy={busy}
                   onSubmitMovement={submitMovement}
-                  onNotice={(msg) => setNotice(msg)}
+                  onNotice={notify}
                 />
               ) : null}
             </>
@@ -1367,7 +1355,7 @@ export function InventoryScreen() {
                       }
                     }
                     return `Đã tháo dỡ ${entries.length} thiết bị về kho thành công.`;
-                  })
+                  }, { rethrow: true })
                 : undefined}
                 onRename={canManage ? (asset, name) =>
                   perform(async () => {
@@ -1422,18 +1410,22 @@ export function InventoryScreen() {
               canManage={canManage}
               busy={busy}
               onAssign={(asset, employeeId) =>
-                performTracked(async () => {
-                  await assignCustody(asset.code, employeeId);
-                  return employeeId
-                    ? `Đã cấp phát ${asset.code}.`
-                    : `Đã thu hồi ${asset.code}.`;
-                })
+                perform(
+                  async () => {
+                    await assignCustody(asset.code, employeeId);
+                    return employeeId
+                      ? `Đã cấp phát ${asset.code}.`
+                      : `Đã thu hồi ${asset.code}.`;
+                  },
+                  // Cấp phát đi qua hộp thoại nên nhận lỗi trong hộp thoại; thu hồi là nút ngoài bảng.
+                  { rethrow: employeeId !== null },
+                )
               }
               onDeclare={(input) =>
-                performTracked(async () => {
+                perform(async () => {
                   const created = await createAsset(input);
                   return `Đã khai báo tài sản ${created.code}.`;
-                })
+                }, { rethrow: true })
               }
             />
           ) : null}

@@ -4,6 +4,7 @@ import type {
   CreateAssetDocumentRequest,
   CreateAssetRequest,
   CreateMaterialRequest,
+  ImportMaterialsRequest,
   CreateStockReservationRequest,
   CreateWarehouseRequest,
   InstallItemRequest,
@@ -105,6 +106,11 @@ export class InventoryController {
     return this.execute(() => this.app.createMaterial(this.actor(request), input));
   }
 
+  @Post('materials/import')
+  importMaterials(@Req() request: InventoryRequest, @Body() input: ImportMaterialsRequest) {
+    return this.execute(() => this.app.importMaterials(this.actor(request), input));
+  }
+
   @Patch('materials/:code')
   updateMaterial(
     @Req() request: InventoryRequest,
@@ -114,10 +120,16 @@ export class InventoryController {
     return this.execute(() => this.app.updateMaterial(this.actor(request), code, input));
   }
 
-  /** Ngừng dùng vật tư: xoá hẳn nếu chưa có giao dịch, ngược lại chỉ hạ cờ hoạt động. */
+  /** Ngừng dùng vật tư: chỉ hạ cờ hoạt động, lịch sử giữ nguyên. */
   @Delete('materials/:code')
   retireMaterial(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(() => this.app.retireMaterial(this.actor(request), code));
+  }
+
+  /** Xoá hẳn vật tư chưa có liên kết nào (dữ liệu rác, tạo nhầm); còn liên kết thì từ chối. */
+  @Delete('materials/:code/permanent')
+  deleteMaterial(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.deleteMaterial(this.actor(request), code));
   }
 
   /** Lịch sử nhập/xuất của một mã vật tư, cho màn chi tiết. */

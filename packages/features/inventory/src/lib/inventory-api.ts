@@ -7,6 +7,8 @@ import type {
   CreateAssetDocumentResponse,
   CreateAssetRequest,
   CreateMaterialRequest,
+  ImportMaterialsRequest,
+  ImportMaterialsResult,
   CreateStockDocumentRequest,
   CreateStockReservationRequest,
   CreateWarehouseRequest,
@@ -24,6 +26,7 @@ import type {
   MaterialInventory,
   RegisterSerialsRequest,
   Reservation,
+  MaterialDeleteResult,
   RetireResult,
   ReturnItemToStockRequest,
   SerialHistory,
@@ -803,6 +806,11 @@ export function createMaterial(input: CreateMaterialRequest): Promise<Material> 
   return request<Material>('/materials', { method: 'POST', body: JSON.stringify(input) });
 }
 
+/** Nhập hàng hóa, dịch vụ từ hệ cũ theo lô; giữ người tạo, ngày tạo, trạng thái trong tệp. */
+export function importMaterials(input: ImportMaterialsRequest): Promise<ImportMaterialsResult> {
+  return request<ImportMaterialsResult>('/materials/import', { method: 'POST', body: JSON.stringify(input) });
+}
+
 export function updateMaterial(code: string, patch: UpdateMaterialRequest): Promise<Material> {
   return request<Material>(`/materials/${encodeURIComponent(code)}`, {
     method: 'PATCH',
@@ -810,9 +818,19 @@ export function updateMaterial(code: string, patch: UpdateMaterialRequest): Prom
   });
 }
 
-/** Ngừng dùng vật tư: server xoá hẳn nếu chưa có giao dịch, ngược lại chỉ hạ cờ. */
+/** Ngừng dùng vật tư: chỉ hạ cờ hoạt động, lịch sử giữ nguyên. */
 export function retireMaterial(code: string): Promise<RetireResult> {
   return request<RetireResult>(`/materials/${encodeURIComponent(code)}`, { method: 'DELETE' });
+}
+
+/** Dùng lại một mã đã ngừng dùng. */
+export function reactivateMaterial(code: string): Promise<Material> {
+  return updateMaterial(code, { isActive: true });
+}
+
+/** Xoá hẳn mã chưa có liên kết nào (dữ liệu rác, tạo nhầm); còn liên kết thì server từ chối và nêu lý do. */
+export function deleteMaterial(code: string): Promise<MaterialDeleteResult> {
+  return request<MaterialDeleteResult>(`/materials/${encodeURIComponent(code)}/permanent`, { method: 'DELETE' });
 }
 
 // ---- Danh mục thiết bị -----------------------------------------------------

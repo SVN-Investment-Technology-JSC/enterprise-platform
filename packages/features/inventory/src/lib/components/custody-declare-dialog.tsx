@@ -4,6 +4,7 @@ import type { AssetCategory, CreateAssetRequest } from '@enterprise-platform/con
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 /** `.formGrid label` ép nhãn thành cột flex nên dấu * rớt xuống dòng; ép về dòng thường. */
@@ -27,8 +28,10 @@ export function CustodyDeclareDialog({
 }: {
   busy?: boolean;
   onCancel: () => void;
-  onSubmit: (input: CreateAssetRequest) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onSubmit: (input: CreateAssetRequest) => Promise<void> | void;
 }) {
+  const { error, submit: send } = useFormSubmit('Không khai báo được tài sản.');
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState<AssetCategory>('IT_OFFICE');
@@ -52,7 +55,7 @@ export function CustodyDeclareDialog({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
-    onSubmit({
+    void send(() => onSubmit({
       code: code.trim().toUpperCase(),
       name: name.trim(),
       type: 'EQUIPMENT',
@@ -62,7 +65,7 @@ export function CustodyDeclareDialog({
       unit: unit.trim() || undefined,
       purchasePrice: priceValue,
       currency: priceValue === undefined ? undefined : 'VND',
-    });
+    }));
   };
 
   return (
@@ -162,6 +165,7 @@ export function CustodyDeclareDialog({
                 ) : null}
               </div>
             </div>
+            <FormError error={error} />
           </div>
 
           <div className={styles.modalFoot}>

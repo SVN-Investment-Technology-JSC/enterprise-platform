@@ -24,7 +24,7 @@ import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
 import { SparePartPanel } from './spare-part-panel';
 import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
-import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { Folder, Link2, Printer, X } from 'lucide-react';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -82,7 +82,6 @@ export function AssetDetail({
   const [specRows, setSpecRows] = useState<{ key: string; value: string }[]>([]);
   const [taskRows, setTaskRows] = useState<AssetTaskItem[]>([]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
   const [showQrModal, setShowQrModal] = useState(false);
 
   // Default specs fallback if none
@@ -112,30 +111,26 @@ export function AssetDetail({
     setEditCriticality(asset.criticality);
     setSpecRows([]);
     setTaskRows([]);
-    setError(undefined);
   }, [asset.code, asset.name, asset.serialNumber, asset.status, asset.criticality]);
 
   const openSpecs = () => {
     setSpecRows(specs.map(([key, value]) => ({ key, value: String(value) })));
-    setError(undefined);
     setEditing('specs');
   };
 
   const openTasks = () => {
     setTaskRows(taskTemplate.map((task) => ({ ...task })));
-    setError(undefined);
     setEditing('tasks');
   };
 
   const save = async (patch: UpdateAssetRequest) => {
     setSaving(true);
-    setError(undefined);
     try {
       await updateAsset(asset.code, patch);
       setEditing(undefined);
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được.');
+      toast.error(cause instanceof Error ? cause.message : 'Không lưu được.');
     } finally {
       setSaving(false);
     }
@@ -640,12 +635,6 @@ export function AssetDetail({
           ) : null}
         </div>
       </div>
-
-      {error ? (
-        <div className={styles.alert}>
-          {error}
-        </div>
-      ) : null}
 
       {/* 5 SUB-TABS NAVIGATION IN WORKSPACE */}
       <div className={styles.subTabNav} role="tablist">

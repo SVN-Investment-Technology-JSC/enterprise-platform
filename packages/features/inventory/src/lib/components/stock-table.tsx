@@ -8,7 +8,6 @@ import type {
   InventoryWorkspace,
 } from '../inventory-api';
 import {
-  MATERIAL_CATEGORY_LABEL,
   RESERVATION_STATUS_LABEL,
   WAREHOUSE_TYPE_LABEL,
   formatDateTime,
@@ -249,10 +248,8 @@ export function StockTable({
                       <td colSpan={6}>
                         <div className={styles.detailGrid}>
                           <div>
-                            <span>Nhóm vật tư</span>
-                            <strong>
-                              {material ? MATERIAL_CATEGORY_LABEL[material.category] : '—'}
-                            </strong>
+                            <span>Phân loại</span>
+                            <strong>{material?.tradeCategory || '—'}</strong>
                           </div>
                           <div>
                             <span>Đơn vị tính</span>

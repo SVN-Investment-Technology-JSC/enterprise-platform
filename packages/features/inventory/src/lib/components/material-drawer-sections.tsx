@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadMaterialHistory, type InventoryLedgerRow } from '../inventory-api';
 import { TRANSACTION_TYPE_LABEL, formatDateTime, formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
+import { useUserLabel } from '../user-names';
 
 /** Dòng tồn của một mặt hàng; `materialCode` có khi dòng tồn đã được ghép mã ở màn Kho. */
 export type StockRow = MaterialInventory & { warehouseCode?: string; materialCode?: string };
@@ -32,8 +33,8 @@ export function DrawerField({
 
 export function DrawerSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
-      <h3 style={{ margin: '0 0 0.75rem', fontSize: '14px', color: '#1e293b' }}>{title}</h3>
+    <section className={styles.drawerCard}>
+      <h3 className={styles.drawerCardTitle}>{title}</h3>
       {children}
     </section>
   );
@@ -120,6 +121,7 @@ export function MaterialHistorySection({
   warehouseId?: string;
 }) {
   const [history, setHistory] = useState<InventoryLedgerRow[] | 'loading' | 'error'>('loading');
+  const userName = useUserLabel();
   const isService = material.kind === 'SERVICE';
 
   useEffect(() => {
@@ -180,8 +182,12 @@ export function MaterialHistorySection({
                 {formatNumber(row.quantity)} {material.unit}
               </td>
               <td>{warehouseName(row.warehouseId)}</td>
-              <td>{row.documentNumber || row.transactionCode}</td>
-              <td>{row.createdBy || '—'}</td>
+              <td>
+                {/* Số phiếu là mã giao dịch hệ thống sinh; số hóa đơn nhập tay (nếu có) nằm dòng dưới. */}
+                {row.transactionCode}
+                {row.documentNumber ? <span className={styles.sub}>Hóa đơn: {row.documentNumber}</span> : null}
+              </td>
+              <td title={row.createdBy}>{userName(row.createdBy)}</td>
             </tr>
           ))}
         </tbody>

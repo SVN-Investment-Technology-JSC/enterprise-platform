@@ -120,9 +120,53 @@ export interface CreateMaterialRequest {
   readonly salePrice?: number;
   /** Phân loại hàng hóa hoặc dịch vụ, lấy từ danh mục `catalog.trade` trong Cài đặt. */
   readonly tradeCategory?: string;
+  /** Mô tả, ghi chú; bỏ trống là chưa khai. */
+  readonly description?: string;
+}
+
+/**
+ * Một dòng nhập hàng hóa, dịch vụ từ hệ cũ. Khác `CreateMaterialRequest` ở chỗ giữ được dấu vết khai báo
+ * của hệ cũ: người tạo (bỏ trống nếu người đó đã nghỉ việc), ngày tạo và trạng thái.
+ */
+export interface ImportMaterialRow extends CreateMaterialRequest {
+  /** Số dòng trong tệp, để báo lỗi đúng dòng. */
+  readonly line: number;
+  /** Người tạo ở hệ cũ; bỏ trống là không ghi người tạo (khác với tạo thường, lấy người đang đăng nhập). */
+  readonly createdBy?: string;
+  /** Ngày tạo ở hệ cũ, dạng ISO. */
+  readonly createdAt?: string;
+  /** Mặc định đang dùng; `false` nhập thẳng vào trạng thái ngừng dùng. */
+  readonly isActive?: boolean;
+}
+
+/** Cách xử lý dòng có mã đã có trong Kho: báo lỗi (mặc định), bỏ qua giữ bản cũ, hoặc cập nhật bản cũ bằng dữ liệu trong tệp. */
+export type ImportConflictPolicy = 'FAIL' | 'SKIP' | 'UPDATE';
+
+export interface ImportMaterialsRequest {
+  readonly rows: readonly ImportMaterialRow[];
+  readonly onConflict?: ImportConflictPolicy;
+}
+
+/** Một dòng nhập không thành công. `duplicate` là trùng mã với hàng đã có, để tách khỏi lỗi dữ liệu khi xuất lại các dòng chưa nhập. */
+export interface ImportFailure {
+  readonly line: number;
+  readonly message: string;
+  readonly duplicate?: boolean;
+}
+
+export interface ImportMaterialsResult {
+  readonly created: number;
+  /** Số dòng đã cập nhật vào mã có sẵn (chỉ khi `onConflict` là UPDATE). */
+  readonly updated: number;
+  /** Dòng bỏ qua có chủ đích (mã đã có và giữ bản cũ), kèm lý do; không phải lỗi. */
+  readonly skipped: readonly { readonly line: number; readonly message: string }[];
+  /** Dòng không tạo được, theo số dòng trong tệp; các dòng còn lại vẫn được tạo. */
+  readonly failures: readonly ImportFailure[];
 }
 
 export interface UpdateMaterialRequest {
+  /** Mô tả, ghi chú; bỏ qua là giữ nguyên, chuỗi rỗng là xoá. */
+  readonly description?: string;
   readonly tradeMode?: TradeMode;
   readonly salePrice?: number;
   readonly tradeCategory?: string;
@@ -177,6 +221,12 @@ export interface RetireResult {
   readonly code: string;
   readonly mode: 'deactivated';
   readonly reason?: string;
+}
+
+/** Kết quả xoá hẳn một mã chưa có liên kết nào (dữ liệu rác, tạo nhầm). */
+export interface MaterialDeleteResult {
+  readonly code: string;
+  readonly mode: 'deleted';
 }
 
 /**
@@ -494,6 +544,8 @@ export interface Material {
   readonly salePrice?: number;
   /** Phân loại hàng hóa hoặc dịch vụ; không có là chưa khai. */
   readonly tradeCategory?: string;
+  /** Mô tả, ghi chú của mặt hàng; không có là chưa khai. */
+  readonly description?: string;
   readonly createdAt?: string;
   readonly createdBy?: string;
 }
@@ -1764,7 +1816,8 @@ export interface StockReportQuery {
   readonly groupBy?: StockReportGroupBy;
   readonly search?: string;
   readonly materialCode?: string;
-  readonly category?: MaterialCategory;
+  /** Phân loại khai trong Cài đặt (trade_category), không phải nhóm kỹ thuật `category`. */
+  readonly category?: string;
   readonly warehouseCode?: string;
   readonly expiringWithinDays?: number;
   readonly qualityStatus?: QualityStatus;
@@ -1794,7 +1847,8 @@ interface StockReportMaterialColumns {
   readonly materialCode: string;
   readonly materialName: string;
   readonly unit?: string;
-  readonly category?: MaterialCategory;
+  /** Phân loại khai trong Cài đặt (trade_category). */
+  readonly category?: string;
 }
 
 /** Một mặt hàng tại một kho (cộng mọi vị trí trong kho). */

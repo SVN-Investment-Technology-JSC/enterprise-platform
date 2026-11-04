@@ -64,7 +64,7 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'catalog.trade': {
     goodsCategories: [],
     serviceCategories: [],
-    usageModes: ['Chỉ bán', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
+    usageModes: ['Chỉ bán', 'Có thể bán và quà tặng', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
   },
   // Q5: mặc định không tự duyệt, giống Tài chính.
   'documents.approval': { allowSelfApproval: false },

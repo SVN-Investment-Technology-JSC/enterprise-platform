@@ -2,7 +2,7 @@
 
 import {
   STOCK_MOVEMENT_CATEGORIES,
-  type MaterialCategory,
+  type InventoryTradeCatalog,
   type QualityStatus,
   type SerialStockState,
   type StockApprovalReport,
@@ -21,12 +21,12 @@ import {
   type StockReportWarehouseRow,
   type Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { Table, type TableColumnsType } from 'antd';
 import { FileSpreadsheet, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadApprovalReport, loadMovementReport, loadStockReport } from '../inventory-api';
-import { MATERIAL_CATEGORY_LABEL, QUALITY_STATUS_LABEL, formatDateTime, formatNumber } from '../inventory-labels';
+import { QUALITY_STATUS_LABEL, formatDateTime, formatNumber } from '../inventory-labels';
 import {
   MAX_EXPORT_ROWS,
   MOVEMENT_CATEGORY_LABEL,
@@ -42,6 +42,7 @@ import {
 import { STOCK_DOCUMENT_STATUS_LABEL, STOCK_DOCUMENT_TYPE_LABEL } from '../stock-document.model';
 import { DocumentStatusBadge, errorMessage } from './stock-document-parts';
 import styles from '../inventory.module.scss';
+import { useUserLabel } from '../user-names';
 
 type ReportView = 'WAREHOUSE' | 'LOT' | 'SERIAL' | 'MOVEMENTS' | 'APPROVALS';
 
@@ -55,13 +56,11 @@ const VIEWS: readonly { id: ReportView; label: string }[] = [
 
 const PAGE_SIZES = [20, 50, 100, 200];
 
-const CATEGORY_OPTIONS = [
-  { value: '', label: 'Mọi nhóm vật tư' },
-  ...(Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCategory[]).map((value) => ({
-    value,
-    label: MATERIAL_CATEGORY_LABEL[value],
-  })),
-];
+/** Bộ lọc phân loại của báo cáo tồn: phân loại hàng hóa và dịch vụ khai trong Cài đặt, bỏ trùng. */
+function categoryFilterOptions(catalog?: InventoryTradeCatalog) {
+  const names = [...new Set([...(catalog?.goodsCategories ?? []), ...(catalog?.serviceCategories ?? [])])];
+  return [{ value: '', label: 'Mọi phân loại' }, ...names.map((value) => ({ value, label: value }))];
+}
 
 const QUALITY_OPTIONS = [
   { value: '', label: 'Mọi chất lượng' },
@@ -132,15 +131,16 @@ function warehouseOptions(warehouses: readonly Warehouse[]) {
   ];
 }
 
-/** Người thực hiện: chỉ có id người dùng, hiện 8 ký tự đầu như chi tiết chứng từ. */
+/** Người thực hiện: bản ghi chỉ có id người dùng nên tra tên trong danh bạ; không tra được thì hiện 8 ký tự đầu. */
 function Actor({ id, at }: { id?: string; at?: string }) {
+  const userName = useUserLabel();
   if (!id && !at) return <>—</>;
   return (
     <>
       {at ? formatDateTime(at) : '—'}
       {id ? (
         <span className={styles.sub} title={id}>
-          {id.slice(0, 8)}
+          {userName(id)}
         </span>
       ) : null}
     </>
@@ -163,7 +163,14 @@ const quantityColumn = <TRow extends object>(
  * Báo cáo kho (T7-09): tồn theo kho, lô, serial với bốn loại tồn; nhập xuất theo
  * kỳ; lịch sử chứng từ phải duyệt. Mỗi bảng xuất được Excel toàn bộ tập đã lọc.
  */
-export function InventoryReports({ warehouses }: { warehouses: readonly Warehouse[] }) {
+export function InventoryReports({
+  warehouses,
+  catalog,
+}: {
+  warehouses: readonly Warehouse[];
+  /** Danh mục phân loại khai trong Cài đặt, dùng cho bộ lọc báo cáo tồn. */
+  catalog?: InventoryTradeCatalog;
+}) {
   const [view, setView] = useState<ReportView>('WAREHOUSE');
   return (
     <section className={styles.card}>
@@ -194,7 +201,7 @@ export function InventoryReports({ warehouses }: { warehouses: readonly Warehous
       ) : view === 'APPROVALS' ? (
         <ApprovalReportView warehouses={warehouses} />
       ) : (
-        <StockReportView key={view} groupBy={view} warehouses={warehouses} />
+        <StockReportView key={view} groupBy={view} warehouses={warehouses} catalog={catalog} />
       )}
     </section>
   );
@@ -236,7 +243,16 @@ const INITIAL_STOCK_FILTERS: StockFilters = {
   includeZero: false,
 };
 
-function StockReportView({ groupBy, warehouses }: { groupBy: StockReportGroupBy; warehouses: readonly Warehouse[] }) {
+function StockReportView({
+  groupBy,
+  warehouses,
+  catalog,
+}: {
+  groupBy: StockReportGroupBy;
+  warehouses: readonly Warehouse[];
+  catalog?: InventoryTradeCatalog;
+}) {
+  const categoryOptions = useMemo(() => categoryFilterOptions(catalog), [catalog]);
   const [filters, setFilters] = useState<StockFilters>(INITIAL_STOCK_FILTERS);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -251,7 +267,7 @@ function StockReportView({ groupBy, warehouses }: { groupBy: StockReportGroupBy;
     () => ({
       groupBy,
       search: search.trim() || undefined,
-      category: (filters.category || undefined) as MaterialCategory | undefined,
+      category: filters.category || undefined,
       warehouseCode: filters.warehouseCode || undefined,
       expiringWithinDays:
         groupBy === 'LOT' && filters.expiringWithinDays ? Number(filters.expiringWithinDays) : undefined,
@@ -306,7 +322,7 @@ function StockReportView({ groupBy, warehouses }: { groupBy: StockReportGroupBy;
         [stockReportSheet(last, all.rows as StockReport['rows'], intro)],
       );
     } catch (cause) {
-      setError(errorMessage(cause, 'Không xuất được Excel.'));
+      toast.error(errorMessage(cause, 'Không xuất được Excel.'));
     } finally {
       setExporting(false);
     }
@@ -338,7 +354,7 @@ function StockReportView({ groupBy, warehouses }: { groupBy: StockReportGroupBy;
         </label>
         <label className={styles.docField}>
           <span>Nhóm vật tư</span>
-          <SearchableSelect options={CATEGORY_OPTIONS} value={filters.category} height={36} onChange={(value) => update({ category: value })} />
+          <SearchableSelect options={categoryOptions} value={filters.category} height={36} onChange={(value) => update({ category: value })} />
         </label>
         <label className={styles.docField}>
           <span>Kho</span>
@@ -495,11 +511,11 @@ const WAREHOUSE_COLUMNS: TableColumnsType<StockReportWarehouseRow> = [
   },
   materialColumn<StockReportWarehouseRow>(),
   {
-    title: 'Nhóm',
+    title: 'Phân loại',
     dataIndex: 'category',
     key: 'category',
     width: 140,
-    render: (value?: MaterialCategory) => (value ? MATERIAL_CATEGORY_LABEL[value] : '—'),
+    render: (value?: string) => value || '—',
   },
   { title: 'Đơn vị', dataIndex: 'unit', key: 'unit', width: 80 },
   quantityColumn<StockReportWarehouseRow>(STOCK_QUANTITY_LABEL.onHand, 'onHand'),
@@ -767,7 +783,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
       ];
       downloadReportSheets(`bao-cao-nhap-xuat-${last.fromDate}-${last.toDate}.xlsx`, movementReportSheets(last, all.rows, intro));
     } catch (cause) {
-      setError(errorMessage(cause, 'Không xuất được Excel.'));
+      toast.error(errorMessage(cause, 'Không xuất được Excel.'));
     } finally {
       setExporting(false);
     }
@@ -966,7 +982,7 @@ function ApprovalReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         [approvalReportSheet(all.rows, intro)],
       );
     } catch (cause) {
-      setError(errorMessage(cause, 'Không xuất được Excel.'));
+      toast.error(errorMessage(cause, 'Không xuất được Excel.'));
     } finally {
       setExporting(false);
     }

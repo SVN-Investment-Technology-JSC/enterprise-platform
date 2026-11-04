@@ -1,5 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { toast } from '@enterprise-platform/shared-ui';
 import {
   EMPTY_FILTER,
   TradeItemsPage,
@@ -16,6 +17,8 @@ const mockLoadItems = jest.fn();
 const mockCreate = jest.fn();
 const mockUpdate = jest.fn();
 const mockRetire = jest.fn();
+const mockReactivate = jest.fn();
+const mockDelete = jest.fn();
 const mockHistory = jest.fn();
 
 jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
@@ -23,10 +26,14 @@ jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
   createMaterial: (input: unknown) => mockCreate(input),
   updateMaterial: (code: string, patch: unknown) => mockUpdate(code, patch),
   retireMaterial: (code: string) => mockRetire(code),
+  reactivateMaterial: (code: string) => mockReactivate(code),
+  deleteMaterial: (code: string) => mockDelete(code),
   loadMaterialHistory: (code: string) => mockHistory(code),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
   formatDateTime: (value: string) => value,
+  // Kết quả thao tác hiện bằng toast: bản giả để test kiểm tra nội dung đã báo.
+  toast: { success: jest.fn(), error: jest.fn() },
   // Bản giả xác nhận ngay khi bấm nút bên trong.
   Popconfirm: ({ children, onConfirm }: { children: React.ReactNode; onConfirm: () => void }) => (
     <span onClick={onConfirm}>{children}</span>
@@ -115,7 +122,8 @@ describe('trade-items.model', () => {
     // Mã cũ SALE_ONLY và nhãn "Chỉ bán" là cùng một cách sử dụng.
     expect(codes({ usage: 'Chỉ bán' })).toEqual(['VT-001', 'DV-001']);
     expect(codes({ usage: 'Chỉ tặng' })).toEqual(['VT-002']);
-    expect(codes({ includeInactive: true })).toHaveLength(5);
+    expect(codes({ status: 'ALL' })).toHaveLength(5);
+    expect(codes({ status: 'INACTIVE' })).toEqual(['VT-OLD']);
   });
 
   it('ô lọc: phân loại theo nhóm, cộng giá trị đang dùng; sử dụng gộp mã cũ với nhãn', () => {
@@ -188,6 +196,7 @@ describe('trade-items.model', () => {
 
 describe('TradeItemsPage', () => {
   beforeEach(() => {
+    jest.mocked(toast.success).mockClear();
     mockLoadItems.mockResolvedValue(ITEMS);
     mockHistory.mockResolvedValue([
       {
@@ -207,6 +216,8 @@ describe('TradeItemsPage', () => {
     mockCreate.mockResolvedValue({ code: 'VT-NEW' });
     mockUpdate.mockResolvedValue({ code: 'VT-001' });
     mockRetire.mockResolvedValue({ code: 'VT-001', mode: 'deactivated' });
+    mockReactivate.mockResolvedValue({ code: 'VT-OLD' });
+    mockDelete.mockResolvedValue({ code: 'VT-001', mode: 'deleted' });
   });
   afterEach(() => {
     cleanup();
@@ -218,11 +229,11 @@ describe('TradeItemsPage', () => {
     { id: 's1', warehouseId: 'w1', materialId: 'VT-001', quantity: 10, quantityReserved: 2, quantityBlocked: 0, available: 8 },
   ] as never;
 
-  it('hiện bảng bảy cột theo thứ tự, mã đã ngừng bị ẩn, có nhập xuất và tạo mới', async () => {
+  it('hiện bảng tám cột theo thứ tự, mã đã ngừng bị ẩn, có nhập xuất và tạo mới', async () => {
     render(<TradeItemsPage canManage warehouses={warehouses} stock={stock} catalog={CATALOG} />);
     await screen.findByText('Cáp điện', { selector: 'td' });
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    expect(headers).toEqual(['Mã', 'Tên', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá']);
+    expect(headers).toEqual(['Mã', 'Tên', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá', 'Trạng thái']);
     expect(screen.queryByText('Mã cũ')).toBeNull();
     expect(screen.getByRole('button', { name: /Nhập Excel/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Xuất Excel/ })).toBeTruthy();
@@ -296,7 +307,7 @@ describe('TradeItemsPage', () => {
     expect(within(drawer).getByText('893001')).toBeTruthy();
     expect(within(drawer).getByRole('heading', { name: 'Lịch sử xuất nhập' })).toBeTruthy();
     expect(within(drawer).getByRole('heading', { name: 'Tồn kho' })).toBeTruthy();
-    await within(drawer).findByText('PN-01');
+    await within(drawer).findByText('TX-1');
     expect(within(drawer).getByText('Nhập kho')).toBeTruthy();
     // Kho xuất hiện ở bảng lịch sử và bảng tồn.
     expect(within(drawer).getAllByText('Kho chính')).toHaveLength(2);
@@ -341,7 +352,7 @@ describe('TradeItemsPage', () => {
       tradeMode: 'Đi kèm combo',
       salePrice: 99000,
     });
-    await screen.findByText('Đã tạo VT-NEW.');
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã tạo VT-NEW.'));
   });
 
   it('tạo mới: đổi nhóm thì bỏ phân loại đã chọn', async () => {
@@ -359,6 +370,35 @@ describe('TradeItemsPage', () => {
     expect(mockCreate.mock.calls[0][0].tradeCategory).toBeUndefined();
   });
 
+  it('đơn vị: có danh mục thì chọn từ danh mục và gửi giá trị đã chọn', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} units={['Cái', 'Bộ', 'Giờ']} />);
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Tạo hàng hóa' });
+    const unit = within(dialog).getByLabelText('— Chọn đơn vị —') as HTMLSelectElement;
+    expect([...unit.options].map((o) => o.value).filter(Boolean)).toEqual(['Cái', 'Bộ', 'Giờ']);
+    fireEvent.change(within(dialog).getByLabelText(/^Mã/), { target: { value: 'vt-u' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'Có đơn vị' } });
+    const submit = within(dialog).getByRole('button', { name: 'Tạo mới' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(unit, { target: { value: 'Bộ' } });
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ code: 'VT-U', unit: 'Bộ' });
+  });
+
+  it('đơn vị: khi sửa, đơn vị đã bị bỏ khỏi danh mục vẫn được giữ trong lựa chọn', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} units={['Bộ', 'Giờ']} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).getByRole('button', { name: 'Sửa' }));
+    const dialog = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    const unit = within(dialog).getByLabelText('— Chọn đơn vị —') as HTMLSelectElement;
+    const current = ITEMS.find((item) => item.code === 'VT-001')?.unit ?? '';
+    expect(unit.value).toBe(current);
+    expect([...unit.options].map((o) => o.value)).toContain(current);
+  });
+
   it('tạo thất bại: giữ form mở và hiện lỗi của Kho', async () => {
     mockCreate.mockRejectedValue(new Error('Mã vật tư VT-X đã tồn tại.'));
     render(<TradeItemsPage canManage warehouses={warehouses} />);
@@ -369,23 +409,91 @@ describe('TradeItemsPage', () => {
     fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'X' } });
     fireEvent.change(within(dialog).getByLabelText(/^Đơn vị/), { target: { value: 'Cái' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo mới' }));
-    await screen.findByText('Mã vật tư VT-X đã tồn tại.');
+    // Lỗi nằm trong chính form (không phải dải thông báo đầu trang sau lớp phủ), dữ liệu đã nhập còn nguyên.
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toBe('Mã vật tư VT-X đã tồn tại.');
     expect(screen.getByRole('dialog', { name: 'Tạo hàng hóa' })).toBeTruthy();
+    expect((within(dialog).getByLabelText(/^Tên/) as HTMLInputElement).value).toBe('X');
+    // Gửi lại thành công: lỗi cũ biến mất cùng form.
+    mockCreate.mockResolvedValue({ code: 'VT-X' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo mới' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Tạo hàng hóa' })).toBeNull());
   });
 
-  it('sửa từ drawer: khoá mã, gửi phần thay đổi, mã sử dụng cũ gửi lại dưới dạng nhãn', async () => {
+  it('sửa thất bại: lỗi của Kho hiện ngay trên drawer, ô nhập còn nguyên', async () => {
+    mockUpdate.mockRejectedValue(new Error('Không đổi được nhóm vì mã đã có tồn.'));
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).getByRole('button', { name: 'Sửa' }));
+    const dialog = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    fireEvent.change(within(dialog).getByLabelText(/Giá bán/), { target: { value: '70000' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }));
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toBe('Không đổi được nhóm vì mã đã có tồn.');
+    expect((within(dialog).getByLabelText(/Giá bán/) as HTMLInputElement).value).toBe('70000');
+    // Bấm Huỷ thì lỗi cũ không còn khi mở lại.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Huỷ' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sửa' }));
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('ngừng dùng thất bại: lỗi của Kho hiện trong drawer', async () => {
+    mockRetire.mockRejectedValue(new Error('Mã VT-001 còn tồn nên chưa ngừng dùng được.'));
+    render(<TradeItemsPage canManage warehouses={warehouses} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Ngừng dùng' }));
+    const alert = await within(drawer).findByRole('alert');
+    expect(alert.textContent).toBe('Mã VT-001 còn tồn nên chưa ngừng dùng được.');
+  });
+
+  it('sửa ngay trên drawer: mã và nhóm không sửa được, gửi phần thay đổi, mã sử dụng cũ gửi lại dưới dạng nhãn', async () => {
     const onChanged = jest.fn();
     render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} onChanged={onChanged} />);
     fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).getByRole('button', { name: 'Sửa' }));
-    const dialog = screen.getByRole('dialog', { name: 'Sửa hàng hóa' });
-    expect((within(dialog).getByLabelText(/^Mã/) as HTMLInputElement).readOnly).toBe(true);
+    const dialog = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    // Không có form riêng: chỉ drawer; mã và nhóm vẫn là chữ, không có ô nhập.
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(within(dialog).queryByLabelText(/^Mã/)).toBeNull();
+    expect(within(dialog).queryByLabelText('— Chọn nhóm —')).toBeNull();
     fireEvent.change(within(dialog).getByLabelText(/Giá bán/), { target: { value: '50000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }));
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
     expect(mockUpdate.mock.calls[0][0]).toBe('VT-001');
     expect(mockUpdate.mock.calls[0][1]).toMatchObject({ salePrice: 50000, tradeMode: 'Chỉ bán', tradeCategory: 'Dây dẫn' });
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    // Lưu xong thì drawer quay về chế độ xem.
+    await waitFor(() => expect(within(dialog).queryByRole('button', { name: 'Lưu thay đổi' })).toBeNull());
+    expect(within(dialog).getByRole('button', { name: 'Sửa' })).toBeTruthy();
+  });
+
+  it('sửa trên drawer: Huỷ bỏ phần đang nhập và không gọi Kho', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(drawer).getByLabelText(/Giá bán/), { target: { value: '12345' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Huỷ' }));
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(within(drawer).queryByLabelText(/Giá bán/)).toBeNull();
+    // Mở lại: ô nhập lấy lại giá trị hiện có, không giữ phần đã bỏ.
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    expect((within(drawer).getByLabelText(/Giá bán/) as HTMLInputElement).value).not.toBe('12345');
+  });
+
+  it('sửa trên drawer: tên trống hoặc giá âm thì không lưu được', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    const save = within(drawer).getByRole('button', { name: 'Lưu thay đổi' }) as HTMLButtonElement;
+    fireEvent.change(within(drawer).getByLabelText(/^Tên/), { target: { value: '  ' } });
+    expect(save.disabled).toBe(true);
+    fireEvent.change(within(drawer).getByLabelText(/^Tên/), { target: { value: 'Cáp mới' } });
+    fireEvent.change(within(drawer).getByLabelText(/Giá bán/), { target: { value: '-5' } });
+    expect(save.disabled).toBe(true);
+    expect(within(drawer).getByRole('alert').textContent).toBe('Giá bán phải là số không âm.');
   });
 
   it('ngừng dùng từ drawer: gọi Kho rồi nạp lại danh sách', async () => {
@@ -394,7 +502,76 @@ describe('TradeItemsPage', () => {
     fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).getByRole('button', { name: 'Ngừng dùng' }));
     await waitFor(() => expect(mockRetire).toHaveBeenCalledWith('VT-001'));
-    await screen.findByText(/Đã ngừng dùng VT-001/);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.objectContaining({ title: 'Đã ngừng dùng VT-001' })));
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  describe('trạng thái sử dụng, dùng lại và xóa', () => {
+    const chooseStatus = (value: string) =>
+      fireEvent.change(screen.getByLabelText('Trạng thái'), { target: { value } });
+
+    it('mặc định chỉ hiện mặt hàng đang dùng; chọn Ngừng dùng thì hiện mã ngừng kèm nhãn trạng thái', async () => {
+      render(<TradeItemsPage canManage warehouses={warehouses} />);
+      await screen.findByText('Cáp điện', { selector: 'td' });
+      expect(screen.queryByText('Mã cũ', { selector: 'td' })).toBeNull();
+      expect(screen.getAllByText('Đang dùng').length).toBeGreaterThan(0);
+      chooseStatus('INACTIVE');
+      const row = (await screen.findByText('Mã cũ', { selector: 'td' })).closest('tr') as HTMLElement;
+      expect(within(row).getByText('Ngừng dùng')).toBeTruthy();
+      expect(screen.queryByText('Cáp điện', { selector: 'td' })).toBeNull();
+    });
+
+    it('mã ngừng dùng: drawer chỉ đọc (không có Sửa), có Dùng lại; dùng lại gọi Kho và báo bằng toast', async () => {
+      const onChanged = jest.fn();
+      render(<TradeItemsPage canManage warehouses={warehouses} onChanged={onChanged} />);
+      await screen.findByText('Cáp điện', { selector: 'td' });
+      chooseStatus('INACTIVE');
+      fireEvent.click(await screen.findByText('Mã cũ', { selector: 'td' }));
+      const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-OLD' });
+      expect(within(drawer).queryByRole('button', { name: 'Sửa' })).toBeNull();
+      expect(within(drawer).queryByRole('button', { name: 'Ngừng dùng' })).toBeNull();
+      expect(within(drawer).getByText(/không sửa được/)).toBeTruthy();
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Dùng lại' }));
+      await waitFor(() => expect(mockReactivate).toHaveBeenCalledWith('VT-OLD'));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã dùng lại VT-OLD'));
+      expect(onChanged).toHaveBeenCalled();
+    });
+
+    it('mã đang dùng không có nút Dùng lại nhưng vẫn sửa được', async () => {
+      render(<TradeItemsPage canManage warehouses={warehouses} />);
+      fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+      const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+      expect(within(drawer).queryByRole('button', { name: 'Dùng lại' })).toBeNull();
+      expect(within(drawer).getByRole('button', { name: 'Sửa' })).toBeTruthy();
+    });
+
+    it('xóa mã chưa có liên kết: gọi Kho, đóng drawer, báo bằng toast', async () => {
+      const onChanged = jest.fn();
+      render(<TradeItemsPage canManage warehouses={warehouses} onChanged={onChanged} />);
+      fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).getByRole('button', { name: 'Xóa' }));
+      await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('VT-001'));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã xóa VT-001'));
+      expect(screen.queryByRole('dialog', { name: 'Chi tiết VT-001' })).toBeNull();
+      expect(onChanged).toHaveBeenCalled();
+    });
+
+    it('xóa mã đã có liên kết: Kho từ chối, lý do hiện trong drawer và drawer vẫn mở', async () => {
+      mockDelete.mockRejectedValue(new Error('Mã VT-001 đã có liên kết nên không xoá được: bút toán kho (7).'));
+      render(<TradeItemsPage canManage warehouses={warehouses} />);
+      fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+      const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Xóa' }));
+      expect((await within(drawer).findByRole('alert')).textContent).toContain('bút toán kho (7)');
+      expect(screen.getByRole('dialog', { name: 'Chi tiết VT-001' })).toBeTruthy();
+    });
+
+    it('người chỉ xem không thấy Dùng lại hay Xóa', async () => {
+      render(<TradeItemsPage canManage={false} warehouses={warehouses} />);
+      fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+      const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+      expect(within(drawer).queryByRole('button', { name: 'Xóa' })).toBeNull();
+      expect(within(drawer).queryByRole('button', { name: 'Dùng lại' })).toBeNull();
+    });
   });
 });

@@ -84,7 +84,7 @@ describe('InventoryReportService', () => {
     expect(store.stockBySerial.mock.calls[1][1]).toMatchObject({ stockState: null });
   });
 
-  it('kiểm tham số: hạn dùng chỉ cho lô, nhóm vật tư hợp lệ', async () => {
+  it('kiểm tham số: hạn dùng chỉ cho lô', async () => {
     const service = new InventoryReportService(fakeStore(), () => '2026-10-28');
     await expect(service.stock(actor, { groupBy: 'WAREHOUSE', expiringWithinDays: 30 })).rejects.toMatchObject({
       statusCode: 400,
@@ -93,8 +93,23 @@ describe('InventoryReportService', () => {
       groupBy: 'LOT',
     });
     await expect(
-      service.stock(actor, { category: 'NOPE' as unknown as 'TOOL' }),
-    ).rejects.toMatchObject({ statusCode: 400, message: 'Nhóm vật tư không hợp lệ.' });
+      service.stock(actor, { groupBy: 'BAD' as unknown as 'LOT' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('lọc theo phân loại khai trong Cài đặt: nhận chữ tự do (đã cắt khoảng trắng), chuyển nguyên xuống kho dữ liệu', async () => {
+    const store = fakeStore();
+    const service = new InventoryReportService(store, () => '2026-10-28');
+    await service.stock(actor, { category: '  Cáp điện ' });
+    expect(store.stockByWarehouse).toHaveBeenCalledWith(
+      actor.tenantId,
+      expect.objectContaining({ category: 'Cáp điện' }),
+      expect.anything(),
+    );
+  });
+
+  it('kiểm tham số: kiểu báo cáo tồn không hợp lệ bị từ chối', async () => {
+    const service = new InventoryReportService(fakeStore(), () => '2026-10-28');
     await expect(
       service.stock(actor, { groupBy: 'BAD' as unknown as 'LOT' }),
     ).rejects.toMatchObject({ statusCode: 400 });

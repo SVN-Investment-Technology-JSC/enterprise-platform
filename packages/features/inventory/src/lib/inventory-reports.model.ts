@@ -7,7 +7,7 @@ import type {
   StockReport,
 } from '@enterprise-platform/contracts-inventory';
 import * as XLSX from 'xlsx';
-import { MATERIAL_CATEGORY_LABEL, QUALITY_STATUS_LABEL, formatDateTime } from './inventory-labels';
+import { QUALITY_STATUS_LABEL, formatDateTime } from './inventory-labels';
 import { STOCK_DOCUMENT_STATUS_LABEL, STOCK_DOCUMENT_TYPE_LABEL } from './stock-document.model';
 
 /**
@@ -85,8 +85,8 @@ export function downloadReportSheets(fileName: string, sheets: readonly ReportSh
   XLSX.writeFile(workbook, fileName);
 }
 
-const categoryLabel = (category?: string) =>
-  category ? (MATERIAL_CATEGORY_LABEL[category as keyof typeof MATERIAL_CATEGORY_LABEL] ?? category) : '';
+/** Phân loại khai trong Cài đặt; hàng chưa phân loại để trống. */
+const categoryLabel = (category?: string) => category ?? '';
 
 /** Trang tính của báo cáo tồn theo kiểu đang xem, kèm dòng tổng. */
 export function stockReportSheet(
@@ -102,7 +102,7 @@ export function stockReportSheet(
         ...intro,
         `Tổng ${totals.serials} serial; trong kho ${totals.inStock}; chờ kiểm định / không đạt ${totals.blocked}; khả dụng ${totals.available}`,
       ],
-      headers: ['Mã vật tư', 'Tên vật tư', 'Nhóm', 'Serial', 'Kho', 'Trạng thái kho', 'Chất lượng', 'Cập nhật'],
+      headers: ['Mã vật tư', 'Tên vật tư', 'Phân loại', 'Serial', 'Kho', 'Trạng thái kho', 'Chất lượng', 'Cập nhật'],
       rows: (rows as Extract<StockReport, { groupBy: 'SERIAL' }>['rows']).map((row) => [
         row.materialCode,
         row.materialName,
@@ -150,7 +150,7 @@ export function stockReportSheet(
   return {
     name: 'Tồn theo kho',
     intro,
-    headers: ['Kho', 'Tên kho', 'Mã vật tư', 'Tên vật tư', 'Nhóm', 'Đơn vị', ...quantityHeaders, 'Giá bình quân', 'Giá trị tồn'],
+    headers: ['Kho', 'Tên kho', 'Mã vật tư', 'Tên vật tư', 'Phân loại', 'Đơn vị', ...quantityHeaders, 'Giá bình quân', 'Giá trị tồn'],
     rows: [
       ...(rows as Extract<StockReport, { groupBy: 'WAREHOUSE' }>['rows']).map((row) => [
         row.warehouseCode,

@@ -26,6 +26,7 @@ import {
   referenceLabel,
 } from '../inventory-labels';
 import styles from '../inventory.module.scss';
+import { useUserLabel } from '../user-names';
 
 const TRANSACTION_KIND_MAP: Readonly<
   Record<string, { label: string; kind: 'in' | 'out' | 'adjust' }>
@@ -66,6 +67,7 @@ export function MovementDetailDrawer({
   onSelectTransaction,
 }: MovementDetailDrawerProps) {
   const [copied, setCopied] = useState(false);
+  const userName = useUserLabel();
 
   // Đóng drawer khi nhấn ESC
   useEffect(() => {
@@ -426,7 +428,7 @@ export function MovementDetailDrawer({
               <div className={styles.movementFieldItem}>
                 <span className={styles.movementFieldLabel}>Phân loại</span>
                 <span className={styles.movementFieldValue}>
-                  {material?.category ?? material?.type ?? 'Vật tư lưu kho'}
+                  {material?.tradeCategory || 'Chưa phân loại'}
                 </span>
               </div>
 
@@ -595,7 +597,7 @@ export function MovementDetailDrawer({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <User size={14} color="#64748b" />
                   <span className={styles.movementFieldValue}>
-                    {transaction.createdBy || 'Hệ thống'}
+                    {userName(transaction.createdBy, 'Hệ thống')}
                   </span>
                 </div>
               </div>

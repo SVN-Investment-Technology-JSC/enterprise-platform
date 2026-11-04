@@ -1,7 +1,7 @@
 'use client';
 
 import type { AssetDocument } from '@enterprise-platform/contracts-inventory';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   assetDocumentDownloadUrl,
@@ -48,7 +48,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
       if (fileInput.current) fileInput.current.value = '';
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không tải được tệp lên.');
+      toast.error(cause instanceof Error ? cause.message : 'Không tải được tệp lên.');
     } finally {
       setWorking(false);
     }
@@ -59,7 +59,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
       const { url } = await assetDocumentDownloadUrl(assetCode, documentId);
       window.open(url, '_blank', 'noopener');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không mở được tài liệu.');
+      toast.error(cause instanceof Error ? cause.message : 'Không mở được tài liệu.');
     }
   };
 
@@ -69,7 +69,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
       await removeAssetDocument(assetCode, documentId);
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không xoá được tài liệu.');
+      toast.error(cause instanceof Error ? cause.message : 'Không xoá được tài liệu.');
     } finally {
       setWorking(false);
     }

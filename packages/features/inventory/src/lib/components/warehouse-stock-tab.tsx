@@ -294,7 +294,7 @@ export function WarehouseStockTab({
               </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: '#f8fafc' }}>
               <DrawerSection title="Thông tin tồn kho">
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 20px' }}>
                   <DrawerField label="Mã">{selected.material.code}</DrawerField>

@@ -42,6 +42,12 @@ export function categoriesOf(group: TradeGroup, catalog?: InventoryTradeCatalog)
   return (group === 'SERVICE' ? catalog?.serviceCategories : catalog?.goodsCategories) ?? [];
 }
 
+/** Danh mục kèm giá trị đang dùng, để một lần sửa không làm mất giá trị admin đã bỏ khỏi danh mục. */
+export function withCurrent(options: readonly string[], current: string): { value: string; label: string }[] {
+  const all = current && !options.includes(current) ? [...options, current] : options;
+  return all.map((value) => ({ value, label: value }));
+}
+
 export interface Choice {
   readonly value: string;
   readonly label: string;
@@ -80,11 +86,19 @@ export interface TradeFilter {
   readonly category: string;
   /** Nhãn "Sử dụng" (đã đổi mã cũ sang nhãn). */
   readonly usage: string;
-  /** Chỉ mặt hàng còn dùng (mặc định) hay cả mặt hàng đã ngừng. */
-  readonly includeInactive: boolean;
+  /** Trạng thái sử dụng: mặc định chỉ mặt hàng đang dùng. */
+  readonly status: TradeStatus;
 }
 
-export const EMPTY_FILTER: TradeFilter = { search: '', group: '', category: '', usage: '', includeInactive: false };
+export type TradeStatus = 'ACTIVE' | 'INACTIVE' | 'ALL';
+
+export const TRADE_STATUS_LABEL: Readonly<Record<TradeStatus, string>> = {
+  ACTIVE: 'Đang dùng',
+  INACTIVE: 'Ngừng dùng',
+  ALL: 'Tất cả trạng thái',
+};
+
+export const EMPTY_FILTER: TradeFilter = { search: '', group: '', category: '', usage: '', status: 'ACTIVE' };
 
 /** So khớp không phân biệt hoa thường và dấu tiếng Việt. */
 export function fold(value: string | undefined): string {
@@ -98,7 +112,8 @@ export function fold(value: string | undefined): string {
 export function filterTradeItems(items: readonly Material[], filter: TradeFilter): Material[] {
   const term = fold(filter.search.trim());
   return items.filter((item) => {
-    if (!filter.includeInactive && !item.isActive) return false;
+    if (filter.status === 'ACTIVE' && !item.isActive) return false;
+    if (filter.status === 'INACTIVE' && item.isActive) return false;
     if (filter.group && tradeGroupOf(item) !== filter.group) return false;
     if (filter.category && (item.tradeCategory ?? '').trim() !== filter.category) return false;
     if (filter.usage && usageLabel(item.tradeMode) !== filter.usage) return false;
@@ -177,23 +192,98 @@ export function exportTradeItems(items: readonly Material[]): void {
   XLSX.writeFile(wb, `Hang_hoa_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
 }
 
-/** Tệp mẫu để người dùng điền rồi nhập lại. */
-export function downloadTradeTemplate(): void {
-  const sample = [
-    {
-      [EXPORT_HEADERS.code]: 'VT-001',
-      [EXPORT_HEADERS.name]: 'Cáp điện 3 lõi',
-      [EXPORT_HEADERS.barcode]: '8930000000011',
-      [EXPORT_HEADERS.group]: 'Hàng hóa',
-      [EXPORT_HEADERS.category]: '',
-      [EXPORT_HEADERS.unit]: 'Mét',
-      [EXPORT_HEADERS.usage]: 'Chỉ bán',
-      [EXPORT_HEADERS.price]: 45000,
-    },
+/** Cột của tệp mẫu. Tiêu đề khớp đúng tên trường nên nút Nhập Excel tự ghép cột, không cần chỉnh. */
+const TEMPLATE_HEADERS = [
+  'Mã',
+  'Tên',
+  'Barcode',
+  'Nhóm',
+  'Phân loại',
+  'Đơn vị',
+  'Sử dụng',
+  'Giá bán',
+  'Giá vốn',
+  'Nhà sản xuất',
+  'Mô tả',
+  'Người tạo',
+  'Ngày tạo',
+  'Trạng thái',
+] as const;
+
+/** Dòng mẫu: một hàng hóa và một dịch vụ; phân loại và sử dụng lấy từ danh mục của tenant để nhập lại là hợp lệ. */
+export function tradeTemplateRows(catalog?: InventoryTradeCatalog): Record<string, string | number>[] {
+  const [h, s, u] = [
+    catalog?.goodsCategories[0] ?? '',
+    catalog?.serviceCategories[0] ?? '',
+    catalog?.usageModes[0] ?? 'Chỉ bán',
   ];
-  const ws = XLSX.utils.json_to_sheet(sample);
+  const row = (values: Record<(typeof TEMPLATE_HEADERS)[number], string | number>) => values;
+  return [
+    row({
+      Mã: 'VT-001',
+      Tên: 'Cáp điện 3 lõi',
+      Barcode: '8930000000011',
+      Nhóm: 'Hàng hóa',
+      'Phân loại': h,
+      'Đơn vị': 'Mét',
+      'Sử dụng': u,
+      'Giá bán': 45000,
+      'Giá vốn': 32000,
+      'Nhà sản xuất': 'Cadivi',
+      'Mô tả': 'Cáp đồng bọc PVC, 3 lõi',
+      'Người tạo': 'Nguyễn Văn A',
+      'Ngày tạo': '14/08/2026',
+      'Trạng thái': 'Hoạt động',
+    }),
+    row({
+      Mã: 'DV-001',
+      Tên: 'Lắp đặt thiết bị',
+      Barcode: '',
+      Nhóm: 'Dịch vụ',
+      'Phân loại': s,
+      'Đơn vị': 'Gói',
+      'Sử dụng': u,
+      'Giá bán': 5250000,
+      'Giá vốn': '',
+      'Nhà sản xuất': '',
+      'Mô tả': 'Theo định mức ban hành',
+      'Người tạo': '',
+      'Ngày tạo': '',
+      'Trạng thái': 'Không hoạt động',
+    }),
+  ];
+}
+
+/** Giải thích từng cột, để người dùng điền đúng mà không phải hỏi. */
+export function tradeTemplateGuide(): Record<string, string>[] {
+  const g = (column: string, required: string, note: string) => ({ Cột: column, 'Bắt buộc': required, 'Cách điền': note });
+  return [
+    g('Mã', 'Có', 'Duy nhất, không trùng với mã đã có trong Kho (kể cả mã đã ngừng dùng). Tự đổi sang chữ hoa.'),
+    g('Tên', 'Có', 'Tên hàng hóa hoặc dịch vụ.'),
+    g('Barcode', 'Không', 'Mã vạch, bỏ trống nếu không có.'),
+    g('Nhóm', 'Không', 'Hàng hóa hoặc Dịch vụ. Bỏ cột này thì chọn loại cho cả tệp ở bước ghép cột.'),
+    g('Phân loại', 'Không', 'Mục trong danh mục Cài đặt. Mục chưa có thì được hỏi: thêm vào Cài đặt, bỏ trống hoặc ghép vào mục có sẵn.'),
+    g('Đơn vị', 'Có', 'Đơn vị tính, ví dụ Cái, Bộ, Gói, Mét.'),
+    g('Sử dụng', 'Không', 'Chỉ bán, Có thể bán và quà tặng, Chỉ tặng... theo danh mục Cài đặt.'),
+    g('Giá bán', 'Không', 'Số không âm (VND). Bỏ trống là chưa khai báo, khác với 0.'),
+    g('Giá vốn', 'Không', 'Giá nhập (VND). Bỏ trống là chưa khai báo, khác với 0.'),
+    g('Nhà sản xuất', 'Không', 'Hãng sản xuất.'),
+    g('Mô tả', 'Không', 'Ghi chú, thông tin thêm (tối đa 2000 ký tự).'),
+    g('Người tạo', 'Không', 'Chỉ khi chuyển dữ liệu từ hệ cũ. Bỏ trống thì không ghi người tạo (không lấy người đang nhập).'),
+    g('Ngày tạo', 'Không', 'Chỉ khi chuyển dữ liệu từ hệ cũ, dạng dd/mm/yyyy. Bỏ trống là ngày nhập.'),
+    g('Trạng thái', 'Không', 'Hoạt động (mặc định) hoặc Không hoạt động để nhập thẳng vào trạng thái ngừng dùng.'),
+  ];
+}
+
+/** Tệp mẫu để người dùng điền rồi nhập lại. */
+export function downloadTradeTemplate(catalog?: InventoryTradeCatalog): void {
+  const ws = XLSX.utils.json_to_sheet(tradeTemplateRows(catalog), { header: [...TEMPLATE_HEADERS] });
+  ws['!cols'] = [16, 34, 16, 12, 18, 10, 24, 14, 14, 16, 34, 18, 12, 18].map((wch) => ({ wch }));
+  const guide = XLSX.utils.json_to_sheet(tradeTemplateGuide());
+  guide['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 100 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'HangHoa');
+  XLSX.utils.book_append_sheet(wb, guide, 'HuongDan');
   XLSX.writeFile(wb, 'Mau_nhap_hang_hoa.xlsx');
 }
 

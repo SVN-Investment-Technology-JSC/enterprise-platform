@@ -2,6 +2,7 @@
 
 import type { Warehouse } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from '@enterprise-platform/shared-ui';
 import { createWarehouse, loadAllWarehouses, updateWarehouse } from '../inventory-api';
 import styles from '../inventory.module.scss';
 
@@ -46,7 +47,7 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
       await reload();
       return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được.');
+      toast.error(cause instanceof Error ? cause.message : 'Không lưu được.');
       return false;
     } finally {
       setSaving(false);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { toast } from '@enterprise-platform/shared-ui';
 import Page from '../src/app/page';
 
 // Màn duyệt chứng từ (T1-29) và bốn loại tồn (T1-30) trên trang Kho thật, fetch giả lập.
@@ -144,10 +145,13 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
           }) as Response,
       },
     );
+    // Lỗi thao tác hiện bằng toast (như HRM), nguyên văn thông báo của máy chủ.
+    const errorSpy = jest.spyOn(toast, 'error').mockImplementation(() => 'toast-id');
     render(<Page />);
     const approve = await screen.findByRole('button', { name: 'Duyệt' });
     fireEvent.click(approve);
-    expect(await screen.findByText('Không được tự duyệt chứng từ do mình lập.')).toBeTruthy();
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('Không được tự duyệt chứng từ do mình lập.'));
+    errorSpy.mockRestore();
   });
 
   it('tab Nhà kho: bảng gọn, drawer có bốn loại tồn kèm giải thích và không có đang vận chuyển', async () => {
