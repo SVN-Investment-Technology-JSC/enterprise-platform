@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   PRICING_STATUS_LABELS,
   type PriceListDetail,
   type PriceListItem,
@@ -355,7 +356,7 @@ function PriceListItems({ priceListId, onChanged }: { priceListId: string; onCha
         loading={!detail && !error}
         columns={columns}
         dataSource={[...(detail?.items ?? [])]}
-        pagination={{ pageSize: 50, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, hideOnSinglePage: true }}
         locale={{ emptyText: 'Bảng giá chưa có dòng nào.' }}
       />
       {editing ? (

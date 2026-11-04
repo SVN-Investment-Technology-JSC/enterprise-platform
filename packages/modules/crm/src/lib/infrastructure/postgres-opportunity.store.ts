@@ -5,6 +5,8 @@ import {
   type CrmPage,
   type MyStageTask,
   type OpportunityBoard,
+  type OpportunityByCustomerPage,
+  type OpportunityCustomerTotal,
   type OpportunityDetail,
   type OpportunityStageHistoryEntry,
   type OpportunityStagePlanItem,
@@ -15,6 +17,7 @@ import {
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
+  OpportunityByCustomerFilter,
   OpportunityFilter,
   OpportunityPlacement,
   OpportunityRecord,
@@ -118,6 +121,22 @@ const OPPORTUNITY_FROM = `
   JOIN crm_schema.pipelines p ON p.id = o.pipeline_id
   JOIN crm_schema.pipeline_stages s ON s.id = o.stage_id`;
 
+/** Bộ lọc chung của danh sách dự án và danh sách theo khách. Mỗi lần gọi trả một bộ điều kiện mới (mảng tham số riêng). */
+function listConditions(
+  scope: CrmDataScope,
+  filter: Pick<OpportunityFilter, 'q' | 'stage' | 'pipelineId' | 'ownerUserId' | 'customerId'>,
+): SqlConditions {
+  const where = new SqlConditions();
+  // Cơ hội của người trong phạm vi, hoặc cơ hội có giai đoạn giao cho người gọi (ASG-02).
+  where.opportunityScope(scope, 'o.owner_user_id', 'o.id');
+  if (filter.stage) where.add(`o.stage = ${where.param(filter.stage)}`);
+  if (filter.pipelineId) where.add(`o.pipeline_id = ${where.param(filter.pipelineId)}::uuid`);
+  if (filter.ownerUserId) where.add(`o.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
+  if (filter.customerId) where.add(`o.customer_id = ${where.param(filter.customerId)}::uuid`);
+  addNameSearch(where, filter.q);
+  return where;
+}
+
 /** Thực thể ghi vào `audit_log`. */
 export const OPPORTUNITY_AUDIT_ENTITY = 'opportunity';
 
@@ -133,14 +152,7 @@ export class PostgresOpportunityStore implements OpportunityStore {
     scope: CrmDataScope,
     filter: OpportunityFilter,
   ): Promise<CrmPage<OpportunitySummary>> {
-    const where = new SqlConditions();
-    // Cơ hội của người trong phạm vi, hoặc cơ hội có giai đoạn giao cho người gọi (ASG-02).
-    where.opportunityScope(scope, 'o.owner_user_id', 'o.id');
-    if (filter.stage) where.add(`o.stage = ${where.param(filter.stage)}`);
-    if (filter.pipelineId) where.add(`o.pipeline_id = ${where.param(filter.pipelineId)}::uuid`);
-    if (filter.ownerUserId) where.add(`o.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
-    if (filter.customerId) where.add(`o.customer_id = ${where.param(filter.customerId)}::uuid`);
-    addNameSearch(where, filter.q);
+    const where = listConditions(scope, filter);
     where.after(filter.cursor, 'o.updated_at', 'o.id');
     const pool = await this.database.pool(tenantId);
     const result = await pool.query<OpportunityRow>(
@@ -150,6 +162,63 @@ export class PostgresOpportunityStore implements OpportunityStore {
       where.params,
     );
     return keysetPage(result.rows, filter.limit, toSummary);
+  }
+
+  async listByCustomer(
+    tenantId: string,
+    scope: CrmDataScope,
+    filter: OpportunityByCustomerFilter,
+  ): Promise<OpportunityByCustomerPage> {
+    const pool = await this.database.pool(tenantId);
+    const where = listConditions(scope, filter);
+    const offset = (filter.page - 1) * filter.pageSize;
+    // Dự án của một khách liền nhau (mã khách, id khách), trong khách thì mới cập nhật trước; id làm thứ tự ổn định.
+    const [rows, total] = await Promise.all([
+      pool.query<OpportunityRow>(
+        `SELECT ${OPPORTUNITY_COLUMNS} ${OPPORTUNITY_FROM} ${where.where()}
+          ORDER BY c.code, o.customer_id, o.updated_at DESC, o.id DESC
+          LIMIT ${where.param(filter.pageSize)} OFFSET ${where.param(offset)}`,
+        where.params,
+      ),
+      pool.query<{ total: number }>(
+        `SELECT count(*)::int AS total ${OPPORTUNITY_FROM} ${listConditions(scope, filter).where()}`,
+        listConditions(scope, filter).params,
+      ),
+    ]);
+    const customerIds = [...new Set(rows.rows.map((row) => row.customer_id))];
+    let customers: OpportunityCustomerTotal[] = [];
+    if (customerIds.length) {
+      const totals = listConditions(scope, filter);
+      totals.add(`o.customer_id = ANY(${totals.param(customerIds)}::uuid[])`);
+      const result = await pool.query<{
+        customer_id: string;
+        customer_code: string;
+        customer_name: string;
+        count: number;
+        total_value: string | null;
+      }>(
+        `SELECT o.customer_id, c.code AS customer_code, c.name AS customer_name, count(*)::int AS count,
+                coalesce(sum(o.expected_value), 0) AS total_value
+           ${OPPORTUNITY_FROM} ${totals.where()}
+          GROUP BY o.customer_id, c.code, c.name
+          ORDER BY c.code, o.customer_id`,
+        totals.params,
+      );
+      customers = result.rows.map((row) => ({
+        customerId: row.customer_id,
+        customerCode: row.customer_code,
+        customerName: row.customer_name,
+        count: Number(row.count),
+        totalValue: toNumber(row.total_value) ?? 0,
+      }));
+    }
+    return {
+      items: rows.rows.map(toSummary),
+      customers,
+      page: filter.page,
+      pageSize: filter.pageSize,
+      total: Number(total.rows[0]?.total ?? 0),
+    };
   }
 
   async board(

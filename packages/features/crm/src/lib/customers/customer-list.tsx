@@ -1,6 +1,6 @@
 'use client';
 
-import type { CustomerKind, CustomerSummary } from '@enterprise-platform/contracts-crm';
+import { CRM_LIST_PAGE_SIZE, type CustomerKind, type CustomerSummary } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -43,7 +43,7 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const filter = { q, groupId, kind, ownerUserId };
   const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, cursor, limit: 30 }),
+    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<CustomerSummary>>(

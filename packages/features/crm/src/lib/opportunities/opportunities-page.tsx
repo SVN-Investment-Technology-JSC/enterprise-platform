@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   type OpportunityBoard,
   type OpportunitySummary,
   type Pipeline,
@@ -10,11 +11,11 @@ import { SearchableSelect, formatDate, toast } from '@enterprise-platform/shared
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { KeysetPager, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import { useKeysetPage } from '../components/use-keyset-page';
-import { changeOpportunityStage, errorMessage, listOpportunities, loadBoard } from '../crm-api';
+import { changeOpportunityStage, errorMessage, listOpportunities, listOpportunitiesByCustomer, loadBoard } from '../crm-api';
 import { peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import {
   canDropStage,
@@ -62,7 +63,8 @@ export function OpportunitiesPage({
 }) {
   const { people } = useCrm();
   const canWrite = useCanWrite();
-  const [mode, setMode] = useState<Mode>('board');
+  // Mặc định xem theo khách hàng.
+  const [mode, setMode] = useState<Mode>('customers');
   const [search, setSearch] = useState('');
   const [ownerUserId, setOwnerUserId] = useState('');
   const [stage, setStage] = useState('');
@@ -162,7 +164,7 @@ function OpportunityTable({
 }) {
   const { people } = useCrm();
   const list = useKeysetPage(JSON.stringify({ q, ownerUserId, stage, pipelineId, refresh }), (cursor) =>
-    listOpportunities({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, cursor, limit: 30 }),
+    listOpportunities({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
@@ -241,10 +243,12 @@ function OpportunitiesByCustomer({
 }) {
   const { people } = useCrm();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const list = useKeysetPage(JSON.stringify({ q, ownerUserId, stage, pipelineId, refresh, grouped: true }), (cursor) =>
-    listOpportunities({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, cursor, limit: 100 }),
+  const list = useNumberedPage(JSON.stringify({ q, ownerUserId, stage, pipelineId }), refresh, (page) =>
+    listOpportunitiesByCustomer({ q, ownerUserId, stage: stage || undefined, pipelineId: pipelineId || undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
-  const groups = useMemo(() => groupByCustomer(list.items), [list.items]);
+  const groups = useMemo(() => (list.data ? groupByCustomer(list.data.items, list.data.customers) : []), [list.data]);
+  const total = list.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / CRM_LIST_PAGE_SIZE));
   const toggle = (id: string) =>
     setCollapsed((current) => {
       const next = new Set(current);
@@ -266,6 +270,7 @@ function OpportunitiesByCustomer({
               </button>
               <span className={styles.muted}>
                 {group.count} dự án · {formatMoney(group.totalValue) || formatMoney(0)}
+                {group.partial ? ` · trang này ${group.items.length}/${group.count} dự án` : ''}
               </span>
               <button type="button" className={styles.rowAction} onClick={() => onOpenCustomer(group.customerId)}>
                 Hồ sơ khách
@@ -299,9 +304,47 @@ function OpportunitiesByCustomer({
           </div>
         );
       })}
-      <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="dự án bán hàng" onPrevious={list.previous} onNext={list.next} />
+      <KeysetPager
+        page={list.page}
+        count={total}
+        noun={`dự án bán hàng · ${pageCount} trang`}
+        hasNext={list.page < pageCount}
+        loading={list.loading}
+        onPrevious={() => list.goTo(list.page - 1)}
+        onNext={() => list.goTo(list.page + 1)}
+      />
     </section>
   );
+}
+
+/** Trang đánh số (1, 2, ...): đổi bộ lọc thì về trang 1; `refresh` tải lại trang đang xem. */
+function useNumberedPage<T>(key: string, refresh: number, load: (page: number) => Promise<T>) {
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<T>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => setPage(1), [key]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    loadRef
+      .current(page)
+      .then((next) => {
+        if (!active) return;
+        setData(next);
+        setError(undefined);
+      })
+      .catch((cause) => active && setError(errorMessage(cause, 'Không tải được danh sách.')))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [key, page, refresh]);
+
+  return { page, data, loading, error, goTo: (next: number) => setPage(Math.max(1, next)) };
 }
 
 function stageRef(board: OpportunityBoard, code: string): StageRef | undefined {

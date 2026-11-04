@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   WARRANTY_CAUSE_LABELS,
   WARRANTY_SOURCE_LABELS,
   WARRANTY_STATUS_LABELS,
@@ -53,7 +54,7 @@ export function WarrantyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [configuring, setConfiguring] = useState(false);
   const q = useDebounced(search.trim(), 350);
   const list = useKeysetPage(JSON.stringify({ q, status }), (cursor) =>
-    listWarrantyCases({ q, status: (status || undefined) as WarrantyStatus | undefined, cursor, limit: 30 }),
+    listWarrantyCases({ q, status: (status || undefined) as WarrantyStatus | undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<WarrantyCaseSummary>>(

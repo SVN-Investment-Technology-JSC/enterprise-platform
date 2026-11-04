@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   CONVERSION_STAGE_LABELS,
   SALES_ALERT_KIND_LABELS,
   SALES_REPORT_DIMENSION_LABELS,
@@ -301,7 +302,7 @@ function SalesTab({ filters, nameOf, today }: { filters: Filters; nameOf: (userI
         loading={loading}
         columns={columns}
         dataSource={[...(data?.rows ?? [])]}
-        pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1100 }}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có dòng giao nào trong kỳ.' }}
       />
@@ -370,7 +371,7 @@ function ConversionTab({ filters, nameOf, today }: { filters: Filters; nameOf: (
         loading={loading}
         columns={columns}
         dataSource={[...(data?.byOwner ?? [])]}
-        pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 900 }}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có dự án bán hàng, báo giá, hợp đồng, đơn nào trong kỳ.' }}
       />
@@ -441,7 +442,7 @@ function AlertsTab({
         loading={loading}
         columns={columns}
         dataSource={[...(data?.items ?? [])]}
-        pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1000 }}
         onRow={(row) => ({ onDoubleClick: () => onOpen(row) })}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có cảnh báo nào.' }}
@@ -557,7 +558,7 @@ function ReceivablesTab({
         loading={loading}
         columns={customerColumns}
         dataSource={[...(data?.customers ?? [])]}
-        pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1500 }}
         onRow={(row) => ({ onDoubleClick: () => onOpenCustomer(row.customerId) })}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Chưa có công nợ nào.' }}
@@ -569,7 +570,7 @@ function ReceivablesTab({
         loading={loading}
         columns={orderColumns}
         dataSource={[...(data?.overdueOrders ?? [])]}
-        pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1000 }}
         onRow={(row) => ({ onDoubleClick: () => onOpenOrder(row.orderId) })}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Không có đơn quá hạn.' }}

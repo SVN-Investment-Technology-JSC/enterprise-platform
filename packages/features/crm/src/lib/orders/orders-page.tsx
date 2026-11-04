@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   SALES_ORDER_SOURCE_LABELS,
   SALES_ORDER_STATUS_LABELS,
   type ContractSummary,
@@ -46,7 +47,7 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, ownerUserId, late };
   const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listOrders({ q, status: (status || undefined) as SalesOrderStatus | undefined, ownerUserId, late: late || undefined, cursor, limit: 30 }),
+    listOrders({ q, status: (status || undefined) as SalesOrderStatus | undefined, ownerUserId, late: late || undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<SalesOrderSummary>>(

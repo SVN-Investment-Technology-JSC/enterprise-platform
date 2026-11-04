@@ -1,4 +1,5 @@
 import {
+  CRM_LIST_PAGE_SIZE,
   CRM_API_ROOT,
   type Activity,
   type ActivityListQuery,
@@ -22,6 +23,8 @@ import {
   type Lead,
   type LeadListQuery,
   type OpportunityBoard,
+  type OpportunityByCustomerPage,
+  type OpportunityByCustomerQuery,
   type OpportunityDetail,
   type MyStageTask,
   type OpportunityListQuery,
@@ -248,7 +251,7 @@ export const deleteContact = (customerId: string, contactId: string) =>
   send<CustomerDetail>('DELETE', `/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}`);
 export const loadTimeline = (customerId: string, cursor?: string) =>
   request<CrmPage<CustomerTimelineEntry>>(
-    `/customers/${encodeURIComponent(customerId)}/timeline${toQuery({ cursor, limit: 30 })}`,
+    `/customers/${encodeURIComponent(customerId)}/timeline${toQuery({ cursor, limit: CRM_LIST_PAGE_SIZE })}`,
     { cache: 'no-store' },
   );
 
@@ -277,6 +280,8 @@ export const convertLead = (id: string, body: ConvertLeadRequest) =>
 // Cơ hội
 export const listOpportunities = (query: OpportunityListQuery) =>
   request<CrmPage<OpportunitySummary>>(`/opportunities${toQuery(query)}`, { cache: 'no-store' });
+export const listOpportunitiesByCustomer = (query: OpportunityByCustomerQuery) =>
+  request<OpportunityByCustomerPage>(`/opportunities/by-customer${toQuery(query)}`, { cache: 'no-store' });
 export const loadBoard = (query: { ownerUserId?: string; q?: string; pipelineId?: string }) =>
   request<OpportunityBoard>(`/opportunities/board${toQuery(query)}`, { cache: 'no-store' });
 export const listPipelines = () => request<readonly Pipeline[]>('/opportunities/pipelines');

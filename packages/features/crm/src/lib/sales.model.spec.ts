@@ -245,4 +245,17 @@ describe('nhóm dự án theo khách hàng', () => {
     expect(groups[0].items.map((item) => item.id)).toEqual(['a1', 'a2']);
     expect(groupByCustomer([])).toEqual([]);
   });
+
+  it('khách vắt sang trang khác: lấy tổng của mọi trang từ server và đánh dấu đang xem một phần', () => {
+    const a1 = { ...card('a1', 'NEW', 100), customerId: 'A', customerName: 'Khách A' };
+    const b1 = { ...card('b1', 'NEW', 50), customerId: 'B', customerName: 'Khách B' };
+    const groups = groupByCustomer([a1, b1], [
+      { customerId: 'A', customerCode: 'KH-A', customerName: 'Khách A', count: 1, totalValue: 100 },
+      { customerId: 'B', customerCode: 'KH-B', customerName: 'Khách B', count: 7, totalValue: 900 },
+    ]);
+    expect(groups.map((group) => [group.customerId, group.count, group.totalValue, group.partial])).toEqual([
+      ['A', 1, 100, false],
+      ['B', 7, 900, true],
+    ]);
+  });
 });

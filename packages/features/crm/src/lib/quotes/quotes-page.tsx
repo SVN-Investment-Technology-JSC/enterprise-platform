@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   QUOTE_STATUS_LABELS,
   type CustomerSummary,
   type OpportunitySummary,
@@ -45,7 +46,7 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, ownerUserId };
   const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, cursor, limit: 30 }),
+    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<QuoteSummary>>(

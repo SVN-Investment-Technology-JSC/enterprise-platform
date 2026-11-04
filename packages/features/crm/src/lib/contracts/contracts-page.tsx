@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   CONTRACT_STATUS_LABELS,
   CONTRACT_TYPE_LABELS,
   type ContractDetail,
@@ -55,7 +56,7 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
       ownerUserId,
       expiringWithinDays: expiring ? 30 : undefined,
       cursor,
-      limit: 30,
+      limit: CRM_LIST_PAGE_SIZE,
     }),
   );
 

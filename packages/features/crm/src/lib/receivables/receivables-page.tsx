@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   ADJUSTMENT_DIRECTION_LABELS,
   ADJUSTMENT_STATUS_LABELS,
   CREDIT_LIMIT_MODE_LABELS,
@@ -182,7 +183,7 @@ function AgingTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) =
         loading={loading}
         columns={columns}
         dataSource={[...rows]}
-        pagination={false}
+        pagination={{ pageSize: CRM_LIST_PAGE_SIZE, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 1450 }}
         onRow={(row) => ({ onDoubleClick: () => onOpenCustomer(row.customerId) })}
         locale={{ emptyText: loading ? 'Đang tải…' : 'Chưa có công nợ nào.' }}
@@ -194,7 +195,7 @@ function AgingTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) =
 function ReceiptsTable({ onOpenCustomer }: { onOpenCustomer: (customerId: string) => void }) {
   const { people } = useCrm();
   const [status, setStatus] = useState('');
-  const list = useKeysetPage(status, (cursor) => listReceipts({ status: (status || undefined) as ReceiptStatus | undefined, cursor, limit: 30 }));
+  const list = useKeysetPage(status, (cursor) => listReceipts({ status: (status || undefined) as ReceiptStatus | undefined, cursor, limit: CRM_LIST_PAGE_SIZE }));
   const columns = useMemo<ColumnsType<ReceiptSummary>>(
     () => [
       { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
@@ -252,7 +253,7 @@ export function AdjustmentsTable({ customerId, onOpenCustomer, onChanged }: { cu
   const [status, setStatus] = useState('');
   const [acting, setActing] = useState<{ adjustment: ReceivableAdjustment; action: 'approve' | 'cancel' }>();
   const list = useKeysetPage(`${customerId ?? ''}|${status}`, (cursor) =>
-    listAdjustments({ customerId, status: (status || undefined) as AdjustmentStatus | undefined, cursor, limit: 30 }),
+    listAdjustments({ customerId, status: (status || undefined) as AdjustmentStatus | undefined, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
   const columns: ColumnsType<ReceivableAdjustment> = [
     { title: 'Mã', dataIndex: 'code', width: 120, render: (value: string) => <span className={styles.mono}>{value}</span> },

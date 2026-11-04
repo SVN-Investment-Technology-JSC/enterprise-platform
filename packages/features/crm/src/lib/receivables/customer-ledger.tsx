@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   ADJUSTMENT_DIRECTION_LABELS,
   AGING_BUCKET_LABELS,
   AGING_BUCKETS,
@@ -231,7 +232,7 @@ export function CustomerLedger({
           rowKey="id"
           columns={entryColumns}
           dataSource={[...ledger.entries]}
-          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          pagination={{ pageSize: CRM_LIST_PAGE_SIZE, hideOnSinglePage: true }}
           scroll={{ x: 1000 }}
           locale={{ emptyText: 'Chưa có phát sinh.' }}
         />

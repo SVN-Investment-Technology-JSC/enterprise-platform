@@ -417,6 +417,34 @@ export interface OpportunityListQuery {
   readonly limit?: number;
 }
 
+/** Dự án bán hàng theo khách (`GET /v1/opportunities/by-customer`): cùng bộ lọc với danh sách, phân trang theo số trang. */
+export interface OpportunityByCustomerQuery extends Omit<OpportunityListQuery, 'cursor' | 'customerId'> {
+  /** Trang cần xem, bắt đầu từ 1. */
+  readonly page?: number;
+}
+
+/** Tổng của một khách theo bộ lọc đang chọn, tính trên mọi trang. */
+export interface OpportunityCustomerTotal {
+  readonly customerId: string;
+  readonly customerCode: string;
+  readonly customerName: string;
+  readonly count: number;
+  readonly totalValue: number;
+}
+
+/**
+ * Một trang dự án sắp theo khách (mã khách, rồi dự án cập nhật gần nhất). Dự án của một khách nằm liền nhau; khách có
+ * dự án vắt sang trang sau thì xuất hiện ở cả hai trang. `customers` là tổng của các khách có mặt trên trang này.
+ */
+export interface OpportunityByCustomerPage {
+  readonly items: readonly OpportunitySummary[];
+  readonly customers: readonly OpportunityCustomerTotal[];
+  readonly page: number;
+  readonly pageSize: number;
+  /** Tổng số dự án khớp bộ lọc. */
+  readonly total: number;
+}
+
 /** Một cột kanban: các thẻ mới cập nhật nhất và tổng của cả cột. */
 export interface OpportunityBoardColumn {
   readonly stage: string;

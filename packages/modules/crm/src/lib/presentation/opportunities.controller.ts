@@ -12,6 +12,8 @@ import type {
   LeadListQuery,
   MyStageTask,
   OpportunityBoard,
+  OpportunityByCustomerPage,
+  OpportunityByCustomerQuery,
   OpportunityDetail,
   OpportunityListQuery,
   OpportunityStagePlan,
@@ -39,6 +41,11 @@ export class OpportunitiesController {
   @Get('opportunities')
   list(@Req() request: CrmRequest, @Query() query: OpportunityListQuery): Promise<CrmPage<OpportunitySummary>> {
     return runCrm(() => this.opportunities.list(crmActor(request), query));
+  }
+
+  @Get('opportunities/by-customer')
+  listByCustomer(@Req() request: CrmRequest, @Query() query: OpportunityByCustomerQuery): Promise<OpportunityByCustomerPage> {
+    return runCrm(() => this.opportunities.listByCustomer(crmActor(request), query));
   }
 
   @Get('opportunities/board')

@@ -20,6 +20,7 @@ import {
   type OpportunityStagePlanItem,
   type StagePlanStatus,
   type OpportunityStage,
+  type OpportunityCustomerTotal,
   type OpportunitySummary,
   type Pipeline,
   type PipelineStage,
@@ -363,13 +364,22 @@ export interface CustomerOpportunityGroup {
   readonly customerId: string;
   readonly customerCode: string;
   readonly customerName: string;
+  /** Số dự án của khách theo bộ lọc (mọi trang khi có `totals`). */
   readonly count: number;
   readonly totalValue: number;
   readonly items: readonly OpportunitySummary[];
+  /** Khách còn dự án ở trang khác: trang này chỉ hiện một phần. */
+  readonly partial: boolean;
 }
 
-/** Nhóm dự án theo khách hàng, giữ thứ tự xuất hiện đầu tiên của khách; tổng giá trị bỏ qua dự án chưa nhập giá. */
-export function groupByCustomer(items: readonly OpportunitySummary[]): CustomerOpportunityGroup[] {
+/**
+ * Nhóm dự án theo khách hàng, giữ thứ tự xuất hiện đầu tiên của khách; tổng giá trị bỏ qua dự án chưa nhập giá.
+ * `totals` (từ server) thay số dự án và tổng giá trị bằng số của mọi trang, để khách vắt sang trang khác vẫn đúng.
+ */
+export function groupByCustomer(
+  items: readonly OpportunitySummary[],
+  totals: readonly OpportunityCustomerTotal[] = [],
+): CustomerOpportunityGroup[] {
   const groups = new Map<string, { head: OpportunitySummary; items: OpportunitySummary[]; total: number }>();
   for (const item of items) {
     const group = groups.get(item.customerId) ?? { head: item, items: [], total: 0 };
@@ -377,14 +387,19 @@ export function groupByCustomer(items: readonly OpportunitySummary[]): CustomerO
     group.total += item.expectedValue ?? 0;
     groups.set(item.customerId, group);
   }
-  return [...groups.values()].map((group) => ({
-    customerId: group.head.customerId,
-    customerCode: group.head.customerCode,
-    customerName: group.head.customerName,
-    count: group.items.length,
-    totalValue: group.total,
-    items: group.items,
-  }));
+  return [...groups.values()].map((group) => {
+    const total = totals.find((item) => item.customerId === group.head.customerId);
+    const count = total?.count ?? group.items.length;
+    return {
+      customerId: group.head.customerId,
+      customerCode: group.head.customerCode,
+      customerName: group.head.customerName,
+      count,
+      totalValue: total?.totalValue ?? group.total,
+      items: group.items,
+      partial: group.items.length < count,
+    };
+  });
 }
 
 /** Hạn của việc đã quá hạn (so theo ngày, `YYYY-MM-DD`). */

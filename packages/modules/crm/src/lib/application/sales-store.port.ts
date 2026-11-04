@@ -14,6 +14,7 @@ import type {
   LeadStatus,
   MyStageTask,
   OpportunityBoard,
+  OpportunityByCustomerPage,
   OpportunityDetail,
   OpportunityStagePlanItem,
   OpportunitySummary,
@@ -278,6 +279,12 @@ export interface OpportunityFilter {
   readonly limit: number;
 }
 
+/** Bộ lọc của danh sách theo khách: như danh sách dự án, phân trang theo số trang. */
+export interface OpportunityByCustomerFilter extends Omit<OpportunityFilter, 'cursor' | 'limit' | 'customerId'> {
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 export interface OpportunityRecord {
   readonly name: string;
   readonly probability: number;
@@ -367,6 +374,12 @@ export interface OpportunityStore {
     scope: CrmDataScope,
     filter: OpportunityFilter,
   ): Promise<CrmPage<OpportunitySummary>>;
+  /** Sắp theo khách, phân trang theo số trang; kèm tổng của các khách có trên trang. */
+  listByCustomer(
+    tenantId: string,
+    scope: CrmDataScope,
+    filter: OpportunityByCustomerFilter,
+  ): Promise<OpportunityByCustomerPage>;
   board(
     tenantId: string,
     scope: CrmDataScope,

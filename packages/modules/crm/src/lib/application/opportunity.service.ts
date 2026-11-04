@@ -1,10 +1,13 @@
 import {
+  CRM_LIST_PAGE_SIZE,
   type ChangeOpportunityStageRequest,
   type TenderRequiredField,
   type CreateOpportunityRequest,
   type CrmPage,
   type MyStageTask,
   type OpportunityBoard,
+  type OpportunityByCustomerPage,
+  type OpportunityByCustomerQuery,
   type OpportunityDetail,
   type OpportunityListQuery,
   type OpportunityStagePlan,
@@ -21,6 +24,7 @@ import {
   normalizeSearch,
   optionalDate,
   optionalId,
+  optionalInteger,
   optionalMoney,
   optionalText,
   requiredText,
@@ -167,6 +171,18 @@ export class OpportunityService {
       customerId: optionalId(query.customerId, 'khách hàng') ?? undefined,
       cursor: decodeCursor(query.cursor),
       limit: pageLimit(query.limit),
+    });
+  }
+
+  async listByCustomer(actor: CrmActor, query: OpportunityByCustomerQuery): Promise<OpportunityByCustomerPage> {
+    const scope = await this.scopes.resolve(actor);
+    return this.opportunities.listByCustomer(actor.tenantId, scope, {
+      q: normalizeSearch(query.q),
+      stage: optionalText(query.stage, 32, 'giai đoạn') ?? undefined,
+      pipelineId: optionalId(query.pipelineId, 'luồng') ?? undefined,
+      ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
+      page: optionalInteger(query.page, 1, 100_000, 'trang') ?? 1,
+      pageSize: pageLimit(query.limit ?? CRM_LIST_PAGE_SIZE),
     });
   }
 

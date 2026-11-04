@@ -1,6 +1,6 @@
 'use client';
 
-import { LEAD_STATUS_LABELS, type Lead, type LeadStatus } from '@enterprise-platform/contracts-crm';
+import { CRM_LIST_PAGE_SIZE, LEAD_STATUS_LABELS, type Lead, type LeadStatus } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
@@ -43,7 +43,7 @@ export function LeadsPage({ onOpenCustomer, onOpenOpportunity }: { onOpenCustome
   const [documentsOf, setDocumentsOf] = useState<Lead | null>(null);
   const q = useDebounced(search.trim(), 350);
   const list = useKeysetPage(JSON.stringify({ q, status, ownerUserId }), (cursor) =>
-    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, cursor, limit: 30 }),
+    listLeads({ q, status: (status || undefined) as LeadStatus | undefined, ownerUserId, cursor, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<Lead>>(

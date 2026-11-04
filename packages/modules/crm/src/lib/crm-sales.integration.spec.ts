@@ -477,6 +477,41 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       customerId = (await customers.create(seller(NV1), { name: 'Khách cơ hội' })).id;
     });
 
+    it('theo khách: 20 dự án một trang, dự án của một khách liền nhau, khách vắt trang hiện ở cả hai trang với tổng đúng', async () => {
+      const q = 'PGK-';
+      const first = await customers.create(seller(NV2), { code: 'PGK-A', name: 'Khách phân trang A' });
+      const second = await customers.create(seller(NV2), { code: 'PGK-B', name: 'Khách phân trang B' });
+      for (let index = 1; index <= 15; index += 1) {
+        await opportunities.create(seller(NV2), { customerId: first.id, name: `PGK-A dự án ${index}`, expectedValue: 1000 });
+      }
+      for (let index = 1; index <= 10; index += 1) {
+        await opportunities.create(seller(NV2), { customerId: second.id, name: `PGK-B dự án ${index}`, expectedValue: 500 });
+      }
+
+      const page1 = await opportunities.listByCustomer(seller(NV2), { q });
+      expect(page1).toMatchObject({ page: 1, pageSize: 20, total: 25 });
+      expect(page1.items).toHaveLength(20);
+      expect(page1.items.slice(0, 15).every((item) => item.customerId === first.id)).toBe(true);
+      expect(page1.items.slice(15).every((item) => item.customerId === second.id)).toBe(true);
+      // Trong một khách, dự án cập nhật gần nhất lên trước.
+      expect(page1.items[0].name).toBe('PGK-A dự án 15');
+      expect(page1.customers).toEqual([
+        expect.objectContaining({ customerId: first.id, customerCode: 'PGK-A', count: 15, totalValue: 15_000 }),
+        expect.objectContaining({ customerId: second.id, customerCode: 'PGK-B', count: 10, totalValue: 5000 }),
+      ]);
+
+      const page2 = await opportunities.listByCustomer(seller(NV2), { q, page: 2 });
+      expect(page2.items).toHaveLength(5);
+      expect(page2.items.every((item) => item.customerId === second.id)).toBe(true);
+      expect(page2.customers).toEqual([expect.objectContaining({ customerId: second.id, count: 10 })]);
+      const seen = new Set([...page1.items, ...page2.items].map((item) => item.id));
+      expect(seen.size).toBe(25);
+
+      // Phạm vi dữ liệu: NV3 nhóm khác không thấy; trang sai 400.
+      expect((await opportunities.listByCustomer(seller(NV3), { q })).total).toBe(0);
+      await expect(opportunities.listByCustomer(seller(NV2), { q, page: 0 })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('TC-SM-01/02, TC-OPP-04/05: chuyển giai đoạn ghi lịch sử và nhật ký; sai bảng 409; Thua cần lý do', async () => {
       const created = await opportunities.create(seller(NV1), { customerId, name: 'Cung cấp máy phát', probability: 30 });
       let current = await opportunities.changeStage(seller(NV1), created.id, { stage: 'CONTACTED', version: created.version });
