@@ -18,6 +18,9 @@ import type {
   UpdateSerialRequest,
   UpdateSettingsRequest,
   UpdateWarehouseRequest,
+  MovementCounterparty,
+  CreateAssetTestRecordRequest,
+  AssignCustodyRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
@@ -48,6 +51,12 @@ export class InventoryController {
       canWriteQuality: actor.canWriteQuality ?? actor.canManage,
       canApproveDocuments: actor.canApproveDocuments ?? actor.canManage,
     };
+  }
+
+  /** Danh sách ứng viên tham gia tổ kiểm đếm kèm cờ phân quyền hasWarehouseAccess */
+  @Get('auditor-candidates')
+  listAuditorCandidates(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAuditorCandidates(this.actor(request)));
   }
 
   /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
@@ -239,6 +248,7 @@ export class InventoryController {
       lot?: StockDocumentLotInput;
       /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
       serials?: readonly string[];
+      counterparty?: MovementCounterparty;
     },
   ) {
     return this.execute(() => this.app.receiveStock(this.actor(request), body));
@@ -258,9 +268,30 @@ export class InventoryController {
       note?: string;
       /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
       lots?: readonly LotAllocationInput[];
+      counterparty?: MovementCounterparty;
     },
   ) {
     return this.execute(() => this.app.issueStock(this.actor(request), body));
+  }
+
+  @Post('movements/batch')
+  @HttpCode(201)
+  recordMovementLines(
+    @Req() request: InventoryRequest,
+    @Body()
+    body: {
+      kind: 'receipt' | 'issue';
+      counterparty?: MovementCounterparty;
+      lines: {
+        warehouseCode: string;
+        materialCode: string;
+        quantity: number;
+        unitCost?: number;
+        note?: string;
+      }[];
+    },
+  ) {
+    return this.execute(() => this.app.recordMovementLines(this.actor(request), body));
   }
 
   @Post('transfers')
@@ -494,6 +525,70 @@ export class InventoryController {
     return this.execute(() =>
       this.app.updateSetting(this.actor(request), key as InventorySettingsKey, body),
     );
+  }
+
+  // --- Cấp phát trang thiết bị nhân sự (HRM Custody) ---
+  @Get('custody')
+  listAssignedCustody(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAssignedCustody(this.actor(request)));
+  }
+
+  /** Sổ tài sản của tab Tài sản: tất cả tài sản, để thấy cả cái tồn kho và đang bảo trì. */
+  @Get('custody/assets')
+  listCustodyAssets(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listCustodyAssets(this.actor(request)));
+  }
+
+  @Get('custody/employees/:employeeId')
+  listEmployeeCustody(
+    @Req() request: InventoryRequest,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.execute(() => this.app.listEmployeeCustody(this.actor(request), employeeId));
+  }
+
+  @Post('custody/assign')
+  assignCustody(
+    @Req() request: InventoryRequest,
+    @Body() body: { materialCode: string; employeeId: string | null },
+  ) {
+    return this.execute(() => this.app.assignCustody(this.actor(request), body.materialCode, body.employeeId));
+  }
+
+  /**
+   * Cấp phát cho phân hệ HRM (service token). Trả bản rút gọn `CustodyAsset`: không kèm giá, kho hay lịch sử.
+   * Quyền cấp và thu hồi do HRM kiểm (`hrm.custody.manage`); Kho tự kiểm trạng thái tài sản và người đang giữ.
+   */
+  @Get('internal/custody/employees/:employeeId')
+  getEmployeeCustodyInternal(@Req() request: InventoryRequest, @Param('employeeId') employeeId: string) {
+    return this.execute(() => this.app.listEmployeeCustodyAssets(this.actor(request), employeeId));
+  }
+
+  @Get('internal/custody/assignable')
+  listAssignableCustodyInternal(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAssignableCustody(this.actor(request)));
+  }
+
+  @Post('internal/custody/assign')
+  assignCustodyInternal(@Req() request: InventoryRequest, @Body() body: AssignCustodyRequest) {
+    return this.execute(async () => {
+      await this.app.assignCustody(this.actor(request), body.materialCode, body.employeeId);
+      return { ok: true };
+    });
+  }
+
+  // --- Nhật ký thí nghiệm / đo kiểm tài sản ---
+  @Get('assets/:id/tests')
+  listAssetTests(@Req() request: InventoryRequest, @Param('id') id: string) {
+    return this.execute(() => this.app.listAssetTests(this.actor(request), id));
+  }
+
+  @Post('assets/tests')
+  createAssetTest(
+    @Req() request: InventoryRequest,
+    @Body() body: CreateAssetTestRecordRequest,
+  ) {
+    return this.execute(() => this.app.createAssetTest(this.actor(request), body));
   }
 
   private actor(request: InventoryRequest): InventoryActor {

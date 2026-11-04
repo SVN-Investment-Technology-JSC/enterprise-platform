@@ -1029,11 +1029,29 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           ? `${movement.note} (Nhập chuyển từ kho ${movement.transferFromCode} theo ${outLeg.transactionCode})`
           : `Nhập chuyển từ kho ${movement.transferFromCode} theo ${outLeg.transactionCode}`
         : movement.note;
+      // Đối tác của dòng sổ cái: khách khai thì ghi nguyên; điều chuyển tự gán kho đối ứng ở cả hai vế.
+      const counterparty = options.counterparty;
+      let counterpartyType: string | null = counterparty?.type ?? null;
+      let counterpartyName: string | null = counterparty?.name ?? null;
+      let counterpartyWarehouseId: string | null = null;
+      const inboundOfThis = movements.find((candidate) => candidate.transferInOf === index);
+      if (outLeg) {
+        counterpartyType = 'WAREHOUSE';
+        counterpartyName = movement.transferFromCode ?? null;
+        counterpartyWarehouseId = outLeg.warehouseId;
+      } else if (inboundOfThis) {
+        counterpartyType = 'WAREHOUSE';
+        counterpartyName = document.targetWarehouseCode ?? null;
+        counterpartyWarehouseId = inboundOfThis.warehouseId;
+      }
       const inserted = await client.query<Row>(
         `INSERT INTO inventory_schema.inventory_transactions
            (id, transaction_code, warehouse_id, material_id, type, quantity, unit_cost,
-            reference_type, reference_id, workflow_status, note, created_by, document_id)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'APPROVED', $9, $10, $11)
+            reference_type, reference_id, workflow_status, note, created_by, document_id,
+            counterparty_type, counterparty_name, counterparty_address,
+            counterparty_warehouse_id, document_number)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'APPROVED', $9, $10, $11,
+                 $12, $13, $14, $15, $16)
          RETURNING *`,
         [
           newLedgerCode(),
@@ -1047,6 +1065,11 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           note ?? null,
           postedBy,
           document.id,
+          counterpartyType,
+          counterpartyName,
+          counterparty?.address ?? null,
+          counterpartyWarehouseId,
+          counterparty?.documentNumber ?? null,
         ],
       );
       ledger.push(mapTransaction(inserted.rows[0]));

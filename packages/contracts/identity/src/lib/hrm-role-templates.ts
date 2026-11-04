@@ -48,6 +48,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
       'hrm.employee.read',
       'hrm.employee.manage',
       'hrm.employee.link-account',
+      'hrm.custody.manage',
       'hrm.appointment.read',
       'hrm.appointment.manage',
       'hrm.dependent.read',

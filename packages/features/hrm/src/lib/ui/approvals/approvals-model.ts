@@ -79,9 +79,8 @@ export const detailFields: Record<string, string> = {
   duration: 'Số lượng nghỉ',
   startTime: 'Bắt đầu',
   endTime: 'Kết thúc',
-  plannedMinutes: 'Phút OT đăng ký',
+  plannedMinutes: 'Thời gian OT đăng ký',
   destination: 'Địa điểm công tác',
-  allowOt: 'Cho phép OT',
   daysCount: 'Số ngày công tác',
   workReference: 'Đầu việc liên kết',
   requestedAmount: 'Tạm ứng đề nghị',
@@ -292,13 +291,22 @@ export function flowSteps(
   if (progress?.steps?.length) {
     const rejected = progress.status === 'rejected';
     const steps = [...progress.steps].sort((a, b) => a.order - b.order);
+    const lastDecidedIndex = steps.reduce(
+      (last, s, idx) => (['completed', 'approved', 'done', 'rejected', 'returned'].includes(s.status) ? idx : last),
+      -1,
+    );
     return [
       submitted,
-      ...steps.map((s): FlowStep => {
+      ...steps.map((s, stepIndex): FlowStep => {
         const done = ['completed', 'approved', 'done'].includes(s.status);
         const current = s.id === progress.currentStepId || ['active', 'in_progress', 'pending', 'running'].includes(s.status);
         const failed = ['rejected', 'returned'].includes(s.status) || (rejected && current);
-        const person = s.roleTitle || ((done || failed) ? (row.approvedByName || (row.approved_by_name as string) || '') : '');
+        // Người duyệt của đơn chỉ thay cho nhãn trống ở bước cuối đã xử lý, không gán cho các bước trước.
+        const person =
+          s.roleTitle ||
+          ((done || failed) && stepIndex === lastDecidedIndex
+            ? row.approvedByName || (row.approved_by_name as string) || ''
+            : '');
         const time = (done || failed) && s.completedAt ? formatDateTime(s.completedAt) || dmHm(s.completedAt) : '';
         const statusLabel = done ? 'Đã duyệt' : failed ? 'Từ chối' : current ? 'Đang chờ duyệt' : 'Chưa xử lý';
         return {
@@ -321,9 +329,7 @@ export function flowSteps(
   const approverName = (row.approvedByName || row.approved_by_name || f.currentAssigneeName || (finished ? 'Cấp quản lý' : '')) as string;
   const directStatus = finished
     ? (rejected ? 'Từ chối' : row.status === 'CANCELLED' ? 'Đã rút' : 'Đã duyệt')
-    : f.currentAssigneeName
-      ? `Chờ ${f.currentAssigneeName}`
-      : 'Đang chờ duyệt';
+    : 'Đang chờ duyệt';
 
   return [
     submitted,

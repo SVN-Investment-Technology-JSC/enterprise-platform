@@ -3,6 +3,7 @@
 import type {
   Asset,
   InventoryCatalogSettings,
+  InventoryTradeCatalog,
   InstalledMaterial,
   InventoryItem,
   InventorySettingsSnapshot,
@@ -18,18 +19,23 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
+import { StocktakeHub } from './components/stocktake-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
-import { ItemCatalog } from './components/item-catalog';
 import { ItemProfileDialog } from './components/item-profile-dialog';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
+import { CustodyPanel } from './components/custody-panel';
 import { InstallMaterialDialog } from './components/install-material-dialog';
 import { ReturnToStockDialog } from './components/return-to-stock-dialog';
+import { TradeItemsPage } from './components/trade-items-page';
+import { WarehouseStockTab } from './components/warehouse-stock-tab';
 import { MaterialForm } from './components/material-form';
-import { MovementForm, type MovementInput } from './components/movement-form';
+import { MovementForm, type MovementInput, type MovementLineItem } from './components/movement-form';
+import { ExcelImportDialog } from './components/excel-import-dialog';
+import { CreateStocktakeDialog } from './components/create-stocktake-dialog';
 import { LedgerTable } from './components/ledger-table';
 import { StockDocumentApproval, StockDocumentList } from './components/stock-document-list';
 import { IssueRequestPanel } from './components/issue-request-panel';
@@ -37,19 +43,16 @@ import { InventoryReports } from './components/inventory-reports';
 import {
   createAsset,
   createMaterial,
-  issueStock,
+  createStocktakeSession,
+  startStocktakeCounting,
   loadInventorySettings,
-  loadInventoryItems,
   installItem,
   loadProcedureOptions,
   loadProcedureWorkOrders,
-  loadProcedureRequisitions,
-  getFulfilledRequisitionCodes,
-  markRequisitionFulfilled,
-  type ProcedureRequisition,
   openMovementWorkOrder,
   returnItemToStock,
   updateAsset,
+  assignCustody,
   type ProcedureOption,
   type ProcedureWorkOrder,
   loadInventoryWorkspace,
@@ -58,7 +61,7 @@ import {
   loadReservations,
   loadTenantHomePath,
   receiveStock,
-  retireMaterial,
+  issueStock,
   uninstallMaterial,
   saveInventorySetting,
   transferStock,
@@ -67,13 +70,11 @@ import {
   type InventoryReservationRow,
   type InventoryWorkspace,
 } from './inventory-api';
-import { MaterialRequisitionsCard } from './components/material-requisitions-card';
-import { BatchRequisitionModal } from './components/batch-requisition-modal';
 import {
   INVENTORY_DASHBOARD_CARDS,
   type InventoryDashboardData,
 } from './inventory-dashboard.cards';
-import { ASSET_STATUS_LABEL } from './inventory-labels';
+import { usageLabel } from './trade-items.model';
 import styles from './inventory.module.scss';
 import { InventoryPermissionsContext } from './inventory-permissions';
 
@@ -81,23 +82,33 @@ type Tab =
   | 'dashboard'
   | 'items'
   | 'stock'
-  | 'transactions'
   | 'documents'
   | 'approvals'
   | 'issue-requests'
   | 'assets'
+  | 'custody'
   | 'ledger'
   | 'reports'
   | 'settings';
 
+/** Bốn tab con của trang Kho hàng. */
+type StockSubTab = 'goods' | 'warehouse' | 'history' | 'stocktakes';
+
+const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
+  { id: 'goods', label: 'Hàng hóa' },
+  { id: 'warehouse', label: 'Nhà kho' },
+  { id: 'history', label: 'Lịch sử xuất nhập' },
+  { id: 'stocktakes', label: 'Lịch sử kiểm đếm' },
+];
+
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành' },
-  { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành' },
+  { id: 'stock', label: 'Kho hàng', group: 'Vận hành' },
   { id: 'documents', label: 'Chứng từ kho', group: 'Chứng từ' },
   { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
   { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
+  { id: 'custody', label: 'Tài sản', group: 'Vận hành' },
   { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
@@ -114,7 +125,23 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   warehouses: 'stock',
   serials: 'stock',
   reservations: 'stock',
+  transactions: 'stock',
+  'trade-items': 'stock',
 };
+
+/**
+ * Trang Kho hàng gộp ba trang cũ; link cũ mở đúng tab con tương ứng.
+ * Đọc hash thô vì `useHashView` đã đổi hash cũ sang `stock`.
+ */
+function initialStockSubTab(): StockSubTab {
+  if (typeof window === 'undefined') return 'goods';
+  const raw = window.location.hash.replace(/^#/, '').split('/')[0];
+  if (raw === 'transactions') return 'history';
+  if (raw === 'items' || raw === 'overview' || raw === 'materials' || raw === 'warehouses' || raw === 'serials') {
+    return 'warehouse';
+  }
+  return 'goods';
+}
 
 export function InventoryScreen() {
   const {
@@ -126,6 +153,7 @@ export function InventoryScreen() {
     fallback: 'dashboard',
     legacy: LEGACY_TAB,
   });
+  const [stockSubTab, setStockSubTab] = useState<StockSubTab>(initialStockSubTab);
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
@@ -153,10 +181,18 @@ export function InventoryScreen() {
   const [homePath, setHomePath] = useState('/');
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'material' | 'asset' | 'asset_root' | 'movement'>();
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [movementInit, setMovementInit] = useState<{
     kind?: 'receipt' | 'issue' | 'transfer' | 'adjust';
     materialCode?: string;
+    openExcelImport?: boolean;
+    initialItems?: readonly MovementLineItem[];
   }>();
+  const [stocktakeInit, setStocktakeInit] = useState<{
+    warehouseCode?: string;
+    selectedMaterials?: readonly InventoryItem[];
+  }>();
+  const [showStocktakeDialog, setShowStocktakeDialog] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material>();
   const [settings, setSettings] = useState<InventorySettingsSnapshot>();
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
@@ -164,7 +200,7 @@ export function InventoryScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
   const [unitDraft, setUnitDraft] = useState<readonly string[]>([]);
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [tradeDraft, setTradeDraft] = useState<InventoryTradeCatalog>();
   /** Vật tư đang lắp trên các thiết bị — lá của cây, suy từ sổ cái. */
   const [installed, setInstalled] = useState<InstalledMaterial[]>([]);
   /** Đơn vị đang chờ chọn kho để tháo về, kèm số đang lắp. */
@@ -186,97 +222,6 @@ export function InventoryScreen() {
    * biết nhập vào kho nào, và kho là thứ chỉ người bấm mới biết.
    */
   const [returnTarget, setReturnTarget] = useState<Asset>();
-  /** Ô tìm của bảng Tồn kho, để danh mục hợp nhất nhảy sang kèm mã. */
-  const [stockQuery, setStockQuery] = useState('');
-
-  // Procedure Requisitions state cho Bảng kê Nhu cầu cấp phát vật tư
-  const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
-  const [loadingRequisitions, setLoadingRequisitions] = useState(false);
-  const [batchReq, setBatchReq] = useState<ProcedureRequisition | null>(null);
-
-  const reloadRequisitions = useCallback(async () => {
-    setLoadingRequisitions(true);
-    try {
-      const data = await loadProcedureRequisitions();
-      setRequisitions(data);
-    } finally {
-      setLoadingRequisitions(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void reloadRequisitions();
-  }, [reloadRequisitions]);
-
-  // Lọc các yêu cầu còn hiệu lực: loại trừ yêu cầu đã xuất trong phiên, trong storage, hoặc đã có giao dịch trên sổ cái
-  const visibleRequisitions = useMemo(() => {
-    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
-    return requisitions.filter((req) => {
-      if (fulfilledCodes.has(req.code)) return false;
-      if (req.status === 'completed' || req.status === 'cancelled' || req.status === 'rejected') {
-        return false;
-      }
-      if (ledger && ledger.length > 0) {
-        const hasTx = ledger.some(
-          (tx) =>
-            tx.note &&
-            (tx.note.includes(req.code) || (req.csvFileName && tx.note.includes(req.csvFileName))),
-        );
-        if (hasTx) {
-          markRequisitionFulfilled(req.code);
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [requisitions, ledger]);
-
-  const handleOpenIssueFromRequisition = (req: ProcedureRequisition, lineIndex?: number) => {
-    if (lineIndex === undefined) {
-      if (req.lines.length > 1) {
-        setBatchReq(req);
-        return;
-      }
-      if (req.lines.length === 1) {
-        const selectedLine = req.lines[0];
-        const hasStock = selectedLine && (availableByCode.get(selectedLine.materialCode) ?? 0) >= selectedLine.quantity;
-        setMovementInit({
-          kind: hasStock ? 'issue' : 'receipt',
-          materialCode: selectedLine?.materialCode,
-        });
-        setForm('movement');
-        return;
-      }
-    }
-    if (lineIndex !== undefined && req.lines[lineIndex]) {
-      const selectedLine = req.lines[lineIndex];
-      const hasStock = selectedLine && (availableByCode.get(selectedLine.materialCode) ?? 0) >= selectedLine.quantity;
-      setMovementInit({
-        kind: hasStock ? 'issue' : 'receipt',
-        materialCode: selectedLine?.materialCode,
-      });
-      setForm('movement');
-    }
-  };
-
-
-  /** Tình trạng được phép chọn; danh mục rỗng nghĩa là dùng hết. */
-  /**
-   * Tình trạng được phép chọn.
-   *
-   * Đọc từ `catalog.asset` — CÙNG một khoá với màn Cài đặt đang ghi. Trước đây
-   * chỗ này đọc `catalog.material`, một khoá không màn nào sửa, nên danh mục
-   * admin khai và danh sách hiện trong bảng là hai thứ khác nhau.
-   *
-   * Rỗng thì rơi về bốn mã dựng sẵn để bảng không có ô chọn trống trơn.
-   */
-  const statusOptions = useMemo(() => {
-    const enabled = settings?.['catalog.asset'].value.enabledStatuses ?? [];
-    return enabled.length > 0 ? enabled : Object.keys(ASSET_STATUS_LABEL);
-  }, [settings]);
-
-  const usageStateOptions = settings?.['catalog.asset'].value.usageStates ?? [];
-
   /** Tồn khả dụng gộp mọi kho, theo mã — dùng chung cho cảnh báo sàn và vật tư trọng yếu. */
   const availableByCode = useMemo(() => {
     const map = new Map<string, number>();
@@ -304,25 +249,67 @@ export function InventoryScreen() {
     return map;
   }, [workspace]);
 
-  const reload = useCallback(async () => {
-    try {
-      setError(undefined);
-      const [data, ledgerRows, reservationRows, itemRows, installedRows] = await Promise.all([
+  /** Nạp lại thất bại một phần: hiện nút "Tải lại" cạnh thông báo lỗi. */
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  /**
+   * Đưa các giao dịch server vừa trả về lên đầu sổ cái ngay, không chờ nạp lại.
+   *
+   * Phiếu đã ghi sổ rồi mà bước nạp lại lỗi thì người dùng vẫn phải thấy phiếu của mình;
+   * không thì họ tưởng chưa ghi và nhập lại. Nạp lại thành công sẽ thay cả danh sách này.
+   */
+  const showInLedger = useCallback((rows: readonly InventoryLedgerRow[]) => {
+    if (rows.length === 0) return;
+    setLedger((current) => {
+      const incoming = new Set(rows.map((row) => row.id));
+      return [...rows, ...(current ?? []).filter((row) => !incoming.has(row.id))];
+    });
+  }, []);
+
+  /**
+   * Nạp lại toàn bộ dữ liệu màn hình. Mỗi nguồn nạp độc lập: một request lỗi (ví dụ Platform
+   * chưa trả lời kiểm quyền) không được làm mất các phần đã nạp được.
+   * Trả về câu mô tả phần nạp lỗi, hoặc `undefined` nếu nạp đủ.
+   */
+  const reload = useCallback(async (): Promise<string | undefined> => {
+    setError(undefined);
+    const [workspaceResult, ledgerResult, reservationResult, installedResult] =
+      await Promise.allSettled([
         loadInventoryWorkspace(),
         loadLedger(),
         loadReservations(),
-        loadInventoryItems(),
         loadInstallations(),
       ]);
-      setWorkspace(data);
-      setLedger(ledgerRows);
-      setReservations(reservationRows);
-      setItems(itemRows);
-      setInstalled(installedRows);
-      setSelectedAssetId((current) => current ?? data.assets[0]?.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu kho.');
+
+    const failed: string[] = [];
+    let firstCause: unknown;
+    const note = (label: string, result: PromiseSettledResult<unknown>) => {
+      if (result.status === 'fulfilled') return;
+      failed.push(label);
+      firstCause ??= result.reason;
+    };
+
+    if (workspaceResult.status === 'fulfilled') {
+      setWorkspace(workspaceResult.value);
+      setSelectedAssetId((current) => current ?? workspaceResult.value.assets[0]?.id);
     }
+    if (ledgerResult.status === 'fulfilled') setLedger(ledgerResult.value);
+    if (reservationResult.status === 'fulfilled') setReservations(reservationResult.value);
+    if (installedResult.status === 'fulfilled') setInstalled(installedResult.value);
+    note('tồn kho', workspaceResult);
+    note('sổ cái', ledgerResult);
+    note('phiếu giữ chỗ', reservationResult);
+    note('vật tư đã lắp', installedResult);
+
+    if (failed.length === 0) {
+      setLoadFailed(false);
+      return undefined;
+    }
+    const detail = firstCause instanceof Error && firstCause.message ? ` (${firstCause.message})` : '';
+    const message = `Chưa tải lại được ${failed.join(', ')}${detail}. Dữ liệu đang hiển thị có thể chưa cập nhật.`;
+    setLoadFailed(true);
+    setError(message);
+    return message;
   }, []);
 
   /** Chạy một lệnh ghi rồi nạp lại; gom xử lý lỗi về một chỗ. */
@@ -335,12 +322,30 @@ export function InventoryScreen() {
       setForm(undefined);
       setEditingMaterial(undefined);
       if (message) setNotice(message);
-      await reload();
+      // Thao tác đã ghi xong: nạp lại lỗi chỉ là chưa cập nhật màn hình, không phải ghi thất bại.
+      const reloadFailure = await reload();
+      if (reloadFailure && message) setError(`${message} ${reloadFailure}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không hoàn tất được thao tác.');
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Như `perform`, nhưng báo thao tác thành công hay không, để form đang mở giữ nguyên dữ liệu đã nhập khi thất bại.
+   */
+  const performTracked = async (run: () => Promise<string | void>): Promise<boolean> => {
+    let failed = false;
+    await perform(async () => {
+      try {
+        return await run();
+      } catch (cause) {
+        failed = true;
+        throw cause;
+      }
+    });
+    return !failed;
   };
 
   /** Work order vừa mở cho lệnh kho; hiện popup rồi tự đóng khi người dùng bấm. */
@@ -397,7 +402,7 @@ export function InventoryScreen() {
     perform(async () => {
       if (!canWriteTransactions) throw new Error('Bạn không có quyền ghi giao dịch kho.');
       // Xác định danh sách dòng vật tư: ưu tiên movement.items, nếu rỗng thì fallback về single item
-      const lineItems =
+      const lineItems: readonly MovementLineItem[] =
         movement.items && movement.items.length > 0
           ? movement.items
           : movement.materialCode
@@ -485,7 +490,9 @@ export function InventoryScreen() {
             note: lineFullNote,
             lot: receiptLot(item),
             serials: serials.length > 0 ? [...serials] : undefined,
+            counterparty: movement.counterparty,
           });
+          showInLedger([tx]);
           txCodes.push(tx.transactionCode);
           totalSerialsAdded += serials.length;
         }
@@ -513,6 +520,7 @@ export function InventoryScreen() {
               quantity: item.quantity,
               note: lineNote,
             });
+            showInLedger([tx]);
             txCodes.push(tx.transactionCode);
           } else {
             const tx = await issueStock({
@@ -521,7 +529,9 @@ export function InventoryScreen() {
               quantity: item.quantity,
               note: lineNote,
               lots: lotAllocations(item),
+              counterparty: movement.counterparty,
             });
+            showInLedger([tx]);
             txCodes.push(tx.transactionCode);
           }
         }
@@ -552,12 +562,60 @@ export function InventoryScreen() {
           note: lineNote,
           lots: lotAllocations(item),
         });
+        showInLedger([moved.out, moved.in]);
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);
       }
 
       const refText = txCodes.join(', ');
       await openOrderFor(movement, refText);
       return `Đã chuyển kho ${lineItems.length} mặt hàng — chứng từ [${refText}].`;
+    });
+
+  /**
+   * Xử lý nạp dữ liệu bổ sung từ tệp Excel trên Toolbar Tab Kho (hỗ trợ nhiều kho khác nhau)
+   */
+  const handleBulkImportData = (importedItems: MovementLineItem[]) =>
+    perform(async () => {
+      setShowBulkImport(false);
+      if (!canWriteTransactions) throw new Error('Bạn không có quyền ghi giao dịch kho.');
+      if (importedItems.length === 0) return;
+
+      // 1. Tạo các mã vật tư mới chưa có trong danh mục (đầy đủ nhóm, thương hiệu, mã vạch...)
+      const createdCodes = new Set<string>();
+      for (const item of importedItems) {
+        if (item.newMaterial && !createdCodes.has(item.newMaterial.code)) {
+          createdCodes.add(item.newMaterial.code);
+          await createMaterial({
+            code: item.newMaterial.code,
+            name: item.newMaterial.name,
+            unit: item.newMaterial.unit,
+            type: item.newMaterial.type || item.materialType || undefined,
+            minStock: item.newMaterial.minStock,
+            maxStock: item.newMaterial.maxStock,
+            category: 'SPARE_PART',
+            barcode: item.newMaterial.barcode,
+            manufacturer: item.newMaterial.manufacturer,
+            purchasePrice: item.unitCost,
+          });
+        }
+      }
+
+      // 2. Nạp tồn kho theo đúng kho của từng dòng (hỗ trợ nhiều kho khác nhau)
+      let importedCount = 0;
+      for (const item of importedItems) {
+        const wh = item.warehouseCode || workspace?.warehouses[0]?.code;
+        if (!wh) continue;
+        await receiveStock({
+          warehouseCode: wh,
+          materialCode: item.materialCode,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          note: item.lineNote || 'Bổ sung dữ liệu đa kho từ tệp Excel',
+        });
+        importedCount++;
+      }
+
+      return `Đã bổ sung thành công ${importedCount} vật tư vào hệ thống kho.`;
     });
 
   useEffect(() => {
@@ -570,8 +628,9 @@ export function InventoryScreen() {
    * đặt cần cả bản gốc để so sánh thay đổi. Các tab còn lại không dùng tới.
    */
   useEffect(() => {
-    // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện.
-    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets') return;
+    // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện. Kho hàng cần danh mục
+    // phân loại và sử dụng của hàng hóa.
+    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets' && tab !== 'stock') return;
     if (settings) return;
     void loadInventorySettings()
       .then((loaded) => {
@@ -579,6 +638,7 @@ export function InventoryScreen() {
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setAssetCatalogDraft(loaded['catalog.asset'].value);
         setUnitDraft(loaded['catalog.unit'].value.units ?? []);
+        setTradeDraft(loaded['catalog.trade']?.value);
       })
       .catch(() => setSettings(undefined));
   }, [tab, settings]);
@@ -683,6 +743,46 @@ export function InventoryScreen() {
     }
   };
 
+  const saveTradeCatalog = async () => {
+    if (!settings || !tradeDraft) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'catalog.trade',
+        tradeDraft,
+        settings['catalog.trade'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.trade': saved as InventorySettingsSnapshot['catalog.trade'],
+      });
+      setTradeDraft((saved as InventorySettingsSnapshot['catalog.trade']).value);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục hàng hóa.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const tradeDirty =
+    tradeDraft !== undefined &&
+    JSON.stringify(tradeDraft) !== JSON.stringify(settings?.['catalog.trade']?.value);
+
+  /** Phân loại và cách sử dụng đang có mặt hàng dùng — không cho xoá khỏi danh mục. */
+  const usedTrade = useMemo(() => {
+    const goods = new Set<string>();
+    const services = new Set<string>();
+    const usage = new Set<string>();
+    for (const material of workspace?.materials ?? []) {
+      const category = material.tradeCategory?.trim();
+      if (category) (material.kind === 'SERVICE' ? services : goods).add(category);
+      const mode = usageLabel(material.tradeMode);
+      if (mode) usage.add(mode);
+    }
+    return { goods, services, usage };
+  }, [workspace]);
+
   const unitsDirty =
     JSON.stringify(unitDraft) !== JSON.stringify(settings?.['catalog.unit'].value.units ?? []);
 
@@ -718,6 +818,14 @@ export function InventoryScreen() {
           {error ? (
             <p role="alert" className={styles.alert}>
               {error}
+              {loadFailed ? (
+                <>
+                  {' '}
+                  <button type="button" className={styles.linkButton} onClick={() => void reload()}>
+                    Tải lại
+                  </button>
+                </>
+              ) : null}
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
@@ -878,11 +986,45 @@ export function InventoryScreen() {
             </div>
           ) : null}
 
+          {showBulkImport && workspace ? (
+            <ExcelImportDialog
+              warehouses={workspace.warehouses}
+              materials={workspace.materials}
+              defaultWarehouseCode={workspace.warehouses[0]?.code ?? ''}
+              isSingleWarehouseOnly={false}
+              onCancel={() => setShowBulkImport(false)}
+              onImportItems={handleBulkImportData}
+            />
+          ) : null}
+
+          {showStocktakeDialog && workspace ? (
+            <CreateStocktakeDialog
+              workspace={workspace}
+              busy={busy}
+              initialWarehouseCode={stocktakeInit?.warehouseCode}
+              initialSelectedMaterials={stocktakeInit?.selectedMaterials}
+              onClose={() => {
+                setShowStocktakeDialog(false);
+                setStocktakeInit(undefined);
+              }}
+              onSubmit={async (input) => {
+                const created = await createStocktakeSession(input, workspace);
+                const { session } = await startStocktakeCounting(created.id, workspace);
+                setStockSubTab('stocktakes');
+                setShowStocktakeDialog(false);
+                setStocktakeInit(undefined);
+                setNotice(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu phiên đếm.`);
+              }}
+            />
+          ) : null}
+
           {form === 'movement' ? (
             <MovementForm
               workspace={workspace}
               initialKind={movementInit?.kind ?? 'receipt'}
               initialMaterialCode={movementInit?.materialCode}
+              initialOpenExcelImport={movementInit?.openExcelImport}
+              initialItems={movementInit?.initialItems}
               isDialog={true}
               busy={busy}
               onCancel={() => {
@@ -891,6 +1033,7 @@ export function InventoryScreen() {
               }}
               procedures={procedures}
               units={settings?.['catalog.unit'].value.units ?? []}
+              types={settings?.['catalog.asset'].value.types ?? []}
               reservations={reservations ?? []}
               workOrders={workOrders}
               onSubmit={submitMovement}
@@ -901,6 +1044,7 @@ export function InventoryScreen() {
             <MaterialForm
               editing={editingMaterial}
               units={settings?.['catalog.unit'].value.units ?? []}
+              types={settings?.['catalog.asset'].value.types ?? []}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -946,19 +1090,15 @@ export function InventoryScreen() {
               ledger={ledger ?? []}
               materialByCode={materialByCode}
               cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
-              onNavigate={navigate}
+              onNavigate={(target) => {
+                if (target === 'transactions') {
+                  setStockSubTab('history');
+                  navigate('stock');
+                  return;
+                }
+                navigate(target);
+              }}
               onOpenMovement={canWriteTransactions ? () => setForm('movement') : undefined}
-            />
-          ) : null}
-
-          {tab === 'transactions' ? (
-            <TransactionHub
-              workspace={workspace}
-              ledger={ledger ?? []}
-              busy={busy}
-              onSubmitMovement={submitMovement}
-              onReload={reload}
-              onNotice={(msg) => setNotice(msg)}
             />
           ) : null}
 
@@ -1043,6 +1183,50 @@ export function InventoryScreen() {
                     />
                   ),
                 },
+                {
+                  id: 'trade',
+                  label: 'Phân loại hàng hóa',
+                  description:
+                    'Khai báo phân loại (hàng hóa và dịch vụ mỗi nhóm một danh sách) và cách sử dụng (chỉ bán, chỉ tặng, đi kèm combo...) cho trang Kho hàng. Mục đang có mặt hàng dùng thì không xoá được.',
+                  render: () =>
+                    tradeDraft ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Phân loại hàng hóa</h4>
+                          <UnitCatalogEditor
+                            units={tradeDraft.goodsCategories}
+                            usedUnits={usedTrade.goods}
+                            disabled={!canManage || savingCards}
+                            noun="phân loại hàng hóa"
+                            placeholder="VD: Cáp điện, Thiết bị đo"
+                            onChange={(next) => setTradeDraft({ ...tradeDraft, goodsCategories: next })}
+                          />
+                        </div>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Phân loại dịch vụ</h4>
+                          <UnitCatalogEditor
+                            units={tradeDraft.serviceCategories}
+                            usedUnits={usedTrade.services}
+                            disabled={!canManage || savingCards}
+                            noun="phân loại dịch vụ"
+                            placeholder="VD: Lắp đặt, Bảo trì"
+                            onChange={(next) => setTradeDraft({ ...tradeDraft, serviceCategories: next })}
+                          />
+                        </div>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Sử dụng</h4>
+                          <UnitCatalogEditor
+                            units={tradeDraft.usageModes}
+                            usedUnits={usedTrade.usage}
+                            disabled={!canManage || savingCards}
+                            noun="cách sử dụng"
+                            placeholder="VD: Chỉ bán, Chỉ tặng, Đi kèm combo"
+                            onChange={(next) => setTradeDraft({ ...tradeDraft, usageModes: next })}
+                          />
+                        </div>
+                      </div>
+                    ) : null,
+                },
               ]}
               activeSectionId={settingsSection}
               readOnly={!canManage}
@@ -1056,7 +1240,9 @@ export function InventoryScreen() {
                     ? catalogDirty
                     : settingsSection === 'units'
                       ? unitsDirty
-                      : cardsDirty
+                      : settingsSection === 'trade'
+                        ? tradeDirty
+                        : cardsDirty
               }
               saving={savingCards}
               onSave={
@@ -1066,99 +1252,90 @@ export function InventoryScreen() {
                     ? saveAssetCatalog
                     : settingsSection === 'units'
                       ? saveUnits
-                      : saveCards
+                      : settingsSection === 'trade'
+                        ? saveTradeCatalog
+                        : saveCards
               }
               onReset={() =>
                 settingsSection === 'asset-fields'
                   ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
                   : settingsSection === 'units'
                     ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])
-                    : setCardDraft(storedCards)
+                    : settingsSection === 'trade'
+                      ? setTradeDraft(settings?.['catalog.trade']?.value)
+                      : setCardDraft(storedCards)
               }
             />
           ) : null}
 
           {tab === 'stock' ? (
             <>
-              {/* Bảng kê Nhu cầu cấp phát vật tư từ Quy trình */}
-              <MaterialRequisitionsCard
-                requisitions={visibleRequisitions}
-                loading={loadingRequisitions}
-                availableByCode={availableByCode}
-                workspace={workspace}
-                onOpenIssueFromRequisition={handleOpenIssueFromRequisition}
-                onOpenTransfer={(materialCode: string) => {
-                  setMovementInit({
-                    kind: 'transfer',
-                    materialCode,
-                  });
-                  setForm('movement');
-                }}
-                onCheckStock={(materialCode) => {
-                  setStockQuery(materialCode);
-                  // Scroll nhẹ xuống bảng danh mục vật tư
-                  const el = document.getElementById('inventory-item-catalog');
-                  if (el) el.scrollIntoView({ behavior: 'smooth' });
-                }}
-              />
+              {/* Trang Kho hàng: Hàng hóa (buôn bán) - Nhà kho (tồn kho) - Lịch sử xuất nhập - Lịch sử kiểm đếm */}
+              <div className={styles.tabs} style={{ margin: '0 0 1rem 0' }}>
+                {STOCK_SUB_TABS.map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    className={`${styles.tab} ${stockSubTab === sub.id ? styles.tabActive : ''}`}
+                    onClick={() => setStockSubTab(sub.id)}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
 
-              {batchReq ? (
-                <BatchRequisitionModal
-                  req={batchReq}
-                  workspace={workspace}
-                  busy={busy}
-                  onClose={() => setBatchReq(null)}
-                  onSuccess={async (note) => {
-                    markRequisitionFulfilled(batchReq.code);
-                    setBatchReq(null);
-                    await reloadRequisitions();
-                    await reload();
-                    setNotice(note);
-                  }}
+              {stockSubTab === 'goods' ? (
+                <TradeItemsPage
+                  canManage={canManage}
+                  warehouses={workspace.warehouses}
+                  stock={workspace.stock}
+                  catalog={settings?.['catalog.trade']?.value}
+                  onChanged={() => void reload()}
                 />
               ) : null}
 
-              {/* Danh mục đứng trên bảng tồn: một dòng danh mục là một MÃ, một
-                  dòng tồn là một mã ở một KHO. Cùng một màn nên người dùng đi
-                  từ "cái này là gì" xuống "nó nằm ở kho nào" mà không đổi tab. */}
-              <ItemCatalog
-                items={items}
-                initialQuery={stockQuery}
-                materialByCode={materialByCode}
-                statuses={statusOptions}
-                usageStates={usageStateOptions}
-                types={settings?.['catalog.asset'].value.types ?? []}
-                installed={installed}
-                warehouses={workspace.warehouses}
-                stock={workspace.stock}
-                workspace={workspace}
-                busy={busy}
-                onOpenProfile={(code) => setProfileCode(code)}
-                onAddMaterial={canManage ? () => setForm('material') : undefined}
-                onOpenMovement={canWriteTransactions ? (init) => {
-                  setMovementInit(init);
-                  setForm('movement');
-                } : undefined}
-                onRetire={canManage ? (material) =>
-                  perform(async () => {
-                    const result = await retireMaterial(material.code);
-                    // Không còn chế độ xoá: mã chỉ được ngừng dùng, lịch sử giữ
-                    // nguyên. Nói rõ để người bấm không tưởng dữ liệu đã mất.
-                    return `Đã ngừng dùng ${material.code}. ${result.reason ?? ''}`;
-                  })
-                : undefined}
-                onPatch={canManage ? (item, patch) =>
-                  perform(async () => {
-                    // Hai đường ghi khác nhau: mã đã lắp đi qua view `assets`
-                    // (lọc kind='ASSET'), mã kho đi qua bảng vật tư. Gửi nhầm
-                    // đường thì câu UPDATE không khớp dòng nào và im lặng không
-                    // lưu gì.
-                    if (item.kind === 'ASSET') await updateAsset(item.code, patch);
-                    else await updateMaterial(item.code, patch);
-                    return `Đã cập nhật ${item.code}.`;
-                  })
-                : undefined}
-              />
+              {stockSubTab === 'warehouse' ? (
+                <WarehouseStockTab
+                  materials={workspace.materials}
+                  warehouses={workspace.warehouses}
+                  stock={workspace.stock}
+                  onOpenBulkImport={canWriteTransactions ? () => setShowBulkImport(true) : undefined}
+                  onOpenStocktake={(init) => {
+                    setStocktakeInit(init);
+                    setShowStocktakeDialog(true);
+                  }}
+                  onOpenMovement={
+                    canWriteTransactions
+                      ? (init) => {
+                          setMovementInit(init);
+                          setForm('movement');
+                        }
+                      : undefined
+                  }
+                />
+              ) : null}
+
+              {stockSubTab === 'history' ? (
+                <TransactionHub
+                  workspace={workspace}
+                  ledger={ledger ?? []}
+                  busy={busy}
+                  onSubmitMovement={submitMovement}
+                  onReload={async () => { await reload(); }}
+                  onNotice={(msg) => setNotice(msg)}
+                  hideSubTabs={true}
+                  onOpenProfile={(code) => setProfileCode(code)}
+                />
+              ) : null}
+
+              {stockSubTab === 'stocktakes' ? (
+                <StocktakeHub
+                  workspace={workspace}
+                  busy={busy}
+                  onSubmitMovement={submitMovement}
+                  onNotice={(msg) => setNotice(msg)}
+                />
+              ) : null}
             </>
           ) : null}
 
@@ -1238,6 +1415,27 @@ export function InventoryScreen() {
                 )}
               </section>
             </div>
+          ) : null}
+
+          {tab === 'custody' ? (
+            <CustodyPanel
+              canManage={canManage}
+              busy={busy}
+              onAssign={(asset, employeeId) =>
+                performTracked(async () => {
+                  await assignCustody(asset.code, employeeId);
+                  return employeeId
+                    ? `Đã cấp phát ${asset.code}.`
+                    : `Đã thu hồi ${asset.code}.`;
+                })
+              }
+              onDeclare={(input) =>
+                performTracked(async () => {
+                  const created = await createAsset(input);
+                  return `Đã khai báo tài sản ${created.code}.`;
+                })
+              }
+            />
           ) : null}
 
           {tab === 'ledger' ? (

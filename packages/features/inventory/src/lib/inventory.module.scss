@@ -1846,10 +1846,15 @@
 
 .codeLabel {
   display: inline-block;
+  max-width: 100%;
   font-family: ui-monospace, monospace;
   font-weight: 700;
   font-size: 0.875rem;
   color: #1e40af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .tableSearchBox {
@@ -1959,6 +1964,13 @@
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
+  overflow: hidden;
+}
+
+.standardTable td.code {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .standardTable tbody tr:hover td {
@@ -3512,6 +3524,8 @@
 
 .comboboxInput {
   width: 100%;
+  height: 38px !important;
+  box-sizing: border-box !important;
   padding: 8px 12px 8px 34px !important;
   font-size: 14px !important;
   border: 1px solid #cbd5e1 !important;
@@ -3523,6 +3537,59 @@
   &:focus {
     border-color: #2563eb !important;
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+  }
+}
+
+.movementItemToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.toolbarActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.excelImportBtn {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+
+  &:hover:not(:disabled) {
+    background: #dcfce7;
+    border-color: #86efac;
+    color: #166534;
+  }
+}
+
+.newMaterialBtn {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+
+  &:hover:not(:disabled) {
+    background: #dbeafe;
+    border-color: #93c5fd;
+    color: #1e40af;
   }
 }
 
@@ -4833,3 +4900,653 @@
   text-decoration: underline dotted #94a3b8;
   text-underline-offset: 3px;
 }
+/* ========================================================================= */
+/* DRAWER CHI TIẾT PHIẾU XUẤT NHẬP KHO (STOCK MOVEMENT DETAIL DRAWER)        */
+/* ========================================================================= */
+.movementHero {
+  padding: 1.1rem 1.25rem;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.movementHeroIn {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  border-color: #bbf7d0;
+}
+
+.movementHeroOut {
+  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%);
+  border-color: #fecaca;
+}
+
+.movementHeroAdjust {
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
+  border-color: #fde68a;
+}
+
+.movementHeroHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.movementHeroKind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.movementHeroKindIn {
+  color: #15803d;
+}
+
+.movementHeroKindOut {
+  color: #b91c1c;
+}
+
+.movementHeroKindAdjust {
+  color: #b45309;
+}
+
+.movementHeroIconCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.movementHeroIconCircleIn {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.movementHeroIconCircleOut {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.movementHeroIconCircleAdjust {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.movementHeroAmount {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.movementHeroAmountIn {
+  color: #15803d;
+}
+
+.movementHeroAmountOut {
+  color: #b91c1c;
+}
+
+.movementHeroAmountAdjust {
+  color: #b45309;
+}
+
+.movementHeroGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.movementHeroStat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.movementHeroStatLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.movementHeroStatValue {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.movementCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.movementCardTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.movementGrid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.movementFieldItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.movementFieldLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.movementFieldValue {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.movementStockBox {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.movementStockItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.movementStockItemLabel {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.movementStockItemValue {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.movementNoteBox {
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-left: 3px solid #2563eb;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.875rem;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.movementMiniTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+
+  th {
+    background: #f8fafc;
+    padding: 6px 8px;
+    font-weight: 700;
+    color: #475569;
+    text-align: left;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #1e293b;
+  }
+
+  tr:hover td {
+    background: #f1f5f9;
+  }
+}
+
+/* ---- People Picker for Stocktake Dialog (Tương tự Form Tạo nhóm Chat) ---- */
+.stocktakePickerSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stocktakeFieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stocktakePickerBadge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.stocktakePickerHint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.stocktakeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 84px;
+  overflow-y: auto;
+  padding: 2px 0 4px;
+}
+
+.stocktakeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12.5px;
+  line-height: 1;
+
+  .stocktakeChipAvatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 9.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .chipLabel {
+    max-width: 150px;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #1e40af;
+    cursor: pointer;
+    place-items: center;
+    transition: background-color 0.12s ease;
+
+    &:hover {
+      background: #dbeafe;
+    }
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+}
+
+.stocktakePickerSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+
+  svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: #94a3b8;
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: #1e293b;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+
+    &::placeholder {
+      color: #94a3b8;
+    }
+  }
+}
+
+.stocktakePickerSearchClear {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: pointer;
+  place-items: center;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: #cbd5e1;
+    color: #334155;
+  }
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.stocktakePickList {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.stocktakePickRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover:not(:disabled) {
+    background: #f8fafc;
+  }
+
+  &[aria-selected='true'] {
+    background: rgba(37, 99, 235, 0.05);
+
+    &:hover:not(:disabled) {
+      background: rgba(37, 99, 235, 0.09);
+    }
+  }
+
+  &:disabled {
+    cursor: default;
+    background: #f8fafc;
+  }
+}
+
+.stocktakePickInfo {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.stocktakePickName {
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stocktakePickDetail {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stocktakeLeadBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.stocktakePickCheck {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #ffffff;
+  place-items: center;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.stocktakePickCheckOn {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.stocktakePickCheckLead {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.stocktakePickAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #e0e7ff;
+  color: #3730a3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.stocktakeAddCustomRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  width: 100%;
+  border: 0;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  border-top: 1px dashed #bbf7d0;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: #dcfce7;
+  }
+}
+
+.stocktakeWhBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+
+  svg {
+    width: 11px;
+    height: 11px;
+    color: #16a34a;
+  }
+}
+
+.stocktakeFilterToggle {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.stocktakeFilterBtn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.12s ease;
+
+  &:hover {
+    color: #1e293b;
+  }
+}
+
+.stocktakeFilterActive {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+
+  &:hover {
+    color: #1d4ed8;
+  }
+}
+
+.stocktakeGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+
+  &:first-child {
+    border-top: 0;
+  }
+}
+
+.stocktakeGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stocktakeGroupBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.stocktakeGroupBadgeWh {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+
+
+

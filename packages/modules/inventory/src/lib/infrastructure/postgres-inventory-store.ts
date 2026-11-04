@@ -25,9 +25,13 @@ import type {
   SettingsEntry,
   UpdateAssetRequest,
   Warehouse,
+  AssetTestRecord,
+  CreateAssetTestRecordRequest,
+  AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { randomUUID } from 'node:crypto';
+import type { InventoryActor } from '../application/inventory.application.js';
 import type {
   AppendTransactionInput,
   CreateReservationInput,
@@ -129,6 +133,14 @@ function mapMaterial(row: Row): Material {
     isActive: Boolean(row.is_active),
     kind: row.kind === 'SERVICE' ? 'SERVICE' : 'STOCK',
     warrantyMonths: row.warranty_months == null ? undefined : Number(row.warranty_months),
+    assignedEmployeeId: opt(row.assigned_employee_id),
+    assignedAt: row.assigned_at ? iso(row.assigned_at) : undefined,
+    assetCategory: opt(row.asset_category) as Material['assetCategory'],
+    tradeMode: opt(row.trade_mode) as Material['tradeMode'],
+    salePrice: row.sale_price == null ? undefined : Number(row.sale_price),
+    tradeCategory: opt(row.trade_category),
+    createdAt: row.created_at ? iso(row.created_at) : undefined,
+    createdBy: opt(row.created_by),
   };
 }
 
@@ -220,9 +232,34 @@ export function mapTransaction(row: Row): InventoryTransaction {
     referenceId: opt(row.reference_id),
     workflowStatus: row.workflow_status as InventoryTransaction['workflowStatus'],
     note: opt(row.note),
+    counterpartyType: opt(row.counterparty_type) as InventoryTransaction['counterpartyType'],
+    counterpartyName: opt(row.counterparty_name),
+    counterpartyAddress: opt(row.counterparty_address),
+    counterpartyWarehouseId: opt(row.counterparty_warehouse_id),
+    documentNumber: opt(row.document_number),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     documentId: opt(row.document_id),
+  };
+}
+
+function mapAssetTestRecord(row: Row): AssetTestRecord {
+  return {
+    id: str(row.id),
+    assetId: str(row.asset_id),
+    assetCode: opt(row.asset_code),
+    testCode: str(row.test_code),
+    testType: str(row.test_type),
+    testDate: row.test_date ? iso(row.test_date).slice(0, 10) : '',
+    nextTestDate: row.next_test_date ? iso(row.next_test_date).slice(0, 10) : undefined,
+    resultStatus: row.result_status as AssetTestRecord['resultStatus'],
+    measuredParameters: (row.measured_parameters as Record<string, unknown>) ?? {},
+    leadTester: str(row.lead_tester),
+    testingAgency: opt(row.testing_agency),
+    certificateNumber: opt(row.certificate_number),
+    attachmentUrls: Array.isArray(row.attachment_urls) ? (row.attachment_urls as string[]) : undefined,
+    note: opt(row.note),
+    createdAt: iso(row.created_at),
   };
 }
 
@@ -348,7 +385,7 @@ export class PostgresInventoryStore implements InventoryStore {
     findByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE (code = $1 OR UPPER(code) = UPPER($1)) AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -357,7 +394,7 @@ export class PostgresInventoryStore implements InventoryStore {
     findAnyByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE (code = $1 OR UPPER(code) = UPPER($1)) AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -374,19 +411,27 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows.map(mapMaterial);
     },
 
-    create: async (tenantId: string, input: CreateMaterialRequest): Promise<Material> => {
+    create: async (
+      tenantId: string,
+      input: CreateMaterialRequest,
+      createdBy?: string,
+    ): Promise<Material> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `INSERT INTO inventory_schema.materials
-           (code, name, category, unit, min_stock, max_stock, is_serialized, barcode,
+           (code, name, category, type, unit, min_stock, max_stock, is_serialized, barcode,
             serial_number, manufacture_year, supplier, manufacturer,
-            purchase_price, currency, is_active, kind, warranty_months)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, $15, $16)
+            purchase_price, currency, is_active, kind, warranty_months,
+            assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
+            trade_category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true, $16, $17, $18, $19,
+                 $20, $21, $22, $23, $24)
       RETURNING *`,
         [
           input.code,
           input.name,
           input.category,
+          input.type?.trim() || null,
           input.unit,
           input.minStock ?? 0,
           input.maxStock ?? 0,
@@ -400,6 +445,13 @@ export class PostgresInventoryStore implements InventoryStore {
           input.currency?.trim() || null,
           input.kind ?? 'STOCK',
           input.warrantyMonths ?? null,
+          input.assignedEmployeeId?.trim() || null,
+          input.assignedEmployeeId ? new Date().toISOString() : null,
+          input.assetCategory ?? 'INDUSTRIAL',
+          input.tradeMode?.trim() || null,
+          input.salePrice ?? null,
+          createdBy ?? null,
+          input.tradeCategory?.trim() || null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -432,7 +484,13 @@ export class PostgresInventoryStore implements InventoryStore {
                 usage_state = COALESCE($17, usage_state),
                 type = COALESCE($18, type),
                 kind = COALESCE($19, kind),
-                warranty_months = CASE WHEN $20::boolean THEN $21::integer ELSE warranty_months END
+                warranty_months = CASE WHEN $20::boolean THEN $21::integer ELSE warranty_months END,
+                assigned_employee_id = COALESCE($22, assigned_employee_id),
+                assigned_at = CASE WHEN $22 IS NOT NULL THEN now() ELSE assigned_at END,
+                asset_category = COALESCE($23, asset_category),
+                trade_mode = COALESCE($24, trade_mode),
+                sale_price = COALESCE($25, sale_price),
+                trade_category = COALESCE($26, trade_category)
           WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
@@ -458,6 +516,11 @@ export class PostgresInventoryStore implements InventoryStore {
           // `undefined` giữ nguyên, `null` xoá số tháng bảo hành.
           patch.warrantyMonths !== undefined,
           patch.warrantyMonths ?? null,
+          patch.assignedEmployeeId?.trim() || null,
+          patch.assetCategory ?? null,
+          patch.tradeMode?.trim() || null,
+          patch.salePrice ?? null,
+          patch.tradeCategory?.trim() || null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -605,6 +668,13 @@ export class PostgresInventoryStore implements InventoryStore {
           input.warrantyUntil ?? null,
         ],
       );
+      // VIEW `assets` không có cột nhóm tài sản (thêm sau ở migration 0019), nên ghi thẳng vào bảng gốc.
+      if (input.assetCategory) {
+        await pool.query(
+          `UPDATE inventory_schema.materials SET asset_category = $2 WHERE code = $1 AND kind = 'ASSET'`,
+          [input.code, input.assetCategory],
+        );
+      }
       return mapAsset(result.rows[0]);
     },
 
@@ -1637,6 +1707,118 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  custody = {
+    listByEmployee: async (tenantId: string, employeeId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials
+          WHERE assigned_employee_id = $1 AND kind = 'ASSET' AND is_active = true
+          ORDER BY code`,
+        [employeeId],
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    listAssigned: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials
+          WHERE assigned_employee_id IS NOT NULL AND kind = 'ASSET' AND is_active = true
+          ORDER BY assigned_at DESC NULLS LAST, code`,
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    listAll: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE kind = 'ASSET' AND is_active = true ORDER BY code`,
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    listAssignable: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials
+          WHERE kind = 'ASSET' AND is_active = true AND assigned_employee_id IS NULL
+            AND COALESCE(status, 'OPERATING') = 'OPERATING'
+          ORDER BY code`,
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    find: async (tenantId: string, materialCode: string): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'ASSET' AND is_active = true`,
+        [materialCode],
+      );
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
+    },
+
+    assign: async (tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE inventory_schema.materials
+            SET assigned_employee_id = $2::uuid,
+                assigned_at = CASE WHEN $2::uuid IS NULL THEN NULL ELSE now() END
+          WHERE code = $1 AND kind = 'ASSET'
+            AND ($2::uuid IS NULL
+                 OR (is_active = true
+                     AND COALESCE(status, 'OPERATING') = 'OPERATING'
+                     AND (assigned_employee_id IS NULL OR assigned_employee_id = $2::uuid)))
+         RETURNING *`,
+        [materialCode, employeeId],
+      );
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
+    },
+  };
+
+  assetTest = {
+    listByAsset: async (tenantId: string, assetId: string): Promise<AssetTestRecord[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT r.*, m.code AS asset_code
+           FROM inventory_schema.asset_test_records r
+           JOIN inventory_schema.materials m ON m.id = r.asset_id
+          WHERE r.asset_id = $1
+          ORDER BY r.test_date DESC, r.created_at DESC`,
+        [assetId],
+      );
+      return result.rows.map(mapAssetTestRecord);
+    },
+
+    create: async (tenantId: string, input: CreateAssetTestRecordRequest): Promise<AssetTestRecord> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO inventory_schema.asset_test_records
+           (asset_id, test_code, test_type, test_date, next_test_date, result_status,
+            measured_parameters, lead_tester, testing_agency, certificate_number,
+            attachment_urls, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::jsonb, $12)
+         RETURNING *`,
+        [
+          input.assetId,
+          input.testCode,
+          input.testType,
+          input.testDate,
+          input.nextTestDate ?? null,
+          input.resultStatus,
+          JSON.stringify(input.measuredParameters ?? {}),
+          input.leadTester,
+          input.testingAgency ?? null,
+          input.certificateNumber ?? null,
+          input.attachmentUrls ? JSON.stringify(input.attachmentUrls) : null,
+          input.note ?? null,
+        ],
+      );
+      const row = result.rows[0];
+      const mat = await pool.query<Row>(`SELECT code FROM inventory_schema.materials WHERE id = $1`, [input.assetId]);
+      return mapAssetTestRecord({ ...row, asset_code: mat.rows[0]?.code });
+    },
+  };
+
   bom = {
     listByAsset: async (tenantId: string, assetCode: string): Promise<AssetBomLine[]> => {
       const pool = await this.poolFor(tenantId);
@@ -1801,14 +1983,13 @@ export class PostgresInventoryStore implements InventoryStore {
     materialCode: string,
   ): Promise<{ warehouseId: string; materialId: string }> {
     const warehouse = await client.query<Row>(
-      `SELECT id FROM inventory_schema.warehouses WHERE code = $1 LIMIT 1`,
+      `SELECT id FROM inventory_schema.warehouses WHERE (code = $1 OR UPPER(code) = UPPER($1)) LIMIT 1`,
       [warehouseCode],
     );
     if (!warehouse.rows[0]) throw new WarehouseNotFoundError(warehouseCode);
 
     const material = await client.query<Row>(
-      `SELECT id, kind FROM inventory_schema.materials
-        WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
+      `SELECT id, kind FROM inventory_schema.materials\n        WHERE (code = $1 OR UPPER(code) = UPPER($1)) AND kind IN ('STOCK', 'SERVICE') LIMIT 1`,
       [materialCode],
     );
     if (!material.rows[0]) throw new MaterialNotFoundError(materialCode);
@@ -1818,6 +1999,83 @@ export class PostgresInventoryStore implements InventoryStore {
       warehouseId: str(warehouse.rows[0].id),
       materialId: str(material.rows[0].id),
     };
+  }
+
+  async listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]> {
+    return inTransaction(await this.poolFor(actor.tenantId), async (client) => {
+      const hasHrm = await client
+        .query(`SELECT to_regclass('hrm_schema.employee_directory') IS NOT NULL AS exists`)
+        .then((r) => Boolean(r.rows[0]?.exists))
+        .catch(() => false);
+
+      const query = hasHrm
+        ? `
+          SELECT 
+            u.id,
+            u.full_name AS name,
+            u.email,
+            ed.employee_code AS code,
+            COALESCE(ed.department_name, '') AS department,
+            COALESCE(ed.position_name, '') AS position,
+            CASE 
+              WHEN u.system_role = 'tenant-admin' THEN true
+              WHEN EXISTS (
+                SELECT 1 FROM core_schema.user_roles ur
+                JOIN core_schema.roles r ON r.id = ur.role_id
+                LEFT JOIN core_schema.role_permissions rp ON rp.role_id = r.id
+                LEFT JOIN core_schema.permission_actions pa ON pa.permission_id = rp.permission_id
+                WHERE ur.user_id = u.id AND (r.key = 'tenant-admin' OR pa.action_key LIKE 'inventory.%' OR pa.action_key = '*')
+              ) THEN true
+              WHEN EXISTS (
+                SELECT 1 FROM core_schema.user_permission_grants upg
+                WHERE upg.user_id = u.id AND (upg.action_key LIKE 'inventory.%' OR upg.action_key = '*')
+              ) THEN true
+              ELSE false
+            END AS "hasWarehouseAccess"
+          FROM core_schema.users u
+          LEFT JOIN hrm_schema.employee_directory ed ON ed.user_id = u.id AND ed.deleted_at IS NULL
+          WHERE u.status = 'active'
+          ORDER BY "hasWarehouseAccess" DESC, u.full_name ASC
+        `
+        : `
+          SELECT 
+            u.id,
+            u.full_name AS name,
+            u.email,
+            NULL AS code,
+            '' AS department,
+            '' AS position,
+            CASE 
+              WHEN u.system_role = 'tenant-admin' THEN true
+              WHEN EXISTS (
+                SELECT 1 FROM core_schema.user_roles ur
+                JOIN core_schema.roles r ON r.id = ur.role_id
+                LEFT JOIN core_schema.role_permissions rp ON rp.role_id = r.id
+                LEFT JOIN core_schema.permission_actions pa ON pa.permission_id = rp.permission_id
+                WHERE ur.user_id = u.id AND (r.key = 'tenant-admin' OR pa.action_key LIKE 'inventory.%' OR pa.action_key = '*')
+              ) THEN true
+              WHEN EXISTS (
+                SELECT 1 FROM core_schema.user_permission_grants upg
+                WHERE upg.user_id = u.id AND (upg.action_key LIKE 'inventory.%' OR upg.action_key = '*')
+              ) THEN true
+              ELSE false
+            END AS "hasWarehouseAccess"
+          FROM core_schema.users u
+          WHERE u.status = 'active'
+          ORDER BY "hasWarehouseAccess" DESC, u.full_name ASC
+        `;
+
+      const result = await client.query(query);
+      return result.rows.map((r: Row) => ({
+        id: str(r.id),
+        name: str(r.name || r.email),
+        code: opt(r.code),
+        department: opt(r.department),
+        position: opt(r.position),
+        email: opt(r.email),
+        hasWarehouseAccess: Boolean(r.hasWarehouseAccess),
+      }));
+    });
   }
 }
 

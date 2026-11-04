@@ -36,6 +36,7 @@ import {
   SheetTitle,
 } from './sheet';
 import { HrmContractPanel } from './hrm-contract-panel';
+import { HrmCustodyPanel } from './hrm-custody-panel';
 import { HrmFamilyPanel } from './hrm-family-panel';
 import { HrmProfileDocumentsPanel } from './hrm-profile-documents-panel';
 import type { HrmStagedChange } from './hrm-staged-change';
@@ -212,7 +213,7 @@ function maritalLabel(value: string | null | undefined): string {
   return MARITAL[text] ?? text;
 }
 
-type DetailTab = 'documents' | 'family' | 'contracts';
+type DetailTab = 'documents' | 'family' | 'contracts' | 'custody';
 
 const GENDER_OPTIONS: SearchableSelectOption[] = [
   { value: 'MALE', label: 'Nam' },
@@ -396,6 +397,7 @@ export function EmployeeDetailDialog({
     ['documents', 'Ảnh và giấy tờ'],
     ['family', `Người phụ thuộc (${dependents.length})`],
     ['contracts', `Hợp đồng (${contracts.length})`],
+    ['custody', 'Vật tư'],
   ];
 
   const handleStartEdit = () => {
@@ -1321,6 +1323,15 @@ export function EmployeeDetailDialog({
                       readOnly={!isEditing}
                       onStage={stageFor('contracts')}
                       stagedCodes={stagedContractCodes}
+                    />
+                  )}
+                  {tab === 'custody' && (
+                    <HrmCustodyPanel
+                      key={`custody-${panelsKey}`}
+                      employeeId={employee.employeeId}
+                      readOnly={!isEditing}
+                      onStage={stageFor('custody')}
+                      stagedCustody={staged.flatMap((c) => (c.custody ? [c.custody] : []))}
                     />
                   )}
                 </div>

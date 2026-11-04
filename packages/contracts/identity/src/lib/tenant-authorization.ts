@@ -46,6 +46,11 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Liên kết nhân viên với tài khoản',
   },
   {
+    key: 'hrm.custody.manage',
+    group: 'HRM · Nhân sự',
+    label: 'Cấp phát tài sản cho nhân viên (Kho tự kiểm trạng thái tài sản)',
+  },
+  {
     key: 'hrm.appointment.read',
     group: 'HRM · Nhân sự',
     label: 'Xem quyết định bổ nhiệm, điều chuyển toàn tenant',
@@ -676,6 +681,7 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.employee.manage': ['hrm.employee.read', 'hrm.employee.sensitive'],
       'hrm.employee.sensitive': ['hrm.employee.read'],
       'hrm.employee.link-account': ['hrm.employee.read'],
+      'hrm.custody.manage': ['hrm.employee.read'],
       'hrm.appointment.manage': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.appointment.approve': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.shift.manage': ['hrm.shift.read'],

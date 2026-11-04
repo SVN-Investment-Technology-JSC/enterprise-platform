@@ -567,7 +567,7 @@ export function StocktakeHub({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', color: '#64748b' }}>
-                    <span>{session.warehouseCode}</span>
+                    <span>{session.warehouseCode}{session.stocktakeDate ? ` · ${session.stocktakeDate}` : ''}</span>
                     <span>{session.totalItems > 0 ? `Đếm ${session.countedItems}/${session.totalItems} mã` : 'Chưa snapshot'}</span>
                   </div>
 
@@ -627,6 +627,9 @@ export function StocktakeHub({
                 </div>
                 <div style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
                   {selectedSession.title} · Người lập: <strong>{selectedSession.leadAuditor}</strong>
+                  {selectedSession.stocktakeDate ? (
+                    <> · Ngày kiểm: <strong>{selectedSession.stocktakeDate}</strong></>
+                  ) : null}
                 </div>
               </div>
 
@@ -1229,8 +1232,9 @@ export function StocktakeHub({
           onClose={() => setOpenCreateDialog(false)}
           onSubmit={async (input) => {
             const created = await createStocktakeSession(input, workspace);
-            await reloadSessions(created.id);
-            if (onNotice) onNotice(`Đã tạo đợt kiểm kê ${created.code}.`);
+            const { session } = await startStocktakeCounting(created.id, workspace);
+            await reloadSessions(session.id);
+            if (onNotice) onNotice(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu kiểm đếm.`);
           }}
         />
       ) : null}

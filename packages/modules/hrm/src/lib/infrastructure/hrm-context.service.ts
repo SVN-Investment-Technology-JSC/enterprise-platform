@@ -395,4 +395,67 @@ export class HrmContextService {
       pool,
     };
   }
+
+  async getPoolForTenant(tenantId: string): Promise<Pool> {
+    const database = await this.identity.serviceDatabase(tenantId, 'hrm');
+    if (!database) {
+      throw new ForbiddenException({
+        code: 'MODULE_NOT_ENTITLED',
+        message: 'Tenant chưa bật HRM.',
+      });
+    }
+    return (await this.pools.forTenant(database)) as unknown as Pool;
+  }
+
+  async loadActorPrincipal(
+    tenantId: string,
+    userId: string,
+  ): Promise<{
+    tenantId: string;
+    userId: string;
+    displayName?: string;
+    email?: string;
+    permissions?: readonly string[];
+  }> {
+    const pool = await this.getPoolForTenant(tenantId);
+    const userRes = await pool.query<{
+      id: string;
+      email: string;
+      full_name: string;
+      system_role: string;
+    }>(
+      `SELECT id, email, full_name, system_role FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
+      [userId],
+    );
+    const user = userRes.rows[0];
+    if (!user) {
+      throw new NotFoundException('Người dùng không tồn tại hoặc đã bị vô hiệu hoá');
+    }
+    const permRes = await pool.query<{ key: string }>(
+      `SELECT pa.action_key AS key FROM core_schema.user_roles ur
+       JOIN core_schema.role_permissions rp ON rp.role_id = ur.role_id
+       JOIN core_schema.permission_actions pa ON pa.permission_id = rp.permission_id
+       WHERE ur.user_id = $1
+       UNION
+       SELECT g.action_key AS key FROM core_schema.user_permission_grants g WHERE g.user_id = $1`,
+      [userId],
+    );
+    const permissions = permRes.rows.map((r) => r.key);
+    if (user.system_role === 'owner' || user.system_role === 'admin') {
+      permissions.push(
+        'tenant.manage',
+        'hrm.manage',
+        'hrm.request.approve',
+        'hrm.request.approve.all',
+      );
+    }
+    return {
+      tenantId,
+      userId: user.id,
+      displayName: user.full_name,
+      email: user.email,
+      permissions,
+    };
+  }
 }
+

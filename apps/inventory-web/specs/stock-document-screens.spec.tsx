@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Page from '../src/app/page';
 
 // Màn duyệt chứng từ (T1-29) và bốn loại tồn (T1-30) trên trang Kho thật, fetch giả lập.
@@ -150,14 +150,24 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
     expect(await screen.findByText('Không được tự duyệt chứng từ do mình lập.')).toBeTruthy();
   });
 
-  it('màn tồn có cột thực tế, đã giữ, chờ kiểm định/không đạt, khả dụng và không có cột đang vận chuyển', async () => {
+  it('tab Nhà kho: bảng gọn, drawer có bốn loại tồn kèm giải thích và không có đang vận chuyển', async () => {
     window.history.replaceState(null, '', '/#stock');
     mockFetch({ canManage: false, canWriteTransactions: false });
     render(<Page />);
-    await waitFor(() => expect(screen.getByText('Chờ kiểm định/không đạt')).toBeTruthy());
-    expect(screen.getByText('Thực tế').getAttribute('title')).toMatch(/Tồn thực tế/);
-    expect(screen.getByText('Đã giữ')).toBeTruthy();
-    expect(screen.getByText('Khả dụng').getAttribute('title')).toMatch(/thực tế − đã giữ − chờ kiểm định/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Nhà kho' }));
+    expect(
+      (await screen.findAllByRole('columnheader')).map((th) => th.textContent),
+    ).toEqual(['Mã', 'Tên', 'Kho', 'Đơn vị', 'Số lượng']);
+    fireEvent.click(await screen.findByText('QA Mực in'));
+    const drawer = await screen.findByRole('dialog', { name: 'Tồn QA-KHO-MUC' });
+    const hinted = (label: string, pattern: RegExp) =>
+      within(drawer)
+        .getAllByText(label)
+        .some((element) => pattern.test(element.getAttribute('title') ?? ''));
+    expect(hinted('Tồn thực tế', /Tồn thực tế/)).toBe(true);
+    expect(within(drawer).getAllByText('Đã giữ').length).toBeGreaterThan(0);
+    expect(hinted('Chờ kiểm định/không đạt', /Cách ly, Lỗi hoặc Chờ kiểm định/)).toBe(true);
+    expect(hinted('Khả dụng', /thực tế − đã giữ − chờ kiểm định/)).toBe(true);
     expect(screen.queryByText(/đang vận chuyển/i)).toBeNull();
   });
 });
