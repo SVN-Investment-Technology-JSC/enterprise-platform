@@ -8,11 +8,14 @@ import { errorMessage, listMyStageTasks } from '../crm-api';
 import { STAGE_PLAN_STATUS_LABELS, isDueOverdue, stagePlanTone } from '../sales.model';
 import styles from '../sales.module.scss';
 
-/** "Việc của tôi": giai đoạn của dự án bán hàng đang giao cho người dùng (đang làm hoặc chưa tới). Ẩn khi không có việc. */
+/**
+ * "Việc của tôi": giai đoạn của dự án bán hàng đang giao cho người dùng (đang làm hoặc chưa tới). Ẩn khi không có việc.
+ * Mặc định thu gọn, chỉ hiện tiêu đề kèm số việc, để kanban không bị đẩy xuống.
+ */
 export function MyStageTasks({ refresh, onOpen }: { refresh: number; onOpen: (id: string) => void }) {
   const [tasks, setTasks] = useState<readonly MyStageTask[]>([]);
   const [error, setError] = useState<string>();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let alive = true;

@@ -79,6 +79,9 @@ try {
   {
     const { context, page } = await login('nv3');
     await goto(page, '#opportunities');
+    // Khối mặc định thu gọn: mở ra mới thấy danh sách việc.
+    await page.getByRole('button', { name: 'Mở rộng' }).first().click().catch(() => undefined);
+    await page.waitForTimeout(500);
     const body = await page.locator('body').innerText();
     check('TC-ASG-10 NV3: khối "Việc của tôi" có dự án được giao', body.includes('Việc của tôi') && body.includes('P2B-'), '');
     await shot(page, 'b-nv3-tasks');
