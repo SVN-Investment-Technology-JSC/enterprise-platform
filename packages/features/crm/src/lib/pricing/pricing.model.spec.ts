@@ -6,6 +6,7 @@ import {
   policyPercentLabel,
   priceListScopeLabel,
   validityLabel,
+  buildPricingSheet,
 } from './pricing.model';
 
 const ID = '11111111-1111-4111-8111-111111111111';
@@ -76,5 +77,49 @@ describe('nhãn', () => {
     };
     expect(policyPercentLabel(tiers)).toBe('1–9: 2%; từ 50: 8%');
     expect(policyConditionLabel(tiers)).toBe('Mọi khách hàng · Nhóm hàng: Thiết bị');
+  });
+});
+
+describe('buildPricingSheet', () => {
+  it('xuất tiêu đề, dòng hàng dạng số và phần tổng', () => {
+    const rows = buildPricingSheet({
+      date: '2026-11-04',
+      customerId: null,
+      customerGroupId: null,
+      discountCapPercent: 10,
+      lines: [
+        {
+          index: 0,
+          materialId: 'm1',
+          materialCode: 'CAP',
+          materialName: 'Cáp',
+          category: null,
+          unit: 'Cái',
+          quantity: 2,
+          listPrice: 1000,
+          priceSource: 'PRICE_LIST',
+          priceReferenceId: null,
+          priceReferenceCode: 'BG1',
+          appliedPolicies: [{ policyId: 'p', code: 'CS', percent: 5, exclusive: false }],
+          policyPercent: 5,
+          discountPercent: 5,
+          cappedAt: null,
+          overridden: false,
+          unitPriceAfterDiscount: 950,
+          grossAmount: 2000,
+          discountAmount: 100,
+          lineAmount: 1900,
+          vatRate: 10,
+          vatAmount: 190,
+          lineTotal: 2090,
+        },
+      ],
+      shipping: null,
+      totals: { grossAmount: 2000, discountAmount: 100, netAmount: 1900, vatAmount: 190, totalAmount: 2090 },
+    } as never);
+    expect(rows[1]).toEqual(['Ngày tính giá', '04/11/2026']);
+    expect(rows[4]?.[5]).toBe('Giá trước chiết khấu (giá gốc)');
+    expect(rows[5]).toEqual([1, 'CAP', 'Cáp', 'Cái', 2, 1000, expect.stringContaining('BG1'), 'CS: 5%', 5, '', 950, 1900, 10, 190, 2090]);
+    expect(rows.at(-1)).toEqual(['Tổng cộng', 2090]);
   });
 });

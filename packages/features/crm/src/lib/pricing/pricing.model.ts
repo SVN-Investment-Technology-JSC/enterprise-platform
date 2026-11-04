@@ -1,8 +1,10 @@
 import {
   DISCOUNT_CRITERION_LABELS,
+  PRICE_SOURCE_LABELS,
   type DiscountPolicy,
   type DiscountPolicyRule,
   type PriceListSummary,
+  type PricingResult,
   type SavePriceListItemRequest,
 } from '@enterprise-platform/contracts-crm';
 
@@ -123,4 +125,59 @@ export function policyConditionLabel(policy: Pick<DiscountPolicy, 'appliesToAllC
   const conditions = policy.rules.filter((rule) => rule.criterion !== 'QUANTITY').map(ruleLabel);
   if (policy.appliesToAllCustomers) conditions.unshift('Mọi khách hàng');
   return conditions.join(' · ');
+}
+
+/**
+ * Bảng tính giá để xuất Excel: một dòng tiêu đề, các dòng hàng, rồi phần tổng.
+ * Số giữ dạng số (không định dạng chuỗi) để người dùng tính tiếp trong Excel.
+ */
+export function buildPricingSheet(result: PricingResult): (string | number)[][] {
+  const rows: (string | number)[][] = [
+    ['Bảng tính giá'],
+    ['Ngày tính giá', formatDate(result.date)],
+    ['Trần tổng chiết khấu (%)', result.discountCapPercent],
+    [],
+    [
+      'STT',
+      'Mã hàng',
+      'Tên hàng',
+      'Đơn vị',
+      'Số lượng',
+      'Giá trước chiết khấu (giá gốc)',
+      'Nguồn giá',
+      'Chính sách đã áp',
+      'Chiết khấu (%)',
+      'Ghi chú',
+      'Đơn giá sau chiết khấu',
+      'Thành tiền',
+      'Thuế suất VAT (%)',
+      'Tiền VAT',
+      'Cộng',
+    ],
+  ];
+  for (const line of result.lines) {
+    const notes = [line.cappedAt !== null ? 'Chạm trần' : '', line.overridden ? 'Ghi đè' : ''].filter(Boolean).join(', ');
+    rows.push([
+      line.index + 1,
+      line.materialCode ?? '',
+      line.materialName ?? '',
+      line.unit,
+      line.quantity,
+      line.listPrice,
+      `${PRICE_SOURCE_LABELS[line.priceSource]}${line.priceReferenceCode ? ` ${line.priceReferenceCode}` : ''}`,
+      line.appliedPolicies.map((policy) => `${policy.code}: ${policy.percent}%`).join('; '),
+      line.discountPercent,
+      notes,
+      line.unitPriceAfterDiscount,
+      line.lineAmount,
+      line.vatRate,
+      line.vatAmount,
+      line.lineTotal,
+    ]);
+  }
+  const { totals } = result;
+  rows.push([], ['Tiền hàng theo giá gốc', totals.grossAmount], ['Chiết khấu', totals.discountAmount], ['Tiền hàng sau chiết khấu', totals.netAmount]);
+  if (result.shipping) rows.push([`Phí vận chuyển (VAT ${result.shipping.vatRate}%)`, result.shipping.amount]);
+  rows.push(['Tiền thuế VAT', totals.vatAmount], ['Tổng cộng', totals.totalAmount]);
+  return rows;
 }
