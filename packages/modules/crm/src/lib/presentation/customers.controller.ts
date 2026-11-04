@@ -5,11 +5,13 @@ import type {
   CrmSettings,
   CustomerDetail,
   CustomerGroup,
+  CustomerKindOption,
   CustomerListQuery,
   CustomerSummary,
   CustomerTimelineEntry,
   SaveContactRequest,
   SaveCustomerGroupRequest,
+  SaveCustomerKindRequest,
   SaveCustomerProfileRequest,
   TaxCodeMatch,
   UpdateCustomerRequest,
@@ -17,6 +19,7 @@ import type {
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { CustomerTimelineService } from '../application/activity.service.js';
 import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from '../application/customer-group.service.js';
+import { CustomerKindService } from '../application/customer-kind.service.js';
 import { CustomerService } from '../application/customer.service.js';
 import { crmActor, runCrm, type CrmRequest } from './crm-http.js';
 
@@ -121,11 +124,12 @@ export class CustomersController {
   }
 }
 
-/** Nhóm khách hàng, cấu hình phân hệ, danh bạ chọn người. */
+/** Nhóm và phân loại khách hàng, cấu hình phân hệ, danh bạ chọn người. */
 @Controller('v1')
 export class CrmSettingsController {
   constructor(
     @Inject(CustomerGroupService) private readonly groups: CustomerGroupService,
+    @Inject(CustomerKindService) private readonly kinds: CustomerKindService,
     @Inject(CrmSettingsService) private readonly settings: CrmSettingsService,
     @Inject(CrmPeopleService) private readonly people: CrmPeopleService,
   ) {}
@@ -153,6 +157,31 @@ export class CrmSettingsController {
   @HttpCode(204)
   deleteGroup(@Req() request: CrmRequest, @Param('id') id: string): Promise<void> {
     return runCrm(() => this.groups.remove(crmActor(request), id));
+  }
+
+  @Get('customer-kinds')
+  listKinds(@Req() request: CrmRequest): Promise<CustomerKindOption[]> {
+    return runCrm(() => this.kinds.list(crmActor(request)));
+  }
+
+  @Post('customer-kinds')
+  createKind(@Req() request: CrmRequest, @Body() body: SaveCustomerKindRequest): Promise<CustomerKindOption> {
+    return runCrm(() => this.kinds.create(crmActor(request), body ?? ({} as never)));
+  }
+
+  @Patch('customer-kinds/:code')
+  updateKind(
+    @Req() request: CrmRequest,
+    @Param('code') code: string,
+    @Body() body: SaveCustomerKindRequest,
+  ): Promise<CustomerKindOption> {
+    return runCrm(() => this.kinds.update(crmActor(request), code, body ?? ({} as never)));
+  }
+
+  @Delete('customer-kinds/:code')
+  @HttpCode(204)
+  deleteKind(@Req() request: CrmRequest, @Param('code') code: string): Promise<void> {
+    return runCrm(() => this.kinds.remove(crmActor(request), code));
   }
 
   @Get('settings')

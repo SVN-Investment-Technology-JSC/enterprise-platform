@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  CUSTOMER_KIND_LABELS,
   type CustomerContact,
   type CustomerDetail as CustomerDetailData,
   type OpportunitySummary,
@@ -29,7 +28,7 @@ import { formatMoney, personName, stageTone } from '../sales.model';
 import styles from '../sales.module.scss';
 import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
 import { CustomerFormDialog } from './customer-form';
-import { KIND_TONE } from './customer-list';
+import { kindTone } from './customer-list';
 import { CustomerTimeline } from './customer-timeline';
 import { ProfileNotePanel } from './profile-note-panel';
 
@@ -101,7 +100,7 @@ export function CustomerDetail({
         <div className={styles.detailTitle}>
           <span className={styles.mono}>{customer.code}</span>
           <h2>{customer.name}</h2>
-          <StatusPill tone={KIND_TONE[customer.kind]}>{CUSTOMER_KIND_LABELS[customer.kind]}</StatusPill>
+          <StatusPill tone={kindTone(customer.kind)}>{customer.kindName}</StatusPill>
         </div>
         {canWrite ? (
           <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>

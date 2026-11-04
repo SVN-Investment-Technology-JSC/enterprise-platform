@@ -1,6 +1,6 @@
 'use client';
 
-import type { CrmSettings, CustomerGroup, SalesSettings } from '@enterprise-platform/contracts-crm';
+import type { CrmSettings, CustomerGroup, CustomerKindOption, SalesSettings } from '@enterprise-platform/contracts-crm';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -9,13 +9,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
 import {
   createGroup,
+  createKind,
   deleteGroup,
+  deleteKind,
   errorMessage,
   loadSalesSettings,
   loadSettings,
   saveSalesSettings,
   saveSettings,
   updateGroup,
+  updateKind,
 } from '../crm-api';
 import { useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
@@ -91,6 +94,7 @@ export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: Cr
           <GeneralSettings />
           <SalesSettingsPanel />
           <CustomerGroups />
+          <CustomerKinds />
         </>
       )}
     </div>
@@ -293,6 +297,130 @@ function CustomerGroups() {
         />
       ) : null}
     </section>
+  );
+}
+
+/** Phân loại khách hàng: cùng cách quản lý với nhóm; phân loại hệ thống chỉ đổi tên, mô tả, thứ tự. */
+function CustomerKinds() {
+  const { kinds, reloadKinds } = useCrm();
+  const [editing, setEditing] = useState<CustomerKindOption | 'new' | null>(null);
+
+  const columns = useMemo<ColumnsType<CustomerKindOption>>(
+    () => [
+      { title: 'Mã', dataIndex: 'code', width: 160, render: (value: string) => <span className={styles.mono}>{value}</span> },
+      {
+        title: 'Tên phân loại',
+        dataIndex: 'name',
+        render: (value: string, row) => (row.isSystem ? `${value} (hệ thống)` : value),
+      },
+      { title: 'Mô tả', dataIndex: 'description', ellipsis: true },
+      { title: 'Thứ tự', dataIndex: 'sortOrder', width: 80, align: 'right' },
+      { title: 'Số khách', dataIndex: 'customerCount', width: 100, align: 'right' },
+      {
+        title: '',
+        key: 'actions',
+        width: 140,
+        render: (_: unknown, row) => (
+          <span className={styles.rowActions}>
+            <button type="button" className={styles.rowAction} onClick={() => setEditing(row)}>
+              Sửa
+            </button>
+            {row.isSystem ? null : (
+              <Popconfirm
+                title="Xoá phân loại khách hàng?"
+                description={row.customerCount ? 'Phân loại đang có khách hàng nên sẽ không xoá được.' : 'Không hoàn tác được.'}
+                okText="Xoá"
+                cancelText="Huỷ"
+                okType="danger"
+                onConfirm={async () => {
+                  try {
+                    await deleteKind(row.code);
+                    toast.success('Đã xoá phân loại.');
+                    reloadKinds();
+                  } catch (cause) {
+                    toast.error(errorMessage(cause, 'Không xoá được phân loại.'));
+                  }
+                }}
+              >
+                <button type="button" className={styles.rowActionDanger}>
+                  Xoá
+                </button>
+              </Popconfirm>
+            )}
+          </span>
+        ),
+      },
+    ],
+    [reloadKinds],
+  );
+
+  return (
+    <section className={styles.tableCard} aria-label="Phân loại khách hàng">
+      <div className={styles.toolbar}>
+        <h2 className={styles.title}>Phân loại khách hàng</h2>
+        <button type="button" className={styles.buttonPrimary} onClick={() => setEditing('new')}>
+          <Plus size={14} /> Thêm phân loại
+        </button>
+      </div>
+      <Table<CustomerKindOption> size="small" rowKey="code" columns={columns} dataSource={[...kinds]} pagination={false} locale={{ emptyText: 'Chưa có phân loại nào.' }} />
+      {editing ? (
+        <KindDialog
+          kind={editing === 'new' ? undefined : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            reloadKinds();
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function KindDialog({ kind, onClose, onSaved }: { kind?: CustomerKindOption; onClose: () => void; onSaved: () => void }) {
+  const [code, setCode] = useState(kind?.code ?? '');
+  const [name, setName] = useState(kind?.name ?? '');
+  const [description, setDescription] = useState(kind?.description ?? '');
+  const [sortOrder, setSortOrder] = useState(String(kind?.sortOrder ?? 100));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  async function submit() {
+    if (!code.trim() || !name.trim()) return setError('Vui lòng nhập mã và tên phân loại.');
+    setSubmitting(true);
+    setError(undefined);
+    const body = {
+      code: code.trim(),
+      name: name.trim(),
+      description: description.trim() || null,
+      sortOrder: sortOrder === '' ? null : Number(sortOrder),
+    };
+    try {
+      if (kind) await updateKind(kind.code, body);
+      else await createKind(body);
+      toast.success('Đã lưu phân loại khách hàng.');
+      onSaved();
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được phân loại.'));
+      setSubmitting(false);
+    }
+  }
+  return (
+    <CrmDialog open title={kind ? 'Sửa phân loại khách hàng' : 'Thêm phân loại khách hàng'} submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+      <div className={styles.fieldGrid}>
+        <Field label="Mã phân loại" required hint={kind?.isSystem ? 'Phân loại hệ thống không đổi được mã' : undefined}>
+          <input className={styles.input} value={code} maxLength={50} autoFocus={!kind} disabled={kind?.isSystem} onChange={(event) => setCode(event.target.value)} />
+        </Field>
+        <Field label="Tên phân loại" required>
+          <input className={styles.input} value={name} maxLength={200} autoFocus={Boolean(kind)} onChange={(event) => setName(event.target.value)} />
+        </Field>
+        <Field label="Thứ tự hiển thị">
+          <input className={styles.input} inputMode="numeric" value={sortOrder} onChange={(event) => setSortOrder(event.target.value.replace(/[^\d]/g, ''))} />
+        </Field>
+        <Field label="Mô tả" wide>
+          <textarea className={styles.textarea} rows={2} value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} />
+        </Field>
+      </div>
+    </CrmDialog>
   );
 }
 

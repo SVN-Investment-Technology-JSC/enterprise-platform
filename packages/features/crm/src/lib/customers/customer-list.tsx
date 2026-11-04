@@ -1,6 +1,6 @@
 'use client';
 
-import { CUSTOMER_KIND_LABELS, type CustomerKind, type CustomerSummary } from '@enterprise-platform/contracts-crm';
+import type { CustomerKind, CustomerSummary } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -9,17 +9,22 @@ import { useMemo, useState } from 'react';
 import { KeysetPager, StatusPill } from '../components/crm-ui';
 import { useKeysetPage } from '../components/use-keyset-page';
 import { listCustomers } from '../crm-api';
-import { groupOptions, labelOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
+import { groupOptions, kindOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
 import { personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { useDebounced } from '../components/use-debounced';
 import { CustomerFormDialog } from './customer-form';
 
-export const KIND_TONE: Record<CustomerKind, 'info' | 'success' | 'neutral'> = {
+const SYSTEM_KIND_TONE: Readonly<Record<string, 'info' | 'success' | 'neutral'>> = {
   LEAD_CUSTOMER: 'info',
   CUSTOMER: 'success',
   INACTIVE: 'neutral',
 };
+
+/** Màu nhãn phân loại: ba phân loại hệ thống giữ màu cũ, phân loại do tenant tạo dùng màu cảnh báo nhẹ. */
+export function kindTone(kind: CustomerKind): 'info' | 'success' | 'neutral' | 'warning' {
+  return SYSTEM_KIND_TONE[kind] ?? 'warning';
+}
 
 /**
  * Danh sách khách hàng trong phạm vi dữ liệu: tìm theo mã, tên, MST; lọc nhóm,
@@ -27,7 +32,7 @@ export const KIND_TONE: Record<CustomerKind, 'info' | 'success' | 'neutral'> = {
  * hàng chục nghìn khách.
  */
 export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
-  const { people, groups } = useCrm();
+  const { people, groups, kinds } = useCrm();
   const canWrite = useCanWrite();
   const [search, setSearch] = useState('');
   const [groupId, setGroupId] = useState('');
@@ -36,9 +41,9 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const q = useDebounced(search.trim(), 350);
 
-  const filter = { q, groupId, kind: kind as CustomerKind | '', ownerUserId };
+  const filter = { q, groupId, kind, ownerUserId };
   const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listCustomers({ q, groupId, kind: (kind || undefined) as CustomerKind | undefined, ownerUserId, cursor, limit: 30 }),
+    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, cursor, limit: 30 }),
   );
 
   const columns = useMemo<ColumnsType<CustomerSummary>>(
@@ -51,7 +56,7 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
         title: 'Phân loại',
         dataIndex: 'kind',
         width: 170,
-        render: (value: CustomerKind) => <StatusPill tone={KIND_TONE[value]}>{CUSTOMER_KIND_LABELS[value]}</StatusPill>,
+        render: (value: CustomerKind, row) => <StatusPill tone={kindTone(value)}>{row.kindName}</StatusPill>,
       },
       { title: 'Tỉnh/thành', dataIndex: 'province', width: 120, ellipsis: true },
       { title: 'Liên hệ chính', dataIndex: 'primaryContactName', width: 160, ellipsis: true },
@@ -89,7 +94,7 @@ export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
           onChange={(event) => setSearch(event.target.value)}
         />
         <SearchableSelect className={styles.filter} options={groupOptions(groups)} value={groupId} placeholder="Tất cả nhóm" clearable onChange={setGroupId} />
-        <SearchableSelect className={styles.filter} options={labelOptions(CUSTOMER_KIND_LABELS)} value={kind} placeholder="Mọi phân loại" clearable onChange={setKind} />
+        <SearchableSelect className={styles.filter} options={kindOptions(kinds)} value={kind} placeholder="Mọi phân loại" clearable onChange={setKind} />
         <SearchableSelect className={styles.filter} options={peopleOptions(people)} value={ownerUserId} placeholder="Mọi người phụ trách" clearable onChange={setOwnerUserId} />
         {filtered ? (
           <button

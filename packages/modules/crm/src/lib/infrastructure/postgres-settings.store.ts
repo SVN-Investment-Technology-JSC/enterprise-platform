@@ -1,7 +1,9 @@
-import type { CustomerGroup } from '@enterprise-platform/contracts-crm';
+import type { CustomerGroup, CustomerKindOption } from '@enterprise-platform/contracts-crm';
 import type {
   CustomerGroupRecord,
   CustomerGroupStore,
+  CustomerKindRecord,
+  CustomerKindStore,
   SettingsStore,
 } from '../application/sales-store.port.js';
 import { CrmConflictError } from '../domain/crm.error.js';
@@ -95,6 +97,113 @@ export class PostgresCustomerGroupStore implements CustomerGroupStore {
   }
 }
 
+interface KindRow {
+  code: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+  sort_order: number;
+  customer_count: number;
+}
+
+const KIND_CODE_EXISTS = () => new CrmConflictError('KIND_CODE_EXISTS', 'Mã phân loại khách hàng đã tồn tại.');
+const KIND_COLUMNS = `k.code, k.name, k.description, k.is_system, k.sort_order,
+  (SELECT count(*)::int FROM crm_schema.customers c WHERE c.kind = k.code) AS customer_count`;
+
+export class PostgresCustomerKindStore implements CustomerKindStore {
+  constructor(private readonly database: CrmDatabase) {}
+
+  async listKinds(tenantId: string): Promise<CustomerKindOption[]> {
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<KindRow>(
+      `SELECT ${KIND_COLUMNS} FROM crm_schema.customer_kinds k ORDER BY k.sort_order, k.name, k.code`,
+    );
+    return result.rows.map(toKind);
+  }
+
+  async createKind(tenantId: string, record: CustomerKindRecord, actorId: string): Promise<CustomerKindOption> {
+    const pool = await this.database.pool(tenantId);
+    try {
+      const result = await pool.query<KindRow>(
+        `INSERT INTO crm_schema.customer_kinds AS k (code, name, description, sort_order, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $5)
+         RETURNING ${KIND_COLUMNS}`,
+        [record.code, record.name, record.description, record.sortOrder, actorId],
+      );
+      return toKind(result.rows[0]);
+    } catch (error) {
+      if (constraintViolation(error, '23505', 'customer_kinds_pkey')) throw KIND_CODE_EXISTS();
+      throw error;
+    }
+  }
+
+  async updateKind(
+    tenantId: string,
+    code: string,
+    record: CustomerKindRecord,
+    actorId: string,
+  ): Promise<CustomerKindOption | undefined> {
+    const pool = await this.database.pool(tenantId);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query<{ is_system: boolean }>(
+        `SELECT is_system FROM crm_schema.customer_kinds WHERE code = $1 FOR UPDATE`,
+        [code],
+      );
+      if (!current.rows[0]) {
+        await client.query('ROLLBACK');
+        return undefined;
+      }
+      if (current.rows[0].is_system && record.code !== code) {
+        throw new CrmConflictError('SYSTEM_KIND_CODE', 'Không đổi được mã của phân loại hệ thống.');
+      }
+      // Đổi mã: khoá ngoại ON UPDATE CASCADE đổi theo ở khách. Cascade chạy sau câu UPDATE nên đếm khách bằng câu
+      // đọc riêng, không đếm trong RETURNING.
+      await client.query(
+        `UPDATE crm_schema.customer_kinds
+            SET code = $2, name = $3, description = $4, sort_order = $5, updated_at = now(), updated_by = $6
+          WHERE code = $1`,
+        [code, record.code, record.name, record.description, record.sortOrder, actorId],
+      );
+      const result = await client.query<KindRow>(
+        `SELECT ${KIND_COLUMNS} FROM crm_schema.customer_kinds k WHERE k.code = $1`,
+        [record.code],
+      );
+      await client.query('COMMIT');
+      return toKind(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      if (constraintViolation(error, '23505', 'customer_kinds_pkey')) throw KIND_CODE_EXISTS();
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteKind(tenantId: string, code: string): Promise<boolean> {
+    const pool = await this.database.pool(tenantId);
+    const current = await pool.query<{ is_system: boolean }>(
+      `SELECT is_system FROM crm_schema.customer_kinds WHERE code = $1`,
+      [code],
+    );
+    if (!current.rows[0]) return false;
+    if (current.rows[0].is_system) {
+      throw new CrmConflictError('SYSTEM_KIND', 'Phân loại hệ thống không xoá được.');
+    }
+    try {
+      const result = await pool.query(`DELETE FROM crm_schema.customer_kinds WHERE code = $1 AND NOT is_system`, [code]);
+      return (result.rowCount ?? 0) > 0;
+    } catch (error) {
+      // Khoá ngoại RESTRICT từ `customers.kind`: còn khách thuộc phân loại.
+      if (constraintViolation(error, '23503')) {
+        throw new CrmConflictError('KIND_IN_USE', 'Phân loại đang được dùng cho khách hàng, không xoá được.');
+      }
+      throw error;
+    }
+  }
+}
+
 export class PostgresSettingsStore implements SettingsStore {
   constructor(private readonly database: CrmDatabase) {}
 
@@ -143,6 +252,17 @@ function toGroup(row: GroupRow): CustomerGroup {
     code: row.code,
     name: row.name,
     description: row.description,
+    customerCount: Number(row.customer_count),
+  };
+}
+
+function toKind(row: KindRow): CustomerKindOption {
+  return {
+    code: row.code,
+    name: row.name,
+    description: row.description,
+    isSystem: row.is_system,
+    sortOrder: Number(row.sort_order),
     customerCount: Number(row.customer_count),
   };
 }

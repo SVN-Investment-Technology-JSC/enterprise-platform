@@ -1,6 +1,6 @@
 import {
   CRM_DUPLICATE_TAX_CODE,
-  CUSTOMER_KINDS,
+  DEFAULT_CUSTOMER_KIND,
   type CreateCustomerRequest,
   type CrmPage,
   type CustomerDetail,
@@ -19,7 +19,6 @@ import {
   isUuid,
   normalizeSearch,
   optionalEmail,
-  optionalEnum,
   optionalId,
   optionalInteger,
   optionalMoney,
@@ -28,6 +27,7 @@ import {
   requiredVersion,
 } from '../domain/fields.js';
 import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { optionalKindCode } from './customer-kind.service.js';
 import { normalizeTaxCode } from '../domain/tax-code.js';
 import { assertOwnerInScope, requireSalesWriter } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -59,7 +59,7 @@ export class CustomerService {
     return this.customers.listCustomers(actor.tenantId, scope, {
       q: normalizeSearch(query.q),
       groupId: optionalId(query.groupId, 'nhóm khách hàng') ?? undefined,
-      kind: optionalEnum(query.kind, CUSTOMER_KINDS, 'phân loại'),
+      kind: optionalKindCode(query.kind),
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       cursor: decodeCursor(query.cursor),
       limit: pageLimit(query.limit),
@@ -233,7 +233,7 @@ export class CustomerService {
       phone: optionalText(request.phone, 50, 'số điện thoại'),
       email: optionalEmail(request.email),
       groupId: optionalId(request.groupId, 'nhóm khách hàng'),
-      kind: optionalEnum(request.kind, CUSTOMER_KINDS, 'phân loại') ?? 'LEAD_CUSTOMER',
+      kind: optionalKindCode(request.kind) ?? DEFAULT_CUSTOMER_KIND,
       creditLimit: optionalMoney(request.creditLimit, 'hạn mức tín dụng'),
       paymentTermDays: optionalInteger(request.paymentTermDays, 0, 365, 'thời hạn thanh toán'),
       note: optionalText(request.note, 2000, 'ghi chú'),

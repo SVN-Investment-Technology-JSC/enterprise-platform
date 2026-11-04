@@ -21,6 +21,7 @@ function customer(overrides: Partial<CustomerDetail> = {}): CustomerDetail {
     province: null,
     region: null,
     kind: 'CUSTOMER',
+    kindName: 'Khách hàng',
     groupId: null,
     groupName: null,
     ownerUserId: NV1,
@@ -171,7 +172,10 @@ describe('CustomerService', () => {
     const { store, service } = setup();
     await service.list(writer, { q: ' minh ', kind: 'CUSTOMER', limit: 500 });
     expect(store.listCustomers).toHaveBeenCalledWith('t1', { kind: 'users', userIds: [NV1] }, expect.objectContaining({ q: 'minh', kind: 'CUSTOMER', limit: 100 }));
-    await expect(service.list(writer, { kind: 'VIP' as never })).rejects.toMatchObject({ statusCode: 400 });
+    // Phân loại do tenant cấu hình: mã đúng định dạng được chuyển nguyên (viết hoa) cho store, sai định dạng thì 400.
+    await service.list(writer, { kind: ' vip ' });
+    expect(store.listCustomers).toHaveBeenLastCalledWith('t1', expect.anything(), expect.objectContaining({ kind: 'VIP' }));
+    await expect(service.list(writer, { kind: 'Khách VIP!' })).rejects.toMatchObject({ statusCode: 400 });
   });
 
   describe('tra khách cho phân hệ khác (GET /v1/internal/customers)', () => {

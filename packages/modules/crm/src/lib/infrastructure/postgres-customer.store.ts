@@ -45,6 +45,7 @@ interface CustomerRow {
   group_id: string | null;
   group_name: string | null;
   kind: CustomerKind;
+  kind_name: string | null;
   credit_limit: string | null;
   payment_term_days: number | null;
   note: string | null;
@@ -70,19 +71,21 @@ interface ContactRow {
 
 const CUSTOMER_COLUMNS = `
   c.id, c.code, c.name, c.tax_code, c.address, c.province, c.region, c.industry, c.phone, c.email,
-  c.group_id, g.name AS group_name, c.kind, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
+  c.group_id, g.name AS group_name, c.kind, ck.name AS kind_name, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
   c.owner_user_id, c.version, c.created_at, c.updated_at, pc.full_name AS primary_contact_name,
   ${cursorAt('c.updated_at')} AS cursor_at`;
 
 const CUSTOMER_FROM = `
   FROM crm_schema.customers c
   LEFT JOIN crm_schema.customer_groups g ON g.id = c.group_id
+  LEFT JOIN crm_schema.customer_kinds ck ON ck.code = c.kind
   LEFT JOIN crm_schema.customer_contacts pc ON pc.customer_id = c.id AND pc.is_primary`;
 
 /** Số lần thử lấy số kế tiếp khi mã sinh ra đã bị ai đó nhập tay. */
 const CODE_GENERATION_ATTEMPTS = 50;
 
 const CODE_EXISTS = () => new CrmConflictError('CUSTOMER_CODE_EXISTS', 'Mã khách hàng đã tồn tại.');
+const KIND_MISSING = () => new CrmValidationError('KIND_NOT_FOUND', 'Phân loại khách hàng không tồn tại.');
 const GROUP_MISSING = () => new CrmValidationError('GROUP_NOT_FOUND', 'Nhóm khách hàng không tồn tại.');
 
 /**
@@ -416,6 +419,7 @@ function customerValues(record: CustomerRecord): unknown[] {
 
 function translateCustomerError(error: unknown): unknown {
   if (constraintViolation(error, '23505', 'uq_crm_customers_code')) return CODE_EXISTS();
+  if (constraintViolation(error, '23503', 'fk_crm_customers_kind')) return KIND_MISSING();
   if (constraintViolation(error, '23503')) return GROUP_MISSING();
   return error;
 }
@@ -429,6 +433,7 @@ function toSummary(row: CustomerRow): CustomerSummary {
     province: row.province,
     region: row.region,
     kind: row.kind,
+    kindName: row.kind_name ?? row.kind,
     groupId: row.group_id,
     groupName: row.group_name,
     ownerUserId: row.owner_user_id,

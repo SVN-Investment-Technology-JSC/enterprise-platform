@@ -3,6 +3,7 @@ import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
 import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerGroupService } from './application/customer-group.service.js';
+import { CustomerKindService } from './application/customer-kind.service.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
@@ -15,7 +16,7 @@ import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/p
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresCustomerGroupStore } from './infrastructure/postgres-settings.store.js';
+import { PostgresCustomerGroupStore, PostgresCustomerKindStore } from './infrastructure/postgres-settings.store.js';
 
 const integration = crmIntegrationEnabled() ? describe : describe.skip;
 
@@ -61,6 +62,7 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
 
   let customers: CustomerService;
   let groups: CustomerGroupService;
+  let kinds: CustomerKindService;
   let leads: LeadService;
   let opportunities: OpportunityService;
   let activities: ActivityService;
@@ -76,6 +78,7 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
     leadStore = new PostgresLeadStore(handle.database);
     customers = new CustomerService(customerStore, scopes);
     groups = new CustomerGroupService(new PostgresCustomerGroupStore(handle.database));
+    kinds = new CustomerKindService(new PostgresCustomerKindStore(handle.database));
     leads = new LeadService(leadStore, scopes);
     opportunities = new OpportunityService(
       opportunityStore,
@@ -223,6 +226,50 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       expect((await groups.list(admin)).find((item) => item.id === group.id)).toMatchObject({ customerCount: 1 });
       await groups.remove(admin, vip.id);
       expect((await groups.list(admin)).some((item) => item.id === vip.id)).toBe(false);
+    });
+
+    it('phân loại do QTBH cấu hình: ba phân loại hệ thống có sẵn, đổi mã kéo theo khách, đang dùng hoặc hệ thống không xoá được', async () => {
+      const seeded = await kinds.list(seller(NV1));
+      expect(seeded.filter((kind) => kind.isSystem).map((kind) => kind.code)).toEqual(['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE']);
+      expect(seeded.find((kind) => kind.code === 'LEAD_CUSTOMER')).toMatchObject({ name: 'Khách hàng tiềm năng' });
+
+      await expect(kinds.create(seller(NV1), { code: 'VIP', name: 'Khách VIP' })).rejects.toMatchObject({ statusCode: 403 });
+      const vip = await kinds.create(admin, { code: 'vip', name: 'Khách VIP', sortOrder: 15 });
+      expect(vip).toMatchObject({ code: 'VIP', isSystem: false, sortOrder: 15, customerCount: 0 });
+      await expect(kinds.create(admin, { code: 'VIP', name: 'Trùng' })).rejects.toMatchObject({ statusCode: 409, code: 'KIND_CODE_EXISTS' });
+      expect((await kinds.list(admin)).map((kind) => kind.code).slice(0, 2)).toEqual(['LEAD_CUSTOMER', 'VIP']);
+
+      const fresh = await customers.create(seller(NV1), { name: 'Khách chưa chọn phân loại' });
+      expect(fresh).toMatchObject({ kind: 'LEAD_CUSTOMER', kindName: 'Khách hàng tiềm năng' });
+      const customer = await customers.create(seller(NV1), { name: 'Khách VIP Phú Thành', kind: 'vip' });
+      expect(customer).toMatchObject({ kind: 'VIP', kindName: 'Khách VIP' });
+      await expect(customers.create(seller(NV1), { name: 'Sai phân loại', kind: 'KHONG-CO' })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'KIND_NOT_FOUND',
+      });
+
+      // Đổi mã và tên: khách đổi theo (khoá ngoại ON UPDATE CASCADE).
+      const renamed = await kinds.update(admin, 'VIP', { code: 'VIP-1', name: 'Khách VIP hạng 1' });
+      expect(renamed).toMatchObject({ code: 'VIP-1', customerCount: 1 });
+      expect(await customers.get(seller(NV1), customer.id)).toMatchObject({ kind: 'VIP-1', kindName: 'Khách VIP hạng 1' });
+      expect((await customers.list(seller(NV1), { kind: 'VIP-1' })).items.map((item) => item.id)).toEqual([customer.id]);
+
+      await expect(kinds.remove(admin, 'VIP-1')).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Phân loại đang được dùng cho khách hàng, không xoá được.',
+      });
+      await expect(kinds.update(admin, 'CUSTOMER', { code: 'KHACH', name: 'Khách' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'SYSTEM_KIND_CODE',
+      });
+      await expect(kinds.remove(admin, 'INACTIVE')).rejects.toMatchObject({ statusCode: 409, code: 'SYSTEM_KIND' });
+      const renamedSystem = await kinds.update(admin, 'CUSTOMER', { code: 'CUSTOMER', name: 'Khách đang giao dịch' });
+      expect(renamedSystem).toMatchObject({ code: 'CUSTOMER', name: 'Khách đang giao dịch', isSystem: true });
+
+      await customers.update(seller(NV1), customer.id, { code: customer.code, name: customer.name, kind: 'CUSTOMER', version: customer.version });
+      await kinds.remove(admin, 'VIP-1');
+      expect((await kinds.list(admin)).some((kind) => kind.code === 'VIP-1')).toBe(false);
+      await expect(kinds.remove(admin, 'VIP-1')).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('tìm theo đầu mã, đầu MST, đầu từ trong tên có dấu; ký tự đặc biệt không lỗi', async () => {

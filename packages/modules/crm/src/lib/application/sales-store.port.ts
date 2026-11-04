@@ -7,6 +7,7 @@ import type {
   CustomerDetail,
   CustomerGroup,
   CustomerKind,
+  CustomerKindOption,
   CustomerSummary,
   CustomerTimelineEntry,
   Lead,
@@ -36,6 +37,7 @@ import type { CrmDataScope } from './data-scope.js';
 
 export const CRM_CUSTOMER_STORE = Symbol('CRM_CUSTOMER_STORE');
 export const CRM_CUSTOMER_GROUP_STORE = Symbol('CRM_CUSTOMER_GROUP_STORE');
+export const CRM_CUSTOMER_KIND_STORE = Symbol('CRM_CUSTOMER_KIND_STORE');
 export const CRM_SETTINGS_STORE = Symbol('CRM_SETTINGS_STORE');
 export const CRM_LEAD_STORE = Symbol('CRM_LEAD_STORE');
 export const CRM_OPPORTUNITY_STORE = Symbol('CRM_OPPORTUNITY_STORE');
@@ -159,6 +161,31 @@ export interface CustomerGroupStore {
   ): Promise<CustomerGroup | undefined>;
   /** `false` khi không có. Nhóm đang có khách: 409. */
   deleteGroup(tenantId: string, id: string): Promise<boolean>;
+}
+
+export interface CustomerKindRecord {
+  readonly code: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly sortOrder: number;
+}
+
+export interface CustomerKindStore {
+  listKinds(tenantId: string): Promise<CustomerKindOption[]>;
+  /** Trùng mã: 409. */
+  createKind(tenantId: string, record: CustomerKindRecord, actorId: string): Promise<CustomerKindOption>;
+  /**
+   * Sửa theo mã hiện tại; đổi mã thì khách thuộc phân loại đổi theo. `undefined` khi không có. Trùng mã: 409.
+   * Phân loại hệ thống không đổi mã được: 409.
+   */
+  updateKind(
+    tenantId: string,
+    code: string,
+    record: CustomerKindRecord,
+    actorId: string,
+  ): Promise<CustomerKindOption | undefined>;
+  /** `false` khi không có. Phân loại hệ thống hoặc đang có khách: 409. */
+  deleteKind(tenantId: string, code: string): Promise<boolean>;
 }
 
 export interface SettingsStore {

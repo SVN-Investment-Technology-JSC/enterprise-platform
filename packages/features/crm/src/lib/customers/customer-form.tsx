@@ -2,10 +2,11 @@
 
 import {
   CRM_DUPLICATE_TAX_CODE,
-  CUSTOMER_KIND_LABELS,
+  DEFAULT_CUSTOMER_KIND,
   type CustomerDetail,
   type CustomerGroup,
   type CustomerKind,
+  type CustomerKindOption,
   type TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
@@ -14,12 +15,13 @@ import { CrmDialog, Field } from '../components/crm-ui';
 import {
   createCustomer,
   createGroup,
+  createKind,
   errorMessage,
   findTaxCodeMatches,
   updateCustomer,
   type CrmApiError,
 } from '../crm-api';
-import { groupOptions, labelOptions, peopleOptions, useCrm } from '../crm-context';
+import { groupOptions, kindOptions, peopleOptions, useCrm } from '../crm-context';
 import { groupCodeFromName, normalizeGroupName, taxCodeLooksValid } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -53,7 +55,7 @@ function initialState(customer?: CustomerDetail): FormState {
     phone: customer?.phone ?? '',
     email: customer?.email ?? '',
     groupId: customer?.groupId ?? '',
-    kind: customer?.kind ?? 'LEAD_CUSTOMER',
+    kind: customer?.kind ?? DEFAULT_CUSTOMER_KIND,
     creditLimit: customer?.creditLimit === null || customer?.creditLimit === undefined ? '' : String(customer.creditLimit),
     paymentTermDays:
       customer?.paymentTermDays === null || customer?.paymentTermDays === undefined ? '' : String(customer.paymentTermDays),
@@ -79,9 +81,10 @@ export function CustomerFormDialog({
   onClose: () => void;
   onSaved: (customer: CustomerDetail) => void;
 }) {
-  const { people, groups, capabilities, reloadGroups } = useCrm();
+  const { people, groups, kinds, capabilities, reloadGroups, reloadKinds } = useCrm();
   const canManageGroups = capabilities.isTenantAdmin || capabilities.canManage;
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [creatingKind, setCreatingKind] = useState(false);
   const [form, setForm] = useState<FormState>(() => initialState(customer));
   const [matches, setMatches] = useState<readonly TaxCodeMatch[]>([]);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
@@ -171,7 +174,7 @@ export function CustomerFormDialog({
       submitting={submitting}
       error={error}
       notice={duplicateNotice}
-      onClose={creatingGroup ? () => undefined : onClose}
+      onClose={creatingGroup || creatingKind ? () => undefined : onClose}
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
@@ -186,9 +189,11 @@ export function CustomerFormDialog({
         </Field>
         <Field label="Phân loại">
           <SearchableSelect
-            options={labelOptions(CUSTOMER_KIND_LABELS)}
+            options={kindOptions(kinds)}
             value={form.kind}
-            onChange={(value) => set('kind', (value || 'LEAD_CUSTOMER') as CustomerKind)}
+            placeholder="Chọn phân loại"
+            footerAction={canManageGroups ? { label: 'Tạo phân loại mới', onClick: () => setCreatingKind(true) } : undefined}
+            onChange={(value) => set('kind', value || DEFAULT_CUSTOMER_KIND)}
           />
         </Field>
         <Field label="Nhóm khách hàng">
@@ -251,6 +256,17 @@ export function CustomerFormDialog({
         }}
       />
     ) : null}
+    {creatingKind ? (
+      <QuickKindDialog
+        kinds={kinds}
+        onClose={() => setCreatingKind(false)}
+        onCreated={(kind) => {
+          reloadKinds();
+          set('kind', kind.code);
+          setCreatingKind(false);
+        }}
+      />
+    ) : null}
     </>
   );
 }
@@ -299,6 +315,53 @@ function QuickGroupDialog({
   return (
     <CrmDialog open title="Tạo nhóm khách hàng" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
       <Field label="Tên nhóm" required>
+        <input className={styles.input} value={name} maxLength={200} autoFocus onChange={(event) => setName(event.target.value)} />
+      </Field>
+    </CrmDialog>
+  );
+}
+
+/** Hộp thoại rút gọn tạo phân loại khách hàng ngay trong form khách, cùng cách với tạo nhóm. */
+function QuickKindDialog({
+  kinds,
+  onClose,
+  onCreated,
+}: {
+  kinds: readonly CustomerKindOption[];
+  onClose: () => void;
+  onCreated: (kind: CustomerKindOption) => void;
+}) {
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return setError('Vui lòng nhập tên phân loại.');
+    const code = groupCodeFromName(trimmed);
+    if (!code) return setError('Tên phân loại cần có ít nhất một chữ cái hoặc chữ số.');
+    if (kinds.some((kind) => normalizeGroupName(kind.name) === normalizeGroupName(trimmed))) {
+      return setError('Phân loại này đã tồn tại. Hãy chọn phân loại có sẵn hoặc đặt tên khác.');
+    }
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const kind = await createKind({ code, name: trimmed, description: null });
+      toast.success('Đã tạo phân loại khách hàng.');
+      onCreated(kind);
+    } catch (cause) {
+      setError(
+        (cause as CrmApiError).code === 'KIND_CODE_EXISTS'
+          ? 'Phân loại này đã tồn tại. Hãy chọn phân loại có sẵn hoặc đặt tên khác.'
+          : errorMessage(cause, 'Không tạo được phân loại.'),
+      );
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog open title="Tạo phân loại khách hàng" submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+      <Field label="Tên phân loại" required>
         <input className={styles.input} value={name} maxLength={200} autoFocus onChange={(event) => setName(event.target.value)} />
       </Field>
     </CrmDialog>

@@ -4,6 +4,7 @@ export * from './lib/application/crm-access.js';
 export * from './lib/application/crm-actor.js';
 export * from './lib/application/crm-store.port.js';
 export * from './lib/application/customer-group.service.js';
+export * from './lib/application/customer-kind.service.js';
 export * from './lib/application/customer.service.js';
 export * from './lib/application/data-scope.js';
 export * from './lib/application/lead.service.js';

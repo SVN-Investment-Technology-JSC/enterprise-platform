@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CUSTOMER_KIND,
   LEAD_STATUSES,
   type ConvertLeadRequest,
   type ConvertLeadResult,
@@ -127,7 +128,7 @@ export class LeadService {
           phone: lead.phone,
           email: lead.email,
           groupId: null,
-          kind: 'LEAD_CUSTOMER',
+          kind: DEFAULT_CUSTOMER_KIND,
           creditLimit: null,
           paymentTermDays: null,
           note: lead.note,

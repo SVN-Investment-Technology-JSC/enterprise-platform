@@ -15,6 +15,7 @@ import {
   type CrmStatus,
   type CustomerDetail,
   type CustomerGroup,
+  type CustomerKindOption,
   type CustomerListQuery,
   type CustomerSummary,
   type CustomerTimelineEntry,
@@ -30,6 +31,7 @@ import {
   type StageRequirementCheck,
   type SaveContactRequest,
   type SaveCustomerGroupRequest,
+  type SaveCustomerKindRequest,
   type SaveCustomerProfileRequest,
   type TaxCodeMatch,
   type UpdateActivityRequest,
@@ -256,6 +258,11 @@ export const createGroup = (body: SaveCustomerGroupRequest) => send<CustomerGrou
 export const updateGroup = (id: string, body: SaveCustomerGroupRequest) =>
   send<CustomerGroup>('PATCH', `/customer-groups/${encodeURIComponent(id)}`, body);
 export const deleteGroup = (id: string) => send<void>('DELETE', `/customer-groups/${encodeURIComponent(id)}`);
+export const listKinds = () => request<CustomerKindOption[]>('/customer-kinds', { cache: 'no-store' });
+export const createKind = (body: SaveCustomerKindRequest) => send<CustomerKindOption>('POST', '/customer-kinds', body);
+export const updateKind = (code: string, body: SaveCustomerKindRequest) =>
+  send<CustomerKindOption>('PATCH', `/customer-kinds/${encodeURIComponent(code)}`, body);
+export const deleteKind = (code: string) => send<void>('DELETE', `/customer-kinds/${encodeURIComponent(code)}`);
 export const loadSettings = () => request<CrmSettings>('/settings', { cache: 'no-store' });
 export const saveSettings = (body: Partial<CrmSettings>) => send<CrmSettings>('PUT', '/settings', body);
 export const listPeople = () => request<CrmPerson[]>('/people');

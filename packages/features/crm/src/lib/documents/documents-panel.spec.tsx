@@ -13,6 +13,7 @@ jest.mock('../crm-api', () => ({
   listDocumentFolders: jest.fn().mockResolvedValue([]),
   listDocumentTypes: jest.fn().mockResolvedValue([]),
   listGroups: jest.fn().mockResolvedValue([]),
+  listKinds: jest.fn().mockResolvedValue([]),
   listPeople: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({

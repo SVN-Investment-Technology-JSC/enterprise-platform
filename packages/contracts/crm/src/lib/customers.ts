@@ -15,14 +15,31 @@ export const CRM_PAGE_LIMIT_DEFAULT = 30;
 /** Độ dài tối đa chuỗi tìm kiếm; dài hơn trả 400. */
 export const CRM_SEARCH_MAX_LENGTH = 100;
 
-export const CUSTOMER_KINDS = ['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE'] as const;
-export type CustomerKind = (typeof CUSTOMER_KINDS)[number];
+/**
+ * Phân loại khách hàng là danh mục tenant tự cấu hình (`crm_schema.customer_kinds`), giá trị là mã phân loại.
+ * Ba mã dưới đây là phân loại hệ thống: luôn có, không xoá, không đổi mã (đổi tên được).
+ */
+export const SYSTEM_CUSTOMER_KINDS = ['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE'] as const;
+export type CustomerKind = string;
+/** Phân loại của khách mới khi không chọn, và của khách tạo từ lead. */
+export const DEFAULT_CUSTOMER_KIND: CustomerKind = 'LEAD_CUSTOMER';
 
-export const CUSTOMER_KIND_LABELS: Readonly<Record<CustomerKind, string>> = {
-  LEAD_CUSTOMER: 'Khách hàng tiềm năng',
-  CUSTOMER: 'Khách hàng',
-  INACTIVE: 'Ngừng giao dịch',
-};
+export interface CustomerKindOption {
+  readonly code: CustomerKind;
+  readonly name: string;
+  readonly description: string | null;
+  readonly isSystem: boolean;
+  readonly sortOrder: number;
+  /** Số khách đang thuộc phân loại. */
+  readonly customerCount: number;
+}
+
+export interface SaveCustomerKindRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly sortOrder?: number | null;
+}
 
 export interface CustomerGroup {
   readonly id: string;
@@ -48,6 +65,8 @@ export interface CustomerSummary {
   readonly province: string | null;
   readonly region: string | null;
   readonly kind: CustomerKind;
+  /** Tên phân loại để hiển thị. */
+  readonly kindName: string;
   readonly groupId: string | null;
   readonly groupName: string | null;
   readonly ownerUserId: string;

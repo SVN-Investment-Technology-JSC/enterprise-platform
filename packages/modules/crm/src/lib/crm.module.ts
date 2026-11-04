@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
 import { CRM_DIAGNOSTICS } from './application/crm-store.port.js';
 import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from './application/customer-group.service.js';
+import { CustomerKindService } from './application/customer-kind.service.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
@@ -29,6 +30,7 @@ import { REPORTING_LINE_READER } from './application/organization-scope.port.js'
 import {
   CRM_ACTIVITY_STORE,
   CRM_CUSTOMER_GROUP_STORE,
+  CRM_CUSTOMER_KIND_STORE,
   CRM_CUSTOMER_STORE,
   CRM_LEAD_STORE,
   CRM_OPPORTUNITY_STORE,
@@ -37,6 +39,7 @@ import {
   CRM_TIMELINE_STORE,
   type ActivityStore,
   type CustomerGroupStore,
+  type CustomerKindStore,
   type CustomerStore,
   type LeadStore,
   type OpportunityStore,
@@ -55,7 +58,11 @@ import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.
 import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
 import { CRM_PIPELINE_CONFIG, type PipelineConfigProvider } from './application/pipeline-config.port.js';
-import { PostgresCustomerGroupStore, PostgresSettingsStore } from './infrastructure/postgres-settings.store.js';
+import {
+  PostgresCustomerGroupStore,
+  PostgresCustomerKindStore,
+  PostgresSettingsStore,
+} from './infrastructure/postgres-settings.store.js';
 import { HttpInventoryCatalogReader } from './infrastructure/http-inventory-catalog-reader.js';
 import { HttpProcedureClient } from './infrastructure/http-procedure-client.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
@@ -271,6 +278,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     },
     store(CRM_CUSTOMER_STORE, (database) => new PostgresCustomerStore(database)),
     store(CRM_CUSTOMER_GROUP_STORE, (database) => new PostgresCustomerGroupStore(database)),
+    store(CRM_CUSTOMER_KIND_STORE, (database) => new PostgresCustomerKindStore(database)),
     store(CRM_SETTINGS_STORE, (database) => new PostgresSettingsStore(database)),
     store(CRM_LEAD_STORE, (database) => new PostgresLeadStore(database)),
     store(CRM_OPPORTUNITY_STORE, (database) => new PostgresOpportunityStore(database)),
@@ -293,6 +301,11 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       provide: CustomerGroupService,
       useFactory: (groups: CustomerGroupStore) => new CustomerGroupService(groups),
       inject: [CRM_CUSTOMER_GROUP_STORE],
+    },
+    {
+      provide: CustomerKindService,
+      useFactory: (kinds: CustomerKindStore) => new CustomerKindService(kinds),
+      inject: [CRM_CUSTOMER_KIND_STORE],
     },
     {
       provide: CrmSettingsService,

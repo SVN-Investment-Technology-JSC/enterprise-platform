@@ -1,7 +1,12 @@
 /**
  * @jest-environment jsdom
  */
-import { CRM_NO_CAPABILITIES, type CrmCapabilities, type CustomerGroup } from '@enterprise-platform/contracts-crm';
+import {
+  CRM_NO_CAPABILITIES,
+  type CrmCapabilities,
+  type CustomerGroup,
+  type CustomerKindOption,
+} from '@enterprise-platform/contracts-crm';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CrmDataProvider } from '../crm-context';
 import * as api from '../crm-api';
@@ -10,10 +15,12 @@ import { CustomerFormDialog } from './customer-form';
 jest.mock('../crm-api', () => ({
   createCustomer: jest.fn(),
   createGroup: jest.fn(),
+  createKind: jest.fn(),
   errorMessage: (cause: { message?: string }, fallback: string) => cause?.message || fallback,
   findTaxCodeMatches: jest.fn().mockResolvedValue([]),
   updateCustomer: jest.fn(),
   listGroups: jest.fn(),
+  listKinds: jest.fn(),
   listPeople: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
@@ -24,10 +31,16 @@ jest.mock('@enterprise-platform/shared-ui', () => ({
 const mocked = api as jest.Mocked<typeof api>;
 const admin: CrmCapabilities = { ...CRM_NO_CAPABILITIES, isTenantAdmin: true, canManage: true };
 const NEW_GROUP: CustomerGroup = { id: 'g-new', code: 'DAI-LY', name: 'Đại lý', description: null, customerCount: 0 };
+const SYSTEM_KINDS: CustomerKindOption[] = [
+  { code: 'LEAD_CUSTOMER', name: 'Khách hàng tiềm năng', description: null, isSystem: true, sortOrder: 10, customerCount: 0 },
+  { code: 'CUSTOMER', name: 'Khách hàng', description: null, isSystem: true, sortOrder: 20, customerCount: 0 },
+];
+const NEW_KIND: CustomerKindOption = { code: 'KHACH-VIP', name: 'Khách VIP', description: null, isSystem: false, sortOrder: 100, customerCount: 0 };
 
 function renderForm(capabilities: CrmCapabilities, existing: CustomerGroup[] = []) {
   // Lần tải đầu trả danh sách hiện có; sau khi tạo nhóm, lần tải lại trả thêm nhóm mới.
   mocked.listGroups.mockResolvedValueOnce(existing).mockResolvedValue([...existing, NEW_GROUP]);
+  mocked.listKinds.mockResolvedValueOnce(SYSTEM_KINDS).mockResolvedValue([...SYSTEM_KINDS, NEW_KIND]);
   const onClose = jest.fn();
   render(
     <CrmDataProvider capabilities={capabilities}>
@@ -93,5 +106,47 @@ describe('Tạo nhóm khách hàng ngay trong form khách', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
     expect((await screen.findAllByRole('alert')).some((el) => /đã tồn tại/.test(el.textContent ?? ''))).toBe(true);
     expect(mocked.listGroups).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Phân loại khách hàng do tenant cấu hình trong form khách', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const openKindSelect = () => fireEvent.click(screen.getByPlaceholderText('Chọn phân loại'));
+
+  it('mặc định là Khách hàng tiềm năng; có crm.manage thì tạo phân loại tại chỗ và tự chọn', async () => {
+    mocked.createKind.mockResolvedValue(NEW_KIND);
+    renderForm(admin);
+    await waitFor(() => expect((screen.getByPlaceholderText('Chọn phân loại') as HTMLInputElement).value).toBe('Khách hàng tiềm năng'));
+    fireEvent.change(screen.getByLabelText(/Tên khách hàng/), { target: { value: 'Khách A' } });
+
+    openKindSelect();
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo phân loại mới' }));
+    fireEvent.change(screen.getByLabelText(/Tên phân loại/), { target: { value: 'Khách VIP' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
+
+    await waitFor(() => expect(mocked.createKind).toHaveBeenCalledWith({ code: 'KHACH-VIP', name: 'Khách VIP', description: null }));
+    await waitFor(() => expect(mocked.listKinds).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((screen.getByPlaceholderText('Chọn phân loại') as HTMLInputElement).value).toBe('Khách VIP'));
+    expect((screen.getByLabelText(/Tên khách hàng/) as HTMLInputElement).value).toBe('Khách A');
+  });
+
+  it('không có crm.manage thì không có nút tạo phân loại', async () => {
+    renderForm({ ...CRM_NO_CAPABILITIES, canWriteOpportunity: true });
+    await waitFor(() => expect(mocked.listKinds).toHaveBeenCalled());
+    openKindSelect();
+    expect(await screen.findByText('Khách hàng')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tạo phân loại mới' })).toBeNull();
+  });
+
+  it('tên trùng phân loại đã có báo lỗi tiếng Việt, không gọi API', async () => {
+    renderForm(admin);
+    await waitFor(() => expect(mocked.listKinds).toHaveBeenCalledTimes(1));
+    openKindSelect();
+    fireEvent.click(await screen.findByRole('button', { name: 'Tạo phân loại mới' }));
+    fireEvent.change(screen.getByLabelText(/Tên phân loại/), { target: { value: ' khach hang ' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
+    expect((await screen.findAllByRole('alert')).some((el) => /đã tồn tại/.test(el.textContent ?? ''))).toBe(true);
+    expect(mocked.createKind).not.toHaveBeenCalled();
   });
 });
