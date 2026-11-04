@@ -9,7 +9,6 @@ import * as XLSX from 'xlsx';
 import type { InventoryLedgerRow } from './inventory-api';
 import {
   ASSET_STATUS_LABEL,
-  MATERIAL_CATEGORY_LABEL,
   TRANSACTION_TYPE_LABEL,
 } from './inventory-labels';
 
@@ -60,7 +59,7 @@ export function exportStockToExcel(params: {
       STT: idx + 1,
       'Mã vật tư': row.materialCode ?? '',
       'Tên vật tư': mat?.name ?? '',
-      'Nhóm vật tư': mat?.category ? MATERIAL_CATEGORY_LABEL[mat.category] ?? mat.category : '',
+      'Phân loại': mat?.tradeCategory ?? '',
       'Loại vật tư': mat?.type ?? '',
       'Đơn vị tính': mat?.unit ?? '',
       Kho: row.warehouseCode ?? '',
@@ -141,7 +140,7 @@ export function exportCatalogToExcel(params: {
 
     const categoryLabel =
       item.type ||
-      (mat?.category ? MATERIAL_CATEGORY_LABEL[mat.category] ?? mat.category : '') ||
+      mat?.tradeCategory ||
       mat?.type ||
       '—';
     const manufacturer = mat?.manufacturer || '—';

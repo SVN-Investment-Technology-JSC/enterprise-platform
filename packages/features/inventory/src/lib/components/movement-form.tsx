@@ -38,6 +38,7 @@ import {
   describeStockProblem,
   type StockLevel,
 } from './movement-stock-check';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export type MovementKind = 'receipt' | 'issue' | 'transfer' | 'adjust';
@@ -475,8 +476,10 @@ export function MovementForm({
   isDialog?: boolean;
   initialOpenExcelImport?: boolean;
   onCancel: () => void;
-  onSubmit: (input: MovementInput) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để phiếu hiện lý do và giữ dữ liệu đã nhập. */
+  onSubmit: (input: MovementInput) => Promise<void> | void;
 }) {
+  const { error, submit: send } = useFormSubmit('Không ghi sổ được phiếu.');
   const [kind, setKind] = useState<MovementKind>(initialKind);
   // Một phiếu một kho: kho này là kho của MỌI dòng. Phiếu mở sẵn từ danh mục có thể mang
   // dòng khác kho, khi đó lấy kho của dòng đầu làm kho phiếu rồi gom các dòng về đó.
@@ -915,7 +918,7 @@ export function MovementForm({
 
     const firstItem = items[0];
 
-    onSubmit({
+    void send(() => onSubmit({
       kind,
       warehouseCode,
       toWarehouseCode: kind === 'transfer' ? toWarehouseCode : undefined,
@@ -943,7 +946,7 @@ export function MovementForm({
       unitCost: firstItem?.unitCost,
       serialNumbers: firstItem?.serialNumbers,
       newMaterial: firstItem?.newMaterial,
-    });
+    }));
   };
 
   // Danh sách options cho SearchableSelect
@@ -2000,6 +2003,7 @@ export function MovementForm({
           ) : null}
         </p>
       ) : null}
+      <FormError error={error} style={{ margin: '0 0 1rem' }} />
       <div
         className={isDialog ? styles.modalFoot : styles.editActions}
         style={

@@ -49,6 +49,7 @@ export function TransactionHub({
   ledger = [],
   busy = false,
   onSubmitMovement,
+  onSubmitMovementInDialog,
   onReload,
   onNotice,
   hideSubTabs = false,
@@ -58,6 +59,8 @@ export function TransactionHub({
   ledger?: readonly InventoryLedgerRow[];
   busy?: boolean;
   onSubmitMovement: (input: MovementInput) => Promise<void>;
+  /** Như `onSubmitMovement` nhưng từ chối (reject) khi lỗi, để phiếu đang mở hiện lý do. */
+  onSubmitMovementInDialog?: (input: MovementInput) => Promise<void>;
   onReload?: () => Promise<void>;
   onNotice?: (message: string) => void;
   hideSubTabs?: boolean;
@@ -607,7 +610,7 @@ export function TransactionHub({
           busy={busy}
           onCancel={() => setPopupMovement({ open: false })}
           onSubmit={async (input) => {
-            await onSubmitMovement(input);
+            await (onSubmitMovementInDialog ?? onSubmitMovement)(input);
             if (popupMovement.reqCode) {
               const code = popupMovement.reqCode;
               markRequisitionFulfilled(code);

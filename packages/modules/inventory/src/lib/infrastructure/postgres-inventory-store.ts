@@ -139,6 +139,7 @@ function mapMaterial(row: Row): Material {
     tradeMode: opt(row.trade_mode) as Material['tradeMode'],
     salePrice: row.sale_price == null ? undefined : Number(row.sale_price),
     tradeCategory: opt(row.trade_category),
+    description: opt(row.description),
     createdAt: row.created_at ? iso(row.created_at) : undefined,
     createdBy: opt(row.created_by),
   };
@@ -415,6 +416,7 @@ export class PostgresInventoryStore implements InventoryStore {
       tenantId: string,
       input: CreateMaterialRequest,
       createdBy?: string,
+      history?: { createdAt?: string; isActive?: boolean },
     ): Promise<Material> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
@@ -423,9 +425,9 @@ export class PostgresInventoryStore implements InventoryStore {
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
             assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
-            trade_category)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24)
+            trade_category, description, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $16, $17, $18, $19,
+                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()))
       RETURNING *`,
         [
           input.code,
@@ -452,6 +454,9 @@ export class PostgresInventoryStore implements InventoryStore {
           input.salePrice ?? null,
           createdBy ?? null,
           input.tradeCategory?.trim() || null,
+          input.description?.trim() || null,
+          history?.isActive ?? true,
+          history?.createdAt ?? null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -461,6 +466,7 @@ export class PostgresInventoryStore implements InventoryStore {
       tenantId: string,
       code: string,
       patch: UpdateMaterialRequest,
+      history?: { createdBy?: string; createdAt?: string },
     ): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       // COALESCE trên tham số NULL: bỏ trống một trường là giữ nguyên.
@@ -490,7 +496,11 @@ export class PostgresInventoryStore implements InventoryStore {
                 asset_category = COALESCE($23, asset_category),
                 trade_mode = COALESCE($24, trade_mode),
                 sale_price = COALESCE($25, sale_price),
-                trade_category = COALESCE($26, trade_category)
+                trade_category = COALESCE($26, trade_category),
+                description = CASE WHEN $27::boolean THEN $28::text ELSE description END,
+                -- Chỉ điền dấu vết khai báo cho mã chưa có người tạo; vế phải đọc giá trị trước khi cập nhật.
+                created_by = CASE WHEN created_by IS NULL THEN $29::text ELSE created_by END,
+                created_at = CASE WHEN created_by IS NULL AND $30::timestamptz IS NOT NULL THEN $30::timestamptz ELSE created_at END
           WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
@@ -521,6 +531,11 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.tradeMode?.trim() || null,
           patch.salePrice ?? null,
           patch.tradeCategory?.trim() || null,
+          // `undefined` giữ nguyên, chuỗi rỗng hoặc `null` xoá mô tả.
+          patch.description !== undefined,
+          patch.description?.trim() || null,
+          history?.createdBy?.trim() || null,
+          history?.createdAt ?? null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -552,6 +567,87 @@ export class PostgresInventoryStore implements InventoryStore {
         [code],
       );
       return Boolean(result.rows[0]?.used);
+    },
+
+    listLinks: async (tenantId: string, code: string): Promise<{ label: string; count: number }[]> => {
+      const pool = await this.poolFor(tenantId);
+      const found = await pool.query<Row>(
+        `SELECT id::text AS id, assigned_employee_id IS NOT NULL AS assigned
+           FROM inventory_schema.materials WHERE code = $1`,
+        [code],
+      );
+      const row = found.rows[0];
+      if (!row) return [];
+      const id = str(row.id);
+      const links: { label: string; count: number }[] = [];
+      if (row.assigned) links.push({ label: 'đang cấp cho nhân viên', count: 1 });
+
+      // Bảng của Kho trỏ vào mã: mọi khoá ngoại tới materials, cộng cột material_id của các bảng còn lại.
+      const own: readonly [label: string, table: string, column: string][] = [
+        ['số dư tồn', 'material_inventory', 'material_id'],
+        ['bút toán kho', 'inventory_transactions', 'material_id'],
+        ['điều chỉnh tồn', 'inventory_adjustments', 'material_id'],
+        ['lô', 'lots', 'material_id'],
+        ['theo dõi lô', 'lot_tracking', 'material_id'],
+        ['giữ hàng', 'reservation_items', 'material_id'],
+        ['serial', 'serial_tracking', 'material_id'],
+        ['lịch sử serial', 'serial_movements', 'material_id'],
+        ['dòng chứng từ kho', 'stock_document_lines', 'material_id'],
+        ['dòng kiểm kê', 'stocktake_lines', 'material_id'],
+        ['BOM thiết bị', 'asset_boms', 'material_id'],
+        ['BOM thiết bị (là thiết bị cha)', 'asset_boms', 'asset_id'],
+        ['lắp đặt', 'asset_installations', 'material_id'],
+        ['lắp đặt (là thiết bị)', 'asset_installations', 'asset_id'],
+        ['tài liệu thiết bị', 'asset_documents', 'asset_id'],
+        ['nhật ký trạng thái', 'asset_status_logs', 'asset_id'],
+        ['biên bản kiểm thử', 'asset_test_records', 'asset_id'],
+        ['mã con', 'materials', 'parent_id'],
+      ];
+      // Nhãn, tên bảng và tên cột là hằng số ở trên (không đến từ người dùng); chỉ id là tham số.
+      const ownCounts = await pool.query<Row>(
+        own
+          .map(
+            ([label, table, column]) =>
+              `SELECT '${label.replace(/'/g, "''")}'::text AS label, count(*)::int AS n
+                 FROM inventory_schema.${table} WHERE ${column} = $1::uuid`,
+          )
+          .join(' UNION ALL '),
+        [id],
+      );
+      for (const counted of ownCounts.rows) {
+        const n = num(counted.n);
+        if (n > 0) links.push({ label: str(counted.label), count: n });
+      }
+
+      // Phân hệ khác (CRM, bảo trì...) lưu mã theo cột material_id hoặc material_code; không biết trước tên
+      // bảng nên dò theo tên cột, chỉ đọc. Bảng không tồn tại ở tenant này thì không có gì để dò.
+      const columns = await pool.query<Row>(
+        `SELECT table_schema, table_name, column_name
+           FROM information_schema.columns
+          WHERE column_name IN ('material_id', 'material_code')
+            AND table_schema <> 'inventory_schema'
+            AND right(table_schema, 7) = '_schema'
+          ORDER BY table_schema, table_name, column_name`,
+      );
+      const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+      for (const column of columns.rows) {
+        const schema = str(column.table_schema);
+        const table = str(column.table_name);
+        const name = str(column.column_name);
+        const counted = await pool.query<Row>(
+          `SELECT count(*)::int AS n FROM ${quote(schema)}.${quote(table)} WHERE ${quote(name)}::text = $1`,
+          [name === 'material_id' ? id : code],
+        );
+        const n = num(counted.rows[0]?.n ?? 0);
+        if (n > 0) links.push({ label: `${schema}.${table}`, count: n });
+      }
+      return links;
+    },
+
+    delete: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(`DELETE FROM inventory_schema.materials WHERE code = $1`, [code]);
+      return (result.rowCount ?? 0) > 0;
     },
 
     catalog: async (

@@ -92,12 +92,31 @@ export interface InventoryStore {
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
     list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
-    create(tenantId: string, input: CreateMaterialRequest, createdBy?: string): Promise<Material>;
-    update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
+    create(
+      tenantId: string,
+      input: CreateMaterialRequest,
+      createdBy?: string,
+      /** Chỉ khi nhập từ hệ cũ: ngày tạo và trạng thái ban đầu. */
+      history?: { createdAt?: string; isActive?: boolean },
+    ): Promise<Material>;
+    update(
+      tenantId: string,
+      code: string,
+      patch: UpdateMaterialRequest,
+      /** Chỉ khi nhập từ hệ cũ: điền người tạo, ngày tạo cho mã chưa có người tạo; mã đã có thì giữ nguyên. */
+      history?: { createdBy?: string; createdAt?: string },
+    ): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
     countTransactions(tenantId: string, code: string): Promise<number>;
     /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
     hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Mọi nơi đang trỏ vào mã này (bảng của Kho và cột material_id, material_code của các phân hệ khác);
+     * rỗng nghĩa là mã chưa có liên kết nào và xoá được.
+     */
+    listLinks(tenantId: string, code: string): Promise<{ label: string; count: number }[]>;
+    /** Xoá hẳn một mã. Chỉ gọi sau khi `listLinks` trả rỗng. */
+    delete(tenantId: string, code: string): Promise<boolean>;
     /**
      * Danh mục cho phân hệ khác (T1-24): một trang theo mã, kèm tồn khả dụng và
      * giá bình quân theo kho. Lấy `limit + 1` dòng để biết còn trang sau.

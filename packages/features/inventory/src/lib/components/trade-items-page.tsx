@@ -2,18 +2,32 @@
 
 import type {
   CreateMaterialRequest,
+  ImportConflictPolicy,
+  ImportFailure,
+  ImportMaterialRow,
   InventoryTradeCatalog,
   Material,
   UpdateMaterialRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { Download, Plus, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createMaterial, loadTradeItems, retireMaterial, updateMaterial } from '../inventory-api';
+import {
+  createMaterial,
+  deleteMaterial,
+  importMaterials,
+  loadInventorySettings,
+  loadTradeItems,
+  saveInventorySetting,
+  reactivateMaterial,
+  retireMaterial,
+  updateMaterial,
+} from '../inventory-api';
 import styles from '../inventory.module.scss';
 import {
   EMPTY_FILTER,
+  TRADE_STATUS_LABEL,
   PAGE_SIZES,
   TRADE_GROUP_LABEL,
   categoryChoices,
@@ -24,15 +38,20 @@ import {
   tradeGroupOf,
   usageChoices,
   usageLabel,
-  type ImportRow,
   type TradeFilter,
   type TradeGroup,
+  type TradeStatus,
 } from '../trade-items.model';
 import type { StockRow } from './material-drawer-sections';
 import { TablePager } from './table-pager';
 import { TradeItemDrawer } from './trade-item-drawer';
 import { TradeItemFormDialog } from './trade-item-form-dialog';
+import { TradeStatusBadge } from './trade-status-badge';
 import { TradeItemImportDialog } from './trade-item-import-dialog';
+import type { CatalogAdditions } from '../trade-import.model';
+
+/** Số dòng mỗi yêu cầu nhập Excel; 50 dòng dài nhất cũng còn xa mức 100 KB. */
+const IMPORT_BATCH_SIZE = 50;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -48,7 +67,9 @@ export function TradeItemsPage({
   warehouses,
   stock = [],
   catalog,
+  units,
   onChanged,
+  onCatalogChanged,
 }: {
   canManage: boolean;
   warehouses: readonly Warehouse[];
@@ -56,18 +77,21 @@ export function TradeItemsPage({
   stock?: readonly StockRow[];
   /** Danh mục phân loại và sử dụng; chưa nạp xong thì các ô chọn tạm rỗng. */
   catalog?: InventoryTradeCatalog;
+  /** Danh mục đơn vị tính khai ở Cài đặt, làm lựa chọn cho ô Đơn vị của form. */
+  units?: readonly string[];
   /** Gọi sau khi tạo, sửa hoặc nhập xong, để tab Nhà kho nạp lại danh mục. */
   onChanged?: () => void;
+  /** Gọi sau khi nhập Excel thêm mục vào danh mục Cài đặt, để màn hình tải lại danh mục. */
+  onCatalogChanged?: () => void;
 }) {
   const [items, setItems] = useState<readonly Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
-  const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string }>();
   const [filter, setFilter] = useState<TradeFilter>(EMPTY_FILTER);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [selectedCode, setSelectedCode] = useState<string>();
-  const [dialog, setDialog] = useState<{ kind: 'form'; code?: string } | { kind: 'import' }>();
+  const [dialog, setDialog] = useState<{ kind: 'form' } | { kind: 'import' }>();
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -93,48 +117,97 @@ export function TradeItemsPage({
   const filtered = useMemo(() => filterTradeItems(items, filter), [items, filter]);
   const view = useMemo(() => paginate(filtered, page, pageSize), [filtered, page, pageSize]);
   const selected = items.find((item) => item.code === selectedCode);
-  const editing = dialog?.kind === 'form' && dialog.code ? items.find((item) => item.code === dialog.code) : undefined;
 
   const change = (patch: Partial<TradeFilter>) => {
     setFilter((current) => ({ ...current, ...patch }));
     setPage(1);
   };
 
+  const statusOptions = (Object.keys(TRADE_STATUS_LABEL) as TradeStatus[]).map((value) => ({
+    value,
+    label: TRADE_STATUS_LABEL[value],
+  }));
+
   const groupOptions = (Object.keys(TRADE_GROUP_LABEL) as TradeGroup[]).map((value) => ({
     value,
     label: TRADE_GROUP_LABEL[value],
   }));
 
-  const save = async (work: () => Promise<string>) => {
+  /**
+   * Ghi một thay đổi rồi nạp lại danh sách. Thất bại thì ném lại để form hoặc drawer đang mở
+   * hiện lý do ngay trong khung của nó (thông báo ở đầu trang bị lớp phủ che mất).
+   */
+  const save = async (work: () => Promise<string | { title: string; description?: string }>) => {
     setSaving(true);
     try {
       const text = await work();
       await reload();
       onChanged?.();
-      setNotice({ tone: 'ok', text });
+      // Kết quả hiện bằng toast tự ẩn (như HRM), không để dải thông báo nằm lại trên trang.
+      toast.success(text);
       setDialog(undefined);
-    } catch (error) {
-      setNotice({ tone: 'error', text: errorMessage(error, 'Không lưu được hàng hóa.') });
     } finally {
       setSaving(false);
     }
   };
 
-  const importRows = async (rows: ImportRow[]) => {
-    const failures: { line: number; message: string }[] = [];
+  /** Thêm vào Cài đặt các phân loại, cách sử dụng mới của tệp; đọc bản mới nhất để không ghi đè người khác vừa sửa. */
+  const addToCatalog = async (additions: CatalogAdditions) => {
+    if (additions.goodsCategories.length + additions.serviceCategories.length + additions.usageModes.length === 0) {
+      return;
+    }
+    const settings = await loadInventorySettings();
+    const entry = settings['catalog.trade'];
+    const merge = (current: readonly string[], added: readonly string[]) => [
+      ...current,
+      ...added.filter((value) => !current.includes(value)),
+    ];
+    await saveInventorySetting(
+      'catalog.trade',
+      {
+        ...entry.value,
+        goodsCategories: merge(entry.value.goodsCategories, additions.goodsCategories),
+        serviceCategories: merge(entry.value.serviceCategories, additions.serviceCategories),
+        usageModes: merge(entry.value.usageModes, additions.usageModes),
+      },
+      entry.version,
+    );
+    onCatalogChanged?.();
+  };
+
+  const importRows = async (rows: ImportMaterialRow[], additions: CatalogAdditions, onConflict: ImportConflictPolicy) => {
+    const failures: ImportFailure[] = [];
+    const skipped: { line: number; message: string }[] = [];
     let created = 0;
-    for (const row of rows) {
-      if (!row.input) continue;
+    let updated = 0;
+    try {
+      await addToCatalog(additions);
+    } catch (error) {
+      // Không thêm được danh mục thì không nhập: dòng sẽ mang phân loại chưa khai báo.
+      return {
+        created,
+        updated,
+        skipped,
+        failures: [{ line: 0, message: errorMessage(error, 'Không cập nhật được danh mục trong Cài đặt.') }],
+      };
+    }
+    // Chia lô nhỏ: thân yêu cầu mặc định của máy chủ chỉ 100 KB, mà một dòng có thể dài vài trăm byte (tên, mô tả).
+    for (let start = 0; start < rows.length; start += IMPORT_BATCH_SIZE) {
+      const batch = rows.slice(start, start + IMPORT_BATCH_SIZE);
       try {
-        await createMaterial(row.input);
-        created += 1;
+        const outcome = await importMaterials({ rows: batch, onConflict });
+        created += outcome.created;
+        updated += outcome.updated;
+        skipped.push(...outcome.skipped);
+        failures.push(...outcome.failures);
       } catch (error) {
-        failures.push({ line: row.line, message: errorMessage(error, 'Không tạo được.') });
+        const message = errorMessage(error, 'Không nhập được lô này.');
+        failures.push(...batch.map((row) => ({ line: row.line, message })));
       }
     }
     await reload();
-    if (created > 0) onChanged?.();
-    return { created, failures };
+    if (created + updated > 0) onChanged?.();
+    return { created, updated, skipped, failures };
   };
 
   return (
@@ -185,14 +258,16 @@ export function TradeItemsPage({
               height={34}
             />
           </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#475569' }}>
-            <input
-              type="checkbox"
-              checked={filter.includeInactive}
-              onChange={(event) => change({ includeInactive: event.target.checked })}
+          <div style={{ width: '170px' }}>
+            <SearchableSelect
+              options={statusOptions}
+              value={filter.status}
+              placeholder="Trạng thái"
+              onChange={(value) => change({ status: (value || 'ACTIVE') as TradeStatus })}
+              clearable={false}
+              height={34}
             />
-            Hiện cả mã đã ngừng dùng
-          </label>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {canManage ? (
@@ -220,15 +295,6 @@ export function TradeItemsPage({
         </div>
       </div>
 
-      {notice ? (
-        <p
-          role={notice.tone === 'error' ? 'alert' : 'status'}
-          style={{ margin: 0, fontSize: '14px', color: notice.tone === 'error' ? '#b91c1c' : '#15803d' }}
-        >
-          {notice.text}
-        </p>
-      ) : null}
-
       {view.total === 0 ? (
         <p className={styles.empty} role={loadError ? 'alert' : undefined}>
           {loading
@@ -247,6 +313,7 @@ export function TradeItemsPage({
                 <th className={styles.left}>Đơn vị</th>
                 <th className={styles.left}>Sử dụng</th>
                 <th className={styles.right}>Giá</th>
+                <th className={styles.left}>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
@@ -254,7 +321,10 @@ export function TradeItemsPage({
                 <tr
                   key={item.id}
                   tabIndex={0}
-                  style={{ cursor: 'pointer', opacity: item.isActive ? 1 : 0.55 }}
+                  style={{
+                    cursor: 'pointer',
+                    ...(item.isActive ? {} : { background: '#f1f5f9', color: '#64748b' }),
+                  }}
                   onClick={() => setSelectedCode(item.code)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') setSelectedCode(item.code);
@@ -267,6 +337,9 @@ export function TradeItemsPage({
                   <td>{item.unit}</td>
                   <td>{usageLabel(item.tradeMode) || '—'}</td>
                   <td className={styles.right}>{formatSalePrice(item.salePrice)}</td>
+                  <td>
+                    <TradeStatusBadge active={item.isActive} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -286,39 +359,58 @@ export function TradeItemsPage({
 
       {selected ? (
         <TradeItemDrawer
+          key={selected.code}
           item={selected}
           warehouses={warehouses}
           stock={stock}
           canManage={canManage}
           busy={saving}
           onRetire={() =>
-            void save(async () => {
+            save(async () => {
               const result = await retireMaterial(selected.code);
               setSelectedCode(undefined);
-              return `Đã ngừng dùng ${selected.code}. ${result.reason ?? ''}`.trim();
+              // Lý do của Kho mở đầu bằng "Đã ngừng dùng." nên bỏ câu đó khỏi phần mô tả để tiêu đề không lặp lại.
+              const reason = (result.reason ?? '').replace(/^Đã ngừng dùng[.,]?\s*/, '').trim();
+              return { title: `Đã ngừng dùng ${selected.code}`, ...(reason ? { description: reason } : {}) };
+            })
+          }
+          onReactivate={() =>
+            save(async () => {
+              await reactivateMaterial(selected.code);
+              // Đang xem danh sách "Ngừng dùng" thì mã vừa dùng lại không còn trong danh sách: đóng drawer.
+              if (filter.status === 'INACTIVE') setSelectedCode(undefined);
+              return `Đã dùng lại ${selected.code}`;
+            })
+          }
+          onDelete={() =>
+            save(async () => {
+              await deleteMaterial(selected.code);
+              setSelectedCode(undefined);
+              return `Đã xóa ${selected.code}`;
             })
           }
           onClose={() => setSelectedCode(undefined)}
-          onEdit={() => setDialog({ kind: 'form', code: selected.code })}
+          catalog={catalog}
+          units={units}
+          onSave={(patch: UpdateMaterialRequest) =>
+            save(async () => `Đã cập nhật ${(await updateMaterial(selected.code, patch)).code}.`)
+          }
         />
       ) : null}
 
       {dialog?.kind === 'form' ? (
         <TradeItemFormDialog
-          item={editing}
           catalog={catalog}
+          units={units}
           busy={saving}
           onCancel={() => setDialog(undefined)}
           onCreate={(input: CreateMaterialRequest) =>
-            void save(async () => `Đã tạo ${(await createMaterial(input)).code}.`)
-          }
-          onUpdate={(code: string, patch: UpdateMaterialRequest) =>
-            void save(async () => `Đã cập nhật ${(await updateMaterial(code, patch)).code}.`)
+            save(async () => `Đã tạo ${(await createMaterial(input)).code}.`)
           }
         />
       ) : null}
       {dialog?.kind === 'import' ? (
-        <TradeItemImportDialog catalog={catalog} onCancel={() => setDialog(undefined)} onImport={importRows} />
+        <TradeItemImportDialog catalog={catalog} existingCodes={items.map((item) => item.code)} onCancel={() => setDialog(undefined)} onImport={importRows} />
       ) : null}
     </section>
   );

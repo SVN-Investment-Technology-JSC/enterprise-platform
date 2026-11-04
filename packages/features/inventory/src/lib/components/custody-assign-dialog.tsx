@@ -5,6 +5,7 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import type { AuditorCandidate } from '../inventory-api';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 /**
@@ -25,10 +26,12 @@ export function CustodyAssignDialog({
   initialCode?: string;
   busy?: boolean;
   onCancel: () => void;
-  onSubmit: (asset: Material, employeeId: string) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ lựa chọn. */
+  onSubmit: (asset: Material, employeeId: string) => Promise<void> | void;
 }) {
   const [assetCode, setAssetCode] = useState(initialCode ?? '');
   const [employeeId, setEmployeeId] = useState('');
+  const { error, submit: send } = useFormSubmit('Không cấp phát được tài sản.');
 
   const assetOptions = useMemo(
     () => assets.map((a) => ({ value: a.code, label: a.name, badge: a.code })),
@@ -45,7 +48,7 @@ export function CustodyAssignDialog({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!target || !employeeId) return;
-    onSubmit(target, employeeId);
+    void send(() => onSubmit(target, employeeId));
   };
 
   return (
@@ -104,6 +107,7 @@ export function CustodyAssignDialog({
                 style={{ width: '100%' }}
               />
             </div>
+            <FormError error={error} />
           </div>
 
           <div className={styles.modalFoot}>

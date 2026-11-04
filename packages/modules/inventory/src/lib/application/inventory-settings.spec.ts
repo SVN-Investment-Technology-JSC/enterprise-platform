@@ -18,7 +18,7 @@ describe('cài đặt catalog.trade (phân loại và sử dụng hàng hóa)', 
     expect(INVENTORY_SETTINGS_DEFAULTS['catalog.trade']).toEqual({
       goodsCategories: [],
       serviceCategories: [],
-      usageModes: ['Chỉ bán', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
+      usageModes: ['Chỉ bán', 'Có thể bán và quà tặng', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
     });
   });
 

@@ -13,6 +13,7 @@ import { ChevronDown, Search, X } from 'lucide-react';
 import { getUnitQuantityConfig } from '../inventory-labels';
 import type { LotAllocation } from '../stock-document.model';
 import { LotPickerDrawer, SerialPickerDrawer } from './stock-document-parts';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 /** Drawer chọn serial, lô mở chồng lên hộp thoại (`modalOverlay` z-index 1000). */
@@ -45,8 +46,10 @@ export function InstallMaterialDialog({
   stock: readonly MaterialInventory[];
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (code: string, input: InstallItemRequest) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onConfirm: (code: string, input: InstallItemRequest) => Promise<void> | void;
 }) {
+  const { error, submit: send } = useFormSubmit('Không xuất kho và lắp được.');
   const [materialCode, setMaterial] = useState('');
   const [materialSearchTerm, setMaterialSearchTerm] = useState('');
   const [warehouseCode, setWarehouse] = useState(
@@ -240,7 +243,7 @@ export function InstallMaterialDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!ready) return;
-            onConfirm(materialCode, {
+            void send(() => onConfirm(materialCode, {
               parentCode: parent?.code,
               warehouseCode,
               quantity: amount,
@@ -249,7 +252,7 @@ export function InstallMaterialDialog({
               lots: !serialized && lots.length > 0
                 ? lots.map((lot) => ({ lotNo: lot.lotNo, quantity: lot.quantity }))
                 : undefined,
-            });
+            }));
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
         >
@@ -583,6 +586,8 @@ export function InstallMaterialDialog({
               onChange={(event) => setNote(event.target.value)}
             />
           </div>
+
+          <FormError error={error} />
 
           {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn */}
           <div

@@ -4,7 +4,6 @@ import {
   STOCK_DOCUMENT_STATUSES,
   STOCK_DOCUMENT_TYPES,
   STOCK_REPORT_GROUPS,
-  type MaterialCategory,
   type QualityStatus,
   type SerialStockState,
   type StockApprovalReport,
@@ -35,7 +34,6 @@ import {
   type StockReportFilter,
 } from './inventory-report-store.port.js';
 
-const MATERIAL_CATEGORIES: readonly MaterialCategory[] = ['SPARE_PART', 'CONSUMABLE', 'TOOL', 'ROTABLE'];
 const SERIAL_STOCK_STATES: readonly SerialStockState[] = ['IN_STOCK', 'ISSUED', 'IN_TRANSIT', 'SCRAPPED'];
 /** Loại chứng từ phải qua người duyệt: nguồn của lịch sử duyệt. */
 const APPROVAL_DOC_TYPES = STOCK_DOCUMENT_TYPES.filter((docType) => requiresApproval(docType));
@@ -89,7 +87,7 @@ export class InventoryReportService {
     const filter: StockReportFilter = {
       search: text(query.search),
       materialCode: text(query.materialCode),
-      category: oneOf(query.category, MATERIAL_CATEGORIES, 'Nhóm vật tư không hợp lệ.'),
+      category: text(query.category),
       warehouseCode: text(query.warehouseCode),
       expiringWithinDays,
       qualityStatus,

@@ -143,9 +143,9 @@ describe('WarehouseStockTab', () => {
     }
     expect(within(drawer).getByText('Tồn tối thiểu')).toBeTruthy();
     expect(within(drawer).getByRole('heading', { name: 'Lịch sử xuất nhập tại kho này' })).toBeTruthy();
-    await within(drawer).findByText('PN-01');
+    await within(drawer).findByText('TX-1');
     // Phát sinh ở kho phụ không hiện trong lịch sử của dòng Kho chính.
-    expect(within(drawer).queryByText('PN-02')).toBeNull();
+    expect(within(drawer).queryByText('TX-2')).toBeNull();
     expect(within(drawer).getByRole('heading', { name: 'Tồn theo kho' })).toBeTruthy();
     expect(within(drawer).getByText('Tổng')).toBeTruthy();
     expect(mockHistory).toHaveBeenCalledWith('VT-001');

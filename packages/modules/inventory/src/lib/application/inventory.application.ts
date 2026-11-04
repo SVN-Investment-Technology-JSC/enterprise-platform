@@ -16,6 +16,10 @@ import type {
   AssetBomLine,
   CreateAssetRequest,
   CreateMaterialRequest,
+  ImportFailure,
+  ImportMaterialRow,
+  ImportMaterialsRequest,
+  ImportMaterialsResult,
   CreateStockReservationRequest,
   InternalMaterialCatalogPage,
   InternalMaterialCatalogQuery,
@@ -31,6 +35,7 @@ import type {
   MaterialInventory,
   MovementCounterparty,
   Reservation,
+  MaterialDeleteResult,
   RetireResult,
   ReturnItemToStockRequest,
   SerialTracking,
@@ -1237,9 +1242,98 @@ export class InventoryApplication {
   // ==========================================================================
 
   async createMaterial(actor: InventoryActor, input: CreateMaterialRequest): Promise<Material> {
+    return this.createMaterialRecord(actor, input, actor.displayName);
+  }
+
+  /**
+   * Nhập hàng hóa, dịch vụ từ hệ cũ theo lô. Mỗi dòng đi qua đúng các kiểm tra của tạo thường; dòng lỗi được báo
+   * theo số dòng trong tệp và không chặn các dòng còn lại. Người tạo và ngày tạo lấy từ tệp (người tạo trống là
+   * không ghi, để xử lý sau), không lấy người đang nhập.
+   */
+  async importMaterials(
+    actor: InventoryActor,
+    request: ImportMaterialsRequest,
+  ): Promise<ImportMaterialsResult> {
+    this.requireManager(actor);
+    const rows = request?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new InventoryError('VALIDATION', 'Không có dòng nào để nhập.');
+    }
+    if (rows.length > MAX_IMPORT_MATERIALS) {
+      throw new InventoryError('VALIDATION', `Mỗi lần nhập tối đa ${MAX_IMPORT_MATERIALS} dòng.`);
+    }
+    const policy = request.onConflict ?? 'FAIL';
+    if (policy !== 'FAIL' && policy !== 'SKIP' && policy !== 'UPDATE') {
+      throw new InventoryError('VALIDATION', 'Cách xử lý mã trùng không hợp lệ.');
+    }
+    const failures: ImportFailure[] = [];
+    const skipped: { line: number; message: string }[] = [];
+    let created = 0;
+    let updated = 0;
+    for (const row of rows) {
+      try {
+        const createdAt = row.createdAt?.trim();
+        if (createdAt && Number.isNaN(Date.parse(createdAt))) {
+          throw new InventoryError('VALIDATION', 'Ngày tạo không hợp lệ.');
+        }
+        const createdBy = row.createdBy?.trim();
+        if (createdBy && createdBy.length > 255) {
+          throw new InventoryError('VALIDATION', 'Tên người tạo quá dài.');
+        }
+        const history = { createdAt: createdAt || undefined, isActive: row.isActive };
+        const code = row.code?.trim().toUpperCase();
+        const existing =
+          policy === 'FAIL' || !code ? null : await this.store.material.findAnyByCode(actor.tenantId, code);
+        if (existing && policy === 'SKIP') {
+          skipped.push({ line: row.line, message: `Mã ${code} đã có, giữ bản cũ.` });
+        } else if (existing) {
+          // Cập nhật: chỉ ghi các ô có giá trị trong tệp, ô trống không xoá dữ liệu đang có.
+          if (existing.isActive === false) {
+            skipped.push({ line: row.line, message: `Mã ${code} đã ngừng dùng, không cập nhật.` });
+          } else {
+            requireTradeFields(row);
+            await this.updateMaterialRecord(actor, code, importPatch(row), {
+              createdBy: createdBy || undefined,
+              createdAt: createdAt || undefined,
+            });
+            updated += 1;
+          }
+        } else {
+          await this.createMaterialRecord(actor, row, createdBy || undefined, history);
+          created += 1;
+        }
+      } catch (error) {
+        // Lỗi ngoài dự kiến của một dòng (vd. trùng mã do hai lần nhập chạy cùng lúc) không được làm hỏng cả lô.
+        // 23505: hai lần nhập chạy cùng lúc cùng tạo một mã; báo là trùng mã thay vì lỗi chung.
+        const rowCode = row.code?.trim().toUpperCase() ?? '';
+        const duplicate =
+          (error as { code?: string } | null)?.code === '23505' ||
+          (error instanceof InventoryError && error.message === duplicateMaterialCodeMessage(rowCode));
+        failures.push({
+          line: row.line,
+          message:
+            error instanceof InventoryError
+              ? error.message
+              : duplicate
+                ? duplicateMaterialCodeMessage(rowCode)
+                : 'Không tạo được mặt hàng này.',
+          ...(duplicate ? { duplicate: true } : {}),
+        });
+      }
+    }
+    return { created, updated, skipped, failures };
+  }
+
+  private async createMaterialRecord(
+    actor: InventoryActor,
+    input: CreateMaterialRequest,
+    createdBy: string | undefined,
+    history?: { createdAt?: string; isActive?: boolean },
+  ): Promise<Material> {
     this.requireValidYear(input.manufactureYear);
     this.requirePurchasePrice(input.purchasePrice);
     requireTradeFields(input);
+    requireMaterialTextLengths(input);
     this.requireManager(actor);
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
@@ -1255,7 +1349,7 @@ export class InventoryApplication {
     // Kiểm cả vật tư đã ngừng hoạt động: mã vẫn chiếm chỗ, và tạo trùng sẽ vỡ
     // ràng buộc UNIQUE với thông báo khó hiểu của Postgres.
     if (await this.store.material.findAnyByCode(actor.tenantId, code)) {
-      throw new InventoryError('VALIDATION', `Mã vật tư ${code} đã tồn tại.`);
+      throw new InventoryError('VALIDATION', duplicateMaterialCodeMessage(code));
     }
     return this.store.material.create(
       actor.tenantId,
@@ -1267,7 +1361,8 @@ export class InventoryApplication {
         // Dịch vụ không có tồn nên không có định mức tồn.
         ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
       },
-      actor.displayName,
+      createdBy,
+      history,
     );
   }
 
@@ -1276,12 +1371,26 @@ export class InventoryApplication {
     code: string,
     patch: UpdateMaterialRequest,
   ): Promise<Material> {
+    return this.updateMaterialRecord(actor, code, patch);
+  }
+
+  private async updateMaterialRecord(
+    actor: InventoryActor,
+    code: string,
+    patch: UpdateMaterialRequest,
+    history?: { createdBy?: string; createdAt?: string },
+  ): Promise<Material> {
     this.requireValidYear(patch.manufactureYear);
     this.requirePurchasePrice(patch.purchasePrice);
     requireTradeFields(patch);
+    requireMaterialTextLengths(patch);
     this.requireManager(actor);
     const current = await this.store.material.findAnyByCode(actor.tenantId, code);
     if (!current) throw new MaterialNotFoundError(code);
+    // Mã đã ngừng dùng chỉ được "dùng lại"; muốn sửa thông tin phải dùng lại trước.
+    if (current.isActive === false && patch.isActive !== true) {
+      throw new InventoryError('VALIDATION', `Mã ${code} đã ngừng dùng; hãy dùng lại trước khi sửa.`);
+    }
     this.requireStockBounds(
       patch.minStock ?? current.minStock,
       patch.maxStock ?? current.maxStock,
@@ -1297,18 +1406,19 @@ export class InventoryApplication {
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
     }
-    const updated = await this.store.material.update(actor.tenantId, code, patch);
+    // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
+    const updated = history
+      ? await this.store.material.update(actor.tenantId, code, patch, history)
+      : await this.store.material.update(actor.tenantId, code, patch);
     if (!updated) throw new MaterialNotFoundError(code);
     return updated;
   }
 
   /**
-   * Ngừng dùng một vật tư — KHÔNG BAO GIỜ xoá.
+   * Ngừng dùng một vật tư: ẩn mã khỏi các ô chọn, số liệu và lịch sử giữ nguyên.
    *
-   * Sổ cái là append-only và mã vật tư là thứ mọi bút toán trỏ vào. Xoá một mã,
-   * kể cả mã chưa phát sinh giao dịch nào, mở đường cho việc mã đó được dựng lại
-   * sau này với ý nghĩa khác trong khi lịch sử cũ vẫn mang tên nó. Ngừng dùng
-   * chỉ ẩn mã khỏi các ô chọn; số liệu và lịch sử giữ nguyên.
+   * Sổ cái là append-only và mã vật tư là thứ mọi bút toán trỏ vào, nên mã đã có liên kết thì
+   * không xoá. Chỉ mã chưa có liên kết nào (dữ liệu rác, tạo nhầm) mới xoá được, qua `deleteMaterial`.
    */
   async retireMaterial(actor: InventoryActor, code: string): Promise<RetireResult> {
     this.requireManager(actor);
@@ -1325,6 +1435,27 @@ export class InventoryApplication {
           ? `Mã này đã có ${used} bút toán trong sổ cái. Đã ngừng dùng, lịch sử giữ nguyên.`
           : 'Đã ngừng dùng. Hàng đã vào sổ kho thì không xoá, chỉ nhập hoặc xuất.',
     };
+  }
+
+  /**
+   * Xoá hẳn một mã chưa có liên kết nào. Từ chối nếu còn bất kỳ liên kết nào: tồn, bút toán, giữ hàng,
+   * serial, lô, chứng từ, kiểm kê, BOM, lắp đặt, mã con, đang cấp cho nhân viên, hoặc dòng báo giá,
+   * đơn hàng của phân hệ khác. Khi đó dùng "Ngừng dùng" để giữ lịch sử.
+   */
+  async deleteMaterial(actor: InventoryActor, code: string): Promise<MaterialDeleteResult> {
+    this.requireManager(actor);
+    const material = await this.store.material.findAnyByCode(actor.tenantId, code);
+    if (!material) throw new MaterialNotFoundError(code);
+    const links = await this.store.material.listLinks(actor.tenantId, code);
+    if (links.length > 0) {
+      const detail = links.map((link) => `${link.label} (${link.count})`).join(', ');
+      throw new InventoryError(
+        'VALIDATION',
+        `Mã ${code} đã có liên kết nên không xoá được: ${detail}. Hãy dùng "Ngừng dùng" để giữ lịch sử.`,
+      );
+    }
+    if (!(await this.store.material.delete(actor.tenantId, code))) throw new MaterialNotFoundError(code);
+    return { code, mode: 'deleted' };
   }
 
   // ==========================================================================
@@ -1603,6 +1734,8 @@ function requireMaterialKind(value: unknown): MaterialKind | undefined {
 }
 
 const MAX_TRADE_LABEL = 100;
+const MAX_MATERIAL_DESCRIPTION = 2000;
+const MAX_IMPORT_MATERIALS = 1000;
 
 function requireTradeLabel(value: unknown, message: string): void {
   if (value == null) return;
@@ -1620,13 +1753,59 @@ function requireTradeFields(input: {
   tradeMode?: unknown;
   tradeCategory?: unknown;
   salePrice?: unknown;
+  description?: unknown;
 }): void {
   requireTradeLabel(input.tradeMode, 'Cách sử dụng không hợp lệ.');
   requireTradeLabel(input.tradeCategory, 'Phân loại không hợp lệ.');
+  const description = input.description;
+  if (description != null && (typeof description !== 'string' || description.length > MAX_MATERIAL_DESCRIPTION)) {
+    throw new InventoryError('VALIDATION', `Mô tả tối đa ${MAX_MATERIAL_DESCRIPTION} ký tự.`);
+  }
   const price = input.salePrice;
   if (price != null && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
     throw new InventoryError('VALIDATION', 'Giá bán phải là số không âm.');
   }
+}
+
+function duplicateMaterialCodeMessage(code: string): string {
+  return `Mã vật tư ${code} đã tồn tại.`;
+}
+
+/** Độ dài tối đa của các cột chữ trong `materials`; vượt thì DB báo lỗi chung, nên kiểm trước để báo đúng chỗ. */
+const MATERIAL_TEXT_LIMITS: readonly { key: string; label: string; max: number }[] = [
+  { key: 'code', label: 'Mã', max: 100 },
+  { key: 'name', label: 'Tên', max: 255 },
+  { key: 'unit', label: 'Đơn vị', max: 50 },
+  { key: 'barcode', label: 'Barcode', max: 100 },
+  { key: 'manufacturer', label: 'Nhà sản xuất', max: 180 },
+];
+
+function requireMaterialTextLengths(input: object): void {
+  const record = input as Record<string, unknown>;
+  for (const { key, label, max } of MATERIAL_TEXT_LIMITS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > max) {
+      throw new InventoryError('VALIDATION', `${label} tối đa ${max} ký tự (hiện ${value.trim().length}).`);
+    }
+  }
+}
+
+/** Các trường tệp nhập được phép ghi đè khi cập nhật mã có sẵn; trường không có giá trị thì không đưa vào. */
+function importPatch(row: ImportMaterialRow): UpdateMaterialRequest {
+  const patch: Record<string, unknown> = {
+    name: row.name?.trim() || undefined,
+    unit: row.unit?.trim() || undefined,
+    barcode: row.barcode?.trim() || undefined,
+    manufacturer: row.manufacturer?.trim() || undefined,
+    tradeCategory: row.tradeCategory?.trim() || undefined,
+    tradeMode: row.tradeMode?.trim() || undefined,
+    salePrice: row.salePrice,
+    purchasePrice: row.purchasePrice,
+    currency: row.currency?.trim() || undefined,
+    description: row.description?.trim() || undefined,
+  };
+  for (const key of Object.keys(patch)) if (patch[key] === undefined) delete patch[key];
+  return patch as UpdateMaterialRequest;
 }
 
 function requireWarrantyMonths(value: unknown): void {

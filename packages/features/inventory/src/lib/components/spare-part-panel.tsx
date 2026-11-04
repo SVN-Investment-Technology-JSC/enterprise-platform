@@ -5,7 +5,7 @@ import type {
   InstalledMaterial,
   Material,
 } from '@enterprise-platform/contracts-inventory';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 import { useCallback, useEffect, useState } from 'react';
 import { addAssetSparePart, loadAssetSpareParts, removeAssetSparePart } from '../inventory-api';
@@ -126,7 +126,7 @@ export function SparePartPanel({
 
   const handleAddOption = (code: string) => {
     if (draftLines.some((d) => d.materialCode === code)) {
-      setError('Vật tư này đã có trong danh sách BOM.');
+      toast.error('Vật tư này đã có trong danh sách BOM.');
       return;
     }
     const child = getTreeNode(code);
@@ -191,7 +191,7 @@ export function SparePartPanel({
       await reload();
       setIsEditing(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được danh sách BOM.');
+      toast.error(cause instanceof Error ? cause.message : 'Không lưu được danh sách BOM.');
     } finally {
       setSaving(false);
     }

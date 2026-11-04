@@ -69,6 +69,8 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
       code,
       name: `Vật tư ${code}`,
       category: serialized ? 'SPARE_PART' : 'CONSUMABLE',
+      // Báo cáo lọc theo phân loại khai trong Cài đặt: vật tư serial thuộc 'Phụ tùng', còn lại 'Tiêu hao'.
+      tradeCategory: serialized ? 'Phụ tùng' : 'Tiêu hao',
       unit: 'Cái',
       isSerialized: serialized,
     });
@@ -197,7 +199,7 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     const next = rowsOf(await reports.stock(viewer, { search: 'RPT-', limit: 1, offset: 1 }), 'WAREHOUSE');
     expect(next.rows[0].materialCode).not.toBe(all.rows[0].materialCode);
     // Nhóm vật tư và kho.
-    expect(rowsOf(await reports.stock(viewer, { search: 'RPT-', category: 'SPARE_PART' }), 'WAREHOUSE').total).toBe(1);
+    expect(rowsOf(await reports.stock(viewer, { search: 'RPT-', category: 'Phụ tùng' }), 'WAREHOUSE').total).toBe(1);
     expect(rowsOf(await reports.stock(viewer, { search: 'RPT-', warehouseCode: 'RPT-DN' }), 'WAREHOUSE').total).toBe(0);
   });
 

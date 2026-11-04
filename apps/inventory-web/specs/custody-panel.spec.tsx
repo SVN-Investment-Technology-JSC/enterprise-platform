@@ -138,9 +138,9 @@ describe('CustodyPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('cấp phát thất bại thì form vẫn mở để người dùng thử lại', async () => {
+  it('cấp phát thất bại thì form vẫn mở và hiện lý do của Kho trong form', async () => {
     const { onAssign } = setup();
-    onAssign.mockResolvedValue(false);
+    onAssign.mockRejectedValue(new Error('Tài sản TS-IND-001 đang được cấp phát cho người khác.'));
     await screen.findByText('Laptop Dell');
     fireEvent.click(screen.getAllByRole('button', { name: 'Cấp phát' })[0]);
     const dialog = screen.getByRole('dialog', { name: 'Cấp phát tài sản' });
@@ -150,6 +150,26 @@ describe('CustodyPanel', () => {
     await waitFor(() => expect(onAssign).toHaveBeenCalled());
     await waitFor(() => expect(mockLoadAssets).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('dialog', { name: 'Cấp phát tài sản' })).toBeTruthy();
+    const alert = await within(screen.getByRole('dialog', { name: 'Cấp phát tài sản' })).findByRole('alert');
+    expect(alert.textContent).toContain('Tài sản TS-IND-001 đang được cấp phát cho người khác.');
+    // Chọn lại và gửi lần nữa: lỗi cũ được xoá trước khi gửi.
+    onAssign.mockResolvedValue(undefined);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Cấp phát tài sản' })).getByRole('button', { name: 'Cấp phát' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('khai báo thất bại thì form vẫn mở và hiện lý do của Kho trong form', async () => {
+    const { onDeclare } = setup();
+    onDeclare.mockRejectedValue(new Error('Mã vật tư TS-LAP-009 đã tồn tại.'));
+    await screen.findByText('Laptop Dell');
+    fireEvent.click(screen.getByRole('button', { name: 'Khai báo tài sản' }));
+    const dialog = screen.getByRole('dialog', { name: 'Khai báo tài sản' });
+    fireEvent.change(within(dialog).getByLabelText(/Mã tài sản/), { target: { value: 'ts-lap-009' } });
+    fireEvent.change(within(dialog).getByLabelText(/Tên tài sản/), { target: { value: 'Laptop' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Khai báo tài sản' }));
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toContain('Mã vật tư TS-LAP-009 đã tồn tại.');
+    expect((within(dialog).getByLabelText(/Tên tài sản/) as HTMLInputElement).value).toBe('Laptop');
   });
 
   it('nút Cấp phát ở dòng tồn kho mở form với tài sản đã chọn sẵn', async () => {
