@@ -28,7 +28,7 @@ jest.mock('../hrm-api', () => {
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
 const employeesMock = hrmEmployeeOptions as jest.MockedFunction<typeof hrmEmployeeOptions>;
 const paths = () => fetchMock.mock.calls.map((call) => call[0] as string);
-const NOISE = ['/approval-scope', '/request-workflows', '/request-reversals'];
+const NOISE = ['/approval-scope', '/request-workflows', '/request-reversals', '/request-direct-approvers'];
 const listPaths = () => paths().filter((p) => !NOISE.includes(p) && !p.startsWith('/request-comments'));
 const posts = (prefix: string) =>
   fetchMock.mock.calls.filter((c) => (c[0] as string).startsWith(prefix) && (c[1] as RequestInit | undefined)?.method === 'POST');
@@ -72,6 +72,7 @@ function setup({ lists = {}, workflows = [], comments = [], candidates = [], rev
     if (path === '/approval-scope') return { data: { noReportingLine: false, message: null } };
     if (path === '/request-workflows') return { data: workflows };
     if (path === '/request-reversals') return { data: reversals };
+    if (path === '/request-direct-approvers') return { data: [] };
     if (path.startsWith('/request-comments/mention-candidates')) return { data: candidates };
     if (path.startsWith('/request-comments')) return init?.method === 'POST' ? { data: { id: 'cm-new' } } : { data: comments };
     if (init?.method === 'POST') return { data: {} };
@@ -298,6 +299,30 @@ describe('ApprovalsScreen: chi tiết đơn', () => {
     expect(reason.textContent).toContain('Không lương');
     expect(within(panel).getByTestId('approval-detail-description').textContent).toBe('Tự nguyện');
     expect(within(panel).getByText('NV001 · Kỹ thuật')).toBeTruthy();
+  });
+
+  it('đơn công tác có dự án: hiện dòng Dự án chỉ gồm tên dự án; đơn không gắn dự án thì không có dòng này', async () => {
+    mockActions = ['hrm.request.approve'];
+    const trip = {
+      id: 't1',
+      employeeId: 'e1',
+      status: 'PENDING',
+      destination: 'Đà Nẵng',
+      fromDate: '2026-03-05',
+      toDate: '2026-03-06',
+      daysCount: 2,
+      createdAt: '2026-03-02T01:00:00.000Z',
+      projectId: 'p1',
+      projectName: 'test',
+      projectLink: { projectId: 'p1', projectCode: 'DA-2026-001', projectName: 'test', status: 'REGISTERED', projectRequestCode: 'DT001' },
+    };
+    setup({ lists: { 'business-trip-requests': [trip], 'ot-requests': [ot] } });
+    render(<ApprovalsScreen />);
+    const panel = await openRow('t1');
+    expect(within(panel).getByTestId('approval-detail-project').textContent).toBe('test');
+    expect(within(panel).queryByText('DT001')).toBeNull();
+    const otPanel = await openRow('o1');
+    expect(within(otPanel).queryByTestId('approval-detail-project')).toBeNull();
   });
 
   it('chưa chọn đơn thì panel hướng dẫn chọn một đơn', async () => {

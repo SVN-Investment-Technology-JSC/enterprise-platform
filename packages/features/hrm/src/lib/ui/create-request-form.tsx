@@ -503,7 +503,7 @@ export function CreateRequestForm({
   const [tripDepartment, setTripDepartment] = useState<string>(profile.department || '');
   const [tripTransport, setTripTransport] = useState<TransportFieldValue>(EMPTY_TRANSPORT);
   const tripRequiredFinger = false;
-  const [tripStartTime, setTripStartTime] = useState((kind === 'business_trip' && start.startTime) || '08:00');
+  const [tripStartTime, setTripStartTime] = useState((kind === 'business_trip' && start.startTime) || '07:30');
   const [tripEndTime, setTripEndTime] = useState((kind === 'business_trip' && start.endTime) || '17:30');
   const [tripSurcharges, setTripSurcharges] = useState<
     BusinessTripSurchargeItem[]
@@ -1329,7 +1329,6 @@ export function CreateRequestForm({
             toAt: range.toAt,
             startTime: range.startTime,
             endTime: range.endTime,
-            projectId: projectId || undefined,
             duration: range.duration,
             isNegativeLeave: false,
             attributes: dynamicValues,
@@ -2292,36 +2291,8 @@ export function CreateRequestForm({
               </div>
             )}
 
-            {/* Dự án liên quan (không bắt buộc) và tệp đính kèm (không bắt buộc) */}
+            {/* Tệp đính kèm (không bắt buộc) */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-800">
-                    Dự án liên quan (Workspace)
-                  </label>
-                  {projectId && (
-                    <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[12px] font-medium text-blue-700">
-                      Mã:{' '}
-                      {projects.find((p) => p.id === projectId)?.code ||
-                        projectId}
-                    </span>
-                  )}
-                </div>
-                <SearchableSelect
-                  height={36}
-                  options={projectOptions}
-                  value={projectId}
-                  onChange={(val) => {
-                    setProjectId(val);
-                    const prj = projects.find((p) => p.id === val);
-                    setProjectCode(prj ? prj.code : '');
-                    setProjectName(prj ? prj.name : '');
-                  }}
-                  placeholder="Chọn dự án nếu có (không bắt buộc)"
-                  clearable={true}
-                />
-              </div>
-
               <div className="space-y-1">
                 <span className="block font-semibold text-slate-800">
                   Tệp đính kèm (không bắt buộc)
@@ -2688,7 +2659,7 @@ export function CreateRequestForm({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="font-semibold text-slate-800 block text-xs">
-                  Hình thức công tác *
+                  Hình thức công tác <span className="text-red-500">*</span>
                 </label>
                 <SearchableSelect
                   height={36}
@@ -2715,7 +2686,7 @@ export function CreateRequestForm({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="font-semibold text-slate-800 block text-xs">
-                  Địa điểm công tác *
+                  Địa điểm công tác <span className="text-red-500">*</span>
                 </label>
                 <Input
                   value={destination}

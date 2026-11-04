@@ -1326,7 +1326,13 @@ export function EmployeeDetailDialog({
                     />
                   )}
                   {tab === 'custody' && (
-                    <HrmCustodyPanel employeeId={employee.employeeId} />
+                    <HrmCustodyPanel
+                      key={`custody-${panelsKey}`}
+                      employeeId={employee.employeeId}
+                      readOnly={!isEditing}
+                      onStage={stageFor('custody')}
+                      stagedCustody={staged.flatMap((c) => (c.custody ? [c.custody] : []))}
+                    />
                   )}
                 </div>
               </div>

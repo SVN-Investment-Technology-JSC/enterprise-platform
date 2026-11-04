@@ -141,3 +141,33 @@ describe('nhãn người xử lý các bước còn lại', () => {
     expect(buildInstanceProgress(instance).steps[0].roleTitle).toBe('');
   });
 });
+
+describe('B2 bị từ chối hoặc trả lại', () => {
+  const decided = (status: 'rejected' | 'returned', action: string) => {
+    const instance = personalRequest([assignment('s', 'S', 'everyone', 'everyone')]);
+    instance.steps[1].status = status;
+    instance.activity.unshift({
+      id: 'a3', action, actorId: 'pho-tp', actorName: 'Lê Phó', summary: 'Quyết định', createdAt: '2026-10-15T03:00:00.000Z', stepInstanceId: 'step-2',
+    } as never);
+    return instance;
+  };
+
+  it('bước bị từ chối hiện người đã từ chối, không liệt kê chức danh được giao', () => {
+    expect(buildInstanceProgress(decided('rejected', 'reject')).steps[1].roleTitle).toBe('Lê Phó');
+  });
+
+  it('bước bị trả lại hiện người đã trả lại', () => {
+    expect(buildInstanceProgress(decided('returned', 'return')).steps[1].roleTitle).toBe('Lê Phó');
+  });
+
+  it('thiếu nhật ký thì vẫn rơi về chức danh được giao', () => {
+    const instance = personalRequest([assignment('s', 'S', 'everyone', 'everyone')]);
+    instance.steps[1].status = 'rejected';
+    expect(buildInstanceProgress(instance).steps[1].roleTitle).toBe('Tổng Giám đốc');
+  });
+
+  it('nhật ký duyệt của bước khác không bị lẫn sang bước bị từ chối', () => {
+    const instance = decided('rejected', 'approve');
+    expect(buildInstanceProgress(instance).steps[1].roleTitle).toBe('Tổng Giám đốc');
+  });
+});

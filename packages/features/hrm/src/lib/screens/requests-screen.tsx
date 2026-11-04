@@ -52,13 +52,10 @@ import {
   SheetDescription,
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
+import { directApproverIndex, withDirectApprover, type DirectApproverEntry } from '../direct-approver-view';
 import { hrmApiUrl, hrmEmployeeOptions, hrmFetch, type EmployeeOption } from '../hrm-api';
-import {
-  loadLinkableProjects,
-  PROJECT_LINK_STATUS_LABEL,
-  projectLabel,
-  type LinkableProject,
-} from '../workspace-projects';
+import { loadLinkableProjects, type LinkableProject } from '../workspace-projects';
+import { RequestProjectField, RequestProjectInfo } from '../ui/request-project-info';
 import { useHrmPermissions } from '../hrm-permissions';
 import { OnBehalfName } from '../ui/on-behalf-name';
 import {
@@ -956,6 +953,21 @@ export default function RequestsPage() {
             rawDetails: item,
           });
       }
+      // Đơn chờ duyệt trực tiếp: hiện tên người duyệt thay vì nhãn chung. Không đọc được thì giữ nhãn chung.
+      const directApprovers = directApproverIndex(
+        (
+          await hrmFetch<{ data: DirectApproverEntry[] }>('/request-direct-approvers').catch(
+            () => ({ data: [] as DirectApproverEntry[] }),
+          )
+        ).data,
+      );
+      for (const item of mergedList) {
+        if (item.workflowStatus !== 'PENDING_APPROVAL') continue;
+        const raw = withDirectApprover(item.rawDetails, true, directApprovers);
+        if (raw === item.rawDetails) continue;
+        item.rawDetails = raw;
+        if (!item.rawDetails['approvedBy']) item.approver = String(raw['currentAssigneeName']);
+      }
       // Sort newest first
       for (const item of mergedList) {
         if (item.rawDetails.status === 'CANCELLED') {
@@ -1716,6 +1728,9 @@ export default function RequestsPage() {
                 <DetailField label="Mô tả" testId="card-description">
                   {detailRow.description}
                 </DetailField>
+                {(detailRow.kind === 'ot' || detailRow.kind === 'business_trip') && (
+                  <RequestProjectField details={detailRow.rawDetails} projects={workspaceProjects} />
+                )}
                 <DetailField label="Người tạo">
                   {profile.fullName || '----'}
                   {profile.employeeCode ? ` (${profile.employeeCode})` : ''}
@@ -2049,26 +2064,6 @@ export default function RequestsPage() {
                           </span>
                         </div>
                       )}
-                    {(Boolean(
-                      (selectedRequest.rawDetails as any)?.attributes
-                        ?.projectName,
-                    ) ||
-                      Boolean(
-                        (selectedRequest.rawDetails as any)?.projectName,
-                      )) && (
-                        <div className="flex justify-between items-center">
-                          <span>Dự án liên quan:</span>
-                          <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
-                            {String(
-                              (selectedRequest.rawDetails as any)?.attributes
-                                ?.projectName ||
-                              (selectedRequest.rawDetails as any)
-                                ?.projectName ||
-                              '',
-                            )}
-                          </span>
-                        </div>
-                      )}
                     {Boolean(selectedRequest.rawDetails?.isNightOt) && (
                       <div className="flex justify-between text-blue-700 font-semibold">
                         <span>Phụ trội ca đêm:</span>
@@ -2185,45 +2180,6 @@ export default function RequestsPage() {
                         </div>
                       )}
 
-                    {/* Dự án liên kết */}
-                    {(() => {
-                      const link = selectedRequest.rawDetails?.projectLink as
-                        | {
-                            projectCode?: string;
-                            projectName?: string;
-                            status?: string;
-                            projectRequestCode?: string;
-                            rejectionReason?: string;
-                          }
-                        | undefined;
-                      const label =
-                        projectLabel({
-                          code: link?.projectCode,
-                          name:
-                            link?.projectName ??
-                            (selectedRequest.rawDetails?.projectName as string | undefined),
-                        }) || String(selectedRequest.rawDetails?.projectId ?? '');
-                      if (!label) return null;
-                      return (
-                        <div className="flex justify-between items-start gap-3">
-                          <span>Dự án liên kết:</span>
-                          <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
-                            {label}
-                            {link ? (
-                              <span className="text-[12px] text-slate-500 font-mono block">
-                                {link.projectRequestCode
-                                  ? `Mã đơn trong dự án: ${link.projectRequestCode}`
-                                  : (PROJECT_LINK_STATUS_LABEL[link.status ?? ''] ?? link.status)}
-                                {link.status === 'REJECTED' && link.rejectionReason
-                                  ? ` — ${link.rejectionReason}`
-                                  : ''}
-                              </span>
-                            ) : null}
-                          </span>
-                        </div>
-                      );
-                    })()}
-
                     {/* Bảng phụ phí (Surcharges) nếu có */}
                     {Array.isArray(
                       (selectedRequest.rawDetails as any)?.attributes
@@ -2285,6 +2241,13 @@ export default function RequestsPage() {
                         )}
                     </div>
                   </>
+                )}
+                {(selectedRequest?.kind === 'ot' ||
+                  selectedRequest?.kind === 'business_trip') && (
+                  <RequestProjectInfo
+                    details={selectedRequest.rawDetails}
+                    projects={workspaceProjects}
+                  />
                 )}
                 {selectedRequest?.kind === 'shift_change' && (
                   <div className="flex justify-between">

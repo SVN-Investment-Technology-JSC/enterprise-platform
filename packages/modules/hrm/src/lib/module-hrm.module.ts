@@ -45,6 +45,7 @@ import { HrmApprovalScopeController } from './presentation/hrm-approval-scope.co
 import { HrmRequestCommentController } from './presentation/hrm-request-comment.controller.js';
 import { HrmApprovalRouteController } from './presentation/hrm-approval-route.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
+import { HrmCustodyController } from './presentation/hrm-custody.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 import { HrmContractController } from './presentation/hrm-contract.controller.js';
 import { HrmInternalController } from './presentation/hrm-internal.controller.js';
@@ -63,6 +64,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmTaskApprovalController,
     HrmPayrollSodController,
     HrmContractController,
+    HrmCustodyController,
     HrmDependentController,
     HrmCapabilitiesController,
     HrmOperationsController,

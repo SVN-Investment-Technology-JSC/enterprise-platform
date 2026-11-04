@@ -27,6 +27,20 @@ const data = (status = 'running'): ProcedureProgressData => ({
 });
 
 describe('ProcedureProgressPanel', () => {
+  it('người duyệt của đơn chỉ gán cho bước cuối đã xử lý, không gán cho bước trước không có nhãn', () => {
+    const progress: ProcedureProgressData = {
+      ...data('completed'),
+      steps: [
+        { id: 's1', name: 'Nộp đơn', status: 'completed', order: 1 },
+        { id: 's2', name: 'Quản lý duyệt', status: 'completed', order: 2 },
+      ],
+    };
+    render(<ProcedureProgressPanel progress={progress} loading={false} approverName="Trần Duyệt" />);
+    const labels = screen.getAllByTestId('step-role-title');
+    expect(labels).toHaveLength(1);
+    expect(labels[0].textContent).toContain('Trần Duyệt');
+  });
+
   it('hiển thị bước, người xử lý, SLA và người đang chờ', () => {
     render(<ProcedureProgressPanel progress={data()} loading={false} />);
     expect(screen.getByText('PE-001')).toBeTruthy();

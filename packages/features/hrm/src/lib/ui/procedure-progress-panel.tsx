@@ -136,6 +136,10 @@ export function ProcedureProgressPanel({
       })
     : null;
 
+  const lastDecidedIndex = progress
+    ? progress.steps.reduce((last, st, idx) => (['completed', 'rejected'].includes(st.status) ? idx : last), -1)
+    : -1;
+
   return (
     <div className="space-y-2.5" data-testid="procedure-progress-panel">
       <div className="flex items-center justify-between">
@@ -214,6 +218,8 @@ export function ProcedureProgressPanel({
               const isCompleted = st.status === 'completed';
               const isRejected = st.status === 'rejected';
               const isActive = st.status === 'active' || st.status === 'ready';
+              // Người duyệt của đơn là người quyết định bước cuối đã xử lý; không gán cho các bước trước.
+              const fallbackApprover = idx === lastDecidedIndex ? approverName : undefined;
               return (
                 <div
                   key={st.id || idx}
@@ -266,12 +272,12 @@ export function ProcedureProgressPanel({
                       </span>
                     </div>
 
-                    {(st.roleTitle || ((isCompleted || isRejected) && approverName)) && (
+                    {(st.roleTitle || ((isCompleted || isRejected) && fallbackApprover)) && (
                       <div className="text-[11px] text-slate-700 flex items-center gap-1.5" data-testid="step-role-title">
                         <span className="text-slate-500 font-normal">
                           {isCompleted ? 'Người duyệt:' : isRejected ? 'Người từ chối:' : 'Người xử lý:'}
                         </span>
-                        <span className="font-semibold text-slate-900">{st.roleTitle || approverName}</span>
+                        <span className="font-semibold text-slate-900">{st.roleTitle || fallbackApprover}</span>
                       </div>
                     )}
 
