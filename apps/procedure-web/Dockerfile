@@ -29,5 +29,5 @@ COPY --from=build --chown=node:node /workspace/apps/procedure-web/public ./apps/
 COPY --from=build --chown=node:node /workspace/apps/procedure-web/.next/static ./apps/procedure-web/.next/static
 USER node
 EXPOSE 3001
-HEALTHCHECK --interval=15s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3001/modules/procedure').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=60s --timeout=3s --start-period=120s --start-interval=5s CMD node -e "fetch('http://127.0.0.1:3001/modules/procedure').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "apps/procedure-web/server.js"]
