@@ -48,7 +48,7 @@ try {
   {
   const { context, page } = await login('nv1');
   await goto(page, '#quotes');
-  await page.locator('tbody tr.ant-table-row', { hasText: 'Nháp' }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: 'Nháp' }).first().first().click();
   await page.waitForTimeout(3000);
   await page.getByRole('button', { name: /Cập nhật thông tin báo giá/ }).first().click();
   const dlg = page.locator('[role="dialog"]:visible').last();

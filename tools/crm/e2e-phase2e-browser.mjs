@@ -45,7 +45,7 @@ const openByName = async (page, text) => {
   const search = page.locator('input[placeholder*="Tìm"]').first();
   await search.fill(text);
   await page.waitForTimeout(1800);
-  await page.locator('tbody tr.ant-table-row', { hasText: text }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: text }).first().first().click();
   await page.waitForTimeout(3000);
 };
 

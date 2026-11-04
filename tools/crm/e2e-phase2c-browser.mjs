@@ -115,7 +115,7 @@ try {
       for (const [who, expectSee, tc] of [['ql', true, 'TC-DOC-15'], ['ktv', false, 'TC-DOC-16']]) {
         const { context, page } = await login(who);
         await goto(page, '#warranty');
-        await page.locator('tbody tr.ant-table-row', { hasText: row.code }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click().catch(async () => page.getByText(row.code).first().click());
+        await page.locator('tbody tr.ant-table-row', { hasText: row.code }).first().first().click().catch(async () => page.getByText(row.code).first().click());
         await page.waitForTimeout(3000);
         const t = await page.locator('body').innerText();
         const sees = t.includes('Tài liệu thiết bị') && t.includes(`thiet-bi-${stamp}.pdf`);

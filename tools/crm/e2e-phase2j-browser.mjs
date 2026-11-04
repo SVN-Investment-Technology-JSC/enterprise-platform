@@ -96,7 +96,7 @@ try {
   await page.waitForTimeout(1000);
   await page.locator('input[placeholder*="Tìm"]').first().fill(oppName);
   await page.waitForTimeout(1800);
-  await page.locator('tbody tr.ant-table-row', { hasText: oppName }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: oppName }).first().first().click();
   await page.waitForTimeout(2500);
   const psec = page.locator('section[aria-label="Khuyến mãi của dự án"]');
   await psec.waitFor({ timeout: 10000 });
@@ -115,7 +115,7 @@ try {
   await goto(page, '#quotes');
   await page.locator('input[placeholder*="Tìm"]').first().fill(prepared.quoteCode).catch(() => undefined);
   await page.waitForTimeout(1800);
-  await page.locator('tbody tr.ant-table-row', { hasText: prepared.quoteCode }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: prepared.quoteCode }).first().first().click();
   await page.waitForTimeout(3000);
   const qsec = page.locator('section[aria-label="Khuyến mãi"]');
   await qsec.waitFor({ timeout: 10000 });

@@ -42,7 +42,7 @@ const openQuote = async (page, code) => {
   await goto(page, '#quotes');
   const search = page.locator('input[placeholder*="Tìm"]').first();
   if (await search.count()) { await search.fill(code); await page.waitForTimeout(1500); }
-  await page.locator('tbody tr.ant-table-row', { hasText: code }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: code }).first().first().click();
   await page.waitForTimeout(3000);
 };
 const CODE = process.env.PAKD_QUOTE_CODE ?? 'BG2600022';

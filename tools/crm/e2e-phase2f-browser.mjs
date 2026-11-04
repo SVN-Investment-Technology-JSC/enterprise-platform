@@ -50,7 +50,7 @@ const openOpp = async (page, name) => {
   await page.waitForTimeout(1000);
   await page.locator('input[placeholder*="Tìm"]').first().fill(name);
   await page.waitForTimeout(1800);
-  await page.locator('tbody tr.ant-table-row', { hasText: name }).first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row', { hasText: name }).first().first().click();
   await page.waitForTimeout(2500);
 };
 const loseViaDetail = async (page, name, stageLabel) => {
@@ -122,7 +122,7 @@ try {
 
   // TC-CARE-08: ghi chú đơn
   await goto(page, '#orders');
-  await page.locator('tbody tr.ant-table-row').first().getByRole('button', { name: /^(Xem|Mở)$/ }).first().click();
+  await page.locator('tbody tr.ant-table-row').first().first().click();
   await page.waitForTimeout(2500);
   t = await page.locator('body').innerText();
   check('TC-CARE-08 (trình duyệt) đơn bán có khối "Ghi chú thông tin đơn hàng"', /Ghi chú thông tin đơn hàng/.test(t), '');
