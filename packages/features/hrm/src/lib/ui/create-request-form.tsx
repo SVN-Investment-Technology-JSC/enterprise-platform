@@ -3348,24 +3348,8 @@ export function CreateRequestForm({
           size="sm"
           className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold h-8 gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => void handleSubmitRequest(false)}
-          disabled={
-            isSubmitting ||
-            Boolean(reasonBlock) ||
-            (selectedCatalogId === 'custom' && catalogReasons.loading) ||
-            (selectedCatalogId === 'leave' && !leaveValidation.isValid) ||
-            (selectedCatalogId === 'business_trip' &&
-              (!fromDate || !toDate || !destination.trim()))
-          }
-          title={
-            reasonBlock
-              ? reasonBlock
-              : selectedCatalogId === 'leave' && !leaveValidation.isValid
-                ? leaveValidation.errorMessage
-                : selectedCatalogId === 'business_trip' &&
-                  (!fromDate || !toDate || !destination.trim())
-                  ? 'Vui lòng điền đủ ngày và địa điểm công tác'
-                  : undefined
-          }
+          // Chỉ khoá khi đang gửi: thiếu thông tin thì để người dùng bấm và nhận thông báo cụ thể từ handleSubmitRequest.
+          disabled={isSubmitting}
         >
           {isSubmitting ? (
             <Loader2 className="size-3.5 animate-spin" />
