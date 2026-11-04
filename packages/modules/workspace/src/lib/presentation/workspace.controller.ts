@@ -61,7 +61,9 @@ import type {
   UpdateWorkdayRulesRequest,
   UpdateWorkItemRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { CHAT_FEED_PAGE_SIZE } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
+import { createProjectWithInitialTasks } from '../application/project-initial-tasks.js';
 import { ProjectService } from '../application/project.service.js';
 import { ProjectCodeService } from '../application/project-code.service.js';
 import { WorkspaceLabelService } from '../application/workspace-label.service.js';
@@ -308,7 +310,9 @@ export class WorkspaceController {
   @Post('projects')
   @HttpCode(201)
   createProject(@Req() request: WorkspaceRequest, @Body() body: CreateProjectRequest) {
-    return this.execute(() => this.projects.create(this.actor(request), body ?? {}));
+    return this.execute(() =>
+      createProjectWithInitialTasks(this.projects, this.workItems, this.actor(request), body ?? ({} as CreateProjectRequest)),
+    );
   }
 
   /**
@@ -847,6 +851,41 @@ export class WorkspaceController {
   @Delete('chat/messages/:id')
   deleteChatMessage(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.chat.remove(this.actor(request), id));
+  }
+
+  @Get('projects/:id/chat-feed')
+  projectChatFeed(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Query('page') page?: string | string[],
+    @Query('pageSize') pageSize?: string | string[],
+    @Query('q') search?: string | string[],
+    @Query('hasChat') hasChat?: string | string[],
+  ) {
+    // Tham số lặp (`?q=a&q=b`) Express đưa vào dạng mảng; chỉ lấy giá trị đầu cho đúng một giá trị.
+    const one = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value);
+    return this.execute(() =>
+      this.chat.projectFeed(
+        this.actor(request),
+        id,
+        one(page) === undefined || one(page) === '' ? 1 : Number(one(page)),
+        one(pageSize) === undefined || one(pageSize) === '' ? CHAT_FEED_PAGE_SIZE : Number(one(pageSize)),
+        { search: one(search), onlyWithChat: one(hasChat) === '1' || one(hasChat) === 'true' },
+      ),
+    );
+  }
+
+  /** Trao đổi của một công việc, chỉ để đọc (không đánh dấu đã đọc). */
+  @Get('projects/:id/chat-feed/:workItemId')
+  projectChatFeedThread(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('workItemId') workItemId: string,
+    @Query('before') before?: string,
+  ) {
+    return this.execute(() =>
+      this.chat.projectFeedThread(this.actor(request), id, workItemId, before || undefined),
+    );
   }
 
   /**

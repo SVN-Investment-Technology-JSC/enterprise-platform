@@ -43,7 +43,7 @@ import { ReportsView } from './components/reports-view';
 import { ProjectGroupSettings } from './components/project-group-settings';
 import { ProjectCodeSettings } from './components/project-code-settings';
 import { LabelSettings } from './components/label-settings';
-import { ProjectArchiveSettings } from './components/project-archive-settings';
+import { GeneralSettings } from './components/general-settings';
 import { ProjectRoleSettings } from './components/project-role-settings';
 import { TagSettings } from './components/tag-settings';
 import { ProjectsView } from './components/projects-view';
@@ -119,6 +119,14 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
 /** Các mục trong trang Cài đặt; `#settings/<id>` mở thẳng mục đó. */
 const SETTINGS_SECTIONS = [
   {
+    id: 'general',
+    label: 'Cấu hình chung',
+    bare: true,
+    description:
+      'Những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant: tự đóng hồ sơ, mở lưu trữ dự án đã hoàn thành, trao đổi trong dự án lưu trữ.',
+    render: () => <GeneralSettings />,
+  },
+  {
     id: 'project-roles',
     label: 'Vai trò trong dự án',
     description:
@@ -145,13 +153,6 @@ const SETTINGS_SECTIONS = [
     description:
       'Tên, màu và thứ tự của trạng thái công việc, trạng thái dự án và mức ưu tiên. Thêm hoặc xoá mức ưu tiên tuỳ ý.',
     render: () => <LabelSettings />,
-  },
-  {
-    id: 'project-archive',
-    label: 'Đóng hồ sơ dự án',
-    description:
-      'Tự đóng hồ sơ (đưa vào Lưu trữ) khi mọi công việc của dự án đã hoàn thành hoặc đã huỷ. Đóng hồ sơ thủ công luôn dùng được.',
-    render: () => <ProjectArchiveSettings />,
   },
   {
     id: 'tags',

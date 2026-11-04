@@ -9,7 +9,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
-import { hasProjectRole, type ProjectService } from './project.service.js';
+import { assertProjectWritable, hasProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -47,6 +47,7 @@ export class ProjectRequestService {
     const request = await this.store.projectRequest.findById(actor.tenantId, projectRequestId);
     if (!request) throw new WorkspaceValidationError('Không tìm thấy đơn từ.');
     const access = await this.projects.access(actor, request.projectId);
+    assertProjectWritable(access.project);
     const reason = String(input?.reason ?? '').trim();
     if (reason.length < 3) {
       throw new WorkspaceValidationError('Lý do huỷ hiệu lực cần ít nhất 3 ký tự.');

@@ -1,9 +1,10 @@
 'use client';
 
 import type { DirectoryPerson } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import styles from '../workspace.module.scss';
+import { MultiSelectBox } from './multi-select-box';
 import { fold } from './people-picker';
 
 export interface ProjectPeoplePickerProps {
@@ -28,9 +29,9 @@ export function personDetail(person: DirectoryPerson): string {
 }
 
 /**
- * Chọn nhiều người theo dự án, cùng kiểu ô "Người phụ trách": bấm vào ô là mở danh sách, thành viên dự án đứng
- * đầu, người ngoài dự án gập sau nút "Ngoài dự án" kèm hai ô lọc riêng (tên; chức danh / bộ phận). Chọn một người
- * thì danh sách vẫn mở để chọn tiếp; người đã chọn hiện thành chip phía trên.
+ * Chọn nhiều người theo dự án, kiểu Select nhiều lựa chọn (xem `MultiSelectBox`): người đã chọn hiện thành chip
+ * ngay trong ô, dư thì gộp "+n". Danh sách xổ ra nổi trên form: thành viên dự án đứng đầu, người ngoài dự án gập sau
+ * nút "Ngoài dự án" kèm hai ô lọc riêng (tên; chức danh / bộ phận). Chọn một người thì danh sách vẫn mở để chọn tiếp.
  */
 export function ProjectPeoplePicker({
   people,
@@ -50,18 +51,6 @@ export function ProjectPeoplePicker({
   const [detailFilter, setDetailFilter] = useState('');
   /** Dòng đang được chọn bằng phím Lên/Xuống, đếm trên cả hai nhóm đang hiện. */
   const [active, setActive] = useState(-1);
-  const box = useRef<HTMLDivElement>(null);
-
-  // Bấm ra ngoài thì đóng danh sách. Đóng ở `click` chứ không ở `mousedown`: danh sách nằm trong luồng trang, gập
-  // lúc nhấn chuột thì nút bên dưới (vd "Lưu thay đổi") dịch lên và cú bấm trượt khỏi nút.
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', close, true);
-    return () => document.removeEventListener('click', close, true);
-  }, [open]);
 
   const { inside, outside, outsideTotal } = useMemo(() => {
     const hidden = new Set([...selected, ...exclude]);
@@ -94,9 +83,7 @@ export function ProjectPeoplePicker({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Tab') {
-      setOpen(false);
-    } else if (event.key === 'Enter') {
+    if (event.key === 'Enter') {
       // Ô nằm trong `<form>` của hộp thoại: để Enter lọt xuống là gửi luôn cả form.
       event.preventDefault();
       const person = visible[active];
@@ -142,102 +129,91 @@ export function ProjectPeoplePicker({
     );
   };
 
-  return (
-    <div ref={box} className={styles.peoplePicker}>
-      {selected.length > 0 ? (
-        <ul className={styles.chipList}>
-          {selected.map((userId) => (
-            <li key={userId} className={styles.chip}>
-              {nameOf(userId)}
-              {memberIds.has(userId) ? null : <span className={styles.outsideTag}>Ngoài dự án</span>}
-              {disabled ? null : (
-                <button
-                  type="button"
-                  aria-label={`Bỏ ${nameOf(userId)}`}
-                  onClick={() => onChange(selected.filter((entry) => entry !== userId))}
-                >
-                  <X size={11} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+  if (!disabled && loaded && people.length === 0) {
+    return (
+      <p className={styles.muted} role="status">
+        Danh bạ tổ chức đang trống. Quản trị viên tenant cần bổ nhiệm người vào chức danh ở Tenant Portal trước.
+      </p>
+    );
+  }
 
-      {disabled ? null : loaded && people.length === 0 ? (
-        <p className={styles.muted} role="status">
-          Danh bạ tổ chức đang trống. Quản trị viên tenant cần bổ nhiệm người vào chức danh ở Tenant Portal trước.
-        </p>
-      ) : (
-        <>
-          <input
-            value={term}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            onFocus={() => setOpen(true)}
-            onClick={() => setOpen(true)}
-            onChange={(event) => {
-              setTerm(event.target.value);
-              setOpen(true);
-              setActive(-1);
-            }}
-            onKeyDown={onKeyDown}
-          />
-          {open ? (
-            <ul className={styles.groupPickerList} role="listbox" aria-multiselectable="true">
-              {inside.map(row)}
-              {inside.length === 0 ? (
-                <li className={styles.groupPickerEmpty}>
-                  {term.trim() ? 'Không có thành viên dự án nào khớp.' : 'Đã chọn hết thành viên dự án.'}
-                </li>
-              ) : null}
-              {outsideTotal > 0 ? (
-                <li>
-                  <button
-                    type="button"
-                    className={styles.groupPickerToggle}
-                    aria-expanded={outsideOpen}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setOutsideOpen((value) => !value)}
-                  >
-                    <span>Ngoài dự án ({outsideTotal})</span>
-                    <ChevronDown
-                      size={14}
-                      style={{ transform: outsideOpen ? 'rotate(180deg)' : undefined }}
-                    />
-                  </button>
-                </li>
-              ) : null}
-              {outsideOpen && outsideTotal > 0 ? (
-                <li className={styles.groupPickerFilters}>
-                  <input
-                    value={nameFilter}
-                    placeholder="Tên"
-                    aria-label="Lọc người ngoài dự án theo tên"
-                    onChange={(event) => {
-                      setNameFilter(event.target.value);
-                      setActive(-1);
-                    }}
-                  />
-                  <input
-                    value={detailFilter}
-                    placeholder="Chức danh / bộ phận"
-                    aria-label="Lọc người ngoài dự án theo chức danh hoặc bộ phận"
-                    onChange={(event) => {
-                      setDetailFilter(event.target.value);
-                      setActive(-1);
-                    }}
-                  />
-                </li>
-              ) : null}
-              {showOutside ? outside.map((person, offset) => row(person, inside.length + offset)) : null}
-              {outsideOpen && outsideTotal > 0 && outside.length === 0 ? (
-                <li className={styles.groupPickerEmpty}>Không có ai khớp.</li>
-              ) : null}
-            </ul>
-          ) : null}
-        </>
-      )}
-    </div>
+  return (
+    <MultiSelectBox
+      chips={selected.map((userId) => {
+        const outsideProject = !memberIds.has(userId);
+        return {
+          id: userId,
+          label: nameOf(userId),
+          title: outsideProject ? `${nameOf(userId)} (ngoài dự án)` : nameOf(userId),
+          dashed: outsideProject,
+        };
+      })}
+      onRemove={(userId) => onChange(selected.filter((entry) => entry !== userId))}
+      term={term}
+      onTermChange={(next) => {
+        setTerm(next);
+        setActive(-1);
+      }}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      open={open}
+      onOpenChange={setOpen}
+      disabled={disabled}
+    >
+      <ul className={styles.groupPickerList} role="listbox" aria-multiselectable="true">
+        {inside.map(row)}
+        {inside.length === 0 ? (
+          <li className={styles.groupPickerEmpty}>
+            {term.trim() ? 'Không có thành viên dự án nào khớp.' : 'Đã chọn hết thành viên dự án.'}
+          </li>
+        ) : null}
+        {outsideTotal > 0 ? (
+          <li>
+            <button
+              type="button"
+              className={styles.groupPickerToggle}
+              aria-expanded={outsideOpen}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setOutsideOpen((value) => !value)}
+            >
+              <span>Ngoài dự án ({outsideTotal})</span>
+              <ChevronDown size={14} style={{ transform: outsideOpen ? 'rotate(180deg)' : undefined }} />
+            </button>
+          </li>
+        ) : null}
+        {outsideOpen && outsideTotal > 0 ? (
+          <li className={styles.groupPickerFilters}>
+            <input
+              value={nameFilter}
+              placeholder="Tên"
+              aria-label="Lọc người ngoài dự án theo tên"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.preventDefault();
+              }}
+              onChange={(event) => {
+                setNameFilter(event.target.value);
+                setActive(-1);
+              }}
+            />
+            <input
+              value={detailFilter}
+              placeholder="Chức danh / bộ phận"
+              aria-label="Lọc người ngoài dự án theo chức danh hoặc bộ phận"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.preventDefault();
+              }}
+              onChange={(event) => {
+                setDetailFilter(event.target.value);
+                setActive(-1);
+              }}
+            />
+          </li>
+        ) : null}
+        {showOutside ? outside.map((person, offset) => row(person, inside.length + offset)) : null}
+        {outsideOpen && outsideTotal > 0 && outside.length === 0 ? (
+          <li className={styles.groupPickerEmpty}>Không có ai khớp.</li>
+        ) : null}
+      </ul>
+    </MultiSelectBox>
   );
 }

@@ -78,6 +78,11 @@ $danger: #dc2626;
   }
 }
 
+/* Ngăn kéo bên phải của màn hình đang mở thì nhường chỗ: nút này nằm đúng nút Gửi của ngăn kéo. */
+:global(body[data-side-drawer='open']) .launcher {
+  display: none;
+}
+
 .launcherOpen {
   background: #18181b;
   color: #ffffff;

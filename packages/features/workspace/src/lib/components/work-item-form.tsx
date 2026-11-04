@@ -7,6 +7,7 @@ import {
   type UpdateWorkItemRequest,
   type WorkItem,
   type WorkItemPriority,
+  type WorkItemReopenPolicy,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
 import { fromLocalInput, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
@@ -14,11 +15,21 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FormPrefill, WorkItemPrefill } from '../assistant-drafts';
+import {
+  completionDraftOf,
+  completionInputOf,
+  completionPatchOf,
+  completionProblem,
+  emptyCompletion,
+  type CompletionDraft,
+} from '../completion-draft';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
 import { priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 import { Choice } from './choice';
+import { ReopenPolicyField, reopenPolicyOf } from './reopen-policy-field';
+import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ConfirmBox } from './confirm-box';
 import { Dialog, Field } from './dialog';
 import { ProjectPeoplePicker } from './project-people-picker';
@@ -72,7 +83,7 @@ export interface WorkItemFormProps {
    * Ô chọn luôn hiện thêm mục "Gốc dự án" (giá trị rỗng) ở đầu. Vắng thì chỉ
    * có mỗi "Gốc dự án".
    */
-  readonly parentOptions?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  readonly parentOptions?: ReadonlyArray<{ readonly id: string; readonly label: string; readonly done?: boolean }>;
   /** Công việc cha chọn sẵn; rỗng nghĩa là "Gốc dự án". */
   readonly defaultParentId?: string;
   /**
@@ -101,6 +112,9 @@ interface FormState {
   plannedEnd: string;
   estimateHours: string;
   procedureDefinitionId: string;
+  completion: CompletionDraft;
+  reopenPolicy: WorkItemReopenPolicy;
+  reopenParent: boolean;
 }
 
 const EMPTY: FormState = {
@@ -118,6 +132,9 @@ const EMPTY: FormState = {
   plannedEnd: '',
   estimateHours: '',
   procedureDefinitionId: '',
+  completion: emptyCompletion(),
+  reopenPolicy: 'assignee',
+  reopenParent: false,
 };
 
 export function WorkItemForm({
@@ -179,6 +196,9 @@ export function WorkItemForm({
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
             procedureDefinitionId: '',
+            completion: completionDraftOf(item.completion),
+            reopenPolicy: reopenPolicyOf(item.reopenPolicy),
+            reopenParent: false,
           }
         : adjustmentOf
           ? {
@@ -197,6 +217,7 @@ export function WorkItemForm({
               plannedEnd: adjustmentOf.plannedEnd ?? '',
               estimateHours:
                 adjustmentOf.estimateHours == null ? '' : String(adjustmentOf.estimateHours),
+              completion: completionDraftOf(adjustmentOf.completion, false),
             }
           : { ...EMPTY, parentId: defaultParentId ?? parent?.id ?? '' };
     setForm(initial);
@@ -248,6 +269,8 @@ export function WorkItemForm({
                 assigneeUserId: last.assigneeUserId,
                 plannedStart: last.plannedStart,
                 plannedEnd: last.plannedEnd,
+                reopenPolicy: last.reopenPolicy,
+                reopenParent: last.reopenParent,
               }
             : {},
         ),
@@ -306,6 +329,15 @@ export function WorkItemForm({
   // Nhóm công việc chỉ là vỏ chứa: server từ chối người phụ trách và giờ ước
   // lượng trên nó, nên ẩn hai ô đó thay vì để người dùng nhập rồi báo lỗi.
   const isPhase = form.itemType === 'phase';
+
+  // Điều kiện hoàn thành do người giao việc đặt: người nhận việc chỉ xem, khớp quy tắc ở server.
+  const conditionsLocked = !item
+    ? undefined
+    : item.status === 'done'
+      ? 'Công việc đã hoàn thành. Mở lại công việc trước khi sửa điều kiện hoàn thành.'
+      : !canAssignOthers && item.createdBy !== currentUserId
+        ? 'Điều kiện hoàn thành do người giao việc đặt; bạn chỉ xem được.'
+        : undefined;
 
   // Chỉ thành viên dự án mới cùng làm được; người chưa có trong danh bạ tổ
   // chức vẫn hiện bằng tên server trả về.
@@ -444,6 +476,15 @@ export function WorkItemForm({
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
           transport: transportBlock,
+          // Chỉ gửi khi thật sự đổi và được phép sửa: người nhận việc lưu các trường khác không bị chặn nhầm.
+          completion:
+            isPhase || conditionsLocked
+              ? undefined
+              : completionPatchOf(form.completion, item?.completion),
+          reopenPolicy:
+            isPhase || conditionsLocked || form.reopenPolicy === reopenPolicyOf(item?.reopenPolicy)
+              ? undefined
+              : form.reopenPolicy,
         },
         addMemberUserIds.length > 0 ? addMemberUserIds : undefined,
       );
@@ -460,6 +501,11 @@ export function WorkItemForm({
       // Nhóm công việc không đi lại; các loại khác: xe công ty phải chọn đủ xe, tài xế và giờ.
       if (!isPhase && transport.value.mode && transport.problem) {
         setError(transport.problem);
+        return;
+      }
+      const conditionProblem = isPhase || conditionsLocked ? undefined : completionProblem(form.completion);
+      if (conditionProblem) {
+        setError(conditionProblem);
         return;
       }
       // Người phụ trách mới chưa thuộc dự án: hỏi xác nhận trước khi thêm họ vào dự án.
@@ -489,6 +535,15 @@ export function WorkItemForm({
       const rowTransport = transports.current.get(row.key);
       if (row.itemType !== 'phase' && rowTransport?.value.mode && rowTransport.problem) {
         setError(`${label}${rowTransport.problem}`);
+        return;
+      }
+      const conditionProblem = row.itemType === 'phase' ? undefined : completionProblem(row.completion);
+      if (conditionProblem) {
+        setError(`${label}${conditionProblem}`);
+        return;
+      }
+      if (!row.reopenParent && (parentOptions ?? []).some((option) => option.id === row.parentId && option.done)) {
+        setError(`${label}công việc cha đã hoàn thành. Hãy chọn mở lại công việc cha, hoặc chọn công việc cha khác.`);
         return;
       }
     }
@@ -536,6 +591,9 @@ export function WorkItemForm({
             estimateHours: phase ? undefined : hours,
             adjustmentOfId: adjustmentOf?.id,
             transport: phase ? undefined : (transports.current.get(row.key)?.payload() ?? undefined),
+            completion: phase ? undefined : completionInputOf(row.completion),
+            reopenPolicy: phase ? undefined : row.reopenPolicy,
+            reopenParent: row.reopenParent || undefined,
           },
           procedure ? row.procedureDefinitionId : undefined,
           // Người ngoài dự án chỉ cần thêm vào dự án một lần, ở việc đầu tiên.
@@ -599,6 +657,7 @@ export function WorkItemForm({
           nameOf={directory.nameOf}
           directoryLoaded={directory.loaded}
           transport={transport}
+          conditionsLocked={conditionsLocked}
         />
       ) : (
         <>
@@ -646,6 +705,7 @@ export function WorkItemForm({
                 parentOptions={(parentOptions ?? []).map((option) => ({
                   value: option.id,
                   label: option.label,
+                  done: option.done,
                 }))}
                 procedures={procedures}
               />
@@ -709,7 +769,9 @@ function EditFields({
   nameOf,
   directoryLoaded,
   transport,
+  conditionsLocked,
 }: {
+  readonly conditionsLocked?: string;
   readonly form: FormState;
   readonly set: (patch: Partial<FormState>) => void;
   readonly isPhase: boolean;
@@ -807,6 +869,29 @@ function EditFields({
           />
         </Field>
       </div>
+
+      {isPhase ? null : (
+        <div className={styles.draftOptions}>
+          <CompletionConditionsEditor
+            idPrefix="edit"
+            value={form.completion}
+            readOnly={Boolean(conditionsLocked)}
+            readOnlyReason={conditionsLocked}
+            onChange={(completion) => set({ completion })}
+          />
+          <ReopenPolicyField
+            idPrefix="edit"
+            value={form.reopenPolicy}
+            readOnly={Boolean(conditionsLocked)}
+            readOnlyReason={
+              conditionsLocked?.startsWith('Công việc đã hoàn thành')
+                ? 'Công việc đã hoàn thành. Mở lại công việc trước khi đổi quy định hoàn tác.'
+                : 'Quy định hoàn tác do người giao việc đặt; bạn chỉ xem được.'
+            }
+            onChange={(reopenPolicy) => set({ reopenPolicy })}
+          />
+        </div>
+      )}
 
       {isPhase ? null : (
         <TransportSection state={transport} editableRange idPrefix="work-item-transport" />

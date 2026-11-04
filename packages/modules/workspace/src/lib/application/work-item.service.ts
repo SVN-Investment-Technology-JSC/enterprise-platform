@@ -1,6 +1,8 @@
 import {
+  DEFAULT_WORK_ITEM_REOPEN_POLICY,
   DEPENDENCY_TYPES,
   WORK_ITEM_EXECUTION_TYPES,
+  WORK_ITEM_REOPEN_POLICIES,
   WORK_ITEM_STATUSES,
   WORK_ITEM_STATUS_TRANSITIONS,
   WORK_ITEM_TYPES,
@@ -18,6 +20,7 @@ import {
   type WorkItemTree,
   type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { evaluateCompletion, parseCompletionInput } from '../domain/completion.rules.js';
 import {
   autoCompleteParents,
   isClosed,
@@ -37,17 +40,21 @@ import {
   ChildIncompleteError,
   DependencyBlockedError,
   DependencyCycleError,
+  ParentItemDoneError,
   ProjectRoleForbiddenError,
+  ReopenNotAllowedError,
   WorkItemAssigneeOnlyError,
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import {
   hasProjectPermission,
+  assertProjectWritable,
   hasProjectRole,
   requireProjectPermission,
   requireProjectRole,
   seesAllProjects,
+  type ProjectAccess,
   type ProjectService,
 } from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
@@ -140,6 +147,7 @@ export class WorkItemService {
   ): Promise<WorkItem> {
     const access = await this.projects.access(actor, String(input.projectId ?? ''));
     requireProjectRole(access, 'member');
+    assertProjectWritable(access.project);
 
     const title = requireText(input.title, 'Tên công việc', 200);
     const itemType = pick(input.itemType, WORK_ITEM_TYPES, 'task');
@@ -170,6 +178,15 @@ export class WorkItemService {
         `Công việc ${parent.code} đã huỷ hiệu lực, không thêm được việc con.`,
       );
     }
+    // Cha đã hoàn thành mà thêm con thì cha không còn đúng: hoặc mở lại cha (và các cha đã xong phía trên), hoặc
+    // từ chối. Kiểm hết quyền ở đây, trước khi ghi, để từ chối không để lại việc dở dang.
+    // Việc do Quy trình nhờ tạo (`linkedInstance`) không có người dùng để hỏi nên giữ cách cũ: tạo dưới cha, không mở lại.
+    const reopenChain = parent?.status === 'done' && !linkedInstance ? doneChain(siblings, parent) : [];
+    if (reopenChain.length > 0) {
+      if (input.reopenParent !== true) throw new ParentItemDoneError(reopenChain[0].code);
+      for (const node of reopenChain) assertCanReopen(access, node, actor.userId);
+    }
+    const reopenPolicy = pick(input.reopenPolicy, WORK_ITEM_REOPEN_POLICIES, DEFAULT_WORK_ITEM_REOPEN_POLICY);
 
     const depth = depthFor(parent);
     assertDepthWithinLimit(depth);
@@ -202,9 +219,12 @@ export class WorkItemService {
     // Kiểm hình thức phương tiện trước khi lưu công việc để lỗi nhập liệu không để lại công việc dở dang.
     const { transport, ...itemInput } = input;
     const parsedTransport = transport ? parseTransport(transport) : undefined;
+    const completion = parseCompletionInput(input.completion, itemType);
 
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
       ...itemInput,
+      completion,
+      reopenPolicy,
       adjustmentOfId,
       procedureDefinitionId,
       participantUserIds,
@@ -229,6 +249,21 @@ export class WorkItemService {
         : undefined,
     });
 
+    if (reopenChain.length > 0) {
+      const today = todayKey(timezoneOf(actor.tenantId));
+      // Từ cha ngoài cùng xuống: nhật ký đọc đúng thứ tự mở.
+      for (const node of [...reopenChain].reverse()) {
+        await this.store.workItem.changeStatus(
+          actor.tenantId,
+          node.id,
+          actor.userId,
+          'in_progress',
+          `Mở lại để thêm công việc con ${created.code}.`,
+          today,
+        );
+      }
+      await this.projects.onItemReopened(actor.tenantId, actor.userId, access.project.id);
+    }
     await this.recalculate(actor, access.project.id);
     await this.fleet?.apply(
       actor,
@@ -252,6 +287,7 @@ export class WorkItemService {
     definitionId: string,
   ): Promise<WorkItemProcedureRequest> {
     const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
     requireProjectRole(access, 'member');
     // Cùng luật với lúc tạo: nhóm công việc chỉ là vỏ chứa, không chạy quy trình.
     if (item.itemType === 'phase') {
@@ -282,6 +318,7 @@ export class WorkItemService {
     input: UpdateWorkItemRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
     // `member` chỉ sửa được việc mình phụ trách hay cùng làm; từ `manager` trở
     // lên sửa mọi việc.
     if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
@@ -318,6 +355,40 @@ export class WorkItemService {
       input.plannedStart === undefined ? item.plannedStart : input.plannedStart,
       input.plannedEnd === undefined ? item.plannedEnd : input.plannedEnd,
     );
+
+    // Điều kiện hoàn thành do người giao việc đặt: người nhận việc không tự gỡ hay nới điều kiện của chính mình.
+    if (input.completion !== undefined) {
+      if (!hasProjectRole(access, 'manager') && item.createdBy !== actor.userId) {
+        throw new ProjectRoleForbiddenError('manager');
+      }
+      if (item.status === 'done') {
+        throw new WorkspaceValidationError(
+          'Công việc đã hoàn thành; mở lại công việc trước khi sửa điều kiện hoàn thành.',
+        );
+      }
+      Object.assign(patch, {
+        completion: parseCompletionInput(input.completion, item.itemType) ?? null,
+      });
+    }
+
+    // Ai được hoàn tác cũng do người giao việc đặt, cùng luật với điều kiện hoàn thành. Việc đã xong thì không đổi,
+    // kẻo người tạo gỡ khoá của chính việc đã chốt.
+    if (input.reopenPolicy !== undefined) {
+      if (!hasProjectRole(access, 'manager') && item.createdBy !== actor.userId) {
+        throw new ProjectRoleForbiddenError('manager');
+      }
+      if (item.status === 'done' && input.reopenPolicy !== item.reopenPolicy) {
+        throw new WorkspaceValidationError(
+          'Công việc đã hoàn thành; mở lại công việc trước khi đổi quy định hoàn tác.',
+        );
+      }
+      Object.assign(patch, {
+        reopenPolicy: pick(input.reopenPolicy, WORK_ITEM_REOPEN_POLICIES, undefined),
+      });
+      if (patch.reopenPolicy === undefined) {
+        throw new WorkspaceValidationError('Quy định hoàn tác không hợp lệ.');
+      }
+    }
 
     // Đổi người phụ trách là giao việc, dù `member` được sửa các trường khác
     // của việc mình: không được đẩy việc của mình sang người khác.
@@ -379,6 +450,7 @@ export class WorkItemService {
     input: ChangeWorkItemStatusRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
     const next = pick(input.status, WORK_ITEM_STATUSES, undefined);
     if (!next) throw new WorkspaceValidationError(`Trạng thái "${input.status}" không hợp lệ.`);
 
@@ -407,6 +479,10 @@ export class WorkItemService {
           `Từ trạng thái hiện tại chỉ chuyển được sang: ${allowed}.`,
       );
     }
+
+    // Hoàn tác việc đã hoàn thành: theo quy định người tạo việc đặt (xem `WorkItemReopenPolicy`).
+    const reopening = item.status === 'done';
+    if (reopening) assertCanReopen(access, item, actor.userId);
 
     // Mở lại một công việc điều chỉnh đã huỷ: công việc gốc chỉ có một công
     // việc điều chỉnh còn hiệu lực (unique index), báo rõ thay vì lỗi 500.
@@ -443,7 +519,16 @@ export class WorkItemService {
       }
     }
 
-    // 4 và 5 — mốc thực tế và nhật ký ghi trong cùng một transaction ở store.
+    // 4 — điều kiện hoàn thành. Server là nơi chặn thật: nút bị khoá ở giao diện không thay được việc này.
+    const completionEvidence =
+      next === 'done'
+        ? evaluateCompletion(
+            item.completion,
+            Array.isArray(input.confirmedConditionIds) ? input.confirmedConditionIds : undefined,
+          )
+        : undefined;
+
+    // 5 và 6 — mốc thực tế và nhật ký ghi trong cùng một transaction ở store.
     const updated = await this.store.workItem.changeStatus(
       actor.tenantId,
       workItemId,
@@ -451,7 +536,27 @@ export class WorkItemService {
       next,
       input.note?.trim() || undefined,
       todayKey(timezoneOf(actor.tenantId)),
+      completionEvidence,
     );
+    if (reopening) {
+      // Việc con được hoàn tác thì các cha đã xong phía trên không còn đúng là đã xong: mở lại luôn (từ ngoài vào trong).
+      // Đây là hệ quả của việc hoàn tác, không phải thao tác riêng nên không kiểm quyền hoàn tác của từng cha.
+      const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+      const parentNode = item.parentId ? all.find((node) => node.id === item.parentId) : undefined;
+      const today = todayKey(timezoneOf(actor.tenantId));
+      for (const ancestor of parentNode ? [...doneChain(all, parentNode)].reverse() : []) {
+        await this.store.workItem.changeStatus(
+          actor.tenantId,
+          ancestor.id,
+          actor.userId,
+          'in_progress',
+          `Mở lại vì công việc con ${item.code} được hoàn tác.`,
+          today,
+        );
+      }
+      // Dự án đã Hoàn thành mà có việc được hoàn tác: về Đang chạy hay giữ nguyên, theo cài đặt của tenant.
+      await this.projects.onItemReopened(actor.tenantId, actor.userId, item.projectId);
+    }
     await this.recalculate(actor, item.projectId);
     // Công việc bị huỷ thì trả xe đã giữ.
     if (next === 'cancelled') await this.fleet?.release(actor.tenantId, 'WORK_ITEM', workItemId);
@@ -472,6 +577,7 @@ export class WorkItemService {
     input: ReverseWorkItemRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
     if (!hasProjectRole(access, 'owner')) {
       throw new ProjectRoleForbiddenError('chủ nhiệm dự án hoặc quản trị');
     }
@@ -592,6 +698,7 @@ export class WorkItemService {
     input: MoveWorkItemRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
     requireProjectRole(access, 'manager');
 
     const nodes = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
@@ -600,6 +707,10 @@ export class WorkItemService {
     if (parentId && !parent) throw new WorkItemNotFoundError(parentId);
     // Kiểm tra chu trình và giới hạn độ sâu của node SÂU NHẤT trong nhánh.
     assertMoveAllowed(nodes, workItemId, parent);
+    // Đưa việc chưa xong vào cha đã hoàn thành thì cha không còn đúng: yêu cầu mở lại cha trước, như khi tạo việc con.
+    if (parent?.status === 'done' && item.status !== 'done' && item.status !== 'cancelled') {
+      throw new ParentItemDoneError(parent.code);
+    }
 
     const sortOrder =
       input.sortOrder != null ? Math.max(Math.trunc(Number(input.sortOrder)), 0) : nextSortOrder(
@@ -657,6 +768,7 @@ export class WorkItemService {
     input: AddDependencyRequest,
   ): Promise<WorkItemDependency> {
     const { item, access } = await this.load(actor, successorId);
+    assertProjectWritable(access.project);
     requireProjectRole(access, 'manager');
 
     const predecessorId = String(input.predecessorId ?? '');
@@ -698,6 +810,7 @@ export class WorkItemService {
     dependencyId: string,
   ): Promise<void> {
     const { item, access } = await this.load(actor, successorId);
+    assertProjectWritable(access.project);
     requireProjectRole(access, 'manager');
 
     // Xác minh cạnh thuộc đúng công việc đang thao tác, để một id lạ không xoá
@@ -785,6 +898,7 @@ export class WorkItemService {
       progressPercent: row.progressPercent,
       manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
+      requiresConfirmation: row.requiresConfirmation,
     }));
 
     const changed = rollUpProgress(nodes);
@@ -827,6 +941,32 @@ export class WorkItemService {
       updated.map((node) => node.status),
     );
   }
+}
+
+/**
+ * `node` và các công việc cha đã hoàn thành liên tiếp phía trên nó, từ gần đến xa. Dừng ở cha đầu tiên chưa xong:
+ * từ đó trở lên không còn mâu thuẫn "cha xong mà con đang làm".
+ */
+function doneChain(all: readonly WorkItem[], node: WorkItem): WorkItem[] {
+  const byId = new Map(all.map((item) => [item.id, item]));
+  const chain: WorkItem[] = [];
+  for (let current: WorkItem | undefined = node; current?.status === 'done'; ) {
+    chain.push(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return chain;
+}
+
+/**
+ * Người gọi có được hoàn tác công việc đã hoàn thành không. `none`: không ai (kể cả quản lý); `manager`: chỉ quản
+ * lý dự án; `assignee`: thêm người phụ trách và người cùng thực hiện.
+ */
+function assertCanReopen(access: ProjectAccess, item: WorkItem, userId: string): void {
+  const policy = item.reopenPolicy ?? DEFAULT_WORK_ITEM_REOPEN_POLICY;
+  if (policy === 'none') throw new ReopenNotAllowedError(item.code, 'none');
+  if (hasProjectRole(access, 'manager')) return;
+  if (policy === 'manager') throw new ReopenNotAllowedError(item.code, 'manager');
+  if (!isOwnItem(item, userId)) throw new WorkItemAssigneeOnlyError();
 }
 
 /** Việc của một người: họ phụ trách hoặc cùng thực hiện. */

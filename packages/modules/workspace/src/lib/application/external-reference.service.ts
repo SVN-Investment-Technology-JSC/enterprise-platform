@@ -10,7 +10,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type { ExternalReferenceReader } from './external-reference.port.js';
-import { requireProjectRole, type ProjectService } from './project.service.js';
+import { assertProjectWritable, requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -70,7 +70,9 @@ export class ExternalReferenceService {
   ): Promise<ExternalReference> {
     const item = await this.store.workItem.findById(actor.tenantId, workItemId);
     if (!item) throw new WorkItemNotFoundError(workItemId);
-    requireProjectRole(await this.projects.access(actor, item.projectId), 'member');
+    const access = await this.projects.access(actor, item.projectId);
+    requireProjectRole(access, 'member');
+    assertProjectWritable(access.project);
 
     const moduleKey = parseModuleKey(input?.moduleKey);
     const externalId = requireText(input?.externalId, 'Định danh hồ sơ', 160);
@@ -92,7 +94,9 @@ export class ExternalReferenceService {
   async unlink(actor: WorkspaceActor, workItemId: string, referenceId: string): Promise<void> {
     const item = await this.store.workItem.findById(actor.tenantId, workItemId);
     if (!item) throw new WorkItemNotFoundError(workItemId);
-    requireProjectRole(await this.projects.access(actor, item.projectId), 'member');
+    const access = await this.projects.access(actor, item.projectId);
+    requireProjectRole(access, 'member');
+    assertProjectWritable(access.project);
 
     // Xác minh con trỏ thuộc đúng công việc này, để một id lạ không gỡ được
     // con trỏ của công việc khác.

@@ -407,6 +407,14 @@
   flex-direction: column;
 }
 
+/* Đường kẻ tách mục Cài đặt khỏi các mục điều hướng phía trên. */
+.navDivider {
+  height: 0;
+  margin: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--ep-border);
+}
+
 .groupHeading {
   padding: 10px 16px 4px;
   color: var(--ep-text-muted);

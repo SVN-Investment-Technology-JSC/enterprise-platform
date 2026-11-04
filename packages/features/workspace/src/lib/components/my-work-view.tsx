@@ -17,11 +17,13 @@ import {
   type UpdateStandaloneTaskRequest,
   type UpdateWorkItemRequest,
   type WorkItemPriority,
+  type WorkItem,
   type WorkItemStatus,
   WORKSPACE_ASSISTANT_ACTIONS,
 } from '@enterprise-platform/contracts-workspace';
 import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/feature-module-shell';
-import { formatTime } from '@enterprise-platform/shared-ui';
+import { formatTime, toast } from '@enterprise-platform/shared-ui';
+import { statusToastText, toastStatusChanged } from '../status-toast';
 import {
   ArrowUpDown,
   AtSign,
@@ -44,6 +46,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { initialTasksWarning } from '../project-created';
 import * as api from '../workspace-api';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
@@ -67,6 +70,7 @@ import {
   ProgressCell,
   GroupCounts,
 } from './inline-cells';
+import { CompleteWorkItemDialog, type CompleteWorkItemTarget } from './complete-work-item-dialog';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
@@ -129,6 +133,8 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const [standaloneOpen, setStandaloneOpen] = useState(false);
   /** Việc đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
   const [savingItem, setSavingItem] = useState<string>();
+  /** Việc đang hỏi xác nhận hoàn thành. */
+  const [completing, setCompleting] = useState<CompleteWorkItemTarget>();
 
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
@@ -139,7 +145,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   /** Dự án đang chọn trong form Công việc mới (chưa có dự án nào mở ở trang này). */
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [members, setMembers] = useState<readonly ProjectMember[]>([]);
-  const [parentOptions, setParentOptions] = useState<{ id: string; label: string }[]>([]);
+  const [parentOptions, setParentOptions] = useState<{ id: string; label: string; done: boolean }[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -194,7 +200,11 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         setParentOptions(
           tree.items
             .filter((item) => item.status !== 'cancelled')
-            .map((item) => ({ id: item.id, label: `${item.code} · ${item.title}` })),
+            .map((item) => ({
+              id: item.id,
+              label: `${item.code} · ${item.title}${item.status === 'done' ? ' (đã hoàn thành)' : ''}`,
+              done: item.status === 'done',
+            })),
         ),
       )
       .catch(() => undefined);
@@ -226,31 +236,43 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         : current,
     );
 
-  const changeStatus = async (itemId: string, next: WorkItemStatus) => {
+  const changeStatus = async (item: WorkItem, next: WorkItemStatus) => {
+    const itemId = item.id;
     setError(undefined);
     setSavingItem(itemId);
     try {
       // Cùng endpoint với màn Dự án, nên mọi ràng buộc — việc con chưa đóng,
       // tiền nhiệm FS chưa xong — vẫn áp dụng nguyên vẹn ở đây.
       await api.changeWorkItemStatus(itemId, { status: next });
+      // Báo ngay khi Bắt đầu hoặc Hoàn tác xong, trước khi tải lại bảng.
+      toastStatusChanged(item.status, next, item.code);
       // Tải lại: việc đóng thì rời bảng, số đếm đầu trang cũng đổi.
       await reload();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
+      toast.error((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
     } finally {
       setSavingItem(undefined);
     }
   };
 
   /** Việc ngoài dự án: đổi trạng thái hay sửa xong thì tải lại (nhóm hạn, việc chờ duyệt, số đếm đều có thể đổi). */
-  const runTask = async (taskId: string, operation: () => Promise<unknown>, fallback: string) => {
+  const runTask = async (
+    taskId: string,
+    operation: () => Promise<unknown>,
+    fallback: string,
+    /** Chỉ truyền khi thao tác là đổi trạng thái: báo thành công (và lỗi) bằng toast. */
+    onStatusChanged?: () => void,
+  ) => {
     setError(undefined);
     setSavingItem(taskId);
     try {
       await operation();
+      onStatusChanged?.();
       await reload();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? fallback);
+      const text = (cause as { message?: string })?.message ?? fallback;
+      setError(text);
+      if (onStatusChanged) toast.error(text);
     } finally {
       setSavingItem(undefined);
     }
@@ -554,7 +576,11 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                             entry={entry}
                             busy={savingItem === entry.item.id}
                             onOpen={onOpen}
-                            onStatus={(next) => void changeStatus(entry.item.id, next)}
+                            onStatus={(next) =>
+                              next === 'done'
+                                ? setCompleting(entry.item)
+                                : void changeStatus(entry.item, next)
+                            }
                             onPatch={(patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
                           />
                         ))}
@@ -615,6 +641,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
                           entry.task.id,
                           () => api.changeStandaloneTaskStatus(entry.task.id, { status: next }),
                           'Không đổi được trạng thái.',
+                          () => toastStatusChanged(entry.task.status, next, entry.task.code),
                         )
                       }
                       onPatch={(patch, fallback) =>
@@ -700,6 +727,8 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
           members?: ReadonlyArray<{ userId: string; role: ProjectRole }>,
         ) => {
           const created = await api.createProject(input);
+          const warning = initialTasksWarning(created);
+          if (warning) setError(warning);
           if (contractValue !== undefined) {
             await api.updateProjectFinance(created.id, { contractValue });
           }
@@ -761,6 +790,20 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         // Tạo từ trang này không sửa việc; onUpdate chỉ để thoả kiểu dữ liệu.
         onUpdate={async () => undefined}
       />
+
+      {/* Hoàn thành luôn qua hộp xác nhận, kèm điều kiện hoàn thành nếu việc có đặt. */}
+      <CompleteWorkItemDialog
+        target={completing}
+        onClose={() => setCompleting(undefined)}
+        onConfirm={async (confirmedConditionIds) => {
+          if (!completing) return;
+          // Lỗi ném ra để hộp thoại tự hiện; cùng endpoint nên việc con chưa đóng, tiền nhiệm FS… vẫn chặn như màn Dự án.
+          await api.changeWorkItemStatus(completing.id, { status: 'done', confirmedConditionIds });
+          toast.success(statusToastText('complete', completing.code));
+          setCompleting(undefined);
+          await reload();
+        }}
+      />
     </div>
   );
 }
@@ -786,6 +829,8 @@ function MyWorkRow({
   const locked = busy || Boolean(item.reversal);
   const statusOptions = workItemStatusKeys()
     .filter((status) => canTransitionWorkItem(item.status, status))
+    // Việc đã hoàn thành mà người tạo không cho hoàn tác: không đưa ra lựa chọn mở lại (server cũng chặn).
+    .filter((status) => !(item.status === 'done' && status !== 'done' && item.reopenPolicy === 'none'))
     .map((status) => ({
       value: status,
       label: WORK_ITEM_STATUS_LABELS[status],

@@ -16,7 +16,12 @@ import {
   WorkItemNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
-import { hasProjectRole, type ProjectAccess, type ProjectService } from './project.service.js';
+import {
+  assertProjectWritable,
+  hasProjectRole,
+  type ProjectAccess,
+  type ProjectService,
+} from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -71,6 +76,7 @@ export class FinanceService {
   ): Promise<ProjectFinance> {
     const access = await this.projects.access(actor, projectId);
     requireFinanceAccess(access);
+    assertProjectWritable(access.project);
 
     const patch: Record<string, number | null> = {};
     if (input?.contractValue !== undefined) {
@@ -108,6 +114,7 @@ export class FinanceService {
     if (!item) throw new WorkItemNotFoundError(workItemId);
     const access = await this.projects.access(actor, item.projectId);
     requireFinanceAccess(access);
+    assertProjectWritable(access.project);
     // `phase` là vỏ chứa; đặt chi phí lên nó sẽ bị cộng hai lần cùng việc con.
     if (item.itemType === 'phase') {
       throw new WorkspaceValidationError(
@@ -147,6 +154,7 @@ export class FinanceService {
     if (!item) throw new WorkItemNotFoundError(workItemId);
     const access = await this.projects.access(actor, item.projectId);
     requireFinanceAccess(access);
+    assertProjectWritable(access.project);
     if (item.itemType === 'phase') {
       throw new WorkspaceValidationError(
         'Nhóm công việc không mang chi phí; hãy ghi ở từng việc con.',

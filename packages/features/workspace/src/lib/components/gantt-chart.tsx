@@ -171,11 +171,11 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
         <div className={styles.gantt}>
           <div className={styles.ganttLabels} style={{ width: LABEL_WIDTH }}>
             <div className={styles.ganttAxisSpacer} style={{ height: AXIS_HEIGHT }} />
-            {layout.rows.map((row) => (
+            {layout.rows.map((row, index) => (
               <button
                 key={row.item.id}
                 type="button"
-                className={styles.ganttLabel}
+                className={row.depth === 0 && index > 0 ? `${styles.ganttLabel} ${styles.ganttLabelRoot}` : styles.ganttLabel}
                 style={{ height: ROW_HEIGHT, paddingLeft: `${row.depth * 0.75 + 0.5}rem` }}
                 title={`${row.item.code} · ${row.item.title}`}
                 onClick={() => onOpen(row.item)}
@@ -246,6 +246,21 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
                       width={layout.width}
                       height={ROW_HEIGHT}
                       fill="#f8fafc"
+                    />
+                  ) : null,
+                )}
+
+                {/* Vạch đậm trước mỗi việc gốc (trừ dòng đầu): tách các nhóm việc gốc khác nhau. */}
+                {layout.rows.map((row, index) =>
+                  row.depth === 0 && index > 0 ? (
+                    <line
+                      key={`root-${row.item.id}`}
+                      x1={0}
+                      x2={layout.width}
+                      y1={row.y}
+                      y2={row.y}
+                      stroke="#94a3b8"
+                      strokeWidth={2}
                     />
                   ) : null,
                 )}

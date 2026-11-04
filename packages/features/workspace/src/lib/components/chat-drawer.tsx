@@ -73,6 +73,10 @@ export interface ChatDrawerProps {
   readonly title: string;
   readonly members: readonly ProjectMember[];
   readonly canWrite: boolean;
+  /** Lời giải thích thay cho ô nhập khi không nhắn được; vắng thì dùng câu mặc định về quyền xem. */
+  readonly readOnlyNote?: string;
+  /** Tắt nút tải tệp mới lên (dự án đã lưu trữ chặn ghi tài liệu dù vẫn cho nhắn tin). Mặc định bật. */
+  readonly canUpload?: boolean;
   readonly currentUserId: string;
   readonly onClose: () => void;
   /** Gọi sau mỗi lần ghi, để cây tải lại chấm đỏ. */
@@ -117,6 +121,8 @@ export function ChatDrawer({
   title,
   members,
   canWrite,
+  readOnlyNote,
+  canUpload = true,
   currentUserId,
   onClose,
   onChanged,
@@ -417,6 +423,13 @@ export function ChatDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Ngăn kéo mở thì ẩn nút chat nổi của khung, vì nút nằm đúng chỗ nút Gửi và che mất nó.
+  useEffect(() => {
+    if (!open) return undefined;
+    document.body.setAttribute('data-side-drawer', 'open');
+    return () => document.body.removeAttribute('data-side-drawer');
+  }, [open]);
+
   const suggestions = mention ? suggestMembers(members, mention.term, directory.nameOf) : [];
 
   // Đổi từ khoá thì chọn lại từ đầu danh sách.
@@ -588,6 +601,9 @@ export function ChatDrawer({
   const minute = Math.floor(Date.now() / 60_000);
 
   return (
+    <>
+    {/* Lớp mờ phủ màn bên dưới: chặn bấm nhầm khi ngăn kéo chưa thu, và bấm vào đó thì thu ngăn kéo lại. */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside
       className={styles.drawer}
       role="complementary"
@@ -758,7 +774,7 @@ export function ChatDrawer({
                 tài liệu hay kho chưa có thư mục chung: hộp thoại tải lên tự
                 tạo thư mục riêng cho dự án.
               */}
-              {canWrite ? (
+              {canWrite && canUpload ? (
                 <button
                   type="button"
                   className={styles.iconButton}
@@ -845,7 +861,7 @@ export function ChatDrawer({
         </div>
       ) : (
         <p className={styles.drawerFoot}>
-          <span className={styles.muted}>Bạn chỉ có quyền xem, không gửi được tin nhắn.</span>
+          <span className={styles.muted}>{readOnlyNote ?? 'Bạn chỉ có quyền xem, không gửi được tin nhắn.'}</span>
         </p>
       )}
 
@@ -866,6 +882,7 @@ export function ChatDrawer({
         }}
       />
     </aside>
+    </>
   );
 }
 

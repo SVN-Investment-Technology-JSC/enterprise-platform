@@ -10,6 +10,8 @@ import type {
   CalendarEvent,
   ChatChannel,
   ChatEntityType,
+  ProjectChatFeedPage,
+  ProjectChatFeedQuery,
   ChatMessage,
   ChatReader,
   Contract,
@@ -77,6 +79,9 @@ import type {
   WorkItemFieldChange,
   StandaloneTaskFieldChange,
   WorkItemStatusHistoryEntry,
+  WorkItemCompletionEvidence,
+  WorkItemCompletionInput,
+  WorkItemCompletionPolicy,
   WorkloadRow,
   WorkspaceDocument,
   ProjectRequestReversalRequestedPayload,
@@ -296,7 +301,7 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
        reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at,
-       manual_progress_percent`;
+       manual_progress_percent, reopen_policy`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -349,6 +354,7 @@ function mapWorkItem(row: Row): WorkItem {
         }
       : undefined,
     adjustmentOfId: opt(row.adjustment_of_id),
+    reopenPolicy: (opt(row.reopen_policy) as WorkItem['reopenPolicy']) ?? 'assignee',
   };
 }
 
@@ -371,6 +377,9 @@ function mapHistory(row: Row): WorkItemStatusHistoryEntry {
     fromStatus: opt(row.from_status) as WorkItemStatus | undefined,
     toStatus: opt(row.to_status) as WorkItemStatus | undefined,
     ...(row.changes ? { changes: row.changes as WorkItemFieldChange[] } : {}),
+    ...(row.completion_evidence
+      ? { completionEvidence: row.completion_evidence as WorkItemCompletionEvidence }
+      : {}),
     note: opt(row.note),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
@@ -955,6 +964,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               actorUserId: actorUserId ?? null,
             },
           });
+        } else if (project.status !== previous) {
+          // Các trạng thái còn lại (lập kế hoạch, đang chạy, tạm dừng, huỷ) dùng một sự kiện chung. Hoàn thành đã có
+          // `completed` riêng nên không phát thêm, kẻo thành viên nhận hai thông báo cho một lần chuyển.
+          await writeOutbox(client, tenantId, {
+            type: 'workspace.project.status-changed',
+            aggregateType: 'workspace-project',
+            aggregateId: project.id,
+            payload: {
+              projectId: project.id,
+              code: project.code,
+              name: project.name,
+              fromStatus: previous,
+              toStatus: project.status,
+              recipientUserIds: await projectMemberIds(client, project.id),
+              actorUserId: actorUserId ?? null,
+            },
+          });
         }
         return project;
       });
@@ -1305,11 +1331,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     progressRows: async (tenantId: string, projectId: string): Promise<WorkItemProgressRow[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT id, parent_id, status, progress_percent, manual_progress_percent, estimate_hours
+        `SELECT id, parent_id, status, progress_percent, manual_progress_percent, estimate_hours,
+                (completion_rule <> 'none' AND EXISTS (
+                   SELECT 1 FROM workspace_schema.work_item_completion_conditions c
+                    WHERE c.work_item_id = work_items.id)) AS requires_confirmation
            FROM workspace_schema.work_items WHERE project_id = $1`,
         [projectId],
       );
       return result.rows.map((row) => ({
+        requiresConfirmation: row.requires_confirmation === true,
         id: str(row.id),
         parentId: row.parent_id == null ? null : str(row.parent_id),
         status: str(row.status) as WorkItemStatus,
@@ -1385,8 +1415,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           `INSERT INTO workspace_schema.work_items
              (project_id, parent_id, code, title, description, item_type, execution_type,
               priority, assignee_user_id, planned_start, planned_end, estimate_hours,
-              sort_order, depth, created_by, adjustment_of_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+              sort_order, depth, created_by, adjustment_of_id, reopen_policy)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
            RETURNING ${WORK_ITEM_COLUMNS}`,
           [
             input.projectId,
@@ -1405,6 +1435,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             input.depth,
             actorUserId,
             input.adjustmentOfId ?? null,
+            input.reopenPolicy ?? 'assignee',
           ],
         );
         const item = mapWorkItem(created.rows[0] as Row);
@@ -1415,6 +1446,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           actorUserId,
         );
         await replaceTags(client, item.id, input.tagIds ?? [], actorUserId);
+        if (input.completion) await writeCompletion(client, item.id, input.completion, actorUserId);
         // Dòng nhật ký đầu tiên có from_status rỗng, đánh dấu lúc khởi tạo.
         await client.query(
           `INSERT INTO workspace_schema.work_item_status_history
@@ -1484,10 +1516,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           estimateHours: 'estimate_hours',
           progressPercent: 'progress_percent',
           manualProgressPercent: 'manual_progress_percent',
+          reopenPolicy: 'reopen_policy',
         },
         1,
       );
-      const listsChanged = input.participantUserIds !== undefined || input.tagIds !== undefined;
+      const listsChanged =
+        input.participantUserIds !== undefined ||
+        input.tagIds !== undefined ||
+        input.completion !== undefined;
       if (!clause && !listsChanged) {
         const current = await this.workItem.findById(tenantId, workItemId);
         if (!current) throw new WorkItemNotFoundError(workItemId);
@@ -1517,6 +1553,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         if (input.tagIds !== undefined) {
           await replaceTags(client, workItemId, input.tagIds, actor);
         }
+        if (input.completion !== undefined) {
+          await writeCompletion(client, workItemId, input.completion, actor);
+        }
         const [item] = await withExtras(client, [mapWorkItem(result.rows[0] as Row)]);
         if (!item) throw new WorkItemNotFoundError(workItemId);
 
@@ -1545,6 +1584,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       next: WorkItemStatus,
       note: string | undefined,
       today: string,
+      completionEvidence?: WorkItemCompletionEvidence,
     ) => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -1566,8 +1606,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   actual_start = CASE WHEN $2::varchar = 'in_progress' AND actual_start IS NULL
                                       THEN $3::date ELSE actual_start END,
                   actual_end   = CASE WHEN $2::varchar IN ('done','cancelled') THEN $3::date ELSE NULL END,
+                  -- Hoàn thành là 100%; về Chưa làm là 0%; hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ
+                  -- 100% của lần hoàn thành. Việc có con được tính lại từ con ở bước cuộn tiến độ sau đó.
                   progress_percent = CASE WHEN $2::varchar = 'done' THEN 100
                                           WHEN $2::varchar = 'todo' THEN 0
+                                          WHEN $4::varchar = 'done' THEN 0
                                           ELSE progress_percent END,
                   -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
                   manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
@@ -1575,15 +1618,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   updated_at = now()
             WHERE id = $1
             RETURNING ${WORK_ITEM_COLUMNS}`,
-          [workItemId, next, today],
+          [workItemId, next, today, str(current.status)],
         );
         const item = mapWorkItem(updated.rows[0] as Row);
 
         await client.query(
           `INSERT INTO workspace_schema.work_item_status_history
-             (work_item_id, project_id, from_status, to_status, note, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [item.id, item.projectId, str(current.status), next, note ?? null, actorUserId],
+             (work_item_id, project_id, from_status, to_status, note, created_by, completion_evidence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+          [
+            item.id,
+            item.projectId,
+            str(current.status),
+            next,
+            note ?? null,
+            actorUserId,
+            completionEvidence ? JSON.stringify(completionEvidence) : null,
+          ],
         );
 
         // Mở lại rồi đóng lần nữa vẫn phát lại — mỗi lần hoàn thành là một sự
@@ -2992,6 +3043,67 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return { messages, hasMore };
     },
 
+    listProjectFeedPage: async (
+      tenantId: string,
+      projectId: string,
+      page: number,
+      pageSize: number,
+      query: ProjectChatFeedQuery,
+    ): Promise<ProjectChatFeedPage> => {
+      const pool = await this.poolFor(tenantId);
+      // Mọi kênh đều lưu `project_id` và mỗi công việc (ở mọi cấp) có kênh riêng, nên không cần đệ quy.
+      // Xếp theo tin mới nhất giảm dần, công việc chưa có tin xuống cuối theo thứ tự tạo. Tin xem trước và
+      // tổng số tin lấy cùng một lượt: `DISTINCT ON` giữ tin mới nhất của mỗi công việc, cửa sổ đếm cả nhóm.
+      const conditions = ['w.project_id = $1'];
+      const params: unknown[] = [projectId];
+      if (query.search) {
+        // Tìm theo mã, tiêu đề hoặc nội dung tin chưa thu hồi; `%`, `_` và `\` người dùng gõ được coi là chữ thường.
+        params.push(`%${escapeLike(query.search)}%`);
+        const like = `$${params.length}`;
+        conditions.push(`(w.code ILIKE ${like} OR w.title ILIKE ${like} OR EXISTS (
+            SELECT 1 FROM workspace_schema.chat_channels sc
+              JOIN workspace_schema.chat_messages sm ON sm.channel_id = sc.id AND sm.is_deleted = false
+             WHERE sc.entity_type = 'work_item' AND sc.entity_id = w.id AND sm.body ILIKE ${like}))`);
+      }
+      if (query.onlyWithChat) conditions.push('l.message_count IS NOT NULL');
+      const from = `WITH latest AS (
+             SELECT DISTINCT ON (c.entity_id)
+                    c.entity_id AS work_item_id, m.created_at, m.body, m.created_by,
+                    count(*) OVER (PARTITION BY c.entity_id)::int AS message_count
+               FROM workspace_schema.chat_channels c
+               JOIN workspace_schema.chat_messages m ON m.channel_id = c.id AND m.is_deleted = false
+              WHERE c.project_id = $1 AND c.entity_type = 'work_item'
+              ORDER BY c.entity_id, m.created_at DESC, m.id DESC)
+           SELECT %COLUMNS%
+             FROM workspace_schema.work_items w
+             LEFT JOIN latest l ON l.work_item_id = w.id
+            WHERE ${conditions.join(' AND ')}`;
+      const [total, rows] = await Promise.all([
+        pool.query<Row>(from.replace('%COLUMNS%', 'count(*)::int AS total'), params),
+        pool.query<Row>(
+          `${from.replace(
+            '%COLUMNS%',
+            'w.id, l.created_at AS latest_at, l.body AS latest_body, l.created_by AS latest_by, COALESCE(l.message_count, 0) AS message_count',
+          )}
+            ORDER BY l.created_at DESC NULLS LAST, w.created_at, w.id
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+          [...params, pageSize, (page - 1) * pageSize],
+        ),
+      ]);
+      return {
+        items: rows.rows.map((row) => ({
+          workItemId: str(row.id),
+          latestAt: row.latest_at == null ? undefined : iso(row.latest_at),
+          latestBy: opt(row.latest_by),
+          latestBody: row.latest_body == null ? undefined : str(row.latest_body).slice(0, 160),
+          messageCount: num(row.message_count),
+        })),
+        total: num(total.rows[0]?.total),
+        page,
+        pageSize,
+      };
+    },
+
     findMessage: async (tenantId: string, messageId: string) => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
@@ -3201,6 +3313,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE ${mine('$1')}
             AND w.status NOT IN ('done','cancelled')
             AND p.status <> 'cancelled'
+            -- Dự án đã lưu trữ chỉ xem: việc của nó không còn là việc cần làm.
+            AND p.archived_at IS NULL
           ORDER BY w.planned_end NULLS LAST, w.created_at`,
         [userId],
       );
@@ -5105,11 +5219,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const pool = await this.poolFor(tenantId);
       // Nhật ký của một việc gồm cả đổi trạng thái lẫn sửa trường, xếp chung theo thời gian.
       const result = await pool.query<Row>(
-        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at
+        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at,
+                completion_evidence
            FROM workspace_schema.work_item_status_history
           WHERE work_item_id = $1
          UNION ALL
-         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at
+         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at, NULL::jsonb
            FROM workspace_schema.work_item_change_log
           WHERE work_item_id = $1
           ORDER BY created_at DESC
@@ -5126,11 +5241,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     ): Promise<WorkItemStatusHistoryEntry[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at
+        `SELECT id, work_item_id, from_status, to_status, note, NULL::jsonb AS changes, created_by, created_at,
+                completion_evidence
            FROM workspace_schema.work_item_status_history
           WHERE project_id = $1
          UNION ALL
-         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at
+         SELECT id, work_item_id, NULL, NULL, NULL, changes, created_by, created_at, NULL::jsonb
            FROM workspace_schema.work_item_change_log
           WHERE project_id = $1
           ORDER BY created_at DESC
@@ -5592,10 +5708,19 @@ function mapSavedFilter(row: Row): SavedFilter {
 async function withExtras(db: Queryable, items: WorkItem[]): Promise<WorkItem[]> {
   if (items.length === 0) return items;
   const ids = items.map((item) => item.id);
-  const [people, tags] = await Promise.all([
+  const [people, conditions, tags] = await Promise.all([
     db.query<Row>(
       `SELECT work_item_id, user_id FROM workspace_schema.work_item_participants
         WHERE work_item_id = ANY($1::uuid[]) ORDER BY created_at, user_id`,
+      [ids],
+    ),
+    // Quy tắc nằm ở `work_items`, nhưng chỉ có nghĩa khi việc có điều kiện: việc không đặt điều kiện thì bỏ qua.
+    db.query<Row>(
+      `SELECT c.work_item_id, c.id, c.label, w.completion_rule, w.completion_min_required
+         FROM workspace_schema.work_item_completion_conditions c
+         JOIN workspace_schema.work_items w ON w.id = c.work_item_id
+        WHERE c.work_item_id = ANY($1::uuid[])
+        ORDER BY c.sort_order, c.created_at, c.id`,
       [ids],
     ),
     db.query<Row>(
@@ -5617,11 +5742,79 @@ async function withExtras(db: Queryable, items: WorkItem[]): Promise<WorkItem[]>
   };
   const byItemPeople = group(people.rows, 'work_item_id', 'user_id');
   const byItemTags = group(tags.rows, 'entity_id', 'tag_id');
+  const byItemCompletion = new Map<string, WorkItemCompletionPolicy>();
+  for (const row of conditions.rows) {
+    const itemId = str(row.work_item_id);
+    const policy = byItemCompletion.get(itemId);
+    const condition = { id: str(row.id), label: str(row.label) };
+    if (policy) {
+      (policy.conditions as WorkItemCompletionPolicy['conditions'][number][]).push(condition);
+    } else {
+      byItemCompletion.set(itemId, {
+        rule: str(row.completion_rule) as WorkItemCompletionPolicy['rule'],
+        minRequired: optNum(row.completion_min_required),
+        conditions: [condition],
+      });
+    }
+  }
   return items.map((item) => ({
     ...item,
     participantUserIds: byItemPeople.get(item.id) ?? [],
     tagIds: byItemTags.get(item.id) ?? [],
+    completion: byItemCompletion.get(item.id),
   }));
+}
+
+/**
+ * Ghi điều kiện hoàn thành của một việc: thay toàn bộ quy tắc và danh sách.
+ *
+ * Điều kiện có `id` đang tồn tại thì giữ id (sửa chữ, đổi thứ tự); `id` lạ coi như điều kiện mới. Điều kiện không
+ * còn trong danh sách thì xoá. `null` xoá hết và đưa quy tắc về mặc định.
+ */
+async function writeCompletion(
+  db: Queryable,
+  workItemId: string,
+  completion: WorkItemCompletionInput | null,
+  actorUserId: string,
+): Promise<void> {
+  const existing = await db.query<Row>(
+    `SELECT id FROM workspace_schema.work_item_completion_conditions WHERE work_item_id = $1`,
+    [workItemId],
+  );
+  const existingIds = new Set(existing.rows.map((row) => str(row.id)));
+  const conditions = completion?.conditions ?? [];
+  const kept = conditions
+    .map((condition) => condition.id)
+    .filter((id): id is string => Boolean(id) && existingIds.has(id as string));
+  await db.query(
+    `DELETE FROM workspace_schema.work_item_completion_conditions
+      WHERE work_item_id = $1 AND id <> ALL($2::uuid[])`,
+    [workItemId, kept],
+  );
+  for (const [index, condition] of conditions.entries()) {
+    if (condition.id && existingIds.has(condition.id)) {
+      await db.query(
+        `UPDATE workspace_schema.work_item_completion_conditions
+            SET label = $3, sort_order = $4
+          WHERE id = $1 AND work_item_id = $2`,
+        [condition.id, workItemId, condition.label, index],
+      );
+    } else {
+      await db.query(
+        `INSERT INTO workspace_schema.work_item_completion_conditions
+           (work_item_id, label, sort_order, created_by)
+         VALUES ($1, $2, $3, $4)`,
+        [workItemId, condition.label, index, actorUserId],
+      );
+    }
+  }
+  const rule = completion && conditions.length > 0 ? completion.rule : 'all';
+  await db.query(
+    `UPDATE workspace_schema.work_items
+        SET completion_rule = $2::varchar, completion_min_required = $3::smallint
+      WHERE id = $1`,
+    [workItemId, rule, rule === 'at_least' ? (completion?.minRequired ?? 1) : null],
+  );
 }
 
 /** Thay toàn bộ người cùng thực hiện của một việc. */
@@ -5807,8 +6000,10 @@ async function setStandaloneStatus(
             actual_start = CASE WHEN $3::varchar = 'in_progress' AND actual_start IS NULL
                                 THEN $4::date ELSE actual_start END,
             actual_end   = CASE WHEN $3::varchar IN ('done','cancelled') THEN $4::date ELSE NULL END,
+            -- Hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ 100% của lần hoàn thành.
             progress_percent = CASE WHEN $3::varchar = 'done' THEN 100
                                     WHEN $3::varchar = 'todo' THEN 0
+                                    WHEN $2::varchar = 'done' THEN 0
                                     ELSE progress_percent END,
             -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
             manual_progress_percent = CASE WHEN $3::varchar = 'done' THEN NULL

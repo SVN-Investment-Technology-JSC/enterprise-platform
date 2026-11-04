@@ -12,6 +12,11 @@ export interface ProgressNode {
   readonly manualPercent?: number | null;
   /** Trọng số khi tính bình quân. Thiếu thì lấy trung bình các việc có ước lượng. */
   readonly estimateHours?: number | null;
+  /**
+   * Có điều kiện hoàn thành bắt buộc (`all` hoặc `at_least`). Node này không tự hoàn thành khi con xong:
+   * phải có người xác nhận từng điều kiện.
+   */
+  readonly requiresConfirmation?: boolean;
 }
 
 /**
@@ -161,7 +166,9 @@ export function autoCompleteParents(nodes: readonly ProgressNode[]): Set<string>
       return done;
     }
 
-    const allDone = children.every((child) => isSubtreeComplete(child));
+    const childrenDone = children.every((child) => isSubtreeComplete(child));
+    // Node có điều kiện bắt buộc chưa `done` thì chưa tính là xong, kéo theo cả cha của nó: không tự lách điều kiện.
+    const allDone = childrenDone && (!node.requiresConfirmation || node.status === 'done');
     completed.set(node.id, allDone);
     // Node có con mà cả cây con đã xong, nhưng bản thân chưa đóng → cần flip.
     if (allDone && node.status !== 'done' && node.status !== 'cancelled') {

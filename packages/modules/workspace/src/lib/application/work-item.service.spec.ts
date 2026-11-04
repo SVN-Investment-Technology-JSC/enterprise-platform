@@ -1,4 +1,9 @@
-import type { ProjectRole, WorkItem, WorkItemStatus } from '@enterprise-platform/contracts-workspace';
+import type {
+  ProjectRole,
+  WorkItem,
+  WorkItemCompletionEvidence,
+  WorkItemStatus,
+} from '@enterprise-platform/contracts-workspace';
 import { ProjectService } from './project.service.js';
 import { WorkItemService } from './work-item.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -14,7 +19,10 @@ function makeStore(options: {
   roles: Record<string, ProjectRole>;
   dependencies?: { id: string; predecessorId: string; successorId: string; type: 'FS' | 'SS' }[];
 }) {
-  const calls: { changeStatus: { id: string; next: WorkItemStatus }[] } = { changeStatus: [] };
+  const calls: {
+    changeStatus: { id: string; next: WorkItemStatus }[];
+    evidence: WorkItemCompletionEvidence[];
+  } = { changeStatus: [], evidence: [] };
   const byId = new Map(options.items.map((item) => [item.id, item]));
 
   const store = {
@@ -50,8 +58,12 @@ function makeStore(options: {
         id: string,
         _actor: string,
         next: WorkItemStatus,
+        _note?: string,
+        _today?: string,
+        evidence?: WorkItemCompletionEvidence,
       ) => {
         calls.changeStatus.push({ id, next });
+        if (evidence) calls.evidence.push(evidence);
         return { ...(byId.get(id) as WorkItem), status: next };
       },
     },
@@ -191,6 +203,79 @@ describe('WorkItemService.changeStatus', () => {
     });
     await serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'in_progress' });
     expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'in_progress' }]);
+  });
+
+  describe('điều kiện hoàn thành', () => {
+    const gated = (rule: 'all' | 'at_least' | 'none', minRequired?: number) =>
+      item({
+        id: 'w1',
+        status: 'in_progress',
+        assigneeUserId: 'u1',
+        completion: {
+          rule,
+          minRequired,
+          conditions: [
+            { id: 'c1', label: 'Biên bản' },
+            { id: 'c2', label: 'Hoá đơn' },
+          ],
+        },
+      });
+
+    it('chưa tích đủ thì chặn hoàn thành và không ghi gì', async () => {
+      const { store, calls } = makeStore({ items: [gated('all')], roles: { u1: 'member' } });
+      await expect(
+        serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+          status: 'done',
+          confirmedConditionIds: ['c1'],
+        }),
+      ).rejects.toMatchObject({ code: 'COMPLETION_CONDITIONS_UNMET' });
+      expect(calls.changeStatus).toEqual([]);
+    });
+
+    it('không gửi danh sách xác nhận thì coi như chưa tích gì', async () => {
+      const { store } = makeStore({ items: [gated('at_least', 1)], roles: { u1: 'member' } });
+      await expect(
+        serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'done' }),
+      ).rejects.toMatchObject({ code: 'COMPLETION_CONDITIONS_UNMET' });
+    });
+
+    it('tích đủ thì hoàn thành và ghi bằng chứng vào nhật ký', async () => {
+      const { store, calls } = makeStore({ items: [gated('all')], roles: { u1: 'member' } });
+      await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+        status: 'done',
+        confirmedConditionIds: ['c1', 'c2'],
+      });
+      expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'done' }]);
+      expect(calls.evidence[0]?.conditions.map((condition) => condition.confirmed)).toEqual([true, true]);
+    });
+
+    it('chỉ cần một điều kiện khi đặt "ít nhất 1"', async () => {
+      const { store, calls } = makeStore({ items: [gated('at_least', 1)], roles: { u1: 'member' } });
+      await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+        status: 'done',
+        confirmedConditionIds: ['c2'],
+      });
+      expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'done' }]);
+    });
+
+    it('không bắt buộc điều kiện nào thì hoàn thành mà không cần tích', async () => {
+      const { store, calls } = makeStore({ items: [gated('none')], roles: { u1: 'member' } });
+      await serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'done' });
+      expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'done' }]);
+    });
+
+    it('chuyển sang trạng thái khác done thì không xét điều kiện', async () => {
+      const { store, calls } = makeStore({ items: [gated('all')], roles: { u1: 'member' } });
+      await serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'review' });
+      expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'review' }]);
+    });
+
+    it('manager cũng phải xác nhận, không được bỏ qua điều kiện', async () => {
+      const { store } = makeStore({ items: [gated('all')], roles: { 'u-mgr': 'manager' } });
+      await expect(
+        serviceFor(store).changeStatus(actorOf('u-mgr'), 'w1', { status: 'done' }),
+      ).rejects.toMatchObject({ code: 'COMPLETION_CONDITIONS_UNMET' });
+    });
   });
 
   it('đặt lại đúng trạng thái đang có thì không ghi gì', async () => {

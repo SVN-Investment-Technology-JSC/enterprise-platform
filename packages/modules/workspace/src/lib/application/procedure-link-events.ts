@@ -26,6 +26,7 @@ import {
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import {
   NameConflictError,
+  ProjectArchivedError,
   WorkspaceError,
   WorkspaceSchemaNotReadyError,
   WorkspaceValidationError,
@@ -339,10 +340,18 @@ export class WorkspaceProcedureEvents {
     if (await this.store.document.findByStorageKey(tenantId, file.objectKey)) return;
 
     const actor = systemActor(tenantId, file.uploadedBy);
-    const folder = await this.documents.ensurePath(actor, {
-      projectId: reference.projectId,
-      workItemId: reference.entityId,
-    });
+    const folder = await this.documents
+      .ensurePath(actor, {
+        projectId: reference.projectId,
+        workItemId: reference.entityId,
+      })
+      .catch((error: unknown) => {
+        // Dự án đã lưu trữ chỉ xem: không lưu thêm tài liệu vào đó. Lỗi này không khỏi khi thử lại, nên ghi nhận sự
+        // kiện đã xử lý thay vì để nó dồn vào hàng chờ lỗi; tệp vẫn nằm ở hồ sơ Quy trình.
+        if (error instanceof ProjectArchivedError) return undefined;
+        throw error;
+      });
+    if (!folder) return;
     const names = [file.fileName, withSuffix(file.fileName, file.instanceCode), withSuffix(file.fileName, file.attachmentId.slice(0, 8))];
     for (const [index, name] of names.entries()) {
       try {
@@ -442,8 +451,8 @@ export class WorkspaceProcedureEvents {
   ): Promise<string> {
     const project = await this.store.project.findById(tenantId, request.projectId);
     if (!project) throw new WorkspaceValidationError('Không tìm thấy dự án mới.');
-    if (project.status === 'completed' || project.status === 'cancelled') {
-      throw new WorkspaceValidationError(`Dự án ${project.code} đã đóng, không thêm công việc được.`);
+    if (project.status === 'completed' || project.status === 'cancelled' || project.archivedAt) {
+      throw new WorkspaceValidationError(`Dự án ${project.code} đã đóng hoặc đã lưu trữ, không thêm công việc được.`);
     }
     if (!request.requestedByIsTenantAdmin) {
       const role = await this.store.member.roleOf(tenantId, project.id, request.requestedBy);
