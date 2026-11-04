@@ -59,6 +59,13 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'catalog.material': DEFAULT_CATALOG,
   'catalog.asset': DEFAULT_CATALOG,
   'catalog.unit': { units: DEFAULT_UNITS },
+  // Phân loại không có giá trị dựng sẵn: mỗi đơn vị phân loại hàng hóa theo một trục khác nhau.
+  // Cách sử dụng dựng sẵn bốn mục của bản đầu để trang Hàng hóa dùng được ngay; admin thêm bớt tuỳ ý.
+  'catalog.trade': {
+    goodsCategories: [],
+    serviceCategories: [],
+    usageModes: ['Chỉ bán', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
+  },
   // Q5: mặc định không tự duyệt, giống Tài chính.
   'documents.approval': { allowSelfApproval: false },
   // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
@@ -122,6 +129,14 @@ const NORMALIZERS: {
     // Danh mục rỗng sẽ khoá mất form tạo vật tư — không chọn được đơn vị nào thì
     // không lưu được gì. Rơi về mặc định thay vì tự khoá cả module.
     return { units: units.length > 0 ? units : [...DEFAULT_UNITS] };
+  },
+  'catalog.trade': (value) => {
+    const raw = (value ?? {}) as Partial<Record<keyof InventorySettings['catalog.trade'], unknown>>;
+    return {
+      goodsCategories: normalizeStringList(raw.goodsCategories, 64),
+      serviceCategories: normalizeStringList(raw.serviceCategories, 64),
+      usageModes: normalizeStringList(raw.usageModes, 64),
+    };
   },
   // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.
   'documents.approval': (value) => ({

@@ -18,6 +18,8 @@ export type AssetType = string;
 /** Tình trạng vật tư — chuỗi tự do, danh mục khai trong Cài đặt. */
 export type AssetStatus = string;
 export type AssetCriticality = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+/** Nhóm tài sản: thiết bị công nghiệp, CNTT văn phòng, dụng cụ bảo hộ, phương tiện. */
+export type AssetCategory = 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 
 /** Một đầu việc trong hồ sơ bảo trì mặc định của thiết bị. */
 export interface AssetTaskItem {
@@ -84,6 +86,8 @@ export interface CreateAssetRequest {
   readonly supplier?: string;
   /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
   readonly manufacturer?: string;
+  /** Nhóm tài sản; bỏ trống là thiết bị công nghiệp. */
+  readonly assetCategory?: AssetCategory;
 }
 
 export interface CreateMaterialRequest {
@@ -110,9 +114,18 @@ export interface CreateMaterialRequest {
   readonly warrantyMonths?: number | null;
   readonly assignedEmployeeId?: string;
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  /** Hình thức kinh doanh; bỏ trống là chưa khai. */
+  readonly tradeMode?: TradeMode;
+  /** Giá bán mặc định (VND); bỏ trống là chưa khai, khác 0. */
+  readonly salePrice?: number;
+  /** Phân loại hàng hóa hoặc dịch vụ, lấy từ danh mục `catalog.trade` trong Cài đặt. */
+  readonly tradeCategory?: string;
 }
 
 export interface UpdateMaterialRequest {
+  readonly tradeMode?: TradeMode;
+  readonly salePrice?: number;
+  readonly tradeCategory?: string;
   /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
   readonly type?: AssetType;
   /** Tình trạng và vị trí sử dụng — cùng hai cột với vật tư đã lắp. */
@@ -372,6 +385,17 @@ export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
  * (D6). Thiết bị (`ASSET`) đi đường riêng, không nằm trong union này.
  */
 export const MATERIAL_KINDS = ['STOCK', 'SERVICE'] as const;
+/**
+ * Mã hình thức kinh doanh dựng sẵn từ bản đầu (chỉ bán, chỉ tặng, chỉ dùng nội bộ, nhiều hình thức).
+ * Chỉ để đọc dòng cũ: giao diện đổi mã sang nhãn tiếng Việt.
+ */
+export const TRADE_MODES = ['SALE_ONLY', 'GIFT_ONLY', 'INTERNAL_ONLY', 'MULTI'] as const;
+/**
+ * "Sử dụng" của mặt hàng — CHUỖI TỰ DO lấy từ danh mục `catalog.trade.usageModes` trong Cài đặt
+ * (Chỉ bán, Chỉ tặng, Đi kèm combo...). Dòng cũ có thể còn mã trong `TRADE_MODES`.
+ */
+export type TradeMode = string;
+
 export type MaterialKind = (typeof MATERIAL_KINDS)[number];
 /**
  * Tình trạng và "đang ở đâu" của một cá thể — CHUỖI TỰ DO, không phải union.
@@ -466,6 +490,34 @@ export interface Material {
   readonly assignedEmployeeId?: string;
   readonly assignedAt?: string;
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  readonly tradeMode?: TradeMode;
+  readonly salePrice?: number;
+  /** Phân loại hàng hóa hoặc dịch vụ; không có là chưa khai. */
+  readonly tradeCategory?: string;
+  readonly createdAt?: string;
+  readonly createdBy?: string;
+}
+
+/**
+ * Tài sản nhìn từ phía cấp phát cho nhân sự (API nội bộ cho HRM). Cố ý không có giá mua, kho, lịch sử bảo trì
+ * hay chứng từ: người cấp phát chỉ cần biết tài sản nào, đang ở trạng thái nào và ai đang giữ.
+ */
+export interface CustodyAsset {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  readonly serialNumber?: string;
+  readonly status?: AssetStatus;
+  /** Id dòng liên kết nhân sự (`core_schema.employees.id`), cùng khoá HRM dùng cho hồ sơ nhân viên. */
+  readonly assignedEmployeeId?: string;
+  readonly assignedAt?: string;
+}
+
+/** Thân `POST v1/internal/custody/assign`. `employeeId` là null khi thu hồi. */
+export interface AssignCustodyRequest {
+  readonly materialCode: string;
+  readonly employeeId: string | null;
 }
 
 export interface SerialTracking {
@@ -1042,6 +1094,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.material',
   'catalog.asset',
   'catalog.unit',
+  'catalog.trade',
   'documents.approval',
   'costing.method',
 ] as const;
@@ -1090,6 +1143,19 @@ export interface InventoryUnitCatalog {
 }
 
 /**
+ * Danh mục cho trang Hàng hóa: phân loại (mỗi nhóm một danh sách riêng) và hình thức sử dụng.
+ * Rỗng nghĩa là tenant chưa khai: ô chọn không có gì, không bịa giá trị dựng sẵn.
+ */
+export interface InventoryTradeCatalog {
+  /** Phân loại của hàng hóa (mặt hàng có tồn kho). */
+  readonly goodsCategories: readonly string[];
+  /** Phân loại của dịch vụ. */
+  readonly serviceCategories: readonly string[];
+  /** Sử dụng: chỉ bán, chỉ tặng, đi kèm combo... */
+  readonly usageModes: readonly string[];
+}
+
+/**
  * Quy tắc duyệt chứng từ kho (nhập khác, xuất khác, điều chỉnh).
  *
  * Mặc định người lập không tự duyệt được chứng từ của mình, giống
@@ -1115,6 +1181,7 @@ export interface InventorySettings {
   readonly 'catalog.material': InventoryCatalogSettings;
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
+  readonly 'catalog.trade': InventoryTradeCatalog;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
 }

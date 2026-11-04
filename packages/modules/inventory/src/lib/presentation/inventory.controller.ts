@@ -20,6 +20,7 @@ import type {
   UpdateWarehouseRequest,
   MovementCounterparty,
   CreateAssetTestRecordRequest,
+  AssignCustodyRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
@@ -532,6 +533,12 @@ export class InventoryController {
     return this.execute(() => this.app.listAssignedCustody(this.actor(request)));
   }
 
+  /** Sổ tài sản của tab Tài sản: tất cả tài sản, để thấy cả cái tồn kho và đang bảo trì. */
+  @Get('custody/assets')
+  listCustodyAssets(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listCustodyAssets(this.actor(request)));
+  }
+
   @Get('custody/employees/:employeeId')
   listEmployeeCustody(
     @Req() request: InventoryRequest,
@@ -548,10 +555,26 @@ export class InventoryController {
     return this.execute(() => this.app.assignCustody(this.actor(request), body.materialCode, body.employeeId));
   }
 
-  /** Tra cứu trang thiết bị / tài sản cấp phát cho nhân sự — gọi từ HRM qua internal API. */
+  /**
+   * Cấp phát cho phân hệ HRM (service token). Trả bản rút gọn `CustodyAsset`: không kèm giá, kho hay lịch sử.
+   * Quyền cấp và thu hồi do HRM kiểm (`hrm.custody.manage`); Kho tự kiểm trạng thái tài sản và người đang giữ.
+   */
   @Get('internal/custody/employees/:employeeId')
   getEmployeeCustodyInternal(@Req() request: InventoryRequest, @Param('employeeId') employeeId: string) {
-    return this.execute(() => this.app.listEmployeeCustody(this.actor(request), employeeId));
+    return this.execute(() => this.app.listEmployeeCustodyAssets(this.actor(request), employeeId));
+  }
+
+  @Get('internal/custody/assignable')
+  listAssignableCustodyInternal(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAssignableCustody(this.actor(request)));
+  }
+
+  @Post('internal/custody/assign')
+  assignCustodyInternal(@Req() request: InventoryRequest, @Body() body: AssignCustodyRequest) {
+    return this.execute(async () => {
+      await this.app.assignCustody(this.actor(request), body.materialCode, body.employeeId);
+      return { ok: true };
+    });
   }
 
   // --- Nhật ký thí nghiệm / đo kiểm tài sản ---

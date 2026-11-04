@@ -26,6 +26,7 @@ import type {
   InventorySettingsSnapshot,
   InventoryTransaction,
   LotAllocationInput,
+  CustodyAsset,
   Material,
   MaterialInventory,
   MovementCounterparty,
@@ -741,6 +742,10 @@ export class InventoryApplication {
       parentId = parent.id;
     }
 
+    if (patch.status !== undefined && patch.status !== 'OPERATING') {
+      await this.assertNotInCustody(actor, code);
+    }
+
     const updated = await this.store.asset.update(actor.tenantId, code, patch, parentId);
     if (!updated) throw new AssetNotFoundError(code);
     return updated;
@@ -1234,6 +1239,7 @@ export class InventoryApplication {
   async createMaterial(actor: InventoryActor, input: CreateMaterialRequest): Promise<Material> {
     this.requireValidYear(input.manufactureYear);
     this.requirePurchasePrice(input.purchasePrice);
+    requireTradeFields(input);
     this.requireManager(actor);
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
@@ -1251,14 +1257,18 @@ export class InventoryApplication {
     if (await this.store.material.findAnyByCode(actor.tenantId, code)) {
       throw new InventoryError('VALIDATION', `Mã vật tư ${code} đã tồn tại.`);
     }
-    return this.store.material.create(actor.tenantId, {
-      ...input,
-      code,
-      name: input.name.trim(),
-      kind,
-      // Dịch vụ không có tồn nên không có định mức tồn.
-      ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
-    });
+    return this.store.material.create(
+      actor.tenantId,
+      {
+        ...input,
+        code,
+        name: input.name.trim(),
+        kind,
+        // Dịch vụ không có tồn nên không có định mức tồn.
+        ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
+      },
+      actor.displayName,
+    );
   }
 
   async updateMaterial(
@@ -1268,6 +1278,7 @@ export class InventoryApplication {
   ): Promise<Material> {
     this.requireValidYear(patch.manufactureYear);
     this.requirePurchasePrice(patch.purchasePrice);
+    requireTradeFields(patch);
     this.requireManager(actor);
     const current = await this.store.material.findAnyByCode(actor.tenantId, code);
     if (!current) throw new MaterialNotFoundError(code);
@@ -1326,6 +1337,9 @@ export class InventoryApplication {
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã thiết bị không được để trống.');
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên thiết bị không được để trống.');
+    if (input.assetCategory && !ASSET_CATEGORIES.includes(input.assetCategory)) {
+      throw new InventoryError('VALIDATION', 'Nhóm tài sản không hợp lệ.');
+    }
     if (await this.store.asset.findAnyByCode(actor.tenantId, code)) {
       throw new InventoryError('VALIDATION', `Mã thiết bị ${code} đã tồn tại.`);
     }
@@ -1358,6 +1372,7 @@ export class InventoryApplication {
         `Thiết bị còn ${children} cấu phần con. Tháo hoặc chuyển các con đi trước khi thanh lý.`,
       );
     }
+    await this.assertNotInCustody(actor, code);
     await this.store.asset.update(actor.tenantId, code, { status: 'DISPOSED' });
     return {
       code,
@@ -1471,6 +1486,10 @@ export class InventoryApplication {
     return this.store.custody.listByEmployee(actor.tenantId, employeeId);
   }
 
+  async listCustodyAssets(actor: InventoryActor): Promise<Material[]> {
+    return this.store.custody.listAll(actor.tenantId);
+  }
+
   async listAssignedCustody(actor: InventoryActor): Promise<Material[]> {
     return this.store.custody.listAssigned(actor.tenantId);
   }
@@ -1481,9 +1500,43 @@ export class InventoryApplication {
     employeeId: string | null,
   ): Promise<Material | null> {
     this.requireStockWriter(actor);
+    if (employeeId !== null) {
+      const asset = await this.store.custody.find(actor.tenantId, materialCode);
+      if (!asset) throw new AssetNotFoundError(materialCode);
+      if (asset.assignedEmployeeId && asset.assignedEmployeeId !== employeeId) {
+        throw new InventoryError(
+          'CUSTODY_ALREADY_ASSIGNED',
+          `Tài sản ${materialCode} đang được cấp cho người khác. Cần thu hồi trước khi cấp lại.`,
+          409,
+        );
+      }
+      if ((asset.status ?? 'OPERATING') !== 'OPERATING') {
+        throw new InventoryError(
+          'CUSTODY_ASSET_UNAVAILABLE',
+          `Tài sản ${materialCode} không ở trạng thái hoạt động nên chưa thể cấp phát.`,
+          409,
+        );
+      }
+    }
     const assigned = await this.store.custody.assign(actor.tenantId, materialCode, employeeId);
-    if (!assigned) throw new AssetNotFoundError(materialCode);
-    return assigned;
+    if (assigned) return assigned;
+    // Cấp thì kiểm trên đã loại các lý do đã biết; còn null nghĩa là vừa bị người khác cấp hay đổi trạng thái.
+    if (employeeId !== null && (await this.store.custody.find(actor.tenantId, materialCode))) {
+      throw new InventoryError(
+        'CUSTODY_CONFLICT',
+        `Tài sản ${materialCode} vừa thay đổi, vui lòng tải lại và thử lại.`,
+        409,
+      );
+    }
+    throw new AssetNotFoundError(materialCode);
+  }
+
+  async listAssignableCustody(actor: InventoryActor): Promise<CustodyAsset[]> {
+    return (await this.store.custody.listAssignable(actor.tenantId)).map(toCustodyAsset);
+  }
+
+  async listEmployeeCustodyAssets(actor: InventoryActor, employeeId: string): Promise<CustodyAsset[]> {
+    return (await this.store.custody.listByEmployee(actor.tenantId, employeeId)).map(toCustodyAsset);
   }
 
   // --- Biên bản thí nghiệm / đo kiểm tài sản ---
@@ -1502,6 +1555,21 @@ export class InventoryApplication {
   private requireManager(actor: InventoryActor): void {
     if (!actor.canManage) {
       throw new InvalidReservationError('Bạn không có quyền sửa danh mục kho.');
+    }
+  }
+
+  /**
+   * Tài sản đang cấp cho nhân sự thì Kho không đổi trạng thái hay thanh lý: Nhân sự phải thu hồi trước, để không có
+   * tài sản vừa nằm trong tay nhân viên vừa ở bảo trì hay thanh lý.
+   */
+  private async assertNotInCustody(actor: InventoryActor, code: string): Promise<void> {
+    const asset = await this.store.custody.find(actor.tenantId, code);
+    if (asset?.assignedEmployeeId) {
+      throw new InventoryError(
+        'ASSET_IN_CUSTODY',
+        `Tài sản ${code} đang được cấp cho nhân sự. Nhờ bộ phận Nhân sự thu hồi trước khi thực hiện.`,
+        409,
+      );
     }
   }
 
@@ -1532,6 +1600,33 @@ function requireMaterialKind(value: unknown): MaterialKind | undefined {
     throw new InventoryError('VALIDATION', 'Loại mặt hàng phải là hàng hoá hoặc dịch vụ.');
   }
   return value as MaterialKind;
+}
+
+const MAX_TRADE_LABEL = 100;
+
+function requireTradeLabel(value: unknown, message: string): void {
+  if (value == null) return;
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > MAX_TRADE_LABEL) {
+    throw new InventoryError('VALIDATION', message);
+  }
+}
+
+/**
+ * "Sử dụng" và "phân loại" là chuỗi lấy từ danh mục trong Cài đặt (admin tự khai, đổi tên được) nên chỉ kiểm
+ * dạng chuỗi và độ dài, không so với danh sách hiện tại: một mặt hàng cũ vẫn phải lưu được sau khi admin bỏ
+ * một mục khỏi danh mục. Giá bán không âm. Sai thì 400, không lặng lẽ bỏ qua.
+ */
+function requireTradeFields(input: {
+  tradeMode?: unknown;
+  tradeCategory?: unknown;
+  salePrice?: unknown;
+}): void {
+  requireTradeLabel(input.tradeMode, 'Cách sử dụng không hợp lệ.');
+  requireTradeLabel(input.tradeCategory, 'Phân loại không hợp lệ.');
+  const price = input.salePrice;
+  if (price != null && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
+    throw new InventoryError('VALIDATION', 'Giá bán phải là số không âm.');
+  }
 }
 
 function requireWarrantyMonths(value: unknown): void {
@@ -1586,4 +1681,19 @@ function allocateInstalledLots(
   }
   if (remaining > 0) parts.push({ quantity: remaining });
   return parts;
+}
+
+const ASSET_CATEGORIES: readonly string[] = ['INDUSTRIAL', 'IT_OFFICE', 'TOOL_PPE', 'VEHICLE'];
+
+function toCustodyAsset(material: Material): CustodyAsset {
+  return {
+    id: material.id,
+    code: material.code,
+    name: material.name,
+    assetCategory: material.assetCategory,
+    serialNumber: material.serialNumber,
+    status: material.status,
+    assignedEmployeeId: material.assignedEmployeeId,
+    assignedAt: material.assignedAt,
+  };
 }

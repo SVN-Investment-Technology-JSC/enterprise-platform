@@ -136,6 +136,11 @@ function mapMaterial(row: Row): Material {
     assignedEmployeeId: opt(row.assigned_employee_id),
     assignedAt: row.assigned_at ? iso(row.assigned_at) : undefined,
     assetCategory: opt(row.asset_category) as Material['assetCategory'],
+    tradeMode: opt(row.trade_mode) as Material['tradeMode'],
+    salePrice: row.sale_price == null ? undefined : Number(row.sale_price),
+    tradeCategory: opt(row.trade_category),
+    createdAt: row.created_at ? iso(row.created_at) : undefined,
+    createdBy: opt(row.created_by),
   };
 }
 
@@ -406,15 +411,21 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows.map(mapMaterial);
     },
 
-    create: async (tenantId: string, input: CreateMaterialRequest): Promise<Material> => {
+    create: async (
+      tenantId: string,
+      input: CreateMaterialRequest,
+      createdBy?: string,
+    ): Promise<Material> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `INSERT INTO inventory_schema.materials
            (code, name, category, type, unit, min_stock, max_stock, is_serialized, barcode,
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
-            assigned_employee_id, assigned_at, asset_category)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, $15, $16, $17, $18, $19)
+            assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
+            trade_category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true, $16, $17, $18, $19,
+                 $20, $21, $22, $23, $24)
       RETURNING *`,
         [
           input.code,
@@ -437,6 +448,10 @@ export class PostgresInventoryStore implements InventoryStore {
           input.assignedEmployeeId?.trim() || null,
           input.assignedEmployeeId ? new Date().toISOString() : null,
           input.assetCategory ?? 'INDUSTRIAL',
+          input.tradeMode?.trim() || null,
+          input.salePrice ?? null,
+          createdBy ?? null,
+          input.tradeCategory?.trim() || null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -472,7 +487,10 @@ export class PostgresInventoryStore implements InventoryStore {
                 warranty_months = CASE WHEN $20::boolean THEN $21::integer ELSE warranty_months END,
                 assigned_employee_id = COALESCE($22, assigned_employee_id),
                 assigned_at = CASE WHEN $22 IS NOT NULL THEN now() ELSE assigned_at END,
-                asset_category = COALESCE($23, asset_category)
+                asset_category = COALESCE($23, asset_category),
+                trade_mode = COALESCE($24, trade_mode),
+                sale_price = COALESCE($25, sale_price),
+                trade_category = COALESCE($26, trade_category)
           WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
@@ -500,6 +518,9 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.warrantyMonths ?? null,
           patch.assignedEmployeeId?.trim() || null,
           patch.assetCategory ?? null,
+          patch.tradeMode?.trim() || null,
+          patch.salePrice ?? null,
+          patch.tradeCategory?.trim() || null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -647,6 +668,13 @@ export class PostgresInventoryStore implements InventoryStore {
           input.warrantyUntil ?? null,
         ],
       );
+      // VIEW `assets` không có cột nhóm tài sản (thêm sau ở migration 0019), nên ghi thẳng vào bảng gốc.
+      if (input.assetCategory) {
+        await pool.query(
+          `UPDATE inventory_schema.materials SET asset_category = $2 WHERE code = $1 AND kind = 'ASSET'`,
+          [input.code, input.assetCategory],
+        );
+      }
       return mapAsset(result.rows[0]);
     },
 
@@ -1701,13 +1729,45 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows.map(mapMaterial);
     },
 
+    listAll: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE kind = 'ASSET' AND is_active = true ORDER BY code`,
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    listAssignable: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials
+          WHERE kind = 'ASSET' AND is_active = true AND assigned_employee_id IS NULL
+            AND COALESCE(status, 'OPERATING') = 'OPERATING'
+          ORDER BY code`,
+      );
+      return result.rows.map(mapMaterial);
+    },
+
+    find: async (tenantId: string, materialCode: string): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'ASSET' AND is_active = true`,
+        [materialCode],
+      );
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
+    },
+
     assign: async (tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `UPDATE inventory_schema.materials
-            SET assigned_employee_id = $2,
-                assigned_at = CASE WHEN $2 IS NULL THEN NULL ELSE now() END
+            SET assigned_employee_id = $2::uuid,
+                assigned_at = CASE WHEN $2::uuid IS NULL THEN NULL ELSE now() END
           WHERE code = $1 AND kind = 'ASSET'
+            AND ($2::uuid IS NULL
+                 OR (is_active = true
+                     AND COALESCE(status, 'OPERATING') = 'OPERATING'
+                     AND (assigned_employee_id IS NULL OR assigned_employee_id = $2::uuid)))
          RETURNING *`,
         [materialCode, employeeId],
       );

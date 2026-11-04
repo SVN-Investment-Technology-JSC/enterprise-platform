@@ -92,7 +92,7 @@ export interface InventoryStore {
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
     list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
-    create(tenantId: string, input: CreateMaterialRequest): Promise<Material>;
+    create(tenantId: string, input: CreateMaterialRequest, createdBy?: string): Promise<Material>;
     update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
     countTransactions(tenantId: string, code: string): Promise<number>;
@@ -290,6 +290,15 @@ export interface InventoryStore {
     listByEmployee(tenantId: string, employeeId: string): Promise<Material[]>;
     /** Mọi tài sản đang có người nhận, mới cấp trước. */
     listAssigned(tenantId: string): Promise<Material[]>;
+    /** Mọi tài sản còn trong danh mục, kèm nhóm, trạng thái và người đang giữ (nếu có). */
+    listAll(tenantId: string): Promise<Material[]>;
+    /** Tài sản đang hoạt động, còn hoạt động trong danh mục và chưa có người nhận. */
+    listAssignable(tenantId: string): Promise<Material[]>;
+    find(tenantId: string, materialCode: string): Promise<Material | null>;
+    /**
+     * Cấp (`employeeId` có giá trị) hoặc thu hồi (null). Cấp chỉ thành công khi tài sản còn hoạt động và chưa có
+     * người khác nhận; không thoả thì trả null để tầng trên báo lý do.
+     */
     assign(tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null>;
   };
 

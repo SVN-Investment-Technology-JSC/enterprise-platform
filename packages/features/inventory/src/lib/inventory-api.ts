@@ -659,6 +659,11 @@ export function loadCustody(): Promise<import('@enterprise-platform/contracts-in
   return request<import('@enterprise-platform/contracts-inventory').Material[]>('/custody');
 }
 
+/** Mọi tài sản kèm nhóm, trạng thái và người đang giữ; từ đó suy ra đang sử dụng, bảo trì hay tồn kho. */
+export function loadCustodyAssets(): Promise<import('@enterprise-platform/contracts-inventory').Material[]> {
+  return request<import('@enterprise-platform/contracts-inventory').Material[]>('/custody/assets');
+}
+
 export function assignCustody(
   materialCode: string,
   employeeId: string | null,
@@ -788,6 +793,11 @@ export function updateAsset(
 }
 
 // ---- Danh mục vật tư -------------------------------------------------------
+
+/** Danh mục hàng hóa (vật tư và dịch vụ), gồm cả mã đã ngừng dùng để trang lọc phía client. */
+export function loadTradeItems(): Promise<Material[]> {
+  return request<Material[]>('/materials?all=true');
+}
 
 export function createMaterial(input: CreateMaterialRequest): Promise<Material> {
   return request<Material>('/materials', { method: 'POST', body: JSON.stringify(input) });

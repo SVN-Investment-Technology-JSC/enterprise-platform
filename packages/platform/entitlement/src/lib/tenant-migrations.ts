@@ -545,6 +545,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0020-movement-counterparty',
       path: 'tenant/inventory/0020-movement-counterparty.sql',
     },
+    { version: '0021-trade-catalog', path: 'tenant/inventory/0021-trade-catalog.sql' },
+    {
+      version: '0022-trade-category-usage',
+      path: 'tenant/inventory/0022-trade-category-usage.sql',
+    },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],
