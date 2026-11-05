@@ -1,6 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { ProjectChatFeedPage, ProjectChatThread } from '@enterprise-platform/contracts-workspace';
+import type {
+  ChatTimelineFilter,
+  ProjectChatFeedPage,
+  ProjectChatThread,
+  ProjectChatTimeline,
+} from '@enterprise-platform/contracts-workspace';
 import { subscribeRealtime, subscribeRealtimeStatus } from '@enterprise-platform/shared-ui';
 import * as api from './workspace-api';
 
@@ -15,6 +20,12 @@ export interface ChatFeedArgs {
 export interface ChatFeedThreadArgs {
   readonly projectId: string;
   readonly workItemId: string;
+}
+
+export interface ChatTimelineArgs {
+  readonly projectId: string;
+  /** Bộ lọc nằm trong khoá bộ nhớ đệm: mỗi bộ lọc một mục, đổi bộ lọc thì nạp lại từ trang đầu. */
+  readonly filter?: ChatTimelineFilter;
 }
 
 export interface ChatFeedError {
@@ -40,7 +51,7 @@ const KEEP_SECONDS = 600;
 export const chatFeedApi = createApi({
   reducerPath: 'workspaceChatFeed',
   baseQuery: fakeBaseQuery<ChatFeedError>(),
-  tagTypes: ['ChatFeed', 'ChatThread'],
+  tagTypes: ['ChatFeed', 'ChatThread', 'ChatTimeline'],
   keepUnusedDataFor: KEEP_SECONDS,
   endpoints: (build) => ({
     chatFeedPage: build.query<ProjectChatFeedPage, ChatFeedArgs>({
@@ -71,10 +82,26 @@ export const chatFeedApi = createApi({
       },
       providesTags: (_result, _error, { workItemId }) => [{ type: 'ChatThread', id: workItemId }],
     }),
+    // Dòng thời gian của cả dự án: cùng kiểu nhiều trang với `chatFeedThread`, trang đầu là tin mới nhất.
+    chatTimeline: build.infiniteQuery<ProjectChatTimeline, ChatTimelineArgs, string | null>({
+      infiniteQueryOptions: {
+        initialPageParam: null,
+        getNextPageParam: (lastPage) =>
+          lastPage.hasMore && lastPage.items[0] ? lastPage.items[0].message.id : undefined,
+      },
+      queryFn: async ({ queryArg, pageParam }) => {
+        try {
+          return { data: await api.loadProjectChatTimeline(queryArg.projectId, pageParam ?? undefined, queryArg.filter) };
+        } catch (cause) {
+          return failure(cause, 'Không tải được dòng thời gian trao đổi của dự án.');
+        }
+      },
+      providesTags: (_result, _error, { projectId }) => [{ type: 'ChatTimeline', id: projectId }],
+    }),
   }),
 });
 
-export const { useChatFeedPageQuery, useChatFeedThreadInfiniteQuery } = chatFeedApi;
+export const { useChatFeedPageQuery, useChatFeedThreadInfiniteQuery, useChatTimelineInfiniteQuery } = chatFeedApi;
 
 /** Store riêng của màn này, sống suốt phiên trang: bộ nhớ đệm không mất khi chuyển tab hay đóng mở lại. */
 export const chatFeedStore = configureStore({
@@ -90,6 +117,7 @@ export const invalidateChatFeed = (projectId: string, workItemIds: readonly stri
   chatFeedStore.dispatch(
     chatFeedApi.util.invalidateTags([
       { type: 'ChatFeed', id: projectId },
+      { type: 'ChatTimeline', id: projectId },
       ...workItemIds.map((id) => ({ type: 'ChatThread' as const, id })),
     ]),
   );
@@ -128,7 +156,7 @@ function listenRealtime(): void {
     timer = setTimeout(flush, REALTIME_DEBOUNCE_MS);
   });
   subscribeRealtimeStatus((connected) => {
-    if (connected) chatFeedStore.dispatch(chatFeedApi.util.invalidateTags(['ChatFeed', 'ChatThread']));
+    if (connected) chatFeedStore.dispatch(chatFeedApi.util.invalidateTags(['ChatFeed', 'ChatThread', 'ChatTimeline']));
   });
 }
 

@@ -20,6 +20,9 @@ import type {
   ProjectChatFeedPage,
   ProjectChatFeedQuery,
   ProjectChatThread,
+  ChatTimelineFilter,
+  ProjectChatTimeline,
+  ReplyChatMessageRequest,
   CompleteUploadRequest,
   Contract,
   CostEntry,
@@ -510,6 +513,33 @@ export const loadProjectChatThread = (projectId: string, workItemId: string, bef
     `/projects/${projectId}/chat-feed/${workItemId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
     { cache: 'no-store' },
   );
+
+/**
+ * Tin của mọi công việc trong dự án xếp chung theo giờ, chỉ để đọc: không đánh dấu đã đọc. Không có `before`
+ * thì là các tin mới nhất; có `before` (id tin cũ nhất đang có) thì là trang liền trước nó.
+ */
+export const loadProjectChatTimeline = (projectId: string, before?: string, filter: ChatTimelineFilter = {}) => {
+  const params = new URLSearchParams();
+  if (before) params.set('before', before);
+  if (filter.q) params.set('q', filter.q);
+  if (filter.authors?.length) params.set('authors', filter.authors.join(','));
+  if (filter.nodes?.length) params.set('nodes', filter.nodes.join(','));
+  if (filter.mentionsMe) params.set('mentionsMe', '1');
+  if (filter.hasAttachment) params.set('hasAttachment', '1');
+  if (filter.from) params.set('from', filter.from);
+  if (filter.to) params.set('to', filter.to);
+  const query = params.toString();
+  return request<ProjectChatTimeline>(`/projects/${projectId}/chat-timeline${query ? `?${query}` : ''}`, {
+    cache: 'no-store',
+  });
+};
+
+/** Trả lời một tin; câu trả lời nằm trong kênh của chính tin đó. */
+export const replyChatMessage = (messageId: string, body: ReplyChatMessageRequest) =>
+  request<SendChatMessageResponse>(`/chat/messages/${messageId}/reply`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 
 /** Số tin chưa đọc của cả cây, một lời gọi cho mọi node. */
 export const loadUnread = (projectId: string) =>

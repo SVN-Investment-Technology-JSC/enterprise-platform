@@ -12,7 +12,7 @@ export interface ChatFeedRow {
   readonly messageCount: number;
 }
 
-function ancestorsOf(item: WorkItem, byId: ReadonlyMap<string, WorkItem>): WorkItem[] {
+export function ancestorsOf(item: WorkItem, byId: ReadonlyMap<string, WorkItem>): WorkItem[] {
   const chain: WorkItem[] = [];
   const seen = new Set<string>([item.id]);
   let cursor = item.parentId ? byId.get(item.parentId) : undefined;

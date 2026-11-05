@@ -21,6 +21,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Provider } from 'react-redux';
 import { buildChatFeedRows, previewOf, splitByTerm, type ChatFeedRow } from '../chat-feed.model';
 import {
@@ -32,9 +33,12 @@ import { groupThread } from '../chat.model';
 import { mentionHandles, scanMentions, splitByMentions } from '../mention.model';
 import { formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ChatTimelinePane } from './chat-timeline-pane';
 import { Choice } from './choice';
 import { Pager } from './pager';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
+import { useFillViewportHeight } from './use-fill-viewport';
 
 /** Chờ người dùng ngừng gõ rồi mới tìm, để không gọi API ở từng phím. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -50,7 +54,18 @@ export interface TabChatsProps {
   readonly documents: readonly DocumentSummary[];
   /** Bấm tên công việc ở đầu khung trao đổi để mở hộp chi tiết của nó. */
   readonly onOpen: (item: WorkItem) => void;
+  /** Người đang xem; viewer của dự án không có nút "Trả lời" ở chế độ theo thời gian. */
+  readonly currentUserId?: string;
+  /**
+   * Chỗ trên hàng tab của trang để đặt công tắc "Theo công việc | Theo thời gian" và thanh lọc, nhờ vậy khung chat không
+   * mất thêm hàng nào. Bỏ trống: đặt ngay trong khung; `null`: chỗ đó chưa sẵn sàng nên chưa vẽ (tránh nháy một khung hình).
+   */
+  readonly toolbarSlot?: HTMLElement | null;
+  /** Cách xem lúc mở tab; mặc định "Theo thời gian" (cả dự án trong một khung), "Theo công việc" là danh sách + luồng. */
+  readonly initialMode?: FeedMode;
 }
+
+type FeedMode = 'work' | 'time';
 
 /** Bọc store riêng để bộ nhớ đệm nằm ngoài vòng đời của tab. */
 export function TabChats(props: TabChatsProps) {
@@ -89,21 +104,37 @@ function Highlight({ text, term }: { text: string; term?: string }) {
  * trang và mỗi trao đổi gọi API riêng khi cần và được nhớ lại (RTK Query), nên quay lại không gọi lại. Có tin mới thì
  * bộ nhớ bị huỷ và màn hình tự cập nhật (realtime, xem chat-feed-store). Đọc ở đây không đánh dấu đã đọc: số tin chưa đọc không đổi.
  */
-function TabChatsBody({ projectId, items, members, documents, onOpen }: TabChatsProps) {
+function TabChatsBody({
+  projectId,
+  items,
+  members,
+  documents,
+  onOpen,
+  currentUserId,
+  toolbarSlot,
+  initialMode = 'time',
+}: TabChatsProps) {
   const directory = useDirectory();
+  const feed = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<FeedMode>(initialMode);
+  // Khung theo công việc chỉ được dựng ở chế độ "work", nên đo lại mỗi lần đổi chế độ.
+  useFillViewportHeight(feed, undefined, mode);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(CHAT_FEED_PAGE_SIZE);
   const [selectedId, setSelectedId] = useState<string>();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [onlyWithChat, setOnlyWithChat] = useState(false);
-  const list = useChatFeedPageQuery({
-    projectId,
-    page,
-    pageSize,
-    search: search || undefined,
-    onlyWithChat,
-  });
+  const list = useChatFeedPageQuery(
+    {
+      projectId,
+      page,
+      pageSize,
+      search: search || undefined,
+      onlyWithChat,
+    },
+    { skip: mode === 'time' },
+  );
 
   // Đợi người dùng gõ xong mới tìm; đổi từ khoá thì về trang 1 và chọn lại công việc đầu danh sách.
   useEffect(() => {
@@ -159,14 +190,58 @@ function TabChatsBody({ projectId, items, members, documents, onOpen }: TabChats
     goToPage(1);
   };
 
+  const modeSwitch = (
+    <div className={`${styles.segmented} ${styles.tabBodyModeSwitch}`} role="group" aria-label="Cách xem trao đổi">
+      <button
+        type="button"
+        aria-pressed={mode === 'work'}
+        className={mode === 'work' ? styles.segmentActive : styles.segment}
+        onClick={() => setMode('work')}
+      >
+        <span className={styles.segmentPrefix}>Theo </span>công việc
+      </button>
+      <button
+        type="button"
+        aria-pressed={mode === 'time'}
+        className={mode === 'time' ? styles.segmentActive : styles.segment}
+        onClick={() => setMode('time')}
+      >
+        <span className={styles.segmentPrefix}>Theo </span>thời gian
+      </button>
+    </div>
+  );
+
+  // Có chỗ trên hàng tab thì công tắc nằm ở đó (không tốn thêm một hàng); chưa có chỗ (null) thì chưa vẽ.
+  const switchView = toolbarSlot === undefined ? modeSwitch : toolbarSlot ? createPortal(modeSwitch, toolbarSlot) : null;
+
+  if (mode === 'time') {
+    // Chưa biết vai trò (không truyền người xem) thì để server quyết: viewer bị từ chối ở API, không chỉ ẩn nút.
+    const myRole = currentUserId ? members.find((member) => member.userId === currentUserId)?.role : undefined;
+    return (
+      <div className={styles.tabBody}>
+        {switchView}
+        <ChatTimelinePane
+          projectId={projectId}
+          items={items}
+          members={members}
+          documents={documents}
+          canReply={myRole !== 'viewer'}
+          onOpen={onOpen}
+          toolbarSlot={toolbarSlot}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.tabBody}>
+      {switchView}
       {list.error ? (
         <p role="alert" className={styles.alert}>
           {'message' in list.error ? list.error.message : 'Không tải được danh sách trao đổi của dự án.'}
         </p>
       ) : null}
-      <div className={styles.chatFeed}>
+      <div ref={feed} className={styles.chatFeed}>
         <aside className={styles.chatFeedList} aria-label="Công việc">
           <div className={styles.chatFeedTools}>
             <label className={styles.searchField}>
@@ -384,16 +459,13 @@ function ThreadPane({
         {row.ancestors.length > 0 ? (
           <p className={styles.chatFeedPath}>{row.ancestors.map((ancestor) => ancestor.code).join(' › ')} ›</p>
         ) : null}
-        <button
-          type="button"
-          className={styles.chatFeedLink}
-          title="Mở chi tiết công việc"
-          onClick={() => onOpen(item)}
-        >
-          <span className={styles.activityCode}>{item.code}</span>
-          <span className={styles.chatFeedLinkText}>{item.title}</span>
-          <ExternalLink size={14} aria-hidden />
-        </button>
+        <Tooltip content="Mở chi tiết công việc" side="bottom" align="start">
+          <button type="button" className={styles.chatFeedLink} onClick={() => onOpen(item)}>
+            <span className={styles.activityCode}>{item.code}</span>
+            <span className={styles.chatFeedLinkText}>{item.title}</span>
+            <ExternalLink size={14} aria-hidden />
+          </button>
+        </Tooltip>
       </header>
       <div ref={scroller} className={styles.chatFeedMessages} onScroll={onScroll}>
         {knownEmpty || (thread.data && messages.length === 0) ? <p className={styles.muted}>Chưa có trao đổi nào.</p> : null}
