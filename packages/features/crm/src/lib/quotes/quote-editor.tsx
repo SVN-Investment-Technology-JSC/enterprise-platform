@@ -74,6 +74,7 @@ import {
   describeLineErrors,
   duplicatePicks,
   duplicateWarning,
+  lineErrorsHint,
   lineErrorsOf,
   setPicked,
   setPickedQuantity,
@@ -777,6 +778,7 @@ function MaterialPicker({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const [lineErrors, setLineErrors] = useState<readonly string[]>([]);
+  const [lineHint, setLineHint] = useState<string>();
   const q = useDebounced(search.trim(), 300);
 
   useEffect(() => {
@@ -800,6 +802,7 @@ function MaterialPicker({
     setConfirmingDuplicates(false);
     setInvalidIds([]);
     setLineErrors([]);
+    setLineHint(undefined);
     setError(undefined);
   };
   const duplicates = duplicatePicks(picked, existingMaterialIds);
@@ -827,11 +830,18 @@ function MaterialPicker({
       render: (value: number | null, row) => (row.kind === 'SERVICE' ? <span className={styles.muted}>Dịch vụ</span> : quantityText(value ?? 0)),
     },
     {
-      title: 'Giá vốn BQ',
+      title: 'Giá vốn bình quân',
       dataIndex: 'avgCost',
-      width: 120,
+      width: 150,
       align: 'right',
       render: (value: number | null) => (value === null ? '' : formatMoney(value)),
+    },
+    {
+      title: 'Giá bán đề xuất (Kho)',
+      dataIndex: 'salePrice',
+      width: 150,
+      align: 'right',
+      render: (value: number | null | undefined) => (value === null || value === undefined ? '' : formatMoney(value)),
     },
     {
       title: 'Số lượng',
@@ -871,6 +881,7 @@ function MaterialPicker({
       if (failure) {
         setError(failure.message);
         setLineErrors(describeLineErrors(failure.lineErrors, picked));
+        setLineHint(lineErrorsHint(failure.lineErrors));
       }
     } finally {
       setSaving(false);
@@ -890,18 +901,21 @@ function MaterialPicker({
         confirmingDuplicates && duplicates.length ? (
           <p role="alert">{duplicateWarning(duplicates)}</p>
         ) : lineErrors.length ? (
-          <ul role="alert">
-            {lineErrors.map((text) => (
-              <li key={text}>{text}</li>
-            ))}
-          </ul>
+          <>
+            <ul role="alert">
+              {lineErrors.map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+            {lineHint ? <p className={styles.muted}>{lineHint}</p> : null}
+          </>
         ) : undefined
       }
       onClose={onClose}
       onSubmit={() => void save()}
     >
       <input
-        className={`${styles.input} ${styles.search}`}
+        className={styles.input}
         type="search"
         placeholder="Tìm theo mã hoặc tên mặt hàng…"
         maxLength={100}

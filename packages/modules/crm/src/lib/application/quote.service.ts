@@ -512,6 +512,8 @@ export class QuoteService {
       unit: material.unit,
       kind: material.kind ?? null,
       category: material.category,
+      tradeCategory: material.tradeCategory ?? null,
+      salePrice: material.salePrice ?? null,
       avgCost: material.avgCost ?? null,
       totalAvailable: material.totalAvailable ?? null,
       availableByWarehouse: material.availableByWarehouse ?? null,
