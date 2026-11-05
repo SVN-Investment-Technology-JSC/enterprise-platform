@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { ChatAttachments } from '../../../packages/features/workspace/src/lib/components/chat-attachments';
-import { FilePicker } from '../../../packages/features/workspace/src/lib/components/file-picker';
+import { ChatAttachments, FilePicker } from '@enterprise-platform/feature-workspace';
 
 afterEach(cleanup);
 

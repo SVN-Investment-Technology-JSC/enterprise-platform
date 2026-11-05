@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { MyWorkItemsPage, MyWorkOverview } from '@enterprise-platform/contracts-workspace';
-import { MyWorkView } from '@enterprise-platform/feature-workspace';
-import { resetMyWork } from '../../../packages/features/workspace/src/lib/my-work-store';
+import { MyWorkView, resetMyWork } from '@enterprise-platform/feature-workspace';
 
 const mockApi = {
   loadMyWorkOverview: jest.fn(),

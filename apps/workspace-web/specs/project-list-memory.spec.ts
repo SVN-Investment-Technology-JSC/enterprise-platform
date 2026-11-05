@@ -6,7 +6,7 @@ import {
   readProjectListMemory,
   resetProjectListMemoryForTests,
   writeProjectListMemory,
-} from '../../../packages/features/workspace/src/lib/project-list-memory';
+} from '@enterprise-platform/feature-workspace';
 
 beforeEach(() => resetProjectListMemoryForTests());
 
