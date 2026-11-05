@@ -5,6 +5,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
 
@@ -98,35 +99,39 @@ export function ProjectGroupSettings() {
                   <td>
                     {canEdit ? (
                       <span className={styles.roleActions}>
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Sửa nhóm ${group.name}`}
-                          title="Sửa nhóm"
-                          onClick={() => setEditing(group)}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <Confirm
-                          title={`Bạn có chắc chắn muốn xoá nhóm "${group.name}"?`}
-                          description={
-                            group.projectCount > 0
-                              ? `${group.projectCount} dự án của nhóm sẽ về "Chưa phân loại".`
-                              : 'Nhóm bị xoá hẳn, không hoàn tác được.'
-                          }
-                          okText="Xoá"
-                          okType="danger"
-                          onConfirm={() => remove(group)}
-                        >
+                        <Tooltip content="Sửa nhóm">
                           <button
                             type="button"
                             className={styles.iconButton}
-                            aria-label={`Xoá nhóm ${group.name}`}
-                            title="Xoá nhóm"
+                            aria-label={`Sửa nhóm ${group.name}`}
+                            onClick={() => setEditing(group)}
                           >
-                            <Trash2 size={13} />
+                            <Pencil size={13} />
                           </button>
-                        </Confirm>
+                        </Tooltip>
+                        <Tooltip content="Xoá nhóm">
+                          <span className={styles.tooltipAnchor}>
+                            <Confirm
+                              title={`Bạn có chắc chắn muốn xoá nhóm "${group.name}"?`}
+                              description={
+                                group.projectCount > 0
+                                  ? `${group.projectCount} dự án của nhóm sẽ về "Chưa phân loại".`
+                                  : 'Nhóm bị xoá hẳn, không hoàn tác được.'
+                              }
+                              okText="Xoá"
+                              okType="danger"
+                              onConfirm={() => remove(group)}
+                            >
+                              <button
+                                type="button"
+                                className={styles.iconButton}
+                                aria-label={`Xoá nhóm ${group.name}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </Confirm>
+                          </span>
+                        </Tooltip>
                       </span>
                     ) : null}
                   </td>

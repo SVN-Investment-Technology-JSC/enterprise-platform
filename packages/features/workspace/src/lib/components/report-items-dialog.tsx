@@ -10,6 +10,7 @@ import {
   formatDate,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Dialog } from './dialog';
 import { Pager, usePaged } from './pager';
 
@@ -97,14 +98,15 @@ export function ReportItemsDialog({
                     <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.code}</td>
                     <td>
                       {onOpenItem ? (
-                        <button
-                          type="button"
-                          className={styles.linkButton}
-                          title="Mở chi tiết công việc"
-                          onClick={() => onOpenItem(row.projectId, row.workItemId)}
-                        >
-                          {row.title}
-                        </button>
+                        <Tooltip content="Mở chi tiết công việc">
+                          <button
+                            type="button"
+                            className={styles.linkButton}
+                            onClick={() => onOpenItem(row.projectId, row.workItemId)}
+                          >
+                            {row.title}
+                          </button>
+                        </Tooltip>
                       ) : (
                         row.title
                       )}

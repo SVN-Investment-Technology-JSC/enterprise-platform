@@ -46,10 +46,12 @@ import {
   standaloneTaskStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { Choice } from './choice';
 import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
 import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
+import { Tooltip } from './tooltip';
 import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
 import { FieldChangeList } from './tab-activity';
@@ -269,15 +271,16 @@ export function StandaloneTasksView({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tải lại"
-            title="Tải lại"
-            onClick={() => void reloadList()}
-          >
-            <RefreshCw size={15} />
-          </button>
+          <Tooltip content="Tải lại">
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Tải lại"
+              onClick={() => void reloadList()}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </Tooltip>
         </div>
 
         <div className={styles.taskListFilters}>
@@ -496,15 +499,19 @@ function TaskRow({
             </span>
           ) : null}
           {task.executionType === 'procedure' ? (
-            <span className={styles.muted} title="Theo quy trình">
-              <Workflow size={12} aria-hidden /> Quy trình
-            </span>
+            <Tooltip content="Theo quy trình">
+              <span className={styles.muted}>
+                <Workflow size={12} aria-hidden /> Quy trình
+              </span>
+            </Tooltip>
           ) : null}
           {task.childCount > 0 ? (
-            <span className={styles.muted} title="Việc con đã xong / tổng số">
-              <GitBranch size={12} aria-hidden /> {task.childCount - task.openChildCount}/
-              {task.childCount}
-            </span>
+            <Tooltip content="Việc con đã xong / tổng số">
+              <span className={styles.muted}>
+                <GitBranch size={12} aria-hidden /> {task.childCount - task.openChildCount}/
+                {task.childCount}
+              </span>
+            </Tooltip>
           ) : null}
         </span>
         <span className={styles.taskRowPerson}>
@@ -572,10 +579,21 @@ function TaskDetail({
   const open = !CLOSED.includes(task.status);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const blockedPrompt = useBlockedReasonPrompt();
 
   useEffect(() => {
     setError(undefined);
   }, [task.id]);
+
+  /**
+   * Báo vướng mắc (hoặc sửa lý do khi việc đã vướng mắc) luôn qua hộp ghi lý do: server từ chối nếu thiếu `note`.
+   * Lỗi ném ra để hộp tự hiện, không đi qua `attempt` (vốn nuốt lỗi vào banner).
+   */
+  const promptBlocked = () =>
+    blockedPrompt.ask(task, async (reason) => {
+      const next = await api.changeStandaloneTaskStatus(task.id, { status: 'blocked', note: reason });
+      onChanged(next);
+    });
 
   const run = async (operation: () => Promise<StandaloneTaskDetail | void>): Promise<void> => {
     await attempt(operation);
@@ -647,25 +665,27 @@ function TaskDetail({
           </p>
         </div>
         <div className={styles.documentActions}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Nhật ký"
-            title="Nhật ký"
-            onClick={onShowHistory}
-          >
-            <History size={15} />
-          </button>
-          {isAssigner ? (
+          <Tooltip content="Nhật ký">
             <button
               type="button"
               className={styles.iconButton}
-              aria-label="Sửa"
-              title="Sửa"
-              onClick={onEdit}
+              aria-label="Nhật ký"
+              onClick={onShowHistory}
             >
-              <Pencil size={15} />
+              <History size={15} />
             </button>
+          </Tooltip>
+          {isAssigner ? (
+            <Tooltip content="Sửa">
+              <button
+                type="button"
+                className={styles.iconButton}
+                aria-label="Sửa"
+                onClick={onEdit}
+              >
+                <Pencil size={15} />
+              </button>
+            </Tooltip>
           ) : null}
           {isAssigner && !task.reversal && (task.status === 'todo' || task.status === 'cancelled') ? (
             <Confirm
@@ -684,9 +704,13 @@ function TaskDetail({
                 })
               }
             >
-              <button type="button" className={styles.iconButton} aria-label="Xoá" title="Xoá">
-                <Trash2 size={15} />
-              </button>
+              <span className={styles.tooltipAnchor}>
+                <Tooltip content="Xoá">
+                  <button type="button" className={styles.iconButton} aria-label="Xoá">
+                    <Trash2 size={15} />
+                  </button>
+                </Tooltip>
+              </span>
             </Confirm>
           ) : null}
         </div>
@@ -731,7 +755,7 @@ function TaskDetail({
               type="button"
               className={primary ? styles.buttonPrimary : styles.buttonGhost}
               disabled={busy}
-              onClick={() => void move(next)}
+              onClick={() => (next === 'blocked' ? promptBlocked() : void move(next))}
             >
               {label}
             </button>
@@ -743,6 +767,14 @@ function TaskDetail({
           </button>
         ) : null}
       </div>
+
+      {task.status === 'blocked' && !task.reversal ? (
+        <BlockedReasonNotice
+          reason={task.blockedReason}
+          onEdit={open && allowedStatuses.length > 0 ? promptBlocked : undefined}
+        />
+      ) : null}
+      {blockedPrompt.dialog}
 
       {task.reversal ? (
         <div className={styles.alert}>
@@ -994,6 +1026,9 @@ function HistoryDrawer({
   }, [onClose]);
 
   return (
+    <>
+    {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside className={styles.drawer} role="complementary" aria-label="Nhật ký công việc">
       <header className={styles.drawerHead}>
         <div>
@@ -1040,5 +1075,6 @@ function HistoryDrawer({
         )}
       </div>
     </aside>
+    </>
   );
 }

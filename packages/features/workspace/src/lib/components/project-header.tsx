@@ -6,11 +6,12 @@ import {
   type ProjectStatus,
   type ProjectSummary,
 } from '@enterprise-platform/contracts-workspace';
-import { Check, ChevronDown } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { CalendarRange, Check, ChevronDown, FileText, Hash, ListChecks, Tag, Users } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProjectAvatar } from './project-avatar';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
 /** Số ô người hiện trước khi gom phần còn lại thành "+N". */
@@ -24,6 +25,11 @@ export interface ProjectHeaderProps {
   /** Vai trò có quyền "Có thể cập nhật trạng thái dự án". */
   readonly canChangeStatus?: boolean;
   readonly onChangeStatus?: (status: ProjectStatus) => Promise<void>;
+  /**
+   * Công tắc "Dự án | Khách hàng" của khu vực Dự án, đặt ở góc phải dưới của thẻ để thẻ và công tắc là MỘT khối (khỏi một
+   * hàng tiêu đề riêng phía trên chỉ để chứa công tắc).
+   */
+  readonly viewSwitch?: ReactNode;
 }
 
 /**
@@ -33,8 +39,9 @@ export interface ProjectHeaderProps {
 const PICKABLE_STATUSES = PROJECT_STATUSES.filter((status) => status !== 'cancelled');
 
 /**
- * Khối đầu của trang dự án: tên, trạng thái, một dòng số liệu, tiến độ và
- * những người trong dự án. Hàng tab nằm ngay dưới.
+ * Khối đầu của trang dự án, hai hàng, luôn cao như nhau ở mọi tab (nên hàng tab bên dưới đứng yên khi đổi tab):
+ *  - Hàng trên: logo, tên, trạng thái | tiến độ, người trong dự án, nút Thành viên.
+ *  - Hàng dưới: số liệu có biểu tượng (mã, nhóm, công việc, thành viên, tài liệu, thời gian) | công tắc Dự án / Khách hàng.
  */
 export function ProjectHeader({
   project,
@@ -43,65 +50,86 @@ export function ProjectHeader({
   onOpenMembers,
   canChangeStatus = false,
   onChangeStatus,
+  viewSwitch,
 }: ProjectHeaderProps) {
   const directory = useDirectory();
   const tone = PROJECT_STATUS_TONE[project.status];
-  const facts = [
-    `ID: ${project.code}`,
-    ...(project.projectType ? [`Nhóm: ${project.projectType}`] : []),
-    `${project.totalItems} công việc`,
-    `${members.length} thành viên`,
-    `${documentCount} tài liệu`,
+  const dates =
+    project.startDate || project.endDate
+      ? `${formatDate(project.startDate) || '—'} → ${formatDate(project.endDate) || '—'}`
+      : undefined;
+  const facts: { key: string; icon: ReactNode; label: string; title: string; strong?: boolean }[] = [
+    { key: 'code', icon: <Hash size={13} aria-hidden />, label: project.code, title: 'Mã dự án', strong: true },
+    ...(project.projectType
+      ? [{ key: 'type', icon: <Tag size={13} aria-hidden />, label: project.projectType, title: 'Nhóm dự án' }]
+      : []),
+    {
+      key: 'items',
+      icon: <ListChecks size={13} aria-hidden />,
+      label: `${project.totalItems} công việc`,
+      title: 'Số công việc',
+    },
+    { key: 'members', icon: <Users size={13} aria-hidden />, label: `${members.length} thành viên`, title: 'Số thành viên' },
+    { key: 'docs', icon: <FileText size={13} aria-hidden />, label: `${documentCount} tài liệu`, title: 'Số tài liệu' },
+    ...(dates ? [{ key: 'dates', icon: <CalendarRange size={13} aria-hidden />, label: dates, title: 'Thời gian dự án' }] : []),
   ];
-  if (project.startDate || project.endDate) {
-    facts.push(`${formatDate(project.startDate) || '—'} → ${formatDate(project.endDate) || '—'}`);
-  }
 
   return (
     <section className={styles.projectHeader}>
-      <ProjectAvatar id={project.id} name={project.name} size="large" />
-      <div className={styles.projectHeaderMain}>
-        <h2 className={styles.projectHeaderTitle}>
-          {project.name}
-          {canChangeStatus && onChangeStatus ? (
-            <StatusPicker status={project.status} onChange={onChangeStatus} />
-          ) : (
-            <span
-              className={`${styles.pill} ${styles.pillCaps}`}
-              style={{ background: tone.bg, color: tone.fg }}
-            >
-              {PROJECT_STATUS_LABELS[project.status]}
-            </span>
-          )}
-        </h2>
-        <p className={styles.projectHeaderFacts}>{facts.join(' · ')}</p>
+      <span className={styles.projectHeaderAvatar}>
+        <ProjectAvatar id={project.id} name={project.name} size="large" />
+      </span>
+
+      <div className={styles.projectHeaderTitleRow}>
+        <Tooltip content={project.name}>
+          <h2 className={styles.projectHeaderTitle}>{project.name}</h2>
+        </Tooltip>
+        {canChangeStatus && onChangeStatus ? (
+          <StatusPicker status={project.status} onChange={onChangeStatus} />
+        ) : (
+          <span className={`${styles.pill} ${styles.pillCaps}`} style={{ background: tone.bg, color: tone.fg }}>
+            {PROJECT_STATUS_LABELS[project.status]}
+          </span>
+        )}
       </div>
 
-      <span className={styles.progressCell}>
-        <span
-          className={`${styles.progressTrack} ${styles.progressTrackWide}`}
-          aria-label={`Tiến độ ${project.progressPercent}%`}
-        >
-          <span className={styles.progressFill} style={{ width: `${project.progressPercent}%` }} />
+      <div className={styles.projectHeaderAside}>
+        <span className={styles.progressCell}>
+          <span
+            className={`${styles.progressTrack} ${styles.progressTrackWide}`}
+            aria-label={`Tiến độ ${project.progressPercent}%`}
+          >
+            <span className={styles.progressFill} style={{ width: `${project.progressPercent}%` }} />
+          </span>
+          <b>{project.progressPercent}%</b>
         </span>
-        <b>{project.progressPercent}%</b>
-      </span>
+        <span className={styles.avatarStack} aria-label={`${members.length} thành viên`}>
+          {members.slice(0, AVATARS_SHOWN).map((member) => (
+            <Tooltip key={member.id} content={directory.nameOf(member.userId)}>
+              <span className={styles.avatar}>{initials(directory.nameOf(member.userId))}</span>
+            </Tooltip>
+          ))}
+          {members.length > AVATARS_SHOWN ? (
+            <span className={`${styles.avatar} ${styles.avatarMore}`}>+{members.length - AVATARS_SHOWN}</span>
+          ) : null}
+        </span>
+        <button type="button" className={styles.buttonGhost} onClick={onOpenMembers}>
+          Thành viên
+        </button>
+      </div>
 
-      <span className={styles.avatarStack} aria-label={`${members.length} thành viên`}>
-        {members.slice(0, AVATARS_SHOWN).map((member) => (
-          <span key={member.id} className={styles.avatar} title={directory.nameOf(member.userId)}>
-            {initials(directory.nameOf(member.userId))}
-          </span>
+      <ul className={styles.projectFacts} aria-label="Thông tin dự án">
+        {facts.map((fact) => (
+          <Tooltip key={fact.key} content={fact.title}>
+            <li className={fact.strong ? `${styles.projectFact} ${styles.projectFactStrong}` : styles.projectFact}>
+              {fact.icon}
+              {fact.label}
+            </li>
+          </Tooltip>
         ))}
-        {members.length > AVATARS_SHOWN ? (
-          <span className={`${styles.avatar} ${styles.avatarMore}`}>
-            +{members.length - AVATARS_SHOWN}
-          </span>
-        ) : null}
-      </span>
-      <button type="button" className={styles.buttonGhost} onClick={onOpenMembers}>
-        Thành viên
-      </button>
+      </ul>
+
+      {viewSwitch ? <div className={styles.projectHeaderSwitch}>{viewSwitch}</div> : null}
     </section>
   );
 }
@@ -151,19 +179,22 @@ function StatusPicker({
 
   return (
     <span ref={box} className={styles.statusPicker}>
-      <button
-        type="button"
-        className={`${styles.pill} ${styles.pillCaps} ${styles.statusPickerButton}`}
-        style={{ background: tone.bg, color: tone.fg }}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        title="Đổi trạng thái dự án"
-        disabled={saving}
-        onClick={() => setOpen((current) => !current)}
-      >
-        {PROJECT_STATUS_LABELS[status]}
-        <ChevronDown size={12} aria-hidden />
-      </button>
+      <Tooltip content="Đổi trạng thái dự án">
+        <span className={styles.tooltipAnchor}>
+          <button
+            type="button"
+            className={`${styles.pill} ${styles.pillCaps} ${styles.statusPickerButton}`}
+            style={{ background: tone.bg, color: tone.fg }}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            disabled={saving}
+            onClick={() => setOpen((current) => !current)}
+          >
+            {PROJECT_STATUS_LABELS[status]}
+            <ChevronDown size={12} aria-hidden />
+          </button>
+        </span>
+      </Tooltip>
       {open ? (
         <ul className={styles.statusPickerMenu} role="listbox" aria-label="Trạng thái dự án">
           {PICKABLE_STATUSES.map((option) => {

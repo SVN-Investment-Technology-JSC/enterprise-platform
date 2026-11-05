@@ -9,6 +9,8 @@ import {
   CHAT_FEED_SEARCH_MAX_LENGTH,
   CHAT_FEED_THREAD_LIMIT,
   CHAT_PAGE_SIZE,
+  CHAT_TIMELINE_PAGE_SIZE,
+  MAX_CHAT_ATTACHMENTS,
 } from '@enterprise-platform/contracts-workspace';
 import { ChatService } from './chat.service.js';
 import { ProjectService } from './project.service.js';
@@ -25,7 +27,15 @@ function makeStore(options: {
   messages?: Partial<ChatMessage>[];
   readers?: { userId: string; messageId?: string }[];
 }) {
-  const sent: { attachmentDocumentId: string | null; mentions: string[] }[] = [];
+  const sent: {
+    attachmentDocumentId: string | null;
+    attachmentDocumentIds?: readonly string[];
+    mentions: string[];
+    channelId?: string;
+    parentId?: string | null;
+  }[] = [];
+  const timelineCalls: { limit: number; before?: string }[] = [];
+  const timelineFilters: unknown[] = [];
   const edits: { mentions: readonly string[]; newlyMentioned: readonly string[] }[] = [];
   const listed: { limit: number; before?: string }[] = [];
   const recalled: { actor: string; id: string }[] = [];
@@ -55,10 +65,27 @@ function makeStore(options: {
       sendMessage: async (
         _tenant: string,
         _actor: string,
-        input: { attachmentDocumentId: string | null; mentions: string[] },
+        input: {
+          attachmentDocumentId: string | null;
+          attachmentDocumentIds?: readonly string[];
+          mentions: string[];
+          channelId: string;
+          parentId?: string | null;
+        },
       ) => {
-        sent.push({ attachmentDocumentId: input.attachmentDocumentId, mentions: input.mentions });
+        sent.push({
+          attachmentDocumentId: input.attachmentDocumentId,
+          attachmentDocumentIds: input.attachmentDocumentIds,
+          mentions: input.mentions,
+          channelId: input.channelId,
+          parentId: input.parentId,
+        });
         return { id: 'm-new' } as ChatMessage;
+      },
+      listProjectTimeline: async (_tenant: string, _project: string, limit: number, before?: string, filter?: unknown) => {
+        timelineCalls.push({ limit, before });
+        timelineFilters.push(filter);
+        return { items: [], hasMore: false };
       },
       markRead: async (
         _tenant: string,
@@ -96,7 +123,7 @@ function makeStore(options: {
       },
     },
   };
-  return { store: store as unknown as WorkspaceStore, sent, edits, listed, marked, recalled };
+  return { store: store as unknown as WorkspaceStore, sent, edits, listed, marked, recalled, timelineCalls, timelineFilters };
 }
 
 const actorOf = (userId: string): WorkspaceActor => ({
@@ -338,6 +365,50 @@ describe('ChatService — tài liệu đính kèm', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('nhận nhiều tài liệu: tài liệu đầu là tệp chính, bỏ id trùng', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: [
+        { id: 'd1', projectId: 'p1' },
+        { id: 'd2', projectId: 'p1' },
+        { id: 'shared', projectId: undefined },
+      ],
+    });
+    await serviceFor(store).send(actorOf('me'), {
+      ...toProject,
+      attachmentDocumentIds: ['d2', 'shared', 'd2'],
+      attachmentDocumentId: 'd1',
+    });
+    expect(sent[0]?.attachmentDocumentIds).toEqual(['d2', 'shared', 'd1']);
+    expect(sent[0]?.attachmentDocumentId).toBe('d2');
+  });
+
+  it('từ chối cả lượt khi một trong các tài liệu thuộc dự án khác', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: [
+        { id: 'd1', projectId: 'p1' },
+        { id: 'other', projectId: 'p2' },
+      ],
+    });
+    await expect(
+      serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentIds: ['d1', 'other'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('từ chối khi vượt số tài liệu tối đa của một tin', async () => {
+    const ids = Array.from({ length: MAX_CHAT_ATTACHMENTS + 1 }, (_, index) => `d${index}`);
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: ids.map((id) => ({ id, projectId: 'p1' })),
+    });
+    await expect(
+      serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentIds: ids }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(sent).toHaveLength(0);
+  });
+
   it('từ chối id tài liệu không tồn tại', async () => {
     const { store } = makeStore({ roles: { me: 'member' } });
     await expect(
@@ -496,5 +567,137 @@ describe('ChatService — xem trao đổi một công việc (chỉ đọc)', ()
       code: 'PROJECT_FORBIDDEN',
     });
     expect(listed).toHaveLength(0);
+  });
+});
+
+describe('ChatService — dòng thời gian của dự án', () => {
+  const BEFORE = '11111111-1111-4111-8111-111111111111';
+
+  it('lấy trang mới nhất, không đánh dấu đã đọc', async () => {
+    const { store, timelineCalls, marked } = makeStore({ roles: { me: 'viewer' } });
+    await serviceFor(store).projectTimeline(actorOf('me'), 'p1');
+    expect(timelineCalls).toEqual([{ limit: CHAT_TIMELINE_PAGE_SIZE, before: undefined }]);
+    expect(marked).toEqual([]);
+  });
+
+  it('chuyển mốc cho store; mốc không phải id tin bị chặn trước khi chạm CSDL', async () => {
+    const { store, timelineCalls } = makeStore({ roles: { me: 'member' } });
+    await serviceFor(store).projectTimeline(actorOf('me'), 'p1', BEFORE);
+    await expect(serviceFor(store).projectTimeline(actorOf('me'), 'p1', 'x')).rejects.toMatchObject({
+      code: expect.any(String),
+    });
+    expect(timelineCalls).toEqual([{ limit: CHAT_TIMELINE_PAGE_SIZE, before: BEFORE }]);
+  });
+
+  it('chuyển bộ lọc cho store; "nhắc tôi" thành id người đang xem, giá trị rỗng coi như không lọc', async () => {
+    const { store, timelineFilters } = makeStore({ roles: { me: 'member' } });
+    const NODE = '22222222-2222-4222-8222-222222222222';
+    const AUTHOR = '33333333-3333-4333-8333-333333333333';
+    await serviceFor(store).projectTimeline(actorOf('me'), 'p1', undefined, {
+      q: '  báo giá ',
+      authors: [AUTHOR, AUTHOR, '44444444-4444-4444-8444-444444444444'],
+      nodes: [NODE, 'project'],
+      mentionsMe: true,
+      hasAttachment: true,
+      from: '2026-11-01T00:00:00.000Z',
+      to: '2026-11-03T00:00:00.000Z',
+    });
+    await serviceFor(store).projectTimeline(actorOf('me'), 'p1', undefined, { q: '   ', authors: [], nodes: [] });
+    expect(timelineFilters[0]).toEqual({
+      q: 'báo giá',
+      authors: [AUTHOR, '44444444-4444-4444-8444-444444444444'],
+      nodes: [NODE, 'project'],
+      mentionUserId: 'me',
+      hasAttachment: true,
+      from: '2026-11-01T00:00:00.000Z',
+      to: '2026-11-03T00:00:00.000Z',
+    });
+    expect(Object.values(timelineFilters[1] as object).filter((value) => value !== undefined)).toEqual([]);
+  });
+
+  it('bộ lọc sai bị chặn trước khi chạm CSDL', async () => {
+    const { store, timelineCalls } = makeStore({ roles: { me: 'member' } });
+    const call = (filter: object) => serviceFor(store).projectTimeline(actorOf('me'), 'p1', undefined, filter);
+    await expect(call({ authors: ['khong-phai-uuid'] })).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(call({ nodes: ['khong-phai-uuid'] })).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(call({ from: 'hôm qua' })).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(call({ nodes: Array.from({ length: 51 }, () => 'project') })).resolves.toBeDefined();
+    await expect(
+      call({ authors: Array.from({ length: 51 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`) }),
+    ).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(call({ q: 'x'.repeat(201) })).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(call({ nodes: ['project'] })).resolves.toBeDefined();
+    expect(timelineCalls).toHaveLength(2);
+  });
+
+  it('người ngoài dự án bị từ chối', async () => {
+    const { store, timelineCalls } = makeStore({ roles: {} });
+    await expect(serviceFor(store).projectTimeline(actorOf('stranger'), 'p1')).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    expect(timelineCalls).toEqual([]);
+  });
+});
+
+describe('ChatService — trả lời trên dòng thời gian', () => {
+  it('câu trả lời đi vào ĐÚNG kênh của tin được trả lời và gắn làm trả lời của nó', async () => {
+    const { store, sent, marked } = makeStore({
+      roles: { me: 'member' },
+      messages: [{ id: 'root', channelId: 'channel-of-A' }],
+    });
+    await serviceFor(store).reply(actorOf('me'), 'root', { body: 'Đã rõ' });
+    expect(sent).toEqual([
+      { attachmentDocumentId: null, mentions: [], channelId: 'channel-of-A', parentId: 'root' },
+    ]);
+    expect(marked[0]?.channelId).toBe('channel-of-A');
+  });
+
+  it('trả lời một câu trả lời thì gắn vào tin gốc của nó (luồng hai cấp)', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      messages: [{ id: 'reply', channelId: 'channel-of-A', parentId: 'root' }],
+    });
+    await serviceFor(store).reply(actorOf('me'), 'reply', { body: 'Ok' });
+    expect(sent[0]).toMatchObject({ channelId: 'channel-of-A', parentId: 'root' });
+  });
+
+  it('tin đã thu hồi không trả lời được', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      messages: [{ id: 'gone', channelId: 'c1', isDeleted: true }],
+    });
+    await expect(serviceFor(store).reply(actorOf('me'), 'gone', { body: 'Ok' })).rejects.toMatchObject({
+      code: expect.any(String),
+    });
+    expect(sent).toEqual([]);
+  });
+
+  it('viewer và người ngoài dự án không trả lời được', async () => {
+    const viewer = makeStore({ roles: { v: 'viewer' }, messages: [{ id: 'm', channelId: 'c1' }] });
+    await expect(serviceFor(viewer.store).reply(actorOf('v'), 'm', { body: 'Ok' })).rejects.toMatchObject({
+      code: 'PROJECT_ROLE_FORBIDDEN',
+    });
+    const stranger = makeStore({ roles: {}, messages: [{ id: 'm', channelId: 'c1' }] });
+    await expect(serviceFor(stranger.store).reply(actorOf('x'), 'm', { body: 'Ok' })).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    expect(viewer.sent).toEqual([]);
+    expect(stranger.sent).toEqual([]);
+  });
+
+  it('nội dung trống bị từ chối; nhắc người ngoài dự án thì bị loại và báo lại', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member', mate: 'member' },
+      messages: [{ id: 'm', channelId: 'c1' }],
+    });
+    await expect(serviceFor(store).reply(actorOf('me'), 'm', { body: '  ' })).rejects.toMatchObject({
+      code: expect.any(String),
+    });
+    const result = await serviceFor(store).reply(actorOf('me'), 'm', {
+      body: 'Nhờ anh xem',
+      mentions: ['mate', 'outsider'],
+    });
+    expect(result.droppedMentions).toEqual(['outsider']);
+    expect(sent[0]?.mentions).toEqual(['mate']);
   });
 });

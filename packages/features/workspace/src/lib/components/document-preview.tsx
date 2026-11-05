@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -152,15 +153,11 @@ export function DocumentPreview({ target, onClose, onDownload }: DocumentPreview
           >
             <Download size={14} /> Tải xuống
           </button>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Đóng xem trước"
-            title="Đóng (Esc)"
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
+          <Tooltip content="Đóng (Esc)">
+            <button type="button" className={styles.iconButton} aria-label="Đóng xem trước" onClick={onClose}>
+              <X size={16} />
+            </button>
+          </Tooltip>
         </div>
 
         <div className={styles.previewBody}>

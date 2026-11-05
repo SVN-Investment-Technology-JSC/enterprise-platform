@@ -13,11 +13,12 @@ import {
   ExternalLink,
   FileBarChart,
   GripVertical,
+  ListFilter,
   ListOrdered,
   Workflow,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   computeMonthlyWorkdays,
   DEFAULT_WORKDAY_RULES,
@@ -37,6 +38,9 @@ import { Dialog } from './dialog';
 import { ReverseProjectRequestDialog } from './reverse-project-request-dialog';
 import { initials } from './project-header';
 import { useDirectory } from './use-directory';
+import { MonthPickField } from './month-pick-field';
+import { useFillViewportHeight } from './use-fill-viewport';
+import { Tooltip } from './tooltip';
 
 /** Đường mở hồ sơ ở module Quy trình; module đó chưa có đường tới từng hồ sơ. */
 const PROCEDURE_LAUNCH_URL = '/modules/procedure#workspace';
@@ -158,6 +162,21 @@ export function TabRequests({
     setFilter((current) => ({ ...current, ...patch }));
   const [sort, setSort] = useState<RequestSort>('submitted');
   const [direction, setDirection] = useState<SortDirection>('desc');
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelBox = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
+  // Thẻ danh sách chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm.
+  useFillViewportHeight(frame);
+
+  // Bấm ra ngoài bảng lọc thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
+  useEffect(() => {
+    if (!panelOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!panelBox.current?.contains(event.target as Node)) setPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [panelOpen]);
 
   // Mẫu lọc: của tôi, cộng mẫu được chia sẻ trong dự án này — như tab Công việc.
   const [savedFilters, setSavedFilters] = useState<readonly SavedFilter[]>([]);
@@ -285,6 +304,8 @@ export function TabRequests({
     item.requesterName || directory.nameOf(item.requesterUserId);
 
   const filtering = Object.values(filter).some((value) => value !== 'all');
+  const facets = Object.values(filter).filter((value) => value !== 'all').length;
+  const sorted = sort !== 'submitted' || direction !== 'desc';
 
   const typeOptions = useMemo(
     () => [
@@ -346,153 +367,199 @@ export function TabRequests({
     return [...matched].sort((a, b) => sign * (primary[sort](a, b) || byCode(a, b)));
   }, [items, filter, sort, direction, currentUserId, directory]);
 
+  // Cột tạo từ danh sách để dòng tiêu đề, dòng trống và dòng dữ liệu luôn khớp số cột.
+  const COLUMNS = 6;
+
   return (
     <div className={styles.tabBody}>
-      <div className={styles.requestToolbar}>
-        <button type="button" className={styles.buttonGhost} onClick={() => setReportOpen(true)}>
-          <FileBarChart size={14} aria-hidden /> Báo cáo công tác
-        </button>
-        <button type="button" className={styles.buttonGhost} onClick={() => setPriorityOpen(true)}>
-          <ListOrdered size={14} aria-hidden /> Thứ tự ưu tiên
-        </button>
-      </div>
-      <div className={styles.panel}>
-        <div className={styles.workFilters}>
-          <FilterField label="Trạng thái">
-            <Choice
-              label="Lọc theo trạng thái"
-              value={filter.status}
-              options={[
-                { value: 'all', label: 'Tất cả' },
-                ...PROJECT_REQUEST_STATUSES.map((value) => ({
-                  value,
-                  label: PROJECT_REQUEST_STATUS_LABELS[value],
-                })),
-              ]}
-              onChange={(value) => setField({ status: value as RequestFilter['status'] })}
-            />
-          </FilterField>
-          <FilterField label="Loại đơn">
-            <Choice
-              label="Lọc theo loại đơn"
-              value={filter.type}
-              options={typeOptions}
-              onChange={(value) => setField({ type: value })}
-            />
-          </FilterField>
-          <FilterField label="Người gửi">
-            <Choice
-              label="Lọc theo người gửi"
-              value={filter.person}
-              options={personOptions}
-              onChange={(value) => setField({ person: value })}
-            />
-          </FilterField>
-          <FilterField label="Nguồn">
-            <Choice
-              label="Lọc theo cách đơn vào dự án"
-              value={filter.source}
-              options={SOURCE_OPTIONS}
-              onChange={(value) => setField({ source: value as RequestSource })}
-            />
-          </FilterField>
-          <FilterField label="Thời gian">
-            <Choice
-              label="Lọc theo thời gian của đơn"
-              value={filter.period}
-              options={PERIOD_OPTIONS}
-              onChange={(value) => setField({ period: value as RequestPeriod })}
-            />
-          </FilterField>
-          <FilterField label="Sắp xếp">
-            <Choice
-              label="Sắp xếp đơn từ theo"
-              value={sort}
-              options={SORT_OPTIONS}
-              onChange={(value) => setSort(value as RequestSort)}
-            />
-          </FilterField>
-          <FilterField label="Chiều">
-            <Choice
-              label="Chiều sắp xếp"
-              value={direction}
-              options={DIRECTION_OPTIONS}
-              onChange={(value) => setDirection(value as SortDirection)}
-            />
-          </FilterField>
-          {savedFilters.length > 0 ? (
-            <FilterField label="Mẫu lọc">
-              <Choice
-                label="Áp dụng mẫu lọc"
-                value={savedId}
-                emptyOption="Chọn mẫu…"
-                options={savedFilters.map((entry) => ({
-                  value: entry.id,
-                  label: entry.isShared ? `${entry.name} (chung)` : entry.name,
-                }))}
-                onChange={applySaved}
-              />
-            </FilterField>
-          ) : null}
-          {savingName !== undefined ? (
-            <form
-              className={styles.savedFilterSave}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveCurrent();
-              }}
-            >
-              <input
-                autoFocus
-                value={savingName}
-                maxLength={120}
-                placeholder="Tên mẫu lọc"
-                aria-label="Tên mẫu lọc"
-                onChange={(event) => setSavingName(event.target.value)}
-              />
-              <button type="submit" className={styles.linkButton} disabled={!savingName.trim()}>
-                Lưu
-              </button>
+      <div ref={frame} className={styles.ledgerCard}>
+        <header className={styles.ledgerHead}>
+          <div className={styles.reqHeadLeft}>
+            <div ref={panelBox} className={styles.timelinePanelBox}>
               <button
                 type="button"
-                className={styles.linkButton}
-                onClick={() => setSavingName(undefined)}
+                className={facets > 0 || sorted || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+                aria-haspopup="dialog"
+                aria-expanded={panelOpen}
+                onClick={() => setPanelOpen((value) => !value)}
               >
-                Huỷ
+                <ListFilter size={13} aria-hidden />
+                Bộ lọc
+                {facets > 0 ? <span className={styles.countBadge}>{facets}</span> : null}
               </button>
-            </form>
-          ) : filtering ? (
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => setSavingName(selectedSaved?.name ?? '')}
-            >
-              Lưu mẫu lọc
+              {panelOpen ? (
+                <div
+                  className={`${styles.timelinePanel} ${styles.timelinePanelLeft} ${styles.reqPanel}`}
+                  role="dialog"
+                  aria-label="Bộ lọc đơn từ"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.stopPropagation();
+                      setPanelOpen(false);
+                    }
+                  }}
+                >
+                  <div className={styles.reqPanelGrid}>
+                    <FilterField label="Trạng thái">
+                      <Choice
+                        label="Lọc theo trạng thái"
+                        selectOnly
+                        value={filter.status}
+                        options={[
+                          { value: 'all', label: 'Tất cả' },
+                          ...PROJECT_REQUEST_STATUSES.map((value) => ({
+                            value,
+                            label: PROJECT_REQUEST_STATUS_LABELS[value],
+                          })),
+                        ]}
+                        onChange={(value) => setField({ status: value as RequestFilter['status'] })}
+                      />
+                    </FilterField>
+                    <FilterField label="Loại đơn">
+                      <Choice
+                        label="Lọc theo loại đơn"
+                        selectOnly
+                        value={filter.type}
+                        options={typeOptions}
+                        onChange={(value) => setField({ type: value })}
+                      />
+                    </FilterField>
+                    <FilterField label="Người gửi">
+                      <Choice
+                        label="Lọc theo người gửi"
+                        selectOnly
+                        value={filter.person}
+                        options={personOptions}
+                        onChange={(value) => setField({ person: value })}
+                      />
+                    </FilterField>
+                    <FilterField label="Nguồn">
+                      <Choice
+                        label="Lọc theo cách đơn vào dự án"
+                        selectOnly
+                        value={filter.source}
+                        options={SOURCE_OPTIONS}
+                        onChange={(value) => setField({ source: value as RequestSource })}
+                      />
+                    </FilterField>
+                    <FilterField label="Thời gian">
+                      <Choice
+                        label="Lọc theo thời gian của đơn"
+                        selectOnly
+                        value={filter.period}
+                        options={PERIOD_OPTIONS}
+                        onChange={(value) => setField({ period: value as RequestPeriod })}
+                      />
+                    </FilterField>
+                    {savedFilters.length > 0 ? (
+                      <FilterField label="Mẫu lọc">
+                        <Choice
+                          label="Áp dụng mẫu lọc"
+                          selectOnly
+                          value={savedId}
+                          emptyOption="Chọn mẫu…"
+                          options={savedFilters.map((entry) => ({
+                            value: entry.id,
+                            label: entry.isShared ? `${entry.name} (chung)` : entry.name,
+                          }))}
+                          onChange={applySaved}
+                        />
+                      </FilterField>
+                    ) : null}
+                    <FilterField label="Sắp xếp theo">
+                      <Choice
+                        label="Sắp xếp đơn từ theo"
+                        selectOnly
+                        value={sort}
+                        options={SORT_OPTIONS}
+                        onChange={(value) => setSort(value as RequestSort)}
+                      />
+                    </FilterField>
+                    <FilterField label="Chiều">
+                      <Choice
+                        label="Chiều sắp xếp"
+                        selectOnly
+                        value={direction}
+                        options={DIRECTION_OPTIONS}
+                        onChange={(value) => setDirection(value as SortDirection)}
+                      />
+                    </FilterField>
+                  </div>
+                  <div className={styles.reqPanelFoot}>
+                    {savingName !== undefined ? (
+                      <form
+                        className={styles.savedFilterSave}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void saveCurrent();
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={savingName}
+                          maxLength={120}
+                          placeholder="Tên mẫu lọc"
+                          aria-label="Tên mẫu lọc"
+                          onChange={(event) => setSavingName(event.target.value)}
+                        />
+                        <button type="submit" className={styles.linkButton} disabled={!savingName.trim()}>
+                          Lưu
+                        </button>
+                        <button type="button" className={styles.linkButton} onClick={() => setSavingName(undefined)}>
+                          Huỷ
+                        </button>
+                      </form>
+                    ) : filtering ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setSavingName(selectedSaved?.name ?? '')}
+                      >
+                        Lưu mẫu lọc
+                      </button>
+                    ) : null}
+                    {selectedSaved && selectedSaved.ownerUserId === currentUserId ? (
+                      <button type="button" className={styles.linkButton} onClick={() => void removeSaved()}>
+                        Xoá mẫu
+                      </button>
+                    ) : null}
+                    {filtering || sorted ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => {
+                          setFilter(NO_FILTER);
+                          setSort('submitted');
+                          setDirection('desc');
+                          setSavedId('');
+                        }}
+                      >
+                        Bỏ lọc
+                      </button>
+                    ) : null}
+                    {savedError ? <span className={styles.fieldHint}>{savedError}</span> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {items ? (
+              <span className={styles.reqCount}>
+                {filtering ? `${visible.length} / ${items.length} đơn` : `${items.length} đơn`}
+              </span>
+            ) : null}
+          </div>
+          <div className={styles.reqHeadRight}>
+            <button type="button" className={styles.buttonGhost} onClick={() => setReportOpen(true)}>
+              <FileBarChart size={14} aria-hidden /> Báo cáo công tác
             </button>
-          ) : null}
-          {selectedSaved && selectedSaved.ownerUserId === currentUserId ? (
-            <button type="button" className={styles.linkButton} onClick={() => void removeSaved()}>
-              Xoá mẫu
+            <button type="button" className={styles.buttonGhost} onClick={() => setPriorityOpen(true)}>
+              <ListOrdered size={14} aria-hidden /> Thứ tự ưu tiên
             </button>
-          ) : null}
-          {filtering ? (
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => {
-                setFilter(NO_FILTER);
-                setSavedId('');
-              }}
-            >
-              Bỏ lọc
-            </button>
-          ) : null}
-          {savedError ? <span className={styles.fieldHint}>{savedError}</span> : null}
-        </div>
-      </div>
-      <div className={styles.tableCard}>
-        <div className={styles.tableScroll}>
-          <table className={`${styles.table} ${styles.wbsTable}`}>
+          </div>
+        </header>
+
+        <div className={styles.ledgerScroll}>
+          <table className={`${styles.table} ${styles.wbsTable} ${styles.ledgerTable}`}>
             <thead>
               <tr>
                 <th>Đơn từ</th>
@@ -506,25 +573,25 @@ export function TabRequests({
             <tbody>
               {error ? (
                 <tr>
-                  <td colSpan={6} className={styles.muted}>
+                  <td colSpan={COLUMNS} className={styles.muted}>
                     {error}
                   </td>
                 </tr>
               ) : items === undefined ? (
                 <tr>
-                  <td colSpan={6} className={styles.muted}>
+                  <td colSpan={COLUMNS} className={styles.muted}>
                     Đang tải…
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className={styles.muted}>
+                  <td colSpan={COLUMNS} className={styles.muted}>
                     Dự án chưa có đơn từ nào. Đơn gửi từ HRM có chọn dự án này sẽ hiện ở đây.
                   </td>
                 </tr>
               ) : visible.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className={styles.muted}>
+                  <td colSpan={COLUMNS} className={styles.muted}>
                     Không có đơn nào khớp bộ lọc.
                   </td>
                 </tr>
@@ -535,17 +602,20 @@ export function TabRequests({
                   <tr key={item.id} onClick={() => setSelected(item)}>
                     <td>
                       <span className={styles.wbsName}>
-                        <span className={styles.wbsTitle} title={`${item.code} · ${item.requestTypeLabel}`}>
-                          <span className={styles.treeCode}>{item.code}</span>
-                          <span className={styles.treeTitle}>{item.requestTypeLabel}</span>
-                        </span>
-                        {item.linkedViaKind ? (
-                          <span
-                            className={styles.requestVia}
-                            title="Đơn rơi vào thời gian công tác của dự án này nên tự hiện ở đây"
-                          >
-                            Theo đơn công tác {item.linkedViaCode ?? ''}
+                        <Tooltip content={`${item.code} · ${item.requestTypeLabel}`}>
+                          <span className={styles.wbsTitle}>
+                            <span className={styles.treeCode}>{item.code}</span>
+                            <span className={styles.treeTitle}>{item.requestTypeLabel}</span>
                           </span>
+                        </Tooltip>
+                        {item.linkedViaKind ? (
+                          <Tooltip content="Đơn rơi vào thời gian công tác của dự án này nên tự hiện ở đây">
+                            <span
+                              className={styles.requestVia}
+                            >
+                              Theo đơn công tác {item.linkedViaCode ?? ''}
+                            </span>
+                          </Tooltip>
                         ) : null}
                       </span>
                     </td>
@@ -583,6 +653,9 @@ export function TabRequests({
       </div>
 
       {selected ? (
+        <>
+        {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+        <div className={styles.drawerBackdrop} onClick={() => setSelected(undefined)} aria-hidden="true" />
         <aside className={styles.drawer} role="complementary" aria-label={`Đơn ${selected.code}`}>
           <header className={styles.drawerHead}>
             <div>
@@ -688,6 +761,7 @@ export function TabRequests({
             </div>
           </div>
         </aside>
+        </>
       ) : null}
 
       <ReverseProjectRequestDialog
@@ -948,6 +1022,9 @@ function WorkdayReportDrawer({
   };
 
   return (
+    <>
+    {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside className={styles.drawer} role="complementary" aria-label="Báo cáo công tác">
       <header className={styles.drawerHead}>
         <div>
@@ -959,15 +1036,15 @@ function WorkdayReportDrawer({
         </button>
       </header>
       <div className={styles.drawerBody}>
-        <div className={styles.requestToolbar}>
-          <label className={styles.filterField}>
-            <span>Tháng</span>
-            <input
-              type="month"
+        <div className={styles.reportToolbar}>
+          <div className={styles.reportMonth}>
+            <span className={styles.filterLabel}>Tháng báo cáo</span>
+            <MonthPickField
+              aria-label="Tháng báo cáo"
               value={month}
-              onChange={(event) => event.target.value && setMonth(event.target.value)}
+              onChange={(value) => value && setMonth(value)}
             />
-          </label>
+          </div>
           <button
             type="button"
             className={styles.buttonPrimary}
@@ -1011,5 +1088,6 @@ function WorkdayReportDrawer({
         </p>
       </div>
     </aside>
+    </>
   );
 }

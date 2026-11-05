@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Field } from './dialog';
+import { Tooltip } from './tooltip';
 import { upperCaseKeepingCaret } from './upper-case-input';
 
 /** Ví dụ trên màn cài đặt dùng năm và tháng hiện tại. */
@@ -129,15 +130,16 @@ export function ProjectCodeSettings() {
       {canEdit ? (
         <div className={styles.codeTokens}>
           {PROJECT_CODE_TOKENS.map((entry) => (
-            <button
-              key={entry.token}
-              type="button"
-              className={styles.buttonSmall}
-              title={entry.label}
-              onClick={() => insert(entry.token)}
-            >
-              {entry.token}
-            </button>
+            <Tooltip key={entry.token} content={entry.label}>
+              <button
+                type="button"
+                className={styles.buttonSmall}
+                aria-label={`${entry.token} ${entry.label}`}
+                onClick={() => insert(entry.token)}
+              >
+                {entry.token}
+              </button>
+            </Tooltip>
           ))}
         </div>
       ) : null}

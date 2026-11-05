@@ -2,7 +2,7 @@
 
 import type { CalendarOccurrence, WorkItem } from '@enterprise-platform/contracts-workspace';
 import { CalendarPlus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   buildCalendarGrid,
   buildWeekTimeline,
@@ -15,8 +15,13 @@ import {
 } from '../calendar-grid.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { useFillViewportHeight } from './use-fill-viewport';
+import { Tooltip } from './tooltip';
 
 const WEEKDAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+/** Số mục tối đa trong một ô ngày của lưới tháng; phần còn lại gộp thành "+n khác" (bấm để xem tuần đó). */
+const MONTH_CELL_LIMIT = 3;
 
 export interface TabCalendarProps {
   readonly projectId: string;
@@ -111,128 +116,163 @@ export function TabCalendar({
     [anchor, mode, visibleOccurrences, items],
   );
 
+  // Lịch nằm trong một khung vừa phần cao còn lại của màn hình; chỉ phần lưới cuộn bên trong.
+  const frame = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(frame, undefined, mode);
+
+  // Vào chế độ tuần thì cuộn tới quanh giờ hiện tại (lùi một giờ cho dễ nhìn), thay vì luôn đứng ở đầu ngày.
+  const weekStartHour = timeline?.startHour;
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element || weekStartHour === undefined) return;
+    element.scrollTop = Math.max(0, (new Date().getHours() - weekStartHour - 1) * HOUR_PX);
+  }, [mode, weekStartHour]);
+
+  const openWeekOf = (date: string) => {
+    setAnchor(new Date(`${date}T12:00:00`));
+    setMode('week');
+  };
+
   return (
     <div className={styles.tabBody}>
-      <div className={styles.calendarBar}>
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Kỳ trước"
-          onClick={() => setAnchor((current) => shiftAnchor(current, mode, -1))}
-        >
-          <ChevronLeft size={15} />
-        </button>
-        <button
-          type="button"
-          className={styles.buttonGhost}
-          onClick={() => setAnchor(new Date())}
-        >
-          Hôm nay
-        </button>
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Kỳ sau"
-          onClick={() => setAnchor((current) => shiftAnchor(current, mode, 1))}
-        >
-          <ChevronRight size={15} />
-        </button>
-
-        <strong className={styles.calendarLabel}>{gridLabel(anchor, mode)}</strong>
-
-        <div className={styles.segmented} role="group" aria-label="Chế độ xem">
-          <button
-            type="button"
-            aria-pressed={mode === 'week'}
-            className={mode === 'week' ? styles.segmentActive : styles.segment}
-            onClick={() => setMode('week')}
-          >
-            Tuần
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === 'month'}
-            className={mode === 'month' ? styles.segmentActive : styles.segment}
-            onClick={() => setMode('month')}
-          >
-            Tháng
-          </button>
-        </div>
-
-        {canWrite ? (
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            onClick={() => onCreate(dateKey(anchor))}
-          >
-            <CalendarPlus size={14} /> Sự kiện mới
-          </button>
-        ) : null}
-
-        {loading ? <span className={styles.muted}>Đang tải…</span> : null}
-      </div>
-
       {scopeNote}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-
-      {timeline ? (
-        <WeekGrid
-          timeline={timeline}
-          canWrite={canWrite}
-          onCreate={onCreate}
-          onOpenEvent={onOpenEvent}
-          onOpenWorkItem={onOpenWorkItem}
-        />
-      ) : (
-        <div className={styles.calendarGrid}>
-          {WEEKDAYS.map((label) => (
-            <div key={label} className={styles.calendarWeekday}>
-              {label}
-            </div>
-          ))}
-
-          {cells.map((cell) => (
-            <div
-              key={cell.date}
-              className={[
-                styles.calendarCell,
-                cell.inCurrentMonth ? '' : styles.calendarCellMuted,
-                cell.isToday ? styles.calendarCellToday : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onDoubleClick={() => canWrite && onCreate(cell.date)}
+      <div ref={frame} className={styles.calFrame}>
+        <div className={styles.calHead}>
+          <div className={styles.calNavGroup}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Kỳ trước"
+              onClick={() => setAnchor((current) => shiftAnchor(current, mode, -1))}
             >
-              <span className={styles.calendarDayNumber}>{Number(cell.date.slice(8, 10))}</span>
+              <ChevronLeft size={15} />
+            </button>
+            <button type="button" className={styles.buttonGhost} onClick={() => setAnchor(new Date())}>
+              Hôm nay
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Kỳ sau"
+              onClick={() => setAnchor((current) => shiftAnchor(current, mode, 1))}
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
 
-              {cell.entries.map((entry) => (
-                <button
-                  key={entry.key}
-                  type="button"
-                  className={styles.calendarEntry}
-                  style={{ borderLeftColor: entry.tone }}
-                  title={entry.title}
-                  onClick={() => {
-                    if (entry.kind === 'deadline' && entry.workItemId) {
-                      onOpenWorkItem(entry.workItemId);
-                    } else if (entry.occurrence) {
-                      onOpenEvent(entry.occurrence);
-                    }
-                  }}
-                >
-                  {entry.time ? <span className={styles.calendarEntryTime}>{entry.time}</span> : null}
-                  <span className={styles.calendarEntryTitle}>{entry.title}</span>
-                </button>
-              ))}
-            </div>
-          ))}
+          <strong className={styles.calendarLabel}>{gridLabel(anchor, mode)}</strong>
+          {loading ? <span className={styles.muted}>Đang tải…</span> : null}
+
+          <div className={styles.segmented} role="group" aria-label="Chế độ xem">
+            <button
+              type="button"
+              aria-pressed={mode === 'week'}
+              className={mode === 'week' ? styles.segmentActive : styles.segment}
+              onClick={() => setMode('week')}
+            >
+              Tuần
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === 'month'}
+              className={mode === 'month' ? styles.segmentActive : styles.segment}
+              onClick={() => setMode('month')}
+            >
+              Tháng
+            </button>
+          </div>
+
+          {canWrite ? (
+            <button type="button" className={styles.buttonPrimary} onClick={() => onCreate(dateKey(anchor))}>
+              <CalendarPlus size={14} /> Sự kiện mới
+            </button>
+          ) : null}
         </div>
-      )}
+
+        {error ? (
+          <p role="alert" className={styles.alert}>
+            {error}
+          </p>
+        ) : null}
+
+        <div ref={scroller} className={styles.calBody}>
+          {timeline ? (
+            <WeekGrid
+              timeline={timeline}
+              canWrite={canWrite}
+              onCreate={onCreate}
+              onOpenEvent={onOpenEvent}
+              onOpenWorkItem={onOpenWorkItem}
+            />
+          ) : (
+            <div
+              className={styles.calendarGrid}
+              style={{ gridTemplateRows: `auto repeat(${Math.ceil(cells.length / 7)}, minmax(4.5rem, 1fr))` }}
+            >
+              {WEEKDAYS.map((label) => (
+                <div key={label} className={styles.calendarWeekday}>
+                  {label}
+                </div>
+              ))}
+
+              {cells.map((cell, index) => {
+                const shown = cell.entries.slice(0, MONTH_CELL_LIMIT);
+                const hidden = cell.entries.length - shown.length;
+                return (
+                  <div
+                    key={cell.date}
+                    className={[
+                      styles.calendarCell,
+                      cell.inCurrentMonth ? '' : styles.calendarCellMuted,
+                      cell.isToday ? styles.calendarCellToday : '',
+                      index % 7 >= 5 ? styles.calendarCellWeekend : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onDoubleClick={() => canWrite && onCreate(cell.date)}
+                  >
+                    <span className={styles.calendarDayNumber}>{Number(cell.date.slice(8, 10))}</span>
+
+                    {shown.map((entry) => (
+                      <Tooltip key={entry.key} content={entry.title}>
+                        <button
+                          type="button"
+                          className={styles.calendarEntry}
+                          style={{ borderLeftColor: entry.tone }}
+                          onClick={() => {
+                            if (entry.kind === 'deadline' && entry.workItemId) {
+                              onOpenWorkItem(entry.workItemId);
+                            } else if (entry.occurrence) {
+                              onOpenEvent(entry.occurrence);
+                            }
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        >
+                          {entry.time ? <span className={styles.calendarEntryTime}>{entry.time}</span> : null}
+                          <span className={styles.calendarEntryTitle}>{entry.title}</span>
+                        </button>
+                      </Tooltip>
+                    ))}
+                    {hidden > 0 ? (
+                      <Tooltip content="Xem cả tuần này">
+                        <button
+                          type="button"
+                          className={styles.calendarMore}
+                          onClick={() => openWeekOf(cell.date)}
+                        >
+                          +{hidden} mục khác
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -281,19 +321,19 @@ function WeekGrid({
               <b>{`${day.date.slice(8, 10)}/${day.date.slice(5, 7)}`}</b>
             </span>
             {day.allDay.map((entry) => (
-              <button
-                key={entry.key}
-                type="button"
-                className={styles.calendarEntry}
-                style={{ borderLeftColor: entry.tone }}
-                title={entry.title}
-                onClick={() => {
-                  if (entry.kind === 'deadline' && entry.workItemId) onOpenWorkItem(entry.workItemId);
-                  else if (entry.occurrence) onOpenEvent(entry.occurrence);
-                }}
-              >
-                <span className={styles.calendarEntryTitle}>{entry.title}</span>
-              </button>
+              <Tooltip key={entry.key} content={entry.title}>
+                <button
+                  type="button"
+                  className={styles.calendarEntry}
+                  style={{ borderLeftColor: entry.tone }}
+                  onClick={() => {
+                    if (entry.kind === 'deadline' && entry.workItemId) onOpenWorkItem(entry.workItemId);
+                    else if (entry.occurrence) onOpenEvent(entry.occurrence);
+                  }}
+                >
+                  <span className={styles.calendarEntryTitle}>{entry.title}</span>
+                </button>
+              </Tooltip>
             ))}
           </div>
         ))}
@@ -313,27 +353,27 @@ function WeekGrid({
             onDoubleClick={() => canWrite && onCreate(day.date)}
           >
             {day.timed.map((entry) => (
-              <button
-                key={entry.key}
-                type="button"
-                className={styles.weekEvent}
-                style={{
-                  top: ((entry.startMinute - timeline.startHour * 60) / 60) * HOUR_PX + 1,
-                  height: Math.max(((entry.endMinute - entry.startMinute) / 60) * HOUR_PX - 2, 20),
-                  left: `calc(${(entry.column / entry.columns) * 100}% + 3px)`,
-                  width: `calc(${100 / entry.columns}% - 6px)`,
-                  background: entry.tone,
-                }}
-                title={`${entry.time} · ${entry.title}${entry.location ? ` · ${entry.location}` : ''}`}
-                onClick={() => onOpenEvent(entry.occurrence)}
-                onDoubleClick={(event) => event.stopPropagation()}
-              >
-                <b>{entry.title}</b>
-                <span>
-                  {entry.time}
-                  {entry.location ? ` · ${entry.location}` : ''}
-                </span>
-              </button>
+              <Tooltip key={entry.key} content={`${entry.time} · ${entry.title}${entry.location ? ` · ${entry.location}` : ''}`}>
+                <button
+                  type="button"
+                  className={styles.weekEvent}
+                  style={{
+                    top: ((entry.startMinute - timeline.startHour * 60) / 60) * HOUR_PX + 1,
+                    height: Math.max(((entry.endMinute - entry.startMinute) / 60) * HOUR_PX - 2, 20),
+                    left: `calc(${(entry.column / entry.columns) * 100}% + 3px)`,
+                    width: `calc(${100 / entry.columns}% - 6px)`,
+                    background: entry.tone,
+                  }}
+                  onClick={() => onOpenEvent(entry.occurrence)}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                >
+                  <b>{entry.title}</b>
+                  <span>
+                    {entry.time}
+                    {entry.location ? ` · ${entry.location}` : ''}
+                  </span>
+                </button>
+              </Tooltip>
             ))}
             {day.isToday && nowTop >= 0 && nowTop <= height ? (
               <span className={styles.weekNow} style={{ top: nowTop }} aria-hidden />

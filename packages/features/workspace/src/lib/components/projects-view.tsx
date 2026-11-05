@@ -39,7 +39,7 @@ import {
 } from '@enterprise-platform/shared-ui';
 import { RETURN_AFTER_TOAST_MS, toastStatusChanged } from '../status-toast';
 import { ArchiveRestore, MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadInstance,
@@ -54,6 +54,7 @@ import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
+import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
 import { CompleteWorkItemDialog } from './complete-work-item-dialog';
 import { Confirm } from './confirm-box';
@@ -70,6 +71,8 @@ import { ProcedureRetryDialog } from './procedure-retry-dialog';
 import { ProjectForm } from './project-form';
 import { ProjectHeader } from './project-header';
 import { ContextMenu, type ContextAction, type SelectedNode } from './project-tree';
+import { Tooltip } from './tooltip';
+import { useFillViewportHeight } from './use-fill-viewport';
 import { TabActivity } from './tab-activity';
 import { invalidateChatFeed } from '../chat-feed-store';
 import { TabChats } from './tab-chats';
@@ -156,6 +159,11 @@ export interface ProjectsViewProps {
   /** Được xoá tài liệu và thư mục; mặc định tắt, chỉ quản trị tenant có. */
   readonly canDelete?: boolean;
   /**
+   * Được ghi tài liệu (quyền tenant `workspace.document.write`). Tắt thì tab Tài liệu và phần tài liệu của công việc
+   * chỉ đọc: server vẫn từ chối mọi thao tác ghi, nút ẩn đi để khỏi bấm rồi mới báo lỗi. Mặc định bật.
+   */
+  readonly canWriteDocuments?: boolean;
+  /**
    * Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. `project` có
    * mặt khi chi tiết đã tải: thanh bên dùng nó để giữ dòng của dự án đang mở
    * dù dự án đó không nằm trong vài dự án đầu.
@@ -174,6 +182,16 @@ export interface ProjectsViewProps {
    * Trao đổi và "⋯" của dự án đang mở.
    */
   readonly actionsSlot?: HTMLElement | null;
+  /** Công tắc "Dự án | Khách hàng" của khu vực, đặt vào góc thẻ dự án (xem `ProjectHeader`). */
+  readonly viewSwitch?: ReactNode;
+  /**
+   * Mục đang xem của khu vực Dự án khi đã mở một dự án: "projects" (các tab của dự án) hoặc "customers" (khách hàng của
+   * dự án, nội dung do `areaContent` đưa vào). Trang này LUÔN giữ nguyên (không dựng lại) khi đổi qua lại hai mục, nên
+   * thẻ dự án đứng yên và chi tiết dự án không tải lại: đổi mục chỉ đổi phần bên dưới thẻ, không giật bố cục.
+   */
+  readonly area?: 'projects' | 'customers';
+  /** Nội dung hiện dưới thẻ dự án khi `area` là "customers". */
+  readonly areaContent?: ReactNode;
   /** Đã tạo, sửa hay huỷ dự án: trang cha nạp lại danh sách trên thanh bên. */
   readonly onProjectsChanged?: () => void;
   /** Tăng lên mỗi lần bấm lại dự án đang mở trên thanh bên: về tab Công việc. */
@@ -189,12 +207,16 @@ export interface ProjectsViewProps {
 
 export function ProjectsView({
   canDelete = false,
+  canWriteDocuments = true,
   notificationTarget,
   onOpenProjectChange,
   createProjectRequest = 0,
   onCreateProjectHandled,
   onOpenProject,
   actionsSlot,
+  viewSwitch,
+  area = 'projects',
+  areaContent,
   onProjectsChanged,
   focusProjectRequest = 0,
 }: ProjectsViewProps = {}) {
@@ -232,7 +254,13 @@ export function ProjectsView({
   // Lưới lịch tự tải theo khoảng đang xem, nên nó cần một tín hiệu riêng để
   // tải lại sau khi ghi; `refreshDetail` không chạm tới nó.
   const [calendarToken, setCalendarToken] = useState(0);
+  const areaPane = useRef<HTMLDivElement>(null);
+  // Mục Khách hàng của dự án chiếm đúng phần cao còn lại và cuộn BÊN TRONG, nên đổi qua lại với mục Dự án không làm trang
+  // bật / tắt thanh cuộn (thanh cuộn xuất hiện làm cả khối rộng hẹp khác nhau 15px, thấy rõ là giật).
+  useFillViewportHeight(areaPane, undefined, area + (detail ? ':loaded' : ':loading'));
   const [chatOpen, setChatOpen] = useState(false);
+  // Chỗ trên hàng tab dành cho công tắc và thanh lọc của tab Trao đổi (null cho tới khi hàng đó được dựng).
+  const [chatToolsSlot, setChatToolsSlot] = useState<HTMLElement | null>(null);
   const [unread, setUnread] = useState<UnreadSummary>();
   const [me, setMe] = useState('');
   const [projectDocuments, setProjectDocuments] = useState<readonly DocumentSummary[]>([]);
@@ -245,6 +273,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const blockedPrompt = useBlockedReasonPrompt();
   /** Việc đang hỏi xác nhận hoàn thành (kèm điều kiện hoàn thành nếu có). */
   const [completingItem, setCompletingItem] = useState<WorkItem>();
   const [deletingItem, setDeletingItem] = useState<WorkItem>();
@@ -1064,8 +1093,28 @@ export function ProjectsView({
     [],
   );
   const openProjectId = detail?.project.id;
+  const askBlockedReason = blockedPrompt.ask;
+  /**
+   * Chuyển sang Vướng mắc (hoặc sửa lý do khi việc đã vướng mắc) luôn qua hộp ghi lý do: server từ chối nếu thiếu `note`.
+   * Lỗi ném ra để hộp tự hiện, giữ hộp mở cho người dùng gửi lại.
+   */
+  const promptBlockedReason = useCallback(
+    (item: WorkItem) => {
+      askBlockedReason(item, async (reason) => {
+        await api.changeWorkItemStatus(item.id, { status: 'blocked', note: reason });
+        if (openProjectId) await refreshDetail(openProjectId);
+        toastStatusChanged(item.status, 'blocked', item.code);
+      });
+    },
+    [askBlockedReason, openProjectId, refreshDetail],
+  );
   const changeItemStatus = useCallback(
     async (item: WorkItem, next: WorkItemStatus) => {
+      // Vướng mắc phải kèm lý do — hỏi trước, kể cả khi kéo thẻ Kanban sang cột Vướng mắc.
+      if (next === 'blocked') {
+        promptBlockedReason(item);
+        return;
+      }
       // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
       if (next === 'cancelled') {
         if (!canCancelItem) {
@@ -1084,7 +1133,7 @@ export function ProjectsView({
       if (openProjectId) await refreshDetail(openProjectId);
       toastStatusChanged(item.status, next, item.code);
     },
-    [canCancelItem, openProjectId, refreshDetail],
+    [canCancelItem, openProjectId, promptBlockedReason, refreshDetail],
   );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
@@ -1101,6 +1150,7 @@ export function ProjectsView({
       {actionsSlot && detail
         ? createPortal(
             <>
+              {/* Tạm ẩn nút Trao đổi: chat chung của dự án đã nằm ở cột phải của tab "Theo thời gian".
               <button
                 type="button"
                 className={styles.buttonGhost}
@@ -1119,18 +1169,20 @@ export function ProjectsView({
                   <span className={styles.countBadge}>{projectChatUnread}</span>
                 ) : null}
               </button>
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                aria-label="Thao tác với dự án"
-                title="Thao tác với dự án"
-                onClick={(event) => {
-                  const box = event.currentTarget.getBoundingClientRect();
-                  setMenu({ x: box.right - 220, y: box.bottom + 4, node: { kind: 'project' } });
-                }}
-              >
-                <MoreHorizontal size={15} />
-              </button>
+              */}
+              <Tooltip content="Thao tác với dự án">
+                <button
+                  type="button"
+                  className={styles.buttonGhost}
+                  aria-label="Thao tác với dự án"
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setMenu({ x: box.right - 220, y: box.bottom + 4, node: { kind: 'project' } });
+                  }}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </Tooltip>
             </>,
             actionsSlot,
           )
@@ -1179,6 +1231,7 @@ export function ProjectsView({
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
             canChangeStatus={canChangeProjectStatus}
+            viewSwitch={viewSwitch}
             onChangeStatus={async (status) => {
               const changed = await attempt(
                 () => api.updateProject(detail.project.id, { status }),
@@ -1218,100 +1271,121 @@ export function ProjectsView({
             </div>
           ) : null}
 
-          <div className={styles.tabRow}>
-          <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
-            {visibleTabs.map((entry) => {
-              const count = tabCount(entry.id);
-              return (
+          {area === 'customers' ? (
+            <div ref={areaPane} className={styles.areaPane}>
+              {areaContent}
+            </div>
+          ) : (
+            <>
+              <div className={styles.tabRow}>
+              <div className={styles.tabBar} role="tablist" aria-label="Mục của dự án">
+                {visibleTabs.map((entry) => {
+                  const count = tabCount(entry.id);
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === entry.id}
+                      className={tab === entry.id ? styles.tabActive : styles.tab}
+                      onClick={() => setTab(entry.id)}
+                    >
+                      {entry.label}
+                      {count ? <span className={styles.tabCount}>{count}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <Tooltip content="Xem trao đổi của mọi công việc trong dự án" side="bottom">
                 <button
-                  key={entry.id}
                   type="button"
-                  role="tab"
-                  aria-selected={tab === entry.id}
-                  className={tab === entry.id ? styles.tabActive : styles.tab}
-                  onClick={() => setTab(entry.id)}
+                  className={tab === CHATS_TAB ? styles.tabSideActive : styles.tabSide}
+                  aria-pressed={tab === CHATS_TAB}
+                  onClick={() => setTab(CHATS_TAB)}
                 >
-                  {entry.label}
-                  {count ? <span className={styles.tabCount}>{count}</span> : null}
+                  <MessageSquare size={14} aria-hidden />
+                  Trao đổi công việc
                 </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            className={tab === CHATS_TAB ? styles.tabSideActive : styles.tabSide}
-            aria-pressed={tab === CHATS_TAB}
-            title="Xem trao đổi của mọi công việc trong dự án"
-            onClick={() => setTab(CHATS_TAB)}
-          >
-            <MessageSquare size={14} aria-hidden />
-            Trao đổi công việc
-          </button>
-          </div>
+              </Tooltip>
+              {/* Công tắc cách xem và thanh lọc của Trao đổi nằm ngay trên hàng tab, không tốn thêm hàng. */}
+              {tab === CHATS_TAB ? <div ref={setChatToolsSlot} className={styles.tabRowTools} /> : null}
+              </div>
 
-          {tab === 'work-items' ? (
-            <TabWork
-              projectId={detail.project.id}
-              items={detail.items}
-              dependencies={detail.dependencies}
-              externalRefs={detail.externalRefs}
-              pendingProcedure={pendingProcedure}
-              unread={unread?.rolledUp}
-              canWrite={canWrite}
-              currentUserId={me}
-              onOpen={openItem}
-              onAddRoot={openItemForm}
-              onMenu={openItemMenu}
-              onChangeStatus={changeItemStatus}
-            />
-          ) : null}
-          {tab === 'calendar' ? (
-            <TabCalendar
-              projectId={detail.project.id}
-              items={detail.items}
-              canWrite={canWrite}
-              reloadToken={calendarToken}
-              onCreate={(date) => setEventForm({ open: true, date })}
-              onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
-              onOpenWorkItem={goToItem}
-            />
-          ) : null}
-          {tab === 'documents' ? (
-            <DocumentPanel
-              projectId={detail.project.id}
-              canWrite={canWrite}
-              canDelete={canDelete && !archived}
-              currentUserId={me}
-              compact
-              workItems={detail.items}
-            />
-          ) : null}
-          {tab === 'finance' && detail.project.finance ? (
-            <TabFinance
-              projectId={detail.project.id}
-              initial={detail.project.finance}
-              onChanged={() => void refreshDetail(detail.project.id)}
-            />
-          ) : null}
-          {tab === 'requests' ? (
-            <TabRequests
-              projectId={detail.project.id}
-              projectCode={detail.project.code}
-              currentUserId={me}
-            />
-          ) : null}
-          {tab === 'activity' ? (
-            <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
-          ) : null}
-          {tab === CHATS_TAB ? (
-            <TabChats
-              projectId={detail.project.id}
-              items={detail.items}
-              members={detail.members}
-              documents={projectDocuments}
-              onOpen={openItem}
-            />
-          ) : null}
+              {tab === 'work-items' ? (
+                <TabWork
+                  projectId={detail.project.id}
+                  items={detail.items}
+                  dependencies={detail.dependencies}
+                  externalRefs={detail.externalRefs}
+                  pendingProcedure={pendingProcedure}
+                  unread={unread?.rolledUp}
+                  canWrite={canWrite}
+                  currentUserId={me}
+                  onOpen={openItem}
+                  onAddRoot={openItemForm}
+                  onMenu={openItemMenu}
+                  onChangeStatus={changeItemStatus}
+                />
+              ) : null}
+              {tab === 'calendar' ? (
+                <TabCalendar
+                  projectId={detail.project.id}
+                  items={detail.items}
+                  canWrite={canWrite}
+                  reloadToken={calendarToken}
+                  onCreate={(date) => setEventForm({ open: true, date })}
+                  onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
+                  onOpenWorkItem={goToItem}
+                />
+              ) : null}
+              {tab === 'documents' ? (
+                <DocumentPanel
+                  projectId={detail.project.id}
+                  canWrite={canWrite && canWriteDocuments}
+                  canDelete={canDelete && !archived}
+                  currentUserId={me}
+                  compact
+                  workItems={detail.items}
+                />
+              ) : null}
+              {tab === 'finance' && detail.project.finance ? (
+                <TabFinance
+                  projectId={detail.project.id}
+                  initial={detail.project.finance}
+                  onChanged={() => void refreshDetail(detail.project.id)}
+                />
+              ) : null}
+              {tab === 'requests' ? (
+                <TabRequests
+                  projectId={detail.project.id}
+                  projectCode={detail.project.code}
+                  currentUserId={me}
+                />
+              ) : null}
+              {tab === 'activity' ? (
+                <TabActivity
+                  entries={detail.activity}
+                  items={detail.items}
+                  onOpen={openItem}
+                  created={{ by: detail.project.createdBy, at: detail.project.createdAt }}
+                />
+              ) : null}
+              {tab === CHATS_TAB ? (
+                <TabChats
+                  projectId={detail.project.id}
+                  items={detail.items}
+                  members={detail.members}
+                  documents={projectDocuments}
+                  folders={projectFolders}
+                  canUpload={!archived}
+                  onDocumentUploaded={() => setCalendarToken((token) => token + 1)}
+                  onOpen={openItem}
+                  currentUserId={me}
+                  toolbarSlot={chatToolsSlot}
+                />
+              ) : null}
+            </>
+          )}
         </>
       ) : null}
 
@@ -1374,6 +1448,12 @@ export function ProjectsView({
               await startProcedure(selectedItem, definitionId);
             }}
           />
+          {selectedItem.status === 'blocked' && !selectedItem.reversal ? (
+            <BlockedReasonNotice
+              reason={selectedItem.blockedReason}
+              onEdit={canWrite ? () => promptBlockedReason(selectedItem) : undefined}
+            />
+          ) : null}
           <ChildItems
             items={detail.items}
             parent={selectedItem}
@@ -1412,7 +1492,7 @@ export function ProjectsView({
           <DocumentPanel
             projectId={detail.project.id}
             linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
-            canWrite={canWrite}
+            canWrite={canWrite && canWriteDocuments}
             canDelete={canDelete && !archived}
             currentUserId={me}
             compact
@@ -1631,6 +1711,8 @@ export function ProjectsView({
           if (back) setTimeout(() => window.location.assign(back), RETURN_AFTER_TOAST_MS);
         }}
       />
+
+      {blockedPrompt.dialog}
 
       <CancelWorkItemDialog
         item={cancellingItem}

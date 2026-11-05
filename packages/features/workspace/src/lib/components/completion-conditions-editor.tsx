@@ -12,6 +12,7 @@ import {
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Input, Label } from './form-controls';
+import { Tooltip } from './tooltip';
 
 export interface CompletionConditionsEditorProps {
   readonly value: CompletionDraft;
@@ -156,15 +157,16 @@ export function CompletionConditionsEditor({
                   }}
                 />
                 {readOnly ? null : (
-                  <button
-                    type="button"
-                    className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
-                    aria-label={`Bỏ điều kiện ${index + 1}`}
-                    title="Bỏ điều kiện này"
-                    onClick={() => remove(index)}
-                  >
-                    <X size={15} />
-                  </button>
+                  <Tooltip content="Bỏ điều kiện này">
+                    <button
+                      type="button"
+                      className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
+                      aria-label={`Bỏ điều kiện ${index + 1}`}
+                      onClick={() => remove(index)}
+                    >
+                      <X size={15} />
+                    </button>
+                  </Tooltip>
                 )}
               </li>
             ))}

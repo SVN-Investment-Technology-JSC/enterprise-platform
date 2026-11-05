@@ -31,7 +31,7 @@
   --ep-radius-xl: 14px;
   --ep-shadow-pop: 0 10px 30px rgb(0 0 0 / 18%);
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
-  --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
+  --ep-font: var(--font-sans, -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif);
   --ep-sidebar-w: 260px;
 
   // Khung cố định bằng màn hình, như khung cũ: trang không cuộn, vùng nội dung

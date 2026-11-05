@@ -94,12 +94,12 @@ function mount(
   const onOpen = jest.fn();
   const projectId = options.projectId ?? `project-${(counter += 1)}`;
   const view = render(
-    <TabChats projectId={projectId} items={ITEMS} members={[]} documents={[]} onOpen={onOpen} />,
+    <TabChats projectId={projectId} items={ITEMS} members={[]} documents={[]} onOpen={onOpen} initialMode="work" />,
   );
   return { ...view, onOpen, projectId };
 }
 
-const rowsOf = () => screen.getAllByRole('button').filter((button) => /^CV-\d+/.test(button.textContent ?? '') && button.getAttribute('title') === null);
+const rowsOf = () => screen.getAllByRole('button').filter((button) => /^CV-\d+/.test(button.textContent ?? '') && button.closest('header') === null);
 const rowFor = (code: string) => rowsOf().find((button) => button.textContent?.startsWith(code)) as HTMLElement;
 const lastFeedCall = () => feed.mock.calls[feed.mock.calls.length - 1];
 
@@ -246,7 +246,7 @@ describe('Màn "Trao đổi công việc"', () => {
     const { onOpen } = mount({ 10: [message('m1', 'Việc con', 1)] });
     expect(await screen.findByText('Việc con', { selector: 'p' })).toBeTruthy();
     expect(screen.getByText('CV-1 ›')).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Mở chi tiết công việc'));
+    fireEvent.click(document.querySelector('header button') as HTMLElement);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'w10' }));
   });
 
@@ -311,7 +311,7 @@ describe('Màn "Trao đổi công việc"', () => {
     });
     await waitFor(() => expect(rowsOf()[0].textContent).toContain('CV-8'));
     expect(screen.getByText('Tin của ba', { selector: 'p' })).toBeTruthy();
-    expect(within(screen.getByLabelText('Trao đổi')).getByTitle('Mở chi tiết công việc').textContent).toContain('CV-3');
+    expect((screen.getByLabelText('Trao đổi').querySelector('header button') as HTMLElement).textContent).toContain('CV-3');
   });
 
   const signalOf = (data: Record<string, unknown>) =>
@@ -361,14 +361,14 @@ describe('Màn "Trao đổi công việc"', () => {
 
   it('đổi dự án thì trang, từ khoá và bộ lọc về mặc định, không gọi dự án mới với trạng thái của dự án cũ', async () => {
     fakeServer({});
-    const view = render(<TabChats projectId="project-a" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} />);
+    const view = render(<TabChats projectId="project-a" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} initialMode="work" />);
     await waitFor(() => expect(rowsOf()).toHaveLength(10));
     fireEvent.click(screen.getByLabelText('Trang sau'));
     await waitFor(() => expect(rowsOf()[0].textContent).toContain('CV-11'));
     fireEvent.click(screen.getByLabelText('Chỉ công việc có trao đổi'));
     await waitFor(() => expect(lastFeedCall()[3]).toEqual({ search: undefined, onlyWithChat: true }));
     feed.mockClear();
-    view.rerender(<TabChats projectId="project-b" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} />);
+    view.rerender(<TabChats projectId="project-b" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} initialMode="work" />);
     await waitFor(() => expect(feed).toHaveBeenCalled());
     // Mọi lần gọi cho dự án mới đều là trang 1, không lọc.
     for (const call of feed.mock.calls) {
@@ -408,7 +408,7 @@ describe('Màn "Trao đổi công việc"', () => {
   it('lỗi tải danh sách hiện thông báo của server', async () => {
     feed.mockRejectedValue({ message: 'Máy chủ bận, thử lại sau.' });
     thread.mockResolvedValue({ messages: [], hasMore: false });
-    render(<TabChats projectId="project-loi" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} />);
+    render(<TabChats projectId="project-loi" items={ITEMS} members={[]} documents={[]} onOpen={jest.fn()} initialMode="work" />);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Máy chủ bận, thử lại sau.');
   });
 });

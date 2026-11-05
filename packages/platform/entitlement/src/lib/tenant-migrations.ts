@@ -762,6 +762,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/workspace/0032-workspace-completion-conditions.sql',
     },
     { version: '0033-workspace-reopen-policy', path: 'tenant/workspace/0033-workspace-reopen-policy.sql' },
+    {
+      version: '0034-chat-multiple-attachments',
+      path: 'tenant/workspace/0034-chat-multiple-attachments.sql',
+    },
+    { version: '0035-blocked-reason', path: 'tenant/workspace/0035-blocked-reason.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

@@ -8,7 +8,7 @@ import {
   type WorkItemPriority,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, CornerDownRight, Diamond, Plus, Workflow } from 'lucide-react';
+import { ChevronDown, ChevronRight, CornerDownRight, Diamond, ListFilter, Plus, Workflow } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { buildWorkItemTree } from '../project-tree.model';
@@ -28,12 +28,15 @@ import {
   workItemStatusKeys,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { BlockedReasonMark } from './blocked-reason-dialog';
 import { Choice } from './choice';
 import { Pager } from './pager';
 import { GanttChart } from './gantt-chart';
 import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
+import { Tooltip } from './tooltip';
+import { useFillViewportHeight } from './use-fill-viewport';
 import type { PendingProcedure } from '../procedure-pending';
 import { tagColor, useTags } from './use-tags';
 import {
@@ -224,6 +227,21 @@ function TabWorkImpl({
   const [page, setPage] = useWorkTableField(projectId, 'page', 1);
   const [pageSize, setPageSize] = useWorkTableField<number>(projectId, 'pageSize', WORK_TABLE_PAGE_SIZE);
   const compare = useMemo(() => workComparator(sort, direction), [sort, direction]);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelBox = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
+  // Thẻ danh sách chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm.
+  useFillViewportHeight(frame, undefined, view);
+
+  // Bấm ra ngoài bảng lọc thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
+  useEffect(() => {
+    if (!panelOpen) return undefined;
+    const close = (event: globalThis.MouseEvent) => {
+      if (!panelBox.current?.contains(event.target as Node)) setPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [panelOpen]);
   const setField = (patch: Partial<WorkFilter>) =>
     setFilter((current) => ({ ...current, ...patch }));
 
@@ -293,6 +311,8 @@ function TabWorkImpl({
 
   const filtering =
     status !== 'all' || priority !== 'all' || person !== 'all' || tag !== 'all' || due !== 'all';
+  const facets = [status, priority, person, tag, due].filter((value) => value !== 'all').length;
+  const sorted = sort !== 'wbs' || direction !== 'asc';
 
   /** Việc khớp bộ lọc; bảng giữ thêm tổ tiên của chúng để còn thấy chúng thuộc nhánh nào. */
   const matched = useMemo(() => {
@@ -397,208 +417,236 @@ function TabWorkImpl({
 
   return (
     <div className={styles.tabBody}>
-      <div className={styles.panel}>
-        <div className={styles.workToolbar}>
-          <div className={styles.segmented} role="group" aria-label="Kiểu xem công việc">
-            {WORK_VIEWS.map((entry) => (
+      <div ref={frame} className={styles.ledgerCard}>
+        <header className={styles.ledgerHead}>
+          <div className={styles.reqHeadLeft}>
+            <div className={styles.segmented} role="group" aria-label="Kiểu xem công việc">
+              {WORK_VIEWS.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  aria-pressed={view === entry.id}
+                  className={view === entry.id ? styles.segmentActive : styles.segment}
+                  onClick={() => setView(entry.id)}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+            <div ref={panelBox} className={styles.timelinePanelBox}>
               <button
-                key={entry.id}
                 type="button"
-                aria-pressed={view === entry.id}
-                className={view === entry.id ? styles.segmentActive : styles.segment}
-                onClick={() => setView(entry.id)}
+                className={facets > 0 || sorted || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+                aria-haspopup="dialog"
+                aria-expanded={panelOpen}
+                onClick={() => setPanelOpen((value) => !value)}
               >
-                {entry.label}
+                <ListFilter size={13} aria-hidden />
+                Bộ lọc
+                {facets > 0 ? <span className={styles.countBadge}>{facets}</span> : null}
               </button>
-            ))}
+              {panelOpen ? (
+                <div
+                  className={`${styles.timelinePanel} ${styles.timelinePanelLeft} ${styles.reqPanel}`}
+                  role="dialog"
+                  aria-label="Bộ lọc công việc"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.stopPropagation();
+                      setPanelOpen(false);
+                    }
+                  }}
+                >
+                  <div className={styles.reqPanelGrid}>
+                    <FilterField label="Trạng thái">
+                      <Choice
+                        label="Lọc theo trạng thái"
+                        selectOnly
+                        value={status}
+                        options={[
+                          { value: 'all', label: 'Tất cả' },
+                          ...workItemStatusKeys().map((value) => ({
+                            value,
+                            label: WORK_ITEM_STATUS_LABELS[value],
+                          })),
+                        ]}
+                        onChange={(value) => setField({ status: value as WorkFilter['status'] })}
+                      />
+                    </FilterField>
+                    <FilterField label="Ưu tiên">
+                      <Choice
+                        label="Lọc theo ưu tiên"
+                        selectOnly
+                        value={priority}
+                        options={[
+                          { value: 'all', label: 'Tất cả' },
+                          ...priorityKeys().map((value) => ({ value, label: priorityLabel(value) })),
+                        ]}
+                        onChange={(value) => setField({ priority: value as WorkFilter['priority'] })}
+                      />
+                    </FilterField>
+                    <FilterField label="Người thực hiện">
+                      <Choice
+                        label="Lọc theo người phụ trách hoặc cùng thực hiện"
+                        selectOnly
+                        value={person}
+                        options={personOptions}
+                        onChange={(value) => setField({ person: value })}
+                      />
+                    </FilterField>
+                    {tagOptions.length > 1 ? (
+                      <FilterField label="Nhãn">
+                        <Choice
+                          label="Lọc theo nhãn"
+                          selectOnly
+                          value={tag}
+                          options={tagOptions}
+                          onChange={(value) => setField({ tag: value })}
+                        />
+                      </FilterField>
+                    ) : null}
+                    <FilterField label="Thời hạn">
+                      <Choice
+                        label="Lọc theo thời hạn"
+                        selectOnly
+                        value={due}
+                        options={DUE_OPTIONS}
+                        onChange={(value) => setField({ due: value as DueFilter })}
+                      />
+                    </FilterField>
+                    {savedFilters.length > 0 ? (
+                      <FilterField label="Mẫu lọc">
+                        <Choice
+                          label="Áp dụng mẫu lọc"
+                          selectOnly
+                          value={savedId}
+                          emptyOption="Chọn mẫu…"
+                          options={savedFilters.map((entry) => ({
+                            value: entry.id,
+                            label: entry.isShared ? `${entry.name} (chung)` : entry.name,
+                          }))}
+                          onChange={applySaved}
+                        />
+                      </FilterField>
+                    ) : null}
+                    <FilterField label="Sắp xếp theo">
+                      <Choice
+                        label="Sắp xếp công việc theo"
+                        selectOnly
+                        value={sort}
+                        options={WORK_SORT_OPTIONS}
+                        onChange={(value) => setSort(value as WorkSort)}
+                      />
+                    </FilterField>
+                    <FilterField label="Chiều">
+                      <Choice
+                        label="Chiều sắp xếp"
+                        selectOnly
+                        value={direction}
+                        options={SORT_DIRECTION_OPTIONS}
+                        onChange={(value) => setDirection(value as SortDirection)}
+                      />
+                    </FilterField>
+                  </div>
+                  <div className={styles.reqPanelFoot}>
+                    {savingName !== undefined ? (
+                      <form
+                        className={styles.savedFilterSave}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void saveCurrent();
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={savingName}
+                          maxLength={120}
+                          placeholder="Tên mẫu lọc"
+                          aria-label="Tên mẫu lọc"
+                          onChange={(event) => setSavingName(event.target.value)}
+                        />
+                        <button type="submit" className={styles.linkButton} disabled={!savingName.trim()}>
+                          Lưu
+                        </button>
+                        <button type="button" className={styles.linkButton} onClick={() => setSavingName(undefined)}>
+                          Huỷ
+                        </button>
+                      </form>
+                    ) : filtering ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setSavingName(selectedSaved?.name ?? '')}
+                      >
+                        Lưu mẫu lọc
+                      </button>
+                    ) : null}
+                    {selectedSaved && selectedSaved.ownerUserId === currentUserId ? (
+                      <button type="button" className={styles.linkButton} onClick={() => void removeSaved()}>
+                        Xoá mẫu
+                      </button>
+                    ) : null}
+                    {filtering || sorted ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => {
+                          setFilter(NO_FILTER);
+                          setSort('wbs');
+                          setDirection('asc');
+                          setSavedId('');
+                        }}
+                      >
+                        Bỏ lọc
+                      </button>
+                    ) : null}
+                    {savedError ? <span className={styles.fieldHint}>{savedError}</span> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {view === 'table' ? (
+              <label className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={showChildren}
+                  onChange={(event) => setShowChildren(event.target.checked)}
+                />
+                Hiện việc con
+              </label>
+            ) : null}
+            {view === 'table' ? (
+              <ColumnPicker
+                hidden={columns.hidden}
+                customized={columns.customized}
+                onChange={columns.setHidden}
+                onReset={columns.reset}
+              />
+            ) : null}
+            <span className={styles.reqCount}>
+              {filtering ? `${matched.length} / ${items.length} việc` : `${items.length} việc`}
+            </span>
           </div>
-          {view === 'table' ? (
-            <label className={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={showChildren}
-                onChange={(event) => setShowChildren(event.target.checked)}
-              />
-              Hiện việc con
-            </label>
-          ) : null}
-          {view === 'table' ? (
-            <ColumnPicker
-              hidden={columns.hidden}
-              customized={columns.customized}
-              onChange={columns.setHidden}
-              onReset={columns.reset}
-            />
-          ) : null}
-          {/* Không có quyền ghi (người xem, dự án đã lưu trữ) thì ẩn hẳn nút, không để nút mờ. */}
-          {canWrite ? (
-            <button
-              type="button"
-              className={`${styles.buttonPrimary} ${styles.workToolbarAdd}`}
-              onClick={onAddRoot}
-            >
-              <Plus size={15} /> Thêm công việc
-            </button>
-          ) : null}
-        </div>
-
-        <div className={styles.workFilters}>
-          <FilterField label="Trạng thái">
-            <Choice
-              label="Lọc theo trạng thái"
-              value={status}
-              options={[
-                { value: 'all', label: 'Tất cả' },
-                ...workItemStatusKeys().map((value) => ({
-                  value,
-                  label: WORK_ITEM_STATUS_LABELS[value],
-                })),
-              ]}
-              onChange={(value) => setField({ status: value as WorkFilter['status'] })}
-            />
-          </FilterField>
-          <FilterField label="Ưu tiên">
-            <Choice
-              label="Lọc theo ưu tiên"
-              value={priority}
-              options={[
-                { value: 'all', label: 'Tất cả' },
-                ...priorityKeys().map((value) => ({ value, label: priorityLabel(value) })),
-              ]}
-              onChange={(value) => setField({ priority: value as WorkFilter['priority'] })}
-            />
-          </FilterField>
-          <FilterField label="Người thực hiện">
-            <Choice
-              label="Lọc theo người phụ trách hoặc cùng thực hiện"
-              value={person}
-              options={personOptions}
-              onChange={(value) => setField({ person: value })}
-            />
-          </FilterField>
-          {tagOptions.length > 1 ? (
-            <FilterField label="Nhãn">
-              <Choice
-                label="Lọc theo nhãn"
-                value={tag}
-                options={tagOptions}
-                onChange={(value) => setField({ tag: value })}
-              />
-            </FilterField>
-          ) : null}
-          <FilterField label="Thời hạn">
-            <Choice
-              label="Lọc theo thời hạn"
-              value={due}
-              options={DUE_OPTIONS}
-              onChange={(value) => setField({ due: value as DueFilter })}
-            />
-          </FilterField>
-          <FilterField label="Sắp xếp">
-            <Choice
-              label="Sắp xếp công việc theo"
-              value={sort}
-              options={WORK_SORT_OPTIONS}
-              onChange={(value) => setSort(value as WorkSort)}
-            />
-          </FilterField>
-          <FilterField label="Chiều">
-            <Choice
-              label="Chiều sắp xếp"
-              value={direction}
-              options={SORT_DIRECTION_OPTIONS}
-              onChange={(value) => setDirection(value as SortDirection)}
-            />
-          </FilterField>
-          {savedFilters.length > 0 ? (
-            <FilterField label="Mẫu lọc">
-              <Choice
-                label="Áp dụng mẫu lọc"
-                value={savedId}
-                emptyOption="Chọn mẫu…"
-                options={savedFilters.map((entry) => ({
-                  value: entry.id,
-                  label: entry.isShared ? `${entry.name} (chung)` : entry.name,
-                }))}
-                onChange={applySaved}
-              />
-            </FilterField>
-          ) : null}
-          {savingName !== undefined ? (
-            <form
-              className={styles.savedFilterSave}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveCurrent();
-              }}
-            >
-              <input
-                autoFocus
-                value={savingName}
-                maxLength={120}
-                placeholder="Tên mẫu lọc"
-                aria-label="Tên mẫu lọc"
-                onChange={(event) => setSavingName(event.target.value)}
-              />
-              <button type="submit" className={styles.linkButton} disabled={!savingName.trim()}>
-                Lưu
+          <div className={styles.reqHeadRight}>
+            {/* Không có quyền ghi (người xem, dự án đã lưu trữ) thì ẩn hẳn nút, không để nút mờ. */}
+            {canWrite ? (
+              <button type="button" className={styles.buttonPrimary} onClick={onAddRoot}>
+                <Plus size={15} /> Thêm công việc
               </button>
-              <button
-                type="button"
-                className={styles.linkButton}
-                onClick={() => setSavingName(undefined)}
-              >
-                Huỷ
-              </button>
-            </form>
-          ) : filtering ? (
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => setSavingName(selectedSaved?.name ?? '')}
-            >
-              Lưu mẫu lọc
-            </button>
-          ) : null}
-          {selectedSaved && selectedSaved.ownerUserId === currentUserId ? (
-            <button type="button" className={styles.linkButton} onClick={() => void removeSaved()}>
-              Xoá mẫu
-            </button>
-          ) : null}
-          {filtering ? (
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => {
-                setFilter(NO_FILTER);
-                setSavedId('');
-              }}
-            >
-              Bỏ lọc
-            </button>
-          ) : null}
-          {savedError ? <span className={styles.fieldHint}>{savedError}</span> : null}
-        </div>
-      </div>
+            ) : null}
+          </div>
+        </header>
 
-      {view === 'kanban' ? (
-        <TabKanban
-          items={matched}
-          canWrite={canWrite}
-          onOpen={onOpen}
-          onChangeStatus={onChangeStatus}
-        />
-      ) : null}
+        <div className={styles.ledgerScroll}>
+          {view === 'kanban' ? (
+            <TabKanban items={matched} canWrite={canWrite} onOpen={onOpen} onChangeStatus={onChangeStatus} />
+          ) : null}
 
-      {view === 'gantt' ? (
-        <GanttChart rows={ganttRows} dependencies={dependencies} onOpen={onOpen} />
-      ) : null}
+          {view === 'gantt' ? <GanttChart rows={ganttRows} dependencies={dependencies} onOpen={onOpen} /> : null}
 
-      {view === 'table' ? (
-        <div className={styles.tableCard}>
-          <div className={styles.tableScroll}>
+          {view === 'table' ? (
             <table
-              className={[styles.table, styles.wbsTable, columns.customized ? styles.wbsTableCustom : ''].filter(Boolean).join(' ')}
+              className={[styles.table, styles.wbsTable, styles.ledgerTable, columns.customized ? styles.wbsTableCustom : ''].filter(Boolean).join(' ')}
               style={columns.customized ? { minWidth: customMinWidth } : undefined}
             >
               <thead>
@@ -630,9 +678,11 @@ function TabWorkImpl({
                     </th>
                   ) : null}
                   {showCol('last') ? (
-                    <th className={styles.wbsColLast} style={colWidth('last')} title="Ngày cập nhật trạng thái gần nhất">
-                      Trạng thái cuối
-                    </th>
+                    <Tooltip content="Ngày cập nhật trạng thái gần nhất">
+                      <th className={styles.wbsColLast} style={colWidth('last')}>
+                        Trạng thái cuối
+                      </th>
+                    </Tooltip>
                   ) : null}
                   {showCol('progress') ? (
                     <th className={styles.wbsColProgress} style={colWidth('progress')}>
@@ -709,18 +759,19 @@ function TabWorkImpl({
                           ) : (
                             <span className={styles.treeToggleSpacer} aria-hidden />
                           )}
-                          <button
-                            type="button"
-                            className={styles.wbsTitle}
-                            title={`${item.code} · ${item.title}`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onOpen(item);
-                            }}
-                          >
-                            <span className={styles.treeCode}>{item.code}</span>
-                            <span className={styles.treeTitle}>{item.title}</span>
-                          </button>
+                          <Tooltip content={`${item.code} · ${item.title}`}>
+                            <button
+                              type="button"
+                              className={styles.wbsTitle}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onOpen(item);
+                              }}
+                            >
+                              <span className={styles.treeCode}>{item.code}</span>
+                              <span className={styles.treeTitle}>{item.title}</span>
+                            </button>
+                          </Tooltip>
                           {item.tagIds?.length ? (
                             <span className={styles.wbsTags}>
                               {item.tagIds.map((tagId) => {
@@ -738,12 +789,13 @@ function TabWorkImpl({
                             </span>
                           ) : null}
                           {unread[item.id] ? (
-                            <span
-                              className={styles.treeUnread}
-                              title={`${unread[item.id]} tin chưa đọc`}
-                            >
-                              {unread[item.id]}
-                            </span>
+                            <Tooltip content={`${unread[item.id]} tin chưa đọc`}>
+                              <span
+                                className={styles.treeUnread}
+                              >
+                                {unread[item.id]}
+                              </span>
+                            </Tooltip>
                           ) : null}
                         </span>
                       </td>
@@ -775,6 +827,9 @@ function TabWorkImpl({
                         >
                           {workItemStatusLabel(item)}
                         </span>
+                        {item.status === 'blocked' && !item.reversal ? (
+                          <BlockedReasonMark reason={item.blockedReason} />
+                        ) : null}
                       </td>
 ) : null}
                       {showCol('start') ? (
@@ -786,24 +841,25 @@ function TabWorkImpl({
                       </td>
 ) : null}
                       {showCol('last') ? (
-<td
-                        className={`${styles.muted} ${styles.wbsColLast}`}
-                        title={
-                          item.statusChangedAt
-                            ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}`
-                            : undefined
+<Tooltip
+                        content={
+                          item.statusChangedAt ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}` : undefined
                         }
                       >
-                        {formatShortTimestamp(item.statusChangedAt)}
-                      </td>
+                        <td className={`${styles.muted} ${styles.wbsColLast}`}>
+                          {formatShortTimestamp(item.statusChangedAt)}
+                        </td>
+                      </Tooltip>
 ) : null}
                       {showCol('progress') ? (
 <td className={styles.wbsColProgress}>
                         {item.reversal ? (
                           // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
-                          <span className={styles.muted} title="Đã huỷ hiệu lực, không tính tiến độ">
-                            —
-                          </span>
+                          <Tooltip content="Đã huỷ hiệu lực, không tính tiến độ">
+                            <span className={styles.muted}>
+                              —
+                            </span>
+                          </Tooltip>
                         ) : (
                           <span className={styles.progressCell}>
                             <span
@@ -827,22 +883,22 @@ function TabWorkImpl({
                       {showCol('process') ? (
 <td className={styles.wbsColProcess}>
                         {procedure ? (
-                          <a
-                            className={styles.wbsProcedure}
-                            href={procedure.launchUrl}
-                            title={procedure.cachedStatus ?? undefined}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <Workflow size={12} aria-hidden />
-                            {procedure.cachedLabel ?? procedure.externalCode ?? 'Quy trình'}
-                          </a>
+                          <Tooltip content={procedure.cachedStatus ?? undefined}>
+                            <a
+                              className={styles.wbsProcedure}
+                              href={procedure.launchUrl}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Workflow size={12} aria-hidden />
+                              {procedure.cachedLabel ?? procedure.externalCode ?? 'Quy trình'}
+                            </a>
+                          </Tooltip>
                         ) : pendingProcedure.get(item.id) ? (
-                          <span
-                            className={styles.treePending}
-                            title={pendingProcedure.get(item.id)?.hint}
-                          >
-                            {pendingProcedure.get(item.id)?.label}
-                          </span>
+                          <Tooltip content={pendingProcedure.get(item.id)?.hint}>
+                            <span className={styles.treePending}>
+                              {pendingProcedure.get(item.id)?.label}
+                            </span>
+                          </Tooltip>
                         ) : null}
                       </td>
 ) : null}
@@ -851,30 +907,31 @@ function TabWorkImpl({
                 })}
               </tbody>
             </table>
-          </div>
-          {rows.length > 0 ? (
-            <div className={styles.wbsFoot}>
-              <Choice
-                label="Số việc mỗi trang"
-                value={String(pageSize)}
-                options={PAGE_SIZE_OPTIONS}
-                onChange={(value) => {
-                  setPageSize(Number(value));
-                  setPage(1);
-                }}
-                selectOnly
-                height={32}
-              />
-              <Pager page={currentPage} pages={pages} total={rows.length} pageSize={pageSize} onPage={setPage} />
-            </div>
-          ) : null}
-          {canWrite ? (
-            <button type="button" className={styles.wbsAddGroup} onClick={onAddRoot}>
-              <Plus size={14} /> Thêm nhóm công việc
-            </button>
           ) : null}
         </div>
-      ) : null}
+
+        {view === 'table' && rows.length > 0 ? (
+          <div className={styles.wbsFoot}>
+            <Choice
+              label="Số việc mỗi trang"
+              value={String(pageSize)}
+              options={PAGE_SIZE_OPTIONS}
+              onChange={(value) => {
+                setPageSize(Number(value));
+                setPage(1);
+              }}
+              selectOnly
+              height={32}
+            />
+            <Pager page={currentPage} pages={pages} total={rows.length} pageSize={pageSize} onPage={setPage} />
+          </div>
+        ) : null}
+        {view === 'table' && canWrite ? (
+          <button type="button" className={styles.wbsAddGroup} onClick={onAddRoot}>
+            <Plus size={14} /> Thêm nhóm công việc
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -904,20 +961,22 @@ function People({
   const shown = others.slice(0, MAX_AVATARS - 1);
   const more = others.length - shown.length;
   return (
-    <span className={styles.wbsPeople} title={userIds.map(nameOf).join(', ')}>
-      <span>
-        <span className={styles.avatarSmall}>{initials(nameOf(first))}</span>
-        {shown.map((userId) => (
-          <span key={userId} className={styles.avatarSmall}>
-            {initials(nameOf(userId))}
-          </span>
-        ))}
-        {more > 0 ? (
-          <span className={`${styles.avatarSmall} ${styles.avatarMore}`}>+{more}</span>
-        ) : null}
+    <Tooltip content={userIds.map(nameOf).join(', ')}>
+      <span className={styles.wbsPeople}>
+        <span>
+          <span className={styles.avatarSmall}>{initials(nameOf(first))}</span>
+          {shown.map((userId) => (
+            <span key={userId} className={styles.avatarSmall}>
+              {initials(nameOf(userId))}
+            </span>
+          ))}
+          {more > 0 ? (
+            <span className={`${styles.avatarSmall} ${styles.avatarMore}`}>+{more}</span>
+          ) : null}
+        </span>
+        {nameOf(first)}
       </span>
-      {nameOf(first)}
-    </span>
+    </Tooltip>
   );
 }
 

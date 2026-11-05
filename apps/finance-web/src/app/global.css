@@ -63,7 +63,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   font-family:
-    Inter,
+    var(--font-sans),
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -114,4 +114,14 @@ body {
     color: inherit;
     text-decoration: inherit;
   }
+}
+
+/*
+ * Ant Design gán font riêng cho từng thành phần (cửa sổ nổi như lịch chọn ngày, danh sách xổ… render ở cuối body). Ép về
+ * font chung của hệ thống để mọi chữ cùng một font. Selector chỉ khớp class bắt đầu bằng `ant-` (không khớp nhầm
+ * `tenant-…`, `variant-…`) và lặp 3 lần để đủ độ ưu tiên thắng các luật như
+ * `:where(.css-…).ant-table-wrapper .ant-table { font-family: var(--ant-font-family) }` của antd.
+ */
+html body :is([class^='ant-'], [class*=' ant-']):is([class^='ant-'], [class*=' ant-']):is([class^='ant-'], [class*=' ant-']) {
+  font-family: inherit;
 }

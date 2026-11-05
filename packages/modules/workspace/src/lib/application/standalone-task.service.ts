@@ -27,6 +27,7 @@ import {
   StandaloneTaskNotFoundError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { parseManualPercent } from '../domain/progress.rules.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
@@ -307,10 +308,27 @@ export class StandaloneTaskService {
       throw new WorkspaceValidationError('Trạng thái không hợp lệ.');
     }
     const note = optionalText(input?.note) ?? undefined;
-    if (note && note.length > 1000) {
+    if (note && next !== 'blocked' && note.length > 1000) {
       throw new WorkspaceValidationError('Ghi chú không được dài quá 1000 ký tự.');
     }
+    // Đang Vướng mắc mà gửi lại "blocked" kèm lý do: chỉ cập nhật lý do, cùng quyền với đổi trạng thái.
+    if (next === 'blocked' && task.status === 'blocked' && note) {
+      if (task.reversal) {
+        throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không mở lại hay đổi trạng thái được.');
+      }
+      // Chỉ người được đổi trạng thái việc này (người giao, người thực hiện) mới sửa được lý do.
+      if (allowedStandaloneTaskTransitions(task, role).length === 0) {
+        throw new StandaloneTaskForbiddenError('Chỉ người thực hiện hoặc người giao việc được sửa lý do vướng mắc.');
+      }
+      const reason = parseBlockedReason(note);
+      if (reason === task.blockedReason) return this.toDetail(actor, task, role);
+      const revised = await this.store.standaloneTask.updateBlockedReason(actor.tenantId, task.id, reason);
+      if (!revised) throw new StandaloneTaskConflictError();
+      return this.toDetail(actor, revised, role);
+    }
     assertStandaloneTaskTransition(task, role, next as WorkItemStatus, note);
+    // Chuyển sang Vướng mắc bắt buộc có lý do; lý do đi cùng dòng nhật ký để tab Hoạt động hiện lại được.
+    const blockedReason = next === 'blocked' ? parseBlockedReason(note) : undefined;
 
     const updated = await this.store.standaloneTask.changeStatus(
       actor.tenantId,
@@ -318,7 +336,7 @@ export class StandaloneTaskService {
       actor.userId,
       task.status,
       next as WorkItemStatus,
-      note,
+      blockedReason ?? note,
       todayKey(timezoneOf(actor.tenantId)),
     );
     if (!updated) throw new StandaloneTaskConflictError();

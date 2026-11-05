@@ -4,7 +4,9 @@ import type {
   ChatEntityType,
   ChatMessage,
   ProjectChatFeedPage,
+  ProjectChatTimeline,
   ProjectChatFeedQuery,
+  ChatTimelineFilter,
   ChatReader,
   Contract,
   ContractStatus,
@@ -87,6 +89,12 @@ import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
 } from '../domain/workspace-procedure-link.js';
+
+/**
+ * Bộ lọc dòng thời gian đã được service kiểm: "nhắc tôi" thành id người xem (`mentionUserId`) để store không phải
+ * biết ai đang xem.
+ */
+export type ProjectTimelineQuery = Omit<ChatTimelineFilter, 'mentionsMe'> & { readonly mentionUserId?: string };
 
 /** Dữ liệu để ghi một dòng "đã xoá công việc" vào nhật ký dự án khi xoá. */
 export interface WorkItemDeletionLog {
@@ -456,6 +464,15 @@ export interface WorkspaceStore {
       /** Điều kiện hoàn thành đã xác nhận, ghi vào dòng nhật ký của lần hoàn thành này. */
       completionEvidence?: WorkItemCompletionEvidence,
     ): Promise<WorkItem>;
+    /**
+     * Chỉ cập nhật lý do vướng mắc của việc ĐANG `blocked` (không đổi trạng thái, không ghi nhật ký chuyển trạng thái).
+     * `undefined` khi việc không còn ở `blocked` (có người đổi trước).
+     */
+    updateBlockedReason(
+      tenantId: string,
+      workItemId: string,
+      reason: string,
+    ): Promise<WorkItem | undefined>;
     /**
      * Huỷ hiệu lực: chuyển `cancelled` kèm dấu huỷ, ghi nhật ký và phát
      * `workspace.work_item.reversed` trong cùng transaction. Đã huỷ thì trả nguyên.
@@ -856,6 +873,17 @@ export interface WorkspaceStore {
       pageSize: number,
       query: ProjectChatFeedQuery,
     ): Promise<ProjectChatFeedPage>;
+    /**
+     * Một trang tin của mọi kênh trong dự án (công việc và chat chung), cũ → mới. `beforeMessageId` lấy
+     * trang liền trước tin đó; vắng thì lấy trang mới nhất. Bỏ tin đã thu hồi; chỉ đọc.
+     */
+    listProjectTimeline(
+      tenantId: string,
+      projectId: string,
+      limit: number,
+      beforeMessageId?: string,
+      filter?: ProjectTimelineQuery,
+    ): Promise<ProjectChatTimeline>;
     findMessage(tenantId: string, messageId: string): Promise<ChatMessage | undefined>;
     /**
      * Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction.
@@ -870,7 +898,9 @@ export interface WorkspaceStore {
         readonly parentId?: string | null;
         readonly body: string;
         readonly mentions: readonly string[];
+        /** Tài liệu đầu tiên (cột cũ, giữ cho tương thích ngược). */
         readonly attachmentDocumentId?: string | null;
+        readonly attachmentDocumentIds?: readonly string[];
       },
     ): Promise<ChatMessage>;
     /**
@@ -1321,6 +1351,12 @@ export interface WorkspaceStore {
       next: StandaloneTask['status'],
       note: string | undefined,
       today: string,
+    ): Promise<StandaloneTask | undefined>;
+    /** Như `workItem.updateBlockedReason`: `undefined` khi việc không còn ở `blocked`. */
+    updateBlockedReason(
+      tenantId: string,
+      taskId: string,
+      reason: string,
     ): Promise<StandaloneTask | undefined>;
     remove(tenantId: string, taskId: string): Promise<void>;
     history(

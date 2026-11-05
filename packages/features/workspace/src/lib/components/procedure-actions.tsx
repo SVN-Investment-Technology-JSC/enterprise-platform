@@ -6,6 +6,7 @@ import type { ProcedureOption } from '../procedure-api';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
+import { Tooltip } from './tooltip';
 
 export interface ProcedureLink {
   readonly code: string;
@@ -99,33 +100,39 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
 
       {menuOpen ? (
         <div className={styles.procedureMenuList} role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            disabled={!canStart}
-            title={startHint}
-            onClick={() => {
-              setMenuOpen(false);
-              setDefinitionId('');
-              setError(undefined);
-              setFormOpen(true);
-            }}
-          >
-            Tạo quy trình
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            disabled={!link}
-            title={link ? undefined : 'Công việc chưa gắn hồ sơ quy trình nào.'}
-            onClick={() => {
-              setMenuOpen(false);
-              if (link) window.open(link.launchUrl, '_blank', 'noopener');
-            }}
-          >
-            <ExternalLink size={13} /> Xem quy trình
-            {link ? <span className={styles.muted}>{link.code}</span> : null}
-          </button>
+          <Tooltip content={startHint}>
+            <span className={styles.tooltipAnchor}>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!canStart}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setDefinitionId('');
+                  setError(undefined);
+                  setFormOpen(true);
+                }}
+              >
+                Tạo quy trình
+              </button>
+            </span>
+          </Tooltip>
+          <Tooltip content={link ? undefined : 'Công việc chưa gắn hồ sơ quy trình nào.'}>
+            <span className={styles.tooltipAnchor}>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!link}
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (link) window.open(link.launchUrl, '_blank', 'noopener');
+                }}
+              >
+                <ExternalLink size={13} /> Xem quy trình
+                {link ? <span className={styles.muted}>{link.code}</span> : null}
+              </button>
+            </span>
+          </Tooltip>
         </div>
       ) : null}
 

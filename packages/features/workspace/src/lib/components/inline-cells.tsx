@@ -14,6 +14,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { priorityTone } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { CreateOptionFooter, type CreateOption } from './create-option-footer';
 import { ContextMenu } from './project-tree';
 
@@ -120,13 +121,14 @@ export function ChipSelect({
   const width = Math.min(maxWidth, Math.round(10 + leadPx + size.text + 36));
   const byValue = new Map(all.map((option) => [option.value, option]));
 
-  return (
+  const tip = title ?? (selected ? `${prefix ? `${prefix}: ` : ''}${selected.label}` : label);
+
+  const chip = (
     <div
       ref={box}
       role="group"
       aria-label={label}
       data-choice={label}
-      title={title ?? (selected ? `${prefix ? `${prefix}: ` : ''}${selected.label}` : label)}
       className={[
         styles.inlineChip,
         variant === 'filter' ? styles.chipFilter : '',
@@ -196,6 +198,7 @@ export function ChipSelect({
       />
     </div>
   );
+  return <Tooltip content={tip}>{chip}</Tooltip>;
 }
 
 /** Chip không phải ô chọn: hiện giá trị chỉ đọc, hoặc là nút mở hộp (vd "Gắn nhãn"). */
@@ -219,13 +222,17 @@ export function ChipButton({
   );
   const style = { '--chip-bg': tone?.bg, '--chip-fg': tone?.fg } as CSSProperties;
   return onClick ? (
-    <button type="button" className={className} style={style} title={title} aria-label={label} onClick={onClick}>
-      {children}
-    </button>
+    <Tooltip content={title}>
+      <button type="button" className={className} style={style} aria-label={label} onClick={onClick}>
+        {children}
+      </button>
+    </Tooltip>
   ) : (
-    <span className={className} style={style} title={title}>
-      {children}
-    </span>
+    <Tooltip content={title}>
+      <span className={className} style={style}>
+        {children}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -304,16 +311,14 @@ export function ProgressCell({
   };
 
   const percent = Math.min(100, Math.max(0, value));
-  return (
+  const tip = disabled
+    ? undefined
+    : manual
+      ? `Tiến độ nhập tay. Chuột phải để về tiến độ tự động${auto === undefined ? '' : ` (${auto}%)`}.`
+      : 'Tiến độ tự động. Bấm vào số để nhập tay.';
+  const cell = (
     <span
       className={styles.progressEdit}
-      title={
-        disabled
-          ? undefined
-          : manual
-            ? `Tiến độ nhập tay. Chuột phải để về tiến độ tự động${auto === undefined ? '' : ` (${auto}%)`}.`
-            : 'Tiến độ tự động. Bấm vào số để nhập tay.'
-      }
       onContextMenu={(event) => {
         if (disabled) return;
         event.preventDefault();
@@ -380,6 +385,7 @@ export function ProgressCell({
       ) : null}
     </span>
   );
+  return <Tooltip content={tip}>{cell}</Tooltip>;
 }
 
 const PRIORITY_ICONS: Record<string, LucideIcon> = {
@@ -423,15 +429,15 @@ export function GroupCounts({ counts, unit }: { counts: GroupCountValues; unit: 
   return (
     <span className={styles.groupCounts}>
       {shown.map((kind) => (
-        <span
-          key={kind.key}
-          className={styles.countPill}
-          style={{ background: kind.tone.bg, color: kind.tone.fg }}
-          title={`${counts[kind.key]} ${unit} ${kind.label}`}
-          aria-label={`${counts[kind.key]} ${unit} ${kind.label}`}
-        >
-          {counts[kind.key]}
-        </span>
+        <Tooltip key={kind.key} content={`${counts[kind.key]} ${unit} ${kind.label}`}>
+          <span
+            className={styles.countPill}
+            style={{ background: kind.tone.bg, color: kind.tone.fg }}
+            aria-label={`${counts[kind.key]} ${unit} ${kind.label}`}
+          >
+            {counts[kind.key]}
+          </span>
+        </Tooltip>
       ))}
     </span>
   );

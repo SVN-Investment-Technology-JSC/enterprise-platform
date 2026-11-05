@@ -5,6 +5,7 @@ import { Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Dialog, Field } from './dialog';
 import { tagColor, useTags } from './use-tags';
 import { Confirm } from './confirm-box';
@@ -86,45 +87,50 @@ export function TagSettings() {
                   <td>
                     {canEdit ? (
                       <span className={styles.roleActions}>
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Sửa nhãn ${tag.name}`}
-                          title="Sửa nhãn"
-                          onClick={() => setEditing(tag)}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={tag.isActive ? `Ẩn nhãn ${tag.name}` : `Dùng lại nhãn ${tag.name}`}
-                          title={tag.isActive ? 'Ẩn nhãn' : 'Dùng lại nhãn'}
-                          onClick={() =>
-                            void run(
-                              () => tags.update(tag.id, { isActive: !tag.isActive }),
-                              'Không đổi được trạng thái nhãn.',
-                            )
-                          }
-                        >
-                          {tag.isActive ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </button>
-                        <Confirm
-                          title={`Bạn có chắc chắn muốn xoá nhãn "${tag.name}"?`}
-                          description="Nhãn bị gỡ khỏi mọi công việc và dự án đang gắn, không hoàn tác được."
-                          okText="Xoá"
-                          okType="danger"
-                          onConfirm={() => run(() => tags.remove(tag.id), 'Không xoá được nhãn.')}
-                        >
+                        <Tooltip content="Sửa nhãn">
                           <button
                             type="button"
                             className={styles.iconButton}
-                            aria-label={`Xoá nhãn ${tag.name}`}
-                            title="Xoá nhãn"
+                            aria-label={`Sửa nhãn ${tag.name}`}
+                            onClick={() => setEditing(tag)}
                           >
-                            <Trash2 size={13} />
+                            <Pencil size={13} />
                           </button>
-                        </Confirm>
+                        </Tooltip>
+                        <Tooltip content={tag.isActive ? 'Ẩn nhãn' : 'Dùng lại nhãn'}>
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label={tag.isActive ? `Ẩn nhãn ${tag.name}` : `Dùng lại nhãn ${tag.name}`}
+                            onClick={() =>
+                              void run(
+                                () => tags.update(tag.id, { isActive: !tag.isActive }),
+                                'Không đổi được trạng thái nhãn.',
+                              )
+                            }
+                          >
+                            {tag.isActive ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Xoá nhãn">
+                          <span className={styles.tooltipAnchor}>
+                            <Confirm
+                              title={`Bạn có chắc chắn muốn xoá nhãn "${tag.name}"?`}
+                              description="Nhãn bị gỡ khỏi mọi công việc và dự án đang gắn, không hoàn tác được."
+                              okText="Xoá"
+                              okType="danger"
+                              onConfirm={() => run(() => tags.remove(tag.id), 'Không xoá được nhãn.')}
+                            >
+                              <button
+                                type="button"
+                                className={styles.iconButton}
+                                aria-label={`Xoá nhãn ${tag.name}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </Confirm>
+                          </span>
+                        </Tooltip>
                       </span>
                     ) : null}
                   </td>

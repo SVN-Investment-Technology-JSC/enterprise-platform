@@ -59,6 +59,7 @@ import { BarList, DonutChart, TREND_SERIES, TrendChart, type TrendSeriesKey } fr
 import { ReportItemsDialog, type ReportDrill } from './report-items-dialog';
 import { ProjectFilterButton } from './project-filter-panel';
 import { useDirectory } from './use-directory';
+import { Tooltip } from './tooltip';
 
 /** Màu từng trạng thái trên biểu đồ vành khuyên: cùng sắc với huy hiệu trạng thái nhưng đậm, dễ phân biệt. */
 const STATUS_ORDER: readonly WorkItemStatus[] = ['todo', 'in_progress', 'blocked', 'review', 'done', 'cancelled'];
@@ -182,14 +183,16 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
   /** Một con số bấm được; bằng 0 thì chỉ là chữ. */
   const count = (value: number, onClick: () => void, danger = false) =>
     value > 0 ? (
-      <button
-        type="button"
-        className={danger ? styles.reportNumberDanger : styles.reportNumber}
-        title="Xem danh sách công việc"
-        onClick={onClick}
-      >
-        {value}
-      </button>
+      <Tooltip content="Xem danh sách công việc">
+        <button
+          type="button"
+          className={danger ? styles.reportNumberDanger : styles.reportNumber}
+          aria-label="Xem danh sách công việc"
+          onClick={onClick}
+        >
+          {value}
+        </button>
+      </Tooltip>
     ) : (
       <span className={styles.muted}>0</span>
     );
@@ -929,9 +932,11 @@ function Kpi({
   );
   const className = `${styles.kpiCard} ${danger && value ? styles.kpiCardDanger : ''}`;
   return onClick && value ? (
-    <button type="button" className={className} onClick={onClick} title="Xem danh sách công việc">
-      {body}
-    </button>
+    <Tooltip content="Xem danh sách công việc">
+      <button type="button" className={className} onClick={onClick}>
+        {body}
+      </button>
+    </Tooltip>
   ) : (
     <div className={className}>{body}</div>
   );
@@ -939,10 +944,12 @@ function Kpi({
 
 function MoneyStat({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
   return (
-    <div className={danger ? styles.statDanger : styles.stat} title={formatVnd(value)}>
-      <span className={styles.statValue}>{formatVndCompact(value)}</span>
-      <span className={styles.statLabel}>{label}</span>
-    </div>
+    <Tooltip content={formatVnd(value)}>
+      <div className={danger ? styles.statDanger : styles.stat}>
+        <span className={styles.statValue}>{formatVndCompact(value)}</span>
+        <span className={styles.statLabel}>{label}</span>
+      </div>
+    </Tooltip>
   );
 }
 

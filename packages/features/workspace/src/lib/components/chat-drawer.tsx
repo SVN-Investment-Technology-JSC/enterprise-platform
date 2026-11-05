@@ -3,7 +3,9 @@
 import {
   CHAT_EDIT_WINDOW_MINUTES,
   CHAT_UNREAD_POLL_MS,
+  MAX_CHAT_ATTACHMENTS,
   MAX_CHAT_BODY_LENGTH,
+  chatAttachmentIds,
   type ChatEntityType,
   type ChatMessage,
   type ChatReader,
@@ -60,10 +62,12 @@ import {
 import * as api from '../workspace-api';
 import { formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ChatAttachments, UNKNOWN_ATTACHMENT_NAME } from './chat-attachments';
 import { Choice } from './choice';
 import { UploadDialog } from './document-panel';
 import { useDirectory } from './use-directory';
 import { Confirm } from './confirm-box';
+import { Tooltip } from './tooltip';
 
 export interface ChatDrawerProps {
   readonly open: boolean;
@@ -146,7 +150,9 @@ export function ChatDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [attachmentId, setAttachmentId] = useState('');
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const addAttachments = (ids: readonly string[]) =>
+    setAttachmentIds((current) => [...new Set([...current, ...ids])].slice(0, MAX_CHAT_ATTACHMENTS));
   const [uploadOpen, setUploadOpen] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -496,7 +502,7 @@ export function ChatDrawer({
           body,
           parentId: replyTo?.id,
           mentions: extractMentions(body, members, handles),
-          attachmentDocumentId: attachmentId || undefined,
+          attachmentDocumentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         });
         // Server loại id lạ nhưng vẫn gửi tin; nói rõ ai đã bị bỏ để người
         // gửi không tưởng họ sẽ nhận được thông báo.
@@ -506,7 +512,7 @@ export function ChatDrawer({
           );
         }
         setReplyTo(undefined);
-        setAttachmentId('');
+        setAttachmentIds([]);
       }
       setDraft('');
       setMention(undefined);
@@ -594,6 +600,11 @@ export function ChatDrawer({
   if (!open) return null;
 
   const documentName = new Map(documents.map((entry) => [entry.id, entry.name]));
+  // `Bubble` là `memo`: truyền tên tệp dạng chuỗi (ngăn bằng xuống dòng) để so sánh giá trị, không phải mảng mới mỗi lần vẽ.
+  const attachmentNamesOf = (message: ChatMessage) =>
+    chatAttachmentIds(message)
+      .map((id) => documentName.get(id) ?? UNKNOWN_ATTACHMENT_NAME)
+      .join('\n');
   const { roots, repliesOf } = groupThread(shownMessages);
   const seenNames = seenByNewest(shownMessages, readers, currentUserId).map(directory.nameOf);
   const typingNames = activeTypers(typers, Date.now()).map(directory.nameOf);
@@ -613,11 +624,8 @@ export function ChatDrawer({
         <div>
           <h3>
             Trao đổi
-            <span
-              className={styles.liveState}
-              data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
-              role="status"
-              title={
+            <Tooltip
+              content={
                 live
                   ? 'Đang nhận tin mới theo thời gian thực.'
                   : live === undefined
@@ -625,9 +633,15 @@ export function ChatDrawer({
                     : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
               }
             >
-              <i aria-hidden />
-              {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}
-            </span>
+              <span
+                className={styles.liveState}
+                data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
+                role="status"
+              >
+                <i aria-hidden />
+                {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}
+              </span>
+            </Tooltip>
           </h3>
           <p>{title}</p>
         </div>
@@ -660,11 +674,7 @@ export function ChatDrawer({
               authorName={directory.nameOf(message.createdBy)}
               renderText={renderText}
               canWrite={canWrite}
-              attachmentName={
-                message.attachmentDocumentId
-                  ? documentName.get(message.attachmentDocumentId)
-                  : undefined
-              }
+              attachmentNames={attachmentNamesOf(message)}
               minute={minute}
               // Trả lời của trả lời bị chặn (tối đa hai cấp).
               onReply={message.parentId ? undefined : startReply}
@@ -679,11 +689,7 @@ export function ChatDrawer({
                   authorName={directory.nameOf(reply.createdBy)}
                   renderText={renderText}
                   canWrite={canWrite}
-                  attachmentName={
-                    reply.attachmentDocumentId
-                      ? documentName.get(reply.attachmentDocumentId)
-                      : undefined
-                  }
+                  attachmentNames={attachmentNamesOf(reply)}
                   minute={minute}
                   onEdit={startEdit}
                   onDelete={remove}
@@ -693,9 +699,9 @@ export function ChatDrawer({
           </div>
         ))}
         {seenNames.length > 0 ? (
-          <p className={styles.chatSeen} title={`Đã xem: ${seenNames.join(', ')}`}>
-            {seenLabel(seenNames)}
-          </p>
+          <Tooltip content={`Đã xem: ${seenNames.join(', ')}`}>
+            <p className={styles.chatSeen}>{seenLabel(seenNames)}</p>
+          </Tooltip>
         ) : null}
       </div>
 
@@ -758,13 +764,14 @@ export function ChatDrawer({
                 <Choice
                   label="Đính kèm tài liệu"
                   className={styles.chatAttachPicker}
-                  value={attachmentId}
-                  emptyOption="Không đính kèm tài liệu"
-                  options={documents.map((document) => ({
-                    value: document.id,
-                    label: document.name,
-                  }))}
-                  onChange={setAttachmentId}
+                  value=""
+                  emptyOption={attachmentIds.length > 0 ? 'Thêm tài liệu khác…' : 'Không đính kèm tài liệu'}
+                  options={documents
+                    .filter((document) => !attachmentIds.includes(document.id))
+                    .map((document) => ({ value: document.id, label: document.name }))}
+                  onChange={(value) => {
+                    if (value) addAttachments([value]);
+                  }}
                 />
               ) : (
                 <span className={styles.muted}>Dự án chưa có tài liệu nào.</span>
@@ -775,16 +782,34 @@ export function ChatDrawer({
                 tạo thư mục riêng cho dự án.
               */}
               {canWrite && canUpload ? (
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  aria-label="Tải tệp mới lên"
-                  title="Tải tệp mới lên và đính kèm"
-                  onClick={() => setUploadOpen(true)}
-                >
-                  <Paperclip size={15} />
-                </button>
+                <Tooltip content="Tải tệp mới lên và đính kèm">
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    aria-label="Tải tệp mới lên"
+                    onClick={() => setUploadOpen(true)}
+                  >
+                    <Paperclip size={15} />
+                  </button>
+                </Tooltip>
               ) : null}
+            </div>
+          ) : null}
+          {attachmentIds.length > 0 ? (
+            <div className={styles.chatAttachmentList}>
+              {attachmentIds.map((id) => (
+                <p key={id} className={styles.chatAttachment}>
+                  <Paperclip size={12} aria-hidden /> <span>{documentName.get(id) ?? UNKNOWN_ATTACHMENT_NAME}</span>
+                  <button
+                    type="button"
+                    className={styles.chatAttachmentRemove}
+                    aria-label={`Bỏ đính kèm ${documentName.get(id) ?? UNKNOWN_ATTACHMENT_NAME}`}
+                    onClick={() => setAttachmentIds((current) => current.filter((entry) => entry !== id))}
+                  >
+                    <X size={11} aria-hidden />
+                  </button>
+                </p>
+              ))}
             </div>
           ) : null}
 
@@ -875,9 +900,9 @@ export function ChatDrawer({
             : undefined
         }
         onClose={() => setUploadOpen(false)}
-        onDone={(documentId) => {
-          // Tệp vừa lên được chọn sẵn, người dùng chỉ việc gõ nội dung và gửi.
-          if (documentId) setAttachmentId(documentId);
+        onDone={(documentIds) => {
+          // Các tệp vừa lên được chọn sẵn, người dùng chỉ việc gõ nội dung và gửi.
+          addAttachments(documentIds);
           onDocumentUploaded?.();
         }}
       />
@@ -892,7 +917,7 @@ function BubbleImpl({
   authorName,
   renderText,
   canWrite,
-  attachmentName,
+  attachmentNames,
   onReply,
   onEdit,
   onDelete,
@@ -902,7 +927,8 @@ function BubbleImpl({
   authorName: string;
   renderText: (text: string) => ReactNode;
   canWrite: boolean;
-  attachmentName?: string;
+  /** Tên các tệp đính kèm, ngăn nhau bằng xuống dòng; rỗng là không có. */
+  attachmentNames: string;
   /** Chỉ để so sánh `memo`: đổi mỗi phút để vẽ lại nút "Sửa" khi hết hạn. */
   minute: number;
   onReply?: (message: ChatMessage) => void;
@@ -930,11 +956,7 @@ function BubbleImpl({
         {message.isEdited ? <em>đã sửa</em> : null}
       </p>
       <p className={styles.chatBody}>{renderText(message.body)}</p>
-      {message.attachmentDocumentId ? (
-        <p className={styles.chatAttachment}>
-          <Paperclip size={12} /> {attachmentName ?? 'Tài liệu đính kèm'}
-        </p>
-      ) : null}
+      <ChatAttachments names={attachmentNames ? attachmentNames.split('\n') : []} />
       {canWrite ? (
         <p className={styles.chatActions}>
           {onReply ? (

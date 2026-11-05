@@ -354,6 +354,32 @@ export function WorkspaceScreen() {
   /** Tenant bật Bán hàng: màn khách hàng chỉ đọc (D1); server cũng chặn ghi. */
   const customersManagedByCrm = Boolean(status?.capabilities?.customersManagedByCrm);
 
+  /** Đang mở một dự án cụ thể (ở mục Dự án hoặc Khách hàng): công tắc khu vực nằm trong thẻ dự án thay vì hàng tiêu đề riêng. */
+  const inOpenProject = (view === 'projects' || view === 'customers') && Boolean(urlProjectId);
+  /** Công tắc "Dự án | Khách hàng" của khu vực Dự án (dùng ở hàng tiêu đề hoặc trong thẻ dự án). */
+  const areaSwitch = (
+    <div className={styles.segmented} role="tablist" aria-label="Khu vực Dự án">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'projects'}
+        className={view === 'projects' ? styles.segmentActive : styles.segment}
+        onClick={() => navigate('projects')}
+      >
+        Dự án
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'customers'}
+        className={view === 'customers' ? styles.segmentActive : styles.segment}
+        onClick={() => navigate('customers')}
+      >
+        Khách hàng
+      </button>
+    </div>
+  );
+
   return (
     <ModuleShell<Tab>
       moduleKey="workspace"
@@ -376,10 +402,12 @@ export function WorkspaceScreen() {
         onOpen: () => navigate('settings'),
       }}
       crumbs={
-        view === 'projects' && urlProjectId && openProjectInfo ? [openProjectInfo.name] : undefined
+        (view === 'projects' || view === 'customers') && urlProjectId && openProjectInfo
+          ? [openProjectInfo.name]
+          : undefined
       }
       actions={
-        view === 'projects' && !provisioning ? (
+        (view === 'projects' || (view === 'customers' && urlProjectId)) && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
           <div ref={setActionsSlot} className={styles.headActions} />
         ) : view === 'tasks' && !provisioning ? (
@@ -446,52 +474,44 @@ export function WorkspaceScreen() {
         <>
           {/* Dải hai tab ở đầu khu vực Dự án: "Dự án" giữ nguyên hành vi cũ,
               "Khách hàng" mở danh mục khách hàng và hợp đồng. */}
-          {/* Đầu khu vực Dự án: tiêu đề, hai tab "Dự án" / "Khách hàng", và chỗ trang danh sách đặt nút thao tác. */}
-          <div className={styles.pageHead}>
-            <h1 className={styles.pageTitle}>{view === 'projects' ? 'Dự án' : 'Khách hàng'}</h1>
-            <div className={styles.segmented} role="tablist" aria-label="Khu vực Dự án">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'projects'}
-                className={view === 'projects' ? styles.segmentActive : styles.segment}
-                onClick={() => navigate('projects')}
-              >
-                Dự án
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'customers'}
-                className={view === 'customers' ? styles.segmentActive : styles.segment}
-                onClick={() => navigate('customers')}
-              >
-                Khách hàng
-              </button>
+          {/* Đầu khu vực Dự án: tiêu đề, hai tab "Dự án" / "Khách hàng", và chỗ trang danh sách đặt nút thao tác.
+              Khi đang mở một dự án thì hàng này nhập vào thẻ dự án (công tắc nằm ở góc thẻ), khỏi tốn thêm một hàng. */}
+          {inOpenProject ? null : (
+            <div className={`${styles.pageHead} ${styles.pageHeadSpaced}`}>
+              {/* Tiêu đề và công tắc khu vực gộp thành một thẻ nhỏ có bóng. */}
+              <div className={styles.pageHeadCard}>
+                <h1 className={styles.pageTitle}>{view === 'projects' ? 'Dự án' : 'Khách hàng'}</h1>
+                {areaSwitch}
+              </div>
+              <div ref={setListActionsSlot} className={styles.pageHeadEnd} />
             </div>
-            <div ref={setListActionsSlot} className={styles.pageHeadEnd} />
-          </div>
-          {view === 'projects' ? (
-            urlProjectId ? (
-              <ProjectsView
-                canDelete={canDelete}
-                notificationTarget={sub}
-                onOpenProjectChange={onOpenProjectChange}
-                onOpenProject={openProject}
-                actionsSlot={actionsSlot}
-              />
-            ) : (
-              <ProjectsListView onOpenProject={openProject} actionsSlot={listActionsSlot} />
-            )
-          ) : urlProjectId ? (
-            // Trong một dự án: tab Khách hàng chỉ hiện khách hàng của dự án đó.
-            <CustomersView
-              scoped
-              scopeCustomerId={openProjectInfo?.customerId}
-              scopeProjectId={urlProjectId}
+          )}
+          {urlProjectId ? (
+            // Trong một dự án, mục Dự án và mục Khách hàng dùng CHUNG một ProjectsView (không dựng lại khi đổi mục), nên thẻ
+            // dự án đứng yên và đổi mục không giật bố cục. Mục Khách hàng chỉ hiện khách hàng của dự án đó.
+            <ProjectsView
+              viewSwitch={areaSwitch}
+              area={view === 'customers' ? 'customers' : 'projects'}
+              areaContent={
+                view === 'customers' ? (
+                  <CustomersView
+                    scoped
+                    scopeCustomerId={openProjectInfo?.customerId}
+                    scopeProjectId={urlProjectId}
+                    onOpenProject={openProject}
+                    customersReadOnly={customersManagedByCrm}
+                  />
+                ) : undefined
+              }
+              canDelete={canDelete}
+              canWriteDocuments={canSeeDocuments}
+              notificationTarget={sub}
+              onOpenProjectChange={onOpenProjectChange}
               onOpenProject={openProject}
-              customersReadOnly={customersManagedByCrm}
+              actionsSlot={actionsSlot}
             />
+          ) : view === 'projects' ? (
+            <ProjectsListView onOpenProject={openProject} actionsSlot={listActionsSlot} />
           ) : (
             <CustomersView onOpenProject={openProject} customersReadOnly={customersManagedByCrm} />
           )}

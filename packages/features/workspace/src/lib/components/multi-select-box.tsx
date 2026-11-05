@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /** Một lựa chọn đã chọn, hiện thành chip trong ô. */
 export interface MultiSelectChip {
@@ -34,6 +35,11 @@ export interface MultiSelectBoxProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly disabled?: boolean;
+  /**
+   * Chỗ (px) chừa cho ô gõ bên phải các chip; chip chiếm phần còn lại rồi mới gộp "+n". Mặc định 110 đủ cho ô gõ có
+   * gợi ý dài; bộ lọc chỉ cần "Thêm…" nên chừa ít hơn để hiện được nhiều chip hơn.
+   */
+  readonly inputReserve?: number;
   /** Nội dung danh sách xổ ra. Danh sách nổi lên trên form, không đẩy các ô bên dưới. */
   readonly children: ReactNode;
 }
@@ -58,6 +64,7 @@ export function MultiSelectBox({
   open,
   onOpenChange,
   disabled = false,
+  inputReserve,
   children,
 }: MultiSelectBoxProps) {
   const box = useRef<HTMLDivElement>(null);
@@ -165,27 +172,27 @@ export function MultiSelectBox({
       ? { borderColor: chip.color, color: chip.color, background: 'var(--ep-surface)' }
       : undefined;
     return (
-      <li
-        key={chip.id}
-        className={`${styles.multiChip} ${chip.dashed ? styles.multiChipOutside : ''} ${full ? styles.multiChipFull : ''}`}
-        style={style}
-        title={chip.title ?? chip.label}
-      >
-        <span className={styles.multiChipName}>{chip.label}</span>
-        {removable ? (
-          <button
-            type="button"
-            aria-label={`Bỏ ${chip.label}`}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onRemove(chip.id);
-            }}
-          >
-            <X size={11} />
-          </button>
-        ) : null}
-      </li>
+      <Tooltip key={chip.id} content={chip.title ?? chip.label}>
+        <li
+          className={`${styles.multiChip} ${chip.dashed ? styles.multiChipOutside : ''} ${full ? styles.multiChipFull : ''}`}
+          style={style}
+        >
+          <span className={styles.multiChipName}>{chip.label}</span>
+          {removable ? (
+            <button
+              type="button"
+              aria-label={`Bỏ ${chip.label}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemove(chip.id);
+              }}
+            >
+              <X size={11} />
+            </button>
+          ) : null}
+        </li>
+      </Tooltip>
     );
   };
 
@@ -204,18 +211,21 @@ export function MultiSelectBox({
         }}
       >
         {chips.length > 0 ? (
-          <ul ref={chipsRef} className={styles.multiChips}>
+          <ul
+            ref={chipsRef}
+            className={styles.multiChips}
+            style={inputReserve === undefined ? undefined : { maxWidth: `calc(100% - ${inputReserve}px)` }}
+          >
             {shown.map((chip) => chipView(chip, true))}
             {hidden > 0 ? (
-              <li
-                className={styles.multiMore}
-                title={chips
+              <Tooltip
+                content={chips
                   .slice(shown.length)
                   .map((chip) => chip.label)
                   .join(', ')}
               >
-                +{hidden}
-              </li>
+                <li className={styles.multiMore}>+{hidden}</li>
+              </Tooltip>
             ) : null}
           </ul>
         ) : null}

@@ -20,6 +20,9 @@ import type {
   ProjectChatFeedPage,
   ProjectChatFeedQuery,
   ProjectChatThread,
+  ChatTimelineFilter,
+  ProjectChatTimeline,
+  ReplyChatMessageRequest,
   CompleteUploadRequest,
   Contract,
   CostEntry,
@@ -59,6 +62,11 @@ import type {
   ExternalReferenceList,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  MyWorkFilter,
+  MyWorkItemsPage,
+  MyWorkOverview,
+  MyWorkSortKey,
+  MyWorkStandalonePage,
   MyWorkSummary,
   Paged,
   Project,
@@ -511,6 +519,33 @@ export const loadProjectChatThread = (projectId: string, workItemId: string, bef
     { cache: 'no-store' },
   );
 
+/**
+ * Tin của mọi công việc trong dự án xếp chung theo giờ, chỉ để đọc: không đánh dấu đã đọc. Không có `before`
+ * thì là các tin mới nhất; có `before` (id tin cũ nhất đang có) thì là trang liền trước nó.
+ */
+export const loadProjectChatTimeline = (projectId: string, before?: string, filter: ChatTimelineFilter = {}) => {
+  const params = new URLSearchParams();
+  if (before) params.set('before', before);
+  if (filter.q) params.set('q', filter.q);
+  if (filter.authors?.length) params.set('authors', filter.authors.join(','));
+  if (filter.nodes?.length) params.set('nodes', filter.nodes.join(','));
+  if (filter.mentionsMe) params.set('mentionsMe', '1');
+  if (filter.hasAttachment) params.set('hasAttachment', '1');
+  if (filter.from) params.set('from', filter.from);
+  if (filter.to) params.set('to', filter.to);
+  const query = params.toString();
+  return request<ProjectChatTimeline>(`/projects/${projectId}/chat-timeline${query ? `?${query}` : ''}`, {
+    cache: 'no-store',
+  });
+};
+
+/** Trả lời một tin; câu trả lời nằm trong kênh của chính tin đó. */
+export const replyChatMessage = (messageId: string, body: ReplyChatMessageRequest) =>
+  request<SendChatMessageResponse>(`/chat/messages/${messageId}/reply`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 /** Số tin chưa đọc của cả cây, một lời gọi cho mọi node. */
 export const loadUnread = (projectId: string) =>
   request<UnreadSummary>(`/projects/${projectId}/unread`, { cache: 'no-store' });
@@ -682,6 +717,42 @@ export async function uploadToStorage(
  * Truyền `userId` lên cũng vô nghĩa vì không endpoint nào đọc tới nó.
  */
 export const loadMyWork = () => request<MyWorkSummary>('/my-work', { cache: 'no-store' });
+
+/** Bộ lọc và cách xếp thành chuỗi truy vấn; giá trị rỗng thì bỏ qua. */
+const myWorkParams = (filter: Pick<MyWorkFilter, 'status' | 'priority'>, sort: MyWorkSortKey) => {
+  const params = new URLSearchParams();
+  if (filter.status) params.set('status', filter.status);
+  if (filter.priority) params.set('priority', filter.priority);
+  params.set('sort', sort);
+  return params;
+};
+
+/** "Công việc của tôi" theo trang: số liệu, nhóm dự án (chỉ số tổng hợp), nhắc tên, thẻ module khác. */
+export const loadMyWorkOverview = (filter: MyWorkFilter, sort: MyWorkSortKey) => {
+  const params = myWorkParams(filter, sort);
+  if (filter.projectId) params.set('projectId', filter.projectId);
+  return request<MyWorkOverview>(`/my-work/overview?${params}`, { cache: 'no-store' });
+};
+
+/** Một trang dòng việc của MỘT dự án (page tính từ 1). */
+export const loadMyWorkGroupItems = (
+  projectId: string,
+  filter: Pick<MyWorkFilter, 'status' | 'priority'>,
+  sort: MyWorkSortKey,
+  page: number,
+  pageSize: number,
+) => {
+  const params = myWorkParams(filter, sort);
+  params.set('page', String(page));
+  params.set('pageSize', String(pageSize));
+  return request<MyWorkItemsPage>(`/my-work/projects/${projectId}/items?${params}`, { cache: 'no-store' });
+};
+
+/** Một trang việc ngoài dự án của tôi. */
+export const loadMyWorkStandalonePage = (sort: MyWorkSortKey, page: number, pageSize: number) => {
+  const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
+  return request<MyWorkStandalonePage>(`/my-work/standalone?${params}`, { cache: 'no-store' });
+};
 
 /* Công việc ngoài dự án */
 

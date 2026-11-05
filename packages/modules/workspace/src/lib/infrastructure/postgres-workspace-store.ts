@@ -11,6 +11,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ProjectChatFeedPage,
+  ProjectChatTimeline,
   ProjectChatFeedQuery,
   ChatMessage,
   ChatReader,
@@ -89,6 +90,7 @@ import type {
 import {
   CLOSED_WORK_ITEM_STATUSES,
   formatProjectCode,
+  CHAT_TIMELINE_PROJECT_NODE,
   nextProjectCodeNumber,
   STANDALONE_TASK_SYSTEM_ACTOR_ID,
   WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED,
@@ -145,6 +147,7 @@ import type {
   StandaloneTaskWriteModel,
   UnreadRow,
   WorkItemDeletionLog,
+  ProjectTimelineQuery,
   WorkItemProgressRow,
   WorkspaceSchemaStatus,
   WorkspaceStore,
@@ -301,7 +304,7 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
        reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at,
-       manual_progress_percent, reopen_policy`;
+       manual_progress_percent, reopen_policy, blocked_reason`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -355,6 +358,8 @@ function mapWorkItem(row: Row): WorkItem {
       : undefined,
     adjustmentOfId: opt(row.adjustment_of_id),
     reopenPolicy: (opt(row.reopen_policy) as WorkItem['reopenPolicy']) ?? 'assignee',
+    // Lý do chỉ có nghĩa khi đang vướng mắc: bản app cũ đổi trạng thái mà không xoá cột, nên không tin cột khi trạng thái đã khác.
+    blockedReason: row.status === 'blocked' ? opt(row.blocked_reason) : undefined,
   };
 }
 
@@ -583,7 +588,7 @@ function mapChannel(row: Row): ChatChannel {
   };
 }
 
-const MESSAGE_COLUMNS = `id, channel_id, parent_id, body, mentions, attachment_document_id,
+const MESSAGE_COLUMNS = `id, channel_id, parent_id, body, mentions, attachment_document_id, attachment_document_ids,
        is_edited, is_deleted, created_by, created_at, updated_at`;
 
 function mapMessage(row: Row): ChatMessage {
@@ -595,6 +600,13 @@ function mapMessage(row: Row): ChatMessage {
     // `uuid[]` của Postgres về client thành mảng JS; phòng trường hợp NULL.
     mentions: Array.isArray(row.mentions) ? row.mentions.map(String) : [],
     attachmentDocumentId: opt(row.attachment_document_id),
+    // Tin cũ chưa chép sang mảng (hoặc cột mới NULL) thì dùng cột cũ.
+    attachmentDocumentIds:
+      Array.isArray(row.attachment_document_ids) && row.attachment_document_ids.length > 0
+        ? row.attachment_document_ids.map(String)
+        : row.attachment_document_id == null
+          ? []
+          : [str(row.attachment_document_id)],
     isEdited: Boolean(row.is_edited),
     isDeleted: Boolean(row.is_deleted),
     createdBy: str(row.created_by),
@@ -1615,10 +1627,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
                   manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
                                                  ELSE manual_progress_percent END,
+                  -- Lý do vướng mắc chỉ sống cùng trạng thái Vướng mắc: vào thì ghi, rời đi thì xoá.
+                  blocked_reason = CASE WHEN $2::varchar = 'blocked' THEN $5::text ELSE NULL END,
                   updated_at = now()
             WHERE id = $1
             RETURNING ${WORK_ITEM_COLUMNS}`,
-          [workItemId, next, today, str(current.status)],
+          [workItemId, next, today, str(current.status), next === 'blocked' ? (note ?? null) : null],
         );
         const item = mapWorkItem(updated.rows[0] as Row);
 
@@ -1666,6 +1680,21 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+    updateBlockedReason: async (tenantId: string, workItemId: string, reason: string) => {
+      const pool = await this.poolFor(tenantId);
+      // Chỉ ghi khi việc VẪN đang Vướng mắc: có người vừa chuyển trạng thái khác thì không đè lý do lên việc đã gỡ.
+      const updated = await pool.query<Row>(
+        `UPDATE workspace_schema.work_items
+            SET blocked_reason = $2::text, updated_at = now()
+          WHERE id = $1 AND status = 'blocked'
+          RETURNING ${WORK_ITEM_COLUMNS}`,
+        [workItemId, reason],
+      );
+      const row = updated.rows[0];
+      if (!row) return undefined;
+      return (await withExtras(pool, [mapWorkItem(row)]))[0] as WorkItem;
+    },
+
     reverse: async (
       tenantId: string,
       workItemId: string,
@@ -1703,6 +1732,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   reversed_by_name = $4,
                   reversal_reason = $5,
                   adjustment_requested = $6,
+                  blocked_reason = NULL,
                   updated_at = now()
             WHERE id = $1
             RETURNING ${WORK_ITEM_COLUMNS}`,
@@ -3104,6 +3134,79 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       };
     },
 
+    listProjectTimeline: async (
+      tenantId: string,
+      projectId: string,
+      limit: number,
+      beforeMessageId?: string,
+      filter: ProjectTimelineQuery = {},
+    ): Promise<ProjectChatTimeline> => {
+      const pool = await this.poolFor(tenantId);
+      // Bộ lọc cộng dồn (VÀ), mỗi giá trị đi qua tham số SQL. Mốc `before` độc lập với bộ lọc: nó chỉ là vị trí
+      // (created_at, id) trong dòng thời gian, nên phân trang vẫn đúng dù tin mốc không khớp bộ lọc.
+      const values: unknown[] = [projectId, limit + 1, beforeMessageId ?? null];
+      const conditions: string[] = [];
+      const bind = (value: unknown) => `$${values.push(value)}`;
+      if (filter.q) conditions.push(`m.body ILIKE ${bind(`%${escapeLike(filter.q)}%`)}`);
+      if (filter.authors?.length) conditions.push(`m.created_by = ANY(${bind(filter.authors)}::uuid[])`);
+      if (filter.nodes?.length) {
+        // Chọn nhiều node: chat chung (`project`) và/hoặc các công việc, khớp một trong số đó.
+        const workIds = filter.nodes.filter((node) => node !== CHAT_TIMELINE_PROJECT_NODE);
+        const parts: string[] = [];
+        if (workIds.length < filter.nodes.length) parts.push(`c.entity_type = 'project'`);
+        if (workIds.length > 0) {
+          parts.push(`(c.entity_type = 'work_item' AND c.entity_id = ANY(${bind(workIds)}::uuid[]))`);
+        }
+        conditions.push(`(${parts.join(' OR ')})`);
+      }
+      if (filter.mentionUserId) conditions.push(`${bind(filter.mentionUserId)}::uuid = ANY(m.mentions)`);
+      if (filter.hasAttachment) conditions.push('m.attachment_document_id IS NOT NULL');
+      if (filter.from) conditions.push(`m.created_at >= ${bind(filter.from)}::timestamptz`);
+      if (filter.to) conditions.push(`m.created_at < ${bind(filter.to)}::timestamptz`);
+      const extra = conditions.map((condition) => `AND ${condition}`).join('\n            ');
+      // Mọi kênh đều lưu `project_id`, nên một lượt nối kênh → tin là đủ, không cần đệ quy theo cây công việc.
+      // Mốc phân trang là cặp (created_at, id) của tin `before` (cùng dự án), như `listMessages`. Lấy dư một dòng
+      // để biết còn trang cũ hơn; tin gốc của câu trả lời lấy cùng lượt để dựng dòng trích.
+      const result = await pool.query<Row>(
+        `SELECT m.id, m.channel_id, m.parent_id, m.body, m.mentions, m.attachment_document_id,
+                m.attachment_document_ids, m.is_edited, m.is_deleted, m.created_by, m.created_at, m.updated_at,
+                c.entity_type, c.entity_id,
+                p.created_by AS parent_by, p.body AS parent_body, p.is_deleted AS parent_deleted
+           FROM workspace_schema.chat_messages m
+           JOIN workspace_schema.chat_channels c ON c.id = m.channel_id
+           LEFT JOIN workspace_schema.chat_messages p ON p.id = m.parent_id
+          WHERE c.project_id = $1
+            AND m.is_deleted = false
+            AND ($3::uuid IS NULL OR (m.created_at, m.id) < (
+                  SELECT bm.created_at, bm.id
+                    FROM workspace_schema.chat_messages bm
+                    JOIN workspace_schema.chat_channels bc ON bc.id = bm.channel_id
+                   WHERE bm.id = $3 AND bc.project_id = $1))
+            ${extra}
+          ORDER BY m.created_at DESC, m.id DESC
+          LIMIT $2`,
+        values,
+      );
+      const hasMore = result.rows.length > limit;
+      const items = result.rows
+        .slice(0, limit)
+        .map((row) => ({
+          message: mapMessage(row),
+          entityType: str(row.entity_type) as ChatEntityType,
+          entityId: str(row.entity_id),
+          parent: row.parent_id == null
+            ? undefined
+            : {
+                id: str(row.parent_id),
+                createdBy: str(row.parent_by),
+                body: row.parent_deleted ? '' : str(row.parent_body).slice(0, 160),
+                isDeleted: Boolean(row.parent_deleted),
+              },
+        }))
+        .reverse();
+      return { items, hasMore };
+    },
+
     findMessage: async (tenantId: string, messageId: string) => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
@@ -3123,21 +3226,25 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         body: string;
         mentions: readonly string[];
         attachmentDocumentId?: string | null;
+        attachmentDocumentIds?: readonly string[];
       },
     ) => {
       const pool = await this.poolFor(tenantId);
+      // Cột cũ luôn là tài liệu đầu tiên: bản app cũ và bộ lọc "có đính kèm" vẫn đúng.
+      const attachmentIds = input.attachmentDocumentIds ?? (input.attachmentDocumentId ? [input.attachmentDocumentId] : []);
       return inTransaction(pool, async (client) => {
         const created = await client.query<Row>(
           `INSERT INTO workspace_schema.chat_messages
-             (channel_id, parent_id, body, mentions, attachment_document_id, created_by)
-           VALUES ($1, $2, $3, $4::uuid[], $5, $6)
+             (channel_id, parent_id, body, mentions, attachment_document_id, attachment_document_ids, created_by)
+           VALUES ($1, $2, $3, $4::uuid[], $5, $6::uuid[], $7)
            RETURNING ${MESSAGE_COLUMNS}`,
           [
             input.channelId,
             input.parentId ?? null,
             input.body,
             input.mentions,
-            input.attachmentDocumentId ?? null,
+            attachmentIds[0] ?? null,
+            attachmentIds,
             actorUserId,
           ],
         );
@@ -4934,6 +5041,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+    updateBlockedReason: async (tenantId: string, taskId: string, reason: string) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const updated = await client.query(
+          `UPDATE workspace_schema.standalone_tasks
+              SET blocked_reason = $2::text, updated_at = now()
+            WHERE id = $1 AND status = 'blocked'`,
+          [taskId, reason],
+        );
+        if (updated.rowCount === 0) return undefined;
+        return readStandaloneTask(client, taskId);
+      });
+    },
+
     remove: async (tenantId: string, taskId: string) => {
       const pool = await this.poolFor(tenantId);
       await inTransaction(pool, async (client) => {
@@ -5013,7 +5134,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               SET status = 'cancelled',
                   actual_end = COALESCE(actual_end, $2::date),
                   reversed_at = now(), reversed_by = $3, reversed_by_name = $4,
-                  reversal_reason = $5, adjustment_requested = $6,
+                  reversal_reason = $5, adjustment_requested = $6, blocked_reason = NULL,
                   status_changed_at = now(), updated_at = now()
             WHERE id = $1`,
           [
@@ -5898,7 +6019,7 @@ const STANDALONE_TASK_SELECT = `t.id, t.code, t.title, t.description, t.status, 
        t.status_changed_at, t.execution_type, t.procedure_definition_id, t.procedure_status,
        t.procedure_instance_id, t.procedure_instance_code, t.procedure_error,
        t.reversed_at, t.reversed_by, t.reversed_by_name, t.reversal_reason,
-       t.adjustment_requested, t.adjustment_of_id,
+       t.adjustment_requested, t.adjustment_of_id, t.blocked_reason,
        ARRAY(SELECT m.user_id::text FROM workspace_schema.standalone_task_members m
               WHERE m.task_id = t.id AND m.role = 'participant' ORDER BY m.created_at) AS participant_ids,
        ARRAY(SELECT m.user_id::text FROM workspace_schema.standalone_task_members m
@@ -5942,6 +6063,8 @@ function mapStandaloneTask(row: Row): StandaloneTask {
         }
       : undefined,
     adjustmentOfId: opt(row.adjustment_of_id),
+    // Lý do chỉ có nghĩa khi đang vướng mắc: bản app cũ đổi trạng thái mà không xoá cột, nên không tin cột khi trạng thái đã khác.
+    blockedReason: row.status === 'blocked' ? opt(row.blocked_reason) : undefined,
     assigneeUserId: str(row.assignee_user_id),
     participantUserIds: ((row.participant_ids as unknown[] | null) ?? []).map(str),
     followerUserIds: ((row.follower_ids as unknown[] | null) ?? []).map(str),
@@ -6008,11 +6131,13 @@ async function setStandaloneStatus(
             -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
             manual_progress_percent = CASE WHEN $3::varchar = 'done' THEN NULL
                                            ELSE manual_progress_percent END,
+            -- Lý do vướng mắc chỉ sống cùng trạng thái Vướng mắc: vào thì ghi, rời đi thì xoá.
+            blocked_reason = CASE WHEN $3::varchar = 'blocked' THEN $5::text ELSE NULL END,
             status_changed_at = now(),
             updated_at = now()
       WHERE id = $1 AND status = $2::varchar
       RETURNING parent_id`,
-    [taskId, from, next, today],
+    [taskId, from, next, today, next === 'blocked' ? (note ?? null) : null],
   ));
   if (updated.rowCount === 0) return undefined;
   await client.query(

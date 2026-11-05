@@ -2,8 +2,8 @@
 
 import type { ProjectFinance, UpdateProjectFinanceRequest } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
-import { ExternalLink, Pencil } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ExternalLink, ListFilter, Pencil } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPercent, formatVnd, formatVndCompact, parseVndInput, toVndInput } from '../money';
 import {
   NO_VOUCHER_FILTER,
@@ -26,6 +26,8 @@ import { WORK_ITEM_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
+import { useFillViewportHeight } from './use-fill-viewport';
+import { Tooltip } from './tooltip';
 
 export interface TabFinanceProps {
   readonly projectId: string;
@@ -56,6 +58,20 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const [editing, setEditing] = useState(false);
   const [result, setResult] = useState<ProjectVoucherResult>();
   const [filter, setFilter] = useState<ProjectVoucherFilter>(NO_VOUCHER_FILTER);
+  const [view, setView] = useState<'items' | 'vouchers'>('items');
+  const ledger = useRef<HTMLDivElement>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelBox = useRef<HTMLDivElement>(null);
+
+  // Bấm ra ngoài bảng lọc thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
+  useEffect(() => {
+    if (!panelOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!panelBox.current?.contains(event.target as Node)) setPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [panelOpen]);
 
   // Payload chi tiết dự án đổi (tải lại, chuyển dự án) thì lấy số mới.
   useEffect(() => setFinance(initial), [initial]);
@@ -87,50 +103,95 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const itemRows = useMemo(() => (data ? buildWorkItemMoneyRows(finance.items, data) : []), [data, finance.items]);
   const visibleVouchers = useMemo(() => (data ? filterProjectVouchers(data.items, filter) : []), [data, filter]);
   const filtering = filter.kind !== 'all' || filter.link !== 'all' || filter.status !== 'all';
+  const facets = [filter.kind, filter.link, filter.status].filter((value) => value !== 'all').length;
+  // Sổ chi tiết chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm.
+  useFillViewportHeight(ledger, undefined, `${view}:${data ? 'ok' : 'wait'}`);
+  const contractPositive = contract != null && contract > 0;
+  const percentOfContract = (amount: number) =>
+    contractPositive ? formatPercent((amount / (contract as number)) * 100) : undefined;
+  const collected = contractPositive ? Math.min(100, Math.max(0, (received / (contract as number)) * 100)) : 0;
+
+  const pendingText = (receive: number, pay: number) =>
+    receive || pay ? `${formatVnd(receive)} / ${formatVnd(pay)}` : '—';
 
   return (
     <div className={styles.tabBody}>
-      <div className={styles.statRow}>
-        <MoneyStat label="Giá trị hợp đồng" value={contract} />
-        {data ? (
-          <>
-            <MoneyStat label="Đã thu" value={data.totals.received} hint={`${data.totals.receiptCount} phiếu thu hạch toán cho dự án`} />
-            <MoneyStat label="Đã chi (chi phí thực tế)" value={data.totals.paid} hint={`${data.totals.paymentCount} phiếu chi hạch toán cho dự án`} />
-            <MoneyStat
-              label={margin == null ? 'Lợi nhuận' : `Lợi nhuận (${formatPercent(margin)})`}
-              value={profit}
-              danger={profit != null && profit < 0}
-              hint="Đã thu trừ đã chi, tính trên phiếu đã ghi sổ; biên lợi nhuận tính trên đã thu"
-            />
-          </>
-        ) : null}
-      </div>
-
-      <section className={styles.panel}>
-        <h3 className={styles.panelHeadRow}>
-          Số liệu dự án
-          <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
-            <Pencil size={13} /> Sửa hợp đồng
-          </button>
-        </h3>
-        <dl className={styles.definitionList}>
-          <dt>Giá trị hợp đồng</dt>
-          <dd>{formatVnd(contract)}</dd>
+      <section className={styles.finSummary} aria-label="Tổng quan tài chính dự án">
+        <div className={styles.finKpis}>
+          <Tooltip content={formatVnd(contract)}>
+            <div className={styles.finKpi}>
+              <span className={styles.finKpiLabel}>Giá trị hợp đồng</span>
+              <span className={styles.finKpiValue}>{formatVndCompact(contract)}</span>
+              <span className={styles.finKpiSub}>{contract == null ? 'Chưa nhập hợp đồng' : formatVnd(contract)}</span>
+              <button type="button" className={styles.finKpiEdit} onClick={() => setEditing(true)}>
+                <Pencil size={12} aria-hidden /> Sửa
+              </button>
+            </div>
+          </Tooltip>
           {data ? (
             <>
-              <dt>Đã thu</dt>
-              <dd>{formatVnd(received)}</dd>
-              <dt>Đã chi</dt>
-              <dd>{formatVnd(paid)}</dd>
-              <dt>Chờ duyệt</dt>
-              <dd>
-                thu {formatVnd(data.totals.pendingReceived)} · chi {formatVnd(data.totals.pendingPaid)}
-              </dd>
+              <Tooltip content={`${data.totals.receiptCount} phiếu thu hạch toán cho dự án`}>
+                <div className={styles.finKpi}>
+                  <span className={styles.finKpiLabel}>Đã thu</span>
+                  <span className={styles.finKpiValue}>{formatVndCompact(data.totals.received)}</span>
+                  <span className={styles.finKpiSub}>
+                    {percentOfContract(data.totals.received)
+                      ? `${percentOfContract(data.totals.received)} giá trị hợp đồng`
+                      : `${data.totals.receiptCount} phiếu thu`}
+                  </span>
+                </div>
+              </Tooltip>
+              <Tooltip content={`${data.totals.paymentCount} phiếu chi hạch toán cho dự án`}>
+                <div className={styles.finKpi}>
+                  <span className={styles.finKpiLabel}>Đã chi (chi phí thực tế)</span>
+                  <span className={styles.finKpiValue}>{formatVndCompact(data.totals.paid)}</span>
+                  <span className={styles.finKpiSub}>
+                    {percentOfContract(data.totals.paid)
+                      ? `${percentOfContract(data.totals.paid)} giá trị hợp đồng`
+                      : `${data.totals.paymentCount} phiếu chi`}
+                  </span>
+                </div>
+              </Tooltip>
+              <Tooltip content="Đã thu trừ đã chi, tính trên phiếu đã ghi sổ; biên lợi nhuận tính trên đã thu">
+                <div
+                  className={styles.finKpi}
+                >
+                  <span className={styles.finKpiLabel}>Lợi nhuận</span>
+                  <span
+                    className={`${styles.finKpiValue} ${profit != null && profit < 0 ? styles.finNegative : profit ? styles.finPositive : ''}`}
+                  >
+                    {formatVndCompact(profit)}
+                  </span>
+                  <span className={styles.finKpiSub}>{margin == null ? 'Chưa có doanh thu' : `Biên ${formatPercent(margin)} trên đã thu`}</span>
+                </div>
+              </Tooltip>
             </>
           ) : null}
-        </dl>
+        </div>
+        {data ? (
+          <div className={styles.finFoot}>
+            {contractPositive ? (
+              <Tooltip content={`Đã thu ${formatVnd(received)} / ${formatVnd(contract)}`}>
+                <div className={styles.finCollect}>
+                  <span className={styles.finFootLabel}>Tiến độ thu tiền</span>
+                  <span className={styles.finTrack} role="img" aria-label={`Đã thu ${formatPercent(collected)} giá trị hợp đồng`}>
+                    <span className={styles.finFill} style={{ width: `${collected}%` }} />
+                  </span>
+                  <b>{formatPercent(collected)}</b>
+                </div>
+              </Tooltip>
+            ) : (
+              <span className={styles.finFootLabel}>Nhập giá trị hợp đồng để theo dõi tiến độ thu tiền.</span>
+            )}
+            <Tooltip content="Phiếu chờ duyệt chưa ghi sổ nên chưa tính vào số liệu trên">
+              <span className={styles.finPending}>
+                Chờ duyệt: thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
+              </span>
+            </Tooltip>
+          </div>
+        ) : null}
         {finance.actualCost > 0 ? (
-          <p className={styles.muted}>
+          <p className={styles.finLegacy}>
             Dự án còn {formatVnd(finance.actualCost)} chi phí ghi tay theo cách cũ ở Workspace. Khoản này không tính vào số liệu trên; chi phí thực tế nay lấy từ phiếu chi đã duyệt ở module Tài chính.
           </p>
         ) : null}
@@ -147,192 +208,243 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
       ) : null}
 
       {data && projectRow ? (
-        <section className={styles.panel}>
-          <h3 className={styles.panelHeadRow}>
-            Thu chi theo công việc
-            <span className={styles.muted}>Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.</span>
-          </h3>
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Mã</th>
-                  <th>Công việc</th>
-                  <th>Trạng thái</th>
-                  <th className={styles.numeric}>Đã thu</th>
-                  <th className={styles.numeric}>Đã chi (thực tế)</th>
-                  <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[projectRow, ...itemRows].map((row) => (
-                  <tr key={row.workItemId ?? 'project'}>
-                    <td className={styles.treeCode}>{row.code}</td>
-                    <td>{row.title}</td>
-                    <td>{row.status ? WORK_ITEM_STATUS_LABELS[row.status] : ''}</td>
-                    <td className={styles.numeric}>{formatVnd(row.received)}</td>
-                    <td className={styles.numeric}>{formatVnd(row.paid)}</td>
-                    <td className={styles.numeric}>
-                      {row.pendingReceived || row.pendingPaid ? `${formatVnd(row.pendingReceived)} / ${formatVnd(row.pendingPaid)}` : '—'}
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td />
-                  <td>
-                    <strong>Tổng dự án</strong>
-                  </td>
-                  <td />
-                  <td className={styles.numeric}>
-                    <strong>{formatVnd(data.totals.received)}</strong>
-                  </td>
-                  <td className={styles.numeric}>
-                    <strong>{formatVnd(data.totals.paid)}</strong>
-                  </td>
-                  <td className={styles.numeric}>
-                    {data.totals.pendingReceived || data.totals.pendingPaid
-                      ? `${formatVnd(data.totals.pendingReceived)} / ${formatVnd(data.totals.pendingPaid)}`
-                      : '—'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {data ? (
-        <section className={styles.panel}>
-          <h3 className={styles.panelHeadRow}>
-            Phiếu thu chi của dự án
-            <span className={styles.muted}>Phiếu có dự án này ở mục "Đối tượng liên quan" chỉ để tra cứu, không cộng vào tổng.</span>
-          </h3>
-          <div className={styles.workFilters}>
-            <div className={styles.filterField}>
-              <span className={styles.filterLabel}>Loại phiếu</span>
-              <Choice
-                label="Lọc theo loại phiếu"
-                value={filter.kind}
-                options={[
-                  { value: 'all', label: 'Tất cả' },
-                  { value: 'RECEIPT', label: PROJECT_VOUCHER_KIND_LABELS.RECEIPT },
-                  { value: 'PAYMENT', label: PROJECT_VOUCHER_KIND_LABELS.PAYMENT },
-                ]}
-                onChange={(value) => setFilter((current) => ({ ...current, kind: value as ProjectVoucherFilter['kind'] }))}
-              />
-            </div>
-            <div className={styles.filterField}>
-              <span className={styles.filterLabel}>Quan hệ với dự án</span>
-              <Choice
-                label="Lọc theo quan hệ với dự án"
-                value={filter.link}
-                options={[
-                  { value: 'all', label: 'Tất cả' },
-                  { value: 'ALLOCATION', label: PROJECT_VOUCHER_LINK_LABELS.ALLOCATION },
-                  { value: 'RELATED', label: PROJECT_VOUCHER_LINK_LABELS.RELATED },
-                ]}
-                onChange={(value) => setFilter((current) => ({ ...current, link: value as ProjectVoucherFilter['link'] }))}
-              />
-            </div>
-            <div className={styles.filterField}>
-              <span className={styles.filterLabel}>Trạng thái</span>
-              <Choice
-                label="Lọc theo trạng thái phiếu"
-                value={filter.status}
-                options={[
-                  { value: 'all', label: 'Tất cả' },
-                  { value: 'APPROVED', label: PROJECT_VOUCHER_STATUS_LABELS.APPROVED },
-                  { value: 'PENDING', label: PROJECT_VOUCHER_STATUS_LABELS.PENDING },
-                ]}
-                onChange={(value) => setFilter((current) => ({ ...current, status: value as ProjectVoucherFilter['status'] }))}
-              />
-            </div>
-            {filtering ? (
-              <button type="button" className={styles.linkButton} onClick={() => setFilter(NO_VOUCHER_FILTER)}>
-                Bỏ lọc
+        <section ref={ledger} className={styles.ledgerCard}>
+          <header className={styles.ledgerHead}>
+            <div className={styles.finSwitch} role="tablist" aria-label="Sổ thu chi">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'items'}
+                className={view === 'items' ? styles.finSwitchActive : undefined}
+                onClick={() => setView('items')}
+              >
+                Theo công việc <span className={styles.finSwitchCount}>{itemRows.length + 1}</span>
               </button>
-            ) : null}
-          </div>
-          <div className={styles.tableScroll}>
-            <table className={`${styles.table} ${styles.wbsTable}`}>
-              <thead>
-                <tr>
-                  <th>Phiếu</th>
-                  <th>Loại phiếu</th>
-                  <th>Ngày</th>
-                  <th>Nội dung</th>
-                  <th>Hạch toán</th>
-                  <th style={{ textAlign: 'right' }}>Tiền thu</th>
-                  <th style={{ textAlign: 'right' }}>Tiền chi</th>
-                  <th>Trạng thái</th>
-                  <th>Người lập</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className={styles.muted}>
-                      Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
-                    </td>
-                  </tr>
-                ) : visibleVouchers.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className={styles.muted}>
-                      Không có phiếu nào khớp bộ lọc.
-                    </td>
-                  </tr>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'vouchers'}
+                className={view === 'vouchers' ? styles.finSwitchActive : undefined}
+                onClick={() => setView('vouchers')}
+              >
+                Phiếu thu chi <span className={styles.finSwitchCount}>{data.items.length}</span>
+              </button>
+            </div>
+            {view === 'vouchers' ? (
+              <div ref={panelBox} className={styles.timelinePanelBox}>
+                <button
+                  type="button"
+                  className={facets > 0 || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+                  aria-haspopup="dialog"
+                  aria-expanded={panelOpen}
+                  onClick={() => setPanelOpen((value) => !value)}
+                >
+                  <ListFilter size={13} aria-hidden />
+                  Bộ lọc
+                  {facets > 0 ? <span className={styles.countBadge}>{facets}</span> : null}
+                </button>
+                {panelOpen ? (
+                  <div
+                    className={`${styles.timelinePanel} ${styles.finPanel}`}
+                    role="dialog"
+                    aria-label="Bộ lọc phiếu thu chi"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        setPanelOpen(false);
+                      }
+                    }}
+                  >
+                    <div className={styles.timelinePanelField}>
+                      <span>Loại phiếu</span>
+                      <Choice
+                        label="Lọc theo loại phiếu"
+                        selectOnly
+                        value={filter.kind}
+                        options={[
+                          { value: 'all', label: 'Mọi loại phiếu' },
+                          { value: 'RECEIPT', label: PROJECT_VOUCHER_KIND_LABELS.RECEIPT },
+                          { value: 'PAYMENT', label: PROJECT_VOUCHER_KIND_LABELS.PAYMENT },
+                        ]}
+                        onChange={(value) => setFilter((current) => ({ ...current, kind: value as ProjectVoucherFilter['kind'] }))}
+                      />
+                    </div>
+                    <div className={styles.timelinePanelField}>
+                      <span>Quan hệ với dự án</span>
+                      <Choice
+                        label="Lọc theo quan hệ với dự án"
+                        selectOnly
+                        value={filter.link}
+                        options={[
+                          { value: 'all', label: 'Mọi quan hệ' },
+                          { value: 'ALLOCATION', label: PROJECT_VOUCHER_LINK_LABELS.ALLOCATION },
+                          { value: 'RELATED', label: PROJECT_VOUCHER_LINK_LABELS.RELATED },
+                        ]}
+                        onChange={(value) => setFilter((current) => ({ ...current, link: value as ProjectVoucherFilter['link'] }))}
+                      />
+                    </div>
+                    <div className={styles.timelinePanelField}>
+                      <span>Trạng thái</span>
+                      <Choice
+                        label="Lọc theo trạng thái phiếu"
+                        selectOnly
+                        value={filter.status}
+                        options={[
+                          { value: 'all', label: 'Mọi trạng thái' },
+                          { value: 'APPROVED', label: PROJECT_VOUCHER_STATUS_LABELS.APPROVED },
+                          { value: 'PENDING', label: PROJECT_VOUCHER_STATUS_LABELS.PENDING },
+                        ]}
+                        onChange={(value) => setFilter((current) => ({ ...current, status: value as ProjectVoucherFilter['status'] }))}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.linkButton}
+                      disabled={!filtering}
+                      onClick={() => setFilter(NO_VOUCHER_FILTER)}
+                    >
+                      Bỏ lọc
+                    </button>
+                  </div>
                 ) : null}
-                {visibleVouchers.map((item) => {
-                  const tone = PROJECT_VOUCHER_STATUS_TONE[item.status];
-                  const amount = item.link === 'RELATED' ? <span className={styles.muted}>{formatVnd(item.totalAmount)}</span> : formatVnd(item.totalAmount);
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <a className={styles.wbsProcedure} href={projectVoucherHref(item)} title="Mở phiếu ở module Tài chính">
-                          <ExternalLink size={12} aria-hidden />
-                          {item.code}
-                        </a>
-                      </td>
-                      <td>{PROJECT_VOUCHER_KIND_LABELS[item.kind]}</td>
-                      <td>{formatDay(item.voucherDate)}</td>
-                      <td>
-                        <span className={styles.treeTitle} title={item.content}>
-                          {item.content}
-                        </span>
-                        {item.reasonName ? (
-                          <span className={styles.muted} style={{ display: 'block' }}>
-                            {item.reasonName}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>
-                        {item.link === 'RELATED' ? (
-                          <span className={styles.muted}>Chỉ liên quan</span>
-                        ) : item.workItem ? (
-                          <span title={item.workItem.title}>
-                            <span className={styles.treeCode}>{item.workItem.code}</span> {item.workItem.title}
-                          </span>
-                        ) : (
-                          'Cả dự án'
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.kind === 'RECEIPT' ? amount : '—'}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.kind === 'PAYMENT' ? amount : '—'}</td>
-                      <td>
-                        <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
-                          {PROJECT_VOUCHER_STATUS_LABELS[item.status]}
-                        </span>
-                      </td>
-                      <td>{item.createdByName ?? '—'}</td>
+              </div>
+            ) : null}
+          </header>
+
+          <div className={styles.ledgerScroll}>
+            {view === 'items' ? (
+              <table className={`${styles.table} ${styles.ledgerTable}`}>
+                <thead>
+                  <tr>
+                    <th>Mã</th>
+                    <th>Công việc</th>
+                    <th>Trạng thái</th>
+                    <th className={styles.numeric}>Đã thu</th>
+                    <th className={styles.numeric}>Đã chi (thực tế)</th>
+                    <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[projectRow, ...itemRows].map((row) => (
+                    <tr key={row.workItemId ?? 'project'}>
+                      <td className={styles.treeCode}>{row.code}</td>
+                      <td>{row.title}</td>
+                      <td>{row.status ? WORK_ITEM_STATUS_LABELS[row.status] : ''}</td>
+                      <td className={styles.numeric}>{formatVnd(row.received)}</td>
+                      <td className={styles.numeric}>{formatVnd(row.paid)}</td>
+                      <td className={styles.numeric}>{pendingText(row.pendingReceived, row.pendingPaid)}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td />
+                    <td>
+                      <strong>Tổng dự án</strong>
+                    </td>
+                    <td />
+                    <td className={styles.numeric}>
+                      <strong>{formatVnd(data.totals.received)}</strong>
+                    </td>
+                    <td className={styles.numeric}>
+                      <strong>{formatVnd(data.totals.paid)}</strong>
+                    </td>
+                    <td className={styles.numeric}>{pendingText(data.totals.pendingReceived, data.totals.pendingPaid)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            ) : (
+              <table className={`${styles.table} ${styles.ledgerTable}`}>
+                <thead>
+                  <tr>
+                    <th>Phiếu</th>
+                    <th>Loại phiếu</th>
+                    <th>Ngày</th>
+                    <th>Nội dung</th>
+                    <th>Hạch toán</th>
+                    <th className={styles.numeric}>Tiền thu</th>
+                    <th className={styles.numeric}>Tiền chi</th>
+                    <th>Trạng thái</th>
+                    <th>Người lập</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className={styles.muted}>
+                        Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
+                      </td>
+                    </tr>
+                  ) : visibleVouchers.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className={styles.muted}>
+                        Không có phiếu nào khớp bộ lọc.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {visibleVouchers.map((item) => {
+                    const tone = PROJECT_VOUCHER_STATUS_TONE[item.status];
+                    const amount = item.link === 'RELATED' ? <span className={styles.muted}>{formatVnd(item.totalAmount)}</span> : formatVnd(item.totalAmount);
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <Tooltip content="Mở phiếu ở module Tài chính">
+                            <a className={styles.wbsProcedure} href={projectVoucherHref(item)}>
+                              <ExternalLink size={12} aria-hidden />
+                              {item.code}
+                            </a>
+                          </Tooltip>
+                        </td>
+                        <td>{PROJECT_VOUCHER_KIND_LABELS[item.kind]}</td>
+                        <td>{formatDay(item.voucherDate)}</td>
+                        <td>
+                          <Tooltip content={item.content}>
+                            <span className={styles.treeTitle}>
+                              {item.content}
+                            </span>
+                          </Tooltip>
+                          {item.reasonName ? (
+                            <span className={styles.muted} style={{ display: 'block' }}>
+                              {item.reasonName}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>
+                          {item.link === 'RELATED' ? (
+                            <span className={styles.muted}>Chỉ liên quan</span>
+                          ) : item.workItem ? (
+                            <Tooltip content={item.workItem.title}>
+                              <span>
+                                <span className={styles.treeCode}>{item.workItem.code}</span> {item.workItem.title}
+                              </span>
+                            </Tooltip>
+                          ) : (
+                            'Cả dự án'
+                          )}
+                        </td>
+                        <td className={styles.numeric}>{item.kind === 'RECEIPT' ? amount : '—'}</td>
+                        <td className={styles.numeric}>{item.kind === 'PAYMENT' ? amount : '—'}</td>
+                        <td>
+                          <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
+                            {PROJECT_VOUCHER_STATUS_LABELS[item.status]}
+                          </span>
+                        </td>
+                        <td>{item.createdByName ?? '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
-          {data.truncated ? (
-            <p className={styles.muted}>Chỉ hiển thị 200 phiếu gần nhất; tổng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.</p>
-          ) : null}
+
+          <footer className={styles.ledgerFoot}>
+            {view === 'items'
+              ? 'Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.'
+              : data.truncated
+                ? 'Chỉ hiển thị 200 phiếu gần nhất; tổng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.'
+                : 'Phiếu có dự án này ở mục "Đối tượng liên quan" chỉ để tra cứu, không cộng vào tổng.'}
+          </footer>
         </section>
       ) : null}
 
@@ -345,15 +457,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           onChanged();
         }}
       />
-    </div>
-  );
-}
-
-function MoneyStat({ label, value, danger, hint }: { label: string; value: number | null; danger?: boolean; hint?: string }) {
-  return (
-    <div className={danger ? styles.statDanger : styles.stat} title={hint ?? formatVnd(value)}>
-      <span className={styles.statValue}>{formatVndCompact(value)}</span>
-      <span className={styles.statLabel}>{label}</span>
     </div>
   );
 }

@@ -160,9 +160,9 @@ describe('Trang form nhúng của Trợ lý', () => {
     sendDraft({ priority: 'urgent' });
 
     await waitFor(() =>
-      expect(screen.getByRole('group', { name: 'Mức ưu tiên' }).getAttribute('title')).toBe(
-        'Khẩn cấp',
-      ),
+      expect(
+        (screen.getByRole('group', { name: 'Mức ưu tiên' }).querySelector('input') as HTMLInputElement).value,
+      ).toBe('Khẩn cấp'),
     );
     expect(screen.getByDisplayValue('Soạn báo giá khách A')).toBeTruthy();
   });

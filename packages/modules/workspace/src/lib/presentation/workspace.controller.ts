@@ -49,6 +49,7 @@ import type {
   SaveWorkspaceLabelSettingsRequest,
   SaveProjectGroupRequest,
   SaveProjectRoleRequest,
+  ReplyChatMessageRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
   UpdateChatMessageRequest,
@@ -836,6 +837,19 @@ export class WorkspaceController {
     );
   }
 
+  /** Trả lời một tin: kênh lấy từ chính tin đó, không nhận từ client. */
+  @Post('chat/messages/:id/reply')
+  @HttpCode(201)
+  replyChatMessage(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReplyChatMessageRequest,
+  ) {
+    return this.execute(() =>
+      this.chat.reply(this.actor(request), id, body ?? ({} as ReplyChatMessageRequest)),
+    );
+  }
+
   @Patch('chat/messages/:id')
   editChatMessage(
     @Req() request: WorkspaceRequest,
@@ -885,6 +899,33 @@ export class WorkspaceController {
   ) {
     return this.execute(() =>
       this.chat.projectFeedThread(this.actor(request), id, workItemId, before || undefined),
+    );
+  }
+
+  /** Tin của mọi công việc trong dự án xếp chung theo giờ, chỉ để đọc (không đánh dấu đã đọc). */
+  @Get('projects/:id/chat-timeline')
+  projectChatTimeline(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Query('before') before?: string,
+    @Query('q') q?: string,
+    @Query('authors') authors?: string,
+    @Query('nodes') nodes?: string,
+    @Query('mentionsMe') mentionsMe?: string,
+    @Query('hasAttachment') hasAttachment?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.execute(() =>
+      this.chat.projectTimeline(this.actor(request), id, before || undefined, {
+        q,
+        authors: authors ? authors.split(',').filter(Boolean) : undefined,
+        nodes: nodes ? nodes.split(',').filter(Boolean) : undefined,
+        mentionsMe: mentionsMe === '1',
+        hasAttachment: hasAttachment === '1',
+        from,
+        to,
+      }),
     );
   }
 
@@ -955,6 +996,56 @@ export class WorkspaceController {
   @Get('my-work')
   myWork(@Req() request: WorkspaceRequest) {
     return this.execute(() => this.myWorkService.summary(this.actor(request)));
+  }
+
+  /** Tổng quan "Công việc của tôi" theo trang: số liệu và tóm tắt nhóm, không có dòng việc. */
+  @Get('my-work/overview')
+  myWorkOverview(
+    @Req() request: WorkspaceRequest,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+    @Query('projectId') projectId?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.overview(this.actor(request), { status, priority, projectId }, sort),
+    );
+  }
+
+  /** Một trang dòng việc của một dự án, trong số việc của chính người gọi. */
+  @Get('my-work/projects/:projectId/items')
+  myWorkGroupItems(
+    @Req() request: WorkspaceRequest,
+    @Param('projectId') projectId: string,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+    @Query('sort') sort?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.groupItems(
+        this.actor(request),
+        projectId,
+        { status, priority },
+        sort,
+        page,
+        pageSize,
+      ),
+    );
+  }
+
+  /** Một trang việc ngoài dự án của người gọi. */
+  @Get('my-work/standalone')
+  myWorkStandalone(
+    @Req() request: WorkspaceRequest,
+    @Query('sort') sort?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.standalonePage(this.actor(request), sort, page, pageSize),
+    );
   }
 
   /* ------------------------------------------ Công việc ngoài dự án */

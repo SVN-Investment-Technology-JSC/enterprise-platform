@@ -7,6 +7,7 @@ import {
 } from '@enterprise-platform/shared-ui';
 import { useRef, type ReactNode } from 'react';
 import { CreateOptionFooter, type CreateOption } from './create-option-footer';
+import { Tooltip } from './tooltip';
 
 /**
  * Ô chọn duy nhất của Workspace.
@@ -67,59 +68,57 @@ export function Choice({
 
 
   return (
-    <div
-      ref={box}
-      role="group"
-      aria-label={label}
-      data-choice={label}
-      // Ô hẹp thì nhãn dài bị cắt; rê chuột luôn đọc được đủ.
-      title={
+    // Ô hẹp thì nhãn dài bị cắt; rê chuột luôn đọc được đủ.
+    <Tooltip
+      content={
         title ??
         (all.find((option) => option.value === value) ?? extra?.options.find((option) => option.value === value))
           ?.label
       }
     >
-      <SearchableSelect
-        options={all}
-        value={value}
-        disabled={disabled}
-        required={required}
-        className={className}
-        height={height}
-        extra={extra}
-        dropdownFooter={
-          create
-            ? ({ close }) => (
-                <CreateOptionFooter
-                  create={create}
-                  onCreated={(created) => {
-                    if (created !== value) onChange(created);
-                    close();
-                  }}
-                />
-              )
-            : undefined
-        }
-        searchInDropdown={selectOnly}
-        hideDropdownSearch={selectOnly}
-        clearable={emptyOption !== undefined}
-        placeholder={placeholder ?? emptyOption ?? `Chọn ${label.toLowerCase()}…`}
-        // Chọn xong thì bỏ focus khỏi ô nhập. Danh sách đã tự đóng, nhưng ô
-        // còn focus thì bất kỳ sự kiện focus nào sau đó — trình duyệt trả focus
-        // sau một lần vẽ lại, hay nhãn bao ngoài kích hoạt — cũng mở nó ra lần
-        // nữa, và người dùng thấy danh sách "không chịu đóng".
-        onChange={(value) => {
-          onChange(value);
-          requestAnimationFrame(() => {
-            box.current?.querySelector('input')?.blur();
-          });
-        }}
-        // `data-value` để kịch bản kiểm thử chọn được đúng mục theo id, việc mà
-        // `<option value=…>` trước đây làm sẵn. Người dùng không thấy gì khác.
-        renderOption={(option) => (
-          <span data-value={option.value}>{renderOption ? renderOption(option) : option.label}</span>
-        )}
-      />
-    </div>
+      <div ref={box} role="group" aria-label={label} data-choice={label}>
+        <SearchableSelect
+          options={all}
+          value={value}
+          disabled={disabled}
+          required={required}
+          className={className}
+          height={height}
+          extra={extra}
+          dropdownFooter={
+            create
+              ? ({ close }) => (
+                  <CreateOptionFooter
+                    create={create}
+                    onCreated={(created) => {
+                      if (created !== value) onChange(created);
+                      close();
+                    }}
+                  />
+                )
+              : undefined
+          }
+          searchInDropdown={selectOnly}
+          hideDropdownSearch={selectOnly}
+          clearable={emptyOption !== undefined}
+          placeholder={placeholder ?? emptyOption ?? `Chọn ${label.toLowerCase()}…`}
+          // Chọn xong thì bỏ focus khỏi ô nhập. Danh sách đã tự đóng, nhưng ô
+          // còn focus thì bất kỳ sự kiện focus nào sau đó — trình duyệt trả focus
+          // sau một lần vẽ lại, hay nhãn bao ngoài kích hoạt — cũng mở nó ra lần
+          // nữa, và người dùng thấy danh sách "không chịu đóng".
+          onChange={(value) => {
+            onChange(value);
+            requestAnimationFrame(() => {
+              box.current?.querySelector('input')?.blur();
+            });
+          }}
+          // `data-value` để kịch bản kiểm thử chọn được đúng mục theo id, việc mà
+          // `<option value=…>` trước đây làm sẵn. Người dùng không thấy gì khác.
+          renderOption={(option) => (
+            <span data-value={option.value}>{renderOption ? renderOption(option) : option.label}</span>
+          )}
+        />
+      </div>
+    </Tooltip>
   );
 }

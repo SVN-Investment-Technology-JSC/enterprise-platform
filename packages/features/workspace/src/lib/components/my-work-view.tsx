@@ -1,15 +1,17 @@
 'use client';
 
 import {
-  MY_WORK_BUCKETS,
+  MY_WORK_PAGE_SIZES,
   allowedStandaloneTaskTransitions,
   canTransitionWorkItem,
   type CreateProjectRequest,
   type CreateWorkItemRequest,
   type MyWorkEvent,
+  type MyWorkGroupCounts,
+  type MyWorkGroupSummary,
   type MyWorkItem,
+  type MyWorkSortKey,
   type MyWorkStandaloneTask,
-  type MyWorkSummary,
   type ParticipantResponse,
   type ProjectMember,
   type ProjectRole,
@@ -25,29 +27,46 @@ import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/fea
 import { formatTime, toast } from '@enterprise-platform/shared-ui';
 import { statusToastText, toastStatusChanged } from '../status-toast';
 import {
-  ArrowUpDown,
+  AlarmClock,
   AtSign,
   CalendarClock,
   CalendarDays,
   Clock3,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   ClipboardList,
   ExternalLink,
+  ListFilter,
   Plus,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import {
-  Fragment,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { Provider } from 'react-redux';
 import { initialTasksWarning } from '../project-created';
 import * as api from '../workspace-api';
+import {
+  MY_WORK_STANDALONE_KEY,
+  invalidateMyWork,
+  myWorkStore,
+  resetMyWork,
+  useMyWorkGroupItemsQuery,
+  useMyWorkOverviewQuery,
+  useMyWorkStandaloneQuery,
+  useMyWorkUi,
+  type MyWorkError,
+  type MyWorkUiState,
+} from '../my-work-store';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
   WORK_ITEM_STATUS_LABELS,
@@ -70,10 +89,15 @@ import {
   ProgressCell,
   GroupCounts,
 } from './inline-cells';
+import { BlockedReasonMark, useBlockedReasonPrompt } from './blocked-reason-dialog';
+import { Choice } from './choice';
 import { CompleteWorkItemDialog, type CompleteWorkItemTarget } from './complete-work-item-dialog';
+import { Pager } from './pager';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
+import { useFillViewportHeight } from './use-fill-viewport';
+import { Tooltip } from './tooltip';
 
 const INVITATION_RESPONSES: readonly {
   value: ParticipantResponse;
@@ -87,14 +111,20 @@ const INVITATION_RESPONSES: readonly {
 const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
 
 /** Cách xếp nhóm dự án và công việc trong bảng; chạy cùng lúc với bộ lọc. */
-type MyWorkSort = 'due' | 'name' | 'code' | 'updated';
-
-const SORT_OPTIONS: readonly { value: MyWorkSort; label: string }[] = [
+const SORT_OPTIONS: readonly { value: MyWorkSortKey; label: string }[] = [
   { value: 'due', label: 'Theo hạn (gấp trước)' },
   { value: 'name', label: 'Theo tên' },
   { value: 'code', label: 'Theo mã' },
   { value: 'updated', label: 'Cập nhật gần nhất' },
 ];
+
+const PAGE_SIZE_OPTIONS = MY_WORK_PAGE_SIZES.map((size) => ({ value: String(size), label: String(size) }));
+
+/** Số cột của bảng (Công việc, Dự án, Ưu tiên, Trạng thái, Hạn, Tiến độ). */
+const TABLE_COLUMNS = 6;
+
+const messageOf = (cause: unknown, fallback: string): string =>
+  (cause as { message?: string })?.message ?? fallback;
 
 /**
  * Trang "Công việc của tôi".
@@ -103,9 +133,12 @@ const SORT_OPTIONS: readonly { value: MyWorkSort; label: string }[] = [
  * tenant. Có một dòng giải thích ngay đầu trang để người quản trị không tưởng
  * màn hình bị lọc sai.
  *
- * Bố cục: dải lịch hôm nay và lời mời ở trên cùng, rồi MỘT bảng chia nhóm theo
- * hạn — số việc của từng nhóm nằm ngay trên đầu nhóm, nên không cần thêm hàng
- * thẻ số nhắc lại cùng con số đó.
+ * Bố cục: thẻ đầu trang (tiêu đề + vài con số), dải lịch hôm nay và lời mời khi có, rồi bên trái MỘT bảng chia nhóm theo
+ * dự án (thẻ cao vừa phần còn lại, chỉ phần bảng cuộn), bên phải một cột phụ gộp "Có người nhắc bạn" và "Từ module
+ * khác" (màn hẹp thì xuống dưới bảng).
+ *
+ * Dữ liệu nạp theo trang, không tải mọi việc một lượt: `overview` cho số liệu và tóm tắt từng nhóm, mở nhóm nào mới nạp
+ * dòng việc của nhóm đó, mỗi lần một trang. Bộ nhớ đệm và trạng thái xem nằm trong `my-work-store`.
  */
 export interface MyWorkViewProps {
   /** Mở một node trong trang Dự án: công việc, sự kiện hay luồng trao đổi. */
@@ -114,27 +147,136 @@ export interface MyWorkViewProps {
   readonly onOpenTask?: (taskId: string) => void;
 }
 
-export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
+/** Bọc store riêng để bộ nhớ đệm và trạng thái xem nằm ngoài vòng đời của trang. */
+/** Cột phụ (nhắc tên, thẻ module khác): ẩn mặc định, mở bằng nút ở đầu trang, kéo vạch giữa để đổi độ rộng. */
+const SIDE_STORAGE = 'workspace.my-work.side.v1';
+const SIDE_MIN_PX = 260;
+const SIDE_MAX_PX = 560;
+const SIDE_DEFAULT_PX = 340;
+const SIDE_STEP_PX = 20;
+/** Bảng chính luôn giữ ít nhất chừng này (px) khi kéo cột phụ rộng ra. */
+const MAIN_MIN_PX = 480;
+
+/** Người dùng của lần mở trang gần nhất trong phiên này (cấp mô-đun, vì bộ nhớ đệm cũng ở cấp mô-đun). */
+let lastUserId = '';
+
+export function MyWorkView(props: MyWorkViewProps = {}) {
+  return (
+    <Provider store={myWorkStore}>
+      <MyWorkBody {...props} />
+    </Provider>
+  );
+}
+
+function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   const directory = useDirectory();
-  const [summary, setSummary] = useState<MyWorkSummary>();
+  const { ui, setFilter, setSort, clearFilter, toggleGroup, toggleStandalone, setPage, setPageSize } = useMyWorkUi();
+  const overviewQuery = useMyWorkOverviewQuery({
+    sort: ui.sort,
+    status: (ui.status || undefined) as WorkItemStatus | undefined,
+    priority: (ui.priority || undefined) as WorkItemPriority | undefined,
+    projectId: ui.projectId || undefined,
+  });
+  // `data` giữ bản của lần trước trong lúc đổi bộ lọc nạp lại, nên số liệu và danh sách không nháy trống.
+  const overview = overviewQuery.data;
+  const overviewError = (overviewQuery.error as MyWorkError | undefined)?.message;
+
   const [isTenantAdmin, setIsTenantAdmin] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [responding, setResponding] = useState<string>();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelBox = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
 
-  // Bộ lọc trang: trạng thái, ưu tiên và dự án. Rỗng nghĩa là không lọc.
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  /** Các nhóm dự án đang mở trong bảng công việc; mới vào trang thì mọi nhóm thu gọn. */
-  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(new Set());
-  const [sortKey, setSortKey] = useState<MyWorkSort>('due');
-  /** Khối Công việc khác: thu gọn khi mới vào trang, như các nhóm dự án. */
-  const [standaloneOpen, setStandaloneOpen] = useState(false);
+  // Cột phụ: mặc định ẩn; mở/đóng và độ rộng nhớ theo trình duyệt của người dùng.
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT_PX);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const sideDragging = useRef(false);
+  /** Độ rộng mới nhất khi đang kéo: lúc nhả chuột lưu đúng giá trị này, không phụ thuộc lần vẽ lại. */
+  const sideWidthLive = useRef(SIDE_DEFAULT_PX);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(SIDE_STORAGE) ?? 'null') as
+        | { open?: boolean; width?: number }
+        | null;
+      if (saved?.open) setSideOpen(true);
+      if (typeof saved?.width === 'number') {
+        const width = Math.min(SIDE_MAX_PX, Math.max(SIDE_MIN_PX, saved.width));
+        sideWidthLive.current = width;
+        setSideWidth(width);
+      }
+    } catch {
+      // localStorage có thể bị chặn (chế độ riêng tư); dùng mặc định.
+    }
+  }, []);
+  const saveSide = (open: boolean, width: number) => {
+    try {
+      window.localStorage.setItem(SIDE_STORAGE, JSON.stringify({ open, width }));
+    } catch {
+      // bỏ qua nếu không ghi được.
+    }
+  };
+  const toggleSide = () => {
+    setSideOpen((current) => {
+      saveSide(!current, sideWidth);
+      return !current;
+    });
+  };
+  /** Độ rộng tối đa theo bề ngang hiện có: bảng chính không bị ép dưới `MAIN_MIN_PX`. */
+  const clampSide = (value: number) => {
+    // Khung chưa có bề ngang (đang ẩn, chưa đo): không ép theo bề ngang.
+    const measured = mainRef.current?.getBoundingClientRect().width ?? 0;
+    const total = measured > 0 ? measured : Number.POSITIVE_INFINITY;
+    return Math.round(Math.max(SIDE_MIN_PX, Math.min(SIDE_MAX_PX, value, total - MAIN_MIN_PX)));
+  };
+  const onSideHandleDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sideDragging.current = true;
+  };
+  const onSideHandleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const box = mainRef.current?.getBoundingClientRect();
+    if (!sideDragging.current || !box) return;
+    const next = clampSide(box.right - event.clientX);
+    sideWidthLive.current = next;
+    setSideWidth(next);
+  };
+  const onSideHandleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!sideDragging.current) return;
+    sideDragging.current = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    saveSide(true, sideWidthLive.current);
+  };
+  const onSideHandleKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Cột phụ nằm bên phải: mũi tên trái = mở rộng, mũi tên phải = thu hẹp.
+    const delta = event.key === 'ArrowLeft' ? SIDE_STEP_PX : event.key === 'ArrowRight' ? -SIDE_STEP_PX : 0;
+    if (!delta) return;
+    event.preventDefault();
+    const next = clampSide(sideWidth + delta);
+    sideWidthLive.current = next;
+    setSideWidth(next);
+    saveSide(true, next);
+  };
+  const resetSideWidth = () => {
+    sideWidthLive.current = SIDE_DEFAULT_PX;
+    setSideWidth(SIDE_DEFAULT_PX);
+    saveSide(true, SIDE_DEFAULT_PX);
+  };
+  // Thẻ bảng chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm dù có 600 việc.
+  // Phần phía trên khung (dải lịch, thông báo quản trị, báo lỗi) hiện hoặc ẩn muộn thì phải đo lại, nếu không đáy khung tràn.
+  const aboveKey = [
+    isTenantAdmin,
+    Boolean(error),
+    (overview?.todayEvents.length ?? 0) + (overview?.pendingInvitations.length ?? 0) > 0,
+  ].join(':');
+  useFillViewportHeight(frame, undefined, aboveKey);
+
   /** Việc đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
   const [savingItem, setSavingItem] = useState<string>();
   /** Việc đang hỏi xác nhận hoàn thành. */
   const [completing, setCompleting] = useState<CompleteWorkItemTarget>();
+  const blockedPrompt = useBlockedReasonPrompt();
 
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
@@ -147,27 +289,30 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
   const [members, setMembers] = useState<readonly ProjectMember[]>([]);
   const [parentOptions, setParentOptions] = useState<{ id: string; label: string; done: boolean }[]>([]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      setSummary(await api.loadMyWork());
-      setError(undefined);
-    } catch (cause) {
-      setSummary(undefined);
-      setError((cause as { message?: string })?.message ?? 'Không tải được dữ liệu.');
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    void api.loadIsTenantAdmin().then(setIsTenantAdmin);
+    void api.loadCurrentUserId().then((userId) => {
+      setMe(userId);
+      // Bộ nhớ đệm là của một người dùng: đổi tài khoản trong cùng phiên thì bỏ hết, kẻo thấy dữ liệu của người trước.
+      if (userId && lastUserId && lastUserId !== userId) resetMyWork();
+      lastUserId = userId || lastUserId;
+    });
   }, []);
 
-  useEffect(() => {
-    void reload();
-    void api.loadIsTenantAdmin().then(setIsTenantAdmin);
-    void api.loadCurrentUserId().then(setMe);
-  }, [reload]);
-
   // Card Trợ lý vừa tạo cuộc họp, công việc hay việc ngoài dự án: cả ba đều hiện ở trang này.
-  useAssistantSaved(WORKSPACE_ACTION_KEYS, () => void reload());
+  useAssistantSaved(WORKSPACE_ACTION_KEYS, () => {
+    invalidateMyWork();
+  });
+
+  // Bấm ra ngoài bảng lọc thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
+  useEffect(() => {
+    if (!panelOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!panelBox.current?.contains(event.target as Node)) setPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [panelOpen]);
 
   /** Nạp danh sách dự án cho ô chọn "Dự án" khi mở form Công việc mới. */
   const openNewWorkItem = useCallback(() => {
@@ -215,26 +360,27 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     setError(undefined);
     try {
       await api.respondToEvent(eventId, { responseStatus: response });
-      await reload();
+      // Trả lời xong thì lời mời rời dải lịch ở lần nạp lại.
+      invalidateMyWork();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không gửi được phản hồi.');
+      setError(messageOf(cause, 'Không gửi được phản hồi.'));
     } finally {
       setResponding(undefined);
     }
   };
 
-  /** Thay một việc trong bảng bằng bản server vừa trả, không tải lại cả trang. */
-  const replaceItem = (next: MyWorkItem['item']) =>
-    setSummary((current) =>
-      current
-        ? {
-            ...current,
-            items: current.items.map((entry) =>
-              entry.item.id === next.id ? { ...entry, item: next } : entry,
-            ),
-          }
-        : current,
-    );
+  /**
+   * Chuyển sang Vướng mắc luôn hỏi lý do trước (server từ chối nếu thiếu). Lỗi ném ra để hộp tự hiện và giữ hộp mở.
+   * Việc dự án và việc giao lẻ dùng chung một hộp, chỉ khác endpoint.
+   */
+  const promptBlocked = (
+    target: { readonly code: string; readonly title: string; readonly blockedReason?: string },
+    submit: (reason: string) => Promise<unknown>,
+  ) =>
+    blockedPrompt.ask(target, async (reason) => {
+      await submit(reason);
+      invalidateMyWork();
+    });
 
   const changeStatus = async (item: WorkItem, next: WorkItemStatus) => {
     const itemId = item.id;
@@ -244,18 +390,18 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
       // Cùng endpoint với màn Dự án, nên mọi ràng buộc — việc con chưa đóng,
       // tiền nhiệm FS chưa xong — vẫn áp dụng nguyên vẹn ở đây.
       await api.changeWorkItemStatus(itemId, { status: next });
-      // Báo ngay khi Bắt đầu hoặc Hoàn tác xong, trước khi tải lại bảng.
+      // Báo ngay khi Bắt đầu hoặc Hoàn tác xong, trước khi bảng nạp lại.
       toastStatusChanged(item.status, next, item.code);
-      // Tải lại: việc đóng thì rời bảng, số đếm đầu trang cũng đổi.
-      await reload();
+      // Việc đóng thì rời bảng, số đếm đầu trang cũng đổi: huỷ bộ nhớ để nạp lại.
+      invalidateMyWork();
     } catch (cause) {
-      toast.error((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
+      toast.error(messageOf(cause, 'Không đổi được trạng thái.'));
     } finally {
       setSavingItem(undefined);
     }
   };
 
-  /** Việc ngoài dự án: đổi trạng thái hay sửa xong thì tải lại (nhóm hạn, việc chờ duyệt, số đếm đều có thể đổi). */
+  /** Việc ngoài dự án: đổi trạng thái hay sửa xong thì nạp lại (nhóm hạn, việc chờ duyệt, số đếm đều có thể đổi). */
   const runTask = async (
     taskId: string,
     operation: () => Promise<unknown>,
@@ -268,9 +414,9 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     try {
       await operation();
       onStatusChanged?.();
-      await reload();
+      invalidateMyWork();
     } catch (cause) {
-      const text = (cause as { message?: string })?.message ?? fallback;
+      const text = messageOf(cause, fallback);
       setError(text);
       if (onStatusChanged) toast.error(text);
     } finally {
@@ -282,118 +428,65 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
     setError(undefined);
     setSavingItem(itemId);
     try {
-      replaceItem(await api.updateWorkItem(itemId, patch));
-      // Đổi hạn thì việc có thể sang nhóm hạn khác (quá hạn, hôm nay…), số đếm đầu trang cũng đổi.
-      if (patch.plannedEnd !== undefined) await reload();
+      await api.updateWorkItem(itemId, patch);
+      // Ưu tiên, hạn hay tiến độ đổi đều làm đổi dòng tóm tắt của nhóm (ưu tiên cao nhất, hạn gần nhất, tiến độ
+      // trung bình, nhóm quá hạn) và số đếm đầu trang: nạp lại thay vì vá cục bộ từng chỗ.
+      invalidateMyWork();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? fallback);
+      setError(messageOf(cause, fallback));
     } finally {
       setSavingItem(undefined);
     }
   };
 
-  const allItems = summary?.items ?? [];
-  const events = summary?.todayEvents ?? [];
-  const invitations = summary?.pendingInvitations ?? [];
+  const onItemStatus = (entry: MyWorkItem, next: WorkItemStatus) =>
+    next === 'done'
+      ? setCompleting(entry.item)
+      : next === 'blocked'
+        ? promptBlocked(entry.item, (reason) =>
+            api.changeWorkItemStatus(entry.item.id, { status: 'blocked', note: reason }),
+          )
+        : void changeStatus(entry.item, next);
 
-  // Các giá trị lọc rút ra từ chính danh sách việc, nên ô lọc chỉ hiện những
-  // lựa chọn thật sự có việc.
-  const statusOptions = useMemo(() => {
-    const seen = new Set<WorkItemStatus>();
-    for (const entry of allItems) seen.add(entry.item.status);
-    return [...seen].map((status) => ({ value: status, label: WORK_ITEM_STATUS_LABELS[status] }));
-  }, [allItems]);
-  const priorityOptions = useMemo(() => {
-    const seen = new Set<WorkItemPriority>();
-    for (const entry of allItems) seen.add(entry.item.priority);
-    return [...seen].map((priority) => ({ value: priority, label: priorityLabel(priority) }));
-  }, [allItems]);
-  const projectOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const entry of allItems) seen.set(entry.item.projectId, entry.projectCode);
-    return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [allItems]);
+  const onTaskStatus = (entry: MyWorkStandaloneTask, next: WorkItemStatus) =>
+    next === 'blocked'
+      ? promptBlocked(entry.task, (reason) =>
+          api.changeStandaloneTaskStatus(entry.task.id, { status: 'blocked', note: reason }),
+        )
+      : void runTask(
+          entry.task.id,
+          () => api.changeStandaloneTaskStatus(entry.task.id, { status: next }),
+          'Không đổi được trạng thái.',
+          () => toastStatusChanged(entry.task.status, next, entry.task.code),
+        );
 
-  const items = useMemo(
-    () =>
-      allItems.filter(
-        (entry) =>
-          (!statusFilter || entry.item.status === statusFilter) &&
-          (!priorityFilter || entry.item.priority === priorityFilter) &&
-          (!projectFilter || entry.item.projectId === projectFilter),
-      ),
-    [allItems, statusFilter, priorityFilter, projectFilter],
-  );
-  const hasFilter = Boolean(statusFilter || priorityFilter || projectFilter);
+  const onTaskPatch = (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) =>
+    void runTask(entry.task.id, () => api.updateStandaloneTask(entry.task.id, patch), fallback);
 
-  // Gom việc theo dự án: mỗi dự án là một nhóm. Mặc định việc xếp theo "hạn" để
-  // việc gấp nổi lên đầu nhóm và dự án có việc quá hạn đẩy lên trước; người dùng
-  // đổi được sang xếp theo tên, mã hay lần cập nhật gần nhất.
-  const projectGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      { projectId: string; projectCode: string; projectName: string; rows: MyWorkItem[] }
-    >();
-    for (const entry of items) {
-      const key = entry.item.projectId;
-      const group = groups.get(key);
-      if (group) group.rows.push(entry);
-      else
-        groups.set(key, {
-          projectId: key,
-          projectCode: entry.projectCode,
-          projectName: entry.projectName,
-          rows: [entry],
-        });
-    }
-    const bucketRank = (entry: MyWorkItem) => MY_WORK_BUCKETS.indexOf(entry.bucket);
-    const byCode = (a: string, b: string) => a.localeCompare(b, 'vi', { numeric: true });
-    const latest = (rows: readonly MyWorkItem[]) =>
-      rows.reduce((max, entry) => (entry.item.updatedAt > max ? entry.item.updatedAt : max), '');
-    const rowOrder: Record<MyWorkSort, (a: MyWorkItem, b: MyWorkItem) => number> = {
-      due: (a, b) => bucketRank(a) - bucketRank(b),
-      name: (a, b) => a.item.title.localeCompare(b.item.title, 'vi'),
-      code: (a, b) => byCode(a.item.code, b.item.code),
-      updated: (a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt),
-    };
-    type Group = { projectCode: string; projectName: string; rows: MyWorkItem[] };
-    const groupOrder: Record<MyWorkSort, (a: Group, b: Group) => number> = {
-      due: (a, b) => {
-        const aOverdue = a.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
-        const bOverdue = b.rows.some((entry) => entry.bucket === 'overdue') ? 0 : 1;
-        return aOverdue - bOverdue || byCode(a.projectCode, b.projectCode);
-      },
-      name: (a, b) => a.projectName.localeCompare(b.projectName, 'vi'),
-      code: (a, b) => byCode(a.projectCode, b.projectCode),
-      updated: (a, b) => latest(b.rows).localeCompare(latest(a.rows)),
-    };
-    const list = [...groups.values()];
-    for (const group of list) group.rows.sort(rowOrder[sortKey]);
-    list.sort(groupOrder[sortKey]);
-    return list;
-  }, [items, sortKey]);
+  const events = overview?.todayEvents ?? [];
+  const invitations = overview?.pendingInvitations ?? [];
+  const groups = overview?.groups ?? [];
+  const standalone = overview?.standalone;
+  const mentions = overview?.mentions ?? [];
+  const externalCards = overview?.externalCards ?? [];
+  const counters = overview?.counters;
+  const options = overview?.filterOptions;
 
-  /** Việc ngoài dự án theo cùng cách xếp với bảng việc dự án. */
-  const standaloneRows = useMemo(() => {
-    const rows = [...(summary?.standaloneTasks ?? [])];
-    const bucketRank = (entry: MyWorkStandaloneTask) => MY_WORK_BUCKETS.indexOf(entry.bucket);
-    const order: Record<MyWorkSort, (a: MyWorkStandaloneTask, b: MyWorkStandaloneTask) => number> = {
-      // Giữ thứ tự server trả (chờ duyệt, hạn, ưu tiên) trong cùng một nhóm hạn.
-      due: (a, b) => bucketRank(a) - bucketRank(b),
-      name: (a, b) => a.task.title.localeCompare(b.task.title, 'vi'),
-      code: (a, b) => a.task.code.localeCompare(b.task.code, 'vi', { numeric: true }),
-      updated: (a, b) => b.task.updatedAt.localeCompare(a.task.updatedAt),
-    };
-    return sortKey === 'due' ? rows : rows.sort(order[sortKey]);
-  }, [summary, sortKey]);
-
-  const toggleProject = (projectId: string) =>
-    setExpandedProjects((current) => {
-      const next = new Set(current);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
-      return next;
-    });
+  const facets = [ui.status, ui.priority, ui.projectId].filter(Boolean).length;
+  const hasFilter = facets > 0;
+  const statusOptions = (options?.statuses ?? []).map((status) => ({
+    value: status,
+    label: WORK_ITEM_STATUS_LABELS[status],
+  }));
+  const priorityOptions = (options?.priorities ?? []).map((priority) => ({
+    value: priority,
+    label: priorityLabel(priority),
+  }));
+  const projectOptions = (options?.projects ?? []).map((project) => ({
+    value: project.id,
+    label: `${project.code} · ${project.name}`,
+  }));
+  const totalItems = groups.reduce((sum, group) => sum + group.total, 0);
 
   return (
     <div className={styles.tabBody}>
@@ -410,6 +503,76 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
           {error}
         </p>
       ) : null}
+
+      <div className={styles.myWorkHead}>
+        <div className={`${styles.pageHeadCard} ${styles.myWorkHeadCard}`}>
+          <h1 className={styles.pageTitle}>Công việc của tôi</h1>
+          {/* Ba số liệu, mỗi số một màu: xanh dương (đang mở), đỏ (quá hạn, xám khi không có), xanh lá (đã xong). */}
+          <div className={styles.myWorkStats}>
+            <span className={`${styles.myWorkStat} ${styles.myWorkStatOpen}`}>
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <ClipboardList size={15} />
+              </span>
+              <b>{counters?.openItems ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>đang mở</span>
+            </span>
+            <span
+              className={`${styles.myWorkStat} ${
+                counters && counters.overdueItems > 0 ? styles.myWorkStatLate : styles.myWorkStatQuiet
+              }`}
+            >
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <AlarmClock size={15} />
+              </span>
+              <b>{counters?.overdueItems ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>quá hạn</span>
+            </span>
+            <span className={`${styles.myWorkStat} ${styles.myWorkStatDone}`}>
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <CircleCheck size={15} />
+              </span>
+              <b>{counters?.completedThisWeek ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>xong tuần này</span>
+            </span>
+          </div>
+        </div>
+        <div className={styles.pageHeadEnd}>
+          {overviewQuery.isFetching ? <span className={styles.muted}>Đang tải…</span> : null}
+          <Tooltip content={sideOpen ? 'Ẩn nhắc tên và việc từ module khác' : 'Xem ai nhắc tên bạn và việc từ module khác'}>
+            <button
+              type="button"
+              className={sideOpen ? styles.timelineToggleOn : styles.timelineToggle}
+              aria-pressed={sideOpen}
+              aria-label="Nhắc tên và việc từ module khác"
+              onClick={toggleSide}
+            >
+              <AtSign size={13} aria-hidden />
+              Nhắc tên
+              {mentions.length + externalCards.length > 0 ? (
+                <span className={styles.countBadge}>{mentions.length + externalCards.length}</span>
+              ) : null}
+            </button>
+          </Tooltip>
+          <Tooltip content="Tải lại">
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Tải lại"
+              onClick={() => {
+                invalidateMyWork();
+                // Truy vấn đang lỗi không mang tag nên không tự nạp lại theo invalidation.
+                if (overviewQuery.isError) void overviewQuery.refetch();
+              }}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </Tooltip>
+          <CreateMenu
+            onNewProject={() => setProjectFormOpen(true)}
+            onNewWorkItem={openNewWorkItem}
+          />
+        </div>
+      </div>
 
       {events.length > 0 || invitations.length > 0 ? (
         <section className={styles.dayStrip} aria-label="Lịch hôm nay và lời mời">
@@ -439,281 +602,269 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
         </section>
       ) : null}
 
-      <div className={styles.pageHead}>
-        <h1 className={styles.pageTitle}>Công việc của tôi</h1>
-        <div className={styles.pageMeta}>
-          <span>
-            <b>{summary?.counters.openItems ?? '—'}</b> việc đang mở
-          </span>
-          <span>
-            Đã xong tuần này{' '}
-            <b className={styles.textSuccess}>{summary?.counters.completedThisWeek ?? '—'}</b>
-          </span>
-          {loading ? <span className={styles.muted}>Đang tải…</span> : null}
-        </div>
-        <div className={styles.pageHeadEnd}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tải lại"
-            title="Tải lại"
-            onClick={() => void reload()}
-          >
-            <RefreshCw size={15} />
-          </button>
-          <CreateMenu
-            onNewProject={() => setProjectFormOpen(true)}
-            onNewWorkItem={openNewWorkItem}
-          />
-        </div>
-      </div>
+      <div
+        ref={mainRef}
+        className={sideOpen ? `${styles.myWorkMain} ${styles.myWorkMainOpen}` : styles.myWorkMain}
+        style={{ '--my-work-side': `${sideWidth}px` } as CSSProperties}
+      >
+        <div ref={frame} className={styles.ledgerCard}>
+          <header className={styles.ledgerHead}>
+            <div className={styles.reqHeadLeft}>
+              <div ref={panelBox} className={styles.timelinePanelBox}>
+                <button
+                  type="button"
+                  className={
+                    facets > 0 || ui.sort !== 'due' || panelOpen ? styles.timelineToggleOn : styles.timelineToggle
+                  }
+                  aria-haspopup="dialog"
+                  aria-expanded={panelOpen}
+                  onClick={() => setPanelOpen((value) => !value)}
+                >
+                  <ListFilter size={13} aria-hidden />
+                  Bộ lọc
+                  {facets > 0 ? <span className={styles.countBadge}>{facets}</span> : null}
+                </button>
+                {panelOpen ? (
+                  <div
+                    className={`${styles.timelinePanel} ${styles.timelinePanelLeft} ${styles.reqPanel}`}
+                    role="dialog"
+                    aria-label="Bộ lọc công việc"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        setPanelOpen(false);
+                      }
+                    }}
+                  >
+                    <div className={styles.reqPanelGrid}>
+                      <div className={styles.filterField}>
+                        <span className={styles.filterLabel}>Trạng thái</span>
+                        <Choice
+                          label="Trạng thái"
+                          selectOnly
+                          value={ui.status}
+                          emptyOption="Tất cả"
+                          options={statusOptions}
+                          onChange={(value) => setFilter({ status: value })}
+                        />
+                      </div>
+                      <div className={styles.filterField}>
+                        <span className={styles.filterLabel}>Ưu tiên</span>
+                        <Choice
+                          label="Ưu tiên"
+                          selectOnly
+                          value={ui.priority}
+                          emptyOption="Tất cả"
+                          options={priorityOptions}
+                          onChange={(value) => setFilter({ priority: value })}
+                        />
+                      </div>
+                      <div className={styles.filterField}>
+                        <span className={styles.filterLabel}>Dự án</span>
+                        <Choice
+                          label="Dự án"
+                          selectOnly
+                          value={ui.projectId}
+                          emptyOption="Tất cả"
+                          options={projectOptions}
+                          onChange={(value) => setFilter({ projectId: value })}
+                        />
+                      </div>
+                      <div className={styles.filterField}>
+                        <span className={styles.filterLabel}>Sắp xếp theo</span>
+                        <Choice
+                          label="Sắp xếp"
+                          selectOnly
+                          value={ui.sort}
+                          options={SORT_OPTIONS}
+                          onChange={(value) => setSort((value || 'due') as MyWorkSortKey)}
+                        />
+                      </div>
+                    </div>
+                    <div className={styles.reqPanelFoot}>
+                      {hasFilter || ui.sort !== 'due' ? (
+                        <button type="button" className={styles.linkButton} onClick={clearFilter}>
+                          Xoá lọc
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <span className={styles.reqCount}>
+                {!overview
+                  ? 'Đang tải…'
+                  : `${groups.length} dự án · ${totalItems} việc${
+                      standalone && standalone.total > 0 ? ` · ${standalone.total} việc ngoài dự án` : ''
+                    }`}
+              </span>
+            </div>
+          </header>
 
-      <div className={styles.chipBar} role="group" aria-label="Bộ lọc và sắp xếp công việc">
-        <ChipSelect
-          variant="filter"
-          label="Sắp xếp"
-          prefix="Sắp xếp"
-          lead={<ArrowUpDown size={13} aria-hidden />}
-          value={sortKey}
-          options={SORT_OPTIONS}
-          maxWidth={260}
-          onChange={(value) => setSortKey((value || 'due') as MyWorkSort)}
-        />
-        <ChipSelect
-          variant="filter"
-          label="Trạng thái"
-          prefix="Trạng thái"
-          emptyLabel="Tất cả"
-          value={statusFilter}
-          options={statusOptions}
-          maxWidth={240}
-          onChange={setStatusFilter}
-        />
-        <ChipSelect
-          variant="filter"
-          label="Ưu tiên"
-          prefix="Ưu tiên"
-          emptyLabel="Tất cả"
-          value={priorityFilter}
-          options={priorityOptions}
-          maxWidth={240}
-          onChange={setPriorityFilter}
-        />
-        <ChipSelect
-          variant="filter"
-          label="Dự án"
-          prefix="Dự án"
-          emptyLabel="Tất cả"
-          value={projectFilter}
-          options={projectOptions}
-          maxWidth={260}
-          onChange={setProjectFilter}
-        />
-        {hasFilter ? (
-          <button
-            type="button"
-            className={styles.textButton}
-            onClick={() => {
-              setStatusFilter('');
-              setPriorityFilter('');
-              setProjectFilter('');
-            }}
-          >
-            Xoá lọc
-          </button>
+          {overviewError && !overview ? (
+            <p role="alert" className={styles.alert}>
+              {overviewError}{' '}
+              <button type="button" className={styles.linkButton} onClick={() => void overviewQuery.refetch()}>
+                Thử lại
+              </button>
+            </p>
+          ) : null}
+
+          <div className={styles.ledgerScroll}>
+            <table className={`${styles.table} ${styles.ledgerTable}`}>
+              <thead>
+                <tr>
+                  <th>Công việc</th>
+                  <th>Dự án / Người giao</th>
+                  <th>Ưu tiên</th>
+                  <th>Trạng thái</th>
+                  <th>Hạn</th>
+                  <th>Tiến độ</th>
+                </tr>
+              </thead>
+              {groups.map((group) => (
+                <ProjectGroupBody
+                  key={group.projectId}
+                  group={group}
+                  ui={ui}
+                  open={ui.expanded.includes(group.projectId)}
+                  onToggle={() => toggleGroup(group.projectId)}
+                  onOpen={onOpen}
+                  savingItem={savingItem}
+                  onStatus={onItemStatus}
+                  onPatch={(entry, patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
+                  onPage={(page) => setPage(group.projectId, page)}
+                  onPageSize={setPageSize}
+                />
+              ))}
+              {standalone && standalone.total > 0 ? (
+                <StandaloneBody
+                  total={standalone.total}
+                  counts={standalone.counts}
+                  ui={ui}
+                  open={ui.standaloneOpen}
+                  onToggle={toggleStandalone}
+                  onOpenTask={onOpenTask}
+                  savingItem={savingItem}
+                  assignerName={(entry) => directory.nameOf(entry.task.createdBy)}
+                  onStatus={onTaskStatus}
+                  onPatch={onTaskPatch}
+                  onPage={(page) => setPage(MY_WORK_STANDALONE_KEY, page)}
+                  onPageSize={setPageSize}
+                />
+              ) : null}
+            </table>
+            {overview && groups.length === 0 ? (
+              <p className={styles.emptyRow}>
+                {hasFilter
+                  ? 'Không có việc nào khớp bộ lọc.'
+                  : standalone && standalone.total > 0
+                    ? 'Bạn không có việc dự án nào đang mở.'
+                    : 'Bạn không có việc nào đang mở.'}
+              </p>
+            ) : null}
+            {!overview && !overviewError ? <p className={styles.emptyRow}>Đang tải…</p> : null}
+          </div>
+        </div>
+
+        {sideOpen ? (
+          <Tooltip content="Kéo để đổi độ rộng. Bấm đúp để về mặc định." side="left">
+            <div
+              className={styles.myWorkSideHandle}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Kéo để đổi độ rộng cột nhắc tên"
+              aria-valuenow={sideWidth}
+              aria-valuemin={SIDE_MIN_PX}
+              aria-valuemax={SIDE_MAX_PX}
+              tabIndex={0}
+              onPointerDown={onSideHandleDown}
+              onPointerMove={onSideHandleMove}
+              onPointerUp={onSideHandleUp}
+              onPointerCancel={onSideHandleUp}
+              onKeyDown={onSideHandleKey}
+              onDoubleClick={resetSideWidth}
+            />
+          </Tooltip>
         ) : null}
-      </div>
 
-      <section className={styles.tableCard}>
-        <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Công việc</th>
-                <th>Dự án</th>
-                <th>Ưu tiên</th>
-                <th>Trạng thái</th>
-                <th>Hạn</th>
-                <th>Tiến độ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projectGroups.map((group) => {
-                const collapsed = !expandedProjects.has(group.projectId);
-                const countOf = (test: (entry: MyWorkItem) => boolean) => group.rows.filter(test).length;
-                const counts = {
-                  overdue: countOf((entry) => entry.bucket === 'overdue'),
-                  notStarted: countOf((entry) => entry.item.status === 'todo'),
-                  active: countOf((entry) => ['in_progress', 'blocked', 'review'].includes(entry.item.status)),
-                  finished: countOf((entry) => entry.item.status === 'done'),
-                };
-                return (
-                  <Fragment key={group.projectId}>
-                    <tr className={styles.groupRow}>
-                      <th colSpan={6} scope="colgroup">
+        {sideOpen ? (
+        <aside className={styles.myWorkSide} aria-label="Nhắc tên và việc từ module khác">
+          <div className={styles.myWorkSideCard}>
+            <Tooltip content="Ẩn cột này">
+              <button type="button" className={styles.myWorkSideClose} aria-label="Ẩn cột nhắc tên" onClick={toggleSide}>
+                <X size={14} aria-hidden />
+              </button>
+            </Tooltip>
+            <section className={styles.myWorkSideSection} aria-label="Có người nhắc bạn">
+              <h3 className={styles.myWorkSideTitle}>
+                <AtSign size={14} aria-hidden /> Có người nhắc bạn
+                {mentions.length > 0 ? <span className={styles.countPill}>{mentions.length}</span> : null}
+              </h3>
+              {mentions.length > 0 ? (
+                <ul className={styles.myWorkSideList}>
+                  {mentions.map((mention) => (
+                    <li key={mention.messageId}>
+                      <Tooltip content="Mở luồng trao đổi">
                         <button
                           type="button"
-                          className={styles.groupToggle}
-                          aria-expanded={!collapsed}
-                          onClick={() => toggleProject(group.projectId)}
+                          className={styles.mentionItem}
+                          onClick={() =>
+                            onOpen?.(mention.projectId, `chat/${mention.entityType}/${mention.entityId}`)
+                          }
                         >
-                          {collapsed ? (
-                            <ChevronRight size={14} aria-hidden />
-                          ) : (
-                            <ChevronDown size={14} aria-hidden />
-                          )}
-                          <span className={styles.treeCode}>{group.projectCode}</span>
-                          {group.projectName}
+                          <span className={styles.mentionMeta}>
+                            {directory.nameOf(mention.createdBy)} · {formatDateTime(mention.createdAt)}
+                          </span>
+                          {/* Chuỗi dài không có khoảng trắng vẫn bị cắt trong 2 dòng, không tràn ra ngoài thẻ. */}
+                          <span className={styles.mentionExcerpt}>{mention.excerpt}</span>
                         </button>
-                        <GroupCounts counts={counts} unit="việc" />
-                      </th>
-                    </tr>
-                    {collapsed
-                      ? null
-                      : group.rows.map((entry) => (
-                          <MyWorkRow
-                            key={entry.item.id}
-                            entry={entry}
-                            busy={savingItem === entry.item.id}
-                            onOpen={onOpen}
-                            onStatus={(next) =>
-                              next === 'done'
-                                ? setCompleting(entry.item)
-                                : void changeStatus(entry.item, next)
-                            }
-                            onPatch={(patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
-                          />
-                        ))}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {summary && items.length === 0 ? (
-          <p className={styles.emptyRow}>
-            {hasFilter
-              ? 'Không có việc nào khớp bộ lọc.'
-              : summary.standaloneTasks.length > 0
-                ? 'Bạn không có việc dự án nào đang mở.'
-                : 'Bạn không có việc nào đang mở.'}
-          </p>
-        ) : null}
-      </section>
-
-      {standaloneRows.length ? (
-        <section className={styles.tableCard} aria-label="Công việc khác">
-          <div className={styles.cardHead}>
-            <button
-              type="button"
-              className={styles.groupToggle}
-              aria-expanded={standaloneOpen}
-              onClick={() => setStandaloneOpen((open) => !open)}
-            >
-              {standaloneOpen ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-              <ClipboardList size={14} aria-hidden /> Công việc khác
-            </button>
-            <span className={styles.countPill}>{standaloneRows.length}</span>
-          </div>
-          {standaloneOpen ? (
-            <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Công việc</th>
-                    <th>Người giao</th>
-                    <th>Ưu tiên</th>
-                    <th>Trạng thái</th>
-                    <th>Hạn</th>
-                    <th>Tiến độ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {standaloneRows.map((entry) => (
-                    <StandaloneTaskRow
-                      key={entry.task.id}
-                      entry={entry}
-                      busy={savingItem === entry.task.id}
-                      assignerName={directory.nameOf(entry.task.createdBy)}
-                      onOpenTask={onOpenTask}
-                      onStatus={(next) =>
-                        void runTask(
-                          entry.task.id,
-                          () => api.changeStandaloneTaskStatus(entry.task.id, { status: next }),
-                          'Không đổi được trạng thái.',
-                          () => toastStatusChanged(entry.task.status, next, entry.task.code),
-                        )
-                      }
-                      onPatch={(patch, fallback) =>
-                        void runTask(
-                          entry.task.id,
-                          () => api.updateStandaloneTask(entry.task.id, patch),
-                          fallback,
-                        )
-                      }
-                    />
+                      </Tooltip>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+                </ul>
+              ) : (
+                <p className={styles.sideEmpty}>{overview ? 'Chưa ai nhắc tên bạn.' : 'Đang tải…'}</p>
+              )}
+            </section>
 
-      <div className={styles.twoColumns}>
-        <section className={styles.panel}>
-          <h3>
-            <AtSign size={14} /> Có người nhắc bạn
-          </h3>
-          {summary?.mentions.length ? (
-            <ul className={`${styles.memberList} ${styles.stackedList}`}>
-              {summary.mentions.map((mention) => (
-                <li key={mention.messageId}>
-                  <button
-                    type="button"
-                    className={styles.cellTitleButton}
-                    title="Mở luồng trao đổi"
-                    onClick={() =>
-                      onOpen?.(mention.projectId, `chat/${mention.entityType}/${mention.entityId}`)
-                    }
-                  >
-                    {mention.excerpt}
-                  </button>
-                  <span className={styles.memberRole}>
-                    {directory.nameOf(mention.createdBy)} · {formatDateTime(mention.createdAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={styles.muted}>Chưa ai nhắc tên bạn.</p>
-          )}
-        </section>
-
-        <section className={styles.panel}>
-          <h3>
-            <ExternalLink size={14} /> Từ module khác
-          </h3>
-          {summary?.externalCards.length ? (
-            <ul className={`${styles.memberList} ${styles.stackedList}`}>
-              {summary.externalCards.map((card) => (
-                <li key={card.id}>
-                  <span className={styles.memberName}>
-                    {/* Nhãn là bản sao để hiển thị nhanh, có thể cũ. Nguồn sự
-                        thật luôn là module gốc. */}
-                    <a href={card.launchUrl} target="_blank" rel="noopener noreferrer">
-                      {card.externalCode ?? card.cachedLabel ?? card.moduleKey}
-                    </a>{' '}
-                    — {card.workItemTitle}
-                  </span>
-                  <span className={styles.memberRole}>{card.cachedStatus ?? '—'}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={styles.muted}>Không có hồ sơ nào từ module khác.</p>
-          )}
-        </section>
+            <section className={styles.myWorkSideSection} aria-label="Từ module khác">
+              <h3 className={styles.myWorkSideTitle}>
+                <ExternalLink size={14} aria-hidden /> Từ module khác
+                {externalCards.length > 0 ? <span className={styles.countPill}>{externalCards.length}</span> : null}
+              </h3>
+              {externalCards.length > 0 ? (
+                <ul className={styles.myWorkSideList}>
+                  {externalCards.map((card) => (
+                    <li key={card.id} className={styles.externalItem}>
+                      <Tooltip content={`${card.externalCode ?? card.cachedLabel ?? card.moduleKey} — ${card.workItemTitle}`}>
+                      <span className={styles.externalText}>
+                        {/* Nhãn là bản sao để hiển thị nhanh, có thể cũ. Nguồn sự
+                            thật luôn là module gốc. */}
+                        <a
+                          className={styles.externalLink}
+                          href={card.launchUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {card.externalCode ?? card.cachedLabel ?? card.moduleKey}
+                        </a>{' '}
+                        — {card.workItemTitle}
+                      </span>
+                      </Tooltip>
+                      <span className={styles.externalStatus}>{card.cachedStatus ?? '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={styles.sideEmpty}>
+                  {overview ? 'Không có hồ sơ nào từ module khác.' : 'Đang tải…'}
+                </p>
+              )}
+            </section>
+          </div>
+        </aside>
+        ) : null}
       </div>
 
       {/* Dự án mới — người tạo tự thành chủ nhiệm nên luôn được nhập tài chính. */}
@@ -739,7 +890,7 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
               members: mergeNewProjectMembers(existing.items, members),
             });
           }
-          await reload();
+          invalidateMyWork();
           onOpen?.(created.id, `project/${created.id}`);
         }}
         // Tạo từ trang này không sửa dự án; onUpdate chỉ để thoả kiểu dữ liệu.
@@ -785,11 +936,14 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
             projectId: selectedProjectId,
             procedureDefinitionId,
           });
-          await reload();
+          invalidateMyWork();
         }}
         // Tạo từ trang này không sửa việc; onUpdate chỉ để thoả kiểu dữ liệu.
         onUpdate={async () => undefined}
       />
+
+      {/* Vướng mắc luôn qua hộp ghi lý do (việc dự án lẫn việc giao lẻ). */}
+      {blockedPrompt.dialog}
 
       {/* Hoàn thành luôn qua hộp xác nhận, kèm điều kiện hoàn thành nếu việc có đặt. */}
       <CompleteWorkItemDialog
@@ -801,10 +955,304 @@ export function MyWorkView({ onOpen, onOpenTask }: MyWorkViewProps = {}) {
           await api.changeWorkItemStatus(completing.id, { status: 'done', confirmedConditionIds });
           toast.success(statusToastText('complete', completing.code));
           setCompleting(undefined);
-          await reload();
+          invalidateMyWork();
         }}
       />
     </div>
+  );
+}
+
+/** Số trang của một nhóm từ tổng số việc và cỡ trang (tối thiểu 1). */
+const pagesOf = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));
+
+/** Hàng thông báo trong thân bảng (đang nạp, lỗi) trải hết các cột. */
+function NoteRow({ children }: { children: ReactNode }) {
+  return (
+    <tr>
+      <td colSpan={TABLE_COLUMNS} className={styles.myWorkNote}>
+        {children}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Hàng điều khiển cuối các dòng của một nhóm: chọn cỡ trang (dùng chung cho cả trang) và chuyển trang. Nhóm chỉ vài
+ * việc (không hơn cỡ trang nhỏ nhất) thì không cần hàng này.
+ */
+function PageBar({
+  total,
+  page,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number;
+  page: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
+}) {
+  if (total <= MY_WORK_PAGE_SIZES[0]) return null;
+  const pages = pagesOf(total, pageSize);
+  return (
+    <tr className={styles.myWorkPagerRow}>
+      <td colSpan={TABLE_COLUMNS}>
+        <div className={styles.myWorkPagerBar}>
+          <span className={styles.myWorkPageSize}>
+            Mỗi trang
+            <span className={styles.myWorkPageSizeBox}>
+              <Choice
+                label="Số việc mỗi trang"
+                selectOnly
+                height={28}
+                value={String(pageSize)}
+                options={PAGE_SIZE_OPTIONS}
+                onChange={(value) => onPageSize(Number(value) || pageSize)}
+              />
+            </span>
+          </span>
+          {pages > 1 ? (
+            <Pager page={Math.min(page, pages)} pages={pages} total={total} pageSize={pageSize} onPage={onPage} />
+          ) : (
+            <span className={styles.muted}>{total} việc</span>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Một nhóm dự án: hàng tóm tắt (luôn có, lấy từ overview, tính trên MỌI việc khớp bộ lọc) rồi, khi nhóm đang mở, MỘT
+ * trang dòng việc của nhóm (nạp riêng, nhớ lại theo trang) và hàng chuyển trang. Mỗi nhóm một `<tbody>` để làm mờ dòng cũ
+ * trong lúc nạp trang khác mà không đụng hàng tóm tắt.
+ */
+function ProjectGroupBody({
+  group,
+  ui,
+  open,
+  onToggle,
+  onOpen,
+  savingItem,
+  onStatus,
+  onPatch,
+  onPage,
+  onPageSize,
+}: {
+  group: MyWorkGroupSummary;
+  ui: MyWorkUiState;
+  open: boolean;
+  onToggle: () => void;
+  onOpen?: MyWorkViewProps['onOpen'];
+  savingItem?: string;
+  onStatus: (entry: MyWorkItem, next: WorkItemStatus) => void;
+  onPatch: (entry: MyWorkItem, patch: UpdateWorkItemRequest, fallback: string) => void;
+  onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
+}) {
+  const page = ui.pages[group.projectId] ?? 1;
+  const query = useMyWorkGroupItemsQuery(
+    {
+      projectId: group.projectId,
+      status: (ui.status || undefined) as WorkItemStatus | undefined,
+      priority: (ui.priority || undefined) as WorkItemPriority | undefined,
+      sort: ui.sort,
+      page,
+      pageSize: ui.pageSize,
+    },
+    { skip: !open },
+  );
+  // `data` còn bản của trang trước trong lúc nạp trang mới: giữ dòng cũ (mờ đi) để bố cục không nhảy.
+  const data = query.data;
+  const total = data?.total ?? group.total;
+  const pages = pagesOf(total, ui.pageSize);
+
+  // Việc rời nhóm (xong, đổi hạn…) làm trang đang xem vượt quá số trang: lùi về trang cuối.
+  useEffect(() => {
+    if (open && data && !query.isFetching && page > pages) onPage(pages);
+  }, [open, data, query.isFetching, page, pages, onPage]);
+
+  const { counts } = group;
+  return (
+    <tbody className={query.isFetching && data ? styles.myWorkDim : undefined} aria-busy={query.isFetching}>
+      <tr className={styles.groupRow}>
+        <th scope="row">
+          <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
+            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+            <span className={styles.treeCode}>{group.projectCode}</span>
+            {group.projectName}
+          </button>
+        </th>
+        <td>
+          {onOpen ? (
+            <button
+              type="button"
+              className={styles.groupOpenButton}
+              aria-label={`Mở dự án ${group.projectName}`}
+              onClick={() => onOpen(group.projectId, `project/${group.projectId}`)}
+            >
+              <ExternalLink size={13} aria-hidden />
+              Mở dự án
+            </button>
+          ) : null}
+        </td>
+        <td>
+          {group.topPriority ? (
+            <span className={styles.groupSummaryText}>
+              <PriorityIcon priority={group.topPriority} />
+              {priorityLabel(group.topPriority)}
+              {group.topPriorityCount > 1 ? (
+                <span className={styles.groupSummaryMuted}>×{group.topPriorityCount}</span>
+              ) : null}
+            </span>
+          ) : (
+            <span className={styles.groupSummaryMuted}>—</span>
+          )}
+        </td>
+        <td>
+          <GroupCounts counts={counts} unit="việc" />
+        </td>
+        <td>
+          {counts.overdue > 0 ? (
+            <span className={styles.groupOverdue}>Quá hạn {counts.overdue}</span>
+          ) : group.nextDue ? (
+            <span className={styles.groupSummaryText}>{formatDate(group.nextDue)}</span>
+          ) : (
+            <span className={styles.groupSummaryMuted}>—</span>
+          )}
+        </td>
+        <td>
+          <Tooltip content={`Tiến độ trung bình của ${group.total} việc`}>
+            <span className={styles.progressCell}>
+              <span className={styles.progressTrack} aria-label={`Tiến độ trung bình ${group.progress}%`}>
+                <span className={styles.progressFill} style={{ width: `${group.progress}%` }} />
+              </span>
+              <b>{group.progress}%</b>
+            </span>
+          </Tooltip>
+        </td>
+      </tr>
+      {open && !data && !query.isError ? <NoteRow>Đang tải…</NoteRow> : null}
+      {open && query.isError ? (
+        <NoteRow>
+          <span className={styles.groupOverdue}>
+            {(query.error as MyWorkError | undefined)?.message ?? 'Không tải được công việc của dự án.'}
+          </span>{' '}
+          <button type="button" className={styles.linkButton} onClick={() => void query.refetch()}>
+            Thử lại
+          </button>
+        </NoteRow>
+      ) : null}
+      {open && data
+        ? data.items.map((entry) => (
+            <MyWorkRow
+              key={entry.item.id}
+              entry={entry}
+              busy={savingItem === entry.item.id}
+              onOpen={onOpen}
+              onStatus={(next) => onStatus(entry, next)}
+              onPatch={(patch, fallback) => onPatch(entry, patch, fallback)}
+            />
+          ))
+        : null}
+      {open && data ? (
+        <PageBar total={total} page={page} pageSize={ui.pageSize} onPage={onPage} onPageSize={onPageSize} />
+      ) : null}
+    </tbody>
+  );
+}
+
+/** Khối "Công việc khác" (việc ngoài dự án): một nhóm cuối bảng, cùng cách mở và phân trang như nhóm dự án. */
+function StandaloneBody({
+  total,
+  counts,
+  ui,
+  open,
+  onToggle,
+  onOpenTask,
+  savingItem,
+  assignerName,
+  onStatus,
+  onPatch,
+  onPage,
+  onPageSize,
+}: {
+  total: number;
+  counts: MyWorkGroupCounts;
+  ui: MyWorkUiState;
+  open: boolean;
+  onToggle: () => void;
+  onOpenTask?: (taskId: string) => void;
+  savingItem?: string;
+  assignerName: (entry: MyWorkStandaloneTask) => string;
+  onStatus: (entry: MyWorkStandaloneTask, next: WorkItemStatus) => void;
+  onPatch: (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) => void;
+  onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
+}) {
+  const page = ui.pages[MY_WORK_STANDALONE_KEY] ?? 1;
+  const query = useMyWorkStandaloneQuery({ sort: ui.sort, page, pageSize: ui.pageSize }, { skip: !open });
+  const data = query.data;
+  const shownTotal = data?.total ?? total;
+  const pages = pagesOf(shownTotal, ui.pageSize);
+
+  useEffect(() => {
+    if (open && data && !query.isFetching && page > pages) onPage(pages);
+  }, [open, data, query.isFetching, page, pages, onPage]);
+
+  return (
+    <tbody
+      aria-label="Công việc khác"
+      className={query.isFetching && data ? styles.myWorkDim : undefined}
+      aria-busy={query.isFetching}
+    >
+      <tr className={styles.groupRow}>
+        <th scope="row">
+          <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
+            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+            <ClipboardList size={14} aria-hidden /> Công việc khác
+            <span className={styles.groupSummaryMuted}>· {total} việc</span>
+          </button>
+        </th>
+        <td />
+        <td />
+        <td>
+          <GroupCounts counts={counts} unit="việc" />
+        </td>
+        <td>
+          {counts.overdue > 0 ? <span className={styles.groupOverdue}>Quá hạn {counts.overdue}</span> : null}
+        </td>
+        <td />
+      </tr>
+      {open && !data && !query.isError ? <NoteRow>Đang tải…</NoteRow> : null}
+      {open && query.isError ? (
+        <NoteRow>
+          <span className={styles.groupOverdue}>
+            {(query.error as MyWorkError | undefined)?.message ?? 'Không tải được công việc ngoài dự án.'}
+          </span>{' '}
+          <button type="button" className={styles.linkButton} onClick={() => void query.refetch()}>
+            Thử lại
+          </button>
+        </NoteRow>
+      ) : null}
+      {open && data
+        ? data.items.map((entry) => (
+            <StandaloneTaskRow
+              key={entry.task.id}
+              entry={entry}
+              busy={savingItem === entry.task.id}
+              assignerName={assignerName(entry)}
+              onOpenTask={onOpenTask}
+              onStatus={(next) => onStatus(entry, next)}
+              onPatch={(patch, fallback) => onPatch(entry, patch, fallback)}
+            />
+          ))
+        : null}
+      {open && data ? (
+        <PageBar total={shownTotal} page={page} pageSize={ui.pageSize} onPage={onPage} onPageSize={onPageSize} />
+      ) : null}
+    </tbody>
   );
 }
 
@@ -859,8 +1307,10 @@ function MyWorkRow({
           {item.title}
         </button>
       </td>
-      <td className={styles.cellSub} title={entry.projectName}>
-        {entry.projectCode}
+      <td className={styles.cellSub}>
+        <Tooltip content={entry.projectName}>
+          <span>{entry.projectCode}</span>
+        </Tooltip>
       </td>
       <td className={styles.inlineCell}>
         <ChipSelect
@@ -879,14 +1329,17 @@ function MyWorkRow({
         {item.reversal ? (
           <ChipButton tone={workItemStatusTone(item)}>{workItemStatusLabel(item)}</ChipButton>
         ) : (
-          <ChipSelect
-            label={`Trạng thái của ${item.code}`}
-            value={item.status}
-            options={statusOptions}
-            dot
-            disabled={locked}
-            onChange={(status) => onStatus(status as WorkItemStatus)}
-          />
+          <span className={styles.blockedCell}>
+            <ChipSelect
+              label={`Trạng thái của ${item.code}`}
+              value={item.status}
+              options={statusOptions}
+              dot
+              disabled={locked}
+              onChange={(status) => onStatus(status as WorkItemStatus)}
+            />
+            {item.status === 'blocked' ? <BlockedReasonMark reason={item.blockedReason} /> : null}
+          </span>
         )}
       </td>
       <td className={styles.inlineCell}>
@@ -997,21 +1450,24 @@ function StandaloneTaskRow({
         )}
       </td>
       <td className={styles.inlineCell}>
-        {statusOptions.length > 1 ? (
-          <ChipSelect
-            label={`Trạng thái của ${task.code}`}
-            value={task.status}
-            options={statusOptions}
-            dot
-            disabled={busy}
-            onChange={(next) => onStatus(next as WorkItemStatus)}
-          />
-        ) : (
-          <ChipButton tone={WORK_ITEM_STATUS_TONE[task.status]}>
-            <span className={styles.chipDot} />
-            {WORK_ITEM_STATUS_LABELS[task.status]}
-          </ChipButton>
-        )}
+        <span className={styles.blockedCell}>
+          {statusOptions.length > 1 ? (
+            <ChipSelect
+              label={`Trạng thái của ${task.code}`}
+              value={task.status}
+              options={statusOptions}
+              dot
+              disabled={busy}
+              onChange={(next) => onStatus(next as WorkItemStatus)}
+            />
+          ) : (
+            <ChipButton tone={WORK_ITEM_STATUS_TONE[task.status]}>
+              <span className={styles.chipDot} />
+              {WORK_ITEM_STATUS_LABELS[task.status]}
+            </ChipButton>
+          )}
+          {task.status === 'blocked' && !task.reversal ? <BlockedReasonMark reason={task.blockedReason} /> : null}
+        </span>
       </td>
       <td className={styles.inlineCell}>
         {isAssigner && open ? (

@@ -31,7 +31,7 @@
   --ep-radius-xl: 14px;
   --ep-shadow-pop: 0 10px 30px rgb(0 0 0 / 18%);
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
-  --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
+  --ep-font: var(--font-sans, -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif);
 }
 
 @mixin focus-ring {
@@ -898,6 +898,62 @@
   }
 }
 
+/* Hàng nhóm dự án ở bảng "Công việc của tôi" là hàng tóm tắt: các ô dữ liệu cũng nền nhạt như ô tên nhóm. */
+.groupRow td {
+  height: 40px;
+  background: var(--ep-surface-soft);
+  border-top: 1px solid var(--ep-border);
+  font-size: 13px;
+
+  .groupCounts {
+    margin-left: 0;
+  }
+}
+
+.groupSummaryText {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+
+.groupSummaryMuted {
+  color: var(--ep-text-muted);
+  font-weight: 500;
+}
+
+.groupOverdue {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+/* Nút mở thẳng dự án ngay trên hàng nhóm (bấm tên nhóm vẫn chỉ thu/mở nhóm). */
+.groupOpenButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-link);
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
 .rowSelected td {
   background: var(--ep-accent-soft) !important;
 }
@@ -1005,25 +1061,75 @@
   gap: 12px;
 }
 
+/* Chỗ cho công tắc cách xem và thanh lọc của Trao đổi, bên phải hàng tab; thiếu chỗ thì tự xuống dòng. */
+.tabRowTools {
+  display: flex;
+  /* Một hàng, co được: ô tìm nhường chỗ trước. Chỉ khi còn hẹp hơn mức tối thiểu này cả cụm mới xuống dòng dưới tab. */
+  flex: 1 1 480px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 480px;
+
+  /*
+   * Công tắc cách xem LUÔN đứng đầu cụm, sát nút "Trao đổi công việc", ở cả hai chế độ; thanh lọc (chỉ có ở "Thời gian")
+   * nằm bên phải nó và dồn về mép phải, nên công tắc không đổi chỗ khi chuyển chế độ.
+   */
+  .tabBodyModeSwitch {
+    flex: none;
+    margin: 0;
+  }
+
+  /* Trên hàng tab chỗ rất chật: bỏ chữ "Theo", còn "Công việc | Thời gian" (tên đầy đủ vẫn nằm trong nút cho trình đọc). */
+  .segmentPrefix {
+    display: none;
+  }
+
+  .segment::first-letter,
+  .segmentActive::first-letter {
+    text-transform: uppercase;
+  }
+}
+
+/*
+ * Nút "Trao đổi công việc" bên cạnh hàng tab. Hai trạng thái dùng CHUNG một khung và cùng kiểu rê chuột (viền accent đậm lên):
+ * chưa chọn thì nền trắng và rê chuột nhuộm accent nhạt; đang chọn thì nền accent và rê chuột đậm thêm một bậc. Trước đây
+ * rê chuột vào nút đang chọn làm mất nền accent vì dùng chung nền xám của nút chưa chọn.
+ */
 .tabSide,
 .tabSideActive {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 46px;
-  padding: 0 16px;
-  border: 1px solid var(--ep-border);
+  padding: 0 18px;
+  border: 1px solid var(--ep-border-strong);
   border-radius: var(--ep-radius-md);
   background: var(--ep-surface);
-  color: #374151;
+  color: var(--ep-text);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  svg {
+    flex: none;
+    color: var(--ep-accent-text);
+  }
 
   &:hover {
-    background: var(--ep-hover);
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-soft);
+  }
+
+  &:active {
+    box-shadow: inset 0 1px 2px rgb(15 23 42 / 12%);
   }
 
   &:focus-visible {
@@ -1032,9 +1138,18 @@
 }
 
 .tabSideActive {
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--ep-accent), var(--ep-accent-strong));
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent);
   color: #1a1a1a;
+
+  svg {
+    color: inherit;
+  }
+
+  &:hover {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-strong);
+  }
 }
 
 /*
@@ -1044,9 +1159,11 @@
 .chatFeed {
   display: grid;
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-  height: calc(100vh - 230px);
-  min-height: 460px;
-  border: 1px solid var(--ep-border);
+  height: calc(100vh - 274px);
+  /* Chiều cao thật do useFillViewportHeight đặt; mức tối thiểu này chỉ để màn hình rất thấp thì trang cuộn. */
+  min-height: 320px;
+  border: 1px solid var(--ep-border-strong);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%), 0 8px 20px -10px rgb(15 23 42 / 14%);
   border-radius: var(--ep-radius-md);
   background: var(--ep-surface);
   overflow: hidden;
@@ -1061,6 +1178,7 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
+  padding-inline: 1px;
   border-right: 1px solid var(--ep-border);
 
   @media (max-width: 900px) {
@@ -1305,6 +1423,7 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  padding-inline: 1px;
 
   > .muted {
     padding: 16px;
@@ -1390,6 +1509,787 @@
   color: var(--ep-text-muted);
   font-size: 13px;
   font-style: italic;
+}
+
+/*
+ * Trao đổi theo thời gian: MỘT khung dài, tin của mọi công việc xếp chung theo giờ. Khung tự cuộn, không có thẻ
+ * nào chồng thẻ; mỗi tin mang chip công việc ở đầu mạch.
+ */
+.timelineFeed {
+  display: flex;
+  height: calc(100vh - 270px);
+  min-height: 320px;
+  flex-direction: column;
+  border: 1px solid var(--ep-border-strong);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%), 0 8px 20px -10px rgb(15 23 42 / 14%);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  overflow: hidden;
+}
+
+/*
+ * Thanh lọc: MỘT hàng cao cố định (không xuống dòng), nên bật tắt bộ lọc không làm giật bố cục. Phần còn lại của bộ
+ * lọc nằm trong bảng nổi `.timelinePanel` (không chiếm chỗ trong luồng).
+ */
+.timelineFilters {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ep-border);
+  box-sizing: border-box;
+
+  .searchField {
+    flex: 1 1 140px;
+  }
+
+  .searchField input[type='search'] {
+    height: 36px;
+    box-sizing: border-box;
+  }
+}
+
+.timelineToggle,
+.timelineToggleOn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-border-strong);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.timelineToggleOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+
+  &:hover {
+    border-color: var(--ep-accent-strong);
+  }
+}
+
+/* Nút xoá luôn có mặt, mờ đi khi chưa lọc gì: bật bộ lọc không làm hàng đổi chỗ. */
+.timelineFilterClear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ep-border-strong);
+    color: var(--ep-text);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.timelinePanelBox {
+  position: relative;
+  flex: none;
+}
+
+/* Bảng bộ lọc: nổi trên hai cột, canh phải theo nút "Bộ lọc". */
+.timelinePanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 14%), 0 8px 10px -6px rgb(15 23 42 / 8%);
+}
+
+.timelinePanelField {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+
+  > span {
+    color: var(--ep-text-sub);
+    font-size: 12px;
+    font-weight: 600;
+  }
+}
+
+/* Ô chọn ngày kiểu shadcn "Date Picker": nút như ô nhập, bấm mở lịch nổi. */
+.datePickBox {
+  position: relative;
+}
+
+.datePickTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  svg {
+    flex: none;
+    color: var(--ep-text-muted);
+  }
+
+  &:hover {
+    border-color: var(--ep-text-muted);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.datePickPlaceholder {
+  color: var(--ep-text-muted);
+}
+
+.datePickPopover {
+  z-index: 60;
+  width: 288px;
+  padding: 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 14%), 0 8px 10px -6px rgb(15 23 42 / 8%);
+}
+
+.datePickFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ep-border);
+}
+
+.datePickAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-link);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+/* Calendar (react-day-picker) theo dáng shadcn/ui: tiêu đề tháng giữa, mũi tên hai bên, ngày chọn nền accent. */
+.calRoot {
+  position: relative;
+  font-size: 13px;
+}
+
+.calMonths {
+  display: flex;
+}
+
+.calMonth {
+  width: 100%;
+}
+
+.calCaption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  margin-bottom: 4px;
+}
+
+.calCaptionLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.calNav {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  height: 32px;
+  pointer-events: none;
+}
+
+.calNavButton {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  pointer-events: auto;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.calGrid {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.calWeekday {
+  width: 36px;
+  height: 28px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.calDay {
+  padding: 1px 0;
+  text-align: center;
+}
+
+.calDayButton {
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.calToday .calDayButton {
+  background: var(--ep-hover);
+  font-weight: 700;
+}
+
+.calSelected .calDayButton {
+  background: var(--ep-accent-strong);
+  color: #1a1a1a;
+  font-weight: 700;
+}
+
+.calOutside .calDayButton {
+  color: var(--ep-text-muted);
+  opacity: 0.6;
+}
+
+.calDisabled .calDayButton {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.calHidden {
+  visibility: hidden;
+}
+
+.timelinePanelDates {
+  display: flex;
+  gap: 10px;
+}
+
+.timelinePanelCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ep-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Chỗ khớp từ khoá tìm kiếm trong nội dung tin. */
+.timelineMark {
+  border-radius: 3px;
+  background: var(--ep-accent-soft);
+  color: inherit;
+}
+
+/* Thanh lọc đặt trên hàng tab: không viền, không cao cố định, dồn phải; "Nhắc tôi" chỉ còn biểu tượng. */
+.timelineFiltersSlot {
+  flex: 1 1 0;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+  justify-content: flex-end;
+
+  .searchField {
+    flex: 1 1 100px;
+    min-width: 100px;
+    max-width: 280px;
+  }
+
+  .timelineMentionLabel {
+    display: none;
+  }
+
+  .timelineToggle,
+  .timelineToggleOn {
+    min-width: 36px;
+    justify-content: center;
+  }
+}
+
+/* Hai cột: trái là tin của các công việc (rộng hơn vì có chip), phải là chat chung của dự án. */
+.timelineColumns {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  /* --timeline-left do component đặt khi kéo vạch giữa hai cột. */
+  grid-template-columns: minmax(0, var(--timeline-left, 60%)) minmax(0, 1fr);
+
+  @media (max-width: 900px) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.timelineColumn {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  /* 1px hai bên ngay trong cột: tiêu đề cột và vùng tin không dính sát viền khung hay đường chia. */
+  padding-inline: 1px;
+
+  & + & {
+    border-left: 1px solid var(--ep-border);
+
+    @media (max-width: 900px) {
+      border-top: 1px solid var(--ep-border);
+      border-left: 0;
+    }
+  }
+}
+
+/* Vạch kéo nằm đúng đường viền giữa hai cột, rộng 6px như vạch đổi độ rộng thanh bên. */
+.timelineResizeHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--timeline-left, 60%);
+  z-index: 5;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  touch-action: none;
+
+  &:hover,
+  &:active {
+    background: var(--ep-accent-glow);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  @media (max-width: 900px) {
+    display: none;
+  }
+}
+
+.timelineColumnHead {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.timelineComposer {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface);
+}
+
+.timelineMessages {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Vạch ngăn ngày: đường kẻ ngang, nhãn ngày nằm giữa. */
+.timelineDay {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+
+  &::before,
+  &::after {
+    flex: 1;
+    height: 1px;
+    background: var(--ep-border);
+    content: '';
+  }
+}
+
+.timelineMessage {
+  position: relative;
+  min-width: 0;
+}
+
+/* Nút "⋯" của tin: ẩn cho tới khi rê chuột (hoặc bàn phím) vào tin; màn hình cảm ứng không có hover nên luôn hiện. */
+.timelineMore {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--ep-border);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+
+  &:hover {
+    border-color: var(--ep-border-strong);
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
+  }
+}
+
+.timelineMessage:hover .timelineMore,
+.timelineMessage:focus-within .timelineMore,
+.timelineMore[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.timelineChip,
+.timelineChipStatic {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: 999px;
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* Mỗi công việc một màu nền nhạt: `--chip-hue` do component đặt theo công việc. */
+.timelineChip {
+  --chip-hue: 215;
+
+  border-color: hsl(var(--chip-hue) 55% 80%);
+  background: hsl(var(--chip-hue) 85% 94%);
+  color: hsl(var(--chip-hue) 45% 26%);
+  cursor: pointer;
+
+  .activityCode {
+    color: inherit;
+    font-weight: 700;
+  }
+
+  &:hover {
+    border-color: hsl(var(--chip-hue) 55% 55%);
+    background: hsl(var(--chip-hue) 85% 90%);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  .chatFeedPath {
+    margin: 0;
+  }
+}
+
+/* Dòng trích tin được trả lời, phía trên câu trả lời; bấm để đi tới tin gốc (khi là nút). */
+.timelineQuote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 3px;
+  padding: 0 0 0 8px;
+  border: 0;
+  border-left: 2px solid var(--ep-line);
+  background: transparent;
+  color: var(--ep-text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+
+  &:is(button) {
+    max-width: 100%;
+    cursor: pointer;
+
+    &:hover {
+      border-left-color: var(--ep-link);
+      color: var(--ep-link);
+    }
+
+    &:focus-visible {
+      @include focus-ring;
+    }
+  }
+
+  svg {
+    flex: none;
+  }
+}
+
+/* Tin gốc vừa được "đi tới": nền xám nhẹ nháy hai lần. Quầng quanh tin thay cho padding để không xô bố cục. */
+.timelineFlash {
+  border-radius: var(--ep-radius);
+  animation: timelineFlash 0.55s ease-in-out 2;
+}
+
+@keyframes timelineFlash {
+  0%,
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+
+  50% {
+    background: rgba(107, 114, 128, 0.18);
+    box-shadow: 0 0 0 6px rgba(107, 114, 128, 0.18);
+  }
+}
+
+/* Ô nhập và nút gửi / huỷ nằm chung một hàng; nút bám đáy ô khi ô cao lên. */
+.timelineReplyBox {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+
+  textarea {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--ep-border);
+    border-radius: var(--ep-radius);
+    background: var(--ep-surface);
+    color: var(--ep-text);
+    font-family: inherit;
+    font-size: 13px;
+    min-height: 36px;
+    box-sizing: border-box;
+    line-height: 18px;
+    resize: none;
+
+    &:focus-visible {
+      @include focus-ring;
+    }
+  }
+}
+
+.timelineReplyActions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+/* Nút đính kèm bên trái ô nhập: cao bằng ô nhập, chuyển nền nhấn khi đã chọn tệp hoặc đang mở bảng. */
+.timelineAttach,
+.timelineAttachOn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ep-border-strong);
+    color: var(--ep-text);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.timelineAttachOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+}
+
+/* Bảng đính kèm mở lên phía trên (ô soạn nằm sát đáy khung), canh trái theo nút. */
+.timelinePanelUp {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 300px;
+}
+
+/* Các tệp đã chọn xếp thành hàng, xuống dòng khi nhiều. */
+.timelineAttachedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+
+  .timelineAttached {
+    margin: 0;
+    max-width: 100%;
+  }
+}
+
+/* Tệp đã chọn, hiện ngay trên ô nhập kèm nút bỏ. */
+.timelineAttached {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  width: fit-content;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ep-text-muted);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--ep-line);
+      color: var(--ep-text);
+    }
+  }
+}
+
+.tabBodyModeSwitch {
+  margin-bottom: 10px;
 }
 
 .tab,
@@ -1980,13 +2880,57 @@
 
 /* --- Nhật ký hoạt động ------------------------------------------------ */
 
+/* Khung nhật ký ở tab Hoạt động: cao vừa phần còn lại của màn hình (useFillViewportHeight), chỉ phần thân cuộn. */
+.activityFrame {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+}
+
+.activityFrameHead {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--ep-border);
+
+  h3 {
+    margin: 0;
+    color: var(--ep-text);
+    font-size: 14px;
+    font-weight: 700;
+  }
+}
+
+.activityFrameCount {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activityScroll {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 18px 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 /* Lịch sử hoạt động: chia theo ngày, gộp các dòng liền nhau của cùng một việc. */
 .activity {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 6px;
   /* Tab rộng: giữ giờ ở gần nội dung, không trôi ra mép phải màn hình. */
-  max-width: 60rem;
+  max-width: 54rem;
 }
 
 .activityDay {
@@ -1995,8 +2939,14 @@
   gap: 8px;
 }
 
+/* Nhãn ngày dính ở đầu vùng cuộn để biết đang đọc ngày nào. */
 .activityDayLabel {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   margin: 0;
+  padding: 12px 0 4px;
+  background: var(--ep-surface);
   color: var(--ep-text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -2007,54 +2957,36 @@
 .activityList {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Trục dọc nối các khối trong ngày; chấm tròn nằm trên trục. */
+/* Mỗi khối (một công việc, hoặc dòng tạo dự án) là một thẻ nhỏ; chấm màu theo trạng thái nằm ở lề trái thẻ. */
 .activityBlock {
   position: relative;
-  padding: 0 0 14px 22px;
-
-  &::before {
-    position: absolute;
-    top: 14px;
-    bottom: -2px;
-    left: 4px;
-    width: 1px;
-    background: var(--ep-line);
-    content: '';
-  }
-
-  &:last-child {
-    padding-bottom: 0;
-
-    &::before {
-      display: none;
-    }
-  }
+  padding: 9px 14px 8px 34px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
 }
 
 .activityBlockLink {
-  margin: 0 -8px;
-  padding-right: 8px;
-  padding-left: 30px;
-  border-radius: var(--ep-radius-sm);
   cursor: pointer;
-
-  &::before {
-    left: 12px;
-  }
-
-  .activityDot {
-    left: 8px;
-  }
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
 
   &:hover,
   &:focus-visible {
+    border-color: var(--ep-border-strong);
     background: var(--ep-surface-soft);
     outline: none;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
   }
 
   &:hover .activityItem {
@@ -2064,10 +2996,10 @@
 
 .activityDot {
   position: absolute;
-  top: 5px;
-  left: 0;
-  width: 9px;
-  height: 9px;
+  top: 13px;
+  left: 14px;
+  width: 10px;
+  height: 10px;
   border: 2px solid var(--ep-surface);
   border-radius: 50%;
   box-shadow: 0 0 0 1px var(--ep-line);
@@ -2089,6 +3021,17 @@
   margin-right: 6px;
   color: var(--ep-text-muted);
   font-weight: 500;
+}
+
+/* Mã việc trong nhật ký hiện như một nhãn nhỏ. */
+.activityItem .activityCode {
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--ep-surface-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
 }
 
 .activityRow {
@@ -2941,17 +3884,53 @@
   font-weight: 700;
 }
 
+/* Khung lịch của tab Lịch: một thẻ, cao vừa phần còn lại của màn hình; chỉ phần lưới cuộn bên trong. */
+.calFrame {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+}
+
+.calHead {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.calNavGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
 .calendarGrid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
-  border: 1px solid var(--ep-border);
-  border-radius: var(--ep-radius-lg);
+  min-height: 100%;
   background: var(--ep-border);
-  overflow: hidden;
 }
 
 .calendarWeekday {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 8px;
   background: var(--ep-surface-soft);
   color: var(--ep-text-muted);
@@ -2965,9 +3944,13 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-height: 6rem;
+  min-width: 0;
   padding: 6px;
   background: var(--ep-surface);
+}
+
+.calendarCellWeekend {
+  background: #fcfcfd;
 }
 
 .calendarCellMuted {
@@ -2978,19 +3961,50 @@
   }
 }
 
+/* Hôm nay: số ngày nằm trong chấm vàng, ô nền vàng rất nhạt. */
 .calendarCellToday {
   background: rgb(255 201 10 / 7%);
 
   .calendarDayNumber {
-    color: var(--ep-accent-text);
+    background: var(--ep-accent-strong);
+    color: #1a1a1a;
   }
 }
 
 .calendarDayNumber {
+  display: inline-grid;
+  align-self: flex-start;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
   color: var(--ep-text-sub);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.calendarMore {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
 }
 
 .calendarEntry {
@@ -3029,10 +4043,7 @@
 
 /* Lưới giờ của chế độ tuần. */
 .weekScroll {
-  border: 1px solid var(--ep-border);
-  border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
-  overflow-x: auto;
 }
 
 .weekGrid {
@@ -3042,7 +4053,11 @@
 }
 
 .weekCorner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   border-bottom: 1px solid var(--ep-border);
+  background: var(--ep-surface);
 }
 
 .weekHead {
@@ -3054,6 +4069,10 @@
   padding: 8px 6px 6px;
   border-bottom: 1px solid var(--ep-border);
   border-left: 1px solid var(--ep-line);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ep-surface);
 }
 
 .weekHeadLabel {
@@ -3104,6 +4123,11 @@
   .weekHeadLabel b {
     color: var(--ep-accent-text);
   }
+}
+
+/* Tiêu đề cột dính trên: nền hôm nay phải đặc (lớp vàng nhạt phủ lên nền trắng) để không lộ lưới phía dưới khi cuộn. */
+.weekHead.weekToday {
+  background: linear-gradient(rgb(255 201 10 / 7%), rgb(255 201 10 / 7%)), var(--ep-surface);
 }
 
 .weekEvent {
@@ -3421,6 +4445,43 @@
   word-break: break-word;
 }
 
+/* Các tệp đính kèm của một tin: nhiều nhãn xuống dòng gọn gàng. */
+.chatAttachmentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+
+  .chatAttachment {
+    max-width: 100%;
+    margin: 0;
+
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+}
+
+.chatAttachmentRemove {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+}
+
 .chatAttachment {
   display: inline-flex;
   align-items: center;
@@ -3640,8 +4701,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 10px;
-  padding: 10px 14px;
+  gap: 6px 10px;
+  padding: 6px 12px;
   border: 1px solid rgb(217 171 0 / 35%);
   border-radius: var(--ep-radius-lg);
   background: rgb(255 201 10 / 10%);
@@ -4699,36 +5760,108 @@
   gap: 8px;
 }
 
+/*
+ * Thẻ dự án: lưới hai hàng, ba cột (logo | nội dung | góc phải). Hàng trên là tên, trạng thái và tiến độ / người / nút
+ * Thành viên; hàng dưới là các số liệu có biểu tượng và công tắc Dự án | Khách hàng. Cao đúng như nhau ở mọi tab.
+ */
 .projectHeader {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'avatar title aside'
+    'avatar facts switch';
   align-items: center;
-  gap: 14px 18px;
-  padding: 16px 20px;
+  gap: 8px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--ep-border);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+
+  @media (max-width: 900px) {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'avatar title'
+      'avatar aside'
+      'facts facts'
+      'switch switch';
+  }
 }
 
-.projectHeaderMain {
-  flex: 1;
-  min-width: 16rem;
+/* Nội dung mục Khách hàng của dự án: cao vừa phần còn lại (do useFillViewportHeight đặt), tự cuộn bên trong. */
+.areaPane {
+  min-height: 320px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.projectHeaderAvatar {
+  grid-area: avatar;
+  display: inline-flex;
+}
+
+.projectHeaderTitleRow {
+  grid-area: title;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
 }
 
 .projectHeaderTitle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: 19px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.projectHeaderFacts {
-  margin: 4px 0 0;
+.projectHeaderAside {
+  grid-area: aside;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Số liệu: một dòng chữ nhỏ, mỗi mục có biểu tượng; mã dự án đậm hơn để làm điểm nhận diện. */
+.projectFacts {
+  grid-area: facts;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 16px;
+  margin: 0;
+  padding: 0;
   color: var(--ep-text-sub);
-  font-size: 13px;
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.projectFact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+
+  svg {
+    flex: none;
+    color: var(--ep-text-muted);
+  }
+}
+
+.projectFactStrong {
+  color: var(--ep-text);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.projectHeaderSwitch {
+  grid-area: switch;
+  justify-self: end;
 }
 
 .pillCaps {
@@ -7499,6 +8632,30 @@ button.kpiCard {
   gap: 10px 18px;
 }
 
+/* Hàng tiêu đề của trang danh sách (Dự án, Khách hàng): cách thẻ danh sách một khoảng thoáng, nút thao tác bên phải. */
+.pageHeadSpaced {
+  gap: 10px 20px;
+  min-height: 48px;
+  margin-bottom: 16px;
+}
+
+/* Thẻ nhỏ gộp tiêu đề và công tắc khu vực: viền mảnh, bóng nhẹ, nổi lên khỏi nền trang. */
+.pageHeadCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 8px 6px 18px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%), 0 4px 12px -6px rgb(15 23 42 / 10%);
+
+  .pageTitle {
+    font-size: 18px;
+    line-height: 1.2;
+  }
+}
+
 .pageTitle {
   margin: 0;
   color: var(--ep-text);
@@ -7793,7 +8950,8 @@ button.kpiCard {
   }
 
   :global(.ant-picker) {
-    width: 124px;
+    /* Rộng thêm chỗ cho nút xoá ở mép phải (chỉ hiện khi rê chuột vào ô có ngày). */
+    width: 136px;
     padding: 0 10px;
     border-color: var(--ep-border);
     border-radius: 6px;
@@ -7804,12 +8962,21 @@ button.kpiCard {
     margin-inline-start: 0;
   }
 
+  /* Nút xoá hạn nằm ở mép phải, sau ngày: không đè lên biểu tượng lịch hay chữ như khi đặt bên trái. */
   :global(.ant-picker-clear) {
-    inset-inline-end: auto;
-    inset-inline-start: 8px;
+    inset-inline-end: 8px;
+    inset-inline-start: auto;
+    background: transparent;
+    color: var(--ep-text-muted);
+
+    &:hover {
+      color: var(--ep-text);
+    }
   }
 
   :global(.ant-picker) input {
+    /* Chừa chỗ cho nút xoá ở mép phải để nó không đè lên chữ ngày. */
+    padding-inline-end: 14px;
     font-size: 12.5px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
@@ -8711,4 +9878,1124 @@ button.kpiCard {
     border-radius: 50%;
     background: var(--ep-accent-strong);
   }
+}
+
+/* Tooltip kiểu shadcn/ui (xem components/tooltip.tsx): nền tối, chữ trắng nhỏ, mờ dần khi hiện và ẩn. */
+.tooltipPositioner {
+  z-index: 1100;
+}
+
+.tooltipPopup {
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  /* Nội dung nhiều dòng (nối bằng xuống dòng) giữ đúng ngắt dòng. */
+  white-space: pre-line;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 25%);
+  transition: opacity 0.15s ease;
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+  }
+}
+
+/* --- Tab Tài chính của dự án -------------------------------------------- */
+
+/* Một thẻ tổng quan: bốn chỉ số, thanh tiến độ thu tiền và số chờ duyệt. */
+.finSummary {
+  overflow: hidden;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+}
+
+.finKpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.finKpi {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 14px 18px;
+
+  & + & {
+    border-left: 1px solid var(--ep-border);
+  }
+}
+
+.finKpiLabel {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.finKpiValue {
+  color: var(--ep-text);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.finPositive {
+  color: #15803d;
+}
+
+.finNegative {
+  color: #b91c1c;
+}
+
+.finKpiSub {
+  overflow: hidden;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finKpiEdit {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-link);
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.finFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+  font-size: 12.5px;
+}
+
+.finFootLabel {
+  color: var(--ep-text-muted);
+  font-weight: 600;
+}
+
+.finCollect {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  max-width: 460px;
+}
+
+.finTrack {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ep-line);
+}
+
+.finFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #15803d;
+}
+
+.finPending {
+  color: var(--ep-text-sub);
+  font-variant-numeric: tabular-nums;
+
+  b {
+    font-weight: 600;
+  }
+}
+
+.finLegacy {
+  margin: 0;
+  padding: 8px 18px 10px;
+  border-top: 1px solid var(--ep-border);
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+/* Sổ chi tiết: một thẻ có công tắc "Theo công việc | Phiếu thu chi", cao vừa phần còn lại, cuộn bên trong. */
+.ledgerCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+}
+
+.ledgerHead {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 52px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg) var(--ep-radius-lg) 0 0;
+}
+
+/* Bảng lọc phiếu: các ô chỉ để bấm chọn (không gõ), rê chuột hiện bàn tay. */
+.finPanel {
+  width: 280px;
+
+  [data-choice],
+  [data-choice] * {
+    cursor: pointer;
+  }
+
+  [data-choice] input {
+    caret-color: transparent;
+    user-select: none;
+  }
+
+  .linkButton {
+    align-self: flex-start;
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  }
+}
+
+.finSwitch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: #eceef2;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ep-text-sub);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ep-text);
+    }
+
+    &:focus-visible {
+      @include focus-ring;
+    }
+  }
+}
+
+.finSwitch .finSwitchActive {
+  background: var(--ep-surface);
+  box-shadow:
+    0 1px 3px rgb(15 23 42 / 16%),
+    0 0 0 1px var(--ep-border-strong);
+  color: var(--ep-text);
+}
+
+.finSwitchCount {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ep-line);
+  color: var(--ep-text-sub);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.finFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledgerScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/* Bảng WBS tự bớt cột phụ theo bề ngang của khung chứa (xem .wbsTable @container). */
+.ledgerScroll:has(.wbsTable) {
+  container-type: inline-size;
+}
+
+/* Đầu bảng dính trên, dòng tổng dính dưới khi cuộn. */
+.ledgerTable {
+  margin: 0;
+  border: 0;
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--ep-surface-soft);
+  }
+
+  tfoot td {
+    position: sticky;
+    bottom: 0;
+    background: var(--ep-surface-soft);
+    border-top: 1px solid var(--ep-border);
+  }
+}
+
+.ledgerFoot {
+  flex: none;
+  padding: 8px 18px;
+  border-top: 1px solid var(--ep-border);
+  border-radius: 0 0 var(--ep-radius-lg) var(--ep-radius-lg);
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+@media (width <= 900px) {
+  .finKpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finKpi:nth-child(3) {
+    border-left: 0;
+  }
+
+  .finKpi:nth-child(n + 3) {
+    border-top: 1px solid var(--ep-border);
+  }
+}
+
+/* --- Ô chọn tệp (FilePicker) ------------------------------------------- */
+
+.filePicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filePickerDrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 84px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+
+  b {
+    color: var(--ep-link);
+    font-weight: 600;
+  }
+
+  &:hover:not([aria-disabled='true']),
+  &:focus-visible {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-soft);
+    outline: none;
+  }
+
+  &[aria-disabled='true'] {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.filePickerDropOver {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+}
+
+.filePickerText {
+  line-height: 1.4;
+}
+
+.filePickerIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--ep-surface);
+  box-shadow: 0 0 0 1px var(--ep-border);
+  color: var(--ep-text-sub);
+}
+
+.filePickerCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+}
+
+.filePickerMeta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    overflow: hidden;
+    color: var(--ep-text);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    overflow: hidden;
+    color: var(--ep-text-muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.filePickerRemove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.filePickerProblem {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12.5px;
+}
+
+/* --- Tab Đơn từ: bảng lọc nổi trong đầu thẻ ------------------------------ */
+
+.reqHeadLeft,
+.reqHeadRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.reqCount {
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bảng lọc canh trái theo nút "Bộ lọc" (đặt ở đầu thẻ), mở xuống dưới. */
+.timelinePanelLeft {
+  right: auto;
+  left: 0;
+}
+
+.reqPanel {
+  width: 440px;
+
+  [data-choice],
+  [data-choice] * {
+    cursor: pointer;
+  }
+
+  [data-choice] input {
+    caret-color: transparent;
+    user-select: none;
+  }
+}
+
+.reqPanelGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.reqPanelFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ep-border);
+
+  &:empty {
+    display: none;
+  }
+}
+
+/* Nhiều tệp trong FilePicker: vùng thả gọn lại khi đã có tệp, danh sách thẻ tệp bên dưới. */
+.filePickerDropCompact {
+  min-height: 52px;
+  padding: 8px 14px;
+
+  .filePickerIcon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.filePickerList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.filePickerCount {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+/* --- Vướng mắc: lý do người thực hiện đã ghi ------------------------------ */
+
+/* Khối nổi bật trong chi tiết công việc đang Vướng mắc. */
+.blockedNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #fecaca;
+  border-radius: var(--ep-radius-lg);
+  background: #fef2f2;
+  color: #7f1d1d;
+}
+
+.blockedNoticeIcon {
+  flex: none;
+  margin-top: 2px;
+  color: #dc2626;
+}
+
+.blockedNoticeBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.blockedNoticeLabel {
+  font-size: 12.5px;
+  color: #b91c1c;
+}
+
+.blockedNoticeText {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Chỉ báo nhỏ cạnh nhãn trạng thái: cao bằng chữ nên không đổi chiều cao hàng. */
+.blockedMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  border-radius: 50%;
+  color: #dc2626;
+  vertical-align: middle;
+  cursor: help;
+
+  &:focus-visible {
+    outline: 2px solid #dc2626;
+    outline-offset: 1px;
+  }
+}
+
+.blockedMarkEmpty {
+  color: #94a3b8;
+}
+
+.blockedTip {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Ô trạng thái có chip và chỉ báo cạnh nhau, không xuống dòng. */
+.blockedCell {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* Ô chỉ có chữ một dòng (khoảng thời gian…): không xuống dòng. */
+.nowrap {
+  white-space: nowrap;
+}
+
+/* Dòng dự án người dùng vừa quay về từ trang chi tiết: vạch vàng bên trái, nền nháy nhẹ rồi dịu đi. */
+.rowReturned td {
+  box-shadow: inset 0 0 0 9999px rgb(255 201 10 / 10%);
+  animation: rowReturnedFade 2.4s ease-out 1;
+}
+
+.rowReturned td:first-child {
+  box-shadow:
+    inset 3px 0 0 var(--ep-accent-strong),
+    inset 0 0 0 9999px rgb(255 201 10 / 10%);
+}
+
+@keyframes rowReturnedFade {
+  0% {
+    background-color: rgb(255 201 10 / 38%);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+.returnedBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-accent-text);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Neo cho Tooltip khi phần tử bên trong có thể bị vô hiệu (nút disabled không nhận chuột). */
+.tooltipAnchor {
+  display: inline-flex;
+}
+
+.procedureMenuList .tooltipAnchor {
+  display: flex;
+
+  > button {
+    flex: 1;
+  }
+}
+
+/* =========================================================================
+   CÔNG VIỆC CỦA TÔI THEO TRANG: đầu trang gọn, bảng cao vừa phần còn lại, cột phụ nhắc tên và việc từ module khác.
+   ========================================================================= */
+
+.myWorkHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+/* Thẻ đầu trang: tiêu đề và vài con số nhỏ cách nhau bằng đường mảnh. */
+.myWorkHeadCard {
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-height: 60px;
+  padding: 8px 10px 8px 22px;
+}
+
+/* Tiêu đề viết hoa: cỡ chữ nhỏ lại một chút cho cân với các ô số liệu bên cạnh. */
+.myWorkHeadCard .pageTitle {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.myWorkStats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* Mỗi số liệu là một ô tô màu nhạt: biểu tượng trong ô vuông đậm hơn, số lớn, nhãn nhỏ. Màu đặt bằng biến --stat-*. */
+.myWorkStat {
+  --stat-bg: #eff6ff;
+  --stat-icon-bg: #dbeafe;
+  --stat-fg: #1d4ed8;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 10px;
+  background: var(--stat-bg);
+  white-space: nowrap;
+
+  b {
+    color: var(--stat-fg);
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1;
+  }
+}
+
+.myWorkStatIcon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--stat-icon-bg);
+  color: var(--stat-fg);
+}
+
+.myWorkStatLabel {
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+}
+
+.myWorkStatOpen {
+  --stat-bg: #eff6ff;
+  --stat-icon-bg: #dbeafe;
+  --stat-fg: #1d4ed8;
+}
+
+.myWorkStatLate {
+  --stat-bg: #fef2f2;
+  --stat-icon-bg: #fee2e2;
+  --stat-fg: #b91c1c;
+}
+
+/* Không có việc quá hạn: ô trung tính, không gây chú ý. */
+.myWorkStatQuiet {
+  --stat-bg: #f4f5f7;
+  --stat-icon-bg: #e9ebef;
+  --stat-fg: #6b7280;
+}
+
+.myWorkStatDone {
+  --stat-bg: #f0fdf4;
+  --stat-icon-bg: #dcfce7;
+  --stat-fg: #15803d;
+}
+
+/* Bảng bên trái, cột phụ bên phải; chiều cao do thẻ bảng quyết định (useFillViewportHeight), cột phụ chỉ cuộn bên trong. */
+.myWorkMain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* Cột phụ đang mở: bảng | vạch kéo | cột phụ (độ rộng do biến --my-work-side, đặt từ giao diện). */
+.myWorkMainOpen {
+  grid-template-columns: minmax(0, 1fr) 14px var(--my-work-side, 340px);
+}
+
+/* Vạch kéo giữa bảng và cột phụ: vùng bấm rộng 14px, đường mảnh ở giữa, đổi màu khi rê hoặc kéo. */
+.myWorkSideHandle {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+
+  &::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 2px;
+    background: transparent;
+    content: '';
+    transition: background-color 0.12s ease;
+  }
+
+  &:hover::after,
+  &:active::after,
+  &:focus-visible::after {
+    background: var(--ep-accent-strong);
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.myWorkSideClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.myWorkSide {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.myWorkSideCard {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+  scrollbar-width: thin;
+}
+
+@media (max-width: 1099px) {
+  .myWorkMain,
+  .myWorkMainOpen {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .myWorkSideHandle {
+    display: none;
+  }
+
+  .myWorkSide {
+    position: static;
+  }
+
+  .myWorkSideCard {
+    position: static;
+    max-height: 420px;
+  }
+}
+
+.myWorkSideSection {
+  padding: 12px 14px;
+
+  & + & {
+    border-top: 1px solid var(--ep-border);
+  }
+}
+
+.myWorkSideTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Danh sách trong cột phụ. Không dùng `.mentionList` (kiểu gợi ý @ trong khung chat: nổi absolute phía trên ô nhập), nếu không
+   danh sách bị đẩy ra ngoài thẻ và biến mất. */
+.myWorkSideList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mentionItem {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: var(--ep-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.mentionMeta {
+  overflow: hidden;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nội dung nhắc: tối đa 2 dòng; chuỗi dài không có khoảng trắng vẫn bẻ ra và bị cắt, không tràn khỏi thẻ. */
+.mentionExcerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.externalItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.externalText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.externalLink {
+  color: var(--ep-link);
+}
+
+.externalStatus {
+  flex: none;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.sideEmpty {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+/* Hàng thông báo và hàng chuyển trang trong thân bảng. */
+.myWorkNote {
+  padding: 10px 14px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.myWorkPagerRow td {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--ep-border);
+  background: var(--ep-surface);
+}
+
+.myWorkPagerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  nav {
+    margin-top: 0;
+  }
+}
+
+.myWorkPageSize {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+
+  [data-choice],
+  [data-choice] * {
+    cursor: pointer;
+  }
+
+  [data-choice] input {
+    caret-color: transparent;
+    user-select: none;
+  }
+}
+
+.myWorkPageSizeBox {
+  width: 84px;
+}
+
+/* Đang nạp trang khác: dòng cũ mờ đi nhưng giữ chỗ, bố cục không nhảy. */
+.myWorkDim > tr:not(.groupRow):not(.myWorkPagerRow) {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+/* Ngăn báo cáo công tác: ô chọn tháng bên trái, nút xuất bên phải, cùng một hàng (không để trống một nửa hàng). */
+.reportToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.reportMonth {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 180px;
+}
+
+/* Bảng chọn tháng (MonthPickField): chọn năm bằng hai mũi tên, lưới 3 cột x 4 hàng cho 12 tháng. */
+.monthPopover {
+  z-index: 70;
+  width: 264px;
+  padding: 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 14%), 0 8px 10px -6px rgb(15 23 42 / 8%);
+}
+
+.monthHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+
+  strong {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.monthGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.monthCell {
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+  }
+
+  &:disabled {
+    color: var(--ep-text-muted);
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+/* Tháng hiện tại: viền; tháng đang chọn: nền nhấn. */
+.monthCellNow {
+  border-color: var(--ep-border-strong);
+}
+
+.monthCellOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  font-weight: 700;
 }
