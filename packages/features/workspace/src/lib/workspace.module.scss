@@ -10917,3 +10917,85 @@ button.kpiCard {
   opacity: 0.55;
   transition: opacity 0.15s;
 }
+
+/* Ngăn báo cáo công tác: ô chọn tháng bên trái, nút xuất bên phải, cùng một hàng (không để trống một nửa hàng). */
+.reportToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.reportMonth {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 180px;
+}
+
+/* Bảng chọn tháng (MonthPickField): chọn năm bằng hai mũi tên, lưới 3 cột x 4 hàng cho 12 tháng. */
+.monthPopover {
+  z-index: 70;
+  width: 264px;
+  padding: 10px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 14%), 0 8px 10px -6px rgb(15 23 42 / 8%);
+}
+
+.monthHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+
+  strong {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.monthGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.monthCell {
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--ep-hover);
+  }
+
+  &:disabled {
+    color: var(--ep-text-muted);
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+/* Tháng hiện tại: viền; tháng đang chọn: nền nhấn. */
+.monthCellNow {
+  border-color: var(--ep-border-strong);
+}
+
+.monthCellOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  font-weight: 700;
+}

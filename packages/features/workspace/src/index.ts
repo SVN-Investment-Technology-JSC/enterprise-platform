@@ -18,6 +18,7 @@ export * from './lib/mention.model';
 export * from './lib/components/document-panel';
 export * from './lib/components/my-work-view';
 export * from './lib/components/file-picker';
+export * from './lib/components/month-pick-field';
 export * from './lib/components/chat-attachments';
 export { resetMyWork } from './lib/my-work-store';
 export * from './lib/project-list-memory';

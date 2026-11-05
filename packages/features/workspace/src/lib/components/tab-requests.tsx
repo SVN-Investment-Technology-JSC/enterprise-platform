@@ -38,6 +38,7 @@ import { Dialog } from './dialog';
 import { ReverseProjectRequestDialog } from './reverse-project-request-dialog';
 import { initials } from './project-header';
 import { useDirectory } from './use-directory';
+import { MonthPickField } from './month-pick-field';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -652,6 +653,9 @@ export function TabRequests({
       </div>
 
       {selected ? (
+        <>
+        {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+        <div className={styles.drawerBackdrop} onClick={() => setSelected(undefined)} aria-hidden="true" />
         <aside className={styles.drawer} role="complementary" aria-label={`Đơn ${selected.code}`}>
           <header className={styles.drawerHead}>
             <div>
@@ -757,6 +761,7 @@ export function TabRequests({
             </div>
           </div>
         </aside>
+        </>
       ) : null}
 
       <ReverseProjectRequestDialog
@@ -1017,6 +1022,9 @@ function WorkdayReportDrawer({
   };
 
   return (
+    <>
+    {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside className={styles.drawer} role="complementary" aria-label="Báo cáo công tác">
       <header className={styles.drawerHead}>
         <div>
@@ -1028,15 +1036,15 @@ function WorkdayReportDrawer({
         </button>
       </header>
       <div className={styles.drawerBody}>
-        <div className={styles.requestToolbar}>
-          <label className={styles.filterField}>
-            <span>Tháng</span>
-            <input
-              type="month"
+        <div className={styles.reportToolbar}>
+          <div className={styles.reportMonth}>
+            <span className={styles.filterLabel}>Tháng báo cáo</span>
+            <MonthPickField
+              aria-label="Tháng báo cáo"
               value={month}
-              onChange={(event) => event.target.value && setMonth(event.target.value)}
+              onChange={(value) => value && setMonth(value)}
             />
-          </label>
+          </div>
           <button
             type="button"
             className={styles.buttonPrimary}
@@ -1080,5 +1088,6 @@ function WorkdayReportDrawer({
         </p>
       </div>
     </aside>
+    </>
   );
 }

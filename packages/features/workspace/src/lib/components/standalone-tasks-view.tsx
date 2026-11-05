@@ -1026,6 +1026,9 @@ function HistoryDrawer({
   }, [onClose]);
 
   return (
+    <>
+    {/* Lớp mờ phía sau ngăn kéo: bấm ra ngoài thì đóng (cùng kiểu ngăn Trao đổi). */}
+    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
     <aside className={styles.drawer} role="complementary" aria-label="Nhật ký công việc">
       <header className={styles.drawerHead}>
         <div>
@@ -1072,5 +1075,6 @@ function HistoryDrawer({
         )}
       </div>
     </aside>
+    </>
   );
 }
