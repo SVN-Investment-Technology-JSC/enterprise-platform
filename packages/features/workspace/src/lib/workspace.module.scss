@@ -8950,7 +8950,8 @@ button.kpiCard {
   }
 
   :global(.ant-picker) {
-    width: 124px;
+    /* Rộng thêm chỗ cho nút xoá ở mép phải (chỉ hiện khi rê chuột vào ô có ngày). */
+    width: 136px;
     padding: 0 10px;
     border-color: var(--ep-border);
     border-radius: 6px;
@@ -8961,12 +8962,21 @@ button.kpiCard {
     margin-inline-start: 0;
   }
 
+  /* Nút xoá hạn nằm ở mép phải, sau ngày: không đè lên biểu tượng lịch hay chữ như khi đặt bên trái. */
   :global(.ant-picker-clear) {
-    inset-inline-end: auto;
-    inset-inline-start: 8px;
+    inset-inline-end: 8px;
+    inset-inline-start: auto;
+    background: transparent;
+    color: var(--ep-text-muted);
+
+    &:hover {
+      color: var(--ep-text);
+    }
   }
 
   :global(.ant-picker) input {
+    /* Chừa chỗ cho nút xoá ở mép phải để nó không đè lên chữ ngày. */
+    padding-inline-end: 14px;
     font-size: 12.5px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
