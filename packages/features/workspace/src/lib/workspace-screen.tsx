@@ -477,9 +477,12 @@ export function WorkspaceScreen() {
           {/* Đầu khu vực Dự án: tiêu đề, hai tab "Dự án" / "Khách hàng", và chỗ trang danh sách đặt nút thao tác.
               Khi đang mở một dự án thì hàng này nhập vào thẻ dự án (công tắc nằm ở góc thẻ), khỏi tốn thêm một hàng. */}
           {inOpenProject ? null : (
-            <div className={styles.pageHead}>
-              <h1 className={styles.pageTitle}>{view === 'projects' ? 'Dự án' : 'Khách hàng'}</h1>
-              {areaSwitch}
+            <div className={`${styles.pageHead} ${styles.pageHeadSpaced}`}>
+              {/* Tiêu đề và công tắc khu vực gộp thành một thẻ nhỏ có bóng. */}
+              <div className={styles.pageHeadCard}>
+                <h1 className={styles.pageTitle}>{view === 'projects' ? 'Dự án' : 'Khách hàng'}</h1>
+                {areaSwitch}
+              </div>
               <div ref={setListActionsSlot} className={styles.pageHeadEnd} />
             </div>
           )}
@@ -501,6 +504,7 @@ export function WorkspaceScreen() {
                 ) : undefined
               }
               canDelete={canDelete}
+              canWriteDocuments={canSeeDocuments}
               notificationTarget={sub}
               onOpenProjectChange={onOpenProjectChange}
               onOpenProject={openProject}

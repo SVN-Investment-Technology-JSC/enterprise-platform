@@ -2,6 +2,7 @@
 
 import { useState, type KeyboardEvent } from 'react';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /** Cấu hình ô "thêm mục mới" ở cuối danh sách xổ ra của một ô chọn. */
 export interface CreateOption {
@@ -85,16 +86,19 @@ export function CreateOptionFooter({
           onKeyDown={onKeyDown}
         />
       ) : null}
-      <button
-        type="button"
-        className={styles.chipCreateAdd}
-        aria-label={create.addTitle ?? create.addLabel}
-        title={create.addTitle}
-        disabled={busy}
-        onClick={() => void submit()}
-      >
-        {create.addLabel}
-      </button>
+      <Tooltip content={create.addTitle}>
+        <span className={styles.tooltipAnchor}>
+          <button
+            type="button"
+            className={styles.chipCreateAdd}
+            aria-label={create.addTitle ?? create.addLabel}
+            disabled={busy}
+            onClick={() => void submit()}
+          >
+            {create.addLabel}
+          </button>
+        </span>
+      </Tooltip>
       {error ? (
         <p role="alert" className={styles.chipCreateError}>
           {error}

@@ -11,6 +11,7 @@ import {
 } from '../gantt.model';
 import { formatDate, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /** Bề rộng cột tên việc bên trái, cố định để hai vùng cuộn khớp hàng. */
 const LABEL_WIDTH = 240;
@@ -172,16 +173,16 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
           <div className={styles.ganttLabels} style={{ width: LABEL_WIDTH }}>
             <div className={styles.ganttAxisSpacer} style={{ height: AXIS_HEIGHT }} />
             {layout.rows.map((row, index) => (
-              <button
-                key={row.item.id}
-                type="button"
-                className={row.depth === 0 && index > 0 ? `${styles.ganttLabel} ${styles.ganttLabelRoot}` : styles.ganttLabel}
-                style={{ height: ROW_HEIGHT, paddingLeft: `${row.depth * 0.75 + 0.5}rem` }}
-                title={`${row.item.code} · ${row.item.title}`}
-                onClick={() => onOpen(row.item)}
-              >
-                {row.item.code} · {row.item.title}
-              </button>
+              <Tooltip key={row.item.id} content={`${row.item.code} · ${row.item.title}`}>
+                <button
+                  type="button"
+                  className={row.depth === 0 && index > 0 ? `${styles.ganttLabel} ${styles.ganttLabelRoot}` : styles.ganttLabel}
+                  style={{ height: ROW_HEIGHT, paddingLeft: `${row.depth * 0.75 + 0.5}rem` }}
+                  onClick={() => onOpen(row.item)}
+                >
+                  {row.item.code} · {row.item.title}
+                </button>
+              </Tooltip>
             ))}
           </div>
 

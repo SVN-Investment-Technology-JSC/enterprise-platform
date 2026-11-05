@@ -19,6 +19,7 @@ import {
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 import { useProjectRoles } from './use-project-roles';
 import { useTransportSummary, type TransportSummary } from './use-transport-summary';
@@ -422,13 +423,14 @@ function DependencyPanel({
             }))}
             onChange={(value) => setDependencyType(value as DependencyType)}
           />
-          <input
-            aria-label="Độ trễ (ngày)"
-            inputMode="numeric"
-            value={lag}
-            title="Độ trễ (ngày), được âm"
-            onChange={(event) => setLag(event.target.value)}
-          />
+          <Tooltip content="Độ trễ (ngày), được âm">
+            <input
+              aria-label="Độ trễ (ngày)"
+              inputMode="numeric"
+              value={lag}
+              onChange={(event) => setLag(event.target.value)}
+            />
+          </Tooltip>
           <button
             type="button"
             className={styles.buttonGhost}

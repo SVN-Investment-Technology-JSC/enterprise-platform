@@ -11,6 +11,7 @@ import { Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { publishProjectRoles } from './use-project-roles';
@@ -105,55 +106,58 @@ export function ProjectRoleSettings() {
                     </span>
                   </td>
                   <td>
-                    <button
-                      type="button"
-                      className={styles.rolePermissionCount}
-                      onClick={() => setViewing(role)}
-                      title="Xem các quyền của vai trò này"
-                    >
-                      {role.permissions.length} quyền
-                    </button>
+                    <Tooltip content="Xem các quyền của vai trò này">
+                      <button type="button" className={styles.rolePermissionCount} onClick={() => setViewing(role)}>
+                        {role.permissions.length} quyền
+                      </button>
+                    </Tooltip>
                   </td>
                   <td className={styles.muted}>{role.memberCount} thành viên</td>
                   <td>
                     {canEdit ? (
                       <span className={styles.roleActions}>
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Sửa vai trò ${role.name}`}
-                          title="Sửa vai trò"
-                          onClick={() => setEditing(role)}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        {role.isSystem ? null : (
-                          <Confirm
-                            title={`Bạn có chắc chắn muốn xoá vai trò "${role.name}"?`}
-                            description={
-                              role.memberCount > 0
-                                ? `Đang có ${role.memberCount} thành viên giữ vai này; hãy đổi vai của họ trước.`
-                                : 'Vai trò bị xoá hẳn, không hoàn tác được.'
-                            }
-                            okText="Xoá"
-                            okType="danger"
-                            disabled={role.memberCount > 0}
-                            onConfirm={() => remove(role)}
+                        <Tooltip content="Sửa vai trò">
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label={`Sửa vai trò ${role.name}`}
+                            onClick={() => setEditing(role)}
                           >
-                            <button
-                              type="button"
-                              className={styles.iconButton}
-                              aria-label={`Xoá vai trò ${role.name}`}
-                              title={
-                                role.memberCount > 0
-                                  ? 'Vai trò đang được gán cho thành viên, không xoá được.'
-                                  : 'Xoá vai trò'
-                              }
-                              disabled={role.memberCount > 0}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </Confirm>
+                            <Pencil size={13} />
+                          </button>
+                        </Tooltip>
+                        {role.isSystem ? null : (
+                          <Tooltip
+                            content={
+                              role.memberCount > 0
+                                ? 'Vai trò đang được gán cho thành viên, không xoá được.'
+                                : 'Xoá vai trò'
+                            }
+                          >
+                            <span className={styles.tooltipAnchor}>
+                              <Confirm
+                                title={`Bạn có chắc chắn muốn xoá vai trò "${role.name}"?`}
+                                description={
+                                  role.memberCount > 0
+                                    ? `Đang có ${role.memberCount} thành viên giữ vai này; hãy đổi vai của họ trước.`
+                                    : 'Vai trò bị xoá hẳn, không hoàn tác được.'
+                                }
+                                okText="Xoá"
+                                okType="danger"
+                                disabled={role.memberCount > 0}
+                                onConfirm={() => remove(role)}
+                              >
+                                <button
+                                  type="button"
+                                  className={styles.iconButton}
+                                  aria-label={`Xoá vai trò ${role.name}`}
+                                  disabled={role.memberCount > 0}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </Confirm>
+                            </span>
+                          </Tooltip>
                         )}
                       </span>
                     ) : null}
@@ -357,17 +361,18 @@ function RolePermissionsDialog({
             <li key={permission}>
               <span className={styles.memberName}>{PROJECT_PERMISSION_LABELS[permission]}</span>
               {editable ? (
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  aria-label={`Gỡ quyền ${PROJECT_PERMISSION_LABELS[permission]}`}
-                  title="Gỡ quyền"
-                  onClick={() =>
-                    setPermissions((current) => current.filter((entry) => entry !== permission))
-                  }
-                >
-                  <X size={13} />
-                </button>
+                <Tooltip content="Gỡ quyền">
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    aria-label={`Gỡ quyền ${PROJECT_PERMISSION_LABELS[permission]}`}
+                    onClick={() =>
+                      setPermissions((current) => current.filter((entry) => entry !== permission))
+                    }
+                  >
+                    <X size={13} />
+                  </button>
+                </Tooltip>
               ) : null}
             </li>
           ))}

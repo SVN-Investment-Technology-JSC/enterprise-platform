@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../workspace-api';
 import { formatDate, formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { FilePicker } from './file-picker';
 import { Choice } from './choice';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
@@ -43,6 +44,7 @@ import {
 } from './folder-tree';
 import { useDirectory } from './use-directory';
 import { Confirm, ConfirmBox } from './confirm-box';
+import { Tooltip } from './tooltip';
 
 export interface DocumentPanelProps {
   /** Rỗng nghĩa là trang Tài liệu chung: cả tài liệu dự án lẫn cấp đơn vị. */
@@ -373,12 +375,14 @@ export function DocumentPanel({
     if (request.kind === 'folder') {
       setFolderParent(folderId);
       setFolderOpen(true);
-    } else if (visibleFolders.length === 0) {
+    } else if (!projectId && visibleFolders.length === 0) {
+      // Trang Tài liệu chung: tải lên cần chọn một thư mục có sẵn. Trong một dự án thì không cần: hộp thoại tự tạo
+      // thư mục riêng của dự án (`autoPath`), như khi đính kèm tệp từ khung trao đổi.
       setError('Cần có ít nhất một thư mục trước khi tải tài liệu lên.');
     } else {
       setUploadOpen(true);
     }
-  }, [request, visibleFolders.length]);
+  }, [request, visibleFolders.length, projectId]);
 
   /** Đường dẫn từ gốc tới thư mục đang mở, để hiện thanh vị trí kiểu Explorer. */
   const path = useMemo(() => {
@@ -581,15 +585,16 @@ export function DocumentPanel({
                   .join(' · ')}
               </p>
             </div>
-            <button
-              type="button"
-              className={styles.iconButton}
-              aria-label="Đóng chi tiết tài liệu"
-              title="Đóng"
-              onClick={() => setSelected(undefined)}
-            >
-              <X size={15} />
-            </button>
+            <Tooltip content="Đóng">
+              <button
+                type="button"
+                className={styles.iconButton}
+                aria-label="Đóng chi tiết tài liệu"
+                onClick={() => setSelected(undefined)}
+              >
+                <X size={15} />
+              </button>
+            </Tooltip>
           </div>
 
           {selected.description ? (
@@ -598,15 +603,18 @@ export function DocumentPanel({
 
           {/* Ba việc người dùng tới đây để làm, nằm ngay dưới tên tệp. */}
           <div className={styles.documentActions}>
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={currentVersion?.sizeBytes == null}
-              title={currentVersion?.sizeBytes == null ? 'Phiên bản này chưa tải lên xong' : undefined}
-              onClick={() => void download(selected.id)}
-            >
-              <Download size={14} /> Tải xuống
-            </button>
+            <Tooltip content={currentVersion?.sizeBytes == null ? 'Phiên bản này chưa tải lên xong' : undefined}>
+              <span className={styles.tooltipAnchor}>
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  disabled={currentVersion?.sizeBytes == null}
+                  onClick={() => void download(selected.id)}
+                >
+                  <Download size={14} /> Tải xuống
+                </button>
+              </span>
+            </Tooltip>
             {currentVersion && currentVersion.sizeBytes != null && isPreviewable(currentVersion.contentType) ? (
               <button
                 type="button"
@@ -624,19 +632,24 @@ export function DocumentPanel({
             ) : null}
             {canWrite ? (
               <>
-                <button
-                  type="button"
-                  className={styles.buttonGhost}
-                  disabled={selected.lockedByUserId !== currentUserId}
-                  title={
+                <Tooltip
+                  content={
                     selected.lockedByUserId === currentUserId
                       ? undefined
                       : 'Phải đang giữ khoá mới tạo được phiên bản mới.'
                   }
-                  onClick={() => setNewVersionFor(selected)}
                 >
-                  <FilePlus2 size={14} /> Bản mới
-                </button>
+                  <span className={styles.tooltipAnchor}>
+                    <button
+                      type="button"
+                      className={styles.buttonGhost}
+                      disabled={selected.lockedByUserId !== currentUserId}
+                      onClick={() => setNewVersionFor(selected)}
+                    >
+                      <FilePlus2 size={14} /> Bản mới
+                    </button>
+                  </span>
+                </Tooltip>
                 {selected.lockedByUserId ? (
                   <button
                     type="button"
@@ -672,33 +685,35 @@ export function DocumentPanel({
           <ul className={styles.placeList}>
             <li>
               <Folder size={14} className={styles.placeIcon} aria-hidden />
-              <button
-                type="button"
-                className={styles.placeName}
-                title={`Mở ${placeOf(selected.folderId)}`}
-                onClick={() => {
-                  setProjectScope(undefined);
-                  setFolderId(selected.folderId);
-                }}
-              >
-                {placeOf(selected.folderId)}
-              </button>
+              <Tooltip content={`Mở ${placeOf(selected.folderId)}`}>
+                <button
+                  type="button"
+                  className={styles.placeName}
+                  onClick={() => {
+                    setProjectScope(undefined);
+                    setFolderId(selected.folderId);
+                  }}
+                >
+                  {placeOf(selected.folderId)}
+                </button>
+              </Tooltip>
               <span className={styles.muted}>Thư mục gốc</span>
             </li>
             {(selected.folderRefs ?? []).map((ref) => (
               <li key={ref.id}>
                 <Link2 size={14} className={styles.placeIcon} aria-hidden />
-                <button
-                  type="button"
-                  className={styles.placeName}
-                  title={`Mở ${placeOf(ref.folderId)}`}
-                  onClick={() => {
-                    setProjectScope(undefined);
-                    setFolderId(ref.folderId);
-                  }}
-                >
-                  {placeOf(ref.folderId)}
-                </button>
+                <Tooltip content={`Mở ${placeOf(ref.folderId)}`}>
+                  <button
+                    type="button"
+                    className={styles.placeName}
+                    onClick={() => {
+                      setProjectScope(undefined);
+                      setFolderId(ref.folderId);
+                    }}
+                  >
+                    {placeOf(ref.folderId)}
+                  </button>
+                </Tooltip>
                 {canWrite ? (
                   <Confirm
                     title="Bạn có chắc chắn muốn gỡ tài liệu khỏi thư mục này?"
@@ -732,28 +747,30 @@ export function DocumentPanel({
               <span className={styles.muted}>Chưa gắn với dự án, công việc hay sự kiện nào.</span>
             ) : null}
             {selected.links.map((link) => (
-              <span
-                key={link.id}
-                className={styles.linkChip}
-                title={`Gắn lúc ${formatDateTime(link.createdAt)}`}
-              >
+              <Tooltip key={link.id} content={`Gắn lúc ${formatDateTime(link.createdAt)}`}>
+              <span className={styles.linkChip}>
                 {linkLabel(link.entityType, link.entityId, workItemById)}
                 {canWrite ? (
-                  <Confirm
-                    title="Bạn có chắc chắn muốn gỡ liên kết này?"
-                    description="Tài liệu vẫn còn trong kho; chỉ bỏ liên kết với nơi này."
-                    okText="Gỡ"
-                    okType="danger"
-                    onConfirm={() =>
-                      act(() => api.unlinkDocument(selected.id, link.id), 'Không gỡ được liên kết.')
-                    }
-                  >
-                    <button type="button" aria-label="Gỡ liên kết" title="Gỡ liên kết">
-                      <X size={12} />
-                    </button>
-                  </Confirm>
+                  <Tooltip content="Gỡ liên kết">
+                    <span className={styles.tooltipAnchor}>
+                      <Confirm
+                        title="Bạn có chắc chắn muốn gỡ liên kết này?"
+                        description="Tài liệu vẫn còn trong kho; chỉ bỏ liên kết với nơi này."
+                        okText="Gỡ"
+                        okType="danger"
+                        onConfirm={() =>
+                          act(() => api.unlinkDocument(selected.id, link.id), 'Không gỡ được liên kết.')
+                        }
+                      >
+                        <button type="button" aria-label="Gỡ liên kết">
+                          <X size={12} />
+                        </button>
+                      </Confirm>
+                    </span>
+                  </Tooltip>
                 ) : null}
               </span>
+              </Tooltip>
             ))}
             {canWrite && !linkOpen ? (
               <button type="button" className={styles.addLinkButton} onClick={() => setLinkOpen(true)}>
@@ -833,35 +850,37 @@ export function DocumentPanel({
                   </span>
                 </span>
                 {version.sizeBytes != null && isPreviewable(version.contentType) ? (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    aria-label={`Xem trước phiên bản ${version.versionNo}`}
-                    title="Xem trước"
-                    onClick={() =>
-                      setPreview({
-                        documentId: selected.id,
-                        versionId: version.id,
-                        title: selected.name,
-                        subtitle: `Bản ${version.versionNo}`,
-                      })
-                    }
-                  >
-                    <Eye size={14} />
-                  </button>
+                  <Tooltip content="Xem trước">
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label={`Xem trước phiên bản ${version.versionNo}`}
+                      onClick={() =>
+                        setPreview({
+                          documentId: selected.id,
+                          versionId: version.id,
+                          title: selected.name,
+                          subtitle: `Bản ${version.versionNo}`,
+                        })
+                      }
+                    >
+                      <Eye size={14} />
+                    </button>
+                  </Tooltip>
                 ) : null}
                 {version.sizeBytes == null ? (
                   <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                 ) : (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    aria-label={`Tải xuống phiên bản ${version.versionNo}`}
-                    title={`Tải ${version.fileName}`}
-                    onClick={() => void download(selected.id, version.id)}
-                  >
-                    <Download size={14} />
-                  </button>
+                  <Tooltip content={`Tải ${version.fileName}`}>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label={`Tải xuống phiên bản ${version.versionNo}`}
+                      onClick={() => void download(selected.id, version.id)}
+                    >
+                      <Download size={14} />
+                    </button>
+                  </Tooltip>
                 )}
               </li>
             ))}
@@ -915,16 +934,16 @@ export function DocumentPanel({
 
         <div role="group" aria-label="Loại tệp" className={styles.kindChips}>
           {KIND_CHIPS.map((kind) => (
-            <button
-              key={kind.value || 'all'}
-              type="button"
-              aria-pressed={filterKind === kind.value}
-              title={kind.title}
-              className={filterKind === kind.value ? styles.kindChipActive : styles.kindChip}
-              onClick={() => setFilterKind(kind.value)}
-            >
-              {kind.label}
-            </button>
+            <Tooltip key={kind.value || 'all'} content={kind.title}>
+              <button
+                type="button"
+                aria-pressed={filterKind === kind.value}
+                className={filterKind === kind.value ? styles.kindChipActive : styles.kindChip}
+                onClick={() => setFilterKind(kind.value)}
+              >
+                {kind.label}
+              </button>
+            </Tooltip>
           ))}
         </div>
 
@@ -973,19 +992,25 @@ export function DocumentPanel({
         {compact && canWrite ? (
           <>
             <span className={styles.filterSpacer} />
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={visibleFolders.length === 0}
-              title={
-                visibleFolders.length === 0
+            <Tooltip
+              content={
+                !projectId && visibleFolders.length === 0
                   ? 'Cần có ít nhất một thư mục trước khi tải tài liệu lên.'
                   : undefined
               }
-              onClick={() => setUploadOpen(true)}
             >
-              <FilePlus2 size={14} /> Tải lên
-            </button>
+              <span className={styles.tooltipAnchor}>
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  // Trong một dự án luôn tải lên được kể cả khi chưa có thư mục: hộp thoại tự tạo thư mục riêng của dự án.
+                  disabled={!projectId && visibleFolders.length === 0}
+                  onClick={() => setUploadOpen(true)}
+                >
+                  <FilePlus2 size={14} /> Tải lên
+                </button>
+              </span>
+            </Tooltip>
             {attachTo ? (
               <button
                 type="button"
@@ -1014,19 +1039,20 @@ export function DocumentPanel({
             </span>
           ) : (
             <nav className={styles.explorerPath} aria-label="Vị trí trong kho tài liệu">
-              <button
-                type="button"
-                className={styles.explorerPathHome}
-                aria-label="Tất cả tài liệu"
-                title="Tất cả tài liệu"
-                onClick={() => {
-                  setProjectScope(undefined);
-                  setFolderId(undefined);
-                }}
-              >
-                <House size={14} />
-                {crumbProject || crumbFolders.length > 0 ? null : <span>Tất cả tài liệu</span>}
-              </button>
+              <Tooltip content="Tất cả tài liệu">
+                <button
+                  type="button"
+                  className={styles.explorerPathHome}
+                  aria-label="Tất cả tài liệu"
+                  onClick={() => {
+                    setProjectScope(undefined);
+                    setFolderId(undefined);
+                  }}
+                >
+                  <House size={14} />
+                  {crumbProject || crumbFolders.length > 0 ? null : <span>Tất cả tài liệu</span>}
+                </button>
+              </Tooltip>
               {crumbProject ? (
                 <span>
                   <span className={styles.explorerPathSep} aria-hidden>
@@ -1048,12 +1074,14 @@ export function DocumentPanel({
               {/* Sâu hơn hai cấp thì gộp các cấp giữa thành "…", để thư mục
                   đang mở luôn còn chỗ hiện đủ tên. */}
               {crumbFolders.length > 2 ? (
-                <span title={crumbFolders.map((folder) => folder.name).join(' › ')}>
-                  <span className={styles.explorerPathSep} aria-hidden>
-                    ›
+                <Tooltip content={crumbFolders.map((folder) => folder.name).join(' › ')}>
+                  <span>
+                    <span className={styles.explorerPathSep} aria-hidden>
+                      ›
+                    </span>
+                    <span className={styles.explorerPathMore}>…</span>
                   </span>
-                  <span className={styles.explorerPathMore}>…</span>
-                </span>
+                </Tooltip>
               ) : null}
               {crumbFolders.slice(-2).map((folder) => (
                 <span key={folder.id}>
@@ -1068,15 +1096,16 @@ export function DocumentPanel({
             </nav>
           )}
           <span className={styles.documentListCount}>{listedDocuments.length} tài liệu</span>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tải lại"
-            title="Tải lại"
-            onClick={() => void reload()}
-          >
-            <RefreshCw size={14} />
-          </button>
+          <Tooltip content="Tải lại">
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Tải lại"
+              onClick={() => void reload()}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </Tooltip>
         </div>
 
       {listedDocuments.length === 0 && (compact || flatSearch || subFolders.length === 0) ? (
@@ -1156,34 +1185,42 @@ export function DocumentPanel({
                     <td>
                       {(folder.projectId ? canWrite : canDelete) && countInside(folder) > 0 ? (
                         // Nói trước lý do thay vì để người dùng bấm rồi nhận lỗi.
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Không xoá được thư mục ${folder.name}`}
-                          title={`Thư mục còn ${countInside(folder)} mục bên trong. Dọn hết rồi mới xoá được.`}
-                          disabled
+                        <Tooltip
+                          content={`Thư mục còn ${countInside(folder)} mục bên trong. Dọn hết rồi mới xoá được.`}
                         >
-                          <Trash2 size={14} />
-                        </button>
+                          <span className={styles.tooltipAnchor}>
+                            <button
+                              type="button"
+                              className={styles.iconButton}
+                              aria-label={`Không xoá được thư mục ${folder.name}`}
+                              disabled
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </span>
+                        </Tooltip>
                       ) : (folder.projectId ? canWrite : canDelete) ? (
-                        <Confirm
-                          title={`Bạn có chắc chắn muốn xoá thư mục "${folder.name}"?`}
-                          description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
-                          okText="Xoá thư mục"
-                          okType="danger"
-                          onConfirm={() =>
-                            act(() => api.removeFolder(folder.id), 'Không xoá được thư mục.')
-                          }
-                        >
-                          <button
-                            type="button"
-                            className={styles.iconButton}
-                            aria-label={`Xoá thư mục ${folder.name}`}
-                            title="Xoá thư mục"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </Confirm>
+                        <Tooltip content="Xoá thư mục">
+                          <span className={styles.tooltipAnchor}>
+                            <Confirm
+                              title={`Bạn có chắc chắn muốn xoá thư mục "${folder.name}"?`}
+                              description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
+                              okText="Xoá thư mục"
+                              okType="danger"
+                              onConfirm={() =>
+                                act(() => api.removeFolder(folder.id), 'Không xoá được thư mục.')
+                              }
+                            >
+                              <button
+                                type="button"
+                                className={styles.iconButton}
+                                aria-label={`Xoá thư mục ${folder.name}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </Confirm>
+                          </span>
+                        </Tooltip>
                       ) : null}
                     </td>
                   </tr>
@@ -1210,41 +1247,37 @@ export function DocumentPanel({
                   }
                 >
                   <td>
+                    <Tooltip content={document.currentVersion?.fileName ?? document.name}>
                     <button
                       type="button"
                       className={styles.docName}
-                      title={document.currentVersion?.fileName ?? document.name}
                       onClick={() => void open(document.id)}
                     >
                       <FileTile fileName={document.currentVersion?.fileName ?? document.name} />
                       <span className={styles.docNameText}>{document.name}</span>
                       {!flatSearch && folderId && document.folderId !== folderId ? (
-                        <span
-                          className={styles.refMark}
-                          title={`Tham chiếu — bản gốc ở ${pathOf(document.folderId)}`}
-                        >
-                          <Link2 size={12} aria-label="Tham chiếu" />
-                        </span>
+                        <Tooltip content={`Tham chiếu — bản gốc ở ${pathOf(document.folderId)}`}>
+                          <span className={styles.refMark}>
+                            <Link2 size={12} aria-label="Tham chiếu" />
+                          </span>
+                        </Tooltip>
                       ) : null}
                       {pending ? (
                         <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                       ) : document.lockedByUserId ? (
-                        <span
-                          className={styles.badgeLocked}
-                          title={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}
-                        >
-                          <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
-                        </span>
+                        <Tooltip content={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}>
+                          <span className={styles.badgeLocked}>
+                            <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
+                          </span>
+                        </Tooltip>
                       ) : null}
                       {document.audience === 'customer' ? (
-                        <span
-                          className={styles.badgeCustomer}
-                          title="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án"
-                        >
-                          Khách hàng
-                        </span>
+                        <Tooltip content="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án">
+                          <span className={styles.badgeCustomer}>Khách hàng</span>
+                        </Tooltip>
                       ) : null}
                     </button>
+                    </Tooltip>
                   </td>
                   {flatSearch ? (
                     <td className={styles.muted}>
@@ -1252,62 +1285,72 @@ export function DocumentPanel({
                       {document.projectId ? ` · ${projectLabels[document.projectId] ?? ''}` : ''}
                     </td>
                   ) : null}
-                  <td className={styles.docVersion} title={`${document.versionCount} phiên bản`}>
-                    v{document.currentVersion?.versionNo ?? 1}
+                  <td className={styles.docVersion}>
+                    <Tooltip content={`${document.versionCount} phiên bản`}>
+                      <span>v{document.currentVersion?.versionNo ?? 1}</span>
+                    </Tooltip>
                   </td>
                   <td className={styles.docLinks}>
                     {(document.linkedWorkItems ?? []).slice(0, 1).map((item) => (
-                      <span key={item.id} className={styles.docLinkChip} title={`${item.code} · ${item.title}`}>
-                        {item.code}
-                      </span>
+                      <Tooltip key={item.id} content={`${item.code} · ${item.title}`}>
+                        <span className={styles.docLinkChip}>{item.code}</span>
+                      </Tooltip>
                     ))}
                     {(document.linkedWorkItems?.length ?? 0) > 1 ? (
-                      <span
-                        className={styles.muted}
-                        title={(document.linkedWorkItems ?? [])
+                      <Tooltip
+                        content={(document.linkedWorkItems ?? [])
                           .slice(1)
                           .map((item) => `${item.code} · ${item.title}`)
                           .join('\n')}
                       >
-                        +{(document.linkedWorkItems?.length ?? 0) - 1}
-                      </span>
+                        <span className={styles.muted}>
+                          +{(document.linkedWorkItems?.length ?? 0) - 1}
+                        </span>
+                      </Tooltip>
                     ) : null}
                   </td>
-                  <td
-                    className={styles.docUpdated}
-                    title={`${directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} · ${formatDateTime(document.updatedAt)}`}
-                  >
-                    {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
-                    {formatDate(document.updatedAt).slice(0, 5)}
+                  <td className={styles.docUpdated}>
+                    <Tooltip
+                      content={`${directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} · ${formatDateTime(document.updatedAt)}`}
+                    >
+                      <span>
+                        {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
+                        {formatDate(document.updatedAt).slice(0, 5)}
+                      </span>
+                    </Tooltip>
                   </td>
                   <td className={styles.docRowActions}>
                     {!pending && isPreviewable(document.currentVersion?.contentType) ? (
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        aria-label={`Xem trước ${document.name}`}
-                        title="Xem trước"
-                        onClick={() =>
-                          setPreview({
-                            documentId: document.id,
-                            title: document.name,
-                            subtitle: `Bản ${document.currentVersion?.versionNo ?? 1}`,
-                          })
-                        }
-                      >
-                        <Eye size={14} />
-                      </button>
+                      <Tooltip content="Xem trước">
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Xem trước ${document.name}`}
+                          onClick={() =>
+                            setPreview({
+                              documentId: document.id,
+                              title: document.name,
+                              subtitle: `Bản ${document.currentVersion?.versionNo ?? 1}`,
+                            })
+                          }
+                        >
+                          <Eye size={14} />
+                        </button>
+                      </Tooltip>
                     ) : null}
-                    <button
-                      type="button"
-                      className={styles.iconButton}
-                      aria-label={`Tải xuống ${document.name}`}
-                      title={pending ? 'Phiên bản này chưa tải lên xong' : 'Tải xuống'}
-                      disabled={pending}
-                      onClick={() => void download(document.id)}
-                    >
-                      <Download size={14} />
-                    </button>
+                    <Tooltip content={pending ? 'Phiên bản này chưa tải lên xong' : 'Tải xuống'}>
+                      <span className={styles.tooltipAnchor}>
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Tải xuống ${document.name}`}
+                          disabled={pending}
+                          onClick={() => void download(document.id)}
+                        >
+                          <Download size={14} />
+                        </button>
+                      </span>
+                    </Tooltip>
                   </td>
                 </tr>
               );
@@ -1493,6 +1536,9 @@ export function DocumentPanel({
  * thẳng lên kho. Bước 2 hỏng thì bản ghi phiên bản vẫn tồn tại với
  * `sizeBytes` rỗng, và danh sách hiện nhãn "Chưa tải lên xong".
  */
+/** Số tệp tối đa trong một lượt tải lên. */
+const UPLOAD_BATCH_MAX = 10;
+
 export function UploadDialog({
   open,
   folders,
@@ -1515,12 +1561,17 @@ export function UploadDialog({
    */
   autoPath?: { projectId: string; workItemId?: string };
   onClose: () => void;
-  onDone: (documentId?: string) => void;
+  /**
+   * Gọi sau khi có tài liệu tải xong, với id của các tài liệu vừa tạo (theo thứ tự chọn). Tải được một phần rồi lỗi
+   * thì vẫn gọi với phần đã xong; lần thử lại gọi tiếp với phần còn lại.
+   */
+  onDone: (documentIds: string[]) => void;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [folderId, setFolderId] = useState('');
-  const [file, setFile] = useState<File>();
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number }>();
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
@@ -1547,14 +1598,15 @@ export function UploadDialog({
       ? defaultFolderId
       : undefined;
     setFolderId(preset ?? targets[0]?.id ?? '');
-    setFile(undefined);
+    setFiles([]);
+    setProgress(undefined);
     setError(undefined);
     setSubmitting(false);
   }, [open, defaultFolderId, targets]);
 
   const submit = async () => {
-    if (!file) {
-      setError('Hãy chọn một tệp.');
+    if (files.length === 0) {
+      setError('Hãy chọn ít nhất một tệp.');
       return;
     }
     if (!autoPath && !folderId) {
@@ -1563,8 +1615,12 @@ export function UploadDialog({
     }
     setError(undefined);
     setSubmitting(true);
+    const total = files.length;
+    const done: string[] = [];
+    let remaining = [...files];
+    let current: File | undefined;
     try {
-      // Dọn đường dẫn trước khi ghi: server trả về thư mục lá đã sẵn sàng, và
+      // Dọn đường dẫn một lần cho cả lượt: server trả về thư mục lá đã sẵn sàng, và
       // gọi lại cho cùng công việc thì vẫn ra đúng thư mục cũ.
       const target = autoPath
         ? (
@@ -1576,24 +1632,43 @@ export function UploadDialog({
             })
           ).id
         : folderId;
-      const created = await api.createDocument({
-        folderId: target,
-        name: name.trim() || file.name,
-        fileName: file.name,
-        contentType: file.type,
-        sizeBytes: file.size,
-        description: description.trim() || undefined,
-        linkTo: linkedTo,
-      });
-      await api.uploadToStorage(created.uploadUrl, file, file.type);
-      // Chỉ báo xong SAU khi PUT thành công; PUT hỏng thì phiên bản ở lại
-      // trạng thái "Chưa tải lên xong" và không ai tải xuống được một tệp rỗng.
-      await api.completeUpload(created.document.id, created.version.id, { sizeBytes: file.size });
-      onDone(created.document.id);
+      // Lần lượt từng tệp: lỗi giữa chừng thì phần đã xong vẫn giữ, người dùng thử lại phần còn lại.
+      for (const file of files) {
+        current = file;
+        setProgress({ done: done.length, total });
+        const created = await api.createDocument({
+          folderId: target,
+          // Tên hiển thị chỉ đặt tay được khi tải đúng một tệp; nhiều tệp thì mỗi tệp lấy theo tên tệp.
+          name: total === 1 ? name.trim() || file.name : file.name,
+          fileName: file.name,
+          contentType: file.type,
+          sizeBytes: file.size,
+          description: description.trim() || undefined,
+          linkTo: linkedTo,
+        });
+        await api.uploadToStorage(created.uploadUrl, file, file.type);
+        // Chỉ báo xong SAU khi PUT thành công; PUT hỏng thì phiên bản ở lại
+        // trạng thái "Chưa tải lên xong" và không ai tải xuống được một tệp rỗng.
+        await api.completeUpload(created.document.id, created.version.id, { sizeBytes: file.size });
+        done.push(created.document.id);
+        remaining = remaining.slice(1);
+      }
+      onDone(done);
       onClose();
     } catch (cause) {
-      setError((cause as { message?: string })?.message ?? 'Không tải tài liệu lên được.');
+      const reason = (cause as { message?: string })?.message ?? 'Không tải tài liệu lên được.';
+      if (done.length > 0) {
+        onDone(done);
+        setFiles(remaining);
+      }
+      setError(
+        total === 1
+          ? reason
+          : `Đã tải lên ${done.length}/${total} tệp. Tệp "${current?.name ?? ''}" lỗi: ${reason}`,
+      );
       setSubmitting(false);
+    } finally {
+      setProgress(undefined);
     }
   };
 
@@ -1601,7 +1676,7 @@ export function UploadDialog({
     <Dialog
       open={open}
       title="Tải tài liệu lên"
-      submitLabel="Tải lên"
+      submitLabel={files.length > 1 ? `Tải lên ${files.length} tệp` : 'Tải lên'}
       submitting={submitting}
       error={error}
       onClose={onClose}
@@ -1629,18 +1704,28 @@ export function UploadDialog({
 
       <Field
         label="Tệp"
-        hint={`Tối đa ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB. Hỗ trợ PDF, Office, ảnh, CSV, ZIP.`}
+        hint={`Chọn được tối đa ${UPLOAD_BATCH_MAX} tệp một lượt, mỗi tệp tối đa ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB. Hỗ trợ PDF, Office, ảnh, CSV, ZIP.`}
       >
-        <input
-          type="file"
-          accept={ALLOWED_DOCUMENT_CONTENT_TYPES.join(',')}
-          onChange={(event) => setFile(event.target.files?.[0])}
+        <FilePicker
+          files={files}
+          onChange={setFiles}
+          accept={ALLOWED_DOCUMENT_CONTENT_TYPES}
+          maxBytes={DOCUMENT_MAX_BYTES}
+          maxFiles={UPLOAD_BATCH_MAX}
+          disabled={submitting}
         />
+        {progress ? (
+          <span className={styles.fieldHint} role="status">
+            Đang tải lên {Math.min(progress.done + 1, progress.total)}/{progress.total}…
+          </span>
+        ) : null}
       </Field>
 
-      <Field label="Tên hiển thị" hint="Để trống thì lấy theo tên tệp.">
-        <input value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
-      </Field>
+      {files.length <= 1 ? (
+        <Field label="Tên hiển thị" hint="Để trống thì lấy theo tên tệp.">
+          <input value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
+        </Field>
+      ) : null}
 
       <Field label="Mô tả">
         <textarea
@@ -1712,10 +1797,12 @@ function NewVersionDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Tệp">
-        <input
-          type="file"
-          accept={ALLOWED_DOCUMENT_CONTENT_TYPES.join(',')}
-          onChange={(event) => setFile(event.target.files?.[0])}
+        <FilePicker
+          files={file ? [file] : []}
+          onChange={(picked) => setFile(picked[0])}
+          accept={ALLOWED_DOCUMENT_CONTENT_TYPES}
+          maxBytes={DOCUMENT_MAX_BYTES}
+          disabled={submitting}
         />
       </Field>
       <Field label="Ghi chú thay đổi" hint="Bắt buộc: người đọc sau cần biết đã đổi những gì.">

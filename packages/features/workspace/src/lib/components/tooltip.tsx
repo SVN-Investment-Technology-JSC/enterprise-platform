@@ -29,7 +29,14 @@ export function Tooltip({ content, children, side = 'top', align = 'center' }: T
         <TooltipPrimitive.Trigger render={children} />
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Positioner side={side} align={align} sideOffset={6} className={styles.tooltipPositioner}>
-            <TooltipPrimitive.Popup className={styles.tooltipPopup}>{content}</TooltipPrimitive.Popup>
+            <TooltipPrimitive.Popup
+              className={styles.tooltipPopup}
+              // Popup nằm trong portal nhưng sự kiện React vẫn nổi bọt lên phần tử cha: chặn để bấm vào chú thích không
+              // kích hoạt nút bọc ngoài (ví dụ nút xác nhận của `Confirm`).
+              onClick={(event) => event.stopPropagation()}
+            >
+              {content}
+            </TooltipPrimitive.Popup>
           </TooltipPrimitive.Positioner>
         </TooltipPrimitive.Portal>
       </TooltipPrimitive.Root>

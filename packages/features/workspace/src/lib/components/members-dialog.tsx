@@ -4,6 +4,7 @@ import type { ProjectMember, ProjectRole } from '@enterprise-platform/contracts-
 import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { Dialog } from './dialog';
 import { MemberAddPanel } from './member-add-panel';
@@ -149,16 +150,21 @@ export function MembersDialog({
                       )}
                       onChange={(value) => setRole(row.userId, value)}
                     />
-                    <button
-                      type="button"
-                      className={styles.iconButton}
-                      aria-label={`Gỡ ${directory.nameOf(row.userId)}`}
-                      disabled={row.role === 'owner'}
-                      title={row.role === 'owner' ? 'Trao vai trò chủ nhiệm cho người khác trước khi gỡ.' : undefined}
-                      onClick={() => setRows((current) => current.filter((entry) => entry.userId !== row.userId))}
+                    <Tooltip
+                      content={row.role === 'owner' ? 'Trao vai trò chủ nhiệm cho người khác trước khi gỡ.' : undefined}
                     >
-                      <Trash2 size={13} />
-                    </button>
+                      <span className={styles.tooltipAnchor}>
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Gỡ ${directory.nameOf(row.userId)}`}
+                          disabled={row.role === 'owner'}
+                          onClick={() => setRows((current) => current.filter((entry) => entry.userId !== row.userId))}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </span>
+                    </Tooltip>
                   </span>
                 </li>
               );

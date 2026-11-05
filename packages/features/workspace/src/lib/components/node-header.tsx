@@ -16,6 +16,7 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
@@ -159,18 +160,19 @@ export function NodeHeader({
             {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
           </button>
           {onMore ? (
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              aria-label="Thêm thao tác"
-              title="Thêm thao tác"
-              onClick={(event) => {
-                const box = event.currentTarget.getBoundingClientRect();
-                onMore({ x: box.left, y: box.bottom + 4 });
-              }}
-            >
-              <MoreHorizontal size={14} />
-            </button>
+            <Tooltip content="Thêm thao tác">
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                aria-label="Thêm thao tác"
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  onMore({ x: box.left, y: box.bottom + 4 });
+                }}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+            </Tooltip>
           ) : null}
           {canEdit ? (
             <button type="button" className={styles.buttonGhost} onClick={onEdit}>

@@ -54,6 +54,7 @@ import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
+import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
 import { CompleteWorkItemDialog } from './complete-work-item-dialog';
 import { Confirm } from './confirm-box';
@@ -158,6 +159,11 @@ export interface ProjectsViewProps {
   /** Được xoá tài liệu và thư mục; mặc định tắt, chỉ quản trị tenant có. */
   readonly canDelete?: boolean;
   /**
+   * Được ghi tài liệu (quyền tenant `workspace.document.write`). Tắt thì tab Tài liệu và phần tài liệu của công việc
+   * chỉ đọc: server vẫn từ chối mọi thao tác ghi, nút ẩn đi để khỏi bấm rồi mới báo lỗi. Mặc định bật.
+   */
+  readonly canWriteDocuments?: boolean;
+  /**
    * Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. `project` có
    * mặt khi chi tiết đã tải: thanh bên dùng nó để giữ dòng của dự án đang mở
    * dù dự án đó không nằm trong vài dự án đầu.
@@ -201,6 +207,7 @@ export interface ProjectsViewProps {
 
 export function ProjectsView({
   canDelete = false,
+  canWriteDocuments = true,
   notificationTarget,
   onOpenProjectChange,
   createProjectRequest = 0,
@@ -266,6 +273,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const blockedPrompt = useBlockedReasonPrompt();
   /** Việc đang hỏi xác nhận hoàn thành (kèm điều kiện hoàn thành nếu có). */
   const [completingItem, setCompletingItem] = useState<WorkItem>();
   const [deletingItem, setDeletingItem] = useState<WorkItem>();
@@ -1085,8 +1093,28 @@ export function ProjectsView({
     [],
   );
   const openProjectId = detail?.project.id;
+  const askBlockedReason = blockedPrompt.ask;
+  /**
+   * Chuyển sang Vướng mắc (hoặc sửa lý do khi việc đã vướng mắc) luôn qua hộp ghi lý do: server từ chối nếu thiếu `note`.
+   * Lỗi ném ra để hộp tự hiện, giữ hộp mở cho người dùng gửi lại.
+   */
+  const promptBlockedReason = useCallback(
+    (item: WorkItem) => {
+      askBlockedReason(item, async (reason) => {
+        await api.changeWorkItemStatus(item.id, { status: 'blocked', note: reason });
+        if (openProjectId) await refreshDetail(openProjectId);
+        toastStatusChanged(item.status, 'blocked', item.code);
+      });
+    },
+    [askBlockedReason, openProjectId, refreshDetail],
+  );
   const changeItemStatus = useCallback(
     async (item: WorkItem, next: WorkItemStatus) => {
+      // Vướng mắc phải kèm lý do — hỏi trước, kể cả khi kéo thẻ Kanban sang cột Vướng mắc.
+      if (next === 'blocked') {
+        promptBlockedReason(item);
+        return;
+      }
       // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
       if (next === 'cancelled') {
         if (!canCancelItem) {
@@ -1105,7 +1133,7 @@ export function ProjectsView({
       if (openProjectId) await refreshDetail(openProjectId);
       toastStatusChanged(item.status, next, item.code);
     },
-    [canCancelItem, openProjectId, refreshDetail],
+    [canCancelItem, openProjectId, promptBlockedReason, refreshDetail],
   );
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
@@ -1142,18 +1170,19 @@ export function ProjectsView({
                 ) : null}
               </button>
               */}
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                aria-label="Thao tác với dự án"
-                title="Thao tác với dự án"
-                onClick={(event) => {
-                  const box = event.currentTarget.getBoundingClientRect();
-                  setMenu({ x: box.right - 220, y: box.bottom + 4, node: { kind: 'project' } });
-                }}
-              >
-                <MoreHorizontal size={15} />
-              </button>
+              <Tooltip content="Thao tác với dự án">
+                <button
+                  type="button"
+                  className={styles.buttonGhost}
+                  aria-label="Thao tác với dự án"
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setMenu({ x: box.right - 220, y: box.bottom + 4, node: { kind: 'project' } });
+                  }}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </Tooltip>
             </>,
             actionsSlot,
           )
@@ -1312,7 +1341,7 @@ export function ProjectsView({
               {tab === 'documents' ? (
                 <DocumentPanel
                   projectId={detail.project.id}
-                  canWrite={canWrite}
+                  canWrite={canWrite && canWriteDocuments}
                   canDelete={canDelete && !archived}
                   currentUserId={me}
                   compact
@@ -1334,7 +1363,12 @@ export function ProjectsView({
                 />
               ) : null}
               {tab === 'activity' ? (
-                <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
+                <TabActivity
+                  entries={detail.activity}
+                  items={detail.items}
+                  onOpen={openItem}
+                  created={{ by: detail.project.createdBy, at: detail.project.createdAt }}
+                />
               ) : null}
               {tab === CHATS_TAB ? (
                 <TabChats
@@ -1342,6 +1376,9 @@ export function ProjectsView({
                   items={detail.items}
                   members={detail.members}
                   documents={projectDocuments}
+                  folders={projectFolders}
+                  canUpload={!archived}
+                  onDocumentUploaded={() => setCalendarToken((token) => token + 1)}
                   onOpen={openItem}
                   currentUserId={me}
                   toolbarSlot={chatToolsSlot}
@@ -1411,6 +1448,12 @@ export function ProjectsView({
               await startProcedure(selectedItem, definitionId);
             }}
           />
+          {selectedItem.status === 'blocked' && !selectedItem.reversal ? (
+            <BlockedReasonNotice
+              reason={selectedItem.blockedReason}
+              onEdit={canWrite ? () => promptBlockedReason(selectedItem) : undefined}
+            />
+          ) : null}
           <ChildItems
             items={detail.items}
             parent={selectedItem}
@@ -1449,7 +1492,7 @@ export function ProjectsView({
           <DocumentPanel
             projectId={detail.project.id}
             linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
-            canWrite={canWrite}
+            canWrite={canWrite && canWriteDocuments}
             canDelete={canDelete && !archived}
             currentUserId={me}
             compact
@@ -1668,6 +1711,8 @@ export function ProjectsView({
           if (back) setTimeout(() => window.location.assign(back), RETURN_AFTER_TOAST_MS);
         }}
       />
+
+      {blockedPrompt.dialog}
 
       <CancelWorkItemDialog
         item={cancellingItem}

@@ -17,6 +17,7 @@ import {
   workItemStatusKeys,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { BlockedReasonMark } from './blocked-reason-dialog';
 import { useDirectory } from './use-directory';
 
 /** Vùng sát mép bảng kích hoạt tự cuộn khi kéo thẻ, và bước cuộn mỗi lần. */
@@ -203,6 +204,7 @@ export function TabKanban({
                       >
                         {PRIORITY_LABELS[card.priority]}
                       </span>
+                      {card.status === 'blocked' ? <BlockedReasonMark reason={card.blockedReason} /> : null}
                     </p>
                     <p className={styles.kanbanCardMeta}>
                       <span>{card.assigneeUserId ? directory.nameOf(card.assigneeUserId) : 'Chưa giao'}</span>

@@ -19,6 +19,7 @@ import {
 import { buildWorkItemTree, matchWorkItems } from '../project-tree.model';
 import { isOverdue, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import type { PendingProcedure } from '../procedure-pending';
 
 /** Node đang chọn: hoặc chính dự án, hoặc một công việc trong dự án. */
@@ -140,40 +141,31 @@ export function ProjectTree({
                   <span className={styles.treeCode}>{row.item.code}</span>
                   <span className={styles.treeTitle}>{row.item.title}</span>
                   {unread[row.item.id] ? (
-                    <span
-                      className={styles.treeUnread}
-                      title={`${unread[row.item.id]} tin chưa đọc`}
-                    >
-                      {unread[row.item.id]}
-                    </span>
+                    <Tooltip content={`${unread[row.item.id]} tin chưa đọc`}>
+                      <span className={styles.treeUnread}>{unread[row.item.id]}</span>
+                    </Tooltip>
                   ) : null}
                   {row.item.executionType === 'procedure' ? (
                     <Workflow size={12} aria-label="Chạy theo quy trình" />
                   ) : null}
                   {pendingProcedure?.get(row.item.id) ? (
-                    <span
-                      className={styles.treePending}
-                      title={pendingProcedure.get(row.item.id)?.hint}
-                    >
-                      {pendingProcedure.get(row.item.id)?.label}
-                    </span>
+                    <Tooltip content={pendingProcedure.get(row.item.id)?.hint}>
+                      <span className={styles.treePending}>{pendingProcedure.get(row.item.id)?.label}</span>
+                    </Tooltip>
                   ) : null}
                   {isOverdue(row.item) ? (
-                    <span className={styles.treeOverdue} title="Quá hạn">
-                      Quá hạn
-                    </span>
+                    <Tooltip content="Quá hạn">
+                      <span className={styles.treeOverdue}>Quá hạn</span>
+                    </Tooltip>
                   ) : null}
                   {/*
                     Cây hiện phần trăm thay cho nhãn trạng thái: nhãn chữ chiếm
                     gần nửa dòng nên tên công việc bị cắt cụt. Trạng thái đầy đủ
                     nằm ở thẻ chi tiết bên phải và ở tab Công việc.
                   */}
-                  <span
-                    className={styles.treePercent}
-                    title={workItemStatusLabel(row.item)}
-                  >
-                    {row.item.progressPercent}%
-                  </span>
+                  <Tooltip content={workItemStatusLabel(row.item)}>
+                    <span className={styles.treePercent}>{row.item.progressPercent}%</span>
+                  </Tooltip>
                 </button>
               </div>
             </li>

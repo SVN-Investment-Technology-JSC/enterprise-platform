@@ -19,6 +19,7 @@ import type { ProcedureOption } from '../procedure-api';
 import { cloneCompletion, emptyCompletion, type CompletionDraft } from '../completion-draft';
 import { ITEM_TYPE_LABELS, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ReopenPolicyField } from './reopen-policy-field';
@@ -193,41 +194,48 @@ export function WorkItemDraftEditor({
             </div>
             <div className={styles.draftActions}>
               {isPhase ? null : (
+                <Tooltip content="Phương tiện đi lại">
+                  <span className={styles.tooltipAnchor}>
+                    <button
+                      type="button"
+                      className={
+                        showTransport || hasTransport
+                          ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
+                          : `${styles.draftIconButton} ${styles.draftIconTruck}`
+                      }
+                      aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
+                      aria-pressed={showTransport || hasTransport}
+                      disabled={hasTransport}
+                      onClick={() => setShowTransport((current) => !current)}
+                    >
+                      <Truck size={16} />
+                    </button>
+                  </span>
+                </Tooltip>
+              )}
+              <Tooltip content="Nhân bản (chép mọi trường trừ tên)">
                 <button
                   type="button"
-                  className={
-                    showTransport || hasTransport
-                      ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
-                      : `${styles.draftIconButton} ${styles.draftIconTruck}`
-                  }
-                  aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
-                  aria-pressed={showTransport || hasTransport}
-                  title="Phương tiện đi lại"
-                  disabled={hasTransport}
-                  onClick={() => setShowTransport((current) => !current)}
+                  className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
+                  aria-label={`Nhân bản công việc ${index + 1}`}
+                  onClick={onDuplicate}
                 >
-                  <Truck size={16} />
+                  <Copy size={16} />
                 </button>
-              )}
-              <button
-                type="button"
-                className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
-                aria-label={`Nhân bản công việc ${index + 1}`}
-                title="Nhân bản (chép mọi trường trừ tên)"
-                onClick={onDuplicate}
-              >
-                <Copy size={16} />
-              </button>
-              <button
-                type="button"
-                className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
-                aria-label={`Bỏ công việc ${index + 1}`}
-                title="Bỏ công việc này"
-                disabled={!removable}
-                onClick={onRemove}
-              >
-                <Trash2 size={16} />
-              </button>
+              </Tooltip>
+              <Tooltip content="Bỏ công việc này">
+                <span className={styles.tooltipAnchor}>
+                  <button
+                    type="button"
+                    className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
+                    aria-label={`Bỏ công việc ${index + 1}`}
+                    disabled={!removable}
+                    onClick={onRemove}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </span>
+              </Tooltip>
             </div>
           </div>
         </div>

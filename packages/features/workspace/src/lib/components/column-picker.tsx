@@ -4,6 +4,7 @@ import { Columns3 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { WORK_COLUMNS, type WorkColumnId } from '../work-table-store';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /**
  * Nút "Cột" mở bảng chọn cột hiển thị của bảng công việc. Cột Công việc luôn hiện. Mỗi người tự chọn, lưu theo
@@ -50,17 +51,18 @@ export function ColumnPicker({
 
   return (
     <div ref={box} className={styles.columnPicker}>
-      <button
-        type="button"
-        className={styles.columnPickerButton}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title="Chọn cột hiển thị"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Columns3 size={14} aria-hidden /> Cột
-        {customized ? <span className={styles.columnPickerCount}>{visible + 1}</span> : null}
-      </button>
+      <Tooltip content="Chọn cột hiển thị">
+        <button
+          type="button"
+          className={styles.columnPickerButton}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <Columns3 size={14} aria-hidden /> Cột
+          {customized ? <span className={styles.columnPickerCount}>{visible + 1}</span> : null}
+        </button>
+      </Tooltip>
       {open ? (
         <div className={styles.columnPickerPanel} role="dialog" aria-label="Cột hiển thị">
           <p className={styles.columnPickerTitle}>Cột hiển thị</p>

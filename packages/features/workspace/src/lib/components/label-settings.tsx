@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import { applyLabelSettings, toneOfColor } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /** Màu chọn nhanh cho trạng thái và mức ưu tiên; gồm cả các màu mặc định. */
 const LABEL_COLORS = [
@@ -251,36 +252,43 @@ function OptionTable({
                 <td>
                   {canEdit ? (
                     <span className={styles.roleActions}>
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        aria-label="Lên trên"
-                        title="Lên trên"
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                      >
-                        <ArrowUp size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        aria-label="Xuống dưới"
-                        title="Xuống dưới"
-                        disabled={index === options.length - 1}
-                        onClick={() => move(index, 1)}
-                      >
-                        <ArrowDown size={13} />
-                      </button>
+                      <Tooltip content="Lên trên">
+                        <span className={styles.tooltipAnchor}>
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label="Lên trên"
+                            disabled={index === 0}
+                            onClick={() => move(index, -1)}
+                          >
+                            <ArrowUp size={13} />
+                          </button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip content="Xuống dưới">
+                        <span className={styles.tooltipAnchor}>
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label="Xuống dưới"
+                            disabled={index === options.length - 1}
+                            onClick={() => move(index, 1)}
+                          >
+                            <ArrowDown size={13} />
+                          </button>
+                        </span>
+                      </Tooltip>
                       {removable && option.key !== DEFAULT_WORK_ITEM_PRIORITY ? (
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Xoá ${option.label}`}
-                          title="Xoá mức này"
-                          onClick={() => onChange(options.filter((_, at) => at !== index))}
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        <Tooltip content="Xoá mức này">
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label={`Xoá ${option.label}`}
+                            onClick={() => onChange(options.filter((_, at) => at !== index))}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </Tooltip>
                       ) : null}
                     </span>
                   ) : null}

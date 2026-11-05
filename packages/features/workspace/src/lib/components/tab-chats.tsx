@@ -2,6 +2,7 @@
 
 import type {
   ChatMessage,
+  DocumentFolder,
   DocumentSummary,
   ProjectMember,
   WorkItem,
@@ -10,8 +11,9 @@ import {
   CHAT_FEED_PAGE_SIZE,
   CHAT_FEED_PAGE_SIZES,
   CHAT_FEED_SEARCH_MAX_LENGTH,
+  chatAttachmentIds,
 } from '@enterprise-platform/contracts-workspace';
-import { ExternalLink, Paperclip, Search, X } from 'lucide-react';
+import { ExternalLink, Search, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -33,6 +35,7 @@ import { groupThread } from '../chat.model';
 import { mentionHandles, scanMentions, splitByMentions } from '../mention.model';
 import { formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ChatAttachments, UNKNOWN_ATTACHMENT_NAME } from './chat-attachments';
 import { ChatTimelinePane } from './chat-timeline-pane';
 import { Choice } from './choice';
 import { Pager } from './pager';
@@ -52,6 +55,12 @@ export interface TabChatsProps {
   readonly items: readonly WorkItem[];
   readonly members: readonly ProjectMember[];
   readonly documents: readonly DocumentSummary[];
+  /** Thư mục để tải tệp mới lên khi đính kèm vào chat chung của dự án. */
+  readonly folders?: readonly DocumentFolder[];
+  /** Được tải tệp mới lên không (dự án đã lưu trữ thì không). Mặc định: được. */
+  readonly canUpload?: boolean;
+  /** Gọi sau khi tải tệp lên, để màn Dự án nạp lại danh sách tài liệu. */
+  readonly onDocumentUploaded?: () => void;
   /** Bấm tên công việc ở đầu khung trao đổi để mở hộp chi tiết của nó. */
   readonly onOpen: (item: WorkItem) => void;
   /** Người đang xem; viewer của dự án không có nút "Trả lời" ở chế độ theo thời gian. */
@@ -109,6 +118,9 @@ function TabChatsBody({
   items,
   members,
   documents,
+  folders,
+  canUpload,
+  onDocumentUploaded,
   onOpen,
   currentUserId,
   toolbarSlot,
@@ -225,6 +237,9 @@ function TabChatsBody({
           items={items}
           members={members}
           documents={documents}
+          folders={folders}
+          canUpload={canUpload}
+          onDocumentUploaded={onDocumentUploaded}
           canReply={myRole !== 'viewer'}
           onOpen={onOpen}
           toolbarSlot={toolbarSlot}
@@ -419,7 +434,7 @@ function ThreadPane({
       message={entry}
       authorName={directory.nameOf(entry.createdBy)}
       renderText={renderText}
-      attachmentName={entry.attachmentDocumentId ? documentName.get(entry.attachmentDocumentId) : undefined}
+      attachmentNames={chatAttachmentIds(entry).map((id) => documentName.get(id) ?? UNKNOWN_ATTACHMENT_NAME)}
     />
   );
 
@@ -504,12 +519,12 @@ function FeedMessage({
   message,
   authorName,
   renderText,
-  attachmentName,
+  attachmentNames,
 }: {
   message: ChatMessage;
   authorName: string;
   renderText: (text: string) => ReactNode;
-  attachmentName?: string;
+  attachmentNames: readonly string[];
 }) {
   if (message.isDeleted) {
     return <p className={styles.chatFeedDeleted}>Tin nhắn đã được thu hồi.</p>;
@@ -522,11 +537,7 @@ function FeedMessage({
         {message.isEdited ? <em>đã sửa</em> : null}
       </p>
       <p className={styles.chatBody}>{renderText(message.body)}</p>
-      {message.attachmentDocumentId ? (
-        <p className={styles.chatAttachment}>
-          <Paperclip size={12} /> {attachmentName ?? 'Tài liệu đính kèm'}
-        </p>
-      ) : null}
+      <ChatAttachments names={attachmentNames} />
     </div>
   );
 }

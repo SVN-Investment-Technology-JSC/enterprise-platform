@@ -23,6 +23,7 @@ import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../wor
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
+import { Tooltip } from './tooltip';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -280,15 +281,16 @@ export function CustomersView({
             <Plus size={15} /> Thêm khách hàng
           </button>
           )}
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tải lại"
-            title="Tải lại"
-            onClick={() => void reloadList(search)}
-          >
-            <RefreshCw size={15} />
-          </button>
+          <Tooltip content="Tải lại">
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Tải lại"
+              onClick={() => void reloadList(search)}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </Tooltip>
         </div>
 
         <div className={styles.taskListFilters} style={{ gridTemplateColumns: '1fr' }}>
@@ -437,14 +439,15 @@ export function CustomersView({
                           <td className={styles.contractName}>{contract.name}</td>
                           <td>
                             {contract.projectId ? (
-                              <button
-                                type="button"
-                                className={styles.linkButton}
-                                title="Mở dự án"
-                                onClick={() => onOpenProject?.(contract.projectId as string)}
-                              >
-                                {projectNameById.get(contract.projectId) ?? 'Dự án'}
-                              </button>
+                              <Tooltip content="Mở dự án">
+                                <button
+                                  type="button"
+                                  className={styles.linkButton}
+                                  onClick={() => onOpenProject?.(contract.projectId as string)}
+                                >
+                                  {projectNameById.get(contract.projectId) ?? 'Dự án'}
+                                </button>
+                              </Tooltip>
                             ) : (
                               <span className={styles.muted}>—</span>
                             )}
@@ -458,15 +461,16 @@ export function CustomersView({
                           </td>
                           <td>
                             <div className={styles.rowActions}>
-                              <button
-                                type="button"
-                                className={styles.iconButton}
-                                aria-label="Sửa hợp đồng"
-                                title="Sửa"
-                                onClick={() => setContractForm({ open: true, edit: contract })}
-                              >
-                                <Pencil size={15} />
-                              </button>
+                              <Tooltip content="Sửa">
+                                <button
+                                  type="button"
+                                  className={styles.iconButton}
+                                  aria-label="Sửa hợp đồng"
+                                  onClick={() => setContractForm({ open: true, edit: contract })}
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                              </Tooltip>
                               <Confirm
                                 title="Bạn có chắc chắn muốn xoá hợp đồng này?"
                                 description="Hợp đồng bị xoá hẳn, không hoàn tác được."
@@ -474,14 +478,13 @@ export function CustomersView({
                                 okType="danger"
                                 onConfirm={() => handleDeleteContract(contract.id)}
                               >
-                                <button
-                                  type="button"
-                                  className={styles.iconButton}
-                                  aria-label="Xoá hợp đồng"
-                                  title="Xoá"
-                                >
-                                  <Trash2 size={15} />
-                                </button>
+                                <span className={styles.tooltipAnchor}>
+                                  <Tooltip content="Xoá">
+                                    <button type="button" className={styles.iconButton} aria-label="Xoá hợp đồng">
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </Tooltip>
+                                </span>
                               </Confirm>
                             </div>
                           </td>
@@ -507,24 +510,26 @@ export function CustomersView({
                   <ul className={styles.customerDocList}>
                     {customerDocs.map((document) => (
                       <li key={document.id} className={styles.customerDocRow}>
-                        <button
-                          type="button"
-                          className={styles.customerDocName}
-                          title={document.name}
-                          onClick={() => void openDocument(document.id)}
-                        >
-                          <FileText size={15} aria-hidden />
-                          <span className={styles.customerDocText}>{document.name}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Tải xuống ${document.name}`}
-                          title="Tải xuống"
-                          onClick={() => void openDocument(document.id)}
-                        >
-                          <Download size={15} />
-                        </button>
+                        <Tooltip content={document.name}>
+                          <button
+                            type="button"
+                            className={styles.customerDocName}
+                            onClick={() => void openDocument(document.id)}
+                          >
+                            <FileText size={15} aria-hidden />
+                            <span className={styles.customerDocText}>{document.name}</span>
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Tải xuống">
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label={`Tải xuống ${document.name}`}
+                            onClick={() => void openDocument(document.id)}
+                          >
+                            <Download size={15} />
+                          </button>
+                        </Tooltip>
                       </li>
                     ))}
                   </ul>

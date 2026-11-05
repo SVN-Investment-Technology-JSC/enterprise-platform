@@ -1,14 +1,15 @@
 'use client';
 
 import type {
+  DocumentFolder,
   DocumentSummary,
   ProjectChatTimelineItem,
   ProjectMember,
   WorkItem,
 } from '@enterprise-platform/contracts-workspace';
-import { MAX_CHAT_BODY_LENGTH } from '@enterprise-platform/contracts-workspace';
+import { MAX_CHAT_ATTACHMENTS, MAX_CHAT_BODY_LENGTH, chatAttachmentIds } from '@enterprise-platform/contracts-workspace';
 import { toast } from '@enterprise-platform/shared-ui';
-import { CornerDownRight, MoreHorizontal, Paperclip } from 'lucide-react';
+import { CornerDownRight, MoreHorizontal, Paperclip, X } from 'lucide-react';
 import {
   Fragment,
   useCallback,
@@ -40,7 +41,10 @@ import { extractMentions, mentionHandles, scanMentions, splitByMentions } from '
 import { formatDate, formatDateTime } from '../workspace-labels';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ChatAttachments, UNKNOWN_ATTACHMENT_NAME } from './chat-attachments';
 import { ChatTimelineFilters } from './chat-timeline-filters';
+import { Choice } from './choice';
+import { UploadDialog } from './document-panel';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
@@ -73,6 +77,12 @@ export interface ChatTimelinePaneProps {
   readonly items: readonly WorkItem[];
   readonly members: readonly ProjectMember[];
   readonly documents: readonly DocumentSummary[];
+  /** Thư mục để tải tệp mới lên khi đính kèm vào chat chung. */
+  readonly folders?: readonly DocumentFolder[];
+  /** Được tải tệp mới lên không (dự án đã lưu trữ thì không). Mặc định: được. */
+  readonly canUpload?: boolean;
+  /** Gọi sau khi tải tệp lên, để nơi giữ danh sách tài liệu nạp lại. */
+  readonly onDocumentUploaded?: () => void;
   /** Vai trò viewer chỉ đọc nên không có nút "Trả lời" và không có ô chat chung. */
   readonly canReply: boolean;
   /** Bấm chip công việc để mở hộp chi tiết của nó. */
@@ -120,6 +130,9 @@ export function ChatTimelinePane({
   items,
   members,
   documents,
+  folders = [],
+  canUpload = true,
+  onDocumentUploaded,
   canReply,
   onOpen,
   toolbarSlot,
@@ -267,9 +280,9 @@ export function ChatTimelinePane({
       hue={row.work ? hues.get(row.work.id) : undefined}
       authorName={directory.nameOf(row.entry.message.createdBy)}
       parentAuthorName={row.entry.parent ? directory.nameOf(row.entry.parent.createdBy) : undefined}
-      attachmentName={
-        row.entry.message.attachmentDocumentId ? documentName.get(row.entry.message.attachmentDocumentId) : undefined
-      }
+      attachmentNames={chatAttachmentIds(row.entry.message).map(
+        (id) => documentName.get(id) ?? UNKNOWN_ATTACHMENT_NAME,
+      )}
       renderText={renderText}
       canReply={canReply}
       replying={replyingId === row.key}
@@ -318,7 +331,7 @@ export function ChatTimelinePane({
         style={{ '--timeline-left': `${leftPct}%` } as CSSProperties}
       >
         <TimelineColumn
-          title="Công việc"
+          title="Tổng hợp trao đổi của những công việc thuộc dự án"
           loading={!ready && timeline.isFetching}
           rows={workRows}
           emptyText={ready ? (filtering ? 'Không có tin nào khớp bộ lọc.' : 'Các công việc chưa có trao đổi nào.') : undefined}
@@ -327,7 +340,7 @@ export function ChatTimelinePane({
           renderMessage={(row) => renderMessage(row, false)}
         />
         <TimelineColumn
-          title="Chung dự án"
+          title="Trao đổi chung của dự án"
           loading={!ready && timeline.isFetching}
           rows={projectRows}
           emptyText={ready ? (filtering ? 'Không có tin nào khớp bộ lọc.' : 'Chưa có trao đổi chung nào.') : undefined}
@@ -338,6 +351,10 @@ export function ChatTimelinePane({
             canReply ? (
               <ProjectComposer
                 projectId={projectId}
+                documents={documents}
+                folders={folders}
+                canUpload={canUpload}
+                onDocumentUploaded={onDocumentUploaded}
                 members={members}
                 handles={handles}
                 nameOf={directory.nameOf}
@@ -459,7 +476,7 @@ function TimelineMessage({
   hue,
   authorName,
   parentAuthorName,
-  attachmentName,
+  attachmentNames,
   renderText,
   canReply,
   replying,
@@ -478,7 +495,7 @@ function TimelineMessage({
   hue?: number;
   authorName: string;
   parentAuthorName?: string;
-  attachmentName?: string;
+  attachmentNames: readonly string[];
   renderText: (text: string) => ReactNode;
   canReply: boolean;
   replying: boolean;
@@ -557,11 +574,7 @@ function TimelineMessage({
         )
       ) : null}
       <p className={styles.chatBody}>{renderText(message.body)}</p>
-      {message.attachmentDocumentId ? (
-        <p className={styles.chatAttachment}>
-          <Paperclip size={12} /> {attachmentName ?? 'Tài liệu đính kèm'}
-        </p>
-      ) : null}
+      <ChatAttachments names={attachmentNames} />
       {replying ? (
         <MessageBox
           autoFocus
@@ -627,12 +640,20 @@ function NodeChip({
 /** Ô nhắn thẳng vào chat chung của dự án (kênh `project`, không gắn công việc nào). */
 function ProjectComposer({
   projectId,
+  documents,
+  folders,
+  canUpload,
+  onDocumentUploaded,
   members,
   handles,
   nameOf,
   onSent,
 }: {
   projectId: string;
+  documents: readonly DocumentSummary[];
+  folders: readonly DocumentFolder[];
+  canUpload: boolean;
+  onDocumentUploaded?: () => void;
   members: readonly ProjectMember[];
   handles: ReturnType<typeof mentionHandles>;
   nameOf: (userId: string) => string;
@@ -644,7 +665,10 @@ function ProjectComposer({
         label="Nhắn vào chat chung của dự án"
         members={members}
         handles={handles}
-        send={(body, mentions) => api.sendChatMessage({ entityType: 'project', entityId: projectId, body, mentions })}
+        send={(body, mentions, attachmentDocumentIds) =>
+          api.sendChatMessage({ entityType: 'project', entityId: projectId, body, mentions, attachmentDocumentIds })
+        }
+        attach={{ projectId, documents, folders, canUpload, onUploaded: onDocumentUploaded }}
         successText="Đã gửi tin."
         failureText="Không gửi được tin nhắn."
         nameOf={nameOf}
@@ -663,6 +687,7 @@ function MessageBox({
   members,
   handles,
   send,
+  attach,
   successText,
   failureText,
   nameOf,
@@ -673,7 +698,19 @@ function MessageBox({
   label: string;
   members: readonly ProjectMember[];
   handles: ReturnType<typeof mentionHandles>;
-  send: (body: string, mentions: readonly string[]) => Promise<{ droppedMentions: readonly string[] }>;
+  send: (
+    body: string,
+    mentions: readonly string[],
+    attachmentDocumentIds?: readonly string[],
+  ) => Promise<{ droppedMentions: readonly string[] }>;
+  /** Có thì ô soạn có nút đính kèm bên trái ô nhập: chọn tài liệu của dự án hoặc tải tệp mới lên. */
+  attach?: {
+    projectId: string;
+    documents: readonly DocumentSummary[];
+    folders: readonly DocumentFolder[];
+    canUpload: boolean;
+    onUploaded?: () => void;
+  };
   successText: string;
   failureText: string;
   nameOf: (userId: string) => string;
@@ -684,6 +721,23 @@ function MessageBox({
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const attachBox = useRef<HTMLDivElement>(null);
+  const attached = attachmentIds.map((id) => ({ id, name: attach?.documents.find((document) => document.id === id)?.name }));
+  const addAttachments = (ids: readonly string[]) =>
+    setAttachmentIds((current) => [...new Set([...current, ...ids])].slice(0, MAX_CHAT_ATTACHMENTS));
+
+  // Bấm ra ngoài bảng đính kèm thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
+  useEffect(() => {
+    if (!attachOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!attachBox.current?.contains(event.target as Node)) setAttachOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [attachOpen]);
 
   // Mặc định cao bằng nút (một dòng); gõ nhiều dòng thì cao dần tới mức trần rồi mới cuộn.
   useLayoutEffect(() => {
@@ -698,13 +752,14 @@ function MessageBox({
     if (!body || busy) return;
     setBusy(true);
     try {
-      const result = await send(body, extractMentions(body, members, handles));
+      const result = await send(body, extractMentions(body, members, handles), attachmentIds.length > 0 ? attachmentIds : undefined);
       toast.success(
         result.droppedMentions.length > 0
           ? `${successText} Không nhắc được ${result.droppedMentions.map(nameOf).join(', ')} vì họ không thuộc dự án này.`
           : successText,
       );
       setDraft('');
+      setAttachmentIds([]);
       onSent();
     } catch (cause) {
       toast.error((cause as { message?: string })?.message ?? failureText);
@@ -726,34 +781,131 @@ function MessageBox({
   };
 
   return (
-    <div className={styles.timelineReplyBox}>
-      <textarea
-        ref={input}
-        autoFocus={autoFocus}
-        rows={1}
-        value={draft}
-        maxLength={MAX_CHAT_BODY_LENGTH}
-        disabled={busy}
-        placeholder={`${label}…`}
-        aria-label={label}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      <div className={styles.timelineReplyActions}>
-        <button
-          type="button"
-          className={styles.buttonPrimary}
-          disabled={busy || !draft.trim()}
-          onClick={() => void submit()}
-        >
-          {busy ? 'Đang gửi…' : 'Gửi'}
-        </button>
-        {onCancel ? (
-          <button type="button" className={styles.buttonGhost} disabled={busy} onClick={onCancel}>
-            Huỷ
-          </button>
+    <>
+      {attached.length > 0 ? (
+        <div className={styles.timelineAttachedList}>
+          {attached.map((entry) => (
+            <p key={entry.id} className={styles.timelineAttached}>
+              <Paperclip size={12} aria-hidden />
+              <Tooltip content={entry.name}>
+                <span>{entry.name ?? UNKNOWN_ATTACHMENT_NAME}</span>
+              </Tooltip>
+              <button
+                type="button"
+                aria-label={`Bỏ đính kèm ${entry.name ?? UNKNOWN_ATTACHMENT_NAME}`}
+                disabled={busy}
+                onClick={() => setAttachmentIds((current) => current.filter((id) => id !== entry.id))}
+              >
+                <X size={12} aria-hidden />
+              </button>
+            </p>
+          ))}
+        </div>
+      ) : null}
+      <div className={styles.timelineReplyBox}>
+        {attach ? (
+          <div ref={attachBox} className={styles.timelinePanelBox}>
+            <Tooltip content={attached.length > 0 ? `Đính kèm tệp (đã chọn ${attached.length})` : 'Đính kèm tệp'}>
+              <button
+                type="button"
+                className={attached.length > 0 || attachOpen ? styles.timelineAttachOn : styles.timelineAttach}
+                aria-label="Đính kèm tệp"
+                aria-haspopup="dialog"
+                aria-expanded={attachOpen}
+                disabled={busy}
+                onClick={() => setAttachOpen((value) => !value)}
+              >
+                <Paperclip size={15} aria-hidden />
+              </button>
+            </Tooltip>
+            {attachOpen ? (
+              <div
+                className={`${styles.timelinePanel} ${styles.timelinePanelUp}`}
+                role="dialog"
+                aria-label="Đính kèm tệp"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.stopPropagation();
+                    setAttachOpen(false);
+                  }
+                }}
+              >
+                {attach.documents.length > 0 ? (
+                  <div className={styles.timelinePanelField}>
+                    <span>Tài liệu của dự án</span>
+                    <Choice
+                      label="Đính kèm tài liệu"
+                      value=""
+                      emptyOption={attached.length > 0 ? 'Thêm tài liệu khác…' : 'Chọn tài liệu…'}
+                      options={attach.documents
+                        .filter((document) => !attachmentIds.includes(document.id))
+                        .map((document) => ({ value: document.id, label: document.name }))}
+                      onChange={(value) => {
+                        if (value) addAttachments([value]);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <span className={styles.muted}>Dự án chưa có tài liệu nào.</span>
+                )}
+                {attach.canUpload ? (
+                  <button
+                    type="button"
+                    className={styles.buttonGhost}
+                    onClick={() => {
+                      setAttachOpen(false);
+                      setUploadOpen(true);
+                    }}
+                  >
+                    <Paperclip size={13} aria-hidden /> Tải tệp mới lên (chọn được nhiều tệp)
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         ) : null}
+        <textarea
+          ref={input}
+          autoFocus={autoFocus}
+          rows={1}
+          value={draft}
+          maxLength={MAX_CHAT_BODY_LENGTH}
+          disabled={busy}
+          placeholder={`${label}…`}
+          aria-label={label}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <div className={styles.timelineReplyActions}>
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy || !draft.trim()}
+            onClick={() => void submit()}
+          >
+            {busy ? 'Đang gửi…' : 'Gửi'}
+          </button>
+          {onCancel ? (
+            <button type="button" className={styles.buttonGhost} disabled={busy} onClick={onCancel}>
+              Huỷ
+            </button>
+          ) : null}
+        </div>
       </div>
-    </div>
+      {attach ? (
+        <UploadDialog
+          open={uploadOpen}
+          folders={attach.folders}
+          linkedTo={{ entityType: 'project', entityId: attach.projectId }}
+          autoPath={{ projectId: attach.projectId }}
+          onClose={() => setUploadOpen(false)}
+          onDone={(documentIds) => {
+            // Các tệp vừa lên được chọn sẵn cho tin sắp gửi.
+            addAttachments(documentIds);
+            attach.onUploaded?.();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

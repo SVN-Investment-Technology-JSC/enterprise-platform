@@ -62,6 +62,11 @@ import type {
   ExternalReferenceList,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  MyWorkFilter,
+  MyWorkItemsPage,
+  MyWorkOverview,
+  MyWorkSortKey,
+  MyWorkStandalonePage,
   MyWorkSummary,
   Paged,
   Project,
@@ -712,6 +717,42 @@ export async function uploadToStorage(
  * Truyền `userId` lên cũng vô nghĩa vì không endpoint nào đọc tới nó.
  */
 export const loadMyWork = () => request<MyWorkSummary>('/my-work', { cache: 'no-store' });
+
+/** Bộ lọc và cách xếp thành chuỗi truy vấn; giá trị rỗng thì bỏ qua. */
+const myWorkParams = (filter: Pick<MyWorkFilter, 'status' | 'priority'>, sort: MyWorkSortKey) => {
+  const params = new URLSearchParams();
+  if (filter.status) params.set('status', filter.status);
+  if (filter.priority) params.set('priority', filter.priority);
+  params.set('sort', sort);
+  return params;
+};
+
+/** "Công việc của tôi" theo trang: số liệu, nhóm dự án (chỉ số tổng hợp), nhắc tên, thẻ module khác. */
+export const loadMyWorkOverview = (filter: MyWorkFilter, sort: MyWorkSortKey) => {
+  const params = myWorkParams(filter, sort);
+  if (filter.projectId) params.set('projectId', filter.projectId);
+  return request<MyWorkOverview>(`/my-work/overview?${params}`, { cache: 'no-store' });
+};
+
+/** Một trang dòng việc của MỘT dự án (page tính từ 1). */
+export const loadMyWorkGroupItems = (
+  projectId: string,
+  filter: Pick<MyWorkFilter, 'status' | 'priority'>,
+  sort: MyWorkSortKey,
+  page: number,
+  pageSize: number,
+) => {
+  const params = myWorkParams(filter, sort);
+  params.set('page', String(page));
+  params.set('pageSize', String(pageSize));
+  return request<MyWorkItemsPage>(`/my-work/projects/${projectId}/items?${params}`, { cache: 'no-store' });
+};
+
+/** Một trang việc ngoài dự án của tôi. */
+export const loadMyWorkStandalonePage = (sort: MyWorkSortKey, page: number, pageSize: number) => {
+  const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
+  return request<MyWorkStandalonePage>(`/my-work/standalone?${params}`, { cache: 'no-store' });
+};
 
 /* Công việc ngoài dự án */
 

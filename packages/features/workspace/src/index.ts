@@ -5,6 +5,7 @@ export * from './lib/workspace-labels';
 export * from './lib/project-tree.model';
 export * from './lib/calendar-grid.model';
 export * from './lib/components/projects-view';
+export * from './lib/components/blocked-reason-dialog';
 export * from './lib/components/inline-cells';
 export * from './lib/components/choice';
 export * from './lib/components/tab-work';

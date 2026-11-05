@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import type {
   StandaloneTaskFieldChange,
   WorkItem,
@@ -14,7 +15,9 @@ import {
   priorityLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
+import { useFillViewportHeight } from './use-fill-viewport';
 import { useTags } from './use-tags';
 
 export interface TabActivityProps {
@@ -24,6 +27,8 @@ export interface TabActivityProps {
   readonly selected?: WorkItem;
   /** Bấm một khối để mở công việc của nó (trừ chính việc đang mở). */
   readonly onOpen?: (item: WorkItem) => void;
+  /** Người tạo và thời điểm tạo dự án: hiện thành dòng "Tạo dự án" khi xem nhật ký của cả dự án. */
+  readonly created?: { readonly by: string; readonly at: string };
 }
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh';
@@ -92,15 +97,34 @@ function groupEntries(entries: readonly WorkItemStatusHistoryEntry[]): DayBlock[
  * đã bị giới hạn số dòng, nên gọi lại theo từng node chỉ thêm vòng mạng mà
  * không giảm dữ liệu đáng kể.
  */
-export function TabActivity({ entries, items, selected, onOpen }: TabActivityProps) {
+export function TabActivity({ entries, items, selected, onOpen, created }: TabActivityProps) {
   const directory = useDirectory();
   const branch = selected ? branchOf(items, selected.id) : undefined;
   const scope = branch
     ? entries.filter((entry) => entry.workItemId !== undefined && branch.has(entry.workItemId))
     : entries;
   const itemOf = new Map(items.map((item) => [item.id, item]));
+  // Người không có trong danh bạ tổ chức: không hiện UUID thô.
+  const personName = (id: string) =>
+    directory.nameOf(id) === id ? 'Người dùng ngoài danh bạ' : directory.nameOf(id);
+  // Dòng "Tạo dự án" chỉ thuộc nhật ký cả dự án, không thuộc nhánh một công việc.
+  const createdEntry = !selected ? created : undefined;
+  const createdKey = createdEntry ? dayKey(createdEntry.at) : undefined;
+  const days = groupEntries(scope);
+  // Ngày tạo dự án chưa có dòng nào khác thì chèn đúng chỗ (nhật ký xếp mới -> cũ).
+  if (createdKey && !days.some((day) => day.key === createdKey)) {
+    const at = days.findIndex((day) => day.key < createdKey);
+    days.splice(at < 0 ? days.length : at, 0, { key: createdKey, blocks: [] });
+  }
 
-  if (scope.length === 0) {
+  // Ở tab Hoạt động (không chọn công việc) nhật ký nằm trong một khung vừa chiều cao còn lại của màn hình và tự cuộn
+  // bên trong; trong hộp thoại công việc thì giữ dạng danh sách thường.
+  const frame = useRef<HTMLDivElement>(null);
+  const fill = !selected;
+  useFillViewportHeight(frame, undefined, fill ? days.length : 'inline');
+  const total = scope.length + (createdEntry ? 1 : 0);
+
+  if (scope.length === 0 && !createdEntry) {
     return (
       <div className={styles.tabBody}>
         <p className={styles.muted}>Chưa có hoạt động nào được ghi nhận.</p>
@@ -108,10 +132,9 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
     );
   }
 
-  return (
-    <div className={styles.tabBody}>
+  const list = (
       <div className={styles.activity}>
-        {groupEntries(scope).map((day) => (
+        {days.map((day) => (
           <section key={day.key} className={styles.activityDay}>
             <h4 className={styles.activityDayLabel}>{dayLabel(day.key)}</h4>
             <ol className={styles.activityList}>
@@ -121,66 +144,93 @@ export function TabActivity({ entries, items, selected, onOpen }: TabActivityPro
                 const open =
                   item && onOpen && item.id !== selected?.id ? () => onOpen(item) : undefined;
                 return (
-                  <li
-                    key={`${block.workItemId}-${index}`}
-                    className={
-                      open
-                        ? `${styles.activityBlock} ${styles.activityBlockLink}`
-                        : styles.activityBlock
-                    }
-                    role={open ? 'button' : undefined}
-                    tabIndex={open ? 0 : undefined}
-                    title={open ? `Mở ${item?.code} · ${item?.title}` : undefined}
-                    onClick={open}
-                    onKeyDown={
-                      open
-                        ? (event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault();
-                              open();
+                  <Tooltip key={`${block.workItemId}-${index}`} content={open ? `Mở ${item?.code} · ${item?.title}` : undefined}>
+                    <li
+                      className={
+                        open
+                          ? `${styles.activityBlock} ${styles.activityBlockLink}`
+                          : styles.activityBlock
+                      }
+                      role={open ? 'button' : undefined}
+                      tabIndex={open ? 0 : undefined}
+                      onClick={open}
+                      onKeyDown={
+                        open
+                          ? (event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                open();
+                              }
                             }
-                          }
-                        : undefined
-                    }
-                  >
-                    <span
-                      className={styles.activityDot}
-                      style={{
-                        background: latest.toStatus
-                          ? WORK_ITEM_STATUS_TONE[latest.toStatus].fg
-                          : EDIT_DOT_COLOR,
-                      }}
-                      aria-hidden
-                    />
-                    <p className={styles.activityItem}>
-                      {item ? (
-                        <>
-                          <span className={styles.activityCode}>{item.code}</span>
-                          {item.title}
-                        </>
-                      ) : (
-                        'Công việc đã xoá'
-                      )}
-                    </p>
-                    {block.entries.map((entry) => (
-                      <ActivityRow
-                        key={entry.id}
-                        entry={entry}
-                        actor={
-                          // Người không có trong danh bạ tổ chức: không hiện UUID thô.
-                          directory.nameOf(entry.createdBy) === entry.createdBy
-                            ? 'Người dùng ngoài danh bạ'
-                            : directory.nameOf(entry.createdBy)
-                        }
+                          : undefined
+                      }
+                    >
+                      <span
+                        className={styles.activityDot}
+                        style={{
+                          background: latest.toStatus
+                            ? WORK_ITEM_STATUS_TONE[latest.toStatus].fg
+                            : EDIT_DOT_COLOR,
+                        }}
+                        aria-hidden
                       />
-                    ))}
-                  </li>
+                      <p className={styles.activityItem}>
+                        {item ? (
+                          <>
+                            <span className={styles.activityCode}>{item.code}</span>
+                            {item.title}
+                          </>
+                        ) : (
+                          'Công việc đã xoá'
+                        )}
+                      </p>
+                      {block.entries.map((entry) => (
+                        <ActivityRow
+                          key={entry.id}
+                          entry={entry}
+                          actor={
+                            // Người không có trong danh bạ tổ chức: không hiện UUID thô.
+                            directory.nameOf(entry.createdBy) === entry.createdBy
+                              ? 'Người dùng ngoài danh bạ'
+                              : directory.nameOf(entry.createdBy)
+                          }
+                        />
+                      ))}
+                    </li>
+                  </Tooltip>
                 );
               })}
+              {createdEntry && day.key === createdKey ? (
+                <li className={styles.activityBlock}>
+                  <span className={styles.activityDot} style={{ background: EDIT_DOT_COLOR }} aria-hidden />
+                  <p className={styles.activityItem}>Dự án được tạo</p>
+                  <div className={styles.activityRow}>
+                    <div className={styles.activityMain}>
+                      <span className={styles.activityChange}>
+                        <span className={styles.muted}>Tạo dự án</span>
+                        <span className={styles.activityActor}>{personName(createdEntry.by)}</span>
+                      </span>
+                    </div>
+                    <time className={styles.activityTime} dateTime={createdEntry.at}>
+                      {timeOf(createdEntry.at)}
+                    </time>
+                  </div>
+                </li>
+              ) : null}
             </ol>
           </section>
         ))}
       </div>
+  );
+
+  if (!fill) return <div className={styles.tabBody}>{list}</div>;
+  return (
+    <div ref={frame} className={styles.activityFrame}>
+      <header className={styles.activityFrameHead}>
+        <h3>Nhật ký hoạt động</h3>
+        <span className={styles.activityFrameCount}>{total} sự kiện</span>
+      </header>
+      <div className={styles.activityScroll}>{list}</div>
     </div>
   );
 }

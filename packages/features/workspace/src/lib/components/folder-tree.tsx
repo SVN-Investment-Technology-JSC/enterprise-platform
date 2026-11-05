@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 /** Nơi người dùng đang đứng trong kho tài liệu. */
 export type FolderTarget =
@@ -170,50 +171,52 @@ export function FolderTree({
         ) : (
           <span className={styles.treeToggleSpacer} aria-hidden />
         )}
-        <button
-          type="button"
-          className={options.active ? styles.treeNodeActive : styles.treeNode}
-          title={options.label}
-          data-folder={options.dataFolder}
-          onClick={options.onClick}
-          onContextMenu={
-            options.folder && onFolderMenu
-              ? (event) => {
-                  event.preventDefault();
-                  onFolderMenu(options.folder as DocumentFolder, event.clientX, event.clientY);
-                }
-              : undefined
-          }
-        >
-          {options.icon === 'drive' ? (
-            <HardDrive size={14} aria-hidden />
-          ) : options.icon === 'project' ? (
-            <span
-              className={styles.treeProjectBadge}
-              style={{ background: projectColor(options.projectId ?? '') }}
-              aria-hidden
-            >
-              {initialsOf(projectTitles[options.projectId ?? ''] ?? options.label)}
-            </span>
-          ) : options.active ? (
-            <FolderOpen size={14} className={styles.treeFolderIcon} aria-hidden />
-          ) : (
-            <Folder size={14} className={styles.treeFolderIcon} aria-hidden />
-          )}
-          <span className={styles.treeTitle}>{options.label}</span>
-          {options.badge ? <span className={styles.folderScope}>{options.badge}</span> : null}
-          {options.count ? <span className={styles.treeCount}>{options.count}</span> : null}
-        </button>
-        {options.folder && onAddChild && options.folder.depth < 4 ? (
+        <Tooltip content={options.label}>
           <button
             type="button"
-            className={styles.treeAdd}
-            aria-label={`Thư mục con mới trong ${options.label}`}
-            title="Thư mục con mới"
-            onClick={() => onAddChild(options.folder as DocumentFolder)}
+            className={options.active ? styles.treeNodeActive : styles.treeNode}
+            data-folder={options.dataFolder}
+            onClick={options.onClick}
+            onContextMenu={
+              options.folder && onFolderMenu
+                ? (event) => {
+                    event.preventDefault();
+                    onFolderMenu(options.folder as DocumentFolder, event.clientX, event.clientY);
+                  }
+                : undefined
+            }
           >
-            <Plus size={13} />
+            {options.icon === 'drive' ? (
+              <HardDrive size={14} aria-hidden />
+            ) : options.icon === 'project' ? (
+              <span
+                className={styles.treeProjectBadge}
+                style={{ background: projectColor(options.projectId ?? '') }}
+                aria-hidden
+              >
+                {initialsOf(projectTitles[options.projectId ?? ''] ?? options.label)}
+              </span>
+            ) : options.active ? (
+              <FolderOpen size={14} className={styles.treeFolderIcon} aria-hidden />
+            ) : (
+              <Folder size={14} className={styles.treeFolderIcon} aria-hidden />
+            )}
+            <span className={styles.treeTitle}>{options.label}</span>
+            {options.badge ? <span className={styles.folderScope}>{options.badge}</span> : null}
+            {options.count ? <span className={styles.treeCount}>{options.count}</span> : null}
           </button>
+        </Tooltip>
+        {options.folder && onAddChild && options.folder.depth < 4 ? (
+          <Tooltip content="Thư mục con mới">
+            <button
+              type="button"
+              className={styles.treeAdd}
+              aria-label={`Thư mục con mới trong ${options.label}`}
+              onClick={() => onAddChild(options.folder as DocumentFolder)}
+            >
+              <Plus size={13} />
+            </button>
+          </Tooltip>
         ) : null}
       </div>
       {options.hasChildren && isOpen(key) ? (
@@ -230,22 +233,23 @@ export function FolderTree({
       <li key={`${keyPrefix}file:${folder.id}:${document.id}`}>
         <div className={styles.treeRow} style={{ paddingLeft: `${depth * 0.9 + 0.4}rem` }}>
           <span className={styles.treeToggleSpacer} aria-hidden />
-          <button
-            type="button"
-            className={
-              selectedDocumentId === document.id ? styles.treeNodeActive : styles.treeNode
-            }
-            title={isRef ? `${document.name} (tham chiếu)` : document.name}
-            data-document={document.id}
-            onClick={() => onOpenDocument(document, folder.id)}
-          >
-            {isRef ? (
-              <Link2 size={14} className={styles.treeFileIcon} aria-hidden />
-            ) : (
-              <FileText size={14} className={styles.treeFileIcon} aria-hidden />
-            )}
-            <span className={styles.treeTitle}>{document.name}</span>
-          </button>
+          <Tooltip content={isRef ? `${document.name} (tham chiếu)` : document.name}>
+            <button
+              type="button"
+              className={
+                selectedDocumentId === document.id ? styles.treeNodeActive : styles.treeNode
+              }
+              data-document={document.id}
+              onClick={() => onOpenDocument(document, folder.id)}
+            >
+              {isRef ? (
+                <Link2 size={14} className={styles.treeFileIcon} aria-hidden />
+              ) : (
+                <FileText size={14} className={styles.treeFileIcon} aria-hidden />
+              )}
+              <span className={styles.treeTitle}>{document.name}</span>
+            </button>
+          </Tooltip>
         </div>
       </li>
     ));

@@ -10,6 +10,7 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
 export interface WorkItemDialogProps {
@@ -73,19 +74,18 @@ export function WorkItemDialog({
       >
         <header className={styles.itemDialogHead}>
           {back ? (
-            <button
-              type="button"
-              className={styles.itemDialogBack}
-              title={`Quay lại ${back.label}`}
-              onClick={back.onBack}
-            >
-              <ArrowLeft size={15} /> {back.label}
-            </button>
+            <Tooltip content={`Quay lại ${back.label}`}>
+              <button type="button" className={styles.itemDialogBack} onClick={back.onBack}>
+                <ArrowLeft size={15} /> {back.label}
+              </button>
+            </Tooltip>
           ) : null}
           <span className={styles.itemDialogHeading}>{heading}</span>
-          <button type="button" aria-label="Đóng" title="Đóng (Esc)" onClick={onClose}>
-            <X size={16} />
-          </button>
+          <Tooltip content="Đóng (Esc)">
+            <button type="button" aria-label="Đóng" onClick={onClose}>
+              <X size={16} />
+            </button>
+          </Tooltip>
         </header>
         <div className={styles.itemDialogBody}>
           <div className={styles.itemDialogMain}>{children}</div>

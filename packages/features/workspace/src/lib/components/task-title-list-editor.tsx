@@ -4,6 +4,7 @@ import { MAX_PROJECT_TEMPLATE_TASKS, MAX_PROJECT_TEMPLATE_TITLE_LENGTH } from '@
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 
 export interface TaskTitleListEditorProps {
   readonly titles: readonly string[];
@@ -82,33 +83,40 @@ export function TaskTitleListEditor({
               />
               {disabled ? null : (
                 <span className={styles.taskTitleTools}>
-                  <button
-                    type="button"
-                    aria-label={`Đưa ${idPrefix} ${index + 1} lên`}
-                    title="Đưa lên"
-                    disabled={index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    <ArrowUp size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Đưa ${idPrefix} ${index + 1} xuống`}
-                    title="Đưa xuống"
-                    disabled={index === titles.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDown size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.taskTitleRemove}
-                    aria-label={`Bỏ ${idPrefix} ${index + 1}`}
-                    title="Bỏ công việc này"
-                    onClick={() => remove(index)}
-                  >
-                    <X size={15} />
-                  </button>
+                  <Tooltip content="Đưa lên">
+                    <span className={styles.tooltipAnchor}>
+                      <button
+                        type="button"
+                        aria-label={`Đưa ${idPrefix} ${index + 1} lên`}
+                        disabled={index === 0}
+                        onClick={() => move(index, -1)}
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip content="Đưa xuống">
+                    <span className={styles.tooltipAnchor}>
+                      <button
+                        type="button"
+                        aria-label={`Đưa ${idPrefix} ${index + 1} xuống`}
+                        disabled={index === titles.length - 1}
+                        onClick={() => move(index, 1)}
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip content="Bỏ công việc này">
+                    <button
+                      type="button"
+                      className={styles.taskTitleRemove}
+                      aria-label={`Bỏ ${idPrefix} ${index + 1}`}
+                      onClick={() => remove(index)}
+                    >
+                      <X size={15} />
+                    </button>
+                  </Tooltip>
                 </span>
               )}
               </div>

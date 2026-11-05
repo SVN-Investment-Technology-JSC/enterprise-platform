@@ -26,6 +26,7 @@ import {
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
 interface Option {
@@ -227,15 +228,18 @@ export function ProjectFilterPanel({
             <button type="button" className={styles.buttonSmall} onClick={() => setPicking(picking === 'and' ? undefined : 'and')}>
               <Plus size={13} /> Điều kiện
             </button>
-            <button
-              type="button"
-              className={styles.buttonSmall}
-              disabled={groups.length === 0}
-              title={groups.length === 0 ? 'Thêm một điều kiện trước' : 'Mở một nhóm điều kiện mới'}
-              onClick={() => setPicking(picking === 'or' ? undefined : 'or')}
-            >
-              Hoặc
-            </button>
+            <Tooltip content={groups.length === 0 ? 'Thêm một điều kiện trước' : 'Mở một nhóm điều kiện mới'}>
+              <span className={styles.tooltipAnchor}>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={groups.length === 0}
+                  onClick={() => setPicking(picking === 'or' ? undefined : 'or')}
+                >
+                  Hoặc
+                </button>
+              </span>
+            </Tooltip>
             {picking ? <FieldPicker onPick={add} onClose={() => setPicking(undefined)} /> : null}
           </div>
         </div>

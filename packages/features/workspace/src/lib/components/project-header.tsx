@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProjectAvatar } from './project-avatar';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
 /** Số ô người hiện trước khi gom phần còn lại thành "+N". */
@@ -80,9 +81,9 @@ export function ProjectHeader({
       </span>
 
       <div className={styles.projectHeaderTitleRow}>
-        <h2 className={styles.projectHeaderTitle} title={project.name}>
-          {project.name}
-        </h2>
+        <Tooltip content={project.name}>
+          <h2 className={styles.projectHeaderTitle}>{project.name}</h2>
+        </Tooltip>
         {canChangeStatus && onChangeStatus ? (
           <StatusPicker status={project.status} onChange={onChangeStatus} />
         ) : (
@@ -104,9 +105,9 @@ export function ProjectHeader({
         </span>
         <span className={styles.avatarStack} aria-label={`${members.length} thành viên`}>
           {members.slice(0, AVATARS_SHOWN).map((member) => (
-            <span key={member.id} className={styles.avatar} title={directory.nameOf(member.userId)}>
-              {initials(directory.nameOf(member.userId))}
-            </span>
+            <Tooltip key={member.id} content={directory.nameOf(member.userId)}>
+              <span className={styles.avatar}>{initials(directory.nameOf(member.userId))}</span>
+            </Tooltip>
           ))}
           {members.length > AVATARS_SHOWN ? (
             <span className={`${styles.avatar} ${styles.avatarMore}`}>+{members.length - AVATARS_SHOWN}</span>
@@ -119,14 +120,12 @@ export function ProjectHeader({
 
       <ul className={styles.projectFacts} aria-label="Thông tin dự án">
         {facts.map((fact) => (
-          <li
-            key={fact.key}
-            className={fact.strong ? `${styles.projectFact} ${styles.projectFactStrong}` : styles.projectFact}
-            title={fact.title}
-          >
-            {fact.icon}
-            {fact.label}
-          </li>
+          <Tooltip key={fact.key} content={fact.title}>
+            <li className={fact.strong ? `${styles.projectFact} ${styles.projectFactStrong}` : styles.projectFact}>
+              {fact.icon}
+              {fact.label}
+            </li>
+          </Tooltip>
         ))}
       </ul>
 
@@ -180,19 +179,22 @@ function StatusPicker({
 
   return (
     <span ref={box} className={styles.statusPicker}>
-      <button
-        type="button"
-        className={`${styles.pill} ${styles.pillCaps} ${styles.statusPickerButton}`}
-        style={{ background: tone.bg, color: tone.fg }}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        title="Đổi trạng thái dự án"
-        disabled={saving}
-        onClick={() => setOpen((current) => !current)}
-      >
-        {PROJECT_STATUS_LABELS[status]}
-        <ChevronDown size={12} aria-hidden />
-      </button>
+      <Tooltip content="Đổi trạng thái dự án">
+        <span className={styles.tooltipAnchor}>
+          <button
+            type="button"
+            className={`${styles.pill} ${styles.pillCaps} ${styles.statusPickerButton}`}
+            style={{ background: tone.bg, color: tone.fg }}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            disabled={saving}
+            onClick={() => setOpen((current) => !current)}
+          >
+            {PROJECT_STATUS_LABELS[status]}
+            <ChevronDown size={12} aria-hidden />
+          </button>
+        </span>
+      </Tooltip>
       {open ? (
         <ul className={styles.statusPickerMenu} role="listbox" aria-label="Trạng thái dự án">
           {PICKABLE_STATUSES.map((option) => {
