@@ -1,5 +1,5 @@
 import type { SharedDocumentSummary, SharedFolder } from '@enterprise-platform/contracts-shared';
-import { planFolderUpload, type UploadJob } from './folder-upload.model';
+import { pickedFiles, planFolderUpload, type UploadJob } from './folder-upload.model';
 import { runUpload, type UploadRunnerApi } from './upload-runner';
 
 const folder = (id: string, name: string, parentId?: string): SharedFolder => ({
@@ -72,7 +72,7 @@ const TARGET = folder('target', 'Tài liệu công ty');
 describe('runUpload – tải cả thư mục', () => {
   it('dựng thư mục còn thiếu, nhập vào thư mục cùng tên đã có, tải tệp vào đúng chỗ', async () => {
     const existing = folder('existing', 'hồ sơ', 'target');
-    const plan = planFolderUpload([picked('Hồ sơ/a.pdf'), picked('Hồ sơ/2026/b.pdf')], 0);
+    const plan = planFolderUpload(pickedFiles([picked('Hồ sơ/a.pdf'), picked('Hồ sơ/2026/b.pdf')]), 0);
     const { api, created, uploads } = fakeApi();
 
     const result = await runUpload(api, {
@@ -87,12 +87,30 @@ describe('runUpload – tải cả thư mục', () => {
       { folderId: 'new-1', name: 'b', file: 'b.pdf' },
       { folderId: 'existing', name: 'a', file: 'a.pdf' },
     ]);
-    expect(result).toMatchObject({ uploaded: 2, skipped: [], failures: [] });
+    expect(result).toMatchObject({ uploaded: 2, skipped: [], failures: [], foldersCreated: 1 });
     expect(result.folderIds.get('Hồ sơ')).toBe('existing');
   });
 
+  it('kéo thả toàn thư mục rỗng: vẫn dựng đủ cây, không tải tệp nào', async () => {
+    const plan = planFolderUpload([{ path: 'Hồ sơ' }, { path: 'Hồ sơ/2026' }, { path: 'Hồ sơ/2027' }], 0);
+    const { api, created, uploads } = fakeApi();
+    const result = await runUpload(api, {
+      targetFolderId: 'target',
+      knownFolders: [TARGET],
+      folders: plan.folders,
+      jobs: plan.jobs,
+    });
+    expect(created).toEqual([
+      { parentId: 'target', name: 'Hồ sơ' },
+      { parentId: 'new-1', name: '2026' },
+      { parentId: 'new-1', name: '2027' },
+    ]);
+    expect(uploads).toEqual([]);
+    expect(result).toMatchObject({ uploaded: 0, failures: [], foldersCreated: 3 });
+  });
+
   it('tệp cùng tên khác đuôi: tệp sau giữ nguyên tên tệp', async () => {
-    const plan = planFolderUpload([picked('Hồ sơ/Biên bản.pdf'), picked('Hồ sơ/Biên bản.docx')], 0);
+    const plan = planFolderUpload(pickedFiles([picked('Hồ sơ/Biên bản.pdf'), picked('Hồ sơ/Biên bản.docx')]), 0);
     const { api, uploads } = fakeApi();
     await runUpload(api, { targetFolderId: 'target', knownFolders: [TARGET], folders: plan.folders, jobs: plan.jobs });
     expect(uploads.map((upload) => upload.name)).toEqual(['Biên bản', 'Biên bản.pdf']);
@@ -203,7 +221,7 @@ describe('runUpload – tải cả thư mục', () => {
     api.createFolder = async () => {
       throw { code: 'FORBIDDEN', message: 'Bạn không có quyền tạo thư mục trong “Tài liệu công ty”.' };
     };
-    const plan = planFolderUpload([picked('Hồ sơ/a.pdf')], 0);
+    const plan = planFolderUpload(pickedFiles([picked('Hồ sơ/a.pdf')]), 0);
     await expect(
       runUpload(api, { targetFolderId: 'target', knownFolders: [TARGET], folders: plan.folders, jobs: plan.jobs }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -211,7 +229,7 @@ describe('runUpload – tải cả thư mục', () => {
   });
 
   it('thư mục đã có mà danh sách đang cầm chưa thấy (lượt trước hỏng giữa chừng): đọc lại rồi nhập vào', async () => {
-    const plan = planFolderUpload([picked('Hồ sơ/a.pdf')], 0);
+    const plan = planFolderUpload(pickedFiles([picked('Hồ sơ/a.pdf')]), 0);
     const { api, created, uploads } = fakeApi({ serverFolders: [folder('made-earlier', 'Hồ sơ', 'target')] });
     const result = await runUpload(api, {
       targetFolderId: 'target',
@@ -225,7 +243,7 @@ describe('runUpload – tải cả thư mục', () => {
   });
 
   it('tải lại dùng thư mục đã dựng ở lượt trước, không tạo lại', async () => {
-    const plan = planFolderUpload([picked('Hồ sơ/a.pdf')], 0);
+    const plan = planFolderUpload(pickedFiles([picked('Hồ sơ/a.pdf')]), 0);
     const { api, created, uploads } = fakeApi();
     await runUpload(api, {
       targetFolderId: 'target',

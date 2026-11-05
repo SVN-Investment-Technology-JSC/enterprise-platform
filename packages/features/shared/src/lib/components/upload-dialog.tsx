@@ -10,7 +10,15 @@ import {
 } from '@enterprise-platform/contracts-shared';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { planFolderUpload, type UploadJob, type UploadSkip } from '../folder-upload.model';
+import { readDrop } from '../file-drop';
+import {
+  hasFolders,
+  pickedFiles,
+  planFolderUpload,
+  type PickedEntry,
+  type UploadJob,
+  type UploadSkip,
+} from '../folder-upload.model';
 import { nameFromFile, parseTags } from '../library.model';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
@@ -34,6 +42,8 @@ export interface UploadSummary {
   readonly uploaded: number;
   /** Tệp đã có trong thư mục nên không tải lại. */
   readonly skipped: number;
+  /** Thư mục mới tạo (thư mục cùng tên đã có thì nhập vào, không tính). */
+  readonly folders: number;
   /** Thư mục vừa tải lên, hoặc tài liệu cuối cùng khi tải tệp. */
   readonly select?: { readonly type: 'folder' | 'document'; readonly id: string };
 }
@@ -42,12 +52,14 @@ export interface UploadDialogProps {
   readonly open: boolean;
   /** `folder` ("Tải thư mục lên"): mở là bật ngay hộp chọn thư mục của máy. */
   readonly mode?: UploadMode;
+  /** Tệp, thư mục vừa kéo thả vào thư viện: mở hộp thoại với sẵn những mục này. */
+  readonly initialEntries?: readonly PickedEntry[];
   readonly folders: readonly SharedFolder[];
   /** Thư mục người dùng tải lên được. */
   readonly writable: (folder: SharedFolder) => boolean;
   readonly defaultFolderId?: string;
   readonly onClose: () => void;
-  /** Gọi sau mỗi lượt có tệp lên xong hoặc được bỏ qua vì đã có. */
+  /** Gọi sau mỗi lượt có tệp lên xong, được bỏ qua vì đã có, hay có thư mục mới dựng. */
   readonly onUploaded: (summary: UploadSummary) => void;
 }
 
@@ -66,12 +78,14 @@ interface LastRun {
  * Tải tệp, hoặc cả một thư mục, vào một thư mục của kho. Mọi định dạng đều nhận.
  *
  * Nhiều tệp thì mỗi tệp thành một tài liệu mang tên tệp; thông tin hồ sơ nhập ở
- * đây áp cho tất cả. Chọn thư mục thì dựng lại đủ cây thư mục con rồi tải từng
- * tệp vào đúng chỗ. Tệp lỗi không dừng cả lượt: hết lượt thì liệt kê để tải lại.
+ * đây áp cho tất cả. Chọn hoặc kéo thả thư mục thì dựng lại đủ cây thư mục con
+ * rồi tải từng tệp vào đúng chỗ. Tệp lỗi không dừng cả lượt: hết lượt thì liệt
+ * kê để tải lại.
  */
 export function UploadDialog({
   open,
   mode = 'files',
+  initialEntries,
   folders,
   writable,
   defaultFolderId,
@@ -79,7 +93,7 @@ export function UploadDialog({
   onUploaded,
 }: UploadDialogProps) {
   const [folderId, setFolderId] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
+  const [entries, setEntries] = useState<readonly PickedEntry[]>([]);
   const [fromFolder, setFromFolder] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -110,9 +124,10 @@ export function UploadDialog({
     if (!open) return;
     // Thư mục đang mở mà không có quyền ghi thì để người dùng tự chọn.
     setFolderId(defaultFolderId && options.some((option) => option.value === defaultFolderId) ? defaultFolderId : '');
-    setFiles([]);
-    setFromFolder(false);
-    setName('');
+    const dropped = initialEntries ?? [];
+    setEntries(dropped);
+    setFromFolder(hasFolders(dropped));
+    setName(dropped.length === 1 && dropped[0].file && !hasFolders(dropped) ? nameFromFile(dropped[0].file.name) : '');
     setDescription('');
     setEffectiveFrom('');
     setConfidentiality('internal');
@@ -124,19 +139,23 @@ export function UploadDialog({
     setLastRun(undefined);
     folderIds.current = new Map();
     // "Tải thư mục lên": mở hộp chọn của máy ngay, vẫn trong lượt bấm của người dùng.
-    if (mode === 'folder') folderInput.current?.click();
+    if (mode === 'folder' && dropped.length === 0) folderInput.current?.click();
     // Chỉ chạy khi mở hộp thoại; danh sách thư mục nạp lại giữa chừng không xoá những gì đã nhập.
-  }, [open, defaultFolderId, mode]);
+  }, [open, defaultFolderId, mode, initialEntries]);
 
   const plan = useMemo(
-    () => (fromFolder ? planFolderUpload(files, targetDepth) : undefined),
-    [fromFolder, files, targetDepth],
+    () => (fromFolder ? planFolderUpload(entries, targetDepth) : undefined),
+    [fromFolder, entries, targetDepth],
   );
+  const files = useMemo(() => entries.flatMap((entry) => (entry.file ? [entry.file] : [])), [entries]);
   const jobs: readonly UploadJob[] = plan?.jobs ?? files.map((file) => ({ file, path: file.name, folderPath: '' }));
   const single = !fromFolder && files.length === 1;
   const tooLarge = fromFolder ? undefined : files.find((file) => file.size > SHARED_DOCUMENT_MAX_BYTES);
   const retry = lastRun?.failures.length ? lastRun.failures.map((failure) => failure.job) : undefined;
   const total = retry?.length ?? jobs.length;
+  // Thả vào toàn thư mục rỗng thì vẫn có việc: dựng các thư mục đó.
+  const foldersOnly = !retry && total === 0 && Boolean(plan?.folders.length);
+  const roots = plan?.folders.filter((folder) => !folder.parentPath) ?? [];
 
   const startOver = () => {
     setLastRun(undefined);
@@ -144,13 +163,21 @@ export function UploadDialog({
     folderIds.current = new Map();
   };
 
-  const pick = (list: FileList | null, folder: boolean) => {
-    const picked = Array.from(list ?? []);
+  const choose = (picked: readonly PickedEntry[], folder: boolean) => {
     if (picked.length === 0) return;
-    setFiles(picked);
+    setEntries(picked);
     setFromFolder(folder);
     startOver();
-    if (!folder && picked.length === 1 && !name.trim()) setName(nameFromFile(picked[0].name));
+    if (!folder && picked.length === 1 && picked[0].file && !name.trim()) setName(nameFromFile(picked[0].file.name));
+  };
+
+  const pick = (list: FileList | null, folder: boolean) => choose(pickedFiles(Array.from(list ?? [])), folder);
+
+  /** Thả thêm vào hộp thoại: thay cho những gì đang chọn, như bấm chọn lại. */
+  const dropIn = (dataTransfer: DataTransfer) => {
+    readDrop(dataTransfer)
+      .then((dropped) => choose(dropped, hasFolders(dropped)))
+      .catch(() => setError('Không đọc được thư mục vừa thả.'));
   };
 
   const runnerApi: UploadRunnerApi = {
@@ -194,20 +221,25 @@ export function UploadDialog({
         onProgress: (done, count, current) => setProgress({ done, total: count, current }),
       });
       folderIds.current = outcome.folderIds;
-      const rootId = plan?.folders[0] ? outcome.folderIds.get(plan.folders[0].path) : undefined;
-      if (outcome.uploaded > 0 || outcome.skipped.length > 0) {
+      const finished = outcome.failures.length === 0;
+      const rootId = roots[0] ? outcome.folderIds.get(roots[0].path) : undefined;
+      if (outcome.uploaded > 0 || outcome.skipped.length > 0 || outcome.foldersCreated > 0 || foldersOnly) {
         onUploaded({
           folderId,
           uploaded: outcome.uploaded,
           skipped: outcome.skipped.length,
-          select: rootId
-            ? { type: 'folder', id: rootId }
-            : outcome.lastDocumentId
-              ? { type: 'document', id: outcome.lastDocumentId }
-              : undefined,
+          folders: outcome.foldersCreated,
+          // Còn tệp lỗi thì hộp thoại ở lại để tải lại: chưa chuyển thư viện sang chỗ khác.
+          select: !finished
+            ? undefined
+            : rootId
+              ? { type: 'folder', id: rootId }
+              : outcome.lastDocumentId
+                ? { type: 'document', id: outcome.lastDocumentId }
+                : undefined,
         });
       }
-      if (outcome.failures.length === 0) {
+      if (finished) {
         onClose();
       } else if (single && !outcome.failures[0].job.pendingDocumentId) {
         // Một tệp với tên tự đặt, chưa tạo được tài liệu (vd. trùng tên): báo như lỗi của form để sửa rồi gửi lại.
@@ -237,7 +269,13 @@ export function UploadDialog({
       submitLabel={retry ? `Tải lại ${total} tệp` : total > 1 ? `Tải lên ${total} tệp` : 'Tải lên'}
       submittingLabel={progress ? `Đang tải ${progress.done}/${progress.total}` : 'Đang tải…'}
       submitting={submitting}
-      submitDisabled={!folderId || total === 0 || Boolean(tooLarge) || Boolean(plan?.problem) || (single && !name.trim())}
+      submitDisabled={
+        !folderId ||
+        (total === 0 && !foldersOnly) ||
+        Boolean(tooLarge) ||
+        Boolean(plan?.problem) ||
+        (single && !name.trim())
+      }
       error={
         error ??
         plan?.problem ??
@@ -247,6 +285,7 @@ export function UploadDialog({
       onStop={() => {
         stopped.current = true;
       }}
+      onDropFiles={dropIn}
       onSubmit={() => void submit()}
     >
       <SelectField label="Thư mục" required>
@@ -303,9 +342,9 @@ export function UploadDialog({
           }}
         />
       </SelectField>
-      {plan?.folders[0] ? (
+      {plan && roots.length > 0 ? (
         <p className={styles.uploadSummary}>
-          <strong>{plan.folders[0].name}</strong> · {plan.folders.length} thư mục · {plan.jobs.length} tệp ·{' '}
+          <strong>{rootNames(roots)}</strong> · {plan.folders.length} thư mục · {plan.jobs.length} tệp ·{' '}
           {formatBytes(plan.totalBytes)}
         </p>
       ) : null}
@@ -361,6 +400,12 @@ export function UploadDialog({
       ) : null}
     </Dialog>
   );
+}
+
+/** Tên các thư mục gốc được chọn hay thả vào: hai tên đầu, còn lại gộp thành số. */
+function rootNames(roots: readonly { readonly name: string }[]): string {
+  const shown = roots.slice(0, 2).map((root) => root.name).join(', ');
+  return roots.length > 2 ? `${shown} +${roots.length - 2}` : shown;
 }
 
 /** Danh sách đường dẫn kèm ghi chú (dung lượng, lý do), cắt bớt khi quá dài. */

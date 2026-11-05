@@ -44,11 +44,14 @@ export interface UploadRunResult {
   /** Tệp lỗi, và tệp chưa tải khi người dùng dừng giữa chừng. */
   readonly failures: readonly UploadFailure[];
   readonly folderIds: ReadonlyMap<string, string>;
+  /** Thư mục tạo mới trong lượt này; thư mục cùng tên đã có thì nhập vào, không tính. */
+  readonly foldersCreated: number;
   readonly lastDocumentId?: string;
 }
 
 /**
- * Tải một lượt: dựng các thư mục (cha trước con), rồi tải từng tệp vào đúng chỗ.
+ * Tải một lượt: dựng các thư mục (cha trước con, kể cả thư mục rỗng), rồi tải
+ * từng tệp vào đúng chỗ.
  *
  * Thư mục cùng tên đã có thì nhập vào. Tệp đã có trong thư mục (cùng tên tệp,
  * cùng dung lượng) thì bỏ qua, nên tải lại cả thư mục không sinh bản trùng; tài
@@ -179,7 +182,7 @@ export async function runUpload(api: UploadRunnerApi, input: UploadRunInput): Pr
 
   // Dừng giữa chừng: tệp chưa tải đưa vào danh sách để "Tải lại".
   for (const job of input.jobs.slice(next)) failures.push({ job, reason: 'Chưa tải' });
-  return { uploaded, skipped, failures, folderIds, lastDocumentId };
+  return { uploaded, skipped, failures, folderIds, foldersCreated: created.size, lastDocumentId };
 }
 
 function messageOf(cause: unknown): string {

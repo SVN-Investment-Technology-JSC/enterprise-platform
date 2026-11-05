@@ -1,13 +1,25 @@
 import { SHARED_DOCUMENT_MAX_BYTES, SHARED_MAX_FOLDER_DEPTH } from '@enterprise-platform/contracts-shared';
-import { documentNameCandidates, isSystemFile, planFolderUpload } from './folder-upload.model';
+import {
+  documentNameCandidates,
+  hasFolders,
+  isSystemFile,
+  pickedFiles,
+  planFolderUpload,
+  type PickedEntry,
+} from './folder-upload.model';
 
 /** Tệp như `<input webkitdirectory>` trả về: tên tệp + đường dẫn từ thư mục được chọn. */
-const picked = (path: string, size = 10) => {
-  const file = new File(['x'], path.split('/').pop() ?? path);
-  Object.defineProperty(file, 'size', { value: size });
-  Object.defineProperty(file, 'webkitRelativePath', { value: path });
-  return file;
+const file = (path: string, size = 10) => {
+  const item = new File(['x'], path.split('/').pop() ?? path);
+  Object.defineProperty(item, 'size', { value: size });
+  Object.defineProperty(item, 'webkitRelativePath', { value: path });
+  return item;
 };
+
+const picked = (path: string, size = 10): PickedEntry => ({ file: file(path, size), path });
+
+/** Thư mục kéo thả vào: không có tệp, kể cả thư mục rỗng. */
+const dir = (path: string): PickedEntry => ({ path });
 
 describe('planFolderUpload', () => {
   it('dựng cây thư mục theo đường dẫn, cha trước con, mỗi tệp vào đúng thư mục', () => {
@@ -56,6 +68,52 @@ describe('planFolderUpload', () => {
     expect(planFolderUpload([picked(`${'a'.repeat(181)}/x.pdf`)], 0).problem).toMatch(/dài quá 180/);
     const plan = planFolderUpload([picked(' Hồ sơ //2026/x.pdf')], 0);
     expect(plan.folders.map((folder) => folder.path)).toEqual(['Hồ sơ', 'Hồ sơ/2026']);
+  });
+});
+
+describe('planFolderUpload – kéo thả', () => {
+  it('giữ cả thư mục rỗng, cha trước con', () => {
+    const plan = planFolderUpload([dir('Hồ sơ/Trống/Con'), dir('Hồ sơ'), picked('Hồ sơ/a.pdf'), dir('Hồ sơ/Trống')], 0);
+    expect(plan.folders).toEqual([
+      { path: 'Hồ sơ', name: 'Hồ sơ', parentPath: '' },
+      { path: 'Hồ sơ/Trống', name: 'Trống', parentPath: 'Hồ sơ' },
+      { path: 'Hồ sơ/Trống/Con', name: 'Con', parentPath: 'Hồ sơ/Trống' },
+    ]);
+    expect(plan.jobs.map((job) => [job.path, job.folderPath])).toEqual([['Hồ sơ/a.pdf', 'Hồ sơ']]);
+  });
+
+  it('thả nhiều thư mục và tệp lẻ một lúc: mỗi thư mục là một gốc, tệp lẻ vào thẳng thư mục đích', () => {
+    const plan = planFolderUpload([picked('Biên bản.pdf'), picked('A/x.pdf'), dir('B')], 0);
+    expect(plan.folders.map((folder) => [folder.path, folder.parentPath])).toEqual([
+      ['A', ''],
+      ['B', ''],
+    ]);
+    expect(plan.jobs.map((job) => [job.path, job.folderPath])).toEqual([
+      ['A/x.pdf', 'A'],
+      ['Biên bản.pdf', ''],
+    ]);
+  });
+
+  it('thư mục rỗng cũng tính cấp như thư mục có tệp', () => {
+    const deepest = SHARED_MAX_FOLDER_DEPTH - 2;
+    expect(planFolderUpload([dir('A')], deepest).problem).toBeUndefined();
+    expect(planFolderUpload([dir('A/B')], deepest).problem).toContain('“A/B”');
+  });
+});
+
+describe('hasFolders, pickedFiles', () => {
+  it('có thư mục khi có mục không phải tệp hay tệp nằm trong thư mục con', () => {
+    expect(hasFolders([picked('a.pdf'), picked('b.docx')])).toBe(false);
+    expect(hasFolders([picked('a.pdf'), dir('Trống')])).toBe(true);
+    expect(hasFolders([picked('Hồ sơ/a.pdf')])).toBe(true);
+  });
+
+  it('tệp chọn bằng hộp chọn thư mục mang đường dẫn tương đối, tệp lẻ mang tên tệp', () => {
+    const loose = new File(['x'], 'lẻ.pdf');
+    expect(pickedFiles([file('Hồ sơ/2026/a.pdf'), loose]).map((entry) => entry.path)).toEqual([
+      'Hồ sơ/2026/a.pdf',
+      'lẻ.pdf',
+    ]);
   });
 });
 

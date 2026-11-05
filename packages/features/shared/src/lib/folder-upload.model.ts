@@ -43,30 +43,62 @@ export interface FolderUploadPlan {
   readonly problem?: string;
 }
 
+/** Một mục được chọn hoặc thả vào: tệp, hoặc thư mục (không có `file`; kéo thả thì giữ được cả thư mục rỗng). */
+export interface PickedEntry {
+  /** Đường dẫn tính từ chỗ chọn: tệp "Hồ sơ/2026/HĐ01.pdf", thư mục "Hồ sơ/2026". */
+  readonly path: string;
+  readonly file?: File;
+}
+
+/** Tệp của `<input type="file">`; chọn thư mục thì mỗi tệp có `webkitRelativePath`. */
+export function pickedFiles(files: readonly File[]): PickedEntry[] {
+  return files.map((file) => ({ file, path: file.webkitRelativePath || file.name }));
+}
+
+/** Có thư mục trong những gì được chọn: tải theo cây, không phải tải tệp lẻ. */
+export function hasFolders(entries: readonly PickedEntry[]): boolean {
+  return entries.some((entry) => !entry.file || splitPath(entry.path).length > 1);
+}
+
 /**
- * Kế hoạch tải cả thư mục từ danh sách tệp của `<input webkitdirectory>`: mỗi
- * tệp mang `webkitRelativePath` dạng "Hồ sơ/2026/HĐ01.pdf", đoạn đầu là thư mục
- * được chọn.
+ * Kế hoạch tải theo cây thư mục, từ `<input webkitdirectory>` hay từ thư mục kéo
+ * thả vào: mỗi mục mang đường dẫn dạng "Hồ sơ/2026/HĐ01.pdf". Thả nhiều thư mục
+ * và tệp một lúc thì mỗi thư mục là một gốc, tệp lẻ vào thẳng thư mục đích.
  *
  * `targetDepth` là độ sâu của thư mục đích; cây mới phải nằm trong giới hạn cấp
  * như khi tạo thư mục bằng tay. Tệp hệ thống bỏ qua lặng lẽ; tệp quá cỡ hay tên
  * quá dài bỏ qua và báo lại, không chặn cả lượt. Thứ tự theo đường dẫn, để tải
  * lại cùng thư mục thì tệp cùng tên khác đuôi nhận đúng tên như lần trước.
  */
-export function planFolderUpload(files: readonly File[], targetDepth: number): FolderUploadPlan {
+export function planFolderUpload(entries: readonly PickedEntry[], targetDepth: number): FolderUploadPlan {
   const folders = new Map<string, PlannedFolder>();
   const jobs: UploadJob[] = [];
   const skipped: UploadSkip[] = [];
   let totalBytes = 0;
   let problem: string | undefined;
 
-  const entries = files
-    .map((file) => ({ file, segments: splitPath(file.webkitRelativePath || file.name) }))
+  const addFolders = (dirs: readonly string[]) =>
+    dirs.forEach((dir, index) => {
+      const folderPath = dirs.slice(0, index + 1).join('/');
+      if (folders.has(folderPath)) return;
+      if (dir.length > 180) problem ??= `Tên thư mục “${dir.slice(0, 60)}…” dài quá 180 ký tự.`;
+      if (targetDepth + index + 1 > SHARED_MAX_FOLDER_DEPTH - 1) {
+        problem ??= `Cây thư mục tối đa ${SHARED_MAX_FOLDER_DEPTH} cấp, “${folderPath}” vượt quá.`;
+      }
+      folders.set(folderPath, { path: folderPath, name: dir, parentPath: dirs.slice(0, index).join('/') });
+    });
+
+  const ordered = entries
+    .map((entry) => ({ file: entry.file, segments: splitPath(entry.path) }))
     .filter((entry) => entry.segments.length > 0)
     .map((entry) => ({ ...entry, path: entry.segments.join('/') }))
     .sort((a, b) => a.path.localeCompare(b.path, 'vi', { numeric: true }));
 
-  for (const { file, segments, path } of entries) {
+  for (const { file, segments, path } of ordered) {
+    if (!file) {
+      addFolders(segments);
+      continue;
+    }
     const name = segments[segments.length - 1];
     if (isSystemFile(name)) continue;
     if (file.size > SHARED_DOCUMENT_MAX_BYTES) {
@@ -78,15 +110,7 @@ export function planFolderUpload(files: readonly File[], targetDepth: number): F
       continue;
     }
     const dirs = segments.slice(0, -1);
-    dirs.forEach((dir, index) => {
-      const folderPath = dirs.slice(0, index + 1).join('/');
-      if (folders.has(folderPath)) return;
-      if (dir.length > 180) problem ??= `Tên thư mục “${dir.slice(0, 60)}…” dài quá 180 ký tự.`;
-      if (targetDepth + index + 1 > SHARED_MAX_FOLDER_DEPTH - 1) {
-        problem ??= `Cây thư mục tối đa ${SHARED_MAX_FOLDER_DEPTH} cấp, “${folderPath}” vượt quá.`;
-      }
-      folders.set(folderPath, { path: folderPath, name: dir, parentPath: dirs.slice(0, index).join('/') });
-    });
+    addFolders(dirs);
     jobs.push({ file, path, folderPath: dirs.join('/') });
     totalBytes += file.size;
   }

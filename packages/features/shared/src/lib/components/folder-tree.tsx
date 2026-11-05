@@ -3,6 +3,7 @@
 import { formatBytes, type SharedFolder } from '@enterprise-platform/contracts-shared';
 import { ChevronRight, ChevronsDownUp, Folder, Library, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { useFolderDrop, type FolderDrop } from '../file-drop';
 import { flattenTree, isTopLevel } from '../library.model';
 import styles from '../shared.module.scss';
 import { anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor } from './context-menu';
@@ -18,7 +19,12 @@ export interface FolderTreeProps {
   readonly onMenu: (folder: SharedFolder | undefined, anchor: MenuAnchor) => void;
   /** Dòng Thùng rác ở chân cây; rỗng thì không hiện (người dùng không có quyền xoá). */
   readonly trash?: { readonly active: boolean; readonly onOpen: () => void };
+  /** Kéo tệp, thư mục từ máy thả vào một dòng thư mục (hay gốc kho) để tải lên. */
+  readonly drop?: FolderDrop;
 }
+
+/** Khoá vùng thả của dòng gốc kho; các dòng thư mục dùng id thư mục. */
+const ROOT_DROP = '@root';
 
 export function FolderTree({
   folders,
@@ -29,7 +35,9 @@ export function FolderTree({
   onOpen,
   onMenu,
   trash,
+  drop,
 }: FolderTreeProps) {
+  const drops = useFolderDrop(drop);
   const rows = useMemo(() => flattenTree(folders, expanded), [folders, expanded]);
   const totalBytes = useMemo(() => {
     const ids = new Set(folders.map((folder) => folder.id));
@@ -50,6 +58,8 @@ export function FolderTree({
           role="treeitem"
           aria-current={currentId || trash?.active ? 'false' : 'true'}
           className={`${styles.treeRow} ${styles.treeRoot}`}
+          data-drop={drops.over === ROOT_DROP || undefined}
+          {...drops.on<HTMLButtonElement>(ROOT_DROP, undefined)}
           onClick={() => onOpen(undefined)}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -74,6 +84,8 @@ export function FolderTree({
             className={styles.treeRow}
             style={{ paddingLeft: 10 + (level + 1) * 14 }}
             tabIndex={0}
+            data-drop={drops.over === folder.id || undefined}
+            {...drops.on<HTMLDivElement>(folder.id, folder)}
             onClick={() => onOpen(folder.id)}
             onContextMenu={(event) => {
               event.preventDefault();
