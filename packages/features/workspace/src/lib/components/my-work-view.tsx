@@ -38,8 +38,18 @@ import {
   ListFilter,
   Plus,
   RefreshCw,
+  X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { Provider } from 'react-redux';
 import { initialTasksWarning } from '../project-created';
 import * as api from '../workspace-api';
@@ -136,6 +146,15 @@ export interface MyWorkViewProps {
 }
 
 /** Bọc store riêng để bộ nhớ đệm và trạng thái xem nằm ngoài vòng đời của trang. */
+/** Cột phụ (nhắc tên, thẻ module khác): ẩn mặc định, mở bằng nút ở đầu trang, kéo vạch giữa để đổi độ rộng. */
+const SIDE_STORAGE = 'workspace.my-work.side.v1';
+const SIDE_MIN_PX = 260;
+const SIDE_MAX_PX = 560;
+const SIDE_DEFAULT_PX = 340;
+const SIDE_STEP_PX = 20;
+/** Bảng chính luôn giữ ít nhất chừng này (px) khi kéo cột phụ rộng ra. */
+const MAIN_MIN_PX = 480;
+
 /** Người dùng của lần mở trang gần nhất trong phiên này (cấp mô-đun, vì bộ nhớ đệm cũng ở cấp mô-đun). */
 let lastUserId = '';
 
@@ -166,6 +185,82 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const panelBox = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
+
+  // Cột phụ: mặc định ẩn; mở/đóng và độ rộng nhớ theo trình duyệt của người dùng.
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT_PX);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const sideDragging = useRef(false);
+  /** Độ rộng mới nhất khi đang kéo: lúc nhả chuột lưu đúng giá trị này, không phụ thuộc lần vẽ lại. */
+  const sideWidthLive = useRef(SIDE_DEFAULT_PX);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(SIDE_STORAGE) ?? 'null') as
+        | { open?: boolean; width?: number }
+        | null;
+      if (saved?.open) setSideOpen(true);
+      if (typeof saved?.width === 'number') {
+        const width = Math.min(SIDE_MAX_PX, Math.max(SIDE_MIN_PX, saved.width));
+        sideWidthLive.current = width;
+        setSideWidth(width);
+      }
+    } catch {
+      // localStorage có thể bị chặn (chế độ riêng tư); dùng mặc định.
+    }
+  }, []);
+  const saveSide = (open: boolean, width: number) => {
+    try {
+      window.localStorage.setItem(SIDE_STORAGE, JSON.stringify({ open, width }));
+    } catch {
+      // bỏ qua nếu không ghi được.
+    }
+  };
+  const toggleSide = () => {
+    setSideOpen((current) => {
+      saveSide(!current, sideWidth);
+      return !current;
+    });
+  };
+  /** Độ rộng tối đa theo bề ngang hiện có: bảng chính không bị ép dưới `MAIN_MIN_PX`. */
+  const clampSide = (value: number) => {
+    // Khung chưa có bề ngang (đang ẩn, chưa đo): không ép theo bề ngang.
+    const measured = mainRef.current?.getBoundingClientRect().width ?? 0;
+    const total = measured > 0 ? measured : Number.POSITIVE_INFINITY;
+    return Math.round(Math.max(SIDE_MIN_PX, Math.min(SIDE_MAX_PX, value, total - MAIN_MIN_PX)));
+  };
+  const onSideHandleDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sideDragging.current = true;
+  };
+  const onSideHandleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const box = mainRef.current?.getBoundingClientRect();
+    if (!sideDragging.current || !box) return;
+    const next = clampSide(box.right - event.clientX);
+    sideWidthLive.current = next;
+    setSideWidth(next);
+  };
+  const onSideHandleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!sideDragging.current) return;
+    sideDragging.current = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    saveSide(true, sideWidthLive.current);
+  };
+  const onSideHandleKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Cột phụ nằm bên phải: mũi tên trái = mở rộng, mũi tên phải = thu hẹp.
+    const delta = event.key === 'ArrowLeft' ? SIDE_STEP_PX : event.key === 'ArrowRight' ? -SIDE_STEP_PX : 0;
+    if (!delta) return;
+    event.preventDefault();
+    const next = clampSide(sideWidth + delta);
+    sideWidthLive.current = next;
+    setSideWidth(next);
+    saveSide(true, next);
+  };
+  const resetSideWidth = () => {
+    sideWidthLive.current = SIDE_DEFAULT_PX;
+    setSideWidth(SIDE_DEFAULT_PX);
+    saveSide(true, SIDE_DEFAULT_PX);
+  };
   // Thẻ bảng chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm dù có 600 việc.
   // Phần phía trên khung (dải lịch, thông báo quản trị, báo lỗi) hiện hoặc ẩn muộn thì phải đo lại, nếu không đáy khung tràn.
   const aboveKey = [
@@ -426,6 +521,21 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
         </div>
         <div className={styles.pageHeadEnd}>
           {overviewQuery.isFetching ? <span className={styles.muted}>Đang tải…</span> : null}
+          <Tooltip content={sideOpen ? 'Ẩn nhắc tên và việc từ module khác' : 'Xem ai nhắc tên bạn và việc từ module khác'}>
+            <button
+              type="button"
+              className={sideOpen ? styles.timelineToggleOn : styles.timelineToggle}
+              aria-pressed={sideOpen}
+              aria-label="Nhắc tên và việc từ module khác"
+              onClick={toggleSide}
+            >
+              <AtSign size={13} aria-hidden />
+              Nhắc tên
+              {mentions.length + externalCards.length > 0 ? (
+                <span className={styles.countBadge}>{mentions.length + externalCards.length}</span>
+              ) : null}
+            </button>
+          </Tooltip>
           <Tooltip content="Tải lại">
             <button
               type="button"
@@ -475,7 +585,11 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
         </section>
       ) : null}
 
-      <div className={styles.myWorkMain}>
+      <div
+        ref={mainRef}
+        className={sideOpen ? `${styles.myWorkMain} ${styles.myWorkMainOpen}` : styles.myWorkMain}
+        style={{ '--my-work-side': `${sideWidth}px` } as CSSProperties}
+      >
         <div ref={frame} className={styles.ledgerCard}>
           <header className={styles.ledgerHead}>
             <div className={styles.reqHeadLeft}>
@@ -636,8 +750,35 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           </div>
         </div>
 
+        {sideOpen ? (
+          <Tooltip content="Kéo để đổi độ rộng. Bấm đúp để về mặc định." side="left">
+            <div
+              className={styles.myWorkSideHandle}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Kéo để đổi độ rộng cột nhắc tên"
+              aria-valuenow={sideWidth}
+              aria-valuemin={SIDE_MIN_PX}
+              aria-valuemax={SIDE_MAX_PX}
+              tabIndex={0}
+              onPointerDown={onSideHandleDown}
+              onPointerMove={onSideHandleMove}
+              onPointerUp={onSideHandleUp}
+              onPointerCancel={onSideHandleUp}
+              onKeyDown={onSideHandleKey}
+              onDoubleClick={resetSideWidth}
+            />
+          </Tooltip>
+        ) : null}
+
+        {sideOpen ? (
         <aside className={styles.myWorkSide} aria-label="Nhắc tên và việc từ module khác">
           <div className={styles.myWorkSideCard}>
+            <Tooltip content="Ẩn cột này">
+              <button type="button" className={styles.myWorkSideClose} aria-label="Ẩn cột nhắc tên" onClick={toggleSide}>
+                <X size={14} aria-hidden />
+              </button>
+            </Tooltip>
             <section className={styles.myWorkSideSection} aria-label="Có người nhắc bạn">
               <h3 className={styles.myWorkSideTitle}>
                 <AtSign size={14} aria-hidden /> Có người nhắc bạn
@@ -706,6 +847,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
             </section>
           </div>
         </aside>
+        ) : null}
       </div>
 
       {/* Dự án mới — người tạo tự thành chủ nhiệm nên luôn được nhập tài chính. */}

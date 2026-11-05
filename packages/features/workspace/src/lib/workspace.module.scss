@@ -10594,9 +10594,69 @@ button.kpiCard {
 /* Bảng bên trái, cột phụ bên phải; chiều cao do thẻ bảng quyết định (useFillViewportHeight), cột phụ chỉ cuộn bên trong. */
 .myWorkMain {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
+}
+
+/* Cột phụ đang mở: bảng | vạch kéo | cột phụ (độ rộng do biến --my-work-side, đặt từ giao diện). */
+.myWorkMainOpen {
+  grid-template-columns: minmax(0, 1fr) 14px var(--my-work-side, 340px);
+}
+
+/* Vạch kéo giữa bảng và cột phụ: vùng bấm rộng 14px, đường mảnh ở giữa, đổi màu khi rê hoặc kéo. */
+.myWorkSideHandle {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+
+  &::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 2px;
+    background: transparent;
+    content: '';
+    transition: background-color 0.12s ease;
+  }
+
+  &:hover::after,
+  &:active::after,
+  &:focus-visible::after {
+    background: var(--ep-accent-strong);
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.myWorkSideClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
 }
 
 .myWorkSide {
@@ -10617,8 +10677,14 @@ button.kpiCard {
 }
 
 @media (max-width: 1099px) {
-  .myWorkMain {
+  .myWorkMain,
+  .myWorkMainOpen {
     grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .myWorkSideHandle {
+    display: none;
   }
 
   .myWorkSide {

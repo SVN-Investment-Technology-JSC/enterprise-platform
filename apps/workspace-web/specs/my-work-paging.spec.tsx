@@ -104,6 +104,8 @@ const pageOf = (_projectId: string, _filter: unknown, _sort: string, page: numbe
 const codes = () => screen.queryAllByText(/^CV-\d+$/);
 
 beforeEach(() => {
+  // Trạng thái cột phụ (mở/đóng, độ rộng) nhớ trong localStorage: mỗi ca bắt đầu từ mặc định.
+  window.localStorage.clear();
   resetMyWork();
   mockApi.loadMyWorkOverview.mockReset().mockResolvedValue(overview());
   mockApi.loadMyWorkGroupItems.mockReset().mockImplementation(pageOf);
@@ -192,6 +194,8 @@ describe('Công việc của tôi: khối nhắc tên', () => {
       ]),
     );
     render(<MyWorkView />);
+    // Cột phụ ẩn mặc định: mở bằng nút ở đầu trang.
+    fireEvent.click(await screen.findByRole('button', { name: 'Nhắc tên và việc từ module khác' }));
     const excerpt = await screen.findByText(long);
     expect(excerpt.className).toContain('mentionExcerpt');
     // Là một nút bấm được, nằm trong khối phụ chung với "Từ module khác".
@@ -208,6 +212,44 @@ describe('Công việc của tôi: khối nhắc tên', () => {
     });
     render(<MyWorkView />);
     expect(await screen.findByText('Bạn không có việc nào đang mở.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Nhắc tên và việc từ module khác' }));
     expect(screen.getByText('Chưa ai nhắc tên bạn.')).toBeTruthy();
+  });
+
+  it('cột phụ ẩn mặc định, mở và đóng được, nhớ trạng thái; vạch giữa chỉnh được độ rộng bằng bàn phím và về mặc định khi bấm đúp', async () => {
+    window.localStorage.removeItem('workspace.my-work.side.v1');
+    mockApi.loadMyWorkOverview.mockResolvedValue(overview());
+    const { unmount } = render(<MyWorkView />);
+    const toggle = await screen.findByRole('button', { name: 'Nhắc tên và việc từ module khác' });
+    expect(screen.queryByRole('complementary')).toBeNull();
+    expect(screen.queryByRole('separator')).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole('complementary')).toBeTruthy();
+    const handle = screen.getByRole('separator');
+    expect(handle.getAttribute('aria-valuenow')).toBe('340');
+
+    // Mũi tên trái mở rộng cột phụ, mũi tên phải thu hẹp; bấm đúp về mặc định.
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(handle.getAttribute('aria-valuenow')).toBe('360');
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(handle.getAttribute('aria-valuenow')).toBe('320');
+    fireEvent.doubleClick(handle);
+    expect(handle.getAttribute('aria-valuenow')).toBe('340');
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+
+    // Nhớ: mở lại trang thì cột phụ vẫn mở với đúng độ rộng.
+    unmount();
+    cleanup();
+    resetMyWork();
+    render(<MyWorkView />);
+    await screen.findByRole('button', { name: 'Nhắc tên và việc từ module khác' });
+    await waitFor(() => expect(screen.getByRole('complementary')).toBeTruthy());
+    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe('360');
+
+    // Nút "Ẩn cột nhắc tên" đóng cột phụ.
+    fireEvent.click(screen.getByRole('button', { name: 'Ẩn cột nhắc tên' }));
+    expect(screen.queryByRole('complementary')).toBeNull();
   });
 });
