@@ -214,12 +214,12 @@ async function registerRequest(
   if (!status) return reject('Trạng thái đơn không hợp lệ.');
   const project = (
     await client.query(
-      `SELECT id, code, name, status FROM workspace_schema.projects WHERE id = $1`,
+      `SELECT id, code, name, status, archived_at FROM workspace_schema.projects WHERE id = $1`,
       [payload.projectId],
     )
   ).rows[0];
   if (!project) return reject('Dự án không tồn tại.');
-  if (CLOSED_PROJECT_STATUSES.has(project.status)) return reject('Dự án đã đóng.');
+  if (CLOSED_PROJECT_STATUSES.has(project.status) || project.archived_at) return reject('Dự án đã đóng hoặc đã lưu trữ.');
   const member = (
     await client.query(
       `SELECT m.role, d.permissions

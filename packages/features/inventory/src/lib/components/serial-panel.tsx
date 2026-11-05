@@ -3,6 +3,7 @@ import { useInventoryPermissions } from '../inventory-permissions';
 
 import type { Material, SerialTracking } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from '@enterprise-platform/shared-ui';
 import { loadSerials, registerSerials, updateSerial } from '../inventory-api';
 import { ASSET_STATUS_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
@@ -69,14 +70,12 @@ export function SerialPanel({
     try {
       const result = await registerSerials({ materialCode: material.code, serialNumbers });
       setDraft('');
-      setError(
-        result.added < serialNumbers.length
-          ? `Đã thêm ${result.added}/${serialNumbers.length} — số còn lại đã có sẵn.`
-          : undefined,
-      );
+      if (result.added < serialNumbers.length) {
+        toast.warning(`Đã thêm ${result.added}/${serialNumbers.length} — số còn lại đã có sẵn.`);
+      }
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không khai được sê-ri.');
+      toast.error(cause instanceof Error ? cause.message : 'Không khai được sê-ri.');
     } finally {
       setSaving(false);
     }
@@ -88,7 +87,7 @@ export function SerialPanel({
       await updateSerial(material.code, serialNumber, change);
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được.');
+      toast.error(cause instanceof Error ? cause.message : 'Không lưu được.');
     } finally {
       setSaving(false);
     }
@@ -181,6 +180,12 @@ export function SerialPanel({
           Khai sê-ri
         </button>
       </div>
+      {/* T8-11: khai ở đây không đưa sê-ri vào kho, nói rõ để người dùng không
+          tưởng đã có hàng để xuất. */}
+      <p className={styles.hint}>
+        Khai sê-ri ở đây chỉ ghi danh mục cá thể, chưa tính vào tồn kho. Muốn sê-ri vào kho,
+        nhập qua phiếu nhập kho kèm số sê-ri.
+      </p>
     </section>
   );
 }

@@ -10,6 +10,7 @@ import type {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useState, useMemo, type FormEvent } from 'react';
 import { ASSET_CRITICALITY_LABEL } from '../inventory-labels';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export function AssetForm({
@@ -27,7 +28,8 @@ export function AssetForm({
   isRootOnly?: boolean;
   busy: boolean;
   onCancel: () => void;
-  onSubmit: (input: CreateAssetRequest) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onSubmit: (input: CreateAssetRequest) => Promise<void> | void;
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -42,7 +44,7 @@ export function AssetForm({
       materials.map((mat) => ({
         value: mat.code,
         label: `${mat.code} — ${mat.name}`,
-        badge: mat.category,
+        badge: mat.tradeCategory,
       })),
     [materials],
   );
@@ -68,17 +70,19 @@ export function AssetForm({
     [],
   );
 
+  const { error, submit: send } = useFormSubmit('Không lưu được thiết bị.');
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!code.trim() || !name.trim()) return;
-    onSubmit({
+    void send(() => onSubmit({
       code: code.trim().toUpperCase(),
       name: name.trim(),
       type,
       criticality,
       parentCode: isRootOnly ? undefined : parentCode || undefined,
       serialNumber: serialNumber.trim() || undefined,
-    });
+    }));
   };
 
   return (
@@ -323,6 +327,8 @@ export function AssetForm({
               />
             </div>
           </div>
+
+          <FormError error={error} />
 
           {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn */}
           <div

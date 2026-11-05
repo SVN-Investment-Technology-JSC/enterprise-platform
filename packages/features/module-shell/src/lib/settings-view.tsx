@@ -8,6 +8,10 @@ export interface ModuleSettingsSection {
   readonly id: string;
   readonly label: string;
   readonly description?: string;
+  /**
+   * Mục tự dựng thẻ và đầu mục của mình: khung hiển thị bỏ thẻ bao ngoài và tiêu đề chung (cột điều hướng vẫn giữ).
+   */
+  readonly bare?: boolean;
   readonly render: () => ReactNode;
 }
 
@@ -48,6 +52,9 @@ export function ModuleSettingsView(props: ModuleSettingsViewProps) {
         ))}
       </nav>
 
+      {active.bare ? (
+        <div className={styles.sectionBare}>{active.render()}</div>
+      ) : (
       <section className={styles.sectionPanel}>
         <div className={styles.sectionHead}>
           <h2>{active.label}</h2>
@@ -84,6 +91,7 @@ export function ModuleSettingsView(props: ModuleSettingsViewProps) {
           </div>
         ) : null}
       </section>
+      )}
     </div>
   );
 }

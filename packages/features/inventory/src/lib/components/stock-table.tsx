@@ -8,17 +8,18 @@ import type {
   InventoryWorkspace,
 } from '../inventory-api';
 import {
-  MATERIAL_CATEGORY_LABEL,
   RESERVATION_STATUS_LABEL,
   WAREHOUSE_TYPE_LABEL,
   formatDateTime,
+  formatMaterialPrice,
   formatNumber,
 } from '../inventory-labels';
 import { loadMaterialHistory } from '../inventory-api';
+import { exportStockToExcel } from '../inventory-export';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { Ban } from 'lucide-react';
+import { Ban, Download } from 'lucide-react';
 import styles from '../inventory.module.scss';
 
 /**
@@ -124,16 +125,36 @@ export function StockTable({
       ),
     );
 
+  const handleExport = () => {
+    exportStockToExcel({
+      rows,
+      materialByCode,
+      warehouseLabel: warehouseCode === 'all' ? 'Tat_Ca_Kho' : warehouseCode,
+    });
+  };
+
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Tồn kho theo vật tư</h2>
-        <input
-          className={styles.searchInline}
-          placeholder="Tìm mã hoặc tên vật tư…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            className={styles.searchInline}
+            placeholder="Tìm mã hoặc tên vật tư…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button
+            type="button"
+            className={`${styles.action} ${styles.actionGhost}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '36px' }}
+            onClick={handleExport}
+            title="Xuất danh sách tồn kho ra tệp Excel"
+          >
+            <Download size={15} />
+            <span>Xuất Excel</span>
+          </button>
+        </div>
       </div>
 
       <div className={styles.chipRow}>
@@ -166,6 +187,7 @@ export function StockTable({
               <th className={styles.center}>Tồn thực</th>
               <th className={styles.center}>Đã giữ</th>
               <th className={styles.center}>Khả dụng</th>
+              <th className={styles.center}>Đơn giá</th>
             </tr>
           </thead>
           <tbody>
@@ -217,16 +239,17 @@ export function StockTable({
                         <span className={styles.sub}>dưới mức tối thiểu {formatNumber(material.minStock)}</span>
                       ) : null}
                     </td>
+                    <td className={`${styles.numeric} ${styles.center}`}>
+                      {formatMaterialPrice(material?.purchasePrice, material?.currency)}
+                    </td>
                   </tr>
                   {open ? (
                     <tr className={styles.detailRow}>
-                      <td colSpan={5}>
+                      <td colSpan={6}>
                         <div className={styles.detailGrid}>
                           <div>
-                            <span>Nhóm vật tư</span>
-                            <strong>
-                              {material ? MATERIAL_CATEGORY_LABEL[material.category] : '—'}
-                            </strong>
+                            <span>Phân loại</span>
+                            <strong>{material?.tradeCategory || '—'}</strong>
                           </div>
                           <div>
                             <span>Đơn vị tính</span>

@@ -6,6 +6,8 @@ import { AlertTriangle } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import type { ProcedureOption } from '../inventory-api';
 import { getUnitQuantityConfig } from '../inventory-labels';
+import { SerialPickerDrawer } from './stock-document-parts';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export interface ReturnToStockInput extends ReturnItemToStockRequest {
@@ -32,6 +34,7 @@ export function ReturnToStockDialog({
   warehouses,
   procedures = [],
   hasChildren = false,
+  serialMaterialCode,
   busy,
   onCancel,
   onConfirm,
@@ -47,9 +50,15 @@ export function ReturnToStockDialog({
   warehouses: readonly Warehouse[];
   procedures?: readonly ProcedureOption[];
   hasChildren?: boolean;
+  /**
+   * Mã vật tư theo dõi theo serial đang nhập về: bắt buộc ghi đủ serial (số
+   * serial bằng số lượng), máy chủ kiểm serial đúng là serial đã lắp.
+   */
+  serialMaterialCode?: string;
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (input: ReturnToStockInput) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onConfirm: (input: ReturnToStockInput) => Promise<void> | void;
 }) {
   // Một kho thì chọn sẵn — vẫn là lựa chọn có ý thức vì nó hiện rõ trên màn
   // hình, chỉ là không bắt bấm thêm một lần cho một phương án duy nhất.
@@ -62,6 +71,9 @@ export function ReturnToStockDialog({
   );
   const [note, setNote] = useState('');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
+  const { error, submit: send } = useFormSubmit('Không nhập về kho được.');
+  const [serials, setSerials] = useState<string[]>([]);
+  const [serialPickerOpen, setSerialPickerOpen] = useState(false);
 
   const warehouseOptions = useMemo(
     () =>
@@ -87,7 +99,8 @@ export function ReturnToStockDialog({
   const amount = Number(quantity);
   const valid = Number.isFinite(amount) && amount > 0;
   const over = maxQuantity !== undefined && valid && amount > maxQuantity;
-  const ready = warehouseCode !== '' && valid && !over;
+  const serialsMissing = Boolean(serialMaterialCode) && serials.length !== amount;
+  const ready = warehouseCode !== '' && valid && !over && !serialsMissing;
 
   return (
     <div className={styles.modalOverlay} onClick={onCancel}>
@@ -163,12 +176,13 @@ export function ReturnToStockDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!ready) return;
-            onConfirm({
+            void send(() => onConfirm({
               warehouseCode,
               quantity: amount,
               note: note.trim() || undefined,
               procedureDefinitionId: procedureDefinitionId || undefined,
-            });
+              serials: serialMaterialCode ? serials : undefined,
+            }));
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
         >
@@ -191,6 +205,25 @@ export function ReturnToStockDialog({
               <span>
                 <strong>Cảnh báo gỡ cụm thiết bị:</strong> Thiết bị này đang chứa các thiết bị/chi tiết con. Việc tháo dỡ sẽ gỡ toàn bộ cấu trúc nhánh con bên dưới khỏi cây vận hành.
               </span>
+            </div>
+          ) : null}
+
+          {/* Serial nhập về: vật tư theo serial phải ghi đủ serial */}
+          {serialMaterialCode ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                Serial nhập về <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setSerialPickerOpen(true)}>
+                  {`Ghi serial (${serials.length}/${valid ? amount : 0})`}
+                </button>
+                <span style={{ fontSize: '13px', color: serialsMissing ? '#b91c1c' : '#475569' }}>
+                  {serials.length > 0
+                    ? serials.join(', ')
+                    : `${serialMaterialCode} theo dõi theo serial: quét hoặc gõ đủ serial của hàng nhập về.`}
+                </span>
+              </div>
             </div>
           ) : null}
 
@@ -383,6 +416,8 @@ export function ReturnToStockDialog({
             />
           </div>
 
+          <FormError error={error} />
+
           {/* Footer Actions */}
           <div
             style={{
@@ -432,6 +467,23 @@ export function ReturnToStockDialog({
           </div>
         </form>
       </div>
+      {serialPickerOpen && serialMaterialCode ? (
+        <div onClick={(event) => event.stopPropagation()}>
+          <SerialPickerDrawer
+            open
+            materialCode={serialMaterialCode}
+            quantity={valid ? amount : 0}
+            value={serials}
+            inbound
+            zIndex={1100}
+            onApply={(next) => {
+              setSerials(next);
+              setSerialPickerOpen(false);
+            }}
+            onClose={() => setSerialPickerOpen(false)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

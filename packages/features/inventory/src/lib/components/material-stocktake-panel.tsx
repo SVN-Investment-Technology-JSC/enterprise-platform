@@ -63,7 +63,7 @@ const SESSION_STATUS_LABEL: Record<string, { label: string; bg: string; color: s
 };
 
 export function MaterialStocktakePanel(props: {
-  stocktakeState?: { session: StocktakeSession; line: StocktakeLine } | 'loading' | 'error';
+  stocktakeState?: { session: StocktakeSession; line: StocktakeLine } | 'loading' | 'error' | 'none';
   unit?: string;
 }) {
   const { stocktakeState, unit = '' } = props;
@@ -86,7 +86,7 @@ export function MaterialStocktakePanel(props: {
     );
   }
 
-  if (!stocktakeState) {
+  if (!stocktakeState || stocktakeState === 'none') {
     return (
       <div className={styles.stocktakeEmptyBox}>
         <ClipboardCheck size={38} strokeWidth={1.5} color="#94a3b8" />

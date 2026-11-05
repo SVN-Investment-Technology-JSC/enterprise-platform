@@ -54,6 +54,8 @@ export interface RequestTimeFields {
   startTime?: string | null;
   endTime?: string | null;
   requestDate?: string | null;
+  newCheckInAt?: string | null;
+  newCheckOutAt?: string | null;
   durationMinutes?: number | null;
   plannedMinutes?: number | null;
 }
@@ -62,6 +64,7 @@ export interface RequestTimeFields {
  * Chuỗi thời gian của một đơn:
  *  - có mốc giờ: "02/11/2026 09:00 -> 02/11/2026 11:30";
  *  - đơn làm thêm giờ cũ: "12/10/2026 (18:00 - 20:00)";
+ *  - đơn giải trình công: "12/10/2026 (08:30 - 17:30)" hoặc "12/10/2026 (Vào: 08:30)";
  *  - đơn cũ theo ngày: "12/10/2026 - 14/10/2026" (cả ngày) hoặc một ngày;
  *  - không có thời gian: chuỗi rỗng.
  */
@@ -71,6 +74,20 @@ export function formatRequestPeriod(r: RequestTimeFields): string {
   if (from && to) return `${from} -> ${to}`;
   if (r.workDate && r.startTime && r.endTime)
     return `${formatDateVn(r.workDate)} (${r.startTime.slice(0, 5)} - ${r.endTime.slice(0, 5)})`;
+  if (r.requestDate && (r.newCheckInAt || r.newCheckOutAt)) {
+    const inTime = r.newCheckInAt
+      ? /^\d{1,2}:\d{2}/.test(r.newCheckInAt)
+        ? r.newCheckInAt.slice(0, 5)
+        : formatDateTimeVn(r.newCheckInAt).slice(-5)
+      : '';
+    const outTime = r.newCheckOutAt
+      ? /^\d{1,2}:\d{2}/.test(r.newCheckOutAt)
+        ? r.newCheckOutAt.slice(0, 5)
+        : formatDateTimeVn(r.newCheckOutAt).slice(-5)
+      : '';
+    const timeRange = inTime && outTime ? `${inTime} - ${outTime}` : inTime ? `Vào: ${inTime}` : `Ra: ${outTime}`;
+    return `${formatDateVn(r.requestDate)} (${timeRange})`;
+  }
   if (r.fromDate)
     return r.toDate && r.toDate !== r.fromDate
       ? `${formatDateVn(r.fromDate)} - ${formatDateVn(r.toDate)}`

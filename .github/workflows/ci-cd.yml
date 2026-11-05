@@ -179,9 +179,14 @@ jobs:
           HRM_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           FINANCE_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           SHARED_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          # Kho (khoá dòng tồn, giữ hàng, serial), Bán hàng và Workspace (đồng bộ khách hàng).
+          # Nx bỏ qua project chưa có, nên module-crm chỉ chạy sau khi phân hệ Bán hàng được merge.
+          INVENTORY_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          CRM_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          WORKSPACE_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
           REALTIME_TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
+        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared module-inventory module-crm module-workspace --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
 
   prepare-services:
     name: Create deployment matrix

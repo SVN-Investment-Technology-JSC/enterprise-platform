@@ -343,6 +343,30 @@ export class FinanceController {
     return this.run(() => this.app.instanceReversalCheck(this.actor(request).tenantId, instanceId));
   }
 
+  /** Route nội bộ cho phân hệ khác (service token): tạo phiếu thu nháp có nguồn, idempotent theo `idempotencyKey`. */
+  @Post('internal/voucher-sources')
+  createVoucherSource(@Req() request: FinanceRequest, @Body() body: unknown) {
+    return this.run(() => this.app.createExternalVoucherSource(this.actor(request).tenantId, body));
+  }
+
+  /** Route nội bộ cho phân hệ khác (service token): bên nguồn huỷ bản ghi, phiếu còn nháp thì huỷ theo; idempotent. */
+  @Post('internal/voucher-sources/:sourceRef/cancel')
+  @HttpCode(200)
+  cancelVoucherSource(
+    @Req() request: FinanceRequest,
+    @Param('sourceRef') sourceRef: string,
+    @Query('sourceModule') sourceModule: string | undefined,
+    @Body() body: { reason?: unknown } | undefined,
+  ) {
+    return this.run(() => this.app.cancelExternalVoucherSource(this.actor(request).tenantId, sourceModule, sourceRef, body));
+  }
+
+  /** Route nội bộ cho phân hệ khác (service token): trạng thái phiếu của một bản ghi nguồn. */
+  @Get('internal/voucher-sources/:sourceRef')
+  voucherSourceState(@Req() request: FinanceRequest, @Param('sourceRef') sourceRef: string, @Query('sourceModule') sourceModule?: string) {
+    return this.run(() => this.app.externalVoucherSourceState(this.actor(request).tenantId, sourceModule, sourceRef));
+  }
+
   /* Báo cáo */
   @Get('reports/summary')
   report(

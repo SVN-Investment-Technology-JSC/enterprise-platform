@@ -112,6 +112,42 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
 > = {
   // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
   assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
+  // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
+  crm: [
+    { version: '0001-crm-foundation', path: 'tenant/crm/0001-crm-foundation.sql' },
+    { version: '0002-customers', path: 'tenant/crm/0002-customers.sql' },
+    { version: '0003-leads-opportunities', path: 'tenant/crm/0003-leads-opportunities.sql' },
+    { version: '0004-activities', path: 'tenant/crm/0004-activities.sql' },
+    { version: '0005-pricing', path: 'tenant/crm/0005-pricing.sql' },
+    { version: '0006-quotes', path: 'tenant/crm/0006-quotes.sql' },
+    { version: '0007-contracts', path: 'tenant/crm/0007-contracts.sql' },
+    { version: '0008-sales-orders', path: 'tenant/crm/0008-sales-orders.sql' },
+    { version: '0009-receivables', path: 'tenant/crm/0009-receivables.sql' },
+    { version: '0010-warranty', path: 'tenant/crm/0010-warranty.sql' },
+    { version: '0011-sales-facts', path: 'tenant/crm/0011-sales-facts.sql' },
+    { version: '0012-payment-term-full-delivery', path: 'tenant/crm/0012-payment-term-full-delivery.sql' },
+    { version: '0013-warranty-warehouse-settings', path: 'tenant/crm/0013-warranty-warehouse-settings.sql' },
+    { version: '0014-contract-reservation-completed', path: 'tenant/crm/0014-contract-reservation-completed.sql' },
+    { version: '0015-order-line-reservation-completed', path: 'tenant/crm/0015-order-line-reservation-completed.sql' },
+    { version: '0016-order-reservation-completed', path: 'tenant/crm/0016-order-reservation-completed.sql' },
+    { version: '0017-pipelines', path: 'tenant/crm/0017-pipelines.sql' },
+    { version: '0018-opportunity-pipeline', path: 'tenant/crm/0018-opportunity-pipeline.sql' },
+    { version: '0019-opportunity-stage-plan', path: 'tenant/crm/0019-opportunity-stage-plan.sql' },
+    { version: '0020-documents', path: 'tenant/crm/0020-documents.sql' },
+    { version: '0021-business-plans', path: 'tenant/crm/0021-business-plans.sql' },
+    { version: '0022-opportunity-estimate', path: 'tenant/crm/0022-opportunity-estimate.sql' },
+    { version: '0023-tender', path: 'tenant/crm/0023-tender.sql' },
+    { version: '0024-tender-pipeline', path: 'tenant/crm/0024-tender-pipeline.sql' },
+    { version: '0025-tender-reminder', path: 'tenant/crm/0025-tender-reminder.sql' },
+    { version: '0026-pipeline-care-suggestion', path: 'tenant/crm/0026-pipeline-care-suggestion.sql' },
+    { version: '0027-care-notes', path: 'tenant/crm/0027-care-notes.sql' },
+    { version: '0028-quote-form-fields', path: 'tenant/crm/0028-quote-form-fields.sql' },
+    { version: '0029-quote-form-tables', path: 'tenant/crm/0029-quote-form-tables.sql' },
+    { version: '0030-quote-custom-fields', path: 'tenant/crm/0030-quote-custom-fields.sql' },
+    { version: '0031-promotions', path: 'tenant/crm/0031-promotions.sql' },
+    { version: '0032-document-references', path: 'tenant/crm/0032-document-references.sql' },
+    { version: '0033-customer-kinds', path: 'tenant/crm/0033-customer-kinds.sql' },
+  ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
     { version: '0002-finance-approval', path: 'tenant/finance/0002-finance-approval.sql' },
@@ -122,6 +158,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0007-finance-source-reversal', path: 'tenant/finance/0007-finance-source-reversal.sql' },
     { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
     { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
+    { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -493,6 +530,44 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/inventory/0009-usage-state.sql',
     },
     { version: '0010-stocktake', path: 'tenant/inventory/0010-stocktake.sql' },
+    {
+      version: '0011-stock-documents',
+      path: 'tenant/inventory/0011-stock-documents.sql',
+    },
+    {
+      version: '0012-reservation-source',
+      path: 'tenant/inventory/0012-reservation-source.sql',
+    },
+    {
+      version: '0013-serial-quality',
+      path: 'tenant/inventory/0013-serial-quality.sql',
+    },
+    { version: '0014-lots', path: 'tenant/inventory/0014-lots.sql' },
+    {
+      version: '0015-quality-blocked',
+      path: 'tenant/inventory/0015-quality-blocked.sql',
+    },
+    { version: '0016-costing', path: 'tenant/inventory/0016-costing.sql' },
+    {
+      version: '0017-service-kind',
+      path: 'tenant/inventory/0017-service-kind.sql',
+    },
+    // 0018-0020: đánh số lại từ 0011-0013 cũ (chưa merge) để nối tiếp các migration đã có trên dev/release.
+    { version: '0018-inventory-lots', path: 'tenant/inventory/0018-inventory-lots.sql' },
+    {
+      version: '0019-asset-custodian-and-tests',
+      path: 'tenant/inventory/0019-asset-custodian-and-tests.sql',
+    },
+    {
+      version: '0020-movement-counterparty',
+      path: 'tenant/inventory/0020-movement-counterparty.sql',
+    },
+    { version: '0021-trade-catalog', path: 'tenant/inventory/0021-trade-catalog.sql' },
+    {
+      version: '0022-trade-category-usage',
+      path: 'tenant/inventory/0022-trade-category-usage.sql',
+    },
+    { version: '0023-material-description', path: 'tenant/inventory/0023-material-description.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],
@@ -681,6 +756,12 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0030-workspace-standalone-inline-edit',
       path: 'tenant/workspace/0030-workspace-standalone-inline-edit.sql',
     },
+    { version: '0031-crm-customer-link', path: 'tenant/workspace/0031-crm-customer-link.sql' },
+    {
+      version: '0032-workspace-completion-conditions',
+      path: 'tenant/workspace/0032-workspace-completion-conditions.sql',
+    },
+    { version: '0033-workspace-reopen-policy', path: 'tenant/workspace/0033-workspace-reopen-policy.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

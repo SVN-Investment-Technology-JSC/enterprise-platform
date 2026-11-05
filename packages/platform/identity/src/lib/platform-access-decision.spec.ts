@@ -198,4 +198,37 @@ describe('PlatformIdentityService - Access Decision', () => {
     expect(result?.allowed).toBe(true);
     expect(result?.principal?.roles).toContain('tenant-admin');
   });
+
+  it('thử lại một lần khi kết nối tới DB tenant bị reset, không trả 500', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
+    const access = {
+      roles: ['tenant-user'],
+      permissions: ['maintenance.manage'],
+      moduleKeys: ['maintenance'],
+      authorizationRevision: '1',
+    };
+    const resolve = jest
+      .spyOn(service.authorization, 'resolveWithUser')
+      .mockRejectedValueOnce(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))
+      .mockResolvedValueOnce({
+        access,
+        user: { id: 'user-1', email: 'u@savina.com', fullName: 'User', systemRole: 'tenant-user' },
+      });
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
+
+    const result = await testable.decideTenantCoreSession(input);
+
+    expect(result?.allowed).toBe(true);
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it('không thử lại lỗi không phải đứt kết nối', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
+    const resolve = jest
+      .spyOn(service.authorization, 'resolveWithUser')
+      .mockRejectedValue(Object.assign(new Error('permission denied'), { code: '42501' }));
+
+    await expect(testable.decideTenantCoreSession(input)).rejects.toThrow('permission denied');
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
 });

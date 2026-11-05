@@ -1,0 +1,94 @@
+// Màn Báo cáo Bán hàng: thẻ tổng, thanh so sánh đơn giản (không dùng thư viện biểu đồ).
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.date {
+  flex: 0 0 150px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-bg, #f6f7f9);
+
+  span {
+    color: var(--ep-text-muted, #6b7280);
+    font-size: 12.5px;
+  }
+
+  strong {
+    color: var(--ep-text, #18181b);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.barCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.barTrack {
+  flex: 1 1 auto;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #eef2f7;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 9999px;
+  background: #2563eb;
+}
+
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.funnelRow {
+  display: grid;
+  grid-template-columns: 110px 1fr 220px;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+}
+
+.funnelBar {
+  height: 22px;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 22px;
+  padding-left: 8px;
+  white-space: nowrap;
+}
+
+.number {
+  font-variant-numeric: tabular-nums;
+}
+
+.negative {
+  color: #c0392b;
+}

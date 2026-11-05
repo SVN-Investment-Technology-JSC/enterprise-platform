@@ -1,0 +1,399 @@
+'use client';
+
+import {
+  type CustomerContact,
+  type CustomerDetail as CustomerDetailData,
+  type OpportunitySummary,
+} from '@enterprise-platform/contracts-crm';
+import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
+import { Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { ArrowLeft, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityPanel } from '../activities/activity-panel';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
+import {
+  addContact,
+  deleteContact,
+  errorMessage,
+  getCustomer,
+  listOpportunities,
+  setPrimaryContact,
+  updateContact,
+} from '../crm-api';
+import { useCanWrite, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
+import { formatMoney, personName, stageTone } from '../sales.model';
+import styles from '../sales.module.scss';
+import { OpportunityFormDialog } from '../opportunities/opportunity-dialogs';
+import { CustomerFormDialog } from './customer-form';
+import { kindTone } from './customer-list';
+import { CustomerTimeline } from './customer-timeline';
+import { ProfileNotePanel } from './profile-note-panel';
+
+type Tab = 'info' | 'contacts' | 'opportunities' | 'activities' | 'documents' | 'timeline';
+
+const TABS: readonly { id: Tab; label: string }[] = [
+  { id: 'info', label: 'Thông tin' },
+  { id: 'contacts', label: 'Người liên hệ' },
+  { id: 'opportunities', label: 'Dự án bán hàng' },
+  { id: 'activities', label: 'Hoạt động' },
+  { id: 'documents', label: 'Tài liệu' },
+  { id: 'timeline', label: 'Dòng thời gian' },
+];
+
+/** Hồ sơ khách hàng: thông tin, người liên hệ, cơ hội, hoạt động, dòng thời gian. */
+export function CustomerDetail({
+  customerId,
+  onBack,
+  onOpenOpportunity,
+  onOpenQuote,
+  onOpenContract,
+  onOpenOrder,
+  onOpenWarranty,
+}: {
+  customerId: string;
+  onBack: () => void;
+  onOpenOpportunity: (id: string) => void;
+  onOpenQuote?: (id: string) => void;
+  onOpenContract?: (id: string) => void;
+  onOpenOrder?: (id: string) => void;
+  onOpenWarranty?: (id: string) => void;
+}) {
+  const { people } = useCrm();
+  const canWrite = useCanWrite();
+  const [customer, setCustomer] = useState<CustomerDetailData>();
+  const [error, setError] = useState<string>();
+  const [tab, setTab] = useState<Tab>('info');
+  const [editing, setEditing] = useState(false);
+
+  const load = useCallback(() => {
+    getCustomer(customerId)
+      .then((next) => {
+        setCustomer(next);
+        setError(undefined);
+      })
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được khách hàng.')));
+  }, [customerId]);
+
+  useEffect(() => load(), [load]);
+
+  if (error) {
+    return (
+      <div className={styles.page}>
+        <button type="button" className={styles.buttonGhost} onClick={onBack}>
+          <ArrowLeft size={14} /> Danh sách khách hàng
+        </button>
+        <p className={styles.alert}>{error}</p>
+      </div>
+    );
+  }
+  if (!customer) return <p className={styles.muted}>Đang tải…</p>;
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.detailHead}>
+        <button type="button" className={styles.iconButton} aria-label="Danh sách khách hàng" onClick={onBack}>
+          <ArrowLeft size={16} />
+        </button>
+        <div className={styles.detailTitle}>
+          <span className={styles.mono}>{customer.code}</span>
+          <h2>{customer.name}</h2>
+          <StatusPill tone={kindTone(customer.kind)}>{customer.kindName}</StatusPill>
+        </div>
+        {canWrite ? (
+          <button type="button" className={styles.buttonGhost} onClick={() => setEditing(true)}>
+            Sửa
+          </button>
+        ) : null}
+      </header>
+      <nav className={styles.tabs} role="tablist" aria-label="Hồ sơ khách hàng">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            className={tab === item.id ? styles.tabActive : styles.tab}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+            {item.id === 'contacts' ? ` (${customer.contacts.length})` : ''}
+          </button>
+        ))}
+      </nav>
+      {tab === 'info' ? (
+        <section className={styles.panel}>
+          <dl className={styles.facts}>
+            <dt>Mã số thuế</dt>
+            <dd className={styles.mono}>{customer.taxCode ?? ''}</dd>
+            <dt>Nhóm</dt>
+            <dd>{customer.groupName ?? ''}</dd>
+            <dt>Người phụ trách</dt>
+            <dd>{personName(people, customer.ownerUserId)}</dd>
+            <dt>Địa chỉ</dt>
+            <dd>{customer.address ?? ''}</dd>
+            <dt>Tỉnh/thành, khu vực</dt>
+            <dd>{[customer.province, customer.region].filter(Boolean).join(' · ')}</dd>
+            <dt>Ngành</dt>
+            <dd>{customer.industry ?? ''}</dd>
+            <dt>Điện thoại, email</dt>
+            <dd>{[customer.phone, customer.email].filter(Boolean).join(' · ')}</dd>
+            <dt>Hạn mức tín dụng</dt>
+            <dd>{formatMoney(customer.creditLimit)}</dd>
+            <dt>Thời hạn thanh toán</dt>
+            <dd>{customer.paymentTermDays === null ? '' : `${customer.paymentTermDays} ngày`}</dd>
+            <dt>Ghi chú</dt>
+            <dd>{customer.note ?? ''}</dd>
+            <dt>Ngày tạo</dt>
+            <dd>{formatDate(customer.createdAt)}</dd>
+          </dl>
+          <ProfileNotePanel customer={customer} canEdit={canWrite} onSaved={setCustomer} />
+        </section>
+      ) : null}
+      {tab === 'contacts' ? <ContactsTab customer={customer} onChanged={setCustomer} /> : null}
+      {tab === 'opportunities' ? <CustomerOpportunities customer={customer} onOpen={onOpenOpportunity} /> : null}
+      {tab === 'activities' ? <ActivityPanel scope={{ customerId: customer.id }} /> : null}
+      {tab === 'documents' ? <DocumentsPanel entityType="customer" entityId={customer.id} /> : null}
+      {tab === 'timeline' ? <CustomerTimeline
+          customerId={customer.id}
+          onOpenOpportunity={onOpenOpportunity}
+          onOpenQuote={onOpenQuote}
+          onOpenContract={onOpenContract}
+          onOpenOrder={onOpenOrder}
+          onOpenWarranty={onOpenWarranty}
+        /> : null}
+      {editing ? (
+        <CustomerFormDialog
+          customer={customer}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            setCustomer(saved);
+            setEditing(false);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ContactsTab({ customer, onChanged }: { customer: CustomerDetailData; onChanged: (customer: CustomerDetailData) => void }) {
+  const canWrite = useCanWrite();
+  const [editing, setEditing] = useState<CustomerContact | 'new' | null>(null);
+
+  const run = useCallback(
+    async (operation: () => Promise<CustomerDetailData>, success: string) => {
+      try {
+        onChanged(await operation());
+        toast.success(success);
+      } catch (cause) {
+        toast.error(errorMessage(cause, 'Không lưu được người liên hệ.'));
+      }
+    },
+    [onChanged],
+  );
+
+  const columns = useMemo<ColumnsType<CustomerContact>>(
+    () => [
+      {
+        title: 'Họ tên',
+        dataIndex: 'fullName',
+        render: (value: string, row) => (
+          <span className={styles.cellWithPill}>
+            {value}
+            {row.isPrimary ? <StatusPill tone="success">Liên hệ chính</StatusPill> : null}
+          </span>
+        ),
+      },
+      { title: 'Chức vụ', dataIndex: 'title', width: 160 },
+      { title: 'Điện thoại', dataIndex: 'phone', width: 140 },
+      { title: 'Email', dataIndex: 'email', width: 200, ellipsis: true },
+      {
+        title: '',
+        key: 'actions',
+        width: 230,
+        render: (_: unknown, row) =>
+          canWrite ? (
+            <span className={styles.rowActions}>
+              {!row.isPrimary ? (
+                <button type="button" className={styles.rowAction} onClick={() => void run(() => setPrimaryContact(customer.id, row.id), 'Đã đổi người liên hệ chính.')}>
+                  Đặt làm chính
+                </button>
+              ) : null}
+              <button type="button" className={styles.rowAction} onClick={() => setEditing(row)}>
+                Sửa
+              </button>
+              <Popconfirm
+                title="Xoá người liên hệ này?"
+                description={row.isPrimary ? 'Người liên hệ cũ nhất còn lại sẽ thành người liên hệ chính.' : undefined}
+                okText="Xoá"
+                cancelText="Huỷ"
+                okType="danger"
+                onConfirm={() => run(() => deleteContact(customer.id, row.id), 'Đã xoá người liên hệ.')}
+              >
+                <button type="button" className={styles.rowActionDanger}>
+                  Xoá
+                </button>
+              </Popconfirm>
+            </span>
+          ) : null,
+      },
+    ],
+    [canWrite, customer.id, run],
+  );
+
+  return (
+    <section className={styles.tableCard}>
+      {canWrite ? (
+        <div className={styles.toolbar}>
+          <button type="button" className={styles.buttonPrimary} onClick={() => setEditing('new')}>
+            <Plus size={14} /> Thêm người liên hệ
+          </button>
+        </div>
+      ) : null}
+      <Table<CustomerContact>
+        size="small"
+        rowKey="id"
+        columns={columns}
+        dataSource={[...customer.contacts]}
+        pagination={false}
+        scroll={{ x: 900 }}
+        locale={{ emptyText: 'Chưa có người liên hệ.' }}
+      />
+      {editing ? (
+        <ContactDialog
+          contact={editing === 'new' ? undefined : editing}
+          first={customer.contacts.length === 0}
+          onClose={() => setEditing(null)}
+          onSubmit={async (body) => {
+            const saved = editing === 'new' ? await addContact(customer.id, body) : await updateContact(customer.id, editing.id, body);
+            onChanged(saved);
+            setEditing(null);
+            toast.success('Đã lưu người liên hệ.');
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ContactDialog({
+  contact,
+  first,
+  onClose,
+  onSubmit,
+}: {
+  contact?: CustomerContact;
+  first: boolean;
+  onClose: () => void;
+  onSubmit: (body: { fullName: string; title: string | null; phone: string | null; email: string | null; note: string | null; isPrimary: boolean }) => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState(contact?.fullName ?? '');
+  const [title, setTitle] = useState(contact?.title ?? '');
+  const [phone, setPhone] = useState(contact?.phone ?? '');
+  const [email, setEmail] = useState(contact?.email ?? '');
+  const [note, setNote] = useState(contact?.note ?? '');
+  const [isPrimary, setIsPrimary] = useState(contact?.isPrimary ?? first);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  async function submit() {
+    if (!fullName.trim()) return setError('Vui lòng nhập họ tên người liên hệ.');
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await onSubmit({
+        fullName: fullName.trim(),
+        title: title.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        note: note.trim() || null,
+        isPrimary,
+      });
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được người liên hệ.'));
+      setSubmitting(false);
+    }
+  }
+  return (
+    <CrmDialog open title={contact ? 'Sửa người liên hệ' : 'Thêm người liên hệ'} submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
+      <div className={styles.fieldGrid}>
+        <Field label="Họ tên" required>
+          <input className={styles.input} value={fullName} maxLength={200} autoFocus onChange={(event) => setFullName(event.target.value)} />
+        </Field>
+        <Field label="Chức vụ">
+          <input className={styles.input} value={title} maxLength={200} onChange={(event) => setTitle(event.target.value)} />
+        </Field>
+        <Field label="Điện thoại">
+          <input className={styles.input} value={phone} maxLength={50} onChange={(event) => setPhone(event.target.value)} />
+        </Field>
+        <Field label="Email">
+          <input className={styles.input} type="email" value={email} maxLength={200} onChange={(event) => setEmail(event.target.value)} />
+        </Field>
+        <Field label="Ghi chú" wide>
+          <textarea className={styles.textarea} rows={2} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} />
+        </Field>
+      </div>
+      <label className={styles.checkbox}>
+        <input type="checkbox" checked={isPrimary} disabled={contact?.isPrimary || first} onChange={(event) => setIsPrimary(event.target.checked)} />
+        Người liên hệ chính
+        {first ? <span className={styles.fieldHint}> (người liên hệ đầu tiên luôn là người chính)</span> : null}
+      </label>
+    </CrmDialog>
+  );
+}
+
+function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailData; onOpen: (id: string) => void }) {
+  const { people } = useCrm();
+  const canWrite = useCanWrite();
+  const [creating, setCreating] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const list = usePagedList(`${customer.id}:${refresh}`, 20, (page) => listOpportunities({ customerId: customer.id, page, limit: 20 }));
+  const columns = useMemo<ColumnsType<OpportunitySummary>>(
+    () => [
+      { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },
+      {
+        title: 'Giai đoạn',
+        key: 'stage',
+        width: 150,
+        render: (_: unknown, row) => <StatusPill tone={stageTone(row.stageInfo.semantic)}>{row.stageInfo.name}</StatusPill>,
+      },
+      { title: 'Giá trị dự kiến', dataIndex: 'expectedValue', width: 150, align: 'right', render: (value: number | null) => formatMoney(value) },
+      { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 160, render: (value: string) => personName(people, value) },
+    ],
+    [people, onOpen],
+  );
+  return (
+    <section className={styles.tableCard}>
+      {canWrite ? (
+        <div className={styles.toolbar}>
+          <button type="button" className={styles.buttonPrimary} onClick={() => setCreating(true)}>
+            <Plus size={14} /> Thêm dự án bán hàng
+          </button>
+        </div>
+      ) : null}
+      {list.error ? <p className={styles.alert}>{list.error}</p> : null}
+      <Table<OpportunitySummary>
+        size="small"
+        rowKey="id"
+        loading={list.loading}
+        columns={columns}
+        dataSource={[...list.items]}
+        pagination={false}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
+        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có dự án bán hàng nào.' }}
+      />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="dự án bán hàng" onChange={list.goTo} />
+      {creating ? (
+        <OpportunityFormDialog
+          customer={customer}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}

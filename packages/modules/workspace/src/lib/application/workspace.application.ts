@@ -59,12 +59,20 @@ export interface WorkspaceStatus {
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
     readonly canAdminProjects: boolean;
+    /**
+     * Tenant bật Bán hàng (D1): khách hàng do Bán hàng quản lý, màn khách hàng
+     * Workspace chỉ đọc và form dự án tra khách ở Bán hàng.
+     */
+    readonly customersManagedByCrm: boolean;
   };
 }
 
 @Injectable()
 export class WorkspaceApplication {
-  constructor(@Inject(WORKSPACE_STORE) private readonly store: WorkspaceStore) {}
+  constructor(
+    @Inject(WORKSPACE_STORE) private readonly store: WorkspaceStore,
+    private readonly crmSource?: { enabled(tenantId: string): Promise<boolean> },
+  ) {}
 
   /**
    * Trả về mức độ sẵn sàng của module cho tenant hiện tại.
@@ -87,6 +95,7 @@ export class WorkspaceApplication {
         canWriteDocuments: actor.canWriteDocuments,
         canDeleteDocuments: actor.canDeleteDocuments,
         canAdminProjects: actor.canAdminProjects === true,
+        customersManagedByCrm: (await this.crmSource?.enabled(actor.tenantId)) === true,
       },
     };
   }

@@ -5,6 +5,15 @@ import { CatalogService } from './application/catalog.service.js';
 import { ChatService } from './application/chat.service.js';
 import { ContractService } from './application/contract.service.js';
 import { CustomerService } from './application/customer.service.js';
+import { CrmCustomerLinkService } from './application/crm-customer-link.service.js';
+import {
+  CRM_CUSTOMER_COPIES,
+  CRM_CUSTOMER_DIRECTORY,
+  type CrmCustomerCopyStore,
+  type CrmCustomerDirectory,
+} from './application/crm-customer.port.js';
+import { PostgresCrmCustomerCopies } from './infrastructure/crm-customer-events.js';
+import { HttpCrmCustomerDirectory } from './infrastructure/http-crm-customer-directory.js';
 import { DirectoryService } from './application/directory.service.js';
 import { DocumentService } from './application/document.service.js';
 import { InternalLookupService } from './application/internal-lookup.service.js';
@@ -68,9 +77,26 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     },
     { provide: WORKSPACE_STORE, useExisting: PostgresWorkspaceStore },
     {
+      // Một thực thể cho cả module: cache 30 giây "tenant có bật Bán hàng" nằm trong nó.
+      provide: CRM_CUSTOMER_DIRECTORY,
+      useFactory: () => new HttpCrmCustomerDirectory(),
+    },
+    {
+      provide: CRM_CUSTOMER_COPIES,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresCrmCustomerCopies((tenantId) => pools.forTenant(references.require(tenantId))),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: CrmCustomerLinkService,
+      useFactory: (directory: CrmCustomerDirectory, copies: CrmCustomerCopyStore) =>
+        new CrmCustomerLinkService(directory, copies),
+      inject: [CRM_CUSTOMER_DIRECTORY, CRM_CUSTOMER_COPIES],
+    },
+    {
       provide: WorkspaceApplication,
-      useFactory: (store: WorkspaceStore) => new WorkspaceApplication(store),
-      inject: [WORKSPACE_STORE],
+      useFactory: (store: WorkspaceStore, crm: CrmCustomerDirectory) => new WorkspaceApplication(store, crm),
+      inject: [WORKSPACE_STORE, CRM_CUSTOMER_DIRECTORY],
     },
     {
       // Một thực thể cho cả module: cache danh bạ 60 giây nằm trong nó.
@@ -240,8 +266,8 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     {
       // Danh mục khách hàng không thuộc dự án nào: chỉ cần store.
       provide: CustomerService,
-      useFactory: (store: WorkspaceStore) => new CustomerService(store),
-      inject: [WORKSPACE_STORE],
+      useFactory: (store: WorkspaceStore, crm: CrmCustomerDirectory) => new CustomerService(store, crm),
+      inject: [WORKSPACE_STORE, CRM_CUSTOMER_DIRECTORY],
     },
     {
       provide: ContractService,
@@ -268,6 +294,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     ProjectCodeService,
     CatalogService,
     CustomerService,
+    CrmCustomerLinkService,
     ContractService,
     FleetTransportService,
     StandaloneTaskService,

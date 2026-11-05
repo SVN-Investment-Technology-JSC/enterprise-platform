@@ -7,6 +7,7 @@ import {
   Briefcase,
   CheckCheck,
   ChevronRight,
+  Handshake,
   Landmark,
   LoaderCircle,
   Package,
@@ -51,6 +52,7 @@ import {
   registerRealtimeSender,
 } from './realtime-bus';
 import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
+import { formatDate, formatDateTime, formatTime } from './date-format';
 import { toast } from './sonner';
 import styles from './notification-center.module.css';
 
@@ -751,7 +753,9 @@ function NotificationList() {
                 <strong>{notification.title}</strong>
                 <span className={styles.itemTime}>
                   {notification.readAt ? null : <span className={styles.unreadDot} title="Chưa đọc" />}
-                  <time dateTime={notification.updatedAt}>{formatRelativeTime(notification.updatedAt)}</time>
+                  <time dateTime={notification.createdAt} title={formatDateTime(notification.createdAt)}>
+                    {formatNotificationTime(notification.createdAt)}
+                  </time>
                 </span>
               </span>
               <span className={styles.body}>{notification.body}</span>
@@ -963,7 +967,7 @@ function mergeNotifications(
   const merged = new Map<string, NotificationRecord>();
   for (const item of [...first, ...second]) if (!merged.has(item.id)) merged.set(item.id, item);
   return [...merged.values()].sort((a, b) =>
-    b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id),
+    b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
   );
 }
 
@@ -1055,6 +1059,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   inventory: Package,
   maintenance: Wrench,
   social: Newspaper,
+  crm: Handshake,
   chat: MessagesSquare,
 };
 
@@ -1068,6 +1073,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     inventory: 'Kho',
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
+    crm: 'CRM',
     chat: 'Chat nội bộ',
   } as const)[module];
 }
@@ -1076,17 +1082,51 @@ function priorityLabel(priority: NotificationRecord['priority']): string {
   return ({ required: 'Bắt buộc', actionable: 'Cần xử lý', informational: 'Thông tin' } as const)[priority];
 }
 
-function formatRelativeTime(value: string): string {
+
+
+/**
+ * Định dạng thời gian cho thông báo trong bell (kèm giờ HH:mm):
+ * - Hôm nay: "HH:mm · vừa xong" hoặc "HH:mm · X phút trước" / "HH:mm · X giờ trước"
+ * - Hôm qua: "HH:mm · hôm qua"
+ * - Các ngày trước đó: "HH:mm · dd/mm/yyyy"
+ */
+export function formatNotificationTime(
+  value: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (!value) return '';
   const time = Date.parse(value);
   if (Number.isNaN(time)) return value;
-  const seconds = Math.round((time - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat('vi', { numeric: 'auto' });
-  if (Math.abs(seconds) < 60) return formatter.format(seconds, 'second');
-  const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
-  return formatter.format(Math.round(hours / 24), 'day');
+  const date = new Date(time);
+  const timeStr = formatTime(date);
+
+  const isSameDay =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  if (isSameDay) {
+    const seconds = Math.round((time - now.getTime()) / 1000);
+    const absSeconds = Math.abs(seconds);
+    if (absSeconds < 60) return `${timeStr} · vừa xong`;
+    const minutes = Math.round(absSeconds / 60);
+    if (minutes < 60) return `${timeStr} · ${minutes} phút trước`;
+    const hours = Math.round(minutes / 60);
+    return `${timeStr} · ${hours} giờ trước`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+
+  if (isYesterday) {
+    return `${timeStr} · hôm qua`;
+  }
+
+  return `${timeStr} · ${formatDate(date)}`;
 }
 
 const CATEGORY_LABELS: Readonly<Record<string, string>> = {

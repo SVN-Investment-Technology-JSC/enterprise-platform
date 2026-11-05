@@ -11,7 +11,7 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatTime } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../../hrm-api';
 import { procedureInstanceHref } from '../../hrm-approval-kinds';
 import {
@@ -37,6 +37,7 @@ import {
 } from './approvals-model';
 import { RequestThread } from './request-thread';
 import { OnBehalfName } from '../on-behalf-name';
+import { requestProjectName } from '../request-project-info';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -60,19 +61,41 @@ const STEP_TEXT: Record<'done' | 'current' | 'todo' | 'rejected', string> = {
   rejected: 'font-semibold text-rose-600',
 };
 
+function formatClockTime(val: unknown): string {
+  if (!val) return '—';
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+      return trimmed.slice(0, 5);
+    }
+  }
+  const time = formatTime(val as string);
+  return time || String(val);
+}
+
 /** Quy trình phê duyệt dạng các chấm nối nhau: người gửi, từng bước duyệt. */
 export function FlowStepper({ row, progress }: { row: Row; progress: ProcedureProgressData | null }) {
   const steps = flowSteps(row, progress);
   return (
     <ol aria-label="Quy trình phê duyệt" className="flex items-start" data-testid="flow-stepper">
       {steps.map((s, i) => (
-        <li key={s.key} className="relative flex min-w-0 flex-1 flex-col items-center text-center" data-state={s.state}>
+        <li key={s.key} className="relative flex min-w-0 flex-1 flex-col items-center text-center px-1" data-state={s.state}>
           {i > 0 ? <span aria-hidden="true" className={`absolute right-1/2 top-3.5 h-0.5 w-full ${steps[i - 1].state === 'done' ? 'bg-emerald-300' : 'bg-slate-200'}`} /> : null}
           <span className={`relative z-10 flex size-7 items-center justify-center rounded-full text-[13px] font-bold ${STEP_STYLE[s.state]}`}>
             {s.state === 'done' ? <Check className="size-4" /> : s.state === 'rejected' ? <X className="size-4" /> : i + 1}
           </span>
-          <span className="mt-1.5 max-w-full truncate px-1 text-[13px] font-semibold text-slate-800">{s.label}</span>
-          <span className={`max-w-full truncate px-1 text-[12px] ${STEP_TEXT[s.state]}`}>{s.sub}</span>
+          <span className="mt-1.5 max-w-full truncate px-1 text-[13px] font-semibold text-slate-800" title={s.label}>{s.label}</span>
+          {s.person && (
+            <span className="max-w-full truncate px-0.5 text-[12px] font-medium text-slate-700" title={s.person}>
+              {s.person}
+            </span>
+          )}
+          {s.time ? (
+            <span className="max-w-full px-0.5 text-[11px] font-mono text-slate-500 whitespace-nowrap">
+              {s.time}
+            </span>
+          ) : null}
+          <span className={`max-w-full truncate px-0.5 text-[11px] ${STEP_TEXT[s.state]}`}>{s.sub}</span>
         </li>
       ))}
     </ol>
@@ -123,6 +146,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
   const terminal = isTerminalProcedureStatus(progress?.status);
   const instanceId = f.instanceId ?? row.link?.instance_id;
   const procedureHref = procedureInstanceHref(instanceId);
+  const projectName = row.source.kind === 'OT' || row.source.kind === 'BUSINESS_TRIP' ? requestProjectName(row) : '';
 
   return (
     <aside aria-label="Chi tiết đơn" className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-200/70 bg-white">
@@ -203,16 +227,38 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               {row.descriptionText}
             </span>
           </Field>
+          {projectName ? (
+            <Field label="Dự án">
+              <span data-testid="approval-detail-project">{projectName}</span>
+            </Field>
+          ) : null}
           {extra.map(([key, label]) => {
             const val = row[key];
             return (
               <Field key={key} label={label}>
-                {typeof val === 'boolean' ? (
+                {key === 'newCheckInAt' || key === 'newCheckOutAt' ? (
+                  <span className="font-mono font-semibold text-slate-900">
+                    {formatClockTime(val)}
+                  </span>
+                ) : key === 'plannedMinutes' ? (
+                  <span className="font-mono font-semibold text-slate-900">
+                    {typeof val === 'number' ? `${val} phút` : String(val)}
+                  </span>
+                ) : typeof val === 'boolean' ? (
                   val ? 'Có' : 'Không'
                 ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (
                   <span className="font-mono text-emerald-700">{val.toLocaleString('vi-VN')} đ</span>
                 ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
                   <span className="font-mono">{val} phút</span>
+                ) : key === 'workReference' && typeof val === 'object' && val ? (
+                  <div>
+                    <span className="font-semibold text-slate-900">
+                      {(val as any).code ? `${(val as any).code} · ` : ''}{(val as any).title || (val as any).name || (val as any).id || '—'}
+                    </span>
+                    <p className="mt-0.5 text-[11px] font-normal text-slate-500">
+                      Đầu việc / quy trình liên kết trong hệ thống để thực hiện chuyến công tác.
+                    </p>
+                  </div>
                 ) : typeof val === 'object' ? (
                   <pre className="overflow-x-auto rounded border border-slate-200 bg-slate-50 p-2 text-left font-mono text-[12px]">{JSON.stringify(val, null, 2)}</pre>
                 ) : (
@@ -278,6 +324,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                   lastError={row.link.last_error}
                   fallbackStepName={f.currentStepName}
                   fallbackAssigneeName={f.currentAssigneeName}
+                  approverName={row.approvedByName}
                 />
               </div>
             </details>

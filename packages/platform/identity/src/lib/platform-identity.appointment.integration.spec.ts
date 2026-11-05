@@ -47,13 +47,22 @@ integration('Core applyAppointment PostgreSQL integration', () => {
     await admin.query(`CREATE DATABASE "${databaseName}"`);
     url.pathname = '/' + databaseName;
     pool = createPostgresPool(url.toString());
+    // Trigger tổ chức của 0010 ghi outbox nên cần bảng của integration trước.
+    await pool.query(
+      await readFile(resolve(process.cwd(), '../../../migrations/tenant/0001-integration.sql'), 'utf8'),
+    );
     for (const file of [
       '0001-core-schema.sql',
       '0002-organization-soft-delete.sql',
+      '0003-organization-tree-layout.sql',
       '0004-organization-category.sql',
+      '0005-organization-head-position.sql',
       '0006-employees.sql',
+      '0006-position-reports-to.sql',
       '0007-org-hrm-bridge.sql',
       '0009-assignment-source-decision.sql',
+      // Sơ đồ tổ chức (tenantOrganizationSnapshot) đọc bảng loại node của 0010.
+      '0010-outbox-envelope-and-node-types.sql',
     ])
       await pool.query(
         await readFile(
@@ -248,5 +257,35 @@ integration('Core applyAppointment PostgreSQL integration', () => {
         effectiveDate: '01/06/2026',
       }),
     ).rejects.toThrow(/Ngày hiệu lực không hợp lệ/);
+  });
+
+  type SnapshotMember = { userId: string; positionId?: string; employeeCode?: string };
+  const snapshotMembers = async () =>
+    ((await service.tenantOrganizationSnapshot(tenantId)) as { members: SnapshotMember[] }).members;
+
+  it('dựng sơ đồ tổ chức khi tenant không bật HRM (không có hrm_schema)', async () => {
+    const members = await snapshotMembers();
+    expect(members).toEqual(
+      expect.arrayContaining([expect.objectContaining({ userId, positionId: posLead })]),
+    );
+    expect(members.every((member) => member.employeeCode === undefined)).toBe(true);
+  });
+
+  it('lấy mã nhân viên từ hồ sơ HRM khi tenant có hrm_schema', async () => {
+    const employeeId = randomUUID();
+    await pool.query(
+      `INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name) VALUES ($1, $2, $3, 'An')`,
+      [employeeId, tenantId, userId],
+    );
+    await pool.query(`CREATE SCHEMA hrm_schema`);
+    await pool.query(
+      `CREATE TABLE hrm_schema.employee_profiles (employee_id uuid, employee_code text, employment_status text, deleted_at timestamptz)`,
+    );
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_profiles (employee_id, employee_code, employment_status) VALUES ($1, 'NV0001', 'active')`,
+      [employeeId],
+    );
+    const member = (await snapshotMembers()).find((item) => item.positionId === posLead);
+    expect(member).toMatchObject({ userId, employeeCode: 'NV0001' });
   });
 });

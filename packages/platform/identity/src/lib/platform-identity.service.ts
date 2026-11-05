@@ -52,6 +52,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
+import { retryOnConnectionError } from './retry-on-connection-error.js';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
 import {
@@ -113,7 +114,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
     { max: 10, application_name: 'enterprise-platform:platform-api' },
   );
   private keys: Promise<PlatformIdentityKeys> | undefined;
-  readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantCoreDatabase(tenantId, operation));
+  /**
+   * Đường kiểm quyền dùng pool giữ lâu theo tenant, không dùng `withTenantCoreDatabase` (mở rồi đóng một pool
+   * ở mỗi lần gọi). Mọi request tới mọi phân hệ đều qua `decide`; mỗi lần mở một kết nối TCP mới tới DB tenant
+   * thì một lượt nạp màn hình gồm hàng chục request tạo ra hàng chục kết nối cùng lúc, và chỉ cần một kết nối bị
+   * reset (ECONNRESET) là request bị từ chối với 503.
+   */
+  readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantAuthorizationDatabase(tenantId, operation));
 
   async login(input: LoginRequest): Promise<{
     principal: AuthenticatedPrincipal;
@@ -557,7 +564,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
     let access;
     let coreUser;
     // Một lượt truy vấn tenant DB cho cả revision, trạng thái hoạt động và hồ sơ người dùng.
-    try { ({ access, user: coreUser } = await this.authorization.resolveWithUser(row.tenant_id, row.core_user_id)); }
+    // Chỉ đọc nên thử lại một lần khi kết nối bị đứt giữa chừng là an toàn.
+    try { ({ access, user: coreUser } = await retryOnConnectionError(() => this.authorization.resolveWithUser(row.tenant_id, row.core_user_id))); }
     catch (error) {
       if (error instanceof UnauthorizedException) return { allowed: false, code: 'SESSION_INACTIVE' };
       throw error;
@@ -623,7 +631,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               mo.icon, mo.version, e.status
          FROM subscription_schema.tenant_entitlements e
          JOIN module_registry_schema.modules mo ON mo.id = e.module_id
-        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled') AND LOWER(mo.key) != 'crm'
+        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled')
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -640,7 +648,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
          FROM module_registry_schema.modules mo
          LEFT JOIN subscription_schema.tenant_entitlements e
            ON e.module_id = mo.id AND e.tenant_id = $1
-        WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
+        WHERE mo.status = 'active'
         ORDER BY CASE coalesce(e.status, 'not-entitled')
                    WHEN 'active' THEN 0
                    WHEN 'provisioning' THEN 1
@@ -659,9 +667,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
     moduleKey: string,
     actorId: string,
   ): Promise<ModuleActivationRequestResponse> {
-    if (moduleKey.toLowerCase() === 'crm') {
-      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
-    }
     const module = await this.pool.query<{ entitlementStatus: string }>(
       `SELECT coalesce(e.status, 'not-entitled') AS "entitlementStatus"
          FROM module_registry_schema.modules mo
@@ -784,6 +789,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
   /** Compatibility view for modules using units and members over the core node model. */
   async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      // Tenant không bật HRM thì không có hrm_schema: JOIN thẳng sẽ lỗi
+      // "relation does not exist" và làm hỏng mọi bên đọc sơ đồ tổ chức.
+      const hrmProfiles = await pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('hrm_schema.employee_profiles') IS NOT NULL AS "exists"`,
+      );
+      const hasHrmProfiles = hrmProfiles.rows[0]?.exists === true;
+      const profileColumns = hasHrmProfiles
+        ? `ep.employee_code AS "employeeCode", ep.employment_status AS "employmentStatus"`
+        : `NULL::text AS "employeeCode", NULL::text AS "employmentStatus"`;
+      const profileJoin = hasHrmProfiles
+        ? `LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.deleted_at IS NULL`
+        : '';
       const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
         pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", n.reports_to_position_id AS "reportsToPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
@@ -791,11 +808,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
           SELECT a.id AS "assignmentId", a.node_id AS "unitId", a.user_id AS "userId", a.employee_id AS "employeeId",
                  a.is_primary AS "isHead", a.reports_to_position_override_id AS "reportsToPositionOverrideId",
                  u.full_name AS "displayName", u.email,
-                 e.id AS "resolvedEmployeeId", ep.employee_code AS "employeeCode", ep.employment_status AS "employmentStatus"
+                 e.id AS "resolvedEmployeeId", ${profileColumns}
           FROM core_schema.organization_node_assignments a
           JOIN core_schema.users u ON u.id = a.user_id
           LEFT JOIN core_schema.employees e ON (e.id = a.employee_id OR (a.employee_id IS NULL AND e.user_id = a.user_id AND e.deleted_at IS NULL))
-          LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.deleted_at IS NULL
+          ${profileJoin}
           WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true
         `),
         pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
@@ -2441,7 +2458,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             ORDER BY j.created_at DESC
             LIMIT 1
          ) job ON true
-         WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
+         WHERE mo.status = 'active'
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -2454,9 +2471,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
     enabled: boolean,
     actorId: string,
   ): Promise<SetTenantEntitlementResponse> {
-    if (moduleKey.toLowerCase() === 'crm') {
-      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
-    }
     await this.requireTenantNotDeleting(tenantId);
     if (typeof enabled !== 'boolean') {
       throw new BadRequestException('Trường enabled phải là boolean.');
@@ -2593,6 +2607,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    const authorizationPools = [...this.tenantAuthorizationPools.values()];
+    this.tenantAuthorizationPools.clear();
+    await Promise.all(authorizationPools.map(({ pool }) => pool.end()));
     await this.pool.end();
   }
 
@@ -2917,6 +2934,71 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } catch {
       // Ignore if table does not exist yet (e.g. before initial migration)
     }
+  }
+
+  private readonly tenantAuthorizationPools = new Map<
+    string,
+    { readonly pool: ReturnType<typeof createPostgresPool>; readonly version: string }
+  >();
+  private readonly tenantAuthorizationTargets = new Map<
+    string,
+    { readonly secretRef: string; readonly databaseName: string; readonly version: string; readonly expiresAt: number }
+  >();
+
+  /**
+   * Chạy `operation` trên pool giữ lâu của tenant (không đóng sau khi xong).
+   *
+   * Thông tin kết nối giữ 60 giây để khỏi hỏi DB platform ở mỗi request; đổi `config_version` thì tạo pool mới và
+   * đóng pool cũ. Xóa tenant dùng `DROP DATABASE … WITH (FORCE)` nên không bị các kết nối này chặn.
+   */
+  private async withTenantAuthorizationDatabase<T>(
+    tenantId: string,
+    operation: (pool: ReturnType<typeof createPostgresPool>) => Promise<T>,
+  ): Promise<T> {
+    let target = this.tenantAuthorizationTargets.get(tenantId);
+    if (!target || target.expiresAt <= Date.now()) {
+      const config = await this.pool.query<{
+        secret_ref: string;
+        database_name: string;
+        config_version: string | number;
+      }>(
+        `SELECT d.secret_ref, d.database_name, d.config_version FROM tenancy_schema.tenant_db_configs d
+          JOIN tenancy_schema.tenants t ON t.id=d.tenant_id AND t.status='active'
+          WHERE d.tenant_id = $1 AND d.status = 'active' LIMIT 1`,
+        [tenantId],
+      );
+      const database = config.rows[0];
+      if (!database) {
+        this.tenantAuthorizationTargets.delete(tenantId);
+        throw new NotFoundException('Tenant chưa có database đang hoạt động.');
+      }
+      target = {
+        secretRef: database.secret_ref,
+        databaseName: database.database_name,
+        version: `${database.config_version}:${database.database_name}:${database.secret_ref}`,
+        expiresAt: Date.now() + 60_000,
+      };
+      this.tenantAuthorizationTargets.set(tenantId, target);
+    }
+
+    let entry = this.tenantAuthorizationPools.get(tenantId);
+    if (!entry || entry.version !== target.version) {
+      const previous = entry;
+      entry = {
+        version: target.version,
+        pool: createPostgresPool(this.tenantConnectionString(target.secretRef, target.databaseName), {
+          max: 6,
+          idleTimeoutMillis: 30_000,
+          connectionTimeoutMillis: 10_000,
+          application_name: 'enterprise-platform:tenant-authorization',
+        }),
+      };
+      this.tenantAuthorizationPools.set(tenantId, entry);
+      if (previous) void previous.pool.end().catch(() => undefined);
+    }
+
+    await this.ensureTenantCoreMigrations(entry.pool, tenantId);
+    return operation(entry.pool);
   }
 
   private async withTenantCoreDatabase<T>(

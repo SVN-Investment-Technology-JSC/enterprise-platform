@@ -1,0 +1,128 @@
+'use client';
+
+import { CRM_LIST_PAGE_SIZE, type CustomerKind, type CustomerSummary } from '@enterprise-platform/contracts-crm';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { usePagedList } from '../components/use-paged-list';
+import { listCustomers } from '../crm-api';
+import { groupOptions, kindOptions, peopleOptions, useCanWrite, useCrm } from '../crm-context';
+import { personName } from '../sales.model';
+import styles from '../sales.module.scss';
+import { useDebounced } from '../components/use-debounced';
+import { CustomerFormDialog } from './customer-form';
+
+const SYSTEM_KIND_TONE: Readonly<Record<string, 'info' | 'success' | 'neutral'>> = {
+  LEAD_CUSTOMER: 'info',
+  CUSTOMER: 'success',
+  INACTIVE: 'neutral',
+};
+
+/** Màu nhãn phân loại: ba phân loại hệ thống giữ màu cũ, phân loại do tenant tạo dùng màu cảnh báo nhẹ. */
+export function kindTone(kind: CustomerKind): 'info' | 'success' | 'neutral' | 'warning' {
+  return SYSTEM_KIND_TONE[kind] ?? 'warning';
+}
+
+/**
+ * Danh sách khách hàng trong phạm vi dữ liệu: tìm theo mã, tên, MST; lọc nhóm,
+ * phân loại, người phụ trách. Phân trang keyset (Trước / Sau) để chạy được với
+ * hàng chục nghìn khách.
+ */
+export function CustomerList({ onOpen }: { onOpen: (id: string) => void }) {
+  const { people, groups, kinds } = useCrm();
+  const canWrite = useCanWrite();
+  const [search, setSearch] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [kind, setKind] = useState('');
+  const [ownerUserId, setOwnerUserId] = useState('');
+  const [creating, setCreating] = useState(false);
+  const q = useDebounced(search.trim(), 350);
+
+  const filter = { q, groupId, kind, ownerUserId };
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
+    listCustomers({ q, groupId, kind: kind || undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
+  );
+
+  const columns = useMemo<ColumnsType<CustomerSummary>>(
+    () => [
+      { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
+      { title: 'Tên khách hàng', dataIndex: 'name', ellipsis: true },
+      { title: 'MST', dataIndex: 'taxCode', width: 150, render: (value: string | null) => <span className={styles.mono}>{value ?? ''}</span> },
+      { title: 'Nhóm', dataIndex: 'groupName', width: 150, ellipsis: true },
+      {
+        title: 'Phân loại',
+        dataIndex: 'kind',
+        width: 170,
+        render: (value: CustomerKind, row) => <StatusPill tone={kindTone(value)}>{row.kindName}</StatusPill>,
+      },
+      { title: 'Tỉnh/thành', dataIndex: 'province', width: 120, ellipsis: true },
+      { title: 'Liên hệ chính', dataIndex: 'primaryContactName', width: 160, ellipsis: true },
+      { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 170, ellipsis: true, render: (value: string) => personName(people, value) },
+    ],
+    [people, onOpen],
+  );
+
+  const filtered = Boolean(search || groupId || kind || ownerUserId);
+
+  return (
+    <section className={styles.tableCard} aria-label="Danh sách khách hàng">
+      <div className={styles.toolbar}>
+        {canWrite ? (
+          <button type="button" className={styles.buttonPrimary} onClick={() => setCreating(true)}>
+            <Plus size={14} /> Thêm khách hàng
+          </button>
+        ) : null}
+        <input
+          className={`${styles.input} ${styles.search}`}
+          type="search"
+          placeholder="Tìm theo mã, tên, mã số thuế…"
+          value={search}
+          maxLength={100}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <SearchableSelect className={styles.filter} options={groupOptions(groups)} value={groupId} placeholder="Tất cả nhóm" clearable onChange={setGroupId} />
+        <SearchableSelect className={styles.filter} options={kindOptions(kinds)} value={kind} placeholder="Mọi phân loại" clearable onChange={setKind} />
+        <SearchableSelect className={styles.filter} options={peopleOptions(people)} value={ownerUserId} placeholder="Mọi người phụ trách" clearable onChange={setOwnerUserId} />
+        {filtered ? (
+          <button
+            type="button"
+            className={styles.buttonGhost}
+            onClick={() => {
+              setSearch('');
+              setGroupId('');
+              setKind('');
+              setOwnerUserId('');
+            }}
+          >
+            Xoá bộ lọc
+          </button>
+        ) : null}
+      </div>
+      {list.error ? <p className={styles.alert}>{list.error}</p> : null}
+      <Table<CustomerSummary>
+        size="small"
+        rowKey="id"
+        loading={list.loading}
+        columns={columns}
+        dataSource={[...list.items]}
+        pagination={false}
+        scroll={{ x: 1200 }}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
+        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Không có khách hàng nào.' }}
+      />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="khách hàng" onChange={list.goTo} />
+      {creating ? (
+        <CustomerFormDialog
+          onClose={() => setCreating(false)}
+          onSaved={(customer) => {
+            setCreating(false);
+            onOpen(customer.id);
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}

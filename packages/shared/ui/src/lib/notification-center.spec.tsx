@@ -11,6 +11,7 @@ import {
   NotificationBell,
   NotificationProvider,
   categoryLabel,
+  formatNotificationTime,
   useRealtimeNotifications,
 } from './notification-center';
 import { sendRealtime, subscribeRealtime, subscribeRealtimeStatus } from './realtime-bus';
@@ -574,6 +575,70 @@ describe('NotificationDrawer search and group filter', () => {
       jest.useRealTimers();
     }
   });
+
+  it('orders notifications by createdAt and formats relative time using createdAt instead of updatedAt', async () => {
+    const older: NotificationRecord = {
+      ...first,
+      id: 'notification-old',
+      title: 'Đơn nghỉ phép cũ',
+      createdAt: '2026-10-01T07:00:00.000Z',
+      updatedAt: '2026-10-26T13:49:18.000Z',
+      readAt: '2026-10-26T13:49:18.000Z',
+      sequence: 9,
+    };
+    const newer: NotificationRecord = {
+      ...first,
+      id: 'notification-new',
+      title: 'Đơn giải trình mới',
+      createdAt: '2026-10-26T06:50:40.000Z',
+      updatedAt: '2026-10-26T06:50:40.000Z',
+      sequence: 12,
+    };
+    const fixture = fakeClient({
+      list: jest.fn().mockResolvedValue({ items: [newer, older] }),
+    });
+    await openDrawer(fixture.client);
+    await waitFor(() => expect(screen.getByText('Đơn giải trình mới')).toBeTruthy());
+
+    const items = screen.getAllByRole('button').filter((btn) =>
+      btn.textContent?.includes('Đơn'),
+    );
+    expect(items[0]?.textContent).toContain('Đơn giải trình mới');
+    expect(items[1]?.textContent).toContain('Đơn nghỉ phép cũ');
+
+    const times = document.querySelectorAll('time');
+    const dateTimes = Array.from(times).map((t) => t.getAttribute('dateTime'));
+    expect(dateTimes).toContain('2026-10-26T06:50:40.000Z');
+    expect(dateTimes).toContain('2026-10-01T07:00:00.000Z');
+    expect(dateTimes).not.toContain('2026-10-26T13:49:18.000Z');
+
+    // Realtime update của thông báo cũ (cập nhật updatedAt mới hơn) không được kéo thông báo cũ lên trước thông báo mới
+    const handlers = fixture.getHandlers();
+    await act(async () => {
+      handlers?.onEvent({
+        id: 'event-update',
+        event: 'notification.updated',
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        sequence: 13,
+        occurredAt: '2026-10-26T14:00:00.000Z',
+        data: {
+          notification: {
+            ...older,
+            updatedAt: '2026-10-26T14:00:00.000Z',
+            sequence: 13,
+          },
+        },
+      });
+    });
+
+    const itemsAfter = screen.getAllByRole('button').filter((btn) =>
+      btn.textContent?.includes('Đơn'),
+    );
+    expect(itemsAfter[0]?.textContent).toContain('Đơn giải trình mới');
+    expect(itemsAfter[1]?.textContent).toContain('Đơn nghỉ phép cũ');
+  });
 });
 
 describe('categoryLabel', () => {
@@ -583,5 +648,37 @@ describe('categoryLabel', () => {
     expect(categoryLabel('calendar-reminder')).toBe('Nhắc lịch');
     expect(categoryLabel('request-comment')).toBe('Trao đổi đơn từ');
     expect(categoryLabel('new-category')).toBe('new-category');
+  });
+});
+
+describe('formatNotificationTime', () => {
+  const now = new Date(2026, 9, 28, 14, 30, 0); // 28/10/2026 14:30:00
+
+  it('handles empty and invalid input safely', () => {
+    expect(formatNotificationTime(null, now)).toBe('');
+    expect(formatNotificationTime(undefined, now)).toBe('');
+    expect(formatNotificationTime('', now)).toBe('');
+    expect(formatNotificationTime('khong-hop-le', now)).toBe('khong-hop-le');
+  });
+
+  it('formats same-day notifications with hour and relative time', () => {
+    const justNow = new Date(2026, 9, 28, 14, 29, 45).toISOString();
+    expect(formatNotificationTime(justNow, now)).toBe('14:29 · vừa xong');
+
+    const minutesAgo = new Date(2026, 9, 28, 14, 15, 0).toISOString();
+    expect(formatNotificationTime(minutesAgo, now)).toBe('14:15 · 15 phút trước');
+
+    const hoursAgo = new Date(2026, 9, 28, 11, 30, 0).toISOString();
+    expect(formatNotificationTime(hoursAgo, now)).toBe('11:30 · 3 giờ trước');
+  });
+
+  it('formats yesterday notifications with hour and "hôm qua"', () => {
+    const yesterday = new Date(2026, 9, 27, 7, 45, 0).toISOString();
+    expect(formatNotificationTime(yesterday, now)).toBe('07:45 · hôm qua');
+  });
+
+  it('formats older notifications with hour and date dd/mm/yyyy', () => {
+    const older = new Date(2026, 9, 25, 8, 5, 0).toISOString();
+    expect(formatNotificationTime(older, now)).toBe('08:05 · 25/10/2026');
   });
 });

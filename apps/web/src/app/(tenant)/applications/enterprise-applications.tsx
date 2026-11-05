@@ -98,6 +98,26 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
   },
+  crm: {
+    category: 'Kinh doanh & Bán hàng',
+    tagline: 'Theo dõi khách hàng từ cơ hội, báo giá, hợp đồng đến đơn bán, công nợ và bảo hành trên một luồng.',
+    accentColor: {
+      bg: 'bg-orange-50/70',
+      border: 'border-orange-200/80',
+      text: 'text-orange-700',
+      iconBg: 'bg-orange-100 text-orange-700',
+    },
+    features: [
+      'Hồ sơ khách hàng, người liên hệ, lead và cơ hội theo giai đoạn',
+      'Báo giá theo bảng giá, chiết khấu và duyệt báo giá',
+      'Hợp đồng, đơn bán liên thông xuất kho và theo dõi giao hàng',
+      'Công nợ phải thu, hạn mức tín dụng và thu tiền',
+      'Bảo hành, đổi trả và báo cáo doanh số',
+    ],
+    targetRoles: ['Nhân viên kinh doanh', 'Trưởng phòng kinh doanh', 'Kế toán công nợ', 'Ban Tổng giám đốc'],
+    businessValue:
+      'Mọi giao dịch với khách hàng nằm trên một luồng, biết ngay đơn nào đang chờ, khoản nào sắp đến hạn và ai đang phụ trách.',
+  },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
     tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',

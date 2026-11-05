@@ -14,6 +14,7 @@ import {
   CircleAlert,
   Database,
   FolderArchive,
+  Handshake,
   KanbanSquare,
   Landmark,
   LoaderCircle,
@@ -78,6 +79,7 @@ const STATUS: Readonly<
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
   assistant: Sparkles,
+  crm: Handshake,
   finance: Landmark,
   maintenance: Wrench,
   'procedure-engine': Workflow,

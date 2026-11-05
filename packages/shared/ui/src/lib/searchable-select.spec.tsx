@@ -244,3 +244,72 @@ describe('SearchableSelect ô lọc riêng của nhóm phụ', () => {
     expect(screen.getByLabelText('Tên')).toBeTruthy();
   });
 });
+
+describe('SearchableSelect dropdownFooter', () => {
+  it('hiện chân dưới danh sách; bấm hay gõ trong chân không đóng danh sách; close() đóng danh sách', () => {
+    render(
+      <SearchableSelect
+        options={options}
+        value="a"
+        searchInDropdown
+        dropdownFooter={({ close }) => (
+          <div>
+            <input aria-label="Thêm mới" />
+            <button type="button" onClick={close}>
+              Xong
+            </button>
+          </div>
+        )}
+      />,
+    );
+    expect(screen.queryByLabelText('Thêm mới')).toBeNull();
+    fireEvent.click(screen.getByRole('textbox'));
+    const footerInput = screen.getByLabelText('Thêm mới');
+    // Bấm vào chân (mousedown + click ở pha capture) không bị coi là bấm ra ngoài.
+    fireEvent.mouseDown(footerInput);
+    fireEvent.click(footerInput);
+    fireEvent.change(footerInput, { target: { value: 'abc' } });
+    expect(screen.queryByRole('listbox')).not.toBeNull();
+    expect((screen.getByLabelText('Thêm mới') as HTMLInputElement).value).toBe('abc');
+    fireEvent.click(screen.getByText('Xong'));
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('không có dropdownFooter thì không dựng chân', () => {
+    render(<SearchableSelect options={options} value="a" searchInDropdown />);
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.queryByText('Xong')).toBeNull();
+  });
+});
+
+describe('SearchableSelect footerAction', () => {
+  it('mặc định không có nút cuối danh sách', () => {
+    render(<SearchableSelect options={options} />);
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.queryByRole('button', { name: 'Tạo mới' })).toBeNull();
+  });
+
+  it('hiện cuối danh sách, bấm thì đóng danh sách và gọi onClick', () => {
+    const onClick = jest.fn();
+    render(<SearchableSelect options={options} footerAction={{ label: 'Tạo mới', onClick }} />);
+    fireEvent.click(screen.getByRole('textbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('vẫn hiện khi danh sách rỗng và khi tìm không có kết quả', () => {
+    const { unmount } = render(<SearchableSelect options={[]} footerAction={{ label: 'Tạo mới', onClick: jest.fn() }} />);
+    fireEvent.click(screen.getByRole('textbox'));
+    expect(screen.getByText('Không tìm thấy kết quả phù hợp')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Tạo mới' })).toBeTruthy();
+    unmount();
+
+    render(<SearchableSelect options={options} footerAction={{ label: 'Tạo mới', onClick: jest.fn() }} />);
+    const input = screen.getByRole('textbox');
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'zzz' } });
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Tạo mới' })).toBeTruthy();
+  });
+});

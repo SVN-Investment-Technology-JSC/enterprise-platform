@@ -98,6 +98,7 @@ export function RequestThread({
   const area = useRef<HTMLTextAreaElement | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const inputContainerRef = useRef<HTMLDivElement | null>(null);
   const [flashId, setFlashId] = useState('');
   const center = useRealtimeNotificationsOptional();
   const latestNotificationId = center?.notifications[0]?.id;
@@ -126,8 +127,26 @@ export function RequestThread({
     setText('');
     setPendingFile(null);
     setMentions([]);
+    setPicker(null);
+    setCandidates([]);
+    setHighlight(0);
     void load();
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (!picker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (inputContainerRef.current && !inputContainerRef.current.contains(e.target as Node)) {
+        setPicker(null);
+        setCandidates([]);
+        setHighlight(0);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [picker]);
 
   useEffect(() => {
     const timer = setInterval(() => void load(true), 30_000);
@@ -239,6 +258,9 @@ export function RequestThread({
       setText('');
       setPendingFile(null);
       setMentions([]);
+      setPicker(null);
+      setCandidates([]);
+      setHighlight(0);
       await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không gửi được.');
@@ -364,7 +386,7 @@ export function RequestThread({
           Đơn đã huỷ, rút hoặc hoàn tất xử lý nên không thể trao đổi thêm.
         </p>
       ) : (
-      <div className="relative">
+      <div ref={inputContainerRef} className="relative">
         <input
           ref={fileInputRef}
           type="file"

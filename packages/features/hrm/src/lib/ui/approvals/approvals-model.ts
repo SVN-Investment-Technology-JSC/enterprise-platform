@@ -1,4 +1,5 @@
 /** Kiểu dữ liệu và hàm thuần cho màn Đơn từ cần xử lý: phân loại tab, chỉ số, nhãn, lọc, phân trang. */
+import { formatDateTime } from '@enterprise-platform/shared-ui';
 import { isPendingStatus, type ApprovalSource } from '../../hrm-approval-kinds';
 import { reasonCell, requestReasonView } from '../../request-reason-form';
 import { procedureFieldsOf } from '../../procedure-progress-view';
@@ -52,6 +53,7 @@ export type Row = Raw & {
   reasonLabel: string;
   /** Mô tả tự do hiển thị ("—" khi trống). */
   descriptionText: string;
+  approvedByName?: string;
   link?: Link;
 };
 
@@ -77,10 +79,8 @@ export const detailFields: Record<string, string> = {
   duration: 'Số lượng nghỉ',
   startTime: 'Bắt đầu',
   endTime: 'Kết thúc',
-  plannedMinutes: 'Phút OT đăng ký',
-  approvedMinutes: 'Phút OT được duyệt',
+  plannedMinutes: 'Thời gian OT đăng ký',
   destination: 'Địa điểm công tác',
-  allowOt: 'Cho phép OT',
   daysCount: 'Số ngày công tác',
   workReference: 'Đầu việc liên kết',
   requestedAmount: 'Tạm ứng đề nghị',
@@ -89,7 +89,6 @@ export const detailFields: Record<string, string> = {
   currentShiftId: 'Mã ca hiện tại',
   requestedShiftId: 'Mã ca đề nghị',
   swapWithEmployeeId: 'Mã người đổi cùng',
-  correctedSessions: 'Các phiên công đề nghị',
   newCheckInAt: 'Giờ vào đề nghị',
   newCheckOutAt: 'Giờ ra đề nghị',
 };
@@ -256,6 +255,8 @@ export function pageOf<T>(items: readonly T[], page: number, size: number): { it
 export interface FlowStep {
   key: string;
   label: string;
+  person?: string;
+  time?: string;
   sub: string;
   state: 'done' | 'current' | 'todo' | 'rejected';
 }
@@ -278,20 +279,42 @@ export function flowSteps(
   row: Row,
   progress: { status?: string; currentStepId?: string; steps: { id: string; name: string; status: string; order: number; completedAt?: string; roleTitle?: string }[] } | null,
 ): FlowStep[] {
-  const submitted: FlowStep = { key: 'submit', label: 'Người gửi', sub: dmHm(row.created), state: 'done' };
+  const submittedTime = row.created ? formatDateTime(row.created) || dmHm(row.created) : '';
+  const submitted: FlowStep = {
+    key: 'submit',
+    label: 'Người gửi',
+    person: row.employeeName,
+    time: submittedTime,
+    sub: submittedTime ? `Đã gửi (${submittedTime})` : 'Đã gửi',
+    state: 'done',
+  };
   if (progress?.steps?.length) {
     const rejected = progress.status === 'rejected';
     const steps = [...progress.steps].sort((a, b) => a.order - b.order);
+    const lastDecidedIndex = steps.reduce(
+      (last, s, idx) => (['completed', 'approved', 'done', 'rejected', 'returned'].includes(s.status) ? idx : last),
+      -1,
+    );
     return [
       submitted,
-      ...steps.map((s): FlowStep => {
+      ...steps.map((s, stepIndex): FlowStep => {
         const done = ['completed', 'approved', 'done'].includes(s.status);
         const current = s.id === progress.currentStepId || ['active', 'in_progress', 'pending', 'running'].includes(s.status);
         const failed = ['rejected', 'returned'].includes(s.status) || (rejected && current);
+        // Người duyệt của đơn chỉ thay cho nhãn trống ở bước cuối đã xử lý, không gán cho các bước trước.
+        const person =
+          s.roleTitle ||
+          ((done || failed) && stepIndex === lastDecidedIndex
+            ? row.approvedByName || (row.approved_by_name as string) || ''
+            : '');
+        const time = (done || failed) && s.completedAt ? formatDateTime(s.completedAt) || dmHm(s.completedAt) : '';
+        const statusLabel = done ? 'Đã duyệt' : failed ? 'Từ chối' : current ? 'Đang chờ duyệt' : 'Chưa xử lý';
         return {
           key: s.id,
           label: s.name,
-          sub: done ? dmHm(s.completedAt) : failed ? 'Từ chối' : current ? 'Đang chờ duyệt' : 'Chưa xử lý',
+          person,
+          time,
+          sub: time ? `${statusLabel} (${time})` : statusLabel,
           state: failed ? 'rejected' : done ? 'done' : current ? 'current' : 'todo',
         };
       }),
@@ -301,12 +324,21 @@ export function flowSteps(
   const finished = !isPendingStatus(row.status);
   const rejected = row.status === 'REJECTED';
   const stepName = f.currentStepName || 'Người duyệt';
+  const decidedRaw = decidedAt(row);
+  const decidedTime = finished && decidedRaw ? formatDateTime(decidedRaw) || dmHm(decidedRaw) : '';
+  const approverName = (row.approvedByName || row.approved_by_name || f.currentAssigneeName || (finished ? 'Cấp quản lý' : '')) as string;
+  const directStatus = finished
+    ? (rejected ? 'Từ chối' : row.status === 'CANCELLED' ? 'Đã rút' : 'Đã duyệt')
+    : 'Đang chờ duyệt';
+
   return [
     submitted,
     {
       key: 'approve',
       label: stepName,
-      sub: finished ? (rejected ? 'Từ chối' : row.status === 'CANCELLED' ? 'Đã rút' : dmHm(decidedAt(row)) || 'Đã duyệt') : f.currentAssigneeName ? `Chờ ${f.currentAssigneeName}` : 'Đang chờ duyệt',
+      person: approverName,
+      time: decidedTime,
+      sub: decidedTime ? `${directStatus} (${decidedTime})` : directStatus,
       state: rejected ? 'rejected' : finished ? 'done' : 'current',
     },
   ];

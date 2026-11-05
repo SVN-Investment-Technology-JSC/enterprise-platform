@@ -1,13 +1,17 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
-import { Building2, ClipboardCheck, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
+import { Building2, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { CollapsibleGroup } from '../collapsible-group';
+import { DashboardPendingTasksSection } from './dashboard-pending-tasks-section';
+import { DashboardPendingProcedureSection } from './dashboard-pending-procedure-section';
+import { DashboardTaskDrawerHost } from './dashboard-task-drawer-host';
 import { RefreshOnFocus } from './refresh-on-focus';
+import type { UniversalTaskDto } from '@enterprise-platform/contracts-task-approval';
 
 type Module = {
   key: string;
@@ -177,7 +181,9 @@ export default async function TenantPortalPage() {
   const has = (key: string) => modules.some((item) => item.key === key);
   const inventoryApi =
     process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336';
-  const [users, procedure, maintenance, warehouses, materials, workspace] =
+  const hrmApi =
+    process.env.HRM_API_BASE_URL ?? 'http://localhost:3339';
+  const [users, procedure, maintenance, warehouses, materials, workspace, hrmTasksRes] =
     await Promise.all([
       manager
         ? read<UserPayload>(`${api}/api/platform/v1/tenant-users`, cookie)
@@ -209,7 +215,15 @@ export default async function TenantPortalPage() {
           cookie,
         )
         : Promise.resolve(undefined),
+      has('hrm')
+        ? read<{ data: UniversalTaskDto[]; total: number }>(
+          `${hrmApi}/api/hrm/v1/tasks/pending?limit=5`,
+          cookie,
+        )
+        : Promise.resolve(undefined),
     ]);
+  const hrmTasks = hrmTasksRes?.data ?? [];
+  const hrmTasksTotal = hrmTasksRes?.total ?? hrmTasks.length;
   const stocks = warehouses
     ? await Promise.all(
       warehouses.map((warehouse) =>
@@ -327,6 +341,9 @@ export default async function TenantPortalPage() {
   const workClauses: ReactNode[] = [
     ...(procedure
       ? [<><Strong>{actionable.length} hồ sơ</Strong> quy trình chờ bạn thao tác</>]
+      : []),
+    ...(hrmTasks.length > 0
+      ? [<><Strong>{hrmTasksTotal} đơn từ</Strong> Nhân sự chờ bạn duyệt</>]
       : []),
     ...(workspace
       ? [<><Strong>{workToDo.length} công việc</Strong> cần xử lý</>]
@@ -460,65 +477,28 @@ export default async function TenantPortalPage() {
       </section>
 
       {has('hrm') ? (
-        <ModuleLinkCard
-          href="/modules/hrm/approvals"
-          icon={<ClipboardCheck className="size-4" />}
-          tone="bg-emerald-100 text-emerald-700"
-          title="Đơn từ cần xử lý"
-          hint="Duyệt, từ chối và trao đổi đơn nghỉ phép, tăng ca, công tác, giải trình công… trong module Nhân sự."
-          action="Mở Đơn từ cần xử lý"
+        <DashboardPendingTasksSection
+          initialTasks={hrmTasks}
+          initialTotal={hrmTasksTotal}
+          viewAllHref="/modules/hrm/approvals"
         />
       ) : null}
 
       {procedure ? (
-        <CollapsibleGroup
-          title="Hồ sơ cần bạn xử lý"
-          count={actionable.length}
-          tone="bg-violet-100 text-violet-700"
-          icon={<GitFork className="size-4" />}
-        >
-          {actionable.length > 0 ? (
-            <GroupTable
-              columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
-              headings={['HỒ SƠ', 'MÃ HỒ SƠ', 'QUY TRÌNH', 'BƯỚC HIỆN TẠI', 'TRẠNG THÁI']}
-              footer={
-                actionable.length > GROUP_ROWS ? (
-                  <a href="/modules/procedure#workspace" className="font-semibold text-blue-700 hover:text-blue-800">
-                    Xem đủ {actionable.length} hồ sơ trong Quy trình
-                  </a>
-                ) : undefined
-              }
-            >
-              {actionable.slice(0, GROUP_ROWS).map((item) => {
-                const currentStep = item.steps?.find((step) => step.id === item.currentStepId);
-                return (
-                  <GroupRow
-                    key={item.id}
-                    columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
-                    href={`/modules/procedure?${RETURN_HOME}#workspace/${encodeURIComponent(item.id)}`}
-                  >
-                    <Dot className="bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]" />
-                    <Cell strong title={item.title}>{item.title}</Cell>
-                    <Cell muted title={item.code}>{item.code}</Cell>
-                    <Cell small>
-                      {item.definitionName ? (
-                        <span className="rounded-md bg-violet-50 px-2 py-0.5 text-violet-800">
-                          {item.definitionName}
-                        </span>
-                      ) : '—'}
-                    </Cell>
-                    <Cell small title={currentStep?.name}>{currentStep?.name ?? '—'}</Cell>
-                    <span>
-                      <Pill className="bg-[#fff6d6] text-[#8a6400]">Cần xử lý</Pill>
-                    </span>
-                  </GroupRow>
-                );
-              })}
-            </GroupTable>
-          ) : (
-            <Empty>Không có hồ sơ nào chờ bạn thao tác.</Empty>
-          )}
-        </CollapsibleGroup>
+        <DashboardPendingProcedureSection
+          initialItems={actionable.slice(0, GROUP_ROWS).map((item) => {
+            const currentStep = item.steps?.find((step) => step.id === item.currentStepId);
+            return {
+              id: item.id,
+              code: item.code,
+              title: item.title,
+              definitionName: item.definitionName,
+              currentStepName: currentStep?.name,
+            };
+          })}
+          initialTotal={actionable.length}
+          viewAllHref="/modules/procedure#workspace"
+        />
       ) : null}
 
       {workspace ? (
@@ -742,47 +722,13 @@ export default async function TenantPortalPage() {
           </div>
         </section>
       ) : null}
+
+      <DashboardTaskDrawerHost />
     </div>
   );
 }
 
-/** Lối tắt sang một module khi việc cần xử lý nằm ở đó (Bảng điều khiển không xử lý trực tiếp). */
-function ModuleLinkCard({
-  href,
-  icon,
-  tone,
-  title,
-  hint,
-  action,
-}: {
-  href: string;
-  icon: ReactNode;
-  tone: string;
-  title: string;
-  hint: string;
-  action: string;
-}) {
-  return (
-    <section
-      aria-label={title}
-      className="flex flex-wrap items-center gap-3 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white px-5 py-3.5"
-    >
-      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1 basis-64">
-        <h2 className="m-0 text-[14px] font-semibold text-[#18181b]">{title}</h2>
-        <p className="m-0 text-[13px] text-slate-500">{hint}</p>
-      </div>
-      <Link
-        href={href}
-        className="shrink-0 rounded-lg border border-[#eef0f3] bg-[#fafbfc] px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-white hover:text-blue-800"
-      >
-        {action}
-      </Link>
-    </section>
-  );
-}
+
 
 function Strong({ children }: { children: ReactNode }) {
   return <b className="font-semibold text-[#ffd84d]">{children}</b>;

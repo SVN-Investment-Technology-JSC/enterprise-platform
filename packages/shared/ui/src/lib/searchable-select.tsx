@@ -38,6 +38,11 @@ export interface SearchableSelectProps {
    * xổ ra. Mặc định (false) vẫn là gõ trực tiếp trên ô để lọc.
    */
   readonly searchInDropdown?: boolean;
+  /**
+   * Chỉ có nghĩa khi `searchInDropdown`: bỏ luôn ô tìm trong danh sách. Dùng cho danh sách ngắn, cố định (vài
+   * lựa chọn) — chỉ bấm chọn, không có chỗ nào để gõ; phím mũi tên, Enter, Esc vẫn hoạt động trên ô bên ngoài.
+   */
+  readonly hideDropdownSearch?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -46,6 +51,23 @@ export interface SearchableSelectProps {
    * tìm cả trong nhóm. Đang chọn một mục của nhóm thì nhóm mở sẵn.
    */
   readonly extra?: SearchableSelectExtra;
+  /**
+   * Chân của danh sách xổ ra (kiểu "custom dropdown menu" của antd): vùng cố định dưới danh sách, không cuộn theo
+   * các mục, dùng cho ô "thêm mục mới". Nằm trong khung danh sách nên bấm vào đó không bị tính là bấm ra ngoài.
+   * Hàm nhận `close` để đóng danh sách sau khi xong việc (vd vừa thêm và chọn xong).
+   */
+  readonly dropdownFooter?: (controls: { readonly close: () => void }) => ReactNode;
+  /**
+   * Hành động đặt cuối danh sách (vd "Tạo nhóm mới"), hiện cả khi danh sách rỗng hoặc không có kết quả tìm.
+   * Bấm thì đóng danh sách rồi gọi `onClick`. Mặc định không có, hành vi không đổi.
+   */
+  readonly footerAction?: SearchableSelectFooterAction;
+}
+
+/** Hành động cuối danh sách của `SearchableSelect`. */
+export interface SearchableSelectFooterAction {
+  readonly label: string;
+  readonly onClick: () => void;
 }
 
 /** Nhóm phụ của `SearchableSelect`. */
@@ -108,6 +130,9 @@ function dropdownPlacement(
   return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room), origin, upward };
 }
 
+/** Chiều cao dành cho chân danh sách (hai hàng: ô nhập và nút), trừ vào chiều cao tối đa của danh sách. */
+const DROPDOWN_FOOTER_RESERVE = 92;
+
 /** Giá trị CSS có hiệu lực: không rỗng (môi trường không hỗ trợ thuộc tính) và không phải `none`. */
 const isSet = (value: string | undefined, unset = 'none'): boolean => Boolean(value) && value !== unset;
 
@@ -167,10 +192,13 @@ export function SearchableSelect({
   style,
   height,
   searchInDropdown = false,
+  hideDropdownSearch = false,
   clearable = true,
   onChange,
   renderOption,
   extra,
+  dropdownFooter,
+  footerAction,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
@@ -305,7 +333,8 @@ export function SearchableSelect({
       const timer = setTimeout(() => {
         if (searchInDropdown) {
           // Kiểu chọn thuần tuý: đưa con trỏ vào ô tìm trong danh sách, ô ngoài giữ nguyên giá trị đã chọn.
-          dropdownSearchRef.current?.focus();
+          // Không có ô tìm thì giữ focus ở ô ngoài (chỉ đọc) để phím mũi tên và Esc còn dùng được.
+          (hideDropdownSearch ? inputRef : dropdownSearchRef).current?.focus();
           return;
         }
         inputRef.current?.focus();
@@ -317,7 +346,7 @@ export function SearchableSelect({
     }
     setQuery(selectedOptionLabelRef.current);
     return undefined;
-  }, [isOpen, searchInDropdown]);
+  }, [isOpen, searchInDropdown, hideDropdownSearch]);
 
   // Đặt danh sách theo ô nhập, và đặt lại khi trang hay khung chứa cuộn,
   // hoặc cửa sổ đổi cỡ, để nó luôn bám đúng ô.
@@ -640,7 +669,7 @@ export function SearchableSelect({
           className={`${styles.dropdown} ${placement.upward ? styles.dropdownUp : ''}`}
           style={placement.box}
         >
-          {searchInDropdown ? (
+          {searchInDropdown && !hideDropdownSearch ? (
             <div className={styles.dropdownSearch}>
               <span className={styles.dropdownSearchIcon}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -668,7 +697,7 @@ export function SearchableSelect({
             role="listbox"
             ref={listRef}
             className={styles.optionsList}
-            style={{ maxHeight: placement.listMaxHeight }}
+            style={{ maxHeight: placement.listMaxHeight - (dropdownFooter ? DROPDOWN_FOOTER_RESERVE : 0) }}
           >
             {filteredOptions.length === 0 && !(extra && extraTotal > 0) ? (
               <li className={styles.emptyState}>{emptyText}</li>
@@ -711,6 +740,32 @@ export function SearchableSelect({
               <li className={styles.emptyState}>{emptyText}</li>
             ) : null}
           </ul>
+          {dropdownFooter ? (
+            <div className={styles.dropdownFooter}>
+              {dropdownFooter({
+                close: () => {
+                  setIsOpen(false);
+                  setQuery(selectedOptionLabelRef.current);
+                },
+              })}
+            </div>
+          ) : null}
+          {footerAction ? (
+            <button
+              type="button"
+              className={styles.footerAction}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsOpen(false);
+                setQuery(selectedOptionLabelRef.current);
+                footerAction.onClick();
+              }}
+            >
+              {footerAction.label}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

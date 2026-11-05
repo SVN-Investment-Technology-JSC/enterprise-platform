@@ -4,6 +4,7 @@ import type { Asset, Warehouse } from '@enterprise-platform/contracts-inventory'
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { AlertTriangle, Trash2, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export interface BulkReturnItemEntry {
@@ -17,7 +18,8 @@ export interface BulkReturnToStockDialogProps {
   warehouses: readonly Warehouse[];
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (entries: BulkReturnItemEntry[]) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để hộp thoại hiện lý do và giữ danh sách. */
+  onConfirm: (entries: BulkReturnItemEntry[]) => Promise<void> | void;
 }
 
 export function BulkReturnToStockDialog({
@@ -91,10 +93,12 @@ export function BulkReturnToStockDialog({
   const hasMissingWarehouse = items.some((item) => !item.warehouseCode);
   const isValid = items.length > 0 && !hasMissingWarehouse;
 
+  const { error, submit: send } = useFormSubmit('Không tháo dỡ được thiết bị.');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValid || busy) return;
-    onConfirm(items);
+    void send(() => onConfirm(items));
   };
 
   return (
@@ -315,6 +319,7 @@ export function BulkReturnToStockDialog({
           </div>
 
           {/* Modal Footer */}
+          <FormError error={error} style={{ margin: '0 20px 12px' }} />
           <div
             style={{
               padding: '12px 20px',

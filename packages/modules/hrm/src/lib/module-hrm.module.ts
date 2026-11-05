@@ -45,10 +45,13 @@ import { HrmApprovalScopeController } from './presentation/hrm-approval-scope.co
 import { HrmRequestCommentController } from './presentation/hrm-request-comment.controller.js';
 import { HrmApprovalRouteController } from './presentation/hrm-approval-route.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
+import { HrmCustodyController } from './presentation/hrm-custody.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 import { HrmContractController } from './presentation/hrm-contract.controller.js';
 import { HrmInternalController } from './presentation/hrm-internal.controller.js';
 import { HrmPersonnelDecisionController } from './presentation/hrm-personnel-decision.controller.js';
+import { HrmTaskApprovalController } from './presentation/hrm-task-approval.controller.js';
+import { HrmTaskApprovalService } from './application/hrm-task-approval.service.js';
 
 import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
 import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.js';
@@ -58,8 +61,10 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
   controllers: [
     HrmInternalController,
     HrmPersonnelDecisionController,
+    HrmTaskApprovalController,
     HrmPayrollSodController,
     HrmContractController,
+    HrmCustodyController,
     HrmDependentController,
     HrmCapabilitiesController,
     HrmOperationsController,
@@ -103,12 +108,13 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     PostgresPoolRegistry,
     HrmContextService,
     HrmApprovalPolicyService,
+    HrmTaskApprovalService,
     HrmRequestProxyService,
     { provide: APP_GUARD, useClass: HrmAccessGuard },
     { provide: APP_INTERCEPTOR, useClass: HrmInvalidInputInterceptor },
     HrmProcedureBridgeService,
     OrgHrmBridgeConsumer,
   ],
-  exports: [HrmContextService, HrmApprovalPolicyService, HrmProcedureBridgeService, OrgHrmBridgeConsumer],
+  exports: [HrmContextService, HrmApprovalPolicyService, HrmTaskApprovalService, HrmProcedureBridgeService, OrgHrmBridgeConsumer],
 })
 export class ModuleHrmModule {}

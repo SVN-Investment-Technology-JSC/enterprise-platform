@@ -67,7 +67,7 @@ export function WorkspaceAssistantForms({
   const [projectId, setProjectId] = useState<string>();
   const [project, setProject] = useState<ProjectSummary>();
   const [members, setMembers] = useState<readonly ProjectMember[]>();
-  const [parentOptions, setParentOptions] = useState<{ id: string; label: string }[]>([]);
+  const [parentOptions, setParentOptions] = useState<{ id: string; label: string; done: boolean }[]>([]);
   const [projectList, setProjectList] = useState<readonly ProjectSummary[]>([]);
 
   const openWith = (kind: Kind) => (draft: Partial<Record<string, unknown>>, context: AssistantActionContext) => {
@@ -144,7 +144,11 @@ export function WorkspaceAssistantForms({
           setParentOptions(
             tree.items
               .filter((item) => item.status !== 'cancelled')
-              .map((item) => ({ id: item.id, label: `${item.code} · ${item.title}` })),
+              .map((item) => ({
+                id: item.id,
+                label: `${item.code} · ${item.title}${item.status === 'done' ? ' (đã hoàn thành)' : ''}`,
+                done: item.status === 'done',
+              })),
           );
         })
         .catch(() => undefined);

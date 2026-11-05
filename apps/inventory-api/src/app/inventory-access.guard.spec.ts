@@ -26,7 +26,14 @@ describe('inventory module capabilities', () => {
       path: '/api/inventory/v1' + path, method,
       headers: { authorization: 'Bearer token', 'x-csrf-token': 'csrf' },
       cookies: { ep_csrf: 'csrf' },
-      inventoryActor: undefined as undefined | { canManage: boolean; canWriteTransactions: boolean },
+      inventoryActor: undefined as
+        | undefined
+        | {
+            canManage: boolean;
+            canWriteTransactions: boolean;
+            canApproveDocuments?: boolean;
+            canWriteQuality?: boolean;
+          },
     };
     const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
     return { guard, request, context, register };
@@ -49,5 +56,38 @@ describe('inventory module capabilities', () => {
     const { guard, context, request } = setup(['inventory.read'], '/materials', 'GET');
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.inventoryActor).toMatchObject({ canManage: false, canWriteTransactions: false });
+  });
+  it('stock documents: writing needs transaction.write, approving needs document.approve', async () => {
+    const writer = ['inventory.read', 'inventory.transaction.write'];
+    const create = setup(writer, '/stock-documents');
+    await expect(create.guard.canActivate(create.context)).resolves.toBe(true);
+    const post = setup(writer, '/stock-documents/abc/post');
+    await expect(post.guard.canActivate(post.context)).resolves.toBe(true);
+    const approveByWriter = setup(writer, '/stock-documents/abc/approve');
+    await expect(approveByWriter.guard.canActivate(approveByWriter.context)).rejects.toMatchObject({ status: 403 });
+    const reader = setup(['inventory.read'], '/stock-documents/abc/submit');
+    await expect(reader.guard.canActivate(reader.context)).rejects.toMatchObject({ status: 403 });
+
+    const approver = setup(['inventory.read', 'inventory.document.approve'], '/stock-documents/abc/reject');
+    await expect(approver.guard.canActivate(approver.context)).resolves.toBe(true);
+    expect(approver.request.inventoryActor).toMatchObject({ canApproveDocuments: true, canWriteTransactions: false });
+  });
+  it('quality status changes need inventory.quality.write, not transaction.write', async () => {
+    const writer = ['inventory.read', 'inventory.transaction.write'];
+    for (const path of ['/lots/abc/quality', '/serials/SN001/quality']) {
+      const denied = setup(writer, path);
+      await expect(denied.guard.canActivate(denied.context)).rejects.toMatchObject({ status: 403 });
+    }
+    const inspector = setup(['inventory.read', 'inventory.quality.write'], '/lots/abc/quality');
+    await expect(inspector.guard.canActivate(inspector.context)).resolves.toBe(true);
+    expect(inspector.request.inventoryActor).toMatchObject({ canWriteQuality: true, canWriteTransactions: false });
+
+    const serial = setup(['inventory.read', 'inventory.quality.write'], '/serials/SN001/quality');
+    await expect(serial.guard.canActivate(serial.context)).resolves.toBe(true);
+
+    // Đọc lô, lịch sử serial chỉ cần quyền đọc.
+    const reader = setup(['inventory.read'], '/serials/SN001/history', 'GET');
+    await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
+    expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
   });
 });

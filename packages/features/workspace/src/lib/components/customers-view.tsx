@@ -53,6 +53,24 @@ export interface CustomersViewProps {
   readonly scopeProjectId?: string;
   /** Mở chi tiết một dự án (khi bấm liên kết dự án của hợp đồng). */
   readonly onOpenProject?: (projectId: string) => void;
+  /**
+   * Tenant bật Bán hàng (D1): khách hàng do Bán hàng quản lý, ở đây chỉ xem
+   * (không thêm, sửa, xoá khách). Hợp đồng vẫn quản lý ở Workspace như cũ.
+   */
+  readonly customersReadOnly?: boolean;
+}
+
+/** Trang Bán hàng, nơi tạo và sửa khách hàng khi tenant bật phân hệ này. */
+const CRM_CUSTOMERS_PATH = '/modules/crm';
+
+/** Ghi chú cho màn khách hàng chỉ đọc: khách hàng sửa ở Bán hàng. */
+function CrmManagedNotice() {
+  return (
+    <p className={styles.notice} role="status">
+      Khách hàng do phân hệ CRM quản lý; ở đây chỉ xem. Thêm hoặc sửa khách hàng tại{' '}
+      <a href={CRM_CUSTOMERS_PATH}>CRM</a>.
+    </p>
+  );
 }
 
 export function CustomersView({
@@ -60,6 +78,7 @@ export function CustomersView({
   scopeCustomerId,
   scopeProjectId,
   onOpenProject,
+  customersReadOnly = false,
 }: CustomersViewProps = {}) {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
@@ -250,7 +269,9 @@ export function CustomersView({
     <div className={scoped ? styles.scopePane : styles.taskSplit}>
       {scoped ? null : (
       <section className={styles.taskListPane} aria-label="Danh sách khách hàng">
+        {customersReadOnly ? <CrmManagedNotice /> : null}
         <div className={styles.taskListHead}>
+          {customersReadOnly ? null : (
           <button
             type="button"
             className={styles.buttonPrimary}
@@ -258,6 +279,7 @@ export function CustomersView({
           >
             <Plus size={15} /> Thêm khách hàng
           </button>
+          )}
           <button
             type="button"
             className={styles.iconButton}
@@ -351,6 +373,7 @@ export function CustomersView({
                   {selectedSummary?.projectCount ?? 0} dự án
                 </p>
               </div>
+              {customersReadOnly ? null : (
               <div className={styles.rowActions}>
                 <button
                   type="button"
@@ -371,7 +394,9 @@ export function CustomersView({
                   </button>
                 </Confirm>
               </div>
+              )}
             </header>
+            {customersReadOnly && scoped ? <CrmManagedNotice /> : null}
 
             {detail.customer.note ? (
               <p className={styles.description}>{detail.customer.note}</p>

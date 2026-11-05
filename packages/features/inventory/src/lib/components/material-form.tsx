@@ -2,20 +2,32 @@
 
 import type {
   CreateMaterialRequest,
+  InventoryTradeCatalog,
   Material,
   MaterialCategory,
+  MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
+import { currencyLabel } from '../inventory-labels';
+import { categoriesOf, withCurrent } from '../trade-items.model';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
+
+/** Dịch vụ, phần mềm có trong danh mục để bán nhưng không quản lý tồn (D6). */
+const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
+  { value: 'STOCK', label: 'Hàng hoá (quản lý tồn kho)' },
+  { value: 'SERVICE', label: 'Dịch vụ (không quản lý tồn)' },
+];
 
 /**
  * Form Thêm mới / Chỉnh sửa Vật tư (Chuẩn danh mục Master Data ERP/WMS).
  *
  * Chỉ chịu trách nhiệm khai báo định nghĩa vật tư:
- * - Thông tin SKU: Mã, tên, đơn vị tính, ngưỡng tồn min/max.
+ * - Thông tin SKU: Mã, tên, đơn vị tính, ngưỡng tồn min/max, nhóm vật tư, loại vật tư.
  * - Định dạng quản lý định danh: Theo Sê-ri (Serial), Theo Lô (Lot/Batch), hoặc Thông thường.
  *
  * Nghiệp vụ chuẩn: Việc phát sinh số Lô hàng (Lot Number), Hạn sử dụng, CO/CQ hoặc
@@ -24,6 +36,8 @@ export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
 export function MaterialForm({
   editing,
   units = [],
+  types = [],
+  catalog,
   busy,
   onCancel,
   onSubmit,
@@ -31,15 +45,31 @@ export function MaterialForm({
   editing?: Material;
   /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
   units?: readonly string[];
+  /** Danh mục loại vật tư / thiết bị do admin cấu hình; tuỳ chọn. */
+  types?: readonly string[];
+  /** Danh mục phân loại khai trong Cài đặt: nguồn duy nhất của ô Phân loại (hàng hóa và dịch vụ có danh sách riêng). */
+  catalog?: InventoryTradeCatalog;
   busy: boolean;
   onCancel: () => void;
-  onSubmit: (input: CreateMaterialRequest) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onSubmit: (input: CreateMaterialRequest) => Promise<void> | void;
 }) {
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
+  const [tradeCategory, setTradeCategory] = useState(editing?.tradeCategory ?? '');
+  const [type, setType] = useState(editing?.type ?? '');
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
+  const [kind, setKind] = useState<MaterialKind>(editing?.kind ?? 'STOCK');
+  const [warrantyMonths, setWarrantyMonths] = useState(
+    editing?.warrantyMonths === undefined ? '' : String(editing.warrantyMonths),
+  );
+  const isService = kind === 'SERVICE';
+  // Chuỗi rỗng là chưa khai báo giá, khác hẳn với 0.
+  const [purchasePrice, setPurchasePrice] = useState(
+    editing?.purchasePrice === undefined ? '' : String(editing.purchasePrice),
+  );
 
   // Xác định phương thức quản lý ban đầu khi sửa hoặc tạo mới
   const initialMode: MaterialTrackingMode = editing?.isSerialized
@@ -49,6 +79,24 @@ export function MaterialForm({
     : 'NONE';
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
 
+  // Mỗi nhóm (hàng hóa, dịch vụ) một danh sách phân loại riêng, lấy từ Cài đặt.
+  const categoryOptions = useMemo(
+    () => withCurrent(categoriesOf(isService ? 'SERVICE' : 'GOODS', catalog), tradeCategory),
+    [isService, catalog, tradeCategory],
+  );
+
+  const unitOptions = (units.includes(unit) || !unit ? units : [...units, unit]).map((u) => ({
+    value: u,
+    label: u,
+  }));
+
+  const typeOptions = (types.includes(type) || !type ? types : [...types, type]).map((t) => ({
+    value: t,
+    label: t,
+  }));
+
+  const { error, submit: send } = useFormSubmit('Không lưu được vật tư.');
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const cleanCode = code.trim().toUpperCase();
@@ -57,20 +105,30 @@ export function MaterialForm({
 
     if (!cleanCode || !cleanName || !cleanUnit) return;
 
-    // Phân nhóm category theo tracking mode để tương thích ràng buộc database & contracts
+    // `category` là trường kỹ thuật (theo lô hay không) để thỏa ràng buộc database; không hiện cho người dùng.
+    // Phân loại người dùng thấy và chọn là `tradeCategory`, lấy từ Cài đặt.
     const category: MaterialCategory =
       trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
-    const isSerialized = trackingMode === 'SERIAL';
+    const isSerialized = !isService && trackingMode === 'SERIAL';
+    const warranty = warrantyMonths.trim();
+    const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
+    if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
 
-    onSubmit({
+    void send(() => onSubmit({
       code: cleanCode,
       name: cleanName,
       category,
+      tradeCategory: tradeCategory || undefined,
+      type: type.trim() || undefined,
       unit: cleanUnit,
-      minStock: Number(minStock) || 0,
-      maxStock: Number(maxStock) || 0,
+      minStock: isService ? 0 : Number(minStock) || 0,
+      maxStock: isService ? 0 : Number(maxStock) || 0,
+      purchasePrice: price,
       isSerialized,
-    });
+      kind,
+      // Ô trống khi sửa là xoá số tháng đã khai.
+      warrantyMonths: warranty ? Math.max(Math.trunc(Number(warranty)) || 0, 0) : editing ? null : undefined,
+    }));
   };
 
   const isDisabled = busy;
@@ -135,20 +193,53 @@ export function MaterialForm({
               </label>
 
               <label>
+                Phân loại
+                <SearchableSelect
+                  options={categoryOptions}
+                  value={tradeCategory}
+                  placeholder={
+                    categoryOptions.length === 0 ? '— Chưa khai báo trong Cài đặt —' : '— Chọn phân loại —'
+                  }
+                  emptyText="Chưa khai báo trong Cài đặt"
+                  onChange={(val) => setTradeCategory(val || '')}
+                  clearable
+                  style={{ width: '100%' }}
+                />
+              </label>
+
+              <label>
+                Loại vật tư
+                {types.length > 0 ? (
+                  <SearchableSelect
+                    options={typeOptions}
+                    value={type}
+                    placeholder="— Chọn loại vật tư —"
+                    emptyText="Không tìm thấy loại vật tư"
+                    onChange={(val) => setType(val)}
+                    clearable
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <input
+                    placeholder="VD: Thiết bị, Chi tiết, Linh kiện..."
+                    value={type}
+                    onChange={(event) => setType(event.target.value)}
+                  />
+                )}
+              </label>
+
+              <label>
                 Đơn vị tính *
                 {units.length > 0 ? (
-                  <select
-                    required
+                  <SearchableSelect
+                    options={unitOptions}
                     value={unit}
-                    onChange={(event) => setUnit(event.target.value)}
-                  >
-                    <option value="">— Chọn đơn vị —</option>
-                    {(units.includes(unit) || !unit ? units : [...units, unit]).map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="— Chọn đơn vị —"
+                    emptyText="Không tìm thấy đơn vị tính"
+                    onChange={(val) => setUnit(val)}
+                    clearable
+                    style={{ width: '100%' }}
+                  />
                 ) : (
                   <input
                     required
@@ -160,27 +251,77 @@ export function MaterialForm({
               </label>
 
               <label>
-                Tồn tối thiểu (Min stock)
-                <input
-                  type="number"
-                  min={0}
-                  value={minStock}
-                  onChange={(event) => setMinStock(event.target.value)}
+                Loại mặt hàng *
+                <SearchableSelect
+                  options={KIND_OPTIONS}
+                  value={kind}
+                  placeholder="Chọn loại mặt hàng"
+                  emptyText="Không có loại phù hợp"
+                  onChange={(value) => {
+                    setKind(value === 'SERVICE' ? 'SERVICE' : 'STOCK');
+                    // Hàng hóa và dịch vụ có danh sách phân loại riêng: đổi nhóm thì bỏ phân loại đã chọn.
+                    setTradeCategory('');
+                  }}
+                  style={{ width: '100%' }}
                 />
+                {isService ? (
+                  <small>Dịch vụ không nhập, xuất kho và không giữ hàng.</small>
+                ) : null}
               </label>
 
               <label>
-                Tồn tối đa (Max stock)
+                Bảo hành (tháng)
                 <input
                   type="number"
                   min={0}
-                  value={maxStock}
-                  onChange={(event) => setMaxStock(event.target.value)}
+                  step={1}
+                  placeholder="Bỏ trống nếu chưa khai"
+                  value={warrantyMonths}
+                  onChange={(event) => setWarrantyMonths(event.target.value)}
                 />
+              </label>
+
+              {!isService ? (
+                <>
+                  <label>
+                    Tồn tối thiểu (Min stock)
+                    <input
+                      type="number"
+                      min={0}
+                      value={minStock}
+                      onChange={(event) => setMinStock(event.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Tồn tối đa (Max stock)
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxStock}
+                      onChange={(event) => setMaxStock(event.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
+              <label>
+                Đơn giá ({currencyLabel(editing?.currency)})
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Chưa khai báo"
+                  value={purchasePrice}
+                  onChange={(event) => setPurchasePrice(event.target.value)}
+                />
+                {editing?.purchasePrice !== undefined ? (
+                  <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
+                ) : null}
               </label>
             </div>
 
             {/* 2. CHỌN DUY NHẤT 1 PHƯƠNG THỨC QUẢN LÝ (MUTUALLY EXCLUSIVE) */}
+            {!isService ? (
             <div style={{ marginTop: '20px' }}>
               <span
                 style={{
@@ -320,6 +461,8 @@ export function MaterialForm({
               </div>
             </div>
 
+            ) : null}
+
             {/* Thông báo chuẩn nghiệp vụ kho */}
             <div
               style={{
@@ -355,6 +498,7 @@ export function MaterialForm({
                 )}
               </div>
             </div>
+            <FormError error={error} />
           </div>
 
           {/* Footer Dialog Actions */}
