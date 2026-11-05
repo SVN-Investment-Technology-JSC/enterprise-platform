@@ -228,4 +228,119 @@ integration('Workspace: trao đổi công việc theo trang (PostgreSQL)', () =>
     expect(thread.messages.map((m) => m.body)).toEqual(['tin để đọc']);
     expect(await snapshot()).toEqual(before);
   });
+
+  describe('dòng thời gian và trả lời', () => {
+    it('xếp tin của mọi công việc (và chat chung) theo giờ, bỏ tin thu hồi và tin dự án khác, kèm tin gốc của trả lời', async () => {
+      const timelineProject = (await store.project.create(tenantId, owner, { code: 'QA-TL', name: 'Dòng thời gian' } as never)).id;
+      const a = await item(timelineProject, 'Việc A');
+      const b = await item(timelineProject, 'Việc B');
+      const talk = async (type: 'project' | 'work_item', id: string, body: string, parentId?: string) => {
+        const channel = await store.chat.ensureChannel(tenantId, owner, { entityType: type, entityId: id, projectId: timelineProject });
+        return store.chat.sendMessage(tenantId, owner, { channelId: channel.id, body, mentions: [], parentId });
+      };
+      const a1 = await talk('work_item', a.id, 'A 13h');
+      await talk('work_item', b.id, 'B 14h');
+      await talk('work_item', a.id, 'A 15h', a1.id);
+      const gone = await talk('work_item', b.id, 'B bị thu hồi');
+      await talk('project', timelineProject, 'Chung 20h');
+      await store.chat.softDeleteMessage(tenantId, owner, gone.id);
+      const elsewhere = await item(otherProjectId, 'Việc ở dự án khác');
+      await say('work_item', elsewhere.id, otherProjectId, 'tin dự án khác');
+
+      const page = await store.chat.listProjectTimeline(tenantId, timelineProject, 30);
+      expect(page.items.map((entry) => entry.message.body)).toEqual(['A 13h', 'B 14h', 'A 15h', 'Chung 20h']);
+      expect(page.hasMore).toBe(false);
+      expect(page.items.map((entry) => [entry.entityType, entry.entityId])).toEqual([
+        ['work_item', a.id],
+        ['work_item', b.id],
+        ['work_item', a.id],
+        ['project', timelineProject],
+      ]);
+      expect(page.items[2].parent).toMatchObject({ id: a1.id, body: 'A 13h', isDeleted: false });
+      expect(page.items[0].parent).toBeUndefined();
+
+      // Phân trang bằng mốc: trang mới nhất 2 tin, rồi trang liền trước, không lặp không sót.
+      const newest = await store.chat.listProjectTimeline(tenantId, timelineProject, 2);
+      expect(newest.items.map((entry) => entry.message.body)).toEqual(['A 15h', 'Chung 20h']);
+      expect(newest.hasMore).toBe(true);
+      const older = await store.chat.listProjectTimeline(tenantId, timelineProject, 2, newest.items[0].message.id);
+      expect(older.items.map((entry) => entry.message.body)).toEqual(['A 13h', 'B 14h']);
+      expect(older.hasMore).toBe(false);
+
+      // Mốc là tin của dự án khác thì không dùng được để dò thời điểm: trang rỗng.
+      const foreign = await store.chat.listProjectTimeline(tenantId, projectId, 30, page.items[0].message.id);
+      expect(foreign.items).toEqual([]);
+    });
+
+    it('lọc theo từ khoá, người gửi, công việc, nhắc tôi, đính kèm và khoảng thời gian; phân trang vẫn đúng', async () => {
+      const filterProject = (await store.project.create(tenantId, owner, { code: 'QA-FL', name: 'Bộ lọc' } as never)).id;
+      const a = await item(filterProject, 'Lọc A');
+      const b = await item(filterProject, 'Lọc B');
+      const other = '99999999-9999-4999-8999-999999999999';
+      const talk = async (type: 'project' | 'work_item', id: string, who: string, body: string, mentions: string[] = []) => {
+        const channel = await store.chat.ensureChannel(tenantId, who, { entityType: type, entityId: id, projectId: filterProject });
+        return store.chat.sendMessage(tenantId, who, { channelId: channel.id, body, mentions });
+      };
+      await talk('work_item', a.id, owner, 'Báo giá thiết bị 100%');
+      await talk('work_item', a.id, other, 'Đã gửi báo giá', [owner]);
+      await talk('work_item', b.id, other, 'Hợp đồng_mới xong');
+      await talk('project', filterProject, owner, 'Chào cả nhà');
+      const list = async (filter: object, limit = 30) =>
+        (await store.chat.listProjectTimeline(tenantId, filterProject, limit, undefined, filter)).items.map(
+          (entry) => entry.message.body,
+        );
+
+      expect(await list({ q: 'BÁO GIÁ' })).toEqual(['Báo giá thiết bị 100%', 'Đã gửi báo giá']);
+      // Ký tự đặc biệt của LIKE được hiểu theo nghĩa đen: "%" và "_" không phải ký tự đại diện.
+      expect(await list({ q: '100%' })).toEqual(['Báo giá thiết bị 100%']);
+      expect(await list({ q: 'Hợp đồng_' })).toEqual(['Hợp đồng_mới xong']);
+      expect(await list({ q: 'Hợp đồng%' })).toEqual([]);
+      expect(await list({ authors: [other] })).toEqual(['Đã gửi báo giá', 'Hợp đồng_mới xong']);
+      expect(await list({ authors: [other, owner] })).toHaveLength(4);
+      expect(await list({ nodes: [a.id] })).toEqual(['Báo giá thiết bị 100%', 'Đã gửi báo giá']);
+      expect(await list({ nodes: ['project'] })).toEqual(['Chào cả nhà']);
+      // Chọn nhiều: công việc A, công việc B và chat chung = tất cả; A + chat chung bỏ tin của B.
+      expect(await list({ nodes: [a.id, b.id, 'project'] })).toHaveLength(4);
+      expect(await list({ nodes: [a.id, 'project'] })).toEqual(['Báo giá thiết bị 100%', 'Đã gửi báo giá', 'Chào cả nhà']);
+      expect(await list({ nodes: [b.id] })).toEqual(['Hợp đồng_mới xong']);
+      expect(await list({ mentionUserId: owner })).toEqual(['Đã gửi báo giá']);
+      expect(await list({ q: 'báo giá', authors: [other], nodes: [a.id] })).toEqual(['Đã gửi báo giá']);
+      expect(await list({ from: '2999-01-01T00:00:00.000Z' })).toEqual([]);
+      expect(await list({ to: '2000-01-01T00:00:00.000Z' })).toEqual([]);
+      expect(await list({ from: '2000-01-01T00:00:00.000Z', to: '2999-01-01T00:00:00.000Z', hasAttachment: false })).toHaveLength(4);
+
+      // Phân trang trên kết quả đã lọc: không lặp, không sót.
+      const first = await store.chat.listProjectTimeline(tenantId, filterProject, 1, undefined, { authors: [other] });
+      expect(first.items.map((entry) => entry.message.body)).toEqual(['Hợp đồng_mới xong']);
+      expect(first.hasMore).toBe(true);
+      const second = await store.chat.listProjectTimeline(tenantId, filterProject, 1, first.items[0].message.id, {
+        authors: [other],
+      });
+      expect(second.items.map((entry) => entry.message.body)).toEqual(['Đã gửi báo giá']);
+      expect(second.hasMore).toBe(false);
+    });
+
+    it('trả lời một tin đi vào ĐÚNG kênh của công việc đó và hiện trong trao đổi của nó', async () => {
+      const a = await item(projectId, 'Trả lời A');
+      const b = await item(projectId, 'Trả lời B');
+      const first = await say('work_item', a.id, projectId, 'hỏi ở A');
+      await say('work_item', b.id, projectId, 'nói ở B');
+      const chat = new ChatService(store, new ProjectService(store));
+
+      const { message } = await chat.reply(actor, first.id, { body: 'đáp ở A' });
+      const replyToReply = (await chat.reply(actor, message.id, { body: 'đáp tiếp' })).message;
+
+      const channelA = await store.chat.findChannel(tenantId, 'work_item', a.id);
+      expect(message.channelId).toBe(channelA?.id);
+      expect(message.parentId).toBe(first.id);
+      // Trả lời một câu trả lời thì gắn vào tin gốc, vẫn cùng kênh A.
+      expect(replyToReply.parentId).toBe(first.id);
+      expect(replyToReply.channelId).toBe(channelA?.id);
+
+      const threadA = await chat.projectFeedThread(actor, projectId, a.id);
+      expect(threadA.messages.map((m) => m.body)).toEqual(['hỏi ở A', 'đáp ở A', 'đáp tiếp']);
+      const threadB = await chat.projectFeedThread(actor, projectId, b.id);
+      expect(threadB.messages.map((m) => m.body)).toEqual(['nói ở B']);
+    });
+  });
 });

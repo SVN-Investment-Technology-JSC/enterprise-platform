@@ -4,7 +4,9 @@ import type {
   ChatEntityType,
   ChatMessage,
   ProjectChatFeedPage,
+  ProjectChatTimeline,
   ProjectChatFeedQuery,
+  ChatTimelineFilter,
   ChatReader,
   Contract,
   ContractStatus,
@@ -87,6 +89,12 @@ import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
 } from '../domain/workspace-procedure-link.js';
+
+/**
+ * Bộ lọc dòng thời gian đã được service kiểm: "nhắc tôi" thành id người xem (`mentionUserId`) để store không phải
+ * biết ai đang xem.
+ */
+export type ProjectTimelineQuery = Omit<ChatTimelineFilter, 'mentionsMe'> & { readonly mentionUserId?: string };
 
 /** Dữ liệu để ghi một dòng "đã xoá công việc" vào nhật ký dự án khi xoá. */
 export interface WorkItemDeletionLog {
@@ -856,6 +864,17 @@ export interface WorkspaceStore {
       pageSize: number,
       query: ProjectChatFeedQuery,
     ): Promise<ProjectChatFeedPage>;
+    /**
+     * Một trang tin của mọi kênh trong dự án (công việc và chat chung), cũ → mới. `beforeMessageId` lấy
+     * trang liền trước tin đó; vắng thì lấy trang mới nhất. Bỏ tin đã thu hồi; chỉ đọc.
+     */
+    listProjectTimeline(
+      tenantId: string,
+      projectId: string,
+      limit: number,
+      beforeMessageId?: string,
+      filter?: ProjectTimelineQuery,
+    ): Promise<ProjectChatTimeline>;
     findMessage(tenantId: string, messageId: string): Promise<ChatMessage | undefined>;
     /**
      * Ghi tin và cập nhật `last_message_at` của kênh trong cùng transaction.

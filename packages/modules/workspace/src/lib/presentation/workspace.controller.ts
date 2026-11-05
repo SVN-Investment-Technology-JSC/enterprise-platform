@@ -49,6 +49,7 @@ import type {
   SaveWorkspaceLabelSettingsRequest,
   SaveProjectGroupRequest,
   SaveProjectRoleRequest,
+  ReplyChatMessageRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
   UpdateChatMessageRequest,
@@ -836,6 +837,19 @@ export class WorkspaceController {
     );
   }
 
+  /** Trả lời một tin: kênh lấy từ chính tin đó, không nhận từ client. */
+  @Post('chat/messages/:id/reply')
+  @HttpCode(201)
+  replyChatMessage(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReplyChatMessageRequest,
+  ) {
+    return this.execute(() =>
+      this.chat.reply(this.actor(request), id, body ?? ({} as ReplyChatMessageRequest)),
+    );
+  }
+
   @Patch('chat/messages/:id')
   editChatMessage(
     @Req() request: WorkspaceRequest,
@@ -885,6 +899,33 @@ export class WorkspaceController {
   ) {
     return this.execute(() =>
       this.chat.projectFeedThread(this.actor(request), id, workItemId, before || undefined),
+    );
+  }
+
+  /** Tin của mọi công việc trong dự án xếp chung theo giờ, chỉ để đọc (không đánh dấu đã đọc). */
+  @Get('projects/:id/chat-timeline')
+  projectChatTimeline(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Query('before') before?: string,
+    @Query('q') q?: string,
+    @Query('authors') authors?: string,
+    @Query('nodes') nodes?: string,
+    @Query('mentionsMe') mentionsMe?: string,
+    @Query('hasAttachment') hasAttachment?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.execute(() =>
+      this.chat.projectTimeline(this.actor(request), id, before || undefined, {
+        q,
+        authors: authors ? authors.split(',').filter(Boolean) : undefined,
+        nodes: nodes ? nodes.split(',').filter(Boolean) : undefined,
+        mentionsMe: mentionsMe === '1',
+        hasAttachment: hasAttachment === '1',
+        from,
+        to,
+      }),
     );
   }
 

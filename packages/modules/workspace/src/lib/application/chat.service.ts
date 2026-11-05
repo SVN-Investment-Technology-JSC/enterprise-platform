@@ -5,14 +5,21 @@ import {
   CHAT_FEED_SEARCH_MAX_LENGTH,
   CHAT_FEED_THREAD_LIMIT,
   CHAT_PAGE_SIZE,
+  CHAT_TIMELINE_MAX_FILTER_VALUES,
+  CHAT_TIMELINE_MAX_QUERY_LENGTH,
+  CHAT_TIMELINE_PAGE_SIZE,
+  CHAT_TIMELINE_PROJECT_NODE,
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
+  type ChatTimelineFilter,
   type ChatThread,
   type ChatTypingRecipients,
   type ProjectChatFeedPage,
   type ProjectChatFeedQuery,
   type ProjectChatThread,
+  type ProjectChatTimeline,
+  type ReplyChatMessageRequest,
   type SendChatMessageRequest,
   type SendChatMessageResponse,
   type UnreadSummary,
@@ -27,7 +34,7 @@ import {
 } from '../domain/workspace.error.js';
 import { requireProjectRole, type ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
-import type { WorkspaceStore } from './workspace-store.port.js';
+import type { ProjectTimelineQuery, WorkspaceStore } from './workspace-store.port.js';
 
 /** Số trang tối đa của màn "Trao đổi công việc"; chặn số quá lớn làm OFFSET vượt giới hạn của Postgres. */
 const MAX_FEED_PAGE = 100_000;
@@ -135,6 +142,87 @@ export class ChatService {
     const channel = await this.store.chat.findChannel(actor.tenantId, 'work_item', workItemId);
     if (!channel) return { messages: [], hasMore: false };
     return this.store.chat.listMessages(actor.tenantId, channel.id, CHAT_FEED_THREAD_LIMIT, before);
+  }
+
+  /**
+   * Dòng thời gian của dự án: tin của mọi công việc (và chat chung) xếp chung theo giờ, chỉ để đọc.
+   *
+   * Cùng quyền với `projectFeed` (chỉ cần xem được dự án) và cũng KHÔNG đánh dấu đã đọc.
+   */
+  async projectTimeline(
+    actor: WorkspaceActor,
+    projectId: string,
+    before?: string,
+    filter: ChatTimelineFilter = {},
+  ): Promise<ProjectChatTimeline> {
+    if (before !== undefined && !UUID.test(before)) {
+      throw new WorkspaceValidationError('Mốc phân trang "before" phải là id tin nhắn.');
+    }
+    const query = this.timelineQuery(actor, filter);
+    await this.projects.access(actor, projectId);
+    return this.store.chat.listProjectTimeline(actor.tenantId, projectId, CHAT_TIMELINE_PAGE_SIZE, before, query);
+  }
+
+  /** Kiểm và chuẩn hoá bộ lọc từ client; giá trị rỗng coi như không lọc. "Nhắc tôi" gắn với người đang gọi. */
+  private timelineQuery(actor: WorkspaceActor, filter: ChatTimelineFilter): ProjectTimelineQuery {
+    const q = filter.q?.trim();
+    if (q && q.length > CHAT_TIMELINE_MAX_QUERY_LENGTH) {
+      throw new WorkspaceValidationError(`Từ khoá tìm kiếm tối đa ${CHAT_TIMELINE_MAX_QUERY_LENGTH} ký tự.`);
+    }
+    const authors = [...new Set(filter.authors ?? [])];
+    const nodes = [...new Set(filter.nodes ?? [])];
+    if (authors.length > CHAT_TIMELINE_MAX_FILTER_VALUES || nodes.length > CHAT_TIMELINE_MAX_FILTER_VALUES) {
+      throw new WorkspaceValidationError(`Mỗi bộ lọc chọn tối đa ${CHAT_TIMELINE_MAX_FILTER_VALUES} mục.`);
+    }
+    if (authors.some((author) => !UUID.test(author))) {
+      throw new WorkspaceValidationError('Bộ lọc người gửi phải là id người dùng.');
+    }
+    if (nodes.some((node) => node !== CHAT_TIMELINE_PROJECT_NODE && !UUID.test(node))) {
+      throw new WorkspaceValidationError('Bộ lọc công việc phải là id công việc hoặc "project".');
+    }
+    for (const [label, value] of [['từ ngày', filter.from], ['đến ngày', filter.to]] as const) {
+      if (value && Number.isNaN(Date.parse(value))) {
+        throw new WorkspaceValidationError(`Bộ lọc ${label} không phải thời điểm hợp lệ.`);
+      }
+    }
+    return {
+      q: q || undefined,
+      authors: authors.length > 0 ? authors : undefined,
+      nodes: nodes.length > 0 ? nodes : undefined,
+      mentionUserId: filter.mentionsMe ? actor.userId : undefined,
+      hasAttachment: filter.hasAttachment || undefined,
+      from: filter.from || undefined,
+      to: filter.to || undefined,
+    };
+  }
+
+  /**
+   * Trả lời một tin từ dòng thời gian.
+   *
+   * Câu trả lời đi vào ĐÚNG kênh của tin được trả lời (không nhận kênh từ client), nên mở trao đổi của công
+   * việc đó vẫn thấy nó. Luồng chỉ sâu hai cấp: trả lời một câu trả lời thì gắn vào tin gốc của nó.
+   */
+  async reply(
+    actor: WorkspaceActor,
+    messageId: string,
+    input: ReplyChatMessageRequest,
+  ): Promise<SendChatMessageResponse> {
+    const { message: target, projectId, access } = await this.loadMessage(actor, messageId);
+    requireProjectRole(access, 'member');
+    await this.projects.requireChatOpen(actor.tenantId, access.project);
+    if (target.isDeleted) throw new WorkspaceValidationError('Tin nhắn đã thu hồi, không trả lời được.');
+
+    const body = requireBody(input.body);
+    const { mentions, dropped } = await this.filterMentions(actor, projectId, input.mentions);
+    const message = await this.store.chat.sendMessage(actor.tenantId, actor.userId, {
+      channelId: target.channelId,
+      parentId: target.parentId ?? target.id,
+      body,
+      mentions,
+      attachmentDocumentId: null,
+    });
+    await this.store.chat.markRead(actor.tenantId, target.channelId, actor.userId, message.id);
+    return { message, droppedMentions: dropped };
   }
 
   /**

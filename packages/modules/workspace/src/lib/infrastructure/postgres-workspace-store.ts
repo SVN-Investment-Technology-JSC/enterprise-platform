@@ -11,6 +11,7 @@ import type {
   ChatChannel,
   ChatEntityType,
   ProjectChatFeedPage,
+  ProjectChatTimeline,
   ProjectChatFeedQuery,
   ChatMessage,
   ChatReader,
@@ -89,6 +90,7 @@ import type {
 import {
   CLOSED_WORK_ITEM_STATUSES,
   formatProjectCode,
+  CHAT_TIMELINE_PROJECT_NODE,
   nextProjectCodeNumber,
   STANDALONE_TASK_SYSTEM_ACTOR_ID,
   WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED,
@@ -145,6 +147,7 @@ import type {
   StandaloneTaskWriteModel,
   UnreadRow,
   WorkItemDeletionLog,
+  ProjectTimelineQuery,
   WorkItemProgressRow,
   WorkspaceSchemaStatus,
   WorkspaceStore,
@@ -3102,6 +3105,79 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         page,
         pageSize,
       };
+    },
+
+    listProjectTimeline: async (
+      tenantId: string,
+      projectId: string,
+      limit: number,
+      beforeMessageId?: string,
+      filter: ProjectTimelineQuery = {},
+    ): Promise<ProjectChatTimeline> => {
+      const pool = await this.poolFor(tenantId);
+      // Bộ lọc cộng dồn (VÀ), mỗi giá trị đi qua tham số SQL. Mốc `before` độc lập với bộ lọc: nó chỉ là vị trí
+      // (created_at, id) trong dòng thời gian, nên phân trang vẫn đúng dù tin mốc không khớp bộ lọc.
+      const values: unknown[] = [projectId, limit + 1, beforeMessageId ?? null];
+      const conditions: string[] = [];
+      const bind = (value: unknown) => `$${values.push(value)}`;
+      if (filter.q) conditions.push(`m.body ILIKE ${bind(`%${escapeLike(filter.q)}%`)}`);
+      if (filter.authors?.length) conditions.push(`m.created_by = ANY(${bind(filter.authors)}::uuid[])`);
+      if (filter.nodes?.length) {
+        // Chọn nhiều node: chat chung (`project`) và/hoặc các công việc, khớp một trong số đó.
+        const workIds = filter.nodes.filter((node) => node !== CHAT_TIMELINE_PROJECT_NODE);
+        const parts: string[] = [];
+        if (workIds.length < filter.nodes.length) parts.push(`c.entity_type = 'project'`);
+        if (workIds.length > 0) {
+          parts.push(`(c.entity_type = 'work_item' AND c.entity_id = ANY(${bind(workIds)}::uuid[]))`);
+        }
+        conditions.push(`(${parts.join(' OR ')})`);
+      }
+      if (filter.mentionUserId) conditions.push(`${bind(filter.mentionUserId)}::uuid = ANY(m.mentions)`);
+      if (filter.hasAttachment) conditions.push('m.attachment_document_id IS NOT NULL');
+      if (filter.from) conditions.push(`m.created_at >= ${bind(filter.from)}::timestamptz`);
+      if (filter.to) conditions.push(`m.created_at < ${bind(filter.to)}::timestamptz`);
+      const extra = conditions.map((condition) => `AND ${condition}`).join('\n            ');
+      // Mọi kênh đều lưu `project_id`, nên một lượt nối kênh → tin là đủ, không cần đệ quy theo cây công việc.
+      // Mốc phân trang là cặp (created_at, id) của tin `before` (cùng dự án), như `listMessages`. Lấy dư một dòng
+      // để biết còn trang cũ hơn; tin gốc của câu trả lời lấy cùng lượt để dựng dòng trích.
+      const result = await pool.query<Row>(
+        `SELECT m.id, m.channel_id, m.parent_id, m.body, m.mentions, m.attachment_document_id,
+                m.is_edited, m.is_deleted, m.created_by, m.created_at, m.updated_at,
+                c.entity_type, c.entity_id,
+                p.created_by AS parent_by, p.body AS parent_body, p.is_deleted AS parent_deleted
+           FROM workspace_schema.chat_messages m
+           JOIN workspace_schema.chat_channels c ON c.id = m.channel_id
+           LEFT JOIN workspace_schema.chat_messages p ON p.id = m.parent_id
+          WHERE c.project_id = $1
+            AND m.is_deleted = false
+            AND ($3::uuid IS NULL OR (m.created_at, m.id) < (
+                  SELECT bm.created_at, bm.id
+                    FROM workspace_schema.chat_messages bm
+                    JOIN workspace_schema.chat_channels bc ON bc.id = bm.channel_id
+                   WHERE bm.id = $3 AND bc.project_id = $1))
+            ${extra}
+          ORDER BY m.created_at DESC, m.id DESC
+          LIMIT $2`,
+        values,
+      );
+      const hasMore = result.rows.length > limit;
+      const items = result.rows
+        .slice(0, limit)
+        .map((row) => ({
+          message: mapMessage(row),
+          entityType: str(row.entity_type) as ChatEntityType,
+          entityId: str(row.entity_id),
+          parent: row.parent_id == null
+            ? undefined
+            : {
+                id: str(row.parent_id),
+                createdBy: str(row.parent_by),
+                body: row.parent_deleted ? '' : str(row.parent_body).slice(0, 160),
+                isDeleted: Boolean(row.parent_deleted),
+              },
+        }))
+        .reverse();
+      return { items, hasMore };
     },
 
     findMessage: async (tenantId: string, messageId: string) => {

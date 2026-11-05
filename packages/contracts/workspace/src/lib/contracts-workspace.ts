@@ -1212,6 +1212,73 @@ export interface ProjectChatThread {
   readonly hasMore: boolean;
 }
 
+/** Số tin mỗi lần xem dòng thời gian của dự án; tin cũ hơn lấy thêm bằng `before`. */
+export const CHAT_TIMELINE_PAGE_SIZE = 30;
+
+/** Tin được trả lời, rút gọn để hiện dòng trích phía trên câu trả lời. */
+export interface ChatTimelineParent {
+  readonly id: string;
+  readonly createdBy: string;
+  /** Đầu nội dung tin gốc; rỗng khi tin gốc đã thu hồi. */
+  readonly body: string;
+  readonly isDeleted: boolean;
+}
+
+/**
+ * Một tin trên dòng thời gian của dự án, kèm node chứa nó (công việc hoặc chat chung của dự án)
+ * để giao diện dựng đường dẫn tới công việc đó.
+ */
+export interface ProjectChatTimelineItem {
+  readonly message: ChatMessage;
+  readonly entityType: ChatEntityType;
+  /** Id công việc khi `entityType` là `work_item`; id dự án khi là `project`. */
+  readonly entityId: string;
+  readonly parent?: ChatTimelineParent;
+}
+
+/**
+ * Tin của mọi công việc (và chat chung) trong dự án, xếp theo thời gian, chỉ để đọc: không đánh dấu đã đọc,
+ * không gồm tin đã thu hồi. Trang đầu là tin mới nhất; mỗi trang xếp cũ → mới.
+ */
+export interface ProjectChatTimeline {
+  readonly items: readonly ProjectChatTimelineItem[];
+  /** Còn tin cũ hơn: xin trang kế bằng `before` = id tin đầu danh sách. */
+  readonly hasMore: boolean;
+}
+
+/** Chữ thay cho id công việc trong bộ lọc `node`: chỉ chat chung của dự án. */
+export const CHAT_TIMELINE_PROJECT_NODE = 'project';
+export const CHAT_TIMELINE_MAX_QUERY_LENGTH = 200;
+/** Số người hoặc số công việc tối đa trong một bộ lọc. */
+export const CHAT_TIMELINE_MAX_FILTER_VALUES = 50;
+
+/** Bộ lọc dòng thời gian: tất cả tuỳ chọn và cộng dồn (VÀ). Lọc ở server nên phân trang vẫn đúng. */
+export interface ChatTimelineFilter {
+  /** Từ khoá trong nội dung tin (không phân biệt hoa thường). */
+  readonly q?: string;
+  /** Chỉ tin của những người này (khớp một trong số họ). */
+  readonly authors?: readonly string[];
+  /** Id công việc, hoặc `CHAT_TIMELINE_PROJECT_NODE` cho chat chung của dự án; khớp một trong số đó. */
+  readonly nodes?: readonly string[];
+  /** Chỉ tin có nhắc tên người đang xem. */
+  readonly mentionsMe?: boolean;
+  /** Chỉ tin có đính kèm tài liệu. */
+  readonly hasAttachment?: boolean;
+  /** Từ thời điểm này (ISO, gồm mốc). */
+  readonly from?: string;
+  /** Đến trước thời điểm này (ISO, không gồm mốc). */
+  readonly to?: string;
+}
+
+/**
+ * Trả lời một tin ngay trên dòng thời gian. Kênh và node lấy từ chính tin được trả lời, nên câu trả lời
+ * luôn nằm đúng trong trao đổi của công việc đó.
+ */
+export interface ReplyChatMessageRequest {
+  readonly body: string;
+  readonly mentions?: readonly string[];
+}
+
 /** Danh sách người nhận tín hiệu "đang nhập" của một node, không gồm người hỏi. */
 export interface ChatTypingRecipients {
   readonly userIds: readonly string[];
