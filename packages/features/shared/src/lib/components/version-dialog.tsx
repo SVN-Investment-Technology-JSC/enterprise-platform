@@ -8,7 +8,6 @@ import {
 import { useEffect, useState } from 'react';
 import * as api from '../shared-api';
 import { Dialog, Field } from './dialog';
-import { FILE_ACCEPT } from './upload-dialog';
 
 export interface VersionDialogProps {
   readonly target?: SharedDocumentSummary;
@@ -59,7 +58,7 @@ export function VersionDialog({ target, onClose, onUploaded }: VersionDialogProp
       onSubmit={() => void submit()}
     >
       <Field label="Tệp" required>
-        <input type="file" accept={FILE_ACCEPT} onChange={(event) => setFile(event.target.files?.[0])} />
+        <input type="file" onChange={(event) => setFile(event.target.files?.[0])} />
       </Field>
       <Field label="Nội dung thay đổi" required>
         <textarea

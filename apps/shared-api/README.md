@@ -10,6 +10,23 @@ liệu cấp công ty, tách khỏi tài liệu dự án của Workspace.
   (lưu trữ, xoá, khôi phục), `shared.manage` (quản trị kho: thấy cả kho, dựng thư
   mục gốc, chuyển thư mục, xem dung lượng, xoá vĩnh viễn).
 
+## Tải lên
+
+- Nhận **mọi định dạng tệp**, tối đa 200 MB một tệp. Kiểu tệp chỉ cần đúng dạng
+  `loại/kiểu`; trình duyệt không nhận ra thì lưu `application/octet-stream`.
+- URL tải về luôn ký kèm `Content-Disposition: attachment`, nên tệp HTML, SVG…
+  không mở thành trang trên tên miền kho. Chỉ PDF và ảnh được xem tại chỗ.
+- **Tải cả thư mục** (giao diện: nút chọn thư mục `webkitdirectory`, hoặc kéo thả):
+  dựng lại cây thư mục con bằng `POST /v1/folders`, thư mục cùng tên đã có thì nhập
+  vào, rồi tải từng tệp như tải lẻ. Tệp đã có trong thư mục (cùng tên tệp, cùng dung
+  lượng) thì bỏ qua; tệp hỏng giữa chừng thì lần tải lại thêm phiên bản vào đúng tài
+  liệu đã tạo.
+- **Kéo thả** tệp, thư mục từ máy: thả lên một thư mục ở cây hay ở bảng là vào thư
+  mục đó, thả chỗ trống của bảng là vào thư mục đang mở, thả lên gốc kho thì chọn
+  thư mục trong hộp thoại. Thư mục đọc đệ quy (`webkitGetAsEntry`) nên giữ cả thư
+  mục rỗng; nút chọn thư mục thì không, vì trình duyệt chỉ trả các tệp. Thả nhiều
+  thư mục và tệp lẻ một lúc: mỗi thư mục là một gốc, tệp lẻ vào thẳng thư mục đích.
+
 ## Chia sẻ thư mục
 
 Vào được phân hệ **chưa có nghĩa là thấy cả kho**. Một thư mục chỉ hiện với

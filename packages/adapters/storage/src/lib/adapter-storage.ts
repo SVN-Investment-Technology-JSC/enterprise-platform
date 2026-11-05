@@ -59,6 +59,8 @@ export interface ObjectStoragePut {
  */
 export interface ObjectStorageDownloadOptions {
   readonly inline?: boolean;
+  /** Buộc tải về (`Content-Disposition: attachment`), kể cả kiểu trình duyệt tự mở được. */
+  readonly attachment?: boolean;
   /** Ghi đè `Content-Type` của phản hồi, để trình duyệt biết cách hiển thị. */
   readonly contentType?: string;
   readonly fileName?: string;
@@ -299,9 +301,12 @@ export class S3ObjectStorage implements ObjectStorageManagementPort, ObjectStora
   ): Promise<string> {
     // Ký kèm tham số `response-content-*`: kho trả đúng các header này cho
     // riêng URL này, không đổi siêu dữ liệu lưu trên object.
+    const fileName = options.fileName ? `; filename*=UTF-8''${encodeURIComponent(options.fileName)}` : '';
     const disposition = options.inline
-      ? `inline${options.fileName ? `; filename*=UTF-8''${encodeURIComponent(options.fileName)}` : ''}`
-      : undefined;
+      ? `inline${fileName}`
+      : options.attachment
+        ? `attachment${fileName}`
+        : undefined;
     return getSignedUrl(
       this.publicClient,
       new GetObjectCommand({

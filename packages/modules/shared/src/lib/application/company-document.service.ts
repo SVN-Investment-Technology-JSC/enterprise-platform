@@ -1,7 +1,8 @@
 import { S3ObjectStorage, type ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
 import {
-  SHARED_ALLOWED_CONTENT_TYPES,
+  isSharedContentType,
   SHARED_CONFIDENTIALITY_LEVELS,
+  SHARED_DEFAULT_CONTENT_TYPE,
   SHARED_DOCUMENT_KINDS,
   SHARED_DOCUMENT_MAX_BYTES,
   SHARED_DOCUMENT_STATUSES,
@@ -489,9 +490,10 @@ export class CompanyDocumentService {
       downloadUrl: await this.storage.createDownloadUrl(
         key,
         SHARED_PRESIGNED_URL_TTL_SECONDS,
+        // Tải về luôn là `attachment`: tệp HTML, SVG… không được mở thành trang trên tên miền kho.
         preview
           ? { inline: true, contentType: version.contentType, fileName: version.fileName }
-          : { fileName: version.fileName },
+          : { attachment: true, fileName: version.fileName },
       ),
       expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
       fileName: version.fileName,
@@ -1022,9 +1024,10 @@ function validateFile(
   sizeBytes: unknown,
 ): { fileName: string; contentType: string; sizeBytes: number } {
   const name = requireText(fileName, 'Tên tệp', 255);
-  const type = String(contentType ?? '').trim();
-  if (!SHARED_ALLOWED_CONTENT_TYPES.includes(type)) {
-    throw new SharedValidationError(`Không hỗ trợ loại tệp "${type || '(trống)'}".`);
+  // Nhận mọi định dạng; trình duyệt không nhận ra kiểu thì lưu như tệp nhị phân.
+  const type = String(contentType ?? '').trim() || SHARED_DEFAULT_CONTENT_TYPE;
+  if (!isSharedContentType(type)) {
+    throw new SharedValidationError(`Kiểu tệp "${type.slice(0, 80)}" không hợp lệ.`);
   }
   const size = Number(sizeBytes);
   if (!Number.isFinite(size) || size < 0) {

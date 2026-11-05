@@ -1138,6 +1138,66 @@
   list-style: none;
 }
 
+/* Tải lên: hai nút chọn tệp / thư mục, tóm tắt, danh sách dài cuộn trong khung, thanh tiến độ. */
+.pickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.uploadSummary {
+  margin: 0;
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.pathList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .fileList {
+    max-height: 11rem;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+}
+
+.pathListTitle {
+  color: var(--ep-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.uploadProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+
+  progress {
+    width: 100%;
+    height: 6px;
+    accent-color: var(--ep-accent);
+  }
+}
+
+/* Đang kéo tệp từ máy ngang qua chỗ nhận: dòng thư mục ở cây và bảng, cả bảng, hộp thoại Tải lên. */
+.treeRow[data-drop='true'],
+.tableRow[data-drop='true'] {
+  background: var(--ep-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--ep-accent-strong);
+}
+
+.panel[data-drop='true'],
+.dialog[data-drop='true'] {
+  outline: 2px dashed var(--ep-accent-strong);
+  outline-offset: -2px;
+}
+
 .preview {
   display: flex;
   flex-direction: column;

@@ -16,6 +16,7 @@ export type MenuActionId =
   | 'locate'
   | 'new-folder'
   | 'upload'
+  | 'upload-folder'
   | 'share'
   | 'edit-description'
   | 'rename'
@@ -65,7 +66,7 @@ export interface MenuContext {
   readonly flat: boolean;
   /** Quyền của người dùng ở từng thư mục (`SharedFolder.access`). */
   readonly roleOf: (folderId: string | undefined) => SharedFolderRole | undefined;
-  /** Có ít nhất một thư mục người dùng tải lên được: "Tải file lên" ở gốc kho mới có chỗ để chọn. */
+  /** Có ít nhất một thư mục người dùng tải lên được: "Tải file lên", "Tải thư mục lên" ở gốc kho mới có chỗ để chọn. */
   readonly canUploadSomewhere: boolean;
 }
 
@@ -160,7 +161,11 @@ function folderMenu(folder: SharedFolder, context: MenuContext, mode: 'row' | 'c
 
   return assemble([
     [mode === 'row' && item('open', 'Mở')],
-    [write && item('new-folder', 'Tạo thư mục'), write && item('upload', 'Tải file lên')],
+    [
+      write && item('new-folder', 'Tạo thư mục'),
+      write && item('upload', 'Tải file lên'),
+      write && item('upload-folder', 'Tải thư mục lên'),
+    ],
     [share && item('share', 'Chia sẻ')],
     [
       mode === 'row' && context.flat && item('locate', 'Đến vị trí thư mục'),
@@ -178,7 +183,13 @@ function folderMenu(folder: SharedFolder, context: MenuContext, mode: 'row' | 'c
 function rootMenu(context: MenuContext): MenuEntry[] {
   const { manage } = rightsOf(context.capabilities);
   const upload = context.canUploadSomewhere && (context.capabilities.canWriteDocuments || manage);
-  return assemble([[manage && item('new-folder', 'Tạo thư mục'), upload && item('upload', 'Tải file lên')]]);
+  return assemble([
+    [
+      manage && item('new-folder', 'Tạo thư mục'),
+      upload && item('upload', 'Tải file lên'),
+      upload && item('upload-folder', 'Tải thư mục lên'),
+    ],
+  ]);
 }
 
 function trashMenu(trashed: SharedTrashItem, context: MenuContext): MenuEntry[] {

@@ -6,6 +6,7 @@ import {
   type SharedFolder,
 } from '@enterprise-platform/contracts-shared';
 import type { KeyboardEvent, MouseEvent } from 'react';
+import { useFolderDrop, type FolderDrop } from '../file-drop';
 import { expiryTone, fileBadge, formatDate, formatDateTime } from '../library.model';
 import styles from '../shared.module.scss';
 import { anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor } from './context-menu';
@@ -30,7 +31,15 @@ export interface ContentsTableProps {
   readonly onRowMenu: (row: ContentRow, anchor: MenuAnchor) => void;
   /** Chuột phải ở chỗ trống; trả `false` khi không có menu nào để hiện, trình duyệt tự xử lý. */
   readonly onBlankMenu: (anchor: MenuAnchor) => boolean;
+  /**
+   * Kéo tệp, thư mục từ máy thả vào để tải lên: thả lên dòng thư mục là vào thư
+   * mục đó, thả chỗ khác trong bảng là `undefined` (thư mục đang mở).
+   */
+  readonly drop?: FolderDrop;
 }
+
+/** Khoá vùng thả của cả bảng; các dòng thư mục dùng id thư mục. */
+const PANEL_DROP = '@panel';
 
 function Expiry({ value }: { readonly value?: string }) {
   if (!value) return <span className={`${styles.cellDate} ${styles.cellEmpty}`}>—</span>;
@@ -51,7 +60,9 @@ export function ContentsTable({
   onOpenDocument,
   onRowMenu,
   onBlankMenu,
+  drop,
 }: ContentsTableProps) {
+  const drops = useFolderDrop(drop);
   const folderCount = rows.filter((row) => row.type === 'folder').length;
   const documentCount = rows.length - folderCount;
 
@@ -74,6 +85,8 @@ export function ContentsTable({
     <section
       className={`${styles.panel} ${styles.contents}`}
       aria-label={label}
+      data-drop={drops.over === PANEL_DROP || undefined}
+      {...drops.on<HTMLElement>(PANEL_DROP, undefined)}
       onContextMenu={(event) => {
         if (onBlankMenu(anchorFromMouse(event))) event.preventDefault();
       }}
@@ -102,6 +115,8 @@ export function ContentsTable({
                     role="row"
                     aria-current={current ? 'true' : 'false'}
                     className={styles.tableRow}
+                    data-drop={drops.over === folder.id || undefined}
+                    {...drops.on<HTMLButtonElement>(folder.id, folder)}
                     onClick={() => onSelect({ type: 'folder', id: folder.id })}
                     onDoubleClick={() => onOpenFolder(folder.id)}
                     {...menuHandlers(row)}

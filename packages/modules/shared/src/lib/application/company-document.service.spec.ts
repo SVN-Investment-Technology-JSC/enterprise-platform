@@ -1,4 +1,8 @@
-import type { ObjectStorageCopy, ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
+import type {
+  ObjectStorageCopy,
+  ObjectStorageDownloadOptions,
+  ObjectStorageManagementPort,
+} from '@enterprise-platform/adapter-storage';
 import type {
   SharedDocument,
   SharedDocumentVersion,
@@ -462,10 +466,14 @@ function fakeOrganization() {
 function fakeStorage() {
   const copies: ObjectStorageCopy[] = [];
   const deleted: string[] = [];
+  const downloads: { key: string; options?: ObjectStorageDownloadOptions }[] = [];
   const faults = { failedKeys: [] as string[], throwOnDelete: false };
   const port: ObjectStorageManagementPort = {
     createUploadUrl: async (input) => `https://files.example/upload/${input.key}`,
-    createDownloadUrl: async (key) => `https://files.example/download/${key}`,
+    createDownloadUrl: async (key, _expiresInSeconds, options) => {
+      downloads.push({ key, options });
+      return `https://files.example/download/${key}`;
+    },
     putObject: async () => undefined,
     copyObject: async (input) => {
       copies.push(input);
@@ -476,7 +484,7 @@ function fakeStorage() {
       return { failed: keys.filter((key) => faults.failedKeys.includes(key)) };
     },
   };
-  return { port, copies, deleted, faults };
+  return { port, copies, deleted, downloads, faults };
 }
 
 function setup(
@@ -618,11 +626,22 @@ describe('CompanyDocumentService – tài liệu', () => {
     );
   });
 
-  it('từ chối loại tệp ngoài danh sách và hiệu lực ngược', async () => {
+  it('nhận mọi định dạng; chỉ từ chối kiểu tệp sai cú pháp và hiệu lực ngược', async () => {
     const { service, folder } = await withFolder();
+    const exe = await service.create(actor(), {
+      folderId: folder.id,
+      name: 'Bộ cài',
+      ...pdf,
+      fileName: 'setup.exe',
+      contentType: 'application/x-msdownload',
+    });
+    expect(exe.version.contentType).toBe('application/x-msdownload');
+    // Trình duyệt không nhận ra kiểu (.step, .dwg trên Windows): lưu như tệp nhị phân.
+    const step = await service.create(actor(), { folderId: folder.id, name: 'Bản vẽ', ...pdf, fileName: 'khung.step', contentType: '' });
+    expect(step.version.contentType).toBe('application/octet-stream');
     await expect(
-      service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, contentType: 'application/x-msdownload' }),
-    ).rejects.toThrow('Không hỗ trợ loại tệp');
+      service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, contentType: 'text/html; <script>' }),
+    ).rejects.toThrow('không hợp lệ');
     await expect(
       service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, effectiveFrom: '2026-12-31', effectiveTo: '2026-01-01' }),
     ).rejects.toThrow('Ngày hiệu lực từ');
@@ -679,6 +698,26 @@ describe('CompanyDocumentService – tài liệu', () => {
     await expect(service.download(actor(), created.document.id, undefined, 'preview')).resolves.toMatchObject({
       fileName: pdf.fileName,
     });
+  });
+
+  it('tải về luôn ký kèm attachment; tệp HTML không xem tại chỗ được', async () => {
+    const { service, folder, files } = await withFolder();
+    const page = await service.create(actor(), {
+      folderId: folder.id,
+      name: 'Trang',
+      fileName: 'trang.html',
+      contentType: 'text/html',
+      sizeBytes: 1_000,
+    });
+    await service.completeUpload(actor(), page.document.id, page.version.id, 1_000);
+    await expect(service.download(actor(), page.document.id, undefined, 'preview')).rejects.toThrow('chưa xem trước được');
+    await service.download(actor(), page.document.id);
+    expect(files.downloads.at(-1)?.options).toEqual({ attachment: true, fileName: 'trang.html' });
+
+    const created = await service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
+    await service.download(actor(), created.document.id, undefined, 'preview');
+    expect(files.downloads.at(-1)?.options).toEqual({ inline: true, contentType: 'application/pdf', fileName: pdf.fileName });
   });
 });
 

@@ -38,29 +38,19 @@ export const SHARED_DOCUMENT_MAX_BYTES = 200 * 1024 * 1024;
 /** URL ký sẵn sống 300 giây, như Workspace. */
 export const SHARED_PRESIGNED_URL_TTL_SECONDS = 300;
 
-/** Kiểu tệp được nhận. Danh sách trắng. */
-export const SHARED_ALLOWED_CONTENT_TYPES: readonly string[] = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/rtf',
-  'application/zip',
-  'application/x-zip-compressed',
-  'application/vnd.rar',
-  'application/x-rar-compressed',
-  'image/vnd.dwg',
-  'application/acad',
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'text/csv',
-  'text/plain',
-];
+/** Kiểu tệp khi trình duyệt không nhận ra: lưu và tải về như tệp nhị phân. */
+export const SHARED_DEFAULT_CONTENT_TYPE = 'application/octet-stream';
+
+const CONTENT_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+
+/**
+ * Mọi định dạng tệp đều được nhận; kiểu tệp chỉ cần đúng dạng `loại/kiểu`
+ * (RFC 6838, không kèm tham số). An toàn nằm ở chỗ tải về: luôn là
+ * `attachment`, chỉ PDF và ảnh được xem tại chỗ.
+ */
+export function isSharedContentType(value: string): boolean {
+  return value.length <= 255 && CONTENT_TYPE_PATTERN.test(value);
+}
 
 /** Xem trước ngay trong trình duyệt: PDF và ảnh. */
 export const SHARED_PREVIEWABLE_CONTENT_TYPES: readonly string[] = [
