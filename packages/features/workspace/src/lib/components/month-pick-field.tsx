@@ -48,10 +48,10 @@ export function MonthPickField({ value, onChange, min, max, 'aria-label': label 
   const allowed = (key: string) => (!min || key >= min) && (!max || key <= max);
 
   // Mở lại thì về năm của tháng đang chọn.
+  const selectedYear = selected?.year;
   useEffect(() => {
-    if (open) setYear(selected?.year ?? new Date().getFullYear());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (open) setYear(selectedYear ?? new Date().getFullYear());
+  }, [open, selectedYear]);
 
   // Định vị theo cửa sổ (`fixed`) để không bị khung cuộn hay `overflow: hidden` cắt; lật lên trên khi phía dưới hết chỗ.
   useLayoutEffect(() => {
