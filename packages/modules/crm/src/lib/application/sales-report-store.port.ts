@@ -5,6 +5,7 @@ import type {
   SalesAlert,
   SalesAlertKind,
   SalesReportDimension,
+  TenderReportRow,
 } from '@enterprise-platform/contracts-crm';
 import type { RawFigures } from '../domain/sales-report.js';
 import type { CrmDataScope } from './data-scope.js';
@@ -62,6 +63,12 @@ export interface SalesReportStore {
     scope: CrmDataScope,
     filter: { readonly today: string; readonly expiringUntil: string; readonly ownerUserId?: string; readonly kind?: SalesAlertKind },
   ): Promise<SalesAlert[]>;
+  /** Hồ sơ thầu theo luồng profile TENDER: số hồ sơ và giá trị theo trạng thái; Trúng/Trượt theo ngày ghi kết quả trong kỳ. */
+  tenderByPipeline(
+    tenantId: string,
+    scope: CrmDataScope,
+    filter: Pick<SalesFactFilter, 'from' | 'to' | 'ownerUserId'>,
+  ): Promise<readonly TenderReportRow[]>;
   receivables(
     tenantId: string,
     scope: CrmDataScope,

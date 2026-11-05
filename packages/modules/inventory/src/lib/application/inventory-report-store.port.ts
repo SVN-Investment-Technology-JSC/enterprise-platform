@@ -1,5 +1,4 @@
 import type {
-  MaterialCategory,
   QualityStatus,
   SerialReportTotals,
   SerialStockState,
@@ -19,7 +18,8 @@ import type { MovementGroup, MovementKey } from '../domain/inventory-report.js';
 export interface StockReportFilter {
   readonly search?: string;
   readonly materialCode?: string;
-  readonly category?: MaterialCategory;
+  /** Phân loại khai trong Cài đặt (cột trade_category). */
+  readonly category?: string;
   readonly warehouseCode?: string;
   /** Chỉ báo cáo theo lô: hạn dùng trước hoặc bằng `today` + số ngày này. */
   readonly expiringWithinDays?: number;

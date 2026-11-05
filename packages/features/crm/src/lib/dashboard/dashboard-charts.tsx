@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  OPPORTUNITY_STAGE_LABELS,
   type DashboardStageRow,
   type DashboardTrend,
   type DashboardTrendBucket,
@@ -14,14 +13,13 @@ const REVENUE_COLOR = '#3b82f6';
 const ORDERS_COLOR = '#f59e0b';
 const CHART_HEIGHT = 200;
 
-/** Màu thanh theo giai đoạn cơ hội: nhạt tới đậm theo độ gần chốt. */
-const STAGE_COLOR: Readonly<Record<string, string>> = {
-  NEW: '#94a3b8',
-  CONTACTED: '#93c5fd',
-  DISCOVERY: '#60a5fa',
-  QUOTING: '#3b82f6',
-  NEGOTIATION: '#1d4ed8',
-};
+/** Màu thanh theo thứ tự dòng: nhạt tới đậm theo độ gần chốt (luồng tuỳ biến có số giai đoạn bất kỳ). */
+const STAGE_SHADES = ['#94a3b8', '#93c5fd', '#60a5fa', '#3b82f6', '#1d4ed8'] as const;
+
+export function stageShade(index: number, count: number): string {
+  if (count <= 1) return STAGE_SHADES[3];
+  return STAGE_SHADES[Math.round((index / (count - 1)) * (STAGE_SHADES.length - 1))];
+}
 
 function bucketRange(bucket: DashboardTrendBucket): string {
   return bucket.start === bucket.end ? formatDay(bucket.start) : `${formatDay(bucket.start)} – ${formatDay(bucket.end)}`;
@@ -114,16 +112,16 @@ export function PipelineBars({ rows, onPick }: { readonly rows: readonly Dashboa
   const max = Math.max(1, ...rows.map((row) => row.value));
   return (
     <ul className={styles.barList}>
-      {rows.map((row) => (
+      {rows.map((row, index) => (
         <li key={row.stage}>
           <button type="button" onClick={onPick} title={`Theo xác suất: ${formatVndCompact(row.weightedValue)}`}>
-            <span>{OPPORTUNITY_STAGE_LABELS[row.stage]}</span>
+            <span>{row.name}</span>
             <span className={styles.barTrack}>
-              <span style={{ width: `${(row.value / max) * 100}%`, background: STAGE_COLOR[row.stage] ?? '#3b82f6' }} />
+              <span style={{ width: `${(row.value / max) * 100}%`, background: stageShade(index, rows.length) }} />
             </span>
             <span className={styles.barValue}>
               <strong>{formatVndCompact(row.value)}</strong>
-              <small>{formatCount(row.count)} cơ hội</small>
+              <small>{formatCount(row.count)} dự án bán hàng</small>
             </span>
           </button>
         </li>

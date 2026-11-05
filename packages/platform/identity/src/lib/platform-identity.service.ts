@@ -52,6 +52,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
+import { retryOnConnectionError } from './retry-on-connection-error.js';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
 import {
@@ -113,7 +114,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
     { max: 10, application_name: 'enterprise-platform:platform-api' },
   );
   private keys: Promise<PlatformIdentityKeys> | undefined;
-  readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantCoreDatabase(tenantId, operation));
+  /**
+   * Đường kiểm quyền dùng pool giữ lâu theo tenant, không dùng `withTenantCoreDatabase` (mở rồi đóng một pool
+   * ở mỗi lần gọi). Mọi request tới mọi phân hệ đều qua `decide`; mỗi lần mở một kết nối TCP mới tới DB tenant
+   * thì một lượt nạp màn hình gồm hàng chục request tạo ra hàng chục kết nối cùng lúc, và chỉ cần một kết nối bị
+   * reset (ECONNRESET) là request bị từ chối với 503.
+   */
+  readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantAuthorizationDatabase(tenantId, operation));
 
   async login(input: LoginRequest): Promise<{
     principal: AuthenticatedPrincipal;
@@ -557,7 +564,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
     let access;
     let coreUser;
     // Một lượt truy vấn tenant DB cho cả revision, trạng thái hoạt động và hồ sơ người dùng.
-    try { ({ access, user: coreUser } = await this.authorization.resolveWithUser(row.tenant_id, row.core_user_id)); }
+    // Chỉ đọc nên thử lại một lần khi kết nối bị đứt giữa chừng là an toàn.
+    try { ({ access, user: coreUser } = await retryOnConnectionError(() => this.authorization.resolveWithUser(row.tenant_id, row.core_user_id))); }
     catch (error) {
       if (error instanceof UnauthorizedException) return { allowed: false, code: 'SESSION_INACTIVE' };
       throw error;
@@ -2599,6 +2607,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    const authorizationPools = [...this.tenantAuthorizationPools.values()];
+    this.tenantAuthorizationPools.clear();
+    await Promise.all(authorizationPools.map(({ pool }) => pool.end()));
     await this.pool.end();
   }
 
@@ -2923,6 +2934,71 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } catch {
       // Ignore if table does not exist yet (e.g. before initial migration)
     }
+  }
+
+  private readonly tenantAuthorizationPools = new Map<
+    string,
+    { readonly pool: ReturnType<typeof createPostgresPool>; readonly version: string }
+  >();
+  private readonly tenantAuthorizationTargets = new Map<
+    string,
+    { readonly secretRef: string; readonly databaseName: string; readonly version: string; readonly expiresAt: number }
+  >();
+
+  /**
+   * Chạy `operation` trên pool giữ lâu của tenant (không đóng sau khi xong).
+   *
+   * Thông tin kết nối giữ 60 giây để khỏi hỏi DB platform ở mỗi request; đổi `config_version` thì tạo pool mới và
+   * đóng pool cũ. Xóa tenant dùng `DROP DATABASE … WITH (FORCE)` nên không bị các kết nối này chặn.
+   */
+  private async withTenantAuthorizationDatabase<T>(
+    tenantId: string,
+    operation: (pool: ReturnType<typeof createPostgresPool>) => Promise<T>,
+  ): Promise<T> {
+    let target = this.tenantAuthorizationTargets.get(tenantId);
+    if (!target || target.expiresAt <= Date.now()) {
+      const config = await this.pool.query<{
+        secret_ref: string;
+        database_name: string;
+        config_version: string | number;
+      }>(
+        `SELECT d.secret_ref, d.database_name, d.config_version FROM tenancy_schema.tenant_db_configs d
+          JOIN tenancy_schema.tenants t ON t.id=d.tenant_id AND t.status='active'
+          WHERE d.tenant_id = $1 AND d.status = 'active' LIMIT 1`,
+        [tenantId],
+      );
+      const database = config.rows[0];
+      if (!database) {
+        this.tenantAuthorizationTargets.delete(tenantId);
+        throw new NotFoundException('Tenant chưa có database đang hoạt động.');
+      }
+      target = {
+        secretRef: database.secret_ref,
+        databaseName: database.database_name,
+        version: `${database.config_version}:${database.database_name}:${database.secret_ref}`,
+        expiresAt: Date.now() + 60_000,
+      };
+      this.tenantAuthorizationTargets.set(tenantId, target);
+    }
+
+    let entry = this.tenantAuthorizationPools.get(tenantId);
+    if (!entry || entry.version !== target.version) {
+      const previous = entry;
+      entry = {
+        version: target.version,
+        pool: createPostgresPool(this.tenantConnectionString(target.secretRef, target.databaseName), {
+          max: 6,
+          idleTimeoutMillis: 30_000,
+          connectionTimeoutMillis: 10_000,
+          application_name: 'enterprise-platform:tenant-authorization',
+        }),
+      };
+      this.tenantAuthorizationPools.set(tenantId, entry);
+      if (previous) void previous.pool.end().catch(() => undefined);
+    }
+
+    await this.ensureTenantCoreMigrations(entry.pool, tenantId);
+    return operation(entry.pool);
   }
 
   private async withTenantCoreDatabase<T>(

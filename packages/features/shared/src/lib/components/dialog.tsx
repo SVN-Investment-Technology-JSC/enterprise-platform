@@ -3,6 +3,7 @@
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { fileDropHandlers } from '../file-drop';
 import styles from '../shared.module.scss';
 
 export interface DialogProps {
@@ -20,6 +21,10 @@ export interface DialogProps {
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
+  /** Có thì lúc đang gửi nút Huỷ thành "Dừng" (tải lên nhiều tệp), thay vì bị khoá. */
+  readonly onStop?: () => void;
+  /** Có thì cả hộp thoại nhận tệp, thư mục kéo từ máy thả vào. */
+  readonly onDropFiles?: (dataTransfer: DataTransfer) => void;
   readonly children: ReactNode;
 }
 
@@ -41,11 +46,14 @@ export function Dialog({
   error,
   onClose,
   onSubmit,
+  onStop,
+  onDropFiles,
   children,
 }: DialogProps) {
   const [mounted, setMounted] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [dropping, setDropping] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -53,6 +61,7 @@ export function Dialog({
     if (!open) return;
     setDirty(false);
     setConfirmDiscard(false);
+    setDropping(false);
   }, [open]);
 
   const requestClose = useCallback(() => {
@@ -74,6 +83,10 @@ export function Dialog({
 
   if (!open || !mounted) return null;
 
+  const drop = onDropFiles
+    ? fileDropHandlers<HTMLDivElement>({ accept: () => !submitting, onHover: setDropping, onDrop: onDropFiles })
+    : undefined;
+
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
@@ -81,7 +94,9 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        data-drop={(drop && dropping) || undefined}
         onMouseDown={(event) => event.stopPropagation()}
+        {...drop}
       >
         <header className={styles.dialogHead}>
           <h3>{title}</h3>
@@ -120,9 +135,15 @@ export function Dialog({
             </div>
           ) : null}
           <footer className={styles.dialogFoot}>
-            <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
-              Huỷ
-            </button>
+            {submitting && onStop ? (
+              <button type="button" className={styles.buttonGhost} onClick={onStop}>
+                Dừng
+              </button>
+            ) : (
+              <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
+                Huỷ
+              </button>
+            )}
             <button
               type="submit"
               className={danger ? styles.buttonDanger : styles.buttonPrimary}

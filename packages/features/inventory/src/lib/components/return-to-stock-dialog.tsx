@@ -7,6 +7,7 @@ import { useState, useMemo } from 'react';
 import type { ProcedureOption } from '../inventory-api';
 import { getUnitQuantityConfig } from '../inventory-labels';
 import { SerialPickerDrawer } from './stock-document-parts';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export interface ReturnToStockInput extends ReturnItemToStockRequest {
@@ -56,7 +57,8 @@ export function ReturnToStockDialog({
   serialMaterialCode?: string;
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (input: ReturnToStockInput) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onConfirm: (input: ReturnToStockInput) => Promise<void> | void;
 }) {
   // Một kho thì chọn sẵn — vẫn là lựa chọn có ý thức vì nó hiện rõ trên màn
   // hình, chỉ là không bắt bấm thêm một lần cho một phương án duy nhất.
@@ -69,6 +71,7 @@ export function ReturnToStockDialog({
   );
   const [note, setNote] = useState('');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
+  const { error, submit: send } = useFormSubmit('Không nhập về kho được.');
   const [serials, setSerials] = useState<string[]>([]);
   const [serialPickerOpen, setSerialPickerOpen] = useState(false);
 
@@ -173,13 +176,13 @@ export function ReturnToStockDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!ready) return;
-            onConfirm({
+            void send(() => onConfirm({
               warehouseCode,
               quantity: amount,
               note: note.trim() || undefined,
               procedureDefinitionId: procedureDefinitionId || undefined,
               serials: serialMaterialCode ? serials : undefined,
-            });
+            }));
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
         >
@@ -412,6 +415,8 @@ export function ReturnToStockDialog({
               onChange={(event) => setNote(event.target.value)}
             />
           </div>
+
+          <FormError error={error} />
 
           {/* Footer Actions */}
           <div

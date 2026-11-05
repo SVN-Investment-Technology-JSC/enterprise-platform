@@ -19,7 +19,11 @@ import type {
   UpdateAssetRequest,
   UpdateMaterialRequest,
   Warehouse,
+  AssetTestRecord,
+  CreateAssetTestRecordRequest,
+  AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
+import type { InventoryActor } from './inventory.application.js';
 
 /** Ledger entry to append. Balances are derived from these, never written directly. */
 export interface AppendTransactionInput {
@@ -88,12 +92,31 @@ export interface InventoryStore {
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
     list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
-    create(tenantId: string, input: CreateMaterialRequest): Promise<Material>;
-    update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
+    create(
+      tenantId: string,
+      input: CreateMaterialRequest,
+      createdBy?: string,
+      /** Chỉ khi nhập từ hệ cũ: ngày tạo và trạng thái ban đầu. */
+      history?: { createdAt?: string; isActive?: boolean },
+    ): Promise<Material>;
+    update(
+      tenantId: string,
+      code: string,
+      patch: UpdateMaterialRequest,
+      /** Chỉ khi nhập từ hệ cũ: điền người tạo, ngày tạo cho mã chưa có người tạo; mã đã có thì giữ nguyên. */
+      history?: { createdBy?: string; createdAt?: string },
+    ): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
     countTransactions(tenantId: string, code: string): Promise<number>;
     /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
     hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Mọi nơi đang trỏ vào mã này (bảng của Kho và cột material_id, material_code của các phân hệ khác);
+     * rỗng nghĩa là mã chưa có liên kết nào và xoá được.
+     */
+    listLinks(tenantId: string, code: string): Promise<{ label: string; count: number }[]>;
+    /** Xoá hẳn một mã. Chỉ gọi sau khi `listLinks` trả rỗng. */
+    delete(tenantId: string, code: string): Promise<boolean>;
     /**
      * Danh mục cho phân hệ khác (T1-24): một trang theo mã, kèm tồn khả dụng và
      * giá bình quân theo kho. Lấy `limit + 1` dòng để biết còn trang sau.
@@ -282,6 +305,27 @@ export interface InventoryStore {
     ): Promise<Record<string, unknown>[] | null>;
   };
 
+  custody: {
+    listByEmployee(tenantId: string, employeeId: string): Promise<Material[]>;
+    /** Mọi tài sản đang có người nhận, mới cấp trước. */
+    listAssigned(tenantId: string): Promise<Material[]>;
+    /** Mọi tài sản còn trong danh mục, kèm nhóm, trạng thái và người đang giữ (nếu có). */
+    listAll(tenantId: string): Promise<Material[]>;
+    /** Tài sản đang hoạt động, còn hoạt động trong danh mục và chưa có người nhận. */
+    listAssignable(tenantId: string): Promise<Material[]>;
+    find(tenantId: string, materialCode: string): Promise<Material | null>;
+    /**
+     * Cấp (`employeeId` có giá trị) hoặc thu hồi (null). Cấp chỉ thành công khi tài sản còn hoạt động và chưa có
+     * người khác nhận; không thoả thì trả null để tầng trên báo lý do.
+     */
+    assign(tenantId: string, materialCode: string, employeeId: string | null): Promise<Material | null>;
+  };
+
+  assetTest: {
+    listByAsset(tenantId: string, assetId: string): Promise<AssetTestRecord[]>;
+    create(tenantId: string, input: CreateAssetTestRecordRequest): Promise<AssetTestRecord>;
+  };
+
   /**
    * Phụ tùng tiêu chuẩn của một thiết bị. Bảng `asset_boms` đã có từ migration
    * đầu tiên nhưng chưa từng được nối dây.
@@ -312,6 +356,9 @@ export interface InventoryStore {
       expectedVersion?: number,
     ): Promise<SettingsEntry<unknown> | null>;
   };
+
+  /** Danh sách nhân sự có thể tham gia tổ kiểm kê kèm cờ phân quyền kho hasWarehouseAccess */
+  listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]>;
 }
 
 export const INVENTORY_STORE = 'INVENTORY_STORE';

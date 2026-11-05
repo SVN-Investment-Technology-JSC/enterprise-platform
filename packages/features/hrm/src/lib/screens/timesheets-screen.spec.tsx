@@ -207,6 +207,12 @@ describe('TimesheetsScreen', () => {
   });
 
   it('hiển thị đủ cột ngày của tháng, ký hiệu từng trạng thái và không còn Tạo kỳ công', async () => {
+    // Ghim "hôm nay" vào ngày 10 để các ngày 1 đến 5 luôn là ngày đã qua, dù test chạy vào ngày nào của tháng.
+    jest.useFakeTimers({
+      now: new Date(`${month}-10T05:00:00Z`),
+      doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'],
+    });
+    try {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     expect(await screen.findAllByTestId('board-day-header')).toHaveLength(dayCount);
@@ -235,6 +241,9 @@ describe('TimesheetsScreen', () => {
     const q = new URLSearchParams(path.split('?')[1]);
     expect(q.get('month')).toBe(month);
     expect(q.get('page_size')).toBe('10');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('canViewAll=true có ô tìm; canViewAll=false thì ẩn ô tìm và các nút chốt', async () => {

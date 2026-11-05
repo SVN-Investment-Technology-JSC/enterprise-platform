@@ -33,7 +33,7 @@ import {
   optionalText,
   requiredText,
 } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { assertPaymentTermsBalanced, normalizePaymentTerms } from '../domain/payment-terms.js';
 import { contractReservationExpiry, reservationIdempotencyKey } from '../domain/sales-order.js';
 import { assertOwnerInScope } from './crm-access.js';
@@ -135,6 +135,7 @@ export class ContractService {
       ownerUserId: optionalId(query.ownerUserId, 'người phụ trách') ?? undefined,
       expiring: within === null ? undefined : { today, until: addDays(today, within) },
       cursor: decodeCursor(query.cursor),
+      page: pageNumber(query.page),
       limit: pageLimit(query.limit),
     });
   }

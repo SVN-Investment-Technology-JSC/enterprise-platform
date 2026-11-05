@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   WARRANTY_CAUSE_LABELS,
   WARRANTY_SOURCE_LABELS,
   WARRANTY_STATUS_LABELS,
@@ -15,9 +16,9 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus, Search, Settings } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
+import { usePagedList } from '../components/use-paged-list';
 import {
   createWarrantyCase,
   errorMessage,
@@ -52,8 +53,8 @@ export function WarrantyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [intake, setIntake] = useState<{ serials: string[] } | null>(null);
   const [configuring, setConfiguring] = useState(false);
   const q = useDebounced(search.trim(), 350);
-  const list = useKeysetPage(JSON.stringify({ q, status }), (cursor) =>
-    listWarrantyCases({ q, status: (status || undefined) as WarrantyStatus | undefined, cursor, limit: 30 }),
+  const list = usePagedList(JSON.stringify({ q, status }), CRM_LIST_PAGE_SIZE, (page) =>
+    listWarrantyCases({ q, status: (status || undefined) as WarrantyStatus | undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<WarrantyCaseSummary>>(
@@ -81,16 +82,6 @@ export function WarrantyPage({ onOpen }: { onOpen: (id: string) => void }) {
       },
       { title: 'Người xử lý', dataIndex: 'assigneeUserId', width: 160, ellipsis: true, render: (value: string | null) => (value ? personName(people, value) : '') },
       { title: 'Tiếp nhận', dataIndex: 'createdAt', width: 110, render: (value: string) => formatDay(value.slice(0, 10)) },
-      {
-        title: '',
-        key: 'actions',
-        width: 70,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -129,10 +120,10 @@ export function WarrantyPage({ onOpen }: { onOpen: (id: string) => void }) {
           dataSource={[...list.items]}
           pagination={false}
           scroll={{ x: 1250 }}
-          onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+          onRow={(row) => rowOpener(() => onOpen(row.id))}
           locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có yêu cầu bảo hành nào.' }}
         />
-        <KeysetPager page={list.page} count={list.items.length} hasNext={list.hasNext} loading={list.loading} noun="yêu cầu" onPrevious={list.previous} onNext={list.next} />
+        <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="yêu cầu" onChange={list.goTo} />
       </section>
       {intake ? (
         <IntakeDialog

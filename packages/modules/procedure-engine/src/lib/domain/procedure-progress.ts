@@ -106,8 +106,10 @@ export function stepRoleTitle(instance: ProcedureInstance, step: ProcedureInstan
   if (!handlers.length) {
     return step.assignments.some((assignment) => assignment.role === 'S') ? initiatorName(instance) : '';
   }
-  if (step.status === 'completed') {
-    const actors = actualActorNames(instance, step);
+  // Bước đã chốt (duyệt, từ chối, trả lại): hiện người thật đã quyết định, không liệt kê các chức danh được giao.
+  const decisionActions = DECISION_ACTIONS_BY_STATUS[step.status];
+  if (decisionActions) {
+    const actors = actualActorNames(instance, step, decisionActions);
     if (actors.length) return actors.join(', ');
   }
   const stage = step.currentRoleStage;
@@ -128,13 +130,23 @@ function initiatorName(instance: ProcedureInstance): string {
   return entry?.actorName.trim() || 'Người khởi tạo';
 }
 
-function actualActorNames(instance: ProcedureInstance, step: ProcedureInstanceStep): string[] {
+const DECISION_ACTIONS_BY_STATUS: Readonly<Record<string, readonly string[]>> = {
+  completed: ['approve', 'complete'],
+  rejected: ['reject'],
+  returned: ['return'],
+};
+
+function actualActorNames(
+  instance: ProcedureInstance,
+  step: ProcedureInstanceStep,
+  actions: readonly string[],
+): string[] {
   return unique(
     instance.activity
       .filter(
         (entry) =>
           entry.stepInstanceId === step.id &&
-          ['approve', 'complete'].includes(entry.action) &&
+          actions.includes(entry.action) &&
           entry.actorId !== SYSTEM_ACTOR_ID,
       )
       .map((entry) => entry.actorName?.trim() ?? '')

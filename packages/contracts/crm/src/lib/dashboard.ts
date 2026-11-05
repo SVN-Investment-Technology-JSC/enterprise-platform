@@ -1,4 +1,4 @@
-import type { OpportunityStage } from './opportunities.js';
+import type { StageSemantic } from './opportunities.js';
 
 /**
  * Dashboard Tổng quan của Bán hàng (`GET v1/dashboard`): chỉ cần `crm.read`.
@@ -83,8 +83,19 @@ export interface DashboardTrend {
   readonly buckets: readonly DashboardTrendBucket[];
 }
 
+/**
+ * Một dòng phễu: giai đoạn ĐANG CHẠY (nghĩa `OPEN`) của luồng, theo `pipeline_stages`.
+ * Quy ước gom nhiều luồng: các giai đoạn cùng MÃ ở các luồng khác nhau gộp thành một dòng; tên
+ * lấy ở luồng mặc định (rồi theo thứ tự luồng); dòng xếp theo `sort_order` nhỏ nhất của mã đó.
+ * Giai đoạn đang bật luôn có dòng (kể cả 0); giai đoạn tắt chỉ có dòng khi còn cơ hội.
+ */
 export interface DashboardStageRow {
-  readonly stage: OpportunityStage;
+  /** Mã giai đoạn (chuỗi tự do, luồng tuỳ biến có mã riêng). */
+  readonly stage: string;
+  /** Tên hiển thị của giai đoạn. */
+  readonly name: string;
+  /** Luôn `OPEN`: giai đoạn thắng/thua không nằm trong phễu. */
+  readonly semantic: StageSemantic;
   readonly count: number;
   readonly value: number;
   /** Giá trị nhân xác suất thắng. */

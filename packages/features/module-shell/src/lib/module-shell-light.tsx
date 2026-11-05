@@ -224,6 +224,7 @@ export function ModuleShellLight<TViewId extends string = string>(
           ) : null}
 
           <div className={styles.scroll}>
+            {props.navSwitcher ? <div className={styles.navSwitcher}>{props.navSwitcher}</div> : null}
             <div className={styles.navList}>
               {visible.map((item, index) => {
                 const previous = visible[index - 1];
@@ -296,6 +297,12 @@ export function ModuleShellLight<TViewId extends string = string>(
               <SidebarSection key={section.id} section={section} collapsed={collapsed} />
             ))}
           </div>
+
+          {props.pinnedFooter ? (
+            <div className={styles.pinned} data-shell-region="pinned-footer">
+              {props.pinnedFooter}
+            </div>
+          ) : null}
 
           <div className={styles.foot}>
             {!props.hideHomeButton ? (

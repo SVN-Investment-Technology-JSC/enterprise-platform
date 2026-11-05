@@ -5,14 +5,15 @@ import {
   type CrmCapabilities,
   type CrmPerson,
   type CustomerGroup,
+  type CustomerKindOption,
 } from '@enterprise-platform/contracts-crm';
 import type { SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { listGroups, listPeople } from './crm-api';
+import { listGroups, listKinds, listPeople } from './crm-api';
 
 /**
  * Dữ liệu dùng chung cho mọi màn Bán hàng: quyền (để ẩn hiện), danh bạ chọn
- * người, nhóm khách. Tải một lần khi mở phân hệ.
+ * người, nhóm khách, phân loại khách. Tải một lần khi mở phân hệ.
  */
 export interface CrmContextValue {
   readonly capabilities: CrmCapabilities;
@@ -20,6 +21,8 @@ export interface CrmContextValue {
   readonly people: readonly CrmPerson[];
   readonly groups: readonly CustomerGroup[];
   readonly reloadGroups: () => void;
+  readonly kinds: readonly CustomerKindOption[];
+  readonly reloadKinds: () => void;
 }
 
 const CrmContext = createContext<CrmContextValue>({
@@ -27,6 +30,8 @@ const CrmContext = createContext<CrmContextValue>({
   people: [],
   groups: [],
   reloadGroups: () => undefined,
+  kinds: [],
+  reloadKinds: () => undefined,
 });
 
 export function CrmDataProvider({
@@ -41,19 +46,25 @@ export function CrmDataProvider({
   const [people, setPeople] = useState<readonly CrmPerson[]>([]);
   const [groups, setGroups] = useState<readonly CustomerGroup[]>([]);
 
+  const [kinds, setKinds] = useState<readonly CustomerKindOption[]>([]);
+
   const reloadGroups = useCallback(() => {
     listGroups().then(setGroups).catch(() => undefined);
+  }, []);
+  const reloadKinds = useCallback(() => {
+    listKinds().then(setKinds).catch(() => undefined);
   }, []);
 
   useEffect(() => {
     // Danh bạ lỗi (Tenant Core chậm) thì ô chọn người trống; thao tác khác vẫn chạy.
     listPeople().then(setPeople).catch(() => undefined);
     reloadGroups();
-  }, [reloadGroups]);
+    reloadKinds();
+  }, [reloadGroups, reloadKinds]);
 
   const value = useMemo(
-    () => ({ capabilities, currentUserId, people, groups, reloadGroups }),
-    [capabilities, currentUserId, people, groups, reloadGroups],
+    () => ({ capabilities, currentUserId, people, groups, reloadGroups, kinds, reloadKinds }),
+    [capabilities, currentUserId, people, groups, reloadGroups, kinds, reloadKinds],
   );
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;
 }
@@ -74,6 +85,10 @@ export function peopleOptions(people: readonly CrmPerson[]): SearchableSelectOpt
 
 export function groupOptions(groups: readonly CustomerGroup[]): SearchableSelectOption[] {
   return groups.map((group) => ({ value: group.id, label: group.name, badge: group.code }));
+}
+
+export function kindOptions(kinds: readonly CustomerKindOption[]): SearchableSelectOption[] {
+  return kinds.map((kind) => ({ value: kind.code, label: kind.name }));
 }
 
 /** Tuỳ chọn từ bảng nhãn (`{ KEY: 'Nhãn' }`). */

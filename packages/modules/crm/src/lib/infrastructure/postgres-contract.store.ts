@@ -35,7 +35,7 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import type { CrmDatabase } from './crm.database.js';
 import { enqueueReservationRelease } from './integration-requests.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 import { recognizeSignTerms, reverseContractTerms } from './receivable-recognition.js';
 
 /** Thực thể ghi vào `audit_log`. */
@@ -114,15 +114,20 @@ export class PostgresContractStore implements ContractStore {
           : code,
       );
     }
-    where.after(filter.cursor, 'k.updated_at', 'k.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<HeadRow>(
-      `SELECT ${HEAD_COLUMNS} ${HEAD_FROM} ${where.where()}
-        ORDER BY k.updated_at DESC, k.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${HEAD_COLUMNS}`,
+        from: `${HEAD_FROM}`,
+        orderBy: 'k.updated_at DESC, k.id DESC',
+        atColumn: 'k.updated_at',
+        idColumn: 'k.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getContract(tenantId: string, scope: CrmDataScope, id: string): Promise<ContractDetail | undefined> {

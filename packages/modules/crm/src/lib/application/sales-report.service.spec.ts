@@ -29,6 +29,7 @@ function fakeStore(): jest.Mocked<SalesReportStore> {
       { ownerUserId: 'b', counts: { OPPORTUNITY: 6, QUOTE: 4, CONTRACT: 3, ORDER: 2 } },
     ]),
     alerts: jest.fn().mockResolvedValue([]),
+    tenderByPipeline: jest.fn().mockResolvedValue([]),
     receivables: jest.fn().mockResolvedValue({
       customers: [
         { revenue: 1_000, collected: 400, adjusted: 0, balance: 600, uncollectedRevenue: 600, overdueAmount: 100 },

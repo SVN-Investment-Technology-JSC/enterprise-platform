@@ -1,7 +1,7 @@
 'use client';
 
 import type { StockDocument, StockDocumentLine } from '@enterprise-platform/contracts-inventory';
-import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { Drawer, Table, type TableColumnsType } from 'antd';
 import { useState } from 'react';
 import {
@@ -23,6 +23,7 @@ import {
 } from '../stock-document.model';
 import { DocumentStatusBadge, RejectReasonDialog, errorMessage } from './stock-document-parts';
 import styles from '../inventory.module.scss';
+import { useUserLabel } from '../user-names';
 
 /** Chạy một thao tác trạng thái trên server; trả chứng từ mới và câu thông báo. */
 export async function runDocumentAction(
@@ -85,7 +86,7 @@ export function DocumentActionBar({
       const result = await runDocumentAction(action, document);
       onChanged(result.document, result.message);
     } catch (cause) {
-      setError(errorMessage(cause, 'Không thực hiện được thao tác.'));
+      toast.error(errorMessage(cause, 'Không thực hiện được thao tác.'));
     } finally {
       setBusy(false);
     }
@@ -99,7 +100,7 @@ export function DocumentActionBar({
       setRejecting(false);
       onChanged(rejected, `Đã từ chối ${document.code}.`);
     } catch (cause) {
-      setError(errorMessage(cause, 'Không từ chối được chứng từ.'));
+      toast.error(errorMessage(cause, 'Không từ chối được chứng từ.'));
     } finally {
       setBusy(false);
     }
@@ -173,13 +174,13 @@ export function DocumentActionBar({
   );
 }
 
-function audit(label: string, who?: string, when?: string) {
+function audit(userName: (id?: string) => string, label: string, who?: string, when?: string) {
   if (!who && !when) return null;
   return (
     <div className={styles.docAuditItem}>
       <span>{label}</span>
       <strong>{formatDateTime(when)}</strong>
-      {who ? <small title={who}>Người thực hiện: {who.slice(0, 8)}</small> : null}
+      {who ? <small title={who}>Người thực hiện: {userName(who)}</small> : null}
     </div>
   );
 }
@@ -201,6 +202,7 @@ export function StockDocumentDetail({
   onChanged: (document: StockDocument, message: string) => void;
   onClose: () => void;
 }) {
+  const userName = useUserLabel();
   const posted = document.status === 'POSTED';
   const columns: TableColumnsType<StockDocumentLine> = [
     { title: '#', dataIndex: 'lineNo', key: 'lineNo', width: 44 },
@@ -331,12 +333,12 @@ export function StockDocumentDetail({
 
       <h4 className={styles.docSubTitle}>Lịch sử</h4>
       <div className={styles.docAuditGrid}>
-        {audit('Lập', document.createdBy, document.createdAt)}
-        {audit('Gửi duyệt', document.submittedBy, document.submittedAt)}
-        {audit('Duyệt', document.approvedBy, document.approvedAt)}
-        {audit('Từ chối', document.rejectedBy, document.rejectedAt)}
-        {audit('Ghi sổ', document.postedBy, document.postedAt)}
-        {audit('Huỷ', document.cancelledBy, document.cancelledAt)}
+        {audit(userName, 'Lập', document.createdBy, document.createdAt)}
+        {audit(userName, 'Gửi duyệt', document.submittedBy, document.submittedAt)}
+        {audit(userName, 'Duyệt', document.approvedBy, document.approvedAt)}
+        {audit(userName, 'Từ chối', document.rejectedBy, document.rejectedAt)}
+        {audit(userName, 'Ghi sổ', document.postedBy, document.postedAt)}
+        {audit(userName, 'Huỷ', document.cancelledBy, document.cancelledAt)}
       </div>
     </Drawer>
   );

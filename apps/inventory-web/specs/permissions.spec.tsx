@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import Page from '../src/app/page';
 
 describe('Inventory capability-driven controls', () => {
@@ -27,8 +27,11 @@ describe('Inventory capability-driven controls', () => {
       return { ok: true, status: 200, json: async () => body } as Response;
     });
     render(<Page />);
-    await waitFor(() => expect(screen.getAllByRole('table').length).toBeGreaterThan(0));
-    expect(Boolean(screen.queryByRole('button', { name: /Thêm vật tư/ }))).toBe(canManage);
-    expect(Boolean(screen.queryByRole('button', { name: /Xuất\/nhập kho/ }))).toBe(canWriteTransactions);
+    // Trang Kho hàng: tab Hàng hóa (quyền quản lý danh mục) rồi tab Nhà kho (quyền ghi giao dịch).
+    const warehouseTab = await screen.findByRole('button', { name: 'Nhà kho' });
+    expect(Boolean(screen.queryByRole('button', { name: /Tạo mới/ }))).toBe(canManage);
+    fireEvent.click(warehouseTab);
+    expect(Boolean(screen.queryByRole('button', { name: /Nhập kho/ }))).toBe(canWriteTransactions);
+    expect(Boolean(screen.queryByRole('button', { name: /Xuất kho/ }))).toBe(canWriteTransactions);
   });
 });

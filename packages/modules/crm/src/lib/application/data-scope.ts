@@ -14,7 +14,15 @@ import type { ReportingLineReader } from './organization-scope.port.js';
  */
 export type CrmDataScope =
   | { readonly kind: 'all' }
-  | { readonly kind: 'users'; readonly userIds: readonly string[] };
+  | {
+      readonly kind: 'users';
+      readonly userIds: readonly string[];
+      /**
+       * Chính người gọi. Cơ hội (và báo giá, tài liệu của cơ hội) có giai đoạn ACTIVE hoặc PENDING giao
+       * cho người này cũng nằm trong phạm vi, dù chủ cơ hội ngoài `userIds` (ASG-02). Không có thì không mở rộng.
+       */
+      readonly selfUserId?: string;
+    };
 
 export class CrmDataScopeService {
   constructor(private readonly reportingLines: ReportingLineReader) {}
@@ -27,7 +35,7 @@ export class CrmDataScopeService {
     if (crmSeesEverything(actor)) return { kind: 'all' };
     const snapshot = await this.reportingLines.snapshot(actor.tenantId);
     const subordinates = computeSubordinateUserIds(snapshot, actor.userId);
-    return { kind: 'users', userIds: [actor.userId, ...[...subordinates].sort()] };
+    return { kind: 'users', userIds: [actor.userId, ...[...subordinates].sort()], selfUserId: actor.userId };
   }
 }
 

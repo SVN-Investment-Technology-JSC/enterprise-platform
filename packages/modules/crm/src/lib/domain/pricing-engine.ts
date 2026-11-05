@@ -101,6 +101,13 @@ export interface PricingInput {
   readonly contractPrices?: readonly PricingContractPrice[];
   readonly discountCapPercent: number;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
+  /**
+   * Chế độ của mẫu báo giá (GĐI). `LINE` (mặc định): như phase 1. `ORDER`: bỏ chiết khấu theo dòng (chính sách và
+   * ghi đè phần trăm; ghi đè đơn giá vẫn là giá bán của dòng) để áp chiết khấu một lần ở tổng đơn (`quote-totals.ts`).
+   */
+  readonly discountMode?: 'LINE' | 'ORDER';
+  /** `ORDER`: thuế suất theo dòng và của phí vận chuyển là 0, thuế tính một lần ở tổng đơn. */
+  readonly taxMode?: 'LINE' | 'ORDER';
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +332,14 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
   }
   const overridePrice = line.override?.unitPrice ?? null;
   const overridePercent = line.override?.discountPercent ?? null;
+  const discountByOrder = input.discountMode === 'ORDER';
+  if (discountByOrder && overridePercent !== null) {
+    throw lineError(
+      index,
+      'LINE_DISCOUNT_NOT_ALLOWED',
+      'Mẫu báo giá này chiết khấu theo tổng đơn, không ghi đè chiết khấu theo dòng.',
+    );
+  }
   if (overridePrice !== null && overridePercent !== null) {
     throw lineError(index, 'OVERRIDE_CONFLICT', 'Chỉ ghi đè đơn giá hoặc chiết khấu, không ghi đè cả hai.');
   }
@@ -349,14 +364,16 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
   };
 
   const category = line.category?.trim() || null;
-  const selected = selectPolicies(input.policies, {
-    date: input.date,
-    customerId: input.customerId,
-    customerGroupId: input.customerGroupId,
-    materialId: line.materialId,
-    category,
-    quantity: line.quantity,
-  });
+  const selected = discountByOrder
+    ? []
+    : selectPolicies(input.policies, {
+        date: input.date,
+        customerId: input.customerId,
+        customerGroupId: input.customerGroupId,
+        materialId: line.materialId,
+        category,
+        quantity: line.quantity,
+      });
   const policyTotal = selected.reduce((sum, candidate) => sum + candidate.percent, 0n);
   const capped = policyTotal > cap;
   const suggested = capped ? cap : policyTotal;
@@ -380,7 +397,7 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
     lineAmount = divideRounded(listCents * quantity * (HUNDRED_PERCENT - discount), amountDenominator * HUNDRED_PERCENT);
   }
 
-  const vatRate = scaled(price.vatRate, 2);
+  const vatRate = scaled(input.taxMode === 'ORDER' ? 0 : price.vatRate, 2);
   const vatAmount = divideRounded(lineAmount * vatRate, 10_000n);
   const applied: AppliedDiscountPolicy[] = selected.map(({ policy, percent }) => ({
     policyId: policy.id,
@@ -418,12 +435,12 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
   };
 }
 
-function priceShipping(shipping: PricingInput['shipping']): PricedShipping | null {
+function priceShipping(shipping: PricingInput['shipping'], taxByOrder = false): PricedShipping | null {
   if (!shipping) return null;
   if (!Number.isFinite(shipping.amount) || shipping.amount < 0) {
     throw new CrmValidationError('INVALID_SHIPPING', 'Phí vận chuyển phải là số không âm.');
   }
-  const rate = shipping.vatRate ?? DEFAULT_VAT_RATE;
+  const rate = taxByOrder ? 0 : (shipping.vatRate ?? DEFAULT_VAT_RATE);
   if (!validPercent(rate)) throw new CrmValidationError('INVALID_VAT', 'Thuế suất phải từ 0 đến 100%.');
   const amount = Number(divideRounded(scaled(shipping.amount, PRICE_SCALE), 100n));
   const vatRate = scaled(rate, 2);
@@ -438,7 +455,7 @@ export function priceQuote(input: PricingInput): PricingResult {
   }
   const cap = scaled(input.discountCapPercent, PERCENT_SCALE);
   const lines = input.lines.map((line, index) => priceLine(input, line, index, cap));
-  const shipping = priceShipping(input.shipping);
+  const shipping = priceShipping(input.shipping, input.taxMode === 'ORDER');
   const sum = (pick: (line: PricedLine) => number) => lines.reduce((total, line) => total + pick(line), 0);
   const netAmount = sum((line) => line.lineAmount);
   const vatAmount = sum((line) => line.vatAmount) + (shipping?.vatAmount ?? 0);

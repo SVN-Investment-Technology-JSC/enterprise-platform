@@ -18,7 +18,7 @@ import {
 } from '@enterprise-platform/contracts-crm';
 import { CrmForbiddenError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, normalizeSearch, optionalDate, optionalEnum, optionalId, optionalText, requiredVersion } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { normalizeAllocations, positiveAmount } from '../domain/receivables.js';
 import { requireSalesManager } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -82,6 +82,7 @@ export class ReceivableService {
       customerId: optionalId(query?.customerId, 'khách hàng') ?? undefined,
       status: optionalEnum(query?.status, RECEIPT_STATUSES, 'trạng thái'),
       cursor: decodeCursor(query?.cursor),
+      page: pageNumber(query?.page),
       limit: pageLimit(query?.limit),
     });
   }

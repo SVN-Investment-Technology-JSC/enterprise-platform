@@ -15,6 +15,7 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Nhân sự | `hrm.employee.manage` | Tạo và sửa hồ sơ, chức danh |
 | HRM · Nhân sự | `hrm.employee.sensitive` | Xem CCCD, mã số thuế, BHXH, tài khoản ngân hàng của nhân viên (không có quyền này thì các trường đó bị ẩn; chính chủ luôn thấy hồ sơ của mình) |
 | HRM · Nhân sự | `hrm.employee.link-account` | Liên kết nhân viên với tài khoản |
+| HRM · Nhân sự | `hrm.custody.manage` | Cấp phát tài sản cho nhân viên (Kho tự kiểm trạng thái tài sản) |
 | HRM · Báo cáo | `hrm.dashboard.read` | Xem tổng quan nhân sự toàn tenant |
 | HRM · Ca và công | `hrm.shift.read` | Xem danh mục ca làm việc |
 | HRM · Ca và công | `hrm.shift.manage` | Cấu hình danh mục ca làm việc |

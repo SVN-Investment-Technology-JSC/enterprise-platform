@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   QUOTE_STATUS_LABELS,
   type CustomerSummary,
   type OpportunitySummary,
@@ -8,15 +9,16 @@ import {
   type QuoteSummary,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CrmDialog, Field, KeysetPager, StatusPill } from '../components/crm-ui';
+import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
-import { useKeysetPage } from '../components/use-keyset-page';
-import { createQuote, errorMessage, listCustomers, listOpportunities, listQuotes } from '../crm-api';
+import { usePagedList } from '../components/use-paged-list';
+import { createQuote, listCustomers, listOpportunities, listQuotes } from '../crm-api';
+import { buildCustomFields, generalInfoError, quoteFormErrorMessage, type CustomFieldTexts } from './quote-form-edit.model';
+import { CustomFieldsEditor, GeneralFields, useQuoteFormLookups, type GeneralState } from './quote-form-parts';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
@@ -43,8 +45,8 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const q = useDebounced(search.trim(), 350);
   const filter = { q, status, ownerUserId };
-  const list = useKeysetPage(JSON.stringify(filter), (cursor) =>
-    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, cursor, limit: 30 }),
+  const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
+    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   const columns = useMemo<ColumnsType<QuoteSummary>>(
@@ -56,7 +58,7 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
         ellipsis: true,
         render: (_: unknown, row) => `${row.customerCode} - ${row.customerName}`,
       },
-      { title: 'Cơ hội', dataIndex: 'opportunityName', width: 200, ellipsis: true },
+      { title: 'Dự án bán hàng', dataIndex: 'opportunityName', width: 200, ellipsis: true },
       { title: 'Phiên bản', dataIndex: 'currentVersion', width: 90, align: 'right', render: (value: number) => `v${value}` },
       {
         title: 'Trạng thái',
@@ -67,16 +69,6 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
       { title: 'Tổng cộng', dataIndex: 'totalAmount', width: 150, align: 'right', render: (value: number) => formatMoney(value) },
       { title: 'Hiệu lực đến', dataIndex: 'validUntil', width: 120, render: formatDate },
       { title: 'Người phụ trách', dataIndex: 'ownerUserId', width: 170, ellipsis: true, render: (value: string) => personName(people, value) },
-      {
-        title: '',
-        key: 'actions',
-        width: 80,
-        render: (_: unknown, row) => (
-          <button type="button" className={styles.rowAction} onClick={() => onOpen(row.id)}>
-            Mở
-          </button>
-        ),
-      },
     ],
     [people, onOpen],
   );
@@ -109,18 +101,10 @@ export function QuotesPage({ onOpen }: { onOpen: (id: string) => void }) {
         dataSource={[...list.items]}
         pagination={false}
         scroll={{ x: 1200 }}
-        onRow={(row) => ({ onDoubleClick: () => onOpen(row.id) })}
+        onRow={(row) => rowOpener(() => onOpen(row.id))}
         locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có báo giá nào.' }}
       />
-      <KeysetPager
-        page={list.page}
-        count={list.items.length}
-        hasNext={list.hasNext}
-        loading={list.loading}
-        noun="báo giá"
-        onPrevious={list.previous}
-        onNext={list.next}
-      />
+      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="báo giá" onChange={list.goTo} />
       {creating ? (
         <CreateQuoteDialog
           onClose={() => setCreating(false)}
@@ -151,7 +135,10 @@ export function CreateQuoteDialog({
   const [opportunities, setOpportunities] = useState<readonly OpportunitySummary[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [opportunityId, setOpportunityId] = useState(fixedOpportunityId ?? '');
-  const [validUntil, setValidUntil] = useState('');
+  const lookups = useQuoteFormLookups();
+  const [general, setGeneral] = useState<GeneralState>({ code: '', name: '', quoteDate: '', validUntil: '', templateId: '', typeId: '' });
+  const [custom, setCustom] = useState<CustomFieldTexts>({});
+  const [nameError, setNameError] = useState<string>();
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -166,36 +153,58 @@ export function CreateQuoteDialog({
       .catch(() => undefined);
   }, [fixedOpportunityId]);
 
+  // Chọn sẵn mẫu và loại mặc định khi tải xong; báo giá cũ hoặc tenant chưa cấu hình thì để trống.
+  useEffect(() => {
+    if (!lookups.loaded) return;
+    setGeneral((current) => ({
+      ...current,
+      templateId: current.templateId || lookups.templates.find((item) => item.isDefault)?.id || '',
+      typeId: current.typeId || lookups.types.find((item) => item.isDefault)?.id || '',
+    }));
+  }, [lookups.loaded, lookups.templates, lookups.types]);
+
   async function save() {
-    if (!opportunityId && !customerId) return setError('Vui lòng chọn cơ hội hoặc khách hàng.');
+    if (!opportunityId && !customerId) return setError('Vui lòng chọn dự án bán hàng hoặc khách hàng.');
+    const invalid = generalInfoError({ name: general.name, code: general.code, requireCode: false });
+    setNameError(invalid);
+    if (invalid) return setError(invalid);
+    // Lập mới chỉ kiểm kiểu; trường bắt buộc kiểm khi lưu thông tin (báo giá chưa có dòng).
+    const builtCustom = buildCustomFields(lookups.fields, custom);
+    if (!builtCustom.ok) return setError(builtCustom.error);
     setSaving(true);
     setError(undefined);
     try {
       const created = await createQuote({
         opportunityId: opportunityId || null,
         customerId: opportunityId ? null : customerId,
-        validUntil: validUntil || null,
+        validUntil: general.validUntil || null,
         note: note.trim() || null,
+        code: general.code.trim() || null,
+        quoteName: general.name.trim(),
+        quoteDate: general.quoteDate || null,
+        templateId: general.templateId || null,
+        quoteTypeId: general.typeId || null,
+        customFields: builtCustom.values,
       });
       toast.success(`Đã lập báo giá ${created.code}.`);
       onCreated(created.id);
     } catch (cause) {
-      setError(errorMessage(cause, 'Không lập được báo giá.'));
+      setError(quoteFormErrorMessage(cause, 'Không lập được báo giá.'));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <CrmDialog open title="Lập báo giá" submitLabel="Lập báo giá" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open wide title="Lập báo giá" submitLabel="Lập báo giá" cancelLabel="Huỷ bỏ" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       <div className={styles.fieldGrid}>
         {fixedOpportunityId ? null : (
           <>
-            <Field label="Cơ hội" hint="Khách hàng và người phụ trách lấy theo cơ hội">
+            <Field label="Dự án bán hàng" hint="Khách hàng và người phụ trách lấy theo dự án bán hàng">
               <SearchableSelect
                 options={opportunities.map((item) => ({ value: item.id, label: item.name, description: item.customerName }))}
                 value={opportunityId}
-                placeholder="Không gắn cơ hội"
+                placeholder="Không gắn dự án bán hàng"
                 clearable
                 onChange={setOpportunityId}
               />
@@ -212,13 +221,23 @@ export function CreateQuoteDialog({
             </Field>
           </>
         )}
-        <Field label="Hiệu lực đến" hint="Bỏ trống: 30 ngày kể từ hôm nay">
-          <DatePickerInput value={validUntil || undefined} onChange={setValidUntil} height={38} placeholder="Mặc định 30 ngày" aria-label="Hiệu lực đến" />
-        </Field>
-        <Field label="Ghi chú" wide>
-          <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
       </div>
+      <h4 className={styles.sectionTitle}>Thông tin chung</h4>
+      <GeneralFields
+        value={general}
+        onChange={setGeneral}
+        templates={lookups.templates}
+        types={lookups.types}
+        codeEditable
+        generateCode
+        nameError={nameError}
+      />
+      <h4 className={styles.sectionTitle}>Mô tả</h4>
+      <Field label="Mô tả" wide>
+        <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
+      </Field>
+      <h4 className={styles.sectionTitle}>Trường tuỳ biến</h4>
+      <CustomFieldsEditor definitions={lookups.fields} texts={custom} missing={[]} onChange={setCustom} />
     </CrmDialog>
   );
 }

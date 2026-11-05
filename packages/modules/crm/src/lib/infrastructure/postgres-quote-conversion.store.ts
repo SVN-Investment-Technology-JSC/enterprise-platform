@@ -4,6 +4,7 @@ import type { ContractLineRecord } from '../application/contract-store.port.js';
 import type { OrderLineRecord, QuoteConversionStore } from '../application/sales-order-store.port.js';
 import { CrmConflictError, CrmNotFoundError } from '../domain/crm.error.js';
 import { round3 } from '../domain/delivery-plan.js';
+import { allocateOrderAdjustments } from '../domain/quote-allocation.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { insertContract } from './postgres-contract.store.js';
@@ -96,16 +97,22 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
           net_amount: string;
           vat_amount: string;
           total_amount: string;
+          discount_mode: 'LINE' | 'ORDER';
+          tax_mode: 'LINE' | 'ORDER';
+          order_discount_total: string;
+          order_tax_total: string;
         }>(
           `SELECT id, version_no, priced_on::text AS priced_on, shipping_amount, shipping_vat_rate, gross_amount, discount_amount,
-                  net_amount, vat_amount, total_amount
+                  net_amount, vat_amount, total_amount, discount_mode, tax_mode, order_discount_total, order_tax_total
              FROM crm_schema.quote_versions WHERE quote_id = $1 AND version_no = $2`,
           [quoteId, quote.accepted_version],
         )
       ).rows[0];
       if (!version) throw new CrmConflictError('QUOTE_NOT_ACCEPTED', 'Không tìm thấy phiên bản khách chấp nhận.');
-      const lines = (await client.query<QuoteLineRow>(`SELECT * FROM crm_schema.quote_lines WHERE version_id = $1 ORDER BY line_no`, [version.id])).rows;
-      if (!lines.length) throw new CrmConflictError('QUOTE_EMPTY', 'Báo giá không có dòng hàng nào.');
+      const sourceLines = (await client.query<QuoteLineRow>(`SELECT * FROM crm_schema.quote_lines WHERE version_id = $1 ORDER BY line_no`, [version.id])).rows;
+      if (!sourceLines.length) throw new CrmConflictError('QUOTE_EMPTY', 'Báo giá không có dòng hàng nào.');
+      // Chiết khấu và thuế tổng đơn (mẫu ORDER) được phân bổ xuống dòng để tổng dòng khớp tổng báo giá (P2I-09).
+      const lines = withOrderAdjustments(sourceLines, version);
       const policies = await client.query<{
         line_id: string;
         policy_id: string;
@@ -229,6 +236,45 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
       return { quoteId, contractId, contractCode, orderId: order.id, orderCode: order.code, deliveryId, created: true };
     });
   }
+}
+
+/**
+ * Dòng báo giá đã đưa chiết khấu, thuế tổng đơn vào dòng (xem `allocateOrderAdjustments`). Báo giá mẫu theo dòng,
+ * hoặc mẫu tổng đơn không nhập chiết khấu, thuế: dòng giữ nguyên.
+ */
+function withOrderAdjustments(
+  lines: readonly QuoteLineRow[],
+  version: { discount_mode: 'LINE' | 'ORDER'; tax_mode: 'LINE' | 'ORDER'; order_discount_total: string; order_tax_total: string },
+): QuoteLineRow[] {
+  const allocated = allocateOrderAdjustments({
+    lines: lines.map((line) => ({
+      quantity: num(line.quantity),
+      grossAmount: num(line.gross_amount),
+      discountAmount: num(line.discount_amount),
+      lineAmount: num(line.line_amount),
+      vatAmount: num(line.vat_amount),
+    })),
+    discountMode: version.discount_mode,
+    taxMode: version.tax_mode,
+    orderDiscountTotal: num(version.order_discount_total),
+    orderTaxTotal: num(version.order_tax_total),
+  });
+  return lines.map((line, index) => {
+    const next = allocated[index];
+    if (next.orderDiscountShare === 0 && next.vatAmount === num(line.vat_amount)) return line;
+    const gross = num(line.gross_amount);
+    return {
+      ...line,
+      discount_amount: String(next.discountAmount),
+      line_amount: String(next.lineAmount),
+      vat_amount: String(next.vatAmount),
+      line_total: String(next.lineAmount + next.vatAmount),
+      // Đơn giá và phần trăm chiết khấu hiển thị theo thành tiền mới (làm tròn 2 và 4 chữ số thập phân).
+      unit_price: next.orderDiscountShare === 0 || next.quantity <= 0 ? line.unit_price : String(Math.round((next.lineAmount / next.quantity) * 100) / 100),
+      discount_percent:
+        next.orderDiscountShare === 0 || gross <= 0 ? line.discount_percent : String(Math.round((next.discountAmount / gross) * 100 * 10_000) / 10_000),
+    };
+  });
 }
 
 /** Dòng hợp đồng từ dòng báo giá; dòng trùng mặt hàng và đơn vị gộp số lượng, thành tiền. */

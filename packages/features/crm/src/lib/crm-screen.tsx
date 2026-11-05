@@ -20,13 +20,23 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { errorMessage, loadCrmStatus, loadTenantHomePath } from './crm-api';
 import {
   CRM_ACCESS_DENIED_MESSAGE,
+  CRM_DEFAULT_VIEW,
   CRM_PAGES,
   CRM_VIEWS,
+  activeCrmSection,
+  firstViewOfSection,
+  inventoryButtonState,
   isCrmAccessDenied,
+  resolveCrmView,
+  sectionOfView,
   visibleCrmPages,
+  visibleCrmSections,
+  viewsInSection,
   type CrmPage,
+  type CrmSectionId,
   type CrmView,
 } from './crm-nav.model';
+import { CrmInventoryButton, CrmSectionSwitcher } from './crm-sidebar';
 import styles from './crm.module.scss';
 import { ActivityPanel } from './activities/activity-panel';
 import { CrmAntdProvider } from './components/crm-ui';
@@ -67,7 +77,8 @@ const ICONS: Record<CrmView, ReactNode> = {
 };
 
 /**
- * Bán hàng. Menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status`
+ * CRM, hai phần: Quản lý khách hàng (mặc định khi vào, không hash) và Bán hàng; Cài đặt dùng chung.
+ * `id` hash của mọi trang giữ nguyên, mở `#quotes` thì bộ chuyển tự chọn phần Bán hàng. Menu ẩn hiện theo `capabilities` của `GET /api/crm/v1/status`
  * (quyền thật kiểm ở API). Đoạn hash thứ hai là id đang mở, ví dụ
  * `#customers/<id>`, `#opportunities/<id>`, `#activities/<id>` (liên kết từ
  * thông báo nhắc hạn), `#quotes/<id>` (thông báo duyệt báo giá), `#contracts/<id>` (hợp đồng sắp hết
@@ -75,12 +86,14 @@ const ICONS: Record<CrmView, ReactNode> = {
  * `crm.*` nào (status trả 403) chỉ thấy một thông báo, không có menu.
  */
 export function CrmScreen() {
-  const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: 'overview' });
+  const { view, sub, navigate } = useHashView<CrmView>({ views: CRM_VIEWS, fallback: CRM_DEFAULT_VIEW });
   const [homePath, setHomePath] = useState('/');
   const [status, setStatus] = useState<CrmStatus>();
   const [error, setError] = useState<string>();
   const [denied, setDenied] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
+  // Trang dùng chung (Cài đặt) giữ phần mà người dùng đang ở.
+  const [lastSection, setLastSection] = useState<CrmSectionId>();
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -99,8 +112,16 @@ export function CrmScreen() {
   const capabilities = status?.capabilities ?? CRM_NO_CAPABILITIES;
   const pages = visibleCrmPages(capabilities);
   const provisioning = Boolean(status && !status.tablesReady);
-  // Trang bị ẩn (mở bằng link cũ khi không có quyền) thì hiện Tổng quan.
-  const current: CrmPage = pages.find((page) => page.id === view) ?? CRM_PAGES[0];
+  // Trang bị ẩn (mở bằng link cũ khi không có quyền) thì rơi về trang đầu của phần mặc định.
+  const current: CrmPage = CRM_PAGES.find((page) => page.id === resolveCrmView(view, capabilities)) ?? CRM_PAGES[0];
+  const sections = visibleCrmSections(capabilities);
+  const section = activeCrmSection(current.id, lastSection, capabilities);
+  const sectionViews = viewsInSection(section);
+  const ownSection = sectionOfView(current.id);
+
+  useEffect(() => {
+    if (ownSection) setLastSection(ownSection);
+  }, [ownSection]);
 
   // Menu chỉ hiện khi đã biết quyền, để người không có quyền không thấy menu thoáng qua.
   const nav: readonly ModuleNavItem<CrmView>[] = CRM_PAGES.map((page) => ({
@@ -108,7 +129,7 @@ export function CrmScreen() {
     label: page.label,
     group: page.group,
     icon: ICONS[page.id],
-    hidden: !status || !pages.includes(page),
+    hidden: !status || !pages.includes(page) || !sectionViews.includes(page.id),
   }));
 
   return (
@@ -123,6 +144,22 @@ export function CrmScreen() {
       collapsible
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
+      navSwitcher={
+        status ? (
+          <CrmSectionSwitcher
+            sections={sections}
+            active={section}
+            collapsed={railCollapsed}
+            onSelect={(next) => {
+              const target = firstViewOfSection(next, capabilities);
+              if (target) navigate(target);
+            }}
+          />
+        ) : undefined
+      }
+      pinnedFooter={
+        <CrmInventoryButton state={inventoryButtonState(status)} collapsed={railCollapsed} />
+      }
       banner={
         <>
           {error ? (
@@ -193,6 +230,7 @@ function SalesView({
           onFocus={(id) => navigate('opportunities', id)}
           onOpenCustomer={openCustomer}
           onOpenQuote={openQuote}
+          onOpenContract={openContract}
         />
       );
     case 'quotes':

@@ -130,6 +130,23 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0014-contract-reservation-completed', path: 'tenant/crm/0014-contract-reservation-completed.sql' },
     { version: '0015-order-line-reservation-completed', path: 'tenant/crm/0015-order-line-reservation-completed.sql' },
     { version: '0016-order-reservation-completed', path: 'tenant/crm/0016-order-reservation-completed.sql' },
+    { version: '0017-pipelines', path: 'tenant/crm/0017-pipelines.sql' },
+    { version: '0018-opportunity-pipeline', path: 'tenant/crm/0018-opportunity-pipeline.sql' },
+    { version: '0019-opportunity-stage-plan', path: 'tenant/crm/0019-opportunity-stage-plan.sql' },
+    { version: '0020-documents', path: 'tenant/crm/0020-documents.sql' },
+    { version: '0021-business-plans', path: 'tenant/crm/0021-business-plans.sql' },
+    { version: '0022-opportunity-estimate', path: 'tenant/crm/0022-opportunity-estimate.sql' },
+    { version: '0023-tender', path: 'tenant/crm/0023-tender.sql' },
+    { version: '0024-tender-pipeline', path: 'tenant/crm/0024-tender-pipeline.sql' },
+    { version: '0025-tender-reminder', path: 'tenant/crm/0025-tender-reminder.sql' },
+    { version: '0026-pipeline-care-suggestion', path: 'tenant/crm/0026-pipeline-care-suggestion.sql' },
+    { version: '0027-care-notes', path: 'tenant/crm/0027-care-notes.sql' },
+    { version: '0028-quote-form-fields', path: 'tenant/crm/0028-quote-form-fields.sql' },
+    { version: '0029-quote-form-tables', path: 'tenant/crm/0029-quote-form-tables.sql' },
+    { version: '0030-quote-custom-fields', path: 'tenant/crm/0030-quote-custom-fields.sql' },
+    { version: '0031-promotions', path: 'tenant/crm/0031-promotions.sql' },
+    { version: '0032-document-references', path: 'tenant/crm/0032-document-references.sql' },
+    { version: '0033-customer-kinds', path: 'tenant/crm/0033-customer-kinds.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -535,6 +552,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0017-service-kind',
       path: 'tenant/inventory/0017-service-kind.sql',
     },
+    // 0018-0020: đánh số lại từ 0011-0013 cũ (chưa merge) để nối tiếp các migration đã có trên dev/release.
+    { version: '0018-inventory-lots', path: 'tenant/inventory/0018-inventory-lots.sql' },
+    {
+      version: '0019-asset-custodian-and-tests',
+      path: 'tenant/inventory/0019-asset-custodian-and-tests.sql',
+    },
+    {
+      version: '0020-movement-counterparty',
+      path: 'tenant/inventory/0020-movement-counterparty.sql',
+    },
+    { version: '0021-trade-catalog', path: 'tenant/inventory/0021-trade-catalog.sql' },
+    {
+      version: '0022-trade-category-usage',
+      path: 'tenant/inventory/0022-trade-category-usage.sql',
+    },
+    { version: '0023-material-description', path: 'tenant/inventory/0023-material-description.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

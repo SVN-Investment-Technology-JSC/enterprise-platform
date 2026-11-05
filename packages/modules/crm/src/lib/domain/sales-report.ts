@@ -89,3 +89,8 @@ export function resolvePeriod(fromRaw: unknown, toRaw: unknown, today: string): 
   }
   return { from, to };
 }
+
+/** Tỷ lệ trúng thầu (%) = Trúng / (Trúng + Trượt), 2 chữ số; chưa có kết quả nào thì `null`. */
+export function tenderWinRate(won: number, lost: number): number | null {
+  return won + lost === 0 ? null : Math.round((won / (won + lost)) * 10_000) / 100;
+}

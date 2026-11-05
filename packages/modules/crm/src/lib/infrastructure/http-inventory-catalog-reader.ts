@@ -28,6 +28,8 @@ interface WireMaterial {
   totalAvailable?: unknown;
   availableByWarehouse?: unknown;
   warrantyMonths?: unknown;
+  salePrice?: unknown;
+  tradeCategory?: unknown;
 }
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -63,6 +65,8 @@ function toMaterial(row: WireMaterial): CatalogMaterial | null {
     totalAvailable: number(row.totalAvailable),
     availableByWarehouse: stocks,
     warrantyMonths: number(row.warrantyMonths),
+    salePrice: number(row.salePrice),
+    tradeCategory: text(row.tradeCategory),
   };
 }
 

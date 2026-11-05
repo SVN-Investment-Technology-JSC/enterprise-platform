@@ -225,6 +225,8 @@ export interface ReceivableAgingQuery {
   /** `true`: chỉ khách có khoản quá hạn. */
   readonly overdue?: boolean | string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -292,6 +294,8 @@ export interface ReceiptListQuery {
   readonly customerId?: string;
   readonly status?: ReceiptStatus;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -360,6 +364,8 @@ export interface AdjustmentListQuery {
   readonly customerId?: string;
   readonly status?: AdjustmentStatus;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

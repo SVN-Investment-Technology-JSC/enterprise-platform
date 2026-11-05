@@ -2,7 +2,10 @@
 // UAT tự động (docs/crm/TEST.md mục 3.9): TC-UAT-01 21 bước xuyên suốt từ lead tới bảo hành đổi serial, chạy qua API
 // thật bằng đúng tài khoản ở từng bước, cộng kiểm tra nhanh theo vai trò TC-UAT-02 đến 09.
 //
-//   node tools/crm/uat-e2e.mjs --tenant=svn
+//   node tools/crm/uat-e2e.mjs --tenant=svn [--roles-only] [--phase2]
+//
+// Mặc định chạy 21 bước TC-UAT-01, kiểm vai trò, rồi nhóm bước phase 2 UAT-P2-xx (tools/crm/uat-phase2.mjs, TC-P2UAT-01
+// đến 08). `--phase2` chỉ chạy nhóm phase 2. Bước phụ thuộc S3 ghi SKIP kèm lý do khi S3 không sẵn (không tính là đạt).
 //
 // Chạy lại được: mỗi lượt dùng mã mới tiền tố QA-UAT-<thời điểm>, nhập 21 serial mới (QAU<thời điểm>-01..21) để
 // không đụng serial seed (SN001..SN040, SN-DP01..05) mà test case khác cần. Biến môi trường như seed-svn.mjs
@@ -13,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { buildConfig, loadEnv } from './seed-svn/config.mjs';
 import { addDays, allPages, createSessions, vnToday, waitFor } from './seed-svn/common.mjs';
+import { runPhase2Uat } from './uat-phase2.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const EVENT_TIMEOUT_MS = Number(process.env.UAT_EVENT_TIMEOUT_MS ?? 60_000);
@@ -616,7 +620,11 @@ async function runRoleChecks(config, sessions) {
 
 async function main() {
   const { values } = parseArgs({
-    options: { tenant: { type: 'string', default: 'svn' }, 'roles-only': { type: 'boolean', default: false } },
+    options: {
+      tenant: { type: 'string', default: 'svn' },
+      'roles-only': { type: 'boolean', default: false },
+      phase2: { type: 'boolean', default: false },
+    },
   });
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(values.tenant)) throw new Error(`Tenant slug không hợp lệ: ${values.tenant}`);
   loadEnv();
@@ -625,8 +633,12 @@ async function main() {
   const stamp = new Date().toISOString().replace(/\D/g, '').slice(2, 14);
   const ctx = { stamp, prefix: `QA-UAT-${stamp}` };
   console.log(`UAT ${values.tenant}, lượt ${ctx.prefix}\n`);
-  if (!values['roles-only']) await runE2E(config, sessions, ctx);
-  await runRoleChecks(config, sessions);
+  if (!values.phase2) {
+    if (!values['roles-only']) await runE2E(config, sessions, ctx);
+    await runRoleChecks(config, sessions);
+  }
+  // `--roles-only` giữ nghĩa cũ (chỉ kiểm vai trò phase 1); không kèm nhóm phase 2
+  if (values.phase2 || !values['roles-only']) await runPhase2Uat(config, sessions, ctx, record);
   printTable();
   process.exit(results.some((r) => r.status === 'FAIL') ? 1 : 0);
 }

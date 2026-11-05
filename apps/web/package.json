@@ -39,6 +39,7 @@
     "@enterprise-platform/contracts-data-import": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-organization": "workspace:*",
+    "@enterprise-platform/contracts-task-approval": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/feature-hrm": "workspace:*",
     "@enterprise-platform/contracts-chat": "workspace:*",

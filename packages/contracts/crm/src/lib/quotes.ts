@@ -5,7 +5,10 @@
  * Sửa phiên bản Đã duyệt, Đã gửi khách, Từ chối duyệt thì phiên bản đó chuyển
  * Đã thay thế và sinh phiên bản mới ở Nháp (mục 5.2 kế hoạch).
  */
+import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { QuotePromotionSnapshot } from './promotions.js';
+import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -60,6 +63,22 @@ export const QUOTE_LINES_MAX = 200;
 export const CRM_QUOTE_APPROVAL_REQUESTED = 'crm.quote.approval-requested';
 export const CRM_QUOTE_APPROVAL_DECIDED = 'crm.quote.approval-decided';
 export const CRM_QUOTE_EXPIRED = 'crm.quote.expired';
+/** Báo người theo dõi báo giá khi gửi duyệt hoặc đổi trạng thái (P2I-07). Sự kiện thêm, không thay sự kiện cũ. */
+export const CRM_QUOTE_STATUS_CHANGED = 'crm.quote.status-changed';
+
+export interface CrmQuoteStatusChangedPayload {
+  readonly quoteId: string;
+  readonly quoteCode: string;
+  readonly versionNo: number;
+  readonly fromStatus: QuoteStatus;
+  readonly toStatus: QuoteStatus;
+  /** Rỗng khi hệ thống tự đổi (hết hạn). */
+  readonly actorUserId: string | null;
+  /** Người theo dõi báo giá, trừ người thao tác. */
+  readonly recipientUserIds: readonly string[];
+  readonly summary: string;
+  readonly deepLink: string;
+}
 
 export interface CrmQuoteApprovalRequestedPayload {
   readonly quoteId: string;
@@ -193,6 +212,15 @@ export interface QuoteVersion {
   readonly note: string | null;
   readonly shipping: QuoteShipping;
   readonly totals: QuoteTotals;
+  /** Trường theo mẫu: tên, ngày, mẫu, loại, chiết khấu và thuế tổng đơn, phí trên hợp đồng (GĐI). */
+  readonly form: QuoteFormData;
+  /** Khuyến mãi đã chụp trên phiên bản (P2I-11); thông tin kèm theo, không đổi tổng. */
+  readonly promotions: readonly QuotePromotionSnapshot[];
+  /**
+   * `true` khi người xem không có quyền xem giá vốn, lợi nhuận (`crm.quote.cost.read`): các trường giá vốn,
+   * lợi nhuận, biên trả về 0 hoặc rỗng, không phải số thật.
+   */
+  readonly costHidden?: boolean;
   readonly requiresApproval: boolean;
   readonly approvalReasons: readonly QuoteApprovalReason[];
   readonly submittedAt: string | null;
@@ -220,6 +248,7 @@ export interface QuoteSummary {
   readonly ownerUserId: string;
   readonly status: QuoteStatus;
   readonly currentVersion: number;
+  readonly quoteName: string | null;
   readonly validUntil: string | null;
   readonly totalAmount: number;
   readonly updatedAt: string;
@@ -264,6 +293,8 @@ export interface QuoteDetail extends QuoteSummary {
    * duyệt ngay (rỗng là duyệt thẳng). Phiên bản khác: rỗng (null).
    */
   readonly approvalCheck: readonly QuoteApprovalReason[] | null;
+  /** PAKD của phiên bản đang xem; rỗng khi chưa lập. Người duyệt thấy doanh thu, giá vốn, lợi nhuận qua đây. */
+  readonly businessPlan?: BusinessPlanDetail | null;
 }
 
 export interface QuoteListQuery {
@@ -273,6 +304,8 @@ export interface QuoteListQuery {
   readonly opportunityId?: string;
   readonly ownerUserId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -284,6 +317,17 @@ export interface CreateQuoteRequest {
   readonly validUntil?: string | null;
   readonly note?: string | null;
   readonly ownerUserId?: string | null;
+  /** Mã nhập tay hoặc đã sinh bằng `POST /v1/quotes/code/generate`; rỗng thì hệ thống sinh. Trùng mã: 409. */
+  readonly code?: string | null;
+  /** Rỗng: `Báo giá <mã>`. */
+  readonly quoteName?: string | null;
+  readonly quoteDate?: string | null;
+  /** Rỗng: mẫu mặc định. */
+  readonly templateId?: string | null;
+  /** Rỗng: loại mặc định. */
+  readonly quoteTypeId?: string | null;
+  /** Giá trị trường tuỳ biến theo id định nghĩa; kiểm kiểu và lựa chọn, chưa ép bắt buộc (báo giá chưa có dòng). */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
 }
 
 export interface UpdateQuoteVersionRequest {
@@ -292,6 +336,24 @@ export interface UpdateQuoteVersionRequest {
   readonly priceDate?: string | null;
   readonly note?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null; readonly cost?: number | null } | null;
+  /** Đổi mã khi còn Nháp; trùng mã: 409. */
+  readonly code?: string;
+  readonly quoteName?: string | null;
+  readonly quoteDate?: string | null;
+  /** Đổi mẫu thì chế độ chiết khấu và thuế theo mẫu mới. Báo giá đã có mẫu không được bỏ mẫu. */
+  readonly templateId?: string | null;
+  readonly quoteTypeId?: string | null;
+  /** Chỉ nhập được khi mẫu chiết khấu theo tổng đơn; `null` là xoá. */
+  readonly orderDiscount?: QuoteOrderAmountInput | null;
+  /** Chỉ nhập được khi mẫu thuế theo tổng đơn; `null` là xoá. */
+  readonly orderTax?: QuoteOrderAmountInput | null;
+  /** Thay toàn bộ danh sách khoản phí. */
+  readonly fees?: readonly QuoteFee[];
+  /**
+   * Giá trị trường tuỳ biến theo id định nghĩa; chỉ gửi trường cần đổi (`null` là xoá). Khi lưu, trường bắt buộc còn
+   * thiếu thì 400 nêu tên trường.
+   */
+  readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
 }
 
 export interface SaveQuoteLineRequest {
@@ -303,6 +365,26 @@ export interface SaveQuoteLineRequest {
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
 }
+
+/** Một mặt hàng trong lô thêm dòng; `revision` chung nằm ở `AddQuoteLinesRequest`. */
+export type QuoteLineInput = Omit<SaveQuoteLineRequest, 'revision'>;
+
+/** Thêm nhiều dòng vào báo giá Nháp một lần: tất cả hoặc không dòng nào. */
+export interface AddQuoteLinesRequest {
+  readonly revision: number;
+  readonly lines: readonly QuoteLineInput[];
+}
+
+/** Lỗi của một dòng trong lô; `line` đánh số từ 1 theo thứ tự gửi lên. */
+export interface QuoteLineError {
+  readonly line: number;
+  readonly materialId: string | null;
+  readonly code: string;
+  readonly message: string;
+}
+
+/** Mã lỗi 400 khi lô có dòng lỗi; `details.errors` là danh sách `QuoteLineError`. */
+export const QUOTE_LINES_INVALID_CODE = 'LINES_INVALID';
 
 export interface QuoteRevisionRequest {
   readonly revision: number;
@@ -352,6 +434,10 @@ export interface CrmCatalogMaterial {
   readonly unit: string | null;
   readonly kind: string | null;
   readonly category: string | null;
+  /** Phân loại hàng hoá/dịch vụ khai ở Kho; rỗng là chưa khai. */
+  readonly tradeCategory?: string | null;
+  /** Giá bán khai ở Kho (cột Giá của màn Hàng hóa); rỗng là chưa khai. */
+  readonly salePrice?: number | null;
   /** Giá vốn bình quân hiện tại (ước tính); rỗng với dịch vụ. */
   readonly avgCost: number | null;
   /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */
@@ -363,12 +449,13 @@ export interface CrmCatalogMaterial {
 // Cách duyệt và ngưỡng duyệt
 // ---------------------------------------------------------------------------
 
-export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT'] as const;
+export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN'] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
 export const APPROVAL_KIND_LABELS: Readonly<Record<ApprovalKind, string>> = {
   QUOTE: 'Báo giá vượt ngưỡng',
   ORDER_CREDIT: 'Đơn bán vượt hạn mức công nợ',
+  TENDER_PLAN: 'Phương án chào thầu',
 };
 
 export const APPROVAL_MODES = ['DIRECT', 'PROCEDURE'] as const;

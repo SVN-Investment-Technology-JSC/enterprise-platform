@@ -4,7 +4,6 @@ import type {
   ActivityType,
   CrmPage,
   CustomerTimelineEntry,
-  OpportunityStage,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
@@ -16,7 +15,7 @@ import type {
 import type { KeysetCursor } from '../domain/pagination.js';
 import { CrmStaleVersionError } from '../domain/crm.error.js';
 import type { CrmDatabase } from './crm.database.js';
-import { SqlConditions, cursorAt, keysetPage, toIso } from './sql-helpers.js';
+import { SqlConditions, cursorAt, keysetPage, toIso , pagedList} from './sql-helpers.js';
 
 interface ActivityRow {
   id: string;
@@ -75,15 +74,20 @@ export class PostgresActivityStore implements ActivityStore {
     if (filter.opportunityId) where.add(`a.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
     if (filter.assigneeUserId) where.add(`a.assignee_user_id = ${where.param(filter.assigneeUserId)}::uuid`);
     if (filter.status) where.add(`a.status = ${where.param(filter.status)}`);
-    where.after(filter.cursor, 'a.created_at', 'a.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<ActivityRow>(
-      `SELECT ${ACTIVITY_COLUMNS} ${ACTIVITY_FROM} ${where.where()}
-        ORDER BY a.created_at DESC, a.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${ACTIVITY_COLUMNS}`,
+        from: `${ACTIVITY_FROM}`,
+        orderBy: 'a.created_at DESC, a.id DESC',
+        atColumn: 'a.created_at',
+        idColumn: 'a.id',
+      },
+      filter,
+      toActivity,
     );
-    return keysetPage(result.rows, filter.limit, toActivity);
   }
 
   async getActivity(tenantId: string, scope: CrmDataScope, id: string): Promise<Activity | undefined> {
@@ -166,8 +170,8 @@ interface TimelineRow {
   actor_id: string | null;
   opportunity_id: string | null;
   opportunity_name: string | null;
-  from_stage: OpportunityStage | null;
-  to_stage: OpportunityStage | null;
+  from_stage: string | null;
+  to_stage: string | null;
   reason: string | null;
   activity_type: ActivityType | null;
   subject: string | null;
@@ -381,7 +385,7 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
       actorId: row.actor_id,
       opportunityId: row.opportunity_id ?? '',
       opportunityName: row.opportunity_name ?? '',
-      stage: row.to_stage as OpportunityStage,
+      stage: row.to_stage as string,
     };
   }
   return {
@@ -392,7 +396,7 @@ function toEntry(row: TimelineRow): CustomerTimelineEntry {
     opportunityId: row.opportunity_id ?? '',
     opportunityName: row.opportunity_name ?? '',
     fromStage: row.from_stage,
-    toStage: row.to_stage as OpportunityStage,
+    toStage: row.to_stage as string,
     reason: row.reason,
   };
 }

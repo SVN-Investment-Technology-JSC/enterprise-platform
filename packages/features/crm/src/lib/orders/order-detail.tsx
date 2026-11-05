@@ -33,6 +33,7 @@ import {
   type OrderAction,
 } from '../crm-api';
 import { useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { OrderReceivablePanel } from '../receivables/order-receivable-panel';
 import {
   DELIVERY_STATUS_TONE,
@@ -47,6 +48,7 @@ import {
 } from '../fulfillment.model';
 import { formatPercent, parseNumber } from '../pricing/pricing.model';
 import { formatMoney, personName } from '../sales.model';
+import { OrderInfoNote } from './order-info-note';
 import styles from '../sales.module.scss';
 
 const ACTION_DONE: Readonly<Record<OrderAction, string>> = {
@@ -320,6 +322,7 @@ export function OrderDetail({
         {detail.status === 'DELIVERED' ? (
           <p className={styles.muted}>Đơn tự hoàn tất khi còn phải thu bằng 0; quản lý kinh doanh có thể đóng tay kèm lý do (ví dụ đã xoá nợ bằng điều chỉnh).</p>
         ) : null}
+        <OrderInfoNote order={detail} canEdit={capabilities.isTenantAdmin || capabilities.canWriteOrder} onSaved={setDetail} />
         <OrderReceivablePanel detail={detail} busy={busy} run={run} onOpenReceivables={onOpenReceivables} />
         {actions.length ? (
           <div className={styles.toolbar}>
@@ -429,6 +432,8 @@ export function OrderDetail({
           <p className={styles.muted}>Chưa có đợt giao nào.</p>
         )}
       </section>
+
+      <DocumentsPanel entityType="sales_order" entityId={detail.id} showTitle />
 
       <section className={styles.panel} aria-label="Nhật ký">
         <h3 className={styles.sectionTitle}>Nhật ký</h3>

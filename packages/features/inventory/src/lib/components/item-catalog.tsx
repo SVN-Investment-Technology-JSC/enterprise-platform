@@ -6,14 +6,11 @@ import type {
   InventoryItem,
   Material,
   MaterialInventory,
-  StocktakeLine,
-  StocktakeSession,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '../inventory-labels';
 import {
-  loadLatestStocktakeForMaterial,
   loadMaintenanceSchedulesForAsset,
   loadMaterialHistory,
   type InventoryLedgerRow,
@@ -21,9 +18,8 @@ import {
   type InventoryWorkspace,
 } from '../inventory-api';
 import { MaterialHistory } from './material-history';
-import { MaterialStocktakePanel } from './material-stocktake-panel';
-import { LotPanel } from './lot-panel';
-import { SerialPanel } from './serial-panel';
+import { exportCatalogToExcel } from '../inventory-export';
+import type { MovementLineItem } from './movement-form';
 import {
   Search,
   X,
@@ -31,12 +27,15 @@ import {
   Clock,
   ClipboardCheck,
   Printer,
-  QrCode,
   Boxes,
   Ban,
-  Layers,
+  Download,
+  Upload,
+  ArrowLeftRight,
+  Pencil,
+  CheckCircle2,
 } from 'lucide-react';
-import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate, SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -46,6 +45,8 @@ import styles from '../inventory.module.scss';
  * nhau ở chỗ nó đang nằm trong kho hay đã lắp vào một vị trí. Gọi tên theo trạng
  * thái thì người đọc không phải học thêm hai từ mới cho cùng một thứ.
  */
+
+
 /**
  * Giải thích bốn con số tồn (INV-07, mục 10 BRD). Không có cột "đang vận chuyển"
  * ở MVP (quyết định Q2).
@@ -57,11 +58,6 @@ const STOCK_COLUMN_TIP = {
     'Chờ kiểm định/không đạt: hàng ở trạng thái Cách ly, Lỗi hoặc Chờ kiểm định; vẫn trong kho nhưng không được xuất.',
   available: 'Khả dụng = tồn thực tế − đã giữ − chờ kiểm định/không đạt; là số còn bán hoặc xuất được.',
 } as const;
-
-const KIND_LABEL: Readonly<Record<InventoryItem['kind'], string>> = {
-  STOCK: 'Trong kho',
-  ASSET: 'Lắp đặt',
-};
 
 /**
  * Danh mục HỢP NHẤT — vật tư kho và thiết bị trong một bảng.
@@ -96,7 +92,9 @@ export function ItemCatalog({
   onRetire,
   onOpenProfile,
   onAddMaterial,
+  onOpenBulkImport,
   onOpenMovement,
+  onOpenStocktake,
 }: {
   items: readonly InventoryItem[];
   /** Hồ sơ mã kho, để mở khối sê-ri khi mã theo dõi theo cá thể. */
@@ -117,10 +115,19 @@ export function ItemCatalog({
   initialQuery?: string;
   /** Thêm vật tư mới vào danh mục kho. */
   onAddMaterial?: () => void;
+  /** Mở hộp thoại import Excel bổ sung dữ liệu đa kho */
+  onOpenBulkImport?: () => void;
   /** Mở nhanh form tác nghiệp kho (xuất kho, chuyển kho...) */
   onOpenMovement?: (init: {
     kind?: 'receipt' | 'issue' | 'transfer' | 'adjust';
     materialCode?: string;
+    openExcelImport?: boolean;
+    initialItems?: readonly MovementLineItem[];
+  }) => void;
+  /** Chuyển sang sub-tab kiểm đếm kho hoặc mở form kiểm đếm */
+  onOpenStocktake?: (init?: {
+    warehouseCode?: string;
+    selectedMaterials?: readonly InventoryItem[];
   }) => void;
   /** Ngừng dùng một mã — không có đường xoá. */
   onRetire?: (material: Material) => void;
@@ -139,7 +146,6 @@ export function ItemCatalog({
     },
   ) => void;
 }) {
-  const [kind, setKind] = useState<'all' | InventoryItem['kind']>('all');
   /** Mã đang mở chi tiết. Một mã một lúc: mở hết thì bảng dài vô tận. */
   const [openCode, setOpenCode] = useState<string>();
   /** Lịch sử nạp theo yêu cầu: kéo hết mọi mã là hàng chục nghìn dòng cho một
@@ -156,7 +162,6 @@ export function ItemCatalog({
       .then((rows) => setHistory((current) => ({ ...current, [code]: rows })))
       .catch(() => setHistory((current) => ({ ...current, [code]: 'error' })));
   };
-  const label = (value: InventoryItem['kind']) => KIND_LABEL[value];
 
   /**
    * Lựa chọn cho ô "Vị trí".
@@ -202,8 +207,8 @@ export function ItemCatalog({
     usageState: '',
   });
 
-  const handleStartEdit = (item: InventoryItem, event: React.MouseEvent) => {
-    event.stopPropagation();
+  const handleStartEdit = (item: InventoryItem, event?: React.MouseEvent) => {
+    event?.stopPropagation();
     setEditingItem(item);
     setEditDraft({
       code: item.code,
@@ -228,7 +233,8 @@ export function ItemCatalog({
     setEditingItem(null);
   };
 
-  const [root, setRoot] = useState('all');
+  const [warehouseFilter, setWarehouseFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [query, setQuery] = useState(initialQuery ?? '');
 
   // Đồng bộ khi bên ngoài đổi mã cần tìm — bấm một mã khác trên dải cảnh báo
@@ -237,30 +243,62 @@ export function ItemCatalog({
     if (initialQuery !== undefined) setQuery(initialQuery);
   }, [initialQuery]);
 
-  /** Các nhánh gốc có mặt trong dữ liệu — để lọc theo trạm/nhà máy. */
-  const roots = useMemo(() => {
-    const map = new Map<string, string>();
+  const warehouseOptions = useMemo(() => {
+    return [
+      { value: 'all', label: 'Tất cả vị trí kho' },
+      ...warehouses.map((wh) => ({
+        value: wh.code,
+        label: wh.name ? `${wh.name} (${wh.code})` : wh.code,
+      })),
+    ];
+  }, [warehouses]);
+
+  const typeOptions = useMemo(() => {
+    const set = new Set<string>(types);
     for (const item of items) {
-      if (item.rootCode && item.rootName) map.set(item.rootCode, item.rootName);
+      if (item.type) set.add(item.type);
     }
-    return [...map.entries()].sort((left, right) => left[1].localeCompare(right[1], 'vi'));
-  }, [items]);
+    return [
+      { value: 'all', label: 'Tất cả nhóm vật tư' },
+      ...Array.from(set).map((t) => ({ value: t, label: t })),
+    ];
+  }, [types, items]);
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
-      if (kind !== 'all' && item.kind !== kind) return false;
-      if (root !== 'all' && item.rootCode !== root) return false;
+      // 1. Lọc theo vị trí kho
+      if (warehouseFilter !== 'all') {
+        const matchingStock = stockByCode.get(item.code);
+        const hasStockInWh = matchingStock?.some(
+          (s) => s.warehouseCode === warehouseFilter && s.quantity > 0,
+        );
+        const matchesUsage = item.usageState === warehouseFilter;
+        const matchesInstalled = (item.installedAtName ?? '').toLowerCase().includes(warehouseFilter.toLowerCase());
+        if (!hasStockInWh && !matchesUsage && !matchesInstalled) {
+          return false;
+        }
+      }
+
+      // 2. Lọc theo nhóm vật tư
+      if (typeFilter !== 'all') {
+        if (item.type !== typeFilter) {
+          return false;
+        }
+      }
+
+      // 3. Tìm kiếm theo mã hoặc tên hàng hoặc vị trí
       if (!needle) return true;
       return (
         item.code.toLowerCase().includes(needle) ||
         item.name.toLowerCase().includes(needle) ||
-        (item.installedAtName ?? '').toLowerCase().includes(needle)
+        (item.installedAtName ?? '').toLowerCase().includes(needle) ||
+        (item.usageState ?? '').toLowerCase().includes(needle)
       );
     });
-  }, [items, kind, root, query]);
+  }, [items, warehouseFilter, typeFilter, query, stockByCode]);
 
-  /** Tồn thực và phần đã giữ, cộng qua mọi kho của một mã. */
+  /** Tồn thực cộng qua mọi kho của một mã. */
   const onHand = (item: InventoryItem) =>
     (stockByCode.get(item.code) ?? []).reduce((sum, row) => sum + row.quantity, 0);
   const reserved = (item: InventoryItem) =>
@@ -287,6 +325,9 @@ export function ItemCatalog({
   const [pageSize, setPageSize] = useState<number>(15);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
+  // Checkbox multi-select state
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
+
   const totalRecords = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -294,6 +335,79 @@ export function ItemCatalog({
     const start = (safeCurrentPage - 1) * pageSize;
     return rows.slice(start, start + pageSize);
   }, [rows, safeCurrentPage, pageSize]);
+
+  const allRowsSelected = useMemo(() => {
+    if (rows.length === 0) return false;
+    return rows.every((r) => selectedCodes.has(r.code));
+  }, [rows, selectedCodes]);
+
+  const someRowsSelected = useMemo(() => {
+    return rows.some((r) => selectedCodes.has(r.code));
+  }, [rows, selectedCodes]);
+
+  const toggleSelectAll = () => {
+    if (allRowsSelected) {
+      setSelectedCodes(new Set());
+    } else {
+      setSelectedCodes(new Set(rows.map((r) => r.code)));
+    }
+  };
+
+  const toggleSelectItem = (code: string) => {
+    setSelectedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const getSelectedLineItems = (targetKind: 'receipt' | 'issue'): MovementLineItem[] => {
+    const selectedList = items.filter((i) => selectedCodes.has(i.code));
+    const whCode =
+      warehouseFilter !== 'all'
+        ? warehouseFilter
+        : warehouses[0]?.code || '';
+
+    return selectedList.map((item, idx) => {
+      const onHandQty = onHand(item);
+      const defaultQty = targetKind === 'issue' ? (onHandQty > 0 ? 1 : 0) : 1;
+      return {
+        id: `item-${Date.now()}-${idx}`,
+        materialCode: item.code,
+        materialName: item.name,
+        materialType: item.type,
+        unit: item.unit || 'Cái',
+        warehouseCode: whCode,
+        quantity: defaultQty,
+        unitCost: undefined,
+        serialNumbers: [],
+        lineNote: '',
+      };
+    });
+  };
+
+  const handleOpenMovementWithSelected = (targetKind: 'receipt' | 'issue') => {
+    if (!onOpenMovement) return;
+    const lineItems = getSelectedLineItems(targetKind);
+    onOpenMovement({
+      kind: targetKind,
+      initialItems: lineItems,
+    });
+  };
+
+  const handleOpenStocktakeWithSelected = () => {
+    if (!onOpenStocktake) return;
+    const selectedList = items.filter((i) => selectedCodes.has(i.code));
+    const whCode = warehouseFilter !== 'all' ? warehouseFilter : warehouses[0]?.code;
+    onOpenStocktake({
+      warehouseCode: whCode,
+      selectedMaterials: selectedList,
+    });
+  };
 
   const activeItem = useMemo(
     () => (openCode ? items.find((i) => i.code === openCode) : undefined),
@@ -304,66 +418,35 @@ export function ItemCatalog({
     [activeItem, materialByCode],
   );
 
-  /**
-   * Phương thức theo dõi định danh của vật tư:
-   * Nghiệp vụ ERP/WMS chuẩn: Một vật tư chỉ có MỘT loại quản lý duy nhất:
-   * - 'SERIAL': Quản lý theo cá thể từng số Sê-ri (isSerialized = true)
-   * - 'LOT': Quản lý theo Lô / Mẻ / Bịch / Kiện (hàng tiêu hao, dầu mỡ, cáp điện...)
-   * - 'NONE': Vật tư thông thường (theo dõi số lượng thuần túy)
-   */
-  const getTrackingType = (item?: InventoryItem, mat?: Material): 'SERIAL' | 'LOT' | 'NONE' => {
-    if (!item) return 'NONE';
-    if (mat?.isSerialized) return 'SERIAL';
-    return mat?.category === 'CONSUMABLE' ? 'LOT' : 'NONE';
-  };
-
-  const activeTrackingType = useMemo(
-    () => getTrackingType(activeItem, activeMaterial),
-    [activeItem, activeMaterial],
-  );
-
-  /** 4 Sub-Tabs cho Actionable Drawer của Thủ kho: 1. Vị trí & Kho, 2. Sê-ri HOẶC Lô (nếu có), 3. Thẻ kho, 4. Kiểm kê */
-  type DrawerTab = 'storage' | 'tracking' | 'ledger' | 'stocktaking';
+  /** 2 Sub-Tabs cho Actionable Drawer: 1. Số lượng ở từng kho, 2. Lịch sử xuất nhập kho */
+  type DrawerTab = 'storage' | 'ledger';
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('storage');
 
   const [maintenanceSchedules, setMaintenanceSchedules] = useState<
     Record<string, MaintenanceScheduleSummary[] | 'loading' | 'error'>
   >({});
-  const [latestStocktakes, setLatestStocktakes] = useState<
-    Record<string, { session: StocktakeSession; line: StocktakeLine } | 'loading' | 'error' | undefined>
-  >({});
 
   /** Modal in tem QR code khổ 50x30mm */
   const [showQrPrintModal, setShowQrPrintModal] = useState(false);
 
-  // Reset tab và form phụ trợ khi đổi mã vật tư được chọn
+  // Reset tab và nạp thông tin phụ trợ khi đổi mã vật tư được chọn
   useEffect(() => {
-    if (openCode) {
-      setDrawerTab('storage');
-      if (!maintenanceSchedules[openCode]) {
-        setMaintenanceSchedules((current) => ({ ...current, [openCode]: 'loading' }));
-        loadMaintenanceSchedulesForAsset(openCode)
-          .then((rows) =>
-            setMaintenanceSchedules((current) => ({
-              ...current,
-              [openCode]: rows ?? [],
-            })),
-          )
-          .catch(() => setMaintenanceSchedules((current) => ({ ...current, [openCode]: 'error' })));
-      }
-      if (!latestStocktakes[openCode]) {
-        setLatestStocktakes((current) => ({ ...current, [openCode]: 'loading' }));
-        loadLatestStocktakeForMaterial(openCode, workspace)
-          .then((result) =>
-            setLatestStocktakes((current) => ({
-              ...current,
-              [openCode]: result,
-            })),
-          )
-          .catch(() => setLatestStocktakes((current) => ({ ...current, [openCode]: 'error' })));
-      }
-    }
-  }, [openCode, maintenanceSchedules, latestStocktakes, workspace]);
+    if (!openCode) return;
+    setDrawerTab('storage');
+
+    setMaintenanceSchedules((current) => {
+      if (openCode in current) return current;
+      loadMaintenanceSchedulesForAsset(openCode)
+        .then((rows) =>
+          setMaintenanceSchedules((prev) => ({
+            ...prev,
+            [openCode]: rows ?? [],
+          })),
+        )
+        .catch(() => setMaintenanceSchedules((prev) => ({ ...prev, [openCode]: 'error' })));
+      return { ...current, [openCode]: 'loading' };
+    });
+  }, [openCode]);
 
   const activeStockRows = activeItem ? stockByCode.get(activeItem.code) ?? [] : [];
   const activeLocationIds = activeStockRows
@@ -372,13 +455,23 @@ export function ItemCatalog({
   const rawMaintenance = activeItem ? maintenanceSchedules[activeItem.code] : undefined;
   const activeMaintenance: MaintenanceScheduleSummary[] | undefined =
     Array.isArray(rawMaintenance) ? rawMaintenance : undefined;
-  const rawStocktake = activeItem ? latestStocktakes[activeItem.code] : undefined;
+
+  const handleExport = () => {
+    exportCatalogToExcel({
+      items: rows,
+      materialByCode,
+      stockByCode,
+      installed,
+      warehouses,
+      warehouseFilter,
+    });
+  };
 
   return (
     <section id="inventory-item-catalog" className={styles.standardTableCard}>
-      {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM -> PHÂN LOẠI TAB -> BỘ LỌC -> NÚT THÊM VẬT TƯ) */}
+      {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM -> BỘ LỌC VỊ TRÍ KHO, NHÓM VẬT TƯ -> CÁC NÚT THAO TÁC) */}
       <div className={styles.tableControlsBar}>
-        <div className={styles.tableControlsLeft}>
+        <div className={styles.tableControlsLeft} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {/* 1. Ô Tìm kiếm */}
           <div className={styles.tableSearchBox}>
             <span className={styles.tableSearchIcon}>
@@ -386,7 +479,7 @@ export function ItemCatalog({
             </span>
             <input
               type="search"
-              placeholder="Tìm theo mã, tên hoặc vị trí lắp đặt…"
+              placeholder="Tìm theo mã hoặc tên hàng…"
               value={query}
               aria-label="Tìm vật tư"
               onChange={(event) => {
@@ -396,78 +489,92 @@ export function ItemCatalog({
             />
           </div>
 
-          {/* 2. Phân loại Tab */}
-          <div className={styles.kindSegmentedTabs}>
-            {(['all', 'STOCK', 'ASSET'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`${styles.kindSegmentedBtn} ${kind === value ? styles.kindSegmentedBtnActive : ''}`}
-                onClick={() => {
-                  setKind(value);
-                  setCurrentPage(1);
-                }}
-              >
-                {value === 'all' ? 'Tất cả' : label(value)}
-                <span className={styles.kindCount}>
-                  {value === 'all'
-                    ? items.length
-                    : items.filter((item) => item.kind === value).length}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* 3. Bộ lọc vị trí */}
-          {roots.length > 0 ? (
-            <select
-              className={styles.tableSelectFilter}
-              value={root}
-              onChange={(event) => {
-                setRoot(event.target.value);
+          {/* 2. Bộ lọc theo vị trí kho */}
+          <div style={{ minWidth: '180px' }}>
+            <SearchableSelect
+              value={warehouseFilter}
+              onChange={(val) => {
+                setWarehouseFilter(val);
                 setCurrentPage(1);
               }}
-            >
-              <option value="all">Mọi vị trí</option>
-              {roots.map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </select>
+              options={warehouseOptions}
+              clearable={false}
+              placeholder="Vị trí kho"
+            />
+          </div>
+
+          {/* 3. Bộ lọc theo nhóm vật tư */}
+          {typeOptions.length > 1 ? (
+            <div style={{ minWidth: '180px' }}>
+              <SearchableSelect
+                value={typeFilter}
+                onChange={(val) => {
+                  setTypeFilter(val);
+                  setCurrentPage(1);
+                }}
+                options={typeOptions}
+                clearable={false}
+                placeholder="Nhóm vật tư"
+              />
+            </div>
           ) : null}
 
           {/* Nút Xoá lọc */}
-          {query || root !== 'all' || kind !== 'all' ? (
+          {query || warehouseFilter !== 'all' || typeFilter !== 'all' ? (
             <button
               type="button"
               className={styles.tableResetBtn}
               title="Xóa bộ lọc"
               onClick={() => {
                 setQuery('');
-                setRoot('all');
-                setKind('all');
+                setWarehouseFilter('all');
+                setTypeFilter('all');
                 setCurrentPage(1);
               }}
             >
-              Xoá bộ lọc
+              Xoá lọc
             </button>
           ) : null}
         </div>
 
-        {/* 4. Cụm nút Thao tác bên phải: Nút Xuất/nhập kho và Nút Thêm vật tư */}
-        <div className={styles.tableControlsRight}>
-          {onOpenMovement ? (
+        {/* Cụm nút Thao tác bên phải: Xuất file, Import file, Xuất nhập kho, Kiểm đếm */}
+        <div className={styles.tableControlsRight} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            style={{
+              padding: '7px 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#334155',
+              fontSize: '13px',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+            }}
+            onClick={handleExport}
+            title="Xuất dữ liệu tồn kho chuẩn ra tệp Excel (phục vụ quản kho, sao lưu và chuyển giao hệ thống)"
+            disabled={busy}
+          >
+            <Download size={14} />
+            <span>Xuất file</span>
+          </button>
+
+          {onOpenBulkImport || onOpenMovement ? (
             <button
               type="button"
               className={styles.btnSecondary}
               style={{
-                padding: '7px 16px',
+                padding: '7px 12px',
                 borderRadius: '6px',
-                border: '1px solid #2563eb',
-                background: '#2563eb',
-                color: '#ffffff',
-                fontSize: '14px',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#334155',
+                fontSize: '13px',
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -475,178 +582,329 @@ export function ItemCatalog({
                 cursor: 'pointer',
                 boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
               }}
-              onClick={() => onOpenMovement({ kind: 'receipt' })}
-              title="Mở popup form xuất/nhập kho vật tư"
+              onClick={() => {
+                if (onOpenBulkImport) {
+                  onOpenBulkImport();
+                } else if (onOpenMovement) {
+                  onOpenMovement({ kind: 'receipt', openExcelImport: true });
+                }
+              }}
+              title="Nhập danh sách vật tư bổ sung từ tệp Excel (hỗ trợ nhiều kho)"
               disabled={busy}
             >
-              + Xuất/nhập kho
+              <Upload size={14} />
+              <span>Import file</span>
             </button>
           ) : null}
-          {onAddMaterial ? (
+
+          {onOpenMovement ? (
             <button
               type="button"
-              className={styles.addMaterialBtn}
-              onClick={onAddMaterial}
+              className={styles.btnSecondary}
+              style={{
+                padding: '7px 14px',
+                borderRadius: '6px',
+                border: '1px solid #2563eb',
+                background: '#2563eb',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
+              }}
+              onClick={() => {
+                if (selectedCodes.size > 0) {
+                  handleOpenMovementWithSelected('receipt');
+                } else {
+                  onOpenMovement({ kind: 'receipt' });
+                }
+              }}
+              title={
+                selectedCodes.size > 0
+                  ? `Mở form xuất nhập kho với ${selectedCodes.size} vật tư đã chọn`
+                  : 'Mở form tạo phiếu xuất hoặc nhập kho'
+              }
               disabled={busy}
             >
-              + Thêm vật tư
+              <ArrowLeftRight size={14} />
+              <span>
+                {selectedCodes.size > 0
+                  ? `Xuất nhập kho (${selectedCodes.size})`
+                  : 'Xuất nhập kho'}
+              </span>
+            </button>
+          ) : null}
+
+          {onOpenStocktake ? (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              style={{
+                padding: '7px 12px',
+                borderRadius: '6px',
+                border: selectedCodes.size > 0 ? '1px solid #c4b5fd' : '1px solid #cbd5e1',
+                background: selectedCodes.size > 0 ? '#faf5ff' : '#ffffff',
+                color: selectedCodes.size > 0 ? '#6b21a8' : '#0f172a',
+                fontSize: '13px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              }}
+              onClick={handleOpenStocktakeWithSelected}
+              title={
+                selectedCodes.size > 0
+                  ? `Tạo đợt kiểm đếm cho ${selectedCodes.size} vật tư đã chọn`
+                  : 'Khởi tạo đợt kiểm kê kho và đối soát sổ sách'
+              }
+              disabled={busy}
+            >
+              <ClipboardCheck size={14} />
+              <span>
+                {selectedCodes.size > 0 ? `Kiểm đếm (${selectedCodes.size})` : 'Kiểm đếm'}
+              </span>
             </button>
           ) : null}
         </div>
       </div>
 
-      {/* VÙNG 2: THÂN BẢNG DỮ LIỆU */}
+      {/* THANH TÁC VỤ KHI CÓ DÒNG ĐƯỢC CHỌN (SELECTION ACTION BAR) */}
+      {selectedCodes.size > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '9px 14px',
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '6px',
+            margin: '0 0 10px 0',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e40af', fontSize: '13px', fontWeight: 600, flexWrap: 'wrap' }}>
+            <CheckCircle2 size={16} color="#2563eb" />
+            <span>
+              Đã chọn <strong>{selectedCodes.size}</strong> {selectedCodes.size === rows.length ? '(toàn bộ danh sách)' : `/ ${rows.length}`} vật tư
+            </span>
+            {selectedCodes.size < rows.length ? (
+              <button
+                type="button"
+                onClick={() => setSelectedCodes(new Set(rows.map((r) => r.code)))}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  color: '#2563eb',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginLeft: '4px',
+                }}
+              >
+                Chọn toàn bộ {rows.length} vật tư
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedCodes(new Set())}
+              style={{
+                border: 'none',
+                background: 'none',
+                color: '#64748b',
+                fontSize: '13px',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                padding: 0,
+                marginLeft: '4px',
+              }}
+            >
+              Bỏ chọn tất cả
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #93c5fd',
+                background: '#ffffff',
+                color: '#1d4ed8',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              onClick={() => handleOpenMovementWithSelected('issue')}
+              title="Điền các vật tư đã chọn vào phiếu Xuất kho"
+            >
+              <span>Xuất kho ({selectedCodes.size})</span>
+            </button>
+
+            <button
+              type="button"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #86efac',
+                background: '#f0fdf4',
+                color: '#15803d',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              onClick={() => handleOpenMovementWithSelected('receipt')}
+              title="Điền các vật tư đã chọn vào phiếu Nhập kho"
+            >
+              <span>Nhập kho ({selectedCodes.size})</span>
+            </button>
+
+            <button
+              type="button"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #c4b5fd',
+                background: '#faf5ff',
+                color: '#6b21a8',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              onClick={handleOpenStocktakeWithSelected}
+              title="Khởi tạo đợt kiểm đếm với các vật tư đã chọn"
+            >
+              <ClipboardCheck size={14} />
+              <span>Kiểm đếm ({selectedCodes.size})</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* VÙNG 2: THÂN BẢNG DỮ LIỆU CÓ CHECKBOX + 6 CỘT: MÃ - TÊN HÀNG - VỊ TRÍ - ĐƠN VỊ TÍNH - SỐ LƯỢNG - THUỘC NHÓM */}
       <div className={styles.tableResponsiveWrap}>
         <table className={styles.standardTable}>
           <thead>
             <tr>
-              <th style={{ width: '220px' }}>Mã / Tên vật tư</th>
-              <th style={{ width: '130px' }}>Loại danh mục</th>
-              <th style={{ width: '130px' }}>Tình trạng</th>
-              <th style={{ width: '160px' }}>Vị trí sử dụng</th>
-              <th style={{ width: '100px' }} className={styles.center}>Tổng sở hữu</th>
-              <th style={{ width: '100px' }} className={styles.center}>Đang sử dụng</th>
-              <th style={{ width: '90px' }} className={styles.center}>
-                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.onHand}>Thực tế</span>
+              <th style={{ width: '44px', textAlign: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={allRowsSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someRowsSelected && !allRowsSelected;
+                  }}
+                  onChange={toggleSelectAll}
+                  style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#2563eb' }}
+                  title={allRowsSelected ? 'Bỏ chọn toàn bộ' : `Chọn toàn bộ ${rows.length} vật tư trong bảng`}
+                />
               </th>
-              <th style={{ width: '90px' }} className={styles.center}>
-                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.reserved}>Đã giữ</span>
-              </th>
-              <th style={{ width: '110px' }} className={styles.center}>
-                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.blocked}>Chờ kiểm định/không đạt</span>
-              </th>
-              <th style={{ width: '90px' }} className={styles.center}>
-                <span className={styles.stockTip} title={STOCK_COLUMN_TIP.available}>Khả dụng</span>
-              </th>
-              {onPatch ? <th style={{ width: '100px' }} className={styles.center}>Thao tác</th> : null}
+              <th style={{ width: '220px' }}>Mã</th>
+              <th style={{ minWidth: '240px' }}>Tên hàng</th>
+              <th style={{ width: '170px' }}>Vị trí</th>
+              <th style={{ width: '100px' }} className={styles.center}>Đơn vị tính</th>
+              <th style={{ width: '110px' }} className={styles.center}>Số lượng</th>
+              <th style={{ width: '150px' }}>Thuộc nhóm</th>
             </tr>
           </thead>
           <tbody>
             {paginatedRows.map((item) => {
-              const material = materialByCode?.get(item.code);
               const expanded = openCode === item.code;
+              const isSelected = selectedCodes.has(item.code);
+              const locationText =
+                item.installedAtName ||
+                item.usageState ||
+                (stockByCode
+                  .get(item.code)
+                  ?.filter((s) => s.quantity > 0)
+                  .map((s) => s.warehouseCode)
+                  .filter(Boolean)
+                  .join(', ') || '—');
+
               return (
                 <Fragment key={item.code}>
                   <tr
                     className={`${styles.clickable} ${expanded ? styles.tableRowActive : ''}`}
+                    style={{
+                      background: isSelected ? '#eff6ff' : undefined,
+                    }}
                     onClick={busy ? undefined : () => open(item.code)}
+                    title="Bấm để xem chi tiết vật tư"
                   >
-                    <td className={styles.code}>
+                    <td
+                      style={{ textAlign: 'center', width: '44px' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectItem(item.code)}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#2563eb' }}
+                      />
+                    </td>
+                    <td className={styles.code} title={item.code}>
                       <strong className={styles.codeLabel}>{item.code}</strong>
-                      <span className={styles.sub}>{item.name}</span>
+                    </td>
+                    <td title={item.name} style={{ wordBreak: 'break-word' }}>
+                      <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.name}</span>
+                    </td>
+                    <td>
+                      {locationText !== '—' ? (
+                        <span className={styles.locationTag} title={locationText}>{locationText}</span>
+                      ) : (
+                        <span className={styles.muted}>—</span>
+                      )}
+                    </td>
+                    <td className={styles.center} style={{ color: '#475569', fontWeight: 500 }}>
+                      {item.unit || '—'}
+                    </td>
+                    <td
+                      className={`${styles.numeric} ${styles.center}`}
+                      title={`${STOCK_COLUMN_TIP.onHand}
+${STOCK_COLUMN_TIP.reserved} (${formatNumber(reserved(item))})
+${STOCK_COLUMN_TIP.blocked} (${formatNumber(blocked(item))})
+${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
+                    >
+                      <strong style={{ color: onHand(item) > 0 ? '#0f172a' : '#94a3b8' }}>
+                        {formatNumber(onHand(item))}
+                      </strong>
+                      {available(item) !== onHand(item) ? (
+                        <span className={styles.sub}>khả dụng {formatNumber(available(item))}</span>
+                      ) : null}
                     </td>
                     <td>
                       {item.type ? (
-                        <span className={styles.typeBadge}>{item.type}</span>
+                        <span className={styles.typeBadge} title={item.type}>{item.type}</span>
                       ) : (
-                        <span className={styles.muted}>—</span>
+                        <span className={styles.muted}>
+                          {item.kind === 'ASSET' ? 'Thiết bị' : 'Vật tư'}
+                        </span>
                       )}
                     </td>
-                    <td>
-                      {(() => {
-                        const trackingType = getTrackingType(item, material);
-                        if (trackingType === 'SERIAL') {
-                          return (
-                            <button
-                              type="button"
-                              className={styles.statusBadge}
-                              style={{
-                                background: '#eff6ff',
-                                color: '#1d4ed8',
-                                border: '1px solid #bfdbfe',
-                                cursor: 'pointer',
-                                padding: '2px 8px',
-                              }}
-                              title="Vật tư quản lý theo cá thể: Bấm xem tình trạng từng số Sê-ri"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                open(item.code);
-                                setDrawerTab('tracking');
-                              }}
-                            >
-                              Theo Sê-ri
-                            </button>
-                          );
-                        }
-                        if (trackingType === 'LOT') {
-                          return (
-                            <button
-                              type="button"
-                              className={styles.statusBadge}
-                              style={{
-                                background: '#f0fdf4',
-                                color: '#15803d',
-                                border: '1px solid #bbf7d0',
-                                cursor: 'pointer',
-                                padding: '2px 8px',
-                              }}
-                              title="Vật tư quản lý theo mẻ hàng: Bấm xem tình trạng từng Lô"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                open(item.code);
-                                setDrawerTab('tracking');
-                              }}
-                            >
-                              Theo Lô hàng
-                            </button>
-                          );
-                        }
-                        return item.status ? (
-                          <span className={`${styles.statusBadge} ${styles[`status_${item.status}`]}`}>
-                            {item.status}
-                          </span>
-                        ) : (
-                          <span className={styles.muted}>—</span>
-                        );
-                      })()}
-                    </td>
-                    <td>
-                      {material?.isSerialized ? (
-                        <span className={styles.muted}>theo sê-ri</span>
-                      ) : item.usageState ? (
-                        <span className={styles.locationTag}>{item.usageState}</span>
-                      ) : (
-                        <span className={styles.muted}>—</span>
-                      )}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      <strong>{formatNumber(onHand(item) + inUse(item))}</strong> {item.unit ?? ''}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      {inUse(item) > 0 ? formatNumber(inUse(item)) : <span className={styles.muted}>0</span>}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      {formatNumber(onHand(item))}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      {reserved(item) > 0 ? formatNumber(reserved(item)) : <span className={styles.muted}>0</span>}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      {blocked(item) > 0 ? formatNumber(blocked(item)) : <span className={styles.muted}>0</span>}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      <strong>{formatNumber(available(item))}</strong>
-                    </td>
-                    {onPatch ? (
-                      <td className={styles.center} onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className={styles.editRowBtn}
-                          disabled={busy}
-                          title={`Chỉnh sửa thông tin ${item.code}`}
-                          onClick={(e) => handleStartEdit(item, e)}
-                        >
-                          Sửa
-                        </button>
-                      </td>
-                    ) : null}
                   </tr>
                 </Fragment>
               );
             })}
             {paginatedRows.length === 0 ? (
               <tr>
-                <td colSpan={onPatch ? 11 : 10} className={styles.empty}>
+                <td colSpan={7} className={styles.empty}>
                   Không có mục nào khớp bộ lọc tìm kiếm.
                 </td>
               </tr>
@@ -661,22 +919,29 @@ export function ItemCatalog({
           <span className={styles.tableTotalRecords}>
             Hiển thị <strong>{totalRecords > 0 ? (safeCurrentPage - 1) * pageSize + 1 : 0}–{Math.min(safeCurrentPage * pageSize, totalRecords)}</strong> / <strong>{totalRecords}</strong> mục
           </span>
-          <label className={styles.tablePageSizeLabel}>
+          <div className={styles.tablePageSizeLabel} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <span>Hiển thị:</span>
-            <select
-              className={styles.tablePageSizeSelect}
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value) || 15);
-                setCurrentPage(1);
-              }}
-            >
-              <option value={15}>15 / trang</option>
-              <option value={30}>30 / trang</option>
-              <option value={45}>45 / trang</option>
-              <option value={60}>60 / trang</option>
-            </select>
-          </label>
+            <div style={{ width: '135px' }}>
+              <SearchableSelect
+                value={String(pageSize)}
+                onChange={(val) => {
+                  if (val) {
+                    setPageSize(Number(val) || 15);
+                    setCurrentPage(1);
+                  }
+                }}
+                options={[
+                  { label: '15 / trang', value: '15' },
+                  { label: '30 / trang', value: '30' },
+                  { label: '45 / trang', value: '45' },
+                  { label: '60 / trang', value: '60' },
+                ]}
+                searchInDropdown={true}
+                clearable={false}
+                height={32}
+              />
+            </div>
+          </div>
         </div>
 
         <div className={styles.tableFooterRight}>
@@ -841,26 +1106,18 @@ export function ItemCatalog({
                 <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                   Loại danh mục
                 </label>
-                <select
+                <SearchableSelect
                   value={editDraft.type}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '4px',
-                    border: '1px solid #e0e0e0',
-                    background: '#ffffff',
-                    fontSize: '16px',
-                    color: '#333333',
-                    outline: 'none',
-                  }}
-                  onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value }))}
-                >
-                  <option value="">— Chưa phân loại —</option>
-                  {withCurrent(types, editDraft.type).map((val) => (
-                    <option key={val} value={val}>
-                      {val}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setEditDraft((d) => ({ ...d, type: val }))}
+                  placeholder="— Chưa phân loại —"
+                  options={[
+                    { label: '— Chưa phân loại —', value: '' },
+                    ...withCurrent(types, editDraft.type).map((val) => ({
+                      label: val,
+                      value: val,
+                    })),
+                  ]}
+                />
                 <span style={{ fontSize: '13px', color: '#64748b' }}>
                   Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
                 </span>
@@ -873,54 +1130,38 @@ export function ItemCatalog({
                     <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                       Tình trạng vận hành
                     </label>
-                    <select
+                    <SearchableSelect
                       value={editDraft.status}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '4px',
-                        border: '1px solid #e0e0e0',
-                        background: '#ffffff',
-                        fontSize: '14px',
-                        color: '#333333',
-                        outline: 'none',
-                      }}
-                      onChange={(e) =>
-                        setEditDraft((d) => ({ ...d, status: e.target.value as AssetStatus }))
+                      onChange={(val) =>
+                        setEditDraft((d) => ({ ...d, status: val as AssetStatus }))
                       }
-                    >
-                      <option value="">— Chưa xác định —</option>
-                      {withCurrent(statuses, editDraft.status).map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="— Chưa xác định —"
+                      options={[
+                        { label: '— Chưa xác định —', value: '' },
+                        ...withCurrent(statuses, editDraft.status).map((st) => ({
+                          label: st,
+                          value: st,
+                        })),
+                      ]}
+                    />
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                       Vị trí / Trạng thái kho
                     </label>
-                    <select
+                    <SearchableSelect
                       value={editDraft.usageState}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '4px',
-                        border: '1px solid #e0e0e0',
-                        background: '#ffffff',
-                        fontSize: '14px',
-                        color: '#333333',
-                        outline: 'none',
-                      }}
-                      onChange={(e) => setEditDraft((d) => ({ ...d, usageState: e.target.value }))}
-                    >
-                      <option value="">— Chưa xác định —</option>
-                      {withCurrent(whereOptions, editDraft.usageState).map((wh) => (
-                        <option key={wh} value={wh}>
-                          {wh}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => setEditDraft((d) => ({ ...d, usageState: val }))}
+                      placeholder="— Chưa xác định —"
+                      options={[
+                        { label: '— Chưa xác định —', value: '' },
+                        ...withCurrent(whereOptions, editDraft.usageState).map((wh) => ({
+                          label: wh,
+                          value: wh,
+                        })),
+                      ]}
+                    />
                   </div>
                 </div>
               ) : (
@@ -1037,6 +1278,8 @@ export function ItemCatalog({
                   ) : null}
                 </div>
               </div>
+
+              {/* Nút đóng trên Header Drawer */}
               <button
                 type="button"
                 className={styles.drawerCloseBtn}
@@ -1063,7 +1306,7 @@ export function ItemCatalog({
               </div>
             </div>
 
-            {/* Hệ thống Sub-Tabs: 1. Vị trí & Kho, 2. Cá thể Sê-ri HOẶC Quản lý theo Lô (nếu có), 3. Thẻ kho & N-X-T, 4. Kiểm kê */}
+            {/* Hệ thống Sub-Tabs: 1. Số lượng ở từng kho, 2. Lịch sử xuất nhập kho */}
             <div className={styles.drawerTabs} role="tablist">
               <button
                 type="button"
@@ -1072,34 +1315,9 @@ export function ItemCatalog({
                 className={`${styles.drawerTabBtn} ${drawerTab === 'storage' ? styles.drawerTabBtnActive : ''}`}
                 onClick={() => setDrawerTab('storage')}
               >
-                <MapPin size={14} />
-                <span>1. Vị trí & Kho</span>
+                <Boxes size={14} />
+                <span>1. Số lượng ở từng kho</span>
               </button>
-
-              {/* Tab 2: Chỉ hiển thị 1 trong 2 hình thức (HOẶC Sê-ri, HOẶC Lô hàng), ẩn nếu là vật tư thông thường */}
-              {activeTrackingType === 'SERIAL' ? (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={drawerTab === 'tracking'}
-                  className={`${styles.drawerTabBtn} ${drawerTab === 'tracking' ? styles.drawerTabBtnActive : ''}`}
-                  onClick={() => setDrawerTab('tracking')}
-                >
-                  <QrCode size={14} />
-                  <span>2. Cá thể Sê-ri</span>
-                </button>
-              ) : activeTrackingType === 'LOT' ? (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={drawerTab === 'tracking'}
-                  className={`${styles.drawerTabBtn} ${drawerTab === 'tracking' ? styles.drawerTabBtnActive : ''}`}
-                  onClick={() => setDrawerTab('tracking')}
-                >
-                  <Layers size={14} />
-                  <span>2. Quản lý theo Lô</span>
-                </button>
-              ) : null}
 
               <button
                 type="button"
@@ -1109,17 +1327,7 @@ export function ItemCatalog({
                 onClick={() => setDrawerTab('ledger')}
               >
                 <Clock size={14} />
-                <span>{activeTrackingType !== 'NONE' ? '3' : '2'}. Thẻ kho & N-X-T</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={drawerTab === 'stocktaking'}
-                className={`${styles.drawerTabBtn} ${drawerTab === 'stocktaking' ? styles.drawerTabBtnActive : ''}`}
-                onClick={() => setDrawerTab('stocktaking')}
-              >
-                <ClipboardCheck size={14} />
-                <span>{activeTrackingType !== 'NONE' ? '4' : '3'}. Kiểm kê</span>
+                <span>2. Lịch sử xuất nhập kho</span>
               </button>
             </div>
 
@@ -1220,62 +1428,46 @@ export function ItemCatalog({
                 </>
               ) : null}
 
-              {/* TAB 2: QUẢN LÝ SÊ-RI HOẶC QUẢN LÝ THEO LÔ (CHỈ 1 TRONG 2 TUỲ LOẠI VẬT TƯ) */}
-              {drawerTab === 'tracking' && activeTrackingType !== 'NONE' ? (
-                <div className={styles.drawerSection}>
-                  {activeTrackingType === 'SERIAL' && activeMaterial ? (
-                    <SerialPanel
-                      material={activeMaterial}
-                      statuses={statuses}
-                      usageStates={usageStates}
-                      busy={busy}
-                    />
-                  ) : activeTrackingType === 'LOT' ? (
-                    <LotPanel
-                      materialCode={activeItem.code}
-                      materialName={activeItem.name}
-                      unit={activeItem.unit}
-                      warehouses={warehouses}
-                      busy={busy}
-                    />
-                  ) : (
-                    <p className={styles.empty}>Mục này quản lý theo số lượng thông thường, không có Lô hay Sê-ri.</p>
-                  )}
-                </div>
-              ) : null}
-
-              {/* TAB N-X-T & THẺ KHO */}
+              {/* TAB 2: LỊCH SỬ XUẤT NHẬP KHO (SỔ CÁI & THẺ KHO) */}
               {drawerTab === 'ledger' ? (
-                <>
-                  {/* Lịch sử dòng tiền / sổ cái */}
-                  <div className={styles.drawerSection}>
-                    <MaterialHistory
-                      state={history[activeItem.code]}
-                      unit={activeItem.unit}
-                      warehouseCodeById={warehouseCodeById}
-                    />
-                  </div>
-                </>
-              ) : null}
-
-              {/* TAB 3: KIỂM KÊ & ĐỐI SOÁT GẦN NHẤT (STOCKTAKING & VARIANCE) */}
-              {drawerTab === 'stocktaking' ? (
                 <div className={styles.drawerSection}>
-                  <MaterialStocktakePanel
-                    stocktakeState={rawStocktake}
+                  <MaterialHistory
+                    state={history[activeItem.code]}
                     unit={activeItem.unit}
+                    warehouseCodeById={warehouseCodeById}
                   />
                 </div>
               ) : null}
-
-
             </div>
 
             {/* STICKY ACTION FOOTER (CỐ ĐỊNH DƯỚI ĐÁY DRAWER CHUẨN THỦ KHO) */}
             <div className={styles.drawerFooter}>
-
-
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {onPatch ? (
+                  <button
+                    type="button"
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => handleStartEdit(activeItem)}
+                    disabled={busy}
+                    title="Sửa thông tin vật tư"
+                  >
+                    <Pencil size={14} />
+                    <span>Sửa</span>
+                  </button>
+                ) : null}
+
                 {activeMaterial && activeMaterial.isActive !== false && onRetire ? (
                   <Popconfirm
                     title="Ngừng sử dụng vật tư?"
@@ -1283,7 +1475,7 @@ export function ItemCatalog({
                     okText="Ngừng dùng"
                     cancelText="Huỷ"
                     okType="danger"
-                    placement="top-end"
+                    placement="top-start"
                     disabled={busy}
                     onConfirm={() => {
                       setOpenCode(undefined);
@@ -1292,23 +1484,36 @@ export function ItemCatalog({
                   >
                     <button
                       type="button"
-                      className={`${styles.drawerActionBtn} ${styles.drawerActionBtnDanger}`}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid #fecaca',
+                        background: '#fef2f2',
+                        color: '#dc2626',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                      }}
                       disabled={busy}
                       title="Ngừng sử dụng mã vật tư này"
                     >
                       <Ban size={14} />
-                      <span>Ngừng dùng</span>
+                      <span>Ngừng sử dụng</span>
                     </button>
                   </Popconfirm>
                 ) : null}
-                <button
-                  type="button"
-                  className={styles.modalCancelBtn}
-                  onClick={() => setOpenCode(undefined)}
-                >
-                  Đóng
-                </button>
               </div>
+
+              <button
+                type="button"
+                className={styles.modalCancelBtn}
+                onClick={() => setOpenCode(undefined)}
+              >
+                Đóng
+              </button>
             </div>
           </aside>
         </>

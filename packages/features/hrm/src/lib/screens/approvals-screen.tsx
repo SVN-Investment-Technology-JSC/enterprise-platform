@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
+import { directApproverIndex, withDirectApprover, type DirectApproverEntry } from '../direct-approver-view';
 import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import {
   approvalKindFromType,
@@ -201,13 +202,18 @@ function ApprovalsContent() {
   const load = useCallback(async () => {
     const available = availableSources;
     const progressQuery = workflowFilterQuery({ currentStep });
-    const [employees, links, reversals] = await Promise.all([
+    const [employees, links, reversals, directApprovers] = await Promise.all([
       hrmEmployeeOptions(true).catch(() => []),
       hrmFetch<{ data: Link[] }>('/request-workflows').catch(() => ({ data: [] as Link[] })),
       // Không đọc được thì vẫn hiện danh sách, chỉ thiếu nhãn "Đã hủy hiệu lực".
       Promise.resolve(hrmFetch<{ data: { requestId: string; reason: string }[] }>('/request-reversals')).then(
         (res) => res?.data ?? [],
         () => [] as { requestId: string; reason: string }[],
+      ),
+      // Đơn chờ duyệt trực tiếp không có liên kết quy trình; lấy tên người duyệt dự kiến để hiện thay nhãn chung.
+      hrmFetch<{ data: DirectApproverEntry[] }>('/request-direct-approvers').then(
+        (res) => directApproverIndex(res?.data),
+        () => new Map<string, string>(),
       ),
     ]);
     const reversedReasons = new Map(reversals.map((r) => [r.requestId, r.reason]));
@@ -247,7 +253,7 @@ function ApprovalsContent() {
             const approver = approvedBy ? people.get(approvedBy) : undefined;
             const approvedByName = approver?.name || text(r.approvedByName) || text(r.approved_by_name) || '';
             return {
-              ...r,
+              ...withDirectApprover(r, isPendingStatus(String(r.status)), directApprovers),
               // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
               status: r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
               reversalReason: reversedReasons.get(r.id),

@@ -59,6 +59,7 @@ export class CrmAccessGuard implements CanActivate {
       tenantId: decision.principal.tenantId,
       userId: decision.principal.userId,
       displayName: decision.principal.displayName,
+      sessionId: decision.principal.sessionId,
       isTenantAdmin: tenantAdmin,
       canReadAll: can('crm.read.all'),
       canWriteOpportunity: can('crm.opportunity.write'),
@@ -69,6 +70,9 @@ export class CrmAccessGuard implements CanActivate {
       canWriteReceivable: can('crm.receivable.write'),
       canWriteWarranty: can('crm.warranty.write'),
       canReadReport: can('crm.report.read'),
+      canWriteDocument: can('crm.document.write'),
+      canDeleteDocument: can('crm.document.delete'),
+      canViewQuoteCost: can('crm.quote.cost.read'),
       canManage: can('crm.manage'),
     };
     return true;
@@ -96,6 +100,9 @@ export class CrmAccessGuard implements CanActivate {
       canWriteReceivable: false,
       canWriteWarranty: false,
       canReadReport: false,
+      canWriteDocument: false,
+      canDeleteDocument: false,
+      canViewQuoteCost: false,
       canManage: false,
     };
     return true;

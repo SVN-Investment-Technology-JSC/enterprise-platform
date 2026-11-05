@@ -7,22 +7,44 @@
 export interface CrmPage<TItem> {
   readonly items: readonly TItem[];
   readonly nextCursor: string | null;
+  /** Khi gọi kèm `page` (phân trang theo số trang): trang đang xem và tổng số dòng khớp bộ lọc. */
+  readonly page?: number;
+  readonly total?: number;
 }
 
 /** Số dòng tối đa một trang danh sách. */
 export const CRM_PAGE_LIMIT_MAX = 100;
 export const CRM_PAGE_LIMIT_DEFAULT = 30;
+/** Số dòng một trang của mọi danh sách trên giao diện CRM. */
+export const CRM_LIST_PAGE_SIZE = 20;
 /** Độ dài tối đa chuỗi tìm kiếm; dài hơn trả 400. */
 export const CRM_SEARCH_MAX_LENGTH = 100;
 
-export const CUSTOMER_KINDS = ['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE'] as const;
-export type CustomerKind = (typeof CUSTOMER_KINDS)[number];
+/**
+ * Phân loại khách hàng là danh mục tenant tự cấu hình (`crm_schema.customer_kinds`), giá trị là mã phân loại.
+ * Ba mã dưới đây là phân loại hệ thống: luôn có, không xoá, không đổi mã (đổi tên được).
+ */
+export const SYSTEM_CUSTOMER_KINDS = ['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE'] as const;
+export type CustomerKind = string;
+/** Phân loại của khách mới khi không chọn, và của khách tạo từ lead. */
+export const DEFAULT_CUSTOMER_KIND: CustomerKind = 'LEAD_CUSTOMER';
 
-export const CUSTOMER_KIND_LABELS: Readonly<Record<CustomerKind, string>> = {
-  LEAD_CUSTOMER: 'Khách hàng tiềm năng',
-  CUSTOMER: 'Khách hàng',
-  INACTIVE: 'Ngừng giao dịch',
-};
+export interface CustomerKindOption {
+  readonly code: CustomerKind;
+  readonly name: string;
+  readonly description: string | null;
+  readonly isSystem: boolean;
+  readonly sortOrder: number;
+  /** Số khách đang thuộc phân loại. */
+  readonly customerCount: number;
+}
+
+export interface SaveCustomerKindRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly sortOrder?: number | null;
+}
 
 export interface CustomerGroup {
   readonly id: string;
@@ -48,6 +70,8 @@ export interface CustomerSummary {
   readonly province: string | null;
   readonly region: string | null;
   readonly kind: CustomerKind;
+  /** Tên phân loại để hiển thị. */
+  readonly kindName: string;
   readonly groupId: string | null;
   readonly groupName: string | null;
   readonly ownerUserId: string;
@@ -74,6 +98,8 @@ export interface CustomerDetail extends CustomerSummary {
   readonly creditLimit: number | null;
   readonly paymentTermDays: number | null;
   readonly note: string | null;
+  /** Chân dung khách hàng: ghi chú tự do (P2F-03); `null` là chưa ghi. */
+  readonly profileNote: string | null;
   readonly version: number;
   readonly createdAt: string;
   readonly contacts: readonly CustomerContact[];
@@ -112,12 +138,24 @@ export interface UpdateCustomerRequest extends CustomerFields {
   readonly confirmDuplicateTaxCode?: boolean;
 }
 
+/** Lưu khối "Chân dung khách hàng" (P2F-03). Chuỗi rỗng hoặc `null` là xoá. */
+export interface SaveCustomerProfileRequest {
+  readonly profileNote: string | null;
+  /** `version` đang xem; khác bản trong DB thì 409. */
+  readonly version: number;
+}
+
+/** Độ dài tối đa của chân dung khách hàng. */
+export const CUSTOMER_PROFILE_NOTE_MAX = 4000;
+
 export interface CustomerListQuery {
   readonly q?: string;
   readonly groupId?: string;
   readonly kind?: CustomerKind;
   readonly ownerUserId?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 

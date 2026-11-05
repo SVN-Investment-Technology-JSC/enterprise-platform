@@ -1,3 +1,4 @@
+import { pendingDirectApproverNames } from '../infrastructure/hrm-direct-approver-names.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   hasApprovalProgressed,
@@ -422,6 +423,36 @@ export class HrmOperationsController {
         currentAssigneeName: row.current_assignee_name ?? null,
       })),
     };
+  }
+  /**
+   * Người duyệt của các đơn đang chờ duyệt trực tiếp (không qua Procedure Engine). Đơn qua quy trình đã có người xử lý
+   * ở `request-workflows`; đơn trực tiếp không có liên kết nên màn hình cần tên người duyệt từ đây để không hiện nhãn chung.
+   */
+  @Get('request-direct-approvers')
+  async requestDirectApprovers(@Req() req: Request) {
+    const context = await this.ctx.getContext(req, 'hrm.read'),
+      { pool, tenantId } = context;
+    // Người có quyền duyệt cần thấy người duyệt dự kiến của các đơn trong màn Duyệt đơn, không chỉ chủ đơn hay người đọc toàn bộ.
+    const all = this.ctx.has(context, 'hrm.request.read') || this.ctx.has(context, 'hrm.request.approve');
+    if (!all && !this.ctx.has(context, 'hrm.self.read')) return { data: [] };
+    const employeeId = all
+      ? null
+      : (await this.ctx.resolveEmployee(pool, tenantId, context.principal.userId)).employeeId;
+    const kinds = ['leave', 'ot', 'shift_change', 'business_trip', 'correction', 'advance', 'custom'] as const;
+    const lists = await Promise.all(
+      kinds.map(async (kind) => {
+        try {
+          const found = await pendingDirectApproverNames(pool, tenantId, kind);
+          return found
+            .filter((item) => !employeeId || item.employeeId === employeeId)
+            .map((item) => ({ requestKind: kind, requestId: item.requestId, assigneeName: item.names.join(', ') }));
+        } catch {
+          // Không xác định được người duyệt thì màn hình giữ nhãn chung, không làm hỏng danh sách đơn.
+          return [];
+        }
+      }),
+    );
+    return { data: lists.flat() };
   }
   @Get('operations/audit')
   async audit(

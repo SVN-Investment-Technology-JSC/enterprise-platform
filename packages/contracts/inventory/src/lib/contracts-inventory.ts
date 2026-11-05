@@ -18,6 +18,8 @@ export type AssetType = string;
 /** Tình trạng vật tư — chuỗi tự do, danh mục khai trong Cài đặt. */
 export type AssetStatus = string;
 export type AssetCriticality = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+/** Nhóm tài sản: thiết bị công nghiệp, CNTT văn phòng, dụng cụ bảo hộ, phương tiện. */
+export type AssetCategory = 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 
 /** Một đầu việc trong hồ sơ bảo trì mặc định của thiết bị. */
 export interface AssetTaskItem {
@@ -84,12 +86,16 @@ export interface CreateAssetRequest {
   readonly supplier?: string;
   /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
   readonly manufacturer?: string;
+  /** Nhóm tài sản; bỏ trống là thiết bị công nghiệp. */
+  readonly assetCategory?: AssetCategory;
 }
 
 export interface CreateMaterialRequest {
   readonly code: string;
   readonly name: string;
   readonly category: MaterialCategory;
+  /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt (catalog.asset.types). */
+  readonly type?: AssetType;
   readonly unit: string;
   readonly minStock?: number;
   readonly maxStock?: number;
@@ -106,9 +112,64 @@ export interface CreateMaterialRequest {
   readonly kind?: MaterialKind;
   /** Số tháng bảo hành mặc định khi bán; bỏ trống là chưa khai. */
   readonly warrantyMonths?: number | null;
+  readonly assignedEmployeeId?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  /** Hình thức kinh doanh; bỏ trống là chưa khai. */
+  readonly tradeMode?: TradeMode;
+  /** Giá bán mặc định (VND); bỏ trống là chưa khai, khác 0. */
+  readonly salePrice?: number;
+  /** Phân loại hàng hóa hoặc dịch vụ, lấy từ danh mục `catalog.trade` trong Cài đặt. */
+  readonly tradeCategory?: string;
+  /** Mô tả, ghi chú; bỏ trống là chưa khai. */
+  readonly description?: string;
+}
+
+/**
+ * Một dòng nhập hàng hóa, dịch vụ từ hệ cũ. Khác `CreateMaterialRequest` ở chỗ giữ được dấu vết khai báo
+ * của hệ cũ: người tạo (bỏ trống nếu người đó đã nghỉ việc), ngày tạo và trạng thái.
+ */
+export interface ImportMaterialRow extends CreateMaterialRequest {
+  /** Số dòng trong tệp, để báo lỗi đúng dòng. */
+  readonly line: number;
+  /** Người tạo ở hệ cũ; bỏ trống là không ghi người tạo (khác với tạo thường, lấy người đang đăng nhập). */
+  readonly createdBy?: string;
+  /** Ngày tạo ở hệ cũ, dạng ISO. */
+  readonly createdAt?: string;
+  /** Mặc định đang dùng; `false` nhập thẳng vào trạng thái ngừng dùng. */
+  readonly isActive?: boolean;
+}
+
+/** Cách xử lý dòng có mã đã có trong Kho: báo lỗi (mặc định), bỏ qua giữ bản cũ, hoặc cập nhật bản cũ bằng dữ liệu trong tệp. */
+export type ImportConflictPolicy = 'FAIL' | 'SKIP' | 'UPDATE';
+
+export interface ImportMaterialsRequest {
+  readonly rows: readonly ImportMaterialRow[];
+  readonly onConflict?: ImportConflictPolicy;
+}
+
+/** Một dòng nhập không thành công. `duplicate` là trùng mã với hàng đã có, để tách khỏi lỗi dữ liệu khi xuất lại các dòng chưa nhập. */
+export interface ImportFailure {
+  readonly line: number;
+  readonly message: string;
+  readonly duplicate?: boolean;
+}
+
+export interface ImportMaterialsResult {
+  readonly created: number;
+  /** Số dòng đã cập nhật vào mã có sẵn (chỉ khi `onConflict` là UPDATE). */
+  readonly updated: number;
+  /** Dòng bỏ qua có chủ đích (mã đã có và giữ bản cũ), kèm lý do; không phải lỗi. */
+  readonly skipped: readonly { readonly line: number; readonly message: string }[];
+  /** Dòng không tạo được, theo số dòng trong tệp; các dòng còn lại vẫn được tạo. */
+  readonly failures: readonly ImportFailure[];
 }
 
 export interface UpdateMaterialRequest {
+  /** Mô tả, ghi chú; bỏ qua là giữ nguyên, chuỗi rỗng là xoá. */
+  readonly description?: string;
+  readonly tradeMode?: TradeMode;
+  readonly salePrice?: number;
+  readonly tradeCategory?: string;
   /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
   readonly type?: AssetType;
   /** Tình trạng và vị trí sử dụng — cùng hai cột với vật tư đã lắp. */
@@ -136,6 +197,8 @@ export interface UpdateMaterialRequest {
   readonly kind?: MaterialKind;
   /** `null` xoá số tháng bảo hành đã khai. */
   readonly warrantyMonths?: number | null;
+  readonly assignedEmployeeId?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 }
 
 /**
@@ -158,6 +221,12 @@ export interface RetireResult {
   readonly code: string;
   readonly mode: 'deactivated';
   readonly reason?: string;
+}
+
+/** Kết quả xoá hẳn một mã chưa có liên kết nào (dữ liệu rác, tạo nhầm). */
+export interface MaterialDeleteResult {
+  readonly code: string;
+  readonly mode: 'deleted';
 }
 
 /**
@@ -366,6 +435,17 @@ export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
  * (D6). Thiết bị (`ASSET`) đi đường riêng, không nằm trong union này.
  */
 export const MATERIAL_KINDS = ['STOCK', 'SERVICE'] as const;
+/**
+ * Mã hình thức kinh doanh dựng sẵn từ bản đầu (chỉ bán, chỉ tặng, chỉ dùng nội bộ, nhiều hình thức).
+ * Chỉ để đọc dòng cũ: giao diện đổi mã sang nhãn tiếng Việt.
+ */
+export const TRADE_MODES = ['SALE_ONLY', 'GIFT_ONLY', 'INTERNAL_ONLY', 'MULTI'] as const;
+/**
+ * "Sử dụng" của mặt hàng — CHUỖI TỰ DO lấy từ danh mục `catalog.trade.usageModes` trong Cài đặt
+ * (Chỉ bán, Chỉ tặng, Đi kèm combo...). Dòng cũ có thể còn mã trong `TRADE_MODES`.
+ */
+export type TradeMode = string;
+
 export type MaterialKind = (typeof MATERIAL_KINDS)[number];
 /**
  * Tình trạng và "đang ở đâu" của một cá thể — CHUỖI TỰ DO, không phải union.
@@ -457,6 +537,39 @@ export interface Material {
   readonly kind: MaterialKind;
   /** Số tháng bảo hành mặc định; không có là chưa khai. */
   readonly warrantyMonths?: number;
+  readonly assignedEmployeeId?: string;
+  readonly assignedAt?: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  readonly tradeMode?: TradeMode;
+  readonly salePrice?: number;
+  /** Phân loại hàng hóa hoặc dịch vụ; không có là chưa khai. */
+  readonly tradeCategory?: string;
+  /** Mô tả, ghi chú của mặt hàng; không có là chưa khai. */
+  readonly description?: string;
+  readonly createdAt?: string;
+  readonly createdBy?: string;
+}
+
+/**
+ * Tài sản nhìn từ phía cấp phát cho nhân sự (API nội bộ cho HRM). Cố ý không có giá mua, kho, lịch sử bảo trì
+ * hay chứng từ: người cấp phát chỉ cần biết tài sản nào, đang ở trạng thái nào và ai đang giữ.
+ */
+export interface CustodyAsset {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
+  readonly serialNumber?: string;
+  readonly status?: AssetStatus;
+  /** Id dòng liên kết nhân sự (`core_schema.employees.id`), cùng khoá HRM dùng cho hồ sơ nhân viên. */
+  readonly assignedEmployeeId?: string;
+  readonly assignedAt?: string;
+}
+
+/** Thân `POST v1/internal/custody/assign`. `employeeId` là null khi thu hồi. */
+export interface AssignCustodyRequest {
+  readonly materialCode: string;
+  readonly employeeId: string | null;
 }
 
 export interface SerialTracking {
@@ -636,6 +749,41 @@ export interface LotAllocationInput {
   readonly quantity: number;
 }
 
+export type AssetTestResultStatus = 'PASSED' | 'FAILED' | 'WARNING';
+
+export interface AssetTestRecord {
+  readonly id: string;
+  readonly assetId: string;
+  readonly assetCode?: string;
+  readonly testCode: string;
+  readonly testType: string;
+  readonly testDate: string;
+  readonly nextTestDate?: string;
+  readonly resultStatus: AssetTestResultStatus;
+  readonly measuredParameters: Record<string, unknown>;
+  readonly leadTester: string;
+  readonly testingAgency?: string;
+  readonly certificateNumber?: string;
+  readonly attachmentUrls?: readonly string[];
+  readonly note?: string;
+  readonly createdAt: string;
+}
+
+export interface CreateAssetTestRecordRequest {
+  readonly assetId: string;
+  readonly testCode: string;
+  readonly testType: string;
+  readonly testDate: string;
+  readonly nextTestDate?: string;
+  readonly resultStatus: AssetTestResultStatus;
+  readonly measuredParameters?: Record<string, unknown>;
+  readonly leadTester: string;
+  readonly testingAgency?: string;
+  readonly certificateNumber?: string;
+  readonly attachmentUrls?: readonly string[];
+  readonly note?: string;
+}
+
 /**
  * Khai sê-ri cho một mã vật tư.
  *
@@ -684,6 +832,34 @@ export interface MaterialInventory {
   readonly updatedAt: string;
 }
 
+/** Loại đối tác của một lần nhập (nơi nhập đến từ) hoặc xuất (nơi xuất đi đến). */
+export type MovementCounterpartyType =
+  | 'SUPPLIER'
+  | 'DEPARTMENT'
+  | 'CUSTOMER'
+  | 'PROJECT'
+  | 'ASSET'
+  | 'WAREHOUSE';
+
+export const MOVEMENT_COUNTERPARTY_TYPES: readonly MovementCounterpartyType[] = [
+  'SUPPLIER',
+  'DEPARTMENT',
+  'CUSTOMER',
+  'PROJECT',
+  'ASSET',
+  'WAREHOUSE',
+];
+
+/** Nơi nhập/xuất của cả phiếu, áp cho mọi dòng của phiếu. */
+export interface MovementCounterparty {
+  readonly type: MovementCounterpartyType;
+  /** Tên nhà cung cấp, phòng ban, khách hàng, dự án hoặc mã thiết bị. */
+  readonly name: string;
+  readonly address?: string;
+  /** Số hóa đơn / chứng từ gốc. */
+  readonly documentNumber?: string;
+}
+
 export interface InventoryTransaction {
   readonly id: string;
   readonly transactionCode: string;
@@ -698,6 +874,13 @@ export interface InventoryTransaction {
   readonly referenceId?: string;
   readonly workflowStatus: WorkflowStatus;
   readonly note?: string;
+  /** Nơi nhập đến từ / nơi xuất đi đến. Dòng cũ trước migration 0013 không có. */
+  readonly counterpartyType?: MovementCounterpartyType;
+  readonly counterpartyName?: string;
+  readonly counterpartyAddress?: string;
+  /** Chuyển kho: kho đích (dòng xuất) hoặc kho nguồn (dòng nhập). */
+  readonly counterpartyWarehouseId?: string;
+  readonly documentNumber?: string;
   readonly createdBy: string;
   readonly createdAt: string;
   /** Chứng từ kho sinh ra bút toán; bút toán trước migration 0011 không có. */
@@ -963,6 +1146,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.material',
   'catalog.asset',
   'catalog.unit',
+  'catalog.trade',
   'documents.approval',
   'costing.method',
 ] as const;
@@ -1011,6 +1195,19 @@ export interface InventoryUnitCatalog {
 }
 
 /**
+ * Danh mục cho trang Hàng hóa: phân loại (mỗi nhóm một danh sách riêng) và hình thức sử dụng.
+ * Rỗng nghĩa là tenant chưa khai: ô chọn không có gì, không bịa giá trị dựng sẵn.
+ */
+export interface InventoryTradeCatalog {
+  /** Phân loại của hàng hóa (mặt hàng có tồn kho). */
+  readonly goodsCategories: readonly string[];
+  /** Phân loại của dịch vụ. */
+  readonly serviceCategories: readonly string[];
+  /** Sử dụng: chỉ bán, chỉ tặng, đi kèm combo... */
+  readonly usageModes: readonly string[];
+}
+
+/**
  * Quy tắc duyệt chứng từ kho (nhập khác, xuất khác, điều chỉnh).
  *
  * Mặc định người lập không tự duyệt được chứng từ của mình, giống
@@ -1036,6 +1233,7 @@ export interface InventorySettings {
   readonly 'catalog.material': InventoryCatalogSettings;
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
+  readonly 'catalog.trade': InventoryTradeCatalog;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
 }
@@ -1089,6 +1287,18 @@ export interface AssetDocument {
   readonly note?: string;
   readonly uploadedBy: string;
   readonly createdAt: string;
+}
+
+/** Tài liệu thiết bị cho phân hệ khác đọc (chỉ đọc): siêu dữ liệu và URL tải ký ngắn hạn, không có `object_key`. */
+export interface InternalAssetDocument {
+  readonly id: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number | null;
+  readonly note: string | null;
+  readonly createdAt: string;
+  readonly downloadUrl: string;
+  readonly expiresInSeconds: number;
 }
 
 export interface CreateAssetDocumentRequest {
@@ -1180,6 +1390,8 @@ export interface StocktakeSession {
   readonly status: StocktakeStatus;
   readonly scopeType: StocktakeScopeType;
   readonly scopeCategories?: readonly string[];
+  readonly specificMaterialCodes?: readonly string[];
+  readonly stocktakeDate?: string;
   readonly snapshotAt?: string;
   readonly leadAuditor?: string;
   readonly auditors?: readonly string[];
@@ -1199,6 +1411,7 @@ export interface CreateStocktakeRequest {
   readonly code?: string;
   readonly title: string;
   readonly warehouseCode: string;
+  readonly stocktakeDate?: string;
   readonly scopeType: StocktakeScopeType;
   readonly scopeCategories?: readonly string[];
   readonly specificMaterialCodes?: readonly string[];
@@ -1441,6 +1654,10 @@ export interface InternalMaterialCatalogItem {
   readonly isSerialized: boolean;
   readonly isActive: boolean;
   readonly warrantyMonths: number | null;
+  /** Giá bán khai trong danh mục hàng hoá (cột Giá ở màn Hàng hóa của Kho); null là chưa khai. */
+  readonly salePrice: number | null;
+  /** Phân loại hàng hoá hoặc dịch vụ (cột Phân loại ở màn Hàng hóa của Kho); null là chưa khai. */
+  readonly tradeCategory: string | null;
   /**
    * Giá vốn bình quân của mặt hàng: bình quân theo số lượng của giá bình quân các
    * kho đang có hàng (chỉ kho `warehouseCode` khi có lọc). Là giá ước tính cho báo
@@ -1603,7 +1820,8 @@ export interface StockReportQuery {
   readonly groupBy?: StockReportGroupBy;
   readonly search?: string;
   readonly materialCode?: string;
-  readonly category?: MaterialCategory;
+  /** Phân loại khai trong Cài đặt (trade_category), không phải nhóm kỹ thuật `category`. */
+  readonly category?: string;
   readonly warehouseCode?: string;
   readonly expiringWithinDays?: number;
   readonly qualityStatus?: QualityStatus;
@@ -1633,7 +1851,8 @@ interface StockReportMaterialColumns {
   readonly materialCode: string;
   readonly materialName: string;
   readonly unit?: string;
-  readonly category?: MaterialCategory;
+  /** Phân loại khai trong Cài đặt (trade_category). */
+  readonly category?: string;
 }
 
 /** Một mặt hàng tại một kho (cộng mọi vị trí trong kho). */
@@ -1855,4 +2074,14 @@ export interface StockApprovalReport {
   readonly total: number;
   readonly limit: number;
   readonly offset: number;
+}
+
+export interface AuditorCandidate {
+  readonly id: string;
+  readonly name: string;
+  readonly code?: string;
+  readonly department?: string;
+  readonly position?: string;
+  readonly email?: string;
+  readonly hasWarehouseAccess: boolean;
 }

@@ -17,18 +17,18 @@ import type {
 } from '../application/sales-store.port.js';
 import { CrmConflictError, CrmStaleVersionError, CrmValidationError } from '../domain/crm.error.js';
 import { CUSTOMER_CODE_SETTING_KEY, formatCustomerCode, parseCustomerCodeRule } from '../domain/customer-code.js';
-import type { CrmSqlClient } from './audit-log.js';
+import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCustomerEvent } from './crm-outbox.js';
 import {
   SqlConditions,
   constraintViolation,
   cursorAt,
-  keysetPage,
   prefixPattern,
   prefixTsQuery,
   toIso,
   toNumber,
+  pagedList,
 } from './sql-helpers.js';
 
 interface CustomerRow {
@@ -45,9 +45,11 @@ interface CustomerRow {
   group_id: string | null;
   group_name: string | null;
   kind: CustomerKind;
+  kind_name: string | null;
   credit_limit: string | null;
   payment_term_days: number | null;
   note: string | null;
+  profile_note: string | null;
   owner_user_id: string;
   version: number;
   created_at: Date;
@@ -69,19 +71,21 @@ interface ContactRow {
 
 const CUSTOMER_COLUMNS = `
   c.id, c.code, c.name, c.tax_code, c.address, c.province, c.region, c.industry, c.phone, c.email,
-  c.group_id, g.name AS group_name, c.kind, c.credit_limit, c.payment_term_days, c.note,
+  c.group_id, g.name AS group_name, c.kind, ck.name AS kind_name, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
   c.owner_user_id, c.version, c.created_at, c.updated_at, pc.full_name AS primary_contact_name,
   ${cursorAt('c.updated_at')} AS cursor_at`;
 
 const CUSTOMER_FROM = `
   FROM crm_schema.customers c
   LEFT JOIN crm_schema.customer_groups g ON g.id = c.group_id
+  LEFT JOIN crm_schema.customer_kinds ck ON ck.code = c.kind
   LEFT JOIN crm_schema.customer_contacts pc ON pc.customer_id = c.id AND pc.is_primary`;
 
 /** Số lần thử lấy số kế tiếp khi mã sinh ra đã bị ai đó nhập tay. */
 const CODE_GENERATION_ATTEMPTS = 50;
 
 const CODE_EXISTS = () => new CrmConflictError('CUSTOMER_CODE_EXISTS', 'Mã khách hàng đã tồn tại.');
+const KIND_MISSING = () => new CrmValidationError('KIND_NOT_FOUND', 'Phân loại khách hàng không tồn tại.');
 const GROUP_MISSING = () => new CrmValidationError('GROUP_NOT_FOUND', 'Nhóm khách hàng không tồn tại.');
 
 /**
@@ -106,15 +110,20 @@ export class PostgresCustomerStore implements CustomerStore {
     if (filter.kind) where.add(`c.kind = ${where.param(filter.kind)}`);
     if (filter.ownerUserId) where.add(`c.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
     if (filter.q) addCustomerSearch(where, filter.q);
-    where.after(filter.cursor, 'c.updated_at', 'c.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<CustomerRow>(
-      `SELECT ${CUSTOMER_COLUMNS} ${CUSTOMER_FROM} ${where.where()}
-        ORDER BY c.updated_at DESC, c.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${CUSTOMER_COLUMNS}`,
+        from: `${CUSTOMER_FROM}`,
+        orderBy: 'c.updated_at DESC, c.id DESC',
+        atColumn: 'c.updated_at',
+        idColumn: 'c.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getCustomer(tenantId: string, scope: CrmDataScope, id: string): Promise<CustomerDetail | undefined> {
@@ -177,6 +186,40 @@ export class PostgresCustomerStore implements CustomerStore {
     } catch (error) {
       throw translateCustomerError(error);
     }
+  }
+
+  saveProfileNote(
+    tenantId: string,
+    id: string,
+    profileNote: string | null,
+    expectedVersion: number,
+    actorId: string,
+  ): Promise<boolean> {
+    return this.database.transaction(tenantId, async (client) => {
+      const before = await client.query<{ profile_note: string | null; version: number }>(
+        `SELECT profile_note, version FROM crm_schema.customers WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const old = before.rows[0];
+      if (!old) return false;
+      if (Number(old.version) !== expectedVersion) throw new CrmStaleVersionError();
+      await client.query(
+        `UPDATE crm_schema.customers
+            SET profile_note = $2, version = version + 1, updated_at = now(), updated_by = $3
+          WHERE id = $1`,
+        [id, profileNote, actorId],
+      );
+      if ((old.profile_note ?? null) !== profileNote) {
+        await writeAuditLog(client, {
+          entityType: 'customer',
+          entityId: id,
+          action: 'update_profile_note',
+          actorId,
+          metadata: { fromLength: old.profile_note?.length ?? 0, toLength: profileNote?.length ?? 0 },
+        });
+      }
+      return true;
+    });
   }
 
   addContact(tenantId: string, customerId: string, record: ContactRecord, actorId: string): Promise<string> {
@@ -381,6 +424,7 @@ function customerValues(record: CustomerRecord): unknown[] {
 
 function translateCustomerError(error: unknown): unknown {
   if (constraintViolation(error, '23505', 'uq_crm_customers_code')) return CODE_EXISTS();
+  if (constraintViolation(error, '23503', 'fk_crm_customers_kind')) return KIND_MISSING();
   if (constraintViolation(error, '23503')) return GROUP_MISSING();
   return error;
 }
@@ -394,6 +438,7 @@ function toSummary(row: CustomerRow): CustomerSummary {
     province: row.province,
     region: row.region,
     kind: row.kind,
+    kindName: row.kind_name ?? row.kind,
     groupId: row.group_id,
     groupName: row.group_name,
     ownerUserId: row.owner_user_id,
@@ -412,6 +457,7 @@ function toDetail(row: CustomerRow, contacts: CustomerContact[]): CustomerDetail
     creditLimit: toNumber(row.credit_limit),
     paymentTermDays: row.payment_term_days,
     note: row.note,
+    profileNote: row.profile_note,
     version: row.version,
     createdAt: toIso(row.created_at) ?? '',
     contacts,

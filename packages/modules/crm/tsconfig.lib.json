@@ -24,6 +24,9 @@
     },
     {
       "path": "../../adapters/database/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/storage/tsconfig.lib.json"
     }
   ],
   "exclude": [

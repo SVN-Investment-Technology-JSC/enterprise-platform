@@ -9,6 +9,8 @@ import {
   type SalesAlert,
   type SalesAlertKind,
   type SalesReportDimension,
+  type TenderReportRow,
+  type TenderReportStatus,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
@@ -21,7 +23,7 @@ import type {
 } from '../application/sales-report-store.port.js';
 import { roundVnd } from '../domain/pricing-engine.js';
 import { daysOverdue } from '../domain/receivables.js';
-import type { RawFigures } from '../domain/sales-report.js';
+import { tenderWinRate, type RawFigures } from '../domain/sales-report.js';
 import type { CrmDatabase } from './crm.database.js';
 import { ownerScopeSql } from './owner-scope-sql.js';
 import { SqlConditions } from './sql-helpers.js';
@@ -294,6 +296,63 @@ export class PostgresSalesReportStore implements SalesReportStore {
       }
     }
     return items;
+  }
+
+  async tenderByPipeline(
+    tenantId: string,
+    scope: CrmDataScope,
+    filter: Pick<SalesFactFilter, 'from' | 'to' | 'ownerUserId'>,
+  ): Promise<readonly TenderReportRow[]> {
+    const where = new SqlConditions();
+    where.add(`pl.profile = 'TENDER'`);
+    where.scope(scope, 'o.owner_user_id');
+    if (filter.ownerUserId) where.add(`o.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
+    const from = where.param(filter.from);
+    const to = where.param(filter.to);
+    const inPeriod = `o.closed_at >= (${from}::date)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AND o.closed_at < ((${to}::date) + 1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'`;
+    const pool = await this.database.pool(tenantId);
+    // Trạng thái theo NGHĨA giai đoạn hiện tại của cơ hội: WON, LOST, hoặc đang mở (đã nộp khi hồ sơ có ngày nộp).
+    // Trúng/Trượt tính theo ngày đóng trong kỳ; hai trạng thái còn lại là số hiện tại. Giá trị Trúng là giá trúng thầu.
+    const result = await pool.query<{ id: string; code: string; name: string; status: TenderReportStatus; n: number; value: string }>(
+      `SELECT pl.id, pl.code, pl.name, x.status, count(*)::int AS n, COALESCE(sum(x.value), 0) AS value
+         FROM (
+           SELECT o.pipeline_id,
+                  CASE WHEN ps.semantic = 'WON' THEN 'WON' WHEN ps.semantic = 'LOST' THEN 'LOST'
+                       WHEN p.submitted_at IS NOT NULL THEN 'SUBMITTED' ELSE 'PREPARING' END AS status,
+                  CASE WHEN ps.semantic = 'WON' THEN COALESCE(p.winning_price, o.expected_value) ELSE o.expected_value END AS value,
+                  (ps.semantic = 'OPEN' OR (${inPeriod})) AS counted
+             FROM crm_schema.tender_profiles p
+             JOIN crm_schema.opportunities o ON o.id = p.opportunity_id
+             JOIN crm_schema.pipeline_stages ps ON ps.id = o.stage_id
+             JOIN crm_schema.pipelines pl ON pl.id = o.pipeline_id
+            ${where.where()}
+         ) x
+         JOIN crm_schema.pipelines pl ON pl.id = x.pipeline_id
+        WHERE x.counted
+        GROUP BY pl.id, pl.code, pl.name, x.status`,
+      where.params,
+    );
+    const empty = (): Record<TenderReportStatus, { count: number; value: number }> => ({
+      PREPARING: { count: 0, value: 0 },
+      SUBMITTED: { count: 0, value: 0 },
+      WON: { count: 0, value: 0 },
+      LOST: { count: 0, value: 0 },
+    });
+    const rows = new Map<string, { code: string; name: string; byStatus: Record<TenderReportStatus, { count: number; value: number }> }>();
+    for (const row of result.rows) {
+      const entry = rows.get(row.id) ?? { code: row.code, name: row.name, byStatus: empty() };
+      entry.byStatus[row.status] = { count: row.n, value: roundVnd(num(row.value)) };
+      rows.set(row.id, entry);
+    }
+    return [...rows.entries()]
+      .sort(([, a], [, b]) => a.code.localeCompare(b.code))
+      .map(([pipelineId, entry]) => ({
+        pipelineId,
+        pipelineCode: entry.code,
+        pipelineName: entry.name,
+        byStatus: entry.byStatus,
+        winRatePercent: tenderWinRate(entry.byStatus.WON.count, entry.byStatus.LOST.count),
+      }));
   }
 
   async receivables(

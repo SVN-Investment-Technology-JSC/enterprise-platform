@@ -1,6 +1,5 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import type {
-  MaterialCategory,
   QualityStatus,
   SerialReportTotals,
   SerialStockState,
@@ -66,7 +65,7 @@ class Where {
 /** Lọc chung theo mặt hàng, nhóm vật tư, kho (alias `m`, `w`). */
 function materialFilters(where: Where, filter: StockReportFilter, extraSearch: readonly string[] = []): void {
   if (filter.materialCode) where.add(`m.code = ${where.param(filter.materialCode)}`);
-  if (filter.category) where.add(`m.category = ${where.param(filter.category)}`);
+  if (filter.category) where.add(`m.trade_category = ${where.param(filter.category)}`);
   if (filter.warehouseCode) where.add(`w.code = ${where.param(filter.warehouseCode)}`);
   if (filter.search) {
     const pattern = where.param(containsPattern(filter.search));
@@ -154,7 +153,7 @@ export class PostgresInventoryReportStore implements InventoryReportStore {
       pool.query<Row>(
         `SELECT x.*, round(x.quantity * x.avg_cost, 2) AS stock_value,
                 w.code AS warehouse_code, w.name AS warehouse_name,
-                m.code AS material_code, m.name AS material_name, m.unit, m.category
+                m.code AS material_code, m.name AS material_name, m.unit, m.trade_category AS category
            ${from}
           ORDER BY w.code, m.code
           LIMIT $${limit} OFFSET $${limit + 1}`,
@@ -218,7 +217,7 @@ export class PostgresInventoryReportStore implements InventoryReportStore {
         `SELECT lb.lot_id, lb.warehouse_id, lb.quantity, lb.quantity_reserved, lb.quantity_blocked,
                 l.lot_no, l.manufactured_on::text AS manufactured_on, l.expires_on::text AS expires_on,
                 (l.expires_on - ${today}::date) AS days_to_expiry, l.quality_status,
-                l.material_id, m.code AS material_code, m.name AS material_name, m.unit, m.category,
+                l.material_id, m.code AS material_code, m.name AS material_name, m.unit, m.trade_category AS category,
                 w.code AS warehouse_code, w.name AS warehouse_name
            ${from}
           ORDER BY l.expires_on NULLS LAST, m.code, l.lot_no, w.code
@@ -276,7 +275,7 @@ export class PostgresInventoryReportStore implements InventoryReportStore {
       pool.query<Row>(
         `SELECT s.id, s.serial_number, s.stock_state, s.quality_status, s.updated_at,
                 s.current_warehouse_id, s.material_id, m.code AS material_code, m.name AS material_name,
-                m.unit, m.category, w.code AS warehouse_code, w.name AS warehouse_name
+                m.unit, m.trade_category AS category, w.code AS warehouse_code, w.name AS warehouse_name
            ${from}
           ORDER BY m.code, s.serial_number
           LIMIT $${limit} OFFSET $${limit + 1}`,
@@ -467,7 +466,7 @@ function materialColumns(row: Row) {
     materialCode: str(row.material_code),
     materialName: str(row.material_name),
     unit: opt(row.unit),
-    category: opt(row.category) as MaterialCategory | undefined,
+    category: opt(row.category),
   };
 }
 

@@ -3,17 +3,20 @@ import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
 import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerGroupService } from './application/customer-group.service.js';
+import { CustomerKindService } from './application/customer-kind.service.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { LeadService } from './application/lead.service.js';
 import { OpportunityService } from './application/opportunity.service.js';
+import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
+import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
 import { PostgresActivityStore, PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresLeadStore } from './infrastructure/postgres-lead.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresCustomerGroupStore } from './infrastructure/postgres-settings.store.js';
+import { PostgresCustomerGroupStore, PostgresCustomerKindStore } from './infrastructure/postgres-settings.store.js';
 
 const integration = crmIntegrationEnabled() ? describe : describe.skip;
 
@@ -59,6 +62,7 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
 
   let customers: CustomerService;
   let groups: CustomerGroupService;
+  let kinds: CustomerKindService;
   let leads: LeadService;
   let opportunities: OpportunityService;
   let activities: ActivityService;
@@ -74,8 +78,14 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
     leadStore = new PostgresLeadStore(handle.database);
     customers = new CustomerService(customerStore, scopes);
     groups = new CustomerGroupService(new PostgresCustomerGroupStore(handle.database));
+    kinds = new CustomerKindService(new PostgresCustomerKindStore(handle.database));
     leads = new LeadService(leadStore, scopes);
-    opportunities = new OpportunityService(opportunityStore, customerStore, scopes);
+    opportunities = new OpportunityService(
+      opportunityStore,
+      customerStore,
+      scopes,
+      new CachedPipelineConfig(new PostgresPipelineConfigReader(handle.database)),
+    );
     activities = new ActivityService(new PostgresActivityStore(handle.database), customerStore, opportunityStore, scopes);
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
   }, 120_000);
@@ -83,6 +93,16 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
   afterAll(async () => {
     await handle?.drop();
   }, 60_000);
+
+  const stageIds = async (pipelineId: string): Promise<Record<string, string>> =>
+    Object.fromEntries(
+      (
+        await handle.pool.query<{ code: string; id: string }>(
+          `SELECT code, id FROM crm_schema.pipeline_stages WHERE pipeline_id = $1`,
+          [pipelineId],
+        )
+      ).rows.map((row) => [row.code, row.id]),
+    );
 
   const count = async (table: string) =>
     (await handle.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM crm_schema.${table}`)).rows[0].n;
@@ -182,6 +202,14 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       const group = await groups.create(admin, { code: 'DL1', name: 'Đại lý cấp 1' });
       const vip = await groups.create(admin, { code: 'VIP', name: 'VIP' });
       await expect(groups.create(admin, { code: 'vip', name: 'Trùng' })).rejects.toMatchObject({ statusCode: 409 });
+      // TC-FB-09: form khách sinh mã từ tên; tạo lại nhóm "Đại lý" trả 409 tiếng Việt, không có bản ghi thứ hai.
+      await groups.create(admin, { code: 'DAI-LY', name: 'Đại lý' });
+      await expect(groups.create(admin, { code: 'DAI-LY', name: 'Đại lý' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'GROUP_CODE_EXISTS',
+        message: 'Mã nhóm khách hàng đã tồn tại.',
+      });
+      expect((await groups.list(admin)).filter((item) => item.code === 'DAI-LY')).toHaveLength(1);
       const customer = await customers.create(seller(NV1), { name: 'Đại lý Hưng Thịnh', groupId: group.id });
       const inactive = await customers.update(seller(NV1), customer.id, { code: customer.code, name: customer.name, kind: 'INACTIVE', version: 1 });
       expect(inactive).toMatchObject({ kind: 'INACTIVE', groupId: group.id, groupName: 'Đại lý cấp 1' });
@@ -198,6 +226,50 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       expect((await groups.list(admin)).find((item) => item.id === group.id)).toMatchObject({ customerCount: 1 });
       await groups.remove(admin, vip.id);
       expect((await groups.list(admin)).some((item) => item.id === vip.id)).toBe(false);
+    });
+
+    it('phân loại do QTBH cấu hình: ba phân loại hệ thống có sẵn, đổi mã kéo theo khách, đang dùng hoặc hệ thống không xoá được', async () => {
+      const seeded = await kinds.list(seller(NV1));
+      expect(seeded.filter((kind) => kind.isSystem).map((kind) => kind.code)).toEqual(['LEAD_CUSTOMER', 'CUSTOMER', 'INACTIVE']);
+      expect(seeded.find((kind) => kind.code === 'LEAD_CUSTOMER')).toMatchObject({ name: 'Khách hàng tiềm năng' });
+
+      await expect(kinds.create(seller(NV1), { code: 'VIP', name: 'Khách VIP' })).rejects.toMatchObject({ statusCode: 403 });
+      const vip = await kinds.create(admin, { code: 'vip', name: 'Khách VIP', sortOrder: 15 });
+      expect(vip).toMatchObject({ code: 'VIP', isSystem: false, sortOrder: 15, customerCount: 0 });
+      await expect(kinds.create(admin, { code: 'VIP', name: 'Trùng' })).rejects.toMatchObject({ statusCode: 409, code: 'KIND_CODE_EXISTS' });
+      expect((await kinds.list(admin)).map((kind) => kind.code).slice(0, 2)).toEqual(['LEAD_CUSTOMER', 'VIP']);
+
+      const fresh = await customers.create(seller(NV1), { name: 'Khách chưa chọn phân loại' });
+      expect(fresh).toMatchObject({ kind: 'LEAD_CUSTOMER', kindName: 'Khách hàng tiềm năng' });
+      const customer = await customers.create(seller(NV1), { name: 'Khách VIP Phú Thành', kind: 'vip' });
+      expect(customer).toMatchObject({ kind: 'VIP', kindName: 'Khách VIP' });
+      await expect(customers.create(seller(NV1), { name: 'Sai phân loại', kind: 'KHONG-CO' })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'KIND_NOT_FOUND',
+      });
+
+      // Đổi mã và tên: khách đổi theo (khoá ngoại ON UPDATE CASCADE).
+      const renamed = await kinds.update(admin, 'VIP', { code: 'VIP-1', name: 'Khách VIP hạng 1' });
+      expect(renamed).toMatchObject({ code: 'VIP-1', customerCount: 1 });
+      expect(await customers.get(seller(NV1), customer.id)).toMatchObject({ kind: 'VIP-1', kindName: 'Khách VIP hạng 1' });
+      expect((await customers.list(seller(NV1), { kind: 'VIP-1' })).items.map((item) => item.id)).toEqual([customer.id]);
+
+      await expect(kinds.remove(admin, 'VIP-1')).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'Phân loại đang được dùng cho khách hàng, không xoá được.',
+      });
+      await expect(kinds.update(admin, 'CUSTOMER', { code: 'KHACH', name: 'Khách' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'SYSTEM_KIND_CODE',
+      });
+      await expect(kinds.remove(admin, 'INACTIVE')).rejects.toMatchObject({ statusCode: 409, code: 'SYSTEM_KIND' });
+      const renamedSystem = await kinds.update(admin, 'CUSTOMER', { code: 'CUSTOMER', name: 'Khách đang giao dịch' });
+      expect(renamedSystem).toMatchObject({ code: 'CUSTOMER', name: 'Khách đang giao dịch', isSystem: true });
+
+      await customers.update(seller(NV1), customer.id, { code: customer.code, name: customer.name, kind: 'CUSTOMER', version: customer.version });
+      await kinds.remove(admin, 'VIP-1');
+      expect((await kinds.list(admin)).some((kind) => kind.code === 'VIP-1')).toBe(false);
+      await expect(kinds.remove(admin, 'VIP-1')).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('tìm theo đầu mã, đầu MST, đầu từ trong tên có dấu; ký tự đặc biệt không lỗi', async () => {
@@ -405,6 +477,55 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
       customerId = (await customers.create(seller(NV1), { name: 'Khách cơ hội' })).id;
     });
 
+    it('theo khách: 20 dự án một trang, dự án của một khách liền nhau, khách vắt trang hiện ở cả hai trang với tổng đúng', async () => {
+      const q = 'PGK-';
+      const first = await customers.create(seller(NV2), { code: 'PGK-A', name: 'Khách phân trang A' });
+      const second = await customers.create(seller(NV2), { code: 'PGK-B', name: 'Khách phân trang B' });
+      for (let index = 1; index <= 15; index += 1) {
+        await opportunities.create(seller(NV2), { customerId: first.id, name: `PGK-A dự án ${index}`, expectedValue: 1000 });
+      }
+      for (let index = 1; index <= 10; index += 1) {
+        await opportunities.create(seller(NV2), { customerId: second.id, name: `PGK-B dự án ${index}`, expectedValue: 500 });
+      }
+
+      const page1 = await opportunities.listByCustomer(seller(NV2), { q });
+      expect(page1).toMatchObject({ page: 1, pageSize: 20, total: 25 });
+      expect(page1.items).toHaveLength(20);
+      // Cập nhật gần nhất lên trước: khách B vừa có dự án mới nên lên đầu; dự án của một khách liền nhau.
+      expect(page1.items.slice(0, 10).every((item) => item.customerId === second.id)).toBe(true);
+      expect(page1.items.slice(10).every((item) => item.customerId === first.id)).toBe(true);
+      expect(page1.items[0].name).toBe('PGK-B dự án 10');
+      expect(page1.items[10].name).toBe('PGK-A dự án 15');
+      expect(page1.customers).toEqual([
+        expect.objectContaining({ customerId: second.id, customerCode: 'PGK-B', count: 10, totalValue: 5000 }),
+        expect.objectContaining({ customerId: first.id, customerCode: 'PGK-A', count: 15, totalValue: 15_000 }),
+      ]);
+
+      // Khách A vắt sang trang 2: vẫn có mặt kèm tổng của mọi trang.
+      const page2 = await opportunities.listByCustomer(seller(NV2), { q, page: 2 });
+      expect(page2.items).toHaveLength(5);
+      expect(page2.items.every((item) => item.customerId === first.id)).toBe(true);
+      expect(page2.customers).toEqual([expect.objectContaining({ customerId: first.id, count: 15 })]);
+      const seen = new Set([...page1.items, ...page2.items].map((item) => item.id));
+      expect(seen.size).toBe(25);
+
+      // Danh sách thường cũng chọn được trang bất kỳ: có `page` thì trả tổng, không cần con trỏ.
+      const numbered = await opportunities.list(seller(NV2), { q, page: 2, limit: 20 });
+      expect(numbered).toMatchObject({ page: 2, total: 25, nextCursor: null });
+      expect(numbered.items).toHaveLength(5);
+      const keyset = await opportunities.list(seller(NV2), { q, limit: 20 });
+      expect(keyset.total).toBeUndefined();
+      expect(new Set([...keyset.items, ...numbered.items].map((item) => item.id)).size).toBe(25);
+      expect(await opportunities.list(seller(NV2), { q, page: 9, limit: 20 })).toMatchObject({ items: [], total: 25 });
+      await expect(opportunities.list(seller(NV2), { q, page: 0 })).rejects.toMatchObject({ statusCode: 400 });
+      const customerPage = await customers.list(seller(NV2), { q: 'PGK', page: 1, limit: 1 });
+      expect(customerPage).toMatchObject({ page: 1, total: 2 });
+
+      // Phạm vi dữ liệu: NV3 nhóm khác không thấy; trang sai 400.
+      expect((await opportunities.listByCustomer(seller(NV3), { q })).total).toBe(0);
+      await expect(opportunities.listByCustomer(seller(NV2), { q, page: 0 })).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('TC-SM-01/02, TC-OPP-04/05: chuyển giai đoạn ghi lịch sử và nhật ký; sai bảng 409; Thua cần lý do', async () => {
       const created = await opportunities.create(seller(NV1), { customerId, name: 'Cung cấp máy phát', probability: 30 });
       let current = await opportunities.changeStage(seller(NV1), created.id, { stage: 'CONTACTED', version: created.version });
@@ -461,15 +582,27 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
 
     it('hai người cùng kéo một thẻ: người sau nhận 409, lịch sử chỉ một dòng', async () => {
       const created = await opportunities.create(seller(NV1), { customerId, name: 'Kéo cùng lúc' });
-      await opportunityStore.changeStage(tenantId, created.id, { from: 'NEW', to: 'CONTACTED', reason: null }, NV1);
+      const ids = await stageIds(created.pipeline.id);
+      const base = { pipelineId: created.pipeline.id, fromStageId: ids.NEW, from: 'NEW', fromSemantic: 'OPEN' as const, fromSortOrder: 10, toSortOrder: 20 };
+      await opportunityStore.changeStage(
+        tenantId,
+        created.id,
+        { ...base, toStageId: ids.CONTACTED, to: 'CONTACTED', toSemantic: 'OPEN', reason: null },
+        NV1,
+      );
       await expect(
-        opportunityStore.changeStage(tenantId, created.id, { from: 'NEW', to: 'LOST', reason: 'x' }, NV1),
+        opportunityStore.changeStage(
+          tenantId,
+          created.id,
+          { ...base, toStageId: ids.LOST, to: 'LOST', toSemantic: 'LOST', reason: 'x' },
+          NV1,
+        ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'STAGE_CHANGED' });
       const detail = await opportunities.get(seller(NV1), created.id);
       expect(detail.history).toHaveLength(2);
     });
 
-    it('TC-OPP-06: xác suất ngoài 0–100 bị chặn ở service và ở DB', async () => {
+    it('TC-OPP-06: xác suất ngoài 0–100 bị chặn ở service và ở DB; Thua thiếu lý do bị service chặn', async () => {
       await expect(opportunities.create(seller(NV1), { customerId, name: 'X', probability: 101 })).rejects.toMatchObject({ statusCode: 400 });
       await expect(
         handle.pool.query(
@@ -477,13 +610,18 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
           [customerId, NV1],
         ),
       ).rejects.toMatchObject({ code: '23514' });
-      // Thua thiếu lý do bị CHECK chặn kể cả khi ghi thẳng DB.
-      await expect(
-        handle.pool.query(
-          `INSERT INTO crm_schema.opportunities (customer_id, name, stage, owner_user_id) VALUES ($1, 'X', 'LOST', $2)`,
-          [customerId, NV1],
-        ),
-      ).rejects.toMatchObject({ code: '23514' });
+      // Từ GĐ B, DB không còn CHECK "Thua cần lý do" (giai đoạn thua là cấu hình): service chặn
+      // theo nghĩa LOST của giai đoạn đích và không ghi gì khi thiếu lý do.
+      const open = await opportunities.create(seller(NV1), { customerId, name: 'Thua thiếu lý do' });
+      for (const reason of [undefined, '', '   ']) {
+        await expect(opportunities.changeStage(seller(NV1), open.id, { stage: 'LOST', reason })).rejects.toMatchObject({
+          statusCode: 400,
+          code: 'LOST_REASON_REQUIRED',
+          message: 'Phải ghi lý do thua.',
+        });
+      }
+      await expect(opportunities.get(seller(NV1), open.id)).resolves.toMatchObject({ stage: 'NEW', lostReason: null });
+      expect((await opportunities.get(seller(NV1), open.id)).history).toHaveLength(1);
     });
 
     it('BUG-CRM-001: tìm cơ hội theo `%`, `_` như chuỗi thường; tìm theo từ vẫn đúng', async () => {

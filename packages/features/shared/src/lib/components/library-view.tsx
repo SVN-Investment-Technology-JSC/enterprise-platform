@@ -12,6 +12,8 @@ import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildMenu, rightsOf, type MenuActionId, type MenuEntry, type MenuTarget } from '../context-menu.model';
+import { guardWindowFileDrop, readDrop, type FolderDrop } from '../file-drop';
+import { hasFolders, type PickedEntry } from '../folder-upload.model';
 import { accessMap, ancestry, branchIds, childrenOf, expiryTone } from '../library.model';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
@@ -28,7 +30,7 @@ import { QuickEditDialog, type QuickEditField, type QuickEditTarget } from './qu
 import { KIND_OPTIONS } from './record-fields';
 import { ShareDialog } from './share-dialog';
 import { TrashPanel } from './trash-panel';
-import { UploadDialog } from './upload-dialog';
+import { UploadDialog, type UploadMode, type UploadSummary } from './upload-dialog';
 import { VersionDialog } from './version-dialog';
 
 type StatusFilter = 'active' | 'expiring' | 'archived';
@@ -50,6 +52,15 @@ interface PendingSelection {
 }
 
 const PENDING_SELECTION_TTL_MS = 5000;
+
+/** Lời báo sau một lượt tải: số tệp đã lên, số tệp bỏ qua vì đã có; chỉ có thư mục rỗng thì số thư mục đã tạo. */
+function uploadMessage({ uploaded, skipped, folders }: UploadSummary): string {
+  if (uploaded > 0) {
+    return skipped > 0 ? `Đã tải lên ${uploaded} tệp, bỏ qua ${skipped} tệp đã có.` : `Đã tải lên ${uploaded} tệp.`;
+  }
+  if (skipped > 0) return `Các tệp đã có, bỏ qua ${skipped} tệp.`;
+  return folders > 0 ? `Đã tạo ${folders} thư mục.` : 'Các thư mục đã có.';
+}
 
 export interface LibraryRequest {
   readonly kind: 'upload' | 'folder';
@@ -120,8 +131,12 @@ export function LibraryView({
   const [moveTarget, setMoveTarget] = useState<MoveTarget>();
   const [confirm, setConfirm] = useState<ConfirmRequest>();
   const [shareTarget, setShareTarget] = useState<SharedFolder>();
-  /** Thư mục mà hộp thoại Tải lên mở sẵn khi chọn từ menu; rỗng là thư mục đang xem. */
+  /** Thư mục mà hộp thoại Tải lên mở sẵn (menu, kéo thả); `undefined` là thư mục đang xem, chuỗi rỗng là để người dùng chọn. */
   const [uploadFolderId, setUploadFolderId] = useState<string>();
+  /** Mở từ "Tải thư mục lên" thì hộp thoại bật ngay hộp chọn thư mục của máy. */
+  const [uploadMode, setUploadMode] = useState<UploadMode>('files');
+  /** Tệp, thư mục vừa kéo thả vào cây hay bảng: hộp thoại Tải lên mở với sẵn những mục này. */
+  const [uploadEntries, setUploadEntries] = useState<readonly PickedEntry[]>();
   const menuId = useRef(0);
 
   const current = folderId ? folders.find((folder) => folder.id === folderId) : undefined;
@@ -134,6 +149,44 @@ export function LibraryView({
   );
   const writable = useCallback((folder: SharedFolder) => rightsOf(capabilities, folder.access).write, [capabilities]);
   const canUploadSomewhere = useMemo(() => folders.some(writable), [folders, writable]);
+
+  // Thả tệp trượt khỏi vùng nhận thì trình duyệt mở tệp đó, rời trang thư viện.
+  useEffect(() => guardWindowFileDrop(), []);
+
+  /** Kéo thả tệp, thư mục từ máy: mở hộp thoại Tải lên với sẵn những gì vừa thả. `targetId` rỗng: người dùng tự chọn thư mục. */
+  const dropFiles = useCallback((targetId: string, dataTransfer: DataTransfer) => {
+    // Đọc ngay trong sự kiện thả: qua sự kiện là trình duyệt khoá danh sách mục.
+    readDrop(dataTransfer)
+      .then((entries) => {
+        if (entries.length === 0) return;
+        setUploadFolderId(targetId);
+        setUploadMode(hasFolders(entries) ? 'folder' : 'files');
+        setUploadEntries(entries);
+        setUploadOpen(true);
+      })
+      .catch(() => toast.error('Không đọc được thư mục vừa thả.'));
+  }, []);
+
+  // Cây: thả lên dòng thư mục là vào thư mục đó; lên gốc kho thì chọn thư mục trong hộp thoại.
+  const treeDrop = useMemo<FolderDrop>(
+    () => ({
+      accepts: (folder) => (folder ? writable(folder) : canUploadSomewhere),
+      onDrop: (folder, dataTransfer) => dropFiles(folder?.id ?? '', dataTransfer),
+    }),
+    [writable, canUploadSomewhere, dropFiles],
+  );
+
+  // Bảng: chỗ trống là thư mục đang mở; đang ở gốc kho thì chọn thư mục trong hộp thoại.
+  const contentsDrop = useMemo<FolderDrop>(
+    () => ({
+      accepts: (folder) => {
+        const target = folder ?? current;
+        return target ? writable(target) : canUploadSomewhere;
+      },
+      onDrop: (folder, dataTransfer) => dropFiles((folder ?? current)?.id ?? '', dataTransfer),
+    }),
+    [current, writable, canUploadSomewhere, dropFiles],
+  );
 
   useEffect(() => {
     onAbilitiesChange({
@@ -319,6 +372,7 @@ export function LibraryView({
     if (request.kind === 'folder') setFolderTarget({ parentId: folderIdRef.current });
     else {
       setUploadFolderId(undefined);
+      setUploadMode('files');
       setUploadOpen(true);
     }
   }, [request]);
@@ -540,7 +594,9 @@ export function LibraryView({
       case 'new-folder':
         return setFolderTarget({ parentId: folder.id });
       case 'upload':
+      case 'upload-folder':
         setUploadFolderId(folder.id);
+        setUploadMode(id === 'upload-folder' ? 'folder' : 'files');
         return setUploadOpen(true);
       case 'share':
         return setShareTarget(folder);
@@ -566,8 +622,9 @@ export function LibraryView({
 
   const runRootAction = (id: MenuActionId) => {
     if (id === 'new-folder') setFolderTarget({ parentId: undefined });
-    else if (id === 'upload') {
+    else if (id === 'upload' || id === 'upload-folder') {
       setUploadFolderId(undefined);
+      setUploadMode(id === 'upload-folder' ? 'folder' : 'files');
       setUploadOpen(true);
     }
   };
@@ -635,6 +692,7 @@ export function LibraryView({
           onOpen={onOpenFolder}
           onMenu={openTreeMenu}
           trash={canOpenTrash ? { active: trash, onOpen: onOpenTrash } : undefined}
+          drop={treeDrop}
         />
         {trash ? (
           <TrashPanel
@@ -660,6 +718,7 @@ export function LibraryView({
               onOpenDocument={openDocument}
               onRowMenu={openRowMenu}
               onBlankMenu={openBlankMenu}
+              drop={contentsDrop}
             />
             {selectedFolder ? (
               <FolderDetail
@@ -728,18 +787,21 @@ export function LibraryView({
       />
       <UploadDialog
         open={uploadOpen}
+        mode={uploadMode}
+        initialEntries={uploadEntries}
         folders={folders}
         writable={writable}
         defaultFolderId={uploadFolderId ?? folderId}
         onClose={() => {
           setUploadOpen(false);
           setUploadFolderId(undefined);
+          setUploadEntries(undefined);
         }}
-        onUploaded={(documentId, targetFolderId) => {
-          toast.success('Đã tải tài liệu lên.');
+        onUploaded={(summary) => {
+          toast.success(uploadMessage(summary));
           onStorageChanged();
           refresh();
-          selectIn(targetFolderId, { type: 'document', id: documentId });
+          if (summary.select) selectIn(summary.folderId, summary.select);
         }}
       />
       <VersionDialog
@@ -812,6 +874,7 @@ function FolderTreeColumn({
   onOpen,
   onMenu,
   trash,
+  drop,
 }: {
   readonly folders: readonly SharedFolder[];
   readonly currentId?: string;
@@ -820,6 +883,7 @@ function FolderTreeColumn({
   readonly onOpen: (folderId: string | undefined) => void;
   readonly onMenu: (folder: SharedFolder | undefined, anchor: MenuAnchor) => void;
   readonly trash?: { readonly active: boolean; readonly onOpen: () => void };
+  readonly drop?: FolderDrop;
 }) {
   return (
     <FolderTree
@@ -836,6 +900,7 @@ function FolderTreeColumn({
       onOpen={onOpen}
       onMenu={onMenu}
       trash={trash}
+      drop={drop}
     />
   );
 }

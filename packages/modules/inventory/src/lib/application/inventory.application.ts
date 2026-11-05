@@ -16,6 +16,10 @@ import type {
   AssetBomLine,
   CreateAssetRequest,
   CreateMaterialRequest,
+  ImportFailure,
+  ImportMaterialRow,
+  ImportMaterialsRequest,
+  ImportMaterialsResult,
   CreateStockReservationRequest,
   InternalMaterialCatalogPage,
   InternalMaterialCatalogQuery,
@@ -26,9 +30,12 @@ import type {
   InventorySettingsSnapshot,
   InventoryTransaction,
   LotAllocationInput,
+  CustodyAsset,
   Material,
   MaterialInventory,
+  MovementCounterparty,
   Reservation,
+  MaterialDeleteResult,
   RetireResult,
   ReturnItemToStockRequest,
   SerialTracking,
@@ -38,6 +45,9 @@ import type {
   UpdateMaterialRequest,
   UpdateSettingsRequest,
   Warehouse,
+  AssetTestRecord,
+  CreateAssetTestRecordRequest,
+  AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
 import type { InstalledTracking, InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_STORE } from './inventory-store.port.js';
@@ -71,7 +81,10 @@ import {
   isInventorySettingsKey,
   normalizeInventorySetting,
 } from './inventory-settings.js';
-import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
+import {
+  INVENTORY_SETTINGS_KEYS,
+  MOVEMENT_COUNTERPARTY_TYPES,
+} from '@enterprise-platform/contracts-inventory';
 import {
   normalizeLineSerials,
   normalizeLotInput,
@@ -693,6 +706,14 @@ export class InventoryApplication {
    * Postgres và tầng trên biến thành 500 — người dùng nhận "Internal server
    * error" cho một lỗi nhập liệu. Bắt ở đây mới trả về 400 kèm câu giải thích.
    */
+  /** Đơn giá bỏ trống là chưa khai báo; có giá thì phải là số hữu hạn và không âm (0 là giá hợp lệ). */
+  private requirePurchasePrice(price: number | undefined): void {
+    if (price === undefined || price === null) return;
+    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
+      throw new InventoryError('VALIDATION', 'Đơn giá phải là số không âm.');
+    }
+  }
+
   private requireValidYear(year: number | undefined): void {
     if (year === undefined) return;
     if (!Number.isInteger(year) || year < 1900 || year > 2200) {
@@ -724,6 +745,10 @@ export class InventoryApplication {
       const parent = await this.store.asset.findAnyByCode(actor.tenantId, patch.parentCode.trim());
       if (!parent) throw new AssetNotFoundError(patch.parentCode.trim());
       parentId = parent.id;
+    }
+
+    if (patch.status !== undefined && patch.status !== 'OPERATING') {
+      await this.assertNotInCustody(actor, code);
     }
 
     const updated = await this.store.asset.update(actor.tenantId, code, patch, parentId);
@@ -867,6 +892,7 @@ export class InventoryApplication {
       lot?: StockDocumentLotInput;
       /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng (T8-11). */
       serials?: readonly string[];
+      counterparty?: MovementCounterparty;
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
@@ -895,7 +921,7 @@ export class InventoryApplication {
           serials,
         },
       ],
-    });
+    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
     return posted[0];
   }
 
@@ -916,6 +942,7 @@ export class InventoryApplication {
       referenceId?: string;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      counterparty?: MovementCounterparty;
     },
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
@@ -936,7 +963,7 @@ export class InventoryApplication {
         unitCost: 0,
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
-    });
+    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
     return posted[0];
   }
 
@@ -977,6 +1004,95 @@ export class InventoryApplication {
       })),
     });
     return { out, in: inbound };
+  }
+
+  /**
+   * Phiếu nhập hoặc xuất nhiều dòng, ghi nguyên tử: một dòng lỗi (thiếu tồn, sai
+   * mã vật tư) thì không dòng nào được ghi.
+   *
+   * Ghi qua chứng từ kho (cùng đường với nhập/xuất một dòng) nên giá vốn và kiểm
+   * tồn khả dụng đi đúng luật chung. Không xử lý sê-ri hay lô.
+   */
+  async recordMovementLines(
+    actor: InventoryActor,
+    input: {
+      kind: 'receipt' | 'issue';
+      /** Nơi nhập đến từ / nơi xuất đi đến, áp cho mọi dòng của phiếu. */
+      counterparty?: MovementCounterparty;
+      lines: readonly {
+        warehouseCode: string;
+        materialCode: string;
+        quantity: number;
+        unitCost?: number;
+        note?: string;
+      }[];
+    },
+  ): Promise<InventoryTransaction[]> {
+    this.requireStockWriter(actor);
+    if (!input?.lines?.length) {
+      throw new InventoryError('VALIDATION', 'Phiếu phải có ít nhất một dòng.');
+    }
+    if (input.kind !== 'receipt' && input.kind !== 'issue') {
+      throw new InventoryError('VALIDATION', 'Loại phiếu không hợp lệ.');
+    }
+    for (const line of input.lines) this.requirePositive(line.quantity);
+    // Một phiếu một kho. Nạp nhiều kho một lần đi đường nhập Excel hàng loạt, không phải phiếu.
+    const warehouses = new Set(input.lines.map((line) => line.warehouseCode?.trim().toUpperCase()));
+    if (warehouses.size > 1) {
+      throw new InventoryError('VALIDATION', 'Một phiếu chỉ được thực hiện trong một kho.');
+    }
+    const counterparty = this.normalizeCounterparty(input.counterparty);
+    const receipt = input.kind === 'receipt';
+    // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
+    const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
+    return this.postLegacyDocument(
+      actor,
+      {
+        docType: receipt ? 'RECEIPT_OTHER' : 'ISSUE_OTHER',
+        warehouseCode: input.lines[0].warehouseCode,
+        note: note || undefined,
+        createdBy: actor.userId,
+        lines: input.lines.map((line) => ({
+          materialCode: line.materialCode,
+          quantity: line.quantity,
+          direction: receipt ? ('IN' as const) : ('OUT' as const),
+          unitCost: receipt ? (line.unitCost ?? 0) : 0,
+        })),
+      },
+      { counterparty },
+    );
+  }
+
+  /**
+   * Chuẩn hoá nơi nhập/xuất do client gửi. Không gửi gì thì để trống: các caller cũ
+   * (quy trình, bảo trì) chưa khai báo thông tin này. Loại WAREHOUSE do chuyển kho
+   * tự gán, client không được tự khai vì nó phải đi kèm id kho đối ứng.
+   */
+  private normalizeCounterparty(
+    counterparty: MovementCounterparty | undefined,
+  ): MovementCounterparty | undefined {
+    if (!counterparty) return undefined;
+    if (
+      !MOVEMENT_COUNTERPARTY_TYPES.includes(counterparty.type) ||
+      counterparty.type === 'WAREHOUSE'
+    ) {
+      throw new InventoryError('VALIDATION', 'Loại nơi nhập/xuất không hợp lệ.');
+    }
+    const name = counterparty.name?.trim();
+    if (!name) throw new InventoryError('VALIDATION', 'Phải nhập tên nơi nhập/xuất.');
+    if (name.length > 255) {
+      throw new InventoryError('VALIDATION', 'Tên nơi nhập/xuất tối đa 255 ký tự.');
+    }
+    const documentNumber = counterparty.documentNumber?.trim() || undefined;
+    if (documentNumber && documentNumber.length > 100) {
+      throw new InventoryError('VALIDATION', 'Số chứng từ tối đa 100 ký tự.');
+    }
+    return {
+      type: counterparty.type,
+      name,
+      address: counterparty.address?.trim() || undefined,
+      documentNumber,
+    };
   }
 
   /**
@@ -1126,7 +1242,98 @@ export class InventoryApplication {
   // ==========================================================================
 
   async createMaterial(actor: InventoryActor, input: CreateMaterialRequest): Promise<Material> {
+    return this.createMaterialRecord(actor, input, actor.displayName);
+  }
+
+  /**
+   * Nhập hàng hóa, dịch vụ từ hệ cũ theo lô. Mỗi dòng đi qua đúng các kiểm tra của tạo thường; dòng lỗi được báo
+   * theo số dòng trong tệp và không chặn các dòng còn lại. Người tạo và ngày tạo lấy từ tệp (người tạo trống là
+   * không ghi, để xử lý sau), không lấy người đang nhập.
+   */
+  async importMaterials(
+    actor: InventoryActor,
+    request: ImportMaterialsRequest,
+  ): Promise<ImportMaterialsResult> {
+    this.requireManager(actor);
+    const rows = request?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new InventoryError('VALIDATION', 'Không có dòng nào để nhập.');
+    }
+    if (rows.length > MAX_IMPORT_MATERIALS) {
+      throw new InventoryError('VALIDATION', `Mỗi lần nhập tối đa ${MAX_IMPORT_MATERIALS} dòng.`);
+    }
+    const policy = request.onConflict ?? 'FAIL';
+    if (policy !== 'FAIL' && policy !== 'SKIP' && policy !== 'UPDATE') {
+      throw new InventoryError('VALIDATION', 'Cách xử lý mã trùng không hợp lệ.');
+    }
+    const failures: ImportFailure[] = [];
+    const skipped: { line: number; message: string }[] = [];
+    let created = 0;
+    let updated = 0;
+    for (const row of rows) {
+      try {
+        const createdAt = row.createdAt?.trim();
+        if (createdAt && Number.isNaN(Date.parse(createdAt))) {
+          throw new InventoryError('VALIDATION', 'Ngày tạo không hợp lệ.');
+        }
+        const createdBy = row.createdBy?.trim();
+        if (createdBy && createdBy.length > 255) {
+          throw new InventoryError('VALIDATION', 'Tên người tạo quá dài.');
+        }
+        const history = { createdAt: createdAt || undefined, isActive: row.isActive };
+        const code = row.code?.trim().toUpperCase();
+        const existing =
+          policy === 'FAIL' || !code ? null : await this.store.material.findAnyByCode(actor.tenantId, code);
+        if (existing && policy === 'SKIP') {
+          skipped.push({ line: row.line, message: `Mã ${code} đã có, giữ bản cũ.` });
+        } else if (existing) {
+          // Cập nhật: chỉ ghi các ô có giá trị trong tệp, ô trống không xoá dữ liệu đang có.
+          if (existing.isActive === false) {
+            skipped.push({ line: row.line, message: `Mã ${code} đã ngừng dùng, không cập nhật.` });
+          } else {
+            requireTradeFields(row);
+            await this.updateMaterialRecord(actor, code, importPatch(row), {
+              createdBy: createdBy || undefined,
+              createdAt: createdAt || undefined,
+            });
+            updated += 1;
+          }
+        } else {
+          await this.createMaterialRecord(actor, row, createdBy || undefined, history);
+          created += 1;
+        }
+      } catch (error) {
+        // Lỗi ngoài dự kiến của một dòng (vd. trùng mã do hai lần nhập chạy cùng lúc) không được làm hỏng cả lô.
+        // 23505: hai lần nhập chạy cùng lúc cùng tạo một mã; báo là trùng mã thay vì lỗi chung.
+        const rowCode = row.code?.trim().toUpperCase() ?? '';
+        const duplicate =
+          (error as { code?: string } | null)?.code === '23505' ||
+          (error instanceof InventoryError && error.message === duplicateMaterialCodeMessage(rowCode));
+        failures.push({
+          line: row.line,
+          message:
+            error instanceof InventoryError
+              ? error.message
+              : duplicate
+                ? duplicateMaterialCodeMessage(rowCode)
+                : 'Không tạo được mặt hàng này.',
+          ...(duplicate ? { duplicate: true } : {}),
+        });
+      }
+    }
+    return { created, updated, skipped, failures };
+  }
+
+  private async createMaterialRecord(
+    actor: InventoryActor,
+    input: CreateMaterialRequest,
+    createdBy: string | undefined,
+    history?: { createdAt?: string; isActive?: boolean },
+  ): Promise<Material> {
     this.requireValidYear(input.manufactureYear);
+    this.requirePurchasePrice(input.purchasePrice);
+    requireTradeFields(input);
+    requireMaterialTextLengths(input);
     this.requireManager(actor);
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
@@ -1142,16 +1349,21 @@ export class InventoryApplication {
     // Kiểm cả vật tư đã ngừng hoạt động: mã vẫn chiếm chỗ, và tạo trùng sẽ vỡ
     // ràng buộc UNIQUE với thông báo khó hiểu của Postgres.
     if (await this.store.material.findAnyByCode(actor.tenantId, code)) {
-      throw new InventoryError('VALIDATION', `Mã vật tư ${code} đã tồn tại.`);
+      throw new InventoryError('VALIDATION', duplicateMaterialCodeMessage(code));
     }
-    return this.store.material.create(actor.tenantId, {
-      ...input,
-      code,
-      name: input.name.trim(),
-      kind,
-      // Dịch vụ không có tồn nên không có định mức tồn.
-      ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
-    });
+    return this.store.material.create(
+      actor.tenantId,
+      {
+        ...input,
+        code,
+        name: input.name.trim(),
+        kind,
+        // Dịch vụ không có tồn nên không có định mức tồn.
+        ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
+      },
+      createdBy,
+      history,
+    );
   }
 
   async updateMaterial(
@@ -1159,10 +1371,26 @@ export class InventoryApplication {
     code: string,
     patch: UpdateMaterialRequest,
   ): Promise<Material> {
+    return this.updateMaterialRecord(actor, code, patch);
+  }
+
+  private async updateMaterialRecord(
+    actor: InventoryActor,
+    code: string,
+    patch: UpdateMaterialRequest,
+    history?: { createdBy?: string; createdAt?: string },
+  ): Promise<Material> {
     this.requireValidYear(patch.manufactureYear);
+    this.requirePurchasePrice(patch.purchasePrice);
+    requireTradeFields(patch);
+    requireMaterialTextLengths(patch);
     this.requireManager(actor);
     const current = await this.store.material.findAnyByCode(actor.tenantId, code);
     if (!current) throw new MaterialNotFoundError(code);
+    // Mã đã ngừng dùng chỉ được "dùng lại"; muốn sửa thông tin phải dùng lại trước.
+    if (current.isActive === false && patch.isActive !== true) {
+      throw new InventoryError('VALIDATION', `Mã ${code} đã ngừng dùng; hãy dùng lại trước khi sửa.`);
+    }
     this.requireStockBounds(
       patch.minStock ?? current.minStock,
       patch.maxStock ?? current.maxStock,
@@ -1178,18 +1406,19 @@ export class InventoryApplication {
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
     }
-    const updated = await this.store.material.update(actor.tenantId, code, patch);
+    // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
+    const updated = history
+      ? await this.store.material.update(actor.tenantId, code, patch, history)
+      : await this.store.material.update(actor.tenantId, code, patch);
     if (!updated) throw new MaterialNotFoundError(code);
     return updated;
   }
 
   /**
-   * Ngừng dùng một vật tư — KHÔNG BAO GIỜ xoá.
+   * Ngừng dùng một vật tư: ẩn mã khỏi các ô chọn, số liệu và lịch sử giữ nguyên.
    *
-   * Sổ cái là append-only và mã vật tư là thứ mọi bút toán trỏ vào. Xoá một mã,
-   * kể cả mã chưa phát sinh giao dịch nào, mở đường cho việc mã đó được dựng lại
-   * sau này với ý nghĩa khác trong khi lịch sử cũ vẫn mang tên nó. Ngừng dùng
-   * chỉ ẩn mã khỏi các ô chọn; số liệu và lịch sử giữ nguyên.
+   * Sổ cái là append-only và mã vật tư là thứ mọi bút toán trỏ vào, nên mã đã có liên kết thì
+   * không xoá. Chỉ mã chưa có liên kết nào (dữ liệu rác, tạo nhầm) mới xoá được, qua `deleteMaterial`.
    */
   async retireMaterial(actor: InventoryActor, code: string): Promise<RetireResult> {
     this.requireManager(actor);
@@ -1208,6 +1437,27 @@ export class InventoryApplication {
     };
   }
 
+  /**
+   * Xoá hẳn một mã chưa có liên kết nào. Từ chối nếu còn bất kỳ liên kết nào: tồn, bút toán, giữ hàng,
+   * serial, lô, chứng từ, kiểm kê, BOM, lắp đặt, mã con, đang cấp cho nhân viên, hoặc dòng báo giá,
+   * đơn hàng của phân hệ khác. Khi đó dùng "Ngừng dùng" để giữ lịch sử.
+   */
+  async deleteMaterial(actor: InventoryActor, code: string): Promise<MaterialDeleteResult> {
+    this.requireManager(actor);
+    const material = await this.store.material.findAnyByCode(actor.tenantId, code);
+    if (!material) throw new MaterialNotFoundError(code);
+    const links = await this.store.material.listLinks(actor.tenantId, code);
+    if (links.length > 0) {
+      const detail = links.map((link) => `${link.label} (${link.count})`).join(', ');
+      throw new InventoryError(
+        'VALIDATION',
+        `Mã ${code} đã có liên kết nên không xoá được: ${detail}. Hãy dùng "Ngừng dùng" để giữ lịch sử.`,
+      );
+    }
+    if (!(await this.store.material.delete(actor.tenantId, code))) throw new MaterialNotFoundError(code);
+    return { code, mode: 'deleted' };
+  }
+
   // ==========================================================================
   // Danh mục thiết bị — thêm / thanh lý
   // ==========================================================================
@@ -1218,6 +1468,9 @@ export class InventoryApplication {
     const code = input.code?.trim().toUpperCase();
     if (!code) throw new InventoryError('VALIDATION', 'Mã thiết bị không được để trống.');
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên thiết bị không được để trống.');
+    if (input.assetCategory && !ASSET_CATEGORIES.includes(input.assetCategory)) {
+      throw new InventoryError('VALIDATION', 'Nhóm tài sản không hợp lệ.');
+    }
     if (await this.store.asset.findAnyByCode(actor.tenantId, code)) {
       throw new InventoryError('VALIDATION', `Mã thiết bị ${code} đã tồn tại.`);
     }
@@ -1250,6 +1503,7 @@ export class InventoryApplication {
         `Thiết bị còn ${children} cấu phần con. Tháo hoặc chuyển các con đi trước khi thanh lý.`,
       );
     }
+    await this.assertNotInCustody(actor, code);
     await this.store.asset.update(actor.tenantId, code, { status: 'DISPOSED' });
     return {
       code,
@@ -1358,9 +1612,95 @@ export class InventoryApplication {
     return { ...saved, value: normalizeInventorySetting(key, saved.value) };
   }
 
+  // --- Trang thiết bị nhân sự (HRM Custody) ---
+  async listEmployeeCustody(actor: InventoryActor, employeeId: string): Promise<Material[]> {
+    return this.store.custody.listByEmployee(actor.tenantId, employeeId);
+  }
+
+  async listCustodyAssets(actor: InventoryActor): Promise<Material[]> {
+    return this.store.custody.listAll(actor.tenantId);
+  }
+
+  async listAssignedCustody(actor: InventoryActor): Promise<Material[]> {
+    return this.store.custody.listAssigned(actor.tenantId);
+  }
+
+  async assignCustody(
+    actor: InventoryActor,
+    materialCode: string,
+    employeeId: string | null,
+  ): Promise<Material | null> {
+    this.requireStockWriter(actor);
+    if (employeeId !== null) {
+      const asset = await this.store.custody.find(actor.tenantId, materialCode);
+      if (!asset) throw new AssetNotFoundError(materialCode);
+      if (asset.assignedEmployeeId && asset.assignedEmployeeId !== employeeId) {
+        throw new InventoryError(
+          'CUSTODY_ALREADY_ASSIGNED',
+          `Tài sản ${materialCode} đang được cấp cho người khác. Cần thu hồi trước khi cấp lại.`,
+          409,
+        );
+      }
+      if ((asset.status ?? 'OPERATING') !== 'OPERATING') {
+        throw new InventoryError(
+          'CUSTODY_ASSET_UNAVAILABLE',
+          `Tài sản ${materialCode} không ở trạng thái hoạt động nên chưa thể cấp phát.`,
+          409,
+        );
+      }
+    }
+    const assigned = await this.store.custody.assign(actor.tenantId, materialCode, employeeId);
+    if (assigned) return assigned;
+    // Cấp thì kiểm trên đã loại các lý do đã biết; còn null nghĩa là vừa bị người khác cấp hay đổi trạng thái.
+    if (employeeId !== null && (await this.store.custody.find(actor.tenantId, materialCode))) {
+      throw new InventoryError(
+        'CUSTODY_CONFLICT',
+        `Tài sản ${materialCode} vừa thay đổi, vui lòng tải lại và thử lại.`,
+        409,
+      );
+    }
+    throw new AssetNotFoundError(materialCode);
+  }
+
+  async listAssignableCustody(actor: InventoryActor): Promise<CustodyAsset[]> {
+    return (await this.store.custody.listAssignable(actor.tenantId)).map(toCustodyAsset);
+  }
+
+  async listEmployeeCustodyAssets(actor: InventoryActor, employeeId: string): Promise<CustodyAsset[]> {
+    return (await this.store.custody.listByEmployee(actor.tenantId, employeeId)).map(toCustodyAsset);
+  }
+
+  // --- Biên bản thí nghiệm / đo kiểm tài sản ---
+  async listAssetTests(actor: InventoryActor, assetId: string): Promise<AssetTestRecord[]> {
+    return this.store.assetTest.listByAsset(actor.tenantId, assetId);
+  }
+
+  async createAssetTest(
+    actor: InventoryActor,
+    input: CreateAssetTestRecordRequest,
+  ): Promise<AssetTestRecord> {
+    this.requireStockWriter(actor);
+    return this.store.assetTest.create(actor.tenantId, input);
+  }
+
   private requireManager(actor: InventoryActor): void {
     if (!actor.canManage) {
       throw new InvalidReservationError('Bạn không có quyền sửa danh mục kho.');
+    }
+  }
+
+  /**
+   * Tài sản đang cấp cho nhân sự thì Kho không đổi trạng thái hay thanh lý: Nhân sự phải thu hồi trước, để không có
+   * tài sản vừa nằm trong tay nhân viên vừa ở bảo trì hay thanh lý.
+   */
+  private async assertNotInCustody(actor: InventoryActor, code: string): Promise<void> {
+    const asset = await this.store.custody.find(actor.tenantId, code);
+    if (asset?.assignedEmployeeId) {
+      throw new InventoryError(
+        'ASSET_IN_CUSTODY',
+        `Tài sản ${code} đang được cấp cho nhân sự. Nhờ bộ phận Nhân sự thu hồi trước khi thực hiện.`,
+        409,
+      );
     }
   }
 
@@ -1376,6 +1716,10 @@ export class InventoryApplication {
       throw new InvalidReservationError('Số lượng phải là số dương.');
     }
   }
+
+  listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]> {
+    return this.store.listAuditorCandidates(actor);
+  }
 }
 
 const MAX_CATALOG_PAGE = 500;
@@ -1387,6 +1731,81 @@ function requireMaterialKind(value: unknown): MaterialKind | undefined {
     throw new InventoryError('VALIDATION', 'Loại mặt hàng phải là hàng hoá hoặc dịch vụ.');
   }
   return value as MaterialKind;
+}
+
+const MAX_TRADE_LABEL = 100;
+const MAX_MATERIAL_DESCRIPTION = 2000;
+const MAX_IMPORT_MATERIALS = 1000;
+
+function requireTradeLabel(value: unknown, message: string): void {
+  if (value == null) return;
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > MAX_TRADE_LABEL) {
+    throw new InventoryError('VALIDATION', message);
+  }
+}
+
+/**
+ * "Sử dụng" và "phân loại" là chuỗi lấy từ danh mục trong Cài đặt (admin tự khai, đổi tên được) nên chỉ kiểm
+ * dạng chuỗi và độ dài, không so với danh sách hiện tại: một mặt hàng cũ vẫn phải lưu được sau khi admin bỏ
+ * một mục khỏi danh mục. Giá bán không âm. Sai thì 400, không lặng lẽ bỏ qua.
+ */
+function requireTradeFields(input: {
+  tradeMode?: unknown;
+  tradeCategory?: unknown;
+  salePrice?: unknown;
+  description?: unknown;
+}): void {
+  requireTradeLabel(input.tradeMode, 'Cách sử dụng không hợp lệ.');
+  requireTradeLabel(input.tradeCategory, 'Phân loại không hợp lệ.');
+  const description = input.description;
+  if (description != null && (typeof description !== 'string' || description.length > MAX_MATERIAL_DESCRIPTION)) {
+    throw new InventoryError('VALIDATION', `Mô tả tối đa ${MAX_MATERIAL_DESCRIPTION} ký tự.`);
+  }
+  const price = input.salePrice;
+  if (price != null && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
+    throw new InventoryError('VALIDATION', 'Giá bán phải là số không âm.');
+  }
+}
+
+function duplicateMaterialCodeMessage(code: string): string {
+  return `Mã vật tư ${code} đã tồn tại.`;
+}
+
+/** Độ dài tối đa của các cột chữ trong `materials`; vượt thì DB báo lỗi chung, nên kiểm trước để báo đúng chỗ. */
+const MATERIAL_TEXT_LIMITS: readonly { key: string; label: string; max: number }[] = [
+  { key: 'code', label: 'Mã', max: 100 },
+  { key: 'name', label: 'Tên', max: 255 },
+  { key: 'unit', label: 'Đơn vị', max: 50 },
+  { key: 'barcode', label: 'Barcode', max: 100 },
+  { key: 'manufacturer', label: 'Nhà sản xuất', max: 180 },
+];
+
+function requireMaterialTextLengths(input: object): void {
+  const record = input as Record<string, unknown>;
+  for (const { key, label, max } of MATERIAL_TEXT_LIMITS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > max) {
+      throw new InventoryError('VALIDATION', `${label} tối đa ${max} ký tự (hiện ${value.trim().length}).`);
+    }
+  }
+}
+
+/** Các trường tệp nhập được phép ghi đè khi cập nhật mã có sẵn; trường không có giá trị thì không đưa vào. */
+function importPatch(row: ImportMaterialRow): UpdateMaterialRequest {
+  const patch: Record<string, unknown> = {
+    name: row.name?.trim() || undefined,
+    unit: row.unit?.trim() || undefined,
+    barcode: row.barcode?.trim() || undefined,
+    manufacturer: row.manufacturer?.trim() || undefined,
+    tradeCategory: row.tradeCategory?.trim() || undefined,
+    tradeMode: row.tradeMode?.trim() || undefined,
+    salePrice: row.salePrice,
+    purchasePrice: row.purchasePrice,
+    currency: row.currency?.trim() || undefined,
+    description: row.description?.trim() || undefined,
+  };
+  for (const key of Object.keys(patch)) if (patch[key] === undefined) delete patch[key];
+  return patch as UpdateMaterialRequest;
 }
 
 function requireWarrantyMonths(value: unknown): void {
@@ -1441,4 +1860,19 @@ function allocateInstalledLots(
   }
   if (remaining > 0) parts.push({ quantity: remaining });
   return parts;
+}
+
+const ASSET_CATEGORIES: readonly string[] = ['INDUSTRIAL', 'IT_OFFICE', 'TOOL_PPE', 'VEHICLE'];
+
+function toCustodyAsset(material: Material): CustodyAsset {
+  return {
+    id: material.id,
+    code: material.code,
+    name: material.name,
+    assetCategory: material.assetCategory,
+    serialNumber: material.serialNumber,
+    status: material.status,
+    assignedEmployeeId: material.assignedEmployeeId,
+    assignedAt: material.assignedAt,
+  };
 }

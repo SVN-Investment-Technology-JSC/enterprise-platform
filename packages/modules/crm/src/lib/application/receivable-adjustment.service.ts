@@ -10,7 +10,7 @@ import {
 } from '@enterprise-platform/contracts-crm';
 import { CrmForbiddenError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, optionalEnum, optionalId, optionalText, requiredText, requiredVersion } from '../domain/fields.js';
-import { decodeCursor, pageLimit } from '../domain/pagination.js';
+import { decodeCursor, pageLimit, pageNumber } from '../domain/pagination.js';
 import { positiveAmount } from '../domain/receivables.js';
 import { crmSeesEverything, type CrmActor } from './crm-actor.js';
 import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
@@ -59,6 +59,7 @@ export class ReceivableAdjustmentService {
       customerId: optionalId(query?.customerId, 'khách hàng') ?? undefined,
       status: optionalEnum(query?.status, ADJUSTMENT_STATUSES, 'trạng thái'),
       cursor: decodeCursor(query?.cursor),
+      page: pageNumber(query?.page),
       limit: pageLimit(query?.limit),
     });
   }

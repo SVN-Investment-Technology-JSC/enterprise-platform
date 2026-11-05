@@ -1,6 +1,5 @@
 import { Controller, Get, HttpException, Query, Req } from '@nestjs/common';
 import type {
-  MaterialCategory,
   QualityStatus,
   SerialStockState,
   StockDocumentStatus,
@@ -50,7 +49,7 @@ export class InventoryReportsController {
         groupBy: groupBy as StockReportGroupBy | undefined,
         search,
         materialCode,
-        category: category as MaterialCategory | undefined,
+        category,
         warehouseCode,
         expiringWithinDays: numeric(expiringWithinDays),
         qualityStatus: qualityStatus as QualityStatus | undefined,

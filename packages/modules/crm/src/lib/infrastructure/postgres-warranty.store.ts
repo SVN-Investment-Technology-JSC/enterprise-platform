@@ -31,7 +31,7 @@ import { computeWarranty } from '../domain/warranty-period.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { readHistory } from './postgres-contract.store.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 
 /** Khoá cấu hình kho cách ly, kho lỗi (giá trị `{ "code": "..." }`). */
 export const WARRANTY_QUARANTINE_SETTING_KEY = 'warranty.quarantineWarehouseCode';
@@ -556,15 +556,20 @@ export class PostgresWarrantyStore implements WarrantyStore {
           ${tsQuery ? `OR to_tsvector('simple'::regconfig, c.name) @@ to_tsquery('simple'::regconfig, ${where.param(tsQuery)})` : ''})`,
       );
     }
-    where.after(filter.cursor, 'w.updated_at', 'w.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<CaseRow>(
-      `SELECT ${CASE_COLUMNS} ${CASE_FROM} ${where.where()}
-        ORDER BY w.updated_at DESC, w.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${CASE_COLUMNS}`,
+        from: `${CASE_FROM}`,
+        orderBy: 'w.updated_at DESC, w.id DESC',
+        atColumn: 'w.updated_at',
+        idColumn: 'w.id',
+      },
+      filter,
+      toSummary,
     );
-    return keysetPage(result.rows, filter.limit, toSummary);
   }
 
   async getCase(tenantId: string, scope: CrmDataScope, id: string): Promise<WarrantyCaseDetail | undefined> {

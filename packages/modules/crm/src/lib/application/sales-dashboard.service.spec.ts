@@ -24,8 +24,11 @@ function fakeStore(): jest.Mocked<SalesDashboardStore> {
     }),
     dailyFigures: jest.fn().mockResolvedValue([{ date: '2026-10-05', revenue: 2_000_000, orders: 3 }]),
     pipeline: jest.fn().mockResolvedValue([
-      { stage: 'QUOTING', count: 2, value: 10_000_000, weightedValue: 5_000_000 },
-      { stage: 'NEW', count: 1, value: 1_000_000, weightedValue: 100_000 },
+      { stage: 'NEW', name: 'Mới', semantic: 'OPEN', count: 1, value: 1_000_000, weightedValue: 100_000 },
+      { stage: 'CONTACTED', name: 'Đã liên hệ', semantic: 'OPEN', count: 0, value: 0, weightedValue: 0 },
+      { stage: 'DISCOVERY', name: 'Tìm hiểu nhu cầu', semantic: 'OPEN', count: 0, value: 0, weightedValue: 0 },
+      { stage: 'QUOTING', name: 'Báo giá', semantic: 'OPEN', count: 2, value: 10_000_000, weightedValue: 5_000_000 },
+      { stage: 'NEGOTIATION', name: 'Đàm phán', semantic: 'OPEN', count: 0, value: 0, weightedValue: 0 },
     ]),
     topCustomers: jest.fn().mockResolvedValue([]),
     topProducts: jest.fn().mockResolvedValue([]),

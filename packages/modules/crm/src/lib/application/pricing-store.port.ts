@@ -162,6 +162,10 @@ export interface CatalogMaterial {
   readonly availableByWarehouse?: readonly CatalogMaterialStock[] | null;
   /** Số tháng bảo hành của mặt hàng (tính hạn bảo hành khi không theo hợp đồng). */
   readonly warrantyMonths?: number | null;
+  /** Giá bán khai trong danh mục hàng hoá của Kho; rỗng là chưa khai. */
+  readonly salePrice?: number | null;
+  /** Phân loại hàng hoá hoặc dịch vụ của Kho. */
+  readonly tradeCategory?: string | null;
 }
 
 export interface CatalogMaterialStock {

@@ -11,6 +11,7 @@ import {
   WARRANTY_STATUS_LABELS,
   type WarrantyCaseDetail,
   type WarrantyCaseLine,
+  type WarrantyDeviceDocument,
   type WarrantyDisposition,
   type WarrantyDocument,
   type WarrantyInspectionResult,
@@ -27,11 +28,13 @@ import {
   errorMessage,
   getWarrantyCase,
   inspectWarrantyLine,
+  listWarrantyDeviceDocuments,
   loadSerialHistory,
   resolveWarrantyLine,
   warrantyAction,
 } from '../crm-api';
 import { labelOptions, useCrm } from '../crm-context';
+import { DocumentsPanel } from '../documents';
 import { formatDay, formatQuantity } from '../fulfillment.model';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
@@ -69,6 +72,7 @@ export function WarrantyDetail({
   const [resolving, setResolving] = useState<WarrantyCaseLine>();
   const [rejecting, setRejecting] = useState(false);
   const [history, setHistory] = useState<string>();
+  const [deviceDocuments, setDeviceDocuments] = useState<WarrantyDeviceDocument[]>([]);
 
   const load = useCallback(
     () =>
@@ -84,6 +88,17 @@ export function WarrantyDetail({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Chỉ đọc; không có quyền Kho thì server trả danh sách rỗng và khối này ẩn đi.
+  useEffect(() => {
+    let active = true;
+    listWarrantyDeviceDocuments(caseId)
+      .then((items) => active && setDeviceDocuments(items))
+      .catch(() => active && setDeviceDocuments([]));
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
 
   async function run(work: () => Promise<WarrantyCaseDetail>, success?: string): Promise<boolean> {
     setBusy(true);
@@ -335,6 +350,32 @@ export function WarrantyDetail({
         <Table<WarrantyCaseLine> size="small" rowKey="id" columns={lineColumns} dataSource={[...detail.lines]} pagination={false} scroll={{ x: 1500 }} />
       </section>
 
+      {deviceDocuments.length ? (
+        <section className={styles.tableCard} aria-label="Tài liệu thiết bị từ Kho">
+          <h3 className={styles.sectionTitle}>Tài liệu thiết bị (từ Kho)</h3>
+          <Table<WarrantyDeviceDocument>
+            size="small"
+            rowKey={(item) => `${item.lineId}:${item.id}`}
+            columns={[
+              { title: 'Thiết bị', key: 'device', render: (_, item) => `${item.materialCode} - ${item.materialName}${item.serial ? ` (${item.serial})` : ''}` },
+              {
+                title: 'Tài liệu',
+                dataIndex: 'fileName',
+                render: (name: string, item) => (
+                  <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer">
+                    {name}
+                  </a>
+                ),
+              },
+              { title: 'Ghi chú', dataIndex: 'note', render: (note: string | null) => note ?? '' },
+              { title: 'Ngày tải lên', dataIndex: 'createdAt', render: (at: string) => formatDateTime(at) },
+            ]}
+            dataSource={deviceDocuments}
+            pagination={false}
+          />
+        </section>
+      ) : null}
+
       <section className={styles.tableCard} aria-label="Chứng từ">
         <h3 className={styles.sectionTitle}>Chứng từ</h3>
         <Table<WarrantyDocument>
@@ -347,6 +388,8 @@ export function WarrantyDetail({
           locale={{ emptyText: 'Chưa có chứng từ nào.' }}
         />
       </section>
+
+      <DocumentsPanel entityType="warranty_case" entityId={detail.id} showTitle />
 
       <section className={styles.panel} aria-label="Nhật ký">
         <h3 className={styles.sectionTitle}>Nhật ký</h3>

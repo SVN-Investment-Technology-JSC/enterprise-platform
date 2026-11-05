@@ -2,14 +2,17 @@
 
 import type {
   CreateMaterialRequest,
+  InventoryTradeCatalog,
   Material,
   MaterialCategory,
   MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
-import { MATERIAL_CATEGORY_LABEL, currencyLabel } from '../inventory-labels';
+import { useMemo, useState, type FormEvent } from 'react';
+import { currencyLabel } from '../inventory-labels';
+import { categoriesOf, withCurrent } from '../trade-items.model';
+import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
@@ -33,6 +36,8 @@ const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
 export function MaterialForm({
   editing,
   units = [],
+  types = [],
+  catalog,
   busy,
   onCancel,
   onSubmit,
@@ -40,13 +45,19 @@ export function MaterialForm({
   editing?: Material;
   /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
   units?: readonly string[];
+  /** Danh mục loại vật tư / thiết bị do admin cấu hình; tuỳ chọn. */
+  types?: readonly string[];
+  /** Danh mục phân loại khai trong Cài đặt: nguồn duy nhất của ô Phân loại (hàng hóa và dịch vụ có danh sách riêng). */
+  catalog?: InventoryTradeCatalog;
   busy: boolean;
   onCancel: () => void;
-  onSubmit: (input: CreateMaterialRequest) => void;
+  /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
+  onSubmit: (input: CreateMaterialRequest) => Promise<void> | void;
 }) {
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
-  const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
+  const [tradeCategory, setTradeCategory] = useState(editing?.tradeCategory ?? '');
+  const [type, setType] = useState(editing?.type ?? '');
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
   const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 100));
@@ -68,11 +79,10 @@ export function MaterialForm({
     : 'NONE';
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
 
-  const categoryOptions = (Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCategory[]).map(
-    (cat) => ({
-      value: cat,
-      label: MATERIAL_CATEGORY_LABEL[cat],
-    }),
+  // Mỗi nhóm (hàng hóa, dịch vụ) một danh sách phân loại riêng, lấy từ Cài đặt.
+  const categoryOptions = useMemo(
+    () => withCurrent(categoriesOf(isService ? 'SERVICE' : 'GOODS', catalog), tradeCategory),
+    [isService, catalog, tradeCategory],
   );
 
   const unitOptions = (units.includes(unit) || !unit ? units : [...units, unit]).map((u) => ({
@@ -80,6 +90,12 @@ export function MaterialForm({
     label: u,
   }));
 
+  const typeOptions = (types.includes(type) || !type ? types : [...types, type]).map((t) => ({
+    value: t,
+    label: t,
+  }));
+
+  const { error, submit: send } = useFormSubmit('Không lưu được vật tư.');
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -89,7 +105,8 @@ export function MaterialForm({
 
     if (!cleanCode || !cleanName || !cleanUnit) return;
 
-    // Phân nhóm category theo tracking mode để tương thích ràng buộc database & contracts
+    // `category` là trường kỹ thuật (theo lô hay không) để thỏa ràng buộc database; không hiện cho người dùng.
+    // Phân loại người dùng thấy và chọn là `tradeCategory`, lấy từ Cài đặt.
     const category: MaterialCategory =
       trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
     const isSerialized = !isService && trackingMode === 'SERIAL';
@@ -97,10 +114,12 @@ export function MaterialForm({
     const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
 
-    onSubmit({
+    void send(() => onSubmit({
       code: cleanCode,
       name: cleanName,
       category,
+      tradeCategory: tradeCategory || undefined,
+      type: type.trim() || undefined,
       unit: cleanUnit,
       minStock: isService ? 0 : Number(minStock) || 0,
       maxStock: isService ? 0 : Number(maxStock) || 0,
@@ -109,7 +128,7 @@ export function MaterialForm({
       kind,
       // Ô trống khi sửa là xoá số tháng đã khai.
       warrantyMonths: warranty ? Math.max(Math.trunc(Number(warranty)) || 0, 0) : editing ? null : undefined,
-    });
+    }));
   };
 
   const isDisabled = busy;
@@ -174,17 +193,40 @@ export function MaterialForm({
               </label>
 
               <label>
-                Nhóm vật tư *
+                Phân loại
                 <SearchableSelect
                   options={categoryOptions}
-                  value={category}
-                  placeholder="— Chọn nhóm vật tư —"
-                  emptyText="Không có dữ liệu"
-                  onChange={(val) => setCategory(val as MaterialCategory)}
+                  value={tradeCategory}
+                  placeholder={
+                    categoryOptions.length === 0 ? '— Chưa khai báo trong Cài đặt —' : '— Chọn phân loại —'
+                  }
+                  emptyText="Chưa khai báo trong Cài đặt"
+                  onChange={(val) => setTradeCategory(val || '')}
+                  clearable
                   style={{ width: '100%' }}
                 />
               </label>
 
+              <label>
+                Loại vật tư
+                {types.length > 0 ? (
+                  <SearchableSelect
+                    options={typeOptions}
+                    value={type}
+                    placeholder="— Chọn loại vật tư —"
+                    emptyText="Không tìm thấy loại vật tư"
+                    onChange={(val) => setType(val)}
+                    clearable
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <input
+                    placeholder="VD: Thiết bị, Chi tiết, Linh kiện..."
+                    value={type}
+                    onChange={(event) => setType(event.target.value)}
+                  />
+                )}
+              </label>
 
               <label>
                 Đơn vị tính *
@@ -215,7 +257,11 @@ export function MaterialForm({
                   value={kind}
                   placeholder="Chọn loại mặt hàng"
                   emptyText="Không có loại phù hợp"
-                  onChange={(value) => setKind(value === 'SERVICE' ? 'SERVICE' : 'STOCK')}
+                  onChange={(value) => {
+                    setKind(value === 'SERVICE' ? 'SERVICE' : 'STOCK');
+                    // Hàng hóa và dịch vụ có danh sách phân loại riêng: đổi nhóm thì bỏ phân loại đã chọn.
+                    setTradeCategory('');
+                  }}
                   style={{ width: '100%' }}
                 />
                 {isService ? (
@@ -452,6 +498,7 @@ export function MaterialForm({
                 )}
               </div>
             </div>
+            <FormError error={error} />
           </div>
 
           {/* Footer Dialog Actions */}

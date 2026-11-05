@@ -231,6 +231,30 @@ async function openForm(kind: keyof typeof KIND_BUTTON) {
 
 const submitButton = () =>
   screen.getByRole('button', { name: /Gửi duyệt đơn/, hidden: true }) as HTMLButtonElement;
+/**
+ * Bấm Gửi duyệt đơn khi còn thiếu thông tin: nút không bị khoá, form báo đúng lỗi qua toast
+ * và không gửi gì lên máy chủ.
+ */
+async function submitExpectingError(title: string, description: string | RegExp) {
+  const errorSpy = jest.spyOn(toast, 'error');
+  errorSpy.mockClear();
+  fireEvent.click(submitButton());
+  await waitFor(() =>
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title,
+        description: typeof description === 'string' ? description : expect.stringMatching(description),
+      }),
+    ),
+  );
+  expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+}
+/** Chờ form OT trong card nhận xong bản nháp và danh mục lý do (nút gửi không còn khoá để làm tín hiệu). */
+const formReadyWith = (description: string) =>
+  waitFor(() => {
+    expect((screen.getByLabelText(OT_DESCRIPTION_LABEL) as HTMLTextAreaElement).value).toBe(description);
+    expect((screen.getByPlaceholderText('Chọn lý do...') as HTMLInputElement).value).toContain('Theo yêu cầu công việc');
+  });
 const draftBody = (kind: string) =>
   calls.find((c) => c.url.endsWith(`/request-drafts/${kind}`) && c.method === 'POST')?.body;
 
@@ -398,8 +422,8 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(description.tagName).toBe('TEXTAREA');
     expect(description.required).toBe(true);
     expect(footer()).not.toContain('Loại OT');
-    // Chưa chọn lý do thì chưa gửi được.
-    expect(submitButton().disabled).toBe(true);
+    // Chưa chọn lý do thì chưa gửi được: bấm gửi hiện lỗi.
+    await submitExpectingError('Thiếu thông tin', 'Vui lòng chọn lý do.');
   });
 
   it('hiện diễn giải của lý do bằng chữ nhỏ và thẻ Có lương / Không lương theo lý do OT', async () => {
@@ -425,9 +449,10 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(description.required).toBe(true);
     expect(screen.queryByText('Lý do đã chọn yêu cầu nhập mô tả.')).toBeNull();
     // Chưa nhập Mô tả thì chưa gửi được, kể cả khi lý do không yêu cầu.
-    expect(submitButton().disabled).toBe(true);
+    const OT_DESCRIPTION_REQUIRED = /Mô tả chi tiết lý do làm thêm là bắt buộc/;
+    await submitExpectingError('Thiếu thông tin', OT_DESCRIPTION_REQUIRED);
     fireEvent.change(description, { target: { value: '   ' } });
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thiếu thông tin', OT_DESCRIPTION_REQUIRED);
     fireEvent.change(description, { target: { value: 'Chạy kịp tiến độ bàn giao' } });
     expect(submitButton().disabled).toBe(false);
 
@@ -442,9 +467,18 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     fireEvent.change(screen.getByPlaceholderText(/VD: Trạm biến áp/), { target: { value: 'Trạm biến áp' } });
     const description = screen.getByLabelText(TRIP_DESCRIPTION_LABEL) as HTMLTextAreaElement;
     expect(description.required).toBe(true);
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thiếu thông tin', /Nội dung công việc là bắt buộc/);
     fireEvent.change(description, { target: { value: 'Kiểm tra thiết bị' } });
     await waitFor(() => expect(submitButton().disabled).toBe(false));
+  });
+
+  it('đơn công tác thiếu địa điểm: nút gửi vẫn bấm được và báo rõ thiếu địa điểm công tác', async () => {
+    reasonCatalog = { BUSINESS_TRIP: [catalogReason('BUSINESS_TRIP', 'bt1', 'Khảo sát hiện trường')] };
+    await openForm('business_trip');
+    await chooseReason(/Khảo sát hiện trường/);
+    fireEvent.change(screen.getByLabelText(TRIP_DESCRIPTION_LABEL), { target: { value: 'Kiểm tra thiết bị' } });
+    expect(submitButton().disabled).toBe(false);
+    await submitExpectingError('Thiếu địa điểm công tác', /Địa điểm công tác là bắt buộc/);
   });
 
   it('gửi đơn làm thêm giờ với reasonId và description, không gửi reason hay otType', async () => {
@@ -532,7 +566,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(screen.getByTestId('leave-info').textContent).toContain('Số ngày nghỉ tính toán');
   });
 
-  it('phép năm chưa có quỹ hoặc quỹ bằng 0: báo không đủ quỹ và khoá nút gửi; lý do khác vẫn gửi được', async () => {
+  it('phép năm chưa có quỹ hoặc quỹ bằng 0: báo không đủ quỹ và chặn gửi; lý do khác vẫn gửi được', async () => {
     leaveTypes = [
       leaveType('lt-annual', 'ANNUAL', 'Nghỉ phép năm', { deductBalance: true, isAnnual: true }),
       leaveType('lt-sick', 'SICK', 'Nghỉ ốm', { paid: false }),
@@ -541,7 +575,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await openForm('leave');
     await chooseReason(/Nghỉ phép năm/);
     expect((await screen.findByTestId('leave-fund-error')).textContent).toContain('quỹ hiện bằng 0');
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thời gian nghỉ không hợp lệ', /quỹ hiện bằng 0/);
     // Đổi sang lý do không trừ phép năm: hết chặn
     await chooseReason(/Nghỉ ốm/);
     expect(screen.queryByTestId('leave-fund-error')).toBeNull();
@@ -554,7 +588,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await openForm('leave');
     await chooseReason(/Nghỉ phép năm/);
     expect((await screen.findByTestId('leave-fund-error')).textContent).toContain('Chưa có quỹ phép năm khả dụng');
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thời gian nghỉ không hợp lệ', /Chưa có quỹ phép năm khả dụng/);
   });
 
   it('phép năm còn quỹ đủ: hiện quỹ khả dụng và cho gửi', async () => {
@@ -680,7 +714,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
   });
 
 
-  it('danh mục rỗng: hiện thông báo cho quản trị viên và khóa nút gửi', async () => {
+  it('danh mục rỗng: hiện thông báo cho quản trị viên và chặn gửi', async () => {
     reasonCatalog = { OVERTIME: [] };
     await openForm('ot');
     expect(
@@ -688,10 +722,10 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
         'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Loại đơn và lý do.',
       ),
     ).toBeTruthy();
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thiếu thông tin', /Chưa có lý do nào cho loại đơn này/);
   });
 
-  it('đơn nghỉ không có lý do nghỉ nào: thông báo trỏ tới Phép năm và lý do nghỉ, khóa nút gửi', async () => {
+  it('đơn nghỉ không có lý do nghỉ nào: thông báo trỏ tới Phép năm và lý do nghỉ, chặn gửi', async () => {
     leaveTypes = [];
     await openForm('leave');
     expect(
@@ -699,10 +733,10 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
         'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Phép năm và lý do nghỉ.',
       ),
     ).toBeTruthy();
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thiếu thông tin', /Phép năm và lý do nghỉ/);
   });
 
-  it('lỗi tải danh mục: báo lỗi, cho thử lại và khóa nút gửi', async () => {
+  it('lỗi tải danh mục: báo lỗi, cho thử lại và chặn gửi', async () => {
     reasonCatalog = { OVERTIME: otReasons() };
     const original = hrmFetchMock.getMockImplementation() as (
       path: string,
@@ -719,7 +753,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     }) as never);
     await openForm('ot');
     expect(await screen.findByText(/Không tải được danh sách lý do: Máy chủ bận/)).toBeTruthy();
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thiếu thông tin', /Không tải được danh sách lý do: Máy chủ bận/);
     fireEvent.click(screen.getAllByRole('button', { name: 'Thử lại', hidden: true })[0]);
     await screen.findByPlaceholderText('Chọn lý do...');
   });
@@ -1306,7 +1340,7 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     expect(within(breakdown).getByTestId('leave-range-row-2').textContent).toContain('1 ngày');
     expect(breakdown.textContent).toContain('Tổng cộng');
     expect(breakdown.textContent).toContain('2 ngày');
-    expect(submitButton().disabled).toBe(true);
+    await submitExpectingError('Thời gian nghỉ không hợp lệ', /vượt quỹ phép năm khả dụng/);
     fireEvent.click(within(extra).getByRole('button', { name: /Xoá khoảng nghỉ 2/i }));
     await waitFor(() => expect(screen.queryByTestId('leave-fund-error')).toBeNull());
   });
@@ -1481,7 +1515,7 @@ describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang 
       reasonId: 'ot1',
       description: 'Chạy tiến độ',
     });
-    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    await formReadyWith('Chạy tiến độ');
     fireEvent.click(submitButton());
     const error = await screen.findByText('Trùng đơn đã có');
     expect(screen.getByText('Khoảng làm thêm 1 gửi không thành công')).toBeTruthy();
@@ -1602,7 +1636,7 @@ describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang 
         reasonId: 'ot1',
         description: 'Hoàn thiện hồ sơ nghiệm thu',
       });
-      await waitFor(() => expect(submitButton().disabled).toBe(false));
+      await formReadyWith('Hoàn thiện hồ sơ nghiệm thu');
       fireEvent.click(submitButton());
       await waitFor(() => expect(results).toHaveLength(1));
 

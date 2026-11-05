@@ -37,6 +37,7 @@ import {
 } from './approvals-model';
 import { RequestThread } from './request-thread';
 import { OnBehalfName } from '../on-behalf-name';
+import { requestProjectName } from '../request-project-info';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -145,6 +146,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
   const terminal = isTerminalProcedureStatus(progress?.status);
   const instanceId = f.instanceId ?? row.link?.instance_id;
   const procedureHref = procedureInstanceHref(instanceId);
+  const projectName = row.source.kind === 'OT' || row.source.kind === 'BUSINESS_TRIP' ? requestProjectName(row) : '';
 
   return (
     <aside aria-label="Chi tiết đơn" className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-200/70 bg-white">
@@ -225,6 +227,11 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
               {row.descriptionText}
             </span>
           </Field>
+          {projectName ? (
+            <Field label="Dự án">
+              <span data-testid="approval-detail-project">{projectName}</span>
+            </Field>
+          ) : null}
           {extra.map(([key, label]) => {
             const val = row[key];
             return (
@@ -234,14 +241,9 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                     {formatClockTime(val)}
                   </span>
                 ) : key === 'plannedMinutes' ? (
-                  <div>
-                    <span className="font-mono font-semibold text-slate-900">
-                      {typeof val === 'number' ? `${val} phút` : String(val)}
-                    </span>
-                    <p className="mt-0.5 text-[11px] font-normal text-slate-500">
-                      Thời lượng làm thêm giờ nhân viên đăng ký theo khung giờ đề xuất.
-                    </p>
-                  </div>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {typeof val === 'number' ? `${val} phút` : String(val)}
+                  </span>
                 ) : typeof val === 'boolean' ? (
                   val ? 'Có' : 'Không'
                 ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (

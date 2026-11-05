@@ -132,10 +132,10 @@ export function dashboardCards(dashboard: SalesDashboard, capabilities: CrmCapab
     },
     {
       key: 'pipeline',
-      label: 'Cơ hội đang mở',
+      label: 'Dự án bán hàng đang mở',
       value: formatVndCompact(kpis.pipeline.value),
       title: fullMoney(kpis.pipeline.value),
-      hint: `${formatCount(kpis.pipeline.count)} cơ hội · theo xác suất ${formatVndCompact(kpis.pipeline.weightedValue)}`,
+      hint: `${formatCount(kpis.pipeline.count)} dự án bán hàng · theo xác suất ${formatVndCompact(kpis.pipeline.weightedValue)}`,
       view: 'opportunities',
     },
     {
@@ -151,7 +151,7 @@ export function dashboardCards(dashboard: SalesDashboard, capabilities: CrmCapab
       hint:
         kpis.winRate.won + kpis.winRate.lost
           ? `${formatCount(kpis.winRate.won)} thắng · ${formatCount(kpis.winRate.lost)} thua trong kỳ`
-          : 'Chưa có cơ hội đóng trong kỳ',
+          : 'Chưa có dự án bán hàng đóng trong kỳ',
       view: 'opportunities',
     },
     {

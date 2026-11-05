@@ -3,9 +3,10 @@
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../sales.module.scss';
+import { pageCountOf, pageItems } from './pagination.model';
 
 /** Bảng antd theo token của khung sáng (cùng cấu hình với Tài chính). */
 export function CrmAntdProvider({ children }: { children: ReactNode }) {
@@ -28,9 +29,13 @@ export interface CrmDialogProps {
   readonly title: string;
   readonly subtitle?: string;
   readonly submitLabel?: string;
+  /** Nhãn nút đóng (mặc định "Huỷ"). */
+  readonly cancelLabel?: string;
   readonly submitting?: boolean;
   readonly danger?: boolean;
   readonly wide?: boolean;
+  /** Rộng hơn `wide` (tới 1080px) cho hộp có bảng nhiều cột. */
+  readonly extraWide?: boolean;
   readonly error?: string;
   /** Nội dung chèn trên hàng nút (cảnh báo cần xác nhận...). */
   readonly notice?: ReactNode;
@@ -48,9 +53,11 @@ export function CrmDialog({
   title,
   subtitle,
   submitLabel = 'Lưu',
+  cancelLabel = 'Huỷ',
   submitting = false,
   danger = false,
   wide = false,
+  extraWide = false,
   error,
   notice,
   onClose,
@@ -71,7 +78,7 @@ export function CrmDialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={() => !submitting && onClose()}>
       <div
-        className={wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
+        className={extraWide ? `${styles.dialog} ${styles.dialogExtraWide}` : wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -103,7 +110,7 @@ export function CrmDialog({
           ) : null}
           <div className={styles.dialogFoot}>
             <button type="button" className={styles.buttonGhost} onClick={onClose} disabled={submitting}>
-              Huỷ
+              {cancelLabel}
             </button>
             <button type="submit" className={danger ? styles.buttonDanger : styles.buttonPrimary} disabled={submitting}>
               {submitting ? 'Đang lưu…' : submitLabel}
@@ -143,40 +150,111 @@ export function Field({
   );
 }
 
-/** Chân bảng phân trang keyset: Trước / Sau, không có tổng số trang. */
-export function KeysetPager({
+/**
+ * Chân bảng phân trang kiểu trang xem phim, đọc truyện: Trước, các số trang (trang đầu, cuối, quanh trang đang xem,
+ * dải ẩn là `…`), Sau, và ô nhập để tới thẳng một trang.
+ */
+export function ListPager({
   page,
-  count,
-  hasNext,
+  total,
+  pageSize,
   loading,
   noun,
-  onPrevious,
-  onNext,
+  onChange,
 }: {
   page: number;
-  count: number;
-  hasNext: boolean;
+  total: number;
+  pageSize: number;
   loading?: boolean;
   noun: string;
-  onPrevious: () => void;
-  onNext: () => void;
+  onChange: (page: number) => void;
 }) {
+  const pageCount = pageCountOf(total, pageSize);
+  const [jump, setJump] = useState('');
+  const go = (next: number) => {
+    if (next >= 1 && next <= pageCount && next !== page) onChange(next);
+  };
   return (
-    <div className={styles.pager}>
+    <nav className={styles.pager} aria-label="Phân trang">
       <span>
-        Trang {page} · {count} {noun}
+        {total} {noun} · {pageCount} trang
       </span>
       <span className={styles.pagerButtons}>
-        <button type="button" className={styles.pagerButton} disabled={page <= 1 || loading} onClick={onPrevious}>
-          ← Trước
+        <button type="button" className={styles.pagerButton} disabled={page <= 1 || loading} aria-label="Trang trước" onClick={() => go(page - 1)}>
+          ‹ Trước
         </button>
-        <strong>{page}</strong>
-        <button type="button" className={styles.pagerButton} disabled={!hasNext || loading} onClick={onNext}>
-          Sau →
+        {pageItems(page, pageCount).map((item, index) =>
+          item === 'gap' ? (
+            <span key={`gap-${index}`} className={styles.pagerGap}>
+              …
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              className={item === page ? styles.pagerCurrent : styles.pagerButton}
+              aria-current={item === page ? 'page' : undefined}
+              disabled={loading && item !== page}
+              onClick={() => go(item)}
+            >
+              {item}
+            </button>
+          ),
+        )}
+        <button type="button" className={styles.pagerButton} disabled={page >= pageCount || loading} aria-label="Trang sau" onClick={() => go(page + 1)}>
+          Sau ›
         </button>
+        {pageCount > 7 ? (
+          <form
+            className={styles.pagerJump}
+            onSubmit={(event) => {
+              event.preventDefault();
+              go(Number(jump));
+              setJump('');
+            }}
+          >
+            <label>
+              Đến trang
+              <input
+                className={styles.pagerInput}
+                inputMode="numeric"
+                value={jump}
+                placeholder={String(page)}
+                aria-label={`Đến trang (1 đến ${pageCount})`}
+                onChange={(event) => setJump(event.target.value.replace(/[^\d]/g, '').slice(0, 6))}
+              />
+            </label>
+          </form>
+        ) : null}
       </span>
-    </div>
+    </nav>
   );
+}
+
+const INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"], [role="checkbox"]';
+
+/**
+ * Thuộc tính cho hàng bảng bấm vào là mở (thay cho nút Mở/Xem): bấm chuột hoặc Enter. Bấm vào nút, liên kết, ô nhập
+ * nằm trong hàng thì để phần tử đó xử lý, không mở hàng.
+ */
+export function rowOpener(open: () => void): HTMLAttributes<HTMLElement> {
+  const fromControl = (event: { target: EventTarget; currentTarget: EventTarget }) => {
+    const control = (event.target as Element).closest?.(INTERACTIVE);
+    return Boolean(control && control !== event.currentTarget && (event.currentTarget as Element).contains(control));
+  };
+  return {
+    className: styles.clickableRow,
+    tabIndex: 0,
+    onClick: (event) => {
+      if (!fromControl(event)) open();
+    },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' && !fromControl(event)) {
+        event.preventDefault();
+        open();
+      }
+    },
+  };
 }
 
 /** Nhãn trạng thái dạng chấm màu, không dùng emoji. */

@@ -706,6 +706,28 @@ describe('báo giá Bán hàng', () => {
   });
 });
 
+describe('người theo dõi báo giá Bán hàng', () => {
+  it('crm.quote.status-changed báo người theo dõi trong payload, không báo người thao tác, nguồn thông báo theo trạng thái', async () => {
+    const resolved = await registry.resolve(
+      event('crm.quote.status-changed', {
+        quoteId: 'q-3',
+        versionNo: 1,
+        toStatus: 'SENT',
+        recipientUserIds: ['user-follow', 'user-nv'],
+        actorUserId: 'user-nv',
+        summary: 'Báo giá BG2600003 (phiên bản 1) chuyển sang "Đã gửi khách".',
+        deepLink: '/modules/crm#quotes/q-3',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-follow']);
+    expect(resolved?.policy.module).toBe('crm');
+    expect(resolved?.template.title).toBe('Báo giá bạn theo dõi có thay đổi');
+    expect(resolved?.template.sourceId).toBe('q-3:1:crm.quote.status-changed:SENT');
+    expect(resolved?.template.deepLink).toBe('/modules/crm#quotes/q-3');
+  });
+});
+
 describe('hợp đồng, đơn bán Bán hàng', () => {
   it('crm.contract.expiring báo người phụ trách hợp đồng, mở đúng hợp đồng', async () => {
     const resolved = await registry.resolve(

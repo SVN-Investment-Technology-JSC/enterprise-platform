@@ -305,6 +305,8 @@ export interface WarrantyCaseListQuery {
   readonly customerId?: string;
   readonly serial?: string;
   readonly cursor?: string;
+  /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
+  readonly page?: number;
   readonly limit?: number;
 }
 
@@ -382,4 +384,24 @@ export interface WarrantySerialHistory {
     readonly role: 'ORIGINAL' | 'REPLACEMENT';
     readonly at: string;
   }[];
+}
+
+/**
+ * Tài liệu thiết bị của Kho, chỉ đọc, hiện ở chi tiết yêu cầu bảo hành. Chỉ trả
+ * cho người có quyền đọc Kho; `downloadUrl` là URL ký ngắn hạn của Kho.
+ */
+export interface WarrantyDeviceDocument {
+  readonly id: string;
+  /** Dòng bảo hành chứa thiết bị. */
+  readonly lineId: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly serial: string | null;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number | null;
+  readonly note: string | null;
+  readonly createdAt: string;
+  readonly downloadUrl: string;
+  readonly expiresInSeconds: number;
 }

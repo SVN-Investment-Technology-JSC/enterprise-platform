@@ -14,6 +14,12 @@ export const PROJECTS = [
   // procedure engine
   'procedure-web',
   'procedure-api',
+  // inventory (nhà kho)
+  'inventory-web',
+  'inventory-api',
+  // crm
+  'crm-web',
+  'crm-api',
   // thông báo thời gian thực và outbox
   'realtime-api',
   'notification-worker',

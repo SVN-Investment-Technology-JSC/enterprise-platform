@@ -220,3 +220,46 @@ export interface ReceivableReport {
   readonly overdueOrders: readonly OverdueOrderRow[];
   readonly totals: ReceivableReportTotals;
 }
+
+// ---------------------------------------------------------------------------
+// Báo cáo chào thầu (P2E-07)
+// ---------------------------------------------------------------------------
+
+/** Trạng thái hồ sơ thầu trong báo cáo: đang chuẩn bị, đã nộp, trúng, trượt. */
+export const TENDER_REPORT_STATUSES = ['PREPARING', 'SUBMITTED', 'WON', 'LOST'] as const;
+export type TenderReportStatus = (typeof TENDER_REPORT_STATUSES)[number];
+
+export const TENDER_REPORT_STATUS_LABELS: Readonly<Record<TenderReportStatus, string>> = {
+  PREPARING: 'Đang chuẩn bị',
+  SUBMITTED: 'Đã nộp',
+  WON: 'Trúng thầu',
+  LOST: 'Trượt thầu',
+};
+
+export type TenderReportQuery = Pick<ReportPeriodQuery, 'from' | 'to' | 'ownerUserId'>;
+
+/** Số hồ sơ và tổng giá trị (VND) của một trạng thái. Giá trị Trúng là giá trúng thầu; còn lại là giá trị dự kiến. */
+export interface TenderStatusFigure {
+  readonly count: number;
+  readonly value: number;
+}
+
+export interface TenderReportRow {
+  readonly pipelineId: string;
+  readonly pipelineCode: string;
+  readonly pipelineName: string;
+  readonly byStatus: Readonly<Record<TenderReportStatus, TenderStatusFigure>>;
+  /** Số hồ sơ Trúng / (Trúng + Trượt) (%), 2 chữ số; chưa có kết quả nào thì `null`. */
+  readonly winRatePercent: number | null;
+}
+
+/**
+ * Báo cáo chào thầu: chỉ luồng profile `TENDER`. Trúng và Trượt đếm theo ngày ghi kết quả trong kỳ `from`-`to`;
+ * Đang chuẩn bị và Đã nộp là số hiện tại (không theo kỳ). Phạm vi dữ liệu của người xem áp dụng như các báo cáo khác.
+ */
+export interface TenderReport {
+  readonly from: string;
+  readonly to: string;
+  readonly rows: readonly TenderReportRow[];
+  readonly totals: Pick<TenderReportRow, 'byStatus' | 'winRatePercent'>;
+}

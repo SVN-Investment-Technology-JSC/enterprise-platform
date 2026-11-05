@@ -171,6 +171,7 @@ export const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = [
   'finance_voucher',
   'crm_quote',
   'crm_order_credit',
+  'crm_tender_plan',
 ];
 /** Nguồn phải được hỏi trước khi huỷ hiệu lực hồ sơ: module nguồn có thể đã ghi sổ/áp dụng kết quả. */
 export const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = [

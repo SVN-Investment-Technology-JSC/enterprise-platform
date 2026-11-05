@@ -77,8 +77,11 @@ export class PostgresPoolRegistry {
   ) {
     this.maxPools = options.maxPools ?? 12;
     this.idleTtlMs = options.idleTtlMs ?? 5 * 60_000;
-    this.maxConnectionsPerPool = options.maxConnectionsPerPool ?? 8;
-    this.connectionTimeoutMillis = options.connectionTimeoutMillis ?? 3_000;
+    this.maxConnectionsPerPool = options.maxConnectionsPerPool ?? 10;
+    const envTimeout = process.env['DATABASE_CONNECTION_TIMEOUT_MS']
+      ? Number(process.env['DATABASE_CONNECTION_TIMEOUT_MS'])
+      : undefined;
+    this.connectionTimeoutMillis = options.connectionTimeoutMillis ?? envTimeout ?? 10_000;
   }
 
   async forTenant(reference: TenantDatabaseReference): Promise<Pool> {

@@ -34,6 +34,15 @@ export interface CrmCapabilities {
   readonly canWriteWarranty: boolean;
   /** `crm.report.read`: xem báo cáo Bán hàng. */
   readonly canReadReport: boolean;
+  /** `crm.document.write`: tải lên, phiên bản mới, khoá, đổi đối tượng xem tài liệu. */
+  readonly canWriteDocument: boolean;
+  /** `crm.document.delete`: xoá tài liệu (cấp đích danh, không đi theo `crm.manage`). */
+  readonly canDeleteDocument: boolean;
+  /**
+   * `crm.quote.cost.read`: xem giá vốn, lợi nhuận của báo giá và phương án kinh doanh. Người lập, duyệt báo giá và
+   * quản trị bán hàng có sẵn (quyền bao hàm); người chỉ xem cơ hội, báo giá thì không.
+   */
+  readonly canViewQuoteCost: boolean;
   /** `crm.manage`: bảng giá, chính sách, nhóm khách, hạn mức, cấu hình. */
   readonly canManage: boolean;
 }
@@ -50,6 +59,9 @@ export const CRM_NO_CAPABILITIES: CrmCapabilities = {
   canWriteReceivable: false,
   canWriteWarranty: false,
   canReadReport: false,
+  canWriteDocument: false,
+  canDeleteDocument: false,
+  canViewQuoteCost: false,
   canManage: false,
 };
 
@@ -63,4 +75,8 @@ export interface CrmStatus {
   /** Migration nền (0001) đã chạy xong. */
   readonly tablesReady: boolean;
   readonly capabilities: CrmCapabilities;
+  /** Tenant có module Kho đang hoạt động. Lỗi đọc từ Platform thì `false`. */
+  readonly inventoryEntitled: boolean;
+  /** Người dùng có quyền vào Kho (`inventory.read`). Chỉ để ẩn hiện nút; Kho vẫn tự kiểm quyền. */
+  readonly canAccessInventory: boolean;
 }

@@ -58,7 +58,7 @@ import { CREDIT_LIMIT_SETTING_KEY, parseCreditLimitMode } from './postgres-credi
 import { readHistory } from './postgres-contract.store.js';
 import { lockOrder, setStatus } from './postgres-sales-order.store.js';
 import { insertReceivableEntry, RECOGNITION_SETTING_KEY, recognizeTermManually } from './receivable-recognition.js';
-import { SqlConditions, cursorAt, keysetPage, prefixPattern, prefixTsQuery, toDateOnly, toIso } from './sql-helpers.js';
+import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso , pagedList} from './sql-helpers.js';
 
 /** Thực thể ghi `audit_log`. */
 export const RECEIPT_AUDIT_ENTITY = 'receipt';
@@ -348,16 +348,20 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
     where.scope(scope, 'c.owner_user_id');
     if (filter.customerId) where.add(`r.customer_id = ${where.param(filter.customerId)}::uuid`);
     if (filter.status) where.add(`r.status = ${where.param(filter.status)}`);
-    where.after(filter.cursor, 'r.created_at', 'r.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<ReceiptRow>(
-      `SELECT ${RECEIPT_COLUMNS} FROM crm_schema.receipts r JOIN crm_schema.customers c ON c.id = r.customer_id
-        ${where.where()}
-        ORDER BY r.created_at DESC, r.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${RECEIPT_COLUMNS}`,
+        from: `FROM crm_schema.receipts r JOIN crm_schema.customers c ON c.id = r.customer_id`,
+        orderBy: 'r.created_at DESC, r.id DESC',
+        atColumn: 'r.created_at',
+        idColumn: 'r.id',
+      },
+      filter,
+      toReceiptSummary,
     );
-    return keysetPage(result.rows, filter.limit, toReceiptSummary);
   }
 
   async getReceipt(tenantId: string, scope: CrmDataScope, id: string): Promise<ReceiptDetail | undefined> {
@@ -423,15 +427,20 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
     where.scope(scope, 'c.owner_user_id');
     if (filter.customerId) where.add(`d.customer_id = ${where.param(filter.customerId)}::uuid`);
     if (filter.status) where.add(`d.status = ${where.param(filter.status)}`);
-    where.after(filter.cursor, 'd.created_at', 'd.id');
     const pool = await this.database.pool(tenantId);
-    const result = await pool.query<AdjustmentRow>(
-      `SELECT ${ADJUSTMENT_COLUMNS} ${ADJUSTMENT_FROM} ${where.where()}
-        ORDER BY d.created_at DESC, d.id DESC
-        LIMIT ${where.param(filter.limit + 1)}`,
-      where.params,
+    return pagedList(
+      pool,
+      where,
+      {
+        columns: `${ADJUSTMENT_COLUMNS}`,
+        from: `${ADJUSTMENT_FROM}`,
+        orderBy: 'd.created_at DESC, d.id DESC',
+        atColumn: 'd.created_at',
+        idColumn: 'd.id',
+      },
+      filter,
+      toAdjustment,
     );
-    return keysetPage(result.rows, filter.limit, toAdjustment);
   }
 
   async getAdjustment(tenantId: string, scope: CrmDataScope, id: string): Promise<ReceivableAdjustment | undefined> {

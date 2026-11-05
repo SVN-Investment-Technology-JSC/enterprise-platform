@@ -7,12 +7,14 @@ import type {
   WarrantyCaseDetail,
   WarrantyCaseListQuery,
   WarrantyCaseSummary,
+  WarrantyDeviceDocument,
   WarrantyLookupItem,
   WarrantyLookupQuery,
   WarrantySerialHistory,
   WarrantySettings,
 } from '@enterprise-platform/contracts-crm';
 import { Body, Controller, Get, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
+import { WarrantyDeviceDocumentService } from '../application/warranty-device-documents.service.js';
 import { WarrantyResolutionService } from '../application/warranty-resolution.service.js';
 import { WarrantyService } from '../application/warranty.service.js';
 import { CrmNotFoundError } from '../domain/crm.error.js';
@@ -32,6 +34,7 @@ export class WarrantyController {
   constructor(
     @Inject(WarrantyService) private readonly warranty: WarrantyService,
     @Inject(WarrantyResolutionService) private readonly resolution: WarrantyResolutionService,
+    @Inject(WarrantyDeviceDocumentService) private readonly deviceDocuments: WarrantyDeviceDocumentService,
   ) {}
 
   /** Tra theo `serial`, `orderId` hoặc `customerId`. */
@@ -68,6 +71,12 @@ export class WarrantyController {
   @Get('cases/:id')
   get(@Req() request: CrmRequest, @Param('id') id: string): Promise<WarrantyCaseDetail> {
     return runCrm(() => this.warranty.get(crmActor(request), id));
+  }
+
+  /** Tài liệu thiết bị của Kho, chỉ đọc; `[]` khi người dùng không có quyền đọc Kho. */
+  @Get('cases/:id/device-documents')
+  deviceDocumentsOf(@Req() request: CrmRequest, @Param('id') id: string): Promise<WarrantyDeviceDocument[]> {
+    return runCrm(() => this.deviceDocuments.list(crmActor(request), id));
   }
 
   /** `inspect` (kết quả kiểm định), `resolve` (hướng xử lý và chứng từ). */
