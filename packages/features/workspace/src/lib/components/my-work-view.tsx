@@ -27,12 +27,14 @@ import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/fea
 import { formatTime, toast } from '@enterprise-platform/shared-ui';
 import { statusToastText, toastStatusChanged } from '../status-toast';
 import {
+  AlarmClock,
   AtSign,
   CalendarClock,
   CalendarDays,
   Clock3,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   ClipboardList,
   ExternalLink,
   ListFilter,
@@ -505,17 +507,32 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
       <div className={styles.myWorkHead}>
         <div className={`${styles.pageHeadCard} ${styles.myWorkHeadCard}`}>
           <h1 className={styles.pageTitle}>Công việc của tôi</h1>
+          {/* Ba số liệu, mỗi số một màu: xanh dương (đang mở), đỏ (quá hạn, xám khi không có), xanh lá (đã xong). */}
           <div className={styles.myWorkStats}>
-            <span className={styles.myWorkStat}>
-              <b>{counters?.openItems ?? '—'}</b> đang mở
-            </span>
-            {counters && counters.overdueItems > 0 ? (
-              <span className={styles.myWorkStat}>
-                <b className={styles.textDanger}>{counters.overdueItems}</b> quá hạn
+            <span className={`${styles.myWorkStat} ${styles.myWorkStatOpen}`}>
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <ClipboardList size={15} />
               </span>
-            ) : null}
-            <span className={styles.myWorkStat}>
-              <b className={styles.textSuccess}>{counters?.completedThisWeek ?? '—'}</b> xong tuần này
+              <b>{counters?.openItems ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>đang mở</span>
+            </span>
+            <span
+              className={`${styles.myWorkStat} ${
+                counters && counters.overdueItems > 0 ? styles.myWorkStatLate : styles.myWorkStatQuiet
+              }`}
+            >
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <AlarmClock size={15} />
+              </span>
+              <b>{counters?.overdueItems ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>quá hạn</span>
+            </span>
+            <span className={`${styles.myWorkStat} ${styles.myWorkStatDone}`}>
+              <span className={styles.myWorkStatIcon} aria-hidden>
+                <CircleCheck size={15} />
+              </span>
+              <b>{counters?.completedThisWeek ?? '—'}</b>
+              <span className={styles.myWorkStatLabel}>xong tuần này</span>
             </span>
           </div>
         </div>

@@ -31,7 +31,7 @@
   --ep-radius-xl: 14px;
   --ep-shadow-pop: 0 10px 30px rgb(0 0 0 / 18%);
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
-  --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
+  --ep-font: var(--font-sans, -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif);
 }
 
 @mixin focus-ring {
@@ -10567,38 +10567,88 @@ button.kpiCard {
 /* Thẻ đầu trang: tiêu đề và vài con số nhỏ cách nhau bằng đường mảnh. */
 .myWorkHeadCard {
   flex-wrap: wrap;
-  gap: 6px 8px;
-  min-height: 52px;
-  padding: 10px 12px 10px 20px;
+  gap: 8px 18px;
+  min-height: 60px;
+  padding: 8px 10px 8px 22px;
+}
+
+/* Tiêu đề viết hoa: cỡ chữ nhỏ lại một chút cho cân với các ô số liệu bên cạnh. */
+.myWorkHeadCard .pageTitle {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
 }
 
 .myWorkStats {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  color: var(--ep-text-sub);
+  gap: 8px;
   font-size: 13px;
 }
 
+/* Mỗi số liệu là một ô tô màu nhạt: biểu tượng trong ô vuông đậm hơn, số lớn, nhãn nhỏ. Màu đặt bằng biến --stat-*. */
 .myWorkStat {
+  --stat-bg: #eff6ff;
+  --stat-icon-bg: #dbeafe;
+  --stat-fg: #1d4ed8;
+
   display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 0 14px;
-  border-left: 1px solid var(--ep-border);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 10px;
+  background: var(--stat-bg);
   white-space: nowrap;
 
   b {
-    color: var(--ep-text);
-    font-size: 16px;
+    color: var(--stat-fg);
+    font-size: 18px;
     font-variant-numeric: tabular-nums;
-  }
-
-  .textDanger,
-  .textSuccess {
-    font-size: 16px;
     font-weight: 700;
+    line-height: 1;
   }
+}
+
+.myWorkStatIcon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--stat-icon-bg);
+  color: var(--stat-fg);
+}
+
+.myWorkStatLabel {
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+}
+
+.myWorkStatOpen {
+  --stat-bg: #eff6ff;
+  --stat-icon-bg: #dbeafe;
+  --stat-fg: #1d4ed8;
+}
+
+.myWorkStatLate {
+  --stat-bg: #fef2f2;
+  --stat-icon-bg: #fee2e2;
+  --stat-fg: #b91c1c;
+}
+
+/* Không có việc quá hạn: ô trung tính, không gây chú ý. */
+.myWorkStatQuiet {
+  --stat-bg: #f4f5f7;
+  --stat-icon-bg: #e9ebef;
+  --stat-fg: #6b7280;
+}
+
+.myWorkStatDone {
+  --stat-bg: #f0fdf4;
+  --stat-icon-bg: #dcfce7;
+  --stat-fg: #15803d;
 }
 
 /* Bảng bên trái, cột phụ bên phải; chiều cao do thẻ bảng quyết định (useFillViewportHeight), cột phụ chỉ cuộn bên trong. */

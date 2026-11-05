@@ -32,7 +32,7 @@
   --ep-radius-lg: 10px;
   --ep-radius-xl: 12px;
   --ep-shadow-dialog: 0 32px 80px rgb(0 0 0 / 35%);
-  --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
+  --ep-font: var(--font-sans, -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif);
 }
 
 @mixin focus-ring {

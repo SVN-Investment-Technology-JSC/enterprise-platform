@@ -1,7 +1,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   font-family:
-    Inter,
+    var(--font-sans),
     ui-sans-serif,
     system-ui,
     -apple-system,
