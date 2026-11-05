@@ -63,3 +63,11 @@ textarea {
   margin: 0;
 }
 
+/*
+ * Ant Design gán font riêng cho từng thành phần (cửa sổ nổi như lịch chọn ngày, danh sách xổ… render ở cuối body). Ép về
+ * font chung của hệ thống để mọi chữ cùng một font. Selector cố ý cao hơn `:where(.css-…)` của antd.
+ */
+html body [class^='ant-'],
+html body [class*=' ant-'] {
+  font-family: inherit;
+}
