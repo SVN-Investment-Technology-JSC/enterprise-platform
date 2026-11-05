@@ -320,6 +320,56 @@ integration('Workspace: trao đổi công việc theo trang (PostgreSQL)', () =>
       expect(second.hasMore).toBe(false);
     });
 
+    it('tin đính kèm nhiều tài liệu: cột cũ giữ tệp đầu, tin cũ chỉ có một tệp vẫn đọc ra mảng, bộ lọc đính kèm đúng', async () => {
+      const attachProject = (await store.project.create(tenantId, owner, { code: 'QA-AT', name: 'Đính kèm' } as never)).id;
+      const folder = await store.document.createFolder(tenantId, owner, { projectId: attachProject, name: 'Tệp', depth: 1 });
+      const doc = async (name: string) =>
+        (
+          await pool.query<{ id: string }>(
+            `INSERT INTO workspace_schema.documents (folder_id, project_id, name, created_by)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [folder.id, attachProject, name, owner],
+          )
+        ).rows[0]?.id as string;
+      const [d1, d2, d3] = [await doc('a.pdf'), await doc('b.png'), await doc('c.csv')];
+      const channel = await store.chat.ensureChannel(tenantId, owner, {
+        entityType: 'project',
+        entityId: attachProject,
+        projectId: attachProject,
+      });
+      const send = (body: string, ids?: readonly string[]) =>
+        store.chat.sendMessage(tenantId, owner, {
+          channelId: channel.id,
+          body,
+          mentions: [],
+          attachmentDocumentId: ids?.[0] ?? null,
+          attachmentDocumentIds: ids,
+        });
+
+      const many = await send('ba tệp', [d1, d2, d3]);
+      expect(many.attachmentDocumentIds).toEqual([d1, d2, d3]);
+      expect(many.attachmentDocumentId).toBe(d1);
+
+      // Tin cũ (trước khi có cột mảng): chỉ cột cũ có giá trị.
+      const legacy = await send('tin cũ');
+      await pool.query(
+        `UPDATE workspace_schema.chat_messages
+            SET attachment_document_id = $2, attachment_document_ids = '{}'
+          WHERE id = $1`,
+        [legacy.id, d2],
+      );
+      await send('không tệp');
+
+      const read = (await store.chat.listProjectTimeline(tenantId, attachProject, 30, undefined, {})).items;
+      const byBody = new Map(read.map((entry) => [entry.message.body, entry.message]));
+      expect(byBody.get('ba tệp')?.attachmentDocumentIds).toEqual([d1, d2, d3]);
+      expect(byBody.get('tin cũ')?.attachmentDocumentIds).toEqual([d2]);
+      expect(byBody.get('không tệp')?.attachmentDocumentIds).toEqual([]);
+
+      const withFile = await store.chat.listProjectTimeline(tenantId, attachProject, 30, undefined, { hasAttachment: true });
+      expect(withFile.items.map((entry) => entry.message.body).sort()).toEqual(['ba tệp', 'tin cũ']);
+    });
+
     it('trả lời một tin đi vào ĐÚNG kênh của công việc đó và hiện trong trao đổi của nó', async () => {
       const a = await item(projectId, 'Trả lời A');
       const b = await item(projectId, 'Trả lời B');

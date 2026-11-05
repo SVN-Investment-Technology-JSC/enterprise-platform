@@ -465,6 +465,15 @@ export interface WorkspaceStore {
       completionEvidence?: WorkItemCompletionEvidence,
     ): Promise<WorkItem>;
     /**
+     * Chỉ cập nhật lý do vướng mắc của việc ĐANG `blocked` (không đổi trạng thái, không ghi nhật ký chuyển trạng thái).
+     * `undefined` khi việc không còn ở `blocked` (có người đổi trước).
+     */
+    updateBlockedReason(
+      tenantId: string,
+      workItemId: string,
+      reason: string,
+    ): Promise<WorkItem | undefined>;
+    /**
      * Huỷ hiệu lực: chuyển `cancelled` kèm dấu huỷ, ghi nhật ký và phát
      * `workspace.work_item.reversed` trong cùng transaction. Đã huỷ thì trả nguyên.
      */
@@ -889,7 +898,9 @@ export interface WorkspaceStore {
         readonly parentId?: string | null;
         readonly body: string;
         readonly mentions: readonly string[];
+        /** Tài liệu đầu tiên (cột cũ, giữ cho tương thích ngược). */
         readonly attachmentDocumentId?: string | null;
+        readonly attachmentDocumentIds?: readonly string[];
       },
     ): Promise<ChatMessage>;
     /**
@@ -1340,6 +1351,12 @@ export interface WorkspaceStore {
       next: StandaloneTask['status'],
       note: string | undefined,
       today: string,
+    ): Promise<StandaloneTask | undefined>;
+    /** Như `workItem.updateBlockedReason`: `undefined` khi việc không còn ở `blocked`. */
+    updateBlockedReason(
+      tenantId: string,
+      taskId: string,
+      reason: string,
     ): Promise<StandaloneTask | undefined>;
     remove(tenantId: string, taskId: string): Promise<void>;
     history(

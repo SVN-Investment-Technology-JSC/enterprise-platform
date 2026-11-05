@@ -10,6 +10,7 @@ import {
   CHAT_FEED_THREAD_LIMIT,
   CHAT_PAGE_SIZE,
   CHAT_TIMELINE_PAGE_SIZE,
+  MAX_CHAT_ATTACHMENTS,
 } from '@enterprise-platform/contracts-workspace';
 import { ChatService } from './chat.service.js';
 import { ProjectService } from './project.service.js';
@@ -28,6 +29,7 @@ function makeStore(options: {
 }) {
   const sent: {
     attachmentDocumentId: string | null;
+    attachmentDocumentIds?: readonly string[];
     mentions: string[];
     channelId?: string;
     parentId?: string | null;
@@ -65,6 +67,7 @@ function makeStore(options: {
         _actor: string,
         input: {
           attachmentDocumentId: string | null;
+          attachmentDocumentIds?: readonly string[];
           mentions: string[];
           channelId: string;
           parentId?: string | null;
@@ -72,6 +75,7 @@ function makeStore(options: {
       ) => {
         sent.push({
           attachmentDocumentId: input.attachmentDocumentId,
+          attachmentDocumentIds: input.attachmentDocumentIds,
           mentions: input.mentions,
           channelId: input.channelId,
           parentId: input.parentId,
@@ -357,6 +361,50 @@ describe('ChatService — tài liệu đính kèm', () => {
     });
     await expect(
       serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentId: 'other' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('nhận nhiều tài liệu: tài liệu đầu là tệp chính, bỏ id trùng', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: [
+        { id: 'd1', projectId: 'p1' },
+        { id: 'd2', projectId: 'p1' },
+        { id: 'shared', projectId: undefined },
+      ],
+    });
+    await serviceFor(store).send(actorOf('me'), {
+      ...toProject,
+      attachmentDocumentIds: ['d2', 'shared', 'd2'],
+      attachmentDocumentId: 'd1',
+    });
+    expect(sent[0]?.attachmentDocumentIds).toEqual(['d2', 'shared', 'd1']);
+    expect(sent[0]?.attachmentDocumentId).toBe('d2');
+  });
+
+  it('từ chối cả lượt khi một trong các tài liệu thuộc dự án khác', async () => {
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: [
+        { id: 'd1', projectId: 'p1' },
+        { id: 'other', projectId: 'p2' },
+      ],
+    });
+    await expect(
+      serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentIds: ['d1', 'other'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('từ chối khi vượt số tài liệu tối đa của một tin', async () => {
+    const ids = Array.from({ length: MAX_CHAT_ATTACHMENTS + 1 }, (_, index) => `d${index}`);
+    const { store, sent } = makeStore({
+      roles: { me: 'member' },
+      documents: ids.map((id) => ({ id, projectId: 'p1' })),
+    });
+    await expect(
+      serviceFor(store).send(actorOf('me'), { ...toProject, attachmentDocumentIds: ids }),
     ).rejects.toMatchObject({ code: 'VALIDATION' });
     expect(sent).toHaveLength(0);
   });

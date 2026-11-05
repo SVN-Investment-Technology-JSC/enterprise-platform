@@ -998,6 +998,56 @@ export class WorkspaceController {
     return this.execute(() => this.myWorkService.summary(this.actor(request)));
   }
 
+  /** Tổng quan "Công việc của tôi" theo trang: số liệu và tóm tắt nhóm, không có dòng việc. */
+  @Get('my-work/overview')
+  myWorkOverview(
+    @Req() request: WorkspaceRequest,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+    @Query('projectId') projectId?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.overview(this.actor(request), { status, priority, projectId }, sort),
+    );
+  }
+
+  /** Một trang dòng việc của một dự án, trong số việc của chính người gọi. */
+  @Get('my-work/projects/:projectId/items')
+  myWorkGroupItems(
+    @Req() request: WorkspaceRequest,
+    @Param('projectId') projectId: string,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+    @Query('sort') sort?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.groupItems(
+        this.actor(request),
+        projectId,
+        { status, priority },
+        sort,
+        page,
+        pageSize,
+      ),
+    );
+  }
+
+  /** Một trang việc ngoài dự án của người gọi. */
+  @Get('my-work/standalone')
+  myWorkStandalone(
+    @Req() request: WorkspaceRequest,
+    @Query('sort') sort?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.execute(() =>
+      this.myWorkService.standalonePage(this.actor(request), sort, page, pageSize),
+    );
+  }
+
   /* ------------------------------------------ Công việc ngoài dự án */
 
   /** `scope`: `assigned_to_me` (mặc định), `assigned_by_me` hoặc `following`. */

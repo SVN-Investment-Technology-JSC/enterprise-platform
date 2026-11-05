@@ -9,6 +9,7 @@ import {
   CHAT_TIMELINE_MAX_QUERY_LENGTH,
   CHAT_TIMELINE_PAGE_SIZE,
   CHAT_TIMELINE_PROJECT_NODE,
+  MAX_CHAT_ATTACHMENTS,
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
@@ -266,11 +267,10 @@ export class ChatService {
       input.mentions,
     );
 
-    const attachmentDocumentId = await this.resolveAttachment(
-      actor,
-      target.projectId,
-      input.attachmentDocumentId,
-    );
+    const attachmentDocumentIds = await this.resolveAttachments(actor, target.projectId, [
+      ...(input.attachmentDocumentIds ?? []),
+      ...(input.attachmentDocumentId ? [input.attachmentDocumentId] : []),
+    ]);
 
     const channel = await this.store.chat.ensureChannel(actor.tenantId, actor.userId, {
       entityType: target.entityType,
@@ -283,7 +283,8 @@ export class ChatService {
       parentId,
       body,
       mentions,
-      attachmentDocumentId,
+      attachmentDocumentId: attachmentDocumentIds[0] ?? null,
+      attachmentDocumentIds,
     });
 
     // Người gửi coi như đã đọc chính tin của mình. Không cần báo cho người khác
@@ -451,19 +452,27 @@ export class ChatService {
    * kiểm ở đây thì một id bất kỳ — của dự án khác, hoặc không tồn tại — sẽ
    * được lưu nguyên và hiện ra như một tệp đính kèm hỏng.
    */
-  private async resolveAttachment(
+  private async resolveAttachments(
     actor: WorkspaceActor,
     projectId: string,
-    documentId: string | null | undefined,
-  ): Promise<string | null> {
-    if (!documentId) return null;
-    const document = await this.store.document.findById(actor.tenantId, documentId);
-    if (!document || (document.projectId && document.projectId !== projectId)) {
-      throw new WorkspaceValidationError(
-        'Tài liệu đính kèm phải thuộc dự án này hoặc kho tài liệu dùng chung.',
-      );
+    documentIds: readonly (string | null | undefined)[],
+  ): Promise<string[]> {
+    // Bỏ id rỗng và trùng; giữ thứ tự gửi lên (tài liệu đầu tiên là "tệp chính" của tin).
+    const unique = [...new Set(documentIds.filter((id): id is string => Boolean(id)))];
+    if (unique.length > MAX_CHAT_ATTACHMENTS) {
+      throw new WorkspaceValidationError(`Một tin đính kèm tối đa ${MAX_CHAT_ATTACHMENTS} tài liệu.`);
     }
-    return document.id;
+    const resolved: string[] = [];
+    for (const documentId of unique) {
+      const document = await this.store.document.findById(actor.tenantId, documentId);
+      if (!document || (document.projectId && document.projectId !== projectId)) {
+        throw new WorkspaceValidationError(
+          'Tài liệu đính kèm phải thuộc dự án này hoặc kho tài liệu dùng chung.',
+        );
+      }
+      resolved.push(document.id);
+    }
+    return resolved;
   }
 
   /**

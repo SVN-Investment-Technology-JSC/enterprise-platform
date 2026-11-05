@@ -617,6 +617,8 @@ export interface UpdateContractRequest {
 export interface WorkItem {
   readonly id: string;
   readonly projectId: string;
+  /** Lý do vướng mắc người thực hiện đã ghi; chỉ có khi `status` là `blocked`, rời trạng thái đó thì bị xoá. */
+  readonly blockedReason?: string;
   readonly parentId?: string;
   readonly code: string;
   readonly title: string;
@@ -772,8 +774,15 @@ export interface UpdateWorkItemRequest {
   readonly reopenPolicy?: WorkItemReopenPolicy;
 }
 
+/** Độ dài tối đa của lý do vướng mắc. */
+export const BLOCKED_REASON_MAX_LENGTH = 1000;
+
 export interface ChangeWorkItemStatusRequest {
   readonly status: WorkItemStatus;
+  /**
+   * Với `status: 'blocked'` đây là LÝ DO VƯỚNG MẮC và bắt buộc (không rỗng, tối đa `BLOCKED_REASON_MAX_LENGTH`).
+   * Việc đang `blocked` mà gửi lại `blocked` kèm `note` thì chỉ cập nhật lý do.
+   */
   readonly note?: string;
   /** Id các điều kiện hoàn thành người dùng đã tích; chỉ xét khi chuyển sang `done`. */
   readonly confirmedConditionIds?: readonly string[];
@@ -1084,6 +1093,17 @@ export type ChatEntityType = (typeof CHAT_ENTITY_TYPES)[number];
 /** Văn bản thuần, khớp ràng buộc CHECK của cột `body`. */
 export const MAX_CHAT_BODY_LENGTH = 5000;
 
+/** Số tài liệu tối đa đính kèm vào một tin chat. */
+export const MAX_CHAT_ATTACHMENTS = 10;
+
+/** Mọi tài liệu đính kèm của một tin, kể cả tin cũ chỉ có `attachmentDocumentId`. */
+export function chatAttachmentIds(
+  message: Pick<ChatMessage, 'attachmentDocumentId' | 'attachmentDocumentIds'>,
+): readonly string[] {
+  if (message.attachmentDocumentIds?.length) return message.attachmentDocumentIds;
+  return message.attachmentDocumentId ? [message.attachmentDocumentId] : [];
+}
+
 /**
  * Trả lời tối đa hai cấp.
  *
@@ -1123,7 +1143,10 @@ export interface ChatMessage {
   /** Rỗng khi tin đã bị xoá mềm; giao diện hiện "Tin nhắn đã thu hồi". */
   readonly body: string;
   readonly mentions: readonly string[];
+  /** Tài liệu đầu tiên trong `attachmentDocumentIds`; giữ cho client cũ. */
   readonly attachmentDocumentId?: string;
+  /** Mọi tài liệu đính kèm của tin (server luôn gửi; vắng ở dữ liệu cũ thì dùng `attachmentDocumentId`). */
+  readonly attachmentDocumentIds?: readonly string[];
   readonly isEdited: boolean;
   readonly isDeleted: boolean;
   readonly createdBy: string;
@@ -1290,7 +1313,10 @@ export interface SendChatMessageRequest {
   readonly body: string;
   readonly parentId?: string;
   readonly mentions?: readonly string[];
+  /** Một tài liệu (cách cũ); gộp với `attachmentDocumentIds`. */
   readonly attachmentDocumentId?: string;
+  /** Các tài liệu đính kèm, tối đa `MAX_CHAT_ATTACHMENTS`. */
+  readonly attachmentDocumentIds?: readonly string[];
 }
 
 export interface UpdateChatMessageRequest {
@@ -1705,6 +1731,92 @@ export interface MyWorkSummary {
   /** Múi giờ dùng để cắt "hôm nay" và "tuần này". */
   readonly timezone: string;
   readonly today: string;
+}
+
+/* -------------------------------------------------------------------------
+   "Công việc của tôi" theo trang
+
+   `/my-work` trả MỌI việc một lượt nên trang dài vô tận khi có dự án nhiều việc. Ba endpoint dưới đây tách dữ liệu ra:
+   · `overview`: số liệu, nhóm dự án (chỉ SỐ TỔNG HỢP từng nhóm, không có dòng việc), nhắc tên, thẻ module khác;
+   · `projects/:projectId/items`: các dòng việc của MỘT nhóm, phân trang;
+   · `standalone`: việc ngoài dự án, phân trang.
+   Tổng hợp từng nhóm tính trên TOÀN BỘ việc khớp bộ lọc của nhóm (không chỉ trang đang xem).
+   ------------------------------------------------------------------------- */
+
+/** Cỡ trang chọn được ở bảng "Công việc của tôi". */
+export const MY_WORK_PAGE_SIZES = [10, 20, 50] as const;
+export const MY_WORK_DEFAULT_PAGE_SIZE = 20;
+
+/** Cách xếp nhóm dự án và dòng việc: hạn (gấp trước), tên, mã, cập nhật gần nhất. */
+export const MY_WORK_SORTS = ['due', 'name', 'code', 'updated'] as const;
+export type MyWorkSortKey = (typeof MY_WORK_SORTS)[number];
+
+/** Bộ lọc của trang; vắng là không lọc. */
+export interface MyWorkFilter {
+  readonly status?: WorkItemStatus;
+  readonly priority?: WorkItemPriority;
+  readonly projectId?: string;
+}
+
+/** Số việc của một nhóm theo bốn loại hiện trên dòng tóm tắt (quá hạn, chưa làm, đang làm, đã xong). */
+export interface MyWorkGroupCounts {
+  readonly overdue: number;
+  readonly notStarted: number;
+  readonly active: number;
+  readonly finished: number;
+}
+
+/** Dòng tóm tắt của một dự án trong bảng. */
+export interface MyWorkGroupSummary {
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly projectName: string;
+  /** Số việc của tôi trong dự án khớp bộ lọc. */
+  readonly total: number;
+  readonly counts: MyWorkGroupCounts;
+  /** Mức ưu tiên cao nhất trong các việc còn mở và số việc cùng mức đó. */
+  readonly topPriority?: WorkItemPriority;
+  readonly topPriorityCount: number;
+  /** Hạn gần nhất (`plannedEnd`, YYYY-MM-DD) trong các việc còn mở. */
+  readonly nextDue?: string;
+  /** Tiến độ trung bình (%) của mọi việc khớp bộ lọc trong nhóm. */
+  readonly progress: number;
+}
+
+/** Lựa chọn cho các ô lọc, rút từ MỌI việc của tôi (không phụ thuộc bộ lọc đang bật). */
+export interface MyWorkFilterOptions {
+  readonly statuses: readonly WorkItemStatus[];
+  readonly priorities: readonly WorkItemPriority[];
+  readonly projects: readonly { readonly id: string; readonly code: string; readonly name: string }[];
+}
+
+export interface MyWorkOverview {
+  readonly counters: MyWorkCounters;
+  readonly groups: readonly MyWorkGroupSummary[];
+  /** Việc ngoài dự án của tôi (không lọc theo bộ lọc dự án/trạng thái/ưu tiên của bảng việc dự án). */
+  readonly standalone: { readonly total: number; readonly counts: MyWorkGroupCounts };
+  readonly filterOptions: MyWorkFilterOptions;
+  readonly todayEvents: readonly MyWorkEvent[];
+  readonly pendingInvitations: readonly MyWorkEvent[];
+  readonly mentions: readonly MyWorkMention[];
+  readonly externalCards: readonly MyWorkExternalCard[];
+  readonly timezone: string;
+  readonly today: string;
+}
+
+export interface MyWorkItemsPage {
+  readonly items: readonly MyWorkItem[];
+  /** Tổng số việc khớp bộ lọc của nhóm. */
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+export interface MyWorkStandalonePage {
+  readonly items: readonly MyWorkStandaloneTask[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
 }
 
 /* =========================================================================
@@ -2638,6 +2750,8 @@ export interface StandaloneTaskProcedure {
 
 export interface StandaloneTask {
   readonly id: string;
+  /** Lý do vướng mắc người thực hiện đã ghi; chỉ có khi `status` là `blocked`, rời trạng thái đó thì bị xoá. */
+  readonly blockedReason?: string;
   /** `GV001`, đánh số chung toàn tenant (việc con cũng có mã riêng). */
   readonly code: string;
   readonly title: string;
@@ -2807,6 +2921,7 @@ export interface UpdateStandaloneTaskRequest {
  */
 export interface ChangeStandaloneTaskStatusRequest {
   readonly status: WorkItemStatus;
+  /** Như `ChangeWorkItemStatusRequest.note`: với `blocked` là lý do vướng mắc, bắt buộc. */
   readonly note?: string;
 }
 

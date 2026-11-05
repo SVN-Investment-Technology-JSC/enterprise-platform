@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { StandaloneTask, WorkItemStatus } from '@enterprise-platform/contracts-workspace';
+import {
+  BLOCKED_REASON_MAX_LENGTH,
+  type StandaloneTask,
+  type WorkItemStatus,
+} from '@enterprise-platform/contracts-workspace';
 import type { DirectoryService } from './directory.service.js';
 import { StandaloneTaskService } from './standalone-task.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -31,6 +35,7 @@ function makeStore() {
   const tasks = new Map<string, StandaloneTask>();
   const statusCalls: { from: WorkItemStatus; next: WorkItemStatus; note?: string }[] = [];
   const created: StandaloneTaskCreateModel[] = [];
+  const reasonUpdates: { id: string; reason: string }[] = [];
   const reversals: { id: string; notifyProcedure: boolean; adjustmentRequested: boolean }[] = [];
   let removed: string | undefined;
 
@@ -137,7 +142,20 @@ function makeStore() {
         statusCalls.push({ from, next, note });
         const current = tasks.get(id) as StandaloneTask;
         if (current.status !== from) return undefined;
-        const updated = { ...current, status: next };
+        // Như store thật: lý do vướng mắc chỉ giữ khi vào/ở `blocked`.
+        const updated = {
+          ...current,
+          status: next,
+          blockedReason: next === 'blocked' ? note : undefined,
+        };
+        tasks.set(id, updated);
+        return withCounts(updated);
+      },
+      updateBlockedReason: async (_tenant: string, id: string, reason: string) => {
+        reasonUpdates.push({ id, reason });
+        const current = tasks.get(id) as StandaloneTask;
+        if (current.status !== 'blocked') return undefined;
+        const updated = { ...current, blockedReason: reason };
         tasks.set(id, updated);
         return withCounts(updated);
       },
@@ -172,6 +190,7 @@ function makeStore() {
     store,
     tasks,
     statusCalls,
+    reasonUpdates,
     created,
     reversals,
     removed: () => removed,
@@ -301,6 +320,88 @@ describe('StandaloneTaskService.changeStatus', () => {
     await expect(
       service.changeStatus(actor(DOER), id, { status: 'review' }),
     ).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe('StandaloneTaskService.changeStatus — vướng mắc', () => {
+  it('chuyển sang vướng mắc thiếu lý do, toàn khoảng trắng hoặc quá dài đều bị từ chối', async () => {
+    const { service, id, statusCalls } = await seeded('in_progress');
+    await expect(service.changeStatus(actor(DOER), id, { status: 'blocked' })).rejects.toThrow(
+      /lý do vướng mắc/,
+    );
+    await expect(
+      service.changeStatus(actor(DOER), id, { status: 'blocked', note: '   ' }),
+    ).rejects.toThrow(/lý do vướng mắc/);
+    await expect(
+      service.changeStatus(actor(DOER), id, {
+        status: 'blocked',
+        note: 'a'.repeat(BLOCKED_REASON_MAX_LENGTH + 1),
+      }),
+    ).rejects.toThrow(/không được dài quá/);
+    expect(statusCalls).toEqual([]);
+  });
+
+  it('chuyển sang vướng mắc kèm lý do: lưu lý do và ghi vào nhật ký', async () => {
+    const { service, id, statusCalls } = await seeded('in_progress');
+    const blocked = await service.changeStatus(actor(DOER), id, {
+      status: 'blocked',
+      note: ' Chờ khách duyệt mẫu ',
+    });
+    expect(blocked.task.status).toBe('blocked');
+    expect(blocked.task.blockedReason).toBe('Chờ khách duyệt mẫu');
+    expect(statusCalls.at(-1)).toEqual({
+      from: 'in_progress',
+      next: 'blocked',
+      note: 'Chờ khách duyệt mẫu',
+    });
+  });
+
+  it('rời vướng mắc thì xoá lý do', async () => {
+    const { service, id } = await seeded('in_progress');
+    await service.changeStatus(actor(DOER), id, { status: 'blocked', note: 'Chờ mẫu' });
+    const resumed = await service.changeStatus(actor(DOER), id, { status: 'in_progress' });
+    expect(resumed.task.status).toBe('in_progress');
+    expect(resumed.task.blockedReason).toBeUndefined();
+  });
+
+  it('đang vướng mắc, gửi lại blocked kèm lý do mới thì chỉ cập nhật lý do', async () => {
+    const { service, id, statusCalls, reasonUpdates } = await seeded('in_progress');
+    await service.changeStatus(actor(DOER), id, { status: 'blocked', note: 'Chờ mẫu' });
+    const revised = await service.changeStatus(actor(DOER), id, {
+      status: 'blocked',
+      note: ' Chờ mẫu bản 2 ',
+    });
+    expect(revised.task.blockedReason).toBe('Chờ mẫu bản 2');
+    expect(statusCalls).toHaveLength(1);
+    expect(reasonUpdates).toEqual([{ id, reason: 'Chờ mẫu bản 2' }]);
+    // Cùng lý do: không ghi thêm.
+    await service.changeStatus(actor(DOER), id, { status: 'blocked', note: 'Chờ mẫu bản 2' });
+    expect(reasonUpdates).toHaveLength(1);
+  });
+
+  it('sửa lý do cũng phải đúng quyền và đúng giới hạn', async () => {
+    const { service, id, reasonUpdates } = await seeded('in_progress');
+    await service.changeStatus(actor(DOER), id, { status: 'blocked', note: 'Chờ mẫu' });
+    await expect(
+      service.changeStatus(actor(WATCHER), id, { status: 'blocked', note: 'Lý do khác' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.changeStatus(actor(DOER), id, {
+        status: 'blocked',
+        note: 'a'.repeat(BLOCKED_REASON_MAX_LENGTH + 1),
+      }),
+    ).rejects.toThrow(/không được dài quá/);
+    expect(reasonUpdates).toEqual([]);
+  });
+
+  it('người giao cũng sửa được lý do vướng mắc', async () => {
+    const { service, id, reasonUpdates } = await seeded('in_progress');
+    await service.changeStatus(actor(DOER), id, { status: 'blocked', note: 'Chờ mẫu' });
+    await service.changeStatus(actor(BOSS), id, {
+      status: 'blocked',
+      note: 'Chờ mẫu, đã báo khách',
+    });
+    expect(reasonUpdates).toEqual([{ id, reason: 'Chờ mẫu, đã báo khách' }]);
   });
 });
 

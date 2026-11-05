@@ -20,6 +20,7 @@ import {
   type WorkItemTree,
   type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { evaluateCompletion, parseCompletionInput } from '../domain/completion.rules.js';
 import {
   autoCompleteParents,
@@ -464,7 +465,17 @@ export class WorkItemService {
       requireProjectPermission(access, 'work_item.cancel');
     }
 
-    if (next === item.status) return item;
+    if (next === item.status) {
+      // Đang Vướng mắc mà gửi lại "blocked" kèm lý do: chỉ cập nhật lý do (không phải một lần chuyển trạng thái).
+      if (next === 'blocked' && typeof input.note === 'string' && input.note.trim()) {
+        const reason = parseBlockedReason(input.note);
+        if (reason === item.blockedReason) return item;
+        const updated = await this.store.workItem.updateBlockedReason(actor.tenantId, workItemId, reason);
+        // `undefined`: có người vừa chuyển việc sang trạng thái khác; trả bản mới nhất thay vì đè lý do.
+        return updated ?? (await this.load(actor, workItemId)).item;
+      }
+      return item;
+    }
     if (item.reversal) {
       throw new WorkspaceValidationError(
         'Công việc đã huỷ hiệu lực, không mở lại được; hãy lập công việc điều chỉnh.',
@@ -479,6 +490,9 @@ export class WorkItemService {
           `Từ trạng thái hiện tại chỉ chuyển được sang: ${allowed}.`,
       );
     }
+
+    // Chuyển sang Vướng mắc bắt buộc có lý do; lý do đi cùng dòng nhật ký để tab Hoạt động hiện lại được.
+    const blockedReason = next === 'blocked' ? parseBlockedReason(input.note) : undefined;
 
     // Hoàn tác việc đã hoàn thành: theo quy định người tạo việc đặt (xem `WorkItemReopenPolicy`).
     const reopening = item.status === 'done';
@@ -534,7 +548,7 @@ export class WorkItemService {
       workItemId,
       actor.userId,
       next,
-      input.note?.trim() || undefined,
+      blockedReason ?? (input.note?.trim() || undefined),
       todayKey(timezoneOf(actor.tenantId)),
       completionEvidence,
     );

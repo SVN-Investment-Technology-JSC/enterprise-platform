@@ -1,8 +1,9 @@
-import type {
-  ProjectRole,
-  WorkItem,
-  WorkItemCompletionEvidence,
-  WorkItemStatus,
+import {
+  BLOCKED_REASON_MAX_LENGTH,
+  type ProjectRole,
+  type WorkItem,
+  type WorkItemCompletionEvidence,
+  type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ProjectService } from './project.service.js';
 import { WorkItemService } from './work-item.service.js';
@@ -22,7 +23,9 @@ function makeStore(options: {
   const calls: {
     changeStatus: { id: string; next: WorkItemStatus }[];
     evidence: WorkItemCompletionEvidence[];
-  } = { changeStatus: [], evidence: [] };
+    notes: (string | undefined)[];
+    reasonUpdates: { id: string; reason: string }[];
+  } = { changeStatus: [], evidence: [], notes: [], reasonUpdates: [] };
   const byId = new Map(options.items.map((item) => [item.id, item]));
 
   const store = {
@@ -58,13 +61,23 @@ function makeStore(options: {
         id: string,
         _actor: string,
         next: WorkItemStatus,
-        _note?: string,
+        note?: string,
         _today?: string,
         evidence?: WorkItemCompletionEvidence,
       ) => {
         calls.changeStatus.push({ id, next });
+        calls.notes.push(note);
         if (evidence) calls.evidence.push(evidence);
-        return { ...(byId.get(id) as WorkItem), status: next };
+        // Như store thật: lý do vướng mắc chỉ giữ khi vào/ở `blocked`.
+        return {
+          ...(byId.get(id) as WorkItem),
+          status: next,
+          blockedReason: next === 'blocked' ? note : undefined,
+        };
+      },
+      updateBlockedReason: async (_tenant: string, id: string, reason: string) => {
+        calls.reasonUpdates.push({ id, reason });
+        return { ...(byId.get(id) as WorkItem), blockedReason: reason };
       },
     },
     dependency: {
@@ -285,6 +298,123 @@ describe('WorkItemService.changeStatus', () => {
     });
     await serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'todo' });
     expect(calls.changeStatus).toEqual([]);
+  });
+});
+
+describe('WorkItemService.changeStatus — vướng mắc', () => {
+  const blockable = (overrides: Partial<WorkItem> = {}) =>
+    makeStore({
+      items: [item({ id: 'w1', status: 'in_progress', assigneeUserId: 'u1', ...overrides })],
+      roles: { u1: 'member', 'u-other': 'member', 'u-mgr': 'manager', 'u-view': 'viewer' },
+    });
+
+  it('chuyển sang vướng mắc mà thiếu lý do thì bị từ chối', async () => {
+    const { store, calls } = blockable();
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'blocked' }),
+    ).rejects.toThrow(/lý do vướng mắc/);
+    expect(calls.changeStatus).toEqual([]);
+  });
+
+  it('lý do chỉ toàn khoảng trắng bị từ chối', async () => {
+    const { store, calls } = blockable();
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'blocked', note: '   \n ' }),
+    ).rejects.toThrow(/lý do vướng mắc/);
+    expect(calls.changeStatus).toEqual([]);
+  });
+
+  it('lý do quá dài bị từ chối, đúng giới hạn thì qua', async () => {
+    const { store, calls } = blockable();
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+        status: 'blocked',
+        note: 'a'.repeat(BLOCKED_REASON_MAX_LENGTH + 1),
+      }),
+    ).rejects.toThrow(/không được dài quá/);
+    await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+      status: 'blocked',
+      note: 'a'.repeat(BLOCKED_REASON_MAX_LENGTH),
+    });
+    expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'blocked' }]);
+  });
+
+  it('chuyển sang vướng mắc kèm lý do: lưu lý do đã cắt khoảng trắng, đi cùng dòng nhật ký', async () => {
+    const { store, calls } = blockable();
+    const updated = await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+      status: 'blocked',
+      note: '  Chờ khách gửi bản vẽ  ',
+    });
+    expect(calls.notes).toEqual(['Chờ khách gửi bản vẽ']);
+    expect(updated.blockedReason).toBe('Chờ khách gửi bản vẽ');
+  });
+
+  it('rời vướng mắc thì không còn lý do', async () => {
+    const { store, calls } = blockable({ status: 'blocked', blockedReason: 'Chờ bản vẽ' });
+    const updated = await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+      status: 'in_progress',
+    });
+    expect(calls.changeStatus).toEqual([{ id: 'w1', next: 'in_progress' }]);
+    expect(updated.blockedReason).toBeUndefined();
+  });
+
+  it('đang vướng mắc, gửi lại blocked kèm lý do mới thì chỉ cập nhật lý do', async () => {
+    const { store, calls } = blockable({ status: 'blocked', blockedReason: 'Chờ bản vẽ' });
+    const updated = await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+      status: 'blocked',
+      note: ' Chờ bản vẽ bản 2 ',
+    });
+    expect(calls.changeStatus).toEqual([]);
+    expect(calls.reasonUpdates).toEqual([{ id: 'w1', reason: 'Chờ bản vẽ bản 2' }]);
+    expect(updated.blockedReason).toBe('Chờ bản vẽ bản 2');
+  });
+
+  it('đang vướng mắc, gửi lại blocked cùng lý do hoặc không kèm lý do thì không ghi gì', async () => {
+    const { store, calls } = blockable({ status: 'blocked', blockedReason: 'Chờ bản vẽ' });
+    await serviceFor(store).changeStatus(actorOf('u1'), 'w1', { status: 'blocked' });
+    await serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+      status: 'blocked',
+      note: 'Chờ bản vẽ',
+    });
+    expect(calls.changeStatus).toEqual([]);
+    expect(calls.reasonUpdates).toEqual([]);
+  });
+
+  it('sửa lý do cũng bị giới hạn độ dài', async () => {
+    const { store, calls } = blockable({ status: 'blocked', blockedReason: 'Chờ bản vẽ' });
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u1'), 'w1', {
+        status: 'blocked',
+        note: 'a'.repeat(BLOCKED_REASON_MAX_LENGTH + 1),
+      }),
+    ).rejects.toThrow(/không được dài quá/);
+    expect(calls.reasonUpdates).toEqual([]);
+  });
+
+  it('người không phải người thực hiện hay quản lý vẫn bị chặn, kể cả khi sửa lý do', async () => {
+    const { store, calls } = blockable({ status: 'blocked', blockedReason: 'Chờ bản vẽ' });
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u-other'), 'w1', {
+        status: 'blocked',
+        note: 'Lý do khác',
+      }),
+    ).rejects.toMatchObject({ code: 'WORK_ITEM_ASSIGNEE_ONLY' });
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u-view'), 'w1', {
+        status: 'blocked',
+        note: 'Lý do khác',
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(calls.reasonUpdates).toEqual([]);
+  });
+
+  it('quản lý ghi được lý do vướng mắc thay người thực hiện', async () => {
+    const { store, calls } = blockable();
+    await serviceFor(store).changeStatus(actorOf('u-mgr'), 'w1', {
+      status: 'blocked',
+      note: 'Thiếu vật tư',
+    });
+    expect(calls.notes).toEqual(['Thiếu vật tư']);
   });
 });
 
