@@ -23,7 +23,7 @@ export interface PickedMaterial {
 
 /**
  * Chọn một mặt hàng từ danh mục Kho (`GET /catalog/materials`) kèm tồn khả
- * dụng, giá vốn bình quân; nhập số lượng và (với dòng hợp đồng) giá khung, thuế.
+ * dụng, giá vốn bình quân và giá bán (cột Giá của danh mục hàng hoá); nhập số lượng và (với dòng hợp đồng) giá khung, thuế.
  */
 export function MaterialPickerDialog({
   title,
@@ -76,7 +76,8 @@ export function MaterialPickerDialog({
       align: 'right',
       render: (value: number | null, row) => (row.kind === 'SERVICE' ? <span className={styles.muted}>Dịch vụ</span> : formatQuantity(value ?? 0)),
     },
-    { title: 'Giá vốn BQ', dataIndex: 'avgCost', width: 120, align: 'right', render: (value: number | null) => (value === null ? '' : formatMoney(value)) },
+    { title: 'Giá vốn bình quân', dataIndex: 'avgCost', width: 150, align: 'right', render: (value: number | null) => (value === null ? '' : formatMoney(value)) },
+    { title: 'Giá bán đề xuất (Kho)', dataIndex: 'salePrice', width: 150, align: 'right', render: (value: number | null | undefined) => (value === null || value === undefined ? '' : formatMoney(value)) },
   ];
 
   async function save() {
@@ -103,7 +104,7 @@ export function MaterialPickerDialog({
   return (
     <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       <input
-        className={`${styles.input} ${styles.search}`}
+        className={styles.input}
         type="search"
         placeholder="Tìm theo mã hoặc tên mặt hàng…"
         maxLength={100}

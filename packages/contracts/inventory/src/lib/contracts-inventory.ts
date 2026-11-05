@@ -1654,6 +1654,10 @@ export interface InternalMaterialCatalogItem {
   readonly isSerialized: boolean;
   readonly isActive: boolean;
   readonly warrantyMonths: number | null;
+  /** Giá bán khai trong danh mục hàng hoá (cột Giá ở màn Hàng hóa của Kho); null là chưa khai. */
+  readonly salePrice: number | null;
+  /** Phân loại hàng hoá hoặc dịch vụ (cột Phân loại ở màn Hàng hóa của Kho); null là chưa khai. */
+  readonly tradeCategory: string | null;
   /**
    * Giá vốn bình quân của mặt hàng: bình quân theo số lượng của giá bình quân các
    * kho đang có hàng (chỉ kho `warehouseCode` khi có lọc). Là giá ước tính cho báo

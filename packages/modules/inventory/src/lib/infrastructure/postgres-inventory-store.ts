@@ -165,6 +165,8 @@ function mapCatalogItem(row: Row): InternalMaterialCatalogItem {
     isSerialized: Boolean(row.is_serialized),
     isActive: Boolean(row.is_active),
     warrantyMonths: row.warranty_months == null ? null : Number(row.warranty_months),
+    salePrice: row.sale_price == null ? null : Number(row.sale_price),
+    tradeCategory: opt(row.trade_category) ?? null,
     avgCost: service ? null : num(row.avg_cost),
     availableByWarehouse: service ? null : byWarehouse,
     totalAvailable: service ? null : total,
@@ -677,7 +679,7 @@ export class PostgresInventoryStore implements InventoryStore {
       // có hàng; hết hàng ở mọi kho thì lấy giá bình quân cuối cùng còn ghi.
       const result = await pool.query<Row>(
         `SELECT m.id, m.code, m.name, m.unit, m.kind, m.category, m.is_serialized, m.is_active,
-                m.warranty_months, stock.stocks,
+                m.warranty_months, m.sale_price, m.trade_category, stock.stocks,
                 COALESCE(round(stock.value / NULLIF(stock.quantity, 0), 4), stock.fallback_avg, 0)
                   AS avg_cost
            FROM inventory_schema.materials m

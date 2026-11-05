@@ -85,3 +85,10 @@ export function describeLineErrors(errors: readonly QuoteLineError[], picked: Pi
     return `Dòng ${entry.line}${material ? ` (${material.code})` : ''}: ${entry.message}`;
   });
 }
+
+/** Gợi ý cách xử lý khi có dòng chưa có giá bán (`PRICE_NOT_FOUND`); không có lỗi loại này thì không gợi ý. */
+export function lineErrorsHint(errors: readonly QuoteLineError[]): string | undefined {
+  return errors.some((entry) => entry.code === 'PRICE_NOT_FOUND')
+    ? 'Mặt hàng chưa có giá bán trong bảng giá áp dụng. Nhờ quản trị bán hàng thêm dòng giá ở Cài đặt > Bảng giá, hoặc bỏ mặt hàng đó khỏi lần thêm này.'
+    : undefined;
+}

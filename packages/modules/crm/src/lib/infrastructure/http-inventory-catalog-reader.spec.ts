@@ -24,6 +24,8 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
               totalAvailable: 70,
               availableByWarehouse: [{ warehouseId: 'w1', warehouseCode: 'KHO-1', available: 70, avgCost: 800000 }],
               warrantyMonths: 12,
+              salePrice: '1500000.00',
+              tradeCategory: 'Mạng',
             },
             { id: 'x', code: '' },
           ],
@@ -48,6 +50,8 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
       totalAvailable: 70,
       availableByWarehouse: [{ warehouseId: 'w1', warehouseCode: 'KHO-1', available: 70 }],
       warrantyMonths: 12,
+      salePrice: 1_500_000,
+      tradeCategory: 'Mạng',
     });
     expect(known.size).toBe(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];

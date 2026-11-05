@@ -490,6 +490,10 @@
   width: min(720px, 100%);
 }
 
+.dialogExtraWide {
+  width: min(1080px, 100%);
+}
+
 @keyframes crm-dialog-in {
   from {
     opacity: 0;
@@ -516,6 +520,11 @@
     font-weight: 700;
     overflow-wrap: anywhere;
   }
+}
+
+/* `.search` (flex-basis cho thanh công cụ nằm ngang) không được kéo giãn chiều cao ô trong thân hộp xếp dọc. */
+.dialogBody .search {
+  flex: none;
 }
 
 .dialogBody {

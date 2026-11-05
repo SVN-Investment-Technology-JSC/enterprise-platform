@@ -434,6 +434,10 @@ export interface CrmCatalogMaterial {
   readonly unit: string | null;
   readonly kind: string | null;
   readonly category: string | null;
+  /** Phân loại hàng hoá/dịch vụ khai ở Kho; rỗng là chưa khai. */
+  readonly tradeCategory?: string | null;
+  /** Giá bán khai ở Kho (cột Giá của màn Hàng hóa); rỗng là chưa khai. */
+  readonly salePrice?: number | null;
   /** Giá vốn bình quân hiện tại (ước tính); rỗng với dịch vụ. */
   readonly avgCost: number | null;
   /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */

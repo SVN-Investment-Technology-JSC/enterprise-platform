@@ -16,7 +16,6 @@ import { ClipboardPaste, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import {
-  addPriceListItem,
   createPriceList,
   deletePriceList,
   deletePriceListItem,
@@ -24,12 +23,12 @@ import {
   getPriceList,
   listPriceLists,
   updatePriceList,
-  updatePriceListItem,
   upsertPriceListItems,
 } from '../crm-api';
 import { groupOptions, labelOptions, useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
-import { formatMoney, formatPercent, parseNumber, parsePastedItems, priceListScopeLabel, validityLabel } from './pricing.model';
+import { AddPriceItemsDialog, EditPriceItemDialog } from './price-list-item-dialogs';
+import { formatMoney, formatPercent, parsePastedItems, priceListScopeLabel, validityLabel } from './pricing.model';
 
 const KIND_OPTIONS = [
   { value: 'group', label: 'Theo nhóm khách hàng' },
@@ -41,7 +40,7 @@ const KIND_OPTIONS = [
  * theo mặt hàng và đơn vị. Chỉ quản trị bán hàng thấy trang này; server kiểm
  * `crm.manage` cho mọi thao tác ghi.
  *
- * Danh mục Kho chưa có API nội bộ (T1-24) nên mặt hàng nhập bằng id, mã, tên,
+ * Mặt hàng chọn từ danh mục Kho (nhiều mặt hàng một lần, mỗi mặt hàng một hàng),
  * hoặc dán nhiều dòng từ bảng tính.
  */
 export function PriceListsPage() {
@@ -360,15 +359,26 @@ function PriceListItems({ priceListId, onChanged }: { priceListId: string; onCha
         locale={{ emptyText: 'Bảng giá chưa có dòng nào.' }}
       />
       {editing ? (
-        <ItemDialog
-          priceListId={priceListId}
-          item={editing === 'new' ? undefined : editing}
-          onClose={() => setEditing(null)}
-          onSaved={(next) => {
-            setEditing(null);
-            applyChange(next);
-          }}
-        />
+        editing === 'new' ? (
+          <AddPriceItemsDialog
+            priceListId={priceListId}
+            onClose={() => setEditing(null)}
+            onSaved={(next) => {
+              setEditing(null);
+              applyChange(next);
+            }}
+          />
+        ) : (
+          <EditPriceItemDialog
+            priceListId={priceListId}
+            item={editing}
+            onClose={() => setEditing(null)}
+            onSaved={(next) => {
+              setEditing(null);
+              applyChange(next);
+            }}
+          />
+        )
       ) : null}
       {pasting ? (
         <PasteDialog
@@ -381,86 +391,6 @@ function PriceListItems({ priceListId, onChanged }: { priceListId: string; onCha
         />
       ) : null}
     </section>
-  );
-}
-
-function ItemDialog({
-  priceListId,
-  item,
-  onClose,
-  onSaved,
-}: {
-  priceListId: string;
-  item?: PriceListItem;
-  onClose: () => void;
-  onSaved: (detail: PriceListDetail) => void;
-}) {
-  const [materialId, setMaterialId] = useState(item?.materialId ?? '');
-  const [materialCode, setMaterialCode] = useState(item?.materialCode ?? '');
-  const [materialName, setMaterialName] = useState(item?.materialName ?? '');
-  const [unit, setUnit] = useState(item?.unit ?? '');
-  const [price, setPrice] = useState(item ? String(item.price) : '');
-  const [vatRate, setVatRate] = useState(item ? String(item.vatRate) : '10');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>();
-
-  async function submit() {
-    const parsedPrice = parseNumber(price);
-    const parsedVat = parseNumber(vatRate);
-    if (!materialId.trim() || !materialCode.trim() || !materialName.trim() || !unit.trim()) {
-      return setError('Vui lòng nhập id, mã, tên mặt hàng và đơn vị tính.');
-    }
-    if (parsedPrice === undefined || parsedVat === undefined) return setError('Đơn giá và thuế suất phải là số.');
-    setSubmitting(true);
-    setError(undefined);
-    const body = {
-      materialId: materialId.trim(),
-      materialCode: materialCode.trim(),
-      materialName: materialName.trim(),
-      unit: unit.trim(),
-      price: parsedPrice,
-      vatRate: parsedVat,
-    };
-    try {
-      onSaved(item ? await updatePriceListItem(priceListId, item.id, body) : await addPriceListItem(priceListId, body));
-      toast.success('Đã lưu dòng giá.');
-    } catch (cause) {
-      setError(errorMessage(cause, 'Không lưu được dòng giá.'));
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <CrmDialog
-      open
-      title={item ? 'Sửa dòng giá' : 'Thêm dòng giá'}
-      subtitle="Id, mã, tên lấy từ danh mục mặt hàng của Kho."
-      submitting={submitting}
-      error={error}
-      onClose={onClose}
-      onSubmit={() => void submit()}
-    >
-      <div className={styles.fieldGrid}>
-        <Field label="Id mặt hàng" required wide>
-          <input className={`${styles.input} ${styles.mono}`} value={materialId} maxLength={36} autoFocus onChange={(event) => setMaterialId(event.target.value)} />
-        </Field>
-        <Field label="Mã mặt hàng" required>
-          <input className={styles.input} value={materialCode} maxLength={100} onChange={(event) => setMaterialCode(event.target.value)} />
-        </Field>
-        <Field label="Tên mặt hàng" required>
-          <input className={styles.input} value={materialName} maxLength={300} onChange={(event) => setMaterialName(event.target.value)} />
-        </Field>
-        <Field label="Đơn vị tính" required>
-          <input className={styles.input} value={unit} maxLength={50} onChange={(event) => setUnit(event.target.value)} />
-        </Field>
-        <Field label="Đơn giá (VND)" required>
-          <input className={styles.input} inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} />
-        </Field>
-        <Field label="Thuế suất (%)" required hint="0, 5, 8 hoặc 10">
-          <input className={styles.input} inputMode="decimal" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
-        </Field>
-      </div>
-    </CrmDialog>
   );
 }
 

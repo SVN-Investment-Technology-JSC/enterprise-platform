@@ -4,6 +4,7 @@ import {
   buildLines,
   describeLineErrors,
   duplicatePicks,
+  lineErrorsHint,
   lineErrorsOf,
   setPicked,
   setPickedQuantity,
@@ -72,3 +73,13 @@ describe('chọn nhiều mặt hàng (TC-FB-01..04)', () => {
     expect(lineErrorsOf(undefined)).toEqual([]);
   });
 });
+
+describe('gợi ý khi thiếu giá bán', () => {
+  it('có PRICE_NOT_FOUND thì gợi ý thêm dòng giá; lỗi khác thì không', () => {
+    const missing = [{ line: 1, materialId: 'a', code: 'PRICE_NOT_FOUND', message: 'x' }];
+    expect(lineErrorsHint(missing)).toContain('Cài đặt > Bảng giá');
+    expect(lineErrorsHint([{ line: 1, materialId: 'a', code: 'QUANTITY_INVALID', message: 'x' }])).toBeUndefined();
+    expect(lineErrorsHint([])).toBeUndefined();
+  });
+});
+

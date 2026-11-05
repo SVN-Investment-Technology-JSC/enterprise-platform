@@ -34,6 +34,8 @@ export interface CrmDialogProps {
   readonly submitting?: boolean;
   readonly danger?: boolean;
   readonly wide?: boolean;
+  /** Rộng hơn `wide` (tới 1080px) cho hộp có bảng nhiều cột. */
+  readonly extraWide?: boolean;
   readonly error?: string;
   /** Nội dung chèn trên hàng nút (cảnh báo cần xác nhận...). */
   readonly notice?: ReactNode;
@@ -55,6 +57,7 @@ export function CrmDialog({
   submitting = false,
   danger = false,
   wide = false,
+  extraWide = false,
   error,
   notice,
   onClose,
@@ -75,7 +78,7 @@ export function CrmDialog({
   return createPortal(
     <div className={styles.overlay} role="presentation" onMouseDown={() => !submitting && onClose()}>
       <div
-        className={wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
+        className={extraWide ? `${styles.dialog} ${styles.dialogExtraWide}` : wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog}
         role="dialog"
         aria-modal="true"
         aria-label={title}

@@ -181,3 +181,58 @@ export function buildPricingSheet(result: PricingResult): (string | number)[][] 
   rows.push(['Tiền thuế VAT', totals.vatAmount], ['Tổng cộng', totals.totalAmount]);
   return rows;
 }
+
+/** Một mặt hàng đã chọn từ danh mục Kho trong hộp "Thêm dòng giá", kèm giá và thuế người dùng gõ. */
+export interface PriceRowDraft {
+  readonly material: {
+    readonly id: string;
+    readonly code: string;
+    readonly name: string;
+    readonly unit: string | null;
+    /** Giá bán khai ở Kho (cột Giá của màn Hàng hóa), chỉ để tham khảo. */
+    readonly salePrice?: number | null;
+    /** Giá vốn bình quân của Kho, chỉ để tham khảo khi định giá. */
+    readonly avgCost?: number | null;
+  };
+  /** Đơn vị tính: lấy theo Kho; chỉ gõ tay khi danh mục Kho chưa có đơn vị. */
+  readonly unit: string;
+  readonly price: string;
+  readonly vat: string;
+}
+
+export function newPriceRow(material: PriceRowDraft['material']): PriceRowDraft {
+  // Đơn giá điền sẵn giá bán đề xuất của Kho (nếu có), người dùng sửa được. Thuế suất để trống, bắt buộc nhập:
+  // Kho không có thuế suất và mỗi mặt hàng có thể chịu mức khác nhau (0, 5, 8, 10...).
+  const suggested = material.salePrice;
+  return { material, unit: material.unit?.trim() ?? '', price: suggested == null ? '' : String(suggested), vat: '' };
+}
+
+export type BuiltPriceItems =
+  | { readonly ok: true; readonly items: SavePriceListItemRequest[] }
+  | { readonly ok: false; readonly error: string; readonly invalidIds: readonly string[] };
+
+/**
+ * Kiểm các dòng đã chọn và dựng yêu cầu lưu. Id, mã, tên lấy từ danh mục Kho nên người dùng không gõ;
+ * đơn giá và thuế suất là số không âm, cho phép số thập phân; thuế suất tối đa 100.
+ */
+export function buildPriceListItems(rows: readonly PriceRowDraft[]): BuiltPriceItems {
+  if (!rows.length) return { ok: false, error: 'Vui lòng chọn ít nhất một mặt hàng.', invalidIds: [] };
+  const items: SavePriceListItemRequest[] = [];
+  const invalid = new Set<string>();
+  let error = '';
+  const fail = (id: string, message: string) => {
+    invalid.add(id);
+    error ||= message;
+  };
+  for (const row of rows) {
+    const code = row.material.code;
+    const unit = row.unit.trim();
+    const price = parseNumber(row.price);
+    const vatRate = parseNumber(row.vat);
+    if (!unit) fail(row.material.id, `${code}: vui lòng nhập đơn vị tính.`);
+    else if (price === undefined || price < 0) fail(row.material.id, `${code}: đơn giá phải là số không âm.`);
+    else if (vatRate === undefined || vatRate < 0 || vatRate > 100) fail(row.material.id, `${code}: thuế suất phải là số từ 0 đến 100.`);
+    else items.push({ materialId: row.material.id, materialCode: row.material.code, materialName: row.material.name, unit, price, vatRate });
+  }
+  return invalid.size ? { ok: false, error, invalidIds: [...invalid] } : { ok: true, items };
+}
