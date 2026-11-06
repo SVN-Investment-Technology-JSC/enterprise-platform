@@ -167,7 +167,8 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
   - Trượt từ cạnh phải màn hình (`width: 580px - 720px`), có backdrop làm mờ nhẹ (`blur(4px)`).
   - Header cố định hiển thị Mã hồ sơ + Badge trạng thái + Tiêu đề + **Thanh Tab điều hướng nhanh** (nếu có nhiều phân khu dữ liệu).
   - Body có cuộn nội bộ độc lập (`overflow-y: auto`).
-  - Đóng khi click nút `✕`, nút `Đóng` ở footer, hoặc click vào vùng backdrop bên ngoài.
+  - Drawer chỉ xem: đóng khi click nút `✕`, nút `Đóng` ở footer, hoặc click vào vùng backdrop bên ngoài.
+  - Drawer có ô nhập liệu (tạo/sửa): **không** đóng khi click backdrop; áp dụng đầy đủ mục 4.4.
 
 ### 4.3. Popup Form / Modal Dialog (Hộp thoại nhập liệu tập trung)
 - **Mục đích**: Dùng cho các tác vụ **tạo mới / cập nhật có cấu trúc dữ liệu độc lập** cần sự tập trung cao độ của người dùng (VD: *Tạo mới quy trình/hồ sơ, Lập lịch bảo trì, Phân quyền nâng cao, Cấu hình thiết bị*).
@@ -190,18 +191,43 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
     - Bo góc (`border-radius`): `8px` cho khung form popup, `4px` cho các ô input, select và nút bấm (`button`).
     - Độ sâu (`box-shadow`): `0 4px 12px rgba(0, 0, 0, 0.1)`.
 - **Thành phần & Nút bấm chuẩn**:
-  - **Nút đóng (X)**: Góc trên bên phải, kích thước `32x32px`, hover chuyển nền xám nhạt (`#e5e5e5`), phím tắt `ESC`.
+  - **Nút đóng (X)**: Góc trên bên phải, kích thước `32x32px`, hover chuyển nền xám nhạt (`#e5e5e5`). Phím `ESC` chỉ đóng ngay khi form chưa có thay đổi; khi đã có thay đổi, xem mục 4.4.
   - **Nút Submit chính** (`submitButton / primarySubmitBtn`): Nền xanh highlight (`#2563eb`, hover `#1d4ed8`), chữ trắng `color: #ffffff !important`, `font-weight: 700`, có spinner loading khi đang xử lý; khi `disabled` chuyển nền `#93c5fd` với chữ trắng rõ ràng.
   - **Nút Huỷ** (`cancelButton / actionGhost`): Outline style (`background: transparent`, `border: 1px solid #d1d5db`, `color: #4b5563`, hover `#e5e5e5`).
 - **Hành vi & Tương tác (Behavior & Animation)**:
   - Backdrop mờ nền: `rgba(0, 0, 0, 0.45)` với `backdrop-filter: blur(4px)`.
   - Hiệu ứng mở mượt mà: `fadeIn` và `scaleIn` `0.2s cubic-bezier(0.16, 1, 0.3, 1)`.
-  - Hỗ trợ đóng khi click ra ngoài backdrop hoặc bấm phím `ESC`.
+  - **Click ra ngoài backdrop không bao giờ đóng popup nhập liệu** (xem mục 4.4). Chỉ modal chỉ xem (xem ảnh, mã QR, chi tiết nhanh, không có ô nhập) mới cho đóng khi click backdrop hoặc `ESC`.
   - Kiểm tra tính hợp lệ (Validation) đầy đủ trước khi kích hoạt `onSubmit`.
 - **Responsive**:
   - Desktop: `max-width: 500px` (hoặc `640px` cho form 2 cột), căn giữa màn hình (centered).
   - Mobile (`<= 480px`): Chiều rộng 100% kèm margin 16px, nút bấm xếp dọc `100% width`.
 - **Component dùng chung**: Sẵn sàng tại `@enterprise-platform/shared-ui` (`MinimalPopupForm`).
+
+### 4.4. Bảo vệ dữ liệu đang nhập (Popup Form, Drawer nhập liệu, trang có form)
+Nguyên tắc ưu tiên cao hơn mọi quy tắc về hình thức: **người dùng nhập 8-9 trường rồi bấm nhầm ra ngoài không được mất dữ liệu.** Thao tác click vào vùng trống để bỏ focus hoặc đóng dropdown là phản xạ bình thường, không phải ý định huỷ.
+
+1. **Không đóng khi click backdrop.** Lớp phủ của popup/drawer nhập liệu không gắn `onClick` đóng. Không dùng `onClick={onCancel}` trên `modalOverlay`, `backdrop`. Nếu cần phản hồi, cho khung rung nhẹ hoặc nháy viền, không đóng.
+2. **Hỏi xác nhận khi đóng form đã có thay đổi (`isDirty`).** Nút `Huỷ`, nút `X` và phím `ESC` đều đi qua cùng một luồng:
+   - Form chưa chạm vào: đóng ngay.
+   - Form đã thay đổi so với giá trị ban đầu: hiện **Popconfirm** (`@enterprise-platform/shared-ui`) tại nút `Huỷ`/`X`, tiêu đề "Đóng và bỏ thay đổi?", mô tả "Thông tin vừa nhập chưa được lưu và sẽ bị mất.", nút "Tiếp tục nhập" (ghost) và "Đóng và bỏ" (danger). Mặc định focus nút "Tiếp tục nhập".
+   - `Popconfirm` bám theo nút bấm nên không mở được bằng `ESC`: khi form đã dirty thì `ESC` không đóng form (hoặc chuyển focus về nút `Huỷ`), không đóng im lặng.
+   - Chỉ bọc `Popconfirm` khi `isDirty`; khi chưa dirty render nút thường.
+3. **Cách tính `isDirty`.** So sánh giá trị hiện tại với giá trị ban đầu (khi sửa form có sẵn dữ liệu, không coi "có giá trị" là dirty). Tính cả ô `SearchableSelect`, ô tích chọn, tệp đã chọn và dòng chi tiết đã thêm. Dùng chung một hàm cho cả hai nút đóng.
+4. **Khi đang gửi (`busy`/`loading`)**: không cho đóng bằng bất kỳ cách nào.
+5. **Thông báo của trình duyệt (`beforeunload`)** dùng cho trường hợp rời hẳn trang khi form dirty: tải lại, đóng tab, bấm Back, chuyển phân hệ. Đăng ký khi dirty và gỡ khi hết dirty hoặc sau khi lưu thành công:
+   ```tsx
+   useEffect(() => {
+     if (!dirty) return;
+     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+     window.addEventListener('beforeunload', warn);
+     return () => window.removeEventListener('beforeunload', warn);
+   }, [dirty]);
+   ```
+   Trình duyệt hiện câu cảnh báo mặc định của riêng nó, không đổi được nội dung. Chuyển trang kiểu SPA không kích hoạt `beforeunload`; muốn chặn thì dùng cơ chế đăng ký "việc đang làm dở" (xem `useUnsavedWork` của gói social) hoặc đặt Popconfirm tại điểm điều hướng.
+6. **Không dùng `window.confirm`** để hỏi khi đóng form trong giao diện; dùng `Popconfirm`. `beforeunload` là ngoại lệ duy nhất vì trình duyệt chỉ cho hiện hộp thoại của nó.
+7. **Modal chỉ xem** (không có ô nhập) không cần bảo vệ và vẫn đóng được bằng backdrop hoặc `ESC`.
+8. **Form lớn nhiều trường** (hàng hoá, khách hàng, báo giá, phiếu) nên ưu tiên Drawer nhập liệu bên phải để người dùng vẫn nhìn được bảng dữ liệu phía sau; vẫn áp dụng đủ các quy tắc trên.
 
 ---
 
