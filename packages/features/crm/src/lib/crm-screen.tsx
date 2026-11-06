@@ -47,7 +47,7 @@ import { CustomerList } from './customers/customer-list';
 import { LeadsPage } from './leads/leads-page';
 import { OpportunitiesPage } from './opportunities/opportunities-page';
 import { QuoteEditor } from './quotes/quote-editor';
-import { QuotesPage } from './quotes/quotes-page';
+import { NewQuoteScreen, QuotesPage } from './quotes/quotes-page';
 import { CrmSettingsPage } from './settings/crm-settings';
 import { ContractDetail } from './contracts/contract-detail';
 import { ContractsPage } from './contracts/contracts-page';
@@ -180,7 +180,7 @@ export function CrmScreen() {
       ) : status.tablesReady ? (
         <CrmAntdProvider>
           <CrmDataProvider capabilities={capabilities} currentUserId={status.userId}>
-            <SalesView page={current} sub={sub} navigate={navigate} />
+            <SalesView page={current} sub={sub} navigate={navigate} replace={replaceHash} />
           </CrmDataProvider>
         </CrmAntdProvider>
       ) : (
@@ -190,15 +190,35 @@ export function CrmScreen() {
   );
 }
 
+/**
+ * Chuyển trang thay mục lịch sử hiện tại (nút Back của trình duyệt không quay lại trang cũ), ví dụ `quotes/new` sau khi
+ * lập báo giá (plan 9.5). `location.replace` chỉ đổi hash nên vẫn phát `hashchange` như `navigate`.
+ */
+function replaceHash(view: CrmView, sub?: string) {
+  if (typeof window === 'undefined') return;
+  window.location.replace(`#${sub ? `${view}/${sub}` : view}`);
+}
+
+/** `quotes/new?customerId=…` hoặc `?opportunityId=…`: màn lập báo giá mới; trả rỗng khi `sub` là id báo giá. */
+export function parseNewQuoteSub(sub: string | undefined): { customerId?: string; opportunityId?: string } | undefined {
+  if (!sub) return undefined;
+  const [head, query = ''] = sub.split('?');
+  if (head !== 'new') return undefined;
+  const params = new URLSearchParams(query);
+  return { customerId: params.get('customerId') || undefined, opportunityId: params.get('opportunityId') || undefined };
+}
+
 /** Nội dung từng trang; trang không khớp hiện khung chờ. */
 function SalesView({
   page,
   sub,
   navigate,
+  replace,
 }: {
   page: CrmPage;
   sub: string | undefined;
   navigate: (view: CrmView, sub?: string) => void;
+  replace: (view: CrmView, sub?: string) => void;
 }) {
   const openCustomer = (id: string) => navigate('customers', id);
   const openOpportunity = (id: string) => navigate('opportunities', id);
@@ -233,7 +253,19 @@ function SalesView({
           onOpenContract={openContract}
         />
       );
-    case 'quotes':
+    case 'quotes': {
+      const newQuote = parseNewQuoteSub(sub);
+      if (newQuote) {
+        return (
+          <NewQuoteScreen
+            key={sub}
+            customerId={newQuote.customerId}
+            opportunityId={newQuote.opportunityId}
+            onBack={() => navigate('quotes')}
+            onCreated={(id) => replace('quotes', id)}
+          />
+        );
+      }
       return sub ? (
         <QuoteEditor
           key={sub}
@@ -244,8 +276,9 @@ function SalesView({
           onOpenOrder={openOrder}
         />
       ) : (
-        <QuotesPage onOpen={openQuote} />
+        <QuotesPage onOpen={openQuote} onCreate={() => navigate('quotes', 'new')} />
       );
+    }
     case 'contracts':
       return sub ? (
         <ContractDetail

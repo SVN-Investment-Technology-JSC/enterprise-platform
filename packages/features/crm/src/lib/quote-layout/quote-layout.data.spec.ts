@@ -184,6 +184,6 @@ describe('sampleQuoteLayoutData', () => {
 describe('quoteExportFileName', () => {
   it('ghép mã và phiên bản, thay ký tự không hợp lệ', () => {
     expect(quoteExportFileName('BG2600001', 2)).toBe('BG2600001_v2');
-    expect(quoteExportFileName('20261102/BG//383', 1)).toBe('20261102_BG_383_v1');
+    expect(quoteExportFileName('20261102/BG//383', 1)).toBe('20261102-BG-383_v1');
   });
 });

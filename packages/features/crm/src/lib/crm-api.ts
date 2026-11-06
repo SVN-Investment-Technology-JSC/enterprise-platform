@@ -190,6 +190,8 @@ export interface CrmApiError {
   readonly matches?: readonly TaxCodeMatch[];
   /** Điều kiện chuyển giai đoạn còn thiếu (STAGE_REQUIREMENTS_NOT_MET, ACCEPTED_QUOTE_REQUIRED). */
   readonly missing?: readonly { kind: string; ref: string; message: string }[];
+  /** Lỗi từng trường khi lưu bố cục mẫu báo giá (`LAYOUT_*`). */
+  readonly errors?: readonly QuoteLayoutError[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -602,11 +604,21 @@ import type {
   SaveQuoteTemplateRequest,
   SaveQuoteTypeRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  QuoteLayoutError,
+  QuoteTemplateLayout,
+  SaveQuoteTemplateLayoutRequest,
+} from '@enterprise-platform/contracts-crm';
 
 export const listQuoteTemplates = (includeInactive = false) =>
   request<QuoteTemplate[]>(`/quote-templates${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
 export const createQuoteTemplate = (body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('POST', '/quote-templates', body);
 export const updateQuoteTemplate = (id: string, body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('PUT', `/quote-templates/${encodeURIComponent(id)}`, body);
+/** Bố cục in của mẫu (phase 3): đọc cần `crm.read`; lưu, xoá (`layout: null`) cần `crm.manage`. 409 `LAYOUT_CONFLICT` khi `expectedUpdatedAt` lệch. */
+export const getQuoteTemplateLayout = (id: string) =>
+  request<QuoteTemplateLayout>(`/quote-templates/${encodeURIComponent(id)}/layout`, { cache: 'no-store' });
+export const saveQuoteTemplateLayout = (id: string, body: SaveQuoteTemplateLayoutRequest) =>
+  send<QuoteTemplateLayout>('PUT', `/quote-templates/${encodeURIComponent(id)}/layout`, body);
 export const listQuoteTypes = (includeInactive = false) =>
   request<QuoteType[]>(`/quote-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
 export const createQuoteType = (body: SaveQuoteTypeRequest) => send<QuoteType>('POST', '/quote-types', body);

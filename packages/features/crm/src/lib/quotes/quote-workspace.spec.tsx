@@ -1,0 +1,701 @@
+/**
+ * @jest-environment jsdom
+ */
+import {
+  CRM_NO_CAPABILITIES,
+  defaultQuoteLayout,
+  type CrmCapabilities,
+  type CustomFieldDefinition,
+  type QuoteDetail,
+  type QuoteLayout,
+  type QuoteTemplate,
+  type QuoteVersion,
+} from '@enterprise-platform/contracts-crm';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { emptyQuoteLayoutData } from '../quote-layout/quote-layout.data';
+import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureVersion } from '../quote-layout/quote-layout.fixtures';
+import { clearTemplateLayoutCache } from '../quote-layout/use-template-layout';
+import { QuoteEditor, openPickerAfterLoad } from './quote-editor';
+import { MISSING_SNAPSHOT_NOTE, QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
+import {
+  QuoteActionBar,
+  QuoteWorkspace,
+  blankQuoteDetail,
+  draftedDetail,
+  generalPatch,
+  sameGeneral,
+  savedGeneral,
+} from './quote-workspace';
+import { CreateQuoteDialog, NewQuoteScreen, newQuoteHash } from './quotes-page';
+
+// --- Mô phỏng ------------------------------------------------------------------------------------------------------
+
+jest.mock('../sales.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('../pricing/pricing.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('./quote-workspace.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('../quote-layout/quote-layout.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+
+jest.mock('antd', () => ({
+  Table: ({
+    columns,
+    dataSource,
+    rowKey,
+    onRow,
+    locale,
+  }: {
+    columns: { key?: string; dataIndex?: string; render?: (value: unknown, row: unknown, index: number) => unknown }[];
+    dataSource: Record<string, unknown>[];
+    rowKey: string;
+    onRow?: (row: unknown, index: number) => Record<string, unknown>;
+    locale?: { emptyText?: string };
+  }) => (
+    <table>
+      <tbody>
+        {dataSource.length ? (
+          dataSource.map((row, index) => (
+            <tr key={String(row[rowKey])} data-row-key={String(row[rowKey])} {...(onRow?.(row, index) ?? {})}>
+              {columns.map((column, cell) => (
+                <td key={column.key ?? column.dataIndex ?? cell}>
+                  {(column.render ? column.render(column.dataIndex ? row[column.dataIndex] : undefined, row, index) : row[column.dataIndex ?? '']) as never}
+                </td>
+              ))}
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td>{locale?.emptyText}</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  ),
+}));
+
+const mockToast = { success: jest.fn(), error: jest.fn() };
+jest.mock('@enterprise-platform/shared-ui', () => ({
+  SearchableSelect: ({
+    options,
+    value,
+    placeholder,
+    onChange,
+  }: {
+    options: { value: string; label: string }[];
+    value: string;
+    placeholder?: string;
+    onChange: (value: string) => void;
+  }) => (
+    <div data-select-value={value} data-placeholder={placeholder}>
+      {options.map((option) => (
+        <button key={option.value} type="button" onClick={() => onChange(option.value)}>{`chọn ${option.label}`}</button>
+      ))}
+    </div>
+  ),
+  Popconfirm: ({ children }: { children: ReactNode }) => <>{children}</>,
+  formatDateTime: (value: string) => value,
+  toast: { success: (...args: unknown[]) => mockToast.success(...args), error: (...args: unknown[]) => mockToast.error(...args) },
+}));
+jest.mock('@enterprise-platform/shared-ui/date-picker', () => ({
+  DatePickerInput: ({ value, onChange, 'aria-label': label }: { value?: string; onChange: (v: string) => void; 'aria-label'?: string }) => (
+    <input aria-label={label} value={value ?? ''} onChange={(event) => onChange(event.target.value)} />
+  ),
+}));
+
+const mockExportMenu = jest.fn();
+jest.mock('../quote-layout/export-menu', () => ({
+  ExportMenu: (props: { fileName: string; disabled?: boolean }) => {
+    mockExportMenu(props);
+    return (
+      <button type="button" disabled={props.disabled} data-file-name={props.fileName}>
+        Xuất
+      </button>
+    );
+  },
+}));
+
+// Các khối thu gọn có API riêng, đã có spec riêng: thay bằng khung rỗng.
+jest.mock('./business-plan-panel', () => ({ BusinessPlanPanel: () => <div>PAKD</div> }));
+jest.mock('./quote-promotions-panel', () => ({ QuotePromotionsPanel: () => <div>Khuyến mãi</div> }));
+jest.mock('./quote-document-references', () => ({ QuoteDocumentReferences: () => <div>Tham chiếu tài liệu</div> }));
+jest.mock('./quote-compare', () => ({ QuoteCompare: () => <div>So sánh</div> }));
+jest.mock('../documents', () => ({ DocumentsPanel: () => <div>Tài liệu</div> }));
+jest.mock('./quote-form-parts', () => ({
+  ...jest.requireActual('./quote-form-parts'),
+  FollowersPanel: () => <div>Người theo dõi</div>,
+  LinksPanel: () => <div>Đối tượng liên quan</div>,
+}));
+
+const mockApi = {
+  getQuote: jest.fn(),
+  getCustomer: jest.fn(),
+  getOpportunity: jest.fn(),
+  updateQuoteVersion: jest.fn(),
+  quoteAction: jest.fn(),
+  addQuoteLines: jest.fn(),
+  removeQuoteLine: jest.fn(),
+  updateQuoteLine: jest.fn(),
+  convertQuote: jest.fn(),
+  searchCatalog: jest.fn(),
+  listQuoteTemplates: jest.fn(),
+  listQuoteTypes: jest.fn(),
+  listQuoteCustomFields: jest.fn(),
+  generateQuoteCode: jest.fn(),
+  getQuoteTemplateLayout: jest.fn(),
+  createQuote: jest.fn(),
+  listCustomers: jest.fn(),
+  listOpportunities: jest.fn(),
+  listQuotes: jest.fn(),
+};
+jest.mock('../crm-api', () => ({
+  errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
+  // Nhà máy mock chạy trước khi `mockApi` khởi tạo: chỉ tra hàm lúc gọi.
+  ...Object.fromEntries(
+    [
+      'getQuote', 'getCustomer', 'getOpportunity', 'updateQuoteVersion', 'quoteAction', 'addQuoteLines', 'removeQuoteLine',
+      'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
+      'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
+    ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
+  ),
+}));
+
+const WRITER: CrmCapabilities = { ...CRM_NO_CAPABILITIES, canRead: true, canWriteQuote: true } as CrmCapabilities;
+const READER: CrmCapabilities = { ...CRM_NO_CAPABILITIES, canRead: true } as CrmCapabilities;
+let mockCrm = { capabilities: WRITER, people: [{ userId: 'u1', displayName: 'Nguyễn Văn An' }], currentUserId: 'u9' };
+jest.mock('../crm-context', () => ({
+  ...jest.requireActual('../crm-context'),
+  useCrm: () => mockCrm,
+}));
+
+// --- Dữ liệu ---------------------------------------------------------------------------------------------------------
+
+const titled = (text: string, extra: QuoteLayout['blocks'] = []): QuoteLayout => {
+  const base = defaultQuoteLayout();
+  return { ...base, blocks: [...base.blocks.map((block) => (block.type === 'title' ? { ...block, text } : block)), ...extra] };
+};
+const template = (id: string, patch: Partial<QuoteTemplate> = {}): QuoteTemplate => ({
+  id,
+  name: `Mẫu ${id}`,
+  discountMode: 'LINE',
+  taxMode: 'LINE',
+  description: null,
+  active: true,
+  isDefault: false,
+  sortOrder: 0,
+  hasLayout: true,
+  ...patch,
+});
+const TEMPLATES = [template('t1', { isDefault: true }), template('t2', { discountMode: 'ORDER', hasLayout: true }), template('t3', { hasLayout: false })];
+const layoutFor = (id: string) => Promise.resolve({ layout: titled(`TIÊU ĐỀ ${id}`), updatedAt: null, updatedBy: null });
+
+const sent = (patch: Partial<QuoteVersion> = {}) => fixtureVersion({ versionNo: 2, status: 'SENT', sentAt: '2026-11-02T00:00:00.000Z', ...patch });
+
+function stubLookups(fields: CustomFieldDefinition[] = []) {
+  mockApi.listQuoteTemplates.mockResolvedValue(TEMPLATES);
+  mockApi.listQuoteTypes.mockResolvedValue([{ id: 'qt1', name: 'Thiết bị', description: null, active: true, isDefault: true, sortOrder: 0 }]);
+  mockApi.listQuoteCustomFields.mockResolvedValue(fields);
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  clearTemplateLayoutCache();
+  mockCrm = { capabilities: WRITER, people: [{ userId: 'u1', displayName: 'Nguyễn Văn An' }], currentUserId: 'u9' };
+  stubLookups();
+  mockApi.getQuoteTemplateLayout.mockImplementation(layoutFor);
+  mockApi.getCustomer.mockResolvedValue(fixtureCustomer());
+  mockApi.searchCatalog.mockResolvedValue([]);
+  mockApi.listCustomers.mockResolvedValue({ items: [] });
+  mockApi.listOpportunities.mockResolvedValue({ items: [] });
+});
+
+const title = () => document.querySelector('[data-block-type="title"]')?.textContent ?? '';
+
+// --- Hàm thuần -------------------------------------------------------------------------------------------------------
+
+describe('previewLayoutChoice (P3C4-03)', () => {
+  const snapshot = titled('BẢN CHỤP');
+
+  it.each(['DRAFT', 'PENDING', 'APPROVED', 'REJECTED'] as const)('TC-QW-04, TC-QW-05: %s dùng bố cục hiện tại của mẫu', (status) => {
+    expect(previewLayoutChoice(fixtureVersion({ status, layoutSnapshot: snapshot }))).toEqual({ snapshot: null, missingSnapshot: false });
+  });
+
+  it.each(['SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED'] as const)('TC-QW-05: %s có bản chụp thì dùng bản chụp', (status) => {
+    expect(previewLayoutChoice(sent({ status, layoutSnapshot: snapshot }))).toEqual({ snapshot, missingSnapshot: false });
+  });
+
+  it('TC-QW-08: đã gửi mà không có bản chụp thì dùng mẫu hiện tại và ghi chú', () => {
+    expect(previewLayoutChoice(sent({ layoutSnapshot: null }))).toEqual({ snapshot: null, missingSnapshot: true });
+  });
+
+  it('phiên bản thay thế chưa từng gửi: không ghi chú; báo giá mới: bố cục mẫu', () => {
+    expect(previewLayoutChoice(fixtureVersion({ status: 'SUPERSEDED', sentAt: null }))).toEqual({ snapshot: null, missingSnapshot: false });
+    expect(previewLayoutChoice(undefined)).toEqual({ snapshot: null, missingSnapshot: false });
+  });
+});
+
+describe('thông tin chung đang sửa', () => {
+  it('savedGeneral, sameGeneral, generalPatch ánh xạ như hộp thoại cập nhật thông tin', () => {
+    const detail = fixtureDetail();
+    const saved = savedGeneral(detail);
+    expect(saved).toEqual({ code: 'BG2600001', name: 'Báo giá bơm', quoteDate: '2026-11-01', validUntil: '2026-12-01', templateId: 't1', typeId: 'qt1' });
+    expect(sameGeneral(saved, { ...saved })).toBe(true);
+    expect(sameGeneral(saved, { ...saved, name: 'Khác' })).toBe(false);
+    expect(generalPatch(detail, { ...saved, name: ' Tên mới ', validUntil: '' })).toEqual({
+      revision: 3,
+      code: undefined,
+      quoteName: 'Tên mới',
+      quoteDate: '2026-11-01',
+      templateId: 't1',
+      quoteTypeId: 'qt1',
+      validUntil: null,
+    });
+    expect(generalPatch(detail, { ...saved, code: 'BG-MOI' }).code).toBe('BG-MOI');
+  });
+
+  it('draftedDetail: thông tin đang nhập đè lên bản lưu, tiền giữ theo lần tính gần nhất', () => {
+    const detail = fixtureDetail();
+    const next = draftedDetail(detail, { ...savedGeneral(detail), code: 'BG-MOI', templateId: 't2' }, { templates: TEMPLATES, types: [] });
+    expect(next.code).toBe('BG-MOI');
+    expect(next.version.form.templateId).toBe('t2');
+    expect(next.version.form.templateName).toBe('Mẫu t2');
+    expect(next.version.form.discountMode).toBe('LINE');
+    expect(next.version.totals).toBe(detail.version.totals);
+  });
+
+  it('blankQuoteDetail: báo giá chưa lưu không có dòng, tiền 0, bỏ trường tuỳ biến trống', () => {
+    const detail = blankQuoteDetail({
+      general: { code: '', name: 'Mới', quoteDate: '', validUntil: '2026-12-31', templateId: 't2', typeId: '' },
+      note: ' Ghi chú ',
+      customFields: { a: 'x', b: null },
+      customer: { id: 'c1', code: 'KH01', name: 'Công ty A' },
+      ownerUserId: 'u1',
+      templates: TEMPLATES,
+      types: [],
+      today: '2026-11-06T00:00:00.000Z',
+    });
+    expect(detail.version.lines).toEqual([]);
+    expect(detail.version.totals.totalAmount).toBe(0);
+    expect(detail.version.form.discountMode).toBe('ORDER');
+    expect(detail.version.form.customFields).toEqual({ a: 'x' });
+    expect(detail.version.note).toBe('Ghi chú');
+    expect(detail.customerName).toBe('Công ty A');
+  });
+
+  it('newQuoteHash: điền sẵn khách hoặc dự án', () => {
+    expect(newQuoteHash()).toBe('new');
+    expect(newQuoteHash({ customerId: 'c1' })).toBe('new?customerId=c1');
+    expect(newQuoteHash({ opportunityId: 'o1', customerId: 'c1' })).toBe('new?opportunityId=o1');
+  });
+});
+
+// --- Khung xem trước -----------------------------------------------------------------------------------------------
+
+describe('QuotePreviewPane (P3C4-03, P3C4-07)', () => {
+  const data = emptyQuoteLayoutData();
+
+  it('TC-QW-05, TC-QW-31, TC-QW-32: đã gửi có bản chụp thì dựng và xuất đúng bản chụp, không tải mẫu', () => {
+    const snapshot = titled('BẢN CHỤP LÚC GỬI');
+    render(<QuotePreviewPane choice={previewLayoutChoice(sent({ layoutSnapshot: snapshot }))} templateId="t1" data={data} fileName="BG2600001_v2" />);
+    expect(title()).toContain('BẢN CHỤP LÚC GỬI');
+    expect(screen.getByText('Bản chụp lúc gửi khách')).toBeTruthy();
+    expect(mockApi.getQuoteTemplateLayout).not.toHaveBeenCalled();
+    expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ layout: snapshot, fileName: 'BG2600001_v2', disabled: false }));
+  });
+
+  it('TC-QW-04, TC-QW-08: bố cục hiện tại của mẫu; đã gửi mà không có bản chụp thì có ghi chú', async () => {
+    render(<QuotePreviewPane choice={previewLayoutChoice(sent())} templateId="t1" templateName="Mẫu t1" data={data} fileName="f" />);
+    expect(screen.getByRole('status').textContent).toBe('Đang tải mẫu…');
+    expect(screen.getByText('Xuất').hasAttribute('disabled')).toBe(true);
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    expect(screen.getByText(MISSING_SNAPSHOT_NOTE)).toBeTruthy();
+    expect(screen.getByText('Mẫu: Mẫu t1')).toBeTruthy();
+    expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ layout: expect.objectContaining({ blocks: expect.any(Array) }), disabled: false }));
+  });
+
+  it('TC-QW-06: mẫu chưa có bố cục thì dựng bố cục mặc định, không lỗi', () => {
+    render(<QuotePreviewPane choice={previewLayoutChoice(undefined)} templateId="t3" templateHasLayout={false} data={data} fileName="f" />);
+    expect(title()).toContain('BÁO GIÁ');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(mockApi.getQuoteTemplateLayout).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-07: lỗi tải thì báo lỗi, vẫn dựng bố cục mặc định; Thử lại thì hiện bố cục đúng', async () => {
+    mockApi.getQuoteTemplateLayout.mockRejectedValueOnce({ status: 500 });
+    render(<QuotePreviewPane choice={previewLayoutChoice(undefined)} templateId="t1" data={data} fileName="f" />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Không tải được mẫu. Thử lại.');
+    expect(title()).toContain('BÁO GIÁ');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Thử lại' }));
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('TC-QW-09: đổi mẫu thì xem trước đổi theo bố cục mẫu mới', async () => {
+    const { rerender } = render(<QuotePreviewPane choice={previewLayoutChoice(undefined)} templateId="t1" data={data} fileName="f" />);
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    rerender(<QuotePreviewPane choice={previewLayoutChoice(undefined)} templateId="t2" data={data} fileName="f" />);
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t2'));
+  });
+});
+
+// --- Khung 2 cột và nút ----------------------------------------------------------------------------------------------
+
+describe('QuoteWorkspace (P3C4-02)', () => {
+  it('TC-QW-01: màn rộng có 2 cột và thanh nút dưới xem trước, không có tab', () => {
+    render(<QuoteWorkspace left={<p>Nhập</p>} preview={<p>Xem</p>} actions={<button type="button">Lưu</button>} />);
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByTestId('quote-workspace-left').hidden).toBe(false);
+    expect(screen.getByTestId('quote-workspace-right').hidden).toBe(false);
+    expect(within(screen.getByTestId('quote-workspace-right')).getByRole('toolbar').className).not.toContain('actionBarFixed');
+  });
+
+  it('TC-QW-02: màn hẹp có hai tab "Nhập liệu" và "Xem trước", nút ở thanh dưới cố định', () => {
+    render(<QuoteWorkspace narrow left={<p>Nhập</p>} preview={<p>Xem</p>} actions={<button type="button">Lưu</button>} />);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Nhập liệu', 'Xem trước']);
+    expect(screen.getByTestId('quote-workspace-right').hidden).toBe(true);
+    expect(screen.getByRole('toolbar').className).toContain('actionBarFixed');
+    fireEvent.click(screen.getByRole('tab', { name: 'Xem trước' }));
+    expect(screen.getByTestId('quote-workspace-left').hidden).toBe(true);
+    expect(screen.getByTestId('quote-workspace-right').hidden).toBe(false);
+    expect(screen.getByText('Nhập')).toBeTruthy();
+  });
+
+  it('người chỉ đọc: không có thanh nút', () => {
+    render(<QuoteWorkspace left={<p>Nhập</p>} preview={<p>Xem</p>} />);
+    expect(screen.queryByRole('toolbar')).toBeNull();
+  });
+});
+
+describe('QuoteActionBar (P3C4-05)', () => {
+  const props = () => ({
+    dirty: false,
+    busy: false,
+    canSave: false,
+    canSubmit: true,
+    canSend: false,
+    onCancel: jest.fn(),
+    onSave: jest.fn(),
+    onSubmit: jest.fn(),
+    onSend: jest.fn(),
+  });
+
+  it('TC-QW-23: không có thay đổi thì Huỷ tắt; có thay đổi thì hỏi trước khi bỏ', () => {
+    const base = props();
+    const { rerender } = render(<QuoteActionBar {...base} />);
+    expect((screen.getByRole('button', { name: 'Huỷ' }) as HTMLButtonElement).disabled).toBe(true);
+    rerender(<QuoteActionBar {...base} dirty canSave />);
+    fireEvent.click(screen.getByRole('button', { name: 'Huỷ' }));
+    const dialog = screen.getByRole('dialog', { name: 'Bỏ các thay đổi chưa lưu?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Ở lại' }));
+    expect(base.onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Huỷ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ thay đổi' }));
+    expect(base.onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('TC-QW-21: nút bật tắt theo can*, đang bận thì tắt hết', () => {
+    const base = props();
+    const { rerender } = render(<QuoteActionBar {...base} />);
+    const enabled = () => ['Huỷ', 'Lưu', 'Trình duyệt', 'Báo giá'].filter((name) => !(screen.getByRole('button', { name }) as HTMLButtonElement).disabled);
+    expect(enabled()).toEqual(['Trình duyệt']);
+    rerender(<QuoteActionBar {...base} canSubmit={false} canSend />);
+    expect(enabled()).toEqual(['Báo giá']);
+    rerender(<QuoteActionBar {...base} busy canSend dirty canSave />);
+    expect(enabled()).toEqual([]);
+  });
+});
+
+// --- Màn báo giá (tích hợp) ------------------------------------------------------------------------------------------
+
+function renderEditor(detail: QuoteDetail) {
+  mockApi.getQuote.mockResolvedValue(detail);
+  return render(<QuoteEditor quoteId={detail.id} onBack={jest.fn()} onOpenCustomer={jest.fn()} onOpenOpportunity={jest.fn()} />);
+}
+const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
+
+describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
+  it('TC-QW-01: trái có Thông tin chung, Dòng hàng, khối thu gọn; phải có Xem trước và 4 nút', async () => {
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    const left = screen.getByTestId('quote-workspace-left');
+    expect(within(left).getByRole('region', { name: 'Dòng báo giá' })).toBeTruthy();
+    expect(['Phương án kinh doanh (PAKD)', 'Khuyến mãi', 'Tài liệu', 'Mô tả và trường tuỳ biến', 'Liên quan', 'Lịch sử'].every((name) =>
+      Array.from(left.querySelectorAll('summary')).some((summary) => summary.textContent === name),
+    )).toBe(true);
+    const right = screen.getByTestId('quote-workspace-right');
+    expect(within(right).getByRole('region', { name: 'Xem trước báo giá' })).toBeTruthy();
+    expect(within(right).getAllByRole('button').map((item) => item.textContent)).toEqual(expect.arrayContaining(['Huỷ', 'Lưu', 'Trình duyệt', 'Báo giá']));
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: 'BG2600001_v1' }));
+    // Không lộ giá vốn, lợi nhuận trong xem trước.
+    expect(within(right).queryByText(/Giá vốn|Lợi nhuận/)).toBeNull();
+  });
+
+  it('TC-QW-09: đổi mẫu chưa lưu thì xem trước đổi ngay; Lưu gửi mẫu mới', async () => {
+    const saved = fixtureDetail(fixtureVersion({ revision: 4 }));
+    mockApi.updateQuoteVersion.mockResolvedValue(saved);
+    renderEditor(fixtureDetail());
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    fireEvent.click(screen.getByRole('button', { name: 'chọn Mẫu t2' }));
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t2'));
+    expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
+    fireEvent.click(button('Lưu'));
+    await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ revision: 3, templateId: 't2' })));
+    expect(mockToast.success).toHaveBeenCalledWith('Đã lưu báo giá.');
+  });
+
+  it('TC-QW-10: xem trước cập nhật sau khi ngừng gõ khoảng 300 ms', async () => {
+    renderEditor(fixtureDetail());
+    await waitFor(() => expect(title()).toContain('Số: BG2600001'));
+    jest.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-M' } });
+      fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-MOI' } });
+      act(() => jest.advanceTimersByTime(200));
+      expect(title()).toContain('Số: BG2600001');
+      act(() => jest.advanceTimersByTime(150));
+      expect(title()).toContain('Số: BG-MOI');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('TC-QW-19, TC-QW-23: Lưu chỉ bật khi có thay đổi; Huỷ hỏi rồi đưa form về giá trị đã lưu', async () => {
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    expect(button('Lưu').disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-MOI' } });
+    expect(button('Lưu').disabled).toBe(false);
+    fireEvent.click(button('Huỷ'));
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ thay đổi' }));
+    expect((screen.getByLabelText('Mã báo giá') as HTMLInputElement).value).toBe('BG2600001');
+    expect(button('Lưu').disabled).toBe(true);
+  });
+
+  it('TC-QW-20: Trình duyệt khi có thay đổi thì lưu trước rồi gửi duyệt với revision mới', async () => {
+    const saved = fixtureDetail(fixtureVersion({ revision: 4 }));
+    mockApi.updateQuoteVersion.mockResolvedValue(saved);
+    mockApi.quoteAction.mockResolvedValue(fixtureDetail(fixtureVersion({ revision: 5, status: 'PENDING' })));
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-MOI' } });
+    fireEvent.click(button('Trình duyệt'));
+    await waitFor(() => expect(mockApi.quoteAction).toHaveBeenCalledWith('q1', 1, 'submit', { revision: 4 }));
+    expect(mockApi.updateQuoteVersion.mock.invocationCallOrder[0]).toBeLessThan(mockApi.quoteAction.mock.invocationCallOrder[0]);
+    expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ code: 'BG-MOI' }));
+  });
+
+  it('Trình duyệt khi không có thay đổi: gửi duyệt ngay, không lưu', async () => {
+    mockApi.quoteAction.mockResolvedValue(fixtureDetail(fixtureVersion({ status: 'PENDING' })));
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(button('Trình duyệt'));
+    await waitFor(() => expect(mockApi.quoteAction).toHaveBeenCalledWith('q1', 1, 'submit', { revision: 3 }));
+    expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-22: tự lưu lỗi thì dừng, không trình duyệt', async () => {
+    mockApi.updateQuoteVersion.mockRejectedValue({ status: 409, message: 'Mã báo giá đã tồn tại.' });
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-TRUNG' } });
+    fireEvent.click(button('Trình duyệt'));
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalled());
+    expect(mockApi.quoteAction).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-22: trường tuỳ biến bắt buộc đang trống thì báo tên trường, không lưu, không trình duyệt', async () => {
+    stubLookups([
+      { id: 'f1', name: 'Điều khoản thanh toán', fieldType: 'TEXT', required: true, active: true, options: [], sortOrder: 0 } as unknown as CustomFieldDefinition,
+    ]);
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    await waitFor(() => expect(mockApi.listQuoteCustomFields).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-MOI' } });
+    fireEvent.click(button('Trình duyệt'));
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith(expect.stringContaining('Điều khoản thanh toán')));
+    expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
+    expect(mockApi.quoteAction).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-21: Chờ duyệt thì Báo giá tắt; Đã duyệt thì gửi khách được', async () => {
+    const pending = fixtureDetail(fixtureVersion({ status: 'PENDING' }));
+    const { unmount } = renderEditor(pending);
+    await screen.findByText('Thông tin chung');
+    expect(button('Báo giá').disabled).toBe(true);
+    expect(button('Trình duyệt').disabled).toBe(true);
+    unmount();
+
+    mockApi.quoteAction.mockResolvedValue(fixtureDetail(sent({ versionNo: 1 })));
+    renderEditor(fixtureDetail(fixtureVersion({ status: 'APPROVED' })));
+    await screen.findByText('Thông tin chung');
+    expect(button('Báo giá').disabled).toBe(false);
+    fireEvent.click(button('Báo giá'));
+    await waitFor(() => expect(mockApi.quoteAction).toHaveBeenCalledWith('q1', 1, 'send', { revision: 3 }));
+    expect(mockToast.success).toHaveBeenCalledWith('Đã đánh dấu gửi khách.');
+  });
+
+  it('TC-P3PERM-04: người chỉ đọc xem trước và xuất được, không thấy Lưu, Trình duyệt, Báo giá', async () => {
+    mockCrm = { ...mockCrm, capabilities: READER };
+    const snapshot = titled('BẢN CHỤP');
+    renderEditor(fixtureDetail(sent({ versionNo: 1, layoutSnapshot: snapshot })));
+    await screen.findByText('Thông tin chung');
+    expect(screen.queryByRole('button', { name: 'Lưu' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Trình duyệt' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Báo giá' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Thêm dòng hàng' })).toBeNull();
+    expect(title()).toContain('BẢN CHỤP');
+    expect(button('Xuất').disabled).toBe(false);
+    expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ layout: snapshot, fileName: 'BG2600001_v1' }));
+  });
+
+  it('TC-QW-14: menu Chèn mở chọn mặt hàng và thêm với beforeLineNo của dòng đang chọn', async () => {
+    const detail = fixtureDetail(fixtureVersion({ lines: [fixtureLine({ id: 'l1', lineNo: 1 }), fixtureLine({ id: 'l2', lineNo: 2, materialId: 'm2', materialCode: 'VT-02' })] }));
+    mockApi.searchCatalog.mockResolvedValue([{ id: 'm9', code: 'VT-09', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: null }]);
+    mockApi.addQuoteLines.mockResolvedValue(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.contextMenu(screen.getByRole('row', { name: /^Dòng 2:/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Chèn' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Chèn dòng trước dòng 2' });
+    fireEvent.click(await within(dialog).findByText('VT-09'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    await waitFor(() =>
+      expect(mockApi.addQuoteLines).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ revision: 3, beforeLineNo: 2, lines: [expect.objectContaining({ materialId: 'm9' })] })),
+    );
+    expect(mockToast.success).toHaveBeenCalledWith('Đã chèn 1 dòng trước dòng 2.');
+  });
+
+  it('TC-QW-18: báo giá đã gửi bấm đúp mở dòng chỉ đọc', async () => {
+    renderEditor(fixtureDetail(sent({ versionNo: 1 })));
+    await screen.findByText('Thông tin chung');
+    fireEvent.doubleClick(screen.getByRole('row', { name: /^Dòng 1:/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Dòng 1: VT-01' });
+    expect((within(dialog).getAllByRole('textbox')[0] as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('TC-QW-09: nút Chiết khấu mở phần chiết khấu tổng đơn khi mẫu theo tổng đơn', async () => {
+    const order = fixtureVersion();
+    renderEditor(fixtureDetail({ ...order, form: { ...order.form, templateId: 't2', templateName: 'Mẫu t2', discountMode: 'ORDER' } }));
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(screen.getByRole('button', { name: /Chiết khấu/ }));
+    expect(screen.getByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
+  });
+
+  it('TC-QW-28: báo giá vừa lập bằng nút + thì mở chọn mặt hàng ngay khi tải xong', async () => {
+    openPickerAfterLoad('q1', 'van');
+    renderEditor(fixtureDetail());
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' });
+    expect((within(dialog).getByRole('searchbox') as HTMLInputElement).value).toBe('van');
+  });
+});
+
+// --- Màn lập mới ---------------------------------------------------------------------------------------------------
+
+const CUSTOMER_ID = '11111111-2222-4333-8444-555555555555';
+
+describe('NewQuoteScreen (P3C4-06)', () => {
+  it('TC-QW-30: không có quyền lập thì báo và có nút về danh sách, không gọi createQuote', () => {
+    mockCrm = { ...mockCrm, capabilities: READER };
+    const onBack = jest.fn();
+    render(<NewQuoteScreen onBack={onBack} onCreated={jest.fn()} />);
+    expect(screen.getByRole('alert').textContent).toBe('Bạn không có quyền lập báo giá.');
+    fireEvent.click(screen.getByRole('button', { name: /Danh sách báo giá/ }));
+    expect(onBack).toHaveBeenCalled();
+    expect(mockApi.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-24, TC-QW-26: chọn sẵn mẫu mặc định, xem trước hiện ngay, dòng hàng khoá', async () => {
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    expect(screen.getByText('Lưu báo giá để thêm dòng hàng')).toBeTruthy();
+    await waitFor(() => expect(mockApi.getQuoteTemplateLayout).toHaveBeenCalledWith('t1'));
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
+    expect(button('Trình duyệt').disabled).toBe(true);
+    expect(button('Báo giá').disabled).toBe(true);
+  });
+
+  it('TC-QW-25: customerId hợp lệ thì điền sẵn khách và xem trước có tên; id sai thì bỏ qua', async () => {
+    mockApi.getCustomer.mockResolvedValue(fixtureCustomer({ id: CUSTOMER_ID, name: 'Công ty Mới' }));
+    const { unmount } = render(<NewQuoteScreen customerId={CUSTOMER_ID} onBack={jest.fn()} onCreated={jest.fn()} />);
+    await waitFor(() => expect(document.querySelector(`[data-select-value="${CUSTOMER_ID}"]`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('quote-workspace-right').textContent).toContain('Công ty Mới'));
+    unmount();
+
+    mockApi.getCustomer.mockClear();
+    render(<NewQuoteScreen customerId="abc" onBack={jest.fn()} onCreated={jest.fn()} />);
+    expect(mockApi.getCustomer).not.toHaveBeenCalled();
+    expect(screen.getByText('Lập báo giá')).toBeTruthy();
+  });
+
+  it('TC-QW-29: thiếu khách thì báo ngay ở form, không gọi API', async () => {
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    fireEvent.click(button('Lưu'));
+    expect(screen.getByText('Vui lòng chọn dự án bán hàng hoặc khách hàng.')).toBeTruthy();
+    expect(mockApi.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-27, TC-QW-29: Lưu lập báo giá một lần dù bấm hai lần; lỗi server giữ dữ liệu', async () => {
+    mockApi.listCustomers.mockResolvedValue({ items: [fixtureCustomer({ id: CUSTOMER_ID })] });
+    let resolve: (value: unknown) => void = () => undefined;
+    mockApi.createQuote.mockReturnValueOnce(new Promise((done) => (resolve = done)));
+    const onCreated = jest.fn();
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={onCreated} />);
+    fireEvent.click(await screen.findByText('chọn Công ty A'));
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-01' } });
+    await waitFor(() => expect(document.querySelector('[data-select-value="t1"]')).toBeTruthy());
+    fireEvent.click(button('Lưu'));
+    fireEvent.click(button('Lưu'));
+    expect(mockApi.createQuote).toHaveBeenCalledTimes(1);
+    expect(mockApi.createQuote).toHaveBeenCalledWith(expect.objectContaining({ customerId: CUSTOMER_ID, code: 'BG-01', templateId: 't1', quoteTypeId: 'qt1' }));
+    await act(async () => resolve({ id: 'q-new', code: 'BG-01' }));
+    expect(onCreated).toHaveBeenCalledWith('q-new');
+
+    mockApi.createQuote.mockRejectedValueOnce({ status: 409, code: 'QUOTE_CODE_EXISTS', message: 'Mã báo giá đã tồn tại.' });
+    fireEvent.click(button('Lưu'));
+    await screen.findByText('Mã báo giá đã tồn tại.');
+    expect((screen.getByLabelText('Mã báo giá') as HTMLInputElement).value).toBe('BG-01');
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('TC-QW-28: bấm + khi chưa lưu thì lập báo giá rồi chuyển sang báo giá với chọn mặt hàng mở sẵn', async () => {
+    mockApi.listCustomers.mockResolvedValue({ items: [fixtureCustomer({ id: CUSTOMER_ID })] });
+    mockApi.createQuote.mockResolvedValue({ id: 'q1', code: 'BG2600001' });
+    const onCreated = jest.fn();
+    const { unmount } = render(<NewQuoteScreen onBack={jest.fn()} onCreated={onCreated} />);
+    fireEvent.click(await screen.findByText('chọn Công ty A'));
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    fireEvent.click(button('Thêm dòng hàng'));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('q1'));
+    unmount();
+    renderEditor(fixtureDetail());
+    expect(await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' })).toBeTruthy();
+  });
+
+  it('TC-QW-33: hộp thoại lập báo giá "Mở màn đầy đủ" chuyển sang màn lập mới, giữ dữ liệu đã nhập', async () => {
+    mockApi.listCustomers.mockResolvedValue({ items: [fixtureCustomer({ id: CUSTOMER_ID })] });
+    const onOpenFull = jest.fn();
+    const onClose = jest.fn();
+    const { unmount } = render(<CreateQuoteDialog onClose={onClose} onCreated={jest.fn()} onOpenFull={onOpenFull} />);
+    fireEvent.click(await screen.findByText('chọn Công ty A'));
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    fireEvent.change(screen.getByLabelText('Mã báo giá'), { target: { value: 'BG-HOP-THOAI' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mở màn đầy đủ' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onOpenFull).toHaveBeenCalledWith(`new?customerId=${CUSTOMER_ID}`);
+    unmount();
+
+    render(<NewQuoteScreen customerId={CUSTOMER_ID} onBack={jest.fn()} onCreated={jest.fn()} />);
+    expect((screen.getByLabelText('Mã báo giá') as HTMLInputElement).value).toBe('BG-HOP-THOAI');
+    expect(document.querySelector(`[data-select-value="${CUSTOMER_ID}"]`)).toBeTruthy();
+  });
+
+  it('TC-QW-33: hộp thoại vẫn lập báo giá như phase 2', async () => {
+    mockApi.createQuote.mockResolvedValue({ id: 'q2', code: 'BG2600002' });
+    const onCreated = jest.fn();
+    render(<CreateQuoteDialog opportunityId="o1" onClose={jest.fn()} onCreated={onCreated} />);
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lập báo giá' }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('q2'));
+    expect(mockApi.createQuote).toHaveBeenCalledWith(expect.objectContaining({ opportunityId: 'o1', customerId: null }));
+  });
+});

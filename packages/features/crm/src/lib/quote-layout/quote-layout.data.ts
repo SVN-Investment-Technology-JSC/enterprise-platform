@@ -314,6 +314,7 @@ export function sampleQuoteLayoutData(customFields: readonly CustomFieldDefiniti
 
 /** Tên file xuất (plan 9.4): `<mã báo giá>_v<phiên bản>`; ký tự không hợp lệ trong tên file đổi thành `_`. */
 export function quoteExportFileName(code: string, versionNo: number | string): string {
-  const safe = (code || 'BaoGia').replace(/[\\/:*?"<>|\s]+/g, '_');
+  // Ký tự không hợp lệ trong tên file (kể cả `/` của mẫu mã `{yyyymmdd}/BG//{seq}`) đổi thành `-` (TC-QW-32).
+  const safe = (code || 'BaoGia').replace(/[\\/:*?"<>|\s]+/g, '-');
   return `${safe}_v${versionNo}`;
 }
