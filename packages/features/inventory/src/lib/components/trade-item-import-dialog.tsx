@@ -6,7 +6,7 @@ import type {
   ImportMaterialRow,
   InventoryTradeCatalog,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import styles from '../inventory.module.scss';
@@ -194,8 +194,13 @@ export function TradeItemImportDialog({
     </div>
   );
 
+  const dirtySnapshot = JSON.stringify([fileName, mapping, defaultKind, categoryChoice, usageChoice, [...blankAuthors], conflictPolicy]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  // Đã nhập xong (có kết quả) thì không còn gì để mất.
+  const isDirty = !result && dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{ maxWidth: '760px' }}
@@ -206,9 +211,11 @@ export function TradeItemImportDialog({
       >
         <div className={styles.modalHead}>
           <h2>Nhập hàng hóa từ Excel</h2>
-          <button type="button" className={styles.closeButton} onClick={onCancel} title="Đóng" aria-label="Đóng">
-            <X size={18} strokeWidth={2} />
-          </button>
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
+              <X size={18} strokeWidth={2} />
+            </button>
+          </CloseGuard>
         </div>
 
         <div
@@ -381,9 +388,11 @@ export function TradeItemImportDialog({
         </div>
 
         <div className={styles.modalFoot}>
-          <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel} disabled={busy}>
-            {result ? 'Đóng' : 'Huỷ'}
-          </button>
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button type="button" className={`${styles.action} ${styles.actionGhost}`} disabled={busy}>
+              {result ? 'Đóng' : 'Huỷ'}
+            </button>
+          </CloseGuard>
           {result && sheet && retryLines.length > 0 ? (
             <button
               type="button"

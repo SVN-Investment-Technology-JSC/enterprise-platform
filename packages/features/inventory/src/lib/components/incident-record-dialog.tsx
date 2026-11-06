@@ -1,7 +1,7 @@
 'use client';
 
 import type { Asset } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import styles from '../inventory.module.scss';
@@ -74,8 +74,12 @@ export function IncidentRecordDialog({
     onSubmit(newLog);
   };
 
+  const dirtySnapshot = JSON.stringify([title, severity, category, description, reporter, syncToMaintenance]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{
@@ -124,27 +128,28 @@ export function IncidentRecordDialog({
               Thiết bị: <strong>{asset.name}</strong> ({asset.code})
             </p>
           </div>
-          <button
-            type="button"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '28px',
-              height: '28px',
-              padding: 0,
-              border: 'none',
-              borderRadius: '6px',
-              background: '#f1f5f9',
-              color: '#64748b',
-              fontSize: '14px',
-              cursor: 'pointer',
-            }}
-            onClick={onCancel}
-            title="Đóng (ESC)"
-          >
-            ✕
-          </button>
+          <CloseGuard dirty={isDirty} onClose={onCancel}>
+            <button
+              type="button"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '28px',
+                height: '28px',
+                padding: 0,
+                border: 'none',
+                borderRadius: '6px',
+                background: '#f1f5f9',
+                color: '#64748b',
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
+              title="Đóng"
+            >
+              ✕
+            </button>
+          </CloseGuard>
         </div>
 
         {/* Form */}
@@ -347,22 +352,23 @@ export function IncidentRecordDialog({
               marginTop: '4px',
             }}
           >
-            <button
-              type="button"
-              onClick={onCancel}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#475569',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Đóng
-            </button>
+            <CloseGuard dirty={isDirty} onClose={onCancel}>
+              <button
+                type="button"
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#475569',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Đóng
+              </button>
+            </CloseGuard>
             <button
               type="submit"
               disabled={!isFormValid}

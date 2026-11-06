@@ -13,6 +13,7 @@ import {
   INVENTORY_DASHBOARD_CARDS,
   type InventoryDashboardData,
 } from '../inventory-dashboard.cards';
+import { formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 const SIZE_CLASS: Readonly<Record<DashboardCardSize, string>> = {
@@ -33,10 +34,6 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   RETURN: 'Trả',
   ADJUST: 'Điều chỉnh',
 };
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value);
-}
 
 function formatDateTime(value: string): string {
   if (!value) return '—';
