@@ -101,11 +101,12 @@ export function OpportunityFormDialog({
     if (!name.trim()) return setError('Vui lòng nhập tên dự án bán hàng.');
     const percent = Number(probability || 0);
     if (!Number.isInteger(percent) || percent < 0 || percent > 100) return setError('Xác suất phải là số nguyên từ 0 đến 100.');
-    setSubmitting(true);
-    setError(undefined);
     const selectedPipeline = pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id));
     const skip = opportunity ? { skipStages: [] } : buildSkipStages(selectedPipeline, skipped);
+    // Kiểm xong mới bật "Đang lưu", nếu không nút kẹt khi thiếu lý do bỏ qua.
     if (skip.error) return setError(skip.error);
+    setSubmitting(true);
+    setError(undefined);
     const fields = {
       name: name.trim(),
       probability: percent,

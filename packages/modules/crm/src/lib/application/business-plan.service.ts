@@ -182,11 +182,13 @@ export class BusinessPlanService implements QuoteBusinessPlans {
   // -------------------------------------------------------------------------
 
   async check(tenantId: string, quoteId: string, version: QuoteVersion, forSubmit: boolean): Promise<PlanSubmissionCheck> {
-    const [plan, baseline, settings] = await Promise.all([
+    const [plan, earlierApproved, settings] = await Promise.all([
       this.plans.findByVersion(tenantId, quoteId, version.versionNo),
       this.plans.latestApproved(tenantId, quoteId, version.versionNo),
       this.plans.deviationSettings(tenantId),
     ]);
+    // PAKD của chính phiên bản này đã duyệt (trình riêng) là mốc mới nhất: sửa báo giá sau đó vẫn phải so lệch với nó.
+    const baseline = plan?.status === 'APPROVED' ? plan : earlierApproved;
     if (forSubmit && plan?.status === 'PENDING') {
       throw new CrmConflictError('PLAN_PENDING', 'Phương án kinh doanh đang chờ duyệt riêng; vui lòng đợi kết quả duyệt rồi gửi duyệt báo giá.');
     }
