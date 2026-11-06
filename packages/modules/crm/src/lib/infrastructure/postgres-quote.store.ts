@@ -54,6 +54,7 @@ import {
 } from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
+import { parseStoredQuoteLayout } from './stored-quote-layout.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { SqlConditions, constraintViolation, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
@@ -139,6 +140,7 @@ interface VersionRow {
   fees_amount: string;
   custom_fields: QuoteCustomFields | null;
   promotions: QuotePromotionSnapshot[] | null;
+  layout_snapshot: unknown;
 }
 
 interface LineRow {
@@ -203,7 +205,7 @@ const VERSION_COLUMNS = `
   v.created_at, v.quote_name, v.quote_date::text AS quote_date, v.template_id, t.name AS template_name,
   v.quote_type_id, qt.name AS quote_type_name, v.discount_mode, v.tax_mode, v.order_discount_percent,
   v.order_discount_amount, v.order_tax_percent, v.order_tax_amount, v.order_discount_total, v.order_tax_total,
-  v.fees_amount, v.custom_fields, v.promotions`;
+  v.fees_amount, v.custom_fields, v.promotions, v.layout_snapshot`;
 
 const num = (value: string | number | null | undefined): number => Number(value ?? 0);
 
@@ -799,6 +801,13 @@ export async function applyDecision(
             rejected_by = CASE WHEN $2::varchar = 'REJECTED' THEN $3::uuid ELSE rejected_by END,
             decision_reason = CASE WHEN $2::varchar IN ('APPROVED', 'REJECTED', 'DECLINED') THEN $4::varchar ELSE decision_reason END,
             sent_at = CASE WHEN $2::varchar = 'SENT' THEN now() ELSE sent_at END,
+            -- Gửi khách: chụp bố cục của mẫu lúc gửi (phase 3), cùng câu lệnh nên không có bản đã gửi mà chưa chụp.
+            -- Mẫu chưa có bố cục thì giữ bản chụp cũ (rỗng với phiên bản mới).
+            layout_snapshot = CASE
+              WHEN $2::varchar = 'SENT' THEN COALESCE(
+                (SELECT t.layout FROM crm_schema.quote_templates t WHERE t.id = quote_versions.template_id),
+                layout_snapshot)
+              ELSE layout_snapshot END,
             responded_at = CASE WHEN $2::varchar IN ('ACCEPTED', 'DECLINED') THEN now() ELSE responded_at END,
             revision = revision + 1, updated_at = now(), updated_by = $3::uuid
       WHERE id = $1`,
@@ -1310,6 +1319,7 @@ function toVersion(row: VersionRow, lines: QuoteLine[], fees: readonly { feeType
     respondedAt: toIso(row.responded_at),
     supersededAt: toIso(row.superseded_at),
     createdAt: toIso(row.created_at) ?? '',
+    layoutSnapshot: parseStoredQuoteLayout(row.layout_snapshot, `quote_versions ${row.id}`),
     lines,
   };
 }

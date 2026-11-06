@@ -138,6 +138,7 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     respondedAt: null,
     supersededAt: null,
     createdAt: '',
+    layoutSnapshot: null,
     promotions: [],
     form: {
       quoteName: null,
@@ -261,6 +262,35 @@ describe('QuoteService', () => {
     await service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: BT, quantity: 5 });
     const service5 = quotes.saveVersion.mock.calls[1][4].lines[0];
     expect(service5).toMatchObject({ materialKind: 'SERVICE', unit: 'Gói', estUnitCost: null, lineAmount: 2_500_000 });
+  });
+
+  it('TC-QW-14/15: chèn lô trước một dòng; số dòng liên tục; vị trí không có thì 400 LINE_POSITION_INVALID', async () => {
+    const lines = [1, 2, 3].map((lineNo) => quoteLine({ id: `line-${lineNo}`, lineNo, quantity: lineNo }));
+    const { service, quotes } = setup(version('DRAFT', 1, lines));
+    await service.addLines(seller, QUOTE_ID, '1', {
+      revision: 3,
+      beforeLineNo: 2,
+      lines: [{ materialId: BT, quantity: 7 }, { materialId: CAP, quantity: 8 }],
+    });
+    const write = quotes.saveVersion.mock.calls[0][4];
+    expect(write.lines.map((line) => [line.lineNo, line.id.startsWith('line-') ? line.id : 'new', line.quantity])).toEqual([
+      [1, 'line-1', 1],
+      [2, 'new', 7],
+      [3, 'new', 8],
+      [4, 'line-2', 2],
+      [5, 'line-3', 3],
+    ]);
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: 1, lines: [{ materialId: BT, quantity: 9 }] });
+    expect(quotes.saveVersion.mock.calls[1][4].lines.map((line) => line.quantity)).toEqual([9, 1, 2, 3]);
+    // Không truyền: thêm cuối như cũ.
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, lines: [{ materialId: BT, quantity: 4 }] });
+    expect(quotes.saveVersion.mock.calls[2][4].lines.map((line) => line.quantity)).toEqual([1, 2, 3, 4]);
+    for (const beforeLineNo of [0, 4, 99, -1, 1.5, '2']) {
+      await expect(
+        service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: beforeLineNo as number, lines: [{ materialId: BT, quantity: 1 }] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'LINE_POSITION_INVALID' });
+    }
+    expect(quotes.saveVersion).toHaveBeenCalledTimes(3);
   });
 
   it('mặt hàng không có trong danh mục Kho: 400', async () => {

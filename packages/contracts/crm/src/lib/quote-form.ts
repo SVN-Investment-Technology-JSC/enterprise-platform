@@ -6,6 +6,8 @@
  * (`ORDER`): đã chốt tạm theo đề xuất Q-P2-8, để không tính trùng chiết khấu và VAT.
  */
 
+import type { QuoteLayout } from './quote-layout.js';
+
 export const QUOTE_ADJUSTMENT_MODES = ['LINE', 'ORDER'] as const;
 export type QuoteAdjustmentMode = (typeof QUOTE_ADJUSTMENT_MODES)[number];
 
@@ -26,6 +28,8 @@ export interface QuoteTemplate {
   readonly active: boolean;
   readonly isDefault: boolean;
   readonly sortOrder: number;
+  /** Mẫu đã có bố cục in thiết kế riêng (phase 3); `false` là dùng bố cục mặc định. */
+  readonly hasLayout: boolean;
 }
 
 export interface QuoteType {
@@ -46,6 +50,29 @@ export interface SaveQuoteTemplateRequest {
   readonly isDefault?: boolean;
   readonly sortOrder?: number;
 }
+
+/**
+ * Bố cục in của mẫu (`GET/PUT /v1/quote-templates/:id/layout`). `layout` rỗng là mẫu dùng bố cục mặc định.
+ * `updatedAt`, `updatedBy`: lần lưu hoặc xoá bố cục gần nhất; rỗng khi chưa từng lưu.
+ */
+export interface QuoteTemplateLayout {
+  readonly layout: QuoteLayout | null;
+  readonly updatedAt: string | null;
+  readonly updatedBy: string | null;
+}
+
+/**
+ * Lưu bố cục. `layout: null` là xoá bố cục (mẫu quay về bố cục mặc định).
+ * `expectedUpdatedAt`: giá trị `updatedAt` đọc được lúc mở trình thiết kế; lệch với bản đang lưu thì 409
+ * `LAYOUT_CONFLICT`. Không gửi trường này thì ghi đè, không kiểm.
+ */
+export interface SaveQuoteTemplateLayoutRequest {
+  readonly layout: QuoteLayout | null;
+  readonly expectedUpdatedAt?: string | null;
+}
+
+/** Mã lỗi 409 khi bố cục vừa được người khác sửa. */
+export const QUOTE_LAYOUT_CONFLICT_CODE = 'LAYOUT_CONFLICT';
 
 export interface SaveQuoteTypeRequest {
   readonly name: string;

@@ -9,6 +9,7 @@ import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
 import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
+import type { QuoteLayout } from './quote-layout.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -234,6 +235,11 @@ export interface QuoteVersion {
   readonly respondedAt: string | null;
   readonly supersededAt: string | null;
   readonly createdAt: string;
+  /**
+   * Bố cục in chụp lúc phiên bản chuyển sang Đã gửi khách (phase 3). Rỗng khi chưa gửi, khi mẫu chưa có bố cục lúc
+   * gửi, hoặc báo giá gửi trước phase 3: giao diện dùng bố cục hiện tại của mẫu hoặc bố cục mặc định.
+   */
+  readonly layoutSnapshot: QuoteLayout | null;
   readonly lines: readonly QuoteLine[];
 }
 
@@ -373,7 +379,15 @@ export type QuoteLineInput = Omit<SaveQuoteLineRequest, 'revision'>;
 export interface AddQuoteLinesRequest {
   readonly revision: number;
   readonly lines: readonly QuoteLineInput[];
+  /**
+   * Chèn lô dòng ngay trước dòng có số thứ tự này (phase 3, menu "Chèn"); các dòng từ vị trí đó dời xuống và số thứ
+   * tự đánh lại liên tục. Không truyền: thêm cuối như cũ. Số không có trong phiên bản: 400 `LINE_POSITION_INVALID`.
+   */
+  readonly beforeLineNo?: number;
 }
+
+/** Mã lỗi 400 khi `beforeLineNo` không phải số thứ tự của một dòng trong phiên bản. */
+export const QUOTE_LINE_POSITION_INVALID_CODE = 'LINE_POSITION_INVALID';
 
 /** Lỗi của một dòng trong lô; `line` đánh số từ 1 theo thứ tự gửi lên. */
 export interface QuoteLineError {

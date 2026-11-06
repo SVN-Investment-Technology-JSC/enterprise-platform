@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { CRM_NO_CAPABILITIES, defaultQuoteLayout, QUOTE_LAYOUT_LIMITS, type QuoteLayout } from '@enterprise-platform/contracts-crm';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
@@ -485,5 +487,214 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     expect((await quotes.get(nv1, mine.id)).version.revision).toBe(mine.version.revision);
     // Quản trị thấy mọi báo giá.
     expect((await quotes.get(admin, mine.id)).id).toBe(mine.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 3: bố cục in của mẫu (P3C1-04, P3C1-05)
+  // -------------------------------------------------------------------------
+
+  describe('bố cục in của mẫu báo giá', () => {
+    const admin2 = actor(randomUUID(), { canManage: true, canReadAll: true });
+    const titled = (title: string): QuoteLayout => {
+      const layout = defaultQuoteLayout();
+      return { ...layout, blocks: layout.blocks.map((block) => (block.type === 'title' ? { ...block, text: title } : block)) };
+    };
+    const pngDataUrl = (size: number) => {
+      const bytes = Buffer.alloc(size, 0x41);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+      return `data:image/png;base64,${bytes.toString('base64')}`;
+    };
+    const stored = async (id: string) =>
+      (
+        await handle.pool.query<{ layout: unknown; layout_updated_at: Date | null; layout_updated_by: string | null }>(
+          `SELECT layout, layout_updated_at, layout_updated_by FROM crm_schema.quote_templates WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+    const audits = async (id: string) =>
+      (
+        await handle.pool.query<{ actor_id: string; at: Date; metadata: Record<string, unknown> }>(
+          `SELECT actor_id, at, metadata FROM crm_schema.audit_log
+            WHERE entity_type = 'quote_template' AND action = 'layout_updated' AND entity_id = $1 ORDER BY at, id`,
+          [id],
+        )
+      ).rows;
+    const newTemplate = async (name: string, active = true) =>
+      (await form.createTemplate(admin, { name, discountMode: 'LINE', taxMode: 'LINE', active })).id;
+
+    it('TC-P3MIG-01/02: 0034 thêm 4 cột cho phép rỗng đúng kiểu; chạy lại (trong transaction như migrator) không lỗi', async () => {
+      const columns = await handle.pool.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+        `SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
+          WHERE table_schema = 'crm_schema'
+            AND (table_name, column_name) IN (('quote_templates', 'layout'), ('quote_templates', 'layout_updated_at'),
+                                              ('quote_templates', 'layout_updated_by'), ('quote_versions', 'layout_snapshot'))
+          ORDER BY table_name, column_name`,
+      );
+      expect(columns.rows).toEqual([
+        { table_name: 'quote_templates', column_name: 'layout', data_type: 'jsonb', is_nullable: 'YES' },
+        { table_name: 'quote_templates', column_name: 'layout_updated_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
+        { table_name: 'quote_templates', column_name: 'layout_updated_by', data_type: 'uuid', is_nullable: 'YES' },
+        { table_name: 'quote_versions', column_name: 'layout_snapshot', data_type: 'jsonb', is_nullable: 'YES' },
+      ]);
+      const sql = await readFile(resolve(process.cwd(), '../../../migrations/tenant/crm/0034-quote-template-layouts.sql'), 'utf8');
+      const client = await handle.pool.connect();
+      try {
+        for (let run = 0; run < 2; run += 1) {
+          await client.query('BEGIN');
+          await client.query(sql);
+          await client.query('COMMIT');
+        }
+      } finally {
+        client.release();
+      }
+      // Mẫu có sẵn (nạp từ 0029) không bị ghi lại: bố cục rỗng, dùng bố cục mặc định.
+      expect((await form.listTemplates(nv1, true)).find((template) => template.isDefault)).toMatchObject({ hasLayout: false });
+    });
+
+    it('TC-TL-13/14: đọc mẫu chưa có bố cục; lưu bố cục hợp lệ; đọc lại bản đã chuẩn hoá; danh sách có hasLayout', async () => {
+      const id = await newTemplate('P3 Mẫu đọc lưu');
+      expect(await form.getLayout(nv1, id)).toEqual({ layout: null, updatedAt: null, updatedBy: null });
+      for (const missing of ['khong-phai-uuid', randomUUID()]) {
+        await expect(form.getLayout(nv1, missing)).rejects.toMatchObject({ statusCode: 404, message: 'Không tìm thấy mẫu báo giá.' });
+      }
+      const layout = titled('BÁO GIÁ THIẾT BỊ');
+      const dirty = { ...layout, html: '<b>x</b>', blocks: layout.blocks.map((block) => ({ ...block, onclick: 'alert(1)' })) };
+      const saved = await form.saveLayout(admin, id, { layout: dirty as never });
+      expect(saved).toEqual({ layout, updatedAt: expect.any(String), updatedBy: admin.userId });
+      // Người chỉ đọc (crm.read) đọc được; trường lạ không còn trong DB.
+      expect(await form.getLayout(viewer, id)).toEqual(saved);
+      expect(JSON.stringify((await stored(id)).layout)).not.toMatch(/onclick|html/);
+      expect((await stored(id)).layout_updated_by).toBe(admin.userId);
+      expect((await form.listTemplates(nv1, false)).find((template) => template.id === id)).toMatchObject({ hasLayout: true });
+    });
+
+    it('TC-TL-15: layout null là xoá, hasLayout về false; mốc cập nhật vẫn ghi', async () => {
+      const id = await newTemplate('P3 Mẫu xoá bố cục');
+      await form.saveLayout(admin, id, { layout: titled('A') });
+      const removed = await form.saveLayout(admin, id, { layout: null });
+      expect(removed).toEqual({ layout: null, updatedAt: expect.any(String), updatedBy: admin.userId });
+      expect((await stored(id)).layout).toBeNull();
+      expect((await form.listTemplates(nv1, false)).find((template) => template.id === id)).toMatchObject({ hasLayout: false });
+    });
+
+    it('TC-TL-16: hai quản trị cùng sửa: người sau 409 LAYOUT_CONFLICT, DB giữ bản người trước; không gửi mốc thì ghi đè', async () => {
+      const id = await newTemplate('P3 Mẫu sửa đồng thời');
+      const opened = await form.getLayout(admin, id);
+      expect(opened.updatedAt).toBeNull();
+      const first = await form.saveLayout(admin, id, { layout: titled('BẢN QTV'), expectedUpdatedAt: opened.updatedAt });
+      await expect(form.saveLayout(admin2, id, { layout: titled('BẢN QTBH'), expectedUpdatedAt: opened.updatedAt })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'LAYOUT_CONFLICT',
+        message: 'Mẫu vừa được người khác sửa. Tải lại để xem bản mới.',
+      });
+      expect(await form.getLayout(nv1, id)).toEqual(first);
+      // Đọc lại rồi lưu với mốc mới: được; mốc luôn tăng.
+      const second = await form.saveLayout(admin2, id, { layout: titled('BẢN QTBH'), expectedUpdatedAt: first.updatedAt });
+      expect(Date.parse(second.updatedAt as string)).toBeGreaterThan(Date.parse(first.updatedAt as string));
+      await expect(form.saveLayout(admin, id, { layout: titled('X'), expectedUpdatedAt: first.updatedAt })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      const overwritten = await form.saveLayout(admin, id, { layout: titled('GHI ĐÈ') });
+      expect(overwritten.layout?.blocks.find((block) => block.type === 'title')).toMatchObject({ text: 'GHI ĐÈ' });
+    });
+
+    it('TC-TL-17: nhật ký quote_template.layout_updated có người, thời điểm, số khối, kích thước; không có JSON hay ảnh; lưu lỗi không ghi', async () => {
+      const id = await newTemplate('P3 Mẫu nhật ký');
+      const layout = defaultQuoteLayout();
+      const withLogo = {
+        ...layout,
+        blocks: layout.blocks.map((block) => (block.type === 'companyHeader' ? { ...block, logo: pngDataUrl(2_000) } : block)),
+      };
+      await form.saveLayout(admin, id, { layout: withLogo });
+      await form.saveLayout(admin2, id, { layout: null });
+      await expect(form.saveLayout(admin, id, { layout: { ...layout, version: 2 } as never })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(form.saveLayout(admin, id, { layout, expectedUpdatedAt: '2000-01-01T00:00:00.000Z' })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      const rows = await audits(id);
+      expect(rows).toEqual([
+        {
+          actor_id: admin.userId,
+          at: expect.any(Date),
+          metadata: { removed: false, blockCount: layout.blocks.length, sizeBytes: Buffer.byteLength(JSON.stringify(withLogo)) },
+        },
+        { actor_id: admin2.userId, at: expect.any(Date), metadata: { removed: true, blockCount: 0, sizeBytes: 0 } },
+      ]);
+      expect(JSON.stringify(rows)).not.toMatch(/data:image|BÁO GIÁ/);
+    });
+
+    it('TC-TL-18: mẫu đang tắt vẫn đọc, sửa bố cục được; không nằm trong danh sách chọn của nhân viên', async () => {
+      const id = await newTemplate('P3 Mẫu đang tắt', false);
+      await form.saveLayout(admin, id, { layout: titled('MẪU TẮT') });
+      expect((await form.getLayout(nv1, id)).layout).toEqual(titled('MẪU TẮT'));
+      expect((await form.listTemplates(nv1, false)).some((template) => template.id === id)).toBe(false);
+      expect((await form.listTemplates(admin, true)).find((template) => template.id === id)).toMatchObject({ active: false, hasLayout: true });
+    });
+
+    it('TC-TL-04/05/07/12 (lưu): bố cục sai trả 400 đúng mã, DB không đổi', async () => {
+      const id = await newTemplate('P3 Mẫu kiểm hợp lệ');
+      const good = await form.saveLayout(admin, id, { layout: titled('GỐC') });
+      const base = defaultQuoteLayout();
+      const spacer = (index: number) => ({ id: `s-${index}`, type: 'spacer', heightMm: 5 });
+      const cases: Array<[string, unknown]> = [
+        ['LAYOUT_VERSION_UNSUPPORTED', { ...base, version: 2 }],
+        ['LAYOUT_EMPTY', { ...base, blocks: [] }],
+        ['LAYOUT_TOO_MANY_BLOCKS', { ...base, blocks: Array.from({ length: 101 }, (_, index) => spacer(index)) }],
+        ['LAYOUT_IMAGE_INVALID', { ...base, blocks: [{ id: 'img', type: 'image', src: 'https://example.com/a.png', heightMm: 20, align: 'left' }] }],
+        ['LAYOUT_IMAGE_INVALID', { ...base, blocks: [{ id: 'img', type: 'image', src: pngDataUrl(301 * 1024), heightMm: 20, align: 'left' }] }],
+        ['LAYOUT_VARIABLE_UNKNOWN', { ...base, blocks: [{ id: 't', type: 'text', align: 'left', runs: [{ text: '{{totals.cost}}' }] }] }],
+      ];
+      for (const [code, layout] of cases) {
+        await expect(form.saveLayout(admin, id, { layout: layout as never })).rejects.toMatchObject({ statusCode: 400, code });
+      }
+      // 1 và 100 khối lưu được.
+      for (const count of [1, 100]) {
+        await expect(
+          form.saveLayout(admin, id, { layout: { ...base, blocks: Array.from({ length: count }, (_, index) => spacer(index)) } as never }),
+        ).resolves.toMatchObject({ layout: { blocks: expect.any(Array) } });
+      }
+      await form.saveLayout(admin, id, { layout: good.layout });
+      expect((await form.getLayout(nv1, id)).layout).toEqual(good.layout);
+    });
+
+    it('TC-TL-06 (lưu): bố cục đúng 1 MB lưu và đọc lại được; trên 1 MB là 400 LAYOUT_TOO_LARGE, không phải lỗi khác', async () => {
+      const id = await newTemplate('P3 Mẫu 1 MB');
+      const base = defaultQuoteLayout();
+      const text = (blockId: string, runs: string[]) => ({ id: blockId, type: 'text', align: 'left', runs: runs.map((value) => ({ text: value })) });
+      const sizeOf = (blocks: unknown[]) => Buffer.byteLength(JSON.stringify({ ...base, blocks }));
+      const blocks: unknown[] = [];
+      while (sizeOf(blocks) + 90_000 < QUOTE_LAYOUT_LIMITS.maxBytes) {
+        blocks.push(text(`b-${blocks.length}`, Array.from({ length: 20 }, () => 'x'.repeat(4_000))));
+      }
+      while (sizeOf(blocks) + 8_000 < QUOTE_LAYOUT_LIMITS.maxBytes) blocks.push(text(`t-${blocks.length}`, ['x'.repeat(4_000)]));
+      for (let pad = 0; pad < 2; pad += 1) {
+        const blockId = `t-${blocks.length}`;
+        blocks.push(text(blockId, ['']));
+        blocks[blocks.length - 1] = text(blockId, ['x'.repeat(Math.min(4_000, QUOTE_LAYOUT_LIMITS.maxBytes - sizeOf(blocks)))]);
+      }
+      expect(sizeOf(blocks)).toBe(QUOTE_LAYOUT_LIMITS.maxBytes);
+      const saved = await form.saveLayout(admin, id, { layout: { ...base, blocks } as never });
+      expect(Buffer.byteLength(JSON.stringify(saved.layout))).toBe(QUOTE_LAYOUT_LIMITS.maxBytes);
+      expect(await form.getLayout(nv1, id)).toEqual(saved);
+      const over = [...blocks.slice(0, -1), text('t-over', ['x'.repeat(4_000)])];
+      await expect(form.saveLayout(admin, id, { layout: { ...base, blocks: over } as never })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'LAYOUT_TOO_LARGE',
+      });
+      expect(await form.getLayout(nv1, id)).toEqual(saved);
+    });
+
+    it('TC-P3PERM-01/02: người không có crm.manage lưu thì 403 tiếng Việt, DB không đổi; người chỉ đọc đọc được', async () => {
+      const id = await newTemplate('P3 Mẫu quyền');
+      const saved = await form.saveLayout(admin, id, { layout: titled('QUYỀN') });
+      for (const who of [nv1, viewer, tn]) {
+        await expect(form.saveLayout(who, id, { layout: null })).rejects.toMatchObject({
+          statusCode: 403,
+          message: 'Chỉ quản trị bán hàng mới được thay đổi cấu hình này.',
+        });
+        expect(await form.getLayout(who, id)).toEqual(saved);
+      }
+      expect(await audits(id)).toHaveLength(1);
+    });
   });
 });

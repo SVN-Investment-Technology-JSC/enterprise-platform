@@ -48,6 +48,15 @@ describe('danh sách migration của tenant', () => {
     });
   });
 
+  it('CRM chạy bố cục mẫu báo giá (0034) sau phân loại khách hàng (0033)', () => {
+    const versions = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(versions.indexOf('0034-quote-template-layouts')).toBe(versions.indexOf('0033-customer-kinds') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['crm']).toContainEqual({
+      version: '0034-quote-template-layouts',
+      path: 'tenant/crm/0034-quote-template-layouts.sql',
+    });
+  });
+
   it('registry tenant-core bao phủ mọi migration đang được triển khai', () => {
     const registered = new Set(TENANT_CORE_MIGRATIONS.map((item) => item.path));
     const missing = readdirSync(join(MIGRATIONS_ROOT, 'tenant/core'))

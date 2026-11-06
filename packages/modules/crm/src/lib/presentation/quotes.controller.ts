@@ -19,8 +19,10 @@ import type {
   QuoteListQuery,
   QuoteCodeSettings,
   QuoteTemplate,
+  QuoteTemplateLayout,
   QuoteType,
   GeneratedQuoteCode,
+  SaveQuoteTemplateLayoutRequest,
   SaveQuoteCodeSettingsRequest,
   SaveQuoteTemplateRequest,
   SaveQuoteTypeRequest,
@@ -214,6 +216,22 @@ export class QuoteFormController {
     @Body() payload: Payload<SaveQuoteTemplateRequest>,
   ): Promise<QuoteTemplate> {
     return runCrm(() => this.form.updateTemplate(crmActor(request), id, body(payload)));
+  }
+
+  /** Bố cục in của mẫu (phase 3): đọc `crm.read`; lưu, xoá (`layout: null`) chỉ `crm.manage`. Kiểm ở `QuoteFormService`. */
+  @Get('quote-templates/:id/layout')
+  templateLayout(@Req() request: CrmRequest, @Param('id') id: string): Promise<QuoteTemplateLayout> {
+    return runCrm(() => this.form.getLayout(crmActor(request), id));
+  }
+
+  /** Thân lớn tới 2 MB (bố cục có ảnh): giới hạn riêng cho route này đặt ở `apps/crm-api` (`configureCrmBodyParsers`). */
+  @Put('quote-templates/:id/layout')
+  saveTemplateLayout(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Body() payload: Payload<SaveQuoteTemplateLayoutRequest>,
+  ): Promise<QuoteTemplateLayout> {
+    return runCrm(() => this.form.saveLayout(crmActor(request), id, body(payload)));
   }
 
   @Get('quote-types')

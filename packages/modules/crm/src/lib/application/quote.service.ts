@@ -3,6 +3,7 @@ import {
   QUOTE_DEFAULT_VALIDITY_DAYS,
   QUOTE_LINES_INVALID_CODE,
   QUOTE_FEES_MAX,
+  QUOTE_LINE_POSITION_INVALID_CODE,
   QUOTE_LINES_MAX,
   QUOTE_STATUS_LABELS,
   QUOTE_STATUSES,
@@ -396,13 +397,19 @@ export class QuoteService {
    * Thêm lô dòng vào báo giá Nháp: kiểm từng dòng, có dòng lỗi thì không thêm dòng nào và
    * trả lỗi theo dòng (400 `LINES_INVALID`). Một lần ghi, một lần tính giá. Báo giá không
    * còn Nháp thì 409 (không tạo phiên bản mới như thêm từng dòng).
+   *
+   * `beforeLineNo` (phase 3, "Chèn"): lô chèn ngay trước dòng có số đó, các dòng sau dời xuống. Mỗi lần lưu, phiên
+   * bản ghi lại toàn bộ dòng với số thứ tự liên tục trong cùng transaction (xoá rồi chèn lại), nên không bao giờ có
+   * hai dòng cùng `line_no`. Số không có trong phiên bản: 400 `LINE_POSITION_INVALID`.
    */
   async addLines(actor: CrmActor, id: string, versionNo: unknown, request: AddQuoteLinesRequest): Promise<QuoteDetail> {
     const inputs = request?.lines;
     if (!Array.isArray(inputs) || inputs.length === 0) {
       throw new CrmValidationError('LINES_REQUIRED', 'Vui lòng chọn ít nhất một mặt hàng.');
     }
-    let existing = 0;
+    const beforeLineNo = beforeLineNoOf(request?.beforeLineNo);
+    /** Số dòng đứng trước lô mới; lô chiếm vị trí `at + 1` đến `at + inputs.length`. */
+    let at = 0;
     try {
       return await this.edit(actor, id, versionNo, request?.revision, async (quote, lines) => {
         if (quote.version.status !== 'DRAFT') {
@@ -411,7 +418,11 @@ export class QuoteService {
             `Báo giá ở trạng thái "${QUOTE_STATUS_LABELS[quote.version.status]}", không sửa được.`,
           );
         }
-        existing = lines.length;
+        at = lines.length;
+        if (beforeLineNo !== null) {
+          at = quote.version.lines.findIndex((line) => line.lineNo === beforeLineNo);
+          if (at < 0) throw linePositionInvalid(beforeLineNo);
+        }
         if (lines.length + inputs.length > QUOTE_LINES_MAX) {
           throw new CrmValidationError('TOO_MANY_LINES', `Mỗi phiên bản báo giá tối đa ${QUOTE_LINES_MAX} dòng.`);
         }
@@ -426,13 +437,19 @@ export class QuoteService {
           }
         }
         if (errors.length) throw linesInvalid(errors);
-        return { ...unchanged(quote), lines: [...lines, ...added] };
+        return { ...unchanged(quote), lines: [...lines.slice(0, at), ...added, ...lines.slice(at)] };
       });
     } catch (error) {
-      // Lỗi tính giá (chưa có giá bán...) mang số dòng trong toàn báo giá; đổi về số dòng của lô.
+      // Lỗi tính giá (chưa có giá bán...) mang số dòng trong toàn báo giá; dòng thuộc lô thì đổi về số dòng của lô.
       const position = error instanceof CrmValidationError ? error.details?.['line'] : undefined;
-      if (error instanceof CrmValidationError && error.code !== 'LINES_INVALID' && typeof position === 'number' && position > existing) {
-        const index = position - existing;
+      if (
+        error instanceof CrmValidationError &&
+        error.code !== 'LINES_INVALID' &&
+        typeof position === 'number' &&
+        position > at &&
+        position <= at + inputs.length
+      ) {
+        const index = position - at;
         throw linesInvalid([lineErrorOf(index, inputs[index - 1], error)]);
       }
       throw error;
@@ -950,6 +967,22 @@ function hideCost(version: QuoteVersion): QuoteVersion {
     totals: { ...version.totals, estCost: 0, profit: 0, marginPercent: null },
     lines: version.lines.map((line) => ({ ...line, estUnitCost: null, estCost: 0, margin: null })),
   };
+}
+
+/** `beforeLineNo` gửi lên: không có là thêm cuối (`null`); có thì phải là số nguyên dương. */
+function beforeLineNoOf(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) throw linePositionInvalid(value);
+  return value;
+}
+
+function linePositionInvalid(value: unknown): CrmValidationError {
+  return new CrmValidationError(
+    QUOTE_LINE_POSITION_INVALID_CODE,
+    typeof value === 'number' && Number.isInteger(value)
+      ? `Không chèn được: báo giá không có dòng số ${value}. Tải lại báo giá rồi thử lại.`
+      : 'Vị trí chèn phải là số thứ tự của một dòng trong báo giá.',
+  );
 }
 
 function lineErrorOf(line: number, input: unknown, error: CrmValidationError): QuoteLineError {

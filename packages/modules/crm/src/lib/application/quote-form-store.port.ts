@@ -3,7 +3,9 @@ import type {
   CustomFieldEntityType,
   CustomFieldType,
   QuoteAdjustmentMode,
+  QuoteLayout,
   QuoteTemplate,
+  QuoteTemplateLayout,
   QuoteType,
 } from '@enterprise-platform/contracts-crm';
 
@@ -40,11 +42,35 @@ export interface CustomFieldRecord {
   readonly active: boolean;
 }
 
+/** Bố cục đang lưu của mẫu; bố cục trong DB sai cấu trúc thì `layout` rỗng. */
+export type StoredQuoteTemplateLayout = QuoteTemplateLayout;
+
+/** Lưu hoặc xoá bố cục (`layout: null`). `expectedUpdatedAt` không có (`undefined`) là ghi đè không kiểm. */
+export interface QuoteTemplateLayoutWrite {
+  readonly layout: QuoteLayout | null;
+  readonly expectedUpdatedAt?: string | null;
+  /** Ghi vào `audit_log` thay cho cả JSON: số khối và kích thước (byte). */
+  readonly blockCount: number;
+  readonly sizeBytes: number;
+}
+
 export interface QuoteFormStore {
   listTemplates(tenantId: string, includeInactive: boolean): Promise<QuoteTemplate[]>;
   getTemplate(tenantId: string, id: string): Promise<QuoteTemplate | undefined>;
   createTemplate(tenantId: string, record: QuoteTemplateRecord, actorId: string): Promise<QuoteTemplate>;
   updateTemplate(tenantId: string, id: string, record: QuoteTemplateRecord, actorId: string): Promise<QuoteTemplate | undefined>;
+  /** Bố cục in của mẫu (phase 3); mẫu không có: `undefined`. Mẫu đang tắt vẫn đọc được. */
+  getTemplateLayout(tenantId: string, id: string): Promise<StoredQuoteTemplateLayout | undefined>;
+  /**
+   * Ghi bố cục và `audit_log` (`quote_template.layout_updated`) trong một transaction, khoá dòng mẫu. Mẫu không có:
+   * `undefined`. `expectedUpdatedAt` lệch với bản đang lưu: `CrmConflictError` `LAYOUT_CONFLICT`.
+   */
+  saveTemplateLayout(
+    tenantId: string,
+    id: string,
+    write: QuoteTemplateLayoutWrite,
+    actorId: string,
+  ): Promise<StoredQuoteTemplateLayout | undefined>;
 
   listTypes(tenantId: string, includeInactive: boolean): Promise<QuoteType[]>;
   getType(tenantId: string, id: string): Promise<QuoteType | undefined>;
