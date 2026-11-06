@@ -64,6 +64,9 @@ function initialState(customer?: CustomerDetail): FormState {
   };
 }
 
+const DUPLICATE_TAX_CODE_PROMPT =
+  'Mã số thuế đã có ở khách hàng khác. Kiểm tra danh sách dưới ô Mã số thuế, bấm "Vẫn lưu" nếu đúng là khách hàng khác.';
+
 const text = (value: string) => (value.trim() ? value.trim() : null);
 const number = (value: string) => (value.trim() ? Number(value) : null);
 
@@ -97,6 +100,7 @@ export function CustomerFormDialog({
   // Cảnh báo trùng MST ngay khi nhập xong một MST hợp lệ.
   useEffect(() => {
     setConfirmDuplicate(false);
+    setError((current) => (current === DUPLICATE_TAX_CODE_PROMPT ? undefined : current));
     const value = form.taxCode.trim();
     if (!value || !taxCodeLooksValid(value) || value === customer?.taxCode) {
       setMatches([]);
@@ -111,6 +115,11 @@ export function CustomerFormDialog({
   async function submit() {
     if (!form.name.trim()) return setError('Vui lòng nhập tên khách hàng.');
     if (taxCodeError) return setError(taxCodeError);
+    // Trùng MST: lần bấm đầu chỉ cảnh báo, người dùng bấm "Vẫn lưu" mới gửi xác nhận.
+    if (matches.length && !confirmDuplicate) {
+      setConfirmDuplicate(true);
+      return setError(DUPLICATE_TAX_CODE_PROMPT);
+    }
     setSubmitting(true);
     setError(undefined);
     const fields = {
@@ -128,7 +137,7 @@ export function CustomerFormDialog({
       paymentTermDays: number(form.paymentTermDays),
       note: text(form.note),
       ownerUserId: form.ownerUserId || null,
-      confirmDuplicateTaxCode: confirmDuplicate || matches.length > 0,
+      confirmDuplicateTaxCode: confirmDuplicate,
     };
     try {
       const saved = customer
@@ -141,6 +150,7 @@ export function CustomerFormDialog({
       if (apiError.code === CRM_DUPLICATE_TAX_CODE) {
         setMatches(apiError.matches ?? []);
         setConfirmDuplicate(true);
+        setError(DUPLICATE_TAX_CODE_PROMPT);
       } else {
         setError(errorMessage(cause, 'Không lưu được khách hàng.'));
       }
@@ -150,7 +160,7 @@ export function CustomerFormDialog({
   }
 
   const duplicateNotice = matches.length ? (
-    <div className={styles.warning} role="alert">
+    <div className={`${styles.warning} ${styles.fieldWide}`} role="alert">
       <strong>Mã số thuế đã có ở khách hàng khác:</strong>
       <ul>
         {matches.map((match) => (
@@ -170,10 +180,9 @@ export function CustomerFormDialog({
       wide
       title={customer ? `Sửa khách hàng ${customer.code}` : 'Thêm khách hàng'}
       subtitle={customer ? undefined : 'Để trống mã để hệ thống tự sinh theo quy tắc cấu hình.'}
-      submitLabel={matches.length ? 'Vẫn lưu' : 'Lưu'}
+      submitLabel={matches.length && confirmDuplicate ? 'Vẫn lưu' : 'Lưu'}
       submitting={submitting}
       error={error}
-      notice={duplicateNotice}
       onClose={creatingGroup || creatingKind ? () => undefined : onClose}
       onSubmit={() => void submit()}
     >
@@ -187,6 +196,7 @@ export function CustomerFormDialog({
         <Field label="Mã số thuế" error={taxCodeError}>
           <input className={styles.input} value={form.taxCode} maxLength={14} placeholder="0101234567 hoặc 0101234567-001" onChange={(event) => set('taxCode', event.target.value)} />
         </Field>
+        {duplicateNotice}
         <Field label="Phân loại">
           <SearchableSelect
             options={kindOptions(kinds)}

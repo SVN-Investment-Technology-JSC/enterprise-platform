@@ -387,6 +387,23 @@ integration('Bán hàng GĐ D: phương án kinh doanh (PostgreSQL)', () => {
     expect(await checkCodes(id, 2)).toEqual(['PLAN_DEVIATION']);
   });
 
+  it('TC-BP-06: PAKD duyệt riêng rồi sửa báo giá cùng phiên bản: lệch quá ngưỡng thì buộc trình lại', async () => {
+    const draft = await draftQuote();
+    const plan = await plans.save(nv1, draft.id, 1, { lines: LINES });
+    const pending = await plans.submit(nv1, draft.id, 1, { version: plan.version });
+    await plans.approve(tn, draft.id, 1, { version: pending.version });
+    expect(await checkCodes(draft.id, 1)).toEqual([]);
+    // Mốc: lợi nhuận PAKD đã duyệt 1.350.000; chi phí vận chuyển 108.000 làm giảm 8%.
+    const edited = await quotes.updateVersion(nv1, draft.id, 1, {
+      revision: await revisionOf(draft.id),
+      shipping: { amount: 0, vatRate: 10, cost: 108_000 },
+    });
+    expect(await checkCodes(draft.id, 1)).toEqual(['PLAN_DEVIATION']);
+    const submitted = await quotes.submit(nv1, draft.id, 1, { revision: edited.version.revision });
+    expect(submitted.status).toBe('PENDING');
+    expect(submitted.version.approvalReasons.map((reason) => reason.code)).toContain('PLAN_DEVIATION');
+  });
+
   it('TC-BP-10: so với PAKD đã duyệt gần nhất: sửa nhỏ nhiều lần vẫn dồn lệch và bị buộc trình lại', async () => {
     const id = await approvedBase();
     // v2: lệch 3% (40.500), trong ngưỡng, duyệt thẳng, gửi khách.
