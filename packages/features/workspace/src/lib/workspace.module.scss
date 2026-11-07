@@ -883,7 +883,8 @@
 .groupRow th {
   height: 40px;
   background: var(--ep-surface-soft);
-  border-top: 1px solid var(--ep-border);
+  /* Đường kẻ đậm hơn hàng thường để các nhóm tách bạch nhau. */
+  border-top: 2px solid #cbd5e1;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0;
@@ -902,12 +903,19 @@
 .groupRow td {
   height: 40px;
   background: var(--ep-surface-soft);
-  border-top: 1px solid var(--ep-border);
+  border-top: 2px solid #cbd5e1;
   font-size: 13px;
 
   .groupCounts {
     margin-left: 0;
   }
+}
+
+/* Bảng nhóm mỗi nhóm một <tbody> (Công việc của tôi): dòng nhóm luôn là dòng đầu của tbody nên bị luật xoá viền trên của
+   dòng đầu bảng cắt mất. Giữ vạch đậm cho mọi nhóm đứng sau nhóm đầu tiên. */
+.table tbody + tbody tr.groupRow:first-child th,
+.table tbody + tbody tr.groupRow:first-child td {
+  border-top: 2px solid #cbd5e1;
 }
 
 .groupSummaryText {
@@ -4818,24 +4826,33 @@
 /* Trang Tài liệu: cây thư mục bên trái, danh sách (và chi tiết) bên phải. */
 .explorer {
   display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
-  gap: 16px;
+  /* Cây | vạch kéo | bảng; độ rộng cây do biến --doc-tree-width (đặt từ giao diện, nhớ theo trình duyệt). */
+  grid-template-columns: var(--doc-tree-width, 15rem) 14px minmax(0, 1fr);
+  gap: 0;
   align-items: start;
+}
+
+.explorerHandle {
+  align-self: stretch;
 }
 
 @media (width <=1100px) {
   .explorer {
     grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .explorerHandle {
+    display: none;
   }
 }
 
 .explorerTree {
-  position: sticky;
-  top: 16px;
+  /* Chiều cao do useFillViewportHeight đặt (bằng khung bảng bên cạnh), cây tự cuộn bên trong. */
+  position: static;
   display: flex;
   flex-direction: column;
   min-height: 20rem;
-  max-height: calc(100vh - 110px);
   border: 1px solid var(--ep-border);
   border-radius: var(--ep-radius-lg);
   background: var(--ep-surface);
@@ -10177,7 +10194,10 @@ button.kpiCard {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--ep-surface-soft);
+    /* Nền xám xanh đậm hơn nền thân bảng và hàng nhóm để đầu bảng dễ phân biệt. */
+    background: #e9eef5;
+    border-bottom: 1px solid #cbd5e1;
+    color: #334155;
   }
 
   tfoot td {
@@ -10998,4 +11018,27 @@ button.kpiCard {
   border-color: var(--ep-accent-strong);
   background: var(--ep-accent-soft);
   font-weight: 700;
+}
+
+/* Trang Tài liệu: khung bảng chiếm hết chiều cao còn lại, đầu bảng đứng yên, chỉ phần thân cuộn. */
+.documentListFill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  .tableScroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      /* Cùng màu đầu bảng với các bảng sổ khác: xám xanh đậm hơn thân bảng. */
+      background: #e9eef5;
+      border-bottom: 1px solid #cbd5e1;
+      color: #334155;
+    }
+  }
 }

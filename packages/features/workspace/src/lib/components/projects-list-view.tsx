@@ -331,6 +331,7 @@ export function ProjectsListView({
     });
 
   const allVisibleSelected = visible.length > 0 && visible.every((project) => selected.has(project.id));
+  const someVisibleSelected = !allVisibleSelected && visible.some((project) => selected.has(project.id));
   const toggleAll = () =>
     setSelected(allVisibleSelected ? new Set() : new Set(visible.map((project) => project.id)));
 
@@ -677,6 +678,9 @@ export function ProjectsListView({
                   <input
                     type="checkbox"
                     aria-label="Chọn tất cả"
+                    ref={(element) => {
+                      if (element) element.indeterminate = someVisibleSelected;
+                    }}
                     checked={allVisibleSelected}
                     onChange={toggleAll}
                   />
@@ -858,6 +862,8 @@ function GroupRows({
     ? Math.round(rows.reduce((sum, project) => sum + (project.progressPercent ?? 0), 0) / rows.length)
     : 0;
   const allSelected = rows.length > 0 && rows.every((project) => selected.has(project.id));
+  // Chọn một phần dự án trong nhóm: ô nhóm ở trạng thái nửa vời; chọn đủ mới đánh dấu đầy.
+  const someSelected = !allSelected && rows.some((project) => selected.has(project.id));
   return (
     <>
       <tr className={styles.groupRow}>
@@ -865,6 +871,9 @@ function GroupRows({
           <input
             type="checkbox"
             aria-label={`Chọn cả nhóm ${type}`}
+            ref={(element) => {
+              if (element) element.indeterminate = someSelected;
+            }}
             checked={allSelected}
             onChange={() => onSelectMany(rows.map((project) => project.id), !allSelected)}
           />
