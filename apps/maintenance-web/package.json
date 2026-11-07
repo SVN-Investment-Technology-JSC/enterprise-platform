@@ -7,7 +7,9 @@
     "targets": {
       "typecheck": {
         "executor": "nx:run-commands",
-        "dependsOn": ["^typecheck"],
+        "dependsOn": [
+          "^typecheck"
+        ],
         "options": {
           "cwd": "apps/maintenance-web",
           "command": "tsc --noEmit -p tsconfig.json"
@@ -36,9 +38,17 @@
     "@enterprise-platform/feature-maintenance": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@swc/helpers": "0.5.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
     "next": "~16.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.6.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "tailwindcss": "^4.3.3"
   }
 }
