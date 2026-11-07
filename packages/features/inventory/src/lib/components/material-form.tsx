@@ -7,7 +7,7 @@ import type {
   MaterialCategory,
   MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { currencyLabel } from '../inventory-labels';
@@ -133,8 +133,12 @@ export function MaterialForm({
 
   const isDisabled = busy;
 
+  const dirtySnapshot = JSON.stringify([code, name, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, purchasePrice, trackingMode]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{
@@ -155,15 +159,16 @@ export function MaterialForm({
                 Khai báo mã SKU, định mức tồn và phương thức quản lý định danh (Sê-ri hoặc Lô).
               </p>
             </div>
-            <button
-              type="button"
-              className={styles.closeButton}
-              onClick={onCancel}
-              title="Đóng (ESC)"
-              aria-label="Đóng"
-            >
-              <X size={18} strokeWidth={2} />
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button
+                type="button"
+                className={styles.closeButton}
+                title="Đóng"
+                aria-label="Đóng"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            </CloseGuard>
           </div>
 
           {/* Thân Form Dialog */}
@@ -306,13 +311,10 @@ export function MaterialForm({
               ) : null}
               <label>
                 Đơn giá ({currencyLabel(editing?.currency)})
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
+                <VnNumberInput
                   placeholder="Chưa khai báo"
                   value={purchasePrice}
-                  onChange={(event) => setPurchasePrice(event.target.value)}
+                  onChange={setPurchasePrice}
                 />
                 {editing?.purchasePrice !== undefined ? (
                   <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
@@ -503,14 +505,15 @@ export function MaterialForm({
 
           {/* Footer Dialog Actions */}
           <div className={styles.modalFoot}>
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={onCancel}
-              disabled={isDisabled}
-            >
-              Huỷ
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button
+                type="button"
+                className={`${styles.action} ${styles.actionGhost}`}
+                disabled={isDisabled}
+              >
+                Huỷ
+              </button>
+            </CloseGuard>
             <button
               type="submit"
               className={`${styles.action} ${styles.actionPrimary}`}

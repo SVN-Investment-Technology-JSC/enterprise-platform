@@ -8,7 +8,11 @@ import type {
   TransactionType,
   WarehouseType,
 } from '@enterprise-platform/contracts-inventory';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import {
+  formatCurrencyVn,
+  formatDateTime as formatSharedDateTime,
+  formatQuantityVn,
+} from '@enterprise-platform/shared-ui';
 
 /**
  * Mọi nhãn tiếng Việt của module Kho gom về một chỗ. Trước đây chỉ AssetType được
@@ -102,8 +106,9 @@ export function referenceLabel(value?: string): string {
   return known[value] ?? value;
 }
 
+/** Số lượng và số thường: ngăn nghìn bằng dấu chấm, tối đa 3 chữ số thập phân. */
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value);
+  return formatQuantityVn(value);
 }
 
 /** Nhãn tiền tệ hiển thị; không khai báo hoặc VND thì dùng "đ". */
@@ -115,7 +120,7 @@ export function currencyLabel(currency?: string): string {
 export function formatMaterialPrice(price?: number, currency?: string): string {
   return price === undefined || price === null
     ? '—'
-    : `${formatNumber(price)} ${currencyLabel(currency)}`;
+    : `${formatCurrencyVn(price)} ${currencyLabel(currency)}`;
 }
 
 export function formatDateTime(value?: string): string {

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { X, CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
+import { VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
@@ -208,8 +209,12 @@ export function BatchRequisitionModal({
     }
   };
 
+  const dirtySnapshot = JSON.stringify([isAssignToAsset, selectedAssetCode, items, note]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{
@@ -251,15 +256,16 @@ export function BatchRequisitionModal({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            className={styles.closeButton}
-            onClick={onClose}
-            title="Đóng (ESC)"
-            aria-label="Đóng"
-          >
-            <X size={18} strokeWidth={2} />
-          </button>
+          <CloseGuard dirty={isDirty} busy={submitting || busy} onClose={onClose}>
+            <button
+              type="button"
+              className={styles.closeButton}
+              title="Đóng"
+              aria-label="Đóng"
+            >
+              <X size={18} strokeWidth={2} />
+            </button>
+          </CloseGuard>
         </div>
 
         {/* Modal Body */}
@@ -520,14 +526,10 @@ export function BatchRequisitionModal({
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                            <input
-                              type="number"
-                              min={getUnitQuantityConfig(item.unit).min}
-                              step={getUnitQuantityConfig(item.unit).step}
-                              value={item.quantity}
-                              onChange={(e) =>
-                                handleItemChange(idx, { quantity: Number(e.target.value) || 0 })
-                              }
+                            <VnNumberInput
+                              maxDecimals={getUnitQuantityConfig(item.unit).step === '1' ? 0 : 2}
+                              value={String(item.quantity)}
+                              onChange={(value) => handleItemChange(idx, { quantity: Number(value) || 0 })}
                               style={{
                                 width: '75px',
                                 padding: '5px 8px',
@@ -687,14 +689,15 @@ export function BatchRequisitionModal({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={onClose}
-                disabled={submitting}
-              >
-                Huỷ
-              </button>
+              <CloseGuard dirty={isDirty} busy={submitting || busy} onClose={onClose}>
+                <button
+                  type="button"
+                  className={`${styles.action} ${styles.actionGhost}`}
+                  disabled={submitting}
+                >
+                  Huỷ
+                </button>
+              </CloseGuard>
               <button
                 type="submit"
                 className={`${styles.action} ${styles.actionPrimary}`}

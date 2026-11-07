@@ -1,7 +1,7 @@
 'use client';
 import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
-import { formatNoteDates } from '../inventory-labels';
+import { formatNoteDates, formatNumber } from '../inventory-labels';
 
 import type {
   InventoryLedgerRow,
@@ -34,10 +34,6 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   RETURN: 'Nhập kho',
   ADJUST: 'Điều chỉnh',
 };
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value);
-}
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';

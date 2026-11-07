@@ -6,6 +6,7 @@ import {
   DonutChart,
   type DashboardCardCatalog,
 } from '@enterprise-platform/feature-module-shell';
+import { formatCurrencyVn } from '@enterprise-platform/shared-ui';
 import type { InventoryLedgerRow, InventoryWorkspace } from './inventory-api';
 import { formatNumber } from './inventory-labels';
 import styles from './inventory.module.scss';
@@ -207,10 +208,9 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
         }
         total += price * row.available;
       }
-      const money = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 });
       return (
         <>
-          <Metric value={money.format(total)} />
+          <Metric value={formatCurrencyVn(total, { maxDecimals: 0 })} />
           <p className={styles.dashEmpty}>
             {priced} mã đã khai giá
             {unpriced > 0 ? ` · ${unpriced} mã chưa khai` : ''}
