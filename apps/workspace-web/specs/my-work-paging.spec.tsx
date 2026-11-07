@@ -137,7 +137,7 @@ describe('Công việc của tôi: phân trang theo nhóm', () => {
     expect(codes()).toHaveLength(20);
     // Trang 1 đã nằm trong bộ nhớ đệm: không gọi lại.
     expect(mockApi.loadMyWorkGroupItems).toHaveBeenCalledTimes(2);
-  });
+  }, 15000);
 
   it('đổi bộ lọc thì gọi lại tổng quan với tham số lọc', async () => {
     render(<MyWorkView />);

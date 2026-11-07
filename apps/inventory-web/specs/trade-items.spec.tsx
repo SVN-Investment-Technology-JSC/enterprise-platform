@@ -31,6 +31,10 @@ jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
   loadMaterialHistory: (code: string) => mockHistory(code),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
+  // Các hàm và ô nhập dùng chung là mã thuần, dùng bản thật để test khớp hành vi trên giao diện.
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/currency-format'),
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/vn-number-input'),
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/close-guard'),
   formatDateTime: (value: string) => value,
   // Kết quả thao tác hiện bằng toast: bản giả để test kiểm tra nội dung đã báo.
   toast: { success: jest.fn(), error: jest.fn() },
@@ -430,11 +434,49 @@ describe('TradeItemsPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }));
     const alert = await within(dialog).findByRole('alert');
     expect(alert.textContent).toBe('Không đổi được nhóm vì mã đã có tồn.');
-    expect((within(dialog).getByLabelText(/Giá bán/) as HTMLInputElement).value).toBe('70000');
+    expect((within(dialog).getByLabelText(/Giá bán/) as HTMLInputElement).value).toBe('70.000');
     // Bấm Huỷ thì lỗi cũ không còn khi mở lại.
+    // Đã có thay đổi nên Huỷ hỏi xác nhận trước.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Huỷ' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Sửa' }));
+    fireEvent.click(await screen.findByText('Đóng và bỏ'));
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Sửa' }));
     expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('drawer: backdrop và ESC theo hai tầng thoát', async () => {
+    const { container } = render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    const dialogName = { name: 'Chi tiết VT-001' };
+    const backdrop = () => document.querySelector('[class*="drawerBackdrop"]') as HTMLElement;
+
+    // Sửa, chưa đổi gì: click nền không đóng, ESC về chế độ xem.
+    fireEvent.click(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Sửa' }));
+    fireEvent.click(backdrop());
+    expect(screen.queryByRole('dialog', dialogName)).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(within(screen.getByRole('dialog', dialogName)).queryByRole('button', { name: 'Lưu thay đổi' })).toBeNull();
+
+    // Sửa, đã đổi: ESC hỏi xác nhận; "Tiếp tục nhập" giữ nguyên, "Đóng và bỏ" về chế độ xem.
+    fireEvent.click(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(screen.getByRole('dialog', dialogName)).getByLabelText(/Giá bán/), { target: { value: '70000' } });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(await screen.findByText('Đóng và bỏ thay đổi?')).toBeTruthy();
+    fireEvent.click(screen.getByText('Tiếp tục nhập'));
+    expect(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Lưu thay đổi' })).toBeTruthy();
+
+    // Nút X khi đã đổi cũng hỏi, xác nhận thì đóng cả drawer.
+    fireEvent.click(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Đóng' }));
+    fireEvent.click(await screen.findByText('Đóng và bỏ'));
+    await waitFor(() => expect(screen.queryByRole('dialog', dialogName)).toBeNull());
+
+    // Chế độ xem: click nền và ESC đều đóng ngay.
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    fireEvent.click(backdrop());
+    expect(screen.queryByRole('dialog', dialogName)).toBeNull();
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', dialogName)).toBeNull();
+    expect(container).toBeTruthy();
   });
 
   it('ngừng dùng thất bại: lỗi của Kho hiện trong drawer', async () => {
@@ -475,14 +517,15 @@ describe('TradeItemsPage', () => {
     fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
     fireEvent.change(within(drawer).getByLabelText(/Giá bán/), { target: { value: '12345' } });
     fireEvent.click(within(drawer).getByRole('button', { name: 'Huỷ' }));
+    fireEvent.click(await screen.findByText('Đóng và bỏ'));
+    await waitFor(() => expect(within(drawer).queryByLabelText(/Giá bán/)).toBeNull());
     expect(mockUpdate).not.toHaveBeenCalled();
-    expect(within(drawer).queryByLabelText(/Giá bán/)).toBeNull();
     // Mở lại: ô nhập lấy lại giá trị hiện có, không giữ phần đã bỏ.
     fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
     expect((within(drawer).getByLabelText(/Giá bán/) as HTMLInputElement).value).not.toBe('12345');
   });
 
-  it('sửa trên drawer: tên trống hoặc giá âm thì không lưu được', async () => {
+  it('sửa trên drawer: tên trống thì không lưu được; ô giá bán không nhận dấu trừ', async () => {
     render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
     fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
     const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
@@ -491,9 +534,10 @@ describe('TradeItemsPage', () => {
     fireEvent.change(within(drawer).getByLabelText(/^Tên/), { target: { value: '  ' } });
     expect(save.disabled).toBe(true);
     fireEvent.change(within(drawer).getByLabelText(/^Tên/), { target: { value: 'Cáp mới' } });
+    // Ô giá bán là ô nhập số không âm: dấu trừ bị bỏ ngay khi gõ nên không thể nhập giá âm.
     fireEvent.change(within(drawer).getByLabelText(/Giá bán/), { target: { value: '-5' } });
-    expect(save.disabled).toBe(true);
-    expect(within(drawer).getByRole('alert').textContent).toBe('Giá bán phải là số không âm.');
+    expect((within(drawer).getByLabelText(/Giá bán/) as HTMLInputElement).value).toBe('5');
+    expect(save.disabled).toBe(false);
   });
 
   it('ngừng dùng từ drawer: gọi Kho rồi nạp lại danh sách', async () => {

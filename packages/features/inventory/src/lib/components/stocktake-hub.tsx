@@ -19,6 +19,7 @@ import {
   approveAndPostStocktake,
   cancelStocktakeSession,
 } from '../inventory-api';
+import { formatNumber } from '../inventory-labels';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
@@ -34,7 +35,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, Popconfirm, VnNumberInput, formatCurrencyVn } from '@enterprise-platform/shared-ui';
 import { CreateStocktakeDialog } from './create-stocktake-dialog';
 import { StocktakeLotSerialDrawer } from './stocktake-lot-serial-drawer';
 import styles from '../inventory.module.scss';
@@ -51,13 +52,8 @@ const STATUS_BADGE: Record<
   CANCELLED: { label: 'Đã hủy', bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' },
 };
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value);
-}
-
 function formatCurrency(value?: number): string {
-  if (value === undefined || value === null) return '—';
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+  return formatCurrencyVn(value, { showUnit: true });
 }
 
 function formatDateTime(value?: string): string {
@@ -1096,14 +1092,14 @@ export function StocktakeHub({
                               {line.actualQuantity !== undefined ? formatNumber(line.actualQuantity) : '— Chưa đếm —'}
                             </div>
                           ) : (
-                            <input
-                              type="number"
-                              value={line.actualQuantity !== undefined ? line.actualQuantity : ''}
+                            <VnNumberInput
+                              maxDecimals={3}
+                              value={line.actualQuantity !== undefined ? String(line.actualQuantity) : ''}
                               placeholder="Nhập SL"
-                              onChange={(e) => handleLineCountChange(line.id, e.target.value)}
+                              onChange={(value) => handleLineCountChange(line.id, value)}
                               style={{
                                 width: '80px',
-                                textAlign: 'center',
+                                textAlign: 'right',
                                 padding: '4px 6px',
                                 fontSize: '13px',
                                 fontWeight: 700,

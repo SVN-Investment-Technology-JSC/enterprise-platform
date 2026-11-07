@@ -1,7 +1,7 @@
 'use client';
 
 import type { Material, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatCurrencyVn, formatQuantityVn, parseVnNumber, CloseGuard } from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -44,27 +44,14 @@ function normalize(str?: string): string {
     .replace(/Đ/g, 'D');
 }
 
-/** Chuyển giá trị chuỗi hoặc số từ Excel thành number chuẩn (hỗ trợ cả định dạng VN và US) */
+/**
+ * Chuyển giá trị từ Excel thành số. Ô kiểu số dùng thẳng; chuỗi đọc theo chuẩn Việt Nam
+ * (`500.000.000,01`, `500000000,01`, `500000000.01`). Không đọc được thì trả `undefined` để báo lỗi dòng.
+ */
 function parseNumericValue(val: unknown): number | undefined {
   if (val === undefined || val === null || val === '') return undefined;
-  if (typeof val === 'number') return isNaN(val) ? undefined : val;
-  const str = String(val).trim();
-  // Loại bỏ các ký tự tiền tệ và khoảng trắng thừa
-  const cleaned = str.replace(/[₫$€¥\s]/g, '');
-  // Nếu dùng dấu chấm phân tách ngàn và phẩy thập phân kiểu VN (ví dụ: 1.250,50)
-  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(cleaned)) {
-    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
-  }
-  // Nếu kiểu US (ví dụ: 1,250.50)
-  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(cleaned)) {
-    return parseFloat(cleaned.replace(/,/g, ''));
-  }
-  // Nếu chỉ có dấu phẩy thay dấu chấm thập phân (ví dụ: 12,5)
-  if (/^\d+,\d+$/.test(cleaned)) {
-    return parseFloat(cleaned.replace(',', '.'));
-  }
-  const parsed = parseFloat(cleaned);
-  return isNaN(parsed) ? undefined : parsed;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : undefined;
+  return parseVnNumber(String(val).replace(/[$€¥]/g, '')) ?? undefined;
 }
 
 export interface ColumnMapping {
@@ -1317,8 +1304,12 @@ export function ExcelImportDialog({
     ];
   }, [savedProfiles]);
 
+  const dirtySnapshot = JSON.stringify([fileName]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={`${styles.modalDialog} ${styles.movementDialog}`}
         style={{
@@ -1362,15 +1353,16 @@ export function ExcelImportDialog({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            className={styles.closeButton}
-            onClick={onCancel}
-            title="Đóng (ESC)"
-            aria-label="Đóng"
-          >
-            <X size={18} />
-          </button>
+          <CloseGuard dirty={isDirty} onClose={onCancel}>
+            <button
+              type="button"
+              className={styles.closeButton}
+              title="Đóng"
+              aria-label="Đóng"
+            >
+              <X size={18} />
+            </button>
+          </CloseGuard>
         </div>
 
         {/* Thanh tiến trình 3 bước (Wizard Step Bar) */}
@@ -2246,7 +2238,7 @@ export function ExcelImportDialog({
                 >
                   <span style={{ fontSize: '13px', color: '#475569' }}>
                     Tổng số lượng dự kiến nạp:{' '}
-                    <strong>{new Intl.NumberFormat('vi-VN').format(stats.totalQty)}</strong>
+                    <strong>{formatQuantityVn(stats.totalQty)}</strong>
                   </span>
                 </div>
               </div>
@@ -2394,7 +2386,7 @@ export function ExcelImportDialog({
                           }}
                         >
                           {r.quantity > 0
-                            ? new Intl.NumberFormat('vi-VN').format(r.quantity)
+                            ? formatQuantityVn(r.quantity)
                             : '—'}
                         </td>
                         <td style={{ padding: '8px 10px', color: '#475569' }}>
@@ -2414,7 +2406,7 @@ export function ExcelImportDialog({
                         </td>
                         <td style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>
                           {r.unitCost !== undefined
-                            ? new Intl.NumberFormat('vi-VN').format(r.unitCost)
+                            ? formatCurrencyVn(r.unitCost)
                             : '—'}
                         </td>
                         <td style={{ padding: '8px 10px', fontSize: '13px' }}>
@@ -2556,13 +2548,14 @@ export function ExcelImportDialog({
                 <span>Quay lại bước trước</span>
               </button>
             ) : (
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={onCancel}
-              >
-                Huỷ bỏ
-              </button>
+              <CloseGuard dirty={isDirty} onClose={onCancel}>
+                <button
+                  type="button"
+                  className={`${styles.action} ${styles.actionGhost}`}
+                >
+                  Huỷ bỏ
+                </button>
+              </CloseGuard>
             )}
           </div>
 

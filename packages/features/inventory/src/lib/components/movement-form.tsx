@@ -21,7 +21,7 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
 import type {
@@ -1026,6 +1026,39 @@ export function MovementForm({
         ? 'Điều chuyển nhiều mã vật tư, thiết bị dự phòng giữa các kho trực thuộc trong hệ thống.'
         : 'Xuất kho đa vật tư phục vụ sửa chữa, bảo dưỡng hoặc thay thế cho phòng ban / tài sản thiết bị.');
 
+  const lotBaseItem = lotModalIndex !== null ? items[lotModalIndex] : undefined;
+  const lotDirty =
+    lotBaseItem !== undefined &&
+    JSON.stringify([lotDraft, newLotDraft]) !==
+      JSON.stringify([
+        Object.fromEntries((lotBaseItem.lotAllocations ?? []).map((lot) => [lot.lotId, lot.quantity])),
+        {
+          lotNumber: lotBaseItem.receiptLot?.lotNumber ?? '',
+          manufactureDate: lotBaseItem.receiptLot?.manufactureDate ?? '',
+          expiryDate: lotBaseItem.receiptLot?.expiryDate ?? '',
+          supplier: lotBaseItem.receiptLot?.supplier ?? '',
+          coCqNumber: lotBaseItem.receiptLot?.coCqNumber ?? '',
+        },
+      ]);
+
+  const dirtySnapshot = JSON.stringify([
+    kind,
+    warehouseCode,
+    toWarehouseCode,
+    issueTargetType,
+    issueTargetName,
+    supplierName,
+    supplierAddress,
+    invoiceNumber,
+    targetAssetCode,
+    procedureDefinitionId,
+    note,
+    selectedFile?.name ?? '',
+    items,
+  ]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   const formContent = (
     <>
       {/* Header Form / Dialog */}
@@ -1039,15 +1072,16 @@ export function MovementForm({
           </p>
         </div>
         {isDialog ? (
-          <button
-            type="button"
-            className={styles.closeButton}
-            onClick={onCancel}
-            title="Đóng (ESC)"
-            aria-label="Đóng"
-          >
-            <X size={18} strokeWidth={2} />
-          </button>
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button
+              type="button"
+              className={styles.closeButton}
+              title="Đóng"
+              aria-label="Đóng"
+            >
+              <X size={18} strokeWidth={2} />
+            </button>
+          </CloseGuard>
         ) : null}
       </div>
 
@@ -1495,18 +1529,16 @@ export function MovementForm({
                         {item.unit}
                       </td>
                       <td>
-                        <input
-                          type="number"
-                          step={itemUnitConfig.step}
-                          min={itemUnitConfig.min}
+                        <VnNumberInput
+                          maxDecimals={itemUnitConfig.step === '1' ? 0 : 2}
                           className={styles.gridCellInput}
                           style={{
                             textAlign: 'right',
                             borderColor: analysis?.isOverdraw ? '#ef4444' : undefined,
                             background: analysis?.isOverdraw ? '#fff' : undefined,
                           }}
-                          value={item.quantity === 0 ? '' : item.quantity}
-                          onChange={(e) => handleUpdateQuantity(index, Number(e.target.value))}
+                          value={item.quantity === 0 ? '' : String(item.quantity)}
+                          onChange={(value) => handleUpdateQuantity(index, Number(value))}
                         />
                       </td>
                       <td style={{ minWidth: '130px' }}>
@@ -1531,20 +1563,11 @@ export function MovementForm({
                       {kind === 'receipt' ? (
                         <>
                           <td>
-                            <input
-                              type="number"
-                              step="any"
-                              min={0}
+                            <VnNumberInput
                               placeholder="0"
                               className={styles.gridCellInput}
-                              style={{ textAlign: 'right' }}
-                              value={item.unitCost === undefined ? '' : item.unitCost}
-                              onChange={(e) =>
-                                handleUpdateUnitCost(
-                                  index,
-                                  e.target.value ? Number(e.target.value) : undefined,
-                                )
-                              }
+                              value={item.unitCost === undefined ? '' : String(item.unitCost)}
+                              onChange={(value) => handleUpdateUnitCost(index, value ? Number(value) : undefined)}
                             />
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
@@ -1679,14 +1702,16 @@ export function MovementForm({
 
       {/* Modal Con: Phân bổ Lô hàng */}
       {lotModalIndex !== null && items[lotModalIndex] ? (
-        <div className={styles.modalOverlay} style={{ zIndex: 1100 }} onClick={() => setLotModalIndex(null)}>
+        <div className={styles.modalOverlay} style={{ zIndex: 1100 }}>
           <div className={`${styles.modalDialog} ${styles.lotMovementDialog}`} onClick={(event) => event.stopPropagation()}>
             <div className={styles.lotMovementDialogHead}>
               <div className={styles.lotMovementDialogTitle}>
                 <h3>{kind === 'receipt' ? 'Khai báo lô hàng nhập' : 'Phân bổ lô hàng xuất'}</h3>
                 <p>{items[lotModalIndex].materialCode} — {items[lotModalIndex].materialName} · Số lượng phiếu: {formatNumber(items[lotModalIndex].quantity)} {items[lotModalIndex].unit}</p>
               </div>
-              <button type="button" className={styles.closeButton} onClick={() => setLotModalIndex(null)}><X size={16} /></button>
+              <CloseGuard dirty={lotDirty} onClose={() => setLotModalIndex(null)}>
+                <button type="button" className={styles.closeButton}><X size={16} /></button>
+              </CloseGuard>
             </div>
             {kind === 'receipt' ? (
               <div className={styles.lotMovementFormGrid}>
@@ -1756,7 +1781,9 @@ export function MovementForm({
               </div>
             )}
             <div className={styles.lotMovementDialogFoot}>
-              <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={() => setLotModalIndex(null)}>Huỷ</button>
+              <CloseGuard dirty={lotDirty} onClose={() => setLotModalIndex(null)}>
+                <button type="button" className={`${styles.action} ${styles.actionGhost}`}>Huỷ</button>
+              </CloseGuard>
               <button type="button" className={`${styles.action} ${styles.actionPrimary}`} disabled={kind === 'receipt' && !newLotDraft.lotNumber.trim()} onClick={handleSaveLots}>Lưu phân bổ lô</button>
             </div>
           </div>
@@ -2020,13 +2047,14 @@ export function MovementForm({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            type="button"
-            className={`${styles.action} ${styles.actionGhost}`}
-            onClick={onCancel}
-          >
-            Huỷ
-          </button>
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button
+              type="button"
+              className={`${styles.action} ${styles.actionGhost}`}
+            >
+              Huỷ
+            </button>
+          </CloseGuard>
           <button
             type="submit"
             className={`${styles.action} ${styles.actionPrimary}`}
@@ -2053,7 +2081,7 @@ export function MovementForm({
 
   if (isDialog) {
     return (
-      <div className={styles.modalOverlay} onClick={onCancel}>
+      <div className={styles.modalOverlay}>
         <div
           className={`${styles.modalDialog} ${styles.movementDialog}`}
           style={{

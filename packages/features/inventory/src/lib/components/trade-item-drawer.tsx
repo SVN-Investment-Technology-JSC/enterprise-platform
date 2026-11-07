@@ -6,9 +6,9 @@ import type {
   UpdateMaterialRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { CloseGuard, Popconfirm, SearchableSelect, VnNumberInput } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
-import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 import { useUserLabel } from '../user-names';
@@ -164,6 +164,8 @@ export function TradeItemDrawer({
   const group = tradeGroupOf(item);
   const change = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }));
   const priceValue = draft.price.trim() === '' ? undefined : Number(draft.price);
+  const dirty = editing && JSON.stringify(draft) !== JSON.stringify(draftOf(item));
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
   const ready = draft.name.trim() !== '' && draft.unit.trim() !== '' && !priceInvalid;
 
@@ -196,13 +198,33 @@ export function TradeItemDrawer({
     });
   };
 
+  // ESC: ở chế độ xem đóng drawer; ở chế độ sửa thì hủy sửa về xem (chưa đổi gì), hoặc hỏi xác nhận (đã đổi).
+  const escapeRef = useRef<() => void>(() => undefined);
+  escapeRef.current = () => {
+    if (busy) return;
+    if (!editing) onClose();
+    else if (dirty) cancelButtonRef.current?.click();
+    else cancelEdit();
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // Popconfirm hoặc danh sách chọn đang mở tự xử lý ESC của nó.
+      if (document.querySelector('[class*="popconfirmPopup"], [role="listbox"]')) return;
+      escapeRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const categoryOptions = withCurrent(categoriesOf(group, catalog), draft.category);
   const usageOptions = withCurrent(catalog?.usageModes ?? [], draft.usage);
   const unitOptions = withCurrent(units, draft.unit);
 
   return (
     <>
-      <div className={styles.drawerBackdrop} onClick={onClose} />
+      {/* Backdrop thông minh: chế độ xem click ngoài là đóng; chế độ sửa không đóng để khỏi mất dữ liệu đang nhập. */}
+      <div className={styles.drawerBackdrop} onClick={editing ? undefined : onClose} />
       <aside className={styles.drawerPanel} role="dialog" aria-modal="true" aria-label={`Chi tiết ${item.code}`}>
         <div className={styles.drawerHead}>
           <div className={styles.drawerHeadInfo}>
@@ -254,9 +276,11 @@ export function TradeItemDrawer({
                 Sửa
               </button>
             ) : null}
-            <button type="button" className={styles.drawerCloseBtn} onClick={onClose} aria-label="Đóng" title="Đóng">
-              <X size={16} />
-            </button>
+            <CloseGuard dirty={dirty} busy={busy} onClose={onClose}>
+              <button type="button" className={styles.drawerCloseBtn} aria-label="Đóng" title="Đóng">
+                <X size={16} />
+              </button>
+            </CloseGuard>
           </div>
         </div>
 
@@ -357,14 +381,13 @@ export function TradeItemDrawer({
                 )}
                 {editing ? (
                   <EditField label="Giá bán (VND)" htmlFor="trade-edit-price">
-                    <input
+                    <VnNumberInput
                       id="trade-edit-price"
                       style={inputStyle}
-                      inputMode="decimal"
                       placeholder="Bỏ trống nếu chưa khai báo"
                       value={draft.price}
                       aria-invalid={priceInvalid}
-                      onChange={(event) => change({ price: event.target.value })}
+                      onChange={(price) => change({ price })}
                     />
                     {priceInvalid ? (
                       <span role="alert" style={{ fontSize: '13px', color: '#dc2626' }}>
@@ -414,9 +437,11 @@ export function TradeItemDrawer({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '14px' }}>
                   <FormError error={saveError} />
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                    <button type="button" className={styles.btnSecondary} onClick={cancelEdit} disabled={busy}>
-                      Huỷ
-                    </button>
+                    <CloseGuard dirty={dirty} busy={busy} onClose={cancelEdit}>
+                      <button ref={cancelButtonRef} type="button" className={styles.btnSecondary}>
+                        Huỷ
+                      </button>
+                    </CloseGuard>
                     <button type="submit" className={styles.btnPrimary} disabled={busy || !ready}>
                       {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
                     </button>
