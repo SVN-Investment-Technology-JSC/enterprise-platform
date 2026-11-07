@@ -29,5 +29,5 @@ COPY --from=build --chown=node:node /workspace/apps/social-web/public ./apps/soc
 COPY --from=build --chown=node:node /workspace/apps/social-web/.next/static ./apps/social-web/.next/static
 USER node
 EXPOSE 3011
-HEALTHCHECK --interval=15s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3011/modules/social').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=60s --timeout=3s --start-period=120s --start-interval=5s CMD node -e "fetch('http://127.0.0.1:3011/modules/social').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "apps/social-web/server.js"]

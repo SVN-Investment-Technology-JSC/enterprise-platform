@@ -11,7 +11,8 @@ services:
     volumes: ['platform-db:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
-      interval: 5s
+      interval: 30s
+      start_interval: 2s
       timeout: 3s
       retries: 20
 
@@ -27,7 +28,8 @@ services:
     volumes: ['tenant-db:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U tenant -d postgres']
-      interval: 5s
+      interval: 30s
+      start_interval: 2s
       timeout: 3s
       retries: 20
 
@@ -39,8 +41,9 @@ services:
     ports: ['${RABBITMQ_PORT:-5672}:5672', '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672']
     volumes: ['rabbitmq:/var/lib/rabbitmq']
     healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
-      interval: 10s
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 5672']
+      interval: 30s
+      start_interval: 2s
       timeout: 5s
       retries: 12
 
@@ -58,10 +61,11 @@ services:
     volumes: ['valkey:/data']
     healthcheck:
       test: ['CMD-SHELL', 'valkey-cli --no-auth-warning --user realtime --pass "$$VALKEY_PASSWORD" ping | grep -q PONG']
-      interval: 5s
+      interval: 30s
+      start_interval: 2s
       timeout: 3s
       retries: 20
-      start_period: 5s
+      start_period: 30s
 
   minio:
     # Keep the local image compatible with the existing development volume and
@@ -75,10 +79,11 @@ services:
     volumes: ['minio:/data']
     healthcheck:
       test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:9000/minio/health/live']
-      interval: 5s
+      interval: 30s
+      start_interval: 2s
       timeout: 3s
       retries: 12
-      start_period: 5s
+      start_period: 30s
 
   minio-init:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
