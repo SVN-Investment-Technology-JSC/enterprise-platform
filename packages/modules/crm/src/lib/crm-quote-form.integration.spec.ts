@@ -329,9 +329,11 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
 
   it('TC-QF-02/03: mã báo giá mặc định giữ dạng BG<yy>; mẫu mã cấu hình, sinh lại lấy số kế tiếp, trùng mã bị 409', async () => {
     // Chưa cấu hình mẫu: mã mới vẫn là BG<yy><5 chữ số> từ quote_code_seq; mã cũ vẫn hợp lệ.
-    expect(await form.codeSettings(nv1)).toMatchObject({ pattern: null });
+    const legacySettings = await form.codeSettings(nv1);
+    expect(legacySettings).toMatchObject({ pattern: null });
     const legacy = await quotes.create(nv1, { customerId });
     expect(legacy.code).toMatch(/^BG\d{7}$/);
+    expect(legacy.code).toBe(legacySettings.next);
     const typed = await quotes.create(nv1, { customerId, code: 'BG2699999' });
     expect(typed.code).toBe('BG2699999');
 
@@ -347,10 +349,14 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     const number = (code: string) => Number(code.split('//')[1]);
     expect(number(second)).toBe(number(first) + 1);
     expect(first.split('/BG//')[0]).toBe(second.split('/BG//')[0]);
-
+    // "Mã sinh ra nếu tạo ngay" (TC-P3REG-03): số kế tiếp thật của sequence, xem nhiều lần không chiếm số.
+    const peeked = (await form.codeSettings(nv1)).next;
+    expect(number(peeked)).toBe(number(second) + 1);
+    expect((await form.codeSettings(nv1)).next).toBe(peeked);
     const created = await quotes.create(nv1, { customerId });
     expect(created.code).toMatch(/^\d{8}\/BG\/\/\d+$/);
     expect(number(created.code)).toBe(number(second) + 1);
+    expect(created.code).toBe(peeked);
     // Dùng mã đã sinh cho báo giá mới; dùng lại lần hai bị từ chối.
     const usingGenerated = await quotes.create(nv1, { customerId, code: first });
     expect(usingGenerated.code).toBe(first);

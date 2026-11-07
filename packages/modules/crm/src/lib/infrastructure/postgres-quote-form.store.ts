@@ -19,7 +19,7 @@ import { CrmConflictError } from '../domain/crm.error.js';
 import { parseQuoteCodePattern, QUOTE_CODE_SETTING_KEY } from '../domain/quote-code.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
-import { generateQuoteCode } from './postgres-quote.store.js';
+import { generateQuoteCode, peekQuoteCode } from './postgres-quote.store.js';
 import { constraintViolation, toIso } from './sql-helpers.js';
 import { parseStoredQuoteLayout } from './stored-quote-layout.js';
 
@@ -334,6 +334,11 @@ export class PostgresQuoteFormStore implements QuoteFormStore {
   async generateCode(tenantId: string): Promise<string> {
     const pool = await this.database.pool(tenantId);
     return generateQuoteCode(pool);
+  }
+
+  async peekCode(tenantId: string): Promise<string> {
+    const pool = await this.database.pool(tenantId);
+    return peekQuoteCode(pool);
   }
 
   async codeExists(tenantId: string, code: string, excludeQuoteId?: string): Promise<boolean> {

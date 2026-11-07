@@ -170,7 +170,7 @@ function BlockFrame({
   return (
     <div
       {...extra}
-      className={cx(className, styles.blockDesign, selected && styles.blockSelected, extra.className)}
+      className={cx(className, styles.blockDesign, block.type === 'divider' && styles.blockHitArea, selected && styles.blockSelected, extra.className)}
       style={{ ...style, ...extra.style }}
       data-block-id={block.id}
       data-block-type={block.type}

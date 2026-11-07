@@ -14,7 +14,7 @@ import {
 import { Popconfirm, SearchableSelect, toast, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Field } from '../components/crm-ui';
 import {
   addQuoteFollower,
@@ -105,12 +105,17 @@ export function GeneralFields({
   nameError?: string;
 }) {
   const [generating, setGenerating] = useState(false);
-  const set = (patch: Partial<GeneralState>) => onChange({ ...value, ...patch });
+  // Giá trị mới nhất: "Sinh lại" chờ API, trong lúc đó người dùng có thể gõ ô khác; ghép mã vào giá trị cũ lúc bấm sẽ làm
+  // mất phần vừa gõ.
+  const latest = useRef(value);
+  latest.current = value;
+  const set = (patch: Partial<GeneralState>) => onChange({ ...latest.current, ...patch });
 
   async function regenerate() {
     setGenerating(true);
     try {
-      set({ code: (await generateQuoteCode()).code });
+      const { code } = await generateQuoteCode();
+      set({ code });
     } catch (cause) {
       toast.error(quoteFormErrorMessage(cause, 'Không sinh được mã báo giá.'));
     } finally {

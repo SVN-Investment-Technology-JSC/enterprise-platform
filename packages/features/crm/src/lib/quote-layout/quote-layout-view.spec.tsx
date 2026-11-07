@@ -183,6 +183,14 @@ describe('QuoteLayoutView', () => {
     expect(screen.getAllByText('thanh công cụ')).toHaveLength(fixtureFullLayout().blocks.length);
   });
 
+  it('chế độ thiết kế: đường kẻ có vùng bấm rộng hơn nét kẻ, xem trước thì không', () => {
+    const { container, rerender } = render(<QuoteLayoutView layout={fixtureFullLayout()} data={data()} mode="design" onSelect={jest.fn()} />);
+    expect(container.querySelector('[data-block-id="company-divider"]')?.className).toContain('blockHitArea');
+    expect(container.querySelector('[data-block-id="title"]')?.className).not.toContain('blockHitArea');
+    rerender(<QuoteLayoutView layout={fixtureFullLayout()} data={data()} mode="preview" />);
+    expect(container.querySelector('.blockHitArea')).toBeNull();
+  });
+
   it('xem trước và in: khối không bấm chọn được', () => {
     const { container } = render(<QuoteLayoutView layout={fixtureFullLayout()} data={data()} mode="preview" selectedId="title" />);
     expect(container.querySelector('[role="button"]')).toBeNull();

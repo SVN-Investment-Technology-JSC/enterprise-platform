@@ -167,6 +167,14 @@ export function newQuoteHash(params: { customerId?: string; opportunityId?: stri
   return text ? `new?${text}` : 'new';
 }
 
+/**
+ * Lựa chọn khách hàng: mã khách để ở `description` vì `SearchableSelect` chỉ tìm theo nhãn, giá trị và mô tả
+ * (không tìm theo `badge`), để gõ mã "QA-CRM-KH01" cũng ra khách.
+ */
+export function customerOptions(customers: readonly Pick<CustomerSummary, 'id' | 'name' | 'code'>[]) {
+  return customers.map((item) => ({ value: item.id, label: item.name, description: item.code }));
+}
+
 const EMPTY_GENERAL: GeneralState = { code: '', name: '', quoteDate: '', validUntil: '', templateId: '', typeId: '' };
 
 /** Chọn sẵn mẫu và loại mặc định khi tải xong; báo giá cũ hoặc tenant chưa cấu hình thì để trống. */
@@ -271,7 +279,7 @@ export function CreateQuoteDialog({
             </Field>
             <Field label="Hoặc khách hàng">
               <SearchableSelect
-                options={customers.map((item) => ({ value: item.id, label: item.name, badge: item.code }))}
+                options={customerOptions(customers)}
                 value={opportunityId ? '' : customerId}
                 placeholder="Chọn khách hàng"
                 disabled={Boolean(opportunityId)}
@@ -494,7 +502,7 @@ function NewQuoteForm({
           </Field>
           <Field label="Báo giá đến (khách hàng)" required={!opportunityId}>
             <SearchableSelect
-              options={customers.map((item) => ({ value: item.id, label: item.name, badge: item.code }))}
+              options={customerOptions(customers)}
               value={opportunityId ? (opportunity?.customerId ?? '') : customerId}
               placeholder={opportunityId ? (opportunity?.customerName ?? 'Theo dự án bán hàng') : 'Chọn khách hàng'}
               disabled={Boolean(opportunityId)}

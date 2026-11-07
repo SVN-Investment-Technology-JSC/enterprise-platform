@@ -163,14 +163,15 @@ export class QuoteFormService {
   // Mã báo giá ----------------------------------------------------------------
 
   async codeSettings(actor: CrmActor): Promise<QuoteCodeSettings> {
-    return this.describeCode(await this.store.codePattern(actor.tenantId));
+    const [pattern, next] = await Promise.all([this.store.codePattern(actor.tenantId), this.store.peekCode(actor.tenantId)]);
+    return this.describeCode(pattern, next);
   }
 
   async saveCodeSettings(actor: CrmActor, request: SaveQuoteCodeSettingsRequest): Promise<QuoteCodeSettings> {
     requireSalesManager(actor);
     const pattern = normalizeQuoteCodePattern(request?.pattern);
     await this.store.saveCodePattern(actor.tenantId, pattern, actor.userId);
-    return this.describeCode(pattern);
+    return this.describeCode(pattern, await this.store.peekCode(actor.tenantId));
   }
 
   /** Nút "sinh lại": mã kế tiếp, chiếm một số thứ tự (số đã sinh không dùng lại). */
@@ -179,12 +180,13 @@ export class QuoteFormService {
     return { code: await this.store.generateCode(actor.tenantId) };
   }
 
-  private describeCode(pattern: string | null): QuoteCodeSettings {
+  private describeCode(pattern: string | null, next: string): QuoteCodeSettings {
     const today = vietnamToday(this.now());
     const date = { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)), day: Number(today.slice(8, 10)) };
     return {
       pattern,
       example: pattern ? formatQuoteCodePattern(pattern, date, 1) : `BG${today.slice(2, 4)}00001`,
+      next,
     };
   }
 }

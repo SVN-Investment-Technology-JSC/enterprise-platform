@@ -81,6 +81,21 @@
   }
 }
 
+// Đường kẻ chỉ cao vài pt nên khó bấm chọn: thêm vùng bấm 2 mm phía dưới nét kẻ bằng phần tử giả (không chiếm chỗ, vị trí
+// các khối trên trang thiết kế không đổi). Khối sau vẽ đè lên nếu sát ngay bên dưới, nên vẫn bấm chọn được khối sau.
+.blockHitArea > .divider {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: -2mm;
+    left: 0;
+  }
+}
+
 .blockSelected {
   outline: 2px solid #2563eb;
 

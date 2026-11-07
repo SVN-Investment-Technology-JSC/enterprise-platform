@@ -47,10 +47,19 @@ const MENU_ICONS: Readonly<Record<QuoteLineCommand, ReactNode>> = {
   view: <Eye size={14} />,
 };
 
+/** Cột chỉ hiện với người được xem giá vốn (`crm.quote.cost.read`); không có quyền thì API trả 0, không phải số thật. */
+const COST_COLUMN_KEYS: ReadonlySet<string> = new Set(['cost', 'margin']);
+
 /** Cột bảng dòng hàng (giữ nguyên cột của màn báo giá phase 2; giá vốn, biên chỉ ở cột trái, không vào xem trước). */
-function lineColumns(editable: boolean, onEdit: (line: QuoteLine) => void, onRemove: (line: QuoteLine) => void): ColumnsType<QuoteLine> {
-  return [
-    { title: '#', dataIndex: 'lineNo', width: 44, align: 'right' },
+function lineColumns(
+  editable: boolean,
+  costHidden: boolean,
+  onEdit: (line: QuoteLine) => void,
+  onRemove: (line: QuoteLine) => void,
+): ColumnsType<QuoteLine> {
+  const columns: ColumnsType<QuoteLine> = [
+    // Đủ chỗ cho số dòng 3 chữ số (báo giá dài tới 200 dòng) mà không xuống dòng.
+    { title: '#', dataIndex: 'lineNo', width: 56, align: 'right', onCell: () => ({ style: { whiteSpace: 'nowrap' } }) },
     {
       title: 'Mặt hàng',
       key: 'material',
@@ -128,7 +137,7 @@ function lineColumns(editable: boolean, onEdit: (line: QuoteLine) => void, onRem
       render: (_: unknown, row) =>
         row.estUnitCost === null && row.materialKind !== 'SERVICE' ? <span className={salesStyles.muted}>Chưa có</span> : formatMoney(row.estCost),
     },
-    { title: 'Biên', dataIndex: 'margin', width: 90, align: 'right', render: (value: number | null) => (value === null ? '' : formatPercent(value)) },
+    { title: 'Biên', key: 'margin', dataIndex: 'margin', width: 90, align: 'right', render: (value: number | null) => (value === null ? '' : formatPercent(value)) },
     {
       title: '',
       key: 'actions',
@@ -147,6 +156,7 @@ function lineColumns(editable: boolean, onEdit: (line: QuoteLine) => void, onRem
         ) : null,
     },
   ];
+  return costHidden ? columns.filter((column) => !COST_COLUMN_KEYS.has(String(column.key))) : columns;
 }
 
 interface MenuState {
@@ -233,6 +243,7 @@ export function QuoteLinesTable({
   busy = false,
   lockedText,
   emptyText,
+  costHidden = false,
   discount,
   onAdd,
   onInsert,
@@ -249,6 +260,8 @@ export function QuoteLinesTable({
   /** Báo giá chưa có bản ghi (màn lập mới): khoá bảng kèm câu này; ô tìm và nút + vẫn bấm được. */
   lockedText?: string;
   emptyText?: string;
+  /** Người xem không có quyền xem giá vốn (`version.costHidden`): ẩn cột giá vốn, biên. */
+  costHidden?: boolean;
   /** Nút Chiết khấu tổng đơn; chỉ có khi sửa được. `enabled` theo chế độ chiết khấu của mẫu. */
   discount?: { readonly enabled: boolean; readonly hint: string; readonly onOpen: () => void };
   /** Mở chọn mặt hàng, thêm cuối; `search` là chữ đang gõ ở ô tìm. */
@@ -321,6 +334,13 @@ export function QuoteLinesTable({
     }
   };
 
+  /** Huỷ hộp xoá: trả focus về hàng để phím (Shift+F10, Delete, mũi tên) dùng tiếp được. */
+  const cancelRemove = () => {
+    const id = removing?.id;
+    setRemoving(undefined);
+    if (id) window.setTimeout(() => focusRow(id), 0);
+  };
+
   async function confirmRemove() {
     if (!removing) return;
     setRemoveBusy(true);
@@ -385,7 +405,7 @@ export function QuoteLinesTable({
           <Table<QuoteLine>
             size="small"
             rowKey="id"
-            columns={lineColumns(editable, onEdit, setRemoving)}
+            columns={lineColumns(editable, costHidden, onEdit, setRemoving)}
             dataSource={[...lines]}
             pagination={false}
             scroll={{ x: 1900 }}
@@ -417,7 +437,7 @@ export function QuoteLinesTable({
           subtitle={`${removing.materialCode} ${removing.materialName}`}
           submitLabel="Xoá"
           submitting={removeBusy}
-          onClose={() => setRemoving(undefined)}
+          onClose={cancelRemove}
           onSubmit={() => void confirmRemove()}
         >
           <p className={salesStyles.muted}>Dòng bị xoá khỏi phiên bản này; số thứ tự các dòng sau được đánh lại.</p>

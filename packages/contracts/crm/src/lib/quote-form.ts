@@ -123,8 +123,10 @@ export interface QuoteFormData {
 export interface QuoteCodeSettings {
   /** Rỗng: dùng mã mặc định `BG<yy><5 chữ số>`. */
   readonly pattern: string | null;
-  /** Mã sẽ sinh nếu sinh ngay (chỉ xem trước, chưa chiếm số). */
+  /** Mẫu mã đang lưu với số thứ tự 1 (minh hoạ định dạng). */
   readonly example: string;
+  /** Mã sẽ sinh nếu tạo báo giá ngay: số thứ tự kế tiếp của sequence, bỏ qua mã đã có; chỉ xem, chưa chiếm số. */
+  readonly next: string;
 }
 
 export interface SaveQuoteCodeSettingsRequest {

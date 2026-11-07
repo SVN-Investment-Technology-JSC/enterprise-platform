@@ -692,7 +692,7 @@ function QuoteCodePanel() {
             <input
               className={`${styles.input} ${styles.mono}`}
               readOnly
-              value={settings.example}
+              value={settings.next}
             />
           </Field>
           <div className={styles.formActions}>

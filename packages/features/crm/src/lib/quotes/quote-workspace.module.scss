@@ -33,6 +33,13 @@
   min-width: 0;
 }
 
+// Màn hẹp ẩn cột không thuộc tab đang chọn bằng thuộc tính `hidden`; `display: flex` của `.left` ở trên sẽ đè `hidden`
+// của trình duyệt nếu không có luật này.
+.left[hidden],
+.right[hidden] {
+  display: none;
+}
+
 .narrow .right {
   position: static;
 }
@@ -95,6 +102,8 @@
   bottom: 0;
   left: 0;
   z-index: 20;
+  // Chừa góc phải cho nút chat nổi (54 px, cách mép 22 px) để không che nút "Báo giá".
+  padding-right: 88px;
   border-radius: 0;
   box-shadow: 0 -2px 8px rgb(0 0 0 / 6%);
 }

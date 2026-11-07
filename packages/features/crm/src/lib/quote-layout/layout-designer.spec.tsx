@@ -6,9 +6,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { ReactNode } from 'react';
 import { LayoutDesigner } from './layout-designer';
 
-const scssProxy = () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) });
-jest.mock('./layout-designer.module.scss', () => scssProxy());
-jest.mock('./quote-layout.module.scss', () => scssProxy());
+jest.mock('./layout-designer.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('./quote-layout.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
 
 const mockToast = { success: jest.fn(), error: jest.fn() };
 jest.mock('@enterprise-platform/shared-ui', () => ({

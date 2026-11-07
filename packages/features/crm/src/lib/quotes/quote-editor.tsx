@@ -503,6 +503,7 @@ export function QuoteEditor({
       <QuoteLinesTable
         title={`Dòng hàng · phiên bản ${version.versionNo}`}
         lines={version.lines}
+        costHidden={Boolean(version.costHidden)}
         editable={editable}
         busy={busy}
         emptyText={editable ? 'Chưa có dòng nào. Bấm + để chọn mặt hàng từ danh mục Kho.' : 'Không có dòng nào.'}
@@ -561,13 +562,17 @@ export function QuoteEditor({
           <dd>{formatMoney(totals.vatAmount)}</dd>
           <dt className={local.grandTotal}>Tổng cộng</dt>
           <dd className={local.grandTotal}>{formatMoney(totals.totalAmount)}</dd>
-          <dt>Giá vốn ước tính (gồm vận chuyển bên bán chịu)</dt>
-          <dd>{formatMoney(totals.estCost)}</dd>
-          <dt>Lợi nhuận ước tính</dt>
-          <dd>
-            {formatMoney(totals.profit)}
-            {totals.marginPercent === null ? '' : ` (biên ${formatPercent(totals.marginPercent)})`}
-          </dd>
+          {version.costHidden ? null : (
+            <>
+              <dt>Giá vốn ước tính (gồm vận chuyển bên bán chịu)</dt>
+              <dd>{formatMoney(totals.estCost)}</dd>
+              <dt>Lợi nhuận ước tính</dt>
+              <dd>
+                {formatMoney(totals.profit)}
+                {totals.marginPercent === null ? '' : ` (biên ${formatPercent(totals.marginPercent)})`}
+              </dd>
+            </>
+          )}
         </dl>
       </QuoteLinesTable>
 
@@ -1102,7 +1107,7 @@ function LineDialog({
       title={`Dòng ${line.lineNo}: ${line.materialCode}`}
       subtitle={readOnly ? `${line.materialName} (chỉ xem)` : line.materialName}
       submitLabel={readOnly ? 'Đóng' : undefined}
-      cancelLabel={readOnly ? 'Đóng' : undefined}
+      hideCancel={readOnly}
       submitting={saving}
       error={error}
       notice={

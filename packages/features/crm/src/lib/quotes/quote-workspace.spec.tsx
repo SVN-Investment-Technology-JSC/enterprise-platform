@@ -12,12 +12,15 @@ import {
   type QuoteVersion,
 } from '@enterprise-platform/contracts-crm';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { useState, type ReactNode } from 'react';
 import { emptyQuoteLayoutData } from '../quote-layout/quote-layout.data';
 import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureVersion } from '../quote-layout/quote-layout.fixtures';
 import { clearTemplateLayoutCache } from '../quote-layout/use-template-layout';
 import { QuoteEditor, openPickerAfterLoad } from './quote-editor';
 import { MISSING_SNAPSHOT_NOTE, QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
+import { GeneralFields, type GeneralState } from './quote-form-parts';
 import {
   QuoteActionBar,
   QuoteWorkspace,
@@ -27,7 +30,7 @@ import {
   sameGeneral,
   savedGeneral,
 } from './quote-workspace';
-import { CreateQuoteDialog, NewQuoteScreen, newQuoteHash } from './quotes-page';
+import { CreateQuoteDialog, NewQuoteScreen, customerOptions, newQuoteHash } from './quotes-page';
 
 // --- Mô phỏng ------------------------------------------------------------------------------------------------------
 
@@ -285,6 +288,12 @@ describe('thông tin chung đang sửa', () => {
     expect(newQuoteHash({ customerId: 'c1' })).toBe('new?customerId=c1');
     expect(newQuoteHash({ opportunityId: 'o1', customerId: 'c1' })).toBe('new?opportunityId=o1');
   });
+
+  it('TC-QW-29: lựa chọn khách có mã ở phần mô tả để gõ mã cũng tìm ra', () => {
+    expect(customerOptions([{ id: 'c1', name: 'QA Công ty TNHH Khách hàng 01', code: 'QA-CRM-KH01' }])).toEqual([
+      { value: 'c1', label: 'QA Công ty TNHH Khách hàng 01', description: 'QA-CRM-KH01' },
+    ]);
+  });
 });
 
 // --- Khung xem trước -----------------------------------------------------------------------------------------------
@@ -357,6 +366,26 @@ describe('QuoteWorkspace (P3C4-02)', () => {
     expect(screen.getByTestId('quote-workspace-left').hidden).toBe(true);
     expect(screen.getByTestId('quote-workspace-right').hidden).toBe(false);
     expect(screen.getByText('Nhập')).toBeTruthy();
+  });
+
+  it('TC-QW-02: CSS không để `display` của cột đè thuộc tính `hidden` (jsdom không tính CSS nên kiểm luật trong file)', () => {
+    const scss = readFileSync(join(__dirname, 'quote-workspace.module.scss'), 'utf8');
+    expect(scss).toMatch(/\.left\[hidden\],\s*\.right\[hidden\]\s*\{\s*display:\s*none;/);
+  });
+
+  it('TC-QW-29: gõ ô khác trong lúc "Sinh lại" đang chờ mã: không mất phần vừa gõ', async () => {
+    let resolveCode: (value: { code: string }) => void = () => undefined;
+    mockApi.generateQuoteCode.mockReturnValueOnce(new Promise((resolve) => (resolveCode = resolve)));
+    function Harness() {
+      const [general, setGeneral] = useState<GeneralState>({ code: '', name: 'Tên cũ', quoteDate: '', validUntil: '', templateId: '', typeId: '' });
+      return <GeneralFields value={general} onChange={setGeneral} templates={[]} types={[]} codeEditable generateCode />;
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sinh lại' }));
+    fireEvent.change(screen.getByDisplayValue('Tên cũ'), { target: { value: 'Tên mới' } });
+    await act(async () => resolveCode({ code: 'BG2600999' }));
+    expect((screen.getByLabelText('Mã báo giá') as HTMLInputElement).value).toBe('BG2600999');
+    expect(screen.getByDisplayValue('Tên mới')).toBeTruthy();
   });
 
   it('người chỉ đọc: không có thanh nút', () => {
@@ -515,6 +544,28 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith(expect.stringContaining('Điều khoản thanh toán')));
     expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
     expect(mockApi.quoteAction).not.toHaveBeenCalled();
+  });
+
+  it('TC-P3PERM-08: không có quyền xem giá vốn thì cột trái không hiện giá vốn, lợi nhuận ước tính', async () => {
+    const { unmount } = renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    expect(screen.getByText('Lợi nhuận ước tính')).toBeTruthy();
+    unmount();
+
+    renderEditor(fixtureDetail(fixtureVersion({ costHidden: true })));
+    await screen.findByText('Thông tin chung');
+    expect(screen.queryByText(/Giá vốn ước tính|Lợi nhuận ước tính/)).toBeNull();
+  });
+
+  it('TC-QW-18: hộp xem dòng chỉ đọc có một nút Đóng ở chân (cùng nút X), không có Huỷ', async () => {
+    renderEditor(fixtureDetail(fixtureVersion({ status: 'PENDING' })));
+    await screen.findByText('Thông tin chung');
+    fireEvent.doubleClick(screen.getAllByRole('row', { name: /^Dòng 1:/ })[0]);
+    const dialog = await screen.findByRole('dialog', { name: /^Dòng 1:/ });
+    expect(within(dialog).getAllByRole('button', { name: 'Đóng' })).toHaveLength(2);
+    expect(within(dialog).queryByRole('button', { name: 'Huỷ' })).toBeNull();
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Đóng' })[1]);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Dòng 1:/ })).toBeNull());
   });
 
   it('TC-QW-21: Chờ duyệt thì Báo giá tắt; Đã duyệt thì gửi khách được', async () => {

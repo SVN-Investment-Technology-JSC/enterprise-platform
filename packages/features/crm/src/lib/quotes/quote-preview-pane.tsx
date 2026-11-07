@@ -16,7 +16,7 @@ import styles from './quote-workspace.module.scss';
 /** Phiên bản ở các trạng thái này in theo bản chụp bố cục lúc gửi khách (D3-5). */
 export const SNAPSHOT_STATUSES: readonly QuoteStatus[] = ['SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED'];
 
-export const MISSING_SNAPSHOT_NOTE = 'Báo giá gửi trước khi có bản chụp bố cục; đang hiển thị theo mẫu hiện tại.';
+export const MISSING_SNAPSHOT_NOTE = 'Phiên bản này gửi khách khi chưa có bản chụp bố cục; đang hiển thị theo mẫu hiện tại.';
 
 export interface PreviewLayoutChoice {
   /** Bản chụp dùng để dựng; rỗng là dùng bố cục hiện tại của mẫu. */

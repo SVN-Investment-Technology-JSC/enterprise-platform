@@ -82,6 +82,8 @@ export interface QuoteFormStore {
   saveCodePattern(tenantId: string, pattern: string | null, actorId: string): Promise<void>;
   /** Sinh mã kế tiếp (chiếm một số thứ tự) theo mẫu đã cấu hình, hoặc mã mặc định; không bao giờ trùng mã đang có. */
   generateCode(tenantId: string): Promise<string>;
+  /** Mã `generateCode` sẽ trả nếu gọi ngay; không chiếm số. */
+  peekCode(tenantId: string): Promise<string>;
   codeExists(tenantId: string, code: string, excludeQuoteId?: string): Promise<boolean>;
 
   // Trường tuỳ biến (P2I-06) ---------------------------------------------------

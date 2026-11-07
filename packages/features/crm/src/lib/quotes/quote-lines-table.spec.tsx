@@ -1,14 +1,13 @@
 /**
  * @jest-environment jsdom
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { fixtureLine } from '../quote-layout/quote-layout.fixtures';
 import { LINES_LOCKED_TEXT, QuoteLinesTable, lineMenuItems } from './quote-lines-table';
 
-const styleProxy = () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) });
-jest.mock('../sales.module.scss', () => styleProxy());
-jest.mock('../pricing/pricing.module.scss', () => styleProxy());
-jest.mock('./quote-workspace.module.scss', () => styleProxy());
+jest.mock('../sales.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('../pricing/pricing.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('./quote-workspace.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
 
 // Bảng antd đo kích thước bằng API jsdom không có; thay bằng bảng HTML giữ đúng `columns`, `onRow`, `rowClassName`.
 jest.mock('antd', () => ({
@@ -214,5 +213,23 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     expect(add.disabled).toBe(true);
     fireEvent.keyDown(screen.getByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ'), { key: 'Enter' });
     expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('TC-QW-17: Huỷ hộp xoá thì focus trở về hàng, Shift+F10 dùng tiếp được', async () => {
+    setup();
+    row(2).focus();
+    fireEvent.keyDown(row(2), { key: 'Delete' });
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Xoá dòng 2?' })).getByRole('button', { name: 'Huỷ' }));
+    await waitFor(() => expect(document.activeElement).toBe(row(2)));
+    fireEvent.keyDown(row(2), { key: 'F10', shiftKey: true });
+    expect(screen.getByRole('menu', { name: 'Dòng 2' })).toBeTruthy();
+  });
+
+  it('TC-P3PERM-08: không có quyền xem giá vốn thì ẩn cột giá vốn và biên', () => {
+    setup();
+    const shown = within(row(1)).getAllByRole('cell').length;
+    cleanup();
+    setup({ costHidden: true });
+    expect(within(row(1)).getAllByRole('cell')).toHaveLength(shown - 2);
   });
 });

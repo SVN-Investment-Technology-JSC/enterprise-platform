@@ -716,6 +716,34 @@ export async function generateQuoteCode(client: CrmSqlClient): Promise<string> {
   throw new Error('Could not generate a unique quote code.');
 }
 
+/**
+ * Mã `generateQuoteCode` sẽ trả nếu gọi ngay, không chiếm số: đọc `last_value` của sequence (chưa gọi lần nào thì
+ * `is_called = false`, số kế tiếp chính là `last_value`), bỏ qua mã đã có. Hai người tạo cùng lúc vẫn có thể khác.
+ */
+export async function peekQuoteCode(client: CrmSqlClient): Promise<string> {
+  const setting = await client.query<{ value: unknown }>(`SELECT value FROM crm_schema.settings WHERE key = $1`, [
+    QUOTE_CODE_SETTING_KEY,
+  ]);
+  const pattern = parseQuoteCodePattern(setting.rows[0]?.value);
+  const sequence = await client.query<{ last_value: string; is_called: boolean; year: number; month: number; day: number }>(
+    `SELECT last_value, is_called,
+            extract(year FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS year,
+            extract(month FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS month,
+            extract(day FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::int AS day
+       FROM crm_schema.${pattern ? 'quote_code_form_seq' : 'quote_code_seq'}`,
+  );
+  const row = sequence.rows[0];
+  let seq = Number(row.last_value) + (row.is_called ? 1 : 0);
+  for (let attempt = 0; attempt < 50; attempt += 1, seq += 1) {
+    const code = pattern
+      ? formatQuoteCodePattern(pattern, { year: row.year, month: row.month, day: row.day }, seq)
+      : formatQuoteCode(row.year, seq);
+    const taken = await client.query(`SELECT 1 FROM crm_schema.quotes WHERE code = $1 LIMIT 1`, [code]);
+    if (!taken.rows.length) return code;
+  }
+  throw new Error('Could not preview the next quote code.');
+}
+
 interface LockedVersion {
   readonly quoteId: string;
   readonly code: string;

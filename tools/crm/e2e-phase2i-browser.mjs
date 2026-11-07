@@ -90,7 +90,8 @@ try {
   await page.waitForTimeout(500);
   await dlg.getByRole('button', { name: /^Cập nhật$/ }).click();
   await page.waitForTimeout(3000);
-  const t2 = await page.locator('body').innerText();
+  // Phase 3 (D3-20): tên báo giá hiện trong ô nhập ở cột trái, innerText không gồm giá trị ô nhập nên ghép thêm.
+  const t2 = `${await page.locator('body').innerText()}\n${(await page.locator('input').evaluateAll((nodes) => nodes.map((node) => node.value))).join('\n')}`;
   check('TC-QF-06 (trình duyệt) lưu: tên mới hiển thị', t2.includes(`P2I-ui ${stamp}`), '');
   check('TC-QF-06/08 (trình duyệt) chiết khấu tổng đơn 5% và thuế 8% trên 9.500.000: tổng cộng 9.747.000', t2.includes('9.747.000'), '');
   await shot(page, 'i-saved');
