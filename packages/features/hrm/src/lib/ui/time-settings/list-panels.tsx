@@ -240,7 +240,7 @@ export function SitesPanel({
             rows={paged.pageRows}
             rowKey={(r) => r.id}
             columns={columns}
-            gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_5rem_minmax(0,9rem)_minmax(0,13rem)_6.5rem_2.5rem]"
+            gridClass="@2xl:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_5rem_minmax(0,9rem)_minmax(0,13rem)_6.5rem_9rem]"
           />
           <Pager paged={paged} sizeChanger />
         </>
