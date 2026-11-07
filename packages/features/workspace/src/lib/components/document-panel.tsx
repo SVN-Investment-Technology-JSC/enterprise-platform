@@ -21,17 +21,28 @@ import {
   Link2,
   Lock,
   LockOpen,
+  ListFilter,
   RefreshCw,
   Search,
   Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import * as api from '../workspace-api';
 import { formatDate, formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { FilePicker } from './file-picker';
 import { Choice } from './choice';
+import { useFillViewportHeight } from './use-fill-viewport';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
 import { DocumentPreview, isPreviewable, type PreviewTarget } from './document-preview';
@@ -457,8 +468,10 @@ export function DocumentPanel({
     if (projectAt < 0) return path;
     const top = path[projectAt];
     const rest = path.slice(projectAt + 1);
-    // Thư mục gốc riêng của dự án (vd "Hồ sơ dự án") vẫn là một ngăn có tên.
-    return top.parentId ? rest : [top, ...rest];
+    // Thư mục gốc riêng của dự án (vd "Hồ sơ dự án") vẫn là một ngăn có tên; riêng thư mục tự tạo mang đúng tên dự án
+    // ("MÃ · Tên dự án") đã hiện ở cấp dự án rồi nên không lặp lại.
+    const repeatsProject = top.name === projectTitles[top.projectId ?? ''];
+    return top.parentId || repeatsProject ? rest : [top, ...rest];
   })();
 
   /** Mở một dòng dự án: chỉ một thư mục thì vào thẳng thư mục đó. */
@@ -904,6 +917,99 @@ export function DocumentPanel({
         </aside>
   ) : null;
 
+  // Bảng tài liệu (cả trang Tài liệu lẫn tab Tài liệu trong dự án) và cây thư mục chiếm đúng phần cao còn lại của màn hình;
+  // quá dài thì chỉ cuộn trong bảng/cây.
+  const listRef = useRef<HTMLDivElement>(null);
+  const treeRef = useRef<HTMLElement>(null);
+
+  // Bộ lọc gom trong một nút "Bộ lọc" (bảng nổi); đóng khi bấm ra ngoài hoặc nhấn Esc.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!panelOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!panelBox.current?.contains(event.target as Node)) setPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [panelOpen]);
+  const filterCount =
+    (filterKind ? 1 : 0) +
+    (onlyMine ? 1 : 0) +
+    (compact ? (folderId ? 1 : 0) : (filterProjectId ? 1 : 0) + (filterWorkItemId ? 1 : 0));
+  const resetFilters = () => {
+    setFilterKind('');
+    setOnlyMine(false);
+    setFilterProjectId('');
+    setFilterWorkItemId('');
+    if (compact) setFolderId(undefined);
+  };
+
+  // Cây thư mục | vạch kéo | bảng: độ rộng cây nhớ theo trình duyệt, kéo vạch hoặc dùng phím mũi tên để đổi.
+  const [treeWidth, setTreeWidth] = useState(TREE_DEFAULT_PX);
+  const explorerRef = useRef<HTMLDivElement>(null);
+  const treeDragging = useRef(false);
+  const treeWidthLive = useRef(TREE_DEFAULT_PX);
+  useEffect(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(TREE_STORAGE));
+      if (Number.isFinite(saved) && saved > 0) {
+        const width = Math.min(TREE_MAX_PX, Math.max(TREE_MIN_PX, saved));
+        treeWidthLive.current = width;
+        setTreeWidth(width);
+      }
+    } catch {
+      // localStorage có thể bị chặn; dùng mặc định.
+    }
+  }, []);
+  const saveTree = (width: number) => {
+    try {
+      window.localStorage.setItem(TREE_STORAGE, String(width));
+    } catch {
+      // bỏ qua nếu không ghi được.
+    }
+  };
+  const clampTree = (value: number) => {
+    const total = explorerRef.current?.getBoundingClientRect().width ?? 0;
+    const max = total > 0 ? total - TABLE_MIN_PX : TREE_MAX_PX;
+    return Math.round(Math.max(TREE_MIN_PX, Math.min(TREE_MAX_PX, value, max)));
+  };
+  const onTreeHandleDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    treeDragging.current = true;
+  };
+  const onTreeHandleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const box = explorerRef.current?.getBoundingClientRect();
+    if (!treeDragging.current || !box) return;
+    const next = clampTree(event.clientX - box.left);
+    treeWidthLive.current = next;
+    setTreeWidth(next);
+  };
+  const onTreeHandleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!treeDragging.current) return;
+    treeDragging.current = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    saveTree(treeWidthLive.current);
+  };
+  const onTreeHandleKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const delta = event.key === 'ArrowRight' ? TREE_STEP_PX : event.key === 'ArrowLeft' ? -TREE_STEP_PX : 0;
+    if (!delta) return;
+    event.preventDefault();
+    const next = clampTree(treeWidth + delta);
+    treeWidthLive.current = next;
+    setTreeWidth(next);
+    saveTree(next);
+  };
+  const resetTreeWidth = () => {
+    treeWidthLive.current = TREE_DEFAULT_PX;
+    setTreeWidth(TREE_DEFAULT_PX);
+    saveTree(TREE_DEFAULT_PX);
+  };
+  const fillKey = `${compact ? 'tab' : 'page'}:${loading ? 'wait' : 'ok'}`;
+  useFillViewportHeight(listRef, 320, fillKey);
+  useFillViewportHeight(treeRef, 320, fillKey);
+
   const body = (
     <>
       {/* Thẻ lọc, thông báo và danh sách chung một cột; khung chi tiết đứng
@@ -911,16 +1017,6 @@ export function DocumentPanel({
       <div className={selected ? styles.documentSplit : undefined}>
       <div className={styles.documentColumn}>
       <div className={styles.filterBar}>
-        {compact ? (
-          <Choice
-            label="Lọc theo thư mục"
-            value={folderId ?? ''}
-            emptyOption="Tất cả thư mục"
-            options={folderOptions(visibleFolders, visibleFolders)}
-            onChange={(value) => setFolderId(value || undefined)}
-          />
-        ) : null}
-
         <label className={styles.searchField}>
           <Search size={14} aria-hidden />
           <input
@@ -932,60 +1028,113 @@ export function DocumentPanel({
           />
         </label>
 
-        <div role="group" aria-label="Loại tệp" className={styles.kindChips}>
-          {KIND_CHIPS.map((kind) => (
-            <Tooltip key={kind.value || 'all'} content={kind.title}>
-              <button
-                type="button"
-                aria-pressed={filterKind === kind.value}
-                className={filterKind === kind.value ? styles.kindChipActive : styles.kindChip}
-                onClick={() => setFilterKind(kind.value)}
-              >
-                {kind.label}
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-
-        <label className={styles.checkbox}>
-          <input
-            type="checkbox"
-            checked={onlyMine}
-            onChange={(event) => setOnlyMine(event.target.checked)}
-          />
-          Chỉ của tôi
-        </label>
-
-        {/* Kho của trang tổng quan gom mọi dự án nên cần thu hẹp nhanh theo dự
-            án và công việc; tab trong trang Dự án thì phạm vi đã cố định. */}
-        {compact ? null : (
-          <>
-            <Choice
-              label="Lọc theo dự án"
-              value={filterProjectId}
-              emptyOption="Mọi dự án"
-              options={projectList.map((project) => ({
-                value: project.id,
-                label: `${project.code} · ${project.name}`,
-              }))}
-              onChange={(value) => {
-                setFilterProjectId(value);
-                setFolderId(undefined);
+        <div ref={panelBox} className={styles.timelinePanelBox}>
+          <button
+            type="button"
+            className={filterCount > 0 || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+            aria-haspopup="dialog"
+            aria-expanded={panelOpen}
+            onClick={() => setPanelOpen((value) => !value)}
+          >
+            <ListFilter size={13} aria-hidden />
+            Bộ lọc
+            {filterCount > 0 ? <span className={styles.countBadge}>{filterCount}</span> : null}
+          </button>
+          {panelOpen ? (
+            <div
+              className={`${styles.timelinePanel} ${styles.reqPanel}`}
+              role="dialog"
+              aria-label="Bộ lọc tài liệu"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.stopPropagation();
+                  setPanelOpen(false);
+                }
               }}
-            />
-            <Choice
-              label="Lọc theo công việc"
-              value={filterWorkItemId}
-              emptyOption={filterProjectId ? 'Mọi công việc' : 'Chọn dự án trước'}
-              disabled={!filterProjectId}
-              options={projectItems.map((item) => ({
-                value: item.id,
-                label: `${item.code} · ${item.title}`,
-              }))}
-              onChange={setFilterWorkItemId}
-            />
-          </>
-        )}
+            >
+              <div className={styles.reqPanelGrid}>
+                {compact ? (
+                  <div className={styles.filterField}>
+                    <span className={styles.filterLabel}>Thư mục</span>
+                    <Choice
+                      label="Lọc theo thư mục"
+                      selectOnly
+                      value={folderId ?? ''}
+                      emptyOption="Tất cả thư mục"
+                      options={folderOptions(visibleFolders, visibleFolders)}
+                      onChange={(value) => setFolderId(value || undefined)}
+                    />
+                  </div>
+                ) : null}
+                <div className={styles.filterField}>
+                  <span className={styles.filterLabel}>Loại tệp</span>
+                  <Choice
+                    label="Loại tệp"
+                    selectOnly
+                    value={filterKind}
+                    emptyOption="Tất cả loại"
+                    options={KIND_CHIPS.filter((kind) => kind.value).map((kind) => ({
+                      value: kind.value,
+                      label: kind.label,
+                    }))}
+                    onChange={setFilterKind}
+                  />
+                </div>
+                {/* Kho của trang tổng quan gom mọi dự án nên cần thu hẹp nhanh theo dự án và công việc; tab trong
+                    trang Dự án thì phạm vi đã cố định. */}
+                {compact ? null : (
+                  <>
+                    <div className={styles.filterField}>
+                      <span className={styles.filterLabel}>Dự án</span>
+                      <Choice
+                        label="Lọc theo dự án"
+                        selectOnly
+                        value={filterProjectId}
+                        emptyOption="Mọi dự án"
+                        options={projectList.map((project) => ({
+                          value: project.id,
+                          label: `${project.code} · ${project.name}`,
+                        }))}
+                        onChange={(value) => {
+                          setFilterProjectId(value);
+                          setFolderId(undefined);
+                        }}
+                      />
+                    </div>
+                    <div className={styles.filterField}>
+                      <span className={styles.filterLabel}>Công việc</span>
+                      <Choice
+                        label="Lọc theo công việc"
+                        selectOnly
+                        value={filterWorkItemId}
+                        emptyOption={filterProjectId ? 'Mọi công việc' : 'Chọn dự án trước'}
+                        disabled={!filterProjectId}
+                        options={projectItems.map((item) => ({
+                          value: item.id,
+                          label: `${item.code} · ${item.title}`,
+                        }))}
+                        onChange={setFilterWorkItemId}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className={styles.reqPanelFoot}>
+                <label className={styles.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={onlyMine}
+                    onChange={(event) => setOnlyMine(event.target.checked)}
+                  />
+                  Chỉ của tôi
+                </label>
+                <button type="button" className={styles.buttonGhost} disabled={filterCount === 0} onClick={resetFilters}>
+                  Xoá bộ lọc
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {/* Trang Tài liệu đặt Tải lên và Thư mục ở đầu trang; tab trong trang
             Dự án không có đầu trang riêng nên giữ nút ở đây. */}
@@ -1030,7 +1179,10 @@ export function DocumentPanel({
         </p>
       ) : null}
 
-      <div className={styles.documentList}>
+      <div
+        ref={listRef}
+        className={`${styles.documentList} ${styles.documentListFill}`}
+      >
         <div className={styles.documentListHead}>
           {/* Đang đứng ở đâu trong kho; bấm một cấp để quay lại cấp đó. */}
           {compact ? (
@@ -1488,8 +1640,12 @@ export function DocumentPanel({
   if (compact) return <div className={styles.tabBody}>{body}</div>;
 
   return (
-    <div className={styles.explorer}>
-      <aside className={styles.explorerTree} aria-label="Cây thư mục">
+    <div
+      ref={explorerRef}
+      className={styles.explorer}
+      style={{ '--doc-tree-width': `${treeWidth}px` } as CSSProperties}
+    >
+      <aside ref={treeRef} className={styles.explorerTree} aria-label="Cây thư mục">
         <FolderTree
           folders={visibleFolders}
           selected={
@@ -1524,6 +1680,24 @@ export function DocumentPanel({
           }}
         />
       </aside>
+      <Tooltip content="Kéo để đổi độ rộng cây thư mục. Bấm đúp để về mặc định." side="top">
+        <div
+          className={`${styles.myWorkSideHandle} ${styles.explorerHandle}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Kéo để đổi độ rộng cây thư mục"
+          aria-valuenow={treeWidth}
+          aria-valuemin={TREE_MIN_PX}
+          aria-valuemax={TREE_MAX_PX}
+          tabIndex={0}
+          onPointerDown={onTreeHandleDown}
+          onPointerMove={onTreeHandleMove}
+          onPointerUp={onTreeHandleUp}
+          onPointerCancel={onTreeHandleUp}
+          onKeyDown={onTreeHandleKey}
+          onDoubleClick={resetTreeWidth}
+        />
+      </Tooltip>
       <div className={styles.explorerMain}>{body}</div>
     </div>
   );
@@ -2307,6 +2481,14 @@ function AttachDialog({
 
 /** Nhóm loại tệp cho bộ lọc: đọc từ content-type của phiên bản hiện hành. */
 /** Nút lọc loại tệp; giá trị rỗng là "Tất cả". */
+/** Cây thư mục kéo được: độ rộng mặc định (15rem), giới hạn, bước phím mũi tên và bề ngang tối thiểu của bảng bên cạnh. */
+const TREE_DEFAULT_PX = 240;
+const TREE_MIN_PX = 180;
+const TREE_MAX_PX = 520;
+const TREE_STEP_PX = 24;
+const TABLE_MIN_PX = 520;
+const TREE_STORAGE = 'workspace.documents.tree-width.v1';
+
 const KIND_CHIPS: readonly { value: string; label: string; title?: string }[] = [
   { value: '', label: 'Tất cả' },
   { value: 'pdf', label: 'PDF' },

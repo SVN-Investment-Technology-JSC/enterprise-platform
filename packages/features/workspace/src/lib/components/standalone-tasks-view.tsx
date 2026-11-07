@@ -51,6 +51,7 @@ import { Choice } from './choice';
 import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
 import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
+import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
@@ -253,8 +254,12 @@ export function StandaloneTasksView({
     setFormOpen(false);
   };
 
+  // Hai cột chiếm đúng phần cao còn lại của màn hình (thay cho con số tính cứng trong SCSS).
+  const splitRef = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(splitRef);
+
   return (
-    <div className={styles.taskSplit}>
+    <div ref={splitRef} className={styles.taskSplit}>
       <section className={styles.taskListPane} aria-label="Danh sách công việc khác">
         <div className={styles.taskListHead}>
           <div className={styles.segmented} role="tablist" aria-label="Nhóm công việc">

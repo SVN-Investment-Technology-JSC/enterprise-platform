@@ -21,7 +21,11 @@ import { Paperclip, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { IncidentFormValues } from '../assistant-incident-draft';
 import { loadFleetAvailability } from '../maintenance-api';
-import styles from './maintenance-history.module.scss';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { SELECT_CLASS } from '../ui/select-class';
+import { Tip } from '../ui/tooltip';
+import { cn } from '../utils';
 
 /** Chờ người dùng gõ xong giờ rồi mới hỏi xe trống, tránh gọi API sau mỗi phím. */
 const DEBOUNCE_MS = 300;
@@ -31,6 +35,13 @@ const PRIORITY_OPTIONS = [
   { value: 'Normal', label: 'Thường' },
   { value: 'Low', label: 'Thấp' },
 ];
+
+/** Chiều cao chuẩn của mọi ô trong form: 36px, chữ 14px, bo md. */
+const CONTROL_HEIGHT = 36;
+const FIELD_CLASS = 'flex flex-col gap-1.5';
+const LABEL_CLASS = 'text-sm font-semibold text-slate-700';
+const TEXTAREA_CLASS =
+  'min-h-20 w-full resize-y rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm! text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100';
 
 const FORM_TITLE = 'Tạo sự cố bảo trì';
 
@@ -49,8 +60,8 @@ function IncidentFrame({
 }) {
   if (embedded) {
     return (
-      <section className={styles.incidentInline} aria-labelledby="incident-form-title">
-        <h2 id="incident-form-title" className={styles.incidentInlineTitle}>
+      <section className="flex w-full min-w-0 flex-col gap-1" aria-labelledby="incident-form-title">
+        <h2 id="incident-form-title" className="m-0 text-base font-bold leading-snug text-zinc-900">
           {FORM_TITLE}
         </h2>
         {children}
@@ -63,6 +74,9 @@ function IncidentFrame({
       title={FORM_TITLE}
       subtitle="Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần."
       onClose={onClose}
+      maxWidth="680px"
+      // Chiều cao cố định; màn thấp hơn thì popup tự co theo `max-height: 100%` của lớp nền. Phần dư cuộn dọc trong form.
+      popupClassName="h-[760px]"
     >
       {children}
     </MinimalPopupForm>
@@ -218,22 +232,34 @@ export function IncidentForm({
 
   return (
     <IncidentFrame embedded={embedded} onClose={onCancel}>
-      <form className={styles.incidentForm} onSubmit={submit} noValidate>
-        <div className={styles.incidentBody}>
+      <form className="flex min-h-0 flex-1 flex-col pt-2" onSubmit={submit} noValidate>
+        <div
+          className={cn(
+            'flex min-h-0 flex-1 flex-col gap-4',
+            embedded ? '' : 'overflow-y-auto overscroll-contain pb-2 pr-1.5',
+          )}
+        >
         {embedded ? null : (
           <div>
-            <span className={styles.dangerBadge}>Phát sinh ngoài kế hoạch</span>
+            <span className="inline-flex w-fit items-center rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">
+              Phát sinh ngoài kế hoạch
+            </span>
           </div>
         )}
 
         {formError ? (
-          <p style={{ color: '#dc2626', fontSize: '14px', margin: 0 }}>{formError}</p>
+          <p role="alert" className="m-0 text-sm text-red-600">
+            {formError}
+          </p>
         ) : null}
 
-        <div className={styles.incidentGrid}>
-          <div className={styles.formField}>
-            <label htmlFor="incident-asset">Thiết bị gặp sự cố *</label>
-            <SearchableSelect
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={FIELD_CLASS}>
+            <label htmlFor="incident-asset" className={LABEL_CLASS}>
+              Thiết bị gặp sự cố *
+            </label>
+            <SearchableSelect className={SELECT_CLASS}
+              height={CONTROL_HEIGHT}
               options={assetOptions}
               value={assetCode}
               placeholder="Tìm mã hoặc tên thiết bị…"
@@ -244,17 +270,27 @@ export function IncidentForm({
               }}
             />
             {assetCode.trim() ? (
-              <p className={asset ? styles.assetOk : styles.assetUnknown}>
+              <p
+                className={cn(
+                  'm-0 text-[0.8125rem] leading-snug',
+                  asset ? 'font-semibold text-emerald-600' : 'font-medium text-amber-600',
+                )}
+              >
                 {asset ? asset.asset.name : 'Mã thiết bị chưa có trong danh mục'}
               </p>
             ) : embedded ? null : (
-              <p className={styles.assetUnknown}>Gõ mã hoặc tên để chọn nhanh thiết bị</p>
+              <p className="m-0 text-[0.8125rem] font-medium leading-snug text-amber-600">
+                Gõ mã hoặc tên để chọn nhanh thiết bị
+              </p>
             )}
           </div>
 
-          <div className={styles.formField}>
-            <label htmlFor="incident-priority">Mức ưu tiên *</label>
-            <SearchableSelect
+          <div className={FIELD_CLASS}>
+            <label htmlFor="incident-priority" className={LABEL_CLASS}>
+              Mức ưu tiên *
+            </label>
+            <SearchableSelect className={SELECT_CLASS}
+              height={CONTROL_HEIGHT}
               options={PRIORITY_OPTIONS}
               value={priority}
               clearable={false}
@@ -264,10 +300,13 @@ export function IncidentForm({
           </div>
         </div>
 
-        <div className={styles.formField}>
-          <label htmlFor="incident-title">Tiêu đề sự cố *</label>
-          <input
+        <div className={FIELD_CLASS}>
+          <label htmlFor="incident-title" className={LABEL_CLASS}>
+            Tiêu đề sự cố *
+          </label>
+          <Input
             id="incident-title"
+            className="h-9 rounded-md text-sm!"
             required
             placeholder="VD: Van AP-003 bị rò rỉ khí nén, động cơ quá nhiệt…"
             value={title}
@@ -278,10 +317,13 @@ export function IncidentForm({
           />
         </div>
 
-        <div className={styles.formField}>
-          <label htmlFor="incident-desc">Mô tả chi tiết</label>
+        <div className={FIELD_CLASS}>
+          <label htmlFor="incident-desc" className={LABEL_CLASS}>
+            Mô tả chi tiết
+          </label>
           <textarea
             id="incident-desc"
+            className={TEXTAREA_CLASS}
             rows={3}
             placeholder="Hiện tượng, thông số đo được, vị trí cụm máy, thời điểm phát hiện…"
             value={description}
@@ -290,39 +332,13 @@ export function IncidentForm({
         </div>
 
         {/* Tệp đính kèm hiện trường sự cố */}
-        <div className={styles.formField}>
-          <label className={styles.actionLabel}>
-            Tệp đính kèm hiện trường (Ảnh, tài liệu sự cố)
-          </label>
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              padding: '10px 12px',
-              borderRadius: '6px',
-              border: '1px dashed #cbd5e1',
-              background: '#f8fafc',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className={FIELD_CLASS}>
+          <span className={LABEL_CLASS}>Tệp đính kèm hiện trường (Ảnh, tài liệu sự cố)</span>
+          <div className="flex flex-col gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <label
                 htmlFor="incident-file-upload"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  borderRadius: '5px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  color: '#1e293b',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                  transition: 'all 0.15s ease',
-                }}
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 shadow-xs transition-colors hover:bg-slate-100"
               >
                 <Upload size={14} />
                 <span>Tải tệp lên</span>
@@ -332,7 +348,7 @@ export function IncidentForm({
                 type="file"
                 multiple
                 accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.mp4,.mov"
-                style={{ display: 'none' }}
+                className="hidden"
                 onChange={(event) => {
                   const files = event.target.files;
                   if (!files || files.length === 0) return;
@@ -374,7 +390,7 @@ export function IncidentForm({
                 }}
               />
               {embedded ? null : (
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                <span className="text-xs text-slate-500">
                   (Ảnh chụp hiện trường, biên bản, video ngắn - Tối đa 25MB)
                 </span>
               )}
@@ -382,52 +398,27 @@ export function IncidentForm({
 
             {/* Danh sách tệp đã thêm */}
             {attachments.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+              <div className="mt-1 flex flex-col gap-1">
                 {attachments.map((file, idx) => (
                   <div
                     key={idx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      background: '#ffffff',
-                      border: '1px solid #e2e8f0',
-                      fontSize: '13px',
-                    }}
+                    className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1 text-[13px]"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-                      <Paperclip size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
-                      <span
-                        style={{
-                          color: '#2563eb',
-                          fontWeight: 500,
-                          textOverflow: 'ellipsis',
-                          overflow: 'hidden',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {file.name}
-                      </span>
-                      <small style={{ color: '#94a3b8' }}>({file.size})</small>
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <Paperclip size={13} className="shrink-0 text-blue-600" />
+                      <span className="truncate font-medium text-blue-600">{file.name}</span>
+                      <small className="text-slate-400">({file.size})</small>
                     </div>
-                    <button
-                      type="button"
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#ef4444',
-                        cursor: 'pointer',
-                        padding: '2px 4px',
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                      onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
-                      title="Gỡ tệp"
-                    >
-                      <X size={13} />
-                    </button>
+                    <Tip content="Gỡ tệp">
+                      <button
+                        type="button"
+                        className="flex cursor-pointer items-center border-0 bg-transparent px-1 py-0.5 text-red-500 hover:text-red-700"
+                        onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        aria-label={`Gỡ tệp ${file.name}`}
+                      >
+                        <X size={13} />
+                      </button>
+                    </Tip>
                   </div>
                 ))}
               </div>
@@ -435,10 +426,13 @@ export function IncidentForm({
           </div>
         </div>
 
-        <div className={styles.incidentGrid}>
-          <div className={styles.formField}>
-            <label htmlFor="incident-assignee">Người chịu trách nhiệm</label>
-            <SearchableSelect
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={FIELD_CLASS}>
+            <label htmlFor="incident-assignee" className={LABEL_CLASS}>
+              Người chịu trách nhiệm
+            </label>
+            <SearchableSelect className={SELECT_CLASS}
+              height={CONTROL_HEIGHT}
               options={memberOptions}
               value={assigneeId}
               clearable
@@ -447,9 +441,12 @@ export function IncidentForm({
             />
           </div>
 
-          <div className={styles.formField}>
-            <label htmlFor="incident-procedure">Quy trình xử lý</label>
-            <SearchableSelect
+          <div className={FIELD_CLASS}>
+            <label htmlFor="incident-procedure" className={LABEL_CLASS}>
+              Quy trình xử lý
+            </label>
+            <SearchableSelect className={SELECT_CLASS}
+              height={CONTROL_HEIGHT}
               options={procedureOptions}
               value={procedureDefinitionId}
               clearable
@@ -459,6 +456,8 @@ export function IncidentForm({
           </div>
         </div>
 
+        {/* TransportField của shared-ui có CSS riêng (13.5px): ép về cùng 14px với các ô còn lại trong hộp thoại. */}
+        <div className="[&_input]:text-sm! [&_select]:text-sm!">
         <TransportField
           idPrefix="incident-transport"
           value={transport}
@@ -475,11 +474,15 @@ export function IncidentForm({
               : 'Xe được giữ trên Lịch xe của HRM ngay khi tạo sự cố; nếu xe vừa có người đặt trước, phiếu báo lại để chọn xe khác.'
           }
         />
+        </div>
         {transport.mode === 'COMPANY_VEHICLE' ? (
-          <div className={styles.formField}>
-            <label htmlFor="incident-destination">Điểm đến</label>
-            <input
+          <div className={FIELD_CLASS}>
+            <label htmlFor="incident-destination" className={LABEL_CLASS}>
+              Điểm đến
+            </label>
+            <Input
               id="incident-destination"
+              className="h-9 rounded-md"
               maxLength={255}
               placeholder="VD: Trạm biến áp 500kV Phố Nối"
               value={transportDestination}
@@ -491,27 +494,28 @@ export function IncidentForm({
         </div>
 
         {error ? (
-          <p role="alert" className={styles.incidentSaveError}>
+          <p role="alert" className="m-0 mt-2 text-sm font-semibold leading-snug text-red-600">
             {error}
           </p>
         ) : null}
 
-        <div className={styles.incidentActions}>
-          <button
+        <div className="mt-2 flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+          <Button
             type="button"
-            className={styles.incidentCancelBtn}
+            variant="outline"
+            className="h-9 rounded-md px-4"
             onClick={onCancel}
             disabled={busy}
           >
             Huỷ
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className={styles.incidentSubmitBtn}
+            className="h-9 rounded-md border-blue-600 bg-blue-600 px-5 font-bold text-white hover:bg-blue-700"
             disabled={busy}
           >
             {busy ? 'Đang ghi nhận…' : 'Tạo sự cố'}
-          </button>
+          </Button>
         </div>
       </form>
     </IncidentFrame>

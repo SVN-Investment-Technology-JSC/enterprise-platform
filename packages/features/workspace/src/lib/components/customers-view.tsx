@@ -16,7 +16,7 @@ import {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, FileText, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatVnd, formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import * as api from '../workspace-api';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../workspace-labels';
@@ -24,6 +24,7 @@ import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
 import { Tooltip } from './tooltip';
+import { useFillViewportHeight } from './use-fill-viewport';
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -266,8 +267,12 @@ export function CustomersView({
 
   /* ------------------------------------------------------------- Render */
 
+  // Khung chiếm đúng phần cao còn lại của màn hình (thay cho con số tính cứng trong SCSS).
+  const splitRef = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(splitRef);
+
   return (
-    <div className={scoped ? styles.scopePane : styles.taskSplit}>
+    <div ref={splitRef} className={scoped ? styles.scopePane : styles.taskSplit}>
       {scoped ? null : (
       <section className={styles.taskListPane} aria-label="Danh sách khách hàng">
         {customersReadOnly ? <CrmManagedNotice /> : null}

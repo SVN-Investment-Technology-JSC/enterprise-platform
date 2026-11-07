@@ -3,6 +3,9 @@ import { useLayoutEffect, type RefObject } from 'react';
 /** Khung không bao giờ thấp hơn mức này, kể cả màn hình rất thấp (lúc đó trang cuộn như thường). */
 const DEFAULT_MIN_HEIGHT = 320;
 
+/** Khoảng trống giữ lại dưới khung: đủ để khung không dính mép màn hình, phần đệm dư của khối bao quanh được lấy lại. */
+const DEFAULT_BOTTOM_GAP = 16;
+
 /** Phần tử cuộn gần nhất bao quanh `element` (vùng nội dung của khung ứng dụng), hoặc `null` khi cuộn theo cửa sổ. */
 export function scrollParentOf(element: HTMLElement): HTMLElement | null {
   for (let node = element.parentElement; node; node = node.parentElement) {
@@ -25,6 +28,8 @@ export function useFillViewportHeight(
   minHeight = DEFAULT_MIN_HEIGHT,
   /** Đổi giá trị này để đo lại, dùng khi phần tử chỉ xuất hiện về sau (ví dụ khung chỉ có ở một chế độ xem). */
   trigger?: unknown,
+  /** Khoảng trống chừa dưới khung (px). Khối bao quanh có đệm dưới lớn hơn thì phần dư được lấy lại bằng lề âm. */
+  bottomGap = DEFAULT_BOTTOM_GAP,
 ): void {
   useLayoutEffect(() => {
     const element = ref.current;
@@ -43,7 +48,10 @@ export function useFillViewportHeight(
       for (let node = element.parentElement; node && node !== scroller; node = node.parentElement) {
         bottomPadding += parseFloat(getComputedStyle(node).paddingBottom) || 0;
       }
-      const next = Math.max(minHeight, Math.floor(viewport - top - bottomPadding));
+      const reclaim = Math.max(0, bottomPadding - bottomGap);
+      const next = Math.max(minHeight, Math.floor(viewport - top - Math.min(bottomPadding, bottomGap)));
+      const margin = reclaim > 0 ? `-${reclaim}px` : '';
+      if (element.style.marginBottom !== margin) element.style.marginBottom = margin;
       if (Math.abs((parseFloat(element.style.height) || 0) - next) > 1) element.style.height = `${next}px`;
     };
     const schedule = () => {
@@ -63,5 +71,5 @@ export function useFillViewportHeight(
       observer?.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [ref, minHeight, trigger]);
+  }, [ref, minHeight, trigger, bottomGap]);
 }
