@@ -8,19 +8,43 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, Popconfirm, SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   Download,
   FileText,
   History,
+  ListFilter,
   Search,
   Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { loadAssetTasks, loadMaintenanceHistory, type AssetTaskList } from '../maintenance-api';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
+import { Tip } from '../ui/tooltip';
+import { cn } from '../utils';
+import { ConfirmDialog } from '../ui/confirm-dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { SELECT_CLASS } from '../ui/select-class';
 import styles from './maintenance-matrix.module.scss';
+
+/**
+ * SearchableSelect cao 36px (h-9), chữ 14px, bo md. Module CSS của shared-ui dùng `!important` nên cần biến thể
+ * `!` của Tailwind (layer có `!important` thắng khi không có layer).
+ */
+const CONTROL_36 = 'h-9 rounded-md px-3 text-sm';
+
+
+const PRIORITY_FILTER_OPTIONS = [
+  { value: 'High', label: 'Cao' },
+  { value: 'Normal', label: 'Thường' },
+  { value: 'Low', label: 'Thấp' },
+] as const;
+
+const PAGE_SIZE_OPTIONS = [15, 30, 45, 60].map((n) => ({ value: String(n), label: `${n} / trang` }));
 
 /**
  * Tần suất mặc định, chỉ dùng khi chưa đọc được danh mục từ cấu hình module.
@@ -121,6 +145,23 @@ function formatDue(value?: string): string {
   return formatDate(value);
 }
 
+/** Danh sách thiết bị sẽ bị tác động, hiện trong hộp thoại xác nhận (cuộn khi dài). */
+function SelectedAssetList({ rows }: { rows: readonly MaintenanceMatrixRow[] }) {
+  return (
+    <ul className="m-0 max-h-48 list-none overflow-y-auto rounded-md border border-border bg-slate-50 p-0">
+      {rows.map((entry) => (
+        <li
+          key={entry.asset.code}
+          className="flex items-baseline gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
+        >
+          <span className="font-mono text-[0.8125rem] font-semibold text-slate-700">{entry.asset.code}</span>
+          <span className="min-w-0 truncate text-slate-900">{entry.asset.name}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function MaintenanceMatrixBoard({
   matrix,
   canManage,
@@ -153,9 +194,9 @@ export function MaintenanceMatrixBoard({
   /** Thêm một thiết bị của Kho vào ma trận. */
   onAddAsset?: (assetCode: string) => void;
   /** Gỡ thiết bị khỏi ma trận, xoá mọi lịch của nó. */
-  onRemoveAsset?: (assetCode: string) => void;
+  onRemoveAsset?: (assetCodes: readonly string[]) => void | Promise<void>;
   /** Tạo phiếu bảo trì ngay cho thiết bị. */
-  onRunNow?: (assetCode: string) => void;
+  onRunNow?: (assetCodes: readonly string[]) => void | Promise<void>;
   /** Mở lịch sử bảo trì của riêng thiết bị này. */
   onOpenHistory?: (assetCode: string) => void;
 }) {
@@ -167,6 +208,11 @@ export function MaintenanceMatrixBoard({
   const [pageSize, setPageSize] = useState<number>(15);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [newlyAddedAssetCode, setNewlyAddedAssetCode] = useState<string>();
+
+  // Chọn thiết bị trong bảng để thao tác hàng loạt (Bảo trì ngay / Gỡ); mỗi thao tác hỏi lại bằng hộp thoại xác nhận.
+  const [selectedCodes, setSelectedCodes] = useState<ReadonlySet<string>>(new Set());
+  const [confirming, setConfirming] = useState<'run' | 'remove'>();
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   // Tự động xoá trạng thái nháy highlight sau 3.5s
   useEffect(() => {
@@ -330,7 +376,28 @@ export function MaintenanceMatrixBoard({
     }
     return list.map((row) => ({ row, depth: 0 }));
   }, [filteredRows, newlyAddedAssetCode]);
-  const catalog = matrix.procedureCatalog ?? [];
+  const unitFilterOptions = useMemo(
+    () => availableUnits.map(([id, name]) => ({ value: id, label: name })),
+    [availableUnits],
+  );
+  const rowPriorityOptions = useMemo(
+    () =>
+      (Object.entries(PRIORITY_LABEL) as [MaintenancePriority, string][]).map(([value, label]) => ({
+        value,
+        label,
+      })),
+    [],
+  );
+  const flowOptions = useMemo(
+    () => [
+      { value: '', label: '— Chưa gắn —' },
+      ...(matrix.procedureCatalog ?? []).map((entry) => ({
+        value: entry.definitionId,
+        label: `${entry.code} — ${entry.name}`,
+      })),
+    ],
+    [matrix.procedureCatalog],
+  );
 
   useEffect(() => {
     setDrafts(new Map(rows.map((row) => [row.asset.code, toDraft(row, frequencies)])));
@@ -758,10 +825,43 @@ export function MaintenanceMatrixBoard({
   const totalRecords = orderedRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
+  /** Các thiết bị đang được chọn mà vẫn còn trên ma trận (sau khi gỡ hoặc lọc lại thì tự bỏ mã không còn). */
+  const selectedRows = useMemo(
+    () => rows.filter((entry) => selectedCodes.has(entry.asset.code)),
+    [rows, selectedCodes],
+  );
+  const toggleCode = (code: string) =>
+    setSelectedCodes((current) => {
+      const next = new Set(current);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  const runBulk = async () => {
+    const action = confirming;
+    if (!action) return;
+    const handler = action === 'run' ? onRunNow : onRemoveAsset;
+    if (!handler) return;
+    setBulkRunning(true);
+    try {
+      // Một lần gọi cho cả lô: màn hình cha chạy song song có giới hạn rồi nạp lại đúng một lần.
+      await handler(selectedRows.map((entry) => entry.asset.code));
+      if (action === 'remove') setSelectedCodes(new Set());
+    } finally {
+      setBulkRunning(false);
+      setConfirming(undefined);
+    }
+  };
+
   const paginatedRows = useMemo(() => {
     const start = (safeCurrentPage - 1) * pageSize;
     return orderedRows.slice(start, start + pageSize);
   }, [orderedRows, safeCurrentPage, pageSize]);
+  const allPageSelected =
+    paginatedRows.length > 0 && paginatedRows.every(({ row }) => selectedCodes.has(row.asset.code));
+  const somePageSelected =
+    !allPageSelected && paginatedRows.some(({ row }) => selectedCodes.has(row.asset.code));
+  const activeFilterCount = (filterUnit ? 1 : 0) + (filterPriority ? 1 : 0);
 
   return (
     <section className={styles.board}>
@@ -774,41 +874,50 @@ export function MaintenanceMatrixBoard({
           </p>
         </div>
         <div className={styles.headerActions}>
-          <button
-            type="button"
-            className={styles.templateButton}
-            onClick={downloadImportTemplate}
-            title="Tải tệp Excel mẫu để chuẩn bị dữ liệu nhập ma trận"
-          >
-            <Download size={15} strokeWidth={2} /> Tải mẫu Excel
-          </button>
+          <Tip content="Tải tệp Excel mẫu để chuẩn bị dữ liệu nhập ma trận">
+            <Button
+              type="button"
+              variant="outline"
+              className={CONTROL_36}
+              onClick={downloadImportTemplate}
+            >
+              <Download size={15} strokeWidth={2} /> Tải mẫu Excel
+            </Button>
+          </Tip>
           {canManage ? (
             <>
               <input
                 ref={importInputRef}
                 type="file"
                 accept=".xlsx,.xls"
-                className={styles.hiddenInput}
+                className="hidden"
                 onChange={importMatrix}
               />
-              <button
-                type="button"
-                className={styles.importButton}
-                onClick={() => importInputRef.current?.click()}
-                disabled={busy}
-                title="Nhập dữ liệu ma trận bảo trì từ tệp Excel"
-              >
-                <Upload size={15} strokeWidth={2} /> Nhập Excel
-              </button>
-              <button
-                type="button"
-                className={styles.save}
-                onClick={save}
-                disabled={busy || !dirty}
-                title={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}
-              >
-                Lưu thay đổi
-              </button>
+              <Tip content="Nhập dữ liệu ma trận bảo trì từ tệp Excel">
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={CONTROL_36}
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={busy}
+                  >
+                    <Upload size={15} strokeWidth={2} /> Nhập Excel
+                  </Button>
+                </span>
+              </Tip>
+              <Tip content={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    className={CONTROL_36}
+                    onClick={save}
+                    disabled={busy || !dirty}
+                  >
+                    Lưu thay đổi
+                  </Button>
+                </span>
+              </Tip>
             </>
           ) : null}
         </div>
@@ -904,9 +1013,11 @@ export function MaintenanceMatrixBoard({
                         </td>
                         <td>
                           {isErr ? (
-                            <span className={styles.importErrorBadge} title={r.errors.join('; ')}>
-                              Lỗi: {r.errors.join(', ')}
-                            </span>
+                            <Tip content={r.errors.join('; ')}>
+                              <span className={styles.importErrorBadge}>
+                                Lỗi: {r.errors.join(', ')}
+                              </span>
+                            </Tip>
                           ) : (
                             <span className={styles.importReadyBadge}>Hợp lệ</span>
                           )}
@@ -946,16 +1057,19 @@ export function MaintenanceMatrixBoard({
       ) : null}
 
       {/* 2. BẢNG DỮ LIỆU CHUẨN 3 PHẦN */}
-      <div className={styles.scroll}>
-        {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM + BỘ LỌC + THÊM THIẾT BỊ SUGGEST + XOÁ LỌC) */}
-        <div className={styles.controlsBar}>
-          <div className={styles.tableControls}>
+      <div className="w-full overflow-hidden rounded-lg border border-border bg-white shadow-xs">
+        {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM + BỘ LỌC + THÊM THIẾT BỊ + XOÁ LỌC) */}
+        <div className="border-b border-border bg-slate-50 px-3.5 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             {/* 1.1. Tìm kiếm trên ma trận */}
-            <div className={styles.searchBox}>
-              <span className={styles.searchIcon}>
-                <Search size={14} strokeWidth={2} />
-              </span>
-              <input
+            <div className="relative min-w-[200px] max-w-[360px] flex-[1_1_240px]">
+              <Search
+                size={14}
+                strokeWidth={2}
+                className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-slate-400"
+              />
+              <Input
+                className="h-9 rounded-md pr-3 pl-8 text-sm"
                 placeholder="Tìm trên ma trận (MBA-01, MC-901)..."
                 value={filterText}
                 onChange={(e) => {
@@ -967,8 +1081,10 @@ export function MaintenanceMatrixBoard({
 
             {/* 1.2. Thêm thiết bị từ Kho (SearchableSelect Combobox chuẩn) */}
             {canManage && onAddAsset ? (
-              <div className={styles.suggestWrapper}>
+              <div className="min-w-[200px] max-w-[380px] flex-[1_1_260px]">
                 <SearchableSelect
+                  className={SELECT_CLASS}
+                  height={36}
                   options={addAssetOptions}
                   value=""
                   placeholder="Thêm thiết bị từ Kho…"
@@ -986,292 +1102,362 @@ export function MaintenanceMatrixBoard({
               </div>
             ) : null}
 
-            {/* 1.3. Lọc Đơn vị */}
-            <select
-              className={styles.selectFilter}
-              value={filterUnit}
-              onChange={(e) => {
-                setFilterUnit(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="">Tất cả đơn vị</option>
-              {availableUnits.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-
-            {/* 1.4. Lọc Mức ưu tiên */}
-            <select
-              className={styles.selectFilter}
-              value={filterPriority}
-              onChange={(e) => {
-                setFilterPriority(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="">Mức ưu tiên</option>
-              <option value="High">Cao</option>
-              <option value="Normal">Thường</option>
-              <option value="Low">Thấp</option>
-            </select>
-
-            {/* 1.5. Xoá bộ lọc */}
-            {filterText || filterUnit || filterPriority ? (
-              <button
-                type="button"
-                className={styles.resetBtn}
-                title="Xóa toàn bộ bộ lọc và đặt lại mặc định"
-                onClick={() => {
-                  setFilterText('');
-                  setFilterUnit('');
-                  setFilterPriority('');
-                  setCurrentPage(1);
-                }}
+            {/* 1.3. Bộ lọc gom trong một nút: đơn vị phụ trách và mức ưu tiên */}
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button variant="outline" className={cn(CONTROL_36, 'gap-1.5')} aria-label="Bộ lọc" />
+                }
               >
-                Xoá bộ lọc
-              </button>
-            ) : null}
+                <ListFilter />
+                Bộ lọc
+                {activeFilterCount > 0 ? (
+                  <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </PopoverTrigger>
+              <PopoverContent className="w-72">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-slate-700">Đơn vị phụ trách</span>
+                    <SearchableSelect
+                      className={SELECT_CLASS}
+                      height={36}
+                      searchInDropdown
+                      options={unitFilterOptions}
+                      value={filterUnit}
+                      placeholder="Tất cả đơn vị"
+                      onChange={(val) => {
+                        setFilterUnit(val);
+                        setCurrentPage(1);
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-slate-700">Mức ưu tiên</span>
+                    <SearchableSelect
+                      className={SELECT_CLASS}
+                      height={36}
+                      searchInDropdown
+                      hideDropdownSearch
+                      options={PRIORITY_FILTER_OPTIONS}
+                      value={filterPriority}
+                      placeholder="Mọi mức ưu tiên"
+                      onChange={(val) => {
+                        setFilterPriority(val);
+                        setCurrentPage(1);
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-end border-t border-border pt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={CONTROL_36}
+                      disabled={!filterText && activeFilterCount === 0}
+                      onClick={() => {
+                        setFilterText('');
+                        setFilterUnit('');
+                        setFilterPriority('');
+                        setCurrentPage(1);
+                      }}
+                    >
+                      Xoá bộ lọc
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* 1.4. Thao tác hàng loạt: nằm cùng hàng nhưng dạt sang phải; chỉ dùng được khi đã tick thiết bị */}
+            <div className="ml-auto flex items-center gap-2">
+              <Tip
+                content={
+                  selectedRows.length === 0
+                    ? 'Tick chọn thiết bị trong bảng trước.'
+                    : 'Tạo phiếu bảo trì ngay cho các thiết bị đã chọn, không chờ tới hạn'
+                }
+              >
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={CONTROL_36}
+                    disabled={!canManage || busy || !onRunNow || selectedRows.length === 0}
+                    onClick={() => setConfirming('run')}
+                  >
+                    Bảo trì ngay{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+                  </Button>
+                </span>
+              </Tip>
+              <Tip
+                content={
+                  selectedRows.length === 0
+                    ? 'Tick chọn thiết bị trong bảng trước.'
+                    : 'Gỡ các thiết bị đã chọn khỏi ma trận và xoá mọi lịch của chúng'
+                }
+              >
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className={CONTROL_36}
+                    disabled={!canManage || busy || !onRemoveAsset || selectedRows.length === 0}
+                    onClick={() => setConfirming('remove')}
+                  >
+                    Gỡ{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+                  </Button>
+                </span>
+              </Tip>
+            </div>
           </div>
         </div>
 
-        <div className={styles.tableResponsive}>
-          <table className={styles.table}>
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1080px] table-fixed border-collapse text-sm">
             <thead>
               {/* HÀNG TIÊU ĐỀ CỘT */}
-              <tr>
-                <th className={styles.assetHead}>Thiết bị</th>
-                <th className={styles.unitHead}>Đơn vị phụ trách</th>
-                <th className={styles.priorityHead}>Ưu tiên</th>
+              <tr className="[&>th]:border-b [&>th]:border-slate-300 [&>th]:bg-[#e9eef5] [&>th]:px-2.5 [&>th]:py-2.5 [&>th]:text-left [&>th]:text-[0.8125rem] [&>th]:font-bold [&>th]:whitespace-nowrap [&>th]:text-slate-700">
+                <th className="w-[44px] text-center!">
+                  <Checkbox
+                    aria-label="Chọn tất cả thiết bị trong trang"
+                    checked={allPageSelected}
+                    indeterminate={somePageSelected}
+                    disabled={!canManage || busy || paginatedRows.length === 0}
+                    onCheckedChange={(checked) =>
+                      setSelectedCodes((current) => {
+                        const next = new Set(current);
+                        for (const { row } of paginatedRows) {
+                          if (checked) next.add(row.asset.code);
+                          else next.delete(row.asset.code);
+                        }
+                        return next;
+                      })
+                    }
+                  />
+                </th>
+                <th className="w-[170px]">Thiết bị</th>
+                <th className="w-[130px]">Đơn vị phụ trách</th>
+                <th className="w-[110px]">Ưu tiên</th>
                 {frequencies.map((entry) => (
-                  <th key={entry.id} className={styles.freqHead}>
+                  <th key={entry.id} className="w-[88px] text-center!">
                     {entry.label}
                   </th>
                 ))}
-                <th className={styles.flowHead}>Luồng thực thi khi tạo lệnh</th>
-                <th className={styles.actionHead}>Thao tác</th>
+                <th>Luồng thực thi khi tạo lệnh</th>
               </tr>
             </thead>
 
-          {/* VÙNG 2: THÂN BẢNG (BODY LIST + ROW ACTIONS) */}
-          <tbody>
-            {paginatedRows.map(({ row }) => {
-              const draft = drafts.get(row.asset.code) ?? toDraft(row, frequencies);
-              const isDrawerActive = activeDrawer?.asset.code === row.asset.code;
-              const isNewlyAdded = newlyAddedAssetCode === row.asset.code;
-              const rowClassName = [
-                isDrawerActive ? styles.rowActive : undefined,
-                isNewlyAdded ? styles.rowHighlighted : undefined,
-              ]
-                .filter(Boolean)
-                .join(' ') || undefined;
+            {/* VÙNG 2: THÂN BẢNG (BODY LIST + ROW ACTIONS) */}
+            <tbody className="[&>tr>td]:border-b [&>tr>td]:border-slate-100 [&>tr>td]:px-2.5 [&>tr>td]:py-2 [&>tr>td]:align-middle">
+              {paginatedRows.map(({ row }) => {
+                const draft = drafts.get(row.asset.code) ?? toDraft(row, frequencies);
+                const isDrawerActive = activeDrawer?.asset.code === row.asset.code;
+                const isNewlyAdded = newlyAddedAssetCode === row.asset.code;
+                const rowClassName =
+                  [
+                    isDrawerActive ? styles.rowActive : undefined,
+                    isNewlyAdded ? styles.rowHighlighted : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined;
 
-              return (
-                <tr
-                  key={row.asset.code}
-                  className={rowClassName}
-                >
-                  {/* Cột 1: Tên thiết bị - Click để mở Drawer chi tiết */}
-                  <td>
-                    <button
-                      type="button"
-                      className={styles.assetBtn}
-                      onClick={() =>
-                        setActiveDrawer({
-                          asset: row.asset,
-                          tab: 'tasks',
-                        })
-                      }
-                      title="Nhấn để xem chi tiết Đầu việc (Kho) và Lịch sử bảo trì"
-                    >
-                      <div className={styles.asset}>
-                        <span>
-                          <strong>{row.asset.name}</strong>
-                          <small>{row.asset.code}</small>
-                        </span>
-                      </div>
-                    </button>
-                  </td>
-                  <td className={styles.unit}>
-                    {row.asset.orgUnitId
-                      ? unitNames?.get(row.asset.orgUnitId) ?? '—'
-                      : '—'}
-                  </td>
-                  <td>
-                    <select
-                      className={styles.select}
-                      value={draft.priority}
-                      disabled={!canManage || busy}
-                      onChange={(event) =>
-                        mutate(row.asset.code, (current) => ({
-                          ...current,
-                          priority: event.target.value as MaintenancePriority,
-                        }))
-                      }
-                    >
-                      {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {frequencies.map((entry) => {
-                    const checked = draft.frequencies.has(entry.id);
-                    return (
-                      <td
-                        key={entry.id}
-                        className={`${styles.freqCell} ${checked ? styles.freqOn : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={!canManage || busy}
-                          aria-label={`${row.asset.name} — ${entry.label}`}
-                          onChange={() => toggle(row.asset.code, entry.id)}
-                        />
-                        {checked && row.cells[entry.id]?.nextDueAt ? (
-                          <span className={styles.due}>{formatDue(row.cells[entry.id]?.nextDueAt)}</span>
-                        ) : checked ? (
-                          <div
-                            className={styles.duePicker}
-                            role="group"
-                            aria-label={`Ngày bảo trì kế tiếp — ${row.asset.name} — ${entry.label}`}
-                            title="Ngày bảo trì kế tiếp. Mặc định gợi ý một tuần nữa, không phải hôm nay."
-                          >
-                            <DatePickerInput
-                              value={draft.startDates.get(entry.id) ?? defaultStartDate()}
-                              disabled={!canManage || busy}
-                              height={24}
-                              onChange={(val) =>
-                                setStartDate(row.asset.code, entry.id, val || defaultStartDate())
-                              }
-                            />
-                          </div>
-                        ) : null}
-                      </td>
-                    );
-                  })}
-
-                  <td>
-                    <div className={styles.flow}>
-                    <select
-                      className={styles.select}
-                      value={draft.procedureDefinitionId}
-                      disabled={!canManage || busy}
-                      onChange={(event) =>
-                        mutate(row.asset.code, (current) => ({
-                          ...current,
-                          procedureDefinitionId: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">— Chưa gắn —</option>
-                      {catalog.map((entry) => (
-                        <option key={entry.definitionId} value={entry.definitionId}>
-                          {entry.code} — {entry.name}
-                        </option>
-                      ))}
-                    </select>
-                    </div>
-                  </td>
-                  <td>
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className={styles.runNow}
-                        disabled={!canManage || busy || !onRunNow}
-                        title="Tạo phiếu bảo trì ngay, không chờ tới hạn"
-                        onClick={() => onRunNow?.(row.asset.code)}
-                      >
-                        Bảo trì ngay
-                      </button>
-                      <Popconfirm
-                        title={`Gỡ ${row.asset.name}?`}
-                        description={`Hành động này sẽ gỡ thiết bị (${row.asset.code}) khỏi ma trận bảo trì và xoá toàn bộ lịch định kỳ liên quan.`}
-                        okText="Gỡ thiết bị"
-                        okType="danger"
-                        placement="top"
-                        onConfirm={() => onRemoveAsset?.(row.asset.code)}
-                      >
+                return (
+                  <tr
+                    key={row.asset.code}
+                    className={cn(
+                      'hover:bg-slate-50/70',
+                      rowClassName,
+                      selectedCodes.has(row.asset.code) && 'bg-blue-50/60 hover:bg-blue-50/80',
+                    )}
+                  >
+                    <td className="text-center">
+                      <Checkbox
+                        aria-label={`Chọn ${row.asset.name}`}
+                        checked={selectedCodes.has(row.asset.code)}
+                        disabled={!canManage || busy}
+                        onCheckedChange={() => toggleCode(row.asset.code)}
+                      />
+                    </td>
+                    {/* Cột 1: Tên thiết bị - Click để mở Drawer chi tiết */}
+                    <td>
+                      <Tip content="Nhấn để xem chi tiết Đầu việc (Kho) và Lịch sử bảo trì">
                         <button
                           type="button"
-                          className={styles.removeAsset}
-                          disabled={!canManage || busy || !onRemoveAsset}
-                          title="Gỡ thiết bị khỏi ma trận và xoá mọi lịch của nó"
+                          className="group block w-full cursor-pointer rounded-sm border-0 bg-transparent p-0 text-left"
+                          onClick={() =>
+                            setActiveDrawer({
+                              asset: row.asset,
+                              tab: 'tasks',
+                            })
+                          }
                         >
-                          Gỡ
+                          <span className="block min-w-0 overflow-hidden">
+                            <strong className="block truncate text-sm leading-tight font-semibold text-slate-900 group-hover:text-primary group-hover:underline">
+                              {row.asset.name}
+                            </strong>
+                            <small className="block truncate font-mono text-xs text-muted-foreground">
+                              {row.asset.code}
+                            </small>
+                          </span>
                         </button>
-                      </Popconfirm>
-                    </div>
+                      </Tip>
+                    </td>
+                    <td className="truncate text-sm text-slate-700">
+                      {row.asset.orgUnitId ? (unitNames?.get(row.asset.orgUnitId) ?? '—') : '—'}
+                    </td>
+                    <td>
+                      <SearchableSelect
+                        className={SELECT_CLASS}
+                        height={36}
+                        searchInDropdown
+                        hideDropdownSearch
+                        clearable={false}
+                        options={rowPriorityOptions}
+                        value={draft.priority}
+                        disabled={!canManage || busy}
+                        onChange={(val) =>
+                          mutate(row.asset.code, (current) => ({
+                            ...current,
+                            priority: val as MaintenancePriority,
+                          }))
+                        }
+                      />
+                    </td>
+
+                    {frequencies.map((entry) => {
+                      const checked = draft.frequencies.has(entry.id);
+                      return (
+                        <td key={entry.id} className={cn('text-center', checked && 'bg-blue-50/70')}>
+                          <div className="flex flex-col items-center gap-1">
+                            <Checkbox
+                              checked={checked}
+                              disabled={!canManage || busy}
+                              aria-label={`${row.asset.name} — ${entry.label}`}
+                              onCheckedChange={() => toggle(row.asset.code, entry.id)}
+                            />
+                            {checked && row.cells[entry.id]?.nextDueAt ? (
+                              <span className="text-xs font-semibold whitespace-nowrap text-blue-800 tabular-nums">
+                                {formatDue(row.cells[entry.id]?.nextDueAt)}
+                              </span>
+                            ) : checked ? (
+                              <Tip content="Ngày bảo trì kế tiếp. Mặc định gợi ý một tuần nữa, không phải hôm nay.">
+                                <div
+                                  className={styles.duePicker}
+                                  role="group"
+                                  aria-label={`Ngày bảo trì kế tiếp — ${row.asset.name} — ${entry.label}`}
+                                >
+                                  <DatePickerInput
+                                    value={draft.startDates.get(entry.id) ?? defaultStartDate()}
+                                    disabled={!canManage || busy}
+                                    height={28}
+                                    onChange={(val) =>
+                                      setStartDate(row.asset.code, entry.id, val || defaultStartDate())
+                                    }
+                                  />
+                                </div>
+                              </Tip>
+                            ) : null}
+                          </div>
+                        </td>
+                      );
+                    })}
+
+                    <td>
+                      <SearchableSelect
+                        className={SELECT_CLASS}
+                        height={36}
+                        searchInDropdown
+                        clearable={false}
+                        options={flowOptions}
+                        value={draft.procedureDefinitionId}
+                        disabled={!canManage || busy}
+                        onChange={(val) =>
+                          mutate(row.asset.code, (current) => ({
+                            ...current,
+                            procedureDefinitionId: val,
+                          }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={frequencies.length + 5} className="px-4 py-12 text-center text-muted-foreground">
+                    {rows.length === 0
+                      ? 'Chưa có thiết bị nào trên ma trận. Dùng ô “Thêm thiết bị từ Kho” ở thanh công cụ phía trên để đưa vào.'
+                      : 'Không có thiết bị nào khớp với bộ lọc tìm kiếm.'}
                   </td>
                 </tr>
-              );
-            })}
-            {filteredRows.length === 0 ? (
-              <tr>
-                <td colSpan={frequencies.length + 5} className={styles.empty}>
-                  {rows.length === 0
-                    ? 'Chưa có thiết bị nào trên ma trận. Dùng ô “Thêm thiết bị từ Kho” ở thanh công cụ phía trên để đưa vào.'
-                    : 'Không có thiết bị nào khớp với bộ lọc tìm kiếm.'}
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
+              ) : null}
+            </tbody>
           </table>
         </div>
 
         {/* VÙNG 3: FOOTER CHÂN BẢNG CHUẨN ĐỒNG BỘ VỚI WORKSPACE BOARD */}
-        <div className={styles.tableFooter}>
-          <div className={styles.footerLeft}>
-            <span className={styles.totalRecords}>
-              Hiển thị <strong>{totalRecords > 0 ? (safeCurrentPage - 1) * pageSize + 1 : 0}–{Math.min(safeCurrentPage * pageSize, totalRecords)}</strong> / <strong>{totalRecords}</strong> thiết bị
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-slate-50 px-3.5 py-2.5 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              Hiển thị{' '}
+              <strong className="text-foreground">
+                {totalRecords > 0 ? (safeCurrentPage - 1) * pageSize + 1 : 0}–
+                {Math.min(safeCurrentPage * pageSize, totalRecords)}
+              </strong>{' '}
+              / <strong className="text-foreground">{totalRecords}</strong> thiết bị
             </span>
-            <label className={styles.pageSizeLabel}>
+            <div className="flex items-center gap-1.5">
               <span>Hiển thị:</span>
-              <select
-                className={styles.pageSizeSelect}
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value) || 15);
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
-            </label>
+              <div className="w-[120px]">
+                <SearchableSelect
+                  className={SELECT_CLASS}
+                  height={36}
+                  searchInDropdown
+                  hideDropdownSearch
+                  clearable={false}
+                  options={PAGE_SIZE_OPTIONS}
+                  value={String(pageSize)}
+                  onChange={(val) => {
+                    setPageSize(Number(val) || 15);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className={styles.footerRight}>
-            <div className={styles.paginationGroup}>
-              <button
-                type="button"
-                className={styles.pageBtn}
-                disabled={safeCurrentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                title="Trang trước"
-              >
-                ← Trước
-              </button>
-              <span className={styles.pageIndicator}>
-                {safeCurrentPage} / {totalPages}
+          <div className="flex items-center gap-2">
+            <Tip content="Trang trước">
+              <span className="inline-flex">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  ← Trước
+                </Button>
               </span>
-              <button
-                type="button"
-                className={styles.pageBtn}
-                disabled={safeCurrentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                title="Trang sau"
-              >
-                Sau →
-              </button>
-            </div>
+            </Tip>
+            <span className="px-1 text-sm font-bold text-foreground tabular-nums">
+              {safeCurrentPage} / {totalPages}
+            </span>
+            <Tip content="Trang sau">
+              <span className="inline-flex">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sau →
+                </Button>
+              </span>
+            </Tip>
           </div>
         </div>
       </div>
@@ -1424,6 +1610,30 @@ export function MaintenanceMatrixBoard({
           </aside>
         </>
       ) : null}
+      {/* Hộp thoại xác nhận cho từng thao tác hàng loạt (thay Popconfirm cũ) */}
+      <ConfirmDialog
+        open={confirming === 'run'}
+        onOpenChange={(open) => setConfirming(open ? 'run' : undefined)}
+        title={`Tạo phiếu bảo trì ngay cho ${selectedRows.length} thiết bị?`}
+        description="Hệ thống sẽ sinh phiếu bảo trì ngay lập tức cho các thiết bị đã chọn, không chờ tới hạn của lịch định kỳ."
+        confirmText="Tạo phiếu"
+        busy={bulkRunning}
+        onConfirm={() => void runBulk()}
+      >
+        <SelectedAssetList rows={selectedRows} />
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirming === 'remove'}
+        onOpenChange={(open) => setConfirming(open ? 'remove' : undefined)}
+        title={`Gỡ ${selectedRows.length} thiết bị khỏi ma trận?`}
+        description="Các thiết bị đã chọn sẽ bị gỡ khỏi ma trận bảo trì và toàn bộ lịch định kỳ liên quan sẽ bị xoá. Hành động này không hoàn tác được."
+        confirmText="Gỡ thiết bị"
+        destructive
+        busy={bulkRunning}
+        onConfirm={() => void runBulk()}
+      >
+        <SelectedAssetList rows={selectedRows} />
+      </ConfirmDialog>
     </section>
   );
 }

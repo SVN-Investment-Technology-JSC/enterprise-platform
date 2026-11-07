@@ -4,7 +4,7 @@ import type {
   MaintenanceFrequencyCatalog,
   MaintenanceFrequencyOption,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, Popconfirm } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   AlertCircle,
   Calendar,
@@ -15,7 +15,13 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import styles from './frequency-catalog-editor.module.scss';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
+import { TablePagerBar } from '../ui/table-pager-bar';
+import { Tip } from '../ui/tooltip';
+import { SELECT_CLASS } from '../ui/select-class';
+import { cn } from '../utils';
 
 const UNIT_LABEL: Readonly<Record<MaintenanceFrequencyOption['intervalUnit'], string>> = {
   day: 'ngày',
@@ -23,6 +29,26 @@ const UNIT_LABEL: Readonly<Record<MaintenanceFrequencyOption['intervalUnit'], st
   month: 'tháng',
   year: 'năm',
 };
+
+const UNIT_OPTIONS = (['day', 'week', 'month', 'year'] as const).map((unit) => ({
+  value: unit,
+  label: UNIT_LABEL[unit],
+}));
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'Tất cả trạng thái' },
+  { value: 'active', label: 'Đang kích hoạt' },
+  { value: 'inactive', label: 'Đang tắt' },
+  { value: 'in_use', label: 'Đang có lịch gán' },
+  { value: 'unused', label: 'Chưa có lịch gán' },
+];
+
+const PAGE_SIZES = [5, 10, 15, 30];
+
+const TH =
+  'whitespace-nowrap border-b border-border bg-muted px-3 py-2.5 text-left text-xs font-bold text-slate-600';
+const TD = 'border-b border-slate-100 px-3 py-2.5 align-middle';
+const FIELD_LABEL = 'text-sm font-semibold text-slate-700';
 
 /** Bỏ dấu và chuẩn hoá nhãn thành mã. */
 function toCode(label: string): string {
@@ -146,37 +172,37 @@ export function FrequencyCatalogEditor({
   const paginatedOptions = filteredOptions.slice(startIndex, endIndex);
 
   return (
-    <div className={styles.freqContainer}>
+    <div className="flex w-full flex-col gap-4">
       {/* Thẻ thống kê tổng quan */}
-      <div className={styles.statsRow}>
-        <div className={styles.statBadge}>
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="inline-flex items-center gap-2 rounded-md border border-border bg-slate-100 px-3 py-1.5 text-[0.8125rem] text-slate-600">
           <Clock size={14} />
           <span>Tổng số tần suất:</span>
-          <strong>{totalCount}</strong>
+          <strong className="tabular-nums text-foreground">{totalCount}</strong>
         </div>
-        <div className={`${styles.statBadge} ${styles.statBadgeActive}`}>
+        <div className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[0.8125rem] text-blue-700">
           <Calendar size={14} />
           <span>Đang kích hoạt:</span>
-          <strong>{activeCount}</strong>
+          <strong className="tabular-nums text-foreground">{activeCount}</strong>
         </div>
-        <div className={`${styles.statBadge} ${styles.statBadgeInUse}`}>
+        <div className="inline-flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-[0.8125rem] text-green-700">
           <AlertCircle size={14} />
           <span>Đang có lịch dùng:</span>
-          <strong>{inUseCount}</strong>
+          <strong className="tabular-nums text-foreground">{inUseCount}</strong>
         </div>
       </div>
 
-      {/* Khung Bảng Chuẩn 3 Vùng */}
-      <div className={styles.tableCard}>
-        {/* Vùng 1: Header Controls Bar */}
-        <div className={styles.tableControlsBar}>
-          <div className={styles.tableControlsLeft}>
-            <div className={styles.tableSearchBox}>
-              <span className={styles.tableSearchIcon}>
-                <Search size={14} />
-              </span>
-              <input
-                className={styles.tableSearchInput}
+      <div className="flex w-full flex-col overflow-hidden rounded-lg border border-border bg-white shadow-sm">
+        {/* Vùng 1: thanh tìm kiếm, bộ lọc */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
+          <div className="flex flex-1 flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[180px] max-w-[320px] flex-1 basis-60">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                aria-hidden="true"
+              />
+              <Input
+                className="h-9 rounded-md pl-8 text-sm"
                 value={filterText}
                 placeholder="Tìm mã hoặc tên tần suất…"
                 aria-label="Tìm kiếm tần suất"
@@ -187,63 +213,57 @@ export function FrequencyCatalogEditor({
               />
             </div>
 
-            <select
-              className={styles.tableSelectFilter}
+            <div className="w-[200px] shrink-0">
+              <SearchableSelect
+                className={SELECT_CLASS}
+              height={36}
+              searchInDropdown
+              hideDropdownSearch
+              clearable={false}
               value={filterStatus}
-              aria-label="Lọc theo trạng thái"
-              onChange={(e) => {
-                setFilterStatus(e.target.value);
+              options={STATUS_FILTER_OPTIONS}
+              onChange={(v) => {
+                setFilterStatus(v || 'all');
                 setCurrentPage(1);
               }}
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="active">Đang kích hoạt</option>
-              <option value="inactive">Đang tắt</option>
-              <option value="in_use">Đang có lịch gán</option>
-              <option value="unused">Chưa có lịch gán</option>
-            </select>
+              />
+            </div>
 
-            {(filterText || filterStatus !== 'all') && (
-              <button
-                type="button"
-                className={styles.tableResetBtn}
+            {filterText || filterStatus !== 'all' ? (
+              <Button
+                variant="outline"
+                size="lg"
+                className="rounded-md px-3"
                 onClick={() => {
                   setFilterText('');
                   setFilterStatus('all');
                   setCurrentPage(1);
                 }}
               >
-                <RotateCcw size={12} />
+                <RotateCcw />
                 <span>Đặt lại</span>
-              </button>
-            )}
+              </Button>
+            ) : null}
           </div>
 
-          <div className={styles.tableControlsRight}>
-            <button
-              type="button"
-              className={styles.actionAddBtn}
-              disabled={disabled}
-              onClick={openAddModal}
-            >
-              <Plus size={15} strokeWidth={2.5} />
-              <span>Thêm tần suất</span>
-            </button>
-          </div>
+          <Button size="lg" className="rounded-md px-3" disabled={disabled} onClick={openAddModal}>
+            <Plus strokeWidth={2.5} />
+            <span>Thêm tần suất</span>
+          </Button>
         </div>
 
-        {/* Vùng 2: Thân Bảng Dữ Liệu */}
-        <div className={styles.tableResponsiveWrap}>
-          <table className={styles.standardTable}>
+        {/* Vùng 2: thân bảng */}
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[860px] border-collapse text-sm">
             <thead>
               <tr>
-                <th className={styles.colOrder}>STT</th>
-                <th className={styles.colStatus}>Bật/Tắt</th>
-                <th>Mã tần suất</th>
-                <th>Tên hiển thị</th>
-                <th>Chu kỳ lặp lại</th>
-                <th>Tình trạng sử dụng</th>
-                <th className={styles.actionCell}>Thao tác</th>
+                <th className={cn(TH, 'w-[56px] text-center')}>STT</th>
+                <th className={cn(TH, 'w-[80px] text-center')}>Bật/Tắt</th>
+                <th className={TH}>Mã tần suất</th>
+                <th className={TH}>Tên hiển thị</th>
+                <th className={TH}>Chu kỳ lặp lại</th>
+                <th className={TH}>Tình trạng sử dụng</th>
+                <th className={cn(TH, 'w-[80px] text-center')}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -255,29 +275,35 @@ export function FrequencyCatalogEditor({
                 return (
                   <tr
                     key={option.code}
-                    className={!option.isActive ? styles.tableRowDisabled : undefined}
+                    className={cn('hover:bg-muted', !option.isActive && 'opacity-80')}
                   >
-                    <td className={styles.colOrder}>{stt}</td>
-                    <td className={styles.colStatus}>
-                      <label className={styles.switchWrap} title={option.isActive ? 'Tắt tần suất này' : 'Bật tần suất này'}>
-                        <input
-                          type="checkbox"
-                          className={styles.switchInput}
-                          checked={option.isActive}
-                          disabled={disabled}
-                          aria-label={`Bật tắt ${option.label}`}
-                          onChange={(e) => patch(globalIndex, { isActive: e.target.checked })}
-                        />
-                      </label>
+                    <td className={cn(TD, 'text-center text-[0.8125rem] tabular-nums text-muted-foreground')}>
+                      {stt}
                     </td>
-                    <td>
-                      <span className={styles.codeBadge} title="Mã định danh duy nhất tham chiếu trong lịch">
-                        {option.code}
-                      </span>
+                    <td className={cn(TD, 'text-center')}>
+                      <Tip content={option.isActive ? 'Tắt tần suất này' : 'Bật tần suất này'}>
+                        <label className="inline-flex cursor-pointer items-center justify-center">
+                          <Checkbox
+                            checked={option.isActive}
+                            disabled={disabled}
+                            aria-label={`Bật tắt ${option.label}`}
+                            onCheckedChange={(checked) => patch(globalIndex, { isActive: checked })}
+                          />
+                        </label>
+                      </Tip>
                     </td>
-                    <td>
-                      <input
-                        className={styles.labelInput}
+                    <td className={TD}>
+                      <Tip content="Mã định danh duy nhất tham chiếu trong lịch">
+                        <span
+                          className="inline-block rounded border border-blue-100 bg-blue-50 px-2 py-0.5 font-mono text-[0.8125rem] font-bold text-blue-800"
+                        >
+                          {option.code}
+                        </span>
+                      </Tip>
+                    </td>
+                    <td className={TD}>
+                      <Input
+                        className="h-9 rounded-md text-sm"
                         value={option.label}
                         disabled={disabled}
                         placeholder="Tên tần suất…"
@@ -285,13 +311,13 @@ export function FrequencyCatalogEditor({
                         onChange={(e) => patch(globalIndex, { label: e.target.value })}
                       />
                     </td>
-                    <td>
-                      <div className={styles.cycleEditor}>
-                        <span className={styles.cyclePrefix}>Mỗi</span>
-                        <input
+                    <td className={TD}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[0.8125rem] text-muted-foreground">Mỗi</span>
+                        <Input
                           type="number"
                           min={1}
-                          className={styles.countInput}
+                          className="h-9 w-[72px] rounded-md text-sm"
                           value={option.intervalCount}
                           disabled={disabled}
                           aria-label={`Số kỳ của ${option.label}`}
@@ -301,82 +327,93 @@ export function FrequencyCatalogEditor({
                             })
                           }
                         />
-                        <select
-                          className={styles.unitSelect}
-                          value={option.intervalUnit}
-                          disabled={disabled}
+                        <div
+                          role="group"
                           aria-label={`Đơn vị chu kỳ của ${option.label}`}
-                          onChange={(e) =>
-                            patch(globalIndex, {
-                              intervalUnit: e.target.value as MaintenanceFrequencyOption['intervalUnit'],
-                            })
-                          }
+                          className="w-[120px]"
                         >
-                          {(['day', 'week', 'month', 'year'] as const).map((unit) => (
-                            <option key={unit} value={unit}>
-                              {UNIT_LABEL[unit]}
-                            </option>
-                          ))}
-                        </select>
+                          <SearchableSelect className={SELECT_CLASS}
+                            height={36}
+                            searchInDropdown
+                            hideDropdownSearch
+                            clearable={false}
+                            disabled={disabled}
+                            value={option.intervalUnit}
+                            options={UNIT_OPTIONS}
+                            onChange={(v) =>
+                              patch(globalIndex, {
+                                intervalUnit: (v || option.intervalUnit) as MaintenanceFrequencyOption['intervalUnit'],
+                              })
+                            }
+                          />
+                        </div>
                       </div>
                     </td>
-                    <td>
+                    <td className={TD}>
                       {inUse ? (
-                        <span
-                          className={styles.inUseBadge}
-                          title="Đang có lịch bảo trì sử dụng tần suất này"
-                        >
-                          <span className={styles.inUseDot} />
-                          <span>Đang dùng</span>
-                        </span>
+                        <Tip content="Đang có lịch bảo trì sử dụng tần suất này">
+                          <span
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700"
+                          >
+                            <span className="size-1.5 rounded-full bg-emerald-500" />
+                            <span>Đang dùng</span>
+                          </span>
+                        </Tip>
                       ) : (
-                        <span
-                          className={styles.notInUseBadge}
-                          title="Chưa có lịch bảo trì nào liên kết với tần suất này"
-                        >
-                          <span className={styles.notInUseDot} />
-                          <span>Chưa gán</span>
-                        </span>
+                        <Tip content="Chưa có lịch bảo trì nào liên kết với tần suất này">
+                          <span
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <span className="size-1.5 rounded-full bg-slate-400" />
+                            <span>Chưa gán</span>
+                          </span>
+                        </Tip>
                       )}
                     </td>
-                    <td className={styles.actionCell}>
-                      <Popconfirm
-                        title={`Xoá tần suất "${option.label}"?`}
-                        description={
+                    <td className={cn(TD, 'text-center')}>
+                      <Tip
+                        content={
                           inUse
-                            ? 'Tần suất này đang có lịch sử dụng nên không thể xoá. Hãy chuyển trạng thái sang Tắt thay vì xoá.'
-                            : 'Hành động này sẽ loại bỏ tần suất khỏi danh mục chu kỳ bảo trì.'
+                            ? 'Đang có lịch dùng tần suất này — tắt thay vì xoá, nếu không lịch đó mất cách tính ngày đến hạn.'
+                            : 'Xoá tần suất khỏi danh mục'
                         }
-                        okText="Xoá"
-                        cancelText="Huỷ"
-                        okType="danger"
-                        disabled={disabled || inUse}
-                        placement="top-end"
-                        onConfirm={() => {
-                          setOptions(value.options.filter((o) => o.code !== option.code));
-                        }}
                       >
-                        <button
-                          type="button"
-                          className={styles.deleteBtn}
-                          disabled={disabled || inUse}
-                          aria-label={`Xoá ${option.label}`}
-                          title={
-                            inUse
-                              ? 'Đang có lịch dùng tần suất này — tắt thay vì xoá, nếu không lịch đó mất cách tính ngày đến hạn.'
-                              : 'Xoá tần suất khỏi danh mục'
-                          }
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </Popconfirm>
+                        <span className="inline-flex">
+                          <Popconfirm
+                            title={`Xoá tần suất "${option.label}"?`}
+                            description={
+                              inUse
+                                ? 'Tần suất này đang có lịch sử dụng nên không thể xoá. Hãy chuyển trạng thái sang Tắt thay vì xoá.'
+                                : 'Hành động này sẽ loại bỏ tần suất khỏi danh mục chu kỳ bảo trì.'
+                            }
+                            okText="Xoá"
+                            cancelText="Huỷ"
+                            okType="danger"
+                            disabled={disabled || inUse}
+                            placement="top-end"
+                            onConfirm={() => {
+                              setOptions(value.options.filter((o) => o.code !== option.code));
+                            }}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500"
+                              disabled={disabled || inUse}
+                              aria-label={`Xoá ${option.label}`}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </Popconfirm>
+                        </span>
+                      </Tip>
                     </td>
                   </tr>
                 );
               })}
               {paginatedOptions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className={styles.emptyRow}>
+                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Không tìm thấy tần suất bảo trì nào phù hợp với bộ lọc.
                   </td>
                 </tr>
@@ -385,59 +422,46 @@ export function FrequencyCatalogEditor({
           </table>
         </div>
 
-        {/* Vùng 3: Footer Chân Bảng Đồng Bộ */}
-        <div className={styles.tableFooterBar}>
-          <div className={styles.tableFooterLeft}>
-            <div className={styles.tableTotalRecords}>
+        {/* Vùng 3: chân bảng */}
+        <TablePagerBar
+          summary={
+            <>
               Hiển thị{' '}
               <strong>
                 {totalRecords > 0 ? startIndex + 1 : 0}–{endIndex}
               </strong>{' '}
               / <strong>{totalRecords}</strong> tần suất
-            </div>
-
-            <label className={styles.tablePageSizeLabel}>
-              Hiển thị:
-              <select
-                className={styles.tablePageSizeSelect}
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={5}>5 / trang</option>
-                <option value={10}>10 / trang</option>
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-              </select>
-            </label>
-          </div>
-
-          <div className={styles.tableFooterRight}>
-            <div className={styles.tablePaginationGroup}>
-              <button
-                type="button"
-                className={styles.tablePageBtn}
-                disabled={safeCurrentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              >
-                ← Trước
-              </button>
-              <span className={styles.tablePageIndicator}>
-                {safeCurrentPage} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className={styles.tablePageBtn}
-                disabled={safeCurrentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              >
-                Sau →
-              </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(n) => {
+            setPageSize(n);
+            setCurrentPage(1);
+          }}
+        >
+          <Button
+            variant="outline"
+            size="lg"
+            className="rounded-md px-3"
+            disabled={safeCurrentPage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          >
+            ← Trước
+          </Button>
+          <span className="px-1 text-sm font-bold text-foreground">
+            {safeCurrentPage} / {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="lg"
+            className="rounded-md px-3"
+            disabled={safeCurrentPage >= totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Sau →
+          </Button>
+        </TablePagerBar>
       </div>
 
       {/* Minimal Popup Form Thêm Tần Suất Mới */}
@@ -447,15 +471,16 @@ export function FrequencyCatalogEditor({
         subtitle="Định nghĩa chu kỳ và khoảng thời gian tính hạn lặp lại cho lịch bảo trì."
         onClose={() => setIsAddOpen(false)}
       >
-        <div className={styles.popupFormContent}>
-          {addError && (
-            <p style={{ color: '#dc2626', fontSize: '14px', margin: 0 }}>{addError}</p>
-          )}
+        <div className="flex flex-col gap-4 pb-1 pt-2">
+          {addError && <p className="m-0 text-sm text-red-600">{addError}</p>}
 
-          <div className={styles.formField}>
-            <label htmlFor="freq-label">Tên tần suất hiển thị *</label>
-            <input
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="freq-label" className={FIELD_LABEL}>
+              Tên tần suất hiển thị *
+            </label>
+            <Input
               id="freq-label"
+              className="h-9 rounded-md text-sm"
               value={newLabel}
               placeholder="VD: Định kỳ 2 tuần, Kiểm tra quý 3…"
               autoFocus
@@ -464,69 +489,61 @@ export function FrequencyCatalogEditor({
                 if (addError) setAddError(undefined);
               }}
             />
-            <p className={styles.formHint}>
+            <p className="m-0 text-[0.8125rem] leading-snug text-muted-foreground">
               Mã hệ thống tự sinh: <code>{toCode(newLabel) || 'tan-suat-moi'}</code>
             </p>
           </div>
 
-          <div className={styles.formFieldRow}>
-            <div className={styles.formField}>
-              <label htmlFor="freq-count">Số lượng kỳ *</label>
-              <input
+          <div className="grid grid-cols-[1fr_1.5fr] gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="freq-count" className={FIELD_LABEL}>
+                Số lượng kỳ *
+              </label>
+              <Input
                 id="freq-count"
                 type="number"
                 min={1}
+                className="h-9 rounded-md text-sm"
                 value={newCount}
                 onChange={(e) => setNewCount(Math.max(1, Number(e.target.value) || 1))}
               />
             </div>
 
-            <div className={styles.formField}>
-              <label htmlFor="freq-unit">Đơn vị chu kỳ *</label>
-              <select
-                id="freq-unit"
-                value={newUnit}
-                onChange={(e) =>
-                  setNewUnit(e.target.value as MaintenanceFrequencyOption['intervalUnit'])
-                }
-              >
-                {(['day', 'week', 'month', 'year'] as const).map((unit) => (
-                  <option key={unit} value={unit}>
-                    {UNIT_LABEL[unit]}
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-col gap-1.5">
+              <span className={FIELD_LABEL} id="freq-unit-label">
+                Đơn vị chu kỳ *
+              </span>
+              <div role="group" aria-labelledby="freq-unit-label">
+                <SearchableSelect className={SELECT_CLASS}
+                  height={36}
+                  searchInDropdown
+                  hideDropdownSearch
+                  clearable={false}
+                  value={newUnit}
+                  options={UNIT_OPTIONS}
+                  onChange={(v) =>
+                    setNewUnit((v || newUnit) as MaintenanceFrequencyOption['intervalUnit'])
+                  }
+                />
+              </div>
             </div>
           </div>
 
-          <label className={styles.formCheckboxLabel}>
-            <input
-              type="checkbox"
-              checked={newIsActive}
-              onChange={(e) => setNewIsActive(e.target.checked)}
-            />
+          <label className="mt-1 inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+            <Checkbox checked={newIsActive} onCheckedChange={(checked) => setNewIsActive(checked)} />
             <span>Kích hoạt tần suất ngay sau khi tạo</span>
           </label>
 
-          <div className={styles.formActions}>
-            <button
-              type="button"
-              className={styles.btnCancel}
-              onClick={() => setIsAddOpen(false)}
-            >
+          <div className="mt-3 flex justify-end gap-2.5 border-t border-border pt-4">
+            <Button variant="outline" size="lg" className="rounded-md px-4" onClick={() => setIsAddOpen(false)}>
               Huỷ
-            </button>
-            <button
-              type="button"
-              className={styles.btnSubmit}
-              onClick={handleAddSubmit}
-            >
+            </Button>
+            <Button size="lg" className="rounded-md px-4" onClick={handleAddSubmit}>
               Thêm tần suất
-            </button>
+            </Button>
           </div>
         </div>
       </MinimalPopupForm>
     </div>
   );
 }
-

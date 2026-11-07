@@ -8,16 +8,24 @@ import type {
   MaintenanceOccurrenceStatus,
   OccurrenceAttachment,
 } from '@enterprise-platform/contracts-maintenance';
-import { formatDate, formatDateTime } from '@enterprise-platform/shared-ui';
+import { formatDate, formatDateTime, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Download, Paperclip, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Download, ListFilter, Paperclip, Search, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   loadOccurrenceAttachments,
   occurrenceAttachmentDownloadUrl,
   removeOccurrenceAttachment,
   uploadOccurrenceAttachment,
 } from '../maintenance-api';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { TablePagerBar } from '../ui/table-pager-bar';
+import { Tip } from '../ui/tooltip';
+import { cn } from '../utils';
+import { SELECT_CLASS } from '../ui/select-class';
+import { useFillViewportHeight } from '../ui/use-fill-viewport';
 import styles from './maintenance-history.module.scss';
 
 const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
@@ -25,10 +33,11 @@ const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
   incident: 'Sự cố',
 };
 
-const KIND_ICON: Record<MaintenanceOccurrenceKind, string> = {
-  preventive: '',
-  incident: '',
-};
+const KIND_OPTIONS = [
+  { value: '', label: 'Tất cả loại' },
+  { value: 'preventive', label: 'Định kỳ' },
+  { value: 'incident', label: 'Sự cố' },
+];
 
 const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
   planned: 'Đã lên lịch',
@@ -39,6 +48,17 @@ const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
   failed: 'Thất bại',
   blocked: 'Bị chặn',
 };
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'Tất cả trạng thái' },
+  ...Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label })),
+];
+
+const PAGE_SIZES = [15, 30, 45, 60];
+
+const TH =
+  'sticky top-0 z-10 whitespace-nowrap border-b border-slate-300 bg-[#e9eef5] px-3.5 py-2.5 text-left text-[0.8125rem] font-bold uppercase tracking-wide text-slate-700';
+const TD = 'px-3.5 py-3 align-middle text-sm text-foreground';
 
 export function MaintenanceHistory({
   page,
@@ -117,125 +137,160 @@ export function MaintenanceHistory({
     }
   };
 
+  // Khung bảng chiếm đúng phần cao còn lại của màn hình; quá dài thì chỉ cuộn trong bảng.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(cardRef, 320, undefined, 16);
+  const activeFilterCount = (filter.kind ? 1 : 0) + (filter.status ? 1 : 0);
+
   return (
     <section className={styles.history}>
       {/* 1. HEADER TỐI GIẢN */}
-      <header className={styles.head}>
-        <div className={styles.titleArea}>
-          <h2>Lịch sử bảo trì thiết bị</h2>
-          <p>
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="m-0 mb-1 text-xl font-bold tracking-tight text-foreground">
+            Lịch sử bảo trì thiết bị
+          </h2>
+          <p className="m-0 text-sm leading-snug text-muted-foreground">
             Nhật ký kiểm tra, bảo dưỡng phòng ngừa định kỳ và khắc phục sự cố kỹ thuật trên toàn hệ thống ({page?.stats.total ?? 0} lượt).
           </p>
         </div>
       </header>
 
       {/* 2. BẢNG DỮ LIỆU ĐƠN DUY NHẤT CHIẾM TRỌN CHIỀU NGANG */}
-      <div className={styles.tableCard}>
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
+      <div
+        ref={cardRef}
+        className="flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border bg-white shadow-sm"
+      >
+        {/* THANH TÌM KIẾM & BỘ LỌC */}
+        <div className="flex flex-wrap items-center gap-2.5 border-b border-border bg-muted/40 px-4 py-3">
+          <div className="relative min-w-[180px] max-w-[320px] flex-1 basis-60">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <Input
+              className="h-9 rounded-md pl-8 text-sm"
+              placeholder="Tìm theo mã thiết bị (MBA-01, MC-22)..."
+              aria-label="Tìm theo mã thiết bị"
+              defaultValue={filter.assetCode ?? ''}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  onFilter({ ...filter, assetCode: (e.target as HTMLInputElement).value, cursor: undefined });
+                }
+              }}
+              onBlur={(event) => onFilter({ ...filter, assetCode: event.target.value, cursor: undefined })}
+            />
+          </div>
+
+          <Popover>
+            <PopoverTrigger
+              render={
+                <Button variant="outline" size="lg" className="gap-1.5 rounded-md px-3" aria-label="Bộ lọc" />
+              }
+            >
+              <ListFilter />
+              Bộ lọc
+              {activeFilterCount > 0 ? (
+                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </PopoverTrigger>
+            <PopoverContent className="w-72">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-slate-700">Loại hình</span>
+            <SearchableSelect
+              className={SELECT_CLASS}
+            height={36}
+            searchInDropdown
+            hideDropdownSearch
+            clearable={false}
+            value={filter.kind ?? ''}
+            options={KIND_OPTIONS}
+            onChange={(value) =>
+              onFilter({
+                ...filter,
+                kind: (value || undefined) as MaintenanceOccurrenceKind | undefined,
+                cursor: undefined,
+              })
+            }
+            />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-slate-700">Trạng thái</span>
+            <SearchableSelect
+              className={SELECT_CLASS}
+            height={36}
+            searchInDropdown
+            hideDropdownSearch
+            clearable={false}
+            value={filter.status ?? ''}
+            options={STATUS_OPTIONS}
+            onChange={(value) =>
+              onFilter({
+                ...filter,
+                status: (value || undefined) as MaintenanceOccurrenceStatus | undefined,
+                cursor: undefined,
+              })
+            }
+            />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <div className="flex items-center gap-1.5">
+            <div className="w-[150px]">
+              <DatePickerInput
+                height={36}
+                placeholder="Từ ngày"
+                aria-label="Từ ngày"
+                value={filter.from?.slice(0, 10) ?? ''}
+                onChange={(value) => onFilter({ ...filter, from: value || undefined, cursor: undefined })}
+              />
+            </div>
+            <span className="text-sm text-slate-400">→</span>
+            <div className="w-[150px]">
+              <DatePickerInput
+                height={36}
+                placeholder="Đến ngày"
+                aria-label="Đến ngày"
+                value={filter.to?.slice(0, 10) ?? ''}
+                onChange={(value) => onFilter({ ...filter, to: value || undefined, cursor: undefined })}
+              />
+            </div>
+          </div>
+
+          <Tip content="Xóa toàn bộ bộ lọc và đặt lại mặc định">
+            <Button
+              variant="outline"
+              size="lg"
+              className="rounded-md px-3"
+              onClick={() => onFilter({})}
+            >
+              Xoá bộ lọc
+            </Button>
+          </Tip>
+        </div>
+
+        <div className="min-h-0 w-full flex-1 overflow-auto">
+          <table className="w-full border-collapse text-left text-sm">
             <thead>
-              {/* HÀNG HEADER TÍCH HỢP TÌM KIẾM & BỘ LỌC */}
-              <tr className={styles.filterHeaderRow}>
-                <th colSpan={6} className={styles.controlsCell}>
-                  <div className={styles.tableControls}>
-                    <div className={styles.searchBox}>
-                      <span className={styles.searchIcon}></span>
-                      <input
-                        placeholder="Tìm theo mã thiết bị (MBA-01, MC-22)..."
-                        defaultValue={filter.assetCode ?? ''}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            onFilter({ ...filter, assetCode: (e.target as HTMLInputElement).value, cursor: undefined });
-                          }
-                        }}
-                        onBlur={(event) => onFilter({ ...filter, assetCode: event.target.value, cursor: undefined })}
-                      />
-                    </div>
-
-                    <select
-                      className={styles.selectFilter}
-                      value={filter.kind ?? ''}
-                      onChange={(event) =>
-                        onFilter({
-                          ...filter,
-                          kind: (event.target.value || undefined) as MaintenanceOccurrenceKind | undefined,
-                          cursor: undefined,
-                        })
-                      }
-                    >
-                      <option value="">Tất cả loại</option>
-                      <option value="preventive">Định kỳ</option>
-                      <option value="incident">Sự cố</option>
-                    </select>
-
-                    <select
-                      className={styles.selectFilter}
-                      value={filter.status ?? ''}
-                      onChange={(event) =>
-                        onFilter({
-                          ...filter,
-                          status: (event.target.value || undefined) as MaintenanceOccurrenceStatus | undefined,
-                          cursor: undefined,
-                        })
-                      }
-                    >
-                      <option value="">Tất cả trạng thái</option>
-                      {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <div className={styles.dateRange}>
-                      <div className={styles.datePicker}>
-                        <DatePickerInput
-                          placeholder="Từ ngày"
-                          value={filter.from?.slice(0, 10) ?? ''}
-                          onChange={(value) =>
-                            onFilter({ ...filter, from: value || undefined, cursor: undefined })
-                          }
-                        />
-                      </div>
-                      <span className={styles.dateSep}>→</span>
-                      <div className={styles.datePicker}>
-                        <DatePickerInput
-                          placeholder="Đến ngày"
-                          value={filter.to?.slice(0, 10) ?? ''}
-                          onChange={(value) =>
-                            onFilter({ ...filter, to: value || undefined, cursor: undefined })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className={styles.resetBtn}
-                      title="Xóa toàn bộ bộ lọc và đặt lại mặc định"
-                      onClick={() => onFilter({})}
-                    >
-                      Xoá bộ lọc
-                    </button>
-                  </div>
-                </th>
-              </tr>
-
-              {/* HÀNG TIÊU ĐỀ CỘT */}
-              <tr className={styles.columnHeaderRow}>
-                <th style={{ width: '120px' }}>Loại hình</th>
-                <th style={{ width: '130px' }}>Mã thiết bị</th>
-                <th>Tiêu đề & Hạng mục bảo trì</th>
-                <th style={{ width: '140px' }}>Ngày thực hiện</th>
-                <th style={{ width: '150px' }}>Trạng thái</th>
-                <th style={{ width: '140px' }}>WorkOrder</th>
+              <tr>
+                <th className={cn(TH, 'w-[120px]')}>Loại hình</th>
+                <th className={cn(TH, 'w-[130px]')}>Mã thiết bị</th>
+                <th className={TH}>Tiêu đề & Hạng mục bảo trì</th>
+                <th className={cn(TH, 'w-[140px]')}>Ngày thực hiện</th>
+                <th className={cn(TH, 'w-[150px]')}>Trạng thái</th>
+                <th className={cn(TH, 'w-[140px]')}>WorkOrder</th>
               </tr>
             </thead>
 
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className={styles.emptyCell}>
+                  <td colSpan={6} className="px-4 py-16 text-center text-sm text-muted-foreground">
                     {busy ? 'Đang tải dữ liệu…' : 'Không có lần bảo trì nào khớp bộ lọc.'}
                   </td>
                 </tr>
@@ -249,42 +304,51 @@ export function MaintenanceHistory({
                   return (
                     <tr
                       key={item.id}
-                      className={`${styles.tableRow} ${isSelected ? styles.tableRowActive : ''}`}
+                      className={cn(
+                        'cursor-pointer border-b border-slate-100 transition-colors hover:bg-muted',
+                        isSelected && 'bg-blue-50 hover:bg-blue-50',
+                      )}
                       onClick={() => {
                         setNote('');
                         onSelect(item);
                       }}
                     >
-                      <td>
+                      <td className={TD}>
                         <span className={`${styles.kindBadge} ${styles[item.kind]}`}>
-                          {KIND_ICON[item.kind]} {KIND_LABEL[item.kind]}
+                          {KIND_LABEL[item.kind]}
                         </span>
                       </td>
-                      <td>
-                        <span className={styles.assetTagMono}>{item.assetCode || '—'}</span>
+                      <td className={cn(TD, 'whitespace-nowrap font-mono font-semibold text-slate-700')}>
+                        {item.assetCode || '—'}
                       </td>
-                      <td>
-                        <div className={styles.rowMain}>
-                          <strong className={styles.rowTitle}>{item.title}</strong>
+                      <td className={TD}>
+                        <div className="flex flex-col gap-1">
+                          <strong className="text-sm font-semibold leading-snug text-foreground">
+                            {item.title}
+                          </strong>
                           {itemPerformers?.length ? (
-                            <span className={styles.performerTag}>{itemPerformers.join(', ')}</span>
+                            <span className="text-[0.8125rem] text-muted-foreground">
+                              {itemPerformers.join(', ')}
+                            </span>
                           ) : null}
                         </div>
                       </td>
-                      <td className={styles.dateCell}>
+                      <td className={cn(TD, 'whitespace-nowrap text-slate-700')}>
                         {formatDate(item.dueAt)}
                       </td>
-                      <td>
+                      <td className={TD}>
                         <span className={`${styles.statusBadge} ${styles[`st_${item.status}`]}`}>
                           <span className={styles.statusDot} />
                           {STATUS_LABEL[item.status]}
                         </span>
                       </td>
-                      <td className={styles.workorderCell}>
+                      <td className={cn(TD, 'whitespace-nowrap')}>
                         {item.procedureInstanceCode ? (
-                          <span className={styles.woCode}>#{item.procedureInstanceCode}</span>
+                          <span className="font-mono font-semibold text-blue-600">
+                            #{item.procedureInstanceCode}
+                          </span>
                         ) : (
-                          <span className={styles.mutedDash}>—</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                     </tr>
@@ -296,57 +360,44 @@ export function MaintenanceHistory({
         </div>
 
         {/* FOOTER: PHÂN TRANG & CHỌN SỐ LƯỢNG RECORD (ĐỒNG BỘ VỚI WORKSPACE) */}
-        <div className={styles.tableFooter}>
-          <div className={styles.footerLeft}>
-            <span className={styles.totalRecords}>
-              Hiển thị <strong>{items.length > 0 ? 1 : 0}–{items.length}</strong> / <strong>{page?.stats.total ?? items.length}</strong> bản ghi
-            </span>
-            <label className={styles.pageSizeLabel}>
-              <span>Hiển thị:</span>
-              <select
-                className={styles.pageSizeSelect}
-                value={filter.limit ?? 15}
-                onChange={(event) =>
-                  onFilter({
-                    ...filter,
-                    limit: Number(event.target.value) || 15,
-                    cursor: undefined,
-                  })
-                }
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
-            </label>
-          </div>
-
-          <div className={styles.footerRight}>
-            <div className={styles.paginationGroup}>
-              <button
-                type="button"
-                className={styles.pageBtn}
+        <TablePagerBar
+          summary={
+            <>
+              Hiển thị <strong>{items.length > 0 ? 1 : 0}–{items.length}</strong> /{' '}
+              <strong>{page?.stats.total ?? items.length}</strong> bản ghi
+            </>
+          }
+          pageSize={filter.limit ?? 15}
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(limit) => onFilter({ ...filter, limit, cursor: undefined })}
+        >
+          <Tip content="Làm mới / Về đầu">
+            <span className="inline-flex">
+              <Button
+                variant="outline"
+                size="lg"
+                className="rounded-md px-3"
                 disabled={busy}
                 onClick={() => onFilter({ ...filter, cursor: undefined })}
-                title="Làm mới / Về đầu"
               >
                 ← Đầu
-              </button>
-              {page?.nextCursor ? (
-                <button
-                  type="button"
-                  className={styles.pageBtn}
-                  disabled={busy}
-                  onClick={onLoadMore}
-                  title="Tải tiếp trang sau"
-                >
-                  {busy ? 'Đang nạp…' : 'Sau →'}
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
+              </Button>
+            </span>
+          </Tip>
+          <Tip content="Tải tiếp trang sau">
+            <span className="inline-flex">
+              <Button
+                variant="outline"
+                size="lg"
+                className="rounded-md px-3"
+                disabled={busy || !page?.nextCursor}
+                onClick={onLoadMore}
+              >
+                {busy ? 'Đang nạp…' : 'Sau →'}
+              </Button>
+            </span>
+          </Tip>
+        </TablePagerBar>
       </div>
 
       {/* 3. DRAWER CHI TIẾT KHI CLICK CHỌN HÀNG */}
@@ -361,19 +412,20 @@ export function MaintenanceHistory({
             <header className={styles.drawerHeader}>
               <div>
                 <span className={`${styles.kindBadge} ${styles[selected.kind]}`}>
-                  {KIND_ICON[selected.kind]} {KIND_LABEL[selected.kind]}
+                  {KIND_LABEL[selected.kind]}
                 </span>
                 <h3 className={styles.drawerTitle}>{selected.title}</h3>
               </div>
-              <button
-                type="button"
-                className={styles.closeDrawerBtn}
-                onClick={() => onSelect(undefined)}
-                aria-label="Đóng"
-                title="Đóng (ESC)"
-              >
-                ✕
-              </button>
+              <Tip content="Đóng (ESC)">
+                <button
+                  type="button"
+                  className={styles.closeDrawerBtn}
+                  onClick={() => onSelect(undefined)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </Tip>
             </header>
 
             <div className={styles.drawerBody}>
@@ -501,43 +553,46 @@ export function MaintenanceHistory({
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button
-                        type="button"
-                        onClick={() => void handleDownload(att.id)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid #cbd5e1',
-                          background: '#ffffff',
-                          color: '#2563eb',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                        title="Mở xem / Tải về"
-                      >
-                        <Download size={13} />
-                        <span>Mở / Tải</span>
-                      </button>
-
-                      {canManage && !selected.completedAt ? (
+                      <Tip content="Mở xem / Tải về">
                         <button
                           type="button"
-                          onClick={() => void handleDeleteAttachment(att.id)}
+                          onClick={() => void handleDownload(att.id)}
                           style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#dc2626',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#2563eb',
+                            fontSize: '12px',
+                            fontWeight: 600,
                             cursor: 'pointer',
-                            padding: '4px',
                           }}
-                          title="Gỡ tệp"
                         >
-                          <Trash2 size={13} />
+                          <Download size={13} />
+                          <span>Mở / Tải</span>
                         </button>
+                      </Tip>
+
+                      {canManage && !selected.completedAt ? (
+                        <Tip content="Gỡ tệp">
+                          <button
+                            aria-label="Gỡ tệp"
+                            type="button"
+                            onClick={() => void handleDeleteAttachment(att.id)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              padding: '4px',
+                            }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </Tip>
                       ) : null}
                     </div>
                   </div>
@@ -687,22 +742,24 @@ export function MaintenanceHistory({
                                 </span>
                                 <small style={{ color: '#94a3b8' }}>({item.size})</small>
                               </div>
-                              <button
-                                type="button"
-                                style={{
-                                  border: 'none',
-                                  background: 'transparent',
-                                  color: '#ef4444',
-                                  cursor: 'pointer',
-                                  padding: '2px 4px',
-                                  fontSize: '12px',
-                                  fontWeight: 600,
-                                }}
-                                onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
-                                title="Gỡ tệp"
-                              >
-                                Xoá
-                              </button>
+                              <Tip content="Gỡ tệp">
+                                <button
+                                  aria-label="Gỡ tệp"
+                                  type="button"
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
+                                    padding: '2px 4px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                  }}
+                                  onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                >
+                                  Xoá
+                                </button>
+                              </Tip>
                             </div>
                           ))}
                         </div>

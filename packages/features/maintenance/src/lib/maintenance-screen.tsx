@@ -14,8 +14,6 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import { MAINTENANCE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-maintenance';
 import {
-  DashboardCardPicker,
-  DashboardView,
   ModuleSettingsView,
   ModuleShell,
   useAssistantSaved,
@@ -28,8 +26,15 @@ import {
   formatDateTime as formatSharedDateTime,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { RotateCcw, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { ListFilter, RotateCcw, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
+import { Input } from './ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { TablePagerBar } from './ui/table-pager-bar';
+import { cn } from './utils';
 import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
 import { FrequencyCatalogEditor } from './components/frequency-catalog-editor';
@@ -58,6 +63,7 @@ import {
 } from './maintenance-api';
 import {
   MAINTENANCE_DASHBOARD_CARDS,
+  MaintenanceDashboardGrid,
   type MaintenanceDashboardData,
 } from './maintenance-dashboard.cards';
 import {
@@ -69,6 +75,10 @@ import {
   Settings,
 } from 'lucide-react';
 import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
+import { SELECT_CLASS } from './ui/select-class';
+import { Tip } from './ui/tooltip';
+import { useFillViewportHeight } from './ui/use-fill-viewport';
+import { MaintenanceCardPicker } from './maintenance-card-picker';
 import styles from './maintenance.module.scss';
 
 type View = 'dashboard' | 'matrix' | 'schedules' | 'occurrences' | 'history' | 'settings';
@@ -134,12 +144,25 @@ const OCC_STATUS_OPTIONS = [
   { value: 'blocked', label: 'Bị chặn' },
 ];
 
-const OCC_PAGE_SIZE_OPTIONS = [
-  { value: '15', label: '15 / trang' },
-  { value: '30', label: '30 / trang' },
-  { value: '45', label: '45 / trang' },
-  { value: '60', label: '60 / trang' },
-];
+/** Màu chữ + chấm của trạng thái phiếu phát sinh. */
+const OCC_STATUS_TEXT: Record<string, string> = {
+  completed: 'text-green-800',
+  in_progress: 'text-blue-600',
+  planned: 'text-slate-600',
+  dispatch_pending: 'text-amber-600',
+  failed: 'text-red-600',
+  blocked: 'text-purple-600',
+  generated: 'text-sky-600',
+};
+
+const OCC_PAGE_SIZES = [15, 30, 45, 60];
+
+/** Lớp dùng chung cho các ô trong form "Lịch bảo trì mới". */
+const SCHEDULE_FIELD = 'flex flex-col gap-1.5';
+const SCHEDULE_LABEL = 'text-sm font-semibold text-slate-700';
+
+/** Số yêu cầu chạy cùng lúc khi xử lý hàng loạt: đủ nhanh mà không dồn dập lên máy chủ. */
+const BATCH_CONCURRENCY = 4;
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
@@ -157,6 +180,9 @@ export function MaintenanceScreen() {
   const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [assetQuery, setAssetQuery] = useState('');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
+  const [scheduleFrequency, setScheduleFrequency] = useState<MaintenanceFrequency>('month');
+  const [schedulePriority, setSchedulePriority] = useState<MaintenancePriority>('Normal');
+  const [scheduleActivate, setScheduleActivate] = useState(true);
   const [taskAsset, setTaskAsset] = useState<string>();
   const [homePath, setHomePath] = useState('/');
   const [history, setHistory] = useState<MaintenanceHistoryPage>();
@@ -229,6 +255,10 @@ export function MaintenanceScreen() {
         .sort((left, right) => left.code.localeCompare(right.code, 'vi')),
     [matrix],
   );
+  const assetSelectOptions = useMemo(
+    () => assetOptions.map((asset) => ({ value: asset.code, label: `${asset.code} - ${asset.name}` })),
+    [assetOptions],
+  );
   const pickedAsset = assetOptions.find(
     (asset) => asset.code.toLowerCase() === assetQuery.trim().toLowerCase(),
   );
@@ -242,11 +272,21 @@ export function MaintenanceScreen() {
     [workspace],
   );
 
+  /** Đóng form tạo lịch và đưa mọi ô về mặc định cho lần mở sau. */
+  const closeScheduleForm = () => {
+    setCreating(false);
+    setAssetQuery('');
+    setProcedureDefinitionId('');
+    setScheduleFrequency('month');
+    setSchedulePriority('Normal');
+    setScheduleActivate(true);
+    setScheduleStartDate(new Date().toISOString().slice(0, 10));
+  };
+
   const submitSchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
     if (!pickedAsset) {
-      setError(`Không có thiết bị nào mã “${assetQuery.trim()}” trong Kho.`);
+      setError(assetQuery.trim() ? `Không có thiết bị nào mã “${assetQuery.trim()}” trong Kho.` : 'Vui lòng chọn thiết bị.');
       return;
     }
     if (!scheduleStartDate) {
@@ -257,16 +297,13 @@ export function MaintenanceScreen() {
     try {
       await createMaintenanceSchedule({
         assetCode: pickedAsset.code,
-        procedureDefinitionId: procedureDefinitionId || String(form.get('procedureDefinitionId') ?? '') || undefined,
-        frequency: form.get('frequency') as MaintenanceFrequency,
-        priority: form.get('priority') as MaintenancePriority,
+        procedureDefinitionId: procedureDefinitionId || undefined,
+        frequency: effectiveFrequency,
+        priority: schedulePriority,
         startDate: scheduleStartDate,
-        activate: form.get('activate') === 'on',
+        activate: scheduleActivate,
       });
-      setCreating(false);
-      setAssetQuery('');
-      setProcedureDefinitionId('');
-      setScheduleStartDate(new Date().toISOString().slice(0, 10));
+      closeScheduleForm();
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không tạo được lịch bảo trì.');
@@ -275,30 +312,54 @@ export function MaintenanceScreen() {
     }
   };
 
-  const skipOnce = async (id: string) => {
+  /**
+   * Chạy một thao tác cho cả lô mục đã chọn. API chưa có đường gộp nên gọi từng mục, nhưng:
+   *  - tối đa ${BATCH_CONCURRENCY} yêu cầu cùng lúc (các mục độc lập nhau, không cần chờ lần lượt);
+   *  - nạp lại workspace + ma trận ĐÚNG MỘT lần sau cả lô, thay vì một lần cho mỗi mục;
+   *  - gom lỗi thành một thông báo, mục lỗi không chặn các mục còn lại.
+   */
+  const runBatch = async <T,>(
+    items: readonly string[],
+    task: (item: string) => Promise<T>,
+    failure: string,
+  ): Promise<{ done: { item: string; value: T }[]; failed: string[] }> => {
     setBusy(true);
+    const done: { item: string; value: T }[] = [];
+    const failed: string[] = [];
+    let firstMessage: string | undefined;
     try {
-      await skipNextOccurrence(id);
-      // Màn này chưa có băng thông báo riêng; hạn mới hiện ngay ở cột "Đến hạn"
-      // sau khi nạp lại, nên không cần nói thêm.
+      let next = 0;
+      const worker = async () => {
+        while (next < items.length) {
+          const item = items[next++];
+          try {
+            done.push({ item, value: await task(item) });
+          } catch (cause) {
+            failed.push(item);
+            firstMessage ??= cause instanceof Error ? cause.message : undefined;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, items.length) }, worker));
       await reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không bỏ qua được kỳ bảo trì.');
+      setError(
+        failed.length > 0
+          ? `${failure} (${failed.length}/${items.length} mục lỗi: ${failed.join(', ')})${firstMessage ? ` — ${firstMessage}` : ''}`
+          : undefined,
+      );
     } finally {
       setBusy(false);
     }
+    return { done, failed };
   };
 
-  const toggleSchedule = async (id: string, status: 'active' | 'paused') => {
-    setBusy(true);
-    try {
-      await updateMaintenanceSchedule(id, { status });
-      await reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không cập nhật được lịch.');
-    } finally {
-      setBusy(false);
-    }
+  const skipOnce = async (ids: readonly string[]) => {
+    // Hạn mới hiện ngay ở cột "Đến hạn" sau khi nạp lại, nên không cần thông báo thêm.
+    await runBatch(ids, (id) => skipNextOccurrence(id), 'Không bỏ qua được kỳ bảo trì');
+  };
+
+  const toggleSchedule = async (ids: readonly string[], status: 'active' | 'paused') => {
+    await runBatch(ids, (id) => updateMaintenanceSchedule(id, { status }), 'Không cập nhật được lịch');
   };
 
   /**
@@ -326,33 +387,20 @@ export function MaintenanceScreen() {
     }
   };
 
-  const removeAsset = async (assetCode: string) => {
-    setBusy(true);
-    try {
-      await removeAssetFromMatrix(assetCode);
-      await reload();
-      setError(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không gỡ được thiết bị khỏi ma trận.');
-    } finally {
-      setBusy(false);
-    }
+  const removeAsset = async (assetCodes: readonly string[]) => {
+    await runBatch(assetCodes, (code) => removeAssetFromMatrix(code), 'Không gỡ được thiết bị khỏi ma trận');
   };
 
-  const runNow = async (assetCode: string, frequency?: MaintenanceFrequency) => {
-    setBusy(true);
-    try {
-      const result = await runMaintenanceNow(assetCode, frequency);
-      await reload();
-      setError(
-        result.generated === 0
-          ? `Chưa sinh được phiếu cho ${assetCode}; kiểm tra lại chu kỳ đang bật.`
-          : undefined,
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không tạo được phiếu bảo trì.');
-    } finally {
-      setBusy(false);
+  const runNow = async (assetCodes: readonly string[]) => {
+    const { done, failed } = await runBatch(
+      assetCodes,
+      (code) => runMaintenanceNow(code),
+      'Không tạo được phiếu bảo trì',
+    );
+    const empty = done.filter((entry) => entry.value.generated === 0).map((entry) => entry.item);
+    // Lỗi API đã được runBatch báo; ở đây chỉ bổ sung các thiết bị gọi được nhưng không sinh ra phiếu nào.
+    if (empty.length > 0 && failed.length === 0) {
+      setError(`Chưa sinh được phiếu cho ${empty.join(', ')}; kiểm tra lại chu kỳ đang bật.`);
     }
   };
 
@@ -485,6 +533,11 @@ export function MaintenanceScreen() {
     return options.map((option) => ({ id: option.code, label: option.label }));
   }, [settings]);
 
+  /** Tần suất đang chọn nếu còn trong danh mục; không thì lấy mục đầu tiên (danh mục đổi trong Cài đặt). */
+  const effectiveFrequency: MaintenanceFrequency = frequencyOptions.some((option) => option.id === scheduleFrequency)
+    ? scheduleFrequency
+    : (frequencyOptions[0]?.id ?? 'month');
+
   const frequencyLabel = (code: string) =>
     frequencyOptions.find((option) => option.id === code)?.label ??
     FALLBACK_FREQUENCY_LABEL[code] ??
@@ -528,6 +581,9 @@ export function MaintenanceScreen() {
     cardDraft.some((id, index) => id !== storedCards[index]);
 
   // Bộ lọc & Phân trang cho Bảng Phiếu Công Việc Phát Sinh (Occurrences)
+  // Khung Phiếu phát sinh chiếm đúng phần cao còn lại của màn hình; đo lại khi chuyển tab hoặc khi dữ liệu tải xong (khung chỉ hiện sau đó).
+  const occSectionRef = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(occSectionRef, 360, `${view}:${workspace ? 'ready' : 'loading'}`, 16);
   const [occSearch, setOccSearch] = useState('');
   const [occKind, setOccKind] = useState('all');
   const [occPriority, setOccPriority] = useState('all');
@@ -582,6 +638,7 @@ export function MaintenanceScreen() {
     return filteredOccurrences.slice(start, start + numPageSize);
   }, [filteredOccurrences, safeOccCurrentPage, numPageSize]);
 
+  const occFilterCount = [occKind, occPriority, occStatus, occAsset].filter((value) => value !== 'all').length;
   const isOccFilterActive =
     occSearch.trim() !== '' ||
     occKind !== 'all' ||
@@ -636,8 +693,7 @@ export function MaintenanceScreen() {
       ) : (
         <>
           {view === 'dashboard' ? (
-            <DashboardView<MaintenanceDashboardData>
-              catalog={MAINTENANCE_DASHBOARD_CARDS}
+            <MaintenanceDashboardGrid
               selection={settings?.['dashboard.cards'].value.cardIds ?? []}
               data={{ workspace, matrix }}
             />
@@ -652,7 +708,7 @@ export function MaintenanceScreen() {
                   description:
                     'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
                   render: () => (
-                    <DashboardCardPicker<MaintenanceDashboardData>
+                    <MaintenanceCardPicker<MaintenanceDashboardData>
                       catalog={MAINTENANCE_DASHBOARD_CARDS}
                       selection={cardDraft}
                       onChange={setCardDraft}
@@ -696,49 +752,41 @@ export function MaintenanceScreen() {
           isOpen={creating}
           title="Lịch bảo trì mới"
           subtitle="Thiết lập chu kỳ bảo trì phòng ngừa định kỳ cho thiết bị trong hệ thống."
-          onClose={() => {
-            setCreating(false);
-            setProcedureDefinitionId('');
-          }}
+          maxWidth="680px"
+          // Kích thước cố định; màn thấp hơn thì popup co theo chiều cao màn hình, phần dư cuộn dọc trong form.
+          popupClassName="h-[640px]"
+          onClose={closeScheduleForm}
         >
-          <form onSubmit={submitSchedule}>
-            <div className={styles.formGrid}>
-              <label className={styles.formGridFull}>
-                Thiết bị (từ danh mục Kho)
-                <input
-                  name="assetCode"
-                  required
-                  list="schedule-assets"
-                  autoComplete="off"
-                  placeholder="Gõ để tìm theo mã hoặc tên thiết bị…"
-                  value={assetQuery}
-                  onChange={(event) => setAssetQuery(event.target.value)}
-                />
+          <form onSubmit={submitSchedule} noValidate className="flex min-h-0 flex-1 flex-col pt-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain pb-2 pr-1.5">
+              <div className={SCHEDULE_FIELD}>
+                <span className={SCHEDULE_LABEL}>Thiết bị (từ danh mục Kho) *</span>
                 {/* Danh mục đã nạp sẵn cho ma trận, không cần gọi thêm API. */}
-                <datalist id="schedule-assets">
-                  {assetOptions.map((asset) => (
-                    <option key={asset.code} value={asset.code}>
-                      {asset.name}
-                    </option>
-                  ))}
-                </datalist>
-                <span className={styles.fieldHint}>
-                  {assetQuery.trim() ? (
-                    pickedAsset ? (
-                      <strong className={styles.assetOk}>{pickedAsset.name}</strong>
-                    ) : (
-                      <span className={styles.assetUnknown}>Chưa khớp thiết bị nào trong Kho</span>
-                    )
+                <SearchableSelect
+                  className={SELECT_CLASS}
+                  height={36}
+                  options={assetSelectOptions}
+                  value={assetQuery}
+                  placeholder="Gõ để tìm theo mã hoặc tên thiết bị…"
+                  emptyText="Không tìm thấy thiết bị phù hợp"
+                  disabled={busy}
+                  clearable
+                  onChange={(val) => setAssetQuery(val)}
+                />
+                <span className="text-[0.8125rem] text-muted-foreground">
+                  {pickedAsset ? (
+                    <strong className="font-semibold text-emerald-700">{pickedAsset.name}</strong>
                   ) : (
-                    <span>Sẵn sàng tìm kiếm trong {assetOptions.length} thiết bị</span>
+                    <>Sẵn sàng tìm kiếm trong {assetOptions.length} thiết bị</>
                   )}
                 </span>
-              </label>
+              </div>
 
-              <label className={styles.formGridFull}>
-                Quy trình nghiệp vụ áp dụng
+              <div className={SCHEDULE_FIELD}>
+                <span className={SCHEDULE_LABEL}>Quy trình nghiệp vụ áp dụng</span>
                 <SearchableSelect
-                  name="procedureDefinitionId"
+                  className={SELECT_CLASS}
+                  height={36}
                   options={procedureOptions}
                   value={procedureDefinitionId}
                   placeholder={
@@ -751,61 +799,73 @@ export function MaintenanceScreen() {
                   clearable
                   onChange={(val) => setProcedureDefinitionId(val)}
                 />
-              </label>
-
-              <label>
-                Tần suất bảo trì
-                <select
-                  name="frequency"
-                  defaultValue={
-                    frequencyOptions.some((option) => option.id === 'month')
-                      ? 'month'
-                      : frequencyOptions[0]?.id
-                  }
-                >
-                  {frequencyOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Mức độ ưu tiên
-                <select name="priority" defaultValue="Normal">
-                  {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Ngày bắt đầu áp dụng
-                <DatePickerInput value={scheduleStartDate} onChange={setScheduleStartDate} height={40} />
-              </label>
-
-              <div className={styles.checkboxField}>
-                <span className={styles.fieldLabel}>Trạng thái kích hoạt</span>
-                <label className={styles.checkboxCard}>
-                  <input name="activate" type="checkbox" defaultChecked />
-                  <span>Kích hoạt và theo dõi lịch ngay</span>
-                </label>
               </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className={SCHEDULE_FIELD}>
+                  <span className={SCHEDULE_LABEL}>Tần suất bảo trì</span>
+                  <SearchableSelect
+                    className={SELECT_CLASS}
+                    height={36}
+                    searchInDropdown
+                    hideDropdownSearch
+                    clearable={false}
+                    options={frequencyOptions.map((option) => ({ value: option.id, label: option.label }))}
+                    value={effectiveFrequency}
+                    disabled={busy}
+                    onChange={(val) => val && setScheduleFrequency(val as MaintenanceFrequency)}
+                  />
+                </div>
+                <div className={SCHEDULE_FIELD}>
+                  <span className={SCHEDULE_LABEL}>Mức độ ưu tiên</span>
+                  <SearchableSelect
+                    className={SELECT_CLASS}
+                    height={36}
+                    searchInDropdown
+                    hideDropdownSearch
+                    clearable={false}
+                    options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({ value, label }))}
+                    value={schedulePriority}
+                    disabled={busy}
+                    onChange={(val) => val && setSchedulePriority(val as MaintenancePriority)}
+                  />
+                </div>
+                <div className={SCHEDULE_FIELD}>
+                  <span className={SCHEDULE_LABEL}>Ngày bắt đầu áp dụng</span>
+                  <DatePickerInput value={scheduleStartDate} onChange={setScheduleStartDate} height={36} />
+                </div>
+                <div className={SCHEDULE_FIELD}>
+                  <span className={SCHEDULE_LABEL}>Trạng thái kích hoạt</span>
+                  <label className="flex h-9 cursor-pointer items-center gap-2.5 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900">
+                    <Checkbox
+                      checked={scheduleActivate}
+                      disabled={busy}
+                      onCheckedChange={(checked) => setScheduleActivate(Boolean(checked))}
+                    />
+                    <span>Kích hoạt và theo dõi lịch ngay</span>
+                  </label>
+                </div>
+              </div>
+
+              {error ? (
+                <p role="alert" className="m-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                  {error}
+                </p>
+              ) : null}
             </div>
-            <div className={styles.formActions}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={() => setCreating(false)}
-              >
+
+            <div className="mt-2 flex shrink-0 justify-end gap-3 border-t border-border pt-4">
+              <Button type="button" variant="outline" size="lg" className="rounded-md px-4" onClick={closeScheduleForm}>
                 Huỷ
-              </button>
-              <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
+              </Button>
+              <Button
+                type="submit"
+                size="lg"
+                className="rounded-md bg-blue-600 px-5 font-bold text-white hover:bg-blue-700"
+                disabled={busy}
+              >
                 {busy ? 'Đang lưu…' : 'Lưu lịch bảo trì'}
-              </button>
+              </Button>
             </div>
           </form>
         </MinimalPopupForm>
@@ -860,44 +920,52 @@ export function MaintenanceScreen() {
               canManage={canManage}
               busy={busy}
               frequencyLabel={frequencyLabel}
-              onToggle={(id, nextStatus) => void toggleSchedule(id, nextStatus)}
-              onSkipOnce={(id) => void skipOnce(id)}
+              onToggle={(ids, nextStatus) => toggleSchedule(ids, nextStatus)}
+              onSkipOnce={(ids) => skipOnce(ids)}
               onCreateSchedule={() => setCreating(true)}
             />
           ) : null}
 
           {view === 'occurrences' ? (
-            <section className={styles.occCard}>
-              {/* Tiêu đề & Hành động */}
-              <div className={styles.occHeader}>
-                <div>
-                  <h2>Phiếu công việc phát sinh</h2>
-                  <p>
+            <section className="flex min-h-0 flex-col gap-4">
+              {/* Tiêu đề & hành động: nằm ngoài thẻ bảng, cùng kiểu các trang khác */}
+              <header className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="m-0 mb-1 text-xl font-bold tracking-tight text-foreground">
+                    Phiếu công việc phát sinh
+                  </h2>
+                  <p className="m-0 text-sm leading-snug text-muted-foreground">
                     Theo dõi danh sách các sự cố đột xuất và phiếu bảo trì phát sinh ngoài kế hoạch định kỳ.
                   </p>
                 </div>
                 {workspace.permissions.canManageOccurrences ? (
-                  <button
+                  <Button
                     type="button"
-                    className={`${styles.action} ${styles.actionIncident}`}
+                    size="lg"
+                    className="rounded-md border-red-600 bg-red-600 px-4 text-white hover:bg-red-700"
                     onClick={() => setIncidentOpen(true)}
                     disabled={busy}
                   >
                     Tạo sự cố
-                  </button>
+                  </Button>
                 ) : null}
-              </div>
+              </header>
 
-              {/* VÙNG 1: BỘ LỌC TỨC THÌ (SEARCH + SEARCHABLE SELECTS + RESET) */}
-              <div className={styles.occControlsBar}>
-                <div className={styles.occControlsLeft}>
-                  {/* Tìm kiếm tức thời */}
-                  <div className={styles.occSearchBox}>
-                    <span className={styles.occSearchIcon}>
-                      <Search size={15} />
-                    </span>
-                    <input
+              {/* Thẻ bảng duy nhất: thanh công cụ, bảng, chân phân trang */}
+              <div
+                ref={occSectionRef}
+                className="flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border bg-white shadow-sm"
+              >
+                <div className="flex flex-wrap items-center gap-2.5 border-b border-border bg-muted/40 px-4 py-3">
+                  <div className="relative min-w-[180px] max-w-[320px] flex-1 basis-60">
+                    <Search
+                      size={15}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <Input
                       type="search"
+                      className="h-9 rounded-md pl-8 text-sm"
                       placeholder="Tìm mã sự cố, thiết bị, tiêu đề, quy trình…"
                       value={occSearch}
                       aria-label="Tìm kiếm phiếu phát sinh"
@@ -908,155 +976,195 @@ export function MaintenanceScreen() {
                     />
                   </div>
 
-                  {/* Lọc theo Nguồn / Phân loại */}
-                  <div className={styles.occFilterSelectWrapper}>
-                    <SearchableSelect
-                      options={OCC_KIND_OPTIONS}
-                      value={occKind}
-                      placeholder="Loại phát sinh…"
-                      clearable={false}
-                      onChange={(val) => {
-                        setOccKind(val || 'all');
-                        setOccCurrentPage(1);
-                      }}
-                    />
-                  </div>
-
-                  {/* Lọc theo Mức ưu tiên */}
-                  <div className={styles.occFilterSelectWrapper}>
-                    <SearchableSelect
-                      options={OCC_PRIORITY_OPTIONS}
-                      value={occPriority}
-                      placeholder="Mức ưu tiên…"
-                      clearable={false}
-                      onChange={(val) => {
-                        setOccPriority(val || 'all');
-                        setOccCurrentPage(1);
-                      }}
-                    />
-                  </div>
-
-                  {/* Lọc theo Trạng thái */}
-                  <div className={styles.occFilterSelectWrapper}>
-                    <SearchableSelect
-                      options={OCC_STATUS_OPTIONS}
-                      value={occStatus}
-                      placeholder="Trạng thái…"
-                      clearable={false}
-                      onChange={(val) => {
-                        setOccStatus(val || 'all');
-                        setOccCurrentPage(1);
-                      }}
-                    />
-                  </div>
-
-                  {/* Lọc theo Thiết bị */}
-                  <div className={styles.occFilterSelectWrapper}>
-                    <SearchableSelect
-                      options={occAssetOptions}
-                      value={occAsset}
-                      placeholder="Thiết bị…"
-                      clearable={false}
-                      onChange={(val) => {
-                        setOccAsset(val || 'all');
-                        setOccCurrentPage(1);
-                      }}
-                    />
-                  </div>
-
-                  {/* Nút Xoá bộ lọc khi có điều kiện active */}
-                  {isOccFilterActive ? (
-                    <button
-                      type="button"
-                      className={styles.occResetBtn}
-                      title="Đặt lại toàn bộ bộ lọc"
-                      onClick={resetOccFilters}
+                  <Popover>
+                    <PopoverTrigger
+                      render={
+                        <Button variant="outline" size="lg" className="gap-1.5 rounded-md px-3" aria-label="Bộ lọc" />
+                      }
                     >
-                      <RotateCcw size={13} />
-                      <span>Xoá bộ lọc</span>
-                    </button>
+                      <ListFilter />
+                      Bộ lọc
+                      {occFilterCount > 0 ? (
+                        <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
+                          {occFilterCount}
+                        </span>
+                      ) : null}
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-sm font-semibold text-slate-700">Loại phát sinh</span>
+                          <SearchableSelect
+                            className={SELECT_CLASS}
+                            options={OCC_KIND_OPTIONS}
+                            value={occKind}
+                            height={36}
+                            searchInDropdown
+                            hideDropdownSearch
+                            clearable={false}
+                            onChange={(val) => {
+                              setOccKind(val || 'all');
+                              setOccCurrentPage(1);
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-sm font-semibold text-slate-700">Mức ưu tiên</span>
+                          <SearchableSelect
+                            className={SELECT_CLASS}
+                            options={OCC_PRIORITY_OPTIONS}
+                            value={occPriority}
+                            height={36}
+                            searchInDropdown
+                            hideDropdownSearch
+                            clearable={false}
+                            onChange={(val) => {
+                              setOccPriority(val || 'all');
+                              setOccCurrentPage(1);
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-sm font-semibold text-slate-700">Trạng thái</span>
+                          <SearchableSelect
+                            className={SELECT_CLASS}
+                            options={OCC_STATUS_OPTIONS}
+                            value={occStatus}
+                            height={36}
+                            searchInDropdown
+                            hideDropdownSearch
+                            clearable={false}
+                            onChange={(val) => {
+                              setOccStatus(val || 'all');
+                              setOccCurrentPage(1);
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-sm font-semibold text-slate-700">Thiết bị</span>
+                          <SearchableSelect
+                            className={SELECT_CLASS}
+                            options={occAssetOptions}
+                            value={occAsset}
+                            height={36}
+                            searchInDropdown
+                            clearable={false}
+                            onChange={(val) => {
+                              setOccAsset(val || 'all');
+                              setOccCurrentPage(1);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {isOccFilterActive ? (
+                    <Tip content="Đặt lại toàn bộ bộ lọc">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        className="gap-1.5 rounded-md px-3"
+                        onClick={resetOccFilters}
+                      >
+                        <RotateCcw size={13} />
+                        <span>Xoá bộ lọc</span>
+                      </Button>
+                    </Tip>
                   ) : null}
                 </div>
-              </div>
 
-              {/* VÙNG 2: THÂN BẢNG DỮ LIỆU */}
-              <div className={styles.occTableWrap}>
-                <table className={styles.occTable}>
+              {/* Bảng: chiếm hết chiều cao còn lại của thẻ, quá dài thì chỉ cuộn trong bảng; tiêu đề cột đứng yên */}
+              <div className="min-h-0 flex-1 overflow-auto">
+                <table className="w-full border-collapse text-sm">
                   <thead>
-                    <tr>
-                      <th style={{ width: '28%' }}>Lịch / Nguồn phát sinh</th>
-                      <th style={{ width: '14%' }}>Thiết bị</th>
-                      <th style={{ width: '15%' }}>Đến hạn</th>
-                      <th style={{ width: '11%' }}>Ưu tiên</th>
-                      <th style={{ width: '16%' }}>Trạng thái</th>
-                      <th style={{ width: '16%' }}>Hồ sơ quy trình</th>
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-700 [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-slate-300 [&>th]:bg-[#e9eef5]">
+                      <th className="w-[28%] px-3 py-2.5">Lịch / Nguồn phát sinh</th>
+                      <th className="w-[14%] px-3 py-2.5">Thiết bị</th>
+                      <th className="w-[15%] px-3 py-2.5">Đến hạn</th>
+                      <th className="w-[11%] px-3 py-2.5">Ưu tiên</th>
+                      <th className="w-[16%] px-3 py-2.5">Trạng thái</th>
+                      <th className="w-[16%] px-3 py-2.5">Hồ sơ quy trình</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedOccurrences.map((occurrence) => {
                       const isIncident = occurrence.kind === 'incident';
                       return (
-                        <tr key={occurrence.id}>
-                          <td>
-                            <div>
-                              <span
-                                className={`${styles.occKindBadge} ${
-                                  isIncident ? styles.occKindIncident : styles.occKindPreventive
-                                }`}
+                        <tr
+                          key={occurrence.id}
+                          className="border-t border-slate-100 align-top hover:bg-slate-50"
+                        >
+                          <td className="px-3 py-2.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'h-5 rounded px-1.5 font-semibold',
+                                  isIncident
+                                    ? 'border-red-300 bg-red-100 text-red-800'
+                                    : 'border-green-200 bg-green-50 text-green-800',
+                                )}
                               >
                                 {isIncident ? 'Sự cố' : 'Định kỳ'}
-                              </span>
-                              <strong>
+                              </Badge>
+                              <strong className="font-semibold text-slate-900">
                                 {occurrence.scheduleTitle ||
                                   occurrence.title ||
                                   (isIncident ? 'Sự cố đột xuất' : 'Phiếu bảo trì')}
                               </strong>
                             </div>
                             {isIncident && occurrence.code ? (
-                              <span className={styles.sub} style={{ marginTop: '3px' }}>
+                              <span className="mt-1 block text-sm text-slate-500">
                                 [{occurrence.code}] {occurrence.title !== occurrence.scheduleTitle ? occurrence.title : ''}
                               </span>
                             ) : null}
                           </td>
-                          <td>
-                            <span className={styles.occAssetBadge}>{occurrence.assetCode}</span>
+                          <td className="px-3 py-2.5">
+                            <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-700">
+                              {occurrence.assetCode}
+                            </span>
                             {occurrence.assetName ? (
-                              <span className={styles.sub} style={{ marginTop: '2px' }}>
+                              <span className="mt-1 block text-sm text-slate-500">
                                 {occurrence.assetName}
                               </span>
                             ) : null}
                           </td>
-                          <td>{formatDateTime(occurrence.dueAt)}</td>
-                          <td>
-                            <span
-                              className={`${styles.occPriorityPill} ${
+                          <td className="px-3 py-2.5 tabular-nums">{formatDateTime(occurrence.dueAt)}</td>
+                          <td className="px-3 py-2.5">
+                            <Badge
+                              variant="outline"
+                              className={
                                 occurrence.priority === 'High'
-                                  ? styles.occPrioHigh
+                                  ? 'border-red-200 bg-red-50 font-bold text-red-700'
                                   : occurrence.priority === 'Normal'
-                                  ? styles.occPrioNormal
-                                  : styles.occPrioLow
-                              }`}
+                                  ? 'border-blue-200 bg-blue-50 font-bold text-blue-700'
+                                  : 'border-slate-200 bg-slate-100 font-bold text-slate-600'
+                              }
                             >
                               {PRIORITY_LABEL[occurrence.priority] ?? occurrence.priority}
-                            </span>
+                            </Badge>
                           </td>
-                          <td>
+                          <td className="px-3 py-2.5">
                             <span
-                              className={`${styles.occStatusBadge} ${
-                                styles[`occStatus_${occurrence.status}`] ?? ''
-                              }`}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 text-xs font-semibold',
+                                OCC_STATUS_TEXT[occurrence.status] ?? 'text-slate-600',
+                              )}
                             >
-                              ● {OCCURRENCE_STATUS_LABELS[occurrence.status] ?? occurrence.status}
+                              <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+                              {OCCURRENCE_STATUS_LABELS[occurrence.status] ?? occurrence.status}
                             </span>
                             {occurrence.failureReason && !/^Procedure API trả về \d+\.$/.test(occurrence.failureReason) ? (
-                              <span className={styles.sub} style={{ color: '#dc2626', marginTop: '2px' }}>
+                              <span className="mt-1 block text-sm text-red-600">
                                 {occurrence.failureReason}
                               </span>
                             ) : null}
                           </td>
-                          <td className={styles.code}>
+                          <td className="px-3 py-2.5 font-mono text-xs">
                             {occurrence.procedureInstanceCode ? (
-                              <strong>{occurrence.procedureInstanceCode}</strong>
+                              <strong className="font-bold">{occurrence.procedureInstanceCode}</strong>
                             ) : (
                               '—'
                             )}
@@ -1066,7 +1174,7 @@ export function MaintenanceScreen() {
                     })}
                     {paginatedOccurrences.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className={styles.occEmpty}>
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
                           {isOccFilterActive
                             ? 'Không tìm thấy phiếu phát sinh nào khớp với bộ lọc hiện tại.'
                             : 'Chưa có phiếu công việc phát sinh.'}
@@ -1077,58 +1185,54 @@ export function MaintenanceScreen() {
                 </table>
               </div>
 
-              {/* VÙNG 3: FOOTER CHÂN BẢNG & PHÂN TRANG */}
-              <div className={styles.occFooterBar}>
-                <div className={styles.occFooterLeft}>
-                  <span className={styles.occTotalRecords}>
+              <TablePagerBar
+                summary={
+                  <>
                     Hiển thị{' '}
                     <strong>
                       {occTotalRecords > 0 ? (safeOccCurrentPage - 1) * numPageSize + 1 : 0}–
                       {Math.min(safeOccCurrentPage * numPageSize, occTotalRecords)}
                     </strong>{' '}
                     / <strong>{occTotalRecords}</strong> phiếu
-                  </span>
-                  <label className={styles.occPageSizeLabel}>
-                    <span>Hiển thị:</span>
-                    <div className={styles.occPageSizeSelect}>
-                      <SearchableSelect
-                        options={OCC_PAGE_SIZE_OPTIONS}
-                        value={occPageSize}
-                        clearable={false}
-                        onChange={(val) => {
-                          setOccPageSize(val || '15');
-                          setOccCurrentPage(1);
-                        }}
-                      />
-                    </div>
-                  </label>
-                </div>
-
-                <div className={styles.occFooterRight}>
-                  <div className={styles.occPaginationGroup}>
-                    <button
-                      type="button"
-                      className={styles.occPageBtn}
+                  </>
+                }
+                pageSize={numPageSize}
+                pageSizeOptions={OCC_PAGE_SIZES}
+                onPageSizeChange={(n) => {
+                  setOccPageSize(String(n));
+                  setOccCurrentPage(1);
+                }}
+              >
+                <Tip content="Trang trước">
+                  <span className="inline-flex">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="rounded-md px-3"
                       disabled={safeOccCurrentPage <= 1}
                       onClick={() => setOccCurrentPage((p) => Math.max(1, p - 1))}
-                      title="Trang trước"
                     >
                       ← Trước
-                    </button>
-                    <span className={styles.occPageIndicator}>
-                      {safeOccCurrentPage} / {occTotalPages}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.occPageBtn}
+                    </Button>
+                  </span>
+                </Tip>
+                <span className="px-1 text-sm font-bold text-foreground">
+                  {safeOccCurrentPage} / {occTotalPages}
+                </span>
+                <Tip content="Trang sau">
+                  <span className="inline-flex">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="rounded-md px-3"
                       disabled={safeOccCurrentPage >= occTotalPages}
                       onClick={() => setOccCurrentPage((p) => Math.min(occTotalPages, p + 1))}
-                      title="Trang sau"
                     >
                       Sau →
-                    </button>
-                  </div>
-                </div>
+                    </Button>
+                  </span>
+                </Tip>
+              </TablePagerBar>
               </div>
             </section>
           ) : null}
