@@ -31,7 +31,18 @@ let measureContext: CanvasRenderingContext2D | null | undefined;
 /** Bề ngang thật của chữ ở cỡ chữ chip; ô nhập không tự co theo chữ nên chip phải tự tính. */
 function textWidth(text: string, weight: number, fallbackPerChar: number): number {
   if (typeof document === 'undefined') return text.length * fallbackPerChar;
-  if (measureContext === undefined) measureContext = document.createElement('canvas').getContext('2d');
+  if (measureContext === undefined) {
+    // jsdom chưa cài gói native 'canvas' sẽ ghi 'Not implemented' vào console khi gọi getContext('2d').
+    if (typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)) {
+      measureContext = null;
+    } else {
+      try {
+        measureContext = document.createElement('canvas').getContext('2d');
+      } catch {
+        measureContext = null;
+      }
+    }
+  }
   if (!measureContext) return text.length * fallbackPerChar;
   measureContext.font = `${weight} 12.5px ${getComputedStyle(document.body).fontFamily}`;
   return measureContext.measureText(text).width;

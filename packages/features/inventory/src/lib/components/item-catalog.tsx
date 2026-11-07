@@ -35,7 +35,7 @@ import {
   Pencil,
   CheckCircle2,
 } from 'lucide-react';
-import { Popconfirm, formatDate, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Popconfirm, formatDate, SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -232,6 +232,17 @@ export function ItemCatalog({
     });
     setEditingItem(null);
   };
+
+  const editIsDirty =
+    editingItem !== null &&
+    JSON.stringify(editDraft) !==
+      JSON.stringify({
+        code: editingItem.code,
+        name: editingItem.name,
+        type: editingItem.type ?? '',
+        status: editingItem.status ?? '',
+        usageState: editingItem.usageState ?? '',
+      });
 
   const [warehouseFilter, setWarehouseFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -973,7 +984,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
 
       {/* POPUP MODAL CHỈNH SỬA THÔNG TIN RECORD (CHUẨN MINIMAL POPUP FORM THEO SKILL UI-DESIGN) */}
       {editingItem ? (
-        <div className={styles.modalOverlay} onClick={() => setEditingItem(null)}>
+        <div className={styles.modalOverlay}>
           <div
             className={styles.modalDialog}
             style={{
@@ -1018,28 +1029,29 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   Điều chỉnh mã SKU, tên hiển thị, loại danh mục và trạng thái kho bãi.
                 </p>
               </div>
-              <button
-                type="button"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '32px',
-                  height: '32px',
-                  padding: 0,
-                  border: 'none',
-                  borderRadius: '4px',
-                  background: 'transparent',
-                  color: '#666666',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s ease',
-                }}
-                onClick={() => setEditingItem(null)}
-                aria-label="Đóng"
-                title="Đóng (ESC)"
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
+              <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
+                <button
+                  type="button"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '32px',
+                    height: '32px',
+                    padding: 0,
+                    border: 'none',
+                    borderRadius: '4px',
+                    background: 'transparent',
+                    color: '#666666',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  aria-label="Đóng"
+                  title="Đóng"
+                >
+                  <X size={18} strokeWidth={2} />
+                </button>
+              </CloseGuard>
             </div>
 
             <form
@@ -1192,23 +1204,24 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   borderTop: '1px solid #e5e7eb',
                 }}
               >
-                <button
-                  type="button"
-                  style={{
-                    padding: '9px 16px',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    background: 'transparent',
-                    color: '#4b5563',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                  disabled={busy}
-                  onClick={() => setEditingItem(null)}
-                >
-                  Huỷ
-                </button>
+                <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
+                  <button
+                    type="button"
+                    style={{
+                      padding: '9px 16px',
+                      borderRadius: '4px',
+                      border: '1px solid #d1d5db',
+                      background: 'transparent',
+                      color: '#4b5563',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                    disabled={busy}
+                  >
+                    Huỷ
+                  </button>
+                </CloseGuard>
                 <button
                   type="submit"
                   style={{

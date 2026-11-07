@@ -10,7 +10,7 @@ import {
 import { Table, type TableColumnsType } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { Layers, ShieldCheck, X } from 'lucide-react';
-import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
 import { changeLotQuality, loadLots } from '../inventory-api';
 import { QUALITY_STATUS_BADGE, QUALITY_STATUS_LABEL, formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
@@ -74,6 +74,10 @@ export function LotPanel({
     setReason('');
     setSaveError(undefined);
   };
+
+  const qualityDirty =
+    editing !== undefined &&
+    (reason.trim() !== '' || nextStatus !== (editing.qualityStatus === 'PASSED' ? 'QUARANTINE' : 'PASSED'));
 
   const saveQuality = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -220,7 +224,7 @@ export function LotPanel({
       />
 
       {editing ? (
-        <div className={styles.modalOverlay} onClick={() => setEditing(undefined)}>
+        <div className={styles.modalOverlay}>
           <div
             className={styles.modalDialog}
             style={{ maxWidth: '480px', background: '#ffffff', borderRadius: '8px', padding: '24px' }}
@@ -235,9 +239,11 @@ export function LotPanel({
                   {materialName ?? materialCode} ({materialCode}) · đang {QUALITY_STATUS_LABEL[editing.qualityStatus]}
                 </p>
               </div>
-              <button type="button" className={styles.closeButton} onClick={() => setEditing(undefined)}>
-                <X size={18} />
-              </button>
+              <CloseGuard dirty={qualityDirty} busy={saving} onClose={() => setEditing(undefined)}>
+                <button type="button" className={styles.closeButton}>
+                  <X size={18} />
+                </button>
+              </CloseGuard>
             </div>
             <form onSubmit={saveQuality} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -271,9 +277,11 @@ export function LotPanel({
               ) : null}
               {saveError ? <p style={{ margin: 0, fontSize: '13px', color: '#b91c1c' }}>{saveError}</p> : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button type="button" className={styles.modalCancelBtn} onClick={() => setEditing(undefined)}>
-                  Huỷ
-                </button>
+                <CloseGuard dirty={qualityDirty} busy={saving} onClose={() => setEditing(undefined)}>
+                  <button type="button" className={styles.modalCancelBtn}>
+                    Huỷ
+                  </button>
+                </CloseGuard>
                 <button
                   type="submit"
                   className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}

@@ -8,6 +8,10 @@ jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
   loadMaterialHistory: (code: string) => mockHistory(code),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
+  // Các hàm và ô nhập dùng chung là mã thuần, dùng bản thật để test khớp hành vi trên giao diện.
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/currency-format'),
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/vn-number-input'),
+  ...jest.requireActual('../../../packages/shared/ui/src/lib/close-guard'),
   formatDateTime: (value: string) => value,
   SearchableSelect: ({
     options,

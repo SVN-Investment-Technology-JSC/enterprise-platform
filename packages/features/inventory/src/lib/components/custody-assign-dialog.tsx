@@ -1,7 +1,7 @@
 'use client';
 
 import type { Material } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import type { AuditorCandidate } from '../inventory-api';
@@ -51,8 +51,12 @@ export function CustodyAssignDialog({
     void send(() => onSubmit(target, employeeId));
   };
 
+  const dirtySnapshot = JSON.stringify([assetCode, employeeId]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{ maxWidth: '520px' }}
@@ -69,9 +73,11 @@ export function CustodyAssignDialog({
                 Chọn tài sản đang tồn kho và nhân viên nhận.
               </p>
             </div>
-            <button type="button" className={styles.closeButton} onClick={onCancel} title="Đóng" aria-label="Đóng">
-              <X size={18} strokeWidth={2} />
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
+                <X size={18} strokeWidth={2} />
+              </button>
+            </CloseGuard>
           </div>
 
           <div className={styles.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
@@ -111,14 +117,15 @@ export function CustodyAssignDialog({
           </div>
 
           <div className={styles.modalFoot}>
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={onCancel}
-              disabled={busy}
-            >
-              Huỷ
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button
+                type="button"
+                className={`${styles.action} ${styles.actionGhost}`}
+                disabled={busy}
+              >
+                Huỷ
+              </button>
+            </CloseGuard>
             <button
               type="submit"
               className={`${styles.action} ${styles.actionPrimary}`}

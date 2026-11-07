@@ -3,6 +3,7 @@ import type {
   InventoryTradeCatalog,
   Material,
 } from '@enterprise-platform/contracts-inventory';
+import { formatCurrencyVn, parseVnNumber } from '@enterprise-platform/shared-ui';
 import * as XLSX from 'xlsx';
 
 /** Nhóm trên trang: dịch vụ không quản lý tồn, còn lại là hàng hóa. */
@@ -151,7 +152,7 @@ export function paginate<T>(rows: readonly T[], page: number, pageSize: number):
 
 /** Giá bán hiển thị; chưa khai khác 0. */
 export function formatSalePrice(price?: number): string {
-  return price === undefined || price === null ? '—' : `${new Intl.NumberFormat('vi-VN').format(price)} đ`;
+  return formatCurrencyVn(price, { showUnit: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -346,8 +347,9 @@ export function parseImportRows(
     const priceText = cell(row, EXPORT_HEADERS.price);
     let salePrice: number | undefined;
     if (priceText) {
-      salePrice = Number(priceText.replace(/[.\s]/g, '').replace(',', '.'));
-      if (!Number.isFinite(salePrice) || salePrice < 0) return { line, error: 'Giá bán phải là số không âm.' };
+      const parsedPrice = parseVnNumber(priceText);
+      if (parsedPrice === null || parsedPrice < 0) return { line, error: 'Giá bán phải là số không âm.' };
+      salePrice = parsedPrice;
     }
 
     return {

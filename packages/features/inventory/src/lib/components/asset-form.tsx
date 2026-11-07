@@ -7,7 +7,7 @@ import type {
   CreateAssetRequest,
   Material,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { useState, useMemo, type FormEvent } from 'react';
 import { ASSET_CRITICALITY_LABEL } from '../inventory-labels';
 import { FormError, useFormSubmit } from './form-error';
@@ -85,8 +85,12 @@ export function AssetForm({
     }));
   };
 
+  const dirtySnapshot = JSON.stringify([code, name, isCustomCode, criticality, parentCode, serialNumber]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{
@@ -133,28 +137,29 @@ export function AssetForm({
                 : 'Khai báo thiết bị và phân bổ vào cây cấu trúc tài sản.'}
             </p>
           </div>
-          <button
-            type="button"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '32px',
-              height: '32px',
-              padding: 0,
-              border: 'none',
-              borderRadius: '4px',
-              background: 'transparent',
-              color: '#666666',
-              fontSize: '16px',
-              cursor: 'pointer',
-              transition: 'background 0.15s ease',
-            }}
-            onClick={onCancel}
-            title="Đóng (ESC)"
-          >
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button
+              type="button"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px',
+                padding: 0,
+                border: 'none',
+                borderRadius: '4px',
+                background: 'transparent',
+                color: '#666666',
+                fontSize: '16px',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease',
+              }}
+              title="Đóng"
+            >
             
-          </button>
+            </button>
+          </CloseGuard>
         </div>
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -342,23 +347,24 @@ export function AssetForm({
               borderTop: '1px solid #e5e7eb',
             }}
           >
-            <button
-              type="button"
-              style={{
-                padding: '9px 16px',
-                borderRadius: '4px',
-                border: '1px solid #d1d5db',
-                background: 'transparent',
-                color: '#4b5563',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              disabled={busy}
-              onClick={onCancel}
-            >
-              Huỷ
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button
+                type="button"
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                  background: 'transparent',
+                  color: '#4b5563',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                disabled={busy}
+              >
+                Huỷ
+              </button>
+            </CloseGuard>
             <button
               type="submit"
               style={{

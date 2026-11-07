@@ -7,7 +7,7 @@ import type {
   StockDocumentType,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, formatDate } from '@enterprise-platform/shared-ui';
 import { Drawer, Table, type TableColumnsType } from 'antd';
 import { Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -207,14 +207,12 @@ export function StockDocumentForm({
       key: 'quantity',
       width: 110,
       render: (_value, line) => (
-        <input
-          type="number"
-          min={0}
-          step="any"
+        <VnNumberInput
+          maxDecimals={3}
           className={styles.docNumber}
           aria-label="Số lượng"
-          value={Number.isFinite(line.quantity) ? line.quantity : ''}
-          onChange={(event) => patchLine(line.key, { quantity: Number(event.target.value) })}
+          value={Number.isFinite(line.quantity) ? String(line.quantity) : ''}
+          onChange={(value) => patchLine(line.key, { quantity: Number(value) })}
         />
       ),
     },
@@ -224,18 +222,13 @@ export function StockDocumentForm({
       width: 130,
       render: (_value, line) =>
         lineDirection(draft.docType, line.direction) === 'IN' ? (
-          <input
-            type="number"
-            min={0}
-            step="any"
+          <VnNumberInput
             className={styles.docNumber}
             aria-label="Đơn giá"
             placeholder="Bình quân"
             title="Bỏ trống hoặc 0 là nhập theo giá bình quân hiện tại"
-            value={line.unitCost ?? ''}
-            onChange={(event) =>
-              patchLine(line.key, { unitCost: event.target.value === '' ? undefined : Number(event.target.value) })
-            }
+            value={line.unitCost === undefined ? '' : String(line.unitCost)}
+            onChange={(value) => patchLine(line.key, { unitCost: value === '' ? undefined : Number(value) })}
           />
         ) : (
           <span className={styles.docHint}>Giá vốn tính khi ghi sổ</span>

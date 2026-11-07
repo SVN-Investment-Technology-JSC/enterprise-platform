@@ -1,7 +1,7 @@
 'use client';
 
 import type { Asset, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { AlertTriangle, Trash2, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { FormError, useFormSubmit } from './form-error';
@@ -38,15 +38,6 @@ export function BulkReturnToStockDialog({
       note: '',
     }));
   });
-
-  // Esc key đóng hộp thoại
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onCancel]);
 
   // Áp dụng kho hàng loạt
   const [globalWarehouse, setGlobalWarehouse] = useState<string>(
@@ -101,8 +92,21 @@ export function BulkReturnToStockDialog({
     void send(() => onConfirm(items));
   };
 
+  const dirtySnapshot = JSON.stringify([items.map((item) => [item.asset.code, item.warehouseCode, item.note]), globalWarehouse]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
+  // Esc chỉ đóng ngay khi chưa có thay đổi; đã thay đổi thì phải bấm Huỷ/X để xác nhận.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy && !isDirty) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, isDirty, onCancel]);
+
   return (
-    <div className={styles.modalOverlay} onClick={busy ? undefined : onCancel} role="dialog" aria-modal="true">
+    <div className={styles.modalOverlay} role="dialog" aria-modal="true">
       <div
         className={`${styles.modalDialog} ${styles.modalDialogWide}`}
         style={{
@@ -124,15 +128,16 @@ export function BulkReturnToStockDialog({
               Tháo dỡ các thiết bị đã chọn khỏi cây tài sản và nhập về các kho tương ứng. Thao tác này sẽ ghi nhận các bút toán nhập kho thực tế.
             </p>
           </div>
-          <button
-            type="button"
-            className={styles.closeButton}
-            title="Đóng hộp thoại (Esc)"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            <X size={18} />
-          </button>
+          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+            <button
+              type="button"
+              className={styles.closeButton}
+              title="Đóng hộp thoại (Esc)"
+              disabled={busy}
+            >
+              <X size={18} />
+            </button>
+          </CloseGuard>
         </div>
 
         {/* Thanh công cụ áp dụng nhanh kho chung */}
@@ -343,15 +348,16 @@ export function BulkReturnToStockDialog({
             </div>
 
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={onCancel}
-                disabled={busy}
-                style={{ padding: '7px 14px', fontSize: '13px' }}
-              >
-                Huỷ bỏ
-              </button>
+              <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  disabled={busy}
+                  style={{ padding: '7px 14px', fontSize: '13px' }}
+                >
+                  Huỷ bỏ
+                </button>
+              </CloseGuard>
               <button
                 type="submit"
                 className={styles.btnPrimary}

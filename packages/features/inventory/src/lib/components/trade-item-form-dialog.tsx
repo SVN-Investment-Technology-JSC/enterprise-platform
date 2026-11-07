@@ -1,7 +1,7 @@
 'use client';
 
 import type { CreateMaterialRequest, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { FormError, submitErrorMessage } from './form-error';
@@ -85,8 +85,12 @@ export function TradeItemFormDialog({
 
   const title = 'Tạo hàng hóa';
 
+  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, description]);
+  const [initialSnapshot] = useState(dirtySnapshot);
+  const isDirty = dirtySnapshot !== initialSnapshot;
+
   return (
-    <div className={styles.modalOverlay} onClick={onCancel}>
+    <div className={styles.modalOverlay}>
       <div
         className={styles.modalDialog}
         style={{ maxWidth: '620px' }}
@@ -98,9 +102,11 @@ export function TradeItemFormDialog({
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div className={styles.modalHead}>
             <h2>{title}</h2>
-            <button type="button" className={styles.closeButton} onClick={onCancel} title="Đóng" aria-label="Đóng">
-              <X size={18} strokeWidth={2} />
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
+                <X size={18} strokeWidth={2} />
+              </button>
+            </CloseGuard>
           </div>
 
           <div className={styles.modalBody} style={{ maxHeight: '75vh', overflowY: 'auto' }}>
@@ -212,12 +218,11 @@ export function TradeItemFormDialog({
                 <label style={labelStyle} htmlFor="trade-price">
                   Giá bán (VND)
                 </label>
-                <input
+                <VnNumberInput
                   id="trade-price"
-                  inputMode="decimal"
                   placeholder="Bỏ trống nếu chưa khai báo"
                   value={price}
-                  onChange={(event) => setPrice(event.target.value)}
+                  onChange={setPrice}
                   aria-invalid={priceInvalid}
                 />
                 {priceInvalid ? (
@@ -244,9 +249,11 @@ export function TradeItemFormDialog({
           </div>
 
           <div className={styles.modalFoot}>
-            <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel} disabled={busy}>
-              Huỷ
-            </button>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <button type="button" className={`${styles.action} ${styles.actionGhost}`} disabled={busy}>
+                Huỷ
+              </button>
+            </CloseGuard>
             <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy || !ready}>
               {busy ? 'Đang lưu…' : 'Tạo mới'}
             </button>
