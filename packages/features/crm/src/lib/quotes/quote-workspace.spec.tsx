@@ -18,7 +18,7 @@ import { useState, type ReactNode } from 'react';
 import { emptyQuoteLayoutData } from '../quote-layout/quote-layout.data';
 import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureVersion } from '../quote-layout/quote-layout.fixtures';
 import { clearTemplateLayoutCache } from '../quote-layout/use-template-layout';
-import { QuoteEditor, openPickerAfterLoad } from './quote-editor';
+import { QUOTE_READ_ONLY_NOTE, QuoteEditor, openPickerAfterLoad } from './quote-editor';
 import { MISSING_SNAPSHOT_NOTE, QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { GeneralFields, type GeneralState } from './quote-form-parts';
 import {
@@ -597,6 +597,18 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     expect(title()).toContain('BẢN CHỤP');
     expect(button('Xuất').disabled).toBe(false);
     expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ layout: snapshot, fileName: 'BG2600001_v1' }));
+  });
+
+  it('người chỉ đọc mở báo giá Nháp: có dòng báo chỉ có quyền xem; người lập thì không có', async () => {
+    const { unmount } = renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    expect(screen.queryByText(QUOTE_READ_ONLY_NOTE)).toBeNull();
+    unmount();
+
+    mockCrm = { ...mockCrm, capabilities: READER };
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    expect(within(screen.getByTestId('quote-workspace-left')).getByRole('note').textContent).toContain(QUOTE_READ_ONLY_NOTE);
   });
 
   it('TC-QW-14: menu Chèn mở chọn mặt hàng và thêm với beforeLineNo của dòng đang chọn', async () => {

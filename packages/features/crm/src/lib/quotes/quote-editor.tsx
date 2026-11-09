@@ -14,7 +14,7 @@ import { Popconfirm, SearchableSelect, formatDateTime, toast } from '@enterprise
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Eye, Plus } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
@@ -86,6 +86,10 @@ import { QuoteLinesTable } from './quote-lines-table';
 import { QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { QUOTE_STATUS_TONE, quoteActions } from './quote.model';
 import { QuoteActionBar, QuoteWorkspace, WorkspaceSection, draftedDetail, generalPatch, sameGeneral, savedGeneral } from './quote-workspace';
+import workspaceStyles from './quote-workspace.module.scss';
+
+/** Người chỉ có quyền xem mở báo giá: nói rõ vì sao không có ô nhập và nút thao tác. */
+export const QUOTE_READ_ONLY_NOTE = 'Bạn chỉ có quyền xem báo giá này. Cần quyền lập báo giá để sửa.';
 
 /** Thông báo khi thao tác xong. */
 const ACTION_DONE: Readonly<Record<QuoteAction, string>> = {
@@ -356,6 +360,11 @@ export function QuoteEditor({
     <>
       <section className={styles.panel} aria-label="Thông tin báo giá">
         <h3 className={styles.sectionTitle}>Thông tin chung</h3>
+        {canWrite ? null : (
+          <p className={workspaceStyles.readOnlyNote} role="note">
+            <Eye size={15} aria-hidden="true" /> {QUOTE_READ_ONLY_NOTE}
+          </p>
+        )}
         {!isCurrent ? (
           <p className={styles.warning}>Đang xem phiên bản cũ (chỉ đọc). Phiên bản hiện tại là v{detail.currentVersion}.</p>
         ) : null}
