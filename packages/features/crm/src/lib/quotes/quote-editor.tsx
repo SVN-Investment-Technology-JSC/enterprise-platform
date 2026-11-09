@@ -100,6 +100,8 @@ import {
 } from './quote-seller.model';
 import { useSalesOrganization, useSalesOrganizations } from './use-sales-organizations';
 import workspaceStyles from './quote-workspace.module.scss';
+import { AwaitingApprovalNotice, BUSINESS_PLAN_SECTION_ID, openBusinessPlanSection } from './awaiting-approval-notice';
+import { BACK_TO_TASKS_LABEL, type QuotePanel } from '../tasks/tasks.model';
 
 /** Người chỉ có quyền xem mở báo giá: nói rõ vì sao không có ô nhập và nút thao tác. */
 export const QUOTE_READ_ONLY_NOTE = 'Bạn chỉ có quyền xem báo giá này. Cần quyền lập báo giá để sửa.';
@@ -145,13 +147,19 @@ interface PickTarget {
  */
 export function QuoteEditor({
   quoteId,
+  openPanel,
   onBack,
+  onBackToTasks,
   onOpenCustomer,
   onOpenOpportunity,
   onOpenOrder,
 }: {
   quoteId: string;
+  /** Khối mở sẵn khi vào (mở từ việc PAKD ở trang Việc cần xử lý). */
+  openPanel?: QuotePanel;
   onBack: () => void;
+  /** Mở từ trang Việc cần xử lý: thêm nút quay về trang đó. */
+  onBackToTasks?: () => void;
   onOpenCustomer: (id: string) => void;
   onOpenOpportunity: (id: string) => void;
   /** Mở đơn sinh khi chuyển báo giá khách chấp nhận (T4-06). */
@@ -202,6 +210,11 @@ export function QuoteEditor({
   }, [viewing]);
 
   const loadedId = detail?.id;
+  // Mở từ việc PAKD: cuộn tới khối PAKD (đã mở sẵn) khi báo giá tải xong.
+  useEffect(() => {
+    if (loadedId && openPanel === 'business-plan') openBusinessPlanSection();
+  }, [loadedId, openPanel]);
+
   useEffect(() => {
     if (!loadedId || pickerAfterOpen?.quoteId !== loadedId) return;
     setPicking({ search: pickerAfterOpen.search });
@@ -347,9 +360,16 @@ export function QuoteEditor({
     }
   }
 
+  const backToTasks = onBackToTasks ? (
+    <button type="button" className={styles.buttonGhost} onClick={onBackToTasks}>
+      <ArrowLeft size={14} /> {BACK_TO_TASKS_LABEL}
+    </button>
+  ) : null;
+
   if (error && !detail) {
     return (
       <div className={styles.page}>
+        {backToTasks}
         <button type="button" className={styles.buttonGhost} onClick={onBack}>
           <ArrowLeft size={14} /> Danh sách báo giá
         </button>
@@ -368,6 +388,7 @@ export function QuoteEditor({
 
   const header = (
     <div className={styles.detailHead}>
+      {backToTasks}
       <button type="button" className={styles.buttonGhost} onClick={onBack}>
         <ArrowLeft size={14} /> Danh sách báo giá
       </button>
@@ -398,6 +419,7 @@ export function QuoteEditor({
 
   const left = (
     <>
+      {detail.awaitingMyApproval ? <AwaitingApprovalNotice quoteId={detail.id} target={detail.awaitingMyApproval} /> : null}
       <QuoteSellerSection
         value={shownSeller}
         onChange={(next) => {
@@ -637,7 +659,7 @@ export function QuoteEditor({
         </dl>
       </QuoteLinesTable>
 
-      <WorkspaceSection title="Phương án kinh doanh (PAKD)">
+      <WorkspaceSection id={BUSINESS_PLAN_SECTION_ID} title="Phương án kinh doanh (PAKD)" defaultOpen={openPanel === 'business-plan'}>
         <BusinessPlanPanel detail={detail} onChanged={() => void load(viewing)} />
       </WorkspaceSection>
 

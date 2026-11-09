@@ -66,6 +66,17 @@ describe('danh sách migration của tenant', () => {
     });
   });
 
+  it('CRM chạy PAKD qua Quy trình (0036) sau tổ chức báo giá (0035); Quy trình chạy thông tin nguồn (0015) sau 0014', () => {
+    const crm = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(crm.indexOf('0036-business-plan-procedure')).toBe(crm.indexOf('0035-sales-organizations') + 1);
+    const procedure = TENANT_MODULE_MIGRATIONS['procedure-engine'].map((item) => item.version);
+    expect(procedure.indexOf('0015-instance-source-summary')).toBe(procedure.indexOf('0014-everyone-subject') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['procedure-engine']).toContainEqual({
+      version: '0015-instance-source-summary',
+      path: 'tenant/procedure/0015-instance-source-summary.sql',
+    });
+  });
+
   it('registry tenant-core bao phủ mọi migration đang được triển khai', () => {
     const registered = new Set(TENANT_CORE_MIGRATIONS.map((item) => item.path));
     const missing = readdirSync(join(MIGRATIONS_ROOT, 'tenant/core'))

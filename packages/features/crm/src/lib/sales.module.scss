@@ -86,6 +86,12 @@
   font-size: 12.5px;
 }
 
+/* Danh sách lý do trong ô bảng (Việc cần xử lý). */
+.reasonList {
+  margin: 0;
+  padding-left: 16px;
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -853,4 +859,17 @@
     outline: 2px solid #2563eb;
     outline-offset: -2px;
   }
+}
+
+// Ô lý do của bảng Việc cần xử lý: lý do đầu một dòng, phần còn lại gộp.
+.reasonCell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reasonFirst {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

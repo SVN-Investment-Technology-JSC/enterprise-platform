@@ -45,6 +45,7 @@ import { compareQuoteVersions, costLine, quoteTotals } from '../domain/quote-ver
 import { computeNearestSuperiorUserIds } from '../domain/reporting-line.js';
 import { assertOwnerInScope, canViewQuoteCost } from './crm-access.js';
 import type { QuoteBusinessPlans } from './business-plan.service.js';
+import type { AwaitingApprovalReader } from './crm-task.service.js';
 import type { PlanAttachment } from './business-plan-store.port.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
@@ -94,6 +95,11 @@ interface LineDraft {
   readonly overrideDiscountPercent: number | null;
   /** Giá vốn đã biết ở lần tính trước, dùng khi danh mục không còn mặt hàng. */
   readonly previousUnitCost: number | null;
+}
+
+/** Cờ trên query string: `true`, `1` là bật. */
+function flagOf(value: unknown): boolean {
+  return value === true || value === 'true' || value === '1';
 }
 
 export function requireQuoteWriter(actor: CrmActor): void {
@@ -161,6 +167,8 @@ export class QuoteService {
     private readonly form?: QuoteFormStore,
     /** Tổ chức báo giá (phase 3, mục 16); rỗng thì báo giá tự lấy tổ chức mặc định ở store, không chọn được tổ chức khác. */
     private readonly organizations?: SalesOrganizationReader,
+    /** Việc chờ người xem duyệt (plan mục 17.4): bộ lọc "Cần tôi duyệt" và cờ trên màn báo giá. */
+    private readonly approvals?: AwaitingApprovalReader,
   ) {}
 
   private today(): string {
@@ -169,7 +177,11 @@ export class QuoteService {
 
   async list(actor: CrmActor, query: QuoteListQuery): Promise<CrmPage<QuoteSummary>> {
     const scope = await this.scopes.resolve(actor);
+    // "Cần tôi duyệt" (plan mục 17.4): cùng cách tính với trang Việc cần xử lý.
+    const awaiting = flagOf(query?.awaitingMyApproval);
+    const ids = awaiting ? (this.approvals ? await this.approvals.awaitingQuoteIds(actor) : []) : undefined;
     return this.quotes.listQuotes(actor.tenantId, scope, {
+      ...(ids ? { ids } : {}),
       q: normalizeSearch(query.q),
       status: optionalEnum(query.status, QUOTE_STATUSES, 'trạng thái'),
       customerId: optionalId(query.customerId, 'khách hàng') ?? undefined,
@@ -191,7 +203,13 @@ export class QuoteService {
         ? (await this.evaluate(actor, detail.id, version, false)).reasons
         : null;
     const businessPlan = this.plans ? await this.plans.detail(actor, detail.id, version) : null;
-    return { ...detail, version: costVisible ? version : hideCost(version), approvalCheck, businessPlan };
+    // Chỉ phiên bản hiện tại đang chờ (báo giá Chờ duyệt hoặc PAKD trình riêng đang chờ) mới cần hỏi.
+    const pending = version.status === 'PENDING' || businessPlan?.status === 'PENDING';
+    const awaitingMyApproval =
+      this.approvals && pending && version.versionNo === detail.currentVersion
+        ? await this.approvals.awaitingTarget(actor, detail.id)
+        : null;
+    return { ...detail, version: costVisible ? version : hideCost(version), approvalCheck, businessPlan, awaitingMyApproval };
   }
 
   async create(actor: CrmActor, request: CreateQuoteRequest): Promise<QuoteDetail> {

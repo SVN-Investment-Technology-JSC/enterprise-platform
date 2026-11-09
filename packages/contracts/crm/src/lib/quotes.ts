@@ -11,6 +11,7 @@ import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 import type { QuoteLayout } from './quote-layout.js';
 import type { QuoteSeller } from './sales-organizations.js';
+import type { CrmTaskApprovalTarget } from './tasks.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -307,6 +308,11 @@ export interface QuoteDetail extends QuoteSummary {
   readonly approvalCheck: readonly QuoteApprovalReason[] | null;
   /** PAKD của phiên bản đang xem; rỗng khi chưa lập. Người duyệt thấy doanh thu, giá vốn, lợi nhuận qua đây. */
   readonly businessPlan?: BusinessPlanDetail | null;
+  /**
+   * Báo giá (hoặc PAKD trình riêng của phiên bản hiện tại) đang chờ chính người xem duyệt (plan mục 17.4): qua Quy trình
+   * thì người xem thao tác được trên hồ sơ đang chạy; trực tiếp thì có quyền duyệt, trong phạm vi và không phải người trình.
+   */
+  readonly awaitingMyApproval?: CrmTaskApprovalTarget | null;
 }
 
 export interface QuoteListQuery {
@@ -319,6 +325,8 @@ export interface QuoteListQuery {
   /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
   readonly page?: number;
   readonly limit?: number;
+  /** Chỉ báo giá đang chờ chính người xem duyệt (báo giá hoặc PAKD trình riêng), plan mục 17.4. */
+  readonly awaitingMyApproval?: boolean;
 }
 
 export interface CreateQuoteRequest {
@@ -479,13 +487,15 @@ export interface CrmCatalogMaterial {
 // Cách duyệt và ngưỡng duyệt
 // ---------------------------------------------------------------------------
 
-export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN'] as const;
+export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN', 'BUSINESS_PLAN'] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
 export const APPROVAL_KIND_LABELS: Readonly<Record<ApprovalKind, string>> = {
   QUOTE: 'Báo giá vượt ngưỡng',
   ORDER_CREDIT: 'Đơn bán vượt hạn mức công nợ',
   TENDER_PLAN: 'Phương án chào thầu',
+  /** PAKD trình riêng (không kèm báo giá); PAKD đi kèm báo giá theo kết quả duyệt báo giá (D3-30). */
+  BUSINESS_PLAN: 'Phương án kinh doanh trình riêng',
 };
 
 export const APPROVAL_MODES = ['DIRECT', 'PROCEDURE'] as const;

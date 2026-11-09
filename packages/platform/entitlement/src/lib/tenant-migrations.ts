@@ -149,6 +149,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0033-customer-kinds', path: 'tenant/crm/0033-customer-kinds.sql' },
     { version: '0034-quote-template-layouts', path: 'tenant/crm/0034-quote-template-layouts.sql' },
     { version: '0035-sales-organizations', path: 'tenant/crm/0035-sales-organizations.sql' },
+    { version: '0036-business-plan-procedure', path: 'tenant/crm/0036-business-plan-procedure.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -626,6 +627,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0014-everyone-subject',
       path: 'tenant/procedure/0014-everyone-subject.sql',
+    },
+    {
+      version: '0015-instance-source-summary',
+      path: 'tenant/procedure/0015-instance-source-summary.sql',
     },
   ],
   maintenance: [

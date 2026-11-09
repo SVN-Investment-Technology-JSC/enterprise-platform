@@ -240,6 +240,7 @@ export class PostgresQuoteStore implements QuoteStore {
     if (filter.customerId) where.add(`q.customer_id = ${where.param(filter.customerId)}::uuid`);
     if (filter.opportunityId) where.add(`q.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
     if (filter.ownerUserId) where.add(`q.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
+    if (filter.ids) where.add(`q.id = ANY(${where.param([...filter.ids])}::uuid[])`);
     if (filter.q) {
       const tsQuery = prefixTsQuery(filter.q);
       const code = `q.code ILIKE ${where.param(prefixPattern(filter.q.toUpperCase()))}`;
@@ -613,13 +614,15 @@ export class PostgresQuoteStore implements QuoteStore {
   async reversalCheck(tenantId: string, instanceOrLinkId: string): Promise<{ allowed: boolean; reason?: string }> {
     const pool = await this.database.pool(tenantId);
     const result = await pool.query<{ code: string; converted_at: Date | null }>(
+      // Báo giá theo phiên bản (`crm_quote`) hoặc theo vòng duyệt PAKD trình riêng (`crm_business_plan`, D3-30).
       `SELECT q.code, q.converted_at
          FROM crm_schema.procedure_links l
-         JOIN crm_schema.quote_versions v ON v.id = l.source_id
-         JOIN crm_schema.quotes q ON q.id = v.quote_id
-        WHERE l.source_type = $1 AND (l.instance_id = $2::uuid OR l.id = $2::uuid)
+         LEFT JOIN crm_schema.quote_versions v ON l.source_type = $1 AND v.id = l.source_id
+         LEFT JOIN crm_schema.business_plan_rounds r ON l.source_type = $3 AND r.id = l.source_id
+         JOIN crm_schema.quotes q ON q.id = COALESCE(v.quote_id, r.quote_id)
+        WHERE l.source_type IN ($1, $3) AND (l.instance_id = $2::uuid OR l.id = $2::uuid)
         LIMIT 1`,
-      [CRM_QUOTE_SOURCE_TYPE, instanceOrLinkId],
+      [CRM_QUOTE_SOURCE_TYPE, instanceOrLinkId, 'crm_business_plan'],
     );
     const row = result.rows[0];
     if (row?.converted_at) {

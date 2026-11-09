@@ -226,13 +226,15 @@ Kiểm thử phase 3 sau bước này:
 node tools/crm/e2e-phase3.mjs [--tenant=svn] [--gateway=http://localhost:8089]   # API: quyền, kiểm hợp lệ, xung đột, bản chụp, chèn dòng
 node tools/crm/e2e-phase3-browser.mjs [--shots=<thư mục>]                          # Playwright, Chrome hệ thống, gateway 8080
 node tools/crm/e2e-phase3-org.mjs [--tenant=svn] [--base=http://localhost:8080]     # Tổ chức báo giá (TC-ORG): API và trình duyệt
+node tools/crm/e2e-phase3-tasks.mjs [--tenant=svn] [--base=http://localhost:8080]   # Việc cần xử lý (TC-TSK): duyệt trên Quy trình rồi quay về CRM
 ```
 
 `--gateway` là nginx thật (`infrastructure/nginx/nginx.conf`) cho TC-TL-19; gateway dev `tools/dev-gateway.mjs` không giới
 hạn thân request nên không dùng được cho case này. Bỏ trống thì TC-TL-19 ghi "Bị chặn".
 
 `e2e-phase3-browser.mjs` mỗi lượt để lại vài báo giá nháp `QA-P3B …` của NV1; `e2e-phase3-org.mjs` để lại vài báo giá
-`QA-P3O …` (một báo giá đã gửi khách) và trả logo ORG-A về như cũ. `e2e-phase2i-browser.mjs` và
+`QA-P3O …` (một báo giá đã gửi khách) và trả logo ORG-A về như cũ. `e2e-phase3-tasks.mjs` cần loại QUOTE gắn quy trình "Duyệt báo giá" (seed phase 1) và worker đang chạy
+(kết quả Quy trình về CRM qua sự kiện); mỗi lượt để lại 2 báo giá `QA-P3T …` (một đã duyệt, một còn chờ TN duyệt). `e2e-phase2i-browser.mjs` và
 `e2e-phase2a-browser.mjs` mở "báo giá Nháp đầu danh sách", nên sau khi chạy e2e phase 3 phải chạy lại `e2e-phase2i.mjs`
 hoặc `e2e-phase2a.mjs` (bản API) trước bản trình duyệt tương ứng.
 

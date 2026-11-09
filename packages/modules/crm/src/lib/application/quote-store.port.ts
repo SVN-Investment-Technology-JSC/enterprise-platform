@@ -23,6 +23,7 @@ import type { PlanAttachment } from './business-plan-store.port.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import type { QuoteEditPlan } from '../domain/quote.js';
 import type { CrmDataScope } from './data-scope.js';
+import type { CrmSourceSummary } from '../domain/procedure-source-summary.js';
 
 /**
  * Port của báo giá (GĐ3b): lưu trữ, cấu hình duyệt, client Quy trình và việc
@@ -44,6 +45,8 @@ export interface QuoteFilter {
   readonly customerId?: string;
   readonly opportunityId?: string;
   readonly ownerUserId?: string;
+  /** Chỉ các báo giá này (bộ lọc "Cần tôi duyệt"); mảng rỗng là không có báo giá nào. */
+  readonly ids?: readonly string[];
   readonly cursor?: KeysetCursor;
   /** Phân trang theo số trang (bỏ qua `cursor`). */
   readonly page?: number;
@@ -212,12 +215,17 @@ export interface QuoteSettingsStore {
 export interface StartProcedureInstance {
   readonly definitionId: string;
   readonly title: string;
-  readonly sourceType: 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan';
+  readonly sourceType: CrmProcedureSourceType;
   readonly sourceId: string;
   readonly idempotencyKey: string;
   readonly initiatedBy: string;
   readonly autoCompleteInitiatorStep: boolean;
+  /** Thông tin nguồn cho người duyệt (báo giá, PAKD); đã cắt theo giới hạn của Quy trình. */
+  readonly sourceSummary?: CrmSourceSummary | null;
 }
+
+/** Nguồn phiên Quy trình của Bán hàng (`procedure_links.source_type`). */
+export type CrmProcedureSourceType = 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan' | 'crm_business_plan';
 
 /** Phiên của người dùng, chuyển tiếp để Quy trình tự lọc quy trình người đó được thấy. */
 export interface ForwardedSession {
@@ -236,6 +244,20 @@ export interface ProcedureClient {
   /** Định nghĩa đã công bố; chưa công bố hoặc không có thì 409. */
   publishedDefinition(tenantId: string, definitionId: string): Promise<ProcedureDefinitionOption>;
   listPublished(session: ForwardedSession, tenantId: string): Promise<ProcedureDefinitionOption[]>;
+  /**
+   * Bổ sung thông tin nguồn cho hồ sơ đã tạo (`PUT /v1/internal/instances/:id/source-summary`). `false` khi Quy trình
+   * không nhận (route chưa có, dữ liệu sai, hồ sơ không còn): không hỏi lại. Lỗi hạ tầng ném 503 để lần sau thử lại.
+   * Không có (client giả cũ) thì không bổ sung.
+   */
+  updateSourceSummary?(tenantId: string, instanceId: string, summary: CrmSourceSummary): Promise<boolean>;
+}
+
+/**
+ * Hồ sơ người dùng đang được Quy trình giao xử lý (`POST /v1/internal/instances/actionable`, tối đa 100 mã mỗi lần).
+ * Quy trình là nơi duy nhất quyết định người duyệt từng bước.
+ */
+export interface ProcedureActionableReader {
+  actionableInstanceIds(tenantId: string, actorUserId: string, instanceIds: readonly string[]): Promise<string[]>;
 }
 
 /** Tạo phiên Quy trình cho liên kết vừa ghi (sau commit); lỗi được ghi vào liên kết để worker thử lại. */

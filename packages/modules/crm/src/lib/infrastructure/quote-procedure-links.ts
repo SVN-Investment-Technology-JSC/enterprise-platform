@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { QuoteStatus } from '@enterprise-platform/contracts-crm';
-import type { ApprovalLinks, ProcedureClient } from '../application/quote-store.port.js';
+import type { ApprovalLinks, CrmProcedureSourceType, ProcedureClient } from '../application/quote-store.port.js';
+import type { PeopleDirectory } from '../application/sales-store.port.js';
 import { CrmError } from '../domain/crm.error.js';
 import { isUuid } from '../domain/fields.js';
 import { canQuoteSystemTransition, QUOTE_PROCEDURE_REVERSED_REASON } from '../domain/quote.js';
 import type { CrmDatabase } from './crm.database.js';
 import { PROCEDURE_REJECTED, type ProcedureInstanceState } from './http-procedure-client.js';
 import { applyDecision, CRM_QUOTE_SOURCE_TYPE, lockVersionById } from './postgres-quote.store.js';
+import { CRM_BUSINESS_PLAN_SOURCE_TYPE } from './postgres-business-plan.store.js';
+import { loadSourceSummary } from './procedure-source-summary.loader.js';
 
 /** Số lần thử tạo phiên tối đa trước khi bỏ (lỗi hạ tầng). */
 export const PROCEDURE_START_MAX_ATTEMPTS = 30;
@@ -63,14 +66,22 @@ export class PostgresApprovalLinks implements ApprovalLinks {
   constructor(
     private readonly database: CrmDatabase,
     private readonly procedures: ProcedureClient,
+    /** Danh bạ để ghi tên người phụ trách vào thông tin nguồn; không có thì bỏ dòng đó. */
+    private readonly people?: PeopleDirectory,
   ) {}
+
+  /** Thông tin nguồn của liên kết (báo giá, PAKD); lỗi đọc thì bỏ qua, không chặn việc tạo hồ sơ. */
+  private summaryOf(tenantId: string, sourceType: string, sourceId: string) {
+    return loadSourceSummary(this.database, tenantId, sourceType, sourceId, this.people).catch(() => null);
+  }
 
   async start(tenantId: string, linkId: string): Promise<void> {
     const pool = await this.database.pool(tenantId);
     const lease = randomUUID();
     const claimed = await pool.query<{
       id: string;
-      source_type: 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan';
+      source_type: CrmProcedureSourceType;
+      source_id: string;
       definition_id: string;
       title: string;
       initiated_by: string;
@@ -80,12 +91,13 @@ export class PostgresApprovalLinks implements ApprovalLinks {
           SET lease_token = $2, lease_until = now() + ($3 || ' seconds')::interval, attempts = attempts + 1, updated_at = now()
         WHERE id = $1 AND instance_id IS NULL AND status IN ('START_PENDING', 'FAILED')
           AND attempts < $4 AND (lease_until IS NULL OR lease_until < now())
-        RETURNING id, source_type, definition_id, title, initiated_by, start_idempotency_key`,
+        RETURNING id, source_type, source_id, definition_id, title, initiated_by, start_idempotency_key`,
       [linkId, lease, String(LEASE_SECONDS), PROCEDURE_START_MAX_ATTEMPTS],
     );
     const link = claimed.rows[0];
     if (!link) return;
     try {
+      const sourceSummary = await this.summaryOf(tenantId, link.source_type, link.source_id);
       const instance = await this.procedures.startInstance(tenantId, {
         definitionId: link.definition_id,
         title: link.title,
@@ -95,14 +107,16 @@ export class PostgresApprovalLinks implements ApprovalLinks {
         initiatedBy: link.initiated_by,
         // Người lập là vai S của bước đầu: Quy trình tự hoàn tất bước đó.
         autoCompleteInitiatorStep: true,
+        ...(sourceSummary ? { sourceSummary } : {}),
       });
       await pool.query(
         `UPDATE crm_schema.procedure_links
             SET instance_id = COALESCE(instance_id, $3::uuid), instance_code = COALESCE(instance_code, $4),
                 status = CASE WHEN status IN ('START_PENDING', 'FAILED') THEN 'RUNNING' ELSE status END,
+                source_summary_synced_at = CASE WHEN $5 THEN COALESCE(source_summary_synced_at, now()) ELSE source_summary_synced_at END,
                 last_error = NULL, lease_token = NULL, lease_until = NULL, updated_at = now()
           WHERE id = $1 AND (lease_token = $2 OR lease_token IS NULL)`,
-        [linkId, lease, instance.id, instance.code],
+        [linkId, lease, instance.id, instance.code, !!sourceSummary],
       );
     } catch (error) {
       const message = (error instanceof Error ? error.message : 'Không tạo được phiên Quy trình.').slice(0, 2000);
@@ -129,7 +143,44 @@ export class PostgresApprovalLinks implements ApprovalLinks {
       [PROCEDURE_START_MAX_ATTEMPTS, limit],
     );
     for (const row of due.rows) await this.start(tenantId, row.id);
+    await this.syncSourceSummaries(tenantId).catch(() => undefined);
     return due.rows.length;
+  }
+
+  /**
+   * Bổ sung thông tin nguồn một lần cho hồ sơ đang chạy mà lúc tạo chưa gửi (liên kết có trước khi CRM gửi thông tin
+   * nguồn, plan mục 17.2). Quy trình nhận hoặc từ chối hẳn thì ghi mốc để không gửi lại; lỗi hạ tầng thì lượt sau
+   * thử lại. Trả số hồ sơ đã nhận.
+   */
+  async syncSourceSummaries(tenantId: string, limit = 20): Promise<number> {
+    const update = this.procedures.updateSourceSummary?.bind(this.procedures);
+    if (!update) return 0;
+    const pool = await this.database.pool(tenantId);
+    const due = (
+      await pool.query<{ id: string; source_type: string; source_id: string; instance_id: string }>(
+        `SELECT id, source_type, source_id, instance_id FROM crm_schema.procedure_links
+          WHERE status = 'RUNNING' AND source_summary_synced_at IS NULL AND instance_id IS NOT NULL
+            AND source_type IN ($1, $2)
+          ORDER BY updated_at
+          LIMIT $3`,
+        [CRM_QUOTE_SOURCE_TYPE, CRM_BUSINESS_PLAN_SOURCE_TYPE, limit],
+      )
+    ).rows;
+    let accepted = 0;
+    for (const row of due) {
+      const summary = await this.summaryOf(tenantId, row.source_type, row.source_id);
+      try {
+        if (summary && (await update(tenantId, row.instance_id, summary))) accepted += 1;
+      } catch {
+        // Quy trình tạm lỗi: để lượt sau.
+        continue;
+      }
+      await pool.query(
+        `UPDATE crm_schema.procedure_links SET source_summary_synced_at = now() WHERE id = $1 AND source_summary_synced_at IS NULL`,
+        [row.id],
+      );
+    }
+    return accepted;
   }
 }
 

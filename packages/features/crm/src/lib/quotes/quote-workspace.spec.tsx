@@ -43,7 +43,8 @@ import {
   sameGeneral,
   savedGeneral,
 } from './quote-workspace';
-import { CreateQuoteDialog, NewQuoteScreen, customerOptions, newQuoteHash } from './quotes-page';
+import { CreateQuoteDialog, NewQuoteScreen, QuotesPage, customerOptions, newQuoteHash } from './quotes-page';
+import { fixtureTask, fixtureTaskList } from '../tasks/tasks.fixtures';
 
 // --- Mô phỏng ------------------------------------------------------------------------------------------------------
 
@@ -168,6 +169,7 @@ const mockApi = {
   listQuotes: jest.fn(),
   listSalesOrganizations: jest.fn(),
   getSalesOrganization: jest.fn(),
+  getMyTasks: jest.fn(),
 };
 jest.mock('../crm-api', () => ({
   errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
@@ -177,7 +179,7 @@ jest.mock('../crm-api', () => ({
       'getQuote', 'getCustomer', 'getOpportunity', 'updateQuoteVersion', 'quoteAction', 'addQuoteLines', 'removeQuoteLine',
       'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
       'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
-      'listSalesOrganizations', 'getSalesOrganization',
+      'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
 }));
@@ -1030,5 +1032,103 @@ describe('Tổ chức báo giá trên màn báo giá (P3C6-06)', () => {
     const section = sellerSection();
     expect(within(section).queryAllByRole('textbox')).toHaveLength(0);
     expect(section.textContent).toContain('Không chọn tổ chức');
+  });
+});
+
+describe('Việc cần xử lý trên màn báo giá (P3C7-06)', () => {
+  const procedureTarget = { subject: 'QUOTE', mode: 'PROCEDURE', procedureInstanceId: 'inst-1', procedureInstanceCode: 'HS-0007' } as const;
+
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('TC-TSK-17: báo giá chờ chính người xem duyệt qua Quy trình: dòng thông báo kèm nút Duyệt trên Quy trình, quay về đúng màn', async () => {
+    window.location.hash = '#quotes/q1';
+    renderEditor(fixtureDetail(fixtureVersion({ status: 'PENDING' }), { awaitingMyApproval: procedureTarget }));
+    const notice = await screen.findByRole('status', { name: 'Đang chờ bạn duyệt' });
+    const left = screen.getByTestId('quote-workspace-left');
+    // Ở đầu cột trái, trên Tổ chức báo giá.
+    expect(left.firstElementChild).toBe(notice);
+    expect(notice.textContent).toContain('Báo giá này đang chờ bạn duyệt.');
+    expect(notice.textContent).toContain('HS-0007');
+    const link = within(notice).getByRole('link', { name: 'Duyệt trên Quy trình' });
+    expect(link.getAttribute('href')).toBe(`/modules/procedure?returnTo=${encodeURIComponent('/modules/crm#quotes/q1')}#workspace/inst-1`);
+  });
+
+  it('TC-TSK-17: người khác (không chờ mình duyệt) không thấy dòng thông báo', async () => {
+    renderEditor(fixtureDetail(fixtureVersion({ status: 'PENDING' }), { awaitingMyApproval: null }));
+    await screen.findByText('Thông tin chung');
+    expect(screen.queryByText(/đang chờ bạn duyệt/)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Duyệt trên Quy trình' })).toBeNull();
+  });
+
+  it('duyệt trực tiếp: chỉ tới nút Duyệt; PAKD trình riêng thì câu PAKD và nút mở khối PAKD', async () => {
+    const { unmount } = renderEditor(
+      fixtureDetail(fixtureVersion({ status: 'PENDING' }), { awaitingMyApproval: { ...procedureTarget, mode: 'DIRECT', procedureInstanceId: null, procedureInstanceCode: null } }),
+    );
+    const notice = await screen.findByRole('status', { name: 'Đang chờ bạn duyệt' });
+    expect(notice.textContent).toContain('Dùng nút Duyệt hoặc Từ chối duyệt');
+    expect(within(notice).queryByRole('link')).toBeNull();
+    unmount();
+
+    renderEditor(
+      fixtureDetail(fixtureVersion(), {
+        awaitingMyApproval: { subject: 'BUSINESS_PLAN', mode: 'DIRECT', procedureInstanceId: null, procedureInstanceCode: null },
+      }),
+    );
+    const planNotice = await screen.findByRole('status', { name: 'Đang chờ bạn duyệt' });
+    expect(planNotice.textContent).toContain('Phương án kinh doanh của báo giá này đang chờ bạn duyệt.');
+    const section = document.getElementById('quote-section-business-plan') as HTMLDetailsElement;
+    expect(section.open).toBe(false);
+    fireEvent.click(within(planNotice).getByRole('button', { name: 'Mở khối PAKD' }));
+    expect(section.open).toBe(true);
+  });
+
+  it('TC-TSK-15: mở từ việc PAKD thì khối PAKD mở sẵn và có nút quay về Việc cần xử lý', async () => {
+    const back = jest.fn();
+    mockApi.getQuote.mockResolvedValue(fixtureDetail());
+    render(
+      <QuoteEditor quoteId="q1" openPanel="business-plan" onBack={jest.fn()} onBackToTasks={back} onOpenCustomer={jest.fn()} onOpenOpportunity={jest.fn()} />,
+    );
+    await screen.findByText('Thông tin chung');
+    expect((document.getElementById('quote-section-business-plan') as HTMLDetailsElement).open).toBe(true);
+    fireEvent.click(button('Quay lại Việc cần xử lý'));
+    expect(back).toHaveBeenCalled();
+  });
+
+  it('mở bình thường: khối PAKD thu gọn, không có nút quay về Việc cần xử lý', async () => {
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    expect((document.getElementById('quote-section-business-plan') as HTMLDetailsElement).open).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Quay lại Việc cần xử lý' })).toBeNull();
+  });
+});
+
+describe('Danh sách báo giá: Cần tôi duyệt (TC-TSK-16)', () => {
+  const summary = { ...fixtureDetail(), version: undefined };
+
+  it('người có việc chờ thấy khối Cần tôi duyệt (n); bộ lọc gửi awaitingMyApproval=true, tắt thì không gửi', async () => {
+    mockApi.getMyTasks.mockResolvedValue(fixtureTaskList({ awaitingMe: [fixtureTask()] }));
+    mockApi.listQuotes.mockResolvedValue({ items: [summary], total: 1 });
+    render(<QuotesPage onOpen={jest.fn()} onCreate={jest.fn()} onOpenProcedure={jest.fn()} />);
+    expect(await screen.findByText('Cần tôi duyệt (1)')).toBeTruthy();
+    await waitFor(() => expect(mockApi.listQuotes).toHaveBeenCalled());
+    expect(mockApi.listQuotes.mock.calls[0][0].awaitingMyApproval).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cần tôi duyệt' }));
+    await waitFor(() => expect(mockApi.listQuotes).toHaveBeenLastCalledWith(expect.objectContaining({ awaitingMyApproval: true, page: 1 })));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cần tôi duyệt' }));
+    await waitFor(() => expect(mockApi.listQuotes.mock.calls.at(-1)?.[0].awaitingMyApproval).toBeUndefined());
+  });
+
+  it('người không có việc chờ không thấy khối; bật lọc mà không có báo giá thì câu trống riêng', async () => {
+    mockApi.getMyTasks.mockResolvedValue(fixtureTaskList());
+    mockApi.listQuotes.mockResolvedValue({ items: [], total: 0 });
+    render(<QuotesPage onOpen={jest.fn()} onCreate={jest.fn()} />);
+    await waitFor(() => expect(mockApi.getMyTasks).toHaveBeenCalled());
+    await screen.findByText('Chưa có báo giá nào.');
+    expect(screen.queryByText(/Cần tôi duyệt \(/)).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cần tôi duyệt' }));
+    expect(await screen.findByText('Không có báo giá nào đang chờ bạn duyệt.')).toBeTruthy();
   });
 });

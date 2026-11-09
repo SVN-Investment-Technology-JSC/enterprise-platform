@@ -113,10 +113,20 @@ export function QuoteWorkspace({
   );
 }
 
-/** Khối thu gọn được ở cột trái (PAKD, khuyến mãi, tài liệu, liên quan, lịch sử). */
-export function WorkspaceSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+/** Khối thu gọn được ở cột trái (PAKD, khuyến mãi, tài liệu, liên quan, lịch sử). `id` để mở và cuộn tới từ chỗ khác. */
+export function WorkspaceSection({
+  id,
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  id?: string;
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <details className={styles.section} open={defaultOpen || undefined}>
+    <details id={id} className={styles.section} open={defaultOpen || undefined}>
       <summary className={styles.sectionSummary}>{title}</summary>
       {children}
     </details>

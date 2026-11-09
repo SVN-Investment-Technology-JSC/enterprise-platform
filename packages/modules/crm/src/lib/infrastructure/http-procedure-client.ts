@@ -1,6 +1,15 @@
 import type { ProcedureDefinitionOption } from '@enterprise-platform/contracts-crm';
-import type { ForwardedSession, ProcedureClient, StartProcedureInstance } from '../application/quote-store.port.js';
+import type {
+  ForwardedSession,
+  ProcedureActionableReader,
+  ProcedureClient,
+  StartProcedureInstance,
+} from '../application/quote-store.port.js';
 import { CrmConflictError, CrmError, CrmForbiddenError } from '../domain/crm.error.js';
+import type { CrmSourceSummary } from '../domain/procedure-source-summary.js';
+
+/** Số hồ sơ tối đa mỗi lần hỏi Quy trình (đối soát, hồ sơ người dùng xử lý được). */
+export const PROCEDURE_BATCH_MAX = 100;
 
 export const PROCEDURE_UNAVAILABLE = 'PROCEDURE_UNAVAILABLE';
 export const PROCEDURE_REJECTED = 'PROCEDURE_REJECTED';
@@ -33,7 +42,7 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
  * dùng `x-service-token`, `x-tenant-id`; danh sách quy trình để chọn dùng phiên
  * của chính người cấu hình. Không đọc `procedure_schema`.
  */
-export class HttpProcedureClient implements ProcedureClient {
+export class HttpProcedureClient implements ProcedureClient, ProcedureActionableReader {
   constructor(
     private readonly baseUrl: string = process.env['PROCEDURE_API_URL'] ?? 'http://localhost:3334/api/procedure',
     private readonly token: () => string | undefined = () => process.env['INTERNAL_SERVICE_TOKEN'],
@@ -97,6 +106,39 @@ export class HttpProcedureClient implements ProcedureClient {
         lastActorId: typeof entry?.lastActorId === 'string' ? entry.lastActorId : null,
       }))
       .filter((entry) => entry.instanceId && entry.status);
+  }
+
+  /**
+   * Bổ sung thông tin nguồn cho hồ sơ đã tạo (plan mục 17.1, 17.2). 2xx: đã nhận; 400, 404, 405 (route chưa có, dữ
+   * liệu sai, hồ sơ không còn): không hỏi lại; còn lại ném 503.
+   */
+  async updateSourceSummary(tenantId: string, instanceId: string, summary: CrmSourceSummary): Promise<boolean> {
+    const response = await this.call(this.url(`/v1/internal/instances/${encodeURIComponent(instanceId)}/source-summary`), {
+      method: 'PUT',
+      headers: { ...this.serviceHeaders(tenantId), 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ sourceSummary: summary }),
+    });
+    if (response.ok) return true;
+    if ([400, 404, 405, 422].includes(response.status)) return false;
+    throw procedureUnavailable(await errorMessage(response, `Quy trình trả mã ${response.status}.`));
+  }
+
+  /**
+   * Trong các hồ sơ `ids` (tối đa 100), những hồ sơ người dùng đang được giao xử lý (duyệt, từ chối, trả lại), qua
+   * `POST /v1/internal/instances/actionable`.
+   */
+  async actionableInstanceIds(tenantId: string, actorUserId: string, ids: readonly string[]): Promise<string[]> {
+    if (!ids.length || !actorUserId) return [];
+    const response = await this.call(this.url('/v1/internal/instances/actionable'), {
+      method: 'POST',
+      headers: { ...this.serviceHeaders(tenantId), 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ actorUserId, ids: ids.slice(0, PROCEDURE_BATCH_MAX) }),
+    });
+    if (!response.ok) throw procedureUnavailable(await errorMessage(response, `Quy trình trả mã ${response.status}.`));
+    const body = (await response.json().catch(() => null)) as { instanceIds?: unknown } | null;
+    return Array.isArray(body?.instanceIds) ? body.instanceIds.filter((id): id is string => typeof id === 'string') : [];
   }
 
   async publishedDefinition(tenantId: string, definitionId: string): Promise<ProcedureDefinitionOption> {

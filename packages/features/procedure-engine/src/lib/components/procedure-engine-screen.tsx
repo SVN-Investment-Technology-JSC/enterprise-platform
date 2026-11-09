@@ -76,6 +76,8 @@ import { RcsiBoard } from './rcsi-board';
 import type { StartHandoff } from './start-instance-form';
 import { WorkspaceBoard } from './workspace-board';
 import styles from './procedure-engine.module.scss';
+import { returnSourceLabel } from './return-source-label';
+
 
 type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
 
@@ -511,8 +513,8 @@ export function ProcedureEngineScreen() {
         <>
         {returnTarget ? (
           <div className={styles.notice} role="status">
-            <span>Mở từ Trang chủ · xử lý xong hồ sơ này sẽ tự quay về.</span>
-            <a href={returnTarget.path}>Về Trang chủ</a>
+            <span>Mở từ {returnSourceLabel(returnTarget.path)} · xử lý xong hồ sơ này sẽ tự quay về.</span>
+            <a href={returnTarget.path}>Về {returnSourceLabel(returnTarget.path)}</a>
           </div>
         ) : null}
         {error ? (

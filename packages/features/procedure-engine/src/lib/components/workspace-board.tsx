@@ -55,6 +55,7 @@ import { ChatPanel } from './chat-panel';
 import { FinanceVoucherCard } from './finance-voucher-card';
 import financeStyles from './finance-voucher-card.module.scss';
 import { HistoryPanel } from './history-panel';
+import { InstanceSourceValue, SourceSummaryCard } from './instance-source';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
@@ -1158,6 +1159,8 @@ export function WorkspaceBoard({
                   </p>
                 ) : null}
 
+                <SourceSummaryCard summary={selected.sourceSummary} />
+
                 <dl className={styles.metaLine}>
                   <div>
                     <dt>Khởi tạo</dt>
@@ -1174,7 +1177,9 @@ export function WorkspaceBoard({
                   </div>
                   <div>
                     <dt>Nguồn</dt>
-                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'finance_voucher' ? <a className="text-blue-600 underline" href={`/modules/finance/open/${encodeURIComponent(selected.sourceId||'')}`}>Phiếu tài chính · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
+                    <dd>
+                      <InstanceSourceValue instance={selected} />
+                    </dd>
                   </div>
                   <div>
                     <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>

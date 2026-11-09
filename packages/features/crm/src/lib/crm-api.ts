@@ -376,6 +376,8 @@ export const previewQuote = (body: QuotePreviewRequest) => send<PricingResult>('
 // Báo giá
 const quotePath = (id: string, versionNo?: number) =>
   `/quotes/${encodeURIComponent(id)}${versionNo === undefined ? '' : `/versions/${versionNo}`}`;
+/** Việc cần xử lý của người xem (plan mục 17.4): chờ tôi duyệt và việc của báo giá tôi phụ trách. */
+export const getMyTasks = () => request<CrmTaskList>('/my-tasks', { cache: 'no-store' });
 export const listQuotes = (query: QuoteListQuery) =>
   request<CrmPage<QuoteSummary>>(`/quotes${toQuery(query)}`, { cache: 'no-store' });
 export const getQuote = (id: string, versionNo?: number) =>
@@ -609,6 +611,7 @@ import type {
 import type {
   QuoteLayoutError,
   QuoteTemplateLayout,
+  CrmTaskList,
   SalesOrganization,
   SalesOrganizationError,
   SalesOrganizationSummary,

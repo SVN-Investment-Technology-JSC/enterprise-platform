@@ -44,6 +44,7 @@ import {
   organizationIdOf,
 } from './quote-seller.model';
 import { useSalesOrganization, useSalesOrganizations } from './use-sales-organizations';
+import { AwaitingApprovalBlock } from '../tasks/awaiting-approval-block';
 
 const formatDate = (value: string | null) => (value ? value.split('-').reverse().join('/') : '');
 
@@ -55,18 +56,38 @@ export function useCanWriteQuote(): boolean {
 
 /**
  * Danh sách báo giá trong phạm vi dữ liệu: tìm theo mã báo giá, tên khách; lọc
- * trạng thái, người phụ trách. Phân trang keyset.
+ * trạng thái, người phụ trách, "Cần tôi duyệt" (D3-33). Phân trang keyset. Đầu danh sách có khối thu gọn "Cần tôi duyệt".
  */
-export function QuotesPage({ onOpen, onCreate }: { onOpen: (id: string) => void; /** Mở màn lập mới `quotes/new` (plan 9.5). */ onCreate: () => void }) {
+export function QuotesPage({
+  onOpen,
+  onCreate,
+  onOpenProcedure,
+}: {
+  /** Mở báo giá; nhận id hoặc đoạn `quoteSub` (id kèm khối mở sẵn). */
+  onOpen: (id: string) => void;
+  /** Mở màn lập mới `quotes/new` (plan 9.5). */
+  onCreate: () => void;
+  /** Sang hồ sơ Quy trình (spec thay được); mặc định `location.assign`. */
+  onOpenProcedure?: (href: string) => void;
+}) {
   const { people } = useCrm();
   const canWrite = useCanWriteQuote();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [ownerUserId, setOwnerUserId] = useState('');
+  const [awaitingMine, setAwaitingMine] = useState(false);
   const q = useDebounced(search.trim(), 350);
-  const filter = { q, status, ownerUserId };
+  const filter = { q, status, ownerUserId, awaitingMine };
   const list = usePagedList(JSON.stringify(filter), CRM_LIST_PAGE_SIZE, (page) =>
-    listQuotes({ q, status: (status || undefined) as QuoteStatus | undefined, ownerUserId, page, limit: CRM_LIST_PAGE_SIZE }),
+    listQuotes({
+      q,
+      status: (status || undefined) as QuoteStatus | undefined,
+      ownerUserId,
+      // Chỉ gửi khi bật: `toQuery` đổi `false` thành chuỗi "false".
+      awaitingMyApproval: awaitingMine || undefined,
+      page,
+      limit: CRM_LIST_PAGE_SIZE,
+    }),
   );
 
   const columns = useMemo<ColumnsType<QuoteSummary>>(
@@ -94,38 +115,47 @@ export function QuotesPage({ onOpen, onCreate }: { onOpen: (id: string) => void;
   );
 
   return (
-    <section className={styles.tableCard} aria-label="Danh sách báo giá">
-      <div className={styles.toolbar}>
-        {canWrite ? (
-          <button type="button" className={styles.buttonPrimary} onClick={onCreate}>
-            <Plus size={14} /> Lập báo giá
-          </button>
-        ) : null}
-        <input
-          className={`${styles.input} ${styles.search}`}
-          type="search"
-          placeholder="Tìm theo mã báo giá, tên khách…"
-          value={search}
-          maxLength={100}
-          onChange={(event) => setSearch(event.target.value)}
+    <div className={styles.page}>
+      <AwaitingApprovalBlock onOpenQuote={onOpen} onOpenProcedure={onOpenProcedure} />
+      <section className={styles.tableCard} aria-label="Danh sách báo giá">
+        <div className={styles.toolbar}>
+          {canWrite ? (
+            <button type="button" className={styles.buttonPrimary} onClick={onCreate}>
+              <Plus size={14} /> Lập báo giá
+            </button>
+          ) : null}
+          <input
+            className={`${styles.input} ${styles.search}`}
+            type="search"
+            placeholder="Tìm theo mã báo giá, tên khách…"
+            value={search}
+            maxLength={100}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <SearchableSelect className={styles.filter} options={labelOptions(QUOTE_STATUS_LABELS)} value={status} placeholder="Mọi trạng thái" clearable onChange={setStatus} />
+          <SearchableSelect className={styles.filter} options={peopleOptions(people)} value={ownerUserId} placeholder="Mọi người phụ trách" clearable onChange={setOwnerUserId} />
+          <label className={styles.checkbox}>
+            <input type="checkbox" checked={awaitingMine} onChange={(event) => setAwaitingMine(event.target.checked)} />
+            Cần tôi duyệt
+          </label>
+        </div>
+        {list.error ? <p className={styles.alert}>{list.error}</p> : null}
+        <Table<QuoteSummary>
+          size="small"
+          rowKey="id"
+          loading={list.loading}
+          columns={columns}
+          dataSource={[...list.items]}
+          pagination={false}
+          scroll={{ x: 1200 }}
+          onRow={(row) => rowOpener(() => onOpen(row.id))}
+          locale={{
+            emptyText: list.loading ? 'Đang tải…' : awaitingMine ? 'Không có báo giá nào đang chờ bạn duyệt.' : 'Chưa có báo giá nào.',
+          }}
         />
-        <SearchableSelect className={styles.filter} options={labelOptions(QUOTE_STATUS_LABELS)} value={status} placeholder="Mọi trạng thái" clearable onChange={setStatus} />
-        <SearchableSelect className={styles.filter} options={peopleOptions(people)} value={ownerUserId} placeholder="Mọi người phụ trách" clearable onChange={setOwnerUserId} />
-      </div>
-      {list.error ? <p className={styles.alert}>{list.error}</p> : null}
-      <Table<QuoteSummary>
-        size="small"
-        rowKey="id"
-        loading={list.loading}
-        columns={columns}
-        dataSource={[...list.items]}
-        pagination={false}
-        scroll={{ x: 1200 }}
-        onRow={(row) => rowOpener(() => onOpen(row.id))}
-        locale={{ emptyText: list.loading ? 'Đang tải…' : 'Chưa có báo giá nào.' }}
-      />
-      <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="báo giá" onChange={list.goTo} />
-    </section>
+        <ListPager page={list.page} total={list.total} pageSize={list.pageSize} loading={list.loading} noun="báo giá" onChange={list.goTo} />
+      </section>
+    </div>
   );
 }
 
