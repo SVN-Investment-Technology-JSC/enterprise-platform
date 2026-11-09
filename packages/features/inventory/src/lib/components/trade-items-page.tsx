@@ -24,7 +24,6 @@ import {
   retireMaterial,
   updateMaterial,
 } from '../inventory-api';
-import styles from '../inventory.module.scss';
 import {
   EMPTY_FILTER,
   TRADE_STATUS_LABEL,
@@ -49,6 +48,10 @@ import { TradeItemFormDialog } from './trade-item-form-dialog';
 import { TradeStatusBadge } from './trade-status-badge';
 import { TradeItemImportDialog } from './trade-item-import-dialog';
 import type { CatalogAdditions } from '../trade-import.model';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
 
 /** Số dòng mỗi yêu cầu nhập Excel; 50 dòng dài nhất cũng còn xa mức 100 KB. */
 const IMPORT_BATCH_SIZE = 50;
@@ -211,21 +214,20 @@ export function TradeItemsPage({
   };
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div
-        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}
-      >
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', flex: '1 1 480px' }}>
-          <div className={styles.tableSearchBox} style={{ flex: '0 1 280px' }}>
-            <Search size={14} className={styles.tableSearchIcon} style={{ position: 'absolute', left: '0.65rem' }} />
-            <input
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-[1_1_480px] flex-wrap items-center gap-2">
+          <div className="relative flex min-w-[180px] flex-[0_1_280px] items-center">
+            <Search size={14} className="pointer-events-none absolute left-[0.65rem] text-slate-400" />
+            <Input
+              className="pl-8"
               value={filter.search}
               placeholder="Tìm mã, tên hoặc barcode…"
               aria-label="Tìm hàng hóa"
               onChange={(event) => change({ search: event.target.value })}
             />
           </div>
-          <div style={{ width: '150px' }}>
+          <div className="w-[150px]">
             <SearchableSelect
               options={groupOptions}
               value={filter.group}
@@ -235,116 +237,113 @@ export function TradeItemsPage({
                 change({ group: (value || '') as TradeGroup | '', category: '' })
               }
               clearable
-              height={34}
+              height={36}
             />
           </div>
-          <div style={{ width: '190px' }}>
+          <div className="w-[190px]">
             <SearchableSelect
               options={categoryOptions}
               value={filter.category}
               placeholder="Phân loại"
               onChange={(value) => change({ category: value || '' })}
               clearable
-              height={34}
+              height={36}
             />
           </div>
-          <div style={{ width: '170px' }}>
+          <div className="w-[170px]">
             <SearchableSelect
               options={usageOptions}
               value={filter.usage}
               placeholder="Sử dụng"
               onChange={(value) => change({ usage: value || '' })}
               clearable
-              height={34}
+              height={36}
             />
           </div>
-          <div style={{ width: '170px' }}>
+          <div className="w-[170px]">
             <SearchableSelect
               options={statusOptions}
               value={filter.status}
               placeholder="Trạng thái"
               onChange={(value) => change({ status: (value || 'ACTIVE') as TradeStatus })}
               clearable={false}
-              height={34}
+              height={36}
             />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="flex items-center gap-2">
           {canManage ? (
-            <button type="button" className={styles.btnSecondary} style={{ whiteSpace: 'nowrap' }} onClick={() => setDialog({ kind: 'import' })}>
-              <Upload size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setDialog({ kind: 'import' })}>
+              <Upload size={14} className="mr-1.5 -mt-px" />
               Nhập Excel
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
             type="button"
-            className={styles.btnSecondary}
-            style={{ whiteSpace: 'nowrap' }}
+            variant="outline"
+            className="whitespace-nowrap"
             disabled={filtered.length === 0}
             onClick={() => exportTradeItems(filtered)}
           >
-            <Download size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            <Download size={14} className="mr-1.5 -mt-px" />
             Xuất Excel
-          </button>
+          </Button>
           {canManage ? (
-            <button type="button" className={styles.btnPrimary} style={{ whiteSpace: 'nowrap' }} onClick={() => setDialog({ kind: 'form' })}>
-              <Plus size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            <Button type="button" className="whitespace-nowrap" onClick={() => setDialog({ kind: 'form' })}>
+              <Plus size={14} className="mr-1.5 -mt-px" />
               Tạo mới
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
       {view.total === 0 ? (
-        <p className={styles.empty} role={loadError ? 'alert' : undefined}>
+        <p className="m-0 py-8 text-center text-slate-500" role={loadError ? 'alert' : undefined}>
           {loading
             ? 'Đang tải…'
             : (loadError ?? (items.length === 0 ? 'Chưa có hàng hóa nào.' : 'Không có hàng hóa phù hợp bộ lọc.'))}
         </p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.left}>Mã</th>
-                <th className={styles.left}>Tên</th>
-                <th className={styles.left}>Nhóm</th>
-                <th className={styles.left}>Phân loại</th>
-                <th className={styles.left}>Đơn vị</th>
-                <th className={styles.left}>Sử dụng</th>
-                <th className={styles.right}>Giá</th>
-                <th className={styles.left}>Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
+        <TableWrap className="rounded-xl border border-slate-200 bg-white">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Mã</TableHeaderCell>
+                <TableHeaderCell>Tên</TableHeaderCell>
+                <TableHeaderCell>Nhóm</TableHeaderCell>
+                <TableHeaderCell>Phân loại</TableHeaderCell>
+                <TableHeaderCell>Đơn vị</TableHeaderCell>
+                <TableHeaderCell>Sử dụng</TableHeaderCell>
+                <TableHeaderCell className="text-right">Giá</TableHeaderCell>
+                <TableHeaderCell>Trạng thái</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {view.rows.map((item) => (
-                <tr
+                <TableRow
                   key={item.id}
                   tabIndex={0}
-                  style={{
-                    cursor: 'pointer',
-                    ...(item.isActive ? {} : { background: '#f1f5f9', color: '#64748b' }),
-                  }}
+                  className={cn('cursor-pointer', !item.isActive && 'bg-slate-100 text-slate-500')}
                   onClick={() => setSelectedCode(item.code)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') setSelectedCode(item.code);
                   }}
                 >
-                  <td>{item.code}</td>
-                  <td>{item.name}</td>
-                  <td>{TRADE_GROUP_LABEL[tradeGroupOf(item)]}</td>
-                  <td>{item.tradeCategory || '—'}</td>
-                  <td>{item.unit}</td>
-                  <td>{usageLabel(item.tradeMode) || '—'}</td>
-                  <td className={styles.right}>{formatSalePrice(item.salePrice)}</td>
-                  <td>
+                  <TableCell>{item.code}</TableCell>
+                  <TableCell>{item.name}</TableCell>
+                  <TableCell>{TRADE_GROUP_LABEL[tradeGroupOf(item)]}</TableCell>
+                  <TableCell>{item.tradeCategory || '—'}</TableCell>
+                  <TableCell>{item.unit}</TableCell>
+                  <TableCell>{usageLabel(item.tradeMode) || '—'}</TableCell>
+                  <TableCell className="text-right">{formatSalePrice(item.salePrice)}</TableCell>
+                  <TableCell>
                     <TradeStatusBadge active={item.isActive} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
       )}
 
       <TablePager

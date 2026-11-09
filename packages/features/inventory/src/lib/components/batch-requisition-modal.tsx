@@ -1,12 +1,18 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { X, CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
-import { VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
+import { CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
+import { VnNumberInput, CloseGuard, SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
+import { Textarea } from '../ui/textarea';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export interface BatchItemState {
   materialCode: string;
@@ -214,88 +220,38 @@ export function BatchRequisitionModal({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '850px',
-          width: '95vw',
-          background: '#ffffff',
-          borderRadius: '12px',
-          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '90vh',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onEscape={!submitting && !busy && !isDirty ? onClose : undefined}>
+      <DialogContent className="max-w-212" aria-label="Xử lý phiếu yêu cầu cấp phát vật tư">
         {/* Modal Header */}
-        <div className={styles.modalHead}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <DialogHeader>
+          <div className="flex items-center gap-2.5">
             <div
-              style={{
-                padding: '8px',
-                borderRadius: '8px',
-                background: '#eff6ff',
-                color: '#2563eb',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              className="p-2 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"
             >
               <Layers size={20} strokeWidth={2.2} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                Xử lý Phiếu yêu cầu cấp phát vật tư ({req.lines.length} hạng mục)
-              </h2>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+              <DialogTitle>Xử lý Phiếu yêu cầu cấp phát vật tư ({req.lines.length} hạng mục)</DialogTitle>
+              <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
                 Hồ sơ <strong>{req.code}</strong> • Bảng kê: <code>{req.csvFileName}</code>
                 {req.assetCode ? ` • Thiết bị nhận: ${req.assetCode}` : ''}
               </p>
             </div>
           </div>
           <CloseGuard dirty={isDirty} busy={submitting || busy} onClose={onClose}>
-            <button
-              type="button"
-              className={styles.closeButton}
-              title="Đóng"
-              aria-label="Đóng"
-            >
-              <X size={18} strokeWidth={2} />
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
         {/* Modal Body */}
         <form
           onSubmit={handleSubmit}
-          style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <div
-            className={styles.modalBody}
-            style={{
-              padding: '16px 20px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-            }}
-          >
+          <DialogBody className="flex flex-col gap-4">
             {errorMessage ? (
               <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: '6px',
-                  background: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  color: '#b91c1c',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
+                className="py-2.5 px-3.5 rounded-md bg-red-50 border border-red-200 text-red-700 text-[14px] flex items-center gap-2"
               >
                 <AlertTriangle size={16} />
                 <span>{errorMessage}</span>
@@ -304,54 +260,35 @@ export function BatchRequisitionModal({
 
             {/* BANNER 3 MÀU TỔNG QUAN TÌNH TRẠNG ĐÁP ỨNG CỦA PHIẾU YÊU CẦU */}
             <div
-              style={{
-                padding: '12px 16px',
-                borderRadius: '8px',
-                background: stockSummary.allReady ? '#f0fdf4' : '#f8fafc',
-                border: `1px solid ${stockSummary.allReady ? '#86efac' : '#e2e8f0'}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '14px',
-                flexWrap: 'wrap',
-              }}
+              className={cn(
+                'flex flex-wrap items-center justify-between gap-3.5 rounded-lg border px-4 py-3',
+                stockSummary.allReady ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-slate-50',
+              )}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="flex items-center gap-2.5">
                 <PackageCheck
                   size={22}
-                  style={{ color: stockSummary.allReady ? '#16a34a' : '#2563eb', flexShrink: 0 }}
+                  className={cn('shrink-0', stockSummary.allReady ? 'text-green-600' : 'text-blue-600')}
                 />
                 <div>
                   <div
-                    style={{
-                      fontWeight: 700,
-                      fontSize: '14px',
-                      color: stockSummary.allReady ? '#15803d' : '#0f172a',
-                    }}
+                    className={cn('text-[14px] font-bold', stockSummary.allReady ? 'text-green-700' : 'text-slate-900')}
                   >
                     {stockSummary.allReady
                       ? 'Kho đã có đủ hàng sẵn sàng xuất cho toàn bộ danh sách!'
                       : 'Tình trạng đáp ứng tồn kho của Phiếu yêu cầu:'}
                   </div>
-                  <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
+                  <div className="text-[13px] text-slate-500 mt-0.5">
                     Thủ kho kiểm tra kho xuất và xác nhận cấp phát cho quy trình bảo dưỡng.
                   </div>
                 </div>
               </div>
 
               {/* 3 Huy hiệu màu trạng thái */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {stockSummary.singleCount > 0 ? (
                   <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      background: '#ecfdf5',
-                      color: '#047857',
-                      border: '1px solid #a7f3d0',
-                    }}
+                    className="py-0.5 px-2 rounded-xl text-[12px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
                     title="Vật tư có đủ hàng tại 1 kho đơn lẻ"
                   >
                     ● {stockSummary.singleCount} sẵn sàng
@@ -360,15 +297,7 @@ export function BatchRequisitionModal({
 
                 {stockSummary.transferCount > 0 ? (
                   <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      background: '#fffbeb',
-                      color: '#b45309',
-                      border: '1px solid #fde68a',
-                    }}
+                    className="py-0.5 px-2 rounded-xl text-[12px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
                     title="Vật tư đủ nếu gom hoặc điều chuyển giữa các kho"
                   >
                     ▲ {stockSummary.transferCount} cần gom kho
@@ -377,15 +306,7 @@ export function BatchRequisitionModal({
 
                 {stockSummary.shortageCount > 0 ? (
                   <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      background: '#fef2f2',
-                      color: '#b91c1c',
-                      border: '1px solid #fecaca',
-                    }}
+                    className="py-0.5 px-2 rounded-xl text-[12px] font-semibold bg-red-50 text-red-700 border border-red-200"
                     title="Vật tư thiếu trên toàn bộ hệ thống kho"
                   >
                     ✕ {stockSummary.shortageCount} thiếu hàng
@@ -396,32 +317,24 @@ export function BatchRequisitionModal({
 
             {/* Phân loại & Gán thiết bị cho toàn bộ bảng kê xuất bảo dưỡng */}
             <div
-              style={{
-                padding: '12px 14px',
-                borderRadius: '8px',
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
+              className="py-3 px-3.5 rounded-lg bg-green-50 border border-green-200 flex flex-col gap-2"
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#166534' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] font-bold text-green-800">
                   Phân loại hạch toán & Gán thiết bị bảo trì:
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
+              <div className="flex items-center gap-5">
+                <Label className="inline-flex cursor-pointer items-center gap-1.5 text-[14px] font-semibold text-slate-800">
                   <input
                     type="radio"
                     name="batch_purpose"
                     checked={isAssignToAsset}
                     onChange={() => setIsAssignToAsset(true)}
                   />
-                  Lắp đặt / Thay thế cho thiết bị <span style={{ color: '#16a34a' }}>(Cộng vào "Đang sử dụng")</span>
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 600, color: '#64748b', cursor: 'pointer' }}>
+                  Lắp đặt / Thay thế cho thiết bị <span className="text-green-600">(Cộng vào "Đang sử dụng")</span>
+                </Label>
+                <Label className="inline-flex cursor-pointer items-center gap-1.5 text-[14px] font-semibold text-slate-500">
                   <input
                     type="radio"
                     name="batch_purpose"
@@ -429,36 +342,26 @@ export function BatchRequisitionModal({
                     onChange={() => setIsAssignToAsset(false)}
                   />
                   Xuất tiêu hao / tiêu hủy (Trừ hẳn sở hữu)
-                </label>
+                </Label>
               </div>
 
               {isAssignToAsset ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
+                <div className="flex items-center gap-2.5 mt-1">
+                  <span className="text-[13px] font-semibold text-slate-700 whitespace-nowrap">
                     Thiết bị tiếp nhận:
                   </span>
-                  <select
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #86efac',
-                      fontSize: '13px',
-                      background: '#ffffff',
-                      outline: 'none',
-                      flex: 1,
-                      maxWidth: '380px',
-                    }}
+                  <SearchableSelect
+                    className="max-w-95 flex-1"
+                    height={32}
+                    placeholder="— Chọn thiết bị nhận lắp đặt trên Cây tài sản —"
+                    options={workspace.assets.map((asset) => ({
+                      value: asset.code,
+                      label: `${asset.code} — ${asset.name}`,
+                    }))}
                     value={selectedAssetCode}
-                    onChange={(e) => setSelectedAssetCode(e.target.value)}
-                  >
-                    <option value="">— Chọn thiết bị nhận lắp đặt trên Cây tài sản —</option>
-                    {workspace.assets.map((asset) => (
-                      <option key={asset.id} value={asset.code}>
-                        {asset.code} — {asset.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span style={{ fontSize: '12px', color: '#15803d' }}>
+                    onChange={setSelectedAssetCode}
+                  />
+                  <span className="text-[12px] text-green-700">
                     Các vật tư xuất ra sẽ được tự động cộng vào cột <strong>"Đang sử dụng"</strong>.
                   </span>
                 </div>
@@ -466,252 +369,163 @@ export function BatchRequisitionModal({
             </div>
 
             {/* Bảng danh sách vật tư */}
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: '13px',
-                  background: '#ffffff',
-                }}
-              >
-                <thead>
-                  <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left' }}>
-                    <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0', width: '35px' }}>
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <Table className="bg-white text-[13px]">
+                <TableHead>
+                  <TableRow className="bg-slate-100 text-left text-slate-600 hover:bg-slate-100">
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-[35px]">
                       STT
-                    </th>
-                    <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0' }}>Vật tư</th>
-                    <th
-                      style={{
-                        padding: '8px 12px',
-                        borderBottom: '1px solid #e2e8f0',
-                        width: '125px',
-                        textAlign: 'right',
-                      }}
-                    >
+                    </TableHeaderCell>
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200">Vật tư</TableHeaderCell>
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-[125px] text-right">
                       Số lượng xuất
-                    </th>
-                    <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0', width: '230px' }}>
+                    </TableHeaderCell>
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-57.5">
                       Kho chỉ định xuất
-                    </th>
-                    <th
-                      style={{
-                        padding: '8px 12px',
-                        borderBottom: '1px solid #e2e8f0',
-                        width: '210px',
-                        textAlign: 'right',
-                      }}
-                    >
+                    </TableHeaderCell>
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-52.5 text-right">
                       Tồn kho & Trạng thái
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                    </TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {items.map((item, idx) => {
                     const status = itemStatuses[idx];
                     return (
-                      <tr
+                      <TableRow
                         key={`${item.materialCode}-${idx}`}
-                        style={{
-                          borderBottom: '1px solid #f1f5f9',
-                          background: status.overdraw ? '#fff1f2' : idx % 2 === 1 ? '#fafafa' : '#ffffff',
-                        }}
+                        className={cn(
+                          'border-b border-b-slate-100',
+                          status.overdraw ? 'bg-rose-50 hover:bg-rose-50' : idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white',
+                        )}
                       >
-                        <td style={{ padding: '8px 12px', color: '#64748b', textAlign: 'center' }}>
+                        <TableCell className="px-3 py-2 text-slate-500 text-center">
                           {idx + 1}
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <div style={{ fontWeight: 600, color: '#2563eb' }}>{item.materialCode}</div>
-                          <div style={{ fontSize: '12px', color: '#475569' }}>{item.materialName}</div>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <div className="font-semibold text-blue-600">{item.materialCode}</div>
+                          <div className="text-[12px] text-slate-600">{item.materialName}</div>
+                        </TableCell>
+                        <TableCell className="px-3 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
                             <VnNumberInput
                               maxDecimals={getUnitQuantityConfig(item.unit).step === '1' ? 0 : 2}
                               value={String(item.quantity)}
                               onChange={(value) => handleItemChange(idx, { quantity: Number(value) || 0 })}
-                              style={{
-                                width: '75px',
-                                padding: '5px 8px',
-                                borderRadius: '4px',
-                                border: status.overdraw ? '1px solid #ef4444' : '1px solid #cbd5e1',
-                                textAlign: 'right',
-                                fontSize: '13px',
-                                fontWeight: 700,
-                              }}
+                              className={cn(
+                                'w-[75px] rounded-sm border px-2 py-[5px] text-right text-[13px] font-bold',
+                                status.overdraw ? 'border-red-500' : 'border-slate-300',
+                              )}
                             />
-                            <span style={{ fontSize: '12px', color: '#64748b', minWidth: '25px' }}>
+                            <span className="text-[12px] text-slate-500 min-w-[25px]">
                               {item.unit}
                             </span>
                           </div>
                           {status.overdraw && status.onHand > 0 ? (
-                            <div style={{ marginTop: '3px' }}>
-                              <button
+                            <div className="mt-[3px]">
+                              <Button
                                 type="button"
-                                style={{
-                                  border: 'none',
-                                  background: 'transparent',
-                                  color: '#2563eb',
-                                  fontSize: '12px',
-                                  textDecoration: 'underline',
-                                  cursor: 'pointer',
-                                  padding: 0,
-                                }}
+                                variant="link"
+                                size="xs"
+                                className="h-auto p-0 text-[12px] underline"
                                 onClick={() => handleItemChange(idx, { quantity: status.onHand })}
                               >
                                 Lấy tồn ({status.onHand})
-                              </button>
+                              </Button>
                             </div>
                           ) : null}
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <select
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <SearchableSelect
+                            height={32}
                             value={item.warehouseCode}
-                            onChange={(e) => handleItemChange(idx, { warehouseCode: e.target.value })}
-                            style={{
-                              width: '100%',
-                              padding: '5px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '13px',
-                              background: '#ffffff',
-                            }}
-                          >
-                            {workspace.warehouses.map((w) => {
+                            onChange={(value) => handleItemChange(idx, { warehouseCode: value })}
+                            options={workspace.warehouses.map((w) => {
                               const wStock = workspace.stock.find(
-                                (s) => s.materialCode === item.materialCode && s.warehouseCode === w.code,
+                                (stock) => stock.materialCode === item.materialCode && stock.warehouseCode === w.code,
                               );
                               const wAvail = wStock?.available ?? 0;
-                              return (
-                                <option key={w.id} value={w.code}>
-                                  {w.name} (khả dụng: {formatNumber(wAvail)})
-                                </option>
-                              );
+                              return { value: w.code, label: `${w.name} (khả dụng: ${formatNumber(wAvail)})` };
                             })}
-                          </select>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                          />
+                        </TableCell>
+                        <TableCell className="px-3 py-2 text-right">
                           {status.tier === 'single_ready' ? (
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                padding: '2px 7px',
-                                borderRadius: '10px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                background: '#ecfdf5',
-                                color: '#047857',
-                                border: '1px solid #a7f3d0',
-                              }}
+                            <Badge variant="outline"
+                              className="h-auto gap-[3px] py-0.5 px-[7px] text-[12px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200"
                             >
                               ● Sẵn sàng (tồn {formatNumber(status.onHand)})
-                            </span>
+                            </Badge>
                           ) : status.tier === 'transfer_needed' ? (
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                padding: '2px 7px',
-                                borderRadius: '10px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                background: '#fffbeb',
-                                color: '#b45309',
-                                border: '1px solid #fde68a',
-                              }}
+                            <Badge variant="outline"
+                              className="h-auto gap-[3px] py-0.5 px-[7px] text-[12px] font-semibold bg-amber-50 text-amber-700 border-amber-200"
                               title={`Kho chọn có ${formatNumber(status.onHand)}, tổng liên kho có ${formatNumber(status.totalAvail)}`}
                             >
                               ▲ Gom kho (kho {formatNumber(status.onHand)} / gom {formatNumber(status.totalAvail)})
-                            </span>
+                            </Badge>
                           ) : (
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                padding: '2px 7px',
-                                borderRadius: '10px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                background: '#fef2f2',
-                                color: '#b91c1c',
-                                border: '1px solid #fecaca',
-                              }}
+                            <Badge variant="outline"
+                              className="h-auto gap-[3px] py-0.5 px-[7px] text-[12px] font-semibold bg-red-50 text-red-700 border-red-200"
                               title={`Toàn hệ thống chỉ còn ${formatNumber(status.totalAvail)}`}
                             >
                               ✕ Thiếu hàng (tổng còn {formatNumber(status.totalAvail)})
-                            </span>
+                            </Badge>
                           )}
                           {status.overdraw ? (
-                            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '2px', fontWeight: 500 }}>
+                            <div className="text-[12px] text-red-600 mt-0.5 font-medium">
                               Kho chọn chỉ còn {formatNumber(status.onHand)}!
                             </div>
                           ) : null}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
             {/* Ghi chú chứng từ chung */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+            <div className="flex flex-col gap-[5px]">
+              <Label className="text-[14px] text-slate-700">
                 Ghi chú chứng từ xuất / tham chiếu quy trình:
-              </label>
-              <textarea
+              </Label>
+              <Textarea
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '13px',
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
-                }}
+                className="text-[13px]"
               />
             </div>
-          </div>
+          </DialogBody>
 
           {/* Modal Footer */}
-          <div className={styles.modalFoot}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+          <DialogFooter className="justify-between">
+            <div className="flex items-center gap-1.5 text-[13px] text-slate-500">
               <CheckCircle2 size={15} color="#16a34a" />
               <span>
                 Sẽ ghi đồng thời <strong>{items.filter(i => i.quantity > 0).length} bút toán xuất kho</strong> vào sổ cái.
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="flex items-center gap-2">
               <CloseGuard dirty={isDirty} busy={submitting || busy} onClose={onClose}>
-                <button
-                  type="button"
-                  className={`${styles.action} ${styles.actionGhost}`}
-                  disabled={submitting}
-                >
+                <Button type="button" variant="outline" disabled={submitting}>
                   Huỷ
-                </button>
+                </Button>
               </CloseGuard>
-              <button
+              <Button
                 type="submit"
-                className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={hasInvalid || submitting || busy}
-                style={{ minWidth: '180px' }}
+                className="min-w-45"
               >
                 {submitting
                   ? 'Đang ghi sổ giao dịch…'
                   : `Xác nhận xuất ${items.filter(i => i.quantity > 0).length} vật tư`}
-              </button>
+              </Button>
             </div>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

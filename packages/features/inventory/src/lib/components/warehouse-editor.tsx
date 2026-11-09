@@ -4,7 +4,10 @@ import type { Warehouse } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@enterprise-platform/shared-ui';
 import { createWarehouse, loadAllWarehouses, updateWarehouse } from '../inventory-api';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
 
 /**
  * Danh sách kho, khai ngay trong Cài đặt.
@@ -70,28 +73,30 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
   };
 
   return (
-    <div className={styles.warehouseEditor}>
+    <div className="flex flex-col gap-5">
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="m-0 mb-4 rounded-[0.65rem] border border-[#f0c2c2] bg-[#fdf2f2] px-4 py-[0.8rem] text-[#a12b2b]">
           {error}
         </p>
       ) : null}
 
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th>Mã</th>
-            <th>Tên kho</th>
-            <th>Vị trí</th>
-            <th>Đang dùng</th>
-          </tr>
-        </thead>
-        <tbody>
+      <TableWrap className="rounded-xl border border-slate-200 bg-white">
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableHeaderCell>Mã</TableHeaderCell>
+            <TableHeaderCell>Tên kho</TableHeaderCell>
+            <TableHeaderCell>Vị trí</TableHeaderCell>
+            <TableHeaderCell>Đang dùng</TableHeaderCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {(rows ?? []).map((warehouse) => (
-            <tr key={warehouse.code} className={warehouse.isActive ? undefined : styles.muted}>
-              <td className={styles.code}>{warehouse.code}</td>
-              <td>
-                <input
+            <TableRow key={warehouse.code} className={cn(!warehouse.isActive && 'text-slate-500')}>
+              <TableCell className="font-mono font-bold tracking-[0.03em] text-slate-800">{warehouse.code}</TableCell>
+              <TableCell>
+                <Input
+                  className="h-8 text-[13px]"
                   value={warehouse.name}
                   disabled={busy}
                   aria-label={`Tên kho ${warehouse.code}`}
@@ -106,9 +111,10 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
                     void run(() => updateWarehouse(warehouse.code, { name: event.target.value }))
                   }
                 />
-              </td>
-              <td>
-                <input
+              </TableCell>
+              <TableCell>
+                <Input
+                  className="h-8 text-[13px]"
                   value={warehouse.location ?? ''}
                   disabled={busy}
                   placeholder="Địa chỉ, khu vực…"
@@ -128,10 +134,11 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
                     )
                   }
                 />
-              </td>
-              <td>
+              </TableCell>
+              <TableCell>
                 <input
                   type="checkbox"
+                  className="size-[1.05rem] cursor-pointer accent-primary"
                   checked={warehouse.isActive}
                   disabled={busy}
                   aria-label={`Đang dùng kho ${warehouse.code}`}
@@ -142,60 +149,54 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
                     )
                   }
                 />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
           {rows && rows.length === 0 ? (
-            <tr>
-              <td colSpan={4} className={styles.muted}>
-                Chưa khai kho nào.
-              </td>
-            </tr>
+            <TableEmpty colSpan={4}>Chưa khai kho nào.</TableEmpty>
           ) : null}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
+      </TableWrap>
 
-      <div className={styles.warehouseAddCard}>
-        <div className={styles.warehouseAddHeader}>
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem]">
+        <div className="flex items-center gap-[0.45rem] text-sm font-semibold text-slate-800">
           <span>Thêm kho lưu trữ mới</span>
         </div>
-        <div className={styles.warehouseAdd}>
-          <input
-            className={`${styles.warehouseInput} ${styles.warehouseInputCode}`}
+        <div className="grid grid-cols-1 items-center gap-[0.65rem] md:grid-cols-[140px_1.2fr_1.5fr_auto]">
+          <Input
+            className="font-mono font-semibold uppercase tracking-[0.04em]"
             value={code}
             disabled={busy}
             placeholder="Mã kho"
             aria-label="Mã kho mới"
             onChange={(event) => setCode(event.target.value)}
           />
-          <input
-            className={styles.warehouseInput}
+          <Input
             value={name}
             disabled={busy}
             placeholder="Tên kho"
             aria-label="Tên kho mới"
             onChange={(event) => setName(event.target.value)}
           />
-          <input
-            className={styles.warehouseInput}
+          <Input
             value={location}
             disabled={busy}
             placeholder="Vị trí (tuỳ chọn)"
             aria-label="Vị trí kho mới"
             onChange={(event) => setLocation(event.target.value)}
           />
-          <button
+          <Button
             type="button"
-            className={styles.warehouseAddBtn}
             disabled={busy || !code.trim() || !name.trim()}
             onClick={() => void add()}
           >
             Thêm kho
-          </button>
+          </Button>
         </div>
         {/* Mã là khoá nghiệp vụ: mọi bút toán trỏ vào kho qua nó, nên nói trước
             rằng đổi mã là không được, thay vì để người dùng phát hiện lúc bấm. */}
-        <p className={styles.hint}>Mã kho không sửa được sau khi tạo vì sổ cái tham chiếu theo mã.</p>
+        <p className="m-0 mb-1 text-[0.8125rem] leading-normal text-slate-500">Mã kho không sửa được sau khi tạo vì sổ cái tham chiếu theo mã.</p>
       </div>
     </div>
   );

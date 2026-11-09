@@ -2,13 +2,18 @@
 
 import type { CreateMaterialRequest, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { FormError, submitErrorMessage } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { TRADE_GROUP_LABEL, categoriesOf, withCurrent, type TradeGroup } from '../trade-items.model';
 
-const labelStyle = { display: 'block' } as const;
+/** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
+const NUMBER_INPUT_CLASS =
+  'h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-50 aria-invalid:border-red-500';
 
 /**
  * Tạo mới một mặt hàng kinh doanh. Việc sửa làm ngay trên drawer chi tiết (`TradeItemDrawer`).
@@ -90,32 +95,21 @@ export function TradeItemFormDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{ maxWidth: '620px' }}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div className={styles.modalHead}>
-            <h2>{title}</h2>
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent className="max-w-[620px]" aria-label={title}>
+        <form onSubmit={submit} className="flex min-h-0 flex-col">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
-                <X size={18} strokeWidth={2} />
-              </button>
+              <DialogCloseButton />
             </CloseGuard>
-          </div>
+          </DialogHeader>
 
-          <div className={styles.modalBody} style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="trade-code">
-                  Mã <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+          <DialogBody>
+            <div className="grid grid-cols-2 gap-x-[1.35rem] gap-y-[1.15rem]">
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-code" required>Mã</Label>
+                <Input
                   id="trade-code"
                   required
                   autoFocus
@@ -124,11 +118,9 @@ export function TradeItemFormDialog({
                   onChange={(event) => setCode(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="trade-name">
-                  Tên <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-name" required>Tên</Label>
+                <Input
                   id="trade-name"
                   required
                   placeholder="Tên hàng hóa hoặc dịch vụ"
@@ -136,19 +128,17 @@ export function TradeItemFormDialog({
                   onChange={(event) => setName(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="trade-barcode">
-                  Barcode
-                </label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-barcode">Barcode</Label>
+                <Input
                   id="trade-barcode"
                   placeholder="Mã vạch"
                   value={barcode}
                   onChange={(event) => setBarcode(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle}>Nhóm</label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label>Nhóm</Label>
                 <SearchableSelect
                   options={groupOptions}
                   value={group}
@@ -159,12 +149,12 @@ export function TradeItemFormDialog({
                     setCategory('');
                   }}
                   clearable={false}
-                  height={42}
-                  style={{ width: '100%' }}
+                  height={36}
+                  className="w-full"
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle}>Phân loại</label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label>Phân loại</Label>
                 <SearchableSelect
                   options={categoryOptions}
                   value={category}
@@ -173,14 +163,12 @@ export function TradeItemFormDialog({
                   }
                   onChange={(value) => setCategory(value || '')}
                   clearable
-                  height={42}
-                  style={{ width: '100%' }}
+                  height={36}
+                  className="w-full"
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="trade-unit">
-                  Đơn vị <span style={{ color: '#dc2626' }}>*</span>
-                </label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-unit" required>Đơn vị</Label>
                 {units.length > 0 ? (
                   <SearchableSelect
                     options={unitOptions}
@@ -189,11 +177,11 @@ export function TradeItemFormDialog({
                     emptyText="Không tìm thấy đơn vị tính"
                     onChange={(value) => setUnit(value || '')}
                     clearable={false}
-                    height={42}
-                    style={{ width: '100%' }}
+                    height={36}
+                    className="w-full"
                   />
                 ) : (
-                  <input
+                  <Input
                     id="trade-unit"
                     required
                     placeholder="Cái, Mét, Giờ…"
@@ -202,41 +190,38 @@ export function TradeItemFormDialog({
                   />
                 )}
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle}>Sử dụng</label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label>Sử dụng</Label>
                 <SearchableSelect
                   options={usageOptions}
                   value={usage}
                   placeholder="— Chọn cách sử dụng —"
                   onChange={(value) => setUsage(value || '')}
                   clearable
-                  height={42}
-                  style={{ width: '100%' }}
+                  height={36}
+                  className="w-full"
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="trade-price">
-                  Giá bán (VND)
-                </label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-price">Giá bán (VND)</Label>
                 <VnNumberInput
                   id="trade-price"
+                  className={NUMBER_INPUT_CLASS}
                   placeholder="Bỏ trống nếu chưa khai báo"
                   value={price}
                   onChange={setPrice}
                   aria-invalid={priceInvalid}
                 />
                 {priceInvalid ? (
-                  <span role="alert" style={{ fontSize: '13px', color: '#dc2626' }}>
+                  <span role="alert" className="text-[13px] text-red-600">
                     Giá bán phải là số không âm.
                   </span>
                 ) : null}
               </div>
             </div>
-            <div className={styles.formGroup}>
-              <label style={labelStyle} htmlFor="trade-description">
-                Mô tả
-              </label>
-              <textarea
+            <div className="flex flex-col gap-[0.4rem]">
+              <Label htmlFor="trade-description">Mô tả</Label>
+              <Textarea
                 id="trade-description"
                 rows={3}
                 maxLength={2000}
@@ -246,20 +231,20 @@ export function TradeItemFormDialog({
               />
             </div>
             <FormError error={error} />
-          </div>
+          </DialogBody>
 
-          <div className={styles.modalFoot}>
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button type="button" className={`${styles.action} ${styles.actionGhost}`} disabled={busy}>
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy || !ready}>
+            <Button type="submit" disabled={busy || !ready}>
               {busy ? 'Đang lưu…' : 'Tạo mới'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -25,6 +25,7 @@ import { SearchableSelect, formatDate, toast } from '@enterprise-platform/shared
 import { Table, type TableColumnsType } from 'antd';
 import { FileSpreadsheet, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Input, Label, cn } from '../ui';
 import { loadApprovalReport, loadMovementReport, loadStockReport } from '../inventory-api';
 import { QUALITY_STATUS_LABEL, formatDateTime, formatNumber } from '../inventory-labels';
 import {
@@ -41,8 +42,8 @@ import {
 } from '../inventory-reports.model';
 import { STOCK_DOCUMENT_STATUS_LABEL, STOCK_DOCUMENT_TYPE_LABEL } from '../stock-document.model';
 import { DocumentStatusBadge, errorMessage } from './stock-document-parts';
-import styles from '../inventory.module.scss';
 import { useUserLabel } from '../user-names';
+import { Button } from '../ui/button';
 
 type ReportView = 'WAREHOUSE' | 'LOT' | 'SERIAL' | 'MOVEMENTS' | 'APPROVALS';
 
@@ -53,6 +54,16 @@ const VIEWS: readonly { id: ReportView; label: string }[] = [
   { id: 'MOVEMENTS', label: 'Nhập xuất' },
   { id: 'APPROVALS', label: 'Lịch sử duyệt' },
 ];
+
+const FIELD = 'flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600 [&_input:not([type=checkbox])]:text-sm [&_input:not([type=checkbox])]:font-normal';
+const FILTER_ROW = 'mb-[0.85rem] flex flex-wrap items-end gap-[0.7rem]';
+const ALERT = 'mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-red-700';
+const STAT_STRIP =
+  'mb-[0.85rem] flex flex-wrap gap-x-[2.2rem] gap-y-[0.35rem] rounded-xl border border-slate-200 bg-white px-[1.1rem] py-[0.8rem] [&_span]:flex [&_span]:items-baseline [&_span]:gap-2 [&_span]:text-sm [&_span]:text-slate-500 [&_strong]:text-xl [&_strong]:tracking-tight [&_strong]:text-slate-900 [&_strong]:tabular-nums';
+const STAT_WARN = '[&_strong]:text-amber-700!';
+const COUNT_HINT = 'text-[13px] text-slate-500 tabular-nums';
+const SUB = 'mt-[0.2rem] block text-[13px] font-normal text-slate-500';
+const CODE = 'font-bold text-blue-600';
 
 const PAGE_SIZES = [20, 50, 100, 200];
 
@@ -139,7 +150,7 @@ function Actor({ id, at }: { id?: string; at?: string }) {
     <>
       {at ? formatDateTime(at) : '—'}
       {id ? (
-        <span className={styles.sub} title={id}>
+        <span className={SUB} title={id}>
           {userName(id)}
         </span>
       ) : null}
@@ -156,7 +167,7 @@ const quantityColumn = <TRow extends object>(
   key,
   align: 'right',
   width: 110,
-  render: (value: number) => <span className={styles.numeric}>{formatNumber(value)}</span>,
+  render: (value: number) => <span className="tabular-nums">{formatNumber(value)}</span>,
 });
 
 /**
@@ -173,23 +184,23 @@ export function InventoryReports({
 }) {
   const [view, setView] = useState<ReportView>('WAREHOUSE');
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
+    <section className="rounded-2xl border border-slate-200 bg-white px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem] shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 [&_h2]:m-0 [&_h2]:text-base [&_h2]:font-bold [&_h2]:tracking-tight [&_h2]:text-slate-900">
         <div>
           <h2>Báo cáo kho</h2>
-          <span className={styles.countHint}>
+          <span className={COUNT_HINT}>
             Tồn thực tế, đã giữ, chờ kiểm định hoặc không đạt, khả dụng; nhập xuất theo kỳ
           </span>
         </div>
       </div>
-      <div className={styles.tabs} style={{ margin: '0 0 0.85rem 0' }} role="tablist">
+      <div className="mb-[0.85rem] flex flex-wrap gap-[0.35rem]" role="tablist">
         {VIEWS.map((item) => (
           <button
             key={item.id}
             type="button"
             role="tab"
             aria-selected={view === item.id}
-            className={`${styles.tab} ${view === item.id ? styles.tabActive : ''}`}
+            className={cn('cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold', view === item.id ? 'bg-primary text-primary-foreground' : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900')}
             onClick={() => setView(item.id)}
           >
             {item.label}
@@ -209,17 +220,17 @@ export function InventoryReports({
 
 function ExportButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={styles.btnSecondary} onClick={onClick} disabled={busy}>
+    <Button type="button" variant="outline" onClick={onClick} disabled={busy}>
       <FileSpreadsheet size={15} /> {busy ? 'Đang xuất...' : 'Xuất Excel'}
-    </button>
+    </Button>
   );
 }
 
 function ReloadButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={styles.btnSecondary} onClick={onClick} disabled={busy}>
+    <Button type="button" variant="outline" onClick={onClick} disabled={busy}>
       <RotateCw size={15} /> Tải lại
-    </button>
+    </Button>
   );
 }
 
@@ -343,20 +354,20 @@ function StockReportView({
 
   return (
     <>
-      <div className={styles.docFilterRow}>
-        <label className={styles.docField}>
+      <div className={FILTER_ROW}>
+        <Label className={FIELD}>
           <span>Tìm</span>
-          <input
+          <Input
             value={filters.search}
             placeholder={groupBy === 'SERIAL' ? 'Mã, tên vật tư hoặc serial' : groupBy === 'LOT' ? 'Mã, tên vật tư hoặc số lô' : 'Mã hoặc tên vật tư'}
             onChange={(event) => update({ search: event.target.value })}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className={FIELD}>
           <span>Nhóm vật tư</span>
           <SearchableSelect options={categoryOptions} value={filters.category} height={36} onChange={(value) => update({ category: value })} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className={FIELD}>
           <span>Kho</span>
           <SearchableSelect
             options={warehouseOptions(warehouses)}
@@ -364,9 +375,9 @@ function StockReportView({
             height={36}
             onChange={(value) => update({ warehouseCode: value })}
           />
-        </label>
+        </Label>
         {groupBy === 'LOT' ? (
-          <label className={styles.docField}>
+          <Label className={FIELD}>
             <span>Hạn dùng</span>
             <SearchableSelect
               options={EXPIRY_OPTIONS}
@@ -374,10 +385,10 @@ function StockReportView({
               height={36}
               onChange={(value) => update({ expiringWithinDays: value })}
             />
-          </label>
+          </Label>
         ) : null}
         {groupBy === 'SERIAL' ? (
-          <label className={styles.docField}>
+          <Label className={FIELD}>
             <span>Trạng thái kho</span>
             <SearchableSelect
               options={STOCK_STATE_OPTIONS}
@@ -386,10 +397,10 @@ function StockReportView({
               clearable={false}
               onChange={(value) => update({ stockState: value || 'IN_STOCK' })}
             />
-          </label>
+          </Label>
         ) : null}
         {groupBy !== 'WAREHOUSE' ? (
-          <label className={styles.docField}>
+          <Label className={FIELD}>
             <span>Chất lượng</span>
             <SearchableSelect
               options={QUALITY_OPTIONS}
@@ -397,23 +408,23 @@ function StockReportView({
               height={36}
               onChange={(value) => update({ qualityStatus: value })}
             />
-          </label>
+          </Label>
         ) : null}
         {groupBy !== 'SERIAL' ? (
-          <label className={styles.docField} style={{ flexDirection: 'row', alignItems: 'center', minWidth: 0 }}>
+          <Label className={cn(FIELD, 'min-w-0 flex-row items-center')}>
             <input
               type="checkbox"
               checked={filters.includeZero}
               onChange={(event) => update({ includeZero: event.target.checked })}
             />
             <span>Hiện dòng tồn bằng 0</span>
-          </label>
+          </Label>
         ) : null}
         <ReloadButton busy={loading} onClick={() => setReloadKey((key) => key + 1)} />
         <ExportButton busy={exporting} onClick={() => void exportExcel()} />
       </div>
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className={ALERT}>
           {error}
         </p>
       ) : null}
@@ -460,10 +471,10 @@ function StockTotals({ report }: { report: StockReport }) {
   if (report.groupBy === 'SERIAL') {
     const totals = report.totals;
     return (
-      <div className={styles.statStrip}>
+      <div className={STAT_STRIP}>
         <span>Serial <strong>{formatNumber(totals.serials)}</strong></span>
         <span>Trong kho <strong>{formatNumber(totals.inStock)}</strong></span>
-        <span className={totals.blocked ? styles.statWarn : undefined}>
+        <span className={totals.blocked ? STAT_WARN : undefined}>
           {STOCK_QUANTITY_LABEL.blocked} <strong>{formatNumber(totals.blocked)}</strong>
         </span>
         <span>{STOCK_QUANTITY_LABEL.available} <strong>{formatNumber(totals.available)}</strong></span>
@@ -472,10 +483,10 @@ function StockTotals({ report }: { report: StockReport }) {
   }
   const totals = report.totals;
   return (
-    <div className={styles.statStrip}>
+    <div className={STAT_STRIP}>
       <span>{STOCK_QUANTITY_LABEL.onHand} <strong>{formatNumber(totals.onHand)}</strong></span>
       <span>{STOCK_QUANTITY_LABEL.reserved} <strong>{formatNumber(totals.reserved)}</strong></span>
-      <span className={totals.blocked ? styles.statWarn : undefined}>
+      <span className={totals.blocked ? STAT_WARN : undefined}>
         {STOCK_QUANTITY_LABEL.blocked} <strong>{formatNumber(totals.blocked)}</strong>
       </span>
       <span>{STOCK_QUANTITY_LABEL.available} <strong>{formatNumber(totals.available)}</strong></span>
@@ -491,8 +502,8 @@ const materialColumn = <TRow extends { materialCode: string; materialName: strin
   key: 'material',
   render: (_value, row) => (
     <>
-      <strong className={styles.code}>{row.materialCode}</strong>
-      <span className={styles.sub}>{row.materialName}</span>
+      <strong className={CODE}>{row.materialCode}</strong>
+      <span className={SUB}>{row.materialName}</span>
     </>
   ),
 });
@@ -505,7 +516,7 @@ const WAREHOUSE_COLUMNS: TableColumnsType<StockReportWarehouseRow> = [
     render: (_value, row) => (
       <>
         {row.warehouseCode}
-        <span className={styles.sub}>{row.warehouseName}</span>
+        <span className={SUB}>{row.warehouseName}</span>
       </>
     ),
   },
@@ -538,7 +549,7 @@ const LOT_COLUMNS: TableColumnsType<StockReportLotRow> = [
       row.expiresOn ? (
         <>
           {formatDate(row.expiresOn)}
-          <span className={styles.sub}>
+          <span className={SUB}>
             {row.daysToExpiry === undefined
               ? ''
               : row.daysToExpiry < 0
@@ -612,15 +623,15 @@ function PeriodFields({
 }) {
   return (
     <>
-      <label className={styles.docField}>
+      <Label className={FIELD}>
         <span>Từ ngày</span>
-        <input type="date" value={value.fromDate} max={value.toDate} onChange={(event) => onChange({ fromDate: event.target.value })} />
-      </label>
-      <label className={styles.docField}>
+        <Input type="date" value={value.fromDate} max={value.toDate} onChange={(event) => onChange({ fromDate: event.target.value })} />
+      </Label>
+      <Label className={FIELD}>
         <span>Đến ngày</span>
-        <input type="date" value={value.toDate} min={value.fromDate} onChange={(event) => onChange({ toDate: event.target.value })} />
-      </label>
-      <label className={styles.docField}>
+        <Input type="date" value={value.toDate} min={value.fromDate} onChange={(event) => onChange({ toDate: event.target.value })} />
+      </Label>
+      <Label className={FIELD}>
         <span>Kho</span>
         <SearchableSelect
           options={warehouseOptions(warehouses)}
@@ -628,7 +639,7 @@ function PeriodFields({
           height={36}
           onChange={(code) => onChange({ warehouseCode: code })}
         />
-      </label>
+      </Label>
     </>
   );
 }
@@ -684,8 +695,8 @@ const LINE_COLUMNS: TableColumnsType<StockMovementLine> = [
     width: 190,
     render: (_value, line) => (
       <>
-        <strong className={styles.code}>{line.documentCode ?? line.transactionCode}</strong>
-        <span className={styles.sub}>
+        <strong className={CODE}>{line.documentCode ?? line.transactionCode}</strong>
+        <span className={SUB}>
           {line.docType ? STOCK_DOCUMENT_TYPE_LABEL[line.docType] : 'Không có chứng từ'}
           {line.reversesDocumentCode ? ` · đảo ${line.reversesDocumentCode}` : ''}
         </span>
@@ -708,7 +719,7 @@ const LINE_COLUMNS: TableColumnsType<StockMovementLine> = [
     align: 'right',
     width: 100,
     render: (value: number) => (
-      <span className={`${styles.numeric} ${value < 0 ? styles.negative : styles.positive}`}>
+      <span className={cn('tabular-nums font-bold', value < 0 ? 'text-red-700' : 'text-green-700')}>
         {value > 0 ? '+' : ''}
         {formatNumber(value)}
       </span>
@@ -792,30 +803,30 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
   const totals = report?.totals;
   return (
     <>
-      <div className={styles.docFilterRow}>
+      <div className={FILTER_ROW}>
         <PeriodFields value={period} warehouses={warehouses} onChange={(patch) => setPeriod((current) => ({ ...current, ...patch }))} />
-        <label className={styles.docField}>
+        <Label className={FIELD}>
           <span>Nhóm</span>
           <SearchableSelect options={MOVEMENT_CATEGORY_OPTIONS} value={category} height={36} onChange={setCategory} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className={FIELD}>
           <span>Loại chứng từ</span>
           <SearchableSelect options={DOC_TYPE_OPTIONS} value={docType} height={36} onChange={setDocType} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className={FIELD}>
           <span>Tìm</span>
-          <input value={searchText} placeholder="Mã, tên vật tư hoặc mã chứng từ" onChange={(event) => setSearchText(event.target.value)} />
-        </label>
+          <Input value={searchText} placeholder="Mã, tên vật tư hoặc mã chứng từ" onChange={(event) => setSearchText(event.target.value)} />
+        </Label>
         <ReloadButton busy={loading} onClick={() => setReloadKey((key) => key + 1)} />
         <ExportButton busy={exporting} onClick={() => void exportExcel()} />
       </div>
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className={ALERT}>
           {error}
         </p>
       ) : null}
       {totals ? (
-        <div className={styles.statStrip}>
+        <div className={STAT_STRIP}>
           <span>SL nhập <strong>{formatNumber(totals.quantityIn)}</strong></span>
           <span>SL xuất <strong>{formatNumber(totals.quantityOut)}</strong></span>
           <span>Giá trị nhập <strong>{formatNumber(totals.valueIn)}</strong></span>
@@ -823,7 +834,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
           <span>Bút toán <strong>{formatNumber(totals.entries)}</strong></span>
         </div>
       ) : null}
-      <h3 className={styles.countHint}>Tổng theo nhóm</h3>
+      <h3 className={COUNT_HINT}>Tổng theo nhóm</h3>
       <Table<StockMovementSummaryRow>
         rowKey="category"
         size="small"
@@ -833,7 +844,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         pagination={false}
         scroll={{ x: 'max-content' }}
       />
-      <h3 className={styles.countHint}>Theo loại chứng từ và kho</h3>
+      <h3 className={COUNT_HINT}>Theo loại chứng từ và kho</h3>
       <Table<StockMovementBreakdownRow>
         rowKey={(row) => `${row.category}:${row.docType ?? ''}:${row.warehouseCode}`}
         size="small"
@@ -844,7 +855,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         scroll={{ x: 'max-content' }}
         locale={{ emptyText: 'Không có phát sinh trong kỳ.' }}
       />
-      <h3 className={styles.countHint}>Bút toán chi tiết</h3>
+      <h3 className={COUNT_HINT}>Bút toán chi tiết</h3>
       <Table<StockMovementLine>
         rowKey="transactionId"
         size="small"
@@ -877,8 +888,8 @@ const APPROVAL_COLUMNS: TableColumnsType<StockApprovalReportRow> = [
     width: 190,
     render: (_value, row) => (
       <>
-        <strong className={styles.code}>{row.documentCode}</strong>
-        <span className={styles.sub}>
+        <strong className={CODE}>{row.documentCode}</strong>
+        <span className={SUB}>
           {STOCK_DOCUMENT_TYPE_LABEL[row.docType]} · {formatDate(row.documentDate)}
         </span>
       </>
@@ -899,7 +910,7 @@ const APPROVAL_COLUMNS: TableColumnsType<StockApprovalReportRow> = [
     render: (_value, row) => (
       <>
         {row.reason ?? '—'}
-        {row.rejectReason ? <span className={styles.sub}>Từ chối: {row.rejectReason}</span> : null}
+        {row.rejectReason ? <span className={SUB}>Từ chối: {row.rejectReason}</span> : null}
       </>
     ),
   },
@@ -990,21 +1001,21 @@ function ApprovalReportView({ warehouses }: { warehouses: readonly Warehouse[] }
 
   return (
     <>
-      <div className={styles.docFilterRow}>
+      <div className={FILTER_ROW}>
         <PeriodFields value={period} warehouses={warehouses} onChange={(patch) => setPeriod((current) => ({ ...current, ...patch }))} />
-        <label className={styles.docField}>
+        <Label className={FIELD}>
           <span>Loại chứng từ</span>
           <SearchableSelect options={APPROVAL_TYPE_OPTIONS} value={docType} height={36} onChange={setDocType} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className={FIELD}>
           <span>Trạng thái</span>
           <SearchableSelect options={STATUS_OPTIONS} value={status} height={36} onChange={setStatus} />
-        </label>
+        </Label>
         <ReloadButton busy={loading} onClick={() => setReloadKey((key) => key + 1)} />
         <ExportButton busy={exporting} onClick={() => void exportExcel()} />
       </div>
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className={ALERT}>
           {error}
         </p>
       ) : null}

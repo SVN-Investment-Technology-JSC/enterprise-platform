@@ -2,7 +2,6 @@
 
 import type { InventoryCatalogSettings } from '@enterprise-platform/contracts-inventory';
 import { UnitCatalogEditor } from './unit-catalog-editor';
-import styles from '../inventory.module.scss';
 
 /**
  * Admin chọn trường nào của hồ sơ thiết bị được hiện.
@@ -26,8 +25,8 @@ export function AssetCatalogEditor({
 
 
   return (
-    <div className={styles.catalogEditor}>
-      <label className={styles.catalogToggle}>
+    <div className="flex flex-col gap-4">
+      <label className="inline-flex cursor-pointer select-none items-center gap-[0.65rem] text-sm font-medium text-slate-700 hover:text-slate-900 [&_input[type=checkbox]]:size-4 [&_input[type=checkbox]]:cursor-pointer [&_input[type=checkbox]]:accent-primary">
         <input
           type="checkbox"
           checked={value.priceFieldsEnabled}
@@ -37,7 +36,7 @@ export function AssetCatalogEditor({
         Hiện giá mua và mã tiền tệ
       </label>
 
-      <label className={styles.catalogToggle}>
+      <label className="inline-flex cursor-pointer select-none items-center gap-[0.65rem] text-sm font-medium text-slate-700 hover:text-slate-900 [&_input[type=checkbox]]:size-4 [&_input[type=checkbox]]:cursor-pointer [&_input[type=checkbox]]:accent-primary">
         <input
           type="checkbox"
           checked={value.warrantyFieldsEnabled}
@@ -47,12 +46,12 @@ export function AssetCatalogEditor({
         Hiện hạn bảo hành
       </label>
 
-      <fieldset className={styles.catalogGroup}>
+      <fieldset className="m-0 mt-1 flex min-w-0 flex-col gap-[0.65rem] rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem] shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md [&>legend]:inline-flex [&>legend]:items-center [&>legend]:gap-1.5 [&>legend]:px-2 [&>legend]:text-sm [&>legend]:font-semibold [&>legend]:text-slate-800">
         <legend>Tình trạng vật tư</legend>
         {/* Danh sách MỞ, không phải bốn ô tích cố định. Bốn giá trị dựng sẵn chỉ
             là điểm khởi đầu: đơn vị nào cần "chờ nghiệm thu" hay "niêm cất" thì
             tự thêm, không phải chờ bản mới. */}
-        <p className={styles.hint}>
+        <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
           Ví dụ: đang vận hành, đang dừng, đang bảo trì, chờ nghiệm thu. Để trống thì dùng bốn
           trạng thái dựng sẵn.
         </p>
@@ -66,9 +65,9 @@ export function AssetCatalogEditor({
         />
       </fieldset>
 
-      <fieldset className={styles.catalogGroup}>
+      <fieldset className="m-0 mt-1 flex min-w-0 flex-col gap-[0.65rem] rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem] shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md [&>legend]:inline-flex [&>legend]:items-center [&>legend]:gap-1.5 [&>legend]:px-2 [&>legend]:text-sm [&>legend]:font-semibold [&>legend]:text-slate-800">
         <legend>Loại vật tư</legend>
-        <p className={styles.hint}>
+        <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
           Phân loại nghiệp vụ của riêng đơn vị bạn. Để trống thì cột Loại bỏ trống — không có bộ
           dựng sẵn nào đúng cho mọi ngành.
         </p>
@@ -82,12 +81,12 @@ export function AssetCatalogEditor({
         />
       </fieldset>
 
-      <fieldset className={styles.catalogGroup}>
+      <fieldset className="m-0 mt-1 flex min-w-0 flex-col gap-[0.65rem] rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem] shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md [&>legend]:inline-flex [&>legend]:items-center [&>legend]:gap-1.5 [&>legend]:px-2 [&>legend]:text-sm [&>legend]:font-semibold [&>legend]:text-slate-800">
         <legend>Vị trí vật tư</legend>
         {/* Câu hỏi ĐỘC LẬP với tình trạng: một máy có thể vừa còn tốt vừa đang
             cho mượn. Danh sách do tenant tự khai vì mỗi đơn vị gọi tên các
             trạng thái này một khác — không có bộ dựng sẵn nào đúng cho tất cả. */}
-        <p className={styles.hint}>
+        <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
           Ví dụ: đang vận hành, mượn thí nghiệm, gửi đi sửa, dự phòng. Để trống thì ô này không
           hiện trong hồ sơ vật tư.
         </p>

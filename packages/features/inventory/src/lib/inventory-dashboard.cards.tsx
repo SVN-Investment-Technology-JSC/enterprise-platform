@@ -9,7 +9,7 @@ import {
 import { formatCurrencyVn } from '@enterprise-platform/shared-ui';
 import type { InventoryLedgerRow, InventoryWorkspace } from './inventory-api';
 import { formatNumber } from './inventory-labels';
-import styles from './inventory.module.scss';
+import { cn } from './ui/cn';
 
 /**
  * Dữ liệu chung cho mọi thẻ.
@@ -25,8 +25,15 @@ export interface InventoryDashboardData {
 
 function Metric(props: { value: number | string; alert?: boolean }) {
   return (
-    <p className={`${styles.dashValue} ${props.alert ? styles.dashValueAlert : ''}`}>
-      <strong>{props.value}</strong>
+    <p className="m-0 flex items-baseline gap-2">
+      <strong
+        className={cn(
+          'text-[1.7rem] tracking-[-0.02em] tabular-nums',
+          props.alert && 'text-red-700',
+        )}
+      >
+        {props.value}
+      </strong>
     </p>
   );
 }
@@ -113,10 +120,10 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
     render: (data) => {
       const rows = lowStockRows(data).slice(0, 5);
       if (rows.length === 0) {
-        return <p className={styles.dashEmpty}>Không có vật tư nào dưới mức tối thiểu.</p>;
+        return <p className="m-0 text-sm text-slate-500">Không có vật tư nào dưới mức tối thiểu.</p>;
       }
       return (
-        <ul className={styles.dashList}>
+        <ul className="m-0 flex list-none flex-col gap-[0.4rem] p-0 [&_li]:flex [&_li]:items-baseline [&_li]:justify-between [&_li]:gap-3 [&_span]:min-w-0 [&_span]:truncate [&_span]:text-sm [&_small]:flex-none [&_small]:text-[0.8125rem] [&_small]:tabular-nums [&_small]:text-slate-500">
           {rows.map((row) => (
             <li key={`${row.warehouseCode}-${row.materialCode}`}>
               <span>
@@ -136,9 +143,9 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
     size: 'md',
     render: (data) => {
       const rows = (data.ledger ?? []).slice(0, 5);
-      if (rows.length === 0) return <p className={styles.dashEmpty}>Chưa có phát sinh nào.</p>;
+      if (rows.length === 0) return <p className="m-0 text-sm text-slate-500">Chưa có phát sinh nào.</p>;
       return (
-        <ul className={styles.dashList}>
+        <ul className="m-0 flex list-none flex-col gap-[0.4rem] p-0 [&_li]:flex [&_li]:items-baseline [&_li]:justify-between [&_li]:gap-3 [&_span]:min-w-0 [&_span]:truncate [&_span]:text-sm [&_small]:flex-none [&_small]:text-[0.8125rem] [&_small]:tabular-nums [&_small]:text-slate-500">
           {rows.map((row) => (
             <li key={row.id}>
               <span>
@@ -162,9 +169,9 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
         if (!row.warehouseCode) continue;
         counts.set(row.warehouseCode, (counts.get(row.warehouseCode) ?? 0) + 1);
       }
-      if (counts.size === 0) return <p className={styles.dashEmpty}>Chưa có dòng tồn nào.</p>;
+      if (counts.size === 0) return <p className="m-0 text-sm text-slate-500">Chưa có dòng tồn nào.</p>;
       return (
-        <ul className={styles.dashList}>
+        <ul className="m-0 flex list-none flex-col gap-[0.4rem] p-0 [&_li]:flex [&_li]:items-baseline [&_li]:justify-between [&_li]:gap-3 [&_span]:min-w-0 [&_span]:truncate [&_span]:text-sm [&_small]:flex-none [&_small]:text-[0.8125rem] [&_small]:tabular-nums [&_small]:text-slate-500">
           {[...counts.entries()].map(([code, count]) => (
             <li key={code}>
               <span>{code}</span>
@@ -211,7 +218,7 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
       return (
         <>
           <Metric value={formatCurrencyVn(total, { maxDecimals: 0 })} />
-          <p className={styles.dashEmpty}>
+          <p className="m-0 text-sm text-slate-500">
             {priced} mã đã khai giá
             {unpriced > 0 ? ` · ${unpriced} mã chưa khai` : ''}
           </p>
@@ -300,7 +307,7 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
         counts.set(material.category, (counts.get(material.category) ?? 0) + 1);
       }
       return (
-        <ul className={styles.dashList}>
+        <ul className="m-0 flex list-none flex-col gap-[0.4rem] p-0 [&_li]:flex [&_li]:items-baseline [&_li]:justify-between [&_li]:gap-3 [&_span]:min-w-0 [&_span]:truncate [&_span]:text-sm [&_small]:flex-none [&_small]:text-[0.8125rem] [&_small]:tabular-nums [&_small]:text-slate-500">
           {[...counts.entries()].map(([category, count]) => (
             <li key={category}>
               <span>{category}</span>

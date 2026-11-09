@@ -11,7 +11,10 @@ import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { useState, useMemo, type FormEvent } from 'react';
 import { ASSET_CRITICALITY_LABEL } from '../inventory-labels';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export function AssetForm({
   assets,
@@ -90,103 +93,44 @@ export function AssetForm({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '520px',
-          background: '#f5f5f5',
-          border: '1px solid #e0e0e0',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          padding: '24px',
-        }}
-        onClick={(e) => e.stopPropagation()}
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent
+        className="max-w-[520px]"
+        aria-label={isRootOnly ? 'Tạo Thiết bị / Cụm gốc' : 'Thêm vật tư lắp đặt'}
       >
-        {/* Header theo quy chuẩn Typography & Close Button */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            marginBottom: '16px',
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '24px',
-                fontWeight: 700,
-                color: '#333333',
-                lineHeight: 1.25,
-              }}
-            >
-              {isRootOnly ? 'Tạo Thiết bị / Cụm gốc' : 'Thêm vật tư lắp đặt'}
-            </h2>
-            <p
-              style={{
-                margin: '4px 0 0',
-                fontSize: '14px',
-                color: '#666666',
-                lineHeight: 1.4,
-              }}
-            >
-              {isRootOnly
-                ? 'Thiết bị hoặc công trình cấp cao nhất (Root Node) trên cây tài sản 360.'
-                : 'Khai báo thiết bị và phân bổ vào cây cấu trúc tài sản.'}
-            </p>
-          </div>
-          <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '32px',
-                height: '32px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                color: '#666666',
-                fontSize: '16px',
-                cursor: 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-              title="Đóng"
-            >
-            
-            </button>
-          </CloseGuard>
-        </div>
+        <form onSubmit={submit} className="flex min-h-0 flex-col">
+          <DialogHeader>
+            <div>
+              <DialogTitle>{isRootOnly ? 'Tạo Thiết bị / Cụm gốc' : 'Thêm vật tư lắp đặt'}</DialogTitle>
+              <p className="mt-1 mb-0 text-sm leading-snug text-slate-500">
+                {isRootOnly
+                  ? 'Thiết bị hoặc công trình cấp cao nhất (Root Node) trên cây tài sản 360.'
+                  : 'Khai báo thiết bị và phân bổ vào cây cấu trúc tài sản.'}
+              </p>
+            </div>
+            <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
+              <DialogCloseButton />
+            </CloseGuard>
+          </DialogHeader>
 
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <DialogBody className="flex flex-col gap-4">
           {/* Trường Thiết bị / Mã thiết bị */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                Thiết bị / Vật tư trong kho <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm text-slate-700" required>
+                Thiết bị / Vật tư trong kho
+              </Label>
               {materials.length > 0 && (
-                <button
+                <Button
                   type="button"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#2563eb',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    padding: 0,
-                  }}
+                  variant="link"
+                  className="h-auto p-0 text-[13px]"
                   onClick={() => {
                     setIsCustomCode((prev) => !prev);
                   }}
                 >
                   {isCustomCode ? 'Chọn từ danh mục kho' : 'Nhập mã tuỳ biến'}
-                </button>
+                </Button>
               )}
             </div>
 
@@ -207,16 +151,7 @@ export function AssetForm({
                 style={{ width: '100%' }}
               />
             ) : (
-              <input
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '16px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+              <Input
                 required
                 placeholder="VD: TBA-220, NM-SAVINA, TR-01…"
                 value={code}
@@ -224,7 +159,7 @@ export function AssetForm({
                 onChange={(event) => setCode(event.target.value)}
               />
             )}
-            <span style={{ fontSize: '13px', color: '#64748b' }}>
+            <span className="text-[13px] text-slate-500">
               {materials.length > 0 && !isCustomCode
                 ? 'Chọn thiết bị/vật tư đã được khai báo trong danh mục vật tư kho.'
                 : 'Mã định danh viết hoa duy nhất dùng trong quản trị và vận hành.'}
@@ -232,20 +167,11 @@ export function AssetForm({
           </div>
 
           {/* Tên thiết bị */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Tên thiết bị / Cụm tài sản <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <input
-              style={{
-                padding: '10px 12px',
-                borderRadius: '4px',
-                border: '1px solid #e0e0e0',
-                background: '#ffffff',
-                fontSize: '16px',
-                color: '#333333',
-                outline: 'none',
-              }}
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-sm text-slate-700" required>
+              Tên thiết bị / Cụm tài sản
+            </Label>
+            <Input
               required
               placeholder="VD: Trạm biến áp 220kV Savina, Dây chuyền sản xuất 1…"
               value={name}
@@ -255,10 +181,10 @@ export function AssetForm({
 
           {/* Vị trí phân cấp / Node cha */}
           {!isRootOnly ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm text-slate-700">
                 Thuộc thiết bị cha
-              </label>
+              </Label>
               <SearchableSelect
                 options={parentOptions}
                 value={parentCode}
@@ -270,24 +196,12 @@ export function AssetForm({
               />
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm text-slate-700">
                 Vị trí phân cấp
-              </label>
-              <div
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  background: '#ffffff',
-                  border: '1px solid #e0e0e0',
-                  fontSize: '14px',
-                  color: '#1e293b',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span style={{ fontSize: '16px' }}></span>
+              </Label>
+              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-[9px] text-sm text-slate-800">
+                <span className="text-base"></span>
                 <span>
                   <strong>Cấp 0 (Node gốc)</strong> — Cụm tài sản độc lập cao nhất trên cây
                 </span>
@@ -296,11 +210,11 @@ export function AssetForm({
           )}
 
           {/* Hàng 2 cột: Mức độ quan trọng & Serial */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+          <div className="grid grid-cols-2 gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm text-slate-700">
                 Mức độ quan trọng
-              </label>
+              </Label>
               <SearchableSelect
                 options={criticalityOptions}
                 value={criticality}
@@ -312,20 +226,11 @@ export function AssetForm({
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm text-slate-700">
                 Số Serial / Khung
-              </label>
-              <input
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+              </Label>
+              <Input
                 placeholder="Tùy chọn"
                 value={serialNumber}
                 onChange={(event) => setSerialNumber(event.target.value)}
@@ -334,57 +239,20 @@ export function AssetForm({
           </div>
 
           <FormError error={error} />
+          </DialogBody>
 
-          {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: '12px',
-              marginTop: '18px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb',
-            }}
-          >
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid #d1d5db',
-                  background: 'transparent',
-                  color: '#4b5563',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-                disabled={busy}
-              >
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              style={{
-                padding: '9px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                background: busy || !code.trim() || !name.trim() ? '#93c5fd' : '#2563eb',
-                color: '#ffffff',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: busy || !code.trim() || !name.trim() ? 'not-allowed' : 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-              disabled={busy || !code.trim() || !name.trim()}
-            >
+            <Button type="submit" disabled={busy || !code.trim() || !name.trim()}>
               {busy ? 'Đang tạo…' : isRootOnly ? 'Xác nhận tạo gốc' : 'Lưu thiết bị'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

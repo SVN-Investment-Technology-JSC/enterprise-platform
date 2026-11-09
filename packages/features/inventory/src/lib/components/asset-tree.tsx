@@ -6,7 +6,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { buildAssetTree } from '../asset-tree.model';
 import { AssetListModal } from './asset-list-modal';
 import type { BulkReturnItemEntry } from './bulk-return-dialog';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
 
 /**
  * Helper: Tính toán thụt lề cấp độ sâu (indentation)
@@ -85,9 +87,12 @@ function AssetNodeCard({
       aria-selected={isSelected}
       aria-label={`${asset.name} (${asset.code})`}
       draggable={!disabled && !!onDragStart}
-      className={`${styles.nodeCard} ${isSelected ? styles.nodeCardSelected : ''} ${
-        isDragging ? styles.nodeCardDragging : ''
-      } ${isDropTarget ? styles.nodeCardDropTarget : ''}`}
+      className={cn(
+        'flex min-w-0 flex-1 cursor-grab select-none items-center gap-2 rounded-md border border-slate-200 bg-white px-[0.6rem] py-[0.35rem] text-left shadow-sm transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:outline-none active:cursor-grabbing',
+        isSelected && 'border-blue-300 bg-blue-50 shadow-[0_0_0_1px_#3b82f6] hover:border-blue-300 hover:bg-blue-50',
+        isDragging && 'border-dashed border-slate-400 bg-slate-100 opacity-45',
+        isDropTarget && 'translate-x-1 border-blue-600 bg-blue-50 shadow-[0_0_0_2px_rgba(37,99,235,0.3)] hover:border-blue-600 hover:bg-blue-50',
+      )}
       onClick={() => onSelect(asset.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -103,7 +108,7 @@ function AssetNodeCard({
     >
       {/* Badge định danh phân cấp độ sâu */}
       <span
-        className={styles.nodeDepthBadge}
+        className="inline-flex size-[18px] shrink-0 items-center justify-center rounded text-xs font-bold"
         style={{
           background: badgeStyle.bg,
           color: badgeStyle.text,
@@ -113,12 +118,12 @@ function AssetNodeCard({
         {depth === 0 ? 'R' : depth}
       </span>
 
-      <div className={styles.nodeInfo}>
-        <strong className={styles.nodeName}>{asset.name}</strong>
-        <div className={styles.nodeMeta}>
-          <span className={styles.nodeCodeBadge}>{asset.code}</span>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <strong className="truncate text-sm font-semibold text-slate-900">{asset.name}</strong>
+        <div className="flex items-center gap-[0.35rem] text-xs">
+          <span className="font-mono font-semibold text-blue-600">{asset.code}</span>
           {installedLine ? (
-            <span className={styles.installedQty}>
+            <span className="rounded bg-green-100 px-[0.35rem] py-[0.05rem] text-xs font-semibold text-green-800">
               Lắp: {installedLine.quantity} {installedLine.unit ?? ''}
             </span>
           ) : null}
@@ -257,79 +262,70 @@ export function AssetTree({
   };
 
   return (
-    <aside className={styles.treePanel}>
-      <div className={styles.treePanelHead}>
-        <div className={styles.treePanelTitleGroup}>
+    <aside className="flex flex-col rounded-[10px] border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-2">
           <div>
-            <h3 className={styles.treePanelTitle}>Cây cấu trúc thiết bị</h3>
-            <span className={styles.treePanelSubtitle}>{nodes.length} vị trí / thiết bị</span>
+            <h3 className="m-0 text-base font-bold text-slate-900">Cây cấu trúc thiết bị</h3>
+            <span className="text-xs text-slate-500">{nodes.length} vị trí / thiết bị</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
+        <div className="flex items-center gap-1">
+          <Button
             type="button"
-            className={styles.btnSecondary}
-            style={{
-              padding: '3px 8px',
-              fontSize: '12px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontWeight: 500,
-            }}
+            variant="outline"
+            size="sm"
+            className="text-xs"
             title="Mở danh sách thiết bị dạng bảng liệt kê (Popup)"
             onClick={() => setIsTableModalOpen(true)}
           >
             Dạng bảng
-          </button>
+          </Button>
           {parentNodeIds.size > 0 ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{
-                padding: '3px 6px',
-                fontSize: '12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '2px',
-              }}
+              variant="outline"
+              size="sm"
+              className="text-xs"
               title={allCollapsed ? 'Mở rộng toàn bộ cây' : 'Thu gọn toàn bộ cây'}
               onClick={allCollapsed ? expandAll : collapseAll}
             >
               {allCollapsed ? '⊞ Mở' : '⊟ Thu'}
-            </button>
+            </Button>
           ) : null}
           {onAddAsset ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{ padding: '3px 8px', fontSize: '12px' }}
+              variant="outline"
+              size="sm"
+              className="text-xs"
               title="Thêm thiết bị gốc cấp cao nhất"
               onClick={() => onAddAsset(undefined)}
             >
               + Gốc
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
-      <div className={styles.treeSearchBox}>
-        <span className={styles.treeSearchIcon}></span>
-        <input
-          className={styles.treeSearchInput}
+      <div className="relative mb-3 flex items-center">
+        <span className="pointer-events-none absolute left-[0.65rem] z-10 text-[13px] text-slate-400"></span>
+        <Input
+          className="pr-7 pl-[1.85rem]"
           placeholder="Tìm theo mã hoặc tên thiết bị… (Phím ↑↓ điều hướng)"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
         {query ? (
-          <button
+          <Button
             type="button"
-            className={styles.treeSearchClear}
+            variant="ghost"
+            className="absolute right-2 h-auto px-1 py-0.5 text-[13px] text-slate-400 hover:bg-transparent hover:text-slate-900"
             onClick={() => setQuery('')}
             title="Xóa tìm kiếm"
           >
             ✕
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -343,7 +339,7 @@ export function AssetTree({
         role="tree"
         aria-label="Cây cấu trúc thiết bị"
         tabIndex={0}
-        className={styles.tree}
+        className="flex max-h-[calc(100vh-18rem)] flex-col gap-[0.2rem] overflow-x-hidden overflow-y-auto pr-1 [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:#cbd5e1_transparent] [&::-webkit-scrollbar]:h-[5px] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-slate-300"
         onKeyDown={handleTreeKeyDown}
       >
         {nodes.map(({ asset, depth, hasChildren }) => {
@@ -357,17 +353,24 @@ export function AssetTree({
               role="treeitem"
               aria-expanded={hasChildren ? open : undefined}
               aria-level={depth + 1}
-              className={`${styles.nodeRow} ${isSelected ? styles.nodeRowSelected : ''}`}
+              className={cn(
+                'group/node flex flex-col rounded-md transition-colors hover:bg-slate-50',
+                isSelected && 'bg-blue-50 hover:bg-blue-50',
+              )}
             >
               <div
-                className={styles.nodeLine}
+                className="flex min-h-[2.2rem] items-center gap-[0.35rem] py-1 pr-[0.4rem]"
                 style={{ paddingLeft: getIndentationRem(depth) }}
               >
                 {/* Nút đóng/mở nhánh */}
                 {hasChildren ? (
-                  <button
+                  <Button
                     type="button"
-                    className={`${styles.nodeToggle} ${open ? styles.nodeToggleOpen : ''}`}
+                    variant="outline"
+                    className={cn(
+                      'inline-flex size-[18px] shrink-0 items-center justify-center rounded border border-slate-200 bg-white p-0 text-slate-500 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800',
+                      open && 'bg-slate-50 text-blue-600',
+                    )}
                     aria-expanded={open}
                     aria-label={open ? `Thu gọn ${asset.name}` : `Mở rộng ${asset.name}`}
                     onClick={(e) => {
@@ -376,7 +379,7 @@ export function AssetTree({
                     }}
                   >
                     <svg
-                      className={`${styles.nodeToggleSvg} ${open ? styles.nodeToggleSvgOpen : ''}`}
+                      className={cn('size-[11px] transition-transform duration-150', open && 'rotate-90')}
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -386,9 +389,9 @@ export function AssetTree({
                     >
                       <polyline points="9 18 15 12 9 6" />
                     </svg>
-                  </button>
+                  </Button>
                 ) : (
-                  <span className={styles.nodeToggleSpacer} aria-hidden="true" />
+                  <span className="inline-flex size-[18px] shrink-0" aria-hidden="true" />
                 )}
 
                 {/* Thẻ Node chính (AssetNodeCard) có depth styling, kéo thả và keyboard accessible */}
@@ -447,11 +450,12 @@ export function AssetTree({
                 />
 
                 {/* Cụm nút hành động nhanh (+/−) */}
-                <div className={styles.nodeActions}>
+                <div className={cn('flex shrink-0 items-center gap-1 opacity-70 transition-opacity group-hover/node:opacity-100', isSelected && 'opacity-100')}>
                   {onInstall ? (
-                    <button
+                    <Button
                       type="button"
-                      className={styles.nodeAddBtn}
+                      variant="outline"
+                      className="size-5 min-w-0 rounded border-green-200 bg-green-50 p-0 text-sm font-bold text-green-800 hover:scale-105 hover:border-green-300 hover:bg-green-100"
                       disabled={busy}
                       title={`Lắp vật tư vào ${asset.name}`}
                       aria-label={`Lắp vật tư vào ${asset.name}`}
@@ -461,7 +465,7 @@ export function AssetTree({
                       }}
                     >
                       +
-                    </button>
+                    </Button>
                   ) : null}
 
                   {line && onUninstall ? (
@@ -474,15 +478,16 @@ export function AssetTree({
                       disabled={busy}
                       onConfirm={() => onUninstall(asset, line)}
                     >
-                      <button
+                      <Button
                         type="button"
-                        className={styles.nodeReturnBtn}
+                        variant="outline"
+                        className="size-5 min-w-0 rounded border-red-200 bg-red-50 p-0 text-sm font-bold text-red-700 hover:scale-105 hover:border-red-300 hover:bg-red-100"
                         disabled={busy}
                         title={`Tháo ${asset.name} (${line.materialCode})`}
                         aria-label={`Tháo ${asset.name}`}
                       >
                         −
-                      </button>
+                      </Button>
                     </Popconfirm>
                   ) : !line && onReturn ? (
                     <Popconfirm
@@ -498,15 +503,16 @@ export function AssetTree({
                       disabled={busy}
                       onConfirm={() => onReturn(asset)}
                     >
-                      <button
+                      <Button
                         type="button"
-                        className={styles.nodeReturnBtn}
+                        variant="outline"
+                        className="size-5 min-w-0 rounded border-red-200 bg-red-50 p-0 text-sm font-bold text-red-700 hover:scale-105 hover:border-red-300 hover:bg-red-100"
                         disabled={busy}
                         title={`Gỡ ${asset.name} khỏi cây`}
                         aria-label={`Gỡ ${asset.name} khỏi cây`}
                       >
                         −
-                      </button>
+                      </Button>
                     </Popconfirm>
                   ) : null}
                 </div>
@@ -518,22 +524,7 @@ export function AssetTree({
         {/* Khu vực thả để đưa thiết bị lên làm Node Gốc (Cấp 0) */}
         {draggedAsset && onMove && draggedAsset.parentId ? (
           <div
-            style={{
-              margin: '8px 10px',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              border: '1.5px dashed #3b82f6',
-              background: '#eff6ff',
-              color: '#1d4ed8',
-              fontSize: '13px',
-              fontWeight: 600,
-              textAlign: 'center',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              cursor: 'copy',
-            }}
+            className="mx-2.5 my-2 flex cursor-copy items-center justify-center gap-1.5 rounded-md border-[1.5px] border-dashed border-blue-500 bg-blue-50 px-3 py-2 text-center text-[13px] font-semibold text-blue-700"
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
@@ -551,7 +542,7 @@ export function AssetTree({
           </div>
         ) : null}
 
-        {nodes.length === 0 ? <p className={styles.empty}>Không có tài sản khớp tìm kiếm.</p> : null}
+        {nodes.length === 0 ? <p className="m-0 py-8 text-center text-slate-500">Không có tài sản khớp tìm kiếm.</p> : null}
       </div>
 
       {isTableModalOpen ? (

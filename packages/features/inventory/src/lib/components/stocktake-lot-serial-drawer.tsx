@@ -4,6 +4,8 @@ import type { StocktakeLotAllocation, StocktakeSerialAllocation } from '@enterpr
 import { formatDate } from '@enterprise-platform/shared-ui';
 import { useState } from 'react';
 import { X, Plus, Trash2, Layers, QrCode } from 'lucide-react';
+import { Button, Input, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui';
+import { cn } from '../ui/cn';
 
 export interface StocktakeLotSerialDrawerProps {
   materialCode: string;
@@ -123,118 +125,51 @@ export function StocktakeLotSerialDrawer({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0,
-        zIndex: 1050,
-        display: 'flex',
-        justifyContent: 'flex-end',
-        background: 'rgba(0, 0, 0, 0.45)',
-        backdropFilter: 'blur(4px)',
-      }}
+      className="fixed inset-0 z-[1050] flex justify-end bg-black/45 backdrop-blur-[4px]"
       role="dialog"
       aria-modal="true"
     >
-      <div
-        style={{
-          width: '640px',
-          maxWidth: '100vw',
-          height: '100%',
-          background: '#ffffff',
-          boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.15)',
-          display: 'flex',
-          flexDirection: 'column',
-          animation: 'slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
-      >
+      <div className="flex h-full w-[640px] max-w-[100vw] flex-col bg-white shadow-[-4px_0_20px_rgba(0,0,0,0.15)]">
         {/* Header Drawer */}
-        <div
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: '#f8fafc',
-          }}
-        >
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  background: '#e0e7ff',
-                  color: '#4338ca',
-                }}
-              >
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs font-bold text-indigo-700">
                 {materialCode}
               </span>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              <h3 className="m-0 text-base font-bold text-slate-900">
                 Đối soát chi tiết {isLotTracked && isSerialized ? 'Lô & Sê-ri' : isLotTracked ? 'Theo Lô hàng' : 'Cá thể Sê-ri'}
               </h3>
             </div>
-            <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p className="mb-0 mt-[3px] text-[13px] text-slate-500">
               {materialName} · Sổ sách: <strong>{systemQuantity} {unit}</strong>
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              width: '32px',
-              height: '32px',
-              border: 'none',
-              borderRadius: '6px',
-              background: 'transparent',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#64748b',
-            }}
-          >
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} className="text-slate-500">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Sub-Tabs nếu cả 2 */}
         {isLotTracked && isSerialized ? (
-          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 20px', background: '#ffffff' }}>
+          <div className="flex border-b border-slate-200 bg-white px-5">
             <button
               type="button"
               onClick={() => setTab('lots')}
-              style={{
-                padding: '10px 14px',
-                fontSize: '14px',
-                fontWeight: 600,
-                border: 'none',
-                borderBottom: tab === 'lots' ? '2px solid #2563eb' : '2px solid transparent',
-                color: tab === 'lots' ? '#2563eb' : '#64748b',
-                background: 'none',
-                cursor: 'pointer',
-              }}
+              className={cn(
+                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-[10px] text-sm font-semibold',
+                tab === 'lots' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500',
+              )}
             >
               Kiểm đếm theo Lô ({lots.length})
             </button>
             <button
               type="button"
               onClick={() => setTab('serials')}
-              style={{
-                padding: '10px 14px',
-                fontSize: '14px',
-                fontWeight: 600,
-                border: 'none',
-                borderBottom: tab === 'serials' ? '2px solid #2563eb' : '2px solid transparent',
-                color: tab === 'serials' ? '#2563eb' : '#64748b',
-                background: 'none',
-                cursor: 'pointer',
-              }}
+              className={cn(
+                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-[10px] text-sm font-semibold',
+                tab === 'serials' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500',
+              )}
             >
               Quét mã Sê-ri ({serials.length})
             </button>
@@ -242,35 +177,28 @@ export function StocktakeLotSerialDrawer({
         ) : null}
 
         {/* Drawer Body Scrollable */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+        <div className="flex-1 overflow-y-auto p-5">
           {/* TAB LÔ */}
           {tab === 'lots' && isLotTracked ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div
-                style={{
-                  padding: '12px 14px',
-                  borderRadius: '6px',
-                  background: '#f0fdf4',
-                  border: '1px solid #bbf7d0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-[14px] py-3">
                 <div>
-                  <span style={{ fontSize: '13px', color: '#166534' }}>Tổng thực đếm các Lô:</span>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#15803d' }}>
+                  <span className="text-[13px] text-green-800">Tổng thực đếm các Lô:</span>
+                  <div className="text-xl font-extrabold text-green-700">
                     {totalLotActual} {unit}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '13px', color: '#166534' }}>Chênh lệch sổ sách:</span>
+                <div className="text-right">
+                  <span className="text-[13px] text-green-800">Chênh lệch sổ sách:</span>
                   <div
-                    style={{
-                      fontSize: '16px',
-                      fontWeight: 700,
-                      color: totalLotActual === systemQuantity ? '#15803d' : totalLotActual > systemQuantity ? '#2563eb' : '#dc2626',
-                    }}
+                    className={cn(
+                      'text-base font-bold',
+                      totalLotActual === systemQuantity
+                        ? 'text-green-700'
+                        : totalLotActual > systemQuantity
+                          ? 'text-blue-600'
+                          : 'text-red-600',
+                    )}
                   >
                     {totalLotActual - systemQuantity > 0 ? `+${totalLotActual - systemQuantity}` : totalLotActual - systemQuantity} {unit}
                   </div>
@@ -278,96 +206,57 @@ export function StocktakeLotSerialDrawer({
               </div>
 
               {!readOnly ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    padding: '10px',
-                    background: '#f8fafc',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                  }}
-                >
-                  <input
+                <div className="flex gap-2 rounded-md border border-slate-200 bg-slate-50 p-[10px]">
+                  <Input
                     type="text"
                     placeholder="Mã số Lô mới..."
                     value={newLotNumber}
                     onChange={(e) => setNewLotNumber(e.target.value)}
-                    style={{
-                      flex: 2,
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '4px',
-                    }}
+                    className="h-8 flex-[2] text-[13px]"
                   />
-                  <input
+                  <Input
                     type="number"
                     placeholder="SL thực đếm"
                     value={newLotQty || ''}
                     onChange={(e) => setNewLotQty(Number(e.target.value) || 0)}
-                    style={{
-                      flex: 1,
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '4px',
-                    }}
+                    className="h-8 flex-1 text-[13px]"
                   />
-                  <button
-                    type="button"
-                    onClick={handleAddLot}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      background: '#2563eb',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
+                  <Button type="button" onClick={handleAddLot} className="text-[13px] font-semibold">
                     <Plus size={14} /> Thêm Lô
-                  </button>
+                  </Button>
                 </div>
               ) : null}
 
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 10px' }}>Số Lô</th>
-                    <th style={{ textAlign: 'center', padding: '8px' }}>Tồn sổ</th>
-                    <th style={{ textAlign: 'center', padding: '8px' }}>Thực đếm</th>
-                    <th style={{ textAlign: 'center', padding: '8px' }}>Lệch</th>
-                    {!readOnly ? <th style={{ textAlign: 'right', padding: '8px 10px' }}>Thao tác</th> : null}
+              <Table className="text-[13px]">
+                <TableHead>
+                  <tr className="border-b border-slate-200">
+                    <TableHeaderCell className="px-[10px] py-2">Số Lô</TableHeaderCell>
+                    <TableHeaderCell className="p-2 text-center">Tồn sổ</TableHeaderCell>
+                    <TableHeaderCell className="p-2 text-center">Thực đếm</TableHeaderCell>
+                    <TableHeaderCell className="p-2 text-center">Lệch</TableHeaderCell>
+                    {!readOnly ? <TableHeaderCell className="px-[10px] py-2 text-right">Thao tác</TableHeaderCell> : null}
                   </tr>
-                </thead>
-                <tbody>
+                </TableHead>
+                <TableBody>
                   {lots.map((lot, idx) => {
                     const diff = (Number(lot.actualQty) || 0) - (Number(lot.systemQty) || 0);
                     return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#1e293b' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <TableRow key={idx}>
+                        <TableCell className="px-[10px] py-2 font-semibold text-slate-800">
+                          <div className="flex items-center gap-1.5">
                             <Layers size={13} color="#64748b" />
                             {lot.lotNumber}
                           </div>
                           {lot.expiryDate ? (
-                            <span style={{ fontSize: '12px', color: '#64748b' }}>HSD: {formatDate(lot.expiryDate)}</span>
+                            <span className="text-xs text-slate-500">HSD: {formatDate(lot.expiryDate)}</span>
                           ) : null}
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '8px', color: '#475569' }}>
-                          {lot.systemQty}
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '8px' }}>
+                        </TableCell>
+                        <TableCell className="p-2 text-center text-slate-600">{lot.systemQty}</TableCell>
+                        <TableCell className="p-2 text-center">
                           {readOnly ? (
                             <strong>{lot.actualQty}</strong>
                           ) : (
-                            <input
+                            <Input
                               type="number"
                               value={lot.actualQty}
                               onChange={(e) => {
@@ -376,82 +265,57 @@ export function StocktakeLotSerialDrawer({
                                   prev.map((item, i) => (i === idx ? { ...item, actualQty: val } : item)),
                                 );
                               }}
-                              style={{
-                                width: '70px',
-                                textAlign: 'center',
-                                padding: '4px 6px',
-                                fontSize: '13px',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '4px',
-                                fontWeight: 700,
-                              }}
+                              className="mx-auto h-8 w-[70px] px-1.5 text-center text-[13px] font-bold"
                             />
                           )}
-                        </td>
-                        <td
-                          style={{
-                            textAlign: 'center',
-                            padding: '8px',
-                            fontWeight: 700,
-                            color: diff === 0 ? '#16a34a' : diff > 0 ? '#2563eb' : '#dc2626',
-                          }}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'p-2 text-center font-bold',
+                            diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-red-600',
+                          )}
                         >
                           {diff > 0 ? `+${diff}` : diff}
-                        </td>
+                        </TableCell>
                         {!readOnly ? (
-                          <td style={{ textAlign: 'right', padding: '8px 10px' }}>
-                            <button
+                          <TableCell className="px-[10px] py-2 text-right">
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon-xs"
                               onClick={() => setLots((prev) => prev.filter((_, i) => i !== idx))}
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#94a3b8',
-                                cursor: 'pointer',
-                                padding: '4px',
-                              }}
+                              className="text-slate-400"
                               title="Xóa dòng lô này"
                             >
                               <Trash2 size={13} />
-                            </button>
-                          </td>
+                            </Button>
+                          </TableCell>
                         ) : null}
-                      </tr>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           ) : null}
 
           {/* TAB SÊ-RI */}
           {(tab === 'serials' || !isLotTracked) && isSerialized ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div
-                style={{
-                  padding: '12px 14px',
-                  borderRadius: '6px',
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-[14px] py-3">
                 <div>
-                  <span style={{ fontSize: '13px', color: '#64748b' }}>Tổng sê-ri xác nhận có mặt:</span>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#2563eb' }}>
+                  <span className="text-[13px] text-slate-500">Tổng sê-ri xác nhận có mặt:</span>
+                  <div className="text-xl font-extrabold text-blue-600">
                     {totalFoundSerials} / {serials.length} chiếc
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '13px', color: '#64748b' }}>So với sổ sách:</span>
+                <div className="text-right">
+                  <span className="text-[13px] text-slate-500">So với sổ sách:</span>
                   <div
-                    style={{
-                      fontSize: '16px',
-                      fontWeight: 700,
-                      color: totalFoundSerials === systemQuantity ? '#15803d' : '#dc2626',
-                    }}
+                    className={cn(
+                      'text-base font-bold',
+                      totalFoundSerials === systemQuantity ? 'text-green-700' : 'text-red-600',
+                    )}
                   >
                     {totalFoundSerials === systemQuantity ? 'Đủ 100%' : `Lệch ${totalFoundSerials - systemQuantity} chiếc`}
                   </div>
@@ -459,17 +323,8 @@ export function StocktakeLotSerialDrawer({
               </div>
 
               {!readOnly ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    padding: '10px',
-                    background: '#f0fdf4',
-                    borderRadius: '6px',
-                    border: '1px solid #bbf7d0',
-                  }}
-                >
-                  <input
+                <div className="flex gap-2 rounded-md border border-green-200 bg-green-50 p-[10px]">
+                  <Input
                     type="text"
                     placeholder="Quét mã vạch hoặc gõ số Sê-ri..."
                     value={newSerialInput}
@@ -477,73 +332,50 @@ export function StocktakeLotSerialDrawer({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleAddSerial();
                     }}
-                    style={{
-                      flex: 1,
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '4px',
-                    }}
+                    className="h-8 flex-1 text-[13px]"
                   />
-                  <button
+                  <Button
                     type="button"
                     onClick={handleAddSerial}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      background: '#16a34a',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
+                    className="bg-green-600 text-[13px] font-semibold text-white hover:bg-green-700"
                   >
                     <QrCode size={14} /> Quét / Thêm
-                  </button>
+                  </Button>
                 </div>
               ) : null}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div className="flex flex-col gap-1.5">
                 {serials.map((serial, idx) => (
                   <div
                     key={idx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: serial.status === 'FOUND' ? '#ffffff' : serial.status === 'EXTRA' ? '#eff6ff' : '#fef2f2',
-                    }}
+                    className={cn(
+                      'flex items-center justify-between rounded-md border border-slate-200 px-3 py-2',
+                      serial.status === 'FOUND' ? 'bg-white' : serial.status === 'EXTRA' ? 'bg-blue-50' : 'bg-red-50',
+                    )}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: '#1e293b' }}>
-                        {serial.serialNumber}
-                      </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[13px] font-bold text-slate-800">{serial.serialNumber}</span>
                       {serial.status === 'EXTRA' ? (
-                        <span style={{ fontSize: '12px', background: '#dbeafe', color: '#1d4ed8', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span className="rounded bg-blue-100 px-[5px] py-px text-xs font-semibold text-blue-700">
                           Phát hiện thừa
                         </span>
                       ) : serial.status === 'MISSING' ? (
-                        <span style={{ fontSize: '12px', background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span className="rounded bg-red-100 px-[5px] py-px text-xs font-semibold text-red-700">
                           Không tìm thấy
                         </span>
                       ) : (
-                        <span style={{ fontSize: '12px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        <span className="rounded bg-green-100 px-[5px] py-px text-xs font-semibold text-green-700">
                           Khớp sổ sách
                         </span>
                       )}
                     </div>
 
                     {!readOnly ? (
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <button
+                      <div className="flex items-center gap-1.5">
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="xs"
                           onClick={() => {
                             setSerials((prev) =>
                               prev.map((item, i) =>
@@ -551,29 +383,18 @@ export function StocktakeLotSerialDrawer({
                               ),
                             );
                           }}
-                          style={{
-                            padding: '3px 8px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: '1px solid #cbd5e1',
-                            background: '#ffffff',
-                            cursor: 'pointer',
-                          }}
                         >
                           {serial.status === 'FOUND' ? 'Báo mất' : 'Đã tìm thấy'}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="icon-xs"
                           onClick={() => setSerials((prev) => prev.filter((_, i) => i !== idx))}
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#94a3b8',
-                            cursor: 'pointer',
-                          }}
+                          className="text-slate-400"
                         >
                           <Trash2 size={13} />
-                        </button>
+                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -584,49 +405,14 @@ export function StocktakeLotSerialDrawer({
         </div>
 
         {/* Footer Actions */}
-        <div
-          style={{
-            padding: '14px 20px',
-            borderTop: '1px solid #e2e8f0',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '10px',
-            background: '#ffffff',
-          }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: '8px 16px',
-              fontSize: '14px',
-              fontWeight: 600,
-              background: 'transparent',
-              border: '1px solid #cbd5e1',
-              borderRadius: '4px',
-              color: '#475569',
-              cursor: 'pointer',
-            }}
-          >
+        <div className="flex justify-end gap-[10px] border-t border-slate-200 bg-white px-5 py-[14px]">
+          <Button type="button" variant="outline" onClick={onClose}>
             Đóng
-          </button>
+          </Button>
           {!readOnly ? (
-            <button
-              type="button"
-              onClick={handleApply}
-              style={{
-                padding: '8px 18px',
-                fontSize: '14px',
-                fontWeight: 700,
-                background: '#2563eb',
-                border: 'none',
-                borderRadius: '4px',
-                color: '#ffffff',
-                cursor: 'pointer',
-              }}
-            >
+            <Button type="button" onClick={handleApply} className="font-bold">
               Áp dụng số thực đếm ({isLotTracked ? totalLotActual : totalFoundSerials} {unit})
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

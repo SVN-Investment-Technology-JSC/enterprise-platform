@@ -9,8 +9,8 @@ import {
   removeAssetDocument,
   uploadAssetDocument,
 } from '../inventory-api';
-import styles from '../inventory.module.scss';
 import { useInventoryPermissions } from '../inventory-permissions';
+import { Button } from '../ui/button';
 
 function formatSize(bytes?: number): string {
   if (bytes === undefined) return '';
@@ -78,38 +78,42 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
   const disabled = busy || working;
 
   return (
-    <section className={styles.card}>
-      <header className={styles.cardHead}>
-        <h2>Tài liệu đính kèm</h2>
+    <section className="rounded-2xl border border-slate-200 bg-white p-[1.2rem] shadow-sm">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="m-0 text-base font-bold text-slate-900">Tài liệu đính kèm</h2>
         <span>{documents ? `${documents.length} tệp` : 'Đang tải…'}</span>
       </header>
 
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-3 text-red-800">
           {error}
         </p>
       ) : null}
 
       {documents && documents.length > 0 ? (
-        <ul className={styles.spareList}>
+        <ul className="m-0 mb-3 flex list-none flex-col gap-[0.4rem] p-0">
           {documents.map((document) => (
-            <li key={document.id}>
+            <li
+              key={document.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+            >
               <span>
-                <strong>{document.fileName}</strong>
-                <small>
+                <strong className="block text-sm">{document.fileName}</strong>
+                <small className="text-[13px] text-slate-500">
                   {formatSize(document.sizeBytes)}
                   {document.note ? ` · ${document.note}` : ''}
                 </small>
               </span>
-              <span className={styles.docActions}>
-                <button
+              <span className="flex flex-none flex-wrap items-center gap-2">
+                <Button
                   type="button"
-                  className={styles.docOpenBtn}
+                  variant="outline"
+                  size="sm"
                   disabled={disabled}
                   onClick={() => void open(document.id)}
                 >
                   Mở
-                </button>
+                </Button>
                 {canManage ? <Popconfirm
                   title="Xoá tệp đính kèm này?"
                   description={`Tệp "${document.fileName}" sẽ bị gỡ bỏ vĩnh viễn khỏi hồ sơ thiết bị.`}
@@ -120,20 +124,21 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
                   disabled={disabled}
                   onConfirm={() => remove(document.id)}
                 >
-                  <button
+                  <Button
                     type="button"
-                    className={styles.deleteActionBtn}
+                    variant="destructive"
+                    size="sm"
                     disabled={disabled}
                   >
                     Xoá
-                  </button>
+                  </Button>
                 </Popconfirm> : null}
               </span>
             </li>
           ))}
         </ul>
       ) : documents ? (
-        <p className={styles.empty}>Chưa có tài liệu nào.</p>
+        <p className="m-0 py-8 text-center text-slate-500">Chưa có tài liệu nào.</p>
       ) : null}
 
       <input

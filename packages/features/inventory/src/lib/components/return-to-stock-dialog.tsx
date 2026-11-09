@@ -8,7 +8,11 @@ import type { ProcedureOption } from '../inventory-api';
 import { getUnitQuantityConfig } from '../inventory-labels';
 import { SerialPickerDrawer } from './stock-document-parts';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export interface ReturnToStockInput extends ReturnItemToStockRequest {
   readonly procedureDefinitionId?: string;
@@ -107,75 +111,17 @@ export function ReturnToStockDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '560px',
-          background: '#f5f5f5',
-          border: '1px solid #e0e0e0',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          padding: '24px',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header theo quy chuẩn Typography & Close Button */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            marginBottom: '16px',
-          }}
-        >
+    <Dialog onEscape={!busy && !isDirty ? onCancel : undefined}>
+      <DialogContent className="max-w-[560px]" aria-label={title}>
+        <DialogHeader>
           <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '24px',
-                fontWeight: 700,
-                color: '#333333',
-                lineHeight: 1.25,
-              }}
-            >
-              {title}
-            </h2>
-            <p
-              style={{
-                margin: '4px 0 0',
-                fontSize: '14px',
-                color: '#666666',
-                lineHeight: 1.4,
-              }}
-            >
-              {description}
-            </p>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
           </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '32px',
-                height: '32px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                color: '#666666',
-                fontSize: '16px',
-                cursor: 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-              title="Đóng (ESC)"
-            >
-              ✕
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
         <form
           onSubmit={(e) => {
@@ -189,24 +135,13 @@ export function ReturnToStockDialog({
               serials: serialMaterialCode ? serials : undefined,
             }));
           }}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          className="flex min-h-0 flex-col"
         >
+          <DialogBody className="flex flex-col gap-3.5">
           {/* Cảnh báo khi tháo gỡ cụm thiết bị có nhánh con */}
           {hasChildren ? (
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: '6px',
-                fontSize: '13px',
-                background: '#fffbeb',
-                border: '1px solid #fde68a',
-                color: '#b45309',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <AlertTriangle size={18} color="#b45309" style={{ flexShrink: 0 }} />
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-700">
+              <AlertTriangle size={18} color="#b45309" className="shrink-0" />
               <span>
                 <strong>Cảnh báo gỡ cụm thiết bị:</strong> Thiết bị này đang chứa các thiết bị/chi tiết con. Việc tháo dỡ sẽ gỡ toàn bộ cấu trúc nhánh con bên dưới khỏi cây vận hành.
               </span>
@@ -215,15 +150,13 @@ export function ReturnToStockDialog({
 
           {/* Serial nhập về: vật tư theo serial phải ghi đủ serial */}
           {serialMaterialCode ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                Serial nhập về <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <button type="button" className={styles.btnSecondary} onClick={() => setSerialPickerOpen(true)}>
+            <div className="flex flex-col gap-[5px]">
+              <Label required>Serial nhập về</Label>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button type="button" variant="outline" onClick={() => setSerialPickerOpen(true)}>
                   {`Ghi serial (${serials.length}/${valid ? amount : 0})`}
-                </button>
-                <span style={{ fontSize: '13px', color: serialsMissing ? '#b91c1c' : '#475569' }}>
+                </Button>
+                <span className={cn('text-[13px]', serialsMissing ? 'text-red-700' : 'text-slate-600')}>
                   {serials.length > 0
                     ? serials.join(', ')
                     : `${serialMaterialCode} theo dõi theo serial: quét hoặc gõ đủ serial của hàng nhập về.`}
@@ -233,11 +166,11 @@ export function ReturnToStockDialog({
           ) : null}
 
           {/* Hàng 2 cột: Kho tiếp nhận & Số lượng */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '14px', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap', minHeight: '20px', display: 'flex', alignItems: 'center' }}>
-                Kho tiếp nhận <span style={{ color: '#dc2626', marginLeft: '3px' }}>*</span>
-              </label>
+          <div className="grid grid-cols-[1.15fr_0.85fr] items-start gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <Label required className="flex min-h-5 items-center whitespace-nowrap">
+                Kho tiếp nhận
+              </Label>
               <SearchableSelect
                 options={warehouseOptions}
                 value={warehouseCode}
@@ -251,100 +184,51 @@ export function ReturnToStockDialog({
             </div>
 
             {isAsset ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                  <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                    Số lượng tháo dỡ
-                  </label>
-                  <span
-                    style={{
-                      fontSize: '12px',
-                      color: '#0369a1',
-                      fontWeight: 600,
-                      background: '#e0f2fe',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+              <div className="flex flex-col gap-1.5">
+                <div className="flex min-h-5 items-center justify-between gap-1.5">
+                  <Label className="whitespace-nowrap">Số lượng tháo dỡ</Label>
+                  <span className="whitespace-nowrap rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">
                     1 cá thể trên cây
                   </span>
                 </div>
-                <div
-                  style={{
-                    height: '38px',
-                    padding: '0 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    background: '#f8fafc',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#0f172a',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    boxSizing: 'border-box',
-                  }}
-                >
+                <div className="box-border flex h-[38px] items-center justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-sm font-semibold text-slate-900">
                   <span>1 {unit || 'thiết bị'}</span>
-                  <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500 }}>Cố định</span>
+                  <span className="text-[13px] font-medium text-slate-500">Cố định</span>
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                  <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                    Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex min-h-5 items-center justify-between gap-1.5">
+                  <Label required className="whitespace-nowrap">
+                    Số lượng {unit ? `(${unit})` : ''}
+                  </Label>
                   {maxQuantity !== undefined ? (
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#0369a1', whiteSpace: 'nowrap' }}>
+                    <span className="whitespace-nowrap text-[13px] font-semibold text-sky-700">
                       (Đang lắp: {maxQuantity} {unit ?? ''})
                     </span>
                   ) : null}
                 </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <input
+                <div className="flex items-center gap-1.5">
+                  <Input
                     type="number"
                     min={unitConfig.min}
                     max={maxQuantity}
                     step={unitConfig.step}
-                    style={{
-                      flex: 1,
-                      height: '38px',
-                      padding: '0 12px',
-                      borderRadius: '6px',
-                      border: over ? '1px solid #ef4444' : '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      fontSize: '14px',
-                      color: '#0f172a',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
+                    className={cn('flex-1', over && 'border-red-500')}
                     required
                     value={quantity}
                     onChange={(event) => setQuantity(event.target.value)}
                   />
                   {maxQuantity !== undefined && Number(quantity) !== maxQuantity ? (
-                    <button
+                    <Button
                       type="button"
-                      style={{
-                        height: '38px',
-                        padding: '0 10px',
-                        fontSize: '13px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#f1f5f9',
-                        color: '#334155',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 600,
-                        boxSizing: 'border-box',
-                      }}
+                      variant="secondary"
+                      className="h-9 whitespace-nowrap px-2.5 text-[13px] font-semibold"
                       onClick={() => setQuantity(String(maxQuantity))}
                       title="Dỡ toàn bộ số lượng đang lắp đặt"
                     >
                       Dỡ hết ({maxQuantity})
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -353,20 +237,7 @@ export function ReturnToStockDialog({
 
           {/* Cảnh báo số lượng vượt quá đang lắp */}
           {over ? (
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: '4px',
-                fontSize: '13px',
-                lineHeight: 1.4,
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                color: '#b91c1c',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
+            <div className="flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] leading-[1.4] text-red-700">
               <span></span>
               <span>
                 Chỉ đang lắp <strong>{maxQuantity} {unit ?? ''}</strong> trên thiết bị — không thể tháo/gỡ {amount} {unit ?? ''}.
@@ -375,10 +246,8 @@ export function ReturnToStockDialog({
           ) : null}
 
           {/* Quy trình liên kết mở Work Order */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Quy trình liên kết mở Work Order
-            </label>
+          <div className="flex flex-col gap-[5px]">
+            <Label>Quy trình liên kết mở Work Order</Label>
             <SearchableSelect
               options={procedureOptions}
               value={procedureDefinitionId}
@@ -393,28 +262,15 @@ export function ReturnToStockDialog({
               clearable
               style={{ width: '100%' }}
             />
-            <span style={{ fontSize: '13px', color: '#64748b' }}>
+            <span className="text-[13px] text-slate-500">
               Tự động khởi tạo Work Order bên module Quy trình khi hoàn tất lệnh tháo dỡ / hoàn kho.
             </span>
           </div>
 
           {/* Ghi chú */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Ghi chú hoàn kho
-            </label>
-            <input
-              style={{
-                height: '38px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                fontSize: '14px',
-                color: '#0f172a',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
+          <div className="flex flex-col gap-1.5">
+            <Label>Ghi chú hoàn kho</Label>
+            <Input
               value={note}
               placeholder="Lý do tháo gỡ, tình trạng thiết bị khi nhập về kho…"
               onChange={(event) => setNote(event.target.value)}
@@ -422,57 +278,19 @@ export function ReturnToStockDialog({
           </div>
 
           <FormError error={error} />
+          </DialogBody>
 
-          {/* Footer Actions */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: '12px',
-              marginTop: '12px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb',
-            }}
-          >
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid #d1d5db',
-                  background: 'transparent',
-                  color: '#4b5563',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-                disabled={busy}
-              >
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              style={{
-                padding: '9px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                background: busy || !ready ? '#fca5a5' : '#dc2626',
-                color: '#ffffff',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: busy || !ready ? 'not-allowed' : 'pointer',
-                transition: 'background 0.15s',
-              }}
-              disabled={busy || !ready}
-            >
+            <Button type="submit" variant="destructive" disabled={busy || !ready}>
               {busy ? 'Đang hoàn kho…' : 'Xác nhận nhập về kho'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
       {serialPickerOpen && serialMaterialCode ? (
         <div onClick={(event) => event.stopPropagation()}>
           <SerialPickerDrawer
@@ -490,6 +308,7 @@ export function ReturnToStockDialog({
           />
         </div>
       ) : null}
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

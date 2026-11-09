@@ -1,8 +1,10 @@
 'use client';
 
-import type { StockDocumentStatus, Warehouse } from '@enterprise-platform/contracts-inventory';
+import type {
+  StockDocumentStatus,
+  Warehouse,
+} from '@enterprise-platform/contracts-inventory';
 import { formatDate } from '@enterprise-platform/shared-ui';
-import { Drawer, Modal } from 'antd';
 import { QrCode, Layers } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { loadLots, loadSerials } from '../inventory-api';
@@ -18,19 +20,49 @@ import {
   type LotAllocation,
   type LotOption,
 } from '../stock-document.model';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogCloseButton,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+import { Textarea } from '../ui/textarea';
+import { Badge } from '../ui/badge';
 
 /** Nhãn trạng thái chứng từ: nền màu và chấm tròn CSS, không dùng emoji. */
-export function DocumentStatusBadge({ status }: { status: StockDocumentStatus }) {
+export function DocumentStatusBadge({
+  status,
+}: {
+  status: StockDocumentStatus;
+}) {
   const badge = STOCK_DOCUMENT_STATUS_BADGE[status];
   return (
-    <span
-      className={styles.statusPill}
-      style={{ background: badge.bg, color: badge.text, border: `1px solid ${badge.border}` }}
+    <Badge
+      className="h-auto gap-[0.35rem] px-[0.55rem] py-[0.15rem] font-bold tracking-[0.02em]"
+      style={{
+        background: badge.bg,
+        color: badge.text,
+        border: `1px solid ${badge.border}`,
+      }}
     >
-      <span className={styles.docDot} style={{ background: badge.text }} />
+      <span className="inline-block size-1.5 rounded-full" style={{ background: badge.text }} />
       {STOCK_DOCUMENT_STATUS_LABEL[status]}
-    </span>
+    </Badge>
   );
 }
 
@@ -109,7 +141,8 @@ export function SerialPickerDrawer({
         );
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setLoadError(errorMessage(cause, 'Không tải được danh sách serial.'));
+        if (!cancelled)
+          setLoadError(errorMessage(cause, 'Không tải được danh sách serial.'));
       });
     return () => {
       cancelled = true;
@@ -118,7 +151,10 @@ export function SerialPickerDrawer({
 
   /** Serial đã có sẵn trên dòng (ví dụ Bán hàng gợi ý) vẫn được giữ trong danh sách cho phép. */
   const allowed = useMemo(
-    () => (inbound || !available ? undefined : [...new Set([...available, ...value])]),
+    () =>
+      inbound || !available
+        ? undefined
+        : [...new Set([...available, ...value])],
     [inbound, available, value],
   );
 
@@ -137,133 +173,168 @@ export function SerialPickerDrawer({
 
   const toggle = (serial: string) => {
     if (readOnly) return;
-    if (selected.includes(serial)) setSelected(selected.filter((item) => item !== serial));
+    if (selected.includes(serial))
+      setSelected(selected.filter((item) => item !== serial));
     else if (selected.length < limit) setSelected([...selected, serial]);
     else setFeedback(`Dòng chỉ cần ${limit} serial.`);
   };
 
-  const visible = (allowed ?? []).filter((serial) => serial.toLowerCase().includes(filter.trim().toLowerCase()));
+  const visible = (allowed ?? []).filter((serial) =>
+    serial.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+
+  if (!open) return null;
 
   return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      size={520}
-      zIndex={zIndex}
-      destroyOnHidden
-      title={
-        <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <QrCode size={18} /> Serial {materialCode}
-        </span>
-      }
-      footer={
-        <div className={styles.docFooter}>
-          <span className={styles.countHint}>
-            Đã chọn {selected.length}/{limit}
-          </span>
-          <div className={styles.docActions}>
-            <button type="button" className={styles.btnSecondary} onClick={onClose}>
-              Đóng
-            </button>
-            {readOnly ? null : (
-              <button type="button" className={styles.btnPrimary} onClick={() => onApply(selected)}>
-                Áp dụng
-              </button>
-            )}
-          </div>
-        </div>
-      }
-    >
-      {materialName ? <p className={styles.docHint}>{materialName}</p> : null}
-      {readOnly ? null : (
-        <label className={styles.docField}>
-          <span>Quét hoặc gõ serial rồi nhấn Enter (nhiều serial cách nhau bằng dấu phẩy hoặc xuống dòng)</span>
-          <input
-            autoFocus
-            value={scan}
-            aria-label="Quét serial"
-            placeholder="Ví dụ SN001"
-            onChange={(event) => setScan(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                applyScan();
-              }
-            }}
-            onPaste={(event) => {
-              const text = event.clipboardData.getData('text');
-              if (/[\s,;]/.test(text.trim())) {
-                event.preventDefault();
-                const result = addScannedSerials(selected, parseSerialInput(text), { limit, allowed });
-                setSelected(result.serials);
-                setFeedback(
-                  result.rejected.length
-                    ? `Không thêm: ${result.rejected.map((item) => `${item.serial} (${item.reason})`).join('; ')}.`
-                    : undefined,
-                );
-              }
-            }}
-          />
-        </label>
-      )}
-      {feedback ? <p className={styles.docHint}>{feedback}</p> : null}
-
-      <h4 className={styles.docSubTitle}>Đã chọn</h4>
-      {selected.length === 0 ? (
-        <p className={styles.docHint}>Chưa chọn serial nào.</p>
-      ) : (
-        <div className={styles.docChips}>
-          {selected.map((serial) => (
-            <span key={serial} className={styles.docChip}>
-              {serial}
-              {readOnly ? null : (
-                <button
-                  type="button"
-                  aria-label={`Bỏ ${serial}`}
-                  onClick={() => setSelected(selected.filter((item) => item !== serial))}
-                >
-                  ✕
-                </button>
-              )}
+    <Sheet onEscape={onClose} onBackdropClick={onClose}>
+      <SheetContent
+        className="max-w-[520px]"
+        style={zIndex ? { zIndex } : undefined}
+        aria-label={`Serial ${materialCode}`}
+      >
+        <SheetHeader>
+          <SheetTitle>
+            <span className="inline-flex items-center gap-2">
+              <QrCode size={18} /> Serial {materialCode}
             </span>
-          ))}
-        </div>
-      )}
-
-      {inbound ? (
-        <p className={styles.docHint}>Dòng nhập: serial mới được tạo khi ghi sổ; serial đã có của mặt hàng bị từ chối.</p>
-      ) : (
-        <>
-          <h4 className={styles.docSubTitle}>
-            Serial sẵn có ở kho {warehouse?.code ?? ''} (Trong kho, Đạt)
-          </h4>
-          {loadError ? <p className={styles.alert}>{loadError}</p> : null}
-          {!available && !loadError ? <p className={styles.docHint}>Đang tải serial…</p> : null}
-          {available ? (
-            <>
-              <label className={styles.docField}>
-                <span>Lọc</span>
-                <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Tìm serial" />
-              </label>
-              <div className={styles.docSerialGrid}>
-                {visible.map((serial) => (
-                  <label key={serial} className={styles.docSerialItem}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(serial)}
-                      disabled={readOnly}
-                      onChange={() => toggle(serial)}
-                    />
-                    {serial}
-                  </label>
-                ))}
-                {visible.length === 0 ? <p className={styles.docHint}>Không có serial phù hợp.</p> : null}
-              </div>
-            </>
+          </SheetTitle>
+          <DialogCloseButton onClick={onClose} />
+        </SheetHeader>
+        <SheetBody className="bg-white">
+          {materialName ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">{materialName}</p>
           ) : null}
-        </>
-      )}
-    </Drawer>
+          {readOnly ? null : (
+            <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
+              <span>
+                Quét hoặc gõ serial rồi nhấn Enter (nhiều serial cách nhau bằng
+                dấu phẩy hoặc xuống dòng)
+              </span>
+              <Input
+                className="font-normal"
+                autoFocus
+                value={scan}
+                aria-label="Quét serial"
+                placeholder="Ví dụ SN001"
+                onChange={(event) => setScan(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    applyScan();
+                  }
+                }}
+                onPaste={(event) => {
+                  const text = event.clipboardData.getData('text');
+                  if (/[\s,;]/.test(text.trim())) {
+                    event.preventDefault();
+                    const result = addScannedSerials(
+                      selected,
+                      parseSerialInput(text),
+                      { limit, allowed },
+                    );
+                    setSelected(result.serials);
+                    setFeedback(
+                      result.rejected.length
+                        ? `Không thêm: ${result.rejected.map((item) => `${item.serial} (${item.reason})`).join('; ')}.`
+                        : undefined,
+                    );
+                  }
+                }}
+              />
+            </Label>
+          )}
+          {feedback ? <p className="my-[0.35rem] text-[13px] text-slate-500">{feedback}</p> : null}
+
+          <h4 className="mb-2 mt-4 text-sm font-bold text-slate-900">Đã chọn</h4>
+          {selected.length === 0 ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">Chưa chọn serial nào.</p>
+          ) : (
+            <div className="flex flex-wrap gap-[0.35rem]">
+              {selected.map((serial) => (
+                <span key={serial} className="inline-flex items-center gap-[0.35rem] rounded-full border border-blue-200 bg-blue-50 px-2 py-[0.2rem] font-mono text-[13px] text-blue-800">
+                  {serial}
+                  {readOnly ? null : (
+                    <button
+                      type="button"
+                      className="cursor-pointer border-0 bg-transparent p-0 text-inherit"
+                      aria-label={`Bỏ ${serial}`}
+                      onClick={() =>
+                        setSelected(selected.filter((item) => item !== serial))
+                      }
+                    >
+                      ✕
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {inbound ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">
+              Dòng nhập: serial mới được tạo khi ghi sổ; serial đã có của mặt
+              hàng bị từ chối.
+            </p>
+          ) : (
+            <>
+              <h4 className="mb-2 mt-4 text-sm font-bold text-slate-900">
+                Serial sẵn có ở kho {warehouse?.code ?? ''} (Trong kho, Đạt)
+              </h4>
+              {loadError ? <p className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">{loadError}</p> : null}
+              {!available && !loadError ? (
+                <p className="my-[0.35rem] text-[13px] text-slate-500">Đang tải serial…</p>
+              ) : null}
+              {available ? (
+                <>
+                  <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
+                    <span>Lọc</span>
+                    <Input
+                      className="font-normal"
+                      value={filter}
+                      onChange={(event) => setFilter(event.target.value)}
+                      placeholder="Tìm serial"
+                    />
+                  </Label>
+                  <div className="mt-2 grid max-h-88 grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-[0.35rem] overflow-y-auto">
+                    {visible.map((serial) => (
+                      <label key={serial} className="flex cursor-pointer items-center gap-[0.4rem] rounded-[0.4rem] border border-slate-200 px-[0.45rem] py-[0.3rem] font-mono text-[13px]">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(serial)}
+                          disabled={readOnly}
+                          onChange={() => toggle(serial)}
+                        />
+                        {serial}
+                      </label>
+                    ))}
+                    {visible.length === 0 ? (
+                      <p className="my-[0.35rem] text-[13px] text-slate-500">Không có serial phù hợp.</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </>
+          )}
+        </SheetBody>
+        <SheetFooter className="[&>div]:w-full">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[13px] tabular-nums text-slate-500">
+              Đã chọn {selected.length}/{limit}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Đóng
+              </Button>
+              {readOnly ? null : (
+                <Button type="button" onClick={() => onApply(selected)}>
+                  Áp dụng
+                </Button>
+              )}
+            </div>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -310,31 +381,50 @@ export function LotPickerDrawer({
         if (cancelled) return;
         const next = lotOptionsForWarehouse(lots, warehouseCode, todayIso());
         setOptions(next);
-        if (current && next.some((option) => option.lotNo === current)) setAmounts({ [current]: quantity });
+        if (current && next.some((option) => option.lotNo === current))
+          setAmounts({ [current]: quantity });
         else {
           const fefo = allocateFefo(next, quantity);
-          setAmounts(Object.fromEntries(fefo.allocations.map((item) => [item.lotNo, item.quantity])));
+          setAmounts(
+            Object.fromEntries(
+              fefo.allocations.map((item) => [item.lotNo, item.quantity]),
+            ),
+          );
         }
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setLoadError(errorMessage(cause, 'Không tải được danh sách lô.'));
+        if (!cancelled)
+          setLoadError(errorMessage(cause, 'Không tải được danh sách lô.'));
       });
     return () => {
       cancelled = true;
     };
   }, [open, materialCode, warehouseCode, quantity, current]);
 
-  const total = Object.values(amounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
-  const overLot = (options ?? []).find((option) => (amounts[option.lotNo] ?? 0) > option.available);
+  const total = Object.values(amounts).reduce(
+    (sum, value) => sum + (Number(value) || 0),
+    0,
+  );
+  const overLot = (options ?? []).find(
+    (option) => (amounts[option.lotNo] ?? 0) > option.available,
+  );
   const suggest = () => {
     const fefo = allocateFefo(options ?? [], quantity);
-    setAmounts(Object.fromEntries(fefo.allocations.map((item) => [item.lotNo, item.quantity])));
+    setAmounts(
+      Object.fromEntries(
+        fefo.allocations.map((item) => [item.lotNo, item.quantity]),
+      ),
+    );
   };
 
   const apply = () => {
     const allocations = (options ?? [])
       .filter((option) => (amounts[option.lotNo] ?? 0) > 0)
-      .map((option) => ({ lotNo: option.lotNo, expiresOn: option.expiresOn, quantity: amounts[option.lotNo] }));
+      .map((option) => ({
+        lotNo: option.lotNo,
+        expiresOn: option.expiresOn,
+        quantity: amounts[option.lotNo],
+      }));
     onApply(allocations);
   };
 
@@ -345,95 +435,135 @@ export function LotPickerDrawer({
         ? `Tổng theo lô ${formatNumber(total)} khác số lượng dòng ${formatNumber(quantity)}; áp dụng sẽ đổi số lượng theo lô.`
         : undefined;
 
+  if (!open) return null;
+
   return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      size={560}
-      zIndex={zIndex}
-      destroyOnHidden
-      title={
-        <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <Layers size={18} /> Chọn lô {materialCode} tại {warehouseCode}
-        </span>
-      }
-      footer={
-        <div className={styles.docFooter}>
-          <span className={styles.countHint}>
-            Cần {formatNumber(quantity)} {unit ?? ''}, đã chia {formatNumber(total)}
-          </span>
-          <div className={styles.docActions}>
-            <button type="button" className={styles.btnSecondary} onClick={suggest} disabled={!options}>
-              Gợi ý FEFO
-            </button>
-            <button type="button" className={styles.btnSecondary} onClick={() => onApply([])}>
-              Không chọn lô
-            </button>
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              onClick={apply}
-              disabled={!options || overLot !== undefined || total <= 0}
-            >
-              Áp dụng
-            </button>
+    <Sheet onEscape={onClose} onBackdropClick={onClose}>
+      <SheetContent
+        className="max-w-[560px]"
+        style={zIndex ? { zIndex } : undefined}
+        aria-label={`Chọn lô ${materialCode}`}
+      >
+        <SheetHeader>
+          <SheetTitle>
+            <span className="inline-flex items-center gap-2">
+              <Layers size={18} /> Chọn lô {materialCode} tại {warehouseCode}
+            </span>
+          </SheetTitle>
+          <DialogCloseButton onClick={onClose} />
+        </SheetHeader>
+        <SheetBody className="bg-white">
+          <p className="my-[0.35rem] text-[13px] text-slate-500">
+            Xếp theo hạn dùng gần nhất trước (FEFO). Lô hết hạn hoặc không ở
+            trạng thái Đạt không xuất được.
+          </p>
+          {loadError ? <p className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">{loadError}</p> : null}
+          {!options && !loadError ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">Đang tải lô…</p>
+          ) : null}
+          {options && options.length === 0 ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">
+              Mặt hàng chưa có lô nào ở kho {warehouseCode}.
+            </p>
+          ) : null}
+          {options && options.length > 0 ? (
+            <TableWrap>
+              <Table>
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>Số lô</TableHeaderCell>
+                    <TableHeaderCell>Hạn dùng</TableHeaderCell>
+                    <TableHeaderCell className="text-right">Khả dụng</TableHeaderCell>
+                    <TableHeaderCell className="text-right">Lấy</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {options.map((option) => (
+                    <TableRow
+                      key={option.lotNo}
+                      style={{ opacity: option.blockedReason ? 0.55 : 1 }}
+                    >
+                      <TableCell>
+                        <strong>{option.lotNo}</strong>
+                        {option.blockedReason ? (
+                          <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">
+                            {option.blockedReason}
+                            {option.qualityStatus !== 'PASSED'
+                              ? ` (${QUALITY_STATUS_LABEL[option.qualityStatus]})`
+                              : ''}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        {option.expiresOn
+                          ? formatDate(option.expiresOn)
+                          : 'Không thời hạn'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(option.available)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          aria-label={`Số lượng lấy từ lô ${option.lotNo}`}
+                          className="h-8 text-right text-[13px] tabular-nums"
+                          disabled={Boolean(option.blockedReason)}
+                          value={amounts[option.lotNo] ?? ''}
+                          onChange={(event) =>
+                            setAmounts({
+                              ...amounts,
+                              [option.lotNo]: Math.max(
+                                Number(event.target.value) || 0,
+                                0,
+                              ),
+                            })
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableWrap>
+          ) : null}
+          {problem ? <p className="my-[0.6rem] rounded-[0.55rem] border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">{problem}</p> : null}
+        </SheetBody>
+        <SheetFooter className="[&>div]:w-full">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[13px] tabular-nums text-slate-500">
+              Cần {formatNumber(quantity)} {unit ?? ''}, đã chia{' '}
+              {formatNumber(total)}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={suggest}
+                disabled={!options}
+              >
+                Gợi ý FEFO
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onApply([])}
+              >
+                Không chọn lô
+              </Button>
+              <Button
+                type="button"
+                onClick={apply}
+                disabled={!options || overLot !== undefined || total <= 0}
+              >
+                Áp dụng
+              </Button>
+            </div>
           </div>
-        </div>
-      }
-    >
-      <p className={styles.docHint}>
-        Xếp theo hạn dùng gần nhất trước (FEFO). Lô hết hạn hoặc không ở trạng thái Đạt không xuất được.
-      </p>
-      {loadError ? <p className={styles.alert}>{loadError}</p> : null}
-      {!options && !loadError ? <p className={styles.docHint}>Đang tải lô…</p> : null}
-      {options && options.length === 0 ? (
-        <p className={styles.docHint}>Mặt hàng chưa có lô nào ở kho {warehouseCode}.</p>
-      ) : null}
-      {options && options.length > 0 ? (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Số lô</th>
-              <th>Hạn dùng</th>
-              <th className={styles.right}>Khả dụng</th>
-              <th className={styles.right}>Lấy</th>
-            </tr>
-          </thead>
-          <tbody>
-            {options.map((option) => (
-              <tr key={option.lotNo} style={{ opacity: option.blockedReason ? 0.55 : 1 }}>
-                <td>
-                  <strong>{option.lotNo}</strong>
-                  {option.blockedReason ? (
-                    <span className={styles.sub}>
-                      {option.blockedReason}
-                      {option.qualityStatus !== 'PASSED' ? ` (${QUALITY_STATUS_LABEL[option.qualityStatus]})` : ''}
-                    </span>
-                  ) : null}
-                </td>
-                <td>{option.expiresOn ? formatDate(option.expiresOn) : 'Không thời hạn'}</td>
-                <td className={`${styles.right} ${styles.numeric}`}>{formatNumber(option.available)}</td>
-                <td className={styles.right}>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    aria-label={`Số lượng lấy từ lô ${option.lotNo}`}
-                    className={styles.docNumber}
-                    disabled={Boolean(option.blockedReason)}
-                    value={amounts[option.lotNo] ?? ''}
-                    onChange={(event) =>
-                      setAmounts({ ...amounts, [option.lotNo]: Math.max(Number(event.target.value) || 0, 0) })
-                    }
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
-      {problem ? <p className={styles.docWarn}>{problem}</p> : null}
-    </Drawer>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -457,38 +587,48 @@ export function RejectReasonDialog({
   useEffect(() => {
     if (open) setReason('');
   }, [open]);
-  return (
-    <Modal
-      open={open}
-      title={`Từ chối chứng từ ${documentCode ?? ''}`}
-      onCancel={onCancel}
-      destroyOnHidden
-      footer={
-        <div className={styles.docActions} style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className={styles.btnSecondary} onClick={onCancel} disabled={busy}>
-            Huỷ
-          </button>
-          <button
+  return open ? (
+    <Dialog onEscape={busy ? undefined : onCancel}>
+      <DialogContent
+        className="max-w-[520px]"
+        aria-label={`Từ chối chứng từ ${documentCode ?? ''}`}
+      >
+        <DialogHeader>
+          <DialogTitle>{`Từ chối chứng từ ${documentCode ?? ''}`}</DialogTitle>
+          <DialogCloseButton onClick={onCancel} disabled={busy} />
+        </DialogHeader>
+        <DialogBody>
+          <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
+            <span>Lý do từ chối (bắt buộc, người lập sẽ thấy để sửa lại)</span>
+            <Textarea
+              className="font-normal"
+              autoFocus
+              rows={4}
+              value={reason}
+              aria-label="Lý do từ chối"
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Label>
+        </DialogBody>
+        <DialogFooter>
+          <Button
             type="button"
-            className={styles.btnDanger}
+            variant="outline"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Huỷ
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
             disabled={busy || !reason.trim()}
             onClick={() => onConfirm(reason.trim())}
           >
             Từ chối
-          </button>
-        </div>
-      }
-    >
-      <label className={styles.docField}>
-        <span>Lý do từ chối (bắt buộc, người lập sẽ thấy để sửa lại)</span>
-        <textarea
-          autoFocus
-          rows={4}
-          value={reason}
-          aria-label="Lý do từ chối"
-          onChange={(event) => setReason(event.target.value)}
-        />
-      </label>
-    </Modal>
-  );
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ) : null;
 }

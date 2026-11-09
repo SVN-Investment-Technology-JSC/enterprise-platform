@@ -1,3 +1,38 @@
+@import 'tailwindcss';
+@import '@enterprise-platform/shared-ui/type-scale.css';
+@source '../../../../packages/features/inventory';
+@source '../../../../packages/shared/ui';
+
+/* Token dùng chung với HRM để nút, ô nhập, badge giống nhau giữa các phân hệ. */
+@theme {
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #d9ab00;
+  --color-background: #f8f9ff;
+  --color-foreground: #0f172a;
+
+  --color-primary: #ffc90a;
+  --color-primary-foreground: #1a1a1a;
+
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #0f172a;
+
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+
+  --color-muted: #f8fafc;
+  --color-muted-foreground: #64748b;
+
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #0f172a;
+
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f172a;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   font-family:
@@ -23,39 +58,6 @@ body {
   color: #0f172a;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-*,
-::before,
-::after {
-  box-sizing: border-box;
-}
-
-h1,
-h2,
-h3,
-h4,
-p,
-pre,
-figure,
-blockquote {
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: inherit;
-}
-
-button,
-input,
-optgroup,
-select,
-textarea {
-  font-family: inherit;
-  font-size: 100%;
-  line-height: 1.15;
-  margin: 0;
 }
 
 /*

@@ -2,10 +2,13 @@
 
 import type { Asset, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
-import { AlertTriangle, Trash2, Warehouse as WarehouseIcon, X } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { AlertTriangle, Trash2, Warehouse as WarehouseIcon } from 'lucide-react';
+import { useState, useMemo } from 'react';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+import { Dialog, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export interface BulkReturnItemEntry {
   asset: Asset;
@@ -96,69 +99,30 @@ export function BulkReturnToStockDialog({
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
-  // Esc chỉ đóng ngay khi chưa có thay đổi; đã thay đổi thì phải bấm Huỷ/X để xác nhận.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy && !isDirty) onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, isDirty, onCancel]);
-
   return (
-    <div className={styles.modalOverlay} role="dialog" aria-modal="true">
-      <div
-        className={`${styles.modalDialog} ${styles.modalDialogWide}`}
-        style={{
-          maxWidth: '960px',
-          maxHeight: '90vh',
-          display: 'flex',
-          flexDirection: 'column',
-          background: '#ffffff',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onEscape={!busy && !isDirty ? onCancel : undefined}>
+      <DialogContent className="max-w-240" aria-label="Tháo dỡ thiết bị hàng loạt">
         {/* Tiêu đề Modal */}
-        <div className={styles.modalHead}>
+        <DialogHeader>
           <div>
-            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
-              Tháo dỡ / Gỡ thiết bị hàng loạt ({items.length} thiết bị)
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+            <DialogTitle>Tháo dỡ / Gỡ thiết bị hàng loạt ({items.length} thiết bị)</DialogTitle>
+            <p className="mb-0 mt-1 text-sm text-slate-500">
               Tháo dỡ các thiết bị đã chọn khỏi cây tài sản và nhập về các kho tương ứng. Thao tác này sẽ ghi nhận các bút toán nhập kho thực tế.
             </p>
           </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              className={styles.closeButton}
-              title="Đóng hộp thoại (Esc)"
-              disabled={busy}
-            >
-              <X size={18} />
-            </button>
+            <DialogCloseButton disabled={busy} />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
         {/* Thanh công cụ áp dụng nhanh kho chung */}
-        <div
-          style={{
-            padding: '12px 20px',
-            background: '#f8fafc',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '320px' }}>
-            <WarehouseIcon size={16} style={{ color: '#475569', flexShrink: 0 }} />
-            <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
+          <div className="flex min-w-[320px] flex-1 items-center gap-2">
+            <WarehouseIcon size={16} className="shrink-0 text-slate-600" />
+            <span className="whitespace-nowrap text-[13px] font-semibold text-slate-700">
               Áp dụng kho chung cho tất cả dòng:
             </span>
-            <div style={{ flex: 1, maxWidth: '280px' }}>
+            <div className="max-w-[280px] flex-1">
               <SearchableSelect
                 value={globalWarehouse}
                 onChange={handleApplyGlobalWarehouse}
@@ -169,98 +133,53 @@ export function BulkReturnToStockDialog({
             </div>
           </div>
 
-          <div style={{ fontSize: '13px', color: '#64748b' }}>
-            Tổng số: <strong style={{ color: '#0f172a' }}>{items.length}</strong> thiết bị
+          <div className="text-[13px] text-slate-500">
+            Tổng số: <strong className="text-slate-900">{items.length}</strong> thiết bị
           </div>
         </div>
 
         {/* Cảnh báo nếu có thiết bị chưa chọn kho */}
         {hasMissingWarehouse && items.length > 0 ? (
-          <div
-            style={{
-              padding: '8px 20px',
-              background: '#fffbeb',
-              borderBottom: '1px solid #fef3c7',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '13px',
-              color: '#b45309',
-            }}
-          >
-            <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+          <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50 px-5 py-2 text-[13px] text-amber-700">
+            <AlertTriangle size={15} className="shrink-0" />
             <span>Mỗi thiết bị cần được chỉ định rõ kho tiếp nhận để ghi tăng tồn thực tế.</span>
           </div>
         ) : null}
 
         {/* Bảng danh sách thiết bị cần gỡ */}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 240px)', padding: '0 20px' }}>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <TableWrap className="max-h-[calc(90vh-240px)] flex-1 px-5">
             {items.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
+              <div className="px-5 py-10 text-center text-sm text-slate-400">
                 Đã xoá hết thiết bị khỏi danh sách gỡ. Vui lòng đóng hộp thoại hoặc quay lại bảng chọn thiết bị.
               </div>
             ) : (
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: '13px',
-                  marginTop: '12px',
-                  marginBottom: '16px',
-                }}
-              >
-                <thead>
-                  <tr
-                    style={{
-                      background: '#f8fafc',
-                      borderBottom: '1px solid #e2e8f0',
-                      position: 'sticky',
-                      top: 0,
-                      zIndex: 2,
-                    }}
-                  >
-                    <th style={{ padding: '8px 10px', textAlign: 'center', width: '40px', color: '#64748b' }}>
-                      STT
-                    </th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', width: '240px', color: '#64748b' }}>
-                      Thiết bị / Tài sản
-                    </th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', width: '260px', color: '#64748b' }}>
-                      Kho tiếp nhận <span style={{ color: '#ef4444' }}>*</span>
-                    </th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b' }}>
-                      Ghi chú tháo dỡ
-                    </th>
-                    <th style={{ padding: '8px 10px', textAlign: 'center', width: '50px', color: '#64748b' }}>
-                      Xoá
-                    </th>
+              <Table className="mb-4 mt-3 text-[13px]">
+                <TableHead className="text-slate-500">
+                  <tr>
+                    <TableHeaderCell className="w-10 px-2.5 py-2 text-center">STT</TableHeaderCell>
+                    <TableHeaderCell className="w-60 px-3 py-2">Thiết bị / Tài sản</TableHeaderCell>
+                    <TableHeaderCell className="w-[260px] px-3 py-2">
+                      Kho tiếp nhận <span className="text-red-500">*</span>
+                    </TableHeaderCell>
+                    <TableHeaderCell className="px-3 py-2">Ghi chú tháo dỡ</TableHeaderCell>
+                    <TableHeaderCell className="w-[50px] px-2.5 py-2 text-center">Xoá</TableHeaderCell>
                   </tr>
-                </thead>
-                <tbody>
+                </TableHead>
+                <TableBody>
                   {items.map((item, idx) => {
                     const isMissing = !item.warehouseCode;
                     return (
-                      <tr
-                        key={item.asset.id}
-                        style={{
-                          borderBottom: '1px solid #f1f5f9',
-                          background: isMissing ? '#fffdfa' : '#ffffff',
-                        }}
-                      >
-                        <td style={{ padding: '10px 8px', textAlign: 'center', color: '#64748b' }}>
-                          {idx + 1}
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.asset.name}</div>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                            <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>
-                              {item.asset.code}
-                            </code>
+                      <TableRow key={item.asset.id} className={isMissing ? 'bg-amber-50/40' : 'bg-white'}>
+                        <TableCell className="px-2 py-2.5 text-center text-slate-500">{idx + 1}</TableCell>
+                        <TableCell className="px-3 py-2.5">
+                          <div className="font-semibold text-slate-900">{item.asset.name}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            <code className="rounded-[3px] bg-slate-100 px-[5px] py-px">{item.asset.code}</code>
                             {item.asset.serialNumber ? ` · S/N: ${item.asset.serialNumber}` : ''}
                           </div>
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
                           <SearchableSelect
                             value={item.warehouseCode}
                             onChange={(code) => handleUpdateWarehouse(item.asset.id, code)}
@@ -268,114 +187,70 @@ export function BulkReturnToStockDialog({
                             placeholder="-- Chọn kho tiếp nhận --"
                             disabled={busy}
                           />
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <input
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <Input
                             type="text"
                             value={item.note}
                             onChange={(e) => handleUpdateNote(item.asset.id, e.target.value)}
                             placeholder="Nhập ghi chú hoặc lý do tháo dỡ..."
                             disabled={busy}
-                            style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              fontSize: '13px',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '6px',
-                              outline: 'none',
-                              boxSizing: 'border-box',
-                            }}
+                            className="h-8 text-[13px]"
                           />
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                          <button
+                        </TableCell>
+                        <TableCell className="px-2.5 py-2 text-center">
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="icon-xs"
                             title="Loại bỏ thiết bị này khỏi danh sách gỡ"
                             disabled={busy}
                             onClick={() => handleRemoveItem(item.asset.id)}
-                            style={{
-                              border: 'none',
-                              background: 'transparent',
-                              color: '#94a3b8',
-                              cursor: busy ? 'not-allowed' : 'pointer',
-                              padding: '4px',
-                              borderRadius: '4px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'color 0.15s ease',
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!busy) e.currentTarget.style.color = '#ef4444';
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!busy) e.currentTarget.style.color = '#94a3b8';
-                            }}
+                            className="text-slate-400 hover:bg-transparent hover:text-red-500"
                           >
                             <Trash2 size={15} />
-                          </button>
-                        </td>
-                      </tr>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )}
-          </div>
+          </TableWrap>
 
           {/* Modal Footer */}
           <FormError error={error} style={{ margin: '0 20px 12px' }} />
-          <div
-            style={{
-              padding: '12px 20px',
-              borderTop: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#f8fafc',
-            }}
-          >
-            <div style={{ fontSize: '13px', color: '#64748b' }}>
+          <DialogFooter className="justify-between">
+            <div className="text-[13px] text-slate-500">
               {hasMissingWarehouse && items.length > 0 ? (
-                <span style={{ color: '#dc2626', fontWeight: 500 }}>
+                <span className="font-medium text-red-600">
                   Vui lòng chọn kho tiếp nhận cho toàn bộ {items.length} thiết bị trước khi xác nhận.
                 </span>
               ) : items.length > 0 ? (
-                <span style={{ color: '#15803d', fontWeight: 500 }}>
+                <span className="font-medium text-green-700">
                   Đã sẵn sàng tháo dỡ {items.length} thiết bị về các kho tương ứng.
                 </span>
               ) : null}
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="flex gap-2">
               <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-                <button
+                <Button
                   type="button"
-                  className={styles.btnSecondary}
+                  variant="outline"
                   disabled={busy}
-                  style={{ padding: '7px 14px', fontSize: '13px' }}
                 >
                   Huỷ bỏ
-                </button>
+                </Button>
               </CloseGuard>
-              <button
-                type="submit"
-                className={styles.btnPrimary}
-                disabled={!isValid || busy}
-                style={{
-                  padding: '7px 16px',
-                  fontSize: '13px',
-                  background: !isValid || busy ? '#94a3b8' : '#dc2626',
-                  borderColor: !isValid || busy ? '#94a3b8' : '#dc2626',
-                  color: '#ffffff',
-                }}
-              >
+              <Button type="submit" variant="destructive" disabled={!isValid || busy}>
                 {busy ? 'Đang thực hiện...' : `Xác nhận tháo dỡ (${items.length} thiết bị)`}
-              </button>
+              </Button>
             </div>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

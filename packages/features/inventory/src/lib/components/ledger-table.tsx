@@ -14,7 +14,12 @@ import {
   formatNumber,
   referenceLabel,
 } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardHeader, CardTitle } from '../ui/card';
+import { cn } from '../ui/cn';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
 
 export function LedgerTable({
   rows,
@@ -73,30 +78,31 @@ export function LedgerTable({
   };
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
-        <h2>Nhật ký giao dịch</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span className={styles.countHint}>
+    <Card className="gap-0">
+      <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+        <CardTitle className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Nhật ký giao dịch</CardTitle>
+        <div className="flex items-center gap-3">
+          <span className="text-[0.8125rem] tabular-nums text-slate-500">
             {formatNumber(visible.length)}
             {filtered ? ` / ${formatNumber(all.length)}` : ''} giao dịch
           </span>
-          <button
+          <Button
             type="button"
-            className={`${styles.action} ${styles.actionGhost}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '36px' }}
+            variant="outline"
+            size="lg"
+            className="gap-1.5"
             onClick={handleExport}
             title="Xuất nhật ký giao dịch ra tệp Excel"
           >
             <Download size={15} />
             <span>Xuất Excel</span>
-          </button>
+          </Button>
         </div>
-      </div>
+      </CardHeader>
 
-      <div className={styles.filterRow}>
-        <label style={{ minWidth: '13rem' }}>
-          Loại giao dịch
+      <div className="mb-[0.35rem] mt-[0.9rem] flex flex-wrap items-end gap-[0.7rem]">
+        <div className="flex min-w-[13rem] flex-col gap-1">
+          <Label className="text-xs font-bold text-slate-500">Loại giao dịch</Label>
           <SearchableSelect
             options={typeOptions}
             value={type}
@@ -104,9 +110,9 @@ export function LedgerTable({
             onChange={(val) => setType(val)}
             clearable
           />
-        </label>
-        <label style={{ minWidth: '11rem' }}>
-          Kho
+        </div>
+        <div className="flex min-w-[11rem] flex-col gap-1">
+          <Label className="text-xs font-bold text-slate-500">Kho</Label>
           <SearchableSelect
             options={warehouseOptions}
             value={warehouseId}
@@ -114,23 +120,24 @@ export function LedgerTable({
             onChange={(val) => setWarehouseId(val)}
             clearable
           />
-        </label>
-        <label>
-          Từ ngày
-          <div style={{ minWidth: '9.5rem' }}>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs font-bold text-slate-500">Từ ngày</Label>
+          <div className="min-w-[9.5rem]">
             <DatePickerInput value={from} onChange={setFrom} height={34} />
           </div>
-        </label>
-        <label>
-          Đến ngày
-          <div style={{ minWidth: '9.5rem' }}>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs font-bold text-slate-500">Đến ngày</Label>
+          <div className="min-w-[9.5rem]">
             <DatePickerInput value={to} onChange={setTo} height={34} />
           </div>
-        </label>
+        </div>
         {filtered ? (
-          <button
+          <Button
             type="button"
-            className={styles.reset}
+            variant="outline"
+            size="lg"
             onClick={() => {
               setType('');
               setWarehouseId('');
@@ -139,73 +146,64 @@ export function LedgerTable({
             }}
           >
             Xoá lọc
-          </button>
+          </Button>
         ) : null}
       </div>
 
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
+      <TableWrap className="rounded-[0.85rem] border border-slate-200 bg-white">
+        <Table>
+          <TableHead>
             <tr>
-              <th>Chứng từ</th>
-              <th>Thời gian</th>
-              <th>Loại</th>
-              <th>Vật tư</th>
-              <th>Kho</th>
-              <th className={styles.center}>Biến động</th>
-              <th>Nguồn</th>
+              <TableHeaderCell>Chứng từ</TableHeaderCell>
+              <TableHeaderCell>Thời gian</TableHeaderCell>
+              <TableHeaderCell>Loại</TableHeaderCell>
+              <TableHeaderCell>Vật tư</TableHeaderCell>
+              <TableHeaderCell>Kho</TableHeaderCell>
+              <TableHeaderCell className="text-center">Biến động</TableHeaderCell>
+              <TableHeaderCell>Nguồn</TableHeaderCell>
             </tr>
-          </thead>
-          <tbody>
+          </TableHead>
+          <TableBody>
             {visible.map((entry) => (
-              <tr key={entry.id}>
-                <td className={styles.code}>{entry.transactionCode}</td>
-                <td>{formatDateTime(entry.createdAt)}</td>
-                <td>{TRANSACTION_TYPE_LABEL[entry.type as TransactionType] ?? entry.type}</td>
-                <td className={styles.code}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <TableRow key={entry.id}>
+                <TableCell className="font-bold text-slate-900">{entry.transactionCode}</TableCell>
+                <TableCell>{formatDateTime(entry.createdAt)}</TableCell>
+                <TableCell>{TRANSACTION_TYPE_LABEL[entry.type as TransactionType] ?? entry.type}</TableCell>
+                <TableCell className="font-bold text-slate-900">
+                  <div className="flex items-center gap-[6px]">
                     <span>{materialById.get(entry.materialId)?.code ?? '—'}</span>
                     {materialById.get(entry.materialId)?.isActive === false ? (
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          padding: '1px 5px',
-                          borderRadius: '4px',
-                          background: '#f1f5f9',
-                          color: '#64748b',
-                          border: '1px solid #cbd5e1',
-                          fontWeight: 500,
-                        }}
-                      >
+                      <Badge variant="outline" className="h-auto rounded px-[5px] py-px text-[12px] font-medium text-slate-500">
                         Ngừng dùng
-                      </span>
+                      </Badge>
                     ) : null}
                   </div>
-                  <span className={styles.sub}>{materialById.get(entry.materialId)?.name}</span>
-                </td>
-                <td>{warehouseById.get(entry.warehouseId) ?? '—'}</td>
-                <td
-                  className={`${styles.numeric} ${styles.center} ${
-                    entry.quantity < 0 ? styles.negative : styles.positive
-                  }`}
+                  <span className="mt-[0.2rem] block text-[0.8125rem] font-normal text-slate-500">{materialById.get(entry.materialId)?.name}</span>
+                </TableCell>
+                <TableCell>{warehouseById.get(entry.warehouseId) ?? '—'}</TableCell>
+                <TableCell
+                  className={cn(
+                    'text-center font-bold tabular-nums',
+                    entry.quantity < 0 ? 'text-red-700' : 'text-green-700',
+                  )}
                 >
                   {entry.quantity > 0 ? '+' : ''}
                   {formatNumber(entry.quantity)}
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   {referenceLabel(entry.referenceType)}
-                  {entry.note ? <span className={styles.sub}>{formatNoteDates(entry.note)}</span> : null}
-                </td>
-              </tr>
+                  {entry.note ? <span className="mt-[0.2rem] block text-[0.8125rem] font-normal text-slate-500">{formatNoteDates(entry.note)}</span> : null}
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         {visible.length === 0 ? (
-          <p className={styles.empty}>
+          <p className="m-0 py-8 text-center text-slate-500">
             {all.length === 0 ? 'Chưa có giao dịch.' : 'Không có giao dịch nào khớp bộ lọc.'}
           </p>
         ) : null}
-      </div>
-    </section>
+      </TableWrap>
+    </Card>
   );
 }

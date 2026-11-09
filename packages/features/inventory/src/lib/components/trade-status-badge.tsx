@@ -1,18 +1,13 @@
+import { cn } from '../ui/cn';
+
 /** Nhãn trạng thái của mặt hàng: đang dùng (xanh) hay ngừng dùng (đỏ), đủ đậm để phân biệt ngay trong bảng. */
 export function TradeStatusBadge({ active }: { active: boolean }) {
   return (
     <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 10px',
-        borderRadius: '999px',
-        fontSize: '12px',
-        fontWeight: 600,
-        whiteSpace: 'nowrap',
-        background: active ? '#dcfce7' : '#ffe4e6',
-        color: active ? '#15803d' : '#be123c',
-        border: `1px solid ${active ? '#86efac' : '#fda4af'}`,
-      }}
+      className={cn(
+        'inline-block whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold',
+        active ? 'border-green-300 bg-green-100 text-green-700' : 'border-rose-300 bg-rose-100 text-rose-700',
+      )}
     >
       {active ? 'Đang dùng' : 'Ngừng dùng'}
     </span>

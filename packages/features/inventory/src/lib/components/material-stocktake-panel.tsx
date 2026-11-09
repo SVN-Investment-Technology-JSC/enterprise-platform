@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { formatDate } from '@enterprise-platform/shared-ui';
 import { formatDateTime, formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { cn } from '../ui/cn';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui';
 
 const STATUS_CONFIG: Record<
   string,
@@ -70,8 +71,8 @@ export function MaterialStocktakePanel(props: {
 
   if (stocktakeState === 'loading') {
     return (
-      <div className={styles.stocktakeLoadingBox}>
-        <div className={styles.historySpinner} />
+      <div className="flex flex-col items-center justify-center gap-[0.65rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+        <div className="size-6 animate-spin rounded-full border-[2.5px] border-slate-200 border-t-blue-600" />
         <span>Đang kiểm tra dữ liệu đối soát kỳ kiểm kê gần nhất...</span>
       </div>
     );
@@ -79,7 +80,7 @@ export function MaterialStocktakePanel(props: {
 
   if (stocktakeState === 'error') {
     return (
-      <div className={styles.stocktakeErrorBox}>
+      <div className="flex flex-col items-center justify-center gap-[0.65rem] rounded-lg border border-dashed border-red-200 bg-red-50 px-6 py-10 text-center text-sm font-medium text-red-700">
         <AlertTriangle size={20} color="#dc2626" />
         <span>Không thể truy vấn hồ sơ kiểm kê của vật tư này từ hệ thống.</span>
       </div>
@@ -88,12 +89,12 @@ export function MaterialStocktakePanel(props: {
 
   if (!stocktakeState || stocktakeState === 'none') {
     return (
-      <div className={styles.stocktakeEmptyBox}>
+      <div className="flex flex-col items-center justify-center gap-[0.65rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
         <ClipboardCheck size={38} strokeWidth={1.5} color="#94a3b8" />
-        <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>
+        <span className="text-sm font-bold text-slate-700">
           Chưa có kỳ kiểm kê nào ghi nhận cho vật tư này
         </span>
-        <span style={{ fontSize: '13px', color: '#64748b', maxWidth: 440, lineHeight: 1.5 }}>
+        <span className="max-w-[440px] text-[13px] leading-normal text-slate-500">
           Vật tư chưa được đưa vào danh mục kiểm đếm trong bất kỳ đợt kiểm kê kho nào gần đây. Kết quả và chênh lệch đối soát sẽ hiển thị tại đây sau khi hoàn tất kiểm kê.
         </span>
       </div>
@@ -115,32 +116,32 @@ export function MaterialStocktakePanel(props: {
   const diff = line.difference ?? (actQty - sysQty);
 
   return (
-    <div className={styles.stocktakePanelContainer}>
+    <div className="flex w-full flex-col gap-[0.95rem]">
       {/* 1. THẺ BANNER KẾT QUẢ ĐỐI SOÁT */}
       <div
-        className={styles.stocktakeVerdictBanner}
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-[1.1rem] py-[0.85rem]"
         style={{ background: statusCfg.bg, borderColor: statusCfg.border }}
       >
-        <div className={styles.stocktakeVerdictLeft}>
+        <div className="flex items-center gap-3">
           <div
-            className={styles.stocktakeVerdictIconWrap}
+            className="flex size-[38px] items-center justify-center rounded-lg shadow-sm"
             style={{ color: statusCfg.color, background: '#ffffff' }}
           >
             <StatusIcon size={22} strokeWidth={2.2} />
           </div>
-          <div className={styles.stocktakeVerdictText}>
-            <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b' }}>
+          <div className="flex flex-col gap-[0.15rem]">
+            <span className="text-xs font-bold uppercase text-slate-500">
               Kết quả đối soát kiểm kê
             </span>
-            <h5 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: statusCfg.color }}>
+            <h5 className="m-0 text-sm font-extrabold" style={{ color: statusCfg.color }}>
               {statusCfg.label}
             </h5>
           </div>
         </div>
 
-        <div className={styles.stocktakeVerdictBadgeWrap}>
+        <div className="flex items-center">
           <span
-            className={styles.stocktakeSessionStatusBadge}
+            className="inline-flex items-center rounded-full border border-transparent px-[9px] py-[3px] text-xs font-bold"
             style={{
               background: sessionStatus.bg,
               color: sessionStatus.color,
@@ -153,109 +154,108 @@ export function MaterialStocktakePanel(props: {
       </div>
 
       {/* 2. BẢNG 3 CHỈ SỐ SO SÁNH SỐ LƯỢNG (METRICS) */}
-      <div className={styles.stocktakeCompareGrid}>
-        <div className={styles.stocktakeCompareCard}>
-          <span className={styles.stocktakeCompareLabel}>Tồn sổ sách hệ thống</span>
-          <div className={styles.stocktakeCompareValue}>
-            <strong>{formatNumber(sysQty)}</strong>
-            <small>{unit}</small>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-white px-4 py-[0.85rem] shadow-xs">
+          <span className="text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">Tồn sổ sách hệ thống</span>
+          <div className="flex items-baseline gap-[0.35rem]">
+            <strong className="text-xl font-extrabold tabular-nums text-slate-900">{formatNumber(sysQty)}</strong>
+            <small className="text-[13px] font-semibold text-slate-500">{unit}</small>
           </div>
-          <span className={styles.stocktakeCompareHint}>Số lượng tại thời điểm chốt sổ</span>
+          <span className="text-xs leading-[1.35] text-slate-400">Số lượng tại thời điểm chốt sổ</span>
         </div>
 
-        <div className={styles.stocktakeCompareCard}>
-          <span className={styles.stocktakeCompareLabel}>Thực tế kiểm đếm</span>
-          <div className={styles.stocktakeCompareValue}>
-            <strong>{formatNumber(actQty)}</strong>
-            <small>{unit}</small>
+        <div className="flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-white px-4 py-[0.85rem] shadow-xs">
+          <span className="text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">Thực tế kiểm đếm</span>
+          <div className="flex items-baseline gap-[0.35rem]">
+            <strong className="text-xl font-extrabold tabular-nums text-slate-900">{formatNumber(actQty)}</strong>
+            <small className="text-[13px] font-semibold text-slate-500">{unit}</small>
           </div>
-          <span className={styles.stocktakeCompareHint}>Được thủ kho & tổ kiểm kê xác nhận</span>
+          <span className="text-xs leading-[1.35] text-slate-400">Được thủ kho & tổ kiểm kê xác nhận</span>
         </div>
 
         <div
-          className={`${styles.stocktakeCompareCard} ${
-            diff > 0
-              ? styles.stocktakeCompareCardSurplus
-              : diff < 0
-              ? styles.stocktakeCompareCardDeficit
-              : ''
-          }`}
+          className={cn(
+            'flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-white px-4 py-[0.85rem] shadow-xs',
+            diff > 0 && 'border-blue-200 bg-blue-50',
+            diff < 0 && 'border-red-200 bg-red-50',
+          )}
         >
-          <span className={styles.stocktakeCompareLabel}>Chênh lệch (Variance)</span>
-          <div className={styles.stocktakeCompareValue}>
+          <span className="text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">Chênh lệch (Variance)</span>
+          <div className="flex items-baseline gap-[0.35rem]">
             <strong
+              className="text-xl font-extrabold tabular-nums"
               style={{
                 color: diff > 0 ? '#1d4ed8' : diff < 0 ? '#b91c1c' : '#15803d',
               }}
             >
               {diff > 0 ? `+${formatNumber(diff)}` : formatNumber(diff)}
             </strong>
-            <small>{unit}</small>
+            <small className="text-[13px] font-semibold text-slate-500">{unit}</small>
           </div>
-          <span className={styles.stocktakeCompareHint}>
+          <span className="text-xs leading-[1.35] text-slate-400">
             {diff === 0 ? 'Khớp 100% với hiện vật' : diff > 0 ? 'Phát sinh dôi dư' : 'Hụt so với sổ sách'}
           </span>
         </div>
       </div>
 
       {/* 3. THÔNG TIN CHI TIẾT ĐỢT KIỂM KÊ */}
-      <div className={styles.stocktakeDetailsCard}>
-        <div className={styles.stocktakeDetailsHeader}>
+      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 px-[1.2rem] py-4">
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-[0.6rem]">
           <FileSpreadsheet size={15} color="#2563eb" />
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+          <span className="text-[13px] font-bold text-slate-800">
             Thông tin phiên kiểm kê {session.code}
           </span>
         </div>
 
-        <div className={styles.stocktakeMetaGrid}>
-          <div className={styles.stocktakeMetaItem}>
-            <span className={styles.stocktakeMetaLabel}>Tiêu đề đợt:</span>
-            <span className={styles.stocktakeMetaVal}>
+        <div className="grid grid-cols-1 gap-x-5 gap-y-[0.65rem] sm:grid-cols-2">
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">Tiêu đề đợt:</span>
+            <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
               <strong>{session.title || session.code}</strong>
             </span>
           </div>
 
-          <div className={styles.stocktakeMetaItem}>
-            <span className={styles.stocktakeMetaLabel}>
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">
               <WarehouseIcon size={12} /> Kho kiểm kê:
             </span>
-            <span className={styles.stocktakeMetaVal}>
+            <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
               <strong>{session.warehouseName ? `${session.warehouseName} (${session.warehouseCode})` : session.warehouseCode}</strong>
             </span>
           </div>
 
-          <div className={styles.stocktakeMetaItem}>
-            <span className={styles.stocktakeMetaLabel}>
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">
               <Calendar size={12} /> Thời điểm chốt số liệu:
             </span>
-            <span className={styles.stocktakeMetaVal}>
+            <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
               {session.snapshotAt ? formatDateTime(session.snapshotAt) : 'Chưa ghi nhận'}
             </span>
           </div>
 
-          <div className={styles.stocktakeMetaItem}>
-            <span className={styles.stocktakeMetaLabel}>
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">
               <User size={12} /> Trưởng ban / Tổ kiểm kê:
             </span>
-            <span className={styles.stocktakeMetaVal}>
+            <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
               {session.leadAuditor || 'Tổ kiểm kê định kỳ'}
             </span>
           </div>
 
           {session.approvedBy ? (
-            <div className={styles.stocktakeMetaItem}>
-              <span className={styles.stocktakeMetaLabel}>
+            <div className="flex items-center justify-between gap-2 text-[13px]">
+              <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">
                 <ShieldCheck size={12} /> Người phê duyệt:
               </span>
-              <span className={styles.stocktakeMetaVal}>
+              <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
                 {session.approvedBy} {session.approvedAt ? `· ${formatDateTime(session.approvedAt)}` : ''}
               </span>
             </div>
           ) : null}
 
-          <div className={styles.stocktakeMetaItem}>
-            <span className={styles.stocktakeMetaLabel}>Vị trí ô kệ kiểm đếm:</span>
-            <span className={styles.stocktakeMetaVal}>
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="inline-flex items-center gap-[0.3rem] font-medium text-slate-500">Vị trí ô kệ kiểm đếm:</span>
+            <span className="break-words text-right text-slate-800 [&_code]:rounded [&_code]:border [&_code]:border-slate-300 [&_code]:bg-white [&_code]:px-[5px] [&_code]:py-px [&_code]:font-mono [&_code]:text-xs [&_code]:text-blue-600 [&_strong]:text-slate-900">
               {line.binLocation ? <code>{line.binLocation}</code> : <span>-----</span>}
             </span>
           </div>
@@ -263,57 +263,56 @@ export function MaterialStocktakePanel(props: {
 
         {/* Lý do hoặc ghi chú giải trình chênh lệch */}
         {line.reason || line.note ? (
-          <div className={styles.stocktakeReasonBox}>
-            <span className={styles.stocktakeReasonTitle}>Giải trình của tổ kiểm kê:</span>
-            <p className={styles.stocktakeReasonText}>{line.reason || line.note}</p>
+          <div className="mt-1 flex flex-col gap-1 rounded border border-l-[3px] border-slate-200 border-l-amber-500 bg-white px-[0.85rem] py-[0.6rem]">
+            <span className="text-xs font-bold uppercase text-amber-700">Giải trình của tổ kiểm kê:</span>
+            <p className="m-0 text-[13px] leading-[1.45] text-slate-700">{line.reason || line.note}</p>
           </div>
         ) : null}
       </div>
 
       {/* 4. CHI TIẾT THEO LÔ HOẶC SÊ-RI TRONG KỲ KIỂM KÊ (NẾU CÓ) */}
       {line.lotAllocations && line.lotAllocations.length > 0 ? (
-        <div className={styles.stocktakeAllocationsBox}>
-          <h6 className={styles.stocktakeAllocationsTitle}>
+        <div className="flex flex-col gap-[0.55rem]">
+          <h6 className="m-0 flex items-center gap-[0.4rem] text-[13px] font-bold text-slate-800">
             <Layers size={13} color="#2563eb" />
             <span>Phân bổ số lượng theo từng Số Lô (Lot/Batch)</span>
           </h6>
-          <div className={styles.stocktakeTableWrap}>
-            <table className={styles.stocktakeMiniTable}>
-              <thead>
+          <TableWrap className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+            <Table className="text-[13px]">
+              <TableHead>
                 <tr>
-                  <th>Số Lô</th>
-                  <th style={{ textAlign: 'right' }}>Sổ sách</th>
-                  <th style={{ textAlign: 'right' }}>Thực đếm</th>
-                  <th style={{ textAlign: 'right' }}>Chênh lệch</th>
-                  <th>Hạn sử dụng</th>
+                  <TableHeaderCell className="px-[10px] py-[6px]">Số Lô</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Sổ sách</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Thực đếm</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Chênh lệch</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px]">Hạn sử dụng</TableHeaderCell>
                 </tr>
-              </thead>
-              <tbody>
+              </TableHead>
+              <TableBody>
                 {line.lotAllocations.map((lot, idx) => {
                   const lotDiff = lot.actualQty - lot.systemQty;
                   return (
-                    <tr key={lot.lotNumber || idx}>
-                      <td>
+                    <TableRow key={lot.lotNumber || idx} className="last:border-b-0">
+                      <TableCell className="px-[10px] py-[6px]">
                         <strong>{lot.lotNumber}</strong>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>{formatNumber(lot.systemQty)} {unit}</td>
-                      <td style={{ textAlign: 'right' }}>{formatNumber(lot.actualQty)} {unit}</td>
-                      <td
-                        style={{
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: lotDiff > 0 ? '#1d4ed8' : lotDiff < 0 ? '#b91c1c' : '#15803d',
-                        }}
+                      </TableCell>
+                      <TableCell className="px-[10px] py-[6px] text-right">{formatNumber(lot.systemQty)} {unit}</TableCell>
+                      <TableCell className="px-[10px] py-[6px] text-right">{formatNumber(lot.actualQty)} {unit}</TableCell>
+                      <TableCell
+                        className={cn(
+                          'px-[10px] py-[6px] text-right font-bold',
+                          lotDiff > 0 ? 'text-blue-700' : lotDiff < 0 ? 'text-red-700' : 'text-green-700',
+                        )}
                       >
                         {lotDiff > 0 ? `+${formatNumber(lotDiff)}` : formatNumber(lotDiff)}
-                      </td>
-                      <td>{formatDate(lot.expiryDate, '—')}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="px-[10px] py-[6px]">{formatDate(lot.expiryDate, '—')}</TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableWrap>
         </div>
       ) : null}
     </div>

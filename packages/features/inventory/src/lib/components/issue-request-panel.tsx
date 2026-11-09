@@ -36,7 +36,9 @@ import {
   type DraftLine,
 } from '../stock-document.model';
 import { DocumentStatusBadge, LotPickerDrawer, SerialPickerDrawer, errorMessage } from './stock-document-parts';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Label } from '../ui/label';
 
 const TYPE_OPTIONS = [
   { value: '', label: 'Xuất bán và xuất bảo hành' },
@@ -113,8 +115,8 @@ export function IssueRequestPanel({
       key: 'code',
       render: (_value, document) => (
         <>
-          <strong className={styles.code}>{document.code}</strong>
-          <span className={styles.sub}>
+          <strong className="font-bold text-blue-600">{document.code}</strong>
+          <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">
             {STOCK_DOCUMENT_TYPE_LABEL[document.docType]} · {formatDate(document.documentDate)}
           </span>
         </>
@@ -128,7 +130,7 @@ export function IssueRequestPanel({
       render: (_value, document) => (
         <>
           {sourceTypeLabel(document.sourceType)}
-          {document.sourceId ? <span className={styles.sub}>{document.sourceId.slice(0, 8)}</span> : null}
+          {document.sourceId ? <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">{document.sourceId.slice(0, 8)}</span> : null}
         </>
       ),
     },
@@ -142,27 +144,27 @@ export function IssueRequestPanel({
   ];
 
   return (
-    <div className={styles.docSplit}>
-      <section className={styles.card}>
-        <div className={styles.cardHead}>
+    <div className="grid grid-cols-1 items-start gap-4 min-[1201px]:grid-cols-[minmax(0,42fr)_minmax(0,58fr)]">
+      <section className="rounded-2xl border border-slate-200 bg-white p-[clamp(1rem,2vw,1.5rem)] shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2>Yêu cầu xuất từ đơn bán</h2>
-            <span className={styles.countHint}>{visible.length} chứng từ nháp chờ xuất</span>
+            <h2 className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Yêu cầu xuất từ đơn bán</h2>
+            <span className="text-[13px] tabular-nums text-slate-500">{visible.length} chứng từ nháp chờ xuất</span>
           </div>
-          <button type="button" className={styles.btnSecondary} onClick={() => void reload()} disabled={loading}>
+          <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
             <RotateCw size={15} /> Tải lại
-          </button>
+          </Button>
         </div>
-        <div className={styles.docFilterRow}>
-          <label className={styles.docField}>
+        <div className="mb-[0.85rem] flex flex-wrap items-end gap-[0.7rem]">
+          <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
             <span>Loại</span>
             <SearchableSelect options={TYPE_OPTIONS} value={docType} height={36} onChange={setDocType} />
-          </label>
-          <label className={styles.docField}>
+          </Label>
+          <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
             <span>Nguồn</span>
             <SearchableSelect options={sourceOptions} value={sourceType} height={36} onChange={setSourceType} />
-          </label>
-          <label className={styles.docField}>
+          </Label>
+          <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
             <span>Kho</span>
             <SearchableSelect
               options={[{ value: '', label: 'Mọi kho' }, ...warehouses.map((item) => ({ value: item.code, label: `${item.code} - ${item.name}` }))]}
@@ -170,10 +172,10 @@ export function IssueRequestPanel({
               height={36}
               onChange={setWarehouseCode}
             />
-          </label>
+          </Label>
         </div>
         {error ? (
-          <p role="alert" className={styles.alert}>
+          <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-3 text-red-800">
             {error}
           </p>
         ) : null}
@@ -184,13 +186,13 @@ export function IssueRequestPanel({
           columns={columns}
           dataSource={visible}
           pagination={{ pageSize: 15, showSizeChanger: false, hideOnSinglePage: true }}
-          rowClassName={(document) => (document.id === selectedId ? styles.tableRowActive : '')}
+          rowClassName={(document) => (document.id === selectedId ? 'bg-blue-50!' : '')}
           onRow={(document) => ({ onClick: () => setSelectedId(document.id), style: { cursor: 'pointer' } })}
           locale={{ emptyText: 'Không có yêu cầu xuất nào đang chờ.' }}
         />
       </section>
 
-      <section className={styles.card}>
+      <section className="rounded-2xl border border-slate-200 bg-white p-[clamp(1rem,2vw,1.5rem)] shadow-sm">
         {selected ? (
           <IssueRequestWorkbench
             key={`${selected.id}:${selected.updatedAt}`}
@@ -207,7 +209,7 @@ export function IssueRequestPanel({
             }}
           />
         ) : (
-          <p className={styles.empty}>Chọn một yêu cầu xuất ở danh sách bên trái để chọn lô, serial và ghi sổ.</p>
+          <p className="m-0 py-8 text-center text-slate-500">Chọn một yêu cầu xuất ở danh sách bên trái để chọn lô, serial và ghi sổ.</p>
         )}
       </section>
     </div>
@@ -318,7 +320,7 @@ function IssueRequestWorkbench({
       render: (_value, line) => (
         <>
           <strong>{line.materialCode}</strong>
-          <span className={styles.sub}>{line.materialName}</span>
+          <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">{line.materialName}</span>
         </>
       ),
     },
@@ -335,12 +337,12 @@ function IssueRequestWorkbench({
       width: 190,
       render: (_value, line, index) => {
         const item = progress[index];
-        if (!line.reservationId) return <span className={styles.docHint}>Không gắn giữ hàng</span>;
+        if (!line.reservationId) return <span className="my-[0.35rem] text-[13px] text-slate-500">Không gắn giữ hàng</span>;
         return (
           <>
             <strong>{item?.reservationCode ?? line.reservationId.slice(0, 8)}</strong>
             {item?.outstanding !== undefined ? (
-              <span className={styles.sub}>
+              <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">
                 Giữ {formatNumber(item.reserved ?? 0)}, đã xuất {formatNumber(item.issued ?? 0)}, còn{' '}
                 {formatNumber(item.outstanding)}
               </span>
@@ -354,11 +356,11 @@ function IssueRequestWorkbench({
       key: 'lot',
       width: 170,
       render: (_value, line) => {
-        if (serializedCodes.has(line.materialCode)) return <span className={styles.docHint}>Theo serial</span>;
+        if (serializedCodes.has(line.materialCode)) return <span className="my-[0.35rem] text-[13px] text-slate-500">Theo serial</span>;
         return (
-          <button type="button" className={styles.docLinkButton} disabled={!canWrite} onClick={() => setLotLine(line.id)}>
+          <Button type="button" variant="outline" size="xs" className="h-auto whitespace-nowrap border-dashed border-blue-300 bg-blue-50 px-[0.55rem] py-1 text-[13px] font-normal text-blue-700 hover:bg-blue-100" disabled={!canWrite} onClick={() => setLotLine(line.id)}>
             {line.lotNo ? `${line.lotNo}${line.lotExpiresOn ? ` · HSD ${formatDate(line.lotExpiresOn)}` : ''}` : 'Chọn lô (FEFO)'}
-          </button>
+          </Button>
         );
       },
     },
@@ -367,17 +369,19 @@ function IssueRequestWorkbench({
       key: 'serial',
       width: 130,
       render: (_value, line, index) => {
-        if (!serializedCodes.has(line.materialCode)) return <span className={styles.docHint}>—</span>;
+        if (!serializedCodes.has(line.materialCode)) return <span className="my-[0.35rem] text-[13px] text-slate-500">—</span>;
         const missing = progress[index]?.missingSerials ?? 0;
         return (
-          <button
+          <Button
             type="button"
-            className={`${styles.docLinkButton} ${missing > 0 ? styles.docLinkWarn : ''}`}
+            variant="outline"
+            size="xs"
+            className={cn('h-auto whitespace-nowrap border-dashed border-blue-300 bg-blue-50 px-[0.55rem] py-1 text-[13px] font-normal text-blue-700 hover:bg-blue-100', missing > 0 && 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100')}
             disabled={!canWrite}
             onClick={() => setSerialLine(line.id)}
           >
             {line.serials?.length ?? 0}/{Math.trunc(line.quantity)} serial
-          </button>
+          </Button>
         );
       },
     },
@@ -388,17 +392,17 @@ function IssueRequestWorkbench({
 
   return (
     <>
-      <div className={styles.cardHead}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3>
+          <h3 className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">
             {document.code} <DocumentStatusBadge status={document.status} />
           </h3>
-          <span className={styles.countHint}>
+          <span className="text-[13px] tabular-nums text-slate-500">
             {STOCK_DOCUMENT_TYPE_LABEL[document.docType]} · kho {document.warehouseCode} · {formatDate(document.documentDate)}
           </span>
         </div>
       </div>
-      <div className={styles.docInfoGrid}>
+      <div className="mb-[0.85rem] grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3 [&>div]:flex [&>div]:flex-col [&>div]:gap-[0.15rem] [&_span]:text-xs [&_span]:font-bold [&_span]:text-slate-500 [&_small]:break-all [&_small]:text-xs [&_small]:text-slate-500">
         <div>
           <span>Nguồn</span>
           <strong>{sourceTypeLabel(document.sourceType)}</strong>
@@ -414,7 +418,7 @@ function IssueRequestWorkbench({
           </div>
         ))}
       </div>
-      {document.note ? <p className={styles.docHint}>Ghi chú: {document.note}</p> : null}
+      {document.note ? <p className="my-[0.35rem] text-[13px] text-slate-500">Ghi chú: {document.note}</p> : null}
 
       <Table<StockDocumentLine>
         rowKey="id"
@@ -426,10 +430,10 @@ function IssueRequestWorkbench({
       />
 
       {problems.length && !showErrors ? (
-        <p className={styles.docWarn}>{problems.join(' ')}</p>
+        <p className="my-[0.6rem] rounded-lg border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">{problems.join(' ')}</p>
       ) : null}
       {messages.length || error ? (
-        <div role="alert" className={styles.alert} style={{ marginTop: 12 }}>
+        <div role="alert" className="mt-3 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-3 text-red-800">
           {error ? <div>{error}</div> : null}
           {messages.map((message) => (
             <div key={message}>{message}</div>
@@ -438,7 +442,7 @@ function IssueRequestWorkbench({
       ) : null}
 
       {canWrite ? (
-        <div className={styles.docActions} style={{ justifyContent: 'flex-end', marginTop: 12 }}>
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           <Popconfirm
             title="Huỷ yêu cầu xuất?"
             description="Chứng từ chuyển sang Đã huỷ; giữ hàng của đơn vẫn còn đến khi CRM nhả."
@@ -447,13 +451,13 @@ function IssueRequestWorkbench({
             disabled={busy}
             onConfirm={cancel}
           >
-            <button type="button" className={styles.btnDanger} disabled={busy}>
+            <Button type="button" variant="destructive" disabled={busy}>
               Huỷ chứng từ
-            </button>
+            </Button>
           </Popconfirm>
-          <button type="button" className={styles.btnSecondary} disabled={busy} onClick={() => void save(false)}>
+          <Button type="button" variant="outline" disabled={busy} onClick={() => void save(false)}>
             Lưu lựa chọn
-          </button>
+          </Button>
           <Popconfirm
             title="Ghi sổ xuất kho?"
             description="Tồn và phần đã giữ giảm ngay; CRM nhận số đã giao, serial và giá vốn."
@@ -463,18 +467,18 @@ function IssueRequestWorkbench({
             disabled={busy || problems.length > 0 || !validation.valid}
             onConfirm={() => save(true)}
           >
-            <button
+            <Button
               type="button"
-              className={styles.btnPrimary}
+             
               disabled={busy}
               onClick={problems.length > 0 || !validation.valid ? () => setShowErrors(true) : undefined}
             >
               <PackageCheck size={15} /> Ghi sổ
-            </button>
+            </Button>
           </Popconfirm>
         </div>
       ) : (
-        <p className={styles.docHint}>Cần quyền ghi phát sinh tồn kho để xử lý yêu cầu xuất.</p>
+        <p className="my-[0.35rem] text-[13px] text-slate-500">Cần quyền ghi phát sinh tồn kho để xử lý yêu cầu xuất.</p>
       )}
 
       {serialTarget ? (

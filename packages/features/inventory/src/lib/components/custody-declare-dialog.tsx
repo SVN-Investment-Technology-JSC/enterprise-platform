@@ -2,13 +2,12 @@
 
 import type { AssetCategory, CreateAssetRequest } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
-
-/** `.formGrid label` ép nhãn thành cột flex nên dấu * rớt xuống dòng; ép về dòng thường. */
-const labelStyle = { display: 'block' } as const;
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export const ASSET_CATEGORY_LABEL: Readonly<Record<AssetCategory, string>> = {
   INDUSTRIAL: 'Thiết bị công nghiệp',
@@ -73,37 +72,26 @@ export function CustodyDeclareDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{ maxWidth: '620px' }}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Khai báo tài sản"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div className={styles.modalHead}>
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent className="max-w-[620px]" aria-label="Khai báo tài sản">
+        <form onSubmit={submit} className="flex min-h-0 flex-col">
+          <DialogHeader>
             <div>
-              <h2>Khai báo tài sản</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+              <DialogTitle>Khai báo tài sản</DialogTitle>
+              <p className="mt-1 mb-0 text-sm text-slate-500">
                 Tài sản mới ở trạng thái tồn kho, chưa cấp cho ai.
               </p>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
-                <X size={18} strokeWidth={2} />
-              </button>
+              <DialogCloseButton />
             </CloseGuard>
-          </div>
+          </DialogHeader>
 
-          <div className={styles.modalBody} style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="custody-declare-code">
-                  Mã tài sản <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+          <DialogBody>
+            <div className="grid grid-cols-2 gap-x-[1.35rem] gap-y-[1.15rem]">
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="custody-declare-code" required>Mã tài sản</Label>
+                <Input
                   id="custody-declare-code"
                   required
                   autoFocus
@@ -112,11 +100,9 @@ export function CustodyDeclareDialog({
                   onChange={(event) => setCode(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="custody-declare-name">
-                  Tên tài sản <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="custody-declare-name" required>Tên tài sản</Label>
+                <Input
                   id="custody-declare-name"
                   required
                   placeholder="VD: Laptop Dell Latitude 5440"
@@ -124,8 +110,8 @@ export function CustodyDeclareDialog({
                   onChange={(event) => setName(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle}>Nhóm tài sản</label>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label>Nhóm tài sản</Label>
                 <SearchableSelect
                   options={categoryOptions}
                   value={category}
@@ -136,27 +122,27 @@ export function CustodyDeclareDialog({
                   style={{ width: '100%' }}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="custody-declare-serial">Số sê-ri</label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="custody-declare-serial">Số sê-ri</Label>
+                <Input
                   id="custody-declare-serial"
                   placeholder="Số sê-ri của thiết bị"
                   value={serialNumber}
                   onChange={(event) => setSerialNumber(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="custody-declare-unit">Đơn vị tính</label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="custody-declare-unit">Đơn vị tính</Label>
+                <Input
                   id="custody-declare-unit"
                   placeholder="Cái, Bộ…"
                   value={unit}
                   onChange={(event) => setUnit(event.target.value)}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label style={labelStyle} htmlFor="custody-declare-price">Giá mua (VND)</label>
-                <input
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="custody-declare-price">Giá mua (VND)</Label>
+                <Input
                   id="custody-declare-price"
                   inputMode="decimal"
                   placeholder="Bỏ trống nếu chưa khai báo"
@@ -165,35 +151,27 @@ export function CustodyDeclareDialog({
                   aria-invalid={priceInvalid}
                 />
                 {priceInvalid ? (
-                  <span role="alert" style={{ fontSize: '13px', color: '#dc2626' }}>
+                  <span role="alert" className="text-[13px] text-red-600">
                     Giá mua phải là số không âm.
                   </span>
                 ) : null}
               </div>
             </div>
             <FormError error={error} />
-          </div>
+          </DialogBody>
 
-          <div className={styles.modalFoot}>
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                disabled={busy}
-              >
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              className={`${styles.action} ${styles.actionPrimary}`}
-              disabled={busy || !ready}
-            >
+            <Button type="submit" disabled={busy || !ready}>
               {busy ? 'Đang lưu…' : 'Khai báo tài sản'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

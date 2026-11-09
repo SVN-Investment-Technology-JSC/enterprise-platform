@@ -2,13 +2,19 @@
 
 import type { Material, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, Search, Upload, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, Search, Upload } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
 import { PAGE_SIZES, fold, paginate } from '../trade-items.model';
 import { DrawerField, DrawerSection, MaterialHistorySection, MaterialStockSection, type StockRow } from './material-drawer-sections';
 import { TablePager } from './table-pager';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { DialogCloseButton } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+import { Sheet, SheetBody, SheetContent, SheetHeader } from '../ui/sheet';
 
 type LevelFilter = '' | 'IN_STOCK' | 'LOW' | 'EMPTY';
 
@@ -122,117 +128,119 @@ export function WarehouseStockTab({
   };
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', flex: '1 1 480px' }}>
-          <div className={styles.tableSearchBox} style={{ flex: '0 1 280px' }}>
-            <Search size={14} className={styles.tableSearchIcon} style={{ position: 'absolute', left: '0.65rem' }} />
-            <input
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-[1_1_480px] flex-wrap items-center gap-2">
+          <div className="relative flex min-w-[180px] flex-[0_1_280px] items-center">
+            <Search size={14} className="pointer-events-none absolute left-[0.65rem] text-slate-400" />
+            <Input
+              className="pl-8"
               value={search}
               placeholder="Tìm mã hoặc tên…"
               aria-label="Tìm trong kho"
               onChange={(event) => reset(() => setSearch(event.target.value))}
             />
           </div>
-          <div style={{ width: '220px' }}>
+          <div className="w-[220px]">
             <SearchableSelect
               options={warehouseOptions}
               value={warehouseId}
               placeholder="Kho"
               onChange={(value) => reset(() => setWarehouseId(value || ''))}
               clearable
-              height={34}
+              height={36}
             />
           </div>
-          <div style={{ width: '200px' }}>
+          <div className="w-[200px]">
             <SearchableSelect
               options={LEVEL_OPTIONS.map((option) => ({ ...option }))}
               value={level}
               placeholder="Mức tồn"
               onChange={(value) => reset(() => setLevel((value || '') as LevelFilter))}
               clearable
-              height={34}
+              height={36}
             />
           </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#475569' }}>
+          <Label className="inline-flex items-center gap-1.5 font-normal text-slate-600">
             <input
               type="checkbox"
+              className="accent-primary"
               checked={showEmpty}
               onChange={(event) => reset(() => setShowEmpty(event.target.checked))}
             />
             Hiện cả dòng hết hàng
-          </label>
+          </Label>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="flex items-center gap-2">
           {onOpenBulkImport ? (
-            <button type="button" className={styles.btnSecondary} style={{ whiteSpace: 'nowrap' }} onClick={onOpenBulkImport}>
-              <Upload size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            <Button type="button" variant="outline" className="whitespace-nowrap" onClick={onOpenBulkImport}>
+              <Upload size={14} className="mr-1.5 -mt-px" />
               Nhập Excel
-            </button>
+            </Button>
           ) : null}
           {onOpenStocktake ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{ whiteSpace: 'nowrap' }}
+              variant="outline"
+              className="whitespace-nowrap"
               onClick={() => onOpenStocktake(warehouseId ? { warehouseCode: warehouses.find((w) => w.id === warehouseId)?.code } : undefined)}
             >
-              <ClipboardCheck size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+              <ClipboardCheck size={14} className="mr-1.5 -mt-px" />
               Tạo đợt kiểm kê
-            </button>
+            </Button>
           ) : null}
           {onOpenMovement ? (
             <>
-              <button type="button" className={styles.btnSecondary} style={{ whiteSpace: 'nowrap' }} onClick={() => onOpenMovement({ kind: 'issue' })}>
-                <ArrowUpFromLine size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+              <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => onOpenMovement({ kind: 'issue' })}>
+                <ArrowUpFromLine size={14} className="mr-1.5 -mt-px" />
                 Xuất kho
-              </button>
-              <button type="button" className={styles.btnPrimary} style={{ whiteSpace: 'nowrap' }} onClick={() => onOpenMovement({ kind: 'receipt' })}>
-                <ArrowDownToLine size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+              </Button>
+              <Button type="button" className="whitespace-nowrap" onClick={() => onOpenMovement({ kind: 'receipt' })}>
+                <ArrowDownToLine size={14} className="mr-1.5 -mt-px" />
                 Nhập kho
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
       </div>
 
       {view.total === 0 ? (
-        <p className={styles.empty}>
+        <p className="m-0 py-8 text-center text-slate-500">
           {rows.length === 0 ? 'Chưa có tồn kho nào.' : 'Không có dòng tồn phù hợp bộ lọc.'}
         </p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.left}>Mã</th>
-                <th className={styles.left}>Tên</th>
-                <th className={styles.left}>Kho</th>
-                <th className={styles.left}>Đơn vị</th>
-                <th className={styles.right}>Số lượng</th>
-              </tr>
-            </thead>
-            <tbody>
+        <TableWrap className="rounded-xl border border-slate-200 bg-white">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Mã</TableHeaderCell>
+                <TableHeaderCell>Tên</TableHeaderCell>
+                <TableHeaderCell>Kho</TableHeaderCell>
+                <TableHeaderCell>Đơn vị</TableHeaderCell>
+                <TableHeaderCell className="text-right">Số lượng</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {view.rows.map(({ key, stock: line, material, warehouse }) => (
-                <tr
+                <TableRow
                   key={key}
                   tabIndex={0}
-                  style={{ cursor: 'pointer', opacity: material.isActive ? 1 : 0.55 }}
+                  className={cn('cursor-pointer', !material.isActive && 'opacity-55')}
                   onClick={() => setSelectedKey(key)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') setSelectedKey(key);
                   }}
                 >
-                  <td>{material.code}</td>
-                  <td>{material.name}</td>
-                  <td>{warehouse?.name ?? '—'}</td>
-                  <td>{material.unit}</td>
-                  <td className={styles.right}>{formatNumber(line.quantity)}</td>
-                </tr>
+                  <TableCell>{material.code}</TableCell>
+                  <TableCell>{material.name}</TableCell>
+                  <TableCell>{warehouse?.name ?? '—'}</TableCell>
+                  <TableCell>{material.unit}</TableCell>
+                  <TableCell className="text-right">{formatNumber(line.quantity)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
       )}
 
       <TablePager
@@ -246,57 +254,43 @@ export function WarehouseStockTab({
       />
 
       {selected ? (
-        <>
-          <div className={styles.drawerBackdrop} onClick={() => setSelectedKey(undefined)} />
-          <aside
-            className={styles.drawerPanel}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Tồn ${selected.material.code}`}
-          >
-            <div className={styles.drawerHead}>
-              <div className={styles.drawerHeadInfo}>
-                <span className={styles.drawerEyebrow}>{selected.warehouse?.name ?? 'Kho'}</span>
-                <h2 className={styles.drawerTitle}>{selected.material.name}</h2>
-                <p className={styles.drawerSubtitle}>
-                  <code>{selected.material.code}</code>
+        <Sheet onEscape={() => setSelectedKey(undefined)} onBackdropClick={() => setSelectedKey(undefined)}>
+          <SheetContent aria-label={`Tồn ${selected.material.code}`}>
+            <SheetHeader>
+              <div className="flex min-w-0 flex-1 flex-col gap-[0.3rem]">
+                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.04em] text-slate-500">{selected.warehouse?.name ?? 'Kho'}</span>
+                <h2 className="m-0 text-xl font-bold leading-[1.3] text-slate-900">{selected.material.name}</h2>
+                <p className="m-0 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+                  <code className="rounded bg-slate-100 px-[0.35rem] py-[0.1rem] font-mono font-bold text-slate-700">{selected.material.code}</code>
                   {!selected.material.isActive ? <span>Đã ngừng dùng</span> : null}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div className="flex items-center gap-2">
                 {onOpenMovement ? (
                   <>
-                    <button
+                    <Button
                       type="button"
-                      className={styles.btnSecondary}
+                      variant="outline"
                       onClick={() => onOpenMovement({ kind: 'issue', materialCode: selected.material.code })}
                     >
                       Xuất kho
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={styles.btnSecondary}
+                      variant="outline"
                       onClick={() => onOpenMovement({ kind: 'receipt', materialCode: selected.material.code })}
                     >
                       Nhập kho
-                    </button>
+                    </Button>
                   </>
                 ) : null}
-                <button
-                  type="button"
-                  className={styles.drawerCloseBtn}
-                  onClick={() => setSelectedKey(undefined)}
-                  aria-label="Đóng"
-                  title="Đóng"
-                >
-                  <X size={16} />
-                </button>
+                <DialogCloseButton onClick={() => setSelectedKey(undefined)} />
               </div>
-            </div>
+            </SheetHeader>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: '#f8fafc' }}>
+            <SheetBody className="flex flex-col gap-4">
               <DrawerSection title="Thông tin tồn kho">
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 20px' }}>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-3.5">
                   <DrawerField label="Mã">{selected.material.code}</DrawerField>
                   <DrawerField label="Tên">{selected.material.name}</DrawerField>
                   <DrawerField label="Kho">{selected.warehouse?.name}</DrawerField>
@@ -329,9 +323,9 @@ export function WarehouseStockTab({
               <DrawerSection title="Tồn theo kho">
                 <MaterialStockSection material={selected.material} stock={stock} warehouses={warehouses} />
               </DrawerSection>
-            </div>
-          </aside>
-        </>
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
       ) : null}
     </section>
   );

@@ -1,5 +1,5 @@
 'use client';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { formatDateTime as formatSharedDateTime, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 import { formatNoteDates, formatNumber } from '../inventory-labels';
 
@@ -21,7 +21,15 @@ import {
   getFulfilledRequisitionCodes,
   markRequisitionFulfilled,
 } from '../inventory-api';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardHeader, CardTitle } from '../ui/card';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+
+const LEDGER_PAGE_SIZE_OPTIONS = [15, 30, 45, 60].map((value) => ({ value: String(value), label: `${value} / trang` }));
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   RECEIPT: 'Nhập kho',
@@ -250,31 +258,43 @@ export function TransactionHub({
   }, [filteredLedger, safeLedgerPage, ledgerPageSize]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+    <div className="flex flex-col gap-5">
       {/* Header & Sub-Tab Switcher (ẩn khi nhúng vào Sub-tab của Kho) */}
       {!hideSubTabs ? (
         <>
-          <div className={styles.sectionHeading} style={{ marginBottom: 0 }}>
+          <div className="flex flex-wrap items-center justify-between gap-[0.85rem]">
             <div>
-              <span className={styles.eyebrow}>Tác nghiệp kho bãi</span>
-              <h1>Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
-              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+              <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-[0.65rem] py-[0.2rem] text-[0.8125rem] font-bold text-slate-900">
+                Tác nghiệp kho bãi
+              </span>
+              <h1 className="m-0 text-[1.25rem] font-bold tracking-[-0.02em] text-slate-900">Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
+              <p className="m-0 mt-1 text-[14px] text-slate-500">
                 Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
               </p>
             </div>
           </div>
 
-          <div className={styles.tabs} style={{ margin: '0 0 0.5rem 0' }}>
+          <div className="mb-2 flex flex-wrap gap-[0.35rem]">
             <button
               type="button"
-              className={`${styles.tab} ${activeSubTab === 'ledger' ? styles.tabActive : ''}`}
+              className={cn(
+                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                activeSubTab === 'ledger'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              )}
               onClick={() => setActiveSubTab('ledger')}
             >
               Sổ giao dịch &amp; Xuất nhập
             </button>
             <button
               type="button"
-              className={`${styles.tab} ${activeSubTab === 'stocktake' ? styles.tabActive : ''}`}
+              className={cn(
+                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                activeSubTab === 'stocktake'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              )}
               onClick={() => setActiveSubTab('stocktake')}
             >
               Kiểm kê kho &amp; Đối soát
@@ -292,52 +312,57 @@ export function TransactionHub({
         />
       ) : (
         /* Sổ cái Giao dịch Kho (Stock Ledger) */
-        <section className={styles.card}>
-          <div className={styles.cardHead}>
-            <h2 style={{ margin: 0, fontSize: '16px' }}>Sổ cái Giao dịch Kho (Stock Ledger)</h2>
-            <span style={{ fontSize: '13px', color: '#64748b' }}>
+        <Card className="gap-0">
+          <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+            <CardTitle className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Sổ cái Giao dịch Kho (Stock Ledger)</CardTitle>
+            <span className="text-[13px] text-slate-500">
               {filteredLedger.length} giao dịch ghi nhận
             </span>
-          </div>
+          </CardHeader>
 
           {/* Filters */}
-          <div className={styles.filterRow} style={{ marginTop: '12px', marginBottom: '12px' }}>
-            <label>
-              Loại giao dịch
-              <select
+          <div className="my-3 flex flex-wrap items-end gap-[0.7rem]">
+            <div className="flex min-w-[9rem] flex-col gap-1">
+              <Label className="text-xs font-bold text-slate-500">Loại giao dịch</Label>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả loại' },
+                  { value: 'IMPORT', label: 'Nhập kho' },
+                  { value: 'EXPORT', label: 'Xuất kho' },
+                ]}
                 value={ledgerTypeFilter}
-                onChange={(e) => {
-                  setLedgerTypeFilter(e.target.value);
+                onChange={(value) => {
+                  setLedgerTypeFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả loại</option>
-                <option value="IMPORT">Nhập kho</option>
-                <option value="EXPORT">Xuất kho</option>
-              </select>
-            </label>
+                clearable={false}
+                height={36}
+              />
+            </div>
 
-            <label>
-              Kho hàng
-              <select
+            <div className="flex min-w-[9rem] flex-col gap-1">
+              <Label className="text-xs font-bold text-slate-500">Kho hàng</Label>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả kho' },
+                  ...workspace.warehouses.map((w) => ({
+                    value: w.id,
+                    label: `${w.code} ${w.name ? `— ${w.name}` : ''}`,
+                  })),
+                ]}
                 value={ledgerWarehouseFilter}
-                onChange={(e) => {
-                  setLedgerWarehouseFilter(e.target.value);
+                onChange={(value) => {
+                  setLedgerWarehouseFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả kho</option>
-                {workspace.warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} {w.name ? `— ${w.name}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+                clearable={false}
+                height={36}
+              />
+            </div>
 
-            <label>
-              Tìm kiếm mã phiếu / vật tư
-              <input
+            <div className="flex min-w-[9rem] flex-col gap-1">
+              <Label className="text-xs font-bold text-slate-500">Tìm kiếm mã phiếu / vật tư</Label>
+              <Input
                 type="text"
                 placeholder="Gõ mã hoặc tên…"
                 value={ledgerSearch}
@@ -346,12 +371,13 @@ export function TransactionHub({
                   setLedgerPage(1);
                 }}
               />
-            </label>
+            </div>
 
             {ledgerTypeFilter !== 'all' || ledgerWarehouseFilter !== 'all' || ledgerSearch.trim() ? (
-              <button
+              <Button
                 type="button"
-                className={styles.reset}
+                variant="outline"
+                size="lg"
                 onClick={() => {
                   setLedgerTypeFilter('all');
                   setLedgerWarehouseFilter('all');
@@ -360,50 +386,40 @@ export function TransactionHub({
                 }}
               >
                 Xoá lọc
-              </button>
+              </Button>
             ) : null}
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className={styles.table} style={{ width: '100%', fontSize: '13px' }}>
-              <thead>
+          <TableWrap className="overflow-x-auto">
+            <Table className="text-[13px]">
+              <TableHead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Mã giao dịch</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Loại</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Vật tư</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Kho hàng</th>
-                  <th style={{ textAlign: 'center', padding: '8px' }}>Số lượng</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Ghi chú / Tham chiếu</th>
-                  <th style={{ textAlign: 'right', padding: '8px' }}>Thời gian</th>
-                  <th style={{ textAlign: 'center', padding: '8px', width: '90px' }}>Thao tác</th>
+                  <TableHeaderCell className="p-2 text-left">Mã giao dịch</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Loại</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Vật tư</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Kho hàng</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-center">Số lượng</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Ghi chú / Tham chiếu</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-right">Thời gian</TableHeaderCell>
+                  <TableHeaderCell className="w-[90px] p-2 text-center">Thao tác</TableHeaderCell>
                 </tr>
-              </thead>
-              <tbody>
+              </TableHead>
+              <TableBody>
                 {pagedLedger.map((row) => {
                   const material = materialById.get(row.materialId);
                   const warehouse = warehouseById.get(row.warehouseId);
                   const isReceipt = row.quantity > 0;
                   const isSelected = selectedTx?.id === row.id;
                   return (
-                    <tr
+                    <TableRow
                       key={row.id}
-                      className={`${styles.clickable} ${isSelected ? styles.tableRowActive : ''}`}
+                      className={cn('cursor-pointer', isSelected && 'bg-primary/10 hover:bg-primary/10')}
                       onClick={() => setSelectedTx(row)}
-                      style={{ cursor: 'pointer' }}
                     >
-                      <td style={{ fontWeight: 600, color: '#2563eb', padding: '8px' }}>
+                      <TableCell className="p-2 font-semibold text-slate-900">
                         <button
                           type="button"
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            font: 'inherit',
-                            color: '#2563eb',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                          }}
+                          className="cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] font-semibold text-slate-900 hover:underline"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedTx(row);
@@ -412,183 +428,118 @@ export function TransactionHub({
                         >
                           {row.transactionCode}
                         </button>
-                      </td>
-                      <td style={{ padding: '8px' }}>
+                      </TableCell>
+                      <TableCell className="p-2">
                         <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '999px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            background: isReceipt ? '#dcfce7' : '#fee2e2',
-                            color: isReceipt ? '#15803d' : '#b91c1c',
-                          }}
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[12px] font-semibold',
+                            isReceipt ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700',
+                          )}
                         >
                           {TRANSACTION_TYPE_LABEL[row.type] ?? row.type}
                         </span>
-                      </td>
-                      <td style={{ padding: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      </TableCell>
+                      <TableCell className="p-2">
+                        <div className="flex items-center gap-[6px]">
                           <strong>{material?.code ?? row.materialId}</strong>
                           {material && material.isActive === false ? (
-                            <span
-                              style={{
-                                fontSize: '12px',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                background: '#f1f5f9',
-                                color: '#64748b',
-                                border: '1px solid #cbd5e1',
-                                fontWeight: 500,
-                              }}
-                            >
+                            <Badge variant="outline" className="h-auto rounded px-[5px] py-px text-[12px] font-medium text-slate-500">
                               Ngừng dùng
-                            </span>
+                            </Badge>
                           ) : null}
                         </div>
                         {material ? (
-                          <div style={{ fontSize: '12px', color: '#64748b' }}>{material.name}</div>
+                          <div className="text-[12px] text-slate-500">{material.name}</div>
                         ) : null}
-                      </td>
-                      <td style={{ padding: '8px' }}>{warehouse?.name ?? row.warehouseId}</td>
-                      <td
-                        style={{
-                          textAlign: 'center',
-                          fontWeight: 700,
-                          color: isReceipt ? '#15803d' : '#b91c1c',
-                          padding: '8px',
-                        }}
+                      </TableCell>
+                      <TableCell className="p-2">{warehouse?.name ?? row.warehouseId}</TableCell>
+                      <TableCell
+                        className={cn(
+                          'p-2 text-center font-bold',
+                          isReceipt ? 'text-green-700' : 'text-red-700',
+                        )}
                       >
                         {isReceipt ? '+' : ''}
                         {formatNumber(row.quantity)} {material?.unit ?? ''}
-                      </td>
-                      <td style={{ fontSize: '12px', color: '#64748b', padding: '8px' }}>
+                      </TableCell>
+                      <TableCell className="p-2 text-[12px] text-slate-500">
                         {row.note ? formatNoteDates(row.note) : '—'}
-                      </td>
-                      <td
-                        style={{
-                          textAlign: 'right',
-                          fontSize: '12px',
-                          color: '#64748b',
-                          padding: '8px',
-                        }}
-                      >
+                      </TableCell>
+                      <TableCell className="p-2 text-right text-[12px] text-slate-500">
                         {formatDateTime(row.createdAt)}
-                      </td>
-                      <td
-                        style={{ textAlign: 'center', padding: '8px' }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
+                      </TableCell>
+                      <TableCell className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                        <Button
                           type="button"
-                          className={styles.reset}
-                          style={{
-                            padding: '3px 8px',
-                            fontSize: '12px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: '#2563eb',
-                            borderColor: '#bfdbfe',
-                            background: '#eff6ff',
-                            cursor: 'pointer',
-                          }}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 border-primary/30 bg-primary/10 text-slate-900"
                           onClick={() => setSelectedTx(row)}
                           title="Mở ngăn kéo xem chi tiết phiếu xuất nhập"
                         >
                           <Eye size={12} />
                           <span>Chi tiết</span>
-                        </button>
-                      </td>
-                    </tr>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
                 {pagedLedger.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={8}
-                      style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}
-                    >
-                      Không có giao dịch nào khớp bộ lọc.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={8}>Không có giao dịch nào khớp bộ lọc.</TableEmpty>
                 ) : null}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableWrap>
 
           {/* Pagination Footer */}
           {filteredLedger.length > 0 ? (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '8px',
-                marginTop: '12px',
-                paddingTop: '8px',
-                borderTop: '1px solid #e2e8f0',
-                fontSize: '13px',
-                color: '#64748b',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2 text-[13px] text-slate-500">
+              <div className="flex flex-wrap items-center gap-3">
                 <span>
                   Trang <strong>{safeLedgerPage}</strong> / <strong>{totalLedgerPages}</strong> ({filteredLedger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                <div className="inline-flex items-center gap-[6px] text-[12px] text-slate-500">
                   <span>Hiển thị:</span>
-                  <select
-                    value={ledgerPageSize}
-                    onChange={(event) => {
-                      setLedgerPageSize(Number(event.target.value) || 15);
-                      setLedgerPage(1);
-                    }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
+                  <div className="w-[110px]">
+                    <SearchableSelect
+                      options={LEDGER_PAGE_SIZE_OPTIONS}
+                      value={String(ledgerPageSize)}
+                      onChange={(value) => {
+                        setLedgerPageSize(Number(value) || 15);
+                        setLedgerPage(1);
+                      }}
+                      clearable={false}
+                      height={28}
+                    />
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button
+              <div className="flex items-center gap-[6px]">
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeLedgerPage <= 1}
                   onClick={() => setLedgerPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
-                </button>
-                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '12px' }}>
+                </Button>
+                <span className="text-[12px] font-semibold text-slate-900">
                   {safeLedgerPage} / {totalLedgerPages}
                 </span>
-                <button
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeLedgerPage >= totalLedgerPages}
                   onClick={() => setLedgerPage((prev) => Math.min(totalLedgerPages, prev + 1))}
                 >
                   Sau →
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
-        </section>
+        </Card>
       )}
 
       {/* Popup Form Xuất / Nhập Kho (Dialog đơn lẻ) */}

@@ -7,9 +7,7 @@ import type {
   InventoryTradeCatalog,
 } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import styles from '../inventory.module.scss';
 import {
   buildImportRows,
   catalogAdditionsFor,
@@ -27,6 +25,9 @@ import {
   type ValueDecision,
 } from '../trade-import.model';
 import { downloadTradeTemplate, TRADE_GROUP_LABEL, type TradeGroup } from '../trade-items.model';
+import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 type ImportResult = {
   created: number;
@@ -55,7 +56,7 @@ function decisionOf(value: string): ValueDecision {
   return { action: 'map', to: value };
 }
 
-const listStyle = { margin: '8px 0 0', paddingLeft: '1.2rem', maxHeight: '160px', overflowY: 'auto' } as const;
+const LIST_CLASS = 'm-0 mt-2 max-h-[160px] overflow-y-auto pl-[1.2rem] text-red-700';
 
 /**
  * Nhập hàng hóa, dịch vụ từ Excel bất kỳ, kể cả tệp xuất từ hệ cũ: chọn tệp, kiểm tra việc ghép cột (tự đoán theo
@@ -181,15 +182,15 @@ export function TradeItemImportDialog({
     declared: readonly string[],
     change: (next: string) => void,
   ) => (
-    <div key={label} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 220px', gap: '8px', alignItems: 'center' }}>
-      <span style={{ fontSize: '14px', overflowWrap: 'anywhere' }}>{label}</span>
+    <div key={label} className="grid grid-cols-[minmax(0,1fr)_220px] items-center gap-2">
+      <span className="text-sm [overflow-wrap:anywhere]">{label}</span>
       <SearchableSelect
         options={valueOptions(declared)}
         value={choice || ADD}
         placeholder={value}
         onChange={(next) => change(next || ADD)}
-        height={34}
-        style={{ width: '100%' }}
+        height={36}
+        className="w-full"
       />
     </div>
   );
@@ -200,34 +201,22 @@ export function TradeItemImportDialog({
   const isDirty = !result && dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{ maxWidth: '760px' }}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Nhập hàng hóa từ Excel"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className={styles.modalHead}>
-          <h2>Nhập hàng hóa từ Excel</h2>
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent className="max-w-[760px]" aria-label="Nhập hàng hóa từ Excel">
+        <DialogHeader>
+          <DialogTitle>Nhập hàng hóa từ Excel</DialogTitle>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
-              <X size={18} strokeWidth={2} />
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
-        <div
-          className={styles.modalBody}
-          style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}
-        >
-          <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>
+        <DialogBody className="flex max-h-[70vh] flex-col gap-4">
+          <p className="m-0 text-sm text-slate-600">
             Chọn tệp Excel bất kỳ, kể cả tệp xuất từ hệ cũ: hệ thống tự đoán cột theo tiêu đề và bạn chỉnh lại được.
             Bắt buộc có Mã, Tên và Đơn vị.{' '}
-            <button type="button" className={styles.btnSecondary} onClick={() => downloadTradeTemplate(catalog)}>
+            <Button type="button" variant="outline" onClick={() => downloadTradeTemplate(catalog)}>
               Tải tệp mẫu
-            </button>
+            </Button>
           </p>
           <input
             type="file"
@@ -236,7 +225,7 @@ export function TradeItemImportDialog({
             onChange={(event) => void pick(event.target.files?.[0])}
           />
           {readError ? (
-            <p role="alert" style={{ margin: 0, color: '#dc2626', fontSize: '14px' }}>
+            <p role="alert" className="m-0 text-sm text-red-600">
               {readError}
             </p>
           ) : null}
@@ -244,44 +233,40 @@ export function TradeItemImportDialog({
           {sheet && !result ? (
             <>
               <section aria-label="Ghép cột">
-                <h3 style={{ margin: '0 0 8px', fontSize: '15px' }}>Ghép cột ({sheet.rows.length} dòng trong tệp)</h3>
-                <div style={{ display: 'grid', gap: '8px' }}>
+                <h3 className="m-0 mb-2 text-[15px]">Ghép cột ({sheet.rows.length} dòng trong tệp)</h3>
+                <div className="grid gap-2">
                   {IMPORT_FIELDS.map((field) => (
-                    <div
-                      key={field.key}
-                      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: '8px', alignItems: 'center' }}
-                    >
-                      <span style={{ fontSize: '14px' }}>
+                    <div key={field.key} className="grid grid-cols-[minmax(0,1fr)_260px] items-center gap-2">
+                      <Label className="text-sm font-normal text-slate-900" required={field.required}>
                         {field.label}
-                        {field.required ? <span style={{ color: '#dc2626' }}> *</span> : null}
-                      </span>
+                      </Label>
                       <SearchableSelect
                         options={headerOptions}
                         value={mapping[field.key] ?? ''}
                         placeholder="— Không nhập —"
                         onChange={(value) => setField(field.key, value || undefined)}
                         clearable
-                        height={34}
-                        style={{ width: '100%' }}
+                        height={36}
+                        className="w-full"
                       />
                     </div>
                   ))}
                   {!mapping.kind ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: '8px', alignItems: 'center' }}>
-                      <span style={{ fontSize: '14px' }}>Tệp này là</span>
+                    <div className="grid grid-cols-[minmax(0,1fr)_260px] items-center gap-2">
+                      <span className="text-sm">Tệp này là</span>
                       <SearchableSelect
                         options={kindOptions}
                         value={defaultKind}
                         placeholder="Loại mặt hàng"
                         onChange={(value) => setDefaultKind((value || 'GOODS') as TradeGroup)}
-                        height={34}
-                        style={{ width: '100%' }}
+                        height={36}
+                        className="w-full"
                       />
                     </div>
                   ) : null}
                 </div>
                 {missingRequired.length > 0 ? (
-                  <p role="alert" style={{ margin: '8px 0 0', color: '#dc2626', fontSize: '14px' }}>
+                  <p role="alert" className="m-0 mt-2 text-sm text-red-600">
                     Chưa ghép cột: {missingRequired.map((field) => field.label).join(', ')}.
                   </p>
                 ) : null}
@@ -289,8 +274,8 @@ export function TradeItemImportDialog({
 
               {values && values.categories.length + values.usages.length > 0 ? (
                 <section aria-label="Giá trị chưa khai báo">
-                  <h3 style={{ margin: '0 0 8px', fontSize: '15px' }}>Giá trị chưa có trong Cài đặt</h3>
-                  <div style={{ display: 'grid', gap: '8px' }}>
+                  <h3 className="m-0 mb-2 text-[15px]">Giá trị chưa có trong Cài đặt</h3>
+                  <div className="grid gap-2">
                     {values.categories.map((value) =>
                       valueRow(`Phân loại: ${value}`, value, categoryChoice[value] ?? '', allCategories, (next) =>
                         setCategoryChoice((current) => ({ ...current, [value]: next })),
@@ -307,14 +292,14 @@ export function TradeItemImportDialog({
 
               {values && values.authors.length > 0 ? (
                 <section aria-label="Người tạo">
-                  <h3 style={{ margin: '0 0 4px', fontSize: '15px' }}>Người tạo ở hệ cũ</h3>
-                  <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#475569' }}>
+                  <h3 className="m-0 mb-1 text-[15px]">Người tạo ở hệ cũ</h3>
+                  <p className="m-0 mb-2 text-[13px] text-slate-600">
                     Giữ nguyên tên người tạo trong tệp. Đánh dấu những người đã nghỉ việc để để trống, xử lý sau.
                   </p>
-                  <div style={{ display: 'grid', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+                  <div className="grid max-h-[160px] gap-1 overflow-y-auto">
                     {values.authors.map((name) => (
-                      <label key={name} style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '14px' }}>
-                        <input type="checkbox" checked={blankAuthors.has(name)} onChange={() => toggleAuthor(name)} />
+                      <label key={name} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" className="accent-primary" checked={blankAuthors.has(name)} onChange={() => toggleAuthor(name)} />
                         <span>
                           {name}
                           {blankAuthors.has(name) ? ' (để trống)' : ''}
@@ -327,8 +312,8 @@ export function TradeItemImportDialog({
 
               {conflicts.length > 0 ? (
                 <section aria-label="Mã trùng">
-                  <h3 style={{ margin: '0 0 4px', fontSize: '15px' }}>Mã đã có trong Kho</h3>
-                  <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#475569' }}>
+                  <h3 className="m-0 mb-1 text-[15px]">Mã đã có trong Kho</h3>
+                  <p className="m-0 mb-2 text-[13px] text-slate-600">
                     {conflicts.length} dòng trùng mã với hàng đang có (
                     {conflicts
                       .slice(0, 5)
@@ -341,11 +326,11 @@ export function TradeItemImportDialog({
                     value={conflictPolicy}
                     placeholder="Khi trùng mã"
                     onChange={(value) => setConflictPolicy((value || 'SKIP') as ImportConflictPolicy)}
-                    height={34}
-                    style={{ width: '100%' }}
+                    height={36}
+                    className="w-full"
                   />
                   {conflictPolicy === 'UPDATE' ? (
-                    <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#475569' }}>
+                    <p className="m-0 mt-2 text-[13px] text-slate-600">
                       Chỉ ghi các ô có giá trị trong tệp; ô trống không xoá dữ liệu đang có. Mã đã ngừng dùng được bỏ qua.
                       Người tạo, ngày tạo chỉ điền cho mã chưa có người tạo.
                     </p>
@@ -353,10 +338,10 @@ export function TradeItemImportDialog({
                 </section>
               ) : null}
 
-              <div style={{ fontSize: '14px', color: '#0f172a' }} role="status">
+              <div className="text-sm text-slate-900" role="status">
                 <strong>{valid.length}</strong> dòng hợp lệ, <strong>{invalid.length}</strong> dòng lỗi.
                 {invalid.length > 0 ? (
-                  <ul style={{ ...listStyle, color: '#b91c1c' }}>
+                  <ul className={LIST_CLASS}>
                     {invalid.map((row) => (
                       <li key={row.line}>
                         Dòng {row.line}: {row.error}
@@ -369,13 +354,13 @@ export function TradeItemImportDialog({
           ) : null}
 
           {result ? (
-            <div style={{ fontSize: '14px' }} role="status">
+            <div className="text-sm" role="status">
               Đã tạo <strong>{result.created}</strong> mặt hàng
               {result.updated > 0 ? <>, cập nhật <strong>{result.updated}</strong> mã có sẵn</> : null}
               {result.skipped.length > 0 ? `, bỏ qua ${result.skipped.length} dòng trùng mã` : ''}
               {result.failures.length > 0 ? `, ${result.failures.length} dòng không nhập được:` : '.'}
               {result.failures.length > 0 ? (
-                <ul style={{ ...listStyle, color: '#b91c1c' }}>
+                <ul className={LIST_CLASS}>
                   {result.failures.map((failure) => (
                     <li key={failure.line}>
                       Dòng {failure.line}: {failure.message}
@@ -385,37 +370,35 @@ export function TradeItemImportDialog({
               ) : null}
             </div>
           ) : null}
-        </div>
+        </DialogBody>
 
-        <div className={styles.modalFoot}>
+        <DialogFooter>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button type="button" className={`${styles.action} ${styles.actionGhost}`} disabled={busy}>
+            <Button type="button" variant="outline" disabled={busy}>
               {result ? 'Đóng' : 'Huỷ'}
-            </button>
+            </Button>
           </CloseGuard>
           {result && sheet && retryLines.length > 0 ? (
-            <button
+            <Button
               type="button"
-              className={`${styles.action} ${styles.actionPrimary}`}
               onClick={() => downloadUnimported(sheet, retryLines, fileName)}
               title="Tệp giữ nguyên cấu trúc cũ, chỉ gồm các dòng chưa nhập được, không gồm dòng trùng mã"
             >
               Tải {retryLines.length} dòng chưa nhập được
-            </button>
+            </Button>
           ) : null}
           {!result ? (
-            <button
+            <Button
               type="button"
-              className={`${styles.action} ${styles.actionPrimary}`}
               disabled={busy || !sheet || missingRequired.length > 0 || valid.length === 0}
               onClick={() => void run()}
               title={fileName}
             >
               {busy ? 'Đang nhập…' : `Nhập ${valid.length} dòng`}
-            </button>
+            </Button>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,11 +2,12 @@
 
 import type { Material } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import type { AuditorCandidate } from '../inventory-api';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 /**
  * Form cấp phát tài sản cho nhân viên. Hai trường nằm trong form, không để ngoài màn hình:
@@ -56,35 +57,24 @@ export function CustodyAssignDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{ maxWidth: '520px' }}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Cấp phát tài sản"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div className={styles.modalHead}>
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent className="max-w-[520px]" aria-label="Cấp phát tài sản">
+        <form onSubmit={submit} className="flex min-h-0 flex-col">
+          <DialogHeader>
             <div>
-              <h2>Cấp phát tài sản</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+              <DialogTitle>Cấp phát tài sản</DialogTitle>
+              <p className="mt-1 mb-0 text-sm text-slate-500">
                 Chọn tài sản đang tồn kho và nhân viên nhận.
               </p>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button type="button" className={styles.closeButton} title="Đóng" aria-label="Đóng">
-                <X size={18} strokeWidth={2} />
-              </button>
+              <DialogCloseButton />
             </CloseGuard>
-          </div>
+          </DialogHeader>
 
-          <div className={styles.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
-            <div className={styles.formGroup}>
-              <label>
-                Tài sản chưa cấp phát <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+          <DialogBody className="flex flex-col gap-[1.15rem]">
+            <div className="flex flex-col gap-[0.4rem]">
+              <Label required>Tài sản chưa cấp phát</Label>
               <SearchableSelect
                 options={assetOptions}
                 value={assetCode}
@@ -97,10 +87,8 @@ export function CustodyAssignDialog({
                 style={{ width: '100%' }}
               />
             </div>
-            <div className={styles.formGroup}>
-              <label>
-                Nhân viên nhận <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+            <div className="flex flex-col gap-[0.4rem]">
+              <Label required>Nhân viên nhận</Label>
               <SearchableSelect
                 options={employeeOptions}
                 value={employeeId}
@@ -114,28 +102,20 @@ export function CustodyAssignDialog({
               />
             </div>
             <FormError error={error} />
-          </div>
+          </DialogBody>
 
-          <div className={styles.modalFoot}>
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                disabled={busy}
-              >
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              className={`${styles.action} ${styles.actionPrimary}`}
-              disabled={busy || !ready}
-            >
+            <Button type="submit" disabled={busy || !ready}>
               {busy ? 'Đang lưu…' : 'Cấp phát'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
