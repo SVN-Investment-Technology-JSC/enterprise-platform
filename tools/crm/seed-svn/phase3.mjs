@@ -52,6 +52,38 @@ export const P3_MATERIALS = {
 };
 export const P3_SCRIPT_TEXT = '<script>alert(1)</script>';
 
+/**
+ * Tổ chức báo giá (C6, test_phase3 mục 2.6): ORG-A mặc định có logo, ORG-B không logo. Mã cố định để chạy lại không trùng.
+ */
+export const P3_ORGS = {
+  'ORG-A': {
+    code: 'QA-P3-ORGA',
+    name: 'QA-P3 Công ty TNHH Thiết bị Miền Bắc',
+    shortName: 'Thiết bị Miền Bắc',
+    address: 'Số 1 Láng Hạ, Đống Đa, Hà Nội',
+    taxCode: '0109990001',
+    phone: '024 3999 0001',
+    email: 'kinhdoanh@mienbac.qa.local',
+    website: 'mienbac.qa.local',
+    bankAccount: '0011 0000 0001',
+    bankName: 'Ngân hàng QA chi nhánh Hà Nội',
+    representative: 'Nguyễn Văn Bắc',
+    representativeTitle: 'Giám đốc',
+    isDefault: true,
+    sortOrder: 1,
+  },
+  'ORG-B': {
+    code: 'QA-P3-ORGB',
+    name: 'QA-P3 Công ty CP Giải pháp Miền Nam',
+    address: '12 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh',
+    taxCode: '0309990002-001',
+    phone: '028 3999 0002',
+    email: 'sales@miennam.qa.local',
+    isDefault: false,
+    sortOrder: 2,
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Ảnh PNG sinh tại chỗ (nhiễu giả ngẫu nhiên, không nén được) để có logo ~150 KB
 // ---------------------------------------------------------------------------
@@ -313,6 +345,12 @@ export async function phase3Templates(config, session) {
   return Object.fromEntries(Object.entries(P3_TEMPLATES).map(([key, def]) => [key, byName.get(def.name)]));
 }
 
+/** Tổ chức báo giá seed theo khoá ORG-A, ORG-B (kể cả đã tắt); chưa có thì `undefined`. */
+export async function phase3Organizations(config, session) {
+  const list = await session.get(`${config.crmApi}/v1/sales-organizations?includeInactive=true`);
+  return Object.fromEntries(Object.entries(P3_ORGS).map(([key, def]) => [key, list.find((item) => item.code === def.code)]));
+}
+
 export async function phase3Fields(config, session) {
   const all = await session.get(`${config.crmApi}/v1/custom-fields?entityType=quote&includeInactive=true`);
   const byName = new Map(all.map((field) => [field.name, field]));
@@ -485,6 +523,20 @@ export async function runPhase3Step(config, log) {
       await qtbh.put(layoutUrl('M-NONE'), { layout: null, expectedUpdatedAt: current.updatedAt });
       log.created(`Xoá bố cục của mẫu "${templates['M-NONE'].name}" (M-NONE phải chưa có bố cục).`);
     } else log.skip(`Mẫu "${templates['M-NONE'].name}" chưa có bố cục.`);
+  }
+
+  // ---- 3b. Tổ chức báo giá (C6) ----
+  log.section('Tổ chức báo giá ORG-A (mặc định, có logo), ORG-B (không logo)');
+  const orgs = await phase3Organizations(config, qtbh);
+  for (const [key, def] of Object.entries(P3_ORGS)) {
+    const body = key === 'ORG-A' ? { ...def, logo: pngDataUrl(makePng(96, 7)) } : def;
+    if (!orgs[key]) {
+      await qtbh.post(`${crm}/v1/sales-organizations`, body);
+      log.created(`Tổ chức "${def.name}"${def.isDefault ? ' (mặc định)' : ''}.`);
+    } else if (!orgs[key].active || orgs[key].isDefault !== def.isDefault || orgs[key].hasLogo !== (key === 'ORG-A')) {
+      await qtbh.patch(`${crm}/v1/sales-organizations/${orgs[key].id}`, { ...body, active: true });
+      log.created(`Đưa tổ chức "${def.name}" về trạng thái seed.`);
+    } else log.skip(`Tổ chức "${def.name}" đã có.`);
   }
 
   // ---- 4. Báo giá ----

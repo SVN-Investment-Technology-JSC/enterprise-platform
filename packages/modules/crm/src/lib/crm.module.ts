@@ -73,6 +73,10 @@ import { QuoteService } from './application/quote.service.js';
 import { QuoteFormService } from './application/quote-form.service.js';
 import { CRM_QUOTE_FORM_STORE, type QuoteFormStore } from './application/quote-form-store.port.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
+import { SalesOrganizationService } from './application/sales-organization.service.js';
+import { CRM_SALES_ORGANIZATION_STORE, type SalesOrganizationStore } from './application/sales-organization-store.port.js';
+import { PostgresSalesOrganizationStore } from './infrastructure/postgres-sales-organization.store.js';
+import { SalesOrganizationsController } from './presentation/sales-organizations.controller.js';
 import { QuoteRelationService } from './application/quote-relation.service.js';
 import { CRM_QUOTE_RELATION_STORE, type QuoteRelationStore } from './application/quote-relation-store.port.js';
 import { PostgresQuoteRelationStore } from './infrastructure/postgres-quote-relation.store.js';
@@ -237,6 +241,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     PricingController,
     QuotesController,
     QuoteFormController,
+    SalesOrganizationsController,
     QuoteRelationController,
     ApprovalSettingsController,
     BusinessPlansController,
@@ -441,8 +446,23 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         reportingLines: ReportingLineReader,
         plans: BusinessPlanService,
         form: QuoteFormStore,
+        organizations: SalesOrganizationStore,
       ) =>
-        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans, form),
+        new QuoteService(
+          quotes,
+          settings,
+          pricing,
+          catalog,
+          customers,
+          opportunities,
+          scopes,
+          links,
+          reportingLines,
+          undefined,
+          plans,
+          form,
+          organizations,
+        ),
       inject: [
         CRM_QUOTE_STORE,
         CRM_QUOTE_SETTINGS_STORE,
@@ -455,6 +475,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         REPORTING_LINE_READER,
         BusinessPlanService,
         CRM_QUOTE_FORM_STORE,
+        CRM_SALES_ORGANIZATION_STORE,
       ],
     },
     // Báo giá theo mẫu (GĐI): mẫu, loại, mã báo giá.
@@ -463,6 +484,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       provide: QuoteFormService,
       useFactory: (form: QuoteFormStore) => new QuoteFormService(form),
       inject: [CRM_QUOTE_FORM_STORE],
+    },
+    // Tổ chức báo giá (phase 3, mục 16).
+    store(CRM_SALES_ORGANIZATION_STORE, (database) => new PostgresSalesOrganizationStore(database)),
+    {
+      provide: SalesOrganizationService,
+      useFactory: (organizations: SalesOrganizationStore) => new SalesOrganizationService(organizations),
+      inject: [CRM_SALES_ORGANIZATION_STORE],
     },
     // Người theo dõi và đối tượng liên quan của báo giá (P2I-07).
     store(CRM_QUOTE_RELATION_STORE, (database) => new PostgresQuoteRelationStore(database)),

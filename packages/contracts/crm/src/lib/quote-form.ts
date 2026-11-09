@@ -7,6 +7,7 @@
  */
 
 import type { QuoteLayout } from './quote-layout.js';
+import type { QuoteSeller } from './sales-organizations.js';
 
 export const QUOTE_ADJUSTMENT_MODES = ['LINE', 'ORDER'] as const;
 export type QuoteAdjustmentMode = (typeof QUOTE_ADJUSTMENT_MODES)[number];
@@ -117,6 +118,11 @@ export interface QuoteFormData {
   readonly feesAmount: number;
   /** Giá trị trường tuỳ biến theo id định nghĩa (P2I-06); báo giá cũ chưa nhập thì rỗng `{}`. */
   readonly customFields: QuoteCustomFields;
+  /** Tổ chức báo giá đã chọn (plan mục 16); rỗng là không chọn (báo giá cũ hoặc người lập bỏ trống). */
+  readonly organizationId: string | null;
+  readonly organizationName: string | null;
+  /** Thông tin tổ chức in lên báo giá (biến `company.*`), sửa được riêng cho báo giá khi còn Nháp. */
+  readonly seller: QuoteSeller | null;
 }
 
 /** Mẫu mã báo giá, lưu ở Cài đặt: ví dụ `{yyyymmdd}/BG//{seq}` cho ra `20261102/BG//383`. */

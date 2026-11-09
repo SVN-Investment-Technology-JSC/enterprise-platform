@@ -31,6 +31,19 @@ import { LINES_LOCKED_TEXT, QuoteLinesTable } from './quote-lines-table';
 import { QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { QUOTE_STATUS_TONE } from './quote.model';
 import { QuoteActionBar, QuoteWorkspace, blankQuoteDetail } from './quote-workspace';
+import { QuoteSellerSection } from './quote-seller-section';
+import {
+  EMPTY_SELLER_STATE,
+  sellerErrors,
+  sellerFieldErrorsOf,
+  sellerPatch,
+  sellerStateFromOrganization,
+  withSellerDraft,
+  type SellerField,
+  type SellerState,
+  organizationIdOf,
+} from './quote-seller.model';
+import { useSalesOrganization, useSalesOrganizations } from './use-sales-organizations';
 
 const formatDate = (value: string | null) => (value ? value.split('-').reverse().join('/') : '');
 
@@ -123,11 +136,21 @@ interface NewQuoteInput {
   readonly general: GeneralState;
   readonly note: string;
   readonly custom: CustomFieldTexts;
+  /**
+   * Tổ chức báo giá (màn lập mới, plan 16.4). Rỗng (hộp thoại lập nhỏ, hoặc màn lập mới chưa tải xong danh sách tổ chức):
+   * không gửi, server dùng tổ chức mặc định.
+   */
+  readonly seller?: SellerState;
 }
 
 type NewQuoteCheck =
   | { readonly ok: true; readonly request: CreateQuoteRequest }
-  | { readonly ok: false; readonly error: string; readonly nameError?: string };
+  | {
+      readonly ok: false;
+      readonly error: string;
+      readonly nameError?: string;
+      readonly sellerErrors?: Partial<Record<SellerField, string>>;
+    };
 
 /** Kiểm và dựng thân `POST /quotes` (giữ đúng kiểm của hộp thoại lập báo giá phase 2). */
 function checkNewQuote(input: NewQuoteInput, fields: readonly CustomFieldDefinition[]): NewQuoteCheck {
@@ -138,6 +161,9 @@ function checkNewQuote(input: NewQuoteInput, fields: readonly CustomFieldDefinit
   // Lập mới chỉ kiểm kiểu; trường bắt buộc kiểm khi lưu thông tin (báo giá chưa có dòng).
   const builtCustom = buildCustomFields(fields, input.custom);
   if (!builtCustom.ok) return { ok: false, error: builtCustom.error };
+  const problems = input.seller ? sellerErrors(input.seller) : {};
+  const firstProblem = Object.values(problems)[0];
+  if (firstProblem) return { ok: false, error: firstProblem, sellerErrors: problems };
   return {
     ok: true,
     request: {
@@ -151,6 +177,7 @@ function checkNewQuote(input: NewQuoteInput, fields: readonly CustomFieldDefinit
       templateId: general.templateId || null,
       quoteTypeId: general.typeId || null,
       customFields: builtCustom.values,
+      ...(input.seller ? sellerPatch(input.seller) : {}),
     },
   };
 }
@@ -361,6 +388,10 @@ function NewQuoteForm({
   const [general, setGeneral] = useState<GeneralState>(handoff?.general ?? EMPTY_GENERAL);
   const [note, setNote] = useState(handoff?.note ?? '');
   const [custom, setCustom] = useState<CustomFieldTexts>(handoff?.custom ?? {});
+  /** Rỗng cho tới khi chọn sẵn tổ chức mặc định (hoặc người lập chọn); khi đó lập báo giá không gửi tổ chức. */
+  const [seller, setSeller] = useState<SellerState | undefined>(handoff?.seller);
+  const [sellerFieldErrors, setSellerFieldErrors] = useState<Partial<Record<SellerField, string>>>({});
+  const { organizations, loaded: organizationsLoaded } = useSalesOrganizations();
   const [touched, setTouched] = useState(Boolean(handoff));
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [nameError, setNameError] = useState<string>();
@@ -405,6 +436,16 @@ function NewQuoteForm({
 
   useDefaultTemplate(lookups, setGeneral);
 
+  // Chọn sẵn tổ chức mặc định một lần khi tải xong danh sách (D3-26); không có mặc định thì để trống.
+  useEffect(() => {
+    if (!organizationsLoaded) return;
+    setSeller((current) => {
+      if (current) return current;
+      const fallback = organizations.find((item) => item.isDefault);
+      return fallback ? sellerStateFromOrganization(fallback) : EMPTY_SELLER_STATE;
+    });
+  }, [organizationsLoaded, organizations]);
+
   const opportunity = opportunities.find((item) => item.id === opportunityId);
   const effectiveCustomerId = opportunityId ? (opportunity?.customerId ?? '') : customerId;
   useEffect(() => {
@@ -421,8 +462,12 @@ function NewQuoteForm({
     };
   }, [effectiveCustomerId]);
 
-  const input = useMemo<NewQuoteInput>(() => ({ opportunityId, customerId, general, note, custom }), [opportunityId, customerId, general, note, custom]);
+  const input = useMemo<NewQuoteInput>(
+    () => ({ opportunityId, customerId, general, note, custom, seller }),
+    [opportunityId, customerId, general, note, custom, seller],
+  );
   const previewInput = useDebounced(input, 300);
+  const chosenOrganization = useSalesOrganization(previewInput.seller ? organizationIdOf(previewInput.seller) : null);
   const summary = customers.find((item) => item.id === effectiveCustomerId);
   const { templates, types, fields } = lookups;
   const previewData = useMemo(() => {
@@ -439,8 +484,13 @@ function NewQuoteForm({
       types,
       today: new Date().toISOString(),
     });
-    return buildQuoteLayoutData({ detail, customer, people, customFields: fields });
-  }, [previewInput, templates, types, fields, customer, summary, opportunity, people, currentUserId]);
+    return buildQuoteLayoutData({
+      detail: withSellerDraft(detail, previewInput.seller ?? EMPTY_SELLER_STATE, chosenOrganization),
+      customer,
+      people,
+      customFields: fields,
+    });
+  }, [previewInput, chosenOrganization, templates, types, fields, customer, summary, opportunity, people, currentUserId]);
 
   const change = <T,>(setter: (value: T) => void) => (value: T) => {
     setter(value);
@@ -453,10 +503,12 @@ function NewQuoteForm({
     const checked = checkNewQuote(input, lookups.fields);
     if (!checked.ok) {
       setNameError(checked.nameError);
+      setSellerFieldErrors(checked.sellerErrors ?? {});
       setError(checked.error);
       return;
     }
     setNameError(undefined);
+    setSellerFieldErrors({});
     setError(undefined);
     creating.current = true;
     setSaving(true);
@@ -466,6 +518,7 @@ function NewQuoteForm({
       if (pickSearch !== undefined) openPickerAfterLoad(created.id, pickSearch);
       onCreated(created.id);
     } catch (cause) {
+      setSellerFieldErrors(sellerFieldErrorsOf(cause));
       setError(quoteFormErrorMessage(cause, 'Không lập được báo giá.'));
       toast.error(quoteFormErrorMessage(cause, 'Không lập được báo giá.'));
     } finally {
@@ -488,6 +541,16 @@ function NewQuoteForm({
 
   const left = (
     <>
+      <QuoteSellerSection
+        value={seller ?? EMPTY_SELLER_STATE}
+        onChange={(next) => {
+          change(setSeller)(next);
+          setSellerFieldErrors({});
+        }}
+        editable
+        organizations={organizations}
+        errors={sellerFieldErrors}
+      />
       <section className={styles.panel} aria-label="Thông tin báo giá">
         <h3 className={styles.sectionTitle}>Thông tin chung</h3>
         <div className={styles.fieldGrid}>

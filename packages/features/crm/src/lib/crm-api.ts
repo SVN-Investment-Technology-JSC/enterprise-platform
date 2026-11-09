@@ -192,6 +192,8 @@ export interface CrmApiError {
   readonly missing?: readonly { kind: string; ref: string; message: string }[];
   /** Lỗi từng trường khi lưu bố cục mẫu báo giá (`LAYOUT_*`). */
   readonly errors?: readonly QuoteLayoutError[];
+  /** Lỗi từng trường khi lưu tổ chức báo giá hoặc thông tin tổ chức trên báo giá (`SALES_ORGANIZATION_INVALID`). */
+  readonly fieldErrors?: readonly SalesOrganizationError[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -607,7 +609,11 @@ import type {
 import type {
   QuoteLayoutError,
   QuoteTemplateLayout,
+  SalesOrganization,
+  SalesOrganizationError,
+  SalesOrganizationSummary,
   SaveQuoteTemplateLayoutRequest,
+  SaveSalesOrganizationRequest,
 } from '@enterprise-platform/contracts-crm';
 
 export const listQuoteTemplates = (includeInactive = false) =>
@@ -619,6 +625,18 @@ export const getQuoteTemplateLayout = (id: string) =>
   request<QuoteTemplateLayout>(`/quote-templates/${encodeURIComponent(id)}/layout`, { cache: 'no-store' });
 export const saveQuoteTemplateLayout = (id: string, body: SaveQuoteTemplateLayoutRequest) =>
   send<QuoteTemplateLayout>('PUT', `/quote-templates/${encodeURIComponent(id)}/layout`, body);
+/**
+ * Tổ chức báo giá (công ty con, plan mục 16): danh sách và chi tiết cần `crm.read` (danh sách không có logo); tạo, sửa,
+ * xoá cần `crm.manage`. Đã có báo giá dùng thì xoá trả 409 `SALES_ORGANIZATION_IN_USE`.
+ */
+export const listSalesOrganizations = (includeInactive = false) =>
+  request<SalesOrganizationSummary[]>(`/sales-organizations${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const getSalesOrganization = (id: string) =>
+  request<SalesOrganization>(`/sales-organizations/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createSalesOrganization = (body: SaveSalesOrganizationRequest) => send<SalesOrganization>('POST', '/sales-organizations', body);
+export const updateSalesOrganization = (id: string, body: SaveSalesOrganizationRequest) =>
+  send<SalesOrganization>('PATCH', `/sales-organizations/${encodeURIComponent(id)}`, body);
+export const deleteSalesOrganization = (id: string) => send<void>('DELETE', `/sales-organizations/${encodeURIComponent(id)}`);
 export const listQuoteTypes = (includeInactive = false) =>
   request<QuoteType[]>(`/quote-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
 export const createQuoteType = (body: SaveQuoteTypeRequest) => send<QuoteType>('POST', '/quote-types', body);

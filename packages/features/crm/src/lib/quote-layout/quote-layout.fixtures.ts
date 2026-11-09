@@ -7,12 +7,37 @@ import {
   type QuoteDetail,
   type QuoteLayout,
   type QuoteLine,
+  type QuoteSeller,
   type QuoteVersion,
 } from '@enterprise-platform/contracts-crm';
 
 /** Ảnh PNG thật 4×2 điểm ảnh (tỉ lệ 2:1). */
 export const FIXTURE_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAIAAADwyuo0AAAAEElEQVR4nGOQkzsBRwzIHABkaggh4UPC6AAAAABJRU5ErkJggg==';
+
+/** Thông tin tổ chức báo giá trên phiên bản (biến `company.*`). */
+export function fixtureSeller(patch: Partial<QuoteSeller> = {}): QuoteSeller {
+  return {
+    name: 'Công ty TNHH Thiết bị An Phát',
+    shortName: 'An Phát',
+    address: '25 Trần Duy Hưng, Cầu Giấy, Hà Nội',
+    taxCode: '0101111111',
+    phone: '024 3333 1111',
+    email: 'baogia@anphat.vn',
+    website: null,
+    bankAccount: null,
+    bankName: null,
+    representative: null,
+    representativeTitle: null,
+    ...patch,
+  };
+}
+
+/** Phiên bản có tổ chức báo giá (biến `company.*`) và logo tổ chức (`sellerLogo`). */
+export function fixtureSellerVersion(seller: QuoteSeller = fixtureSeller(), sellerLogo: string | null = null, patch: Partial<QuoteVersion> = {}): QuoteVersion {
+  const base = fixtureVersion(patch);
+  return { ...base, sellerLogo, form: { ...base.form, organizationId: 'org-a', organizationName: seller.name, seller } };
+}
 
 /** Chuỗi thử chống XSS và thoát ký tự (Q-XSS). */
 export const FIXTURE_XSS = '<script>alert(1)</script> & "Bơm" > <b>đậm</b>';
@@ -105,6 +130,9 @@ export function fixtureVersion(patch: Partial<QuoteVersion> = {}): QuoteVersion 
       fees: [],
       feesAmount: 0,
       customFields: {},
+      organizationId: null,
+      organizationName: null,
+      seller: null,
     },
     promotions: [],
     requiresApproval: false,
@@ -121,6 +149,7 @@ export function fixtureVersion(patch: Partial<QuoteVersion> = {}): QuoteVersion 
     supersededAt: null,
     createdAt: '2026-11-01T02:00:00.000Z',
     layoutSnapshot: null,
+    sellerLogo: null,
     lines: [fixtureLine()],
     ...patch,
   };

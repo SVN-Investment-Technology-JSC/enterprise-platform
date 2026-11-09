@@ -140,6 +140,11 @@ export interface QuoteLayoutCompanyHeaderBlock extends QuoteLayoutBlockBase {
   /** Tối đa 6 dòng: địa chỉ, MST, điện thoại... */
   readonly lines: readonly string[];
   readonly logo?: string;
+  /**
+   * Dùng logo của tổ chức báo giá (D3-28); tổ chức không có logo thì dùng `logo` của khối. Rỗng hoặc `false`: chỉ dùng
+   * `logo` của khối như trước.
+   */
+  readonly logoFromOrganization?: boolean;
   readonly logoPosition: QuoteLayoutLogoPosition;
   readonly align: QuoteLayoutAlign;
 }
@@ -273,10 +278,11 @@ export interface QuoteLayout {
 // Biến (plan mục 5.3)
 // ---------------------------------------------------------------------------
 
-export const QUOTE_LAYOUT_VARIABLE_GROUPS = ['quote', 'customer', 'opportunity', 'owner', 'totals', 'print'] as const;
+export const QUOTE_LAYOUT_VARIABLE_GROUPS = ['company', 'quote', 'customer', 'opportunity', 'owner', 'totals', 'print'] as const;
 export type QuoteLayoutVariableGroup = (typeof QUOTE_LAYOUT_VARIABLE_GROUPS)[number];
 
 export const QUOTE_LAYOUT_VARIABLE_GROUP_LABELS: Readonly<Record<QuoteLayoutVariableGroup | 'custom', string>> = {
+  company: 'Công ty (tổ chức báo giá)',
   quote: 'Báo giá',
   customer: 'Khách hàng',
   opportunity: 'Dự án',
@@ -293,6 +299,18 @@ export interface QuoteLayoutVariable {
 }
 
 export const QUOTE_LAYOUT_VARIABLES: readonly QuoteLayoutVariable[] = [
+  // Tổ chức báo giá (plan mục 16.3): lấy từ thông tin tổ chức trên phiên bản (`QuoteFormData.seller`).
+  { key: 'company.name', label: 'Tên công ty', group: 'company' },
+  { key: 'company.shortName', label: 'Tên viết tắt công ty', group: 'company' },
+  { key: 'company.address', label: 'Địa chỉ công ty', group: 'company' },
+  { key: 'company.taxCode', label: 'Mã số thuế công ty', group: 'company' },
+  { key: 'company.phone', label: 'Điện thoại công ty', group: 'company' },
+  { key: 'company.email', label: 'Email công ty', group: 'company' },
+  { key: 'company.website', label: 'Website công ty', group: 'company' },
+  { key: 'company.bankAccount', label: 'Số tài khoản', group: 'company' },
+  { key: 'company.bankName', label: 'Ngân hàng', group: 'company' },
+  { key: 'company.representative', label: 'Người đại diện', group: 'company' },
+  { key: 'company.representativeTitle', label: 'Chức vụ người đại diện', group: 'company' },
   { key: 'quote.code', label: 'Mã báo giá', group: 'quote' },
   { key: 'quote.name', label: 'Tên báo giá', group: 'quote' },
   { key: 'quote.date', label: 'Ngày báo giá', group: 'quote' },
@@ -544,8 +562,9 @@ export function defaultQuoteLayout(): QuoteLayout {
       {
         id: 'company',
         type: 'companyHeader',
-        name: 'TÊN CÔNG TY',
-        lines: ['Địa chỉ: ', 'Mã số thuế: ', 'Điện thoại: ', 'Email: '],
+        name: '{{company.name}}',
+        lines: ['Địa chỉ: {{company.address}}', 'Mã số thuế: {{company.taxCode}}', 'Điện thoại: {{company.phone}}', 'Email: {{company.email}}'],
+        logoFromOrganization: true,
         logoPosition: 'left',
         align: 'left',
       },
@@ -732,9 +751,17 @@ const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const startsWithBytes = (bytes: Uint8Array, signature: readonly number[]) =>
   bytes.length >= signature.length && signature.every((byte, index) => bytes[index] === byte);
 
-type ImageCheck = 'ok' | 'invalid' | 'too-large';
+export type QuoteLayoutImageCheck = 'ok' | 'invalid' | 'too-large';
+type ImageCheck = QuoteLayoutImageCheck;
 
-/** Ảnh: data URL PNG hoặc JPEG, giải mã thật và khớp chữ ký đầu file với loại đã khai; tối đa 300 KB. */
+/**
+ * Ảnh: data URL PNG hoặc JPEG, giải mã thật và khớp chữ ký đầu file với loại đã khai; tối đa 300 KB. Dùng chung cho ảnh
+ * trong bố cục và logo tổ chức báo giá.
+ */
+export function checkQuoteLayoutImage(src: string): QuoteLayoutImageCheck {
+  return checkImage(src);
+}
+
 function checkImage(src: string): ImageCheck {
   const match = /^data:image\/(png|jpeg);base64,(.*)$/s.exec(src);
   if (!match) return 'invalid';
@@ -960,6 +987,7 @@ class LayoutChecker {
           this.fail(`${path}.lines`, 'LAYOUT_INVALID', `Khối ${index + 1}: đầu trang công ty tối đa ${QUOTE_LAYOUT_LIMITS.maxCompanyLines} dòng.`);
         }
         const logo = raw['logo'] === undefined || raw['logo'] === null ? undefined : this.image(raw, 'logo', path, index);
+        const logoFromOrganization = this.optionalBoolean(raw, 'logoFromOrganization', path, index);
         return {
           ...base,
           type,
@@ -974,6 +1002,7 @@ class LayoutChecker {
             return line;
           }),
           ...(logo !== undefined ? { logo } : {}),
+          ...(logoFromOrganization !== undefined ? { logoFromOrganization } : {}),
           logoPosition: this.choice(raw, 'logoPosition', path, QUOTE_LAYOUT_LOGO_POSITIONS, index),
           align: this.choice(raw, 'align', path, QUOTE_LAYOUT_ALIGNS, index),
         };

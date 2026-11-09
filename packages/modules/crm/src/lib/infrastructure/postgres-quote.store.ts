@@ -29,6 +29,9 @@ import {
   type QuoteVersion,
   type QuoteVersionSummary,
   type QuoteOrderAmount,
+  type QuoteSeller,
+  hasQuoteSeller,
+  normalizeQuoteSeller,
 } from '@enterprise-platform/contracts-crm';
 import type { CrmDataScope } from '../application/data-scope.js';
 import type {
@@ -55,6 +58,11 @@ import {
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
 import { parseStoredQuoteLayout } from './stored-quote-layout.js';
+import {
+  SALES_ORGANIZATION_SELLER_COLUMNS,
+  sellerFromRow,
+  type SalesOrganizationSellerRow,
+} from './postgres-sales-organization.store.js';
 import type { CrmDatabase } from './crm.database.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import { SqlConditions, constraintViolation, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
@@ -141,6 +149,11 @@ interface VersionRow {
   custom_fields: QuoteCustomFields | null;
   promotions: QuotePromotionSnapshot[] | null;
   layout_snapshot: unknown;
+  organization_id: string | null;
+  organization_name: string | null;
+  seller: unknown;
+  /** Chỉ có ở đường đọc chi tiết (`readVersion(..., true)`); đường sửa để rỗng cho nhẹ. */
+  seller_logo: string | null;
 }
 
 interface LineRow {
@@ -205,7 +218,14 @@ const VERSION_COLUMNS = `
   v.created_at, v.quote_name, v.quote_date::text AS quote_date, v.template_id, t.name AS template_name,
   v.quote_type_id, qt.name AS quote_type_name, v.discount_mode, v.tax_mode, v.order_discount_percent,
   v.order_discount_amount, v.order_tax_percent, v.order_tax_amount, v.order_discount_total, v.order_tax_total,
-  v.fees_amount, v.custom_fields, v.promotions, v.layout_snapshot`;
+  v.fees_amount, v.custom_fields, v.promotions, v.layout_snapshot, v.organization_id, so.name AS organization_name,
+  v.seller`;
+
+/**
+ * Logo tổ chức in lên báo giá (D3-27): đã gửi thì bản chụp lúc gửi (chuỗi rỗng là lúc gửi không có logo), chưa gửi thì
+ * logo hiện tại của tổ chức.
+ */
+const SELLER_LOGO_COLUMN = `CASE WHEN v.seller_logo_snapshot IS NOT NULL THEN NULLIF(v.seller_logo_snapshot, '') ELSE so.logo END AS seller_logo`;
 
 const num = (value: string | number | null | undefined): number => Number(value ?? 0);
 
@@ -249,7 +269,7 @@ export class PostgresQuoteStore implements QuoteStore {
     const pool = await this.database.pool(tenantId);
     const head = await readHead(pool, scope, id, true);
     if (!head) return undefined;
-    const version = await readVersion(pool, id, versionNo ?? head.current_version);
+    const version = await readVersion(pool, id, versionNo ?? head.current_version, true);
     if (!version) return undefined;
     const [versions, link, history] = await Promise.all([
       pool.query<{ version_no: number; status: QuoteStatus; total_amount: string; created_at: Date }>(
@@ -367,7 +387,7 @@ export class PostgresQuoteStore implements QuoteStore {
       await lockVersion(client, quoteId, base);
       if (plan === 'IN_PLACE') {
         await client.query(
-          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $34
+          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $36
             WHERE id = $1`,
           [base.versionId, ...versionWriteValues(write), actorId],
         );
@@ -635,11 +655,12 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
   // Mẫu và loại: người dùng chọn thì theo đó, không thì mẫu và loại mặc định đang bật (báo giá tạo tự động khi cơ hội
   // sang giai đoạn Báo giá cũng vậy). Chưa có mẫu nào (DB cũ) thì để rỗng, chế độ theo dòng.
   const form = record.form ?? (await defaultForm(client));
+  const organization = record.organization ?? (await defaultOrganization(client));
   await client.query(
     `INSERT INTO crm_schema.quote_versions
        (quote_id, version_no, valid_until, note, quote_name, quote_date, template_id, quote_type_id, discount_mode, tax_mode,
-        custom_fields, created_by, updated_by)
-     VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11)`,
+        custom_fields, created_by, updated_by, organization_id, seller)
+     VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11, $12, $13::jsonb)`,
     [
       id,
       record.validUntil,
@@ -652,6 +673,8 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
       form.taxMode,
       JSON.stringify(record.customFields ?? {}),
       actorId,
+      organization.organizationId,
+      sellerJson(organization.seller),
     ],
   );
   await writeAuditLog(client, {
@@ -667,9 +690,30 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
       ...(record.opportunityId ? { opportunityId: record.opportunityId } : {}),
       ...(form.templateId ? { templateId: form.templateId } : {}),
       ...(form.quoteTypeId ? { quoteTypeId: form.quoteTypeId } : {}),
+      ...(organization.organizationId ? { organizationId: organization.organizationId } : {}),
     },
   });
   return id;
+}
+
+/** Tổ chức mặc định đang bật cho báo giá lập không chọn tổ chức (kể cả báo giá tự tạo); không có thì rỗng. */
+async function defaultOrganization(client: CrmSqlClient): Promise<{ organizationId: string | null; seller: QuoteSeller | null }> {
+  const result = await client.query<SalesOrganizationSellerRow & { id: string }>(
+    `SELECT id, ${SALES_ORGANIZATION_SELLER_COLUMNS} FROM crm_schema.sales_organizations WHERE is_default AND active LIMIT 1`,
+  );
+  const row = result.rows[0];
+  return row ? { organizationId: row.id, seller: sellerFromRow(row) } : { organizationId: null, seller: null };
+}
+
+function sellerJson(seller: QuoteSeller | null): string | null {
+  return seller ? JSON.stringify(seller) : null;
+}
+
+/** Thông tin tổ chức đã lưu trên phiên bản; sai cấu trúc (ghi tay) thì đọc phần dùng được, rỗng hết thì `null`. */
+function parseStoredSeller(value: unknown): QuoteSeller | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const seller = normalizeQuoteSeller(value as Record<string, unknown>);
+  return hasQuoteSeller(seller) ? seller : null;
 }
 
 function quoteCodeExists(): CrmConflictError {
@@ -836,6 +880,12 @@ export async function applyDecision(
                 (SELECT t.layout FROM crm_schema.quote_templates t WHERE t.id = quote_versions.template_id),
                 layout_snapshot)
               ELSE layout_snapshot END,
+            -- Gửi khách: chụp logo tổ chức báo giá lúc gửi (D3-27); không có tổ chức hoặc tổ chức không có logo thì chuỗi
+            -- rỗng, để đọc lại không lấy logo hiện tại của tổ chức.
+            seller_logo_snapshot = CASE
+              WHEN $2::varchar = 'SENT' THEN COALESCE(
+                (SELECT so.logo FROM crm_schema.sales_organizations so WHERE so.id = quote_versions.organization_id), '')
+              ELSE seller_logo_snapshot END,
             responded_at = CASE WHEN $2::varchar IN ('ACCEPTED', 'DECLINED') THEN now() ELSE responded_at END,
             revision = revision + 1, updated_at = now(), updated_by = $3::uuid
       WHERE id = $1`,
@@ -1067,7 +1117,7 @@ const VERSION_WRITE_SET = `
   approval_reasons = $19::jsonb, quote_name = $20, quote_date = $21, template_id = $22, quote_type_id = $23,
   discount_mode = $24, tax_mode = $25, order_discount_percent = $26, order_discount_amount = $27,
   order_tax_percent = $28, order_tax_amount = $29, order_discount_total = $30, order_tax_total = $31, fees_amount = $32,
-  custom_fields = $33::jsonb`;
+  custom_fields = $33::jsonb, organization_id = $34, seller = $35::jsonb`;
 
 function versionWriteValues(write: QuoteVersionWrite): unknown[] {
   const totals = write.totals;
@@ -1105,6 +1155,8 @@ function versionWriteValues(write: QuoteVersionWrite): unknown[] {
     form.orderTaxTotal,
     form.feesAmount,
     JSON.stringify(form.customFields),
+    form.organizationId,
+    sellerJson(form.seller),
   ];
 }
 
@@ -1213,12 +1265,19 @@ async function readHead(
   return result.rows[0];
 }
 
-async function readVersion(client: CrmSqlClient, quoteId: string, versionNo: number): Promise<QuoteVersion | undefined> {
+/** Đọc một phiên bản; `withSellerLogo` chỉ bật ở đường xem chi tiết (logo tới 300 KB, đường sửa không cần). */
+async function readVersion(
+  client: CrmSqlClient,
+  quoteId: string,
+  versionNo: number,
+  withSellerLogo = false,
+): Promise<QuoteVersion | undefined> {
   const result = await client.query<VersionRow>(
-    `SELECT ${VERSION_COLUMNS}
+    `SELECT ${VERSION_COLUMNS}, ${withSellerLogo ? SELLER_LOGO_COLUMN : 'NULL::text AS seller_logo'}
        FROM crm_schema.quote_versions v
        LEFT JOIN crm_schema.quote_templates t ON t.id = v.template_id
        LEFT JOIN crm_schema.quote_types qt ON qt.id = v.quote_type_id
+       LEFT JOIN crm_schema.sales_organizations so ON so.id = v.organization_id
       WHERE v.quote_id = $1 AND v.version_no = $2`,
     [quoteId, versionNo],
   );
@@ -1306,6 +1365,9 @@ function toForm(row: VersionRow, fees: readonly { feeType: string; amount: numbe
     fees,
     feesAmount: num(row.fees_amount),
     customFields: row.custom_fields ?? {},
+    organizationId: row.organization_id,
+    organizationName: row.organization_name,
+    seller: parseStoredSeller(row.seller),
   };
 }
 
@@ -1348,6 +1410,7 @@ function toVersion(row: VersionRow, lines: QuoteLine[], fees: readonly { feeType
     supersededAt: toIso(row.superseded_at),
     createdAt: toIso(row.created_at) ?? '',
     layoutSnapshot: parseStoredQuoteLayout(row.layout_snapshot, `quote_versions ${row.id}`),
+    sellerLogo: row.seller_logo || null,
     lines,
   };
 }

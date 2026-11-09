@@ -24,7 +24,7 @@ import {
 import type * as Docx from 'docx';
 import { QuoteExportError } from './export-error';
 import { isEmbeddedImage, lineTableRows, visibleLineColumns } from './quote-layout-blocks';
-import type { QuoteLayoutData } from './quote-layout.data';
+import { companyHeaderLogo, type QuoteLayoutData } from './quote-layout.data';
 import { quoteLayoutPageSize } from './quote-layout-view';
 
 export type DocxModule = typeof Docx;
@@ -209,7 +209,7 @@ export function createQuoteDocument(docx: DocxModule, layout: QuoteLayout, data:
       paragraph(runs(bind(block.name), { bold: true, size: halfPoints(layout.fontSizePt * 1.15) }), { align: block.align }),
       ...block.lines.map((item) => paragraph(runs(bind(item)), { align: block.align })),
     ];
-    const logo = decodeImage(block.logo);
+    const logo = decodeImage(companyHeaderLogo(block, data));
     if (!logo) return text;
     const logoWidthMm = Math.min(45, contentWidthMm / 3);
     const logoTwips = mmToTwip(logoWidthMm + 4);

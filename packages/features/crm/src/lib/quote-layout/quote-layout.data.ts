@@ -15,10 +15,12 @@ import {
   formatQuoteMoney,
   formatQuoteNumber,
   formatQuotePercent,
+  companyVariableValues,
   type CustomFieldDefinition,
   type CustomFieldValue,
   type CustomerDetail,
   type QuoteDetail,
+  type QuoteLayoutCompanyHeaderBlock,
   type QuoteLayoutLineColumnKey,
   type QuoteLayoutTotalRowKey,
 } from '@enterprise-platform/contracts-crm';
@@ -41,6 +43,17 @@ export interface QuoteLayoutData {
   readonly totals: Readonly<Record<QuoteLayoutTotalRowKey, string>>;
   /** Tổng cộng bằng chữ ("Một triệu ... đồng"). */
   readonly amountInWords: string;
+  /**
+   * Logo của tổ chức báo giá (data URL PNG, JPEG), dùng cho khối Đầu trang công ty bật `logoFromOrganization` (D3-28).
+   * Rỗng: tổ chức không có logo hoặc báo giá không chọn tổ chức; khối dùng `logo` của chính nó.
+   */
+  readonly companyLogo?: string | null;
+}
+
+/** Logo in ở khối Đầu trang công ty: logo tổ chức khi khối bật `logoFromOrganization` và tổ chức có logo, ngược lại logo của khối. */
+export function companyHeaderLogo(block: QuoteLayoutCompanyHeaderBlock, data: Pick<QuoteLayoutData, 'companyLogo'>): string | undefined {
+  if (block.logoFromOrganization && data.companyLogo) return data.companyLogo;
+  return block.logo;
 }
 
 /** Người trong danh sách `people` của `useCrm`; email, điện thoại có thì dùng (danh sách hiện chỉ có tên). */
@@ -115,6 +128,7 @@ export function buildQuoteLayoutData(input: BuildQuoteLayoutDataInput): QuoteLay
   const lineTax = form.taxMode === 'LINE';
 
   const values: Record<string, string> = {
+    ...nfcValues(companyVariableValues(form.seller)),
     'quote.code': nfc(detail.code),
     'quote.name': nfc(form.quoteName ?? detail.quoteName),
     'quote.date': form.quoteDate ? formatDateValue(form.quoteDate) : formatDateValue(version.createdAt || detail.createdAt),
@@ -187,7 +201,12 @@ export function buildQuoteLayoutData(input: BuildQuoteLayoutDataInput): QuoteLay
       grandTotal: formatQuoteMoney(totals.totalAmount),
     },
     amountInWords: amountInWordsVi(totals.totalAmount),
+    companyLogo: version.sellerLogo || null,
   };
+}
+
+function nfcValues(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, nfc(value)]));
 }
 
 /** Dữ liệu rỗng: mọi biến rỗng, không dòng hàng (trình thiết kế khi tắt "Dữ liệu mẫu"). */
@@ -197,6 +216,7 @@ export function emptyQuoteLayoutData(): QuoteLayoutData {
     lines: [],
     totals: { subtotal: '', lineDiscount: '', orderDiscount: '', fees: '', shipping: '', vat: '', orderTax: '', grandTotal: '' },
     amountInWords: '',
+    companyLogo: null,
   };
 }
 
@@ -217,6 +237,25 @@ const SAMPLE_LINES: readonly SampleLine[] = [
   { code: 'VT-0103', name: 'Ống thép mạ kẽm DN100', unit: 'Mét', category: 'Vật tư', quantity: 120, listPrice: 265_000, discountPercent: 3, vatRate: 8 },
   { code: 'DV-0010', name: 'Lắp đặt và chạy thử', unit: 'Gói', category: 'Dịch vụ', quantity: 1, listPrice: 8_000_000, discountPercent: 0, vatRate: 8 },
 ];
+
+/** Công ty mẫu cho biến `company.*` (plan 16.3). */
+const SAMPLE_COMPANY: Readonly<Record<string, string>> = {
+  'company.name': 'Công ty Cổ phần Thiết bị Mẫu',
+  'company.shortName': 'TBM',
+  'company.address': 'Tầng 5, 18 Phạm Hùng, Nam Từ Liêm, Hà Nội',
+  'company.taxCode': '0109876543',
+  'company.phone': '024 3999 8888',
+  'company.email': 'baogia@thietbimau.vn',
+  'company.website': 'thietbimau.vn',
+  'company.bankAccount': '0011 0045 6789',
+  'company.bankName': 'Ngân hàng TMCP Ngoại thương Việt Nam',
+  'company.representative': 'Trần Minh Đức',
+  'company.representativeTitle': 'Giám đốc',
+};
+
+/** Logo mẫu (PNG thật 48×24, hai khối màu) để công tắc "Dữ liệu mẫu" thấy logo theo tổ chức. */
+export const SAMPLE_COMPANY_LOGO =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAAOklEQVR42mOQ9+uhCnrQJUcVxDDqoFEHjTpo1EGjDhp10AA5aNbSjVRBow4addCog0YdNOqgUQeRiADg3Beb3N3v4QAAAABJRU5ErkJggg==';
 
 /**
  * Dữ liệu mẫu cho trình thiết kế (công tắc "Dữ liệu mẫu") và xuất thử. Trường tuỳ biến truyền vào được điền giá trị mẫu
@@ -256,6 +295,7 @@ export function sampleQuoteLayoutData(customFields: readonly CustomFieldDefiniti
   const fees = 1_500_000;
   const total = net + vat + fees;
   const values: Record<string, string> = {
+    ...SAMPLE_COMPANY,
     'quote.code': 'BG2600123',
     'quote.name': 'Báo giá hệ thống bơm cấp nước',
     'quote.date': formatLocalDate(now),
@@ -309,6 +349,7 @@ export function sampleQuoteLayoutData(customFields: readonly CustomFieldDefiniti
       grandTotal: formatQuoteMoney(total),
     },
     amountInWords: amountInWordsVi(total),
+    companyLogo: SAMPLE_COMPANY_LOGO,
   };
 }
 

@@ -25,7 +25,7 @@ const OFF = field('99999999-2222-4333-8444-555555555555', 'Trường đã tắt'
 describe('filterQuoteVariables', () => {
   it('đủ các nhóm của plan 5.3, đúng thứ tự, có trường tuỳ biến đang bật', () => {
     const groups = filterQuoteVariables('', [PAY, OFF]);
-    expect(groups.map((group) => group.label)).toEqual(['Báo giá', 'Khách hàng', 'Dự án', 'Người phụ trách', 'Tiền', 'Ngày in', 'Trường tuỳ biến']);
+    expect(groups.map((group) => group.label)).toEqual(['Công ty (tổ chức báo giá)', 'Báo giá', 'Khách hàng', 'Dự án', 'Người phụ trách', 'Tiền', 'Ngày in', 'Trường tuỳ biến']);
     expect(groups.slice(0, -1).reduce((sum, group) => sum + group.items.length, 0)).toBe(QUOTE_LAYOUT_VARIABLES.length);
     expect(groups.at(-1)?.items).toEqual([{ key: `custom.${PAY.id}`, label: 'Điều khoản thanh toán' }]);
   });

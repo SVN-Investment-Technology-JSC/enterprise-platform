@@ -1,9 +1,19 @@
 /**
  * @jest-environment node
  */
+import { defaultQuoteLayout } from '@enterprise-platform/contracts-crm';
 import * as docx from 'docx';
 import { inflateRawSync } from 'node:zlib';
-import { fixtureCustomer, fixtureDetail, fixtureFullLayout, fixtureLine, fixtureVersion, FIXTURE_XSS } from './quote-layout.fixtures';
+import {
+  fixtureCustomer,
+  fixtureDetail,
+  fixtureFullLayout,
+  fixtureLine,
+  fixtureSellerVersion,
+  fixtureVersion,
+  FIXTURE_PNG,
+  FIXTURE_XSS,
+} from './quote-layout.fixtures';
 import { buildQuoteLayoutData } from './quote-layout.data';
 import { createQuoteDocument, loadDocx, mmToTwip, readImageSize } from './export-docx';
 
@@ -36,7 +46,10 @@ function unzip(buffer: Buffer): Map<string, Buffer> {
 
 const now = new Date(2026, 10, 6);
 
-async function documentXml(layout = fixtureFullLayout(), data = buildQuoteLayoutData({ detail: fixtureDetail(), customer: fixtureCustomer(), now })) {
+async function documentXml(
+  layout = fixtureFullLayout(),
+  data = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion()), customer: fixtureCustomer(), now }),
+) {
   const buffer = await docx.Packer.toBuffer(createQuoteDocument(docx, layout, data));
   const files = unzip(buffer);
   return { files, xml: files.get('word/document.xml')?.toString('utf8') ?? '', styles: files.get('word/styles.xml')?.toString('utf8') ?? '' };
@@ -47,7 +60,7 @@ describe('createQuoteDocument', () => {
     const { xml, files } = await documentXml();
     expect(xml).toContain('BG2600001');
     expect(xml).toContain('Công ty A');
-    expect(xml).toContain('TÊN CÔNG TY');
+    expect(xml).toContain('Công ty TNHH Thiết bị An Phát');
     expect(xml).toContain('BÁO GIÁ');
     expect(xml).toContain('Máy bơm');
     expect(xml).toContain('1.980.000');
@@ -155,5 +168,34 @@ describe('tải thư viện', () => {
     await expect(result).rejects.toMatchObject({ name: 'QuoteExportError' });
     await expect(result).rejects.toThrow('Không tải được bộ xuất Word. Kiểm tra mạng và thử lại.');
     jest.dontMock('docx');
+  });
+});
+
+/** File ảnh trong `word/media` (bỏ mục thư mục). */
+const mediaFiles = (files: Map<string, Buffer>) => [...files.keys()].filter((name) => name.startsWith('word/media/') && !name.endsWith('/'));
+
+describe('createQuoteDocument: tổ chức báo giá (P3C6-06)', () => {
+  it('TC-ORG-17: đầu trang có thông tin tổ chức, word/media có logo tổ chức khi bố cục bật logoFromOrganization', async () => {
+    const layout = defaultQuoteLayout();
+    const data = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion(undefined, FIXTURE_PNG)), customer: fixtureCustomer(), now });
+    const { xml, files } = await documentXml(layout, data);
+    expect(xml).toContain('Công ty TNHH Thiết bị An Phát');
+    expect(xml).toContain('Địa chỉ: 25 Trần Duy Hưng, Cầu Giấy, Hà Nội');
+    expect(xml).toContain('Mã số thuế: 0101111111');
+    expect(xml).toContain('Điện thoại: 024 3333 1111');
+    expect(xml).toContain('Email: baogia@anphat.vn');
+    expect(xml).not.toContain('TÊN CÔNG TY');
+    const media = mediaFiles(files);
+    expect(media).toHaveLength(1);
+    expect(files.get(media[0])?.equals(Buffer.from(FIXTURE_PNG.split(',')[1], 'base64'))).toBe(true);
+  });
+
+  it('tắt logoFromOrganization, hoặc tổ chức không có logo và khối không có logo: không có ảnh', async () => {
+    const base = defaultQuoteLayout();
+    const off = { ...base, blocks: base.blocks.map((block) => (block.type === 'companyHeader' ? { ...block, logoFromOrganization: false } : block)) };
+    const withLogo = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion(undefined, FIXTURE_PNG)), now });
+    expect(mediaFiles((await documentXml(off, withLogo)).files)).toEqual([]);
+    const noLogo = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion(undefined, null)), now });
+    expect(mediaFiles((await documentXml(base, noLogo)).files)).toEqual([]);
   });
 });

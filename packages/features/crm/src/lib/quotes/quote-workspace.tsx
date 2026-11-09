@@ -282,7 +282,10 @@ export interface BlankQuoteInput {
   readonly today: string;
 }
 
-/** Báo giá chưa có bản ghi (màn lập mới): không dòng hàng, tiền bằng 0, thông tin lấy theo form đang nhập. */
+/**
+ * Báo giá chưa có bản ghi (màn lập mới): không dòng hàng, tiền bằng 0, thông tin lấy theo form đang nhập. Tổ chức báo giá
+ * để rỗng; màn lập mới ghép tổ chức đang chọn bằng `withSellerDraft`.
+ */
 export function blankQuoteDetail(input: BlankQuoteInput): QuoteDetail {
   const { general } = input;
   const template = input.templates.find((item) => item.id === general.templateId);
@@ -348,6 +351,9 @@ export function blankQuoteDetail(input: BlankQuoteInput): QuoteDetail {
         fees: [],
         feesAmount: 0,
         customFields,
+        organizationId: null,
+        organizationName: null,
+        seller: null,
       },
       promotions: [],
       requiresApproval: false,
@@ -364,6 +370,7 @@ export function blankQuoteDetail(input: BlankQuoteInput): QuoteDetail {
       supersededAt: null,
       createdAt: now,
       layoutSnapshot: null,
+      sellerLogo: null,
       lines: [],
     },
   };

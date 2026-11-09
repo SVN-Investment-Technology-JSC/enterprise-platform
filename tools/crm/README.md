@@ -195,7 +195,7 @@ theo mã luồng, tên cơ hội, tên tài liệu); mỗi nhóm việc lỗi ch
 ## Bước `phase3` (P3C5-01)
 
 Dữ liệu phase 3 (bố cục in của mẫu báo giá, bản chụp khi gửi) theo `docs/crm/phase3/test_phase3.md` mục 1.3, chỉ qua API
-thật. Cần migration crm `0034` đã áp (`pnpm db:provision`) và các bước `inventory`, `crm`, `pricing` đã chạy. Chạy lại
+thật. Cần migration crm `0034`, `0035` đã áp (`pnpm db:provision`) và các bước `inventory`, `crm`, `pricing` đã chạy. Chạy lại
 được: mẫu và trường tuỳ biến khớp theo tên, báo giá theo "Tên báo giá" (tiền tố `QA-P3`), mặt hàng và khách theo mã;
 bố cục đã có thì không ghi đè.
 
@@ -212,6 +212,7 @@ bố cục đã có thì không ghi đè.
 | Q-ORDER | M-A3, chiết khấu tổng đơn 5%, thuế tổng đơn 10%, 2 khoản phí |
 | Q-XSS | Khách `QA-P3-XSS` tên `<img src=x onerror=alert(1)>`, mặt hàng `QA-P3-KYTU` tên `"&<>'` |
 | Q-OUT | Báo giá của NV3 cho `QA-CRM-KH21` (ngoài phạm vi NV1) |
+| ORG-A, ORG-B | Tổ chức báo giá (C6, test_phase3 mục 2.6): `QA-P3-ORGA` "QA-P3 Công ty TNHH Thiết bị Miền Bắc" mặc định, có logo PNG sinh tại chỗ; `QA-P3-ORGB` "QA-P3 Công ty CP Giải pháp Miền Nam" không logo. Chạy lại thì đưa về trạng thái này (bật, mặc định, có hoặc không logo). Báo giá Q-* lập trước khi có tổ chức nên không có tổ chức |
 
 - Gửi khách: trình duyệt không vượt ngưỡng thì duyệt luôn; cần duyệt thì TN duyệt trên Quy trình (hoặc trực tiếp nếu gắn
   DIRECT), rồi NV1 gửi khách.
@@ -224,12 +225,14 @@ Kiểm thử phase 3 sau bước này:
 ```bash
 node tools/crm/e2e-phase3.mjs [--tenant=svn] [--gateway=http://localhost:8089]   # API: quyền, kiểm hợp lệ, xung đột, bản chụp, chèn dòng
 node tools/crm/e2e-phase3-browser.mjs [--shots=<thư mục>]                          # Playwright, Chrome hệ thống, gateway 8080
+node tools/crm/e2e-phase3-org.mjs [--tenant=svn] [--base=http://localhost:8080]     # Tổ chức báo giá (TC-ORG): API và trình duyệt
 ```
 
 `--gateway` là nginx thật (`infrastructure/nginx/nginx.conf`) cho TC-TL-19; gateway dev `tools/dev-gateway.mjs` không giới
 hạn thân request nên không dùng được cho case này. Bỏ trống thì TC-TL-19 ghi "Bị chặn".
 
-`e2e-phase3-browser.mjs` mỗi lượt để lại vài báo giá nháp `QA-P3B …` của NV1. `e2e-phase2i-browser.mjs` và
+`e2e-phase3-browser.mjs` mỗi lượt để lại vài báo giá nháp `QA-P3B …` của NV1; `e2e-phase3-org.mjs` để lại vài báo giá
+`QA-P3O …` (một báo giá đã gửi khách) và trả logo ORG-A về như cũ. `e2e-phase2i-browser.mjs` và
 `e2e-phase2a-browser.mjs` mở "báo giá Nháp đầu danh sách", nên sau khi chạy e2e phase 3 phải chạy lại `e2e-phase2i.mjs`
 hoặc `e2e-phase2a.mjs` (bản API) trước bản trình duyệt tương ứng.
 

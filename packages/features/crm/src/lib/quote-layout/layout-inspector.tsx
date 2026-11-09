@@ -242,7 +242,20 @@ function CompanyHeaderEditor(ctx: EditorContext<QuoteLayoutCompanyHeaderBlock>) 
         ))}
         <p className={styles.fieldHint}>Tối đa {LIMITS.maxCompanyLines} dòng: địa chỉ, mã số thuế, điện thoại...</p>
       </Section>
-      <ImagePicker label="Logo" value={block.logo} onChange={(logo) => set({ logo })} onRemove={() => set({ logo: undefined })} />
+      <CheckField
+        label="Logo theo tổ chức báo giá"
+        checked={block.logoFromOrganization === true}
+        onChange={(logoFromOrganization) => set({ logoFromOrganization })}
+      />
+      <p className={styles.fieldHint}>
+        Bật thì in logo của tổ chức báo giá; tổ chức không có logo thì dùng ảnh bên dưới.
+      </p>
+      <ImagePicker
+        label={block.logoFromOrganization ? 'Logo dự phòng' : 'Logo'}
+        value={block.logo}
+        onChange={(logo) => set({ logo })}
+        onRemove={() => set({ logo: undefined })}
+      />
       <SegmentedField
         label="Vị trí logo"
         value={block.logoPosition}

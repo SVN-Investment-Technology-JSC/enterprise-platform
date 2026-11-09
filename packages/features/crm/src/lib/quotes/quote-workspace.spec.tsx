@@ -10,14 +10,27 @@ import {
   type QuoteLayout,
   type QuoteTemplate,
   type QuoteVersion,
+  type SalesOrganization,
+  type SalesOrganizationSummary,
 } from '@enterprise-platform/contracts-crm';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { useState, type ReactNode } from 'react';
 import { emptyQuoteLayoutData } from '../quote-layout/quote-layout.data';
-import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureVersion } from '../quote-layout/quote-layout.fixtures';
+import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureSeller, fixtureSellerVersion, fixtureVersion } from '../quote-layout/quote-layout.fixtures';
 import { clearTemplateLayoutCache } from '../quote-layout/use-template-layout';
+import { clearSalesOrganizationCache } from './use-sales-organizations';
+import {
+  EMPTY_SELLER_STATE,
+  MANUAL_ORGANIZATION,
+  sameSeller,
+  savedSeller,
+  sellerErrors,
+  sellerPatch,
+  sellerStateFromOrganization,
+  withSellerDraft,
+} from './quote-seller.model';
 import { QUOTE_READ_ONLY_NOTE, QuoteEditor, openPickerAfterLoad } from './quote-editor';
 import { MISSING_SNAPSHOT_NOTE, QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { GeneralFields, type GeneralState } from './quote-form-parts';
@@ -81,17 +94,22 @@ jest.mock('@enterprise-platform/shared-ui', () => ({
     options,
     value,
     placeholder,
+    clearable,
     onChange,
   }: {
     options: { value: string; label: string }[];
     value: string;
     placeholder?: string;
+    clearable?: boolean;
     onChange: (value: string) => void;
   }) => (
     <div data-select-value={value} data-placeholder={placeholder}>
       {options.map((option) => (
         <button key={option.value} type="button" onClick={() => onChange(option.value)}>{`chọn ${option.label}`}</button>
       ))}
+      {clearable && value ? (
+        <button type="button" onClick={() => onChange('')}>{`bỏ chọn ${placeholder ?? ''}`}</button>
+      ) : null}
     </div>
   ),
   Popconfirm: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -148,6 +166,8 @@ const mockApi = {
   listCustomers: jest.fn(),
   listOpportunities: jest.fn(),
   listQuotes: jest.fn(),
+  listSalesOrganizations: jest.fn(),
+  getSalesOrganization: jest.fn(),
 };
 jest.mock('../crm-api', () => ({
   errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
@@ -157,6 +177,7 @@ jest.mock('../crm-api', () => ({
       'getQuote', 'getCustomer', 'getOpportunity', 'updateQuoteVersion', 'quoteAction', 'addQuoteLines', 'removeQuoteLine',
       'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
       'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
+      'listSalesOrganizations', 'getSalesOrganization',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
 }));
@@ -201,6 +222,7 @@ function stubLookups(fields: CustomFieldDefinition[] = []) {
 beforeEach(() => {
   jest.clearAllMocks();
   clearTemplateLayoutCache();
+  clearSalesOrganizationCache();
   mockCrm = { capabilities: WRITER, people: [{ userId: 'u1', displayName: 'Nguyễn Văn An' }], currentUserId: 'u9' };
   stubLookups();
   mockApi.getQuoteTemplateLayout.mockImplementation(layoutFor);
@@ -208,6 +230,7 @@ beforeEach(() => {
   mockApi.searchCatalog.mockResolvedValue([]);
   mockApi.listCustomers.mockResolvedValue({ items: [] });
   mockApi.listOpportunities.mockResolvedValue({ items: [] });
+  mockApi.listSalesOrganizations.mockResolvedValue([]);
 });
 
 const title = () => document.querySelector('[data-block-type="title"]')?.textContent ?? '';
@@ -760,5 +783,252 @@ describe('NewQuoteScreen (P3C4-06)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Lập báo giá' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('q2'));
     expect(mockApi.createQuote).toHaveBeenCalledWith(expect.objectContaining({ opportunityId: 'o1', customerId: null }));
+  });
+});
+
+// --- Tổ chức báo giá (P3C6-06) --------------------------------------------------------------------------------------
+
+const LOGO_A = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAIAAADwyuo0AAAAEElEQVR4nGOQkzsBRwzIHABkaggh4UPC6AAAAABJRU5ErkJggg==';
+const LOGO_B = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+
+function organization(patch: Partial<SalesOrganization>): SalesOrganization {
+  return {
+    id: 'org-a',
+    code: null,
+    name: 'Công ty An Phát',
+    shortName: null,
+    address: '25 Trần Duy Hưng, Hà Nội',
+    taxCode: '0101111111',
+    phone: '024 3333 1111',
+    email: 'baogia@anphat.vn',
+    website: null,
+    bankAccount: null,
+    bankName: null,
+    representative: null,
+    representativeTitle: null,
+    hasLogo: true,
+    isDefault: true,
+    active: true,
+    sortOrder: 0,
+    inUse: false,
+    updatedAt: '2026-11-09T00:00:00.000Z',
+    logo: LOGO_A,
+    ...patch,
+  };
+}
+const ORG_A = organization({});
+const ORG_B = organization({
+  id: 'org-b',
+  name: 'Công ty Bình Minh',
+  address: '9 Nguyễn Huệ, TP. Hồ Chí Minh',
+  taxCode: '0302222222',
+  phone: '028 3888 2222',
+  email: 'sales@binhminh.vn',
+  isDefault: false,
+  logo: LOGO_B,
+});
+/** Danh sách không có logo. */
+const summaryOf = (org: SalesOrganization): SalesOrganizationSummary =>
+  Object.fromEntries(Object.entries(org).filter(([key]) => key !== 'logo')) as unknown as SalesOrganizationSummary;
+
+function stubOrganizations() {
+  mockApi.listSalesOrganizations.mockResolvedValue([summaryOf(ORG_A), summaryOf(ORG_B)]);
+  mockApi.getSalesOrganization.mockImplementation((id: string) => Promise.resolve(id === 'org-b' ? ORG_B : ORG_A));
+}
+
+const sellerSection = () => screen.getByRole('region', { name: 'Tổ chức báo giá' });
+const sellerInput = (label: string) => within(sellerSection()).getByLabelText(label) as HTMLInputElement;
+const previewHeader = () => document.querySelector('[data-block-type="companyHeader"]') as HTMLElement;
+const savedWithA = (patch: Partial<QuoteVersion> = {}) =>
+  fixtureDetail(fixtureSellerVersion(fixtureSeller({ name: ORG_A.name, address: ORG_A.address, taxCode: ORG_A.taxCode, phone: ORG_A.phone, email: ORG_A.email, shortName: null }), LOGO_A, patch));
+
+describe('Tổ chức báo giá: hàm thuần (P3C6-06)', () => {
+  it('savedSeller, sameSeller, sellerPatch: rỗng hết thì gửi seller null; chỉ khác khoảng trắng coi là không đổi', () => {
+    const saved = savedSeller(savedWithA());
+    expect(saved.organizationId).toBe('org-a');
+    expect(saved.seller.name).toBe('Công ty An Phát');
+    expect(sameSeller(saved, { ...saved, seller: { ...saved.seller, phone: ` ${saved.seller.phone} ` } })).toBe(true);
+    expect(sameSeller(saved, { ...saved, seller: { ...saved.seller, phone: '0900' } })).toBe(false);
+    expect(sameSeller(saved, { ...saved, organizationId: 'org-b' })).toBe(false);
+    expect(sellerPatch(EMPTY_SELLER_STATE)).toEqual({ organizationId: null, seller: null });
+    // Nhập thủ công: không gắn tổ chức, gửi thông tin đang nhập; không chọn: bỏ cả thông tin còn sót.
+    expect(sellerPatch({ ...saved, organizationId: MANUAL_ORGANIZATION })).toMatchObject({ organizationId: null, seller: { name: 'Công ty An Phát' } });
+    expect(sellerPatch({ ...saved, organizationId: '' })).toEqual({ organizationId: null, seller: null });
+    expect(sellerPatch({ ...saved, seller: { ...saved.seller, phone: ' 0900 ' } }).seller).toMatchObject({ phone: '0900', website: null });
+  });
+
+  it('sellerErrors chỉ kiểm độ dài, không ép bắt buộc', () => {
+    expect(sellerErrors(EMPTY_SELLER_STATE)).toEqual({});
+    expect(sellerErrors({ organizationId: '', seller: { ...EMPTY_SELLER_STATE.seller, phone: '1'.repeat(51) } }).phone).toBe('Điện thoại tối đa 50 ký tự.');
+  });
+
+  it('withSellerDraft: giữ tổ chức đã lưu thì dùng sellerLogo của server; đổi tổ chức thì logo, tên theo tổ chức mới; bỏ chọn thì không logo', () => {
+    const detail = savedWithA();
+    const same = withSellerDraft(detail, savedSeller(detail), ORG_B);
+    expect(same.version.sellerLogo).toBe(LOGO_A);
+    const changed = withSellerDraft(detail, sellerStateFromOrganization(ORG_B), ORG_B);
+    expect(changed.version.sellerLogo).toBe(LOGO_B);
+    expect(changed.version.form).toMatchObject({ organizationId: 'org-b', organizationName: 'Công ty Bình Minh', seller: expect.objectContaining({ name: 'Công ty Bình Minh' }) });
+    const cleared = withSellerDraft(detail, EMPTY_SELLER_STATE, null);
+    expect(cleared.version.sellerLogo).toBeNull();
+    expect(cleared.version.form.seller).toBeNull();
+  });
+});
+
+describe('Tổ chức báo giá trên màn báo giá (P3C6-06)', () => {
+  beforeEach(stubOrganizations);
+
+  it('TC-ORG-15: màn lập mới chọn sẵn A (chỉ xem thông tin); đổi B thì thông tin và xem trước đổi theo; Nhập thủ công mới hiện ô, Lưu gửi thông tin sửa tay', async () => {
+    mockApi.listCustomers.mockResolvedValue({ items: [fixtureCustomer({ id: CUSTOMER_ID })] });
+    mockApi.createQuote.mockResolvedValue({ id: 'q-new', code: 'BG-01' });
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    await waitFor(() => expect(sellerSection().textContent).toContain('Công ty An Phát'));
+    expect(sellerSection().querySelector('[data-select-value="org-a"]')).toBeTruthy();
+    // Chọn tổ chức: thông tin chỉ xem, chưa có ô nhập.
+    expect(within(sellerSection()).queryAllByRole('textbox')).toHaveLength(0);
+    await waitFor(() => expect(previewHeader().textContent).toContain('Mã số thuế: 0101111111'));
+    await waitFor(() => expect(previewHeader().querySelector('img')?.getAttribute('src')).toBe(LOGO_A));
+
+    fireEvent.click(within(sellerSection()).getByText('chọn Công ty Bình Minh'));
+    expect(sellerSection().textContent).toContain('9 Nguyễn Huệ, TP. Hồ Chí Minh');
+    await waitFor(() => expect(previewHeader().textContent).toContain('Công ty Bình Minh'));
+    await waitFor(() => expect(previewHeader().querySelector('img')?.getAttribute('src')).toBe(LOGO_B));
+    expect(previewHeader().textContent).not.toContain('An Phát');
+
+    // Nhập thủ công: hiện ô, điền sẵn thông tin đang có (của B) để sửa; không còn logo tổ chức.
+    fireEvent.click(within(sellerSection()).getByText('chọn Nhập thủ công'));
+    expect(sellerInput('Tên công ty').value).toBe('Công ty Bình Minh');
+    fireEvent.change(sellerInput('Điện thoại'), { target: { value: '0900 000 999' } });
+    await waitFor(() => expect(previewHeader().textContent).toContain('Điện thoại: 0900 000 999'));
+    expect(previewHeader().querySelector('img')).toBeNull();
+    fireEvent.click(await screen.findByText('chọn Công ty A'));
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    await act(async () => {
+      fireEvent.click(button('Lưu'));
+    });
+    expect(mockApi.createQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: null,
+        seller: expect.objectContaining({ name: 'Công ty Bình Minh', phone: '0900 000 999', taxCode: '0302222222' }),
+      }),
+    );
+  });
+
+  it('màn lập mới: bỏ chọn tổ chức thì không có thông tin, gửi organizationId và seller null; hộp thoại lập nhỏ không gửi tổ chức', async () => {
+    mockApi.listCustomers.mockResolvedValue({ items: [fixtureCustomer({ id: CUSTOMER_ID })] });
+    mockApi.createQuote.mockResolvedValue({ id: 'q-new', code: 'BG-01' });
+    const { unmount } = render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    await waitFor(() => expect(sellerSection().textContent).toContain('Công ty An Phát'));
+    expect(sellerSection().textContent).toContain(ORG_A.address);
+    fireEvent.click(within(sellerSection()).getByText('bỏ chọn Không chọn tổ chức'));
+    expect(sellerSection().textContent).not.toContain(ORG_A.address);
+    expect(within(sellerSection()).queryAllByRole('textbox')).toHaveLength(0);
+    expect(within(sellerSection()).queryByRole('button', { name: /Lấy lại từ tổ chức/ })).toBeNull();
+    fireEvent.click(await screen.findByText('chọn Công ty A'));
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    await act(async () => {
+      fireEvent.click(button('Lưu'));
+    });
+    expect(mockApi.createQuote).toHaveBeenCalledWith(expect.objectContaining({ organizationId: null, seller: null }));
+    unmount();
+
+    mockApi.createQuote.mockResolvedValue({ id: 'q2', code: 'BG2600002' });
+    render(<CreateQuoteDialog opportunityId="o1" onClose={jest.fn()} onCreated={jest.fn()} />);
+    expect(screen.queryByRole('region', { name: 'Tổ chức báo giá' })).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Lập báo giá' }));
+    });
+    const request = mockApi.createQuote.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(request).not.toHaveProperty('organizationId');
+    expect(request).not.toHaveProperty('seller');
+  });
+
+  it('mục Tổ chức báo giá nằm trên Thông tin chung', async () => {
+    renderEditor(savedWithA());
+    await screen.findByText('Thông tin chung');
+    const left = screen.getByTestId('quote-workspace-left');
+    const seller = within(left).getByRole('region', { name: 'Tổ chức báo giá' });
+    const general = within(left).getByRole('region', { name: 'Thông tin báo giá' });
+    expect(seller.compareDocumentPosition(general) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('TC-ORG-15, TC-ORG-16: báo giá Nháp dùng A, đổi sang B: thông tin, logo xem trước đổi theo; Lấy lại từ tổ chức; Nhập thủ công rồi Lưu', async () => {
+    mockApi.updateQuoteVersion.mockResolvedValue(fixtureDetail(fixtureVersion({ revision: 4 })));
+    renderEditor(savedWithA());
+    await waitFor(() => expect(previewHeader()?.textContent).toContain('Công ty An Phát'));
+    expect(previewHeader().querySelector('img')?.getAttribute('src')).toBe(LOGO_A);
+    expect(sellerSection().textContent).toContain('baogia@anphat.vn');
+    expect(button('Lưu').disabled).toBe(true);
+
+    fireEvent.click(within(sellerSection()).getByText('chọn Công ty Bình Minh'));
+    expect(button('Lưu').disabled).toBe(false);
+    await waitFor(() => expect(previewHeader().textContent).toContain('Công ty Bình Minh'));
+    await waitFor(() => expect(previewHeader().querySelector('img')?.getAttribute('src')).toBe(LOGO_B));
+    expect(mockApi.getSalesOrganization).toHaveBeenCalledWith('org-b');
+    fireEvent.click(within(sellerSection()).getByRole('button', { name: /Lấy lại từ tổ chức/ }));
+    expect(sellerSection().textContent).toContain('028 3888 2222');
+
+    fireEvent.click(within(sellerSection()).getByText('chọn Nhập thủ công'));
+    fireEvent.change(sellerInput('Điện thoại'), { target: { value: '0900 111 222' } });
+    await act(async () => {
+      fireEvent.click(button('Lưu'));
+    });
+    expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith(
+      'q1',
+      1,
+      expect.objectContaining({
+        revision: 3,
+        organizationId: null,
+        seller: expect.objectContaining({ name: 'Công ty Bình Minh', phone: '0900 111 222' }),
+      }),
+    );
+  });
+
+  it('báo giá đã lưu ở dạng nhập thủ công mở ra vẫn là Nhập thủ công; Huỷ về bản đã lưu; lỗi trường từ server hiện tại ô', async () => {
+    const saved = savedWithA();
+    const manual = { ...saved, version: { ...saved.version, sellerLogo: null, form: { ...saved.version.form, organizationId: null, organizationName: null } } };
+    expect(savedSeller(manual).organizationId).toBe(MANUAL_ORGANIZATION);
+    renderEditor(manual);
+    await waitFor(() => expect(sellerInput('Tên công ty').value).toBe('Công ty An Phát'));
+    expect(sellerSection().querySelector(`[data-select-value="${MANUAL_ORGANIZATION}"]`)).toBeTruthy();
+    fireEvent.change(sellerInput('Tên công ty'), { target: { value: 'Tên sửa tay' } });
+    fireEvent.click(button('Huỷ'));
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ thay đổi' }));
+    expect(sellerInput('Tên công ty').value).toBe('Công ty An Phát');
+
+    mockApi.updateQuoteVersion.mockRejectedValueOnce({
+      statusCode: 400,
+      code: 'SALES_ORGANIZATION_INVALID',
+      message: 'Email tối đa 200 ký tự.',
+      fieldErrors: [{ field: 'email', message: 'Email tối đa 200 ký tự.' }],
+    });
+    fireEvent.change(sellerInput('Email'), { target: { value: 'x@y.vn' } });
+    await act(async () => {
+      fireEvent.click(button('Lưu'));
+    });
+    expect(within(sellerSection()).getByText('Email tối đa 200 ký tự.')).toBeTruthy();
+  });
+
+  it('TC-ORG-19: báo giá đã gửi: mục Tổ chức báo giá chỉ xem; xem trước dùng logo chụp lúc gửi dù tổ chức đã đổi logo', async () => {
+    mockApi.getSalesOrganization.mockResolvedValue({ ...ORG_A, logo: LOGO_B, phone: '024 9999 9999' });
+    renderEditor(savedWithA({ versionNo: 2, status: 'SENT', sentAt: '2026-11-02T00:00:00.000Z' }));
+    await waitFor(() => expect(previewHeader()?.textContent).toContain('Công ty An Phát'));
+    const section = sellerSection();
+    expect(within(section).queryAllByRole('textbox')).toHaveLength(0);
+    expect(within(section).queryByRole('button', { name: /Lấy lại từ tổ chức/ })).toBeNull();
+    expect(section.textContent).toContain('Công ty An Phát');
+    expect(section.textContent).toContain('024 3333 1111');
+    expect(previewHeader().textContent).toContain('Điện thoại: 024 3333 1111');
+    expect(previewHeader().querySelector('img')?.getAttribute('src')).toBe(LOGO_A);
+  });
+
+  it('TC-ORG-19: người chỉ có quyền xem mở báo giá Nháp: mục Tổ chức báo giá chỉ xem; không chọn tổ chức thì ghi rõ', async () => {
+    mockCrm = { ...mockCrm, capabilities: READER };
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    const section = sellerSection();
+    expect(within(section).queryAllByRole('textbox')).toHaveLength(0);
+    expect(section.textContent).toContain('Không chọn tổ chức');
   });
 });

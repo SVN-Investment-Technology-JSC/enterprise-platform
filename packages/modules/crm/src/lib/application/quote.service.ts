@@ -8,6 +8,7 @@ import {
   QUOTE_STATUS_LABELS,
   QUOTE_STATUSES,
   quoteDeepLink,
+  sellerFromOrganization,
   type CreateQuoteRequest,
   type CrmCatalogMaterial,
   type CrmPage,
@@ -56,12 +57,15 @@ import type {
   EditableQuote,
   QuoteFormInput,
   QuoteLineRecord,
+  QuoteOrganizationInput,
   QuoteSettingsStore,
   QuoteStore,
   QuoteVersionRef,
   QuoteVersionWrite,
 } from './quote-store.port.js';
 import type { QuoteFormStore } from './quote-form-store.port.js';
+import type { SalesOrganizationReader } from './sales-organization-store.port.js';
+import { pickSalesOrganization, quoteSellerOf } from './sales-organization.service.js';
 import { applyCustomFields } from '../domain/custom-fields.js';
 import type { CustomerStore, OpportunityStore } from './sales-store.port.js';
 
@@ -155,6 +159,8 @@ export class QuoteService {
     private readonly plans?: QuoteBusinessPlans,
     /** Mẫu, loại, mã báo giá (GĐI); rỗng thì báo giá chạy như phase 1 (theo dòng, không mẫu). */
     private readonly form?: QuoteFormStore,
+    /** Tổ chức báo giá (phase 3, mục 16); rỗng thì báo giá tự lấy tổ chức mặc định ở store, không chọn được tổ chức khác. */
+    private readonly organizations?: SalesOrganizationReader,
   ) {}
 
   private today(): string {
@@ -219,6 +225,7 @@ export class QuoteService {
     // Mẫu và loại bắt buộc: không chọn thì dùng mẫu, loại mặc định; mẫu hoặc loại tắt thì không chọn được.
     const template = await this.pickTemplate(actor.tenantId, request?.templateId);
     const type = await this.pickType(actor.tenantId, request?.quoteTypeId);
+    const organization = await this.organizationOnCreate(actor.tenantId, request);
     const id = await this.quotes.createQuote(
       actor.tenantId,
       {
@@ -232,6 +239,7 @@ export class QuoteService {
         quoteDate: optionalDate(request?.quoteDate, 'ngày báo giá'),
         // Trường tuỳ biến: kiểm kiểu và lựa chọn; bắt buộc chỉ ép khi lưu (báo giá mới chưa có dòng hàng).
         customFields: await this.customFields({}, request?.customFields, false, actor.tenantId),
+        ...(organization ? { organization } : {}),
         form: this.form
           ? {
               templateId: template?.id ?? null,
@@ -244,6 +252,48 @@ export class QuoteService {
       actor.userId,
     );
     return this.get(actor, id);
+  }
+
+  /**
+   * Tổ chức khi lập (plan mục 16.2): không gửi `organizationId` thì tổ chức mặc định đang bật (nếu có); `null` là không
+   * chọn; có id thì phải tồn tại và đang bật. `seller` gửi kèm thì giữ chữ sửa tay; không gửi thì chép từ tổ chức.
+   * Không có kho tổ chức: để store chọn tổ chức mặc định như báo giá tự tạo.
+   */
+  private async organizationOnCreate(tenantId: string, request: CreateQuoteRequest): Promise<QuoteOrganizationInput | undefined> {
+    if (!this.organizations) return undefined;
+    const requested = request?.organizationId;
+    const organization =
+      requested === undefined
+        ? ((await this.organizations.defaultOrganization(tenantId)) ?? null)
+        : requested === null || requested === ''
+          ? null
+          : await pickSalesOrganization(this.organizations, tenantId, requested);
+    const seller =
+      request?.seller !== undefined ? quoteSellerOf(request.seller) : organization ? sellerFromOrganization(organization) : null;
+    return { organizationId: organization?.id ?? null, seller };
+  }
+
+  /**
+   * Tổ chức khi sửa: đổi tổ chức mà không gửi `seller` thì chép thông tin tổ chức mới; `null` là bỏ cả tổ chức và
+   * thông tin; giữ nguyên id cũ thì không kiểm lại (tổ chức đã tắt vẫn giữ được). `seller` gửi thì lưu (`null` là xoá).
+   */
+  private async organizationChange(
+    tenantId: string,
+    current: QuoteOrganizationInput,
+    request: UpdateQuoteVersionRequest,
+  ): Promise<QuoteOrganizationInput> {
+    let { organizationId, seller } = current;
+    const requested = request.organizationId;
+    if (requested === null || requested === '') {
+      organizationId = null;
+      seller = null;
+    } else if (requested !== undefined && (!isUuid(requested) || requested.toLowerCase() !== current.organizationId)) {
+      const organization = await pickSalesOrganization(this.organizations, tenantId, requested);
+      organizationId = organization.id;
+      seller = sellerFromOrganization(organization);
+    }
+    if (request.seller !== undefined) seller = quoteSellerOf(request.seller);
+    return { organizationId, seller };
   }
 
   // -------------------------------------------------------------------------
@@ -343,6 +393,7 @@ export class QuoteService {
         fees: request.fees === undefined ? current.fees : feesOf(request.fees),
         // Lưu báo giá thì trường tuỳ biến bắt buộc phải có giá trị (TC-QF-11); xem thì không bị chặn.
         customFields: await this.customFields(current.customFields, request.customFields, true, actor.tenantId),
+        ...(await this.organizationChange(actor.tenantId, current, request)),
       },
     };
   }
@@ -1024,6 +1075,8 @@ function unchanged(quote: EditableQuote): Omit<QuoteChange, 'lines'> {
       orderTax: input(form.orderTax),
       fees: form.fees,
       customFields: form.customFields,
+      organizationId: form.organizationId,
+      seller: form.seller,
     },
   };
 }

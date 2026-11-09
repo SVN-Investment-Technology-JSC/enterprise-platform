@@ -10,6 +10,7 @@ import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
 import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 import type { QuoteLayout } from './quote-layout.js';
+import type { QuoteSeller } from './sales-organizations.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -240,6 +241,11 @@ export interface QuoteVersion {
    * gửi, hoặc báo giá gửi trước phase 3: giao diện dùng bố cục hiện tại của mẫu hoặc bố cục mặc định.
    */
   readonly layoutSnapshot: QuoteLayout | null;
+  /**
+   * Logo tổ chức báo giá dùng khi in (D3-27): đã gửi khách thì là logo chụp lúc gửi (tổ chức không có logo lúc gửi thì
+   * rỗng mãi); chưa gửi thì là logo hiện tại của tổ chức đang chọn. Chỉ có ở API chi tiết báo giá.
+   */
+  readonly sellerLogo: string | null;
   readonly lines: readonly QuoteLine[];
 }
 
@@ -334,6 +340,12 @@ export interface CreateQuoteRequest {
   readonly quoteTypeId?: string | null;
   /** Giá trị trường tuỳ biến theo id định nghĩa; kiểm kiểu và lựa chọn, chưa ép bắt buộc (báo giá chưa có dòng). */
   readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
+  /**
+   * Tổ chức báo giá (plan mục 16.2). Không gửi: tổ chức mặc định (nếu có). `null`: không chọn. Tổ chức phải đang bật.
+   */
+  readonly organizationId?: string | null;
+  /** Thông tin tổ chức sửa tay; không gửi thì chép từ tổ chức đã chọn. */
+  readonly seller?: QuoteSeller | null;
 }
 
 export interface UpdateQuoteVersionRequest {
@@ -360,6 +372,10 @@ export interface UpdateQuoteVersionRequest {
    * thiếu thì 400 nêu tên trường.
    */
   readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
+  /** Đổi tổ chức (chỉ khi Nháp); `null` là bỏ. Đổi mà không gửi `seller` thì chép thông tin tổ chức mới. */
+  readonly organizationId?: string | null;
+  /** Sửa thông tin tổ chức riêng cho báo giá; `null` là xoá. */
+  readonly seller?: QuoteSeller | null;
 }
 
 export interface SaveQuoteLineRequest {

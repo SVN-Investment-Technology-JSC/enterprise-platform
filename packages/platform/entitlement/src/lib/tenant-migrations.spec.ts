@@ -57,6 +57,15 @@ describe('danh sách migration của tenant', () => {
     });
   });
 
+  it('CRM chạy tổ chức báo giá (0035) sau bố cục mẫu báo giá (0034)', () => {
+    const versions = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(versions.indexOf('0035-sales-organizations')).toBe(versions.indexOf('0034-quote-template-layouts') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['crm']).toContainEqual({
+      version: '0035-sales-organizations',
+      path: 'tenant/crm/0035-sales-organizations.sql',
+    });
+  });
+
   it('registry tenant-core bao phủ mọi migration đang được triển khai', () => {
     const registered = new Set(TENANT_CORE_MIGRATIONS.map((item) => item.path));
     const missing = readdirSync(join(MIGRATIONS_ROOT, 'tenant/core'))

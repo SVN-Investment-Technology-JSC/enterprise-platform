@@ -139,6 +139,7 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     supersededAt: null,
     createdAt: '',
     layoutSnapshot: null,
+    sellerLogo: null,
     promotions: [],
     form: {
       quoteName: null,
@@ -154,6 +155,9 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
       fees: [],
       customFields: {},
       feesAmount: 0,
+      organizationId: null,
+      organizationName: null,
+      seller: null,
     },
     lines,
   };

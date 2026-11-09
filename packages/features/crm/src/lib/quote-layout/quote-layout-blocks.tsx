@@ -24,7 +24,7 @@ import {
   type QuoteLayoutTotalsBlock,
 } from '@enterprise-platform/contracts-crm';
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
-import type { QuoteLayoutData, QuoteLayoutLineRow } from './quote-layout.data';
+import { companyHeaderLogo, type QuoteLayoutData, type QuoteLayoutLineRow } from './quote-layout.data';
 import styles from './quote-layout.module.scss';
 
 export type QuoteLayoutViewMode = 'design' | 'preview' | 'print';
@@ -101,7 +101,8 @@ function ImageBlockView({ block, mode }: { block: QuoteLayoutImageBlock; mode: Q
 }
 
 function CompanyHeaderView({ block, ctx }: { block: QuoteLayoutCompanyHeaderBlock; ctx: BlockContext }) {
-  const logo = isEmbeddedImage(block.logo) ? <img src={block.logo} alt="" className={styles.companyLogo} /> : null;
+  const src = companyHeaderLogo(block, ctx.data);
+  const logo = isEmbeddedImage(src) ? <img src={src} alt="" className={styles.companyLogo} /> : null;
   return (
     <div className={cx(styles.companyHeader, block.logoPosition === 'right' && styles.companyHeaderReverse)}>
       {logo}

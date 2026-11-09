@@ -163,6 +163,20 @@ describe('LayoutDesigner: khung', () => {
 });
 
 describe('LayoutDesigner: thêm, sửa khối', () => {
+  it('TC-ORG-18: ô "Logo theo tổ chức báo giá" ở khối Đầu trang công ty; bật thì dữ liệu mẫu hiện logo mẫu, tắt thì không', async () => {
+    await open(null);
+    expect(blockNode('company').textContent).toContain('Công ty Cổ phần Thiết bị Mẫu');
+    expect(blockNode('company').querySelector('img')).not.toBeNull();
+    fireEvent.click(blockNode('company'));
+    const checkbox = screen.getByRole('checkbox', { name: 'Logo theo tổ chức báo giá' }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect((screen.getByRole('checkbox', { name: 'Logo theo tổ chức báo giá' }) as HTMLInputElement).checked).toBe(false);
+    expect(blockNode('company').querySelector('img')).toBeNull();
+    fireEvent.click(undoButton());
+    expect(blockNode('company').querySelector('img')).not.toBeNull();
+  });
+
   it('TC-DS-03: bấm khi đang chọn khối 2 thì thêm ngay sau; không chọn thì thêm cuối; khối mới được chọn', async () => {
     await open();
     fireEvent.click(blockNode('lines'));
@@ -267,7 +281,7 @@ describe('LayoutDesigner: thêm, sửa khối', () => {
     for (const value of ['C', 'Cô', 'Công', 'Công ty', 'Công ty ABC']) fireEvent.change(name, { target: { value } });
     expect(blockNode('company').textContent).toContain('Công ty ABC');
     fireEvent.click(undoButton());
-    expect((screen.getByLabelText('Tên công ty') as HTMLInputElement).value).toBe('TÊN CÔNG TY');
+    expect((screen.getByLabelText('Tên công ty') as HTMLInputElement).value).toBe('{{company.name}}');
     expect(undoButton().disabled).toBe(true);
   });
 

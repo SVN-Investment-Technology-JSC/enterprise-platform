@@ -3,14 +3,25 @@
  */
 import { QUOTE_LAYOUT_BLOCK_TYPES, validateQuoteLayout, type QuoteLayout } from '@enterprise-platform/contracts-crm';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { fixtureCustomer, fixtureDetail, fixtureFullLayout, fixtureLine, fixtureVersion, FIXTURE_XSS } from './quote-layout.fixtures';
+import {
+  FIXTURE_PNG,
+  fixtureCustomer,
+  fixtureDetail,
+  fixtureFullLayout,
+  fixtureLine,
+  fixtureSeller,
+  fixtureSellerVersion,
+  fixtureVersion,
+  FIXTURE_XSS,
+} from './quote-layout.fixtures';
 import { buildQuoteLayoutData, emptyQuoteLayoutData, sampleQuoteLayoutData } from './quote-layout.data';
 import { QuoteLayoutView, estimatePageBreaks, quoteLayoutPageCss, quoteLayoutPageSize } from './quote-layout-view';
 
 jest.mock('./quote-layout.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
 
 const now = new Date(2026, 10, 6);
-const data = () => buildQuoteLayoutData({ detail: fixtureDetail(), customer: fixtureCustomer(), people: [{ userId: 'u1', displayName: 'Nguyễn Văn An' }], now });
+const data = () =>
+  buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion()), customer: fixtureCustomer(), people: [{ userId: 'u1', displayName: 'Nguyễn Văn An' }], now });
 const blocksOf = (container: HTMLElement) => Array.from(container.querySelectorAll<HTMLElement>('[data-block-type]'));
 
 describe('QuoteLayoutView', () => {
@@ -25,7 +36,7 @@ describe('QuoteLayoutView', () => {
     const layout = fixtureFullLayout();
     const { container } = render(<QuoteLayoutView layout={layout} data={data()} mode={mode} />);
     expect(blocksOf(container).map((element) => element.dataset.blockType)).toEqual(layout.blocks.map((block) => block.type));
-    expect(screen.getByText('TÊN CÔNG TY')).toBeTruthy();
+    expect(screen.getByText('Công ty TNHH Thiết bị An Phát')).toBeTruthy();
     expect(screen.getByText('BÁO GIÁ')).toBeTruthy();
     expect(screen.getAllByText('Máy bơm').length).toBe(1);
     expect(screen.getByText('ĐẠI DIỆN BÊN BÁN')).toBeTruthy();
@@ -210,5 +221,64 @@ describe('ngắt trang và @page', () => {
   it('TC-EX-04: luật @page theo khổ, hướng, lề', () => {
     expect(quoteLayoutPageCss(layout)).toBe('@page { size: A4 portrait; margin: 15mm 15mm 15mm 20mm; }');
     expect(quoteLayoutPageCss({ ...layout, paper: 'A3', orientation: 'landscape' })).toContain('size: A3 landscape');
+  });
+});
+
+describe('Đầu trang công ty theo tổ chức báo giá (P3C6-06)', () => {
+  const ORG_LOGO = FIXTURE_PNG;
+  const BLOCK_LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+  const header = (container: HTMLElement) => container.querySelector('[data-block-type="companyHeader"]') as HTMLElement;
+  const layoutWith = (patch: { logoFromOrganization?: boolean; logo?: string }) => {
+    const base = fixtureFullLayout();
+    return {
+      ...base,
+      blocks: base.blocks.map((block) => (block.type === 'companyHeader' ? { ...block, ...patch } : block)),
+    } as QuoteLayout;
+  };
+  const orgData = (name: string, logo: string | null) =>
+    buildQuoteLayoutData({
+      detail: fixtureDetail(
+        fixtureSellerVersion(
+          fixtureSeller({ name, address: `Địa chỉ ${name}`, taxCode: '0102030405', phone: '0909 000 111', email: 'lienhe@b.vn' }),
+          logo,
+        ),
+      ),
+      now,
+    });
+
+  it('TC-ORG-16: bố cục mặc định hiện tên, địa chỉ, MST, điện thoại, email và logo của tổ chức; đổi tổ chức thì đổi theo', () => {
+    const layout = layoutWith({});
+    const { container, rerender } = render(<QuoteLayoutView layout={layout} data={orgData('Công ty A', ORG_LOGO)} mode="preview" />);
+    const first = header(container);
+    expect(first.textContent).toContain('Công ty A');
+    expect(first.textContent).toContain('Địa chỉ: Địa chỉ Công ty A');
+    expect(first.textContent).toContain('Mã số thuế: 0102030405');
+    expect(first.textContent).toContain('Điện thoại: 0909 000 111');
+    expect(first.textContent).toContain('Email: lienhe@b.vn');
+    expect(first.textContent).not.toContain('TÊN CÔNG TY');
+    expect(first.querySelector('img')?.getAttribute('src')).toBe(ORG_LOGO);
+
+    rerender(<QuoteLayoutView layout={layout} data={orgData('Công ty B', null)} mode="preview" />);
+    const second = header(container);
+    expect(second.textContent).toContain('Công ty B');
+    expect(second.textContent).not.toContain('Công ty A');
+    // Tổ chức B không có logo, khối không có logo riêng: không có ảnh.
+    expect(second.querySelector('img')).toBeNull();
+  });
+
+  it('logo: bật cờ mà tổ chức không có logo thì dùng logo của khối; tắt cờ thì luôn dùng logo của khối', () => {
+    const fallback = render(<QuoteLayoutView layout={layoutWith({ logo: BLOCK_LOGO })} data={orgData('Công ty B', null)} mode="preview" />);
+    expect(header(fallback.container).querySelector('img')?.getAttribute('src')).toBe(BLOCK_LOGO);
+    fallback.unmount();
+    const off = render(
+      <QuoteLayoutView layout={layoutWith({ logo: BLOCK_LOGO, logoFromOrganization: false })} data={orgData('Công ty A', ORG_LOGO)} mode="preview" />,
+    );
+    expect(header(off.container).querySelector('img')?.getAttribute('src')).toBe(BLOCK_LOGO);
+  });
+
+  it('TC-ORG-18: trình thiết kế với dữ liệu mẫu hiện công ty mẫu và logo mẫu khi bật cờ', () => {
+    const { container } = render(<QuoteLayoutView layout={layoutWith({ logoFromOrganization: true })} data={sampleQuoteLayoutData([], now)} mode="design" />);
+    expect(header(container).textContent).toContain('Công ty Cổ phần Thiết bị Mẫu');
+    expect(header(container).querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
   });
 });

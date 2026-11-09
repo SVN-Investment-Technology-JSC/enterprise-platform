@@ -12,6 +12,7 @@ import type {
   QuoteFee,
   QuoteOrderAmountInput,
   QuoteLine,
+  QuoteSeller,
   QuoteShipping,
   QuoteStatus,
   QuoteSummary,
@@ -89,6 +90,17 @@ export interface NewQuoteRecord {
   readonly form?: NewQuoteForm | null;
   /** Giá trị trường tuỳ biến đã kiểm (P2I-06). */
   readonly customFields?: QuoteCustomFields;
+  /**
+   * Tổ chức báo giá đã chọn và thông tin chữ của nó (plan mục 16). Không có (`undefined`, ví dụ báo giá tự tạo khi cơ
+   * hội sang giai đoạn Báo giá): store chọn tổ chức mặc định đang bật và chép thông tin của nó.
+   */
+  readonly organization?: QuoteOrganizationInput;
+}
+
+/** Tổ chức báo giá trên phiên bản: id (rỗng là không chọn) và thông tin chữ in lên báo giá (rỗng là không có). */
+export interface QuoteOrganizationInput {
+  readonly organizationId: string | null;
+  readonly seller: QuoteSeller | null;
 }
 
 /** Dòng đã tính giá, giá vốn, sẵn sàng ghi. */
@@ -108,6 +120,9 @@ export interface QuoteFormInput {
   readonly fees: readonly QuoteFee[];
   /** Giá trị trường tuỳ biến của phiên bản (đã gộp, đã kiểm). */
   readonly customFields: QuoteCustomFields;
+  /** Tổ chức báo giá và thông tin chữ của nó (plan mục 16); phiên bản mới chép từ phiên bản trước. */
+  readonly organizationId: string | null;
+  readonly seller: QuoteSeller | null;
 }
 
 export interface QuoteFormWrite extends QuoteFormInput {

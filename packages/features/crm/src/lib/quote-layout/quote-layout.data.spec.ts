@@ -1,6 +1,12 @@
-import { QUOTE_LAYOUT_VARIABLES, type CustomFieldDefinition } from '@enterprise-platform/contracts-crm';
-import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureVersion } from './quote-layout.fixtures';
-import { buildQuoteLayoutData, quoteExportFileName, sampleQuoteLayoutData } from './quote-layout.data';
+import { QUOTE_LAYOUT_VARIABLES, checkQuoteLayoutImage, type CustomFieldDefinition } from '@enterprise-platform/contracts-crm';
+import { fixtureCustomer, fixtureDetail, fixtureLine, fixtureSeller, fixtureSellerVersion, fixtureVersion } from './quote-layout.fixtures';
+import {
+  SAMPLE_COMPANY_LOGO,
+  buildQuoteLayoutData,
+  companyHeaderLogo,
+  quoteExportFileName,
+  sampleQuoteLayoutData,
+} from './quote-layout.data';
 
 const people = [{ userId: 'u1', displayName: 'Nguyễn Văn An', email: 'an@example.com', phone: '0912' }];
 const now = new Date(2026, 10, 6, 0, 30);
@@ -185,5 +191,42 @@ describe('quoteExportFileName', () => {
   it('ghép mã và phiên bản, thay ký tự không hợp lệ', () => {
     expect(quoteExportFileName('BG2600001', 2)).toBe('BG2600001_v2');
     expect(quoteExportFileName('20261102/BG//383', 1)).toBe('20261102-BG-383_v1');
+  });
+});
+
+describe('biến company.* và logo tổ chức (P3C6-06)', () => {
+  it('lấy từ thông tin tổ chức trên phiên bản; logo theo sellerLogo', () => {
+    const data = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion(fixtureSeller({ website: 'anphat.vn' }), 'data:image/png;base64,AAAA')), now });
+    expect(data.values).toMatchObject({
+      'company.name': 'Công ty TNHH Thiết bị An Phát',
+      'company.shortName': 'An Phát',
+      'company.address': '25 Trần Duy Hưng, Cầu Giấy, Hà Nội',
+      'company.taxCode': '0101111111',
+      'company.phone': '024 3333 1111',
+      'company.email': 'baogia@anphat.vn',
+      'company.website': 'anphat.vn',
+      'company.bankAccount': '',
+    });
+    expect(data.companyLogo).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('báo giá không chọn tổ chức: biến rỗng, không logo', () => {
+    const data = buildQuoteLayoutData({ detail: fixtureDetail(), now });
+    expect(data.values['company.name']).toBe('');
+    expect(data.companyLogo).toBeNull();
+  });
+
+  it('companyHeaderLogo: bật cờ và có logo tổ chức thì dùng logo tổ chức, ngược lại logo của khối', () => {
+    const block = { id: 'c', type: 'companyHeader', name: '', lines: [], logo: 'khối', logoPosition: 'left', align: 'left' } as const;
+    expect(companyHeaderLogo({ ...block, logoFromOrganization: true }, { companyLogo: 'tổ chức' })).toBe('tổ chức');
+    expect(companyHeaderLogo({ ...block, logoFromOrganization: true }, { companyLogo: null })).toBe('khối');
+    expect(companyHeaderLogo(block, { companyLogo: 'tổ chức' })).toBe('khối');
+  });
+
+  it('dữ liệu mẫu có công ty mẫu và logo mẫu là PNG hợp lệ', () => {
+    const data = sampleQuoteLayoutData([], now);
+    expect(data.values['company.name']).toBe('Công ty Cổ phần Thiết bị Mẫu');
+    expect(checkQuoteLayoutImage(SAMPLE_COMPANY_LOGO)).toBe('ok');
+    expect(data.companyLogo).toBe(SAMPLE_COMPANY_LOGO);
   });
 });

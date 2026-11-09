@@ -86,6 +86,19 @@ import { QuoteLinesTable } from './quote-lines-table';
 import { QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { QUOTE_STATUS_TONE, quoteActions } from './quote.model';
 import { QuoteActionBar, QuoteWorkspace, WorkspaceSection, draftedDetail, generalPatch, sameGeneral, savedGeneral } from './quote-workspace';
+import { QuoteSellerSection } from './quote-seller-section';
+import {
+  sameSeller,
+  savedSeller,
+  sellerErrors,
+  sellerFieldErrorsOf,
+  sellerPatch,
+  withSellerDraft,
+  type SellerField,
+  type SellerState,
+  organizationIdOf,
+} from './quote-seller.model';
+import { useSalesOrganization, useSalesOrganizations } from './use-sales-organizations';
 import workspaceStyles from './quote-workspace.module.scss';
 
 /** Người chỉ có quyền xem mở báo giá: nói rõ vì sao không có ô nhập và nút thao tác. */
@@ -158,6 +171,10 @@ export function QuoteEditor({
   /** Thông tin chung đang sửa ở cột trái; rỗng là chưa sửa (hiện bản đã lưu). */
   const [draft, setDraft] = useState<GeneralState | null>(null);
   const [generalError, setGeneralError] = useState<string>();
+  /** Tổ chức báo giá đang sửa (plan 16.4); rỗng là chưa sửa. */
+  const [sellerDraft, setSellerDraft] = useState<SellerState | null>(null);
+  const [sellerFieldErrors, setSellerFieldErrors] = useState<Partial<Record<SellerField, string>>>({});
+  const { organizations } = useSalesOrganizations();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const lookups = useQuoteFormLookups();
 
@@ -180,6 +197,8 @@ export function QuoteEditor({
   useEffect(() => {
     setDraft(null);
     setGeneralError(undefined);
+    setSellerDraft(null);
+    setSellerFieldErrors({});
   }, [viewing]);
 
   const loadedId = detail?.id;
@@ -204,19 +223,27 @@ export function QuoteEditor({
 
   const saved = useMemo(() => (detail ? savedGeneral(detail) : undefined), [detail]);
   const shownGeneral = draft ?? saved;
-  const dirty = Boolean(draft && saved && !sameGeneral(draft, saved));
+  const generalDirty = Boolean(draft && saved && !sameGeneral(draft, saved));
+  const savedSellerState = useMemo(() => (detail ? savedSeller(detail) : undefined), [detail]);
+  const shownSeller = sellerDraft ?? savedSellerState;
+  const sellerDirty = Boolean(sellerDraft && savedSellerState && !sameSeller(sellerDraft, savedSellerState));
+  const dirty = generalDirty || sellerDirty;
   // Xem trước dựng lại sau khi ngừng gõ 300 ms; riêng mẫu thì đổi ngay (bố cục lấy theo `shownGeneral.templateId`).
   const previewGeneral = useDebounced(shownGeneral, 300);
+  const previewSeller = useDebounced(shownSeller, 300);
+  // Logo của tổ chức vừa chọn (chưa lưu) cho xem trước; tổ chức đã lưu thì dùng `sellerLogo` của server.
+  const chosenOrganization = useSalesOrganization(previewSeller ? organizationIdOf(previewSeller) : null);
   const { templates, types, fields } = lookups;
   const previewData = useMemo(() => {
     if (!detail || !previewGeneral) return undefined;
+    const drafted = draftedDetail(detail, previewGeneral, { templates, types });
     return buildQuoteLayoutData({
-      detail: draftedDetail(detail, previewGeneral, { templates, types }),
+      detail: previewSeller ? withSellerDraft(drafted, previewSeller, chosenOrganization) : drafted,
       customer,
       people,
       customFields: fields,
     });
-  }, [detail, previewGeneral, templates, types, fields, customer, people]);
+  }, [detail, previewGeneral, previewSeller, chosenOrganization, templates, types, fields, customer, people]);
 
   /** Chạy một thao tác trả về báo giá mới; sau khi sửa luôn về phiên bản hiện tại. */
   async function run(work: () => Promise<QuoteDetail>, success?: string): Promise<boolean> {
@@ -249,9 +276,10 @@ export function QuoteEditor({
    * (không có gì để lưu thì trả bản hiện tại) để thao tác kế tiếp dùng đúng `revision`; lỗi thì trả rỗng.
    */
   async function saveGeneral(): Promise<QuoteDetail | undefined> {
-    if (!detail || !version) return undefined;
-    if (!draft || !dirty) return detail;
-    const invalid = generalInfoError({ name: draft.name, code: draft.code, requireCode: true });
+    if (!detail || !version || !saved) return undefined;
+    if (!dirty) return detail;
+    const general = draft ?? saved;
+    const invalid = generalInfoError({ name: general.name, code: general.code, requireCode: true });
     const absent = invalid ? [] : missingRequiredFields(lookups.fields, customFieldTexts(version.form.customFields));
     const problem = invalid ?? (absent.length ? requiredFieldsMessage(absent) : undefined);
     setGeneralError(invalid && invalid.includes('tên') ? invalid : undefined);
@@ -259,15 +287,27 @@ export function QuoteEditor({
       toast.error(problem);
       return undefined;
     }
+    const sellerProblems = sellerDirty && sellerDraft ? sellerErrors(sellerDraft) : {};
+    setSellerFieldErrors(sellerProblems);
+    const firstSellerProblem = Object.values(sellerProblems)[0];
+    if (firstSellerProblem) {
+      toast.error(firstSellerProblem);
+      return undefined;
+    }
     setBusy(true);
     try {
-      const next = await updateQuoteVersion(detail.id, version.versionNo, generalPatch(detail, draft));
+      const next = await updateQuoteVersion(detail.id, version.versionNo, {
+        ...generalPatch(detail, general),
+        ...(sellerDirty && sellerDraft ? sellerPatch(sellerDraft) : {}),
+      });
       setViewing(undefined);
       setDetail(next);
       setDraft(null);
+      setSellerDraft(null);
       toast.success('Đã lưu báo giá.');
       return next;
     } catch (cause) {
+      setSellerFieldErrors(sellerFieldErrorsOf(cause));
       toast.error(quoteFormErrorMessage(cause, 'Không lưu được báo giá.'));
       return undefined;
     } finally {
@@ -317,7 +357,7 @@ export function QuoteEditor({
       </div>
     );
   }
-  if (!detail || !version || !shownGeneral) return null;
+  if (!detail || !version || !shownGeneral || !shownSeller) return null;
 
   const isCurrent = version.versionNo === detail.currentVersion;
   const totals = version.totals;
@@ -358,6 +398,17 @@ export function QuoteEditor({
 
   const left = (
     <>
+      <QuoteSellerSection
+        value={shownSeller}
+        onChange={(next) => {
+          setSellerDraft(next);
+          setSellerFieldErrors({});
+        }}
+        editable={editable}
+        organizations={organizations}
+        organizationName={form.organizationName}
+        errors={sellerFieldErrors}
+      />
       <section className={styles.panel} aria-label="Thông tin báo giá">
         <h3 className={styles.sectionTitle}>Thông tin chung</h3>
         {canWrite ? null : (
@@ -506,6 +557,7 @@ export function QuoteEditor({
           </div>
         ) : null}
       </section>
+
 
       {comparing ? <QuoteCompare detail={detail} /> : null}
 
@@ -714,6 +766,8 @@ export function QuoteEditor({
               onCancel={() => {
                 setDraft(null);
                 setGeneralError(undefined);
+                setSellerDraft(null);
+                setSellerFieldErrors({});
               }}
               onSave={() => void saveGeneral()}
               onSubmit={() => void saveThen('submit')}
@@ -781,10 +835,16 @@ export function QuoteEditor({
           onClose={() => setEditingHeader(false)}
           onSave={async (patch) => {
             // Lỗi từ server ném lên để hộp thoại hiện đúng lời; thành công thì cập nhật chi tiết.
-            const next = await updateQuoteVersion(detail.id, version.versionNo, patch);
+            // Tổ chức báo giá đang sửa dở ở cột trái lưu cùng lần.
+            const next = await updateQuoteVersion(detail.id, version.versionNo, {
+              ...patch,
+              ...(sellerDirty && sellerDraft ? sellerPatch(sellerDraft) : {}),
+            });
             setViewing(undefined);
             setDetail(next);
             setDraft(null);
+            setSellerDraft(null);
+            setSellerFieldErrors({});
             toast.success('Đã cập nhật báo giá.');
             setEditingHeader(false);
           }}
