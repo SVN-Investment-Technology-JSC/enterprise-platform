@@ -11,6 +11,7 @@ import { Button } from '../button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
 import { Input } from '../input';
 import { SettingsField, SettingsSwitch } from '../settings-kit';
+import { useCloseGuard } from '../use-close-guard';
 import {
   buildUnitTree,
   normalizeMarks,
@@ -91,12 +92,20 @@ export function SiteDialog({
   const unitName = (id: string) => units.find((u) => u.id === id)?.name ?? id;
   const ips = parseIpText(site.ipText);
 
+  // Ảnh chụp biểu mẫu lúc mở hộp thoại, để biết người dùng đã sửa gì chưa.
+  const snapshot = JSON.stringify(site);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  if (open && baseline === null) setBaseline(snapshot);
+  if (!open && baseline !== null) setBaseline(null);
+  const guard = useCloseGuard({ dirty: open && baseline !== null && snapshot !== baseline, busy, onClose });
+
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !busy) onClose();
+        if (!next) guard.requestClose();
       }}
+      disablePointerDismissal
     >
       <DialogContent className="max-h-[92dvh] gap-0 bg-white p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
@@ -252,7 +261,7 @@ export function SiteDialog({
             </div>
           </div>
           <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-end">
-            <Button type="button" variant="outline" onClick={onClose} className="h-9 px-4 text-xs">
+            <Button type="button" variant="outline" onClick={guard.requestClose} className="h-9 px-4 text-xs">
               Hủy
             </Button>
             <Button type="submit" disabled={busy} className="h-9 px-4 text-xs font-semibold">
@@ -261,6 +270,7 @@ export function SiteDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

@@ -10,6 +10,7 @@ import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
 import { InfoNote } from '../ui/settings-kit';
 import { toast } from '../ui/toast';
+import { useCloseGuard } from '../ui/use-close-guard';
 
 export type ProxyScopeType = 'SUBORDINATES' | 'SAME_UNIT' | 'UNIT_LIST' | 'EMPLOYEE_LIST' | 'ALL';
 export type ProxyRuleKind = 'leave' | 'ot' | 'business_trip' | 'correction';
@@ -111,6 +112,17 @@ export default function RequestProxyScreen() {
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  // Ảnh chụp cấu hình lúc mở hộp thoại, để biết người dùng đã sửa gì chưa.
+  const [draftBase, setDraftBase] = useState('');
+  const openDraft = (next: Draft) => {
+    setDraftBase(JSON.stringify(next));
+    setDraft(next);
+  };
+  const guard = useCloseGuard({
+    dirty: draft !== null && JSON.stringify(draft) !== draftBase,
+    busy,
+    onClose: () => setDraft(null),
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,7 +186,7 @@ export default function RequestProxyScreen() {
   }
 
   const edit = (rule: ProxyRuleView) =>
-    setDraft({
+    openDraft({
       id: rule.id,
       name: rule.name,
       granteeEmployeeId: rule.granteeEmployeeId ?? '',
@@ -191,7 +203,7 @@ export default function RequestProxyScreen() {
         title="Tạo đơn hộ"
         description="Quy định ai được tạo hộ nghỉ phép, tăng ca, công tác cho nhân viên nào."
         actions={
-          <Button size="sm" className="gap-1" onClick={() => setDraft(emptyDraft())}>
+          <Button size="sm" className="gap-1" onClick={() => openDraft(emptyDraft())}>
             <Plus className="size-3.5" />
             Thêm cấu hình
           </Button>
@@ -266,7 +278,13 @@ export default function RequestProxyScreen() {
         </table>
       </section>
 
-      <Dialog open={draft !== null} onOpenChange={(open) => !open && setDraft(null)}>
+      <Dialog
+        open={draft !== null}
+        disablePointerDismissal
+        onOpenChange={(open) => {
+          if (!open) guard.requestClose();
+        }}
+      >
         <DialogContent className="max-w-xl bg-white p-0">
           {draft ? (
             <div className="flex flex-col">
@@ -365,7 +383,7 @@ export default function RequestProxyScreen() {
                 ) : null}
               </div>
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
-                <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
+                <Button variant="outline" size="sm" onClick={guard.requestClose}>
                   Hủy
                 </Button>
                 <Button size="sm" disabled={busy || Boolean(problem)} onClick={() => void save()}>
@@ -375,6 +393,7 @@ export default function RequestProxyScreen() {
             </div>
           ) : null}
         </DialogContent>
+        {guard.confirm}
       </Dialog>
     </div>
   );

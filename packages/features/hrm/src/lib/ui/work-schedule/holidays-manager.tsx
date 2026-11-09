@@ -33,11 +33,13 @@ import { cn } from '../../utils';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { useCloseGuard } from '../use-close-guard';
 import { Input } from '../input';
 import { toast } from '../toast';
 import { Checkbox, EmptyState, Field, Notice, Spinner, textareaClass } from './common';
 import { ScopePicker } from './scope-picker';
 import { useShiftOptions } from './weekly-pattern-editor';
+import { useSubFormGuard, type SubFormState } from './use-form-guard';
 
 const KIND_OPTIONS: SearchableSelectOption[] = (
   Object.keys(HOLIDAY_KIND_LABELS) as HrmHolidayKind[]
@@ -63,6 +65,7 @@ function HolidayForm({
   employeesError,
   onSaved,
   onCancel,
+  onState,
 }: {
   shifts: readonly HrmShiftDefinition[];
   units: readonly HrmOrgUnitOption[];
@@ -71,6 +74,7 @@ function HolidayForm({
   employeesError: string;
   onSaved: () => void;
   onCancel: () => void;
+  onState: (state: SubFormState) => void;
 }) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState<HrmHolidayKind>('HOLIDAY');
@@ -84,6 +88,12 @@ function HolidayForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const shiftOptions = useShiftOptions(shifts);
+  const guard = useSubFormGuard({
+    snapshot: JSON.stringify([name, kind, fromDate, toDate, scope, treatment, shiftId, paid, note]),
+    busy,
+    onBack: onCancel,
+    onState,
+  });
 
   async function save() {
     const invalid =
@@ -204,13 +214,14 @@ function HolidayForm({
         {error ? <Notice tone="error">{error}</Notice> : null}
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={guard.requestClose}>
           Quay lại danh sách
         </Button>
         <Button disabled={busy} onClick={() => void save()}>
           {busy ? 'Đang lưu…' : 'Lưu ngày lễ'}
         </Button>
       </div>
+      {guard.confirm}
     </div>
   );
 }
@@ -240,6 +251,12 @@ export function HolidaysManager({
   const [rows, setRows] = useState<HrmHolidayRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [formState, setFormState] = useState<SubFormState>({ dirty: false, busy: false });
+  const guard = useCloseGuard({
+    dirty: open && formState.dirty,
+    busy: formState.busy,
+    onClose: () => onOpenChange(false),
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -278,7 +295,11 @@ export function HolidaysManager({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Lịch lễ và Tết">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{creating ? 'Tạo ngày lễ, Tết' : 'Lịch lễ và Tết'}</DialogTitle>
@@ -294,6 +315,7 @@ export function HolidaysManager({
             employeesLoading={employeesLoading}
             employeesError={employeesError}
             onCancel={() => setCreating(false)}
+            onState={setFormState}
             onSaved={() => {
               onChanged();
               setCreating(false);
@@ -408,6 +430,7 @@ export function HolidaysManager({
           </div>
         )}
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

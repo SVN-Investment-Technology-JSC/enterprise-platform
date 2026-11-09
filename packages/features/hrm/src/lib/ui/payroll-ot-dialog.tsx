@@ -7,6 +7,7 @@ import { Button } from './button';
 import { Input } from './input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog';
 import { IconTile, InfoNote, SettingsField } from './settings-kit';
+import { useCloseGuard } from './use-close-guard';
 import {
   OT_REFERENCES,
   minutesToTime,
@@ -72,6 +73,14 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const snapshot = JSON.stringify([numbers, nightStart, nightEnd, effectiveFrom, reason]);
+  const [initialSnapshot] = useState(snapshot);
+  const guard = useCloseGuard({
+    dirty: snapshot !== initialSnapshot,
+    busy,
+    onClose,
+  });
+
   const startMinute = timeToMinutes(nightStart);
   const endMinute = timeToMinutes(nightEnd);
   const warnings = otReferenceWarnings({
@@ -106,7 +115,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col overflow-hidden bg-white p-0 sm:max-w-[900px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12 @xl:px-5">
           <DialogTitle className="text-base font-bold text-slate-900">
@@ -212,7 +221,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
               </InfoNote>
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={busy} onClick={onClose} className="h-9 px-4 text-xs">
+              <Button type="button" variant="outline" disabled={busy} onClick={guard.requestClose} className="h-9 px-4 text-xs">
                 Hủy
               </Button>
               <Button type="submit" disabled={busy} className="h-9 gap-1.5 px-4 text-xs font-semibold">
@@ -223,6 +232,7 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

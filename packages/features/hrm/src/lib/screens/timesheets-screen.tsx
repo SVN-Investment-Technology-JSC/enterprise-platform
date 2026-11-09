@@ -22,6 +22,7 @@ import type { BoardFilter } from '../ui/my-timesheet-format';
 import { TimesheetBoard } from '../ui/timesheet-board';
 import { MonthStepper } from '../ui/month-stepper';
 import { PageTitle } from '../ui/page-title';
+import { useCloseGuard } from '../ui/use-close-guard';
 import { BoardPagination } from '../ui/board-pagination';
 import {
   anomalyLabel,
@@ -82,6 +83,8 @@ function MonthCloseDialog({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Chỉ ô lý do mở lại là dữ liệu nhập; hai kiểu còn lại không có ô nhập.
+  const guard = useCloseGuard({ dirty: kind === 'reopen' && reason.trim() !== '', busy, onClose });
 
   useEffect(() => {
     if (kind === 'reopen') return;
@@ -132,7 +135,7 @@ function MonthCloseDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="max-w-lg gap-0">
         <DialogHeader className="border-b border-slate-200 p-5">
           <DialogTitle>
@@ -209,7 +212,7 @@ function MonthCloseDialog({
           )}
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
-          <Button variant="outline" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={guard.requestClose} disabled={busy}>
             Bỏ qua
           </Button>
           <Button disabled={disabled} onClick={() => void submit()}>
@@ -217,6 +220,7 @@ function MonthCloseDialog({
           </Button>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

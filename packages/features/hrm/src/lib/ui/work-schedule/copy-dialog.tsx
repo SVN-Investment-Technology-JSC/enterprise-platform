@@ -21,6 +21,7 @@ import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
 import { toast } from '../toast';
+import { useCloseGuard } from '../use-close-guard';
 import { ConflictModePicker } from './conflict-mode-picker';
 import { Checkbox, Field, Notice, Spinner, textareaClass } from './common';
 import { SummaryStats } from './preview-panel';
@@ -110,6 +111,19 @@ export function CopyScheduleDialog({
     }
   }
 
+  const dirty =
+    open &&
+    JSON.stringify([sourceId, scope, fromDate, toDate, conflictMode, reason]) !==
+      JSON.stringify([
+        initial?.employeeId ?? '',
+        emptyScopeDraft('EMPLOYEES'),
+        todayIso(),
+        addDays(todayIso(), 29),
+        'REPORT',
+        '',
+      ]);
+  const guard = useCloseGuard({ dirty, busy, onClose: () => onOpenChange(false) });
+
   const conflicts = current?.summary.conflicts ?? 0;
   const canSave =
     !!current &&
@@ -142,7 +156,11 @@ export function CopyScheduleDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,780px)] max-w-3xl" aria-label="Sao chép lịch">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">Sao chép lịch</DialogTitle>
@@ -206,7 +224,7 @@ export function CopyScheduleDialog({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={guard.requestClose}>
             Đóng
           </Button>
           <div className="flex items-center gap-2">
@@ -219,6 +237,7 @@ export function CopyScheduleDialog({
           </div>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

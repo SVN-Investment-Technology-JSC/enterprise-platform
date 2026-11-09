@@ -30,11 +30,13 @@ import { cn } from '../../utils';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { useCloseGuard } from '../use-close-guard';
 import { Input } from '../input';
 import { toast } from '../toast';
 import { Checkbox, EmptyState, Field, Notice, Spinner, textareaClass } from './common';
 import { PreviewPanel } from './preview-panel';
 import { WeeklyPatternEditor } from './weekly-pattern-editor';
+import { useSubFormGuard, type SubFormState } from './use-form-guard';
 
 type View =
   | { name: 'list' }
@@ -49,11 +51,13 @@ function TemplateForm({
   shifts,
   onSaved,
   onCancel,
+  onState,
 }: {
   template: HrmScheduleTemplate | null;
   shifts: readonly HrmShiftDefinition[];
   onSaved: () => void;
   onCancel: () => void;
+  onState: (state: SubFormState) => void;
 }) {
   const [code, setCode] = useState(template?.code ?? '');
   const [name, setName] = useState(template?.name ?? '');
@@ -62,6 +66,12 @@ function TemplateForm({
   const [pattern, setPattern] = useState<PatternRow[]>(patternFromRules(template?.days));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const guard = useSubFormGuard({
+    snapshot: JSON.stringify([code, name, description, status, pattern]),
+    busy,
+    onBack: onCancel,
+    onState,
+  });
 
   async function save() {
     const invalid =
@@ -125,13 +135,14 @@ function TemplateForm({
         {error ? <Notice tone="error">{error}</Notice> : null}
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={guard.requestClose}>
           Quay lại danh sách
         </Button>
         <Button disabled={busy} onClick={() => void save()}>
           {busy ? 'Đang lưu…' : 'Lưu mẫu lịch'}
         </Button>
       </div>
+      {guard.confirm}
     </div>
   );
 }
@@ -140,15 +151,23 @@ function CopyForm({
   template,
   onSaved,
   onCancel,
+  onState,
 }: {
   template: HrmScheduleTemplate;
   onSaved: () => void;
   onCancel: () => void;
+  onState: (state: SubFormState) => void;
 }) {
   const [code, setCode] = useState(`${template.code}_COPY`);
   const [name, setName] = useState(`${template.name} (bản sao)`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const guard = useSubFormGuard({
+    snapshot: JSON.stringify([code, name]),
+    busy,
+    onBack: onCancel,
+    onState,
+  });
   async function save() {
     if (!code.trim() || !CODE_PATTERN.test(code.trim()) || !name.trim()) {
       setError('Nhập mã (chữ không dấu, số, gạch ngang, gạch dưới) và tên cho bản sao.');
@@ -183,13 +202,14 @@ function CopyForm({
         {error ? <Notice tone="error">{error}</Notice> : null}
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={guard.requestClose}>
           Quay lại danh sách
         </Button>
         <Button disabled={busy} onClick={() => void save()}>
           Sao chép
         </Button>
       </div>
+      {guard.confirm}
     </div>
   );
 }
@@ -198,10 +218,12 @@ function ReapplyForm({
   template,
   onSaved,
   onCancel,
+  onState,
 }: {
   template: HrmScheduleTemplate;
   onSaved: () => void;
   onCancel: () => void;
+  onState: (state: SubFormState) => void;
 }) {
   const [fromDate, setFromDate] = useState(todayIso());
   const [toDate, setToDate] = useState(addDays(todayIso(), 29));
@@ -212,6 +234,12 @@ function ReapplyForm({
   const [error, setError] = useState('');
   const key = JSON.stringify([fromDate, toDate]);
   const current = preview && preview.key === key ? preview.data : null;
+  const guard = useSubFormGuard({
+    snapshot: JSON.stringify([fromDate, toDate, reason]),
+    busy,
+    onBack: onCancel,
+    onState,
+  });
 
   async function inspect() {
     const invalid = validateDateRange(fromDate, toDate);
@@ -302,7 +330,7 @@ function ReapplyForm({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={guard.requestClose}>
           Quay lại danh sách
         </Button>
         <div className="flex items-center gap-2">
@@ -314,6 +342,7 @@ function ReapplyForm({
           </Button>
         </div>
       </div>
+      {guard.confirm}
     </div>
   );
 }
@@ -341,6 +370,12 @@ export function TemplatesManager({
 }) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [actionError, setActionError] = useState('');
+  const [formState, setFormState] = useState<SubFormState>({ dirty: false, busy: false });
+  const guard = useCloseGuard({
+    dirty: open && formState.dirty,
+    busy: formState.busy,
+    onClose: () => onOpenChange(false),
+  });
   useEffect(() => {
     if (open) {
       setView({ name: 'list' });
@@ -377,7 +412,11 @@ export function TemplatesManager({
           : 'Mẫu lịch tuần';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Mẫu lịch tuần">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{title}</DialogTitle>
@@ -387,11 +426,11 @@ export function TemplatesManager({
         </DialogHeader>
 
         {view.name === 'edit' ? (
-          <TemplateForm template={view.template} shifts={shifts} onSaved={saved} onCancel={back} />
+          <TemplateForm template={view.template} shifts={shifts} onSaved={saved} onCancel={back} onState={setFormState} />
         ) : view.name === 'copy' ? (
-          <CopyForm template={view.template} onSaved={saved} onCancel={back} />
+          <CopyForm template={view.template} onSaved={saved} onCancel={back} onState={setFormState} />
         ) : view.name === 'reapply' ? (
-          <ReapplyForm template={view.template} onSaved={saved} onCancel={back} />
+          <ReapplyForm template={view.template} onSaved={saved} onCancel={back} onState={setFormState} />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex shrink-0 flex-col gap-2 px-6 pt-4">
@@ -492,6 +531,7 @@ export function TemplatesManager({
           </div>
         )}
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

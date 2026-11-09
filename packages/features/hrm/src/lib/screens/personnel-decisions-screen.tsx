@@ -47,6 +47,7 @@ import {
   SheetTitle,
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
+import { useCloseGuard } from '../ui/use-close-guard';
 
 const typeOptions: SearchableSelectOption[] = DECISION_TYPES.map((t) => ({
   value: t,
@@ -101,6 +102,11 @@ export default function PersonnelDecisionsScreen() {
   const [rejecting, setRejecting] = useState<HrmPersonnelDecision | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [busyId, setBusyId] = useState('');
+  const rejectGuard = useCloseGuard({
+    dirty: rejecting !== null && rejectReason.trim() !== '',
+    busy: rejecting !== null && busyId === rejecting.id,
+    onClose: () => setRejecting(null),
+  });
 
   useEffect(() => {
     void hrmEmployeeOptions()
@@ -501,7 +507,13 @@ export default function PersonnelDecisionsScreen() {
         onSaved={() => list.reload()}
       />
 
-      <Dialog open={Boolean(rejecting)} onOpenChange={(o) => !o && setRejecting(null)}>
+      <Dialog
+        open={Boolean(rejecting)}
+        disablePointerDismissal
+        onOpenChange={(o) => {
+          if (!o) rejectGuard.requestClose();
+        }}
+      >
         <DialogContent className="max-w-md p-0">
           <DialogHeader className="border-b border-slate-200 p-4">
             <DialogTitle className="text-sm font-bold">
@@ -519,7 +531,7 @@ export default function PersonnelDecisionsScreen() {
             </label>
           </div>
           <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-3">
-            <Button size="sm" variant="outline" onClick={() => setRejecting(null)}>
+            <Button size="sm" variant="outline" onClick={rejectGuard.requestClose}>
               Đóng
             </Button>
             <Popconfirm
@@ -540,6 +552,7 @@ export default function PersonnelDecisionsScreen() {
             </Popconfirm>
           </div>
         </DialogContent>
+        {rejectGuard.confirm}
       </Dialog>
 
       <Sheet open={Boolean(detail)} onOpenChange={(o) => !o && setDetail(null)}>

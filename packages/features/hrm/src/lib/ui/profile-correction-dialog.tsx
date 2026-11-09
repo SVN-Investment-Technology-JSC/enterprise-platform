@@ -27,6 +27,7 @@ import {
 import { DynamicAttributeForm } from './dynamic-attribute-form';
 import { Input } from './input';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 
 export interface ProfileCorrectionDialogProps {
   open: boolean;
@@ -173,8 +174,29 @@ export function ProfileCorrectionDialog({
     reason,
   ]);
 
+  // Ô đề xuất được điền sẵn giá trị hồ sơ khi mở, nên chỉ coi là đã đổi khi khác giá trị hiện tại.
+  const dirty =
+    open &&
+    (fields.some(
+      (field) =>
+        proposed[field] !== undefined &&
+        proposed[field] !== (current[field] ?? ''),
+    ) ||
+      reason !== '' ||
+      evidence !== '' ||
+      Object.keys(dynamicValues).length > 0);
+  const guard = useCloseGuard({
+    dirty,
+    busy: submitting,
+    onClose: () => onOpenChange(false),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      disablePointerDismissal
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+    >
       <DialogContent className="max-w-2xl p-0">
         <DialogHeader className="p-5 border-b border-slate-200 bg-slate-50">
           <DialogTitle>Đề nghị đính chính hồ sơ</DialogTitle>
@@ -314,7 +336,7 @@ export function ProfileCorrectionDialog({
             variant="outline"
             size="sm"
             className="text-xs h-8"
-            onClick={() => onOpenChange(false)}
+            onClick={guard.requestClose}
             disabled={submitting}
           >
             Hủy
@@ -336,6 +358,7 @@ export function ProfileCorrectionDialog({
           </Button>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

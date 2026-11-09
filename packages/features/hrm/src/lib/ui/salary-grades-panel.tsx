@@ -14,6 +14,7 @@ import { Input } from './input';
 import { EmptyPanel, IconTile, InfoNote, SettingsField, StatusPill } from './settings-kit';
 import { ActionMenu, DataList, type ActionItem, type DataColumn } from './payroll-settings/data-rows';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -110,6 +111,26 @@ export function SalaryGradesPanel() {
   const [stepError, setStepError] = useState('');
 
   const activeGrade = useMemo(() => grades.find((g) => g.id === selectedId) ?? grades[0], [grades, selectedId]);
+
+  // Ảnh chụp các ô nhập lúc mở hộp thoại, để biết người dùng đã sửa gì chưa (xem use-close-guard).
+  const gradeSnapshot = JSON.stringify([gradeCode, gradeName, gradeDescription, gradeStatus]);
+  const [gradeBaseline, setGradeBaseline] = useState<string | null>(null);
+  if (gradeOpen && gradeBaseline === null) setGradeBaseline(gradeSnapshot);
+  if (!gradeOpen && gradeBaseline !== null) setGradeBaseline(null);
+  const gradeGuard = useCloseGuard({
+    dirty: gradeOpen && gradeBaseline !== null && gradeSnapshot !== gradeBaseline,
+    busy: saving,
+    onClose: () => setGradeOpen(false),
+  });
+  const stepSnapshot = JSON.stringify([stepNo, minSalary, baseSalary, maxSalary, stepFrom]);
+  const [stepBaseline, setStepBaseline] = useState<string | null>(null);
+  if (stepOpen && stepBaseline === null) setStepBaseline(stepSnapshot);
+  if (!stepOpen && stepBaseline !== null) setStepBaseline(null);
+  const stepGuard = useCloseGuard({
+    dirty: stepOpen && stepBaseline !== null && stepSnapshot !== stepBaseline,
+    busy: saving,
+    onClose: () => setStepOpen(false),
+  });
 
   const loadGrades = useCallback(async (preferId?: string) => {
     try {
@@ -480,7 +501,11 @@ export function SalaryGradesPanel() {
 
       {action && <HrmActionDialog action={action} onClose={() => setAction(null)} />}
 
-      <Dialog open={stepOpen} onOpenChange={(open) => { if (!saving) setStepOpen(open); }}>
+      <Dialog
+        open={stepOpen}
+        onOpenChange={(open) => (open ? setStepOpen(true) : stepGuard.requestClose())}
+        disablePointerDismissal
+      >
         <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-xl flex-col overflow-hidden bg-white p-0">
           <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12">
             <DialogTitle>Thêm bậc lương cho ngạch {activeGrade?.code ?? ''}</DialogTitle>
@@ -510,16 +535,21 @@ export function SalaryGradesPanel() {
           <div className="shrink-0 space-y-2 border-t border-slate-200 bg-slate-50 p-3">
             {stepError && <InfoNote tone="red" role="alert">{stepError}</InfoNote>}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" className="h-9 px-4 text-xs" onClick={() => setStepOpen(false)} disabled={saving}>Hủy</Button>
+              <Button variant="outline" className="h-9 px-4 text-xs" onClick={stepGuard.requestClose} disabled={saving}>Hủy</Button>
               <Button className="h-9 px-4 text-xs font-semibold" permission="hrm.salary.manage" onClick={() => void saveStep()} disabled={saving}>
                 {saving ? <Loader2 className="size-3.5 animate-spin" /> : 'Lưu bậc lương'}
               </Button>
             </div>
           </div>
         </DialogContent>
+        {stepGuard.confirm}
       </Dialog>
 
-      <Dialog open={gradeOpen} onOpenChange={(open) => { if (!saving) setGradeOpen(open); }}>
+      <Dialog
+        open={gradeOpen}
+        onOpenChange={(open) => (open ? setGradeOpen(true) : gradeGuard.requestClose())}
+        disablePointerDismissal
+      >
         <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg flex-col overflow-hidden bg-white p-0">
           <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12">
             <DialogTitle>{editing ? 'Chỉnh sửa ngạch lương' : 'Thêm ngạch lương mới'}</DialogTitle>
@@ -558,13 +588,14 @@ export function SalaryGradesPanel() {
           <div className="shrink-0 space-y-2 border-t border-slate-200 bg-slate-50 p-3">
             {gradeError && <InfoNote tone="red" role="alert">{gradeError}</InfoNote>}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" className="h-9 px-4 text-xs" onClick={() => setGradeOpen(false)} disabled={saving}>Hủy</Button>
+              <Button variant="outline" className="h-9 px-4 text-xs" onClick={gradeGuard.requestClose} disabled={saving}>Hủy</Button>
               <Button className="h-9 px-4 text-xs font-semibold" permission="hrm.salary.manage" onClick={() => void saveGrade()} disabled={saving}>
                 {saving ? <Loader2 className="size-3.5 animate-spin" /> : editing ? 'Lưu thay đổi' : 'Tạo ngạch lương'}
               </Button>
             </div>
           </div>
         </DialogContent>
+        {gradeGuard.confirm}
       </Dialog>
     </div>
   );

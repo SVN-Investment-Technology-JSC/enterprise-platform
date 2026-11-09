@@ -26,6 +26,7 @@ import {
 } from './dialog';
 import { Input } from './input';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 import { DataList, type DataColumn } from './payroll-settings/data-rows';
 import { EmptyPanel, InfoNote, SettingsSection, StatusPill } from './settings-kit';
 
@@ -68,6 +69,17 @@ export function SalaryProfilesPanel() {
   const [baseSalary, setBaseSalary] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
   const [changeReason, setChangeReason] = useState('');
+
+  // Ảnh chụp các ô nhập lúc mở hộp thoại, để biết người dùng đã sửa gì chưa (xem use-close-guard).
+  const snapshot = JSON.stringify([gradeId, stepId, salaryType, baseSalary, effectiveFrom, changeReason]);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  if (open && baseline === null) setBaseline(snapshot);
+  if (!open && baseline !== null) setBaseline(null);
+  const guard = useCloseGuard({
+    dirty: open && baseline !== null && snapshot !== baseline,
+    busy: saving,
+    onClose: () => setOpen(false),
+  });
 
   const loadSteps = useCallback(async (id: string) => {
     if (!id) return [] as HrmSalaryGradeStep[];
@@ -354,9 +366,8 @@ export function SalaryProfilesPanel() {
 
       <Dialog
         open={open}
-        onOpenChange={(next) => {
-          if (!saving) setOpen(next);
-        }}
+        onOpenChange={(next) => (next ? setOpen(true) : guard.requestClose())}
+        disablePointerDismissal
       >
         <DialogContent className="max-h-[90dvh] max-w-lg space-y-4 overflow-y-auto bg-white p-5 @container sm:p-6">
           <DialogHeader>
@@ -445,7 +456,7 @@ export function SalaryProfilesPanel() {
             </InfoNote>
           )}
           <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
-            <Button size="sm" variant="outline" className="h-9 text-[14px]" onClick={() => setOpen(false)} disabled={saving}>
+            <Button size="sm" variant="outline" className="h-9 text-[14px]" onClick={guard.requestClose} disabled={saving}>
               Hủy
             </Button>
             <Button
@@ -458,6 +469,7 @@ export function SalaryProfilesPanel() {
             </Button>
           </div>
         </DialogContent>
+        {guard.confirm}
       </Dialog>
     </SettingsSection>
   );

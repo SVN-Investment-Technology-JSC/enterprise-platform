@@ -21,6 +21,7 @@ import { Input } from './input';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
 import { STAGED_NOTICE, type HrmStageChange } from './hrm-staged-change';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 
 const documentLabels: Record<HrmProfileDocumentType, string> = {
   PHOTO: 'Ảnh thẻ',
@@ -219,6 +220,22 @@ export function HrmProfileDocumentsPanel({
     setExpiry('');
     setForm(emptyQualification);
   };
+
+  // Ảnh chụp các ô nhập lúc mở hộp thoại, để biết người dùng đã sửa gì chưa (xem use-close-guard).
+  const snapshot = JSON.stringify([
+    file ? [file.name, file.size, file.lastModified] : null,
+    expiry,
+    form,
+  ]);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  if (editing && baseline === null) setBaseline(snapshot);
+  if (!editing && baseline !== null) setBaseline(null);
+  const guard = useCloseGuard({
+    dirty: !!editing && baseline !== null && snapshot !== baseline,
+    busy,
+    onClose: close,
+  });
+
   const openDocument = (documentType: HrmProfileDocumentType) => {
     close();
     setEditing({ kind: 'document', documentType });
@@ -482,8 +499,9 @@ export function HrmProfileDocumentsPanel({
     <Dialog
       open={!!editing}
       onOpenChange={(open) => {
-        if (!open && !busy) close();
+        if (!open) guard.requestClose();
       }}
+      disablePointerDismissal
     >
       <DialogContent className="flex max-h-[90vh] w-[calc(100%-2rem)] flex-col gap-0 bg-white p-0 sm:max-w-[820px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
@@ -558,7 +576,7 @@ export function HrmProfileDocumentsPanel({
           </div>
         </div>
         <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
-          <Button variant="outline" onClick={close} disabled={busy}>
+          <Button variant="outline" onClick={guard.requestClose} disabled={busy}>
             Hủy
           </Button>
           <Button onClick={save} disabled={busy}>
@@ -566,6 +584,7 @@ export function HrmProfileDocumentsPanel({
           </Button>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 

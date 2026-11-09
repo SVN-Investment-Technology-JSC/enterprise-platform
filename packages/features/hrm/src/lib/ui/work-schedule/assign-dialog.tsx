@@ -23,6 +23,7 @@ import {
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { useCloseGuard } from '../use-close-guard';
 import { AssignPreviewSection, AssignResultSection, useAssignFlow } from './assign-flow';
 import { Checkbox, Field, Notice, SectionTitle, textareaClass } from './common';
 import { ConflictModePicker } from './conflict-mode-picker';
@@ -95,6 +96,9 @@ export function AssignDialog({
     // Chỉ khởi tạo lại khi mở hộp thoại.
   }, [open]);
 
+  const dirty = open && !result && JSON.stringify(draft) !== JSON.stringify(makeDraft());
+  const guard = useCloseGuard({ dirty, busy: applying, onClose: () => onOpenChange(false) });
+
   const shiftOptions = useShiftOptions(shifts);
   const activeTemplates = useMemo(() => templates.filter((t) => t.status === 'ACTIVE'), [templates]);
   const templateOptions: SearchableSelectOption[] = useMemo(
@@ -134,7 +138,11 @@ export function AssignDialog({
       : 'Gán ca làm việc theo lịch tuần cho nhân viên trong một khoảng thời gian. Ca lấy từ danh mục ca hiện có.';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,780px)] max-w-4xl" aria-label={title}>
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 pr-12 @lg:px-6">
           <DialogTitle className="text-lg">{title}</DialogTitle>
@@ -341,7 +349,7 @@ export function AssignDialog({
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={guard.requestClose}>
                 Hủy
               </Button>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -367,6 +375,7 @@ export function AssignDialog({
           )}
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

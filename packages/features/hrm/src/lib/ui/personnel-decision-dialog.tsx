@@ -35,6 +35,7 @@ import { Button } from './button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { DatePickerInput } from './date-picker-input';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 
 const typeOptions: SearchableSelectOption[] = DECISION_TYPES.map((t) => ({
   value: t,
@@ -274,8 +275,26 @@ export function PersonnelDecisionDialog({
     }
   }
 
+  // Form được nạp lại mỗi lần mở: coi là đã đổi khi khác trạng thái ban đầu của lần mở này.
+  const baseline = useMemo(
+    () =>
+      JSON.stringify(
+        decision ? decisionToForm(decision) : emptyDecisionForm(initialEmployeeId),
+      ),
+    [decision, initialEmployeeId],
+  );
+  const guard = useCloseGuard({
+    dirty: open && JSON.stringify(form) !== baseline,
+    busy: submitting,
+    onClose: () => onOpenChange(false),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      disablePointerDismissal
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+    >
       <DialogContent className="max-w-5xl max-h-[92vh] p-0">
         <DialogHeader className="shrink-0 border-b border-slate-200 p-5">
           <DialogTitle className="text-base font-bold">
@@ -524,7 +543,7 @@ export function PersonnelDecisionDialog({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onOpenChange(false)}
+            onClick={guard.requestClose}
           >
             Đóng
           </Button>
@@ -538,6 +557,7 @@ export function PersonnelDecisionDialog({
           </Button>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

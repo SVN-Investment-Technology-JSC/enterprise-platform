@@ -78,6 +78,9 @@ export function useReleaseFlow({
     [scope, fromDate, toDate, includeExceptions, reason, canCalendar],
   );
   const key = JSON.stringify(body);
+  const dirty =
+    JSON.stringify([scope, fromDate, toDate, includeExceptions, reason]) !==
+    JSON.stringify([freshScope(), todayIso(), addDays(todayIso(), 6), false, '']);
   const current = impact && impact.key === key ? impact.data : null;
 
   async function inspect() {
@@ -129,6 +132,7 @@ export function useReleaseFlow({
     setReason,
     current,
     busy,
+    dirty,
     error,
     inspect,
     confirm,

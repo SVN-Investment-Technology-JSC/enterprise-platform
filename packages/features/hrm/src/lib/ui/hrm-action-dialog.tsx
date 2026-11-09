@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { Button } from './button';
 import { DatePickerInput, MonthPickerInput } from './date-picker-input';
+import { useCloseGuard } from './use-close-guard';
 
 export interface ActionField {
   key: string;
@@ -183,13 +184,15 @@ export function HrmActionDialog({
   );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const snapshot = JSON.stringify(values);
+  const [initialSnapshot] = useState(snapshot);
+  const guard = useCloseGuard({
+    dirty: snapshot !== initialSnapshot,
+    busy,
+    onClose,
+  });
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-    >
+    <Dialog {...guard.dialogProps}>
       <DialogContent
         className={`${
           action.columns === 3
@@ -372,7 +375,7 @@ export function HrmActionDialog({
               type="button"
               variant="outline"
               disabled={busy}
-              onClick={onClose}
+              onClick={guard.requestClose}
               className="text-xs h-8"
             >
               Hủy
@@ -401,6 +404,7 @@ export function HrmActionDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

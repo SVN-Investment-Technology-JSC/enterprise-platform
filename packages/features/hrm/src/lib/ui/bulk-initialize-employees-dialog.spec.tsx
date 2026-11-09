@@ -194,4 +194,20 @@ describe('BulkInitializeEmployeesDialog (khởi tạo hàng loạt từ Core)', 
         .disabled,
     ).toBe(true);
   });
+
+  it('chưa đổi gì thì Hủy bỏ đóng ngay; đã đổi thì hỏi xác nhận', async () => {
+    mockApi(people);
+    const { onClose } = await renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy bỏ' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByLabelText('Tiền tố mã nhân viên'), {
+      target: { value: 'KD' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy bỏ' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Đóng và bỏ thay đổi?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng và bỏ' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
 });

@@ -22,8 +22,10 @@ import { cn } from '../../utils';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { useCloseGuard } from '../use-close-guard';
 import { toast } from '../toast';
 import { EmptyState, Field, Notice, Spinner, textareaClass } from './common';
+import { useSubFormGuard, type SubFormState } from './use-form-guard';
 
 const STATUS_OPTIONS: SearchableSelectOption[] = [
   { value: 'ACTIVE', label: 'Đang áp dụng' },
@@ -41,10 +43,12 @@ function EndRuleForm({
   rule,
   onDone,
   onCancel,
+  onState,
 }: {
   rule: HrmScheduleRule;
   onDone: () => void;
   onCancel: () => void;
+  onState: (state: SubFormState) => void;
 }) {
   const [endDate, setEndDate] = useState(() => {
     const suggested = todayIso();
@@ -53,6 +57,12 @@ function EndRuleForm({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const guard = useSubFormGuard({
+    snapshot: JSON.stringify([endDate, reason]),
+    busy,
+    onBack: onCancel,
+    onState,
+  });
 
   async function save() {
     if (!isIsoDate(endDate)) return setError('Nhập ngày kết thúc.');
@@ -95,13 +105,14 @@ function EndRuleForm({
         {error ? <Notice tone="error">{error}</Notice> : null}
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={guard.requestClose}>
           Quay lại danh sách
         </Button>
         <Button disabled={busy} onClick={() => void save()}>
           {busy ? 'Đang lưu…' : 'Kết thúc lịch'}
         </Button>
       </div>
+      {guard.confirm}
     </div>
   );
 }
@@ -132,6 +143,12 @@ export function RulesManager({
     error: '',
   });
   const [ending, setEnding] = useState<HrmScheduleRule | null>(null);
+  const [formState, setFormState] = useState<SubFormState>({ dirty: false, busy: false });
+  const guard = useCloseGuard({
+    dirty: open && formState.dirty,
+    busy: formState.busy,
+    onClose: () => onOpenChange(false),
+  });
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -179,7 +196,11 @@ export function RulesManager({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-6xl" aria-label="Lịch định kỳ">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{ending ? 'Kết thúc lịch định kỳ' : 'Lịch định kỳ'}</DialogTitle>
@@ -192,6 +213,7 @@ export function RulesManager({
           <EndRuleForm
             rule={ending}
             onCancel={() => setEnding(null)}
+            onState={setFormState}
             onDone={() => {
               onChanged();
               setEnding(null);
@@ -296,6 +318,7 @@ export function RulesManager({
           </div>
         )}
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './dialog';
+import { useCloseGuard } from './use-close-guard';
 
 interface Props {
   bindingId: string;
@@ -35,6 +36,10 @@ interface Loaded {
   isDefault: boolean;
   rows: MappingRow[];
 }
+
+/** Phần người dùng chỉnh được của các dòng ánh xạ, dùng để biết có thay đổi chưa lưu hay không. */
+const rowsKey = (rows: MappingRow[]) =>
+  JSON.stringify(rows.map((r) => [r.attribute.valueKey, r.hrmField, r.mode]));
 
 /**
  * Ánh xạ trường HRM -> thuộc tính của quy trình (cấp quy trình và bước S) cho một binding.
@@ -50,6 +55,8 @@ export function ProcedureFieldMappingsDialog({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  /** Trạng thái đã tải hoặc đã lưu gần nhất; khác với hiện tại là còn thay đổi chưa lưu. */
+  const [baseline, setBaseline] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -68,12 +75,14 @@ export function ProcedureFieldMappingsDialog({
           }>(`/operations/workflow-rules/${bindingId}/field-mappings`),
         ]);
         if (!active) return;
+        const rows = buildMappingRows(attributes.data, mappings.data.mappings);
         setState({
           attributes: attributes.data,
           catalog: mappings.data.catalog,
           isDefault: mappings.data.isDefault,
-          rows: buildMappingRows(attributes.data, mappings.data.mappings),
+          rows,
         });
+        setBaseline(rowsKey(rows));
       } catch (e) {
         if (active)
           setError(
@@ -119,6 +128,7 @@ export function ProcedureFieldMappingsDialog({
         body: JSON.stringify({ mappings: toSavePayload(state.rows) }),
       });
       setSaved(true);
+      setBaseline(rowsKey(state.rows));
       setState({ ...state, isDefault: false });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được ánh xạ');
@@ -142,8 +152,14 @@ export function ProcedureFieldMappingsDialog({
       });
   }
 
+  const guard = useCloseGuard({
+    dirty: state !== null && baseline !== null && rowsKey(state.rows) !== baseline,
+    busy: saving,
+    onClose,
+  });
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="sm:max-w-[820px] max-h-[88vh] overflow-y-auto bg-white">
         <DialogHeader>
           <DialogTitle>Ánh xạ trường HRM vào thuộc tính quy trình</DialogTitle>
@@ -227,7 +243,7 @@ export function ProcedureFieldMappingsDialog({
         )}
         <div className="flex items-center justify-end gap-2 pt-2">
           {saved && <span className="text-xs text-emerald-700">Đã lưu ánh xạ.</span>}
-          <Button variant="outline" onClick={onClose} className="h-8 text-xs">
+          <Button variant="outline" onClick={guard.requestClose} className="h-8 text-xs">
             Đóng
           </Button>
           <Button
@@ -239,6 +255,7 @@ export function ProcedureFieldMappingsDialog({
           </Button>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

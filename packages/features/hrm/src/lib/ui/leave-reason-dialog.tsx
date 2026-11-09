@@ -7,6 +7,7 @@ import { Button } from './button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { LeaveField, LeaveSwitch } from './leave-form-controls';
+import { useCloseGuard } from './use-close-guard';
 
 /**
  * Hộp thoại thêm / sửa MỘT lý do nghỉ (danh mục cấu hình). Lý do nghỉ khác với "Mô tả":
@@ -84,13 +85,16 @@ export function LeaveReasonDialog({
     }
   }
 
+  const snapshot = JSON.stringify([code, name, paid, requiresAttachment, reason]);
+  const [initialSnapshot] = useState(snapshot);
+  const guard = useCloseGuard({
+    dirty: snapshot !== initialSnapshot,
+    busy,
+    onClose,
+  });
+
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-    >
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden bg-white p-0 sm:max-w-[640px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
           <DialogTitle className="text-base font-bold text-slate-900">
@@ -234,7 +238,7 @@ export function LeaveReasonDialog({
               type="button"
               variant="outline"
               disabled={busy}
-              onClick={onClose}
+              onClick={guard.requestClose}
               className="h-8 text-xs"
             >
               Hủy
@@ -249,6 +253,7 @@ export function LeaveReasonDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }
