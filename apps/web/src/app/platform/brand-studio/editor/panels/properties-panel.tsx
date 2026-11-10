@@ -130,6 +130,8 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
   const rect = useMemo(() => geometryRect(editable), [editable]);
   const paths = useMemo(() => pathActionState(shapes), [shapes]);
   const radius = useMemo(() => rectRadiusInfo(shapes), [shapes]);
+  const maskedShapes = useMemo(() => shapes.filter((shape) => shape.mask), [shapes]);
+  const maskedIds = useMemo(() => maskedShapes.filter((shape) => !shape.locked).map((shape) => shape.id), [maskedShapes]);
 
   const stroke = commonValue(target, (shape) => shape.stroke, 'none');
   const fill = commonValue(target, (shape) => shape.fill, 'none');
@@ -464,6 +466,26 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
           onChange={(value) => setAlignToCanvas(value === 'canvas')}
         />
       </Section>
+
+      {maskedShapes.length > 0 ? (
+        <Section title="Mặt nạ">
+          <p className="text-[11px] leading-snug text-slate-500" data-testid="mask-info">
+            {maskedShapes.length === 1
+              ? `Lớp này có mặt nạ gồm ${maskedShapes[0].mask?.layers.length ?? 0} hình.`
+              : `${maskedShapes.length} lớp đang chọn có mặt nạ.`}{' '}
+            Phần nhìn thấy do mặt nạ quyết định: vùng trắng hiện, vùng đen bị khoét. Di chuyển hay co giãn lớp thì mặt nạ đi theo.
+          </p>
+          <div>
+            <Chip
+              label="Bỏ mặt nạ: lớp hiện đủ hình dạng của nó, không còn bị khoét"
+              disabled={maskedIds.length === 0}
+              onClick={() => dispatch({ type: 'updateShapes', ids: maskedIds, patch: { mask: undefined } })}
+            >
+              Bỏ mặt nạ
+            </Chip>
+          </div>
+        </Section>
+      ) : null}
 
       <Section title="Lớp và đường">
         <div className="flex items-center gap-0.5">

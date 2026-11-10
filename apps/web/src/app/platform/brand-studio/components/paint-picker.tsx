@@ -1,6 +1,6 @@
 'use client';
 
-import { brandPaint, type BrandPalette, type Paint } from '@enterprise-platform/shared-brand-icon';
+import { MAX_GRADIENT_STOPS, brandPaint, type BrandPalette, type Paint } from '@enterprise-platform/shared-brand-icon';
 import { Ban, Blend, ChevronDown, Contrast, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -12,12 +12,14 @@ import {
   colorInputValue,
   describePaint,
   gradientCss,
+  gradientStripCss,
   parseHexInput,
   placePopover,
   removeGradientStop,
   setGradientAngle,
   setStopColor,
   setStopOffset,
+  setStopOpacity,
   toGradient,
   type PopoverPlacement,
 } from './paint-model';
@@ -336,28 +338,34 @@ export function PaintPicker({
                   <div
                     aria-hidden="true"
                     className="h-4 rounded ring-1 ring-inset ring-slate-300"
-                    style={{ background: gradientCss({ ...gradient, angle: 0 }, palette) }}
+                    style={{ background: gradientStripCss(gradient, palette) }}
                   />
-                  <div className="flex items-center gap-2">
-                    <label htmlFor={angleId} className="w-8 shrink-0 text-[10px] text-slate-500">
-                      Góc
-                    </label>
-                    <input
-                      id={angleId}
-                      type="range"
-                      min={0}
-                      max={360}
-                      step={1}
-                      aria-label="Góc chuyển sắc"
-                      value={Math.round(gradient.angle)}
-                      onPointerDown={beginScrub}
-                      onPointerUp={endScrub}
-                      onBlur={endScrub}
-                      onChange={(event) => onChange(setGradientAngle(value, Number(event.target.value)))}
-                      className="min-w-0 flex-1 accent-blue-600"
-                    />
-                    <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-600">{Math.round(gradient.angle)}°</span>
-                  </div>
+                  {gradient.kind === 'linear' ? (
+                    <div className="flex items-center gap-2">
+                      <label htmlFor={angleId} className="w-8 shrink-0 text-[10px] text-slate-500">
+                        Góc
+                      </label>
+                      <input
+                        id={angleId}
+                        type="range"
+                        min={0}
+                        max={360}
+                        step={1}
+                        aria-label="Góc chuyển sắc"
+                        value={Math.round(gradient.angle)}
+                        onPointerDown={beginScrub}
+                        onPointerUp={endScrub}
+                        onBlur={endScrub}
+                        onChange={(event) => onChange(setGradientAngle(value, Number(event.target.value)))}
+                        className="min-w-0 flex-1 accent-blue-600"
+                      />
+                      <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-600">{Math.round(gradient.angle)}°</span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-500" data-testid="radial-note">
+                      Chuyển sắc hướng tâm: tâm, bán kính và hình dạng được giữ đúng như SVG gốc; ở đây chỉ sửa được các điểm màu.
+                    </p>
+                  )}
                   <div role="group" aria-label="Điểm màu" className="space-y-1">
                     {gradient.stops.map((stop, index) => {
                       const selected = index === stopIndex;
@@ -394,6 +402,21 @@ export function PaintPicker({
                               className="h-6 w-12 shrink-0 rounded border border-slate-200 bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                             />
                           </Hint>
+                          <Hint label="Độ đặc của điểm màu, từ 0 đến 100%">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={5}
+                              aria-label={`Độ đặc điểm màu ${index + 1} (%)`}
+                              value={Math.round((stop.opacity ?? 1) * 100)}
+                              onChange={(event) => {
+                                const percent = event.target.valueAsNumber;
+                                if (Number.isFinite(percent)) onChange(setStopOpacity(value, index, percent / 100));
+                              }}
+                              className="h-6 w-12 shrink-0 rounded border border-slate-200 bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                            />
+                          </Hint>
                           <Hint label="Xoá điểm màu">
                             <button
                               type="button"
@@ -418,7 +441,7 @@ export function PaintPicker({
                   <button
                     type="button"
                     aria-label="Thêm điểm màu"
-                    disabled={gradient.stops.length >= 8}
+                    disabled={gradient.stops.length >= MAX_GRADIENT_STOPS}
                     onClick={() => {
                       const added = addGradientStop(value, palette);
                       if (!added) return;

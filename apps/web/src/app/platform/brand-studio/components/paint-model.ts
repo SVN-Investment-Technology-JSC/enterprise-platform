@@ -5,6 +5,7 @@ import {
   brandKeyOf,
   colorAtOffset,
   formatGradient,
+  formatGradientObject,
   isGradientPaint,
   isPaintNone,
   mixHex,
@@ -14,7 +15,7 @@ import {
   resolveBrandHex,
   stopHex,
   type BrandPalette,
-  type LinearGradient,
+  type Gradient,
   type Paint,
   type PaletteToken,
 } from '@enterprise-platform/shared-brand-icon';
@@ -29,7 +30,7 @@ export interface PaintDescription {
   readonly hex: string | null;
   readonly token?: PaletteToken;
   /** Có khi `kind` là `gradient`. */
-  readonly gradient?: LinearGradient;
+  readonly gradient?: Gradient;
 }
 
 export const NONE_LABEL = 'Không';
@@ -59,10 +60,36 @@ export function describePaint(paint: Paint, palette: BrandPalette): PaintDescrip
   return { kind: 'custom', label: (hex ?? paint).toUpperCase(), hex };
 }
 
-/** Chuỗi CSS `linear-gradient(...)` để vẽ ô mẫu và thanh xem trước; góc của Studio 0 là sang phải, CSS 90deg là sang phải. */
-export function gradientCss(gradient: LinearGradient, palette: BrandPalette): string {
-  const stops = gradient.stops.map((stop) => `${stopHex(stop.color, palette)} ${Math.round(stop.offset * 1000) / 10}%`);
-  return `linear-gradient(${normalizeAngle(gradient.angle + 90)}deg, ${stops.join(', ')})`;
+/** Màu CSS của một điểm màu: hex, hoặc rgba khi điểm màu có độ đặc dưới 1. */
+function cssColor(hex: string, opacity: number | undefined): string {
+  if (opacity === undefined || opacity >= 1) return hex;
+  const value = parseInt(hex.slice(1), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
+}
+
+const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
+
+/**
+ * Chuỗi CSS để vẽ ô mẫu: `linear-gradient` (góc của Studio 0 là sang phải, CSS 90deg là sang phải; `t0`/`t1` đặt vị trí điểm màu
+ * đầu và cuối, kiểu lặp dùng `repeating-linear-gradient`) hoặc `radial-gradient` hình tròn. Chỉ là bản xem trước gần đúng:
+ * dải nghiêng, elip hoá hay phản chiếu được vẽ đúng ở icon chứ không ở ô mẫu.
+ */
+export function gradientCss(gradient: Gradient, palette: BrandPalette): string {
+  if (gradient.kind === 'radial') {
+    const stops = gradient.stops.map((stop) => `${cssColor(stopHex(stop.color, palette), stop.opacity)} ${percent(stop.offset)}%`);
+    return `radial-gradient(circle closest-side at 50% 50%, ${stops.join(', ')})`;
+  }
+  const span = gradient.t1 - gradient.t0;
+  const stops = gradient.stops.map(
+    (stop) => `${cssColor(stopHex(stop.color, palette), stop.opacity)} ${percent(gradient.t0 + span * stop.offset)}%`,
+  );
+  const name = gradient.spread === 'repeat' ? 'repeating-linear-gradient' : 'linear-gradient';
+  return `${name}(${normalizeAngle(gradient.angle + 90)}deg, ${stops.join(', ')})`;
+}
+
+/** Thanh xem trước các điểm màu: dải ngang đầy đủ 0..100% của đúng các điểm màu đó, bất kể loại dải. */
+export function gradientStripCss(gradient: Gradient, palette: BrandPalette): string {
+  return gradientCss({ kind: 'linear', angle: 0, t0: 0, t1: 1, spread: 'pad', stops: gradient.stops }, palette);
 }
 
 /** Chuyển một màu bất kỳ thành gradient 2 điểm: màu hiện tại sang bản đậm hơn của nó (không có màu thì lấy màu đầu bảng). */
@@ -79,17 +106,35 @@ export function toGradient(paint: Paint, palette: BrandPalette): Paint {
   );
 }
 
-type GradientEdit = (gradient: LinearGradient) => LinearGradient | null;
+type GradientEdit = (gradient: Gradient) => Gradient | null;
 
 function editGradient(paint: Paint, edit: GradientEdit): Paint {
   const gradient = parseGradient(paint);
   if (!gradient) return paint;
   const next = edit(gradient);
-  return next ? (formatGradient(next.angle, next.stops) ?? paint) : paint;
+  return next ? (formatGradientObject(next) ?? paint) : paint;
 }
 
+/** Đổi góc của dải tuyến tính; dải hướng tâm không có góc nên giữ nguyên. */
 export const setGradientAngle = (paint: Paint, angle: number): Paint =>
-  editGradient(paint, (gradient) => (Number.isFinite(angle) ? { ...gradient, angle: normalizeAngle(angle) } : null));
+  editGradient(paint, (gradient) =>
+    gradient.kind === 'linear' && Number.isFinite(angle) ? { ...gradient, angle: normalizeAngle(angle) } : null,
+  );
+
+/** Đổi độ đặc (0..1) của một điểm màu. */
+export const setStopOpacity = (paint: Paint, index: number, opacity: number): Paint =>
+  editGradient(paint, (gradient) => {
+    if (index < 0 || index >= gradient.stops.length || !Number.isFinite(opacity)) return null;
+    const clamped = Math.min(1, Math.max(0, opacity));
+    return {
+      ...gradient,
+      stops: gradient.stops.map((stop, at) => {
+        if (at !== index) return stop;
+        const { opacity: _previous, ...rest } = stop;
+        return clamped < 1 ? { ...rest, opacity: clamped } : rest;
+      }),
+    };
+  });
 
 export const setStopColor = (paint: Paint, index: number, color: Paint): Paint =>
   editGradient(paint, (gradient) =>
@@ -123,9 +168,10 @@ export function addGradientStop(paint: Paint, palette: BrandPalette): { paint: P
     }
   }
   const offset = (resolved[at].offset + resolved[at - 1].offset) / 2;
+  const opacity = ((gradient.stops[at].opacity ?? 1) + (gradient.stops[at - 1].opacity ?? 1)) / 2;
   const stops = [...gradient.stops];
-  stops.splice(at, 0, { color: colorAtOffset(resolved, offset), offset });
-  const next = formatGradient(gradient.angle, stops);
+  stops.splice(at, 0, { color: colorAtOffset(resolved, offset), offset, ...(opacity < 1 ? { opacity } : {}) });
+  const next = formatGradientObject({ ...gradient, stops });
   return next ? { paint: next, index: at } : null;
 }
 

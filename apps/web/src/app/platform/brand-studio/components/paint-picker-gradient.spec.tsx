@@ -1,4 +1,4 @@
-import { DEFAULT_PALETTE, parseGradient, type Paint } from '@enterprise-platform/shared-brand-icon';
+import { DEFAULT_PALETTE, MAX_GRADIENT_STOPS, parseGradient, type Paint } from '@enterprise-platform/shared-brand-icon';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { PaintPicker } from './paint-picker';
@@ -105,12 +105,31 @@ describe('PaintPicker: màu chuyển sắc', () => {
     expect(screen.queryByRole('button', { name: 'Chọn điểm màu 3' })).toBeNull();
   });
 
-  it('thêm tới 8 điểm màu thì nút Thêm bị khoá', () => {
+  it('thêm tới số điểm màu tối đa thì nút Thêm bị khoá', () => {
     setup(GRADIENT);
     openPicker();
-    for (let count = 2; count < 8; count += 1) fireEvent.click(screen.getByRole('button', { name: 'Thêm điểm màu' }));
+    for (let count = 2; count < MAX_GRADIENT_STOPS; count += 1) fireEvent.click(screen.getByRole('button', { name: 'Thêm điểm màu' }));
     expect((screen.getByRole('button', { name: 'Thêm điểm màu' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Chọn điểm màu 8' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Chọn điểm màu ${MAX_GRADIENT_STOPS}` })).toBeTruthy();
+  });
+
+  it('dải hướng tâm: không có thanh góc, có ghi chú, vẫn sửa được điểm màu', () => {
+    const radial = 'radial:0.5,0.5,0.5,0.5,0.5,1,0,0,1,0,0:#ff0000@0,#0000ff@1';
+    const report = setup(radial);
+    openPicker();
+    expect(screen.queryByLabelText('Góc chuyển sắc')).toBeNull();
+    expect(screen.getByTestId('radial-note')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Vị trí điểm màu 2 (%)'), { target: { value: '60' } });
+    expect(last(report)).toBe('radial:0.5,0.5,0.5,0.5,0.5,1,0,0,1,0,0:#ff0000@0,#0000ff@0.6');
+  });
+
+  it('sửa độ đặc của điểm màu', () => {
+    const report = setup(GRADIENT);
+    openPicker();
+    expect((screen.getByLabelText('Độ đặc điểm màu 1 (%)') as HTMLInputElement).value).toBe('100');
+    fireEvent.change(screen.getByLabelText('Độ đặc điểm màu 1 (%)'), { target: { value: '40' } });
+    expect(last(report)).toBe('linear:45:#ff0000@0~0.4,#0000ff@1');
+    expect((screen.getByLabelText('Độ đặc điểm màu 1 (%)') as HTMLInputElement).value).toBe('40');
   });
 
   it('chọn màu thường khi đang là gradient thì thay cả gradient bằng màu đó', () => {
