@@ -12,6 +12,7 @@ import type {
   MaintenanceWorkspace,
   SaveMaintenanceMatrixRequest,
   SaveMaintenanceMatrixResult,
+  MaintenanceMyDashboardCards,
   MaintenanceSettingsKey,
   MaintenanceSettingsSnapshot,
   MaintenanceSettingsEntry,
@@ -257,6 +258,17 @@ export const saveMaintenanceSetting = (
   request<MaintenanceSettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
     body: JSON.stringify({ value, expectedVersion }),
+  });
+
+/** Thẻ Tổng quan do chính người dùng chọn; `cardIds: null` là chưa tuỳ chỉnh. */
+export const loadMyDashboardCards = () =>
+  request<MaintenanceMyDashboardCards>('/me/dashboard-cards', { cache: 'no-store' });
+
+/** Lưu thẻ của riêng mình; truyền `null` để quay về mặc định. */
+export const saveMyDashboardCards = (cardIds: readonly string[] | null) =>
+  request<MaintenanceMyDashboardCards>('/me/dashboard-cards', {
+    method: 'PUT',
+    body: JSON.stringify({ cardIds }),
   });
 
 /** Gỡ hẳn thiết bị khỏi ma trận: xoá mọi lịch của nó. */

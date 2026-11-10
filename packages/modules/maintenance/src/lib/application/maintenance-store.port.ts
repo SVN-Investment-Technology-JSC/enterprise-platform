@@ -113,4 +113,8 @@ export interface MaintenanceStore {
     updatedBy: string,
     expectedVersion?: number,
   ): Promise<MaintenanceSettingsEntry<unknown> | undefined>;
+  /** Tuỳ chọn riêng của một người dùng; `undefined` khi người đó chưa đặt. */
+  getUserPreference(tenantId: string, userId: string, key: string): Promise<unknown | undefined>;
+  setUserPreference(tenantId: string, userId: string, key: string, value: unknown): Promise<void>;
+  deleteUserPreference(tenantId: string, userId: string, key: string): Promise<void>;
 }

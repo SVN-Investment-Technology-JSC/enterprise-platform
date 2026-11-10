@@ -294,6 +294,33 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     return result.rows[0] ? mapSettingsEntry(result.rows[0]) : undefined;
   }
 
+  async getUserPreference(tenantId: string, userId: string, key: string): Promise<unknown | undefined> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT value FROM maintenance_schema.user_preferences WHERE user_id = $1 AND key = $2`,
+      [userId, key],
+    );
+    return result.rows[0]?.value;
+  }
+
+  async setUserPreference(tenantId: string, userId: string, key: string, value: unknown): Promise<void> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    await pool.query(
+      `INSERT INTO maintenance_schema.user_preferences (user_id, key, value, updated_at)
+       VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [userId, key, JSON.stringify(value)],
+    );
+  }
+
+  async deleteUserPreference(tenantId: string, userId: string, key: string): Promise<void> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    await pool.query(
+      `DELETE FROM maintenance_schema.user_preferences WHERE user_id = $1 AND key = $2`,
+      [userId, key],
+    );
+  }
+
   private actorUuid(actor: MaintenanceActor): string | null {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actor.userId)
       ? actor.userId

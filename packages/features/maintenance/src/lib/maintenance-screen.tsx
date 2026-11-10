@@ -26,7 +26,7 @@ import {
   formatDateTime as formatSharedDateTime,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { ListFilter, RotateCcw, Search } from 'lucide-react';
+import { CalendarPlus, ListFilter, Plus, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -51,12 +51,14 @@ import {
   loadMaintenanceOccurrence,
   loadOrganizationUnitNames,
   loadMaintenanceSettings,
+  loadMyDashboardCards,
   loadTenantHomePath,
   removeAssetFromMatrix,
   runMaintenanceNow,
   saveMaintenanceMatrix,
   loadPerformersByInstanceCode,
   saveMaintenanceSetting,
+  saveMyDashboardCards,
   skipNextOccurrence,
   updateMaintenanceSchedule,
   uploadOccurrenceAttachment,
@@ -64,6 +66,8 @@ import {
 import {
   MAINTENANCE_DASHBOARD_CARDS,
   MaintenanceDashboardGrid,
+  pickDashboardCards,
+  type MaintenanceDashboardActions,
   type MaintenanceDashboardData,
 } from './maintenance-dashboard.cards';
 import {
@@ -200,10 +204,12 @@ export function MaintenanceScreen() {
   const [incidentOpen, setIncidentOpen] = useState(false);
   const [performers, setPerformers] = useState<ReadonlyMap<string, string[]>>(new Map());
   const [settings, setSettings] = useState<MaintenanceSettingsSnapshot>();
-  const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
+  /** Thẻ Tổng quan của riêng người dùng; null là chưa tuỳ chỉnh (dùng mặc định), undefined là đang tải. */
+  const [myCards, setMyCards] = useState<readonly string[] | null>();
+  const [savingMyCards, setSavingMyCards] = useState(false);
   const [freqDraft, setFreqDraft] = useState<MaintenanceFrequencyCatalog>();
-  const [settingsSection, setSettingsSection] = useState('dashboard');
-  const [savingCards, setSavingCards] = useState(false);
+  const [settingsSection, setSettingsSection] = useState('frequencies');
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -224,6 +230,10 @@ export function MaintenanceScreen() {
     void loadTenantHomePath().then(setHomePath);
     void loadOrganizationUnitNames().then(setUnitNames);
     void loadTenantMembers().then(setMembers);
+    // Lỗi nạp thẻ cá nhân không chặn màn hình: coi như chưa tuỳ chỉnh, dùng thẻ mặc định.
+    void loadMyDashboardCards()
+      .then((mine) => setMyCards(mine.cardIds))
+      .catch(() => setMyCards(null));
   }, [reload]);
 
   /**
@@ -237,7 +247,6 @@ export function MaintenanceScreen() {
     void loadMaintenanceSettings()
       .then((loaded) => {
         setSettings(loaded);
-        setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setFreqDraft(loaded['catalog.frequency'].value);
       })
       .catch(() => setSettings(undefined));
@@ -498,24 +507,20 @@ export function MaintenanceScreen() {
 
   const canManage = workspace?.permissions.canManageSchedules ?? false;
 
-  const saveCards = async () => {
-    if (!settings) return;
-    setSavingCards(true);
+  /** Đổi thẻ Tổng quan: áp dụng ngay trên giao diện rồi lưu; lỗi thì trả về bản cũ. */
+  const changeMyCards = async (next: readonly string[] | null) => {
+    const previous = myCards;
+    setMyCards(next);
+    setSavingMyCards(true);
     try {
-      const saved = await saveMaintenanceSetting(
-        'dashboard.cards',
-        { cardIds: cardDraft },
-        settings['dashboard.cards'].version,
-      );
-      setSettings({
-        ...settings,
-        'dashboard.cards': saved as MaintenanceSettingsSnapshot['dashboard.cards'],
-      });
+      const saved = await saveMyDashboardCards(next);
+      setMyCards(saved.cardIds);
       setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+      setMyCards(previous);
+      setError(cause instanceof Error ? cause.message : 'Không lưu được thẻ Tổng quan.');
     } finally {
-      setSavingCards(false);
+      setSavingMyCards(false);
     }
   };
 
@@ -545,7 +550,7 @@ export function MaintenanceScreen() {
 
   const saveFrequencies = async () => {
     if (!settings || !freqDraft) return;
-    setSavingCards(true);
+    setSavingSettings(true);
     try {
       const saved = await saveMaintenanceSetting(
         'catalog.frequency',
@@ -561,7 +566,7 @@ export function MaintenanceScreen() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục tần suất.');
     } finally {
-      setSavingCards(false);
+      setSavingSettings(false);
     }
   };
 
@@ -569,16 +574,23 @@ export function MaintenanceScreen() {
     freqDraft !== undefined &&
     JSON.stringify(freqDraft) !== JSON.stringify(settings?.['catalog.frequency'].value);
 
+  /**
+   * Thẻ Tổng quan đang hiển thị: lựa chọn của người dùng; chưa có thì dùng cấu hình tenant cũ (nếu admin từng đặt),
+   * không thì null để lưới rơi về thẻ mặc định.
+   */
+  const tenantCards = settings?.['dashboard.cards'].value.cardIds ?? [];
+  const effectiveCards: readonly string[] | null = myCards ?? (tenantCards.length > 0 ? tenantCards : null);
+  /** Danh sách tích sẵn trong bảng Tuỳ chỉnh: đúng những thẻ đang hiện, kể cả khi đó là mặc định. */
+  const dashboardSelection = useMemo(
+    () => pickDashboardCards(effectiveCards).map((card) => card.id),
+    [effectiveCards],
+  );
+
   /** Mã tần suất đang có lịch dùng — tắt được nhưng không xoá được. */
   const usedFrequencies = useMemo(
     () => new Set((workspace?.schedules ?? []).map((item) => item.frequency)),
     [workspace],
   );
-
-  const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
-  const cardsDirty =
-    cardDraft.length !== storedCards.length ||
-    cardDraft.some((id, index) => id !== storedCards[index]);
 
   // Bộ lọc & Phân trang cho Bảng Phiếu Công Việc Phát Sinh (Occurrences)
   // Khung Phiếu phát sinh chiếm đúng phần cao còn lại của màn hình; đo lại khi chuyển tab hoặc khi dữ liệu tải xong (khung chỉ hiện sau đó).
@@ -655,6 +667,30 @@ export function MaintenanceScreen() {
     setOccCurrentPage(1);
   };
 
+  /** Việc thẻ Tổng quan làm được: mở phiếu, mở danh sách đã lọc sẵn, đóng phiếu tại chỗ. */
+  const dashboardActions: MaintenanceDashboardActions = {
+    openOccurrence: (id) => navigate('history', id),
+    openOccurrences: (kind) => {
+      resetOccFilters();
+      if (kind) setOccKind(kind);
+      navigate('occurrences');
+    },
+    openHistoryByStatus: (status) => {
+      setHistoryFilter({ status });
+      navigate('history');
+    },
+    completeOccurrence: async (id, note) => {
+      try {
+        await completeMaintenanceOccurrence(id, note);
+        setError(undefined);
+        await reload();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Không đánh dấu hoàn thành được.');
+        throw cause;
+      }
+    },
+  };
+
   return (
     <ModuleShell<View>
       moduleKey="maintenance"
@@ -693,30 +729,101 @@ export function MaintenanceScreen() {
       ) : (
         <>
           {view === 'dashboard' ? (
-            <MaintenanceDashboardGrid
-              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
-              data={{ workspace, matrix }}
-            />
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="m-0 text-xl font-bold tracking-tight text-foreground">Tổng quan</h2>
+                  <p className="m-0 text-sm text-muted-foreground">
+                    Việc cần xử lý hôm nay. Bấm Tuỳ chỉnh để chọn thẻ theo cách bạn làm việc; chỉ áp dụng cho tài khoản của bạn.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {workspace.permissions.canManageOccurrences ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="gap-1.5 rounded-md px-3"
+                      onClick={() => setIncidentOpen(true)}
+                    >
+                      <Plus />
+                      Ghi nhận sự cố
+                    </Button>
+                  ) : null}
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      className="gap-1.5 rounded-md px-3"
+                      onClick={() => setCreating(true)}
+                    >
+                      <CalendarPlus />
+                      Tạo lịch bảo trì
+                    </Button>
+                  ) : null}
+                  {myCards !== null && myCards !== undefined ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="lg"
+                      className="rounded-md px-3"
+                      disabled={savingMyCards}
+                      onClick={() => void changeMyCards(null)}
+                    >
+                      <RotateCcw />
+                      Đặt lại mặc định
+                    </Button>
+                  ) : null}
+                  <Popover>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          className="gap-1.5 rounded-md px-3"
+                          aria-label="Tuỳ chỉnh thẻ Tổng quan"
+                          disabled={myCards === undefined}
+                        />
+                      }
+                    >
+                      <SlidersHorizontal />
+                      Tuỳ chỉnh
+                      <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
+                        {dashboardSelection.length}
+                      </span>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="max-h-[70vh] w-[26rem] overflow-y-auto">
+                      <p className="m-0 mb-3 text-[0.8125rem] text-muted-foreground">
+                        Tích để hiện thẻ, dùng mũi tên để đổi thứ tự. Thay đổi được lưu ngay.
+                      </p>
+                      <MaintenanceCardPicker<MaintenanceDashboardData>
+                        catalog={MAINTENANCE_DASHBOARD_CARDS}
+                        selection={dashboardSelection}
+                        onChange={(next) => void changeMyCards(next)}
+                        disabled={savingMyCards}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {myCards === undefined ? null : (
+                <MaintenanceDashboardGrid
+                  selection={effectiveCards}
+                  data={{
+                    workspace,
+                    matrix,
+                    canHandle: workspace.permissions.canManageOccurrences,
+                    actions: dashboardActions,
+                  }}
+                />
+              )}
+            </div>
           ) : null}
 
           {view === 'settings' ? (
             <ModuleSettingsView
               sections={[
-                {
-                  id: 'dashboard',
-                  label: 'Thẻ tổng quan',
-                  description:
-                    'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
-                  render: () => (
-                    <MaintenanceCardPicker<MaintenanceDashboardData>
-                      catalog={MAINTENANCE_DASHBOARD_CARDS}
-                      selection={cardDraft}
-                      onChange={setCardDraft}
-                      max={6}
-                      disabled={!canManage || savingCards}
-                    />
-                  ),
-                },
                 {
                   id: 'frequencies',
                   label: 'Tần suất bảo trì',
@@ -727,7 +834,7 @@ export function MaintenanceScreen() {
                       <FrequencyCatalogEditor
                         value={freqDraft}
                         usedCodes={usedFrequencies}
-                        disabled={!canManage || savingCards}
+                        disabled={!canManage || savingSettings}
                         onChange={setFreqDraft}
                       />
                     ) : null,
@@ -736,14 +843,10 @@ export function MaintenanceScreen() {
               activeSectionId={settingsSection}
               onSectionChange={setSettingsSection}
               readOnly={!canManage}
-              dirty={settingsSection === 'frequencies' ? freqDirty : cardsDirty}
-              saving={savingCards}
-              onSave={settingsSection === 'frequencies' ? saveFrequencies : saveCards}
-              onReset={() =>
-                settingsSection === 'frequencies'
-                  ? setFreqDraft(settings?.['catalog.frequency'].value)
-                  : setCardDraft(storedCards)
-              }
+              dirty={freqDirty}
+              saving={savingSettings}
+              onSave={saveFrequencies}
+              onReset={() => setFreqDraft(settings?.['catalog.frequency'].value)}
             />
           ) : null}
 

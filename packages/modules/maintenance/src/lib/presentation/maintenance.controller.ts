@@ -256,6 +256,18 @@ export class MaintenanceController {
     );
   }
 
+  /** Thẻ Tổng quan riêng của người đang đăng nhập; ai xem được module đều tự đổi được cho mình. */
+  @Get('me/dashboard-cards') getMyDashboardCards(@Req() request: MaintenanceRequest) {
+    return this.execute(() => this.maintenance.getMyDashboardCards(this.actor(request)));
+  }
+
+  @Put('me/dashboard-cards') putMyDashboardCards(
+    @Req() request: MaintenanceRequest,
+    @Body() body: { cardIds: string[] | null },
+  ) {
+    return this.execute(() => this.maintenance.setMyDashboardCards(this.actor(request), body));
+  }
+
   private actor(request: MaintenanceRequest): MaintenanceActor {
     if (!request.maintenanceActor) throw new HttpException({ statusCode: 401, code: 'UNAUTHENTICATED', message: 'Thiếu trusted maintenance context.' }, 401);
     return request.maintenanceActor;
