@@ -3,6 +3,7 @@
 import type { BrandPalette, IconDocument } from '@enterprise-platform/shared-brand-icon';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconSvg } from '../icon-svg';
 import { IconActions, type IconActionHandlers } from './icon-actions';
 import { SelectBox, StatusChip, categoryLabel } from './library-ui';
@@ -43,9 +44,9 @@ export function IconTile({
           <IconSvg className="size-16" doc={doc} palette={palette} />
         </span>
         <span className="block min-w-0 px-0.5">
-          <span className="block truncate text-sm font-medium text-slate-900" title={doc.name}>
-            {doc.name}
-          </span>
+          <Hint label={doc.name}>
+            <span className="block truncate text-sm font-medium text-slate-900">{doc.name}</span>
+          </Hint>
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <StatusChip status={doc.status} />
             <span className="text-[11px] text-slate-500">{categoryLabel(doc.category)}</span>

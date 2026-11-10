@@ -426,6 +426,14 @@ export interface UpdateMaintenanceSettingsRequest<TValue> {
   readonly expectedVersion?: number;
 }
 
+/**
+ * Thẻ Tổng quan do từng người tự chọn. `cardIds: null` nghĩa là người này chưa tuỳ chỉnh,
+ * client dùng mặc định của tenant rồi mới tới mặc định của catalog.
+ */
+export interface MaintenanceMyDashboardCards {
+  readonly cardIds: readonly string[] | null;
+}
+
 /** Định dạng tệp cho phép đính kèm phiếu bảo trì / sự cố. */
 export const MAINTENANCE_ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   jpg: 'image/jpeg',

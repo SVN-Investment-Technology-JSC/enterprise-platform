@@ -1,10 +1,11 @@
 import { formatNumber, pathToData } from './path-data';
 import { geometryToPath } from './geometry';
+import { gradientAxis, isGradientPaint, parseGradient, stopHex } from './gradient';
 import { DEFAULT_PALETTE, resolvePaint, type BrandPalette, type ColorMode } from './palette';
 import { isPaintNone, type IconDocument, type IconShape } from './model';
 
 export interface SvgNode {
-  tag: 'path' | 'rect' | 'ellipse' | 'circle' | 'g' | 'symbol';
+  tag: 'path' | 'rect' | 'ellipse' | 'circle' | 'g' | 'symbol' | 'defs' | 'linearGradient' | 'stop';
   attrs: Record<string, string>;
   children?: SvgNode[];
 }
@@ -13,6 +14,8 @@ export interface IconSvgModel {
   viewBox: string;
   /** Thuộc tính đặt trên thẻ gốc; mọi lớp hình kế thừa. */
   rootAttrs: Record<string, string>;
+  /** Định nghĩa dùng chung (dải màu chuyển sắc); rỗng nếu icon không có gradient. Đặt trước các lớp hình khi vẽ. */
+  defs: SvgNode[];
   children: SvgNode[];
 }
 
@@ -20,6 +23,8 @@ export interface RenderOptions {
   /** `currentColor`: mọi màu theo chữ xung quanh; `brand`: ghi cứng màu từ bảng màu. */
   colorMode?: ColorMode;
   palette?: BrandPalette;
+  /** Tiền tố mã (`id`) của dải màu chuyển sắc; đổi khi nhiều icon cùng nằm trong một tệp (sprite) để mã không đụng nhau. */
+  gradientIdPrefix?: string;
 }
 
 const num = (value: number) => formatNumber(value);
@@ -60,6 +65,38 @@ function geometryNode(shape: IconShape): SvgNode {
   return { tag: 'path', attrs: { d: pathToData(geometryToPath(geometry)) } };
 }
 
+function hashText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Dải màu `<linearGradient>` cho một paint gradient, trải trên cả khung vẽ (userSpaceOnUse) nên dùng được cả cho nét
+ * thẳng (khung bao có chiều cao 0). Mã dải màu suy ra từ nội dung và cỡ lưới, nên hai lớp cùng gradient dùng chung một dải.
+ */
+function gradientNode(paint: string, size: number, palette: BrandPalette, prefix: string): { id: string; node: SvgNode } | null {
+  const gradient = parseGradient(paint);
+  if (!gradient) return null;
+  const stops = gradient.stops.map((stop) => ({ color: stopHex(stop.color, palette), offset: stop.offset }));
+  const axis = gradientAxis(gradient.angle, size);
+  const id = `${prefix}-${hashText(`${num(size)}|${gradient.angle}|${stops.map((stop) => `${stop.color}@${stop.offset}`).join(',')}`)}`;
+  const node: SvgNode = {
+    tag: 'linearGradient',
+    attrs: { id, gradientUnits: 'userSpaceOnUse', x1: num(axis.x1), y1: num(axis.y1), x2: num(axis.x2), y2: num(axis.y2) },
+    children: stops.map((stop): SvgNode => ({ tag: 'stop', attrs: { offset: num(stop.offset), 'stop-color': stop.color } })),
+  };
+  return { id, node };
+}
+
+/** Thẻ `<defs>` của mô hình, hoặc null nếu không có gì để định nghĩa. */
+export function defsNode(model: IconSvgModel): SvgNode | null {
+  return model.defs.length > 0 ? { tag: 'defs', attrs: {}, children: model.defs } : null;
+}
+
 /**
  * Dựng cây phần tử SVG từ tài liệu. Canvas, danh sách, SVG xuất và TSX xuất đều dùng chung cây này
  * nên hình thấy trên màn hình luôn khớp với mã xuất ra.
@@ -68,9 +105,23 @@ export function buildIconModel(doc: IconDocument, options: RenderOptions = {}): 
   const mode = options.colorMode ?? 'currentColor';
   const palette = options.palette ?? DEFAULT_PALETTE;
   const shapes = doc.shapes.filter((shape) => !shape.hidden);
+  const gridSize = Number.isFinite(doc.size) && doc.size > 0 ? doc.size : 24;
+  const gradientPrefix = options.gradientIdPrefix ?? 'svndts-grad';
+  const defs = new Map<string, SvgNode>();
+  // Gradient chỉ giữ ở chế độ `brand`; chế độ `currentColor` là một màu theo chữ nên gradient thành `currentColor`.
+  const resolve = (paint: string): string => {
+    if (isGradientPaint(paint) && mode === 'brand') {
+      const built = gradientNode(paint, gridSize, palette, gradientPrefix);
+      if (built) {
+        defs.set(built.id, built.node);
+        return `url(#${built.id})`;
+      }
+    }
+    return resolvePaint(paint, mode, palette);
+  };
 
   const stroked = shapes.filter((shape) => !isPaintNone(shape.stroke));
-  const rootStroke = modeOf(stroked.map((shape) => resolvePaint(shape.stroke, mode, palette)), 'currentColor');
+  const rootStroke = modeOf(stroked.map((shape) => resolve(shape.stroke)), 'currentColor');
   const rootWidth = modeOf(stroked.map((shape) => num(shape.strokeWidth)), num(1.75));
   const rootCap = modeOf(stroked.map((shape) => shape.linecap), 'round');
   const rootJoin = modeOf(stroked.map((shape) => shape.linejoin), 'round');
@@ -85,7 +136,7 @@ export function buildIconModel(doc: IconDocument, options: RenderOptions = {}): 
 
   const children = shapes.map((shape): SvgNode => {
     const node = geometryNode(shape);
-    const fill = resolvePaint(shape.fill, mode, palette);
+    const fill = resolve(shape.fill);
     if (fill !== 'none') {
       node.attrs.fill = fill;
       if (shape.fillOpacity < 1) node.attrs['fill-opacity'] = num(shape.fillOpacity);
@@ -95,7 +146,7 @@ export function buildIconModel(doc: IconDocument, options: RenderOptions = {}): 
     if (isPaintNone(shape.stroke)) {
       if (stroked.length > 0) node.attrs.stroke = 'none';
     } else {
-      const stroke = resolvePaint(shape.stroke, mode, palette);
+      const stroke = resolve(shape.stroke);
       if (stroke !== rootStroke) node.attrs.stroke = stroke;
       if (num(shape.strokeWidth) !== rootWidth) node.attrs['stroke-width'] = num(shape.strokeWidth);
       if (shape.linecap !== rootCap) node.attrs['stroke-linecap'] = shape.linecap;
@@ -105,8 +156,7 @@ export function buildIconModel(doc: IconDocument, options: RenderOptions = {}): 
     return node;
   });
 
-  const size = Number.isFinite(doc.size) && doc.size > 0 ? doc.size : 24;
-  return { viewBox: `0 0 ${num(size)} ${num(size)}`, rootAttrs, children };
+  return { viewBox: `0 0 ${num(gridSize)} ${num(gridSize)}`, rootAttrs, defs: [...defs.values()], children };
 }
 
 export function toCamelAttr(name: string): string {
@@ -132,6 +182,13 @@ function serializeNode(node: SvgNode, depth: number, camel: boolean): string {
   return `${pad}<${open}>\n${inner}\n${pad}</${node.tag}>`;
 }
 
+/** Nội dung bên trong thẻ gốc: `<defs>` (nếu có) rồi các lớp hình. */
+function bodyOf(model: IconSvgModel, depth: number, camel: boolean): string {
+  const defs = defsNode(model);
+  const nodes = defs ? [defs, ...model.children] : model.children;
+  return nodes.map((child) => serializeNode(child, depth, camel)).join('\n');
+}
+
 function sanitizeComment(text: string): string {
   return text.replace(/[<>]/g, '').replace(/-{2,}/g, '-').replace(/\*\//g, '* /').trim();
 }
@@ -140,7 +197,7 @@ function sanitizeComment(text: string): string {
 export function generateSvg(doc: IconDocument, options: RenderOptions = {}): string {
   const model = buildIconModel(doc, options);
   const root = attrsToString(model.rootAttrs, false);
-  const body = model.children.map((child) => serializeNode(child, 1, false)).join('\n');
+  const body = bodyOf(model, 1, false);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${model.viewBox}" ${root}>
   <!-- SVNDTS - ${sanitizeComment(doc.name)} -->
 ${body}
@@ -186,7 +243,7 @@ export function generateReactComponent(doc: IconDocument, options: RenderOptions
     'className={className}',
     '{...rest}',
   ].join('\n      ');
-  const body = model.children.map((child) => serializeNode(child, 3, true)).join('\n');
+  const body = bodyOf(model, 3, true);
 
   return `import type { SVGProps } from 'react';
 
@@ -215,9 +272,9 @@ export function generateSprite(docs: readonly IconDocument[], options: RenderOpt
     let id = `svndts-${slugify(doc.name)}`;
     for (let suffix = 2; used.has(id); suffix += 1) id = `svndts-${slugify(doc.name)}-${suffix}`;
     used.add(id);
-    const model = buildIconModel(doc, options);
+    const model = buildIconModel(doc, { ...options, gradientIdPrefix: `${id}-grad` });
     const attrs = [`id="${id}"`, `viewBox="${model.viewBox}"`, attrsToString(model.rootAttrs, false)].join(' ');
-    const body = model.children.map((child) => serializeNode(child, 3, false)).join('\n');
+    const body = bodyOf(model, 3, false);
     return `    <symbol ${attrs}>\n${body}\n    </symbol>`;
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" style="display:none">\n  <defs>\n${symbols.join('\n')}\n  </defs>\n</svg>`;

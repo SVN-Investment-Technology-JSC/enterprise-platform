@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Nút nổi nhẹ: viền, bóng mỏng và nhích lên khi rê chuột. */
@@ -18,6 +18,10 @@ export function Panel({
   hint,
   actions,
   flush = false,
+  fill = false,
+  sectionRef,
+  bodyRef,
+  footer,
   children,
 }: {
   id: string;
@@ -28,11 +32,25 @@ export function Panel({
   actions?: ReactNode;
   /** Bỏ đệm quanh nội dung, dùng cho bảng sát mép khối. */
   flush?: boolean;
+  /**
+   * Khối có chiều cao do nơi dùng đặt (xem `useFillViewportHeight`): tiêu đề và `footer` đứng yên, chỉ phần nội dung cuộn
+   * khi dài hơn khối.
+   */
+  fill?: boolean;
+  sectionRef?: Ref<HTMLElement>;
+  /** Phần tử cuộn của nội dung (chỉ có tác dụng khi `fill`). */
+  bodyRef?: Ref<HTMLDivElement>;
+  /** Chân khối (thanh phân trang...), nằm ngoài vùng cuộn. */
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+    <section
+      aria-labelledby={id}
+      className={cn('min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm', fill && 'flex flex-col')}
+      ref={sectionRef}
+    >
+      <header className={cn('flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3.5', fill && 'shrink-0')}>
         <span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
           <Icon aria-hidden className="size-4" />
         </span>
@@ -44,7 +62,10 @@ export function Panel({
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </header>
-      <div className={cn(!flush && 'px-5 py-4')}>{children}</div>
+      <div className={cn(!flush && 'px-5 py-4', fill && 'min-h-0 flex-1 overflow-y-auto')} ref={bodyRef}>
+        {children}
+      </div>
+      {footer}
     </section>
   );
 }

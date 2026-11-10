@@ -1330,7 +1330,8 @@ export function MaintenanceMatrixBoard({
                       const checked = draft.frequencies.has(entry.id);
                       return (
                         <td key={entry.id} className={cn('text-center', checked && 'bg-blue-50/70')}>
-                          <div className="flex flex-col items-center gap-1">
+                          {/* Giữ chiều cao cố định (checkbox + ô ngày) để tích/bỏ tích không làm hàng giật. */}
+                          <div className="flex h-12 flex-col items-center gap-1">
                             <Checkbox
                               checked={checked}
                               disabled={!canManage || busy}
@@ -1352,6 +1353,7 @@ export function MaintenanceMatrixBoard({
                                     value={draft.startDates.get(entry.id) ?? defaultStartDate()}
                                     disabled={!canManage || busy}
                                     height={28}
+                                    allowClear={false}
                                     onChange={(val) =>
                                       setStartDate(row.asset.code, entry.id, val || defaultStartDate())
                                     }

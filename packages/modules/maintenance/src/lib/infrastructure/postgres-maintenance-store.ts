@@ -44,6 +44,9 @@ function mapSettingsEntry(row: Row): MaintenanceSettingsEntry<unknown> {
   };
 }
 
+/** Số lần gửi tối đa cho lỗi tạm thời trước khi phiếu chuyển 'failed' để người dùng xử lý. */
+const MAX_DISPATCH_ATTEMPTS = 5;
+
 /** An occurrence claimed in phase 1, awaiting the phase 2 HTTP dispatch. */
 interface DispatchTarget {
   readonly occurrenceId: string;
@@ -294,6 +297,33 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     return result.rows[0] ? mapSettingsEntry(result.rows[0]) : undefined;
   }
 
+  async getUserPreference(tenantId: string, userId: string, key: string): Promise<unknown | undefined> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT value FROM maintenance_schema.user_preferences WHERE user_id = $1 AND key = $2`,
+      [userId, key],
+    );
+    return result.rows[0]?.value;
+  }
+
+  async setUserPreference(tenantId: string, userId: string, key: string, value: unknown): Promise<void> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    await pool.query(
+      `INSERT INTO maintenance_schema.user_preferences (user_id, key, value, updated_at)
+       VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [userId, key, JSON.stringify(value)],
+    );
+  }
+
+  async deleteUserPreference(tenantId: string, userId: string, key: string): Promise<void> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    await pool.query(
+      `DELETE FROM maintenance_schema.user_preferences WHERE user_id = $1 AND key = $2`,
+      [userId, key],
+    );
+  }
+
   private actorUuid(actor: MaintenanceActor): string | null {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actor.userId)
       ? actor.userId
@@ -522,7 +552,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         WHERE o.status = 'dispatch_pending'
           AND o.procedure_instance_id IS NULL
           AND COALESCE(o.procedure_definition_id, s.procedure_definition_id) IS NOT NULL
-          AND o.created_at < $1
+          AND COALESCE(o.dispatch_attempted_at, o.created_at) < $1
         ORDER BY o.created_at
         LIMIT $2`,
       [staleBefore, limit],
@@ -580,9 +610,22 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     tenantId: string,
     target: DispatchTarget,
   ): Promise<void> {
+    // Nhận lượt gửi: chỉ phiếu còn chờ mới được gửi (đã đóng, đã có hồ sơ thì bỏ qua), đồng thời đếm lần thử.
+    const claimed = await pool.query<Row>(
+      `UPDATE maintenance_schema.occurrences
+          SET dispatch_attempts = dispatch_attempts + 1, dispatch_attempted_at = now()
+        WHERE id = $1 AND status = 'dispatch_pending'
+        RETURNING dispatch_attempts`,
+      [target.occurrenceId],
+    );
+    if (!claimed.rows[0]) return;
+    const attempts = Number(claimed.rows[0].dispatch_attempts);
+
     try {
       const response = await fetch(`${this.procedureApiUrl}/v1/internal/instances`, {
         method: 'POST',
+        // Worker chạy bước này trong vòng tick chung: một lời gọi treo sẽ chặn cả vòng, nên phải có giới hạn thời gian.
+        signal: AbortSignal.timeout(10_000),
         headers: {
           'Content-Type': 'application/json',
           'X-Tenant-ID': tenantId,
@@ -599,22 +642,86 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       });
 
       if (!response.ok) {
-        await this.markDispatchFailed(pool, tenantId, target.occurrenceId, `Procedure API trả về ${response.status}.`);
+        // 5xx, 429 và 408 là lỗi tạm thời: giữ phiếu ở 'dispatch_pending' cho reconcile gửi lại. 4xx khác là lỗi
+        // dữ liệu (quy trình không hợp lệ...), thử lại cũng vô ích nên báo lỗi ngay.
+        const transient = response.status >= 500 || response.status === 429 || response.status === 408;
+        // Kèm lời nhắn của Quy trình (nếu có) để người xem biết vì sao, thay vì chỉ một mã số.
+        const detail = await response
+          .json()
+          .then((body) => (typeof (body as { message?: unknown })?.message === 'string' ? (body as { message: string }).message : ''))
+          .catch(() => '');
+        await this.markDispatchFailed(pool, tenantId, target.occurrenceId, `Procedure API trả về ${response.status}${detail ? `: ${detail}` : '.'}`, {
+          retryable: transient,
+          attempts,
+        });
         return;
       }
 
       const instance = (await response.json()) as { id: string; code: string };
+      // `status = 'dispatch_pending'`: phiếu đã bị đóng trong lúc chờ thì không được kéo ngược về 'generated'.
       await pool.query(`UPDATE maintenance_schema.occurrences
         SET procedure_instance_id=$2, procedure_instance_code=$3, status='generated', failure_reason=NULL
-        WHERE id=$1`, [target.occurrenceId, instance.id, instance.code]);
+        WHERE id=$1 AND status='dispatch_pending'`, [target.occurrenceId, instance.id, instance.code]);
     } catch (error) {
+      // Lỗi mạng, timeout: tạm thời.
       await this.markDispatchFailed(
         pool,
         tenantId,
         target.occurrenceId,
         error instanceof Error ? error.message : String(error),
+        { retryable: true, attempts },
       );
     }
+  }
+
+  /**
+   * Thử lại tay một phiếu đã báo lỗi gửi sang Quy trình. An toàn khi gọi lặp: idempotencyKey giữ nguyên nên Quy trình
+   * trả lại hồ sơ cũ thay vì tạo thêm. Chỉ phiếu 'failed' chưa có hồ sơ mới thử lại được.
+   */
+  async retryDispatch(tenantId: string, id: string): Promise<MaintenanceOccurrence> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const reset = await pool.query<Row>(
+      `UPDATE maintenance_schema.occurrences
+          SET status = 'dispatch_pending', dispatch_attempts = 0, dispatch_attempted_at = NULL
+        WHERE id = $1 AND status = 'failed' AND procedure_instance_id IS NULL
+        RETURNING id`,
+      [id],
+    );
+    if (!reset.rows[0]) {
+      const existing = await this.findOccurrence(tenantId, id);
+      if (!existing) throw new MaintenanceError('not_found', 'Không tìm thấy phiếu bảo trì.');
+      throw new MaintenanceError('conflict', 'Chỉ phiếu gửi sang Quy trình bị lỗi mới thử lại được.');
+    }
+
+    const row = (
+      await pool.query<Row>(
+        `SELECT o.id, o.idempotency_key,
+                COALESCE(o.title, s.title) AS title,
+                COALESCE(o.procedure_definition_id, s.procedure_definition_id) AS procedure_definition_id,
+                COALESCE(o.asset_code, s.asset_code) AS asset_code
+           FROM maintenance_schema.occurrences o
+           LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+          WHERE o.id = $1`,
+        [id],
+      )
+    ).rows[0];
+    if (!row?.procedure_definition_id) {
+      // Không có quy trình để gửi: trả về 'failed' thay vì để phiếu kẹt ở dispatch_pending mãi.
+      await pool.query(`UPDATE maintenance_schema.occurrences SET status = 'failed' WHERE id = $1`, [id]);
+      throw new MaintenanceError('validation', 'Phiếu không gắn quy trình nên không có gì để gửi lại.');
+    }
+
+    await this.dispatchToProcedure(pool, tenantId, {
+      occurrenceId: String(row.id),
+      idempotencyKey: String(row.idempotency_key),
+      title: String(row.title),
+      definitionId: String(row.procedure_definition_id),
+      assetCode: row.asset_code ? String(row.asset_code) : null,
+    });
+
+    const saved = await this.findOccurrence(tenantId, id);
+    if (!saved) throw new MaintenanceError('not_found', 'Không đọc lại được phiếu sau khi gửi lại.');
+    return saved;
   }
 
   private async markDispatchFailed(
@@ -622,12 +729,22 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     tenantId: string,
     occurrenceId: string,
     reason: string,
+    options: { readonly retryable: boolean; readonly attempts: number },
   ): Promise<void> {
+    // Lỗi tạm thời còn lượt thử: giữ 'dispatch_pending', ghi lý do để người xem biết, và không báo lỗi ra ngoài.
+    if (options.retryable && options.attempts < MAX_DISPATCH_ATTEMPTS) {
+      await pool.query(
+        `UPDATE maintenance_schema.occurrences SET failure_reason = $2
+          WHERE id = $1 AND status = 'dispatch_pending'`,
+        [occurrenceId, `Đang thử lại (${options.attempts}/${MAX_DISPATCH_ATTEMPTS}): ${reason}`.slice(0, 1000)],
+      );
+      return;
+    }
     await inTransaction(pool, async (client) => {
       const result = await client.query<Row>(
         `UPDATE maintenance_schema.occurrences
             SET status='failed', failure_reason=$2
-          WHERE id=$1
+          WHERE id=$1 AND status='dispatch_pending'
           RETURNING id, code, title, assignee_id, created_by`,
         [occurrenceId, reason.slice(0, 1000)],
       );

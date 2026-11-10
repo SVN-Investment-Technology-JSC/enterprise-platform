@@ -82,6 +82,7 @@ import {
   CRM_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-crm';
 import { createInventoryJobs } from '@enterprise-platform/module-inventory';
+import { createMaintenanceJobs } from '@enterprise-platform/module-maintenance';
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
@@ -197,6 +198,7 @@ const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
 const crmIntegrationEvents = createCrmIntegrationEvents(moduleDatabases, tenantPools);
 const crmJobs = createCrmJobs(moduleDatabases, tenantPools);
 const inventoryJobs = createInventoryJobs(moduleDatabases, tenantPools);
+const maintenanceJobs = createMaintenanceJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -658,6 +660,30 @@ async function processInventoryJobs(database: TenantDatabaseReference) {
   if (expired.length) console.info(`[inventory] Tenant ${tenantId}: nhả ${expired.length} giữ hàng hết hạn.`);
 }
 
+const MAINTENANCE_SCHEDULER_INTERVAL_MS = 60_000;
+const maintenanceLastRun = new Map<string, number>();
+
+/**
+ * Việc định kỳ của Bảo trì: sinh phiếu đến hạn và gửi lại phiếu kẹt sang Quy trình, mỗi 60 giây cho từng tenant đã bật
+ * phân hệ. Trước đây chỉ bộ hẹn giờ trong maintenance-api làm việc này và chỉ cho tenant đã có người gọi API từ lúc
+ * khởi động, nên tenant vắng người dùng không bao giờ sinh phiếu. Chạy song song với bộ hẹn giờ cũ vẫn an toàn:
+ * sinh phiếu có khoá advisory, gửi Quy trình có idempotencyKey.
+ */
+async function processMaintenanceJobs(database: TenantDatabaseReference) {
+  const tenantId = database.tenantId;
+  const now = Date.now();
+  if (now - (maintenanceLastRun.get(tenantId) ?? 0) < MAINTENANCE_SCHEDULER_INTERVAL_MS) return;
+  if (!(await moduleEnabled(tenantId, 'maintenance'))) return;
+  moduleDatabases.register(database);
+  if (!(await maintenanceJobs.ready(tenantId))) return;
+  // Đặt mốc trước khi chạy để một lần lỗi không làm tick 1 giây gọi lại liên tục.
+  maintenanceLastRun.set(tenantId, now);
+  const { generated, recovered } = await maintenanceJobs.run(tenantId);
+  if (generated || recovered) {
+    console.info(`[maintenance] Tenant ${tenantId}: sinh ${generated} phiếu, gửi lại ${recovered} phiếu kẹt.`);
+  }
+}
+
 /** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social, CRM và Inventory jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
@@ -667,7 +693,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs, processMaintenanceJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -726,7 +752,7 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
           );
         } else if (event.type === 'procedure.instance.started') {
           await pool.query(
-            `UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3 WHERE id=$1`,
+            `UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3,failure_reason=NULL WHERE id=$1 AND status IN ('dispatch_pending','failed')`,
             [payload.occurrenceId, payload.instanceId, payload.instanceCode],
           );
         } else if (

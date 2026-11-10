@@ -1,18 +1,14 @@
 'use client';
 
-import { CATEGORY_LABELS, type IconDocument, type IconStatus } from '@enterprise-platform/shared-brand-icon';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import type { IconDocument, IconStatus } from '@enterprise-platform/shared-brand-icon';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   Check,
   Download,
   FileJson,
   FilePen,
   Images,
-  LayoutGrid,
-  List,
-  ListFilter,
   Plus,
-  Search,
   SearchX,
   Trash2,
   Upload,
@@ -21,27 +17,24 @@ import {
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { Panel, RAISED, RAISED_PRIMARY } from '../components/panel';
+import { useFillViewportHeight } from '../components/use-fill-viewport';
+import { useMediaQuery } from '../components/use-media-query';
 import { ExportDialog } from '../export/export-dialog';
 import { isPresetId, useBrandSettings, useIconLibrary } from '../store';
 import { errorMessage } from '../store/brand-api';
 import { IconList } from './icon-list';
 import { IconTile } from './icon-tile';
 import {
-  CATEGORY_FILTERS,
   DEFAULT_VIEW,
-  SORT_LABELS,
   STATUS_LABELS,
-  STATUSES,
   applyView,
   facetCounts,
   isViewFiltered,
-  type CategoryFilter,
   type LibraryView,
   type SortKey,
-  type StatusFilter,
   type ViewMode,
 } from './library-filters';
 import {
@@ -53,17 +46,30 @@ import {
   type ImportFileInput,
   type NoticeTone,
 } from './library-io';
-import { FilterChip, IconButton, SelectBox } from './library-ui';
+import { LibraryPagerBar } from './library-pager-bar';
+import {
+  DEFAULT_PAGE_SIZE,
+  normalizePageSize,
+  pageAfterSizeChange,
+  pageKey,
+  paginate,
+  readMemory,
+  rememberPage,
+  writeMemory,
+  type LibraryMemory,
+} from './library-pager';
+import { LibraryToolbar } from './library-toolbar';
+import { IconButton, SelectBox } from './library-ui';
 import { downloadTextFile, readFileText } from './file-download';
 import { NEW_ICON_ID, asRoute, editorPath } from './routes';
 import { SyncBanner } from './sync-banner';
 
 const PREFS_KEY = 'svndts-brand-library-prefs-v1';
-const SORT_OPTIONS = (Object.keys(SORT_LABELS) as SortKey[]).map((value) => ({ value, label: SORT_LABELS[value] }));
 
 interface Prefs {
   readonly mode?: ViewMode;
   readonly sort?: SortKey;
+  readonly pageSize?: number;
 }
 
 function readPrefs(): Prefs {
@@ -73,6 +79,7 @@ function readPrefs(): Prefs {
     return {
       mode: data.mode === 'list' || data.mode === 'grid' ? data.mode : undefined,
       sort: data.sort === 'name' || data.sort === 'updated' ? data.sort : undefined,
+      pageSize: typeof data.pageSize === 'number' ? normalizePageSize(data.pageSize) : undefined,
     };
   } catch {
     return {};
@@ -100,7 +107,9 @@ const NOTICE_STYLE: Record<NoticeTone, string> = {
 };
 
 const SKELETON_COUNT = 12;
-const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3';
+/** Khoảng trống (px) giữa đáy khối icon và đáy màn hình; nhỏ hơn phần đệm của khung trang nên khối cao gần hết màn hình. */
+const CARD_BOTTOM_GAP = 12;
+const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3';
 
 export function IconLibraryPage() {
   const library = useIconLibrary();
@@ -114,13 +123,39 @@ export function IconLibraryPage() {
   const [importing, setImporting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  /** Trang đang xem của từng tổ hợp bộ lọc: đổi bộ lọc rồi quay lại thì về đúng trang cũ. */
+  const [pages, setPages] = useState<Readonly<Record<string, number>>>({});
+  const panelRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  /** Vị trí cuộn đã lưu, áp dụng một lần khi dữ liệu đã có. */
+  const pendingScroll = useRef(0);
+  const scrollTopRef = useRef(0);
+  const memoryRef = useRef<Pick<LibraryMemory, 'filters' | 'pages'> | null>(null);
+  // Đã nạp xong chỗ đang xem từ lần trước; trước đó chưa được ghi đè bộ nhớ bằng giá trị mặc định.
+  const [restored, setRestored] = useState(false);
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    restoredRef.current = restored;
+  }, [restored]);
+
+  // Thói quen hiển thị (lưu lâu dài) và chỗ đang xem trong phiên (bộ lọc, trang, vị trí cuộn) chỉ đọc sau khi hydrate,
+  // để HTML dựng trên máy chủ và lần vẽ đầu ở trình duyệt giống nhau.
   useEffect(() => {
     const prefs = readPrefs();
+    const memory = readMemory();
     if (prefs.mode) setMode(prefs.mode);
-    if (prefs.sort) setView((current) => ({ ...current, sort: prefs.sort ?? current.sort }));
+    if (prefs.pageSize) setPageSize(prefs.pageSize);
+    setView((current) => ({ ...current, ...memory.filters, sort: prefs.sort ?? current.sort }));
+    setPages(memory.pages);
+    pendingScroll.current = memory.scrollTop;
+    scrollTopRef.current = memory.scrollTop;
+    setRestored(true);
   }, []);
 
   const visible = useMemo(() => applyView(library.docs, view), [library.docs, view]);
+  const currentKey = pageKey(view, pageSize);
+  const slice = useMemo(() => paginate(visible, pages[currentKey] ?? 1, pageSize), [visible, pages, currentKey, pageSize]);
   const counts = useMemo(() => facetCounts(library.docs, view), [library.docs, view]);
   const filtered = isViewFiltered(view);
 
@@ -129,14 +164,68 @@ export function IconLibraryPage() {
   const pickedPresets = picked.filter((doc) => isPresetId(doc.id)).length;
 
   const patchView = useCallback((patch: Partial<LibraryView>) => setView((current) => ({ ...current, ...patch })), []);
+
+  const goToPage = (page: number) => setPages((current) => rememberPage(current, currentKey, page));
+  const changePageSize = (size: number) => {
+    const nextPage = pageAfterSizeChange(slice.page, pageSize, size);
+    setPageSize(size);
+    setPages((current) => rememberPage(current, pageKey(view, size), nextPage));
+    writePrefs({ pageSize: size });
+  };
+
+  // Nhớ chỗ đang xem để quay lại từ trình thiết kế vẫn đúng bộ lọc, trang và vị trí cuộn.
+  memoryRef.current = { filters: { query: view.query, category: view.category, status: view.status }, pages };
+  const persistMemory = useCallback(() => {
+    if (restoredRef.current && memoryRef.current) writeMemory({ ...memoryRef.current, scrollTop: scrollTopRef.current });
+  }, []);
+  useEffect(persistMemory, [persistMemory, restored, view.query, view.category, view.status, pages]);
+  useEffect(() => persistMemory, [persistMemory]);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return undefined;
+    let frame = 0;
+    const onScroll = () => {
+      scrollTopRef.current = body.scrollTop;
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          persistMemory();
+        });
+      }
+    };
+    body.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      body.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [persistMemory]);
+
+  // Khối icon cao vừa phần màn hình còn lại; nội dung dài chỉ cuộn trong khối, không cuộn cả trang.
+  // Màn hình hẹp (điện thoại) để khối cao tự nhiên và trang cuộn như thường: khung cuộn nhỏ lồng trong trang khó thao tác bằng tay.
+  const wide = useMediaQuery('(min-width: 768px)');
+  useFillViewportHeight(panelRef, 360, undefined, wide, CARD_BOTTOM_GAP);
+
+  // Chuyển trang hoặc đổi bộ lọc thì về đầu khối; lần đầu thì khôi phục vị trí cuộn đã lưu khi dữ liệu đã có.
+  const shownPage = useRef('');
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!library.ready || !restored || !body) return;
+    const token = `${currentKey}#${slice.page}`;
+    if (pendingScroll.current > 0) {
+      body.scrollTop = pendingScroll.current;
+      pendingScroll.current = 0;
+    } else if (shownPage.current && shownPage.current !== token) {
+      body.scrollTop = 0;
+    }
+    shownPage.current = token;
+  }, [library.ready, restored, currentKey, slice.page]);
   const say = useCallback((tone: NoticeTone, text: string, details?: readonly string[]) => setNotice({ tone, text, details }), []);
 
   const changeMode = (next: ViewMode) => {
     setMode(next);
     writePrefs({ mode: next });
   };
-  const changeSort = (value: string) => {
-    const sort: SortKey = value === 'name' ? 'name' : 'updated';
+  const changeSort = (sort: SortKey) => {
     patchView({ sort });
     writePrefs({ sort });
   };
@@ -149,13 +238,21 @@ export function IconLibraryPage() {
       return next;
     });
 
+  /** Ô tick đầu khối chọn hoặc bỏ chọn các icon của trang đang xem; chọn cả danh sách đã lọc dùng nút ở thanh chọn. */
   const toggleAll = (checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current);
-      for (const doc of visible) {
+      for (const doc of slice.items) {
         if (checked) next.add(doc.id);
         else next.delete(doc.id);
       }
+      return next;
+    });
+
+  const selectAllVisible = () =>
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const doc of visible) next.add(doc.id);
       return next;
     });
 
@@ -257,7 +354,7 @@ export function IconLibraryPage() {
   const total = library.docs.length;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Thư viện icon</h1>
@@ -271,36 +368,42 @@ export function IconLibraryPage() {
             <Plus aria-hidden className="size-4" />
             Tạo icon mới
           </Link>
-          <Button
-            className={actionBtn}
-            disabled={importing}
-            onClick={() => fileInput.current?.click()}
-            title="Nhập tệp SVG (nhiều tệp) hoặc JSON sao lưu"
-            variant="outline"
-          >
-            <Upload aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Nhập tệp</span>
-          </Button>
-          <Button
-            className={actionBtn}
-            disabled={total === 0}
-            onClick={backup}
-            title="Sao lưu toàn bộ thư viện ra tệp JSON"
-            variant="outline"
-          >
-            <FileJson aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Sao lưu</span>
-          </Button>
-          <Button
-            className={actionBtn}
-            disabled={total === 0}
-            onClick={exportCurrent}
-            title={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}
-            variant="outline"
-          >
-            <Download aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Xuất</span>
-          </Button>
+          <Hint label="Nhập tệp SVG (nhiều tệp) hoặc JSON sao lưu">
+            <Button
+              aria-label="Nhập tệp"
+              className={actionBtn}
+              disabled={importing}
+              onClick={() => fileInput.current?.click()}
+              variant="outline"
+            >
+              <Upload aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Nhập tệp</span>
+            </Button>
+          </Hint>
+          <Hint label="Sao lưu toàn bộ thư viện ra tệp JSON">
+            <Button
+              aria-label="Sao lưu"
+              className={actionBtn}
+              disabled={total === 0}
+              onClick={backup}
+              variant="outline"
+            >
+              <FileJson aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Sao lưu</span>
+            </Button>
+          </Hint>
+          <Hint label={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}>
+            <Button
+              aria-label={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}
+              className={actionBtn}
+              disabled={total === 0}
+              onClick={exportCurrent}
+              variant="outline"
+            >
+              <Download aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Xuất</span>
+            </Button>
+          </Hint>
           <input
             accept=".svg,.json,image/svg+xml,application/json"
             aria-hidden
@@ -344,97 +447,23 @@ export function IconLibraryPage() {
         </p>
       ) : null}
 
-      <div
-        aria-label="Bộ lọc"
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm"
-        role="search"
-      >
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-          <ListFilter aria-hidden className="size-4 text-blue-600" />
-          Bộ lọc
-        </span>
-        <div className="relative w-full min-w-48 sm:w-64">
-          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            aria-label="Tìm icon"
-            className="h-8 rounded-md border-slate-300 bg-white pl-8 pr-8 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
-            onChange={(event) => patchView({ query: event.target.value })}
-            placeholder="Tìm theo tên, mô tả, nhãn"
-            type="search"
-            value={view.query}
-          />
-          {view.query ? (
-            <button
-              aria-label="Xoá từ khoá"
-              className="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:text-slate-700"
-              onClick={() => patchView({ query: '' })}
-              title="Xoá từ khoá"
-              type="button"
-            >
-              <X aria-hidden className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-
-        <div aria-label="Lọc theo danh mục" className="flex flex-wrap items-center gap-1" role="group">
-          {CATEGORY_FILTERS.map((category: CategoryFilter) => (
-            <FilterChip
-              active={view.category === category}
-              count={counts.category[category]}
-              key={category}
-              onClick={() => patchView({ category })}
-            >
-              {category === 'all' ? 'Tất cả' : CATEGORY_LABELS[category]}
-            </FilterChip>
-          ))}
-        </div>
-
-        <span aria-hidden className="hidden h-5 w-px bg-slate-200 xl:block" />
-
-        <div aria-label="Lọc theo trạng thái" className="flex flex-wrap items-center gap-1" role="group">
-          {(['all', ...STATUSES] as StatusFilter[]).map((status) => (
-            <FilterChip active={view.status === status} count={counts.status[status]} key={status} onClick={() => patchView({ status })}>
-              {status === 'all' ? 'Mọi trạng thái' : STATUS_LABELS[status]}
-            </FilterChip>
-          ))}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="w-36" title="Sắp xếp">
-            <SearchableSelect
-              clearable={false}
-              height={32}
-              onChange={changeSort}
-              options={SORT_OPTIONS}
-              placeholder="Sắp xếp"
-              searchInDropdown
-              value={view.sort}
-            />
-          </div>
-          <div aria-label="Kiểu hiển thị" className="flex rounded-md border border-slate-300 bg-white p-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]" role="group">
-            <IconButton
-              aria-pressed={mode === 'grid'}
-              className={cn('size-7', mode === 'grid' && 'bg-blue-50 text-blue-700')}
-              label="Dạng lưới"
-              onClick={() => changeMode('grid')}
-            >
-              <LayoutGrid aria-hidden className="size-4" />
-            </IconButton>
-            <IconButton
-              aria-pressed={mode === 'list'}
-              className={cn('size-7', mode === 'list' && 'bg-blue-50 text-blue-700')}
-              label="Dạng danh sách"
-              onClick={() => changeMode('list')}
-            >
-              <List aria-hidden className="size-4" />
-            </IconButton>
-          </div>
-        </div>
-      </div>
+      <LibraryToolbar
+        counts={counts}
+        mode={mode}
+        onChange={patchView}
+        onMode={changeMode}
+        onSort={changeSort}
+        view={view}
+      />
 
       {picked.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm shadow-sm" data-testid="bulk-bar">
           <span className="font-medium text-blue-900">Đã chọn {picked.length}</span>
+          {slice.pages > 1 && picked.length < visible.length ? (
+            <Button className="rounded-md" onClick={selectAllVisible} size="sm" variant="ghost">
+              Chọn cả {visible.length} icon
+            </Button>
+          ) : null}
           <span aria-hidden className="h-4 w-px bg-blue-200" />
           <Button className="rounded-md" onClick={() => setExportDocs(picked)} size="sm" variant="ghost">
             <Download aria-hidden />
@@ -474,8 +503,8 @@ export function IconLibraryPage() {
               {mode === 'grid' ? (
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
                   <SelectBox
-                    checked={picked.length === visible.length}
-                    indeterminate={picked.length > 0}
+                    checked={slice.items.length > 0 && slice.items.every((doc) => selected.has(doc.id))}
+                    indeterminate={slice.items.some((doc) => selected.has(doc.id))}
                     label="Chọn tất cả icon đang hiện"
                     onChange={toggleAll}
                   />
@@ -497,10 +526,14 @@ export function IconLibraryPage() {
             </>
           ) : null
         }
+        bodyRef={bodyRef}
+        fill={wide}
         flush={mode === 'list' && library.ready && visible.length > 0}
+        footer={library.ready && visible.length > 0 ? <LibraryPagerBar onPage={goToPage} onPageSize={changePageSize} slice={slice} /> : null}
         hint="Bấm vào icon để mở trình thiết kế"
         icon={Images}
         id="icons-title"
+        sectionRef={panelRef}
         title="Icon"
       >
         {!library.ready ? (
@@ -532,7 +565,7 @@ export function IconLibraryPage() {
           </div>
         ) : mode === 'grid' ? (
           <ul className={GRID} data-testid="icon-grid">
-            {visible.map((doc) => (
+            {slice.items.map((doc) => (
               <IconTile
                 doc={doc}
                 key={doc.id}
@@ -546,7 +579,7 @@ export function IconLibraryPage() {
           </ul>
         ) : (
           <IconList
-            docs={visible}
+            docs={slice.items}
             isPreset={isPresetId}
             onSelect={toggle}
             onSelectAll={toggleAll}
