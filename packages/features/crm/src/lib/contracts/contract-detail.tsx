@@ -10,6 +10,7 @@ import {
   type ContractDetail as ContractDetailData,
   type ContractLine,
   type ContractOrderRef,
+  type CrmMaterialStock,
   type PaymentTerm,
   type PaymentTermCondition,
   type SalesOrderStatus,
@@ -23,10 +24,12 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { MaterialPickerDialog } from '../components/material-picker';
+import { WarehouseSelect } from '../components/warehouse-select';
 import {
   contractAction,
   errorMessage,
   getContract,
+  loadMaterialStock,
   savePaymentTerms,
   triggerPaymentTerm,
   updateContract,
@@ -49,6 +52,17 @@ import { formatPercent, parseNumber } from '../pricing/pricing.model';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { ContractFormDialog } from './contracts-page';
+
+/** Dòng hợp đồng gửi lại khi thay dòng (giữ kho riêng của dòng, D3-37). */
+const contractLineRequest = (line: ContractLine) => ({
+  materialId: line.materialId,
+  quantity: line.quantity,
+  unit: line.unit,
+  unitPrice: line.unitPrice,
+  vatRate: line.vatRate,
+  note: line.note,
+  warehouseCode: line.warehouseCode ?? null,
+});
 
 const ACTION_DONE: Readonly<Record<ContractAction, string>> = {
   confirm: 'Đã xác nhận hợp đồng.',
@@ -108,6 +122,7 @@ export function ContractDetail({
   const [terms, setTerms] = useState<TermDraft[]>([]);
   const [triggering, setTriggering] = useState<PaymentTerm>();
   const [triggerDate, setTriggerDate] = useState('');
+  const [stock, setStock] = useState<readonly CrmMaterialStock[]>([]);
 
   const load = useCallback(
     () =>
@@ -124,6 +139,19 @@ export function ContractDetail({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Tồn khả dụng theo kho của mặt hàng trong hợp đồng Nháp, để chọn kho giữ hàng từng dòng (D3-37).
+  const stockKey = detail?.status === 'DRAFT' ? [...new Set(detail.lines.filter((line) => line.materialKind !== 'SERVICE').map((line) => line.materialId))].join(',') : '';
+  useEffect(() => {
+    if (!stockKey) return setStock([]);
+    let active = true;
+    loadMaterialStock(stockKey.split(','))
+      .then((rows) => active && setStock(rows))
+      .catch(() => active && setStock([]));
+    return () => {
+      active = false;
+    };
+  }, [stockKey]);
 
   async function run(work: () => Promise<ContractDetailData>, success?: string): Promise<boolean> {
     setBusy(true);
@@ -160,14 +188,7 @@ export function ContractDetail({
   const replaceLines = (lines: readonly ContractLine[]) =>
     updateContract(detail.id, {
       revision: detail.revision,
-      lines: lines.map((line) => ({
-        materialId: line.materialId,
-        quantity: line.quantity,
-        unit: line.unit,
-        unitPrice: line.unitPrice,
-        vatRate: line.vatRate,
-        note: line.note,
-      })),
+      lines: lines.map(contractLineRequest),
     });
 
   const lineColumns: ColumnsType<ContractLine> = [
@@ -188,6 +209,33 @@ export function ContractDetail({
       ),
     },
     { title: 'SL', key: 'quantity', width: 110, align: 'right', render: (_: unknown, row) => (row.quantity === null ? 'Theo đơn' : `${formatQuantity(row.quantity)} ${row.unit}`) },
+    {
+      // Kho giữ hàng của dòng (D3-37): rỗng là theo kho mặc định của hợp đồng.
+      title: 'Kho',
+      key: 'warehouse',
+      width: 240,
+      render: (_: unknown, row) =>
+        row.materialKind === 'SERVICE' ? (
+          <span className={styles.muted}>Không giữ</span>
+        ) : editable ? (
+          <WarehouseSelect
+            value={row.warehouseCode}
+            height={30}
+            ariaLabel={`Kho dòng ${row.lineNo}`}
+            placeholder={detail.warehouseCode ? `Theo hợp đồng (${detail.warehouseCode})` : 'Chọn kho'}
+            stock={stock.find((item) => item.materialId === row.materialId)?.byWarehouse}
+            disabled={busy}
+            onChange={(code) =>
+              void run(
+                () => replaceLines(detail.lines.map((line) => (line.id === row.id ? { ...line, warehouseCode: code } : line))),
+                'Đã đổi kho của dòng.',
+              )
+            }
+          />
+        ) : (
+          (row.warehouseCode ?? (detail.warehouseCode ? `${detail.warehouseCode} (theo hợp đồng)` : <span className={styles.muted}>Chưa chọn</span>))
+        ),
+    },
     { title: 'Giá khung', dataIndex: 'unitPrice', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
     { title: 'VAT', dataIndex: 'vatRate', width: 70, align: 'right', render: (value: number) => formatPercent(value) },
     { title: 'Thành tiền', dataIndex: 'lineAmount', width: 140, align: 'right', render: (value: number | null) => (value === null ? '' : formatMoney(value)) },
@@ -310,7 +358,7 @@ export function ContractDetail({
               <dd>{detail.warrantyMonths} tháng</dd>
             </>
           ) : null}
-          <dt>Kho giữ hàng</dt>
+          <dt>Kho giữ hàng mặc định</dt>
           <dd>{detail.warehouseCode ?? <span className={styles.muted}>Chưa chọn</span>}</dd>
           <dt>Giữ hàng ở Kho</dt>
           <dd>
@@ -657,14 +705,7 @@ export function ContractDetail({
               updateContract(detail.id, {
                 revision: detail.revision,
                 lines: [
-                  ...detail.lines.map((line) => ({
-                    materialId: line.materialId,
-                    quantity: line.quantity,
-                    unit: line.unit,
-                    unitPrice: line.unitPrice,
-                    vatRate: line.vatRate,
-                    note: line.note,
-                  })),
+                  ...detail.lines.map(contractLineRequest),
                   { materialId: picked.material.id, quantity: picked.quantity, unitPrice: picked.unitPrice ?? 0, vatRate: picked.vatRate },
                 ],
               }),

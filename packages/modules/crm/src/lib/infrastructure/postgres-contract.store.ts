@@ -538,8 +538,8 @@ async function insertLines(client: CrmSqlClient, contractId: string, lines: read
     await client.query(
       `INSERT INTO crm_schema.contract_lines
          (id, contract_id, line_no, material_id, material_code, material_name, unit, material_kind, quantity, unit_price,
-          vat_rate, discount_percent, line_amount, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          vat_rate, discount_percent, line_amount, note, warehouse_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
       [
         line.id,
         contractId,
@@ -555,6 +555,7 @@ async function insertLines(client: CrmSqlClient, contractId: string, lines: read
         line.discountPercent,
         line.lineAmount,
         line.note,
+        line.warehouseCode ?? null,
       ],
     );
   }
@@ -614,6 +615,7 @@ interface LineRow {
   discount_percent: string;
   line_amount: string | null;
   note: string | null;
+  warehouse_code: string | null;
 }
 
 interface TermRow {
@@ -664,6 +666,7 @@ function toLine(row: LineRow): ContractLine {
     discountPercent: num(row.discount_percent),
     lineAmount: toNumber(row.line_amount),
     note: row.note,
+    warehouseCode: row.warehouse_code ?? null,
   };
 }
 
