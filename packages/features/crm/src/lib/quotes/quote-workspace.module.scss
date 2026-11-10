@@ -96,21 +96,36 @@
   background: var(--ep-surface, #ffffff);
 }
 
+.actionSummary {
+  // Cùng một hàng với các nút: tóm tắt bên trái, nút bên phải; cột hẹp quá thì tự xuống dòng.
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--ep-text-sub, #4b5563);
+  font-size: 13px;
+}
+
+.actionButtons {
+  // Các nút luôn đi cùng nhau: thiếu chỗ thì cả nhóm xuống hàng dưới, không tách lẻ từng nút.
+  display: flex;
+  flex: none;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .actionBarFixed {
-  position: fixed;
-  right: 0;
+  // Dính đáy vùng cuộn của nội dung (không `fixed` theo cửa sổ) để thanh chỉ rộng bằng phần nội dung, không đè lên menu
+  // bên trái của ModuleShell.
+  position: sticky;
   bottom: 0;
-  left: 0;
   z-index: 20;
   // Chừa góc phải cho nút chat nổi (54 px, cách mép 22 px) để không che nút "Báo giá".
   padding-right: 88px;
-  border-radius: 0;
   box-shadow: 0 -2px 8px rgb(0 0 0 / 6%);
-}
-
-// Chừa chỗ cho thanh cố định để nội dung cuối trang không bị che.
-.actionBarSpacer {
-  height: 64px;
 }
 
 // --- Xem trước ---------------------------------------------------------------

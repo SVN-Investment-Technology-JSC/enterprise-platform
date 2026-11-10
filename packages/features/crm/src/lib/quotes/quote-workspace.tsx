@@ -3,7 +3,7 @@
 /**
  * Bố cục màn lập và sửa báo giá 2 cột (phase 3, plan 9.4; task P3C4-02, P3C4-05): trái nhập liệu, phải xem trước dính
  * khi cuộn, nút Huỷ / Lưu / Trình duyệt / Báo giá dưới xem trước. Màn dưới 1280 px chuyển thành hai tab, nút hành động
- * xuống thanh dưới cố định. Thành phần này chỉ sắp chỗ; logic lưu, tính giá, duyệt, gửi vẫn ở `QuoteEditor`.
+ * xuống thanh dưới dính đáy vùng nội dung. Thành phần này chỉ sắp chỗ; logic lưu, tính giá, duyệt, gửi vẫn ở `QuoteEditor`.
  *
  * Kèm các hàm thuần cho xem trước: ghép thông tin chung đang nhập (chưa lưu) vào báo giá để dựng bố cục, và dựng một báo
  * giá rỗng cho màn lập mới.
@@ -49,6 +49,7 @@ export function QuoteWorkspace({
   left,
   preview,
   actions,
+  summary,
   narrow: forcedNarrow,
 }: {
   header?: ReactNode;
@@ -56,16 +57,30 @@ export function QuoteWorkspace({
   preview: ReactNode;
   /** Hàng nút hành động; rỗng thì không có thanh nút (người chỉ đọc). */
   actions?: ReactNode;
+  /**
+   * Tóm tắt luôn thấy khi cuộn (mã, trạng thái, phiên bản), đặt đầu thanh nút dưới xem trước. Người chỉ đọc không có
+   * nút thì thanh chỉ còn tóm tắt.
+   */
+  summary?: ReactNode;
   /** Ép chế độ màn hẹp (spec); mặc định theo bề ngang cửa sổ. */
   narrow?: boolean;
 }) {
   const detected = useNarrowScreen();
   const narrow = forcedNarrow ?? detected;
   const [tab, setTab] = useState<WorkspaceTab>('input');
-  const actionBar = actions ? (
-    <div className={narrow ? `${styles.actionBar} ${styles.actionBarFixed}` : styles.actionBar} role="toolbar" aria-label="Thao tác báo giá">
-      {actions}
+  const summaryNode = summary ? (
+    <div className={styles.actionSummary} role="group" aria-label="Tình trạng báo giá">
+      {summary}
     </div>
+  ) : null;
+  const barClass = narrow ? `${styles.actionBar} ${styles.actionBarFixed}` : styles.actionBar;
+  const actionBar = actions ? (
+    <div className={barClass} role="toolbar" aria-label="Thao tác báo giá">
+      {summaryNode}
+      <div className={styles.actionButtons}>{actions}</div>
+    </div>
+  ) : summaryNode ? (
+    <div className={barClass}>{summaryNode}</div>
   ) : null;
 
   return (
@@ -103,12 +118,7 @@ export function QuoteWorkspace({
           </div>
         </aside>
       </div>
-      {narrow && actionBar ? (
-        <>
-          <div className={styles.actionBarSpacer} />
-          {actionBar}
-        </>
-      ) : null}
+      {narrow ? actionBar : null}
     </div>
   );
 }

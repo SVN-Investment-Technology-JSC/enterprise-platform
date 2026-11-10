@@ -404,20 +404,6 @@ export function QuoteEditor({
       <h2 className={styles.detailTitle}>
         Báo giá <span className={styles.mono}>{detail.code}</span>
       </h2>
-      <StatusPill tone={QUOTE_STATUS_TONE[version.status]}>{QUOTE_STATUS_LABELS[version.status]}</StatusPill>
-      <SearchableSelect
-        className={styles.filter}
-        options={detail.versions.map((entry) => ({
-          value: String(entry.versionNo),
-          label: `Phiên bản ${entry.versionNo}`,
-          description: `${QUOTE_STATUS_LABELS[entry.status]} · ${formatMoney(entry.totalAmount)}`,
-        }))}
-        value={String(version.versionNo)}
-        onChange={(value) => {
-          const number = Number(value);
-          setViewing(number === detail.currentVersion ? undefined : number);
-        }}
-      />
       {detail.versions.length > 1 ? (
         <button type="button" className={styles.buttonGhost} onClick={() => setComparing((value) => !value)}>
           {comparing ? 'Ẩn so sánh' : 'So sánh phiên bản'}
@@ -779,6 +765,28 @@ export function QuoteEditor({
       <QuoteWorkspace
         header={header}
         left={left}
+        summary={
+          <>
+            <span className={styles.mono}>{detail.code}</span>
+            <StatusPill tone={QUOTE_STATUS_TONE[version.status]}>{QUOTE_STATUS_LABELS[version.status]}</StatusPill>
+            <SearchableSelect
+              style={{ width: 150 }}
+              options={detail.versions.map((entry) => ({
+                value: String(entry.versionNo),
+                label: `Phiên bản ${entry.versionNo}`,
+                description: `${QUOTE_STATUS_LABELS[entry.status]} · ${formatMoney(entry.totalAmount)}`,
+              }))}
+              value={String(version.versionNo)}
+              clearable={false}
+              height={32}
+              onChange={(value) => {
+                const number = Number(value);
+                setViewing(number === detail.currentVersion ? undefined : number);
+              }}
+            />
+            {isCurrent ? null : <span>Đang xem bản cũ, hiện tại là phiên bản {detail.currentVersion}</span>}
+          </>
+        }
         preview={
           <QuotePreviewPane
             choice={previewLayoutChoice(version)}

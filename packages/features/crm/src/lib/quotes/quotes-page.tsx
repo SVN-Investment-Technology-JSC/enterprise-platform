@@ -648,6 +648,7 @@ function NewQuoteForm({
     <QuoteWorkspace
       header={header}
       left={left}
+      summary={<span>Báo giá mới · chưa lưu</span>}
       preview={
         <QuotePreviewPane
           choice={previewLayoutChoice(undefined)}

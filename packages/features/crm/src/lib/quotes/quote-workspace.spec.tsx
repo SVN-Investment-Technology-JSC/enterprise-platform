@@ -417,6 +417,17 @@ describe('QuoteWorkspace (P3C4-02)', () => {
     render(<QuoteWorkspace left={<p>Nhập</p>} preview={<p>Xem</p>} />);
     expect(screen.queryByRole('toolbar')).toBeNull();
   });
+
+  it('tóm tắt trạng thái nằm đầu thanh nút dưới xem trước; người chỉ đọc vẫn thấy tóm tắt', () => {
+    const { unmount } = render(<QuoteWorkspace left={<p>Nhập</p>} preview={<p>Xem</p>} actions={<button type="button">Lưu</button>} summary={<span>BG1 · Nháp · Phiên bản 2</span>} />);
+    const bar = screen.getByRole('toolbar', { name: 'Thao tác báo giá' });
+    expect(within(bar).getByRole('group', { name: 'Tình trạng báo giá' }).textContent).toBe('BG1 · Nháp · Phiên bản 2');
+    expect(within(screen.getByTestId('quote-workspace-right')).getByText('BG1 · Nháp · Phiên bản 2')).toBeTruthy();
+    unmount();
+    render(<QuoteWorkspace left={<p>Nhập</p>} preview={<p>Xem</p>} summary={<span>BG1 · Đã gửi</span>} />);
+    expect(screen.queryByRole('toolbar')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Tình trạng báo giá' }).textContent).toBe('BG1 · Đã gửi');
+  });
 });
 
 describe('QuoteActionBar (P3C4-05)', () => {
