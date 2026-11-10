@@ -37,6 +37,8 @@ import type { CrmDataScope } from '../application/data-scope.js';
 import type {
   EditableQuote,
   NewQuoteRecord,
+  QuoteDeletion,
+  QuoteDeletionLink,
   QuoteFilter,
   QuoteFormWrite,
   QuoteHead,
@@ -56,7 +58,7 @@ import {
   type QuoteEditPlan,
 } from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
-import { attachPlanToQuoteSubmit, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
+import { attachPlanToQuoteSubmit, CRM_BUSINESS_PLAN_SOURCE_TYPE, syncPlanWithQuoteDecision } from './postgres-business-plan.store.js';
 import { parseStoredQuoteLayout } from './stored-quote-layout.js';
 import {
   SALES_ORGANIZATION_SELLER_COLUMNS,
@@ -550,6 +552,87 @@ export class PostgresQuoteStore implements QuoteStore {
     });
   }
 
+  prepareDelete(tenantId: string, quoteId: string): Promise<QuoteDeletion> {
+    return this.database.transaction(tenantId, async (client) => {
+      const head = await lockDeletableQuote(client, quoteId);
+      const links = (
+        await client.query<{ id: string; instance_id: string | null; status: string; leased: boolean }>(
+          `SELECT l.id, l.instance_id, l.status, (l.instance_id IS NULL AND l.lease_until IS NOT NULL AND l.lease_until > now()) AS leased
+             FROM crm_schema.procedure_links l
+            WHERE l.status NOT IN ('APPLIED', 'CLOSED')
+              AND ((l.source_type = $2 AND l.source_id IN (SELECT id FROM crm_schema.quote_versions WHERE quote_id = $1))
+                OR (l.source_type = $3 AND l.source_id IN (SELECT id FROM crm_schema.business_plan_rounds WHERE quote_id = $1)))
+            FOR UPDATE OF l`,
+          [quoteId, CRM_QUOTE_SOURCE_TYPE, CRM_BUSINESS_PLAN_SOURCE_TYPE],
+        )
+      ).rows;
+      if (links.some((link) => link.leased)) {
+        throw new CrmConflictError('QUOTE_PROCEDURE_STARTING', 'Báo giá đang được gửi sang Quy trình; vui lòng thử xoá lại sau ít giây.');
+      }
+      if (links.length) {
+        await client.query(
+          `UPDATE crm_schema.procedure_links SET status = 'CLOSED', lease_until = NULL, lease_token = NULL, updated_at = now() WHERE id = ANY($1::uuid[])`,
+          [links.map((link) => link.id)],
+        );
+      }
+      return {
+        code: head.code,
+        links: links.map((link) => ({ id: link.id, instanceId: link.instance_id, previousStatus: link.status })),
+      };
+    });
+  }
+
+  async reopenDeletionLinks(tenantId: string, links: readonly QuoteDeletionLink[]): Promise<void> {
+    if (!links.length) return;
+    await this.database.transaction(tenantId, async (client) => {
+      for (const link of links) {
+        await client.query(
+          `UPDATE crm_schema.procedure_links SET status = $2, updated_at = now() WHERE id = $1 AND status = 'CLOSED'`,
+          [link.id, link.previousStatus],
+        );
+      }
+    });
+  }
+
+  deleteQuote(tenantId: string, quoteId: string, actorId: string, reason: string): Promise<void> {
+    return this.database.transaction(tenantId, async (client) => {
+      const head = await lockDeletableQuote(client, quoteId);
+      // Tài liệu đính kèm: xoá bản ghi như khi xoá từng tài liệu; object trên kho còn nguyên, khoá ghi vào nhật ký để
+      // job dọn (backlog) xử lý sau.
+      const objectKeys = (
+        await client.query<{ object_key: string }>(
+          `SELECT dv.object_key FROM crm_schema.document_versions dv
+             JOIN crm_schema.documents d ON d.id = dv.document_id
+            WHERE d.entity_type = 'quote' AND d.entity_id = $1`,
+          [quoteId],
+        )
+      ).rows.map((row) => row.object_key);
+      await client.query(`DELETE FROM crm_schema.documents WHERE entity_type = 'quote' AND entity_id = $1`, [quoteId]);
+      // Thư mục lồng nhau (`parent_id` RESTRICT kiểm từng dòng): xoá từng tầng, sâu nhất trước.
+      const depths = (
+        await client.query<{ depth: number }>(
+          `SELECT DISTINCT depth FROM crm_schema.document_folders WHERE entity_type = 'quote' AND entity_id = $1 ORDER BY depth DESC`,
+          [quoteId],
+        )
+      ).rows;
+      for (const { depth } of depths) {
+        await client.query(`DELETE FROM crm_schema.document_folders WHERE entity_type = 'quote' AND entity_id = $1 AND depth = $2`, [quoteId, depth]);
+      }
+      await client.query(`DELETE FROM crm_schema.quote_links WHERE target_type = 'QUOTE' AND target_id = $1`, [quoteId]);
+      await writeAuditLog(client, {
+        entityType: QUOTE_AUDIT_ENTITY,
+        entityId: quoteId,
+        fromStatus: head.status,
+        toStatus: 'deleted',
+        action: 'delete',
+        actorId,
+        reason,
+        metadata: { code: head.code, customerId: head.customerId, ownerUserId: head.ownerUserId, orphanedObjectKeys: objectKeys.slice(0, 200) },
+      });
+      await client.query(`DELETE FROM crm_schema.quotes WHERE id = $1`, [quoteId]);
+    });
+  }
+
   async expireDue(tenantId: string, today: string, limit: number): Promise<number> {
     return this.database.transaction(tenantId, async (client) => {
       const due = await client.query<{
@@ -805,6 +888,33 @@ interface LockedVersion {
  * Khoá báo giá và phiên bản rồi so với bản service đã đọc: phải là phiên bản
  * hiện tại, cùng trạng thái, cùng `revision` (và đúng `requiredStatus` nếu có).
  */
+/** Trạng thái báo giá còn xoá được (chưa gửi khách, chưa duyệt xong). */
+export const QUOTE_DELETABLE_STATUSES: readonly QuoteStatus[] = ['DRAFT', 'PENDING'];
+
+/** Khoá báo giá và kiểm còn xoá được: đúng một phiên bản, Nháp hoặc Chờ duyệt, chưa chuyển hợp đồng hay đơn. */
+async function lockDeletableQuote(
+  client: CrmSqlClient,
+  quoteId: string,
+): Promise<{ code: string; status: QuoteStatus; customerId: string; ownerUserId: string }> {
+  const row = (
+    await client.query<{ code: string; customer_id: string; owner_user_id: string; converted_at: unknown; versions: number; status: QuoteStatus }>(
+      `SELECT q.code, q.customer_id, q.owner_user_id, q.converted_at,
+              (SELECT count(*)::int FROM crm_schema.quote_versions v WHERE v.quote_id = q.id) AS versions,
+              (SELECT v.status FROM crm_schema.quote_versions v WHERE v.quote_id = q.id AND v.version_no = q.current_version) AS status
+         FROM crm_schema.quotes q WHERE q.id = $1 FOR UPDATE OF q`,
+      [quoteId],
+    )
+  ).rows[0];
+  if (!row) throw new CrmConflictError('QUOTE_GONE', 'Báo giá không còn; có thể đã bị xoá.');
+  if (row.versions > 1) {
+    throw new CrmConflictError('QUOTE_DELETE_HAS_VERSIONS', 'Báo giá đã có phiên bản trước (đã duyệt hoặc gửi khách) nên không xoá được.');
+  }
+  if (!QUOTE_DELETABLE_STATUSES.includes(row.status) || row.converted_at) {
+    throw new CrmConflictError('QUOTE_DELETE_STATUS', 'Chỉ xoá được báo giá đang Nháp hoặc Chờ duyệt.');
+  }
+  return { code: row.code, status: row.status, customerId: row.customer_id, ownerUserId: row.owner_user_id };
+}
+
 export async function lockVersion(
   client: CrmSqlClient,
   quoteId: string,

@@ -170,6 +170,7 @@ const mockApi = {
   listSalesOrganizations: jest.fn(),
   getSalesOrganization: jest.fn(),
   getMyTasks: jest.fn(),
+  deleteQuote: jest.fn(),
 };
 jest.mock('../crm-api', () => ({
   errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
@@ -179,7 +180,7 @@ jest.mock('../crm-api', () => ({
       'getQuote', 'getCustomer', 'getOpportunity', 'updateQuoteVersion', 'quoteAction', 'addQuoteLines', 'removeQuoteLine',
       'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
       'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
-      'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks',
+      'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks', 'deleteQuote',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
 }));
@@ -478,6 +479,26 @@ function renderEditor(detail: QuoteDetail) {
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
 describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
+  it('xoá báo giá: người phụ trách thấy nút, hỏi lại, xoá xong về danh sách; người khác không thấy nút', async () => {
+    mockCrm = { ...mockCrm, currentUserId: 'u1' };
+    mockApi.deleteQuote.mockResolvedValue(undefined);
+    const single = fixtureDetail(fixtureVersion(), { versions: [{ versionNo: 1, status: 'DRAFT', totalAmount: 0, createdAt: '2026-11-01T00:00:00Z' }] as QuoteDetail['versions'] });
+    mockApi.getQuote.mockResolvedValue(single);
+    const onBack = jest.fn();
+    const { unmount } = render(<QuoteEditor quoteId="q1" onBack={onBack} onOpenCustomer={jest.fn()} onOpenOpportunity={jest.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Xoá báo giá' }));
+    const dialog = screen.getByRole('dialog', { name: /Xoá báo giá/ });
+    expect(dialog.textContent).toContain('không khôi phục được');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Xoá báo giá' }));
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+    expect(mockApi.deleteQuote).toHaveBeenCalledWith('q1');
+    unmount();
+    mockCrm = { ...mockCrm, currentUserId: 'u9' };
+    renderEditor(single);
+    await screen.findByText('Thông tin chung');
+    expect(screen.queryByRole('button', { name: 'Xoá báo giá' })).toBeNull();
+  });
+
   it('TC-QW-01: trái có Thông tin chung, Dòng hàng, khối thu gọn; phải có Xem trước và 4 nút', async () => {
     renderEditor(fixtureDetail());
     await screen.findByText('Thông tin chung');

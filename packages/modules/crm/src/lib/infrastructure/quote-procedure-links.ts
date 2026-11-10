@@ -75,6 +75,16 @@ export class PostgresApprovalLinks implements ApprovalLinks {
     return loadSourceSummary(this.database, tenantId, sourceType, sourceId, this.people).catch(() => null);
   }
 
+  async cancel(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'finished' | 'unsupported'> {
+    if (!this.procedures.cancelInstance) return 'unsupported';
+    const result = await this.procedures.cancelInstance(tenantId, instanceId, input);
+    return result === 'finished' ? 'finished' : 'cancelled';
+  }
+
   async start(tenantId: string, linkId: string): Promise<void> {
     const pool = await this.database.pool(tenantId);
     const lease = randomUUID();

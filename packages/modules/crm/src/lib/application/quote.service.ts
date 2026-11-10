@@ -677,6 +677,40 @@ export class QuoteService {
     return this.get(actor, id);
   }
 
+  /**
+   * Xoá hẳn báo giá còn Nháp hoặc Chờ duyệt, chỉ có một phiên bản. Người phụ trách báo giá (có quyền lập báo giá) hoặc
+   * quản trị bán hàng (`crm.manage`, không cần quyền lập báo giá). Đang duyệt qua Quy trình thì huỷ hồ sơ bên Quy trình trước (liên kết tạm đóng để kết quả đến
+   * giữa chừng không áp vào); không huỷ được hoặc xoá lỗi thì mở lại liên kết, báo giá giữ nguyên.
+   */
+  async remove(actor: CrmActor, id: string): Promise<void> {
+    const manager = actor.isTenantAdmin || actor.canManage;
+    if (!manager) requireQuoteWriter(actor);
+    const detail = await this.require(actor, id);
+    if (!manager && detail.ownerUserId !== actor.userId) {
+      throw new CrmForbiddenError('Chỉ người phụ trách báo giá hoặc quản trị bán hàng được xoá báo giá.');
+    }
+    const reason = `Báo giá ${detail.code} đã bị xoá bên Bán hàng.`;
+    const plan = await this.quotes.prepareDelete(actor.tenantId, id);
+    try {
+      for (const link of plan.links) {
+        if (!link.instanceId) continue;
+        const result = this.links.cancel
+          ? await this.links.cancel(actor.tenantId, link.instanceId, { reason, actorUserId: actor.userId, actorName: actor.displayName })
+          : 'unsupported';
+        if (result === 'finished') {
+          throw new CrmConflictError('QUOTE_PROCEDURE_FINISHED', 'Hồ sơ duyệt bên Quy trình vừa kết thúc nên không xoá được; tải lại báo giá để xem kết quả.');
+        }
+        if (result === 'unsupported') {
+          throw new CrmConflictError('QUOTE_PROCEDURE_CANCEL_UNAVAILABLE', 'Chưa huỷ được hồ sơ duyệt bên Quy trình; vui lòng thử lại sau.');
+        }
+      }
+      await this.quotes.deleteQuote(actor.tenantId, id, actor.userId, reason);
+    } catch (cause) {
+      await this.quotes.reopenDeletionLinks(actor.tenantId, plan.links).catch(() => undefined);
+      throw cause;
+    }
+  }
+
   async approve(actor: CrmActor, id: string, versionNo: unknown, request: QuoteDecisionRequest): Promise<QuoteDetail> {
     return this.decide(actor, id, versionNo, request, 'APPROVED');
   }

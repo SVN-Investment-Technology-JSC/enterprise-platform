@@ -32,7 +32,7 @@ import type {
   SaveQuoteLineRequest,
   UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { BusinessPlanService } from '../application/business-plan.service.js';
 import { QuoteApprovalSettingsService } from '../application/quote-approval-settings.service.js';
 import type { QuoteStore } from '../application/quote-store.port.js';
@@ -85,6 +85,13 @@ export class QuotesController {
     @Query('to') to?: string,
   ): Promise<QuoteComparison> {
     return runCrm(() => this.quotes.compare(crmActor(request), id, from, to));
+  }
+
+  /** Xoá hẳn báo giá Nháp hoặc Chờ duyệt có một phiên bản (người phụ trách hoặc quản trị bán hàng); 204. */
+  @Delete('quotes/:id')
+  @HttpCode(204)
+  remove(@Req() request: CrmRequest, @Param('id') id: string): Promise<void> {
+    return runCrm(() => this.quotes.remove(crmActor(request), id));
   }
 
   @Patch('quotes/:id/versions/:versionNo')

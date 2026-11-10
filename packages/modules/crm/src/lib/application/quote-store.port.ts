@@ -174,8 +174,31 @@ export interface QuoteTransition {
   readonly reason: string | null;
 }
 
+/** Liên kết Quy trình của báo giá sắp xoá, đã tạm đóng (`CLOSED`) để kết quả đến giữa chừng không áp vào báo giá. */
+export interface QuoteDeletionLink {
+  readonly id: string;
+  /** Hồ sơ đã tạo bên Quy trình; rỗng là chưa tạo (không cần huỷ). */
+  readonly instanceId: string | null;
+  /** Trạng thái trước khi đóng, để mở lại nếu không huỷ được hồ sơ. */
+  readonly previousStatus: string;
+}
+
+export interface QuoteDeletion {
+  readonly code: string;
+  readonly links: readonly QuoteDeletionLink[];
+}
+
 export interface QuoteStore {
   listQuotes(tenantId: string, scope: CrmDataScope, filter: QuoteFilter): Promise<CrmPage<QuoteSummary>>;
+  /**
+   * Bước 1 của xoá báo giá: khoá báo giá, kiểm còn xoá được (một phiên bản, Nháp hoặc Chờ duyệt, chưa chuyển đơn), tạm
+   * đóng các liên kết Quy trình còn mở của báo giá và PAKD. Đang gửi sang Quy trình (liên kết đang giữ lease) thì 409.
+   */
+  prepareDelete(tenantId: string, quoteId: string): Promise<QuoteDeletion>;
+  /** Không huỷ được hồ sơ Quy trình: mở lại các liên kết đã tạm đóng. */
+  reopenDeletionLinks(tenantId: string, links: readonly QuoteDeletionLink[]): Promise<void>;
+  /** Bước 2: kiểm lại rồi xoá hẳn báo giá (dòng hàng, PAKD, người theo dõi, liên kết, tài liệu), ghi nhật ký. */
+  deleteQuote(tenantId: string, quoteId: string, actorId: string, reason: string): Promise<void>;
   /** Báo giá kèm phiên bản `versionNo` (mặc định phiên bản hiện tại), danh sách phiên bản, lịch sử. */
   getQuote(tenantId: string, scope: CrmDataScope, id: string, versionNo?: number): Promise<QuoteDetail | undefined>;
   loadForEdit(tenantId: string, scope: CrmDataScope, id: string, versionNo: number): Promise<EditableQuote | undefined>;
@@ -250,6 +273,16 @@ export interface ProcedureClient {
    * Không có (client giả cũ) thì không bổ sung.
    */
   updateSourceSummary?(tenantId: string, instanceId: string, summary: CrmSourceSummary): Promise<boolean>;
+  /**
+   * Huỷ hồ sơ đang chạy khi xoá báo giá (`POST /v1/internal/instances/:id/cancel`): `cancelled` đã huỷ, `missing` Quy
+   * trình không còn hồ sơ, `finished` hồ sơ đã kết thúc khác (đã duyệt, từ chối). Không có (client giả cũ) thì không
+   * xoá được báo giá đang duyệt qua Quy trình.
+   */
+  cancelInstance?(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'missing' | 'finished'>;
 }
 
 /**
@@ -263,4 +296,13 @@ export interface ProcedureActionableReader {
 /** Tạo phiên Quy trình cho liên kết vừa ghi (sau commit); lỗi được ghi vào liên kết để worker thử lại. */
 export interface ApprovalLinks {
   start(tenantId: string, linkId: string): Promise<void>;
+  /**
+   * Huỷ hồ sơ Quy trình khi xoá báo giá: `cancelled` đã huỷ hoặc Quy trình không còn hồ sơ; `finished` hồ sơ đã kết
+   * thúc (đã duyệt, từ chối) nên không xoá báo giá. Không hỗ trợ (client giả cũ) thì `unsupported`.
+   */
+  cancel?(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'finished' | 'unsupported'>;
 }

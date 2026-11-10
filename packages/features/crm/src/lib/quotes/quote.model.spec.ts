@@ -1,5 +1,5 @@
 import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
-import { quoteActions, signed } from './quote.model';
+import { canDeleteQuote, quoteActions, signed } from './quote.model';
 
 const writer = { ...CRM_NO_CAPABILITIES, canWriteQuote: true };
 const lead = { ...writer, canApproveQuote: true };
@@ -31,5 +31,27 @@ describe('quoteActions', () => {
     expect(signed(1000, String)).toBe('+1000');
     expect(signed(-5, String)).toBe('-5');
     expect(signed(0, String)).toBe('0');
+  });
+});
+
+describe('canDeleteQuote', () => {
+  const one = (status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'SENT', versions = 1) => ({
+    ownerUserId: 'u1',
+    versions: Array.from({ length: versions }, () => ({})) as never,
+    version: { status },
+  });
+  it('người phụ trách xoá được báo giá Nháp, Chờ duyệt có một phiên bản', () => {
+    expect(canDeleteQuote(one('DRAFT'), writer, 'u1')).toBe(true);
+    expect(canDeleteQuote(one('PENDING'), writer, 'u1')).toBe(true);
+  });
+  it('đã duyệt, đã gửi, hoặc có phiên bản trước: không xoá', () => {
+    expect(canDeleteQuote(one('APPROVED'), writer, 'u1')).toBe(false);
+    expect(canDeleteQuote(one('SENT'), writer, 'u1')).toBe(false);
+    expect(canDeleteQuote(one('DRAFT', 2), { ...writer, canManage: true }, 'u1')).toBe(false);
+  });
+  it('người khác chỉ xoá được khi có quyền quản trị bán hàng', () => {
+    expect(canDeleteQuote(one('DRAFT'), writer, 'u2')).toBe(false);
+    expect(canDeleteQuote(one('DRAFT'), { ...writer, canManage: true }, 'u2')).toBe(true);
+    expect(canDeleteQuote(one('DRAFT'), { ...CRM_NO_CAPABILITIES }, 'u1')).toBe(false);
   });
 });

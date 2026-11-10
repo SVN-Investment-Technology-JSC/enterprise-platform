@@ -442,3 +442,59 @@ describe('QuoteService', () => {
     }
   });
 });
+
+describe('QuoteService.remove: xoá báo giá Nháp hoặc Chờ duyệt', () => {
+  const removable = (links: { id: string; instanceId: string | null; previousStatus: string }[] = []) => {
+    const ctx = setup(version('PENDING'));
+    const quotes = ctx.quotes as unknown as Record<string, jest.Mock>;
+    quotes['prepareDelete'] = jest.fn(async () => ({ code: 'BG2600001', links }));
+    quotes['reopenDeletionLinks'] = jest.fn(async () => undefined);
+    quotes['deleteQuote'] = jest.fn(async () => undefined);
+    const links_ = ctx.links as unknown as Record<string, jest.Mock>;
+    links_['cancel'] = jest.fn(async () => 'cancelled');
+    return { ...ctx, store: quotes, approval: links_ };
+  };
+
+  it('người phụ trách xoá được; đang duyệt qua Quy trình thì huỷ hồ sơ trước rồi xoá', async () => {
+    const { service, store, approval } = removable([{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }, { id: 'link-2', instanceId: null, previousStatus: 'FAILED' }]);
+    await service.remove(seller, QUOTE_ID);
+    expect(approval['cancel']).toHaveBeenCalledTimes(1);
+    expect(approval['cancel']).toHaveBeenCalledWith('t1', 'inst-1', expect.objectContaining({ reason: expect.stringContaining('đã bị xoá'), actorUserId: NV1 }));
+    expect(store['deleteQuote']).toHaveBeenCalledWith('t1', QUOTE_ID, NV1, expect.stringContaining('đã bị xoá'));
+    expect(store['reopenDeletionLinks']).not.toHaveBeenCalled();
+  });
+
+  it('không phải người phụ trách, không có quyền quản trị bán hàng: 403, không đụng dữ liệu', async () => {
+    const { service, store } = removable();
+    await expect(service.remove(lead, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+    expect(store['prepareDelete']).not.toHaveBeenCalled();
+  });
+
+  it('quản trị bán hàng xoá được báo giá của người khác', async () => {
+    const { service, store } = removable();
+    await service.remove({ ...lead, canWriteQuote: false, canManage: true }, QUOTE_ID);
+    expect(store['deleteQuote']).toHaveBeenCalled();
+  });
+
+  it('không có quyền lập báo giá: 403', async () => {
+    const { service } = removable();
+    await expect(service.remove({ ...seller, canWriteQuote: false }, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('hồ sơ Quy trình vừa duyệt xong: 409, mở lại liên kết, không xoá', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store, approval } = removable(plan);
+    approval['cancel'].mockResolvedValue('finished');
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toMatchObject({ code: 'QUOTE_PROCEDURE_FINISHED' });
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
+    expect(store['deleteQuote']).not.toHaveBeenCalled();
+  });
+
+  it('xoá lỗi sau khi đã huỷ hồ sơ: mở lại liên kết để đối soát áp kết quả huỷ', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store } = removable(plan);
+    store['deleteQuote'].mockRejectedValue(new Error('db'));
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toThrow('db');
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
+  });
+});

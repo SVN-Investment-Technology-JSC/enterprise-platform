@@ -125,6 +125,28 @@ export class HttpProcedureClient implements ProcedureClient, ProcedureActionable
   }
 
   /**
+   * Huỷ hồ sơ đang chạy khi chứng từ gốc bị xoá (`POST /v1/internal/instances/:id/cancel`). `cancelled`: đã huỷ (kể cả
+   * gọi lại); `missing`: Quy trình không còn hồ sơ (coi như xong); `finished`: hồ sơ đã kết thúc khác (đã duyệt, từ
+   * chối) nên không huỷ được. Lỗi hạ tầng ném 503.
+   */
+  async cancelInstance(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'missing' | 'finished'> {
+    const response = await this.call(this.url(`/v1/internal/instances/${encodeURIComponent(instanceId)}/cancel`), {
+      method: 'POST',
+      headers: { ...this.serviceHeaders(tenantId), 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify(input),
+    });
+    if (response.ok) return 'cancelled';
+    if (response.status === 404) return 'missing';
+    if (response.status === 409) return 'finished';
+    throw procedureUnavailable(await errorMessage(response, `Quy trình trả mã ${response.status}.`));
+  }
+
+  /**
    * Trong các hồ sơ `ids` (tối đa 100), những hồ sơ người dùng đang được giao xử lý (duyệt, từ chối, trả lại), qua
    * `POST /v1/internal/instances/actionable`.
    */

@@ -14,7 +14,7 @@ import { Popconfirm, SearchableSelect, formatDateTime, toast } from '@enterprise
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ArrowLeft, Eye, Plus } from 'lucide-react';
+import { ArrowLeft, Eye, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
@@ -25,6 +25,7 @@ import {
   getCustomer,
   getQuote,
   quoteAction,
+  deleteQuote,
   removeQuoteLine,
   searchCatalog,
   updateQuoteLine,
@@ -85,7 +86,7 @@ import {
 } from './quote-line-picker.model';
 import { QuoteLinesTable } from './quote-lines-table';
 import { QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
-import { QUOTE_STATUS_TONE, quoteActions } from './quote.model';
+import { QUOTE_STATUS_TONE, canDeleteQuote, quoteActions } from './quote.model';
 import { QuoteActionBar, QuoteWorkspace, WorkspaceSection, draftedDetail, generalPatch, sameGeneral, savedGeneral } from './quote-workspace';
 import { QuoteSellerSection } from './quote-seller-section';
 import {
@@ -177,6 +178,7 @@ export function QuoteEditor({
   const [editingHeader, setEditingHeader] = useState<false | 'all' | 'orderDiscount'>(false);
   const [reasonFor, setReasonFor] = useState<ReasonAction>();
   const [comparing, setComparing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   /** Thông tin chung đang sửa ở cột trái; rỗng là chưa sửa (hiện bản đã lưu). */
   const [draft, setDraft] = useState<GeneralState | null>(null);
   const [generalError, setGeneralError] = useState<string>();
@@ -408,6 +410,24 @@ export function QuoteEditor({
         <button type="button" className={styles.buttonGhost} onClick={() => setComparing((value) => !value)}>
           {comparing ? 'Ẩn so sánh' : 'So sánh phiên bản'}
         </button>
+      ) : null}
+      {canDeleteQuote(detail, capabilities, currentUserId) ? (
+        <button type="button" className={`${styles.buttonDangerGhost} ${styles.pushRight}`} disabled={busy} onClick={() => setDeleting(true)}>
+          <Trash2 size={14} aria-hidden="true" /> Xoá báo giá
+        </button>
+      ) : null}
+      {deleting ? (
+        <DeleteQuoteDialog
+          code={detail.code}
+          viaProcedure={version.status === 'PENDING' && !!detail.procedure}
+          onClose={() => setDeleting(false)}
+          onConfirm={async () => {
+            await deleteQuote(detail.id);
+            toast.success(`Đã xoá báo giá ${detail.code}.`);
+            setDeleting(false);
+            onBack();
+          }}
+        />
       ) : null}
     </div>
   );
@@ -916,6 +936,48 @@ export function QuoteEditor({
         />
       ) : null}
     </>
+  );
+}
+
+/** Hỏi lại trước khi xoá hẳn báo giá; lỗi (ví dụ hồ sơ Quy trình vừa duyệt xong) hiện trong hộp, báo giá giữ nguyên. */
+function DeleteQuoteDialog({
+  code,
+  viaProcedure,
+  onClose,
+  onConfirm,
+}: {
+  code: string;
+  viaProcedure: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  async function confirm() {
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await onConfirm();
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không xoá được báo giá.'));
+      setSubmitting(false);
+    }
+  }
+  return (
+    <CrmDialog
+      open
+      danger
+      title={`Xoá báo giá ${code}?`}
+      submitLabel="Xoá báo giá"
+      cancelLabel="Không xoá"
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void confirm()}
+    >
+      <p>Báo giá cùng dòng hàng, phương án kinh doanh, người theo dõi, liên kết và tài liệu đính kèm sẽ bị xoá hẳn, không khôi phục được.</p>
+      {viaProcedure ? <p>Hồ sơ duyệt bên Quy trình của báo giá này sẽ được huỷ.</p> : null}
+    </CrmDialog>
   );
 }
 

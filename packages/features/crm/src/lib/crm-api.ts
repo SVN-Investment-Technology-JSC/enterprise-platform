@@ -392,6 +392,8 @@ export const addQuoteLines = (id: string, versionNo: number, body: AddQuoteLines
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines/batch`, body);
 export const updateQuoteLine = (id: string, versionNo: number, lineId: string, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('PATCH', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}`, body);
+/** Xoá hẳn báo giá Nháp hoặc Chờ duyệt có một phiên bản; đang duyệt qua Quy trình thì máy chủ huỷ hồ sơ bên đó. */
+export const deleteQuote = (id: string) => send<void>('DELETE', `/quotes/${encodeURIComponent(id)}`);
 export const removeQuoteLine = (id: string, versionNo: number, lineId: string, revision: number) =>
   send<QuoteDetail>('DELETE', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}${toQuery({ revision })}`);
 /** `recalculate`, `revise`, `submit`, `approve`, `reject`, `send`, `accept`, `decline`. */

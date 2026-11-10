@@ -2381,6 +2381,51 @@ export class ProcedureEngineApplication {
   }
 
   /**
+   * Phân hệ nguồn huỷ hồ sơ khi chứng từ gốc không còn (ví dụ CRM xoá báo giá đang chờ duyệt). Chỉ hồ sơ đang chạy:
+   * chuyển Đã huỷ (bước hiện tại cũng huỷ), ghi lịch sử kèm lý do; diff trạng thái phát `procedure.instance.completed`
+   * (status `cancelled`) như khi người dùng huỷ. Gọi lại khi đã huỷ thì trả kết quả cũ; hồ sơ đã kết thúc khác thì 409.
+   */
+  async cancelInstanceForService(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason?: unknown; readonly actorUserId?: unknown; readonly actorName?: unknown } | undefined,
+  ): Promise<{ readonly id: string; readonly status: ProcedureInstance['status'] }> {
+    const reason = typeof input?.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 3) throw new ProcedureEngineError('validation', 'Cần ghi lý do huỷ hồ sơ (ít nhất 3 ký tự).');
+    if (reason.length > 1000) throw new ProcedureEngineError('validation', 'Lý do huỷ hồ sơ tối đa 1000 ký tự.');
+    const actorId = typeof input?.actorUserId === 'string' && input.actorUserId.trim() ? input.actorUserId.trim() : 'system';
+    const actorName = typeof input?.actorName === 'string' && input.actorName.trim() ? input.actorName.trim().slice(0, 200) : 'Phân hệ nguồn';
+    let held: string[] = [];
+    const result = await this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (instance.status === 'cancelled') return { id: instance.id, status: instance.status };
+      if (instance.status !== 'running') throw new ProcedureEngineError('conflict', 'Hồ sơ đã kết thúc, không huỷ được.');
+      const now = this.clock.now().toISOString();
+      held = instance.steps.flatMap((step) => step.materialReservations ?? []);
+      instance.status = 'cancelled';
+      instance.completedAt = now;
+      const current = instance.steps.find((step) => step.id === instance.currentStepId);
+      if (current && current.status !== 'completed') {
+        current.status = 'cancelled';
+        current.completedAt = now;
+      }
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'cancel',
+        actorId,
+        actorName,
+        summary: 'Phân hệ nguồn đã huỷ hồ sơ.',
+        comment: reason,
+        createdAt: now,
+      });
+      return { id: instance.id, status: instance.status };
+    });
+    if (held.length > 0) await this.releaseReservations(tenantId, held);
+    return result;
+  }
+
+  /**
    * Hands the caller's claim on a step to someone else.
    *
    * The inherited roles are captured now, from the delegator's own matches: their
