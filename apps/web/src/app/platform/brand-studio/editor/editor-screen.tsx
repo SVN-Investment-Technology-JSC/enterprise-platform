@@ -19,6 +19,7 @@ import { copyText } from '../export/download';
 import { newBlankIcon, useBrandSettings, useIconLibrary, type IconLibrary } from '../store';
 import { errorMessage, isBrandApiError } from '../store/brand-api';
 import { makeCopy } from '../store/doc-utils';
+import { useFillViewportHeight } from '../components/use-fill-viewport';
 import { ConflictDialog } from './conflict-dialog';
 import { EditorCanvas } from './editor-canvas';
 import { EditorToolbar } from './editor-toolbar';
@@ -32,8 +33,16 @@ import type { EditorTool } from './tool';
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR, useCanvasViewport } from './use-canvas-viewport';
 import { useEditorPrefs } from './use-editor-prefs';
 
-/** Chiều cao vùng làm việc: vừa phần còn lại của màn hình dưới khung chung của Platform Admin. */
-const WORKSPACE_HEIGHT = 'h-[calc(100dvh-7.5rem)] min-h-[560px]';
+/**
+ * Chiều cao ban đầu của vùng làm việc (lúc hydrate và khung chờ). Sau khi hiện ra, `useFillViewportHeight` đo lại để khung
+ * chiếm đúng phần còn lại của màn hình ở mọi cỡ, nên con số này chỉ cần gần đúng.
+ */
+const WORKSPACE_HEIGHT = 'h-[calc(100dvh-6.5rem)] min-h-[560px]';
+
+/** Khoảng trống giữ lại dưới khung làm việc (px). */
+const WORKSPACE_BOTTOM_GAP = 12;
+/** Khung không thấp hơn mức này: màn hình thấp hơn thì trang cuộn như thường. */
+const WORKSPACE_MIN_HEIGHT = 560;
 
 /** Khung chờ khi kho icon đang đọc (tránh nháy giao diện lúc hydrate). */
 function EditorSkeleton() {
@@ -128,6 +137,9 @@ interface EditorWorkspaceProps {
 
 function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules, onReloaded }: EditorWorkspaceProps) {
   const router = useRouter();
+  // Khung cao vừa phần màn hình còn lại; nội dung dài chỉ cuộn trong các bảng, không cuộn cả trang.
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  useFillViewportHeight(workspaceRef, WORKSPACE_MIN_HEIGHT, undefined, true, WORKSPACE_BOTTOM_GAP);
   const [state, dispatch] = useReducer(editorReducer, initialDoc, createEditorState);
   const [tool, setTool] = useState<EditorTool>('select');
   const [prefs, updatePrefs] = useEditorPrefs();
@@ -247,7 +259,7 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules, onRe
   const panelProps = { state, dispatch, palette, rules };
 
   return (
-    <div className={`flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white ${WORKSPACE_HEIGHT}`}>
+    <div ref={workspaceRef} className={`flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white ${WORKSPACE_HEIGHT}`}>
       <EditorTopbar
         canRedo={state.future.length > 0 && !state.gesture}
         canUndo={state.past.length > 0 && !state.gesture}
