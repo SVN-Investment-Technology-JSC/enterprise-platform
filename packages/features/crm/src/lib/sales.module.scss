@@ -151,6 +151,11 @@
   gap: 8px;
 }
 
+// Nút cuối hàng `.toolbar` dồn sang phải.
+.pushRight {
+  margin-left: auto;
+}
+
 .search {
   flex: 1 1 240px;
   min-width: 200px;
