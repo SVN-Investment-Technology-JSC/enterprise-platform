@@ -40,7 +40,7 @@ import { useEditorPrefs } from './use-editor-prefs';
 const WORKSPACE_HEIGHT = 'h-[calc(100dvh-6.5rem)] min-h-[560px]';
 
 /** Khoảng trống giữ lại dưới khung làm việc (px). */
-const WORKSPACE_BOTTOM_GAP = 12;
+const WORKSPACE_BOTTOM_GAP = 24;
 /** Khung không thấp hơn mức này: màn hình thấp hơn thì trang cuộn như thường. */
 const WORKSPACE_MIN_HEIGHT = 560;
 
