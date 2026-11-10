@@ -11,6 +11,7 @@ import {
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Hint } from '../../components/hint';
 import { countBySeverity, summaryParts } from './compliance-model';
 
 const SEVERITY_STYLE: Record<IssueSeverity, { icon: ReactNode; text: string; label: string }> = {
@@ -32,14 +33,15 @@ function IssueRow({ issue, onSelectShape }: { issue: ComplianceIssue; onSelectSh
   );
   if (shapeId && onSelectShape) {
     return (
-      <button
-        type="button"
-        title="Bấm để chọn lớp này"
-        onClick={() => onSelectShape(shapeId)}
-        className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-start gap-2 rounded px-1.5 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none"
-      >
-        {body}
-      </button>
+      <Hint label="Bấm để chọn lớp này">
+        <button
+          type="button"
+          onClick={() => onSelectShape(shapeId)}
+          className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-start gap-2 rounded px-1.5 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none"
+        >
+          {body}
+        </button>
+      </Hint>
     );
   }
   return <div className="flex items-start gap-2 py-2">{body}</div>;

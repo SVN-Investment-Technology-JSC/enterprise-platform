@@ -1403,6 +1403,9 @@ importers:
       '@enterprise-platform/module-inventory':
         specifier: workspace:*
         version: link:../../packages/modules/inventory
+      '@enterprise-platform/module-maintenance':
+        specifier: workspace:*
+        version: link:../../packages/modules/maintenance
       '@enterprise-platform/module-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/modules/procedure-engine

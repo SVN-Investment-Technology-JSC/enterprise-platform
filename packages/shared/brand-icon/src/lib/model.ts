@@ -15,7 +15,10 @@ export interface Rect {
   readonly height: number;
 }
 
-/** Màu: 'none', 'currentColor', 'brand:<khoá bảng màu>' hoặc mã hex '#rrggbb'. */
+/**
+ * Màu: 'none', 'currentColor', 'brand:<khoá bảng màu>', mã hex '#rrggbb', hoặc màu chuyển sắc
+ * 'linear:<góc>:<màu>@<vị trí>,...' (xem `gradient.ts`).
+ */
 export type Paint = string;
 
 /**

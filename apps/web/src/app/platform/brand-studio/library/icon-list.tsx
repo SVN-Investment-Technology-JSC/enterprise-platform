@@ -29,10 +29,10 @@ export function IconList({
   const selectedCount = docs.filter((doc) => selected.has(doc.id)).length;
   const headCell = 'px-3 py-2 text-left text-xs font-semibold text-slate-500';
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full min-w-[640px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50/60">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0]">
+          <tr>
             <th className="w-10 py-2 pl-3 pr-0 text-left">
               <SelectBox
                 checked={docs.length > 0 && selectedCount === docs.length}

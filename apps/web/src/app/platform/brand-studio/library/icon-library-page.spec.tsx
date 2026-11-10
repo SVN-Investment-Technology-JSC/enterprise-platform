@@ -44,9 +44,24 @@ function seed(docs: readonly IconDocument[]) {
 const tiles = () => screen.queryAllByTestId('icon-tile');
 const tileNames = () => tiles().map((tile) => within(tile).getAllByRole('link')[0].getAttribute('aria-label')?.replace(/^Mở /, ''));
 const search = () => screen.getByRole('searchbox', { name: 'Tìm icon' });
+const openFilters = () => fireEvent.click(screen.getByRole('button', { name: /^Bộ lọc/ }));
+/** Chọn một mục trong menu Bộ lọc (danh mục hoặc trạng thái) theo tên hiện trên mục. */
+const chooseFilter = (name: RegExp) => {
+  openFilters();
+  fireEvent.click(screen.getByRole('menuitemradio', { name }));
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+};
+/** Số icon ghi bên cạnh một mục của menu Bộ lọc. */
+const filterCount = (name: RegExp) => {
+  openFilters();
+  const text = screen.getByRole('menuitemradio', { name }).textContent ?? '';
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+  return Number(text.replace(/\D+/g, ' ').trim().split(' ').pop());
+};
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   jest.mocked(downloadTextFile).mockReset();
   localStore.reloadForTest();
 });
@@ -88,22 +103,40 @@ describe('IconLibraryPage: tìm, lọc, sắp xếp', () => {
     expect(screen.getByTestId('empty-state').textContent).toContain('Không có icon phù hợp.');
   });
 
-  it('lọc bằng nhóm nút danh mục và trạng thái, con số trên nút khớp kết quả', () => {
+  it('lọc bằng menu Bộ lọc theo danh mục và trạng thái, con số trên mục khớp kết quả', () => {
     seed([...presets, custom('n-1', 'Nháp một', { status: 'draft', category: 'custom' })]);
     render(<IconLibraryPage />);
 
-    const moduleChip = screen.getByRole('button', { name: /^Phân hệ/ });
-    expect(moduleChip.textContent).toContain(String(moduleCount));
-    fireEvent.click(moduleChip);
-    expect(moduleChip.getAttribute('aria-pressed')).toBe('true');
+    expect(filterCount(/^Phân hệ/)).toBe(moduleCount);
+    chooseFilter(/^Phân hệ/);
     expect(tiles()).toHaveLength(moduleCount);
 
-    fireEvent.click(screen.getByRole('button', { name: /^Nháp/ }));
+    chooseFilter(/^Nháp/);
     expect(screen.getByTestId('empty-state')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /^Tất cả/ }));
-    fireEvent.click(screen.getByRole('button', { name: /^Tùy biến/ }));
+    chooseFilter(/^Tất cả danh mục/);
+    chooseFilter(/^Tùy biến/);
     expect(tileNames()).toEqual(['Nháp một']);
+  });
+
+  it('nút Bộ lọc báo số bộ lọc đang bật; chip bỏ riêng từng bộ lọc', () => {
+    seed([...presets, custom('n-1', 'Nháp một', { status: 'draft', category: 'custom' })]);
+    render(<IconLibraryPage />);
+    expect(screen.getByRole('button', { name: 'Bộ lọc' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Bỏ lọc/ })).toBeNull();
+
+    chooseFilter(/^Phân hệ/);
+    chooseFilter(/^Phát hành/);
+    expect(screen.getByRole('button', { name: 'Bộ lọc, đang bật 2' })).toBeTruthy();
+    expect(tiles()).toHaveLength(presets.filter((doc) => doc.category === 'module' && doc.status === 'published').length);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ lọc Phân hệ' }));
+    expect(screen.getByRole('button', { name: 'Bộ lọc, đang bật 1' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Bỏ lọc Phân hệ' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ lọc Phát hành' }));
+    expect(screen.getByRole('button', { name: 'Bộ lọc' })).toBeTruthy();
+    expect(tiles()).toHaveLength(presetCount + 1);
   });
 
   it('"Xoá bộ lọc" đưa danh sách về đầy đủ', () => {
@@ -212,11 +245,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Chuyển nháp/ }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Nháp"'));
-    expect(screen.getByRole('button', { name: /^Nháp/ }).textContent).toContain('2');
+    expect(filterCount(/^Nháp/)).toBe(2);
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Phát hành/ }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Phát hành"'));
-    expect(screen.getByRole('button', { name: /^Nháp/ }).textContent).toContain('0');
+    expect(filterCount(/^Nháp/)).toBe(0);
   });
 
   it('xoá hàng loạt giữ lại icon mẫu', async () => {
@@ -240,11 +273,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
 describe('IconLibraryPage: xuất, sao lưu', () => {
   it('Xuất trên thanh công cụ: không chọn thì xuất tất cả, có chọn thì chỉ xuất phần đã chọn', () => {
     render(<IconLibraryPage />);
-    fireEvent.click(screen.getByTitle(`Xuất tất cả ${presetCount} icon`));
+    fireEvent.click(screen.getByRole('button', { name: `Xuất tất cả ${presetCount} icon` }));
     expect(screen.getByTestId('export-dialog').textContent?.split('|')).toHaveLength(presetCount);
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn SVNDTS Master Logo' }));
-    fireEvent.click(screen.getByTitle('Xuất 1 icon đã chọn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất 1 icon đã chọn' }));
     expect(screen.getByTestId('export-dialog').textContent).toBe('SVNDTS Master Logo');
   });
 

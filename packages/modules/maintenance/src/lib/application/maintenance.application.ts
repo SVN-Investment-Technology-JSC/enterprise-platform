@@ -16,6 +16,7 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import {
   MAINTENANCE_SETTINGS_KEYS,
+  type MaintenanceMyDashboardCards,
   type MaintenanceSettingsEntry,
   type MaintenanceSettingsKey,
   type MaintenanceSettingsSnapshot,
@@ -30,6 +31,9 @@ import {
 import type { AssetDirectory } from './asset-directory.port.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
+
+/** Khoá tuỳ chọn cá nhân lưu danh sách thẻ Tổng quan (bảng `user_preferences`). */
+const DASHBOARD_CARDS_PREFERENCE = 'dashboard.cards';
 
 const PRIORITIES: ReadonlySet<string> = new Set(['High', 'Normal', 'Low']);
 
@@ -366,6 +370,12 @@ export class MaintenanceApplication {
     return this.store.completeOccurrence(actor.tenantId, actor, id, note);
   }
 
+  /** Gửi lại phiếu đã báo lỗi sang Quy trình (nút "Thử lại tạo phiếu"). */
+  async retryDispatch(actor: MaintenanceActor, id: string) {
+    this.requireOccurrenceHandler(actor);
+    return this.store.retryDispatch(actor.tenantId, id);
+  }
+
   async createIncident(actor: MaintenanceActor, input: CreateMaintenanceIncidentRequest) {
     this.requireOccurrenceHandler(actor);
     const assetCode = input.assetCode?.trim();
@@ -479,6 +489,28 @@ export class MaintenanceApplication {
       );
     }
     return { ...saved, value: normalizeMaintenanceSetting(key, saved.value) };
+  }
+
+  /** Thẻ Tổng quan của chính người dùng này. Không cần quyền quản lý: chỉ đổi cách xem của riêng mình. */
+  async getMyDashboardCards(actor: MaintenanceActor): Promise<MaintenanceMyDashboardCards> {
+    const stored = await this.store.getUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE);
+    if (stored === undefined) return { cardIds: null };
+    return { cardIds: normalizeMaintenanceSetting('dashboard.cards', stored).cardIds };
+  }
+
+  async setMyDashboardCards(actor: MaintenanceActor, input: unknown): Promise<MaintenanceMyDashboardCards> {
+    const raw = (input as { cardIds?: unknown } | null)?.cardIds;
+    // null là "quay về mặc định"; mảng rỗng là "cố ý không hiện thẻ nào".
+    if (raw === null) {
+      await this.store.deleteUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE);
+      return { cardIds: null };
+    }
+    if (!Array.isArray(raw)) {
+      throw new MaintenanceError('validation', 'Danh sách thẻ không hợp lệ.');
+    }
+    const value = normalizeMaintenanceSetting('dashboard.cards', { cardIds: raw });
+    await this.store.setUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE, value);
+    return { cardIds: value.cardIds };
   }
 
   /** Cổng cho xử lý phiếu — rộng hơn quyền sửa cấu hình. */

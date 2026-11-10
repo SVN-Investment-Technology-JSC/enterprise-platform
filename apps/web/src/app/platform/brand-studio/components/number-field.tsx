@@ -4,6 +4,7 @@ import { roundTo } from '@enterprise-platform/shared-brand-icon';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { FOCUS_RING } from './controls';
+import { Hint } from './hint';
 
 export interface NumberRules {
   readonly min?: number;
@@ -110,34 +111,35 @@ export function NumberField({
   };
 
   return (
-    <label
-      className={cn(
-        'flex h-7 min-w-0 items-center rounded border border-slate-200 bg-white text-xs text-slate-800 transition-colors',
-        'focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20',
-        disabled && 'opacity-40',
-        className,
-      )}
-      title={label}
-    >
-      {prefix ? <span className="shrink-0 pl-1.5 text-[10px] text-slate-400">{prefix}</span> : null}
-      <input
-        type="text"
-        inputMode="decimal"
-        aria-label={label}
-        disabled={disabled}
-        value={shown}
-        placeholder={placeholder ?? (mixed ? '—' : '')}
-        onFocus={(event) => {
-          setDraft(shown);
-          event.currentTarget.select();
-        }}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
-        className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-right tabular-nums outline-none placeholder:text-slate-400"
-      />
-      {suffix ? <span className="shrink-0 pr-1.5 text-[10px] text-slate-400">{suffix}</span> : null}
-    </label>
+    <Hint label={label}>
+      <label
+        className={cn(
+          'flex h-7 min-w-0 items-center rounded border border-slate-200 bg-white text-xs text-slate-800 transition-colors',
+          'focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20',
+          disabled && 'opacity-40',
+          className,
+        )}
+      >
+        {prefix ? <span className="shrink-0 pl-1.5 text-[10px] text-slate-400">{prefix}</span> : null}
+        <input
+          type="text"
+          inputMode="decimal"
+          aria-label={label}
+          disabled={disabled}
+          value={shown}
+          placeholder={placeholder ?? (mixed ? '—' : '')}
+          onFocus={(event) => {
+            setDraft(shown);
+            event.currentTarget.select();
+          }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={onKeyDown}
+          className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-right tabular-nums outline-none placeholder:text-slate-400"
+        />
+        {suffix ? <span className="shrink-0 pr-1.5 text-[10px] text-slate-400">{suffix}</span> : null}
+      </label>
+    </Hint>
   );
 }
 
@@ -182,33 +184,34 @@ export function SliderNumber({
   };
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <input
-        type="range"
-        aria-label={`${label} (thanh trượt)`}
-        title={label}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        value={value ?? min}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-          armed.current = true;
-        }}
-        onPointerUp={endScrub}
-        onPointerCancel={endScrub}
-        onBlur={endScrub}
-        onChange={(event) => {
-          const next = normalizeNumber(event.target.value, { min, max, digits });
-          if (next === null) return;
-          if (armed.current) {
-            armed.current = false;
-            onScrubStart?.();
-          }
-          onChange(next);
-        }}
-        className={cn('h-1 min-w-0 flex-1 cursor-pointer accent-blue-600 disabled:opacity-40', mixed && 'opacity-50', FOCUS_RING)}
-      />
+      <Hint label={label}>
+        <input
+          type="range"
+          aria-label={`${label} (thanh trượt)`}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          value={value ?? min}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            armed.current = true;
+          }}
+          onPointerUp={endScrub}
+          onPointerCancel={endScrub}
+          onBlur={endScrub}
+          onChange={(event) => {
+            const next = normalizeNumber(event.target.value, { min, max, digits });
+            if (next === null) return;
+            if (armed.current) {
+              armed.current = false;
+              onScrubStart?.();
+            }
+            onChange(next);
+          }}
+          className={cn('h-1 min-w-0 flex-1 cursor-pointer accent-blue-600 disabled:opacity-40', mixed && 'opacity-50', FOCUS_RING)}
+        />
+      </Hint>
       <NumberField
         value={mixed ? null : value}
         onCommit={onChange}

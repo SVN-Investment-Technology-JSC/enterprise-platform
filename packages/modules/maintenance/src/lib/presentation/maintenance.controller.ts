@@ -136,6 +136,13 @@ export class MaintenanceController {
     );
   }
 
+  /** Gửi lại phiếu báo lỗi sang Quy trình. Đường dẫn chứa `/occurrences` nên cần quyền xử lý phiếu. */
+  @Post('occurrences/:id/redispatch')
+  @HttpCode(200)
+  retryDispatch(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.maintenance.retryDispatch(this.actor(request), id));
+  }
+
   @Get('occurrences/:id')
   getOccurrence(@Req() request: MaintenanceRequest, @Param('id') id: string) {
     return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));
@@ -254,6 +261,18 @@ export class MaintenanceController {
     return this.execute(() =>
       this.maintenance.updateSetting(this.actor(request), key as MaintenanceSettingsKey, body),
     );
+  }
+
+  /** Thẻ Tổng quan riêng của người đang đăng nhập; ai xem được module đều tự đổi được cho mình. */
+  @Get('me/dashboard-cards') getMyDashboardCards(@Req() request: MaintenanceRequest) {
+    return this.execute(() => this.maintenance.getMyDashboardCards(this.actor(request)));
+  }
+
+  @Put('me/dashboard-cards') putMyDashboardCards(
+    @Req() request: MaintenanceRequest,
+    @Body() body: { cardIds: string[] | null },
+  ) {
+    return this.execute(() => this.maintenance.setMyDashboardCards(this.actor(request), body));
   }
 
   private actor(request: MaintenanceRequest): MaintenanceActor {

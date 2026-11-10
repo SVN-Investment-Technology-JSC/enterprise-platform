@@ -14,6 +14,7 @@ import {
   type Point,
   type Subpath,
 } from './model';
+import { isGradientPaint, normalizeGradientPaint } from './gradient';
 import { HEX_PATTERN, normalizeHex } from './palette';
 
 export const LIMITS = {
@@ -48,6 +49,7 @@ function normalizePaintValue(value: unknown, fallback: string): string {
   if (value === 'none' || value === 'currentColor') return value;
   if (BRAND_PAINT.test(value)) return value;
   if (HEX_PATTERN.test(value)) return normalizeHex(value) ?? fallback;
+  if (isGradientPaint(value)) return normalizeGradientPaint(value) ?? fallback;
   return fallback;
 }
 

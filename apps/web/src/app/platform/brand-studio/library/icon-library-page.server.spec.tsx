@@ -40,6 +40,7 @@ beforeEach(() => {
   mockServer = createFakeBrandServer();
   remoteStore.resetForTest();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   localStore.reloadForTest();
   Object.defineProperty(globalThis, 'fetch', { value: jest.fn(), configurable: true, writable: true });
 });

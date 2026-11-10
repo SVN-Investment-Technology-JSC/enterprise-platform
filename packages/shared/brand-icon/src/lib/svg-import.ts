@@ -1,4 +1,5 @@
-import { IDENTITY, multiply, rotation, scaling, translation, transformGeometry, type Matrix } from './geometry';
+import { IDENTITY, applyMatrix, geometryBounds, multiply, rotation, scaling, translation, transformGeometry, type Matrix } from './geometry';
+import { MAX_GRADIENT_STOPS, colorAtOffset, formatGradient, normalizeAngle } from './gradient';
 import { normalizeHex } from './palette';
 import { MAX_PATH_DATA_LENGTH, parsePathData } from './path-data';
 import { LIMITS, normalizeShape } from './validate';
@@ -13,6 +14,7 @@ import {
   type LineCap,
   type LineJoin,
   type Paint,
+  type Rect,
 } from './model';
 
 export interface SvgImportResult {
@@ -112,14 +114,24 @@ export function parseTransform(value: string | null | undefined): Matrix {
   return result;
 }
 
+/** Tiền tố đánh dấu paint còn là tham chiếu `url(#id)` chưa đổi thành gradient. */
+const URL_PAINT = 'url#';
+const GRADIENT_WARNING = 'SVG dùng màu chuyển sắc hoặc hoa văn mà Studio không đọc được; thay bằng một màu đơn.';
+
+function unsupportedPaint(warnings: string[]): Paint {
+  warnings.push(GRADIENT_WARNING);
+  return 'currentColor';
+}
+
 function parsePaint(value: string, warnings: string[]): Paint {
   const text = value.trim().toLowerCase();
   if (text === 'none' || text === 'transparent') return 'none';
   if (text === 'currentcolor' || text === 'inherit') return 'currentColor';
   if (text === 'black') return 'currentColor';
   if (text.startsWith('url(')) {
-    warnings.push('SVG dùng màu chuyển sắc hoặc hoa văn; Studio thay bằng một màu đơn.');
-    return 'currentColor';
+    // tham chiếu tới dải màu: để nguyên, đổi thành gradient (hoặc một màu đơn) khi biết lớp hình và phép biến đổi của nó
+    const reference = value.trim().match(/^url\(\s*(['"]?)#([^'")\s]+)\1\s*\)/i);
+    return reference ? `${URL_PAINT}${reference[2]}` : unsupportedPaint(warnings);
   }
   const rgb = text.match(/^rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)/);
   if (rgb) {
@@ -177,6 +189,103 @@ function readStyle(element: Element, parent: Style, warnings: string[]): Style {
   const rule = values.get('fill-rule');
   if (rule === 'evenodd' || rule === 'nonzero') style.fillRule = rule;
   return style;
+}
+
+interface GradientSource {
+  readonly kind: 'linear' | 'radial';
+  readonly stops: Array<{ color: string; offset: number }>;
+  readonly units: 'user' | 'bbox';
+  readonly transform: Matrix;
+  readonly x1: string | null;
+  readonly y1: string | null;
+  readonly x2: string | null;
+  readonly y2: string | null;
+  /** Có điểm màu trong suốt một phần; Studio bỏ qua độ trong suốt của từng điểm màu. */
+  readonly translucent: boolean;
+}
+
+const HREF_DEPTH = 6;
+const GRADIENT_TAGS = new Set(['lineargradient', 'radialgradient']);
+
+function hrefTarget(element: Element, byId: ReadonlyMap<string, Element>): Element | null {
+  const href = element.getAttribute('href') ?? element.getAttribute('xlink:href');
+  if (!href || !href.startsWith('#')) return null;
+  return byId.get(href.slice(1)) ?? null;
+}
+
+function stopOffset(raw: string | null | undefined): number {
+  if (raw === null || raw === undefined) return 0;
+  const text = raw.trim();
+  const value = parseFloat(text);
+  if (!Number.isFinite(value)) return 0;
+  return clamp01(text.endsWith('%') ? value / 100 : value);
+}
+
+/** Đọc dải màu `<linearGradient>`/`<radialGradient>`, kể cả khi kế thừa điểm màu và thuộc tính qua `href`. */
+function readGradient(element: Element, byId: ReadonlyMap<string, Element>, warnings: string[]): GradientSource | null {
+  const tag = element.localName.toLowerCase();
+  if (!GRADIENT_TAGS.has(tag)) return null;
+
+  const chain: Element[] = [];
+  for (
+    let current: Element | null = element;
+    current && chain.length < HREF_DEPTH && !chain.includes(current);
+    current = hrefTarget(current, byId)
+  ) {
+    if (GRADIENT_TAGS.has(current.localName.toLowerCase())) chain.push(current);
+  }
+  const inherited = (name: string): string | null => {
+    for (const item of chain) {
+      const value = item.getAttribute(name);
+      if (value !== null) return value;
+    }
+    return null;
+  };
+
+  const withStops = chain.find((item) => Array.from(item.children).some((child) => child.localName.toLowerCase() === 'stop'));
+  const stops: Array<{ color: string; offset: number }> = [];
+  let translucent = false;
+  let previous = 0;
+  for (const child of Array.from(withStops?.children ?? [])) {
+    if (child.localName.toLowerCase() !== 'stop') continue;
+    const style = new Map<string, string>();
+    for (const declaration of (child.getAttribute('style') ?? '').split(';')) {
+      const [key, ...rest] = declaration.split(':');
+      if (key && rest.length > 0) style.set(key.trim().toLowerCase(), rest.join(':').trim());
+    }
+    const paint = parsePaint(style.get('stop-color') ?? child.getAttribute('stop-color') ?? '#000000', warnings);
+    const opacity = numberOf(style.get('stop-opacity') ?? child.getAttribute('stop-opacity'), 1);
+    if (opacity < 0.999) translucent = true;
+    previous = Math.max(previous, stopOffset(style.get('offset') ?? child.getAttribute('offset')));
+    stops.push({ color: paint.startsWith('#') ? paint : '#000000', offset: previous });
+  }
+  if (stops.length === 0) return null;
+
+  return {
+    kind: tag === 'lineargradient' ? 'linear' : 'radial',
+    stops,
+    units: inherited('gradientUnits') === 'userSpaceOnUse' ? 'user' : 'bbox',
+    transform: parseTransform(inherited('gradientTransform')),
+    x1: inherited('x1'),
+    y1: inherited('y1'),
+    x2: inherited('x2'),
+    y2: inherited('y2'),
+    translucent,
+  };
+}
+
+/** Điểm màu sau khi chiếu lên trục chuẩn của Studio: cắt trong 0..1, thêm điểm ở hai đầu, giảm còn tối đa 8 điểm. */
+function clipStops(
+  stops: ReadonlyArray<{ color: string; offset: number }>,
+  t0: number,
+  t1: number,
+): Array<{ color: string; offset: number }> {
+  const span = t1 - t0;
+  const mapped = stops.map((stop) => ({ color: stop.color, offset: t0 + span * stop.offset }));
+  const inner = mapped.filter((stop) => stop.offset > 1e-4 && stop.offset < 1 - 1e-4);
+  const result = [{ color: colorAtOffset(mapped, 0), offset: 0 }, ...inner, { color: colorAtOffset(mapped, 1), offset: 1 }];
+  if (result.length <= MAX_GRADIENT_STOPS) return result;
+  return Array.from({ length: MAX_GRADIENT_STOPS }, (_, index) => result[Math.round((index * (result.length - 1)) / (MAX_GRADIENT_STOPS - 1))]);
 }
 
 function elementGeometry(element: Element, warnings: string[]): Geometry | null {
@@ -269,6 +378,58 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
     : [fit, 0, 0, fit, 0, 0];
   if (Math.abs(fit - 1) > 1e-6) warnings.push(`Đã co SVG gốc ${roundTo(viewWidth, 2)}x${roundTo(viewHeight, 2)} về lưới ${size}x${size}.`);
 
+  const elementsById = new Map<string, Element>();
+  for (const element of Array.from(root.querySelectorAll('[id]'))) {
+    const id = element.getAttribute('id');
+    if (id && !elementsById.has(id)) elementsById.set(id, element);
+  }
+  let translucentStops = false;
+
+  /**
+   * Đổi tham chiếu `url(#id)` thành gradient của Studio. Điểm đầu và cuối của dải màu được đưa về toạ độ lưới (qua
+   * `transform` của lớp hình, `gradientTransform` và khung bao nếu dải tính theo khung bao), lấy hướng làm góc, rồi chiếu lên
+   * trục chuẩn trải trên cả khung vẽ. Dải màu không đọc được (radial, thiếu, suy biến) thành một màu đơn kèm cảnh báo.
+   */
+  const resolveUrlPaint = (paint: Paint, own: Matrix, bounds: Rect): Paint => {
+    if (!paint.startsWith(URL_PAINT)) return paint;
+    const target = elementsById.get(paint.slice(URL_PAINT.length));
+    const source = target ? readGradient(target, elementsById, warnings) : null;
+    if (!source) return unsupportedPaint(warnings);
+    if (source.translucent) translucentStops = true;
+    const solid = (color: string): Paint => {
+      warnings.push(GRADIENT_WARNING);
+      return color;
+    };
+    if (source.kind === 'radial') return solid(colorAtOffset(source.stops, 0.5));
+
+    const bbox = source.units === 'bbox';
+    if (bbox && (bounds.width <= 1e-9 || bounds.height <= 1e-9)) return solid(colorAtOffset(source.stops, 0.5));
+    const originX = hasBox ? box[0] : 0;
+    const originY = hasBox ? box[1] : 0;
+    const coordinate = (raw: string | null, fallback: number, axis: 'x' | 'y'): number => {
+      const value = raw === null ? Number.NaN : parseFloat(raw);
+      if (!Number.isFinite(value)) return fallback;
+      if (!raw?.trim().endsWith('%')) return value;
+      if (bbox) return value / 100;
+      return axis === 'x' ? originX + (value / 100) * viewWidth : originY + (value / 100) * viewHeight;
+    };
+    const from = { x: coordinate(source.x1, bbox ? 0 : originX, 'x'), y: coordinate(source.y1, bbox ? 0 : originY, 'y') };
+    const to = { x: coordinate(source.x2, bbox ? 1 : originX + viewWidth, 'x'), y: coordinate(source.y2, bbox ? 0 : originY, 'y') };
+
+    const boxMatrix: Matrix = bbox ? [bounds.width, 0, 0, bounds.height, bounds.x, bounds.y] : IDENTITY;
+    const total = multiply(own, multiply(boxMatrix, source.transform));
+    const p1 = applyMatrix(total, from);
+    const p2 = applyMatrix(total, to);
+    if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 1e-6) return solid(source.stops[source.stops.length - 1].color);
+
+    const angle = normalizeAngle((Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI);
+    const cos = Math.cos((angle * Math.PI) / 180);
+    const sin = Math.sin((angle * Math.PI) / 180);
+    const half = ((Math.abs(cos) + Math.abs(sin)) * size) / 2;
+    const project = (point: { x: number; y: number }) => ((point.x - size / 2) * cos + (point.y - size / 2) * sin) / (2 * half) + 0.5;
+    return formatGradient(angle, clipStops(source.stops, project(p1), project(p2))) ?? solid(colorAtOffset(source.stops, 0.5));
+  };
+
   const visit = (element: Element, matrix: Matrix, parentStyle: Style) => {
     if (truncated) return;
     const tag = element.localName.toLowerCase();
@@ -296,11 +457,12 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
 
     const strokeWidth = options.strokeWidth ?? roundTo(style.strokeWidth * scale, 3);
     const label = element.getAttribute('id');
+    const bounds = geometryBounds(geometry);
     const candidate = createShape(transformGeometry(geometry, own), {
       ...(label ? { name: label.slice(0, 40) } : {}),
-      fill: style.fill,
+      fill: resolveUrlPaint(style.fill, own, bounds),
       fillOpacity: style.fillOpacity,
-      stroke: hasStroke ? style.stroke : 'none',
+      stroke: hasStroke ? resolveUrlPaint(style.stroke, own, bounds) : 'none',
       strokeWidth: hasStroke ? strokeWidth : DEFAULT_SHAPE_STYLE.strokeWidth,
       opacity: roundTo(style.opacity * (hasFill ? 1 : style.strokeOpacity), 3),
       linecap: style.linecap,
@@ -325,6 +487,7 @@ export function importSvg(markup: string, options: SvgImportOptions = {}): SvgIm
   visit(root, base, BASE_STYLE);
   if (truncated) warnings.push(`Chỉ nhập ${MAX_SHAPES} hình đầu tiên.`);
   if (oversizedSeen) warnings.push('Có hình quá lớn hoặc quá phức tạp (vượt giới hạn toạ độ hay số điểm) nên bị bỏ qua.');
+  if (translucentStops) warnings.push('Điểm màu chuyển sắc có độ trong suốt; Studio bỏ qua độ trong suốt đó.');
   if (unsupportedSeen) warnings.push('SVG có chữ, ảnh hoặc phần tử <use>, các phần này không được nhập.');
   if (shapes.length === 0) throw new Error('Không tìm thấy hình nào (path, rect, circle, line...) trong SVG.');
 
