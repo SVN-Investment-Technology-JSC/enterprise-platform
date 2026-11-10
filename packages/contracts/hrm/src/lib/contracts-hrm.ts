@@ -1519,6 +1519,8 @@ export interface CreateOtRequestPayload extends RequestReasonInput {
   readonly plannedMinutes?: number;
   readonly otType?: HrmOtType;
   readonly isNightOt?: boolean;
+  /** Sau ca xuyên đêm có nghỉ ngày làm việc kế tiếp không (chỉ ảnh hưởng phân loại khi chế độ NIGHT_REST). Mặc định không nghỉ. */
+  readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
 }
 
 export type HrmBusinessTripType = 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';

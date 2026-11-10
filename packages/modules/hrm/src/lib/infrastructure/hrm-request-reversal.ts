@@ -1,3 +1,4 @@
+import { removeOvertimeBlocks } from './hrm-overtime-blocks.js';
 import {
   BadRequestException,
   ConflictException,
@@ -173,11 +174,14 @@ export async function reverseApprovedRequest(
       [tenant, id],
     );
   // Đơn OT đã đảo thì số giờ thực tế/tính lương cũ không còn giá trị: về 0 để danh sách và báo cáo không hiển thị số cũ.
-  if (kind === 'ot')
+  if (kind === 'ot') {
     await db.query(
       `UPDATE hrm_schema.ot_requests SET actual_minutes=0,billable_ot_minutes=0,timesheet_updated_at=NULL WHERE tenant_id=$1 AND id=$2`,
       [tenant, id],
     );
+    // Ca phân loại và ngày nghỉ sau ca đêm của đơn không còn giá trị.
+    await removeOvertimeBlocks(db, tenant, id);
+  }
   await lifecycleAudit(db, tenant, actor, 'REQUEST_EFFECT_REVERSED', id, {
     kind,
     reason,

@@ -134,6 +134,7 @@ describe('request reasons and approval configuration tabs', () => {
   it('keeps the settings tabs in the agreed order with the new labels', () => {
     expect(HRM_HUBS['/settings'].map((t) => [t.id, t.label])).toEqual([
       ['leave', 'Chính sách phép năm'],
+      ['overtime-comp', 'Làm thêm và nghỉ bù'],
       ['time', 'Chấm công'],
       ['schedules', 'Phân ca'],
       ['shifts', 'Danh mục ca'],
@@ -148,6 +149,19 @@ describe('request reasons and approval configuration tabs', () => {
       ['operations', 'Vận hành và tích hợp'],
       ['permissions', 'Quyền và vai trò'],
     ]);
+  });
+
+  it('comp-off fund: the tab needs comp_off.view; the overtime settings need policy.view or policy.manage', () => {
+    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).not.toContain('comp-off');
+    for (const key of ['hrm.comp_off.view', 'hrm.comp_off.convert', 'hrm.comp_off.adjust', 'hrm.overtime.classify'])
+      expect(visibleTabs(expandTenantActions([key]), '/leave')).toEqual(['comp-off']);
+    expect(visibleTabs(expandTenantActions(['hrm.leave.manage']), '/settings')).not.toContain('overtime-comp');
+    expect(visibleTabs(expandTenantActions(['hrm.policy.view']), '/settings')).toEqual(['overtime-comp']);
+    expect(visibleTabs(expandTenantActions(['hrm.policy.manage']), '/settings')).toEqual(['overtime-comp']);
+    // Chấm công viên xử lý phép nên thấy quỹ nghỉ bù nhưng không được sửa chính sách.
+    const timekeeper = actionsOf('timekeeper');
+    expect(visibleTabs(timekeeper, '/leave')).toContain('comp-off');
+    expect(visibleTabs(timekeeper, '/settings')).not.toContain('overtime-comp');
   });
 
   it('has no leftover request catalog tab from the previous design', () => {

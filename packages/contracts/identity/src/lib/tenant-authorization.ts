@@ -136,6 +136,36 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Cấu hình, tích, chuyển và điều chỉnh quỹ phép',
   },
   {
+    key: 'hrm.comp_off.view',
+    group: 'HRM · Phép và đơn',
+    label: 'Xem quỹ nghỉ bù và sổ giao dịch toàn tenant',
+  },
+  {
+    key: 'hrm.comp_off.convert',
+    group: 'HRM · Phép và đơn',
+    label: 'Chuyển giờ làm thêm vượt trần của tháng đã chốt thành ngày nghỉ bù',
+  },
+  {
+    key: 'hrm.comp_off.adjust',
+    group: 'HRM · Phép và đơn',
+    label: 'Điều chỉnh tay quỹ nghỉ bù (có lý do) và chạy hết hạn lô',
+  },
+  {
+    key: 'hrm.overtime.classify',
+    group: 'HRM · Phép và đơn',
+    label: 'Xem và sửa phân loại làm thêm / ca đêm của từng ca',
+  },
+  {
+    key: 'hrm.policy.view',
+    group: 'HRM · Phép và đơn',
+    label: 'Xem chính sách làm thêm và nghỉ bù',
+  },
+  {
+    key: 'hrm.policy.manage',
+    group: 'HRM · Phép và đơn',
+    label: 'Tạo phiên bản chính sách làm thêm và nghỉ bù',
+  },
+  {
     key: 'hrm.request.read',
     group: 'HRM · Phép và đơn',
     label: 'Xem đơn nghiệp vụ toàn tenant',
@@ -706,6 +736,10 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.request.approve.all': ['hrm.request.approve'],
       'hrm.attendance.import': ['hrm.attendance.read'],
       'hrm.leave.manage': ['hrm.leave.read'],
+      'hrm.comp_off.convert': ['hrm.comp_off.view'],
+      'hrm.comp_off.adjust': ['hrm.comp_off.view'],
+      'hrm.overtime.classify': ['hrm.comp_off.view'],
+      'hrm.policy.manage': ['hrm.policy.view'],
       'hrm.advance.disburse': ['hrm.advance.read'],
       'hrm.salary.manage': ['hrm.salary.read'],
       'hrm.dependent.manage': ['hrm.dependent.read'],

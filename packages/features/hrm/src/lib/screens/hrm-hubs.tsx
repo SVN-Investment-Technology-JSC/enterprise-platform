@@ -24,6 +24,7 @@ const EmployeesScreen = lazyScreen(() => import('./employees-screen'));
 const PersonnelDecisionsScreen = lazyScreen(() => import('./personnel-decisions-screen'));
 const LeaveBalancesScreen = lazyScreen(() => import('./leave-balances-screen'));
 const LeaveAdjustmentHistoryScreen = lazyScreen(() => import('./leave-adjustment-history-screen'));
+const CompOffScreen = lazyScreen(() => import('./comp-off-screen'));
 const WorkScheduleScreen = lazyScreen(() => import('./work-schedule-screen'));
 const TimesheetsScreen = lazyScreen(() => import('./timesheets-screen'));
 const AttendanceDataScreen = lazyScreen(() => import('./attendance-data-screen'));
@@ -35,6 +36,7 @@ const AdvancesScreen = lazyScreen(() => import('./advances-screen'));
 const TimeSettingsScreen = lazyScreen(() => import('./time-settings-screen'));
 const PayrollSettingsScreen = lazyScreen(() => import('./payroll-settings-screen'));
 const LeaveSettingsScreen = lazyScreen(() => import('./leave-settings-screen'));
+const OvertimeCompSettingsScreen = lazyScreen(() => import('./overtime-comp-settings-screen'));
 const RequestReasonsScreen = lazyScreen(() => import('./request-reasons-screen'));
 const RequestQuotaScreen = lazyScreen(() => import('./request-quota-screen'));
 const RequestTimeRulesScreen = lazyScreen(() => import('./request-time-rules-screen'));
@@ -54,7 +56,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     employees: EmployeesScreen,
     decisions: PersonnelDecisionsScreen,
   },
-  '/leave': { balances: LeaveBalancesScreen, adjustments: LeaveAdjustmentHistoryScreen },
+  '/leave': { balances: LeaveBalancesScreen, adjustments: LeaveAdjustmentHistoryScreen, 'comp-off': CompOffScreen },
   '/timekeeping': {
     timesheets: TimesheetsScreen,
     data: AttendanceDataScreen,
@@ -63,6 +65,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
   '/fleet': { schedule: FleetScheduleScreen, vehicles: FleetVehiclesScreen, drivers: FleetDriversScreen },
   '/settings': {
     leave: LeaveSettingsScreen,
+    'overtime-comp': OvertimeCompSettingsScreen,
     time: TimeSettingsScreen,
     schedules: WorkScheduleScreen,
     shifts: ShiftsScreen,

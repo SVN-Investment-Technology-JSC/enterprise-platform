@@ -92,6 +92,9 @@ import {
   useRequestReasonCatalog,
 } from './request-reason-fields';
 import type { RequestFormPatch } from '../assistant-request-draft';
+import type { HrmNextDayRest } from '@enterprise-platform/contracts-hrm';
+import { compOffUsageProblem } from '../comp-off-model';
+import { CompOffAvailabilityHint, OvertimeClassifyHint, useCompOffAvailability } from './comp-off/comp-off-hints';
 import {
   STANDARD_SHIFT_HC,
   calculateWorkingMinutesInShift,
@@ -799,14 +802,21 @@ export function CreateRequestForm({
       return `Số ngày nghỉ vượt quỹ phép năm khả dụng (còn ${leaveDisplay.available.toFixed(2)} ngày, tối đa nghỉ được ${leaveDisplay.maxUsable.toFixed(2)} ngày). Giảm số ngày nghỉ hoặc chọn lý do nghỉ khác.`;
     return '';
   }, [showLeaveFund, loading, leaveDisplay]);
+  // Nghỉ bù: số dư lấy từ quỹ nghỉ bù (sổ riêng), chặn vượt số dư và số ngày không là bội số của bước tối thiểu.
+  const [nextDayRest, setNextDayRest] = useState<HrmNextDayRest>('NONE');
+  const compOffAvailability = useCompOffAvailability(employeeId, fromDate, selectedCatalogId === 'leave' && Boolean(selectedLeaveTypeId));
+  const isCompOffLeave = Boolean(compOffAvailability?.leaveTypeId && compOffAvailability.leaveTypeId === selectedLeaveTypeId);
+  const compOffProblem = isCompOffLeave ? compOffUsageProblem(totalLeaveDays, compOffAvailability) : '';
   const leaveValidation = useMemo(
     () =>
       !leaveDurationValidation.isValid
         ? leaveDurationValidation
         : leaveFundError
           ? { isValid: false, errorMessage: leaveFundError }
-          : leaveDurationValidation,
-    [leaveDurationValidation, leaveFundError],
+          : compOffProblem
+            ? { isValid: false, errorMessage: compOffProblem }
+            : leaveDurationValidation,
+    [leaveDurationValidation, leaveFundError, compOffProblem],
   );
 
   // Mã loại con quyết định binding PE nào sẽ được dùng khi gửi đơn.
@@ -1383,6 +1393,7 @@ export function CreateRequestForm({
             plannedMinutes: Math.round(
               (new Date(range.toAt).getTime() - new Date(range.fromAt).getTime()) / 60000,
             ),
+            nextDayRest,
             ...reasonPayload('ot', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -2138,6 +2149,7 @@ export function CreateRequestForm({
                   </>
                 )}
               </div>
+              {isCompOffLeave && <CompOffAvailabilityHint availability={compOffAvailability} problem={compOffProblem} />}
               {showLeaveFund && leaveDisplay && (
                 <p className="text-[12px] leading-relaxed text-slate-500">
                   Hiện còn {leaveDisplay.available.toFixed(2)} ngày
@@ -2518,6 +2530,15 @@ export function CreateRequestForm({
               main={{ fromAt: otFromAt, toAt: otToAt }}
               ranges={extraRanges}
               onChange={setExtraRanges}
+              disabled={isSubmitting}
+            />
+
+            <OvertimeClassifyHint
+              employeeId={employeeId}
+              fromAt={otFromAt}
+              toAt={otToAt}
+              value={nextDayRest}
+              onChange={setNextDayRest}
               disabled={isSubmitting}
             />
 

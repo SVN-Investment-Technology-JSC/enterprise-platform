@@ -498,6 +498,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0076-hrm-request-time-rules',
       path: 'tenant/hrm/0076-hrm-request-time-rules.sql',
     },
+    {
+      version: '0077-hrm-comp-off-foundation',
+      path: 'tenant/hrm/0077-hrm-comp-off-foundation.sql',
+    },
+    {
+      version: '0078-hrm-comp-off-integration',
+      path: 'tenant/hrm/0078-hrm-comp-off-integration.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

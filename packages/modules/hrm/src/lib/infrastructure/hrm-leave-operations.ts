@@ -28,6 +28,7 @@ import { descriptionColumn, pickDescription } from './hrm-request-reason-input.j
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
 import { assertNoRequestOverlap } from './hrm-request-overlap.js';
 import { leaveDayWeight } from './hrm-leave-day-preview.js';
+import { reserveCompOff, settleCompOffRequest } from './hrm-comp-off.js';
 
 async function todayInDb(db: PoolClient): Promise<string> {
   return isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today);
@@ -231,8 +232,12 @@ export async function createLeave(
     const year = Number(day.date.slice(0, 4));
     years.set(year, (years.get(year) || 0) + day.quantity);
   }
+  // Nghỉ bù dùng quỹ nghỉ bù (sổ comp_off_ledger), không dùng quỹ phép năm; chỉ tính theo ngày.
+  const isCompOff = Boolean(type.comp_off);
+  if (isCompOff && type.unit === 'HOURS')
+    throw new BadRequestException('Nghỉ bù chỉ tính theo ngày');
   // Quỹ phép chỉ áp dụng cho phép năm: nghỉ không lương không bao giờ kiểm tra/trừ quỹ.
-  const deductsBalance = Boolean(type.deduct_balance) && type.paid !== false;
+  const deductsBalance = !isCompOff && Boolean(type.deduct_balance) && type.paid !== false;
   if (deductsBalance)
     for (const [year, amount] of years) {
       const balance = await ensureLeaveBalance(
@@ -298,6 +303,14 @@ export async function createLeave(
       `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes) VALUES ($1,$2,$3,$4,$5)`,
       [result.rows[0].id, tenant, day.date, day.quantity, day.paidMinutes],
     );
+  // Giữ chỗ quỹ nghỉ bù theo lô gần hết hạn trước; không đủ số dư hoặc sai bước 0,5 ngày thì cả đơn không được tạo.
+  if (isCompOff)
+    await reserveCompOff(db, tenant, actor, {
+      employeeId: body.employeeId,
+      requestId: result.rows[0].id,
+      days: time.duration,
+      usageDate: time.fromDate,
+    });
   await db.query(
     `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_id,detail) VALUES ($1,$2,'LEAVE_SUBMITTED',$3,$4)`,
     [tenant, actor, result.rows[0].id, JSON.stringify({ days })],
@@ -441,6 +454,13 @@ export async function transitionLeave(
     target,
     new Date().toISOString().slice(0, 10),
   );
+  // Đơn nghỉ bù: duyệt thì giữ chỗ thành đã dùng; từ chối, rút, hủy thì hoàn số ngày đơn đang chiếm.
+  const compOff = await db.query(
+    `SELECT to_jsonb(t)->>'comp_off' AS comp_off FROM hrm_schema.leave_types t WHERE t.tenant_id=$1 AND t.id=$2`,
+    [tenant, leave.leave_type_id],
+  );
+  if (compOff.rows[0]?.comp_off === 'true')
+    await settleCompOffRequest(db, tenant, actor, { employeeId: leave.employee_id, requestId: id, target });
   const updated = await db.query(
     `UPDATE hrm_schema.leave_requests SET status=$3::varchar,approved_by=$4,approved_at=now(),applied_at=CASE WHEN $3::varchar='APPROVED' THEN now() ELSE applied_at END,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenant, id, target, actor],
