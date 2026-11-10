@@ -23,6 +23,7 @@ import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { TablePagerBar } from '../ui/table-pager-bar';
 import { Tip } from '../ui/tooltip';
+import { describeDispatchFailure } from '../maintenance-messages';
 import { cn } from '../utils';
 import { SELECT_CLASS } from '../ui/select-class';
 import { useFillViewportHeight } from '../ui/use-fill-viewport';
@@ -490,7 +491,7 @@ export function MaintenanceHistory({
                       ? 'Không tạo được hồ sơ bên Quy trình'
                       : 'Đang gửi sang Quy trình, hệ thống tự thử lại'}
                   </strong>
-                  <span>{selected.failureReason}</span>
+                  <span>{describeDispatchFailure(selected.failureReason)}</span>
                   {selected.status === 'failed' && canManage ? (
                     <div>
                       <Button

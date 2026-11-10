@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { describeDispatchFailure } from './maintenance-messages';
 import { cn } from './utils';
 
 /** Việc mà thẻ Tổng quan có thể làm thay người dùng; do màn hình chính cung cấp. */
@@ -219,8 +220,8 @@ function OccurrenceList(props: {
                 {item.code ? ` · ${item.assetCode}` : ''}
               </small>
               {item.status === 'failed' && item.failureReason ? (
-                <small className="truncate text-xs text-red-700" title={item.failureReason}>
-                  {item.failureReason}
+                <small className="truncate text-xs text-red-700" title={describeDispatchFailure(item.failureReason)}>
+                  {describeDispatchFailure(item.failureReason)}
                 </small>
               ) : null}
             </button>
