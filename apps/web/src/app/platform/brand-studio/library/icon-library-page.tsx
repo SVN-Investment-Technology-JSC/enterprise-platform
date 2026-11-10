@@ -364,7 +364,7 @@ export function IconLibraryPage() {
           <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <Input
             aria-label="Tìm icon"
-            className="h-8 rounded-md border-slate-300 bg-white pl-8 pr-8 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+            className="h-8 rounded-md border-slate-300 bg-white pl-8 pr-8 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.06)] [&::-webkit-search-cancel-button]:hidden"
             onChange={(event) => patchView({ query: event.target.value })}
             placeholder="Tìm theo tên, mô tả, nhãn"
             type="search"
