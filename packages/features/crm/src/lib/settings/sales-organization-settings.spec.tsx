@@ -190,10 +190,12 @@ describe('SalesOrganizationSettings (P3C6-05)', () => {
   it('thẻ "Tổ chức báo giá" có trong Cấu hình, mở ra bảng tổ chức', async () => {
     const onTab = jest.fn();
     render(<CrmSettingsPage tab="sales-organizations" onTab={onTab} />);
-    const tab = screen.getByRole('tab', { name: 'Tổ chức báo giá' });
-    expect(tab.getAttribute('aria-selected')).toBe('true');
+    const nav = screen.getByRole('navigation', { name: 'Cấu hình bán hàng' });
+    const tab = within(nav).getByRole('button', { name: 'Tổ chức báo giá' });
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    expect(within(screen.getByRole('group', { name: 'Báo giá' })).getByRole('button', { name: 'Tổ chức báo giá' })).toBe(tab);
     expect(await screen.findByRole('region', { name: 'Tổ chức báo giá' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Mẫu và loại báo giá' }));
+    fireEvent.click(within(nav).getByRole('button', { name: 'Mẫu và loại báo giá' }));
     fireEvent.click(tab);
     expect(onTab).toHaveBeenLastCalledWith('sales-organizations');
   });

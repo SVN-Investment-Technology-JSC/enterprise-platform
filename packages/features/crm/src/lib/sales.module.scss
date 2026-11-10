@@ -711,6 +711,99 @@
   }
 }
 
+// --- Trang Cấu hình: khung chọn mục chia nhóm ở trên, nội dung giữ đủ chiều rộng ---
+
+.settingsLayout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settingsNav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+}
+
+// Mỗi nhóm một hàng: tên nhóm cột trái cố định, các mục xếp ngang (hết chỗ thì xuống dòng).
+.settingsNavGroup {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+
+  & + & {
+    padding-top: 4px;
+    border-top: 1px solid var(--ep-border, #eef0f3);
+  }
+}
+
+.settingsNavTitle {
+  margin: 0;
+  padding-left: 4px;
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsNavItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.settingsNavItem,
+.settingsNavItemActive {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub, #4b5563);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover, #f4f6f9);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-link, #1d4ed8);
+    outline-offset: 1px;
+  }
+}
+
+.settingsNavItemActive {
+  background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  color: var(--ep-accent-text, #8a6400);
+
+  &:hover {
+    background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  }
+}
+
+.settingsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+// Màn hẹp: tên nhóm nằm trên các mục.
+@media (max-width: 720px) {
+  .settingsNavGroup {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
 // --- Dòng thời gian ----------------------------------------------------------
 
 .timeline {
