@@ -20,6 +20,18 @@ Brand Studio (web) ──/api/platform/v1/brand──> nginx ──> apps/api �
 
 - Server là nơi duy nhất dựng SVG: client chỉ gửi mô hình `IconDocument`, server chuẩn hoá (`normalizeDocument`) rồi
   gọi `generateSvg`. Không có đường nhận SVG thô.
+- Một lớp hình có thể có `mask`: mặt nạ độ sáng gồm các hình trắng (hiện) và đen (khoét), nằm ngay trong lớp ở `spec.json`
+  (màu chỉ là `none`, hex hoặc dải màu toàn hex để làm mặt nạ mờ dần, không lồng mặt nạ). `generateSvg` xuất `<mask>` trong `<defs>`
+  và gắn `mask="url(#…)"` vào lớp; mã mặt nạ suy từ nội dung nên ổn định giữa các lần dựng. Không cần đổi bảng hay khoá object.
+- Màu chuyển sắc nằm ngay trong chuỗi `Paint` (không đổi schema): `linear:<góc>[,t0,t1[,trải]]:<điểm màu>` và
+  `radial:<cx>,<cy>,<r>,<fx>,<fy>,<m0..m5>[,trải]:<điểm màu>`, điểm màu `<màu>@<vị trí>[~<độ đặc>]`. Dải tuyến tính có hướng
+  tuỳ ý nhờ `t0`/`t1`; dải hướng tâm ghi cả ma trận đưa về toạ độ lưới nên giữ được dải bị nghiêng hay elip hoá. Lớp có thể có
+  thêm `strokeDasharray`, `strokeDashoffset`, `strokeMiterlimit`. Giới hạn dữ liệu: 500 lớp mỗi icon, 512 đường con và 40000
+  điểm neo mỗi lớp, 64 hình mỗi mặt nạ, 32 điểm màu mỗi dải, toạ độ trong ±100000.
+- Bộ nhập SVG (`importSvg`, chạy ở trình duyệt) cố gắng khớp từng điểm ảnh với SVG gốc: CSS trong `<style>`, `use`/`symbol`/`svg`
+  lồng nhau, `viewBox` + `preserveAspectRatio`, mọi đơn vị độ dài, màu có độ đặc, gradient bất kỳ, `clipPath`, `mask`, nét đứt, thứ
+  tự vẽ nét/tô. Những gì không biểu diễn được (chữ, ảnh nhúng, bộ lọc, pattern, marker, hoà trộn, hoạt hình, nét không co giãn,
+  nét co giãn lệch trục) được báo trong `warnings` chứ không bỏ lặng lẽ.
 - Dùng lại `S3ObjectStorage` và các biến `S3_*` như các phân hệ. Adapter được thêm cổng đọc `ObjectStorageReadPort`
   (`getObject`, có giới hạn `maxBytes`) cùng `ObjectNotFoundError`, `ObjectTooLargeError`.
 
