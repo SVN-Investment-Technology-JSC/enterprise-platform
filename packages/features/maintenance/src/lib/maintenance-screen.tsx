@@ -180,6 +180,15 @@ export function MaintenanceScreen() {
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
   const [error, setError] = useState<string>();
+  // Lỗi của thao tác ở màn trước không còn ý nghĩa sau khi chuyển màn (hộp thoại ngoài banner tự hiện lỗi của riêng nó).
+  useEffect(() => {
+    setError(undefined);
+  }, [view]);
+  // Banner lỗi nằm đầu vùng cuộn: lỗi do nút ở giữa trang (đóng phiếu, thử lại) sẽ nằm ngoài tầm nhìn nếu không cuộn tới.
+  useEffect(() => {
+    if (!error) return;
+    document.querySelector('[role="alert"]')?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -509,6 +518,8 @@ export function MaintenanceScreen() {
   /** Thử lại phiếu báo lỗi gửi Quy trình; `onDone` cho từng nơi gọi tự cập nhật phần của mình. */
   const retryDispatch = async (id: string) => {
     setBusy(true);
+    // Xoá lỗi cũ trước: cùng một lỗi lặp lại phải đổi state thì banner mới cuộn lại vào tầm nhìn.
+    setError(undefined);
     try {
       const saved = await retryMaintenanceDispatch(id);
       setSelectedOccurrence((current) => (current?.id === id ? saved : current));
@@ -592,11 +603,11 @@ export function MaintenanceScreen() {
     JSON.stringify(freqDraft) !== JSON.stringify(settings?.['catalog.frequency'].value);
 
   /**
-   * Thẻ Tổng quan đang hiển thị: lựa chọn của người dùng; chưa có thì dùng cấu hình tenant cũ (nếu admin từng đặt),
-   * không thì null để lưới rơi về thẻ mặc định.
+   * Thẻ Tổng quan đang hiển thị: lựa chọn của người dùng; chưa tuỳ chỉnh (null) thì lưới dùng thẻ mặc định của catalog.
+   * Cấu hình `dashboard.cards` cũ của tenant không còn được đọc: màn chỉnh của admin đã bỏ, và các id trong đó có thể
+   * đã không còn trong catalog (cũ bị gỡ), nên giữ lại chỉ làm Tổng quan thiếu thẻ.
    */
-  const tenantCards = settings?.['dashboard.cards'].value.cardIds ?? [];
-  const effectiveCards: readonly string[] | null = myCards ?? (tenantCards.length > 0 ? tenantCards : null);
+  const effectiveCards: readonly string[] | null = myCards ?? null;
   /** Danh sách tích sẵn trong bảng Tuỳ chỉnh: đúng những thẻ đang hiện, kể cả khi đó là mặc định. */
   const dashboardSelection = useMemo(
     () => pickDashboardCards(effectiveCards).map((card) => card.id),
@@ -698,6 +709,7 @@ export function MaintenanceScreen() {
     },
     retryDispatch,
     completeOccurrence: async (id, note) => {
+      setError(undefined);
       try {
         await completeMaintenanceOccurrence(id, note);
         setError(undefined);
