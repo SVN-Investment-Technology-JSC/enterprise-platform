@@ -126,9 +126,12 @@ export class PostgresNotificationScheduler {
         validateCandidate(candidate);
         const eventId = this.nextId();
         const claimed = await client.query<{ event_id: string }>(
+          // Người nhận không còn trong core_schema.users (đã xoá, hoặc id mồ côi ở phân hệ nguồn) thì bỏ qua lịch này,
+          // không để khoá ngoại làm hỏng cả lượt quét của tenant.
           `INSERT INTO notification_schema.schedule_emissions
              (schedule_key, user_id, scheduled_for, event_id)
-           VALUES ($1, $2, $3, $4)
+           SELECT $1::varchar, $2::uuid, $3::timestamptz, $4::uuid
+            WHERE EXISTS (SELECT 1 FROM core_schema.users WHERE id = $2::uuid)
            ON CONFLICT (schedule_key, user_id, scheduled_for) DO NOTHING
            RETURNING event_id`,
           [
