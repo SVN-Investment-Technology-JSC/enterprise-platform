@@ -523,8 +523,14 @@ export function MaintenanceScreen() {
     try {
       const saved = await retryMaintenanceDispatch(id);
       setSelectedOccurrence((current) => (current?.id === id ? saved : current));
-      setError(undefined);
       await Promise.all([reload(), loadHistory(historyFilter)]);
+      // Đặt sau khi nạp lại (reload xoá lỗi). Gửi lại mà Quy trình vẫn từ chối thì nói rõ lý do, nếu không bấm xong
+      // trông như không có chuyện gì xảy ra.
+      setError(
+        saved.status === 'failed'
+          ? `Vẫn chưa tạo được phiếu bên Quy trình. ${saved.failureReason ?? ''}`.trim()
+          : undefined,
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không gửi lại được phiếu.');
       throw cause;

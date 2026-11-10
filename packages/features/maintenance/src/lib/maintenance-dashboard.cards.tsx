@@ -218,6 +218,11 @@ function OccurrenceList(props: {
                 {item.code ?? item.assetCode}
                 {item.code ? ` · ${item.assetCode}` : ''}
               </small>
+              {item.status === 'failed' && item.failureReason ? (
+                <small className="truncate text-xs text-red-700" title={item.failureReason}>
+                  {item.failureReason}
+                </small>
+              ) : null}
             </button>
             <small
               className={cn(

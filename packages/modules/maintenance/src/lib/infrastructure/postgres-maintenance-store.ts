@@ -645,7 +645,12 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         // 5xx, 429 và 408 là lỗi tạm thời: giữ phiếu ở 'dispatch_pending' cho reconcile gửi lại. 4xx khác là lỗi
         // dữ liệu (quy trình không hợp lệ...), thử lại cũng vô ích nên báo lỗi ngay.
         const transient = response.status >= 500 || response.status === 429 || response.status === 408;
-        await this.markDispatchFailed(pool, tenantId, target.occurrenceId, `Procedure API trả về ${response.status}.`, {
+        // Kèm lời nhắn của Quy trình (nếu có) để người xem biết vì sao, thay vì chỉ một mã số.
+        const detail = await response
+          .json()
+          .then((body) => (typeof (body as { message?: unknown })?.message === 'string' ? (body as { message: string }).message : ''))
+          .catch(() => '');
+        await this.markDispatchFailed(pool, tenantId, target.occurrenceId, `Procedure API trả về ${response.status}${detail ? `: ${detail}` : '.'}`, {
           retryable: transient,
           attempts,
         });
