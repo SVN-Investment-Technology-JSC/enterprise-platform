@@ -1,4 +1,5 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import type { UniversalTaskDto } from '@enterprise-platform/contracts-task-approval';
 import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
 import { Building2, ClipboardCheck, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
@@ -177,7 +178,8 @@ export default async function TenantPortalPage() {
   const has = (key: string) => modules.some((item) => item.key === key);
   const inventoryApi =
     process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336';
-  const [users, procedure, maintenance, warehouses, materials, workspace] =
+  const hrmApi = process.env.HRM_API_BASE_URL ?? 'http://localhost:3339';
+  const [users, procedure, maintenance, warehouses, materials, workspace, hrmTasksRes] =
     await Promise.all([
       manager
         ? read<UserPayload>(`${api}/api/platform/v1/tenant-users`, cookie)
@@ -209,7 +211,15 @@ export default async function TenantPortalPage() {
           cookie,
         )
         : Promise.resolve(undefined),
+      has('hrm')
+        ? read<{ data: UniversalTaskDto[]; total: number }>(
+          `${hrmApi}/api/hrm/v1/tasks/pending?limit=${GROUP_ROWS}`,
+          cookie,
+        )
+        : Promise.resolve(undefined),
     ]);
+  const hrmTasks = hrmTasksRes?.data ?? [];
+  const hrmTasksTotal = hrmTasksRes?.total ?? hrmTasks.length;
   const stocks = warehouses
     ? await Promise.all(
       warehouses.map((warehouse) =>
@@ -327,6 +337,9 @@ export default async function TenantPortalPage() {
   const workClauses: ReactNode[] = [
     ...(procedure
       ? [<><Strong>{actionable.length} hồ sơ</Strong> quy trình chờ bạn thao tác</>]
+      : []),
+    ...(hrmTasksTotal > 0
+      ? [<><Strong>{hrmTasksTotal} đơn từ</Strong> Nhân sự chờ bạn duyệt</>]
       : []),
     ...(workspace
       ? [<><Strong>{workToDo.length} công việc</Strong> cần xử lý</>]
@@ -460,14 +473,55 @@ export default async function TenantPortalPage() {
       </section>
 
       {has('hrm') ? (
-        <ModuleLinkCard
-          href="/modules/hrm/approvals"
-          icon={<ClipboardCheck className="size-4" />}
+        <CollapsibleGroup
+          title="Đơn từ cần bạn duyệt"
+          count={hrmTasksTotal}
           tone="bg-emerald-100 text-emerald-700"
-          title="Đơn từ cần xử lý"
-          hint="Duyệt, từ chối và trao đổi đơn nghỉ phép, tăng ca, công tác, giải trình công… trong module Nhân sự."
-          action="Mở Đơn từ cần xử lý"
-        />
+          icon={<ClipboardCheck className="size-4" />}
+        >
+          {hrmTasks.length > 0 ? (
+            <GroupTable
+              columns="22px minmax(220px,1.2fr) minmax(160px,1fr) 110px 100px"
+              headings={['TIÊU ĐỀ ĐƠN', 'NGƯỜI NỘP', 'NGÀY NỘP', 'TRẠNG THÁI']}
+              footer={
+                <a href="/modules/hrm/approvals" className="font-semibold text-blue-700 hover:text-blue-800">
+                  {hrmTasksTotal > hrmTasks.length
+                    ? `Xem đủ ${hrmTasksTotal} đơn trong Nhân sự`
+                    : 'Mở Đơn từ cần xử lý trong Nhân sự'}
+                </a>
+              }
+            >
+              {hrmTasks.map((task) => (
+                <GroupRow
+                  key={task.taskId}
+                  columns="22px minmax(220px,1.2fr) minmax(160px,1fr) 110px 100px"
+                  href={`/modules/hrm/approvals?request=${encodeURIComponent(task.entityId)}`}
+                >
+                  <Dot
+                    className={
+                      task.priority === 'URGENT'
+                        ? 'bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,.12)]'
+                        : task.priority === 'HIGH'
+                          ? 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]'
+                          : 'bg-emerald-500'
+                    }
+                  />
+                  <Cell strong title={task.title}>{task.title}{task.code ? ` · ${task.code}` : ''}</Cell>
+                  <Cell small title={task.requester?.fullName}>
+                    {task.requester?.fullName ?? '—'}
+                    {task.createdOnBehalf ? ' (tạo hộ)' : ''}
+                  </Cell>
+                  <Cell muted>{formatTaskDate(task.createdAt)}</Cell>
+                  <span>
+                    <Pill className="bg-emerald-50 text-emerald-700">Chờ duyệt</Pill>
+                  </span>
+                </GroupRow>
+              ))}
+            </GroupTable>
+          ) : (
+            <Empty>Không có đơn từ nào chờ bạn duyệt.</Empty>
+          )}
+        </CollapsibleGroup>
       ) : null}
 
       {procedure ? (
@@ -746,42 +800,16 @@ export default async function TenantPortalPage() {
   );
 }
 
-/** Lối tắt sang một module khi việc cần xử lý nằm ở đó (Bảng điều khiển không xử lý trực tiếp). */
-function ModuleLinkCard({
-  href,
-  icon,
-  tone,
-  title,
-  hint,
-  action,
-}: {
-  href: string;
-  icon: ReactNode;
-  tone: string;
-  title: string;
-  hint: string;
-  action: string;
-}) {
-  return (
-    <section
-      aria-label={title}
-      className="flex flex-wrap items-center gap-3 overflow-hidden rounded-[14px] border border-[#eef0f3] bg-white px-5 py-3.5"
-    >
-      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1 basis-64">
-        <h2 className="m-0 text-[14px] font-semibold text-[#18181b]">{title}</h2>
-        <p className="m-0 text-[13px] text-slate-500">{hint}</p>
-      </div>
-      <Link
-        href={href}
-        className="shrink-0 rounded-lg border border-[#eef0f3] bg-[#fafbfc] px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-white hover:text-blue-800"
-      >
-        {action}
-      </Link>
-    </section>
-  );
+const TASK_DATE = new Intl.DateTimeFormat('vi-VN', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: 'Asia/Ho_Chi_Minh',
+});
+
+function formatTaskDate(value?: string): string {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? TASK_DATE.format(date) : '—';
 }
 
 function Strong({ children }: { children: ReactNode }) {
