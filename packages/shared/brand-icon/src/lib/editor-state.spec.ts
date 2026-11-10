@@ -18,6 +18,7 @@ import {
   type RectGeometry,
 } from './model';
 import { parsePathData } from './path-data';
+import { LIMITS } from './validate';
 
 /** Hình chữ nhật chỉ tô (không nét) với mã cố định để dễ viết kỳ vọng. */
 const box = (id: string, x: number, y: number, width = 4, height = 4, overrides: Partial<IconShape> = {}): IconShape => ({
@@ -666,41 +667,42 @@ describe('chuyển sang đường, gộp, tách', () => {
 describe('giới hạn của thư viện (nếu vượt, icon bị từ chối khi nạp lại)', () => {
   const many = (count: number) => Array.from({ length: count }, (_, index) => box(`s${index}`, index % 20, 0, 1, 1));
 
-  it('addShapes chỉ nhận phần còn chỗ trong 200 lớp, hết chỗ thì không đổi', () => {
-    const state = start(many(198));
+  it('addShapes chỉ nhận phần còn chỗ trong giới hạn số lớp, hết chỗ thì không đổi', () => {
+    const state = start(many(LIMITS.maxShapes - 2));
     const next = run(state, { type: 'addShapes', shapes: [box('n1', 0, 0), box('n2', 1, 0), box('n3', 2, 0), box('n4', 3, 0), box('n5', 4, 0)] });
-    expect(next.doc.shapes).toHaveLength(200);
+    expect(next.doc.shapes).toHaveLength(LIMITS.maxShapes);
     expect(next.selection).toEqual(['n1', 'n2']);
     expect(run(next, { type: 'addShapes', shapes: [box('n6', 0, 0)] })).toBe(next);
   });
 
   it('duplicate chỉ nhân đôi phần còn chỗ', () => {
-    const state = start(many(199));
+    const state = start(many(LIMITS.maxShapes - 1));
     const next = run(state, { type: 'duplicate', ids: ['s0', 's1', 's2'] });
-    expect(next.doc.shapes).toHaveLength(200);
+    expect(next.doc.shapes).toHaveLength(LIMITS.maxShapes);
     expect(next.selection).toHaveLength(1);
     expect(run(next, { type: 'duplicate', ids: ['s0'] })).toBe(next);
   });
 
-  it('combine không gộp khi đường gộp vượt 64 đường con', () => {
-    const over = start(many(65));
+  it('combine không gộp khi đường gộp vượt giới hạn số đường con', () => {
+    const over = start(many(LIMITS.maxSubpaths + 1));
     expect(run(over, { type: 'combine', ids: over.doc.shapes.map((shape) => shape.id) })).toBe(over);
-    const ok = start(many(64));
+    const ok = start(many(LIMITS.maxSubpaths));
     const merged = run(ok, { type: 'combine', ids: ok.doc.shapes.map((shape) => shape.id) });
     expect(merged.doc.shapes).toHaveLength(1);
-    expect((merged.doc.shapes[0].geometry as PathGeometry).subpaths).toHaveLength(64);
+    expect((merged.doc.shapes[0].geometry as PathGeometry).subpaths).toHaveLength(LIMITS.maxSubpaths);
   });
 
-  it('combine không gộp khi tổng số điểm neo vượt 2000', () => {
-    const big = (id: string) => ({ ...createShape({ type: 'path', subpaths: [{ closed: false, nodes: Array.from({ length: 1001 }, (_, index) => ({ x: index % 24, y: 1 })) }] }), id });
+  it('combine không gộp khi tổng số điểm neo vượt giới hạn', () => {
+    const half = LIMITS.maxNodes / 2 + 1;
+    const big = (id: string) => ({ ...createShape({ type: 'path', subpaths: [{ closed: false, nodes: Array.from({ length: half }, (_, index) => ({ x: index % 24, y: 1 })) }] }), id });
     const state = start([big('a'), big('b')]);
     expect(run(state, { type: 'combine', ids: ['a', 'b'] })).toBe(state);
   });
 
-  it('separate không tách khi tổng số lớp sẽ vượt 200', () => {
+  it('separate không tách khi tổng số lớp sẽ vượt giới hạn', () => {
     const subpaths = Array.from({ length: 64 }, (_, index) => ({ closed: false, nodes: [{ x: index % 24, y: 0 }, { x: index % 24, y: 5 }] }));
     const multi: IconShape = { ...createShape({ type: 'path', subpaths }), id: 'multi' };
-    const state = start([...many(150), multi]);
+    const state = start([...many(LIMITS.maxShapes - 50), multi]);
     expect(run(state, { type: 'separate', ids: ['multi'] })).toBe(state);
     const roomy = start([...many(100), multi]);
     expect(run(roomy, { type: 'separate', ids: ['multi'] }).doc.shapes).toHaveLength(100 + 64);

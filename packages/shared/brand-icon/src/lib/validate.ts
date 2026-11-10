@@ -12,18 +12,23 @@ import {
   type LineJoin,
   type PathNode,
   type Point,
+  type ShapeMask,
   type Subpath,
 } from './model';
-import { isGradientPaint, normalizeGradientPaint } from './gradient';
+import { isGradientPaint, normalizeGradientPaint, parseGradient } from './gradient';
 import { HEX_PATTERN, normalizeHex } from './palette';
 
 export const LIMITS = {
-  maxShapes: 200,
-  maxSubpaths: 64,
-  maxNodes: 2000,
+  maxShapes: 500,
+  maxSubpaths: 512,
+  /** Số hình tối đa trong mặt nạ của một lớp. */
+  maxMaskLayers: 64,
+  maxNodes: 40000,
   maxIcons: 500,
   maxTags: 12,
-  coordinate: 1000,
+  coordinate: 100000,
+  /** Số phần tử tối đa của dãy nét đứt. */
+  maxDashes: 16,
 } as const;
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -51,6 +56,28 @@ function normalizePaintValue(value: unknown, fallback: string): string {
   if (HEX_PATTERN.test(value)) return normalizeHex(value) ?? fallback;
   if (isGradientPaint(value)) return normalizeGradientPaint(value) ?? fallback;
   return fallback;
+}
+
+/**
+ * Màu trong mặt nạ là dữ liệu độ sáng: chỉ nhận `none`, hex thật hoặc dải màu toàn hex (mặt nạ mờ dần); mọi giá trị khác
+ * (kể cả currentColor) coi như đen.
+ */
+function normalizeMaskPaint(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  if (value === 'none') return 'none';
+  if (isGradientPaint(value)) {
+    const gradient = parseGradient(value);
+    return gradient && gradient.stops.every((stop) => stop.color.startsWith('#')) ? (normalizeGradientPaint(value) ?? fallback) : fallback;
+  }
+  return normalizeHex(value) ?? (value === 'currentColor' ? '#000000' : fallback);
+}
+
+/** Dãy nét đứt hợp lệ: số hữu hạn không âm, có ít nhất một số dương; không thì `undefined` (nét liền). */
+function normalizeDashes(value: unknown): readonly number[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > LIMITS.maxDashes) return undefined;
+  const dashes = value.map((item) => (typeof item === 'number' && Number.isFinite(item) && item >= 0 ? Math.min(item, 1000) : null));
+  if (dashes.some((item) => item === null) || !dashes.some((item) => (item ?? 0) > 0)) return undefined;
+  return dashes as number[];
 }
 
 function normalizePoint(value: unknown): Point | null | undefined {
@@ -113,27 +140,57 @@ function normalizeGeometry(value: unknown): Geometry | null {
   return null;
 }
 
+/** Mặt nạ hợp lệ có ít nhất một hình; hình hỏng bị bỏ, mặt nạ quá lớn bị cắt. Không hợp lệ thì `undefined` (lớp giữ lại, bỏ mặt nạ). */
+function normalizeMask(value: unknown): ShapeMask | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const list = (value as { layers?: unknown }).layers;
+  if (!Array.isArray(list)) return undefined;
+  const layers: IconShape[] = [];
+  for (const item of list.slice(0, LIMITS.maxMaskLayers)) {
+    const layer = normalizeShapeWith(item, true);
+    if (layer) layers.push(layer);
+  }
+  return layers.length > 0 ? { layers } : undefined;
+}
+
 export function normalizeShape(value: unknown): IconShape | null {
+  return normalizeShapeWith(value, false);
+}
+
+/** Chuẩn hoá một hình nằm trong mặt nạ: màu chỉ là `none` hoặc hex, không có mặt nạ lồng. */
+export function normalizeMaskLayer(value: unknown): IconShape | null {
+  return normalizeShapeWith(value, true);
+}
+
+function normalizeShapeWith(value: unknown, inMask: boolean): IconShape | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
   const geometry = normalizeGeometry(raw.geometry);
   if (!geometry) return null;
   const caps: readonly LineCap[] = ['round', 'butt', 'square'];
   const joins: readonly LineJoin[] = ['round', 'miter', 'bevel'];
+  const mask = inMask ? undefined : normalizeMask(raw.mask);
+  const dashes = normalizeDashes(raw.strokeDasharray);
+  const dashOffset = dashes ? pick(raw.strokeDashoffset, -1000, 1000, 0) : 0;
+  const miter = pick(raw.strokeMiterlimit, 1, 100, 4);
   return {
     id: typeof raw.id === 'string' && ID_PATTERN.test(raw.id) ? raw.id : newId('shape'),
     name: text(raw.name, 40) || 'Hình',
     geometry,
-    fill: normalizePaintValue(raw.fill, 'none'),
+    fill: inMask ? normalizeMaskPaint(raw.fill, 'none') : normalizePaintValue(raw.fill, 'none'),
     fillOpacity: pick(raw.fillOpacity, 0, 1, 1),
-    stroke: normalizePaintValue(raw.stroke, 'currentColor'),
-    strokeWidth: pick(raw.strokeWidth, 0.25, 6, 1.75),
+    stroke: inMask ? normalizeMaskPaint(raw.stroke, 'none') : normalizePaintValue(raw.stroke, 'currentColor'),
+    strokeWidth: pick(raw.strokeWidth, 0.01, 100, 1.75),
     opacity: pick(raw.opacity, 0, 1, 1),
     linecap: caps.includes(raw.linecap as LineCap) ? (raw.linecap as LineCap) : 'round',
     linejoin: joins.includes(raw.linejoin as LineJoin) ? (raw.linejoin as LineJoin) : 'round',
+    ...(dashes ? { strokeDasharray: dashes } : {}),
+    ...(dashes && dashOffset !== 0 ? { strokeDashoffset: dashOffset } : {}),
+    ...(miter !== 4 ? { strokeMiterlimit: miter } : {}),
     fillRule: raw.fillRule === 'evenodd' ? 'evenodd' : 'nonzero',
-    hidden: raw.hidden === true,
-    locked: raw.locked === true,
+    hidden: inMask ? false : raw.hidden === true,
+    locked: inMask ? false : raw.locked === true,
+    ...(mask ? { mask } : {}),
   };
 }
 

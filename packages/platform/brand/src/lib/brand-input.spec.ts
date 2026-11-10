@@ -95,7 +95,7 @@ describe('parseDocument', () => {
       ],
     });
     expect(document.shapes[0]).toMatchObject({
-      strokeWidth: 6,
+      strokeWidth: 100,
       opacity: 1,
       stroke: 'currentColor',
       fill: 'none',
