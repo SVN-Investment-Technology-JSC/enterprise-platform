@@ -44,6 +44,7 @@ import {
   FeesEditor,
   FollowersPanel,
   GeneralFields,
+  TemplatePicker,
   LinksPanel,
   OrderAmountField,
   useQuoteFormLookups,
@@ -328,6 +329,12 @@ export function QuoteEditor({
     }
   }
 
+  /** Mở chiết khấu tổng đơn; vừa đổi mẫu (chưa lưu) thì lưu trước để hộp dùng đúng chế độ của mẫu mới. */
+  async function openOrderDiscount() {
+    const current = await saveGeneral();
+    if (current) setEditingHeader('orderDiscount');
+  }
+
   /** Trình duyệt hoặc gửi khách; có thay đổi chưa lưu thì lưu trước, lưu lỗi thì dừng (plan 9.4). */
   async function saveThen(action: 'submit' | 'send') {
     const current = await saveGeneral();
@@ -384,6 +391,8 @@ export function QuoteEditor({
   const form = version.form;
   const approvalHistory = detail.history.filter((entry) => ['submit', 'approve', 'reject'].includes(entry.action));
   const selectedTemplate = lookups.templates.find((item) => item.id === shownGeneral.templateId);
+  /** Chế độ chiết khấu theo mẫu đang chọn trên màn; mẫu không còn trong danh sách thì theo bản đã lưu. */
+  const shownDiscountMode = selectedTemplate?.discountMode ?? version.form.discountMode;
   const toolbarActions = actions.filter((action) => action !== 'submit' && action !== 'send');
 
   const header = (
@@ -500,6 +509,7 @@ export function QuoteEditor({
               codeEditable
               generateCode={false}
               nameError={generalError}
+              showTemplate={false}
             />
             <div className={styles.toolbar}>
               <button type="button" className={styles.buttonGhost} disabled={busy} onClick={() => setEditingHeader('all')}>
@@ -591,25 +601,28 @@ export function QuoteEditor({
         busy={busy}
         emptyText={editable ? 'Chưa có dòng nào. Bấm + để chọn mặt hàng từ danh mục Kho.' : 'Không có dòng nào.'}
         discount={{
-          enabled: form.discountMode === 'ORDER',
+          // Theo mẫu đang chọn trên màn (đổi mẫu chưa lưu cũng tính): bấm khi còn thay đổi thì lưu trước rồi mới mở.
+          enabled: shownDiscountMode === 'ORDER',
           hint:
-            form.discountMode === 'ORDER'
+            shownDiscountMode === 'ORDER'
               ? 'Nhập chiết khấu một lần cho cả báo giá.'
               : 'Mẫu báo giá này tính chiết khấu theo dòng; chọn mẫu tính theo tổng đơn để nhập chiết khấu tổng đơn.',
-          onOpen: () => setEditingHeader('orderDiscount'),
+          onOpen: () => void openOrderDiscount(),
         }}
         onAdd={(search) => setPicking({ search })}
         onInsert={(line) => setPicking({ search: '', beforeLineNo: line.lineNo })}
         onEdit={setEditingLine}
         onView={setViewingLine}
         onRemove={(row) => run(() => removeQuoteLine(detail.id, version.versionNo, row.id, version.revision), 'Đã bỏ dòng.')}
+        note={
+          form.discountMode === 'ORDER' || form.taxMode === 'ORDER' ? (
+            <p className={styles.muted}>
+              Mẫu {form.templateName ?? ''}: {form.discountMode === 'ORDER' ? 'chiết khấu tính theo tổng đơn' : 'chiết khấu tính theo dòng'},{' '}
+              {form.taxMode === 'ORDER' ? 'thuế tính theo tổng đơn' : 'thuế tính theo dòng'}.
+            </p>
+          ) : undefined
+        }
       >
-        {form.discountMode === 'ORDER' || form.taxMode === 'ORDER' ? (
-          <p className={styles.muted}>
-            Mẫu {form.templateName ?? ''}: {form.discountMode === 'ORDER' ? 'chiết khấu tính theo tổng đơn' : 'chiết khấu tính theo dòng'},{' '}
-            {form.taxMode === 'ORDER' ? 'thuế tính theo tổng đơn' : 'thuế tính theo dòng'}.
-          </p>
-        ) : null}
         <dl className={local.totals}>
           <dt>Tiền hàng theo giá gốc</dt>
           <dd>{formatMoney(totals.grossAmount)}</dd>
@@ -772,6 +785,18 @@ export function QuoteEditor({
             templateId={shownGeneral.templateId || null}
             templateName={selectedTemplate?.name ?? form.templateName}
             templateHasLayout={selectedTemplate?.hasLayout}
+            templatePicker={
+              editable ? (
+                <TemplatePicker
+                  templates={lookups.templates}
+                  value={shownGeneral.templateId}
+                  onChange={(templateId) => {
+                    setDraft({ ...shownGeneral, templateId });
+                    setGeneralError(undefined);
+                  }}
+                />
+              ) : undefined
+            }
             data={previewData ?? emptyQuoteLayoutData()}
             fileName={quoteExportFileName(detail.code, version.versionNo)}
           />

@@ -75,14 +75,26 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     expect(lineMenuItems(false)).toEqual(['view']);
   });
 
-  it('TC-QW-11: ô tìm và nút + mở chọn mặt hàng với chữ đang gõ; Enter ở ô tìm cũng mở', () => {
+  it('TC-QW-11: không có ô tìm riêng; nút + (màu xanh) mở chọn mặt hàng, tìm trong hộp chọn', () => {
     const { onAdd } = setup();
-    fireEvent.change(screen.getByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ'), { target: { value: ' máy bơm ' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Thêm dòng hàng' }));
-    expect(onAdd).toHaveBeenLastCalledWith('máy bơm');
-    fireEvent.change(screen.getByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ'), { target: { value: 'van' } });
-    fireEvent.keyDown(screen.getByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ'), { key: 'Enter' });
-    expect(onAdd).toHaveBeenLastCalledWith('van');
+    expect(screen.queryByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ')).toBeNull();
+    const add = screen.getByRole('button', { name: 'Thêm dòng hàng' });
+    expect(add.className).toContain('buttonPrimary');
+    fireEvent.click(add);
+    expect(onAdd).toHaveBeenLastCalledWith('');
+  });
+
+  it('ghi chú cách tính của mẫu nằm trên bảng, tổng tiền (children) nằm dưới', () => {
+    render(
+      <QuoteLinesTable title="Dòng hàng" lines={lines} editable onAdd={jest.fn()} onInsert={jest.fn()} onEdit={jest.fn()} onView={jest.fn()} onRemove={jest.fn()} note={<p>GHI CHÚ MẪU</p>}>
+        <p>TỔNG TIỀN</p>
+      </QuoteLinesTable>,
+    );
+    const table = screen.getByRole('table');
+    const note = screen.getByText('GHI CHÚ MẪU');
+    const totals = screen.getByText('TỔNG TIỀN');
+    expect(note.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(table.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('TC-QW-12: bấm đúp dòng 2 mở sửa đúng dòng 2', () => {
@@ -153,12 +165,11 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     expect(screen.getByRole('dialog', { name: 'Xoá dòng 3?' })).toBeTruthy();
   });
 
-  it('TC-QW-18: không còn Nháp thì chỉ xem: menu chỉ có Xem, bấm đúp mở chỉ đọc, không có ô tìm, nút +, Chiết khấu', () => {
+  it('TC-QW-18: không còn Nháp thì chỉ xem: menu chỉ có Xem, bấm đúp mở chỉ đọc, không có nút +, Sửa % chiết khấu', () => {
     const discount = { enabled: true, hint: 'x', onOpen: jest.fn() };
     const { onView, onEdit, onRemove } = setup({ editable: false, discount });
     expect(screen.queryByRole('button', { name: 'Thêm dòng hàng' })).toBeNull();
-    expect(screen.queryByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ')).toBeNull();
-    expect(screen.queryByRole('button', { name: /Chiết khấu/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /chiết khấu/i })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Sửa' })).toBeNull();
 
     fireEvent.contextMenu(row(1));
@@ -189,13 +200,13 @@ describe('QuoteLinesTable (P3C4-04)', () => {
         onRemove={jest.fn()}
       />,
     );
-    const off = screen.getByRole('button', { name: /Chiết khấu/ }) as HTMLButtonElement;
+    const off = screen.getByRole('button', { name: 'Sửa % chiết khấu' }) as HTMLButtonElement;
     expect(off.disabled).toBe(true);
     expect(screen.getByText('Mẫu báo giá này tính chiết khấu theo dòng.')).toBeTruthy();
     unmount();
 
     setup({ discount: { enabled: true, hint: 'Nhập chiết khấu một lần cho cả báo giá.', onOpen } });
-    fireEvent.click(screen.getByRole('button', { name: /Chiết khấu/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sửa % chiết khấu' }));
     expect(onOpen).toHaveBeenCalled();
   });
 
@@ -211,7 +222,7 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     const { onAdd } = setup({ busy: true });
     const add = screen.getByRole('button', { name: 'Thêm dòng hàng' }) as HTMLButtonElement;
     expect(add.disabled).toBe(true);
-    fireEvent.keyDown(screen.getByLabelText('Tìm sản phẩm, hàng hoá, dịch vụ'), { key: 'Enter' });
+    fireEvent.click(add);
     expect(onAdd).not.toHaveBeenCalled();
   });
 

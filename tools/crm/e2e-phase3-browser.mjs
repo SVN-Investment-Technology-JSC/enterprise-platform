@@ -207,6 +207,8 @@ const optionTexts = async (page) => page.locator('[role="listbox"] [role="option
 const previewPane = (page) => page.locator('section[aria-label="Xem trước báo giá"]');
 const previewSheet = (page) => previewPane(page).locator('[data-paper]').first();
 const previewText = async (page) => (await previewPane(page).innerText().catch(() => '')) ?? '';
+/** Ô chọn mẫu ở đầu khung xem trước (cạnh nút Xuất). */
+const templateInput = (page) => fieldInput(previewPane(page), 'Mẫu');
 const previewLineRows = (page) => previewPane(page).locator('[data-block-type="lineTable"] tbody tr');
 const actionBar = (page) => page.locator('[role="toolbar"][aria-label="Thao tác báo giá"]');
 const linesSection = (page) => page.locator('section[aria-label="Dòng báo giá"]');
@@ -875,7 +877,7 @@ async function runQuoteScreen() {
         await openQuote(page, Q['Q-OFFUSE'].id);
         check(tc, (await previewText(page)).includes(M_OFF_TITLE), 'Báo giá cũ dùng M-OFF vẫn xem trước được bằng bố cục của M-OFF');
         await openQuote(page, Q['Q-DRAFT'].id);
-        await fieldInput(page.locator('[data-testid="quote-workspace-left"]'), 'Mẫu báo giá').click();
+        await templateInput(page).click();
         const options = await optionTexts(page);
         await page.keyboard.press('Escape');
         check(tc, options.length > 0 && !options.some((o) => o.includes(P3_TEMPLATES['M-OFF'].name)), 'Ô "Mẫu báo giá" của NV1 không có M-OFF', options.join(' | ').slice(0, 160));
@@ -887,21 +889,20 @@ async function runQuoteScreen() {
         const tc = 'TC-QW-09';
         const quote = await newQuote('QW-09 đổi mẫu', T['M-A4'].id);
         await openQuote(page, quote.id);
-        const left = page.locator('[data-testid="quote-workspace-left"]');
         const totalBefore = (await nv1.get(quoteUrl(quote.id))).version.totals.totalAmount;
-        await chooseOption(page, fieldInput(left, 'Mẫu báo giá'), P3_TEMPLATES['M-A3'].name);
+        await chooseOption(page, templateInput(page), P3_TEMPLATES['M-A3'].name);
         await page.waitForTimeout(800);
         check(tc, (await previewSheet(page).getAttribute('data-paper')) === 'A3' && (await previewSheet(page).getAttribute('data-orientation')) === 'landscape', 'Đổi sang M-A3 chưa lưu: xem trước đổi ngay sang A3 ngang');
         await actionBar(page).getByRole('button', { name: 'Huỷ', exact: true }).click();
         await page.getByRole('dialog', { name: 'Bỏ các thay đổi chưa lưu?' }).getByRole('button', { name: 'Bỏ thay đổi' }).click();
         await page.waitForTimeout(800);
         check(tc, (await previewSheet(page).getAttribute('data-paper')) === 'A4', 'Huỷ: về M-A4');
-        await chooseOption(page, fieldInput(left, 'Mẫu báo giá'), P3_TEMPLATES['M-A3'].name);
+        await chooseOption(page, templateInput(page), P3_TEMPLATES['M-A3'].name);
         await actionBar(page).getByRole('button', { name: 'Lưu', exact: true }).click();
         await toast(page, 'Đã lưu báo giá.');
         await page.waitForTimeout(800);
         const saved = await nv1.get(quoteUrl(quote.id));
-        const discount = linesSection(page).getByRole('button', { name: /Chiết khấu/ });
+        const discount = linesSection(page).getByRole('button', { name: 'Sửa % chiết khấu' });
         check(tc, saved.version.form.discountMode === 'ORDER' && saved.version.form.templateId === T['M-A3'].id && (await discount.isEnabled()), 'Lưu: báo giá theo tổng đơn, nút Chiết khấu bật', `tổng ${totalBefore} -> ${saved.version.totals.totalAmount}`);
       });
 
@@ -1032,7 +1033,7 @@ async function runQuoteScreen() {
       await group('TC-QW-18', async () => {
         const tc = 'TC-QW-18';
         await openQuote(page, Q['Q-DRAFT'].id);
-        const discount = linesSection(page).getByRole('button', { name: /Chiết khấu/ });
+        const discount = linesSection(page).getByRole('button', { name: 'Sửa % chiết khấu' });
         check(tc, (await discount.isDisabled()) && /tính chiết khấu theo dòng/.test(await linesSection(page).innerText()), 'Q-DRAFT theo dòng: nút Chiết khấu tắt kèm chú giải');
         await openQuote(page, Q['Q-SENT'].id);
         await lineRows(page).nth(0).click({ button: 'right' });
@@ -1141,7 +1142,7 @@ async function runQuoteScreen() {
         await page.getByRole('button', { name: /Lập báo giá/ }).first().click();
         await previewPane(page).waitFor({ timeout: 15000 });
         await page.waitForTimeout(1200);
-        const template = await fieldInput(page.locator('[data-testid="quote-workspace-left"]'), 'Mẫu báo giá').inputValue();
+        const template = await templateInput(page).inputValue();
         check(tc, /#quotes\/new/.test(page.url()) && (await page.getByRole('heading', { name: 'Lập báo giá' }).count()) === 1, 'Mở quotes/new 2 cột', page.url());
         check(tc, template.length > 0 && (await previewSheet(page).count()) === 1, 'Mẫu mặc định được chọn, xem trước hiện ngay', template);
         check('TC-QW-26', /Lưu báo giá để thêm dòng hàng/.test(await linesSection(page).innerText()) && (await linesSection(page).getByRole('button', { name: 'Thêm dòng hàng' }).isEnabled()), 'Dòng hàng khoá kèm câu "Lưu báo giá để thêm dòng hàng"; nút + vẫn bấm được');

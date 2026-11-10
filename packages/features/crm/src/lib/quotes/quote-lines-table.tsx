@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Bảng dòng hàng ở cột trái màn báo giá (phase 3, plan 9.4 theo BG.pdf trang 4; task P3C4-04): ô tìm và nút + mở
+ * Bảng dòng hàng ở cột trái màn báo giá (phase 3, plan 9.4 theo BG.pdf trang 4; task P3C4-04): nút + mở
  * `MaterialPicker`; bấm đúp sửa dòng; chuột phải (hoặc `Shift+F10`, phím menu) mở menu Thêm / Hiệu chỉnh / Chèn / Xoá;
  * `Enter` sửa, `Delete` xoá (có hỏi), mũi tên lên xuống chọn dòng. Báo giá không còn Nháp: chỉ xem.
  * Bảng chỉ phát sự kiện; gọi API vẫn do `QuoteEditor` làm như trước.
@@ -9,7 +9,7 @@
 import { PRICE_SOURCE_LABELS, type QuoteLine } from '@enterprise-platform/contracts-crm';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { Eye, ListPlus, Pencil, Percent, Plus, Trash2 } from 'lucide-react';
+import { Eye, ListPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CrmDialog, StatusPill } from '../components/crm-ui';
@@ -250,6 +250,7 @@ export function QuoteLinesTable({
   onEdit,
   onView,
   onRemove,
+  note,
   children,
 }: {
   title: string;
@@ -257,14 +258,14 @@ export function QuoteLinesTable({
   /** Báo giá còn Nháp và người xem được sửa. */
   editable: boolean;
   busy?: boolean;
-  /** Báo giá chưa có bản ghi (màn lập mới): khoá bảng kèm câu này; ô tìm và nút + vẫn bấm được. */
+  /** Báo giá chưa có bản ghi (màn lập mới): khoá bảng kèm câu này; nút + vẫn bấm được. */
   lockedText?: string;
   emptyText?: string;
   /** Người xem không có quyền xem giá vốn (`version.costHidden`): ẩn cột giá vốn, biên. */
   costHidden?: boolean;
   /** Nút Chiết khấu tổng đơn; chỉ có khi sửa được. `enabled` theo chế độ chiết khấu của mẫu. */
   discount?: { readonly enabled: boolean; readonly hint: string; readonly onOpen: () => void };
-  /** Mở chọn mặt hàng, thêm cuối; `search` là chữ đang gõ ở ô tìm. */
+  /** Mở chọn mặt hàng, thêm cuối; `search` là chữ tìm sẵn (menu, nút + gửi chuỗi rỗng). */
   onAdd: (search: string) => void;
   /** Mở chọn mặt hàng, chèn ngay trên dòng này (`beforeLineNo`). */
   onInsert: (line: QuoteLine) => void;
@@ -273,10 +274,11 @@ export function QuoteLinesTable({
   onView: (line: QuoteLine) => void;
   /** Đã hỏi xác nhận xong; màn cha gọi API bỏ dòng. */
   onRemove: (line: QuoteLine) => Promise<unknown> | void;
+  /** Dòng ghi chú ngay dưới tiêu đề, trên bảng (ví dụ cách tính chiết khấu, thuế của mẫu). */
+  note?: ReactNode;
   /** Phần dưới bảng (tổng tiền). */
   children?: ReactNode;
 }) {
-  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   const [menu, setMenu] = useState<MenuState>();
   const [removing, setRemoving] = useState<QuoteLine>();
@@ -293,10 +295,10 @@ export function QuoteLinesTable({
     setMenu(undefined);
     if (line) focusRow(line.id);
   };
+  // Tìm mặt hàng nằm trong hộp chọn mở bằng nút +.
   const add = () => {
     if (!canAdd || busy) return;
-    onAdd(search.trim());
-    setSearch('');
+    onAdd('');
   };
   const open = (line: QuoteLine) => (editable ? onEdit(line) : onView(line));
   const run = (command: QuoteLineCommand, line: QuoteLine) => {
@@ -358,22 +360,7 @@ export function QuoteLinesTable({
         <h3 className={styles.linesTitle}>{title}</h3>
         {canAdd ? (
           <>
-            <input
-              className={`${salesStyles.input} ${styles.linesSearch}`}
-              type="search"
-              placeholder="Sản phẩm, hàng hoá, dịch vụ…"
-              aria-label="Tìm sản phẩm, hàng hoá, dịch vụ"
-              maxLength={100}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  add();
-                }
-              }}
-            />
-            <button type="button" className={salesStyles.buttonGhost} aria-label="Thêm dòng hàng" title="Thêm dòng hàng" disabled={busy} onClick={add}>
+            <button type="button" className={salesStyles.buttonPrimary} aria-label="Thêm dòng hàng" title="Thêm dòng hàng" disabled={busy} onClick={add}>
               <Plus size={14} />
             </button>
           </>
@@ -387,10 +374,11 @@ export function QuoteLinesTable({
             aria-describedby="quote-discount-hint"
             onClick={discount.onOpen}
           >
-            <Percent size={14} /> Chiết khấu
+            Sửa % chiết khấu
           </button>
         ) : null}
       </div>
+      {note}
       {discount && editable && !discount.enabled ? (
         <p id="quote-discount-hint" className={salesStyles.muted}>
           {discount.hint}

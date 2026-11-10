@@ -23,7 +23,7 @@ import { createQuote, getCustomer, getOpportunity, listCustomers, listOpportunit
 import { buildQuoteLayoutData, quoteExportFileName } from '../quote-layout/quote-layout.data';
 import { openPickerAfterLoad } from './quote-editor';
 import { buildCustomFields, generalInfoError, quoteFormErrorMessage, type CustomFieldTexts } from './quote-form-edit.model';
-import { CustomFieldsEditor, GeneralFields, useQuoteFormLookups, type GeneralState } from './quote-form-parts';
+import { CustomFieldsEditor, GeneralFields, TemplatePicker, useQuoteFormLookups, type GeneralState } from './quote-form-parts';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
@@ -612,6 +612,7 @@ function NewQuoteForm({
           codeEditable
           generateCode
           nameError={nameError}
+          showTemplate={false}
         />
         <Field label="Mô tả" wide>
           <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => change(setNote)(event.target.value)} />
@@ -653,6 +654,13 @@ function NewQuoteForm({
           templateId={general.templateId || null}
           templateName={selectedTemplate?.name}
           templateHasLayout={selectedTemplate?.hasLayout}
+          templatePicker={
+            <TemplatePicker
+              templates={lookups.templates}
+              value={general.templateId}
+              onChange={(templateId) => change(setGeneral)({ ...general, templateId })}
+            />
+          }
           data={previewData}
           fileName={quoteExportFileName(general.code, 1)}
         />

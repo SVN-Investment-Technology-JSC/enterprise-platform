@@ -151,6 +151,29 @@
   white-space: nowrap;
 }
 
+.previewTemplatePicker {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  > label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 360px;
+
+    > span {
+      flex: none;
+      color: var(--ep-text-muted, #6b7280);
+      font-size: 13px;
+    }
+
+    > :last-child {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+}
+
 .previewNote {
   margin: 0;
   padding: 8px 10px;
@@ -241,11 +264,6 @@
   margin: 0;
   font-size: 15px;
   font-weight: 700;
-}
-
-.linesSearch {
-  flex: 0 1 260px;
-  min-width: 180px;
 }
 
 .readOnlyNote {

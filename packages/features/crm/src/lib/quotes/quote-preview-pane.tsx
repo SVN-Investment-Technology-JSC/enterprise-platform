@@ -7,6 +7,7 @@
  */
 import type { QuoteLayout, QuoteStatus, QuoteVersion } from '@enterprise-platform/contracts-crm';
 import { RotateCw } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { ExportMenu } from '../quote-layout/export-menu';
 import { QuoteLayoutView } from '../quote-layout/quote-layout-view';
 import type { QuoteLayoutData } from '../quote-layout/quote-layout.data';
@@ -39,6 +40,7 @@ export function QuotePreviewPane({
   templateHasLayout,
   data,
   fileName,
+  templatePicker,
 }: {
   choice: PreviewLayoutChoice;
   /** Mẫu đang chọn trên form (chưa lưu cũng được). */
@@ -49,6 +51,8 @@ export function QuotePreviewPane({
   data: QuoteLayoutData;
   /** Tên file xuất không có đuôi (`<mã>_v<phiên bản>`). */
   fileName: string;
+  /** Ô chọn mẫu (còn sửa được): thay cho dòng chữ "Mẫu: …"; phiên bản dùng bản chụp thì vẫn hiện chữ. */
+  templatePicker?: ReactNode;
 }) {
   const template = useTemplateLayout(choice.snapshot ? null : templateId, templateHasLayout);
   const layout = choice.snapshot ?? template.layout;
@@ -59,9 +63,13 @@ export function QuotePreviewPane({
     <section className={styles.previewPane} aria-label="Xem trước báo giá">
       <div className={styles.previewHead}>
         <h3 className={styles.previewTitle}>Xem trước</h3>
-        <span className={styles.previewTemplate}>
-          {choice.snapshot ? 'Bản chụp lúc gửi khách' : `Mẫu: ${templateName || 'Mẫu mặc định'}`}
-        </span>
+        {templatePicker && !choice.snapshot ? (
+          <div className={styles.previewTemplatePicker}>{templatePicker}</div>
+        ) : (
+          <span className={styles.previewTemplate}>
+            {choice.snapshot ? 'Bản chụp lúc gửi khách' : `Mẫu: ${templateName || 'Mẫu mặc định'}`}
+          </span>
+        )}
         <ExportMenu layout={layout} data={data} fileName={fileName} disabled={loading} />
       </div>
       {choice.missingSnapshot ? (

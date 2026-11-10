@@ -489,7 +489,11 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     mockApi.updateQuoteVersion.mockResolvedValue(saved);
     renderEditor(fixtureDetail());
     await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
-    fireEvent.click(screen.getByRole('button', { name: 'chọn Mẫu t2' }));
+    // Ô chọn mẫu nằm ở đầu khung xem trước (cạnh Xuất), không còn ở cột trái.
+    const preview = screen.getByRole('region', { name: 'Xem trước báo giá' });
+    expect(within(screen.getByTestId('quote-workspace-left')).queryByRole('button', { name: 'chọn Mẫu t2' })).toBeNull();
+    expect(within(preview).getByText('Mẫu')).toBeTruthy();
+    fireEvent.click(within(preview).getByRole('button', { name: 'chọn Mẫu t2' }));
     await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t2'));
     expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
     fireEvent.click(button('Lưu'));
@@ -620,6 +624,7 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     expect(screen.queryByRole('button', { name: 'Báo giá' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Thêm dòng hàng' })).toBeNull();
     expect(title()).toContain('BẢN CHỤP');
+    expect(within(screen.getByRole('region', { name: 'Xem trước báo giá' })).queryByRole('button', { name: /^chọn Mẫu/ })).toBeNull();
     expect(button('Xuất').disabled).toBe(false);
     expect(mockExportMenu).toHaveBeenLastCalledWith(expect.objectContaining({ layout: snapshot, fileName: 'BG2600001_v1' }));
   });
@@ -665,8 +670,23 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     const order = fixtureVersion();
     renderEditor(fixtureDetail({ ...order, form: { ...order.form, templateId: 't2', templateName: 'Mẫu t2', discountMode: 'ORDER' } }));
     await screen.findByText('Thông tin chung');
-    fireEvent.click(screen.getByRole('button', { name: /Chiết khấu/ }));
-    expect(screen.getByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sửa % chiết khấu' }));
+    expect(await screen.findByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
+    expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
+  });
+
+  it('đổi sang mẫu chiết khấu tổng đơn chưa lưu: "Sửa % chiết khấu" bật, bấm thì lưu mẫu rồi mở hộp', async () => {
+    const order = fixtureVersion({ revision: 4 });
+    mockApi.updateQuoteVersion.mockResolvedValue(fixtureDetail({ ...order, form: { ...order.form, templateId: 't2', templateName: 'Mẫu t2', discountMode: 'ORDER' } }));
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    const discount = screen.getByRole('button', { name: 'Sửa % chiết khấu' }) as HTMLButtonElement;
+    expect(discount.disabled).toBe(true);
+    fireEvent.click(within(screen.getByRole('region', { name: 'Xem trước báo giá' })).getByRole('button', { name: 'chọn Mẫu t2' }));
+    expect(discount.disabled).toBe(false);
+    fireEvent.click(discount);
+    await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ templateId: 't2' })));
+    expect(await screen.findByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
   });
 
   it('TC-QW-28: báo giá vừa lập bằng nút + thì mở chọn mặt hàng ngay khi tải xong', async () => {
@@ -699,6 +719,11 @@ describe('NewQuoteScreen (P3C4-06)', () => {
     await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t1'));
     expect(button('Trình duyệt').disabled).toBe(true);
     expect(button('Báo giá').disabled).toBe(true);
+    // Màn lập mới: chọn mẫu ở khung xem trước, đổi là xem trước đổi theo.
+    const preview = screen.getByRole('region', { name: 'Xem trước báo giá' });
+    expect(within(screen.getByTestId('quote-workspace-left')).queryByRole('button', { name: 'chọn Mẫu t2' })).toBeNull();
+    fireEvent.click(within(preview).getByRole('button', { name: 'chọn Mẫu t2' }));
+    await waitFor(() => expect(title()).toContain('TIÊU ĐỀ t2'));
   });
 
   it('TC-QW-25: customerId hợp lệ thì điền sẵn khách và xem trước có tên; id sai thì bỏ qua', async () => {
