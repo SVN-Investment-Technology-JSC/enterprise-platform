@@ -9,7 +9,7 @@ import type {
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
 import { formatDate } from '@enterprise-platform/shared-ui';
-import { ArrowRight, CalendarClock, CheckCircle2, ClipboardList, ListChecks, TriangleAlert, UserRound } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, ClipboardList, ListChecks, RotateCcw, TriangleAlert, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -24,6 +24,8 @@ export interface MaintenanceDashboardActions {
   readonly openOccurrences: (kind?: MaintenanceOccurrenceKind) => void;
   /** Mở Lịch sử đã lọc theo trạng thái. */
   readonly openHistoryByStatus: (status: MaintenanceOccurrenceStatus) => void;
+  /** Gửi lại phiếu báo lỗi sang Quy trình; ném lỗi nếu không gửi được. */
+  readonly retryDispatch: (id: string) => Promise<void>;
   /** Đóng phiếu kèm ghi chú; ném lỗi nếu không đóng được. */
   readonly completeOccurrence: (id: string, note: string) => Promise<void>;
 }
@@ -68,8 +70,9 @@ const STATUS_BAR: ReadonlyArray<{ status: MaintenanceOccurrenceStatus; bar: stri
 
 const DAY_MS = 86_400_000;
 
+/** Chưa đóng, kể cả phiếu gửi Quy trình lỗi: nó vẫn cần người xử lý (thử lại hoặc đóng tay), không được biến mất khỏi thẻ. */
 function isOpen(occurrence: MaintenanceOccurrence): boolean {
-  return occurrence.status !== 'completed' && occurrence.status !== 'failed';
+  return occurrence.status !== 'completed';
 }
 
 function dueTime(occurrence: MaintenanceOccurrence): number {
@@ -168,6 +171,31 @@ function CompleteButton(props: { occurrence: MaintenanceOccurrence; actions: Mai
   );
 }
 
+/** Nút gửi lại phiếu báo lỗi sang Quy trình. Lỗi đã được màn hình chính hiện ở banner nên chỉ cần nuốt ở đây. */
+function RetryButton(props: { occurrence: MaintenanceOccurrence; actions: MaintenanceDashboardActions }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="rounded-md"
+      disabled={busy}
+      aria-label={`Thử lại tạo phiếu: ${props.occurrence.title}`}
+      onClick={() => {
+        setBusy(true);
+        void props.actions
+          .retryDispatch(props.occurrence.id)
+          .catch(() => undefined)
+          .finally(() => setBusy(false));
+      }}
+    >
+      <RotateCcw />
+      Thử lại
+    </Button>
+  );
+}
+
 /** Danh sách phiếu: mỗi dòng bấm để mở chi tiết, kèm nút đóng phiếu nếu người dùng có quyền. */
 function OccurrenceList(props: {
   rows: readonly MaintenanceOccurrence[];
@@ -197,8 +225,11 @@ function OccurrenceList(props: {
                 late || item.priority === 'High' ? 'font-semibold text-red-700' : 'text-slate-500',
               )}
             >
-              {props.trailing(item)}
+              {item.status === 'failed' ? 'Lỗi tạo phiếu' : props.trailing(item)}
             </small>
+            {props.data.canHandle && item.status === 'failed' && item.kind === 'preventive' ? (
+              <RetryButton occurrence={item} actions={props.data.actions} />
+            ) : null}
             {props.data.canHandle ? <CompleteButton occurrence={item} actions={props.data.actions} /> : null}
           </li>
         );

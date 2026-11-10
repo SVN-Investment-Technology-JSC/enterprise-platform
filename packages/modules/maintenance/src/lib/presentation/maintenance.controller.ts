@@ -136,6 +136,13 @@ export class MaintenanceController {
     );
   }
 
+  /** Gửi lại phiếu báo lỗi sang Quy trình. Đường dẫn chứa `/occurrences` nên cần quyền xử lý phiếu. */
+  @Post('occurrences/:id/redispatch')
+  @HttpCode(200)
+  retryDispatch(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.maintenance.retryDispatch(this.actor(request), id));
+  }
+
   @Get('occurrences/:id')
   getOccurrence(@Req() request: MaintenanceRequest, @Param('id') id: string) {
     return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));

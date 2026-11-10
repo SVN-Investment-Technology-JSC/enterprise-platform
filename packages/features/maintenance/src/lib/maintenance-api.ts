@@ -193,6 +193,11 @@ export async function loadFleetAvailability(from: string, to: string): Promise<M
   return (await request<{ data: MaintenanceFleetAvailability }>(`/fleet/availability?${params}`, { cache: 'no-store' })).data;
 }
 
+/** Gửi lại phiếu đã báo lỗi sang Quy trình. */
+export function retryMaintenanceDispatch(id: string): Promise<MaintenanceOccurrence> {
+  return request<MaintenanceOccurrence>(`/occurrences/${id}/redispatch`, { method: 'POST' });
+}
+
 export function completeMaintenanceOccurrence(
   id: string,
   note?: string,

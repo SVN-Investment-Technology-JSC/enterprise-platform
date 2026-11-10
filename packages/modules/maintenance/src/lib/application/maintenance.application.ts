@@ -370,6 +370,12 @@ export class MaintenanceApplication {
     return this.store.completeOccurrence(actor.tenantId, actor, id, note);
   }
 
+  /** Gửi lại phiếu đã báo lỗi sang Quy trình (nút "Thử lại tạo phiếu"). */
+  async retryDispatch(actor: MaintenanceActor, id: string) {
+    this.requireOccurrenceHandler(actor);
+    return this.store.retryDispatch(actor.tenantId, id);
+  }
+
   async createIncident(actor: MaintenanceActor, input: CreateMaintenanceIncidentRequest) {
     this.requireOccurrenceHandler(actor);
     const assetCode = input.assetCode?.trim();

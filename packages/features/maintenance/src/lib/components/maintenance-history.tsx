@@ -70,6 +70,7 @@ export function MaintenanceHistory({
   onLoadMore,
   onSelect,
   onComplete,
+  onRetryDispatch,
   performers,
 }: {
   page?: MaintenanceHistoryPage;
@@ -81,6 +82,8 @@ export function MaintenanceHistory({
   onLoadMore: () => void;
   onSelect: (occurrence?: MaintenanceOccurrence) => void;
   onComplete: (id: string, note: string) => void;
+  /** Gửi lại phiếu báo lỗi sang Quy trình. */
+  onRetryDispatch: (id: string) => void;
   /** Mã hồ sơ Quy trình → tên người thực hiện. */
   performers?: ReadonlyMap<string, string[]>;
 }) {
@@ -468,6 +471,38 @@ export function MaintenanceHistory({
                 <div className={styles.descriptionBox}>
                   <span className={styles.boxLabel}>Mô tả công việc:</span>
                   <p>{selected.description}</p>
+                </div>
+              ) : null}
+
+              {/* Gửi sang Quy trình lỗi: hiện lý do và cho thử lại; đang tự thử lại thì chỉ báo tình trạng. */}
+              {!selected.procedureInstanceCode && selected.failureReason && !selected.completedAt ? (
+                <div
+                  role="alert"
+                  className={cn(
+                    'flex flex-col gap-2 rounded-md border px-3 py-2.5 text-sm',
+                    selected.status === 'failed'
+                      ? 'border-red-200 bg-red-50 text-red-800'
+                      : 'border-amber-200 bg-amber-50 text-amber-800',
+                  )}
+                >
+                  <strong className="font-semibold">
+                    {selected.status === 'failed'
+                      ? 'Không tạo được hồ sơ bên Quy trình'
+                      : 'Đang gửi sang Quy trình, hệ thống tự thử lại'}
+                  </strong>
+                  <span>{selected.failureReason}</span>
+                  {selected.status === 'failed' && canManage ? (
+                    <div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => onRetryDispatch(selected.id)}
+                      >
+                        Thử lại tạo phiếu
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

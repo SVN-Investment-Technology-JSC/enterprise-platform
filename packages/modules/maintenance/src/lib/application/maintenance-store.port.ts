@@ -91,6 +91,8 @@ export interface MaintenanceStore {
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;
   /** Retries occurrences stranded in 'dispatch_pending' by a crash mid-dispatch. */
   reconcileStuckDispatches(tenantId: string, now: Date): Promise<number>;
+  /** Thử lại tay phiếu 'failed' đã gắn quy trình; trả phiếu sau lần gửi mới. */
+  retryDispatch(tenantId: string, id: string): Promise<MaintenanceOccurrence>;
   /** Xoá mọi lịch của một thiết bị, kèm phiếu đã sinh ra từ chúng. Trả về số lịch đã xoá. */
   removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number>;
   /** Đẩy hạn của các lịch đang chạy của một thiết bị về hiện tại. Trả về số lịch bị đẩy. */

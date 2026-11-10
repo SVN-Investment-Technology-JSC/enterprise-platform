@@ -58,6 +58,7 @@ import {
   saveMaintenanceMatrix,
   loadPerformersByInstanceCode,
   saveMaintenanceSetting,
+  retryMaintenanceDispatch,
   saveMyDashboardCards,
   skipNextOccurrence,
   updateMaintenanceSchedule,
@@ -505,6 +506,22 @@ export function MaintenanceScreen() {
     }
   };
 
+  /** Thử lại phiếu báo lỗi gửi Quy trình; `onDone` cho từng nơi gọi tự cập nhật phần của mình. */
+  const retryDispatch = async (id: string) => {
+    setBusy(true);
+    try {
+      const saved = await retryMaintenanceDispatch(id);
+      setSelectedOccurrence((current) => (current?.id === id ? saved : current));
+      setError(undefined);
+      await Promise.all([reload(), loadHistory(historyFilter)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không gửi lại được phiếu.');
+      throw cause;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const canManage = workspace?.permissions.canManageSchedules ?? false;
 
   /** Đổi thẻ Tổng quan: áp dụng ngay trên giao diện rồi lưu; lỗi thì trả về bản cũ. */
@@ -679,6 +696,7 @@ export function MaintenanceScreen() {
       setHistoryFilter({ status });
       navigate('history');
     },
+    retryDispatch,
     completeOccurrence: async (id, note) => {
       try {
         await completeMaintenanceOccurrence(id, note);
@@ -1014,6 +1032,7 @@ export function MaintenanceScreen() {
               onLoadMore={() => void loadHistory({ ...historyFilter, cursor: history?.nextCursor }, true)}
               onSelect={setSelectedOccurrence}
               onComplete={closeOut}
+              onRetryDispatch={(id) => void retryDispatch(id).catch(() => undefined)}
             />
           ) : null}
 

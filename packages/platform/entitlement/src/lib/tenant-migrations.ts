@@ -659,6 +659,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0008-maintenance-user-preferences',
       path: 'tenant/maintenance/0008-maintenance-user-preferences.sql',
     },
+    {
+      version: '0009-occurrence-dispatch-retry',
+      path: 'tenant/maintenance/0009-occurrence-dispatch-retry.sql',
+    },
   ],
   workspace: [
     { version: '0001-workspace', path: 'tenant/workspace/0001-workspace.sql' },
