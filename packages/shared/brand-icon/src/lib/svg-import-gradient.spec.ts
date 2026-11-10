@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { parseGradient } from './gradient';
+import { MAX_GRADIENT_STOPS, parseGradient, type LinearGradient, type RadialGradient } from './gradient';
 import { createDocument, type IconShape } from './model';
 import { generateSvg } from './render';
 import { importSvg } from './svg-import';
@@ -10,6 +10,8 @@ import { normalizeShape } from './validate';
 const svg = (inner: string, attrs = 'viewBox="0 0 24 24"') => `<svg xmlns="http://www.w3.org/2000/svg" ${attrs}>${inner}</svg>`;
 const withDefs = (defs: string, shape: string) => svg(`<defs>${defs}</defs>${shape}`);
 const documentFromShapes = (shapes: IconShape[]) => createDocument({ name: 'Nhập', shapes });
+const linear = (paint: string) => parseGradient(paint) as LinearGradient;
+const radial = (paint: string) => parseGradient(paint) as RadialGradient;
 
 const STOPS = '<stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>';
 const FULL_RECT = '<rect width="24" height="24" fill="url(#g)"/>';
@@ -52,21 +54,18 @@ describe('importSvg: màu chuyển sắc', () => {
     expect(vertical.shapes[0].fill).toBe('linear:90:#ff0000@0,#0000ff@1');
   });
 
-  it('userSpaceOnUse chỉ phủ một nửa khung: điểm màu được co lại và thêm điểm đệm ở hai đầu', () => {
+  it('userSpaceOnUse chỉ phủ một nửa khung: giữ nguyên điểm màu, đặt t0 và t1 trên trục chuẩn', () => {
     const result = importSvg(
       withDefs(`<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="6" y1="12" x2="18" y2="12">${STOPS}</linearGradient>`, FULL_RECT),
     );
-    expect(result.shapes[0].fill).toBe('linear:0:#ff0000@0,#ff0000@0.25,#0000ff@0.75,#0000ff@1');
+    expect(result.shapes[0].fill).toBe('linear:0,0.25,0.75:#ff0000@0,#0000ff@1');
   });
 
-  it('dải màu dài hơn khung: cắt đúng màu tại hai mép khung', () => {
+  it('dải màu dài hơn khung: t0 và t1 nằm ngoài 0..1, không cần cắt điểm màu', () => {
     const result = importSvg(
       withDefs(`<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="-24" y1="0" x2="48" y2="0">${STOPS}</linearGradient>`, FULL_RECT),
     );
-    const parsed = parseGradient(result.shapes[0].fill);
-    expect(parsed?.stops).toHaveLength(2);
-    expect(parsed?.stops[0].color).toBe('#aa0055');
-    expect(parsed?.stops[1].color).toBe('#5500aa');
+    expect(result.shapes[0].fill).toBe('linear:0,-1,2:#ff0000@0,#0000ff@1');
   });
 
   it('transform của lớp và gradientTransform đều được tính vào hướng', () => {
@@ -76,11 +75,33 @@ describe('importSvg: màu chuyển sắc', () => {
         '<rect width="24" height="24" fill="url(#g)" transform="rotate(90 12 12)"/>',
       ),
     );
-    expect(parseGradient(rotated.shapes[0].fill)?.angle).toBe(90);
+    expect(linear(rotated.shapes[0].fill).angle).toBe(90);
     const viaGradientTransform = importSvg(
       withDefs(`<linearGradient id="g" x1="0" y1="0" x2="1" y2="0" gradientTransform="rotate(90 .5 .5)">${STOPS}</linearGradient>`, FULL_RECT),
     );
-    expect(parseGradient(viaGradientTransform.shapes[0].fill)?.angle).toBe(90);
+    expect(linear(viaGradientTransform.shapes[0].fill).angle).toBe(90);
+  });
+
+  it('khung bao không vuông làm dải nghiêng: góc theo tỷ lệ cạnh, điểm đầu ở góc (0,0), điểm cuối ở góc (24,12)', () => {
+    const result = importSvg(
+      withDefs(
+        `<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">${STOPS}</linearGradient>`,
+        '<rect width="24" height="12" fill="url(#g)"/>',
+      ),
+    );
+    const gradient = linear(result.shapes[0].fill);
+    expect(gradient.angle).toBeCloseTo(63.43, 1);
+    expect(gradient.t0).toBeCloseTo(0, 3);
+    expect(gradient.t1).toBeCloseTo(0.667, 2);
+  });
+
+  it('spreadMethod reflect và repeat được giữ', () => {
+    const reflect = importSvg(
+      withDefs(`<linearGradient id="g" x1="0.25" x2="0.75" spreadMethod="reflect">${STOPS}</linearGradient>`, FULL_RECT),
+    );
+    expect(linear(reflect.shapes[0].fill)).toMatchObject({ spread: 'reflect', t0: 0.25, t1: 0.75 });
+    const repeat = importSvg(withDefs(`<radialGradient id="g" spreadMethod="repeat" r="0.25">${STOPS}</radialGradient>`, FULL_RECT));
+    expect(radial(repeat.shapes[0].fill)).toMatchObject({ spread: 'repeat', r: 0.25 });
   });
 
   it('kế thừa điểm màu và thuộc tính qua xlink:href; stop-color đặt trong style', () => {
@@ -94,12 +115,18 @@ describe('importSvg: màu chuyển sắc', () => {
     expect(result.shapes[0].fill).toBe('linear:90:#00ff00@0,#000000@1');
   });
 
-  it('vòng href không treo; dải không có điểm màu thành một màu đơn kèm cảnh báo', () => {
+  it('vòng href không treo; dải không có điểm màu thì không tô gì', () => {
     const loop = importSvg(
-      withDefs('<linearGradient id="a" href="#b"/><linearGradient id="b" href="#a"/>', '<rect width="24" height="24" fill="url(#a)"/>'),
+      withDefs('<linearGradient id="a" href="#b"/><linearGradient id="b" href="#a"/>', '<rect width="24" height="24" fill="url(#a)"/><rect width="4" height="4"/>'),
     );
-    expect(loop.shapes[0].fill).toBe('currentColor');
-    expect(loop.warnings.length).toBeGreaterThan(0);
+    expect(loop.shapes).toHaveLength(1);
+  });
+
+  it('dải màu chỉ có một điểm màu: thành màu đơn (kèm độ đặc của điểm màu)', () => {
+    const result = importSvg(
+      withDefs('<linearGradient id="g"><stop offset="0.5" stop-color="#336699" stop-opacity="0.5"/></linearGradient>', FULL_RECT),
+    );
+    expect(result.shapes[0]).toMatchObject({ fill: '#336699', fillOpacity: 0.5 });
   });
 
   it('dải màu dùng cho nét của đường thẳng (khung bao cao 0) khi tính theo userSpaceOnUse', () => {
@@ -112,18 +139,39 @@ describe('importSvg: màu chuyển sắc', () => {
     expect(result.shapes[0].stroke).toBe('linear:0:#ff0000@0,#0000ff@1');
   });
 
-  it('objectBoundingBox trên nét thẳng (khung bao cao 0) không dựng được: thành một màu đơn kèm cảnh báo', () => {
+  it('objectBoundingBox trên nét thẳng (khung bao cao 0): theo chuẩn SVG không vẽ nét đó', () => {
     const result = importSvg(
-      withDefs(`<linearGradient id="g">${STOPS}</linearGradient>`, '<path d="M2 12 H22" fill="none" stroke="url(#g)" stroke-width="2"/>'),
+      withDefs(
+        `<linearGradient id="g">${STOPS}</linearGradient>`,
+        '<path d="M2 12 H22" fill="none" stroke="url(#g)" stroke-width="2"/><rect width="4" height="4"/>',
+      ),
     );
-    expect(result.shapes[0].stroke).toBe('#800080');
-    expect(result.warnings).toHaveLength(1);
+    expect(result.shapes).toHaveLength(1);
+    expect(result.shapes[0].geometry.type).toBe('rect');
   });
 
-  it('radialGradient thành một màu đơn (màu giữa dải) kèm cảnh báo', () => {
+  it('radialGradient giữ nguyên: tâm, bán kính, tiêu điểm và ma trận đưa về toạ độ lưới', () => {
     const result = importSvg(withDefs(`<radialGradient id="g">${STOPS}</radialGradient>`, '<circle cx="12" cy="12" r="8" fill="url(#g)"/>'));
-    expect(result.shapes[0].fill).toBe('#800080');
-    expect(result.warnings).toHaveLength(1);
+    const gradient = radial(result.shapes[0].fill);
+    expect(gradient).toMatchObject({ kind: 'radial', cx: 0.5, cy: 0.5, r: 0.5, fx: 0.5, fy: 0.5 });
+    // khung bao 16x16 đặt tại (4, 4) trên lưới 24: ma trận tính theo tỷ lệ cạnh lưới
+    expect(gradient.matrix[0]).toBeCloseTo(16 / 24, 6);
+    expect(gradient.matrix[3]).toBeCloseTo(16 / 24, 6);
+    expect(gradient.matrix[4]).toBeCloseTo(4 / 24, 6);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('radialGradient theo userSpaceOnUse có tiêu điểm riêng và gradientTransform', () => {
+    const result = importSvg(
+      withDefs(
+        `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="12" cy="12" r="10" fx="9" fy="8" gradientTransform="translate(1 2)">${STOPS}</radialGradient>`,
+        FULL_RECT,
+      ),
+    );
+    const gradient = radial(result.shapes[0].fill);
+    expect(gradient).toMatchObject({ cx: 12, cy: 12, r: 10, fx: 9, fy: 8 });
+    expect(gradient.matrix[4]).toBeCloseTo(1 / 24, 6);
+    expect(gradient.matrix[5]).toBeCloseTo(2 / 24, 6);
   });
 
   it('hai đầu dải trùng nhau: thành màu điểm cuối', () => {
@@ -133,27 +181,35 @@ describe('importSvg: màu chuyển sắc', () => {
     expect(result.shapes[0].fill).toBe('#0000ff');
   });
 
-  it('điểm màu có độ trong suốt: giữ màu, báo bỏ độ trong suốt', () => {
+  it('điểm màu có độ trong suốt (stop-opacity hoặc rgba): được giữ nguyên trong dải', () => {
     const result = importSvg(
       withDefs(
         '<linearGradient id="g"><stop offset="0" stop-color="#ff0000" stop-opacity="0.2"/><stop offset="1" stop-color="#0000ff"/></linearGradient>',
         FULL_RECT,
       ),
     );
-    expect(result.shapes[0].fill).toBe('linear:0:#ff0000@0,#0000ff@1');
-    expect(result.warnings.some((warning) => warning.includes('trong suốt'))).toBe(true);
+    expect(result.shapes[0].fill).toBe('linear:0:#ff0000@0~0.2,#0000ff@1');
+    expect(result.warnings).toEqual([]);
+    const rgba = importSvg(
+      withDefs('<linearGradient id="g"><stop offset="0" stop-color="rgba(255,0,0,0.5)"/><stop offset="1" stop-color="#0000ff" stop-opacity="0.5"/></linearGradient>', FULL_RECT),
+    );
+    expect(rgba.shapes[0].fill).toBe('linear:0:#ff0000@0~0.5,#0000ff@1~0.5');
   });
 
-  it('nhiều điểm màu hơn 8 được thưa lại còn 8, giữ hai đầu', () => {
+  it('nhiều điểm màu nhưng chưa quá giới hạn thì giữ hết; quá giới hạn thì lấy mẫu lại, giữ hai đầu và báo', () => {
     const many = Array.from(
       { length: 12 },
       (_, index) => `<stop offset="${index / 11}" stop-color="#${(index * 20).toString(16).padStart(2, '0')}0000"/>`,
     ).join('');
     const result = importSvg(withDefs(`<linearGradient id="g">${many}</linearGradient>`, FULL_RECT));
-    const parsed = parseGradient(result.shapes[0].fill);
-    expect(parsed?.stops).toHaveLength(8);
+    expect(parseGradient(result.shapes[0].fill)?.stops).toHaveLength(12);
+    const huge = Array.from({ length: MAX_GRADIENT_STOPS + 10 }, (_, index) => `<stop offset="${index / (MAX_GRADIENT_STOPS + 9)}" stop-color="#000000"/>`).join('');
+    const trimmed = importSvg(withDefs(`<linearGradient id="g">${huge}</linearGradient>`, FULL_RECT));
+    const parsed = parseGradient(trimmed.shapes[0].fill);
+    expect(parsed?.stops).toHaveLength(MAX_GRADIENT_STOPS);
     expect(parsed?.stops[0].offset).toBe(0);
-    expect(parsed?.stops[7].offset).toBe(1);
+    expect(parsed?.stops[MAX_GRADIENT_STOPS - 1].offset).toBe(1);
+    expect(trimmed.warnings.some((warning) => warning.includes('lấy mẫu lại'))).toBe(true);
   });
 
   it('tham chiếu có nháy và khoảng trắng đọc được; tham chiếu ngoài tệp thì cảnh báo, không làm hỏng bản nhập', () => {
@@ -161,8 +217,9 @@ describe('importSvg: màu chuyển sắc', () => {
       withDefs(`<linearGradient id="g">${STOPS}</linearGradient>`, `<rect width="24" height="24" fill="url( '#g' )"/>`),
     );
     expect(quoted.shapes[0].fill).toBe('linear:0:#ff0000@0,#0000ff@1');
-    const external = importSvg(svg('<rect width="24" height="24" fill="url(other.svg#g)"/>'));
-    expect(external.shapes[0].fill).toBe('currentColor');
+    const external = importSvg(svg('<rect width="24" height="24" fill="url(other.svg#g) #00ff00"/><rect width="4" height="4" fill="url(other.svg#g)"/>'));
+    expect(external.shapes).toHaveLength(1);
+    expect(external.shapes[0].fill).toBe('#00ff00');
     expect(external.warnings).toHaveLength(1);
   });
 
