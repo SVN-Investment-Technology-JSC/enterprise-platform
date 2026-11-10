@@ -53,7 +53,12 @@ export function parseQuoteSub(sub: string): QuoteSub {
 }
 
 export function isBusinessPlanTask(kind: CrmTaskKind): boolean {
-  return kind === 'BUSINESS_PLAN_APPROVAL' || kind === 'BUSINESS_PLAN_REJECTED';
+  return kind === 'BUSINESS_PLAN_APPROVAL' || kind === 'BUSINESS_PLAN_REJECTED' || kind === 'BUSINESS_PLAN_PENDING';
+}
+
+/** Việc chỉ để theo dõi (người xem không duyệt được): luôn mở báo giá trong CRM, không sang Quy trình. */
+export function isWaitingTask(kind: CrmTaskKind): boolean {
+  return kind === 'QUOTE_PENDING' || kind === 'BUSINESS_PLAN_PENDING';
 }
 
 /** Link sang hồ sơ Quy trình kèm `returnTo`; rỗng khi duyệt trực tiếp hoặc hồ sơ chưa tạo xong. */
@@ -72,7 +77,7 @@ export type TaskTarget =
  */
 export function taskTarget(task: CrmTask, options: { returnTo?: string; fromTasks?: boolean } = {}): TaskTarget {
   const { returnTo = CRM_TASKS_PATH, fromTasks = true } = options;
-  const href = procedureHrefOf(task.approval, returnTo);
+  const href = isWaitingTask(task.kind) ? undefined : procedureHrefOf(task.approval, returnTo);
   if (href) return { kind: 'procedure', href };
   return {
     kind: 'quote',
@@ -82,6 +87,7 @@ export function taskTarget(task: CrmTask, options: { returnTo?: string; fromTask
 
 /** Nhãn nút của một việc. */
 export function taskActionLabel(task: CrmTask): string {
+  if (isWaitingTask(task.kind)) return isBusinessPlanTask(task.kind) ? 'Mở phương án' : 'Mở báo giá';
   if (procedureHrefOf(task.approval, CRM_TASKS_PATH)) return PROCEDURE_ACTION_LABEL;
   if (task.kind === 'QUOTE_APPROVAL' || task.kind === 'BUSINESS_PLAN_APPROVAL') return 'Mở để duyệt';
   return isBusinessPlanTask(task.kind) ? 'Mở phương án' : 'Mở báo giá';

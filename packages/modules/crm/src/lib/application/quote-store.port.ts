@@ -291,6 +291,14 @@ export interface ProcedureClient {
  */
 export interface ProcedureActionableReader {
   actionableInstanceIds(tenantId: string, actorUserId: string, instanceIds: readonly string[]): Promise<string[]>;
+  /**
+   * Bước đang xử lý và người xử lý của các hồ sơ (`POST /v1/internal/instances/status`, tối đa 100 mã), để hiện "đang
+   * chờ ai" ở việc đang chờ duyệt. Không có (client giả cũ) thì không hiện.
+   */
+  instanceStatuses?(
+    tenantId: string,
+    ids: readonly string[],
+  ): Promise<readonly { readonly instanceId: string; readonly status: string; readonly currentStepName?: string | null; readonly currentAssigneeName?: string | null }[]>;
 }
 
 /** Tạo phiên Quy trình cho liên kết vừa ghi (sau commit); lỗi được ghi vào liên kết để worker thử lại. */

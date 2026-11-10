@@ -182,3 +182,59 @@ describe('CrmTaskService (plan mục 17.4)', () => {
     expect(await service.awaitingQuoteIds(actor({ canApproveQuote: true }))).toHaveLength(2);
   });
 });
+
+describe('CrmTaskService: Đang chờ duyệt (theo dõi)', () => {
+  class StepProcedures extends FakeProcedures {
+    statusCalls: string[][] = [];
+    async instanceStatuses(_tenantId: string, ids: readonly string[]) {
+      this.statusCalls.push([...ids]);
+      return ids.map((instanceId) => ({ instanceId, status: 'running', currentStepName: 'Trưởng nhóm duyệt', currentAssigneeName: 'Trần Văn B' }));
+    }
+  }
+
+  it('người trình thấy việc mình trình đang chờ, kèm bước và người đang duyệt bên Quy trình', async () => {
+    const own = pending({ submittedBy: ME, ownerUserId: ME, link: running('i-9') });
+    const others = pending();
+    const service = new CrmTaskService(new FakeStore([own, others]), scopes, new StepProcedures());
+    const list = await service.myTasks(actor({ canWriteQuote: true }));
+    expect(list.waiting.map((task) => task.quoteId)).toEqual([own.quoteId]);
+    expect(list.waiting[0]).toMatchObject({
+      kind: 'QUOTE_PENDING',
+      waitingOn: 'Trưởng nhóm duyệt · Trần Văn B',
+      approval: { mode: 'PROCEDURE', procedureInstanceId: 'i-9' },
+    });
+    expect(list.awaitingMe).toEqual([]);
+  });
+
+  it('tên bước đã gồm người duyệt thì không ghép lặp', async () => {
+    const procedures = new StepProcedures();
+    procedures.instanceStatuses = async (_tenantId: string, ids: readonly string[]) =>
+      ids.map((instanceId) => ({ instanceId, status: 'running', currentStepName: 'Trưởng nhóm A duyệt', currentAssigneeName: 'Trưởng nhóm A' }));
+    const list = await new CrmTaskService(new FakeStore([pending({ submittedBy: ME, link: running('i-3') })]), scopes, procedures).myTasks(actor());
+    expect(list.waiting[0].waitingOn).toBe('Trưởng nhóm A duyệt');
+  });
+
+  it('quản trị bán hàng thấy mọi việc chờ duyệt; việc mình duyệt được không lặp lại ở nhóm này', async () => {
+    const direct = pending();
+    const viaProcedure = pending({ link: running('i-1') });
+    const service = new CrmTaskService(new FakeStore([direct, viaProcedure]), scopes, new StepProcedures());
+    const manager = await service.myTasks(actor({ canManage: true }));
+    expect(manager.waiting.map((task) => task.quoteId).sort()).toEqual([direct.quoteId, viaProcedure.quoteId].sort());
+    expect(manager.waiting.find((task) => task.quoteId === direct.quoteId)?.waitingOn).toBe('Người có quyền duyệt báo giá');
+    const admin = await service.myTasks(actor({ isTenantAdmin: true }));
+    expect(admin.awaitingMe.map((task) => task.quoteId)).toEqual([direct.quoteId]);
+    expect(admin.waiting.map((task) => task.quoteId)).toEqual([viaProcedure.quoteId]);
+  });
+
+  it('người không liên quan, không quản trị: không thấy; Quy trình lỗi thì vẫn trả việc, để trống "đang chờ"', async () => {
+    const service = new CrmTaskService(new FakeStore([pending({ link: running('i-1') })]), scopes, new StepProcedures());
+    expect((await service.myTasks(actor())).waiting).toEqual([]);
+    const failing = new StepProcedures();
+    failing.instanceStatuses = async () => {
+      throw new Error('down');
+    };
+    const list = await new CrmTaskService(new FakeStore([pending({ submittedBy: ME, link: running('i-2') })]), scopes, failing).myTasks(actor());
+    expect(list.waiting).toHaveLength(1);
+    expect(list.waiting[0].waitingOn).toBeNull();
+  });
+});

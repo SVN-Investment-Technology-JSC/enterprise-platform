@@ -272,7 +272,7 @@ export function CustomerLedger({
 
 function CustomerReceipts({ customerId, version, onOpen }: { customerId: string; version: number; onOpen: (id: string) => void }) {
   const { people } = useCrm();
-  const list = usePagedList(`${customerId}|${version}`, 20, (page) => listReceipts({ customerId, page, limit: 20 }));
+  const list = usePagedList(`${customerId}|${version}`, CRM_LIST_PAGE_SIZE, (page) => listReceipts({ customerId, page, limit: CRM_LIST_PAGE_SIZE }));
   const columns: ColumnsType<ReceiptSummary> = [
     { title: 'Mã', dataIndex: 'code', width: 120, render: (value: string) => <span className={styles.mono}>{value}</span> },
     { title: 'Ngày thu', dataIndex: 'receiptDate', width: 110, render: (value: string) => formatDay(value) },

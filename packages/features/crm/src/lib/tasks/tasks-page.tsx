@@ -1,12 +1,13 @@
 'use client';
 
-import { CRM_TASK_KIND_LABELS, type CrmTask, type CrmTaskList } from '@enterprise-platform/contracts-crm';
+import { CRM_LIST_PAGE_SIZE, CRM_TASK_KIND_LABELS, type CrmTask, type CrmTaskKind, type CrmTaskList } from '@enterprise-platform/contracts-crm';
 import { formatDateTime } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { rowOpener } from '../components/crm-ui';
+import { ListPager, rowOpener, StatusPill } from '../components/crm-ui';
+import { pageCountOf } from '../components/pagination.model';
 import { errorMessage, getMyTasks } from '../crm-api';
 import { useCrm } from '../crm-context';
 import { formatPercent } from '../pricing/pricing.model';
@@ -36,11 +37,14 @@ export function openTask(task: CrmTask, openers: TaskOpeners, options: { returnT
 }
 
 /**
- * Trang "Việc cần xử lý" (plan mục 17.4, D3-32): hai bảng "Chờ tôi duyệt" (báo giá, PAKD trình riêng chờ người xem
- * duyệt) và "Việc của tôi" (báo giá, PAKD người xem phụ trách bị từ chối; báo giá đã duyệt chờ gửi khách). Bấm dòng: qua
- * Quy trình thì sang hồ sơ bên Quy trình, Quy trình tự quay về đây; còn lại mở báo giá kèm nút quay về.
+ * Trang "Việc cần xử lý" (plan mục 17.4, D3-32, D3-36): "Chờ tôi duyệt" (báo giá, PAKD trình riêng chờ người xem
+ * duyệt), "Việc của tôi" (báo giá, PAKD người xem phụ trách bị từ chối; báo giá đã duyệt chờ gửi khách) và "Đang chờ
+ * duyệt" (việc người xem trình hoặc phụ trách đang chờ người khác; quản trị thấy hết, kèm bước và người đang duyệt).
+ * Bấm dòng: duyệt qua Quy trình thì sang hồ sơ bên Quy trình, Quy trình tự quay về đây; còn lại mở báo giá kèm nút
+ * quay về.
  */
 export function TasksPage({ onLoaded, ...openers }: TaskOpeners & { /** Báo số việc cho thanh bên. */ onLoaded?: (list: CrmTaskList) => void }) {
+  const { capabilities } = useCrm();
   const [list, setList] = useState<CrmTaskList>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -96,10 +100,37 @@ export function TasksPage({ onLoaded, ...openers }: TaskOpeners & { /** Báo s�
         emptyText="Không có báo giá nào của bạn cần xử lý."
         openers={openers}
       />
+      <TaskTable
+        title="Đang chờ duyệt"
+        group="waiting"
+        tasks={list?.waiting ?? []}
+        loading={loading}
+        emptyText={
+          capabilities.isTenantAdmin || capabilities.canManage
+            ? 'Không có báo giá hay phương án kinh doanh nào đang chờ duyệt.'
+            : 'Không có báo giá hay phương án kinh doanh nào bạn trình đang chờ người khác duyệt.'
+        }
+        openers={openers}
+      />
     </div>
   );
 }
 
+/** Màu nhãn Việc, như cột Trạng thái của danh sách báo giá. */
+const TASK_KIND_TONE: Readonly<Record<CrmTaskKind, 'neutral' | 'info' | 'success' | 'warning' | 'danger'>> = {
+  QUOTE_APPROVAL: 'warning',
+  BUSINESS_PLAN_APPROVAL: 'warning',
+  QUOTE_REJECTED: 'danger',
+  BUSINESS_PLAN_REJECTED: 'danger',
+  QUOTE_READY_TO_SEND: 'success',
+  QUOTE_PENDING: 'info',
+  BUSINESS_PLAN_PENDING: 'info',
+};
+
+/**
+ * Một bảng việc, cùng kiểu danh sách báo giá: mỗi việc một dòng gọn (chữ dài cắt, rê chuột xem đủ), bấm cả dòng để
+ * mở (duyệt qua Quy trình thì sang hồ sơ bên Quy trình), phân trang `ListPager` 15 dòng ngay trên trang.
+ */
 function TaskTable({
   title,
   group,
@@ -109,7 +140,7 @@ function TaskTable({
   openers,
 }: {
   title: string;
-  group: 'awaiting' | 'mine';
+  group: 'awaiting' | 'mine' | 'waiting';
   tasks: readonly CrmTask[];
   loading: boolean;
   emptyText: string;
@@ -117,68 +148,64 @@ function TaskTable({
 }) {
   const { people } = useCrm();
   const showMargin = hasMargin(tasks);
-  const awaiting = group === 'awaiting';
+  const [page, setPage] = useState(1);
+  // Danh sách tải lại ít đi (vừa duyệt xong): không để trang hiện tại vượt quá số trang.
+  const pageCount = pageCountOf(tasks.length, CRM_LIST_PAGE_SIZE);
+  const current = Math.min(page, pageCount);
+  const shown = tasks.slice((current - 1) * CRM_LIST_PAGE_SIZE, current * CRM_LIST_PAGE_SIZE);
 
   const columns = useMemo<ColumnsType<CrmTask>>(() => {
+    const person = (userId: string | null, name: string | null) => name ?? personName(people, userId);
     const all: ColumnsType<CrmTask> = [
-      { title: 'Việc', key: 'kind', width: 210, render: (_: unknown, row) => CRM_TASK_KIND_LABELS[row.kind] },
       {
-        title: 'Báo giá',
-        key: 'quote',
-        width: 260,
-        ellipsis: true,
+        title: 'Mã',
+        key: 'code',
+        width: 130,
         render: (_: unknown, row) => (
-          <span title={taskQuoteLabel(row)}>
-            <span className={styles.mono}>{row.quoteCode}</span>
-            {row.quoteName ? ` - ${row.quoteName}` : ''} (v{row.versionNo})
+          <span className={styles.mono} title={taskQuoteLabel(row)}>
+            {row.quoteCode}
           </span>
         ),
       },
-      { title: 'Khách hàng', key: 'customer', width: 200, ellipsis: true, render: (_: unknown, row) => row.customerName ?? '' },
-      awaiting
-        ? {
-            title: 'Người trình',
-            key: 'actor',
-            width: 170,
-            ellipsis: true,
-            render: (_: unknown, row) => row.actorName ?? personName(people, row.actorUserId),
-          }
-        : {
-            title: 'Người phụ trách',
-            key: 'owner',
-            width: 170,
-            ellipsis: true,
-            render: (_: unknown, row) => row.ownerName ?? personName(people, row.ownerUserId),
-          },
-      { title: 'Thời điểm', key: 'at', width: 140, render: (_: unknown, row) => formatDateTime(row.at ?? '') },
-      { title: 'Tổng tiền', key: 'total', width: 150, align: 'right', render: (_: unknown, row) => formatMoney(row.totalAmount) },
+      { title: 'Khách hàng', key: 'customer', width: 240, ellipsis: { showTitle: true }, render: (_: unknown, row) => row.customerName ?? '' },
+      {
+        title: 'Việc',
+        key: 'kind',
+        width: 230,
+        render: (_: unknown, row) => <StatusPill tone={TASK_KIND_TONE[row.kind]}>{CRM_TASK_KIND_LABELS[row.kind]}</StatusPill>,
+      },
+      { title: 'Phiên bản', key: 'version', width: 90, align: 'right', render: (_: unknown, row) => `v${row.versionNo}` },
+      { title: 'Tổng cộng', key: 'total', width: 150, align: 'right', render: (_: unknown, row) => formatMoney(row.totalAmount) },
     ];
     if (showMargin) {
-      all.push({ title: 'Biên', key: 'margin', width: 90, align: 'right', render: (_: unknown, row) => formatPercent(row.marginPercent) });
+      all.push({ title: 'Biên', key: 'margin', width: 80, align: 'right', render: (_: unknown, row) => formatPercent(row.marginPercent) });
     }
-    all.push({
-      title: awaiting ? 'Lý do cần duyệt' : 'Lý do',
-      key: 'reasons',
-      width: 260,
-      // Một dòng cho lý do đầu, các lý do còn lại gộp "và n lý do khác"; đủ danh sách ở tooltip (`title`) để dòng không cao.
-      render: (_: unknown, row) => <ReasonsCell reasons={row.reasons} />,
-    });
-    if (awaiting) {
-      all.push({ title: 'Cách duyệt', key: 'mode', width: 170, render: (_: unknown, row) => approvalModeText(row.approval) });
+    if (group === 'waiting') {
+      all.push({ title: 'Đang chờ', key: 'waitingOn', width: 200, ellipsis: { showTitle: true }, render: (_: unknown, row) => row.waitingOn ?? '' });
     }
-    all.push({
-      title: '',
-      key: 'action',
-      width: 170,
-      fixed: 'right',
-      render: (_: unknown, row) => (
-        <button type="button" className={styles.buttonGhost} onClick={() => openTask(row, openers)}>
-          {taskActionLabel(row)}
-        </button>
-      ),
-    });
+    if (group === 'awaiting') {
+      all.push({ title: 'Cách duyệt', key: 'mode', width: 170, ellipsis: true, render: (_: unknown, row) => approvalModeText(row.approval) });
+    }
+    all.push(
+      group === 'mine'
+        ? { title: 'Người phụ trách', key: 'owner', width: 170, ellipsis: true, render: (_: unknown, row) => person(row.ownerUserId, row.ownerName) }
+        : { title: 'Người trình', key: 'actor', width: 170, ellipsis: true, render: (_: unknown, row) => person(row.actorUserId, row.actorName) },
+      {
+        title: group === 'mine' ? 'Lúc có kết quả' : 'Lúc trình',
+        key: 'at',
+        width: 150,
+        render: (_: unknown, row) => <span className={styles.nowrap}>{formatDateTime(row.at ?? '')}</span>,
+      },
+      {
+        title: group === 'mine' ? 'Lý do' : 'Lý do cần duyệt',
+        key: 'reasons',
+        width: 240,
+        ellipsis: true,
+        render: (_: unknown, row) => (row.reasons.length ? <ReasonsCell reasons={row.reasons} /> : ''),
+      },
+    );
     return all;
-  }, [awaiting, showMargin, people, openers]);
+  }, [group, showMargin, people]);
 
   return (
     <section className={styles.tableCard} aria-label={title}>
@@ -191,12 +218,16 @@ function TaskTable({
         rowKey={(row) => `${row.kind}:${row.quoteId}:${row.versionNo}`}
         loading={loading}
         columns={columns}
-        dataSource={[...tasks]}
+        dataSource={shown}
         pagination={false}
+        // Đủ chỗ cho mọi cột (không cột nào bị bóp mất); màn hẹp thì cuộn ngang như danh sách báo giá.
         scroll={{ x: columns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0) }}
-        onRow={(row) => rowOpener(() => openTask(row, openers))}
+        onRow={(row) => ({ ...rowOpener(() => openTask(row, openers)), title: taskActionLabel(row) })}
         locale={{ emptyText: loading ? 'Đang tải…' : emptyText }}
       />
+      {tasks.length > CRM_LIST_PAGE_SIZE ? (
+        <ListPager page={current} total={tasks.length} pageSize={CRM_LIST_PAGE_SIZE} loading={loading} noun="việc" onChange={setPage} />
+      ) : null}
     </section>
   );
 }
@@ -208,8 +239,7 @@ export function ReasonsCell({ reasons }: { reasons: readonly string[] }) {
   return (
     <span className={styles.reasonCell} title={reasons.join('\n')}>
       <span className={styles.reasonFirst}>{reasons[0]}</span>
-      {more > 0 ? <span className={styles.muted}>và {more} lý do khác</span> : null}
+      {more > 0 ? <span className={styles.muted}> và {more} lý do khác</span> : null}
     </span>
   );
 }
-

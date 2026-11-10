@@ -24,5 +24,5 @@ export function fixtureTask(patch: Partial<CrmTask> = {}): CrmTask {
 }
 
 export function fixtureTaskList(patch: Partial<CrmTaskList> = {}): CrmTaskList {
-  return { awaitingMe: [], mine: [], ...patch };
+  return { awaitingMe: [], mine: [], waiting: [], ...patch };
 }

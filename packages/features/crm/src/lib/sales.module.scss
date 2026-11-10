@@ -960,14 +960,20 @@
 }
 
 // Ô lý do của bảng Việc cần xử lý: lý do đầu một dòng, phần còn lại gộp.
-.reasonCell {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+// Chữ không xuống dòng (ngày giờ trong bảng).
+.nowrap {
+  white-space: nowrap;
 }
 
-.reasonFirst {
+// Một dòng như các ô khác của bảng: lý do đầu, "và n lý do khác", cắt bằng dấu ba chấm.
+.reasonCell {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.reasonFirst {
+  white-space: nowrap;
 }

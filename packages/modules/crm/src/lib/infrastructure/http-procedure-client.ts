@@ -21,6 +21,9 @@ export interface ProcedureInstanceState {
   /** `running`, `completed`, `rejected`, `cancelled`, `reversed`. */
   readonly status: string;
   readonly lastActorId: string | null;
+  /** Bước đang xử lý và người xử lý (hồ sơ đang chạy). */
+  readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
 }
 
 export const procedureUnavailable = (message = 'Quy trình đang không khả dụng. Vui lòng thử lại sau.') =>
@@ -99,12 +102,23 @@ export class HttpProcedureClient implements ProcedureClient, ProcedureActionable
     const body = (await response.json().catch(() => null)) as unknown;
     if (!Array.isArray(body)) throw procedureUnavailable('Quy trình trả dữ liệu đối soát không hợp lệ.');
     return body
-      .map((entry: { instanceId?: unknown; instanceCode?: unknown; status?: unknown; lastActorId?: unknown }) => ({
-        instanceId: typeof entry?.instanceId === 'string' ? entry.instanceId : '',
-        instanceCode: typeof entry?.instanceCode === 'string' ? entry.instanceCode : null,
-        status: typeof entry?.status === 'string' ? entry.status : '',
-        lastActorId: typeof entry?.lastActorId === 'string' ? entry.lastActorId : null,
-      }))
+      .map(
+        (entry: {
+          instanceId?: unknown;
+          instanceCode?: unknown;
+          status?: unknown;
+          lastActorId?: unknown;
+          currentStepName?: unknown;
+          currentAssigneeName?: unknown;
+        }) => ({
+          instanceId: typeof entry?.instanceId === 'string' ? entry.instanceId : '',
+          instanceCode: typeof entry?.instanceCode === 'string' ? entry.instanceCode : null,
+          status: typeof entry?.status === 'string' ? entry.status : '',
+          lastActorId: typeof entry?.lastActorId === 'string' ? entry.lastActorId : null,
+          currentStepName: typeof entry?.currentStepName === 'string' ? entry.currentStepName : null,
+          currentAssigneeName: typeof entry?.currentAssigneeName === 'string' ? entry.currentAssigneeName : null,
+        }),
+      )
       .filter((entry) => entry.instanceId && entry.status);
   }
 
