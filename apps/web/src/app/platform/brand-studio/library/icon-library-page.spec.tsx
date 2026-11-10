@@ -240,11 +240,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
 describe('IconLibraryPage: xuất, sao lưu', () => {
   it('Xuất trên thanh công cụ: không chọn thì xuất tất cả, có chọn thì chỉ xuất phần đã chọn', () => {
     render(<IconLibraryPage />);
-    fireEvent.click(screen.getByTitle(`Xuất tất cả ${presetCount} icon`));
+    fireEvent.click(screen.getByRole('button', { name: `Xuất tất cả ${presetCount} icon` }));
     expect(screen.getByTestId('export-dialog').textContent?.split('|')).toHaveLength(presetCount);
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn SVNDTS Master Logo' }));
-    fireEvent.click(screen.getByTitle('Xuất 1 icon đã chọn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất 1 icon đã chọn' }));
     expect(screen.getByTestId('export-dialog').textContent).toBe('SVNDTS Master Logo');
   });
 

@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { Panel, RAISED, RAISED_PRIMARY } from '../components/panel';
 import { ExportDialog } from '../export/export-dialog';
 import { isPresetId, useBrandSettings, useIconLibrary } from '../store';
@@ -271,36 +272,42 @@ export function IconLibraryPage() {
             <Plus aria-hidden className="size-4" />
             Tạo icon mới
           </Link>
-          <Button
-            className={actionBtn}
-            disabled={importing}
-            onClick={() => fileInput.current?.click()}
-            title="Nhập tệp SVG (nhiều tệp) hoặc JSON sao lưu"
-            variant="outline"
-          >
-            <Upload aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Nhập tệp</span>
-          </Button>
-          <Button
-            className={actionBtn}
-            disabled={total === 0}
-            onClick={backup}
-            title="Sao lưu toàn bộ thư viện ra tệp JSON"
-            variant="outline"
-          >
-            <FileJson aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Sao lưu</span>
-          </Button>
-          <Button
-            className={actionBtn}
-            disabled={total === 0}
-            onClick={exportCurrent}
-            title={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}
-            variant="outline"
-          >
-            <Download aria-hidden className="size-4" />
-            <span className="hidden lg:inline">Xuất</span>
-          </Button>
+          <Hint label="Nhập tệp SVG (nhiều tệp) hoặc JSON sao lưu">
+            <Button
+              aria-label="Nhập tệp"
+              className={actionBtn}
+              disabled={importing}
+              onClick={() => fileInput.current?.click()}
+              variant="outline"
+            >
+              <Upload aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Nhập tệp</span>
+            </Button>
+          </Hint>
+          <Hint label="Sao lưu toàn bộ thư viện ra tệp JSON">
+            <Button
+              aria-label="Sao lưu"
+              className={actionBtn}
+              disabled={total === 0}
+              onClick={backup}
+              variant="outline"
+            >
+              <FileJson aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Sao lưu</span>
+            </Button>
+          </Hint>
+          <Hint label={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}>
+            <Button
+              aria-label={picked.length > 0 ? `Xuất ${picked.length} icon đã chọn` : `Xuất tất cả ${total} icon`}
+              className={actionBtn}
+              disabled={total === 0}
+              onClick={exportCurrent}
+              variant="outline"
+            >
+              <Download aria-hidden className="size-4" />
+              <span className="hidden lg:inline">Xuất</span>
+            </Button>
+          </Hint>
           <input
             accept=".svg,.json,image/svg+xml,application/json"
             aria-hidden
@@ -364,15 +371,16 @@ export function IconLibraryPage() {
             value={view.query}
           />
           {view.query ? (
-            <button
-              aria-label="Xoá từ khoá"
-              className="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:text-slate-700"
-              onClick={() => patchView({ query: '' })}
-              title="Xoá từ khoá"
-              type="button"
-            >
-              <X aria-hidden className="size-3.5" />
-            </button>
+            <Hint label="Xoá từ khoá">
+              <button
+                aria-label="Xoá từ khoá"
+                className="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:text-slate-700"
+                onClick={() => patchView({ query: '' })}
+                type="button"
+              >
+                <X aria-hidden className="size-3.5" />
+              </button>
+            </Hint>
           ) : null}
         </div>
 
@@ -400,17 +408,19 @@ export function IconLibraryPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="w-36" title="Sắp xếp">
-            <SearchableSelect
-              clearable={false}
-              height={32}
-              onChange={changeSort}
-              options={SORT_OPTIONS}
-              placeholder="Sắp xếp"
-              searchInDropdown
-              value={view.sort}
-            />
-          </div>
+          <Hint label="Sắp xếp">
+            <div className="w-36">
+              <SearchableSelect
+                clearable={false}
+                height={32}
+                onChange={changeSort}
+                options={SORT_OPTIONS}
+                placeholder="Sắp xếp"
+                searchInDropdown
+                value={view.sort}
+              />
+            </div>
+          </Hint>
           <div aria-label="Kiểu hiển thị" className="flex rounded-md border border-slate-300 bg-white p-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]" role="group">
             <IconButton
               aria-pressed={mode === 'grid'}

@@ -168,7 +168,9 @@ describe('StandardsPage: bảng màu', () => {
     const dataTransfer = { effectAllowed: '', setData: jest.fn() };
     const [from, to] = [rows()[0], rows()[2]];
 
-    fireEvent.mouseDown(within(from).getByTitle('Kéo để đổi thứ tự'));
+    const grip = from.querySelector('.cursor-grab');
+    if (!grip) throw new Error('Không thấy tay nắm kéo thả');
+    fireEvent.mouseDown(grip);
     fireEvent.dragStart(from, { dataTransfer });
     fireEvent.dragOver(to, { dataTransfer });
     fireEvent.drop(to, { dataTransfer });

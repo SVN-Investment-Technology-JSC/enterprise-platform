@@ -5,6 +5,7 @@ import { Popconfirm, type PopconfirmPlacement } from '@enterprise-platform/share
 import { Copy, Download, PencilLine, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconButton } from './library-ui';
 import { asRoute, editorPath } from './routes';
 
@@ -36,14 +37,15 @@ export function IconActions({
 }) {
   return (
     <div className={cn('flex items-center gap-0.5', className)}>
-      <Link
-        aria-label={`Mở ${doc.name} trong trình thiết kế`}
-        className="inline-flex size-7 items-center justify-center rounded text-blue-600 transition-colors outline-none hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600/40"
-        href={asRoute(editorPath(doc.id))}
-        title="Mở trong trình thiết kế"
-      >
-        <PencilLine aria-hidden className="size-4" />
-      </Link>
+      <Hint label="Mở trong trình thiết kế">
+        <Link
+          aria-label={`Mở ${doc.name} trong trình thiết kế`}
+          className="inline-flex size-7 items-center justify-center rounded text-blue-600 transition-colors outline-none hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600/40"
+          href={asRoute(editorPath(doc.id))}
+        >
+          <PencilLine aria-hidden className="size-4" />
+        </Link>
+      </Hint>
       <IconButton label="Nhân bản" onClick={() => onDuplicate(doc)}>
         <Copy aria-hidden className="size-4" />
       </IconButton>

@@ -4,6 +4,7 @@ import type { IconCategory, IconStatus } from '@enterprise-platform/shared-brand
 import { CATEGORY_LABELS } from '@enterprise-platform/shared-brand-icon';
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { STATUS_LABELS } from './library-filters';
 
 /** Nút chỉ có biểu tượng; `label` vừa là tooltip (title) vừa là tên cho trình đọc màn hình. */
@@ -15,21 +16,22 @@ export function IconButton({
   ...rest
 }: Omit<ComponentProps<'button'>, 'title' | 'aria-label'> & { label: string; tone?: 'default' | 'danger' | 'primary' }) {
   return (
-    <button
-      aria-label={label}
-      className={cn(
-        'inline-flex size-7 shrink-0 items-center justify-center rounded text-slate-500 transition-colors outline-none',
-        'hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-blue-600/40 disabled:pointer-events-none disabled:opacity-40',
-        tone === 'danger' && 'hover:bg-red-50 hover:text-red-600',
-        tone === 'primary' && 'text-blue-600 hover:bg-blue-50 hover:text-blue-700',
-        className,
-      )}
-      title={label}
-      type="button"
-      {...rest}
-    >
-      {children}
-    </button>
+    <Hint label={label}>
+      <button
+        aria-label={label}
+        className={cn(
+          'inline-flex size-7 shrink-0 items-center justify-center rounded text-slate-500 transition-colors outline-none',
+          'hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-blue-600/40 disabled:pointer-events-none disabled:opacity-40',
+          tone === 'danger' && 'hover:bg-red-50 hover:text-red-600',
+          tone === 'primary' && 'text-blue-600 hover:bg-blue-50 hover:text-blue-700',
+          className,
+        )}
+        type="button"
+        {...rest}
+      >
+        {children}
+      </button>
+    </Hint>
   );
 }
 
@@ -97,16 +99,17 @@ export function SelectBox({
   className?: string;
 }) {
   return (
-    <input
-      aria-label={label}
-      checked={checked}
-      className={cn('size-4 cursor-pointer rounded border-slate-300 accent-blue-600', className)}
-      onChange={(event) => onChange(event.target.checked)}
-      ref={(node) => {
-        if (node) node.indeterminate = Boolean(indeterminate) && !checked;
-      }}
-      title={label}
-      type="checkbox"
-    />
+    <Hint label={label}>
+      <input
+        aria-label={label}
+        checked={checked}
+        className={cn('size-4 cursor-pointer rounded border-slate-300 accent-blue-600', className)}
+        onChange={(event) => onChange(event.target.checked)}
+        ref={(node) => {
+          if (node) node.indeterminate = Boolean(indeterminate) && !checked;
+        }}
+        type="checkbox"
+      />
+    </Hint>
   );
 }
