@@ -2,7 +2,7 @@
 
 import type { IconCategory, IconStatus } from '@enterprise-platform/shared-brand-icon';
 import { CATEGORY_LABELS } from '@enterprise-platform/shared-brand-icon';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
 import { Hint } from '../components/hint';
 import { STATUS_LABELS } from './library-filters';
@@ -52,36 +52,6 @@ export function StatusChip({ status }: { status: IconStatus }) {
 
 export function categoryLabel(category: IconCategory): string {
   return CATEGORY_LABELS[category];
-}
-
-/** Nút lọc dạng chip; `count` là số icon sẽ hiện ra khi chọn. */
-export function FilterChip({
-  active,
-  count,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  count?: number;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      aria-pressed={active}
-      className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-600/40',
-        active ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-      {count === undefined ? null : (
-        <span className={cn('tabular-nums', active ? 'text-blue-100' : 'text-slate-400')}>{count}</span>
-      )}
-    </button>
-  );
 }
 
 /** Ô tick chọn icon; dùng input gốc để bàn phím và trình đọc màn hình hoạt động sẵn. */
