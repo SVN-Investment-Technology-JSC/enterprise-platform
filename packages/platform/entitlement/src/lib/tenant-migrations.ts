@@ -663,6 +663,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0009-occurrence-dispatch-retry',
       path: 'tenant/maintenance/0009-occurrence-dispatch-retry.sql',
     },
+    {
+      version: '0010-schedule-archive',
+      path: 'tenant/maintenance/0010-schedule-archive.sql',
+    },
   ],
   workspace: [
     { version: '0001-workspace', path: 'tenant/workspace/0001-workspace.sql' },

@@ -108,3 +108,51 @@ describe('gửi phiếu bảo trì sang Quy trình', () => {
     await expect(store.retryDispatch('tenant', 'occ-x')).rejects.toMatchObject({ name: 'MaintenanceError' });
   });
 });
+
+describe('lưu trữ và bật lại lịch', () => {
+  function pool(current: Record<string, unknown>[] = []) {
+    // Hàng đủ cột để mapSchedule dựng được lịch trả về sau UPDATE.
+    const rows = current.map((row) => ({
+      id: 'sch-1', code: 'SCH-1', title: 'Bảo trì', asset_code: 'MBA-T1', priority: 'Normal', start_date: '2026-01-01',
+      timezone: 'Asia/Ho_Chi_Minh', created_at: new Date(), updated_at: new Date(), ...row,
+    }));
+    const query = jest.fn(async (_sql: string, _params?: unknown[]) => ({ rows, rowCount: rows.length || 1 }));
+    const store = new PostgresMaintenanceStore(
+      { require: () => ({ tenantId: 'tenant' }) } as unknown as TenantDatabaseRegistry,
+      { forTenant: async () => ({ query }) } as unknown as PostgresPoolRegistry,
+      'http://procedure.test',
+    );
+    return { store, query };
+  }
+
+  it('gỡ thiết bị chỉ lưu trữ lịch, không xoá phiếu hay lịch', async () => {
+    const { store, query } = pool();
+    await store.removeSchedulesForAsset('tenant', 'MBA-T1');
+    const sql = query.mock.calls.map(([text]) => String(text)).join('\n');
+    expect(sql).toContain('archived_at = now()');
+    expect(sql).not.toMatch(/DELETE/i);
+  });
+
+  it('bật lại lịch với ngày người dùng chọn: đặt hạn và ngày bắt đầu theo ngày đó', async () => {
+    const { store, query } = pool([{ status: 'paused', frequency: 'week', next_due_at: '2026-03-01T00:00:00Z' }]);
+    await store.updateSchedule('tenant', 'sch-1', { status: 'active' }, { nextDueAt: '2026-11-20' });
+    const update = query.mock.calls.find(([sql]) => String(sql).includes('UPDATE maintenance_schema.schedules SET'));
+    expect(update?.[1]?.[5]).toEqual(new Date('2026-11-20'));
+    expect(update?.[1]?.[6]).toBe('2026-11-20');
+  });
+
+  it('bật lại lịch có hạn cũ đã qua và không có ngày chọn: dời sang kỳ kế tiếp trong tương lai', async () => {
+    const { store, query } = pool([{ status: 'paused', frequency: 'week', next_due_at: '2026-03-01T00:00:00Z' }]);
+    await store.updateSchedule('tenant', 'sch-1', { status: 'active' });
+    const update = query.mock.calls.find(([sql]) => String(sql).includes('UPDATE maintenance_schema.schedules SET'));
+    const nextDueAt = update?.[1]?.[5] as Date;
+    expect(nextDueAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('lịch đang chạy sửa ưu tiên thì không đổi hạn', async () => {
+    const { store, query } = pool([{ status: 'active', frequency: 'week', next_due_at: '2026-12-01T00:00:00Z' }]);
+    await store.updateSchedule('tenant', 'sch-1', { priority: 'High' });
+    const update = query.mock.calls.find(([sql]) => String(sql).includes('UPDATE maintenance_schema.schedules SET'));
+    expect(update?.[1]?.[5]).toBeNull();
+  });
+});

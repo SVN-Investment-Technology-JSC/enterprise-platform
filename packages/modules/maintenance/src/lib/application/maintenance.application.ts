@@ -186,7 +186,9 @@ export class MaintenanceApplication {
         const own = state.schedules.filter((schedule) => schedule.assetCode === asset.code);
         const cells: Partial<Record<MaintenanceFrequency, MaintenanceMatrixRow['cells'][MaintenanceFrequency]>> = {};
         for (const schedule of own) {
-          if (schedule.status === 'paused') continue;
+          // Tạm dừng hoặc nháp đều là "chưa bật": thiết bị vừa thêm từ Kho (nháp) không được tick sẵn rồi bị bật ở lần
+          // Lưu bất kỳ.
+          if (schedule.status === 'paused' || schedule.status === 'draft') continue;
           cells[schedule.frequency] = {
             scheduleId: schedule.id,
             status: schedule.status,
@@ -214,11 +216,11 @@ export class MaintenanceApplication {
   }
 
   /**
-   * Gỡ hẳn một thiết bị khỏi ma trận: xoá mọi lịch của nó.
+   * Gỡ một thiết bị khỏi ma trận: lưu trữ mọi lịch của nó (không xoá).
    *
-   * Khác với bỏ tick một chu kỳ — cái đó chỉ tạm dừng và giữ lại lịch sử. Gỡ
-   * thiết bị là nói rằng nó không còn thuộc kế hoạch bảo trì nữa, nên hàng phải
-   * biến mất khỏi bảng chứ không nằm lại ở trạng thái tạm dừng.
+   * Khác với bỏ tick một chu kỳ — cái đó chỉ tạm dừng và hàng vẫn nằm trong bảng. Gỡ thiết bị là nói rằng nó không còn
+   * thuộc kế hoạch bảo trì nữa, nên hàng biến mất khỏi bảng và lịch ngừng sinh phiếu; nhưng phiếu và tệp đã có vẫn giữ
+   * trong Lịch sử, vì đó là hồ sơ thật về công việc đã làm.
    */
   async removeAssetFromMatrix(actor: MaintenanceActor, assetCode: string): Promise<{ removed: number }> {
     this.requireManager(actor);
@@ -318,7 +320,13 @@ export class MaintenanceApplication {
         if (entry.priority && match.priority !== entry.priority) patch.priority = entry.priority;
         if (Object.keys(patch).length === 0) continue;
 
-        await this.store.updateSchedule(actor.tenantId, match.id, patch);
+        // Bật lại lịch: áp ngày bắt đầu người dùng chọn cho đúng ô này (nếu có) thay vì giữ hạn cũ.
+        await this.store.updateSchedule(
+          actor.tenantId,
+          match.id,
+          patch,
+          patch.status === 'active' ? { nextDueAt: entry.startDates?.[frequency] } : undefined,
+        );
         if (patch.status === 'active') result.reactivated += 1;
         else result.updated += 1;
       }

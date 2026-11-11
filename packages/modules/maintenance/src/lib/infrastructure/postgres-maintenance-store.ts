@@ -81,6 +81,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       pool.query<Row>(`SELECT s.*, p.code AS procedure_code, p.name AS procedure_name
         FROM maintenance_schema.schedules s
         LEFT JOIN maintenance_schema.procedure_catalog p ON p.definition_id = s.procedure_definition_id
+        WHERE s.archived_at IS NULL
         ORDER BY s.created_at DESC`),
       // LEFT JOIN: sự cố không có lịch cha, INNER JOIN sẽ làm chúng biến mất
       // khỏi mọi màn hình. COALESCE để phiếu định kỳ vẫn lấy được thiết bị và
@@ -193,22 +194,19 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
   }
 
   /** Actor nội bộ có userId 'system' — không phải uuid, ghi NULL thay vì vỡ kiểu. */
+  /**
+   * Gỡ thiết bị khỏi ma trận bằng cách LƯU TRỮ lịch, không xoá: lịch ẩn khỏi ma trận và ngừng sinh phiếu, còn các phiếu
+   * đã sinh (kể cả phiếu hoàn thành, nhật ký và tệp đính kèm) vẫn nằm trong Lịch sử. Trả về số lịch vừa lưu trữ.
+   */
   async removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
-    return inTransaction(pool, async (client) => {
-      // Phiếu tham chiếu lịch bằng khoá ngoại nên phải xoá trước; phiếu đã mở hồ
-      // sơ bên Quy trình thì hồ sơ đó vẫn còn, chỉ mất đường quay ngược về lịch.
-      await client.query(
-        `DELETE FROM maintenance_schema.occurrences
-          WHERE schedule_id IN (SELECT id FROM maintenance_schema.schedules WHERE asset_code = $1)`,
-        [assetCode],
-      );
-      const result = await client.query(
-        `DELETE FROM maintenance_schema.schedules WHERE asset_code = $1`,
-        [assetCode],
-      );
-      return result.rowCount ?? 0;
-    });
+    const result = await pool.query(
+      `UPDATE maintenance_schema.schedules
+          SET archived_at = now(), status = 'paused', paused_reason = 'MANUAL', updated_at = now()
+        WHERE asset_code = $1 AND archived_at IS NULL`,
+      [assetCode],
+    );
+    return result.rowCount ?? 0;
   }
 
   async markSchedulesDueNow(
@@ -462,16 +460,47 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     }
   }
 
-  async updateSchedule(tenantId: string, id: string, input: UpdateMaintenanceScheduleRequest): Promise<MaintenanceSchedule> {
+  async updateSchedule(
+    tenantId: string,
+    id: string,
+    input: UpdateMaintenanceScheduleRequest,
+    options?: { readonly nextDueAt?: string },
+  ): Promise<MaintenanceSchedule> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
+
+    // Bật lại một lịch đang tạm dừng/nháp: hạn cũ có thể đã qua nhiều kỳ, để nguyên thì scheduler sinh dồn phiếu quá
+    // hạn từng phút một. Dời sang ngày người dùng chọn, hoặc kỳ kế tiếp tính từ hôm nay.
+    let nextDueAt: Date | null = null;
+    let startDate: string | null = null;
+    if (input.status === 'active') {
+      const current = (
+        await pool.query<Row>(
+          `SELECT status, frequency, next_due_at FROM maintenance_schema.schedules WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+      if (current && current.status !== 'active') {
+        const startOfToday = new Date(new Date().toISOString().slice(0, 10));
+        if (options?.nextDueAt) {
+          nextDueAt = new Date(options.nextDueAt);
+          startDate = options.nextDueAt;
+        } else if (!current.next_due_at || asDate(current.next_due_at) < startOfToday) {
+          nextDueAt = nextDue(startOfToday, String(current.frequency), await readFrequencyCatalog(pool));
+        }
+      }
+    }
+
     const result = await pool.query<Row>(`UPDATE maintenance_schema.schedules SET
       status=COALESCE($2,status),
       priority=COALESCE($3,priority),
       paused_reason=CASE WHEN $2='paused' THEN 'MANUAL' WHEN $2='active' THEN NULL ELSE paused_reason END,
       procedure_definition_id=CASE WHEN $4::boolean THEN $5 ELSE procedure_definition_id END,
+      next_due_at=COALESCE($6::timestamptz,next_due_at),
+      start_date=COALESCE($7::date,start_date),
       updated_at=now() WHERE id=$1 RETURNING *`, [
       id, input.status ?? null, input.priority ?? null,
       'procedureDefinitionId' in input, input.procedureDefinitionId ?? null,
+      nextDueAt, startDate,
     ]);
     if (!result.rows[0]) throw new MaintenanceError('not_found', 'Không tìm thấy lịch bảo trì.');
     return mapSchedule(result.rows[0]);

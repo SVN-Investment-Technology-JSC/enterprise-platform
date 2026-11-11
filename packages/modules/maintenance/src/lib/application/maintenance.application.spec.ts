@@ -54,6 +54,65 @@ describe('MaintenanceApplication', () => {
     });
   });
 
+  describe('ma trận: lịch nháp, tạm dừng và bật lại', () => {
+    const actor = { tenantId: 'tenant', userId: 'user', displayName: 'Admin', canManage: true };
+    const schedule = (overrides: Record<string, unknown>) => ({
+      id: 'sch-1',
+      code: 'SCH-1',
+      title: 'Bảo trì MBA-T1',
+      assetCode: 'MBA-T1',
+      frequency: 'week',
+      priority: 'Normal',
+      status: 'active',
+      startDate: '2026-01-01',
+      timezone: 'Asia/Ho_Chi_Minh',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    });
+
+    it('lịch nháp (thiết bị vừa thêm từ Kho) không được tick sẵn', async () => {
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'draft' }), schedule({ id: 'sch-2', frequency: 'month', status: 'active' })],
+        }),
+      } as unknown as MaintenanceStore;
+      const matrix = await new MaintenanceApplication(store).getMatrix(actor);
+      expect(Object.keys(matrix.rows[0].cells)).toEqual(['month']);
+    });
+
+    it('bật lại lịch tạm dừng thì truyền ngày bắt đầu người dùng chọn', async () => {
+      const updateSchedule = jest.fn().mockResolvedValue({});
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'paused' })],
+        }),
+        updateSchedule,
+      } as unknown as MaintenanceStore;
+      await new MaintenanceApplication(store).saveMatrix(actor, {
+        entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], startDates: { week: '2026-11-20' } }],
+      });
+      expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { status: 'active' }, { nextDueAt: '2026-11-20' });
+    });
+
+    it('sửa ưu tiên của lịch đang chạy không đụng tới hạn', async () => {
+      const updateSchedule = jest.fn().mockResolvedValue({});
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'active' })],
+        }),
+        updateSchedule,
+      } as unknown as MaintenanceStore;
+      await new MaintenanceApplication(store).saveMatrix(actor, {
+        entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], priority: 'High', startDates: { week: '2026-11-20' } }],
+      });
+      expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { priority: 'High' }, undefined);
+    });
+  });
+
   it('runs maintenance now for a specific frequency', async () => {
     const store = {
       markSchedulesDueNow: jest.fn().mockResolvedValue(1),

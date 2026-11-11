@@ -193,7 +193,7 @@ export function MaintenanceMatrixBoard({
   onEditTasks?: (assetCode: string) => void;
   /** Thêm một thiết bị của Kho vào ma trận. */
   onAddAsset?: (assetCode: string) => void;
-  /** Gỡ thiết bị khỏi ma trận, xoá mọi lịch của nó. */
+  /** Gỡ thiết bị khỏi ma trận: lưu trữ lịch của nó, giữ lịch sử phiếu. */
   onRemoveAsset?: (assetCodes: readonly string[]) => void | Promise<void>;
   /** Tạo phiếu bảo trì ngay cho thiết bị. */
   onRunNow?: (assetCodes: readonly string[]) => void | Promise<void>;
@@ -1628,7 +1628,7 @@ export function MaintenanceMatrixBoard({
         open={confirming === 'remove'}
         onOpenChange={(open) => setConfirming(open ? 'remove' : undefined)}
         title={`Gỡ ${selectedRows.length} thiết bị khỏi ma trận?`}
-        description="Các thiết bị đã chọn sẽ bị gỡ khỏi ma trận bảo trì và toàn bộ lịch định kỳ liên quan sẽ bị xoá. Hành động này không hoàn tác được."
+        description="Các thiết bị đã chọn sẽ bị gỡ khỏi ma trận và ngừng sinh phiếu định kỳ. Lịch sử phiếu và tệp đính kèm đã có vẫn được giữ trong mục Lịch sử; thêm lại thiết bị từ Kho khi cần."
         confirmText="Gỡ thiết bị"
         destructive
         busy={bulkRunning}
