@@ -86,6 +86,7 @@ interface HeadRow {
   customer_code: string;
   customer_name: string;
   customer_group_id: string | null;
+  customer_price_list_id?: string | null;
   owner_user_id: string;
   status: QuoteStatus;
   current_version: number;
@@ -201,7 +202,7 @@ interface PolicyRow {
 
 const HEAD_COLUMNS = `
   q.id, q.code, q.opportunity_id, o.name AS opportunity_name, q.customer_id, c.code AS customer_code,
-  c.name AS customer_name, c.group_id AS customer_group_id, q.owner_user_id, q.status, q.current_version,
+  c.name AS customer_name, c.group_id AS customer_group_id, c.price_list_id AS customer_price_list_id, q.owner_user_id, q.status, q.current_version,
   v.quote_name, q.valid_until::text AS valid_until, q.accepted_version, q.converted_at, v.total_amount, q.created_at, q.updated_at,
   ${cursorAt('q.updated_at')} AS cursor_at`;
 
@@ -367,6 +368,7 @@ export class PostgresQuoteStore implements QuoteStore {
       customerId: head.customer_id,
       customerName: head.customer_name,
       customerGroupId: head.customer_group_id,
+      customerPriceListId: head.customer_price_list_id ?? null,
       ownerUserId: head.owner_user_id,
       status: head.status,
       currentVersion: head.current_version,

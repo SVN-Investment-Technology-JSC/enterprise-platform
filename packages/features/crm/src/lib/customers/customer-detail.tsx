@@ -131,6 +131,16 @@ export function CustomerDetail({
             <dd className={styles.mono}>{customer.taxCode ?? ''}</dd>
             <dt>Nhóm</dt>
             <dd>{customer.groupName ?? ''}</dd>
+            <dt>Bảng giá</dt>
+            <dd>
+              {customer.priceListName ? (
+                <>
+                  {customer.priceListName} <span className={styles.mono}>{customer.priceListCode}</span>
+                </>
+              ) : (
+                <span className={styles.muted}>Bảng giá chuẩn</span>
+              )}
+            </dd>
             <dt>Người phụ trách</dt>
             <dd>{personName(people, customer.ownerUserId)}</dd>
             <dt>Địa chỉ</dt>

@@ -441,7 +441,7 @@ integration('Bán hàng GĐ2: khách hàng, lead, cơ hội, hoạt động (Pos
             expectedVersion: lead.version,
             customer: {
               name: 'Lead lỗi giữa chừng', taxCode: null, address: null, province: null, region: null, industry: null,
-              phone: null, email: null, groupId: null, kind: 'LEAD_CUSTOMER', creditLimit: null, paymentTermDays: null,
+              phone: null, email: null, groupId: null, priceListId: null, kind: 'LEAD_CUSTOMER', creditLimit: null, paymentTermDays: null,
               note: null, ownerUserId: NV1,
             },
             contact: { fullName: 'Chị Hoa', title: null, phone: null, email: null, note: null, isPrimary: true },

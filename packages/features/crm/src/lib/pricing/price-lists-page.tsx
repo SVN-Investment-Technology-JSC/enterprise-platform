@@ -12,7 +12,7 @@ import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ClipboardPaste, Plus, X } from 'lucide-react';
+import { ClipboardPaste, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import {
@@ -25,14 +25,14 @@ import {
   updatePriceList,
   upsertPriceListItems,
 } from '../crm-api';
-import { groupOptions, labelOptions, useCrm } from '../crm-context';
+import { labelOptions } from '../crm-context';
 import styles from '../sales.module.scss';
 import { AddPriceItemsDialog, EditPriceItemDialog } from './price-list-item-dialogs';
 import { formatMoney, formatPercent, parsePastedItems, priceListScopeLabel, validityLabel } from './pricing.model';
 
 const KIND_OPTIONS = [
-  { value: 'group', label: 'Theo nhóm khách hàng' },
-  { value: 'standard', label: 'Bảng giá chuẩn (mọi khách)' },
+  { value: 'group', label: 'Bảng giá riêng (chọn ở hồ sơ khách hàng)' },
+  { value: 'standard', label: 'Bảng giá chuẩn (khách chưa chọn bảng giá)' },
 ];
 
 /**
@@ -125,8 +125,9 @@ export function PriceListsPage() {
           </button>
         </div>
         <p className={styles.muted}>
-          Giá áp theo thứ tự: giá hợp đồng, bảng giá của nhóm khách, bảng giá chuẩn. Hai bảng đang áp dụng cho cùng một
-          nhóm (hoặc hai bảng chuẩn) không được trùng thời gian hiệu lực.
+          Giá gốc khi báo giá lấy theo thứ tự: giá hợp đồng, bảng giá chọn ở hồ sơ khách hàng, bảng giá chuẩn. Bảng giá
+          riêng chọn cho từng khách ở hồ sơ khách hàng (ô "Bảng giá"). Hai bảng giá chuẩn đang áp dụng không được trùng
+          thời gian hiệu lực.
         </p>
         {error ? <p className={styles.alert}>{error}</p> : null}
         <Table<PriceListSummary>
@@ -166,7 +167,6 @@ function PriceListDialog({
   onClose: () => void;
   onSaved: (saved: PriceListDetail) => void;
 }) {
-  const { groups } = useCrm();
   const [code, setCode] = useState(list?.code ?? '');
   const [name, setName] = useState(list?.name ?? '');
   const [kind, setKind] = useState(list?.isStandard ? 'standard' : 'group');
@@ -174,12 +174,10 @@ function PriceListDialog({
   const [validTo, setValidTo] = useState(list?.validTo ?? '');
   const [status, setStatus] = useState<string>(list?.status ?? 'ACTIVE');
   const [note, setNote] = useState(list?.note ?? '');
-  const [groupIds, setGroupIds] = useState<string[]>(list?.customerGroups.map((group) => group.id) ?? []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
 
   const isStandard = kind === 'standard';
-  const remaining = groupOptions(groups).filter((option) => !groupIds.includes(option.value));
 
   async function submit() {
     if (!code.trim() || !name.trim() || !validFrom) return setError('Vui lòng nhập mã, tên và ngày bắt đầu hiệu lực.');
@@ -193,7 +191,6 @@ function PriceListDialog({
       validTo: validTo || null,
       status: status as PricingStatus,
       note: note.trim() || null,
-      customerGroupIds: isStandard ? [] : groupIds,
     };
     try {
       const saved = list ? await updatePriceList(list.id, body) : await createPriceList(body);
@@ -239,34 +236,10 @@ function PriceListDialog({
           <DatePickerInput value={validTo || undefined} onChange={setValidTo} min={validFrom || undefined} height={38} aria-label="Hiệu lực đến ngày" />
         </Field>
         {isStandard ? null : (
-          <Field label="Nhóm khách hàng áp dụng" wide hint="Một nhóm chỉ có một bảng giá đang áp dụng tại một thời điểm">
-            <div className={styles.toolbar}>
-              {groupIds.map((id) => {
-                const group = groups.find((entry) => entry.id === id);
-                return (
-                  <span key={id} className={`${styles.pill} ${styles.pill_info}`}>
-                    {group?.name ?? id}
-                    <button
-                      type="button"
-                      className={styles.iconButton}
-                      aria-label={`Bỏ nhóm ${group?.name ?? ''}`}
-                      onClick={() => setGroupIds((current) => current.filter((entry) => entry !== id))}
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                );
-              })}
-              <SearchableSelect
-                className={styles.filter}
-                options={remaining}
-                value=""
-                placeholder="Thêm nhóm khách"
-                emptyText="Không còn nhóm nào"
-                onChange={(value) => value && setGroupIds((current) => [...current, value])}
-              />
-            </div>
-          </Field>
+          <p className={styles.muted}>
+            Bảng giá riêng không gắn với nhóm khách: chọn bảng giá cho từng khách ở hồ sơ khách hàng (ô "Bảng giá").
+            {list?.customerCount ? ` Đang có ${list.customerCount} khách hàng chọn bảng giá này.` : ''}
+          </p>
         )}
         <Field label="Ghi chú" wide>
           <textarea className={styles.textarea} rows={2} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} />

@@ -61,6 +61,8 @@ export interface QuoteHead {
   readonly customerId: string;
   readonly customerName: string;
   readonly customerGroupId: string | null;
+  /** Bảng giá khách đã chọn ở hồ sơ (D3-38). */
+  readonly customerPriceListId?: string | null;
   readonly ownerUserId: string;
   readonly status: QuoteStatus;
   readonly currentVersion: number;

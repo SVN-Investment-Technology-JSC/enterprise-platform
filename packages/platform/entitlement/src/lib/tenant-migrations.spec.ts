@@ -70,6 +70,7 @@ describe('danh sách migration của tenant', () => {
     const crm = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
     expect(crm.indexOf('0036-business-plan-procedure')).toBe(crm.indexOf('0035-sales-organizations') + 1);
     expect(crm.indexOf('0037-line-warehouses')).toBe(crm.indexOf('0036-business-plan-procedure') + 1);
+    expect(crm.indexOf('0038-customer-price-list')).toBe(crm.indexOf('0037-line-warehouses') + 1);
     const procedure = TENANT_MODULE_MIGRATIONS['procedure-engine'].map((item) => item.version);
     expect(procedure.indexOf('0015-instance-source-summary')).toBe(procedure.indexOf('0014-everyone-subject') + 1);
     expect(TENANT_MODULE_MIGRATIONS['procedure-engine']).toContainEqual({

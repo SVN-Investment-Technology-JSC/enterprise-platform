@@ -866,7 +866,7 @@ export class QuoteService {
     const date = next.priceDate ?? this.today();
     const materialIds = [...new Set(next.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, date, quote.head.customerGroupId, materialIds),
+      this.pricing.priceListsForPricing(tenantId, date, quote.head.customerPriceListId ?? null, materialIds),
       this.pricing.policiesForPricing(tenantId, date),
       this.pricing.discountCapPercent(tenantId),
       materialIds.length ? this.catalog.materials(tenantId, materialIds) : Promise.resolve(new Map<string, CatalogMaterial>()),
@@ -900,6 +900,7 @@ export class QuoteService {
       date,
       customerId: quote.head.customerId,
       customerGroupId: quote.head.customerGroupId,
+      customerPriceListId: quote.head.customerPriceListId ?? null,
       lines: inputs,
       priceLists,
       policies,

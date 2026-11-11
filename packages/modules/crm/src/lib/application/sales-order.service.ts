@@ -209,6 +209,7 @@ export class SalesOrderService {
       date: header.priceDate ?? today,
       customerId,
       customerGroupId: customer.groupId,
+      customerPriceListId: customer.priceListId ?? null,
       contractId: contract?.id ?? null,
       lines: drafts,
       shipping: header.shipping,
@@ -276,6 +277,7 @@ export class SalesOrderService {
       date: header.priceDate ?? this.today(),
       customerId: order.customerId,
       customerGroupId: customer?.groupId ?? null,
+      customerPriceListId: customer?.priceListId ?? null,
       contractId: order.contractId,
       lines: drafts,
       shipping: header.shipping,
@@ -877,6 +879,7 @@ export class SalesOrderService {
       readonly date: string;
       readonly customerId: string;
       readonly customerGroupId: string | null;
+      readonly customerPriceListId: string | null;
       readonly contractId: string | null;
       readonly lines: readonly LineDraft[];
       readonly shipping: { amount: number; vatRate: number };
@@ -898,7 +901,7 @@ export class SalesOrderService {
     }
     const materialIds = [...new Set(input.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, contractPrices, known] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, input.date, input.customerGroupId, materialIds),
+      this.pricing.priceListsForPricing(tenantId, input.date, input.customerPriceListId, materialIds),
       this.pricing.policiesForPricing(tenantId, input.date),
       this.pricing.discountCapPercent(tenantId),
       this.pricing.contractPricesForPricing(tenantId, input.date, input.customerId, materialIds, input.contractId),
@@ -917,6 +920,7 @@ export class SalesOrderService {
       date: input.date,
       customerId: input.customerId,
       customerGroupId: input.customerGroupId,
+      customerPriceListId: input.customerPriceListId,
       lines: inputs,
       priceLists,
       policies,

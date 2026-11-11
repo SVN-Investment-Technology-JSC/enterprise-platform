@@ -110,39 +110,36 @@ integration('Bán hàng GĐ3a: bảng giá, chính sách, thử tính giá (Post
     await lists.remove(admin, inactive.id);
   });
 
-  it('TC-PRC-02: bảng A cho VIP 01/12–31/12, tạo bảng B cho VIP 15/12–15/01 trả 409', async () => {
-    const a = await lists.create(admin, {
-      code: 'A',
-      name: 'Bảng A',
-      validFrom: '2026-12-01',
-      validTo: '2026-12-31',
-      customerGroupIds: [vipGroupId],
-    });
-    expect(a.customerGroups).toEqual([{ id: vipGroupId, code: 'VIP', name: 'Khách VIP' }]);
+  it('TC-PRC-02, D3-38: bảng giá riêng không gán nhóm; khách chọn bảng giá ở hồ sơ; bảng riêng được trùng hiệu lực', async () => {
+    const a = await lists.create(admin, { code: 'A', name: 'Bảng A', validFrom: '2026-12-01', validTo: '2026-12-31' });
+    expect(a.customerCount).toBe(0);
     await lists.addItem(admin, a.id, item(950_000));
-
-    await expect(
-      lists.create(admin, { code: 'B', name: 'Bảng B', validFrom: '2026-12-15', validTo: '2027-01-15', customerGroupIds: [vipGroupId] }),
-    ).rejects.toMatchObject({ statusCode: 409, code: 'PRICE_LIST_OVERLAP', message: 'Trùng thời gian hiệu lực với bảng giá A' });
-
-    // Tạo B không nhóm rồi gán VIP cũng bị chặn; hiệu lực nối tiếp thì được.
+    // Bảng riêng chọn theo từng khách nên trùng thời gian hiệu lực với bảng riêng khác vẫn tạo được.
     const b = await lists.create(admin, { code: 'B', name: 'Bảng B', validFrom: '2026-12-15', validTo: '2027-01-15' });
-    await expect(lists.assignGroups(admin, b.id, [vipGroupId])).rejects.toMatchObject({ statusCode: 409 });
-    const moved = await lists.update(admin, b.id, { code: 'B', name: 'Bảng B', validFrom: '2027-01-01', validTo: '2027-01-15' });
-    expect(moved.customerGroups).toEqual([]);
-    await expect(lists.assignGroups(admin, b.id, [vipGroupId])).resolves.toMatchObject({ customerGroups: [expect.objectContaining({ code: 'VIP' })] });
-    await expect(lists.update(admin, b.id, { code: 'B', name: 'Bảng B', validFrom: '2026-12-31', validTo: '2027-01-15' })).rejects.toMatchObject({
-      statusCode: 409,
-    });
+    const writer = { ...admin, canWriteOpportunity: true };
+    const current = await customers.get(writer, vipCustomerId);
+    await customers.update(writer, vipCustomerId, { code: current.code, version: current.version, name: current.name, priceListId: a.id });
+    const chosen = await customers.get(writer, vipCustomerId);
+    expect(chosen).toMatchObject({ priceListId: a.id, priceListCode: 'A', priceListName: 'Bảng A' });
+    await expect(lists.get(admin, a.id)).resolves.toMatchObject({ customerCount: 1 });
+    // Chọn bảng chuẩn cho khách bị chặn.
+    const standard = (await lists.list(admin)).find((list) => list.isStandard);
+    if (standard) {
+      await expect(
+        customers.update(writer, vipCustomerId, { code: chosen.code, version: chosen.version, name: chosen.name, priceListId: standard.id }),
+      ).rejects.toMatchObject({ code: 'PRICE_LIST_STANDARD' });
+    }
     await lists.remove(admin, b.id);
     await expect(lists.get(admin, b.id)).rejects.toMatchObject({ statusCode: 404 });
   });
 
-  it('TC-PRC-01: bảng nhóm áp ngày 31/12, sang 01/01 dùng bảng chuẩn', async () => {
+  it('TC-PRC-01: bảng của khách áp ngày 31/12, sang 01/01 dùng bảng chuẩn; nhóm khách không còn chọn bảng giá', async () => {
     const at = async (date: string) =>
-      (await pricing.preview(seller, { customerGroupId: vipGroupId, date, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] })).lines[0];
+      (await pricing.preview(seller, { customerId: vipCustomerId, date, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] })).lines[0];
     await expect(at('2026-12-31')).resolves.toMatchObject({ priceSource: 'GROUP_LIST', listPrice: 950_000, priceReferenceCode: 'A' });
     await expect(at('2027-01-01')).resolves.toMatchObject({ priceSource: 'STANDARD_LIST', listPrice: 1_000_000 });
+    const byGroup = await pricing.preview(seller, { customerGroupId: vipGroupId, date: '2026-12-31', lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] });
+    expect(byGroup.lines[0]).toMatchObject({ priceSource: 'STANDARD_LIST' });
   });
 
   it('CRUD chính sách: bậc số lượng, VIP; trùng mã 409; NV không ghi được', async () => {

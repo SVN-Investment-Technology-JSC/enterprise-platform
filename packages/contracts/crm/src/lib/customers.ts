@@ -74,6 +74,13 @@ export interface CustomerSummary {
   readonly kindName: string;
   readonly groupId: string | null;
   readonly groupName: string | null;
+  /**
+   * Bảng giá áp cho khách (D3-38), chọn ở hồ sơ khách; không phụ thuộc nhóm khách. Rỗng, hết hiệu lực hoặc đã tắt thì
+   * tính theo bảng giá chuẩn.
+   */
+  readonly priceListId: string | null;
+  readonly priceListCode: string | null;
+  readonly priceListName: string | null;
   readonly ownerUserId: string;
   readonly primaryContactName: string | null;
   readonly updatedAt: string;
@@ -116,6 +123,8 @@ export interface CustomerFields {
   readonly phone?: string | null;
   readonly email?: string | null;
   readonly groupId?: string | null;
+  /** Bảng giá áp cho khách (D3-38); `null` là theo bảng giá chuẩn. Bỏ trống khi sửa thì giữ nguyên. */
+  readonly priceListId?: string | null;
   readonly kind?: CustomerKind;
   readonly creditLimit?: number | null;
   readonly paymentTermDays?: number | null;

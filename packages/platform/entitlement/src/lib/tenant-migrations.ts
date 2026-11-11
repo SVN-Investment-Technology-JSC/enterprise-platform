@@ -151,6 +151,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0035-sales-organizations', path: 'tenant/crm/0035-sales-organizations.sql' },
     { version: '0036-business-plan-procedure', path: 'tenant/crm/0036-business-plan-procedure.sql' },
     { version: '0037-line-warehouses', path: 'tenant/crm/0037-line-warehouses.sql' },
+    { version: '0038-customer-price-list', path: 'tenant/crm/0038-customer-price-list.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },

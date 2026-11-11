@@ -43,27 +43,12 @@ export interface PriceListStore {
   listPriceLists(tenantId: string): Promise<PriceListSummary[]>;
   getPriceList(tenantId: string, id: string): Promise<PriceListDetail | undefined>;
   /**
-   * Tạo bảng giá cùng nhóm gán trong một transaction, có khoá chống chồng hiệu
-   * lực: trùng với bảng ACTIVE khác (cùng nhóm, hoặc cùng là bảng chuẩn) thì 409
-   * "Trùng thời gian hiệu lực với bảng giá <mã>". Trùng mã: 409. Trả id.
+   * Tạo bảng giá, có khoá chống chồng hiệu lực giữa các bảng chuẩn ACTIVE: trùng thì 409 "Trùng thời gian hiệu lực với
+   * bảng giá <mã>". Bảng giá riêng chọn theo từng khách (D3-38) nên không kiểm chồng. Trùng mã: 409. Trả id.
    */
-  createPriceList(
-    tenantId: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[],
-    actorId: string,
-  ): Promise<string>;
-  /**
-   * Sửa phần đầu; `customerGroupIds` rỗng (`undefined`) thì giữ nhóm đang gán.
-   * Kiểm chồng hiệu lực như khi tạo. `false` khi không có.
-   */
-  updatePriceList(
-    tenantId: string,
-    id: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[] | undefined,
-    actorId: string,
-  ): Promise<boolean>;
+  createPriceList(tenantId: string, record: PriceListRecord, actorId: string): Promise<string>;
+  /** Sửa phần đầu, kiểm chồng hiệu lực như khi tạo; đổi thành bảng chuẩn thì bỏ chọn ở hồ sơ khách. `false` khi không có. */
+  updatePriceList(tenantId: string, id: string, record: PriceListRecord, actorId: string): Promise<boolean>;
   deletePriceList(tenantId: string, id: string): Promise<boolean>;
   /** Trùng mặt hàng và đơn vị trong bảng: 409. Trả id; `undefined` khi bảng không có. */
   addItem(tenantId: string, priceListId: string, record: PriceListItemRecord, actorId: string): Promise<string | undefined>;
@@ -119,13 +104,13 @@ export interface PricingStore {
   discountCapPercent(tenantId: string): Promise<number>;
   saveDiscountCapPercent(tenantId: string, percent: number, actorId: string): Promise<void>;
   /**
-   * Bảng giá ACTIVE còn hiệu lực ngày `date` là bảng chuẩn hoặc gán cho
-   * `customerGroupId`; chỉ kèm dòng của các mặt hàng trong `materialIds`.
+   * Bảng giá ACTIVE còn hiệu lực ngày `date` là bảng chuẩn hoặc đúng bảng giá khách đã chọn `customerPriceListId`
+   * (D3-38); chỉ kèm dòng của các mặt hàng trong `materialIds`.
    */
   priceListsForPricing(
     tenantId: string,
     date: string,
-    customerGroupId: string | null,
+    customerPriceListId: string | null,
     materialIds: readonly string[],
   ): Promise<PricingPriceList[]>;
   /** Chính sách ACTIVE còn hiệu lực ngày `date`, kèm tiêu chí. */
