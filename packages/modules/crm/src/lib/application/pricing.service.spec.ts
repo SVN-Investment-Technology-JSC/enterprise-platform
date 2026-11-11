@@ -63,7 +63,6 @@ describe('PriceListService', () => {
     expect(store.createPriceList).toHaveBeenCalledWith(
       TENANT,
       expect.objectContaining({ code: 'BG-CHUAN', isStandard: true, validFrom: '2026-01-01', validTo: null, status: 'ACTIVE' }),
-      [],
       'u-2',
     );
   });
@@ -76,13 +75,6 @@ describe('PriceListService', () => {
       expect.objectContaining({ code: 'INVALID_CODE' }),
     );
     expect(() => priceListRecord({ code: 'A', name: 'A', validFrom: '' })).toThrow(expect.objectContaining({ code: 'REQUIRED' }));
-  });
-
-  it('bảng chuẩn không gán nhóm khách', async () => {
-    const service = new PriceListService(priceListStore(), new FakeCatalogReader());
-    await expect(
-      service.create(manager, { code: 'A', name: 'A', isStandard: true, validFrom: '2026-01-01', customerGroupIds: [VIP] }),
-    ).rejects.toMatchObject({ code: 'STANDARD_LIST_GROUPS' });
   });
 
   it('dòng giá: kiểm đơn giá, thuế suất; mã, tên lấy theo danh mục khi danh mục biết mặt hàng', async () => {
@@ -219,7 +211,6 @@ describe('PricingService.preview', () => {
     validFrom: '2026-01-01',
     validTo: null,
     status: 'ACTIVE',
-    customerGroupIds: [],
     items: [{ materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 }],
   };
   const vipPolicy: PricingPolicy = {
@@ -245,19 +236,19 @@ describe('PricingService.preview', () => {
       policiesForPricing: jest.fn().mockResolvedValue([vipPolicy]),
       contractPricesForPricing: jest.fn().mockResolvedValue([]),
     };
-    const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP } as CustomerDetail) };
+    const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP, priceListId: 'list-kh' } as CustomerDetail) };
     const service = new PricingService(store, customers, new FakeCatalogReader(), () => new Date('2026-12-31T18:30:00Z'));
     return { store, customers, service };
   }
 
-  it('ngày mặc định là hôm nay theo giờ Việt Nam; nhóm lấy theo hồ sơ khách (đã kiểm phạm vi)', async () => {
+  it('ngày mặc định là hôm nay theo giờ Việt Nam; nhóm và bảng giá lấy theo hồ sơ khách (đã kiểm phạm vi)', async () => {
     const { store, customers, service } = setup();
     const result = await service.preview(seller, {
       customerId: CUSTOMER,
       lines: [{ materialId: CAP, quantity: 10, unit: 'Cái' }],
     });
     expect(customers.get).toHaveBeenCalledWith(seller, CUSTOMER);
-    expect(store.priceListsForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', VIP, [CAP]);
+    expect(store.priceListsForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', 'list-kh', [CAP]);
     expect(result).toMatchObject({ date: '2027-01-01', customerGroupId: VIP });
     expect(result.lines[0]).toMatchObject({ discountPercent: 3, lineAmount: 9_700_000 });
   });

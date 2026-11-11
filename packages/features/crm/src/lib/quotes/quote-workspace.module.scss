@@ -1,0 +1,346 @@
+// Màn báo giá 2 cột có xem trước (phase 3, plan 9.4): trái nhập liệu (~55%), phải xem trước dính khi cuộn (~45%).
+// Dưới 1280 px: hai tab "Nhập liệu" / "Xem trước", nút hành động ở thanh dưới cố định.
+// Màu, bo góc lấy từ biến `--ep-*` của khung sáng ModuleShell; giá trị sau dấu phẩy là dự phòng.
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.narrow .columns {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.right {
+  position: sticky;
+  top: 12px;
+  min-width: 0;
+}
+
+// Màn hẹp ẩn cột không thuộc tab đang chọn bằng thuộc tính `hidden`; `display: flex` của `.left` ở trên sẽ đè `hidden`
+// của trình duyệt nếu không có luật này.
+.left[hidden],
+.right[hidden] {
+  display: none;
+}
+
+.narrow .right {
+  position: static;
+}
+
+.rightInner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 96px);
+}
+
+.narrow .rightInner {
+  max-height: none;
+}
+
+.tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+}
+
+.tab,
+.tabActive {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub, #4b5563);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabActive {
+  background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  color: var(--ep-accent-text, #8a6400);
+}
+
+// --- Thanh nút hành động -----------------------------------------------------
+
+.actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius-lg, 12px);
+  background: var(--ep-surface, #ffffff);
+}
+
+.actionSummary {
+  // Cùng một hàng với các nút: tóm tắt bên trái, nút bên phải; cột hẹp quá thì tự xuống dòng.
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--ep-text-sub, #4b5563);
+  font-size: 13px;
+}
+
+.actionButtons {
+  // Các nút luôn đi cùng nhau: thiếu chỗ thì cả nhóm xuống hàng dưới, không tách lẻ từng nút.
+  display: flex;
+  flex: none;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.actionBarFixed {
+  // Dính đáy vùng cuộn của nội dung (không `fixed` theo cửa sổ) để thanh chỉ rộng bằng phần nội dung, không đè lên menu
+  // bên trái của ModuleShell.
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  // Chừa góc phải cho nút chat nổi (54 px, cách mép 22 px) để không che nút "Báo giá".
+  padding-right: 88px;
+  box-shadow: 0 -2px 8px rgb(0 0 0 / 6%);
+}
+
+// --- Xem trước ---------------------------------------------------------------
+
+.previewPane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius-lg, 12px);
+  background: var(--ep-surface, #ffffff);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+}
+
+.previewHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.previewTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.previewTemplate {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewTemplatePicker {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  > label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 360px;
+
+    > span {
+      flex: none;
+      color: var(--ep-text-muted, #6b7280);
+      font-size: 13px;
+    }
+
+    > :last-child {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+}
+
+.previewNote {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--ep-radius, 8px);
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.previewError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--ep-radius, 8px);
+  background: #fef2f2;
+  color: var(--ep-danger, #b91c1c);
+  font-size: 13px;
+}
+
+.previewRetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid currentcolor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.previewFrame {
+  flex: 1 1 auto;
+  min-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--ep-radius, 8px);
+  background: #e5e7eb;
+  scrollbar-width: thin;
+}
+
+.previewLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  border-radius: 4px;
+  background: #d1d5db;
+  color: var(--ep-text-sub, #4b5563);
+  font-size: 14px;
+}
+
+// --- Khối thu gọn ở cột trái ------------------------------------------------
+
+.section {
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius-lg, 12px);
+  background: var(--ep-surface, #ffffff);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+
+  > :not(summary) {
+    margin: 0 12px 12px;
+  }
+}
+
+.sectionSummary {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+// --- Dòng hàng ---------------------------------------------------------------
+
+.linesHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.linesTitle {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.readOnlyNote {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--ep-radius, 8px);
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 13px;
+}
+
+.locked {
+  padding: 18px 12px;
+  border: 1px dashed var(--ep-border-strong, #e5e7eb);
+  border-radius: var(--ep-radius, 8px);
+  color: var(--ep-text-muted, #6b7280);
+  text-align: center;
+}
+
+.rowSelected > td {
+  background: #eff6ff !important;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ep-border-strong, #e5e7eb);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  list-style: none;
+}
+
+.contextItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ep-text, #18181b);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover, #f4f6f9);
+    outline: none;
+  }
+}
+
+.contextItemDanger {
+  color: var(--ep-danger, #b91c1c);
+}

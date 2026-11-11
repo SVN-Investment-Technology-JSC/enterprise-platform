@@ -15,7 +15,10 @@ export interface Rect {
   readonly height: number;
 }
 
-/** Màu: 'none', 'currentColor', 'brand:<khoá bảng màu>' hoặc mã hex '#rrggbb'. */
+/**
+ * Màu: 'none', 'currentColor', 'brand:<khoá bảng màu>', mã hex '#rrggbb', hoặc màu chuyển sắc
+ * 'linear:<góc>:<màu>@<vị trí>,...' (xem `gradient.ts`).
+ */
 export type Paint = string;
 
 /**
@@ -62,6 +65,17 @@ export type LineCap = 'round' | 'butt' | 'square';
 export type LineJoin = 'round' | 'miter' | 'bevel';
 export type FillRule = 'nonzero' | 'evenodd';
 
+/**
+ * Mặt nạ độ sáng của một lớp: phần nào của lớp hiện ra do độ sáng của các hình trong mặt nạ quyết định (trắng hiện,
+ * đen ẩn, xám hiện mờ), vẽ lần lượt từ dưới lên nên hình sau đè hình trước. Dùng cho kiểu icon "glyph đặc có khoét".
+ *
+ * Các lớp trong mặt nạ dùng cùng kiểu `IconShape` và cùng hệ toạ độ lưới với lớp được che, nhưng màu chỉ là `none` hoặc
+ * `#rrggbb` (luôn là giá trị thật, không theo bảng màu hay chế độ màu). Không lồng mặt nạ trong mặt nạ.
+ */
+export interface ShapeMask {
+  readonly layers: readonly IconShape[];
+}
+
 export interface IconShape {
   readonly id: string;
   readonly name: string;
@@ -73,9 +87,17 @@ export interface IconShape {
   readonly opacity: number;
   readonly linecap: LineCap;
   readonly linejoin: LineJoin;
+  /** Nét đứt: độ dài lần lượt của đoạn vẽ và đoạn trống (lặp lại), theo đơn vị lưới. Vắng mặt là nét liền. */
+  readonly strokeDasharray?: readonly number[];
+  /** Điểm bắt đầu trên chu kỳ nét đứt; vắng mặt là 0. */
+  readonly strokeDashoffset?: number;
+  /** Giới hạn mũi nhọn của nét nối `miter`; vắng mặt là 4 (mặc định của SVG). */
+  readonly strokeMiterlimit?: number;
   readonly fillRule: FillRule;
   readonly hidden: boolean;
   readonly locked: boolean;
+  /** Mặt nạ che lớp này; vắng mặt là không có. Di chuyển hay biến đổi lớp thì mặt nạ biến đổi theo. */
+  readonly mask?: ShapeMask;
 }
 
 export type IconCategory = 'brand' | 'module' | 'system' | 'custom';

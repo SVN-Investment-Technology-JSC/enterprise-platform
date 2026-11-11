@@ -1,5 +1,6 @@
 import {
   buildIconModel,
+  defsNode,
   toCamelAttr,
   type BrandPalette,
   type ColorMode,
@@ -41,6 +42,7 @@ export function IconSvg({
   title?: string;
 }) {
   const model = buildIconModel(doc, { colorMode, palette });
+  const defs = defsNode(model);
   return (
     <svg
       aria-hidden={title ? undefined : true}
@@ -52,6 +54,7 @@ export function IconSvg({
       xmlns="http://www.w3.org/2000/svg"
       {...toProps(model.rootAttrs)}
     >
+      {defs ? renderNode(defs, -1) : null}
       {model.children.map(renderNode)}
     </svg>
   );

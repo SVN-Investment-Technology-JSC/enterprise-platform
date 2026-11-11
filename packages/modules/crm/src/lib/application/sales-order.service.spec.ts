@@ -393,3 +393,73 @@ describe('QuoteConversionService (TC-QUO-12)', () => {
     await expect(service.convert(actor({ canWriteOrder: false }), ORDER)).rejects.toMatchObject({ statusCode: 403 });
   });
 });
+
+describe('SalesOrderService: kho giữ hàng theo từng dòng (D3-37)', () => {
+  const MUC = '33333333-3333-4333-8333-333333333333';
+  const twoWarehouses = (extra: Partial<SalesOrderDetail> = {}) =>
+    order({
+      lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 10, { warehouseCode: 'KHO-2' }), { ...line('l2', MUC, 'QA-KHO-MUC', 'STOCK', 3), lineNo: 2 }],
+      ...extra,
+    });
+
+  it('xác nhận giữ mỗi dòng ở kho của dòng, dòng không chọn kho theo kho mặc định', async () => {
+    const { inventory, service } = setup(twoWarehouses());
+    await service.confirm(actor(), ORDER, { revision: 5 });
+    expect(inventory.reserve.mock.calls[0][1].lines).toEqual([
+      { materialCode: 'QA-KHO-CAP', warehouseCode: 'KHO-2', quantity: 10 },
+      { materialCode: 'QA-KHO-MUC', warehouseCode: 'KHO-1', quantity: 3 },
+    ]);
+  });
+
+  it('không có kho mặc định: báo đúng dòng thiếu kho, không gọi Kho', async () => {
+    const { inventory, service } = setup(twoWarehouses({ warehouseCode: null }));
+    await expect(service.confirm(actor(), ORDER, { revision: 5 })).rejects.toMatchObject({
+      code: 'WAREHOUSE_REQUIRED',
+      message: expect.stringContaining('dòng 2 (QA-KHO-MUC)'),
+    });
+    expect(inventory.reserve).not.toHaveBeenCalled();
+  });
+
+  it('phần giữ của hợp đồng chỉ dùng cho dòng cùng kho với dòng hợp đồng', async () => {
+    const contract = {
+      id: CONTRACT,
+      code: 'HD1',
+      status: 'ACTIVE',
+      validFrom: '2026-01-01',
+      validTo: null,
+      warehouseCode: 'KHO-1',
+      reservation: { reservationId: 'rc', reservationCode: 'GHK', status: 'HELD', expiresAt: null },
+      lines: [{ materialId: CAP, materialKind: 'STOCK', quantity: 15, warehouseCode: 'KHO-2' }],
+    } as unknown as ContractDetail;
+    const sameWarehouse = setup(order({ contractId: CONTRACT, source: 'CONTRACT', lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 10, { warehouseCode: 'KHO-2' })] }), contract);
+    sameWarehouse.store.contractReservationUsage.mockResolvedValue(new Map());
+    await sameWarehouse.service.confirm(actor(), ORDER, { revision: 5 });
+    expect(sameWarehouse.inventory.reserve).not.toHaveBeenCalled();
+    const otherWarehouse = setup(order({ contractId: CONTRACT, source: 'CONTRACT' }), contract);
+    otherWarehouse.store.contractReservationUsage.mockResolvedValue(new Map());
+    await otherWarehouse.service.confirm(actor(), ORDER, { revision: 5 });
+    expect(otherWarehouse.inventory.reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it('đợt giao có hàng ở nhiều kho mà chưa chọn kho xuất: báo tách đợt theo kho', async () => {
+    const confirmed = twoWarehouses({
+      status: 'CONFIRMED',
+      deliveries: [
+        {
+          id: DELIVERY, code: 'DH-01', seq: 1, plannedDate: '2026-11-01', warehouseCode: null, address: null, note: null, status: 'PLANNED',
+          issueDocumentId: null, issueDocumentCode: null, requestedAt: null, issuedAt: null, late: false,
+          lines: [
+            { id: 'dl1', orderLineId: 'l1', lineNo: 1, materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: '', unit: 'Cái', materialKind: 'STOCK', plannedQuantity: 4, deliveredQuantity: 0, actualCost: 0, serials: [] },
+            { id: 'dl2', orderLineId: 'l2', lineNo: 2, materialId: MUC, materialCode: 'QA-KHO-MUC', materialName: '', unit: 'Cái', materialKind: 'STOCK', plannedQuantity: 1, deliveredQuantity: 0, actualCost: 0, serials: [] },
+          ],
+        },
+      ],
+    });
+    const { inventory, service } = setup(confirmed);
+    await expect(service.requestIssue(actor(), ORDER, DELIVERY, { revision: 5 })).rejects.toMatchObject({
+      code: 'WAREHOUSE_REQUIRED',
+      message: expect.stringContaining('KHO-2, KHO-1'),
+    });
+    expect(inventory.createIssueRequest).not.toHaveBeenCalled();
+  });
+});

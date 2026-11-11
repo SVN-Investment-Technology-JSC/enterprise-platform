@@ -1,4 +1,5 @@
 import { geometryBounds, visualBounds } from './geometry';
+import { isGradientPaint, parseGradient } from './gradient';
 import { brandKeyOf, normalizeHex, type BrandPalette } from './palette';
 import { isPaintNone, type Geometry, type IconDocument, type IconShape } from './model';
 
@@ -50,6 +51,10 @@ const offGrid = (value: number, step: number) => {
 
 function paintOutsidePalette(paint: string, palette: BrandPalette): boolean {
   if (isPaintNone(paint) || paint === 'currentColor') return false;
+  if (isGradientPaint(paint)) {
+    // gradient hỏng (không đọc được) coi như ngoài bảng màu; hợp lệ thì mọi điểm màu phải thuộc bảng
+    return parseGradient(paint)?.stops.some((stop) => paintOutsidePalette(stop.color, palette)) ?? true;
+  }
   const key = brandKeyOf(paint);
   if (key !== null) return !palette.tokens.some((token) => token.key === key);
   const hex = normalizeHex(paint);

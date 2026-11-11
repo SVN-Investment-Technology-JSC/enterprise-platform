@@ -80,6 +80,7 @@ describe('hai phần Quản lý khách hàng và Bán hàng (TC-NAV-01, TC-NAV-0
     expect(CRM_SECTIONS[0].views.map(label)).toEqual(['Khách hàng', 'Lead', 'Hoạt động chăm sóc']);
     expect(CRM_SECTIONS[1].views.map(label)).toEqual([
       'Tổng quan',
+      'Việc cần xử lý',
       'Dự án bán hàng',
       'Báo giá',
       'Hợp đồng',
@@ -103,13 +104,26 @@ describe('hai phần Quản lý khách hàng và Bán hàng (TC-NAV-01, TC-NAV-0
   });
 });
 
+describe('trang Việc cần xử lý (TC-TSK-13)', () => {
+  it('ở nhóm Bán hàng, ai có crm.read cũng thấy; hash #tasks mở đúng trang', () => {
+    const page = CRM_PAGES.find((entry) => entry.id === 'tasks');
+    expect(page).toMatchObject({ label: 'Việc cần xử lý', group: 'Bán hàng' });
+    expect(page?.visible).toBeUndefined();
+    expect(ids()).toContain('tasks');
+    expect(sectionOfView('tasks')).toBe('sales');
+    expect(resolveCrmView('tasks', CRM_NO_CAPABILITIES)).toBe('tasks');
+  });
+});
+
 describe('id hash cũ giữ nguyên (TC-NAV-03)', () => {
   it('mọi id cũ vẫn là trang hợp lệ và tự chọn đúng phần chứa trang', () => {
     const legacy = [
       'overview', 'customers', 'leads', 'opportunities', 'activities', 'quotes',
       'contracts', 'orders', 'receivables', 'warranty', 'reports', 'settings',
     ] as const;
-    expect([...CRM_VIEWS].sort()).toEqual([...legacy].sort());
+    // Trang mới (Việc cần xử lý, P3C7-06) chỉ thêm, không đổi id cũ.
+    expect(CRM_VIEWS).toEqual(expect.arrayContaining([...legacy]));
+    expect(CRM_VIEWS.filter((view) => !(legacy as readonly string[]).includes(view))).toEqual(['tasks']);
     const admin = { ...CRM_NO_CAPABILITIES, isTenantAdmin: true };
     for (const view of legacy) expect(resolveCrmView(view, admin)).toBe(view);
     expect(activeCrmSection('quotes', undefined, CRM_NO_CAPABILITIES)).toBe('sales');

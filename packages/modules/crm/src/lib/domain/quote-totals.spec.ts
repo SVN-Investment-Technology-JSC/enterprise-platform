@@ -192,7 +192,6 @@ describe('engine giá theo chế độ của mẫu (P2I-03)', () => {
     validFrom: '2026-01-01',
     validTo: null,
     status: 'ACTIVE',
-    customerGroupIds: [],
     items: [{ materialId: MATERIAL, unit: 'Cái', price: 1_000_000, vatRate: 10 }],
   };
   const policy: PricingPolicy = {

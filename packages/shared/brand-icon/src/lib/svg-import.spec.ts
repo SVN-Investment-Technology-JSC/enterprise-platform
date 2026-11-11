@@ -4,10 +4,10 @@
 import { applyMatrix, geometryBounds } from './geometry';
 import { createPresetDocuments } from './legacy';
 import type { EllipseGeometry, PathGeometry, RectGeometry } from './model';
-import { pathToData } from './path-data';
+import { MAX_PATH_DATA_LENGTH, pathToData } from './path-data';
 import { generateSvg } from './render';
 import { importSvg, looksLikeSvgMarkup, parseTransform } from './svg-import';
-import { normalizeShape } from './validate';
+import { LIMITS, normalizeShape } from './validate';
 
 const close = (actual: number, expected: number, digits = 6) => expect(actual).toBeCloseTo(expected, digits);
 
@@ -201,7 +201,7 @@ describe('importSvg: viewBox và kích thước', () => {
   it('width/height kiểu phần trăm bị bỏ qua thay vì co hình về gần 0', () => {
     const result = importSvg(svg('<rect width="10" height="10" fill="currentColor"/>', 'width="100%" height="100%"'));
     close((result.shapes[0].geometry as RectGeometry).width, 10);
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual(['SVG không có viewBox hoặc kích thước; coi như lưới đích.']);
   });
 
   it('không viewBox, không width/height: giữ nguyên toạ độ', () => {
@@ -316,10 +316,12 @@ describe('importSvg: màu, nét, độ mờ', () => {
     expect(result.shapes[0].fill).toBe('none');
   });
 
-  it('màu chuyển sắc hoặc không nhận ra: dùng currentColor và cảnh báo', () => {
-    const gradient = importSvg(svg('<rect width="4" height="4" fill="url(#g)"/>'));
-    expect(gradient.shapes[0].fill).toBe('currentColor');
-    expect(gradient.warnings).toHaveLength(1);
+  it('tham chiếu màu không có trong tệp: không tô (kèm cảnh báo) hoặc dùng màu dự phòng; màu lạ: dùng currentColor và cảnh báo', () => {
+    const missing = importSvg(svg('<rect width="4" height="4" fill="url(#g)"/><rect width="4" height="4"/>'));
+    expect(missing.shapes).toHaveLength(1);
+    expect(missing.warnings.some((warning) => warning.includes('không có trong tệp'))).toBe(true);
+    const fallback = importSvg(svg('<rect width="4" height="4" fill="url(#g) #ff0000"/>'));
+    expect(fallback.shapes[0].fill).toBe('#ff0000');
     const unknown = importSvg(svg('<rect width="4" height="4" fill="mausieula"/>'));
     expect(unknown.shapes[0].fill).toBe('currentColor');
     expect(unknown.warnings[0]).toContain('mausieula');
@@ -334,9 +336,12 @@ describe('importSvg: màu, nét, độ mờ', () => {
   });
 
   it('style nội tuyến chứa url(...) có dấu hai chấm không làm hỏng việc đọc', () => {
-    const result = importSvg(svg('<rect width="4" height="4" style="fill:url(#a);stroke:none"/>'));
-    expect(result.shapes[0].fill).toBe('currentColor');
-    expect(result.warnings.length).toBeGreaterThan(0);
+    const result = importSvg(
+      svg(
+        '<defs><linearGradient id="a"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><rect width="4" height="4" style="fill:url(#a);stroke:none"/>',
+      ),
+    );
+    expect(result.shapes[0].fill.startsWith('linear:')).toBe(true);
   });
 
   it('mặc định theo SVG: tô currentColor, không nét, nét dày 1 nếu có nét mà không khai báo', () => {
@@ -419,7 +424,8 @@ describe('importSvg: các loại phần tử', () => {
     expect(result.shapes).toHaveLength(3);
     expect((result.shapes[0].geometry as RectGeometry).rx).toBe(2);
     expect((result.shapes[1].geometry as RectGeometry).rx).toBe(3);
-    expect((result.shapes[2].geometry as RectGeometry).rx).toBe(2);
+    // rx=99 bị kẹp thành 5 theo chiều rộng nhưng ry (lấy theo rx) bị kẹp thành 2 theo chiều cao: góc elip, thành đường
+    expect(result.shapes[2].geometry.type).toBe('path');
   });
 
   it('circle, ellipse, line, polyline, polygon', () => {
@@ -438,11 +444,12 @@ describe('importSvg: các loại phần tử', () => {
     expect((result.shapes[2].geometry as PathGeometry).subpaths[0].nodes).toEqual([{ x: 1, y: 2 }, { x: 3, y: 4 }]);
   });
 
-  it('bán kính 0 hoặc thiếu thì bỏ qua; polyline thiếu điểm bị bỏ', () => {
+  it('bán kính 0 thì bỏ qua; elip thiếu ry lấy ry = rx (SVG2); polyline thiếu điểm bị bỏ', () => {
     const result = importSvg(
       lucide('<circle cx="1" cy="1" r="0"/><ellipse cx="1" cy="1" rx="2"/><polyline points="1 1"/><path d="M1 1 L4 4"/>'),
     );
-    expect(result.shapes).toHaveLength(1);
+    expect(result.shapes).toHaveLength(2);
+    expect(result.shapes[0].geometry).toMatchObject({ type: 'ellipse', rx: 2, ry: 2 });
   });
 
   it('bỏ qua defs, clipPath, mask, symbol, title và các phần tử không vẽ', () => {
@@ -476,39 +483,46 @@ describe('importSvg: các loại phần tử', () => {
     expect(result.shapes).toHaveLength(1);
   });
 
-  it('đường dữ liệu sai bị bỏ qua và cảnh báo, hình khác vẫn nhập', () => {
+  it('đường dữ liệu sai: không vẽ gì thì bỏ qua và cảnh báo, hình khác vẫn nhập', () => {
     const result = importSvg(svg('<path d="M 1 1 X 2" fill="#000"/><rect width="4" height="4"/>'));
     expect(result.shapes).toHaveLength(1);
-    expect(result.warnings.some((warning) => warning.includes('không hợp lệ'))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('dữ liệu sai'))).toBe(true);
+  });
+
+  it('đường dữ liệu sai ở giữa: vẽ phần đứng trước chỗ sai như trình duyệt', () => {
+    const result = importSvg(svg('<path d="M 1 1 L 5 1 L 5 5 X 9 9 L 20 20" fill="none" stroke="#000"/>'));
+    expect(result.shapes).toHaveLength(1);
+    expect((result.shapes[0].geometry as PathGeometry).subpaths[0].nodes).toHaveLength(3);
+    expect(result.warnings.some((warning) => warning.includes('dữ liệu sai'))).toBe(true);
   });
 
   it('đường dữ liệu quá dài bị bỏ qua và cảnh báo', () => {
-    const long = `M 0 0${' L 1 1'.repeat(4000)}`;
+    const long = `M 0 0${' L 1 1'.repeat(Math.ceil(MAX_PATH_DATA_LENGTH / 6) + 10)}`;
     const result = importSvg(svg(`<path d="${long}" fill="#000"/><rect width="4" height="4"/>`));
     expect(result.shapes).toHaveLength(1);
-    expect(result.warnings.some((warning) => warning.includes('quá dài'))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('quá lớn hoặc quá phức tạp'))).toBe(true);
   });
 
-  it('chỉ nhập tối đa 200 hình đầu tiên và báo cho người dùng', () => {
-    const many = Array.from({ length: 250 }, (_, index) => `<rect x="${index % 20}" y="0" width="1" height="1"/>`).join('');
+  it('chỉ nhập tối đa LIMITS.maxShapes hình đầu tiên và báo cho người dùng', () => {
+    const many = Array.from({ length: LIMITS.maxShapes + 50 }, (_, index) => `<rect x="${index % 20}" y="0" width="1" height="1"/>`).join('');
     const result = importSvg(svg(many));
-    expect(result.shapes).toHaveLength(200);
-    expect(result.warnings.some((warning) => warning.includes('200'))).toBe(true);
+    expect(result.shapes).toHaveLength(LIMITS.maxShapes);
+    expect(result.warnings.some((warning) => warning.includes(String(LIMITS.maxShapes)))).toBe(true);
   });
 
-  it('đúng 200 hình thì không báo cắt bớt', () => {
-    const exact = Array.from({ length: 200 }, (_, index) => `<rect x="${index % 20}" y="0" width="1" height="1"/>`).join('');
+  it('đúng LIMITS.maxShapes hình thì không báo cắt bớt', () => {
+    const exact = Array.from({ length: LIMITS.maxShapes }, (_, index) => `<rect x="${index % 20}" y="0" width="1" height="1"/>`).join('');
     const result = importSvg(svg(exact));
-    expect(result.shapes).toHaveLength(200);
+    expect(result.shapes).toHaveLength(LIMITS.maxShapes);
     expect(result.warnings).toEqual([]);
   });
 
   it('hình vượt giới hạn của thư viện bị bỏ và báo, hình khác vẫn nhập (nếu giữ lại, cả icon sẽ bị từ chối khi nạp lại)', () => {
-    const manyNodes = `M 0 0${' L 1 1'.repeat(2100)}`;
-    const manySubpaths = ' M 1 1 L 2 2'.repeat(70);
+    const manyNodes = `M 0 0${' L 1 1'.repeat(LIMITS.maxNodes + 100)}`;
+    const manySubpaths = ' M 1 1 L 2 2'.repeat(LIMITS.maxSubpaths + 10);
     const result = importSvg(
       svg(
-        `<rect x="5000" y="0" width="10" height="10" fill="#000"/><path d="${manyNodes}" stroke="#000" fill="none"/><path d="${manySubpaths}" stroke="#000" fill="none"/><rect width="4" height="4" fill="#000"/>`,
+        `<rect x="500000" y="0" width="10" height="10" fill="#000"/><path d="${manyNodes}" stroke="#000" fill="none"/><path d="${manySubpaths}" stroke="#000" fill="none"/><rect width="4" height="4" fill="#000"/>`,
       ),
     );
     expect(result.shapes).toHaveLength(1);
@@ -517,7 +531,7 @@ describe('importSvg: các loại phần tử', () => {
   });
 
   it('chỉ có hình vượt giới hạn thì báo lỗi không có hình nào', () => {
-    expect(() => importSvg(svg('<rect x="5000" y="0" width="10" height="10" fill="#000"/>'))).toThrow(/Không tìm thấy hình/);
+    expect(() => importSvg(svg('<rect x="500000" y="0" width="10" height="10" fill="#000"/>'))).toThrow(/Không tìm thấy hình/);
   });
 
   it('mọi hình nhập vào đều qua chuẩn hoá nguyên vẹn (nạp lại không đổi gì)', () => {
@@ -527,13 +541,13 @@ describe('importSvg: các loại phần tử', () => {
   });
 
   it('nét quá dày được kẹp về giới hạn của thư viện', () => {
-    const result = importSvg(lucide('<path d="M1 1 L5 5" stroke-width="40"/>'));
-    expect(result.shapes[0].strokeWidth).toBe(6);
-    expect(result.dominantStrokeWidth).toBe(6);
+    const result = importSvg(lucide('<path d="M1 1 L5 5" stroke-width="400"/>'));
+    expect(result.shapes[0].strokeWidth).toBe(100);
+    expect(result.dominantStrokeWidth).toBe(100);
   });
 
   it('cảnh báo trùng lặp được gộp', () => {
-    const result = importSvg(svg('<rect width="4" height="4" fill="url(#a)"/><rect width="4" height="4" fill="url(#b)"/>'));
+    const result = importSvg(svg('<rect width="4" height="4" fill="url(#a)"/><rect width="4" height="4" fill="url(#b)"/><rect width="4" height="4"/>'));
     expect(result.warnings).toHaveLength(1);
   });
 });
@@ -549,9 +563,14 @@ describe('importSvg: đầu vào không phải SVG đầy đủ hoặc lỗi', (
     expect(result.shapes).toHaveLength(1);
   });
 
-  it('ném lỗi khi mã SVG sai cú pháp', () => {
-    expect(() => importSvg('<svg viewBox="0 0 24 24"><path d="M1 1"></svg>')).toThrow(/không hợp lệ/);
+  it('ném lỗi khi nội dung không phải SVG hoặc không có hình để nhập', () => {
+    expect(() => importSvg('khong phai svg')).toThrow(/Không tìm thấy hình/);
     expect(() => importSvg('<svg><rect></svg>')).toThrow();
+  });
+
+  it('mã sai cú pháp XML (thẻ không đóng, thực thể HTML, thuộc tính không nháy) vẫn đọc được như khi dán vào trang web', () => {
+    expect(importSvg('<svg viewBox="0 0 24 24"><path d="M1 1 L5 5" stroke="#000" fill="none"></svg>').shapes).toHaveLength(1);
+    expect(importSvg('<svg viewBox="0 0 24 24"><title>a&nbsp;b</title><rect width=4 height=4></svg>').shapes).toHaveLength(1);
   });
 
   it('ném lỗi khi không có hình nào để nhập', () => {

@@ -60,10 +60,9 @@ describe('nhãn', () => {
   it('hiệu lực, phạm vi bảng giá, phần trăm', () => {
     expect(validityLabel('2026-12-01', '2026-12-31')).toBe('01/12/2026 – 31/12/2026');
     expect(validityLabel('2026-12-01', null)).toBe('Từ 01/12/2026');
-    expect(priceListScopeLabel({ isStandard: true, customerGroups: [] })).toBe('Bảng giá chuẩn (mọi khách)');
-    expect(priceListScopeLabel({ isStandard: false, customerGroups: [{ id: ID, code: 'VIP', name: 'Khách VIP' }] })).toBe(
-      'Khách VIP',
-    );
+    expect(priceListScopeLabel({ isStandard: true, customerCount: 0 })).toBe('Khách chưa chọn bảng giá');
+    expect(priceListScopeLabel({ isStandard: false, customerCount: 3 })).toBe('3 khách hàng');
+    expect(priceListScopeLabel({ isStandard: false, customerCount: 0 })).toBe('Chưa khách nào chọn');
     expect(formatPercent(2.5)).toBe('2,5%');
   });
 

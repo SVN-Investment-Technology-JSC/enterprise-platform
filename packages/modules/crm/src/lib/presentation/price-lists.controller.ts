@@ -1,5 +1,4 @@
 import type {
-  AssignPriceListGroupsRequest,
   BulkPriceListItemsRequest,
   PriceListDetail,
   PriceListSummary,
@@ -43,15 +42,6 @@ export class PriceListsController {
   @HttpCode(204)
   remove(@Req() request: CrmRequest, @Param('id') id: string): Promise<void> {
     return runCrm(() => this.lists.remove(crmActor(request), id));
-  }
-
-  @Put('price-lists/:id/customer-groups')
-  assignGroups(
-    @Req() request: CrmRequest,
-    @Param('id') id: string,
-    @Body() body: AssignPriceListGroupsRequest,
-  ): Promise<PriceListDetail> {
-    return runCrm(() => this.lists.assignGroups(crmActor(request), id, body?.customerGroupIds));
   }
 
   @Post('price-lists/:id/items')

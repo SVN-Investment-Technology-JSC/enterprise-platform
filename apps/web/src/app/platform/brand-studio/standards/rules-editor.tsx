@@ -5,6 +5,7 @@ import { Plus, X } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconButton } from '../library/library-ui';
 import { CommitField } from './commit-field';
 import {
@@ -38,23 +39,24 @@ function Row({ label, hint, children, wide }: { label: string; hint?: string; ch
 /** Công tắc bật/tắt dựng bằng nút (role switch) để dùng được bằng bàn phím và trình đọc màn hình. */
 function Switch({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
   return (
-    <button
-      aria-checked={checked}
-      aria-label={label}
-      className={cn(
-        'relative h-5 w-9 shrink-0 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-600/40',
-        checked ? 'bg-blue-600' : 'bg-slate-300',
-      )}
-      onClick={() => onChange(!checked)}
-      role="switch"
-      title={label}
-      type="button"
-    >
-      <span
-        aria-hidden
-        className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow-sm transition-all', checked ? 'left-[1.125rem]' : 'left-0.5')}
-      />
-    </button>
+    <Hint label={label}>
+      <button
+        aria-checked={checked}
+        aria-label={label}
+        className={cn(
+          'relative h-5 w-9 shrink-0 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-600/40',
+          checked ? 'bg-blue-600' : 'bg-slate-300',
+        )}
+        onClick={() => onChange(!checked)}
+        role="switch"
+        type="button"
+      >
+        <span
+          aria-hidden
+          className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow-sm transition-all', checked ? 'left-[1.125rem]' : 'left-0.5')}
+        />
+      </button>
+    </Hint>
   );
 }
 
@@ -94,16 +96,17 @@ export function RulesEditor({ rules, onChange }: { rules: BrandRules; onChange: 
               key={value}
             >
               {formatDecimal(value)}
-              <button
-                aria-label={`Bỏ độ dày ${formatDecimal(value)}`}
-                className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
-                disabled={rules.allowedStrokeWidths.length <= 1}
-                onClick={() => apply(removeStrokeWidth(rules, value))}
-                title="Bỏ độ dày này"
-                type="button"
-              >
-                <X aria-hidden className="size-3" />
-              </button>
+              <Hint label="Bỏ độ dày này">
+                <button
+                  aria-label={`Bỏ độ dày ${formatDecimal(value)}`}
+                  className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
+                  disabled={rules.allowedStrokeWidths.length <= 1}
+                  onClick={() => apply(removeStrokeWidth(rules, value))}
+                  type="button"
+                >
+                  <X aria-hidden className="size-3" />
+                </button>
+              </Hint>
             </span>
           ))}
           <form className="flex items-center gap-1" onSubmit={submitWidth}>

@@ -67,6 +67,8 @@ export interface OrderLineRecord {
   readonly vatAmount: number;
   readonly lineTotal: number;
   readonly estUnitCost: number | null;
+  /** Kho riêng của dòng (D3-37); rỗng là theo kho mặc định của đơn. */
+  readonly warehouseCode?: string | null;
 }
 
 export interface OrderHeaderRecord {
@@ -125,7 +127,10 @@ export interface SalesOrderStore {
   getOrder(tenantId: string, scope: CrmDataScope, id: string, today: string): Promise<SalesOrderDetail | undefined>;
   /** Tạo đơn Nháp cùng dòng và nhật ký. Trả id. */
   createOrder(tenantId: string, record: NewOrderRecord, actorId: string): Promise<string>;
-  /** Sửa đầu đơn Nháp; `lines` rỗng (`undefined`) giữ dòng (và giữ đợt giao). */
+  /**
+   * Sửa đầu đơn Nháp; `lines` rỗng (`undefined`) giữ dòng (và giữ đợt giao). `lineWarehouses` (khi giữ dòng) chỉ đổi kho
+   * giữ hàng của các dòng đó (D3-37).
+   */
   updateDraft(
     tenantId: string,
     id: string,
@@ -133,6 +138,7 @@ export interface SalesOrderStore {
     header: OrderHeaderRecord,
     lines: readonly OrderLineRecord[] | undefined,
     actorId: string,
+    lineWarehouses?: readonly { readonly lineId: string; readonly warehouseCode: string | null }[],
   ): Promise<void>;
   /**
    * Ghi chú thông tin đơn hàng (P2F-03): ghi người và thời điểm, tăng `revision`, ghi `audit_log`. Sửa được ở mọi

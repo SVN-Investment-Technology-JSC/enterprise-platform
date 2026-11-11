@@ -138,6 +138,8 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     respondedAt: null,
     supersededAt: null,
     createdAt: '',
+    layoutSnapshot: null,
+    sellerLogo: null,
     promotions: [],
     form: {
       quoteName: null,
@@ -153,6 +155,9 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
       fees: [],
       customFields: {},
       feesAmount: 0,
+      organizationId: null,
+      organizationName: null,
+      seller: null,
     },
     lines,
   };
@@ -261,6 +266,35 @@ describe('QuoteService', () => {
     await service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: BT, quantity: 5 });
     const service5 = quotes.saveVersion.mock.calls[1][4].lines[0];
     expect(service5).toMatchObject({ materialKind: 'SERVICE', unit: 'Gói', estUnitCost: null, lineAmount: 2_500_000 });
+  });
+
+  it('TC-QW-14/15: chèn lô trước một dòng; số dòng liên tục; vị trí không có thì 400 LINE_POSITION_INVALID', async () => {
+    const lines = [1, 2, 3].map((lineNo) => quoteLine({ id: `line-${lineNo}`, lineNo, quantity: lineNo }));
+    const { service, quotes } = setup(version('DRAFT', 1, lines));
+    await service.addLines(seller, QUOTE_ID, '1', {
+      revision: 3,
+      beforeLineNo: 2,
+      lines: [{ materialId: BT, quantity: 7 }, { materialId: CAP, quantity: 8 }],
+    });
+    const write = quotes.saveVersion.mock.calls[0][4];
+    expect(write.lines.map((line) => [line.lineNo, line.id.startsWith('line-') ? line.id : 'new', line.quantity])).toEqual([
+      [1, 'line-1', 1],
+      [2, 'new', 7],
+      [3, 'new', 8],
+      [4, 'line-2', 2],
+      [5, 'line-3', 3],
+    ]);
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: 1, lines: [{ materialId: BT, quantity: 9 }] });
+    expect(quotes.saveVersion.mock.calls[1][4].lines.map((line) => line.quantity)).toEqual([9, 1, 2, 3]);
+    // Không truyền: thêm cuối như cũ.
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, lines: [{ materialId: BT, quantity: 4 }] });
+    expect(quotes.saveVersion.mock.calls[2][4].lines.map((line) => line.quantity)).toEqual([1, 2, 3, 4]);
+    for (const beforeLineNo of [0, 4, 99, -1, 1.5, '2']) {
+      await expect(
+        service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: beforeLineNo as number, lines: [{ materialId: BT, quantity: 1 }] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'LINE_POSITION_INVALID' });
+    }
+    expect(quotes.saveVersion).toHaveBeenCalledTimes(3);
   });
 
   it('mặt hàng không có trong danh mục Kho: 400', async () => {
@@ -406,5 +440,61 @@ describe('QuoteService', () => {
       const { service } = setup(version('DRAFT'), { opportunities: oppWith(stageOf(code, 'OPEN')) });
       await expect(service.create(seller, { opportunityId: '50000000-0000-4000-8000-000000000001' })).resolves.toBeDefined();
     }
+  });
+});
+
+describe('QuoteService.remove: xoá báo giá Nháp hoặc Chờ duyệt', () => {
+  const removable = (links: { id: string; instanceId: string | null; previousStatus: string }[] = []) => {
+    const ctx = setup(version('PENDING'));
+    const quotes = ctx.quotes as unknown as Record<string, jest.Mock>;
+    quotes['prepareDelete'] = jest.fn(async () => ({ code: 'BG2600001', links }));
+    quotes['reopenDeletionLinks'] = jest.fn(async () => undefined);
+    quotes['deleteQuote'] = jest.fn(async () => undefined);
+    const links_ = ctx.links as unknown as Record<string, jest.Mock>;
+    links_['cancel'] = jest.fn(async () => 'cancelled');
+    return { ...ctx, store: quotes, approval: links_ };
+  };
+
+  it('người phụ trách xoá được; đang duyệt qua Quy trình thì huỷ hồ sơ trước rồi xoá', async () => {
+    const { service, store, approval } = removable([{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }, { id: 'link-2', instanceId: null, previousStatus: 'FAILED' }]);
+    await service.remove(seller, QUOTE_ID);
+    expect(approval['cancel']).toHaveBeenCalledTimes(1);
+    expect(approval['cancel']).toHaveBeenCalledWith('t1', 'inst-1', expect.objectContaining({ reason: expect.stringContaining('đã bị xoá'), actorUserId: NV1 }));
+    expect(store['deleteQuote']).toHaveBeenCalledWith('t1', QUOTE_ID, NV1, expect.stringContaining('đã bị xoá'));
+    expect(store['reopenDeletionLinks']).not.toHaveBeenCalled();
+  });
+
+  it('không phải người phụ trách, không có quyền quản trị bán hàng: 403, không đụng dữ liệu', async () => {
+    const { service, store } = removable();
+    await expect(service.remove(lead, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+    expect(store['prepareDelete']).not.toHaveBeenCalled();
+  });
+
+  it('quản trị bán hàng xoá được báo giá của người khác', async () => {
+    const { service, store } = removable();
+    await service.remove({ ...lead, canWriteQuote: false, canManage: true }, QUOTE_ID);
+    expect(store['deleteQuote']).toHaveBeenCalled();
+  });
+
+  it('không có quyền lập báo giá: 403', async () => {
+    const { service } = removable();
+    await expect(service.remove({ ...seller, canWriteQuote: false }, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('hồ sơ Quy trình vừa duyệt xong: 409, mở lại liên kết, không xoá', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store, approval } = removable(plan);
+    approval['cancel'].mockResolvedValue('finished');
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toMatchObject({ code: 'QUOTE_PROCEDURE_FINISHED' });
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
+    expect(store['deleteQuote']).not.toHaveBeenCalled();
+  });
+
+  it('xoá lỗi sau khi đã huỷ hồ sơ: mở lại liên kết để đối soát áp kết quả huỷ', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store } = removable(plan);
+    store['deleteQuote'].mockRejectedValue(new Error('db'));
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toThrow('db');
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
   });
 });

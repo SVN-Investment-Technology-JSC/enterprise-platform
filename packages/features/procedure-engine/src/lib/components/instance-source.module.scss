@@ -1,0 +1,73 @@
+.card {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ed;
+  border-left: 3px solid #2563eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.header {
+  display: grid;
+  gap: 2px;
+}
+
+.kind {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: var(--ink, #18181b);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.items {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.item {
+  display: contents;
+}
+
+.item dt {
+  color: var(--muted, #64748b);
+}
+
+.item dd {
+  margin: 0;
+  color: var(--ink, #18181b);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.open {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-self: start;
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #1d4ed8;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.open:hover {
+  border-color: #2563eb;
+}

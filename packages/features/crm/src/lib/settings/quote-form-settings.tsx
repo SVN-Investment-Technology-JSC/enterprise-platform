@@ -18,6 +18,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
+import { useCrm } from '../crm-context';
 import {
   createCustomField,
   createQuoteTemplate,
@@ -32,6 +33,7 @@ import {
   updateQuoteTemplate,
   updateQuoteType,
 } from '../crm-api';
+import { LayoutDesigner } from '../quote-layout/layout-designer';
 import styles from '../sales.module.scss';
 import {
   ADJUSTMENT_MODE_HELP,
@@ -74,6 +76,10 @@ function QuoteTemplates() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<QuoteTemplate | 'new' | null>(null);
+  const [designing, setDesigning] = useState<QuoteTemplate | null>(null);
+  const { capabilities } = useCrm();
+  // Trình thiết kế bố cục chỉ cho `crm.manage`; server kiểm quyền lại khi lưu.
+  const canDesign = capabilities.isTenantAdmin || capabilities.canManage;
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -136,6 +142,18 @@ function QuoteTemplates() {
     },
     { title: 'Mô tả', dataIndex: 'description', ellipsis: true },
     {
+      title: 'Bố cục',
+      dataIndex: 'hasLayout',
+      width: 120,
+      render: (hasLayout: boolean) => (
+        <span
+          className={`${styles.pill} ${hasLayout ? styles.pill_success : styles.pill_neutral}`}
+        >
+          {hasLayout ? 'Đã thiết kế' : 'Mặc định'}
+        </span>
+      ),
+    },
+    {
       title: 'Trạng thái',
       dataIndex: 'active',
       width: 110,
@@ -144,7 +162,7 @@ function QuoteTemplates() {
     {
       title: '',
       key: 'actions',
-      width: 220,
+      width: canDesign ? 340 : 220,
       render: (_: unknown, row) => (
         <span className={styles.rowActions}>
           <button
@@ -154,6 +172,15 @@ function QuoteTemplates() {
           >
             Sửa
           </button>
+          {canDesign ? (
+            <button
+              type="button"
+              className={styles.rowAction}
+              onClick={() => setDesigning(row)}
+            >
+              Thiết kế bố cục
+            </button>
+          ) : null}
           {!row.isDefault && row.active ? (
             <button
               type="button"
@@ -217,6 +244,13 @@ function QuoteTemplates() {
             setEditing(null);
             reload();
           }}
+        />
+      ) : null}
+      {designing && canDesign ? (
+        <LayoutDesigner
+          template={designing}
+          onClose={() => setDesigning(null)}
+          onSaved={reload}
         />
       ) : null}
     </section>
@@ -658,7 +692,7 @@ function QuoteCodePanel() {
             <input
               className={`${styles.input} ${styles.mono}`}
               readOnly
-              value={settings.example}
+              value={settings.next}
             />
           </Field>
           <div className={styles.formActions}>

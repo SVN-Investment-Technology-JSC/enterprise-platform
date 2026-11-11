@@ -4,6 +4,7 @@ import { localStore } from '../store/local-store';
 import { remoteStore } from '../store/remote-store';
 import { createFakeBrandServer, httpError, type FakeBrandServer } from '../store/testing/fake-brand-server';
 import { IconLibraryPage } from './icon-library-page';
+import { chooseTileAction, confirmDialog } from './tile-actions.testing';
 
 jest.mock('../export/export-dialog', () => ({ ExportDialog: () => null }));
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   mockServer = createFakeBrandServer();
   remoteStore.resetForTest();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   localStore.reloadForTest();
   Object.defineProperty(globalThis, 'fetch', { value: jest.fn(), configurable: true, writable: true });
 });
@@ -65,9 +67,8 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     mockServer.seed(custom('a', 'Sắp lưu trữ'));
     await showLibrary();
 
-    fireEvent.click(within(tileOf('Sắp lưu trữ')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Sắp lưu trữ"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Sắp lưu trữ'), 'Xoá');
+    await confirmDialog('Xoá');
 
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã lưu trữ "Sắp lưu trữ".'));
     expect(screen.queryByRole('link', { name: 'Mở Sắp lưu trữ' })).toBeNull();
@@ -97,9 +98,8 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     await showLibrary();
     mockServer.failWith('DELETE icons/a', httpError(503, 'Kho lưu trữ icon tạm thời không khả dụng. Vui lòng thử lại sau.'));
 
-    fireEvent.click(within(tileOf('Giữ lại')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Giữ lại"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Giữ lại'), 'Xoá');
+    await confirmDialog('Xoá');
 
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Kho lưu trữ icon tạm thời không khả dụng.'));
     expect(screen.getByRole('link', { name: 'Mở Giữ lại' })).toBeTruthy();
@@ -109,7 +109,7 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     mockServer.seed(custom('a', 'Gốc'));
     await showLibrary();
 
-    fireEvent.click(within(tileOf('Gốc')).getByRole('button', { name: 'Nhân bản' }));
+    await chooseTileAction(tileOf('Gốc'), 'Nhân bản');
 
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã nhân bản thành "Gốc (bản sao)"'));
     expect([...mockServer.rows.values()].some((row) => row.summary.name === 'Gốc (bản sao)')).toBe(true);
@@ -180,9 +180,8 @@ describe('IconLibraryPage: chế độ cục bộ khi chưa có API', () => {
     expect(screen.queryByRole('button', { name: /Đồng bộ lên máy chủ/ })).toBeNull();
     expect(tiles()).toHaveLength(presetCount + 1);
 
-    fireEvent.click(within(tileOf('Cục bộ')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Cục bộ"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Cục bộ'), 'Xoá');
+    await confirmDialog('Xoá');
 
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã xoá "Cục bộ".'));
     expect(mockServer.calls.some((call) => call.startsWith('DELETE'))).toBe(false);

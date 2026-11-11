@@ -21,6 +21,7 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { MaterialPickerDialog } from '../components/material-picker';
+import { WarehouseSelect } from '../components/warehouse-select';
 import {
   deliveryAction,
   errorMessage,
@@ -64,6 +65,7 @@ const lineRequest = (line: SalesOrderLine) => ({
   unit: line.unit,
   overrideUnitPrice: line.overrideUnitPrice,
   overrideDiscountPercent: line.overrideDiscountPercent,
+  warehouseCode: line.warehouseCode ?? null,
 });
 
 /**
@@ -170,6 +172,33 @@ export function OrderDetail({
       ),
     },
     { title: 'SL', key: 'quantity', width: 100, align: 'right', render: (_: unknown, row) => `${formatQuantity(row.quantity)} ${row.unit}` },
+    {
+      // Kho giữ hàng của dòng (D3-37): đổi được khi đơn còn Nháp (kể cả đơn từ báo giá), không tính lại giá.
+      title: 'Kho',
+      key: 'warehouse',
+      width: 240,
+      render: (_: unknown, row) =>
+        row.materialKind === 'SERVICE' ? (
+          <span className={styles.muted}>Không giữ</span>
+        ) : actions.includes('edit') ? (
+          <WarehouseSelect
+            value={row.warehouseCode}
+            height={30}
+            ariaLabel={`Kho dòng ${row.lineNo}`}
+            placeholder={detail.warehouseCode ? `Theo đơn (${detail.warehouseCode})` : 'Chọn kho'}
+            stock={stock.find((item) => item.materialId === row.materialId)?.byWarehouse}
+            disabled={busy}
+            onChange={(code) =>
+              void run(
+                () => updateOrder(detail.id, { revision: detail.revision, lineWarehouses: [{ lineId: row.id, warehouseCode: code }] }),
+                'Đã đổi kho của dòng.',
+              )
+            }
+          />
+        ) : (
+          (row.warehouseCode ?? (detail.warehouseCode ? `${detail.warehouseCode} (theo đơn)` : <span className={styles.muted}>Chưa chọn</span>))
+        ),
+    },
     {
       title: 'Nguồn giá',
       key: 'source',
@@ -284,7 +313,7 @@ export function OrderDetail({
           <dd>{formatDay(detail.orderDate)}</dd>
           <dt>Giao dự kiến</dt>
           <dd>{formatDay(detail.expectedDeliveryDate) || <span className={styles.muted}>Chưa đặt</span>}</dd>
-          <dt>Kho giữ hàng</dt>
+          <dt>Kho giữ hàng mặc định</dt>
           <dd>{detail.warehouseCode ?? <span className={styles.muted}>Chưa chọn</span>}</dd>
           {detail.reservationExpiresAt ? (
             <>
@@ -717,8 +746,11 @@ function OrderHeaderDialog({
         <Field label="Ngày giao dự kiến" hint="Hạn giữ hàng = ngày giao dự kiến + 2 ngày">
           <DatePickerInput value={expectedDeliveryDate || undefined} onChange={setExpectedDeliveryDate} height={38} aria-label="Ngày giao dự kiến" />
         </Field>
-        <Field label="Mã kho giữ hàng" hint={warehouses.length ? `Kho đang có hàng: ${warehouses.join(', ')}` : undefined}>
-          <input className={styles.input} maxLength={50} value={warehouseCode} onChange={(event) => setWarehouseCode(event.target.value.toUpperCase())} />
+        <Field
+          label="Kho giữ hàng mặc định"
+          hint={`Dòng không chọn kho riêng giữ hàng ở kho này.${warehouses.length ? ` Kho đang có hàng: ${warehouses.join(', ')}` : ''}`}
+        >
+          <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
         <Field label="Địa chỉ giao" wide>
           <input className={styles.input} maxLength={500} value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} />
