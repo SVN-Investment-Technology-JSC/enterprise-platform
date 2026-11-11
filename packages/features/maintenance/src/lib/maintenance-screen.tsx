@@ -85,6 +85,7 @@ import { SELECT_CLASS } from './ui/select-class';
 import { Tip } from './ui/tooltip';
 import { useFillViewportHeight } from './ui/use-fill-viewport';
 import { MaintenanceCardPicker } from './maintenance-card-picker';
+import { selectableProcedures } from './procedure-options';
 import {
   matchesQuickFilter,
   QUICK_FILTER_LABEL,
@@ -353,7 +354,7 @@ export function MaintenanceScreen() {
 
   const procedureOptions = useMemo(
     () =>
-      (workspace?.procedureCatalog ?? []).map((entry) => ({
+      selectableProcedures(workspace?.procedureCatalog).map((entry) => ({
         value: entry.definitionId,
         label: `${entry.code} · ${entry.name}`,
       })),

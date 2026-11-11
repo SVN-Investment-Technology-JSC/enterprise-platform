@@ -150,6 +150,80 @@ describe('MaintenanceApplication', () => {
       expect(matrix.rows[0]).toMatchObject({ assigneeId: 'u1', assigneeName: 'Tài' });
     });
 
+    describe('quy trình phải đang công bố', () => {
+      const catalogEntry = (definitionId: string, status: 'published' | 'archived') => ({
+        definitionId, code: definitionId.toUpperCase(), name: 'QT', versionNumber: 1, status, synchronizedAt: '2026-11-11T00:00:00.000Z',
+      });
+      const stateWith = (schedules: unknown[]) => ({
+        assets: [], jobPlans: [], occurrences: [], schedules,
+        procedureCatalog: [catalogEntry('pub', 'published'), catalogEntry('old', 'archived')],
+      });
+
+      it('tạo lịch mới với quy trình đã ngừng dùng bị từ chối, không ghi gì', async () => {
+        const createSchedule = jest.fn();
+        const store = { read: jest.fn().mockResolvedValue(stateWith([])), createSchedule } as unknown as MaintenanceStore;
+        await expect(
+          new MaintenanceApplication(store).saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], procedureDefinitionId: 'old' }] }),
+        ).rejects.toMatchObject({ name: 'MaintenanceError', message: expect.stringContaining('đã ngừng dùng') });
+        expect(createSchedule).not.toHaveBeenCalled();
+      });
+
+      it('bật lại lịch với quy trình không có trong danh mục bị từ chối', async () => {
+        const updateSchedule = jest.fn();
+        const store = {
+          read: jest.fn().mockResolvedValue(stateWith([schedule({ status: 'paused', procedureDefinitionId: 'ghost' })])),
+          updateSchedule,
+        } as unknown as MaintenanceStore;
+        await expect(
+          new MaintenanceApplication(store).saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], procedureDefinitionId: 'ghost' }] }),
+        ).rejects.toMatchObject({ message: expect.stringContaining('chưa được công bố') });
+        expect(updateSchedule).not.toHaveBeenCalled();
+      });
+
+      it('bật lại lịch với quy trình đang công bố thì được', async () => {
+        const updateSchedule = jest.fn().mockResolvedValue({});
+        const store = {
+          read: jest.fn().mockResolvedValue(stateWith([schedule({ status: 'paused', procedureDefinitionId: 'pub' })])),
+          updateSchedule,
+        } as unknown as MaintenanceStore;
+        await new MaintenanceApplication(store).saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], procedureDefinitionId: 'pub' }] });
+        expect(updateSchedule).toHaveBeenCalled();
+      });
+
+      it('lịch đang chạy chỉ sửa ưu tiên không bị chặn vì quy trình cũ', async () => {
+        const updateSchedule = jest.fn().mockResolvedValue({});
+        const store = {
+          read: jest.fn().mockResolvedValue(stateWith([schedule({ status: 'active', procedureDefinitionId: 'old' })])),
+          updateSchedule,
+        } as unknown as MaintenanceStore;
+        await new MaintenanceApplication(store).saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], procedureDefinitionId: 'old', priority: 'High' }] });
+        expect(updateSchedule).toHaveBeenCalled();
+      });
+
+      it('tạo sự cố và đổi quy trình của lịch cũng kiểm quy trình', async () => {
+        const getProcedureStatus = jest.fn().mockResolvedValue('archived');
+        const createIncident = jest.fn();
+        const updateSchedule = jest.fn();
+        const store = { getProcedureStatus, createIncident, updateSchedule } as unknown as MaintenanceStore;
+        const app = new MaintenanceApplication(store);
+        await expect(app.createIncident(actor, { assetCode: 'MBA-T1', title: 'Sự cố', priority: 'High', procedureDefinitionId: 'old' })).rejects.toMatchObject({ name: 'MaintenanceError' });
+        await expect(app.updateSchedule(actor, 'sch-1', { procedureDefinitionId: 'old' })).rejects.toMatchObject({ name: 'MaintenanceError' });
+        expect(createIncident).not.toHaveBeenCalled();
+        expect(updateSchedule).not.toHaveBeenCalled();
+      });
+    });
+
+    it('ma trận báo lý do lịch tạm dừng vì quy trình', async () => {
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'paused', pausedReason: 'PROCEDURE_DEFINITION_UNAVAILABLE' })],
+        }),
+      } as unknown as MaintenanceStore;
+      const matrix = await new MaintenanceApplication(store).getMatrix(actor);
+      expect(matrix.rows[0].pausedReason).toBe('PROCEDURE_DEFINITION_UNAVAILABLE');
+    });
+
     it('sửa ưu tiên của lịch đang chạy không đụng tới hạn', async () => {
       const updateSchedule = jest.fn().mockResolvedValue({});
       const store = {

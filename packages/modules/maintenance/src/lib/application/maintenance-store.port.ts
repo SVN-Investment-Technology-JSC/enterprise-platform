@@ -100,6 +100,8 @@ export interface MaintenanceStore {
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;
   /** Retries occurrences stranded in 'dispatch_pending' by a crash mid-dispatch. */
   reconcileStuckDispatches(tenantId: string, now: Date): Promise<number>;
+  /** Trạng thái của một quy trình trong danh mục đã đồng bộ; `undefined` khi không có trong danh mục. */
+  getProcedureStatus(tenantId: string, definitionId: string): Promise<'published' | 'archived' | undefined>;
   /** Thử lại tay phiếu 'failed' đã gắn quy trình; trả phiếu sau lần gửi mới. */
   retryDispatch(tenantId: string, id: string): Promise<MaintenanceOccurrence>;
   /** Xoá mọi lịch của một thiết bị, kèm phiếu đã sinh ra từ chúng. Trả về số lịch đã xoá. */

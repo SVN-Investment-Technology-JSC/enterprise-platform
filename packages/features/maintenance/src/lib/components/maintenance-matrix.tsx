@@ -21,6 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { excelSerialToIsoDate } from './matrix-import';
+import { procedureOptionsKeepingInUse, selectableProcedures } from '../procedure-options';
 import { loadAssetTasks, loadMaintenanceHistory, type AssetTaskList } from '../maintenance-api';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -408,16 +409,13 @@ export function MaintenanceMatrixBoard({
       })),
     [],
   );
-  const flowOptions = useMemo(
-    () => [
-      { value: '', label: '— Chưa gắn —' },
-      ...(matrix.procedureCatalog ?? []).map((entry) => ({
-        value: entry.definitionId,
-        label: `${entry.code} — ${entry.name}`,
-      })),
-    ],
-    [matrix.procedureCatalog],
-  );
+  const flowOptions = useMemo(() => {
+    // Chỉ bản đang công bố được chọn mới; bản đã ngừng dùng chỉ hiện khi còn thiết bị đang gắn, kèm nhãn để người dùng đổi.
+    const inUse = new Set(
+      (matrix.rows ?? []).map((row) => row.procedureDefinitionId).filter((id): id is string => Boolean(id)),
+    );
+    return [{ value: '', label: '— Chưa gắn —' }, ...procedureOptionsKeepingInUse(matrix.procedureCatalog, inUse)];
+  }, [matrix.procedureCatalog, matrix.rows]);
 
   // Nạp lại ma trận (thêm thiết bị, Bảo trì ngay, Gỡ...) KHÔNG được xoá thay đổi chưa lưu: hàng nào người dùng đã sửa so với
   // bản server trước đó thì giữ nguyên bản nháp; chỉ hàng chưa sửa mới lấy dữ liệu mới.
@@ -549,7 +547,7 @@ export function MaintenanceMatrixBoard({
 
   /** Options quy trình cho SearchableSelect trong Modal Import */
   const procedureImportOptions = useMemo(() => {
-    return (matrix.procedureCatalog ?? []).map((proc) => ({
+    return selectableProcedures(matrix.procedureCatalog).map((proc) => ({
       value: proc.code,
       label: `${proc.code} - ${proc.name}`,
       description: proc.name,
@@ -1504,6 +1502,13 @@ export function MaintenanceMatrixBoard({
                           }))
                         }
                       />
+                      {row.pausedReason ? (
+                        <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">
+                          {row.pausedReason === 'PROCEDURE_ENTITLEMENT_DISABLED'
+                            ? 'Tạm dừng: chưa bật module Quy trình'
+                            : 'Tạm dừng: quy trình đã ngừng dùng, hãy chọn quy trình khác'}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 );

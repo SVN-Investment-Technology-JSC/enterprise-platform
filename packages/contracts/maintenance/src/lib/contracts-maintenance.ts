@@ -288,6 +288,11 @@ export interface MaintenanceMatrixRow {
   /** Người phụ trách chung của các lịch của thiết bị này. */
   readonly assigneeId?: string;
   readonly assigneeName?: string;
+  /**
+   * Có lịch của thiết bị bị tự tạm dừng vì quy trình: `PROCEDURE_DEFINITION_UNAVAILABLE` (quy trình đã ngừng dùng) hoặc
+   * `PROCEDURE_ENTITLEMENT_DISABLED` (tenant chưa bật module Quy trình). Để giao diện giải thích vì sao ô tick đang trống.
+   */
+  readonly pausedReason?: 'PROCEDURE_DEFINITION_UNAVAILABLE' | 'PROCEDURE_ENTITLEMENT_DISABLED';
   /** Chu kỳ đang bật; một thiết bị có thể có nhiều chu kỳ cùng lúc. */
   readonly cells: Readonly<Partial<Record<MaintenanceFrequency, MaintenanceMatrixCell>>>;
   readonly procedureDefinitionId?: string;

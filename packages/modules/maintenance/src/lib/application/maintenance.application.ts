@@ -35,6 +35,14 @@ import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.por
 /** Khoá tuỳ chọn cá nhân lưu danh sách thẻ Tổng quan (bảng `user_preferences`). */
 const DASHBOARD_CARDS_PREFERENCE = 'dashboard.cards';
 
+/** Lời báo khi quy trình không dùng được: đã ngừng dùng, hay không có trong danh mục (chưa công bố hoặc không tồn tại). */
+function procedureNotUsableMessage(entry?: { status: string; code?: string }): string {
+  const name = entry?.code ? `Quy trình ${entry.code}` : 'Quy trình đã chọn';
+  return entry?.status === 'archived'
+    ? `${name} đã ngừng dùng. Hãy chọn một quy trình đang công bố.`
+    : `${name} chưa được công bố hoặc không còn trong danh mục. Hãy chọn một quy trình đang công bố.`;
+}
+
 const PRIORITIES: ReadonlySet<string> = new Set(['High', 'Normal', 'Low']);
 
 /** Giá trị ngoài danh sách sẽ làm hỏng ràng buộc CHECK ở DB và trả 500; chặn sớm bằng 400. */
@@ -196,10 +204,17 @@ export class MaintenanceApplication {
           };
         }
         const assigned = own.find((schedule) => schedule.assigneeId);
+        const pausedByProcedure = own.find(
+          (schedule) =>
+            schedule.status === 'paused' &&
+            (schedule.pausedReason === 'PROCEDURE_DEFINITION_UNAVAILABLE' ||
+              schedule.pausedReason === 'PROCEDURE_ENTITLEMENT_DISABLED'),
+        );
         return {
           asset,
           assigneeId: assigned?.assigneeId,
           assigneeName: assigned?.assigneeName,
+          pausedReason: pausedByProcedure?.pausedReason as MaintenanceMatrixRow['pausedReason'],
           cells,
           procedureDefinitionId: own.find((schedule) => schedule.procedureDefinitionId)
             ?.procedureDefinitionId,
@@ -291,6 +306,18 @@ export class MaintenanceApplication {
 
     const state = await this.store.read(actor.tenantId);
     const today = new Date().toISOString().slice(0, 10);
+    const procedureStatus = new Map(state.procedureCatalog.map((entry) => [entry.definitionId, entry]));
+    /** Quy trình gắn vào lịch phải là bản đang công bố; bản nháp hoặc đã ngừng dùng thì lịch sinh phiếu ra cũng lỗi. */
+    const assertPublished = (definitionId: string | undefined | null, assetCode: string) => {
+      if (!definitionId) return;
+      const entry = procedureStatus.get(definitionId);
+      if (entry?.status !== 'published') {
+        throw new MaintenanceError(
+          'validation',
+          `Thiết bị ${assetCode}: ${procedureNotUsableMessage(entry)}`,
+        );
+      }
+    };
     const result = { created: 0, reactivated: 0, paused: 0, updated: 0 };
 
     for (const entry of input.entries) {
@@ -302,6 +329,7 @@ export class MaintenanceApplication {
       for (const frequency of wanted) {
         const match = existing.find((schedule) => schedule.frequency === frequency);
         if (!match) {
+          assertPublished(entry.procedureDefinitionId, entry.assetCode);
           await this.store.createSchedule(actor.tenantId, {
             assetCode: entry.assetCode,
             procedureDefinitionId: entry.procedureDefinitionId,
@@ -329,6 +357,11 @@ export class MaintenanceApplication {
           patch.assigneeName = entry.assigneeName ?? null;
         }
         if (Object.keys(patch).length === 0) continue;
+        // Bật lại lịch hoặc đổi quy trình: quy trình đích phải còn dùng được. Lịch đang chạy mà chỉ sửa ưu tiên hay
+        // người phụ trách thì không bị chặn vì một quy trình đã cũ.
+        if (patch.status === 'active' || 'procedureDefinitionId' in patch) {
+          assertPublished(entry.procedureDefinitionId, entry.assetCode);
+        }
 
         // Bật lại lịch: áp ngày bắt đầu người dùng chọn cho đúng ô này (nếu có) thay vì giữ hạn cũ.
         await this.store.updateSchedule(
@@ -401,6 +434,7 @@ export class MaintenanceApplication {
       throw new MaintenanceError('validation', 'Mã thiết bị và tiêu đề sự cố là bắt buộc.');
     }
     requirePriority(input.priority);
+    await this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId);
 
     // Mã thiết bị phải có thật (AC-INC-02). Kho hỏng thì bỏ qua kiểm thay vì chặn
     // ghi nhận sự cố — cùng cách xuống thang mà getMatrix đang dùng. Sự cố lúc 2
@@ -428,6 +462,15 @@ export class MaintenanceApplication {
     return created;
   }
 
+  /** Quy trình gắn vào lịch hoặc sự cố phải có trong danh mục và đang công bố. */
+  private async requirePublishedProcedure(tenantId: string, definitionId?: string | null): Promise<void> {
+    if (!definitionId) return;
+    const status = await this.store.getProcedureStatus(tenantId, definitionId);
+    if (status !== 'published') {
+      throw new MaintenanceError('validation', procedureNotUsableMessage(status ? { status } : undefined));
+    }
+  }
+
   createSchedule(actor: MaintenanceActor, input: CreateMaintenanceScheduleRequest) {
     this.requireManager(actor);
     if (!input.assetCode?.trim() || !input.startDate) {
@@ -440,7 +483,9 @@ export class MaintenanceApplication {
   updateSchedule(actor: MaintenanceActor, id: string, input: UpdateMaintenanceScheduleRequest) {
     this.requireManager(actor);
     requirePriority(input.priority);
-    return this.store.updateSchedule(actor.tenantId, id, input);
+    return this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId).then(() =>
+      this.store.updateSchedule(actor.tenantId, id, input),
+    );
   }
 
   async generateDueOccurrences(tenantId: string, now = new Date()) {

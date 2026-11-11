@@ -743,6 +743,18 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     }
   }
 
+  async getProcedureStatus(tenantId: string, definitionId: string): Promise<'published' | 'archived' | undefined> {
+    // definition_id kiểu uuid: chuỗi lạ phải thành "không có" chứ không làm vỡ câu lệnh.
+    if (!asUuid(definitionId)) return undefined;
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT status FROM maintenance_schema.procedure_catalog WHERE definition_id = $1`,
+      [definitionId],
+    );
+    const status = result.rows[0]?.status;
+    return status === 'published' || status === 'archived' ? status : undefined;
+  }
+
   /**
    * Thử lại tay một phiếu đã báo lỗi gửi sang Quy trình. An toàn khi gọi lặp: idempotencyKey giữ nguyên nên Quy trình
    * trả lại hồ sơ cũ thay vì tạo thêm. Chỉ phiếu 'failed' chưa có hồ sơ mới thử lại được.

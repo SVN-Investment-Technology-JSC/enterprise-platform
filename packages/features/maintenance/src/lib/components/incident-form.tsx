@@ -21,6 +21,7 @@ import { Paperclip, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { IncidentFormValues } from '../assistant-incident-draft';
 import { loadFleetAvailability } from '../maintenance-api';
+import { selectableProcedures } from '../procedure-options';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { SELECT_CLASS } from '../ui/select-class';
@@ -191,7 +192,7 @@ export function IncidentForm({
 
   // Danh mục quy trình dạng SearchableSelectOption
   const procedureOptions = useMemo(() => {
-    return catalog.map((entry) => ({
+    return selectableProcedures(catalog).map((entry) => ({
       value: entry.definitionId,
       label: `${entry.code} — ${entry.name}`,
       description: entry.code,
