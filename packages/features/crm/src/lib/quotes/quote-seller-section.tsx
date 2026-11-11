@@ -1,7 +1,8 @@
 'use client';
 
 /**
- * Mục "Tổ chức báo giá" ở đầu cột trái màn lập và sửa báo giá, trên Thông tin chung (plan mục 16.4, D3-26, D3-29). Chọn
+ * Mục "Tổ chức báo giá" ở đầu cột trái màn lập và sửa báo giá, trên Thông tin chung (plan mục 16.4, D3-26, D3-29). Thu
+ * gọn mặc định (tiêu đề ghi tổ chức đang chọn), bấm tiêu đề để mở; có lỗi ở ô thông tin thì tự mở. Chọn
  * tổ chức thì chép thông tin của tổ chức và hiện dạng chỉ xem; chọn "Nhập thủ công" thì mới hiện các ô để người lập tự
  * nhập cho riêng báo giá. Không còn Nháp hoặc không có quyền lập báo giá: chỉ xem.
  */
@@ -64,7 +65,10 @@ export function QuoteSellerSection({
   const allOrganizations = [...organizations, ...added.filter((item) => !organizations.some((row) => row.id === item.id))];
   const [moreOpen, setMoreOpen] = useState(() => SELLER_EXTRA_FIELDS.some((field) => value.seller[field].trim()));
   const [refreshing, setRefreshing] = useState(false);
+  // Thu gọn mặc định; có lỗi ở ô thông tin tổ chức thì luôn mở để thấy ô cần sửa.
+  const [expanded, setExpanded] = useState(false);
   const showMore = moreOpen || SELLER_EXTRA_FIELDS.some((field) => Boolean(errors[field]));
+  const open = expanded || Object.values(errors).some(Boolean);
 
   const manual = value.organizationId === MANUAL_ORGANIZATION;
   const selected = allOrganizations.find((item) => item.id === value.organizationId);
@@ -165,68 +169,82 @@ export function QuoteSellerSection({
     </dl>
   );
 
+  const header = (
+    <button type="button" className={styles.detailsToggle} aria-expanded={open} onClick={() => setExpanded(!open)}>
+      {open ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+      <span>{SELLER_SECTION_TITLE}</span>
+      {open ? null : <span className={styles.muted}>{selectedName ?? NO_ORGANIZATION_TEXT}</span>}
+    </button>
+  );
+
   if (!editable) {
     return (
       <section className={styles.panel} aria-label={SELLER_SECTION_TITLE}>
-        <h3 className={styles.sectionTitle}>{SELLER_SECTION_TITLE}</h3>
-        <dl className={styles.facts}>
-          <dt>Tổ chức</dt>
-          <dd>{selectedName ?? <span className={styles.muted}>{NO_ORGANIZATION_TEXT}</span>}</dd>
-          {filled.map((field) => (
-            <FactRow key={field} label={sellerFieldLabel(field)} value={value.seller[field]} />
-          ))}
-        </dl>
+        {header}
+        {open ? (
+          <dl className={styles.facts}>
+            <dt>Tổ chức</dt>
+            <dd>{selectedName ?? <span className={styles.muted}>{NO_ORGANIZATION_TEXT}</span>}</dd>
+            {filled.map((field) => (
+              <FactRow key={field} label={sellerFieldLabel(field)} value={value.seller[field]} />
+            ))}
+          </dl>
+        ) : null}
       </section>
     );
   }
 
   return (
     <section className={styles.panel} aria-label={SELLER_SECTION_TITLE}>
-      <h3 className={styles.sectionTitle}>{SELLER_SECTION_TITLE}</h3>
-      <div className={styles.fieldGrid}>
-        <Field
-          label="Tổ chức"
-          hint="Chọn tổ chức thì đầu trang in theo thông tin của tổ chức; chọn Nhập thủ công để tự nhập cho riêng báo giá này"
-          wide
-        >
-          <SearchableSelect options={options} value={value.organizationId} placeholder={NO_ORGANIZATION_TEXT} clearable onChange={choose} />
-        </Field>
-        {manual ? SELLER_MAIN_FIELDS.map((field) => input(field, field === 'name' || field === 'address')) : null}
-        {manual && showMore ? SELLER_EXTRA_FIELDS.map((field) => input(field)) : null}
-      </div>
-      {manual ? (
-        <div className={styles.toolbar}>
-          <button type="button" className={styles.linkButton} aria-expanded={showMore} onClick={() => setMoreOpen(!showMore)}>
-            {showMore ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
-            {showMore ? ' Ẩn thông tin thêm' : ' Thêm thông tin'}
-          </button>
-          {showMore ? null : <span className={styles.muted}>Tên viết tắt, website, tài khoản ngân hàng, người đại diện.</span>}
-          {canSaveOrganization ? (
-            <button
-              type="button"
-              className={`${styles.buttonGhost} ${styles.pushRight}`}
-              disabled={saving}
-              title="Lưu thông tin đang nhập thành tổ chức báo giá trong Cấu hình để lần sau chọn lại"
-              onClick={() => void saveAsOrganization()}
-            >
-              <BookmarkPlus size={14} aria-hidden="true" /> {SAVE_ORGANIZATION_TEXT}
-            </button>
-          ) : null}
-        </div>
-      ) : value.organizationId ? (
+      {header}
+      {open ? (
         <>
-          {facts}
-          <div className={styles.toolbar}>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              disabled={refreshing}
-              title="Chép lại thông tin mới nhất của tổ chức đang chọn"
-              onClick={recopy}
+          <div className={styles.fieldGrid}>
+            <Field
+              label="Tổ chức"
+              hint="Chọn tổ chức thì đầu trang in theo thông tin của tổ chức; chọn Nhập thủ công để tự nhập cho riêng báo giá này"
+              wide
             >
-              <RefreshCw size={14} aria-hidden="true" /> Lấy lại từ tổ chức
-            </button>
+              <SearchableSelect options={options} value={value.organizationId} placeholder={NO_ORGANIZATION_TEXT} clearable onChange={choose} />
+            </Field>
+            {manual ? SELLER_MAIN_FIELDS.map((field) => input(field, field === 'name' || field === 'address')) : null}
+            {manual && showMore ? SELLER_EXTRA_FIELDS.map((field) => input(field)) : null}
           </div>
+          {manual ? (
+            <div className={styles.toolbar}>
+              <button type="button" className={styles.linkButton} aria-expanded={showMore} onClick={() => setMoreOpen(!showMore)}>
+                {showMore ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+                {showMore ? ' Ẩn thông tin thêm' : ' Thêm thông tin'}
+              </button>
+              {showMore ? null : <span className={styles.muted}>Tên viết tắt, website, tài khoản ngân hàng, người đại diện.</span>}
+              {canSaveOrganization ? (
+                <button
+                  type="button"
+                  className={`${styles.buttonGhost} ${styles.pushRight}`}
+                  disabled={saving}
+                  title="Lưu thông tin đang nhập thành tổ chức báo giá trong Cấu hình để lần sau chọn lại"
+                  onClick={() => void saveAsOrganization()}
+                >
+                  <BookmarkPlus size={14} aria-hidden="true" /> {SAVE_ORGANIZATION_TEXT}
+                </button>
+              ) : null}
+            </div>
+          ) : value.organizationId ? (
+            <>
+              {facts}
+              <div className={styles.toolbar}>
+                <button
+                  type="button"
+                  className={styles.buttonGhost}
+                  disabled={refreshing}
+                  title="Chép lại thông tin mới nhất của tổ chức đang chọn"
+                  onClick={recopy}
+                >
+                  <RefreshCw size={14} aria-hidden="true" /> Lấy lại từ tổ chức
+                </button>
+              </div>
+            </>
+          ) : null}
         </>
       ) : null}
     </section>

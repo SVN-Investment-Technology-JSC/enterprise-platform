@@ -932,7 +932,13 @@ function stubOrganizations() {
   mockApi.getSalesOrganization.mockImplementation((id: string) => Promise.resolve(id === 'org-b' ? ORG_B : ORG_A));
 }
 
-const sellerSection = () => screen.getByRole('region', { name: 'Tổ chức báo giá' });
+/** Mục Tổ chức báo giá, mở ra nếu đang thu gọn (thu gọn mặc định). */
+const sellerSection = () => {
+  const section = screen.getByRole('region', { name: 'Tổ chức báo giá' });
+  const toggle = within(section).getByRole('button', { name: /^Tổ chức báo giá/ });
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle);
+  return section;
+};
 const sellerInput = (label: string) => within(sellerSection()).getByLabelText(label) as HTMLInputElement;
 const previewHeader = () => document.querySelector('[data-block-type="companyHeader"]') as HTMLElement;
 const savedWithA = (patch: Partial<QuoteVersion> = {}) =>

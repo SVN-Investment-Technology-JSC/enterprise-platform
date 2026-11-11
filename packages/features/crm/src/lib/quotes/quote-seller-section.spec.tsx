@@ -71,6 +71,9 @@ function Harness({ initial }: { initial: SellerState }) {
   );
 }
 
+/** Mục thu gọn mặc định: bấm tiêu đề để mở. */
+const expand = () => fireEvent.click(screen.getByRole('button', { name: /^Tổ chức báo giá/ }));
+
 beforeEach(() => {
   mockCreate.mockReset();
   mockToast.success.mockReset();
@@ -83,6 +86,7 @@ describe('QuoteSellerSection: lưu thông tin nhập thủ công thành tổ ch�
   it('quản trị bán hàng: lưu thành tổ chức rồi báo giá chuyển sang chọn tổ chức đó', async () => {
     mockCreate.mockResolvedValue(created);
     render(<Harness initial={{ organizationId: MANUAL_ORGANIZATION, seller: FILLED }} />);
+    expand();
     fireEvent.click(screen.getByRole('button', { name: SAVE_ORGANIZATION_TEXT }));
     await waitFor(() => expect(lastState?.organizationId).toBe('org-new'));
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ name: FILLED.name, taxCode: FILLED.taxCode, code: null, logo: null }));
@@ -93,6 +97,7 @@ describe('QuoteSellerSection: lưu thông tin nhập thủ công thành tổ ch�
 
   it('thiếu trường bắt buộc của tổ chức: báo tại ô, không gọi API', () => {
     render(<Harness initial={{ organizationId: MANUAL_ORGANIZATION, seller: { ...FILLED, taxCode: '' } }} />);
+    expand();
     fireEvent.click(screen.getByRole('button', { name: SAVE_ORGANIZATION_TEXT }));
     expect(mockCreate).not.toHaveBeenCalled();
     expect(screen.getByText('Vui lòng nhập mã số thuế.')).toBeTruthy();
@@ -102,6 +107,22 @@ describe('QuoteSellerSection: lưu thông tin nhập thủ công thành tổ ch�
   it('không có quyền quản trị bán hàng: không có nút lưu', () => {
     mockCapabilities = { isTenantAdmin: false, canManage: false };
     render(<Harness initial={{ organizationId: MANUAL_ORGANIZATION, seller: FILLED }} />);
+    expand();
     expect(screen.queryByRole('button', { name: SAVE_ORGANIZATION_TEXT })).toBeNull();
+  });
+});
+
+describe('QuoteSellerSection: thu gọn, mở rộng', () => {
+  it('thu gọn mặc định, tiêu đề ghi tổ chức đang chọn; bấm tiêu đề để mở, bấm lại để thu', () => {
+    render(<Harness initial={{ organizationId: MANUAL_ORGANIZATION, seller: FILLED }} />);
+    const toggle = screen.getByRole('button', { name: /^Tổ chức báo giá/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent).toContain('Nhập thủ công');
+    expect(screen.queryByTestId('org-select')).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('org-select')).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('org-select')).toBeNull();
   });
 });
