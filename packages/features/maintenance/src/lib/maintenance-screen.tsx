@@ -85,6 +85,7 @@ import { SELECT_CLASS } from './ui/select-class';
 import { Tip } from './ui/tooltip';
 import { useFillViewportHeight } from './ui/use-fill-viewport';
 import { MaintenanceCardPicker } from './maintenance-card-picker';
+import { validateFrequencyDraft } from './frequency-validation';
 import { selectableProcedures } from './procedure-options';
 import {
   matchesQuickFilter,
@@ -652,6 +653,12 @@ export function MaintenanceScreen() {
 
   const saveFrequencies = async () => {
     if (!settings || !freqDraft) return;
+    // Báo lỗi ngay nếu có dòng không hợp lệ: không gửi lên rồi để dòng bị bỏ lặng lẽ.
+    const problems = validateFrequencyDraft(freqDraft);
+    if (problems.length > 0) {
+      showError('Danh mục tần suất chưa hợp lệ', problems.join(' '));
+      return;
+    }
     setSavingSettings(true);
     try {
       const saved = await saveMaintenanceSetting(
@@ -792,6 +799,8 @@ export function MaintenanceScreen() {
         await reload();
       } catch (cause) {
         notifyError(cause, 'Không đánh dấu hoàn thành được.');
+        // Có thể người khác vừa đóng phiếu này: nạp lại để danh sách không còn giữ phiếu đã cũ.
+        void reload();
         throw cause;
       }
     },
@@ -817,6 +826,7 @@ export function MaintenanceScreen() {
           assets={matrix.rows}
           catalog={workspace.procedureCatalog}
           members={members}
+          unitNames={unitNames}
           busy={busy}
           onCancel={() => setIncidentOpen(false)}
           onSubmit={submitIncident}

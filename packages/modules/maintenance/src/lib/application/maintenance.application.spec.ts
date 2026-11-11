@@ -200,6 +200,18 @@ describe('MaintenanceApplication', () => {
         expect(updateSchedule).toHaveBeenCalled();
       });
 
+      it('tạo lịch lẻ kiểm quy trình; nhập hàng loạt (verifyProcedure false) thì không', async () => {
+        const getProcedureStatus = jest.fn().mockResolvedValue(undefined);
+        const createSchedule = jest.fn().mockResolvedValue({});
+        const store = { getProcedureStatus, createSchedule } as unknown as MaintenanceStore;
+        const app = new MaintenanceApplication(store);
+        const input = { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20', procedureDefinitionId: 'chua-dong-bo' };
+        await expect(app.createSchedule(actor, input)).rejects.toMatchObject({ name: 'MaintenanceError' });
+        expect(createSchedule).not.toHaveBeenCalled();
+        await app.createSchedule(actor, input, { verifyProcedure: false });
+        expect(createSchedule).toHaveBeenCalledTimes(1);
+      });
+
       it('tạo sự cố và đổi quy trình của lịch cũng kiểm quy trình', async () => {
         const getProcedureStatus = jest.fn().mockResolvedValue('archived');
         const createIncident = jest.fn();
@@ -237,6 +249,41 @@ describe('MaintenanceApplication', () => {
         entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], priority: 'High', startDates: { week: '2026-11-20' } }],
       });
       expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { priority: 'High' }, undefined);
+    });
+  });
+
+  describe('danh mục tần suất', () => {
+    const actor = { tenantId: 'tenant', userId: 'user', displayName: 'Admin', canManage: true };
+    const opt = (code: string, label: string, overrides: Record<string, unknown> = {}) => ({
+      code, label, intervalUnit: 'week', intervalCount: 1, sortOrder: 1, isActive: true, ...overrides,
+    });
+
+    it('từ chối dòng hỏng, không ghi gì', async () => {
+      const putSetting = jest.fn();
+      const store = { read: jest.fn().mockResolvedValue({ schedules: [] }), putSetting } as unknown as MaintenanceStore;
+      await expect(
+        new MaintenanceApplication(store).updateSetting(actor, 'catalog.frequency', { value: { options: [opt('week', ' ')] }, expectedVersion: 1 }),
+      ).rejects.toMatchObject({ name: 'MaintenanceError', message: expect.stringContaining('không được để trống') });
+      expect(putSetting).not.toHaveBeenCalled();
+    });
+
+    it('từ chối bỏ tần suất đang có lịch dùng', async () => {
+      const putSetting = jest.fn();
+      const store = {
+        read: jest.fn().mockResolvedValue({ schedules: [{ frequency: 'month' }] }),
+        putSetting,
+      } as unknown as MaintenanceStore;
+      await expect(
+        new MaintenanceApplication(store).updateSetting(actor, 'catalog.frequency', { value: { options: [opt('week', 'Tuần')] }, expectedVersion: 1 }),
+      ).rejects.toMatchObject({ message: expect.stringContaining('month') });
+      expect(putSetting).not.toHaveBeenCalled();
+    });
+
+    it('lưu khi hợp lệ và giữ đủ tần suất đang dùng', async () => {
+      const putSetting = jest.fn().mockResolvedValue({ key: 'catalog.frequency', value: { options: [opt('week', 'Tuần')] }, version: 2, updatedAt: '2026-11-11T00:00:00.000Z' });
+      const store = { read: jest.fn().mockResolvedValue({ schedules: [{ frequency: 'week' }] }), putSetting } as unknown as MaintenanceStore;
+      await new MaintenanceApplication(store).updateSetting(actor, 'catalog.frequency', { value: { options: [opt('week', 'Tuần')] }, expectedVersion: 1 });
+      expect(putSetting).toHaveBeenCalledTimes(1);
     });
   });
 

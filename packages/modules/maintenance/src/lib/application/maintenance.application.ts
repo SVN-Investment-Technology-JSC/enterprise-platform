@@ -28,6 +28,7 @@ import {
   isMaintenanceSettingsKey,
   normalizeMaintenanceSetting,
 } from './maintenance-settings.js';
+import { validateFrequencyCatalog } from './frequency-catalog-validation.js';
 import type { AssetDirectory } from './asset-directory.port.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
@@ -471,12 +472,23 @@ export class MaintenanceApplication {
     }
   }
 
-  createSchedule(actor: MaintenanceActor, input: CreateMaintenanceScheduleRequest) {
+  /**
+   * `verifyProcedure: false` chỉ dành cho nhập dữ liệu hàng loạt: quy trình vừa được nhập bên Procedure nên danh mục của
+   * Bảo trì (đồng bộ bằng sự kiện) có thể chưa kịp có nó.
+   */
+  async createSchedule(
+    actor: MaintenanceActor,
+    input: CreateMaintenanceScheduleRequest,
+    options: { readonly verifyProcedure?: boolean } = {},
+  ) {
     this.requireManager(actor);
     if (!input.assetCode?.trim() || !input.startDate) {
       throw new MaintenanceError('validation', 'Mã thiết bị (assetCode) và ngày bắt đầu là bắt buộc.');
     }
     requirePriority(input.priority);
+    if (options.verifyProcedure !== false) {
+      await this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId);
+    }
     return this.store.createSchedule(actor.tenantId, input);
   }
 
@@ -527,6 +539,24 @@ export class MaintenanceApplication {
     this.requireManager(actor);
     if (!isMaintenanceSettingsKey(key)) {
       throw new MaintenanceError('validation', `Khoá cấu hình ${key} không hợp lệ.`);
+    }
+
+    // Danh mục tần suất: từ chối dòng hỏng và việc bỏ tần suất đang có lịch dùng, thay vì để chuẩn hoá lặng lẽ bỏ dòng
+    // (cột tần suất biến khỏi ma trận cùng các ô đã tick).
+    if (key === 'catalog.frequency') {
+      const errors = validateFrequencyCatalog(input?.value);
+      if (errors.length > 0) throw new MaintenanceError('validation', errors.join(' '));
+      const kept = new Set(
+        (input.value as { options: { code: string }[] }).options.map((option) => option.code.trim().toLowerCase()),
+      );
+      const inUse = [...new Set((await this.store.read(actor.tenantId)).schedules.map((schedule) => schedule.frequency))]
+        .filter((code) => !kept.has(code));
+      if (inUse.length > 0) {
+        throw new MaintenanceError(
+          'validation',
+          `Không thể bỏ tần suất đang có lịch bảo trì dùng: ${inUse.join(', ')}. Hãy tắt kích hoạt thay vì xoá.`,
+        );
+      }
     }
 
     // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất ngăn

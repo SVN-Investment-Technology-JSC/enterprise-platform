@@ -464,6 +464,23 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     const title = input.procedureDefinitionId
       ? `Bảo trì ${input.assetCode}`
       : `Quản lý ${input.assetCode}`;
+    // Một thiết bị chỉ có MỘT lịch cho mỗi tần suất: lịch thứ hai sinh phiếu trùng mỗi kỳ và làm ma trận (mỗi ô một lịch)
+    // hiển thị sai. Muốn đổi thì bật lại hoặc sửa lịch hiện có.
+    const existing = (
+      await pool.query<Row>(
+        `SELECT code, status FROM maintenance_schema.schedules
+          WHERE asset_code = $1 AND frequency = $2 AND archived_at IS NULL LIMIT 1`,
+        [input.assetCode, input.frequency],
+      )
+    ).rows[0];
+    if (existing) {
+      throw new MaintenanceError(
+        'conflict',
+        `Thiết bị ${input.assetCode} đã có lịch tần suất "${input.frequency}" (${String(existing.code)}${
+          existing.status === 'active' ? '' : ', đang ' + (existing.status === 'paused' ? 'tạm dừng' : 'ở trạng thái nháp')
+        }). Hãy bật hoặc sửa lịch đó thay vì tạo thêm.`,
+      );
+    }
     try {
       const result = await pool.query<Row>(`INSERT INTO maintenance_schema.schedules
         (id, code, title, asset_code, procedure_definition_id, frequency, priority, status, start_date, timezone, next_due_at, assignee_id, assignee_name)

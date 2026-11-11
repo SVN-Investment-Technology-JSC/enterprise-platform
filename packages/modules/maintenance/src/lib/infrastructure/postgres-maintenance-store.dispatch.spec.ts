@@ -187,8 +187,9 @@ describe('lọc Lịch sử theo ngày', () => {
 
 describe('người phụ trách của lịch', () => {
   function pool() {
-    const query = jest.fn(async (_sql: string, _params?: unknown[]) => ({
-      rows: [{ id: 'sch-1', code: 'SCH-1', title: 'Bảo trì', asset_code: 'MBA-T1', frequency: 'week', priority: 'Normal', status: 'active', start_date: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', created_at: new Date(), updated_at: new Date(), next_due_at: new Date(), assignee_id: '11111111-1111-4111-8111-111111111111', assignee_name: 'Tài' }],
+    const query = jest.fn(async (sql: string, _params?: unknown[]) => ({
+      // Kiểm trùng lịch (SELECT code, status) không thấy lịch nào; các câu còn lại trả lịch mẫu.
+      rows: String(sql).includes('SELECT code, status') ? [] : [{ id: 'sch-1', code: 'SCH-1', title: 'Bảo trì', asset_code: 'MBA-T1', frequency: 'week', priority: 'Normal', status: 'active', start_date: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', created_at: new Date(), updated_at: new Date(), next_due_at: new Date(), assignee_id: '11111111-1111-4111-8111-111111111111', assignee_name: 'Tài' }],
       rowCount: 1,
     }));
     const store = new PostgresMaintenanceStore(
@@ -199,13 +200,24 @@ describe('người phụ trách của lịch', () => {
     return { store, query };
   }
 
+  it('không tạo lịch thứ hai cho cùng thiết bị và tần suất', async () => {
+    const query = jest.fn(async (sql: string, _params?: unknown[]) => ({ rows: String(sql).includes('SELECT code, status') ? [{ code: 'SCH-OLD', status: 'paused' }] : [], rowCount: 1 }));
+    const store = new PostgresMaintenanceStore(
+      { require: () => ({ tenantId: 'tenant' }) } as unknown as TenantDatabaseRegistry,
+      { forTenant: async () => ({ query }) } as unknown as PostgresPoolRegistry,
+      'http://procedure.test',
+    );
+    await expect(store.createSchedule('tenant', { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20' })).rejects.toMatchObject({ name: 'MaintenanceError', message: expect.stringContaining('SCH-OLD') });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO maintenance_schema.schedules'))).toBe(false);
+  });
+
   it('tạo lịch ghi người phụ trách; id không phải uuid thì thành NULL', async () => {
     const { store, query } = pool();
     await store.createSchedule('tenant', { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20', assigneeId: '11111111-1111-4111-8111-111111111111', assigneeName: ' Tài ' });
-    expect(query.mock.calls[0][1]?.slice(-2)).toEqual(['11111111-1111-4111-8111-111111111111', 'Tài']);
+    expect(query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO'))?.[1]?.slice(-2)).toEqual(['11111111-1111-4111-8111-111111111111', 'Tài']);
     query.mockClear();
     await store.createSchedule('tenant', { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20', assigneeId: 'khong-phai-uuid', assigneeName: 'X' });
-    expect(query.mock.calls[0][1]?.slice(-2)).toEqual([null, null]);
+    expect(query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO'))?.[1]?.slice(-2)).toEqual([null, null]);
   });
 
   it('cập nhật: không có khoá assigneeId thì giữ nguyên, có null thì bỏ', async () => {
