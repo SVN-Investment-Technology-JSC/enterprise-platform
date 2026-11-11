@@ -148,12 +148,24 @@ export function IconActionsMenu({
       </DropdownMenu>
 
       <Dialog onOpenChange={(open) => (open ? undefined : setConfirm(null))} open={confirm !== null}>
-        <DialogContent className="sm:max-w-sm" showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>{resetting ? 'Đặt lại về bản gốc?' : `Xoá "${doc.name}"?`}</DialogTitle>
-            <DialogDescription>{resetting ? 'Mọi chỉnh sửa trên icon mẫu này sẽ mất.' : 'Icon sẽ được gỡ khỏi thư viện.'}</DialogDescription>
+        <DialogContent className="max-w-md gap-0 overflow-hidden border border-slate-200 bg-white p-0 text-slate-900" showCloseButton={false}>
+          <DialogHeader className="flex-row items-start gap-3 px-5 pb-4 pt-5">
+            <span
+              className={cn(
+                'grid size-10 shrink-0 place-items-center rounded-full ring-1 ring-inset',
+                resetting ? 'bg-amber-50 text-amber-600 ring-amber-100' : 'bg-red-50 text-red-600 ring-red-100',
+              )}
+            >
+              {resetting ? <RotateCcw aria-hidden className="size-5" /> : <Trash2 aria-hidden className="size-5" />}
+            </span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <DialogTitle className="break-words text-base">{resetting ? 'Đặt lại về bản gốc?' : `Xoá "${doc.name}"?`}</DialogTitle>
+              <DialogDescription className="text-slate-600">
+                {resetting ? 'Mọi chỉnh sửa trên icon mẫu này sẽ mất.' : 'Icon sẽ được gỡ khỏi thư viện.'}
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
             <Button onClick={() => setConfirm(null)} variant="outline">
               Hủy
             </Button>
@@ -163,6 +175,7 @@ export function IconActionsMenu({
                 if (resetting) onReset(doc);
                 else onRemove(doc);
               }}
+              className={resetting ? undefined : 'bg-red-600 text-white hover:bg-red-700'}
               variant={resetting ? 'default' : 'destructive'}
             >
               {resetting ? 'Đặt lại' : 'Xoá'}
