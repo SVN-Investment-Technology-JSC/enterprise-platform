@@ -960,6 +960,47 @@
 }
 
 // Ô lý do của bảng Việc cần xử lý: lý do đầu một dòng, phần còn lại gộp.
+// Khối "Cập nhật thông tin báo giá" thu gọn được ngay trên màn báo giá.
+.detailsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ep-border, #eef0f3);
+  border-radius: var(--ep-radius, 8px);
+}
+
+.detailsToggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text, #18181b);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+
+  > .muted {
+    font-weight: 400;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-link, #1d4ed8);
+    outline-offset: 2px;
+  }
+}
+
+.detailsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 // Chữ không xuống dòng (ngày giờ trong bảng).
 .nowrap {
   white-space: nowrap;

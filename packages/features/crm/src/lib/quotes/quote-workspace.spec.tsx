@@ -504,7 +504,7 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     await screen.findByText('Thông tin chung');
     const left = screen.getByTestId('quote-workspace-left');
     expect(within(left).getByRole('region', { name: 'Dòng báo giá' })).toBeTruthy();
-    expect(['Phương án kinh doanh (PAKD)', 'Khuyến mãi', 'Tài liệu', 'Mô tả và trường tuỳ biến', 'Liên quan', 'Lịch sử'].every((name) =>
+    expect(['Phương án kinh doanh (PAKD)', 'Khuyến mãi', 'Tài liệu', 'Liên quan', 'Lịch sử'].every((name) =>
       Array.from(left.querySelectorAll('summary')).some((summary) => summary.textContent === name),
     )).toBe(true);
     const right = screen.getByTestId('quote-workspace-right');
@@ -531,6 +531,33 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     fireEvent.click(button('Lưu'));
     await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ revision: 3, templateId: 't2' })));
     expect(mockToast.success).toHaveBeenCalledWith('Đã lưu báo giá.');
+  });
+
+  it('Cập nhật thông tin báo giá ngay trên trang: thu gọn mặc định, mở ra nhập ghi chú, phí vận chuyển; lưu bằng nút Lưu, không còn hộp thoại', async () => {
+    const saved = fixtureDetail(fixtureVersion({ revision: 4 }));
+    mockApi.updateQuoteVersion.mockResolvedValue(saved);
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    const block = screen.getByRole('region', { name: 'Cập nhật thông tin báo giá' });
+    const toggle = within(block).getByRole('button', { name: /Cập nhật thông tin báo giá/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(within(block).queryByLabelText(/^Ghi chú/)).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.change(within(block).getByLabelText(/^Ghi chú/), { target: { value: 'Giao trong 10 ngày' } });
+    fireEvent.change(within(block).getByLabelText(/^Phí vận chuyển thu khách/), { target: { value: '200000' } });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(button('Lưu'));
+    await waitFor(() =>
+      expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith(
+        'q1',
+        1,
+        expect.objectContaining({ note: 'Giao trong 10 ngày', shipping: expect.objectContaining({ amount: 200000 }) }),
+      ),
+    );
+    // Thu gọn lại được.
+    fireEvent.click(toggle);
+    expect(within(block).queryByLabelText(/^Ghi chú/)).toBeNull();
   });
 
   it('TC-QW-10: xem trước cập nhật sau khi ngừng gõ khoảng 300 ms', async () => {
@@ -703,11 +730,15 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     renderEditor(fixtureDetail({ ...order, form: { ...order.form, templateId: 't2', templateName: 'Mẫu t2', discountMode: 'ORDER' } }));
     await screen.findByText('Thông tin chung');
     fireEvent.click(screen.getByRole('button', { name: 'Sửa % chiết khấu' }));
-    expect(await screen.findByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
+    // Mở khối thông tin báo giá ngay trên trang, có ô chiết khấu tổng đơn; không có hộp thoại, chưa lưu gì.
+    const block = screen.getByRole('region', { name: 'Cập nhật thông tin báo giá' });
+    expect(within(block).getByRole('button', { name: /Cập nhật thông tin báo giá/ }).getAttribute('aria-expanded')).toBe('true');
+    expect(within(block).getByLabelText(/Chiết khấu tổng đơn \(%\)/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
   });
 
-  it('đổi sang mẫu chiết khấu tổng đơn chưa lưu: "Sửa % chiết khấu" bật, bấm thì lưu mẫu rồi mở hộp', async () => {
+  it('đổi sang mẫu chiết khấu tổng đơn chưa lưu: "Sửa % chiết khấu" bật, bấm thì mở ô chiết khấu tổng đơn ngay (chưa cần lưu)', async () => {
     const order = fixtureVersion({ revision: 4 });
     mockApi.updateQuoteVersion.mockResolvedValue(fixtureDetail({ ...order, form: { ...order.form, templateId: 't2', templateName: 'Mẫu t2', discountMode: 'ORDER' } }));
     renderEditor(fixtureDetail());
@@ -717,8 +748,14 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
     fireEvent.click(within(screen.getByRole('region', { name: 'Xem trước báo giá' })).getByRole('button', { name: 'chọn Mẫu t2' }));
     expect(discount.disabled).toBe(false);
     fireEvent.click(discount);
-    await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ templateId: 't2' })));
-    expect(await screen.findByRole('dialog', { name: 'Chiết khấu tổng đơn' })).toBeTruthy();
+    const block = screen.getByRole('region', { name: 'Cập nhật thông tin báo giá' });
+    const percent = within(block).getByLabelText(/Chiết khấu tổng đơn \(%\)/) as HTMLInputElement;
+    expect(percent.disabled).toBe(false);
+    fireEvent.change(percent, { target: { value: '5' } });
+    fireEvent.click(button('Lưu'));
+    await waitFor(() =>
+      expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ templateId: 't2', orderDiscount: { percent: 5 } })),
+    );
   });
 
   it('TC-QW-28: báo giá vừa lập bằng nút + thì mở chọn mặt hàng ngay khi tải xong', async () => {

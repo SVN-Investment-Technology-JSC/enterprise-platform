@@ -7,14 +7,12 @@ import {
   type QuoteLineError,
   type QuoteLineInput,
   type QuoteDetail,
-  type UpdateQuoteVersionRequest,
   type QuoteLine,
 } from '@enterprise-platform/contracts-crm';
 import { Popconfirm, SearchableSelect, formatDateTime, toast } from '@enterprise-platform/shared-ui';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ArrowLeft, Eye, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Eye, Trash2 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
@@ -41,33 +39,26 @@ import styles from '../sales.module.scss';
 import { BusinessPlanPanel } from './business-plan-panel';
 import { QuoteCompare } from './quote-compare';
 import {
-  CustomFieldsEditor,
-  FeesEditor,
   FollowersPanel,
   GeneralFields,
   TemplatePicker,
   LinksPanel,
-  OrderAmountField,
   useQuoteFormLookups,
   type GeneralState,
 } from './quote-form-parts';
 import {
-  activeFields,
-  buildCustomFields,
-  buildFees,
-  buildOrderAmount,
+  buildQuoteDetailsPatch,
   customFieldTexts,
-  feeRowsOf,
   generalInfoError,
   missingRequiredFields,
-  orderAmountText,
+  quoteDetailsOf,
   quoteFormErrorMessage,
   requiredFieldsMessage,
+  sameQuoteDetails,
   templateModes,
-  type CustomFieldTexts,
-  type FeeRow,
-  type OrderAmountText,
+  type QuoteDetailsState,
 } from './quote-form-edit.model';
+import { ORDER_DISCOUNT_ANCHOR, QuoteDetailsBlock } from './quote-details-block';
 import { DocumentsPanel } from '../documents';
 import { canEditQuotePromotions } from '../promotions.model';
 import { QuoteDocumentReferences } from './quote-document-references';
@@ -175,7 +166,6 @@ export function QuoteEditor({
   const [picking, setPicking] = useState<PickTarget>();
   const [editingLine, setEditingLine] = useState<QuoteLine>();
   const [viewingLine, setViewingLine] = useState<QuoteLine>();
-  const [editingHeader, setEditingHeader] = useState<false | 'all' | 'orderDiscount'>(false);
   const [reasonFor, setReasonFor] = useState<ReasonAction>();
   const [comparing, setComparing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -184,6 +174,13 @@ export function QuoteEditor({
   const [generalError, setGeneralError] = useState<string>();
   /** Tổ chức báo giá đang sửa (plan 16.4); rỗng là chưa sửa. */
   const [sellerDraft, setSellerDraft] = useState<SellerState | null>(null);
+  /**
+   * Khối "Cập nhật thông tin báo giá" đang sửa (ngày tính giá, vận chuyển, chiết khấu và thuế tổng đơn, phí, ghi chú,
+   * trường tuỳ biến), lưu chung bằng nút Lưu; rỗng là chưa sửa.
+   */
+  const [detailsDraft, setDetailsDraft] = useState<QuoteDetailsState | null>(null);
+  const [detailsMissing, setDetailsMissing] = useState<string[]>([]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [sellerFieldErrors, setSellerFieldErrors] = useState<Partial<Record<SellerField, string>>>({});
   const { organizations } = useSalesOrganizations();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
@@ -210,6 +207,8 @@ export function QuoteEditor({
     setGeneralError(undefined);
     setSellerDraft(null);
     setSellerFieldErrors({});
+    setDetailsDraft(null);
+    setDetailsMissing([]);
   }, [viewing]);
 
   const loadedId = detail?.id;
@@ -243,7 +242,17 @@ export function QuoteEditor({
   const savedSellerState = useMemo(() => (detail ? savedSeller(detail) : undefined), [detail]);
   const shownSeller = sellerDraft ?? savedSellerState;
   const sellerDirty = Boolean(sellerDraft && savedSellerState && !sameSeller(sellerDraft, savedSellerState));
-  const dirty = generalDirty || sellerDirty;
+  const savedDetails = useMemo(() => (detail ? quoteDetailsOf(detail.version) : undefined), [detail]);
+  const shownDetails = detailsDraft ?? savedDetails;
+  const detailsDirty = Boolean(detailsDraft && savedDetails && !sameQuoteDetails(detailsDraft, savedDetails));
+  const dirty = generalDirty || sellerDirty || detailsDirty;
+  /** Chế độ chiết khấu, thuế của mẫu đang chọn trên màn (đổi mẫu chưa lưu cũng tính). */
+  const shownModes = (() => {
+    const templateId = (draft ?? saved)?.templateId;
+    if (!templateId) return templateModes(detail ? { discountMode: detail.version.form.discountMode, taxMode: detail.version.form.taxMode } : undefined);
+    const chosen = lookups.templates.find((item) => item.id === templateId);
+    return chosen ? templateModes(chosen) : templateModes(detail ? { discountMode: detail.version.form.discountMode, taxMode: detail.version.form.taxMode } : undefined);
+  })();
   // Xem trước dựng lại sau khi ngừng gõ 300 ms; riêng mẫu thì đổi ngay (bố cục lấy theo `shownGeneral.templateId`).
   const previewGeneral = useDebounced(shownGeneral, 300);
   const previewSeller = useDebounced(shownSeller, 300);
@@ -295,10 +304,16 @@ export function QuoteEditor({
     if (!detail || !version || !saved) return undefined;
     if (!dirty) return detail;
     const general = draft ?? saved;
+    const details = detailsDraft ?? savedDetails;
     const invalid = generalInfoError({ name: general.name, code: general.code, requireCode: true });
-    const absent = invalid ? [] : missingRequiredFields(lookups.fields, customFieldTexts(version.form.customFields));
-    const problem = invalid ?? (absent.length ? requiredFieldsMessage(absent) : undefined);
+    const absent = invalid ? [] : missingRequiredFields(lookups.fields, details?.custom ?? customFieldTexts(version.form.customFields));
+    const builtDetails = detailsDirty && details ? buildQuoteDetailsPatch(details, lookups.fields, shownModes) : undefined;
+    const problem =
+      invalid ?? (absent.length ? requiredFieldsMessage(absent) : builtDetails && !builtDetails.ok ? builtDetails.error : undefined);
     setGeneralError(invalid && invalid.includes('tên') ? invalid : undefined);
+    setDetailsMissing(absent);
+    // Lỗi nằm ở khối thông tin thêm thì mở khối để thấy ô cần sửa.
+    if (absent.length || (builtDetails && !builtDetails.ok)) setDetailsOpen(true);
     if (problem) {
       toast.error(problem);
       return undefined;
@@ -315,11 +330,14 @@ export function QuoteEditor({
       const next = await updateQuoteVersion(detail.id, version.versionNo, {
         ...generalPatch(detail, general),
         ...(sellerDirty && sellerDraft ? sellerPatch(sellerDraft) : {}),
+        ...(builtDetails?.ok ? builtDetails.patch : {}),
       });
       setViewing(undefined);
       setDetail(next);
       setDraft(null);
       setSellerDraft(null);
+      setDetailsDraft(null);
+      setDetailsMissing([]);
       toast.success('Đã lưu báo giá.');
       return next;
     } catch (cause) {
@@ -331,10 +349,14 @@ export function QuoteEditor({
     }
   }
 
-  /** Mở chiết khấu tổng đơn; vừa đổi mẫu (chưa lưu) thì lưu trước để hộp dùng đúng chế độ của mẫu mới. */
-  async function openOrderDiscount() {
-    const current = await saveGeneral();
-    if (current) setEditingHeader('orderDiscount');
+  /** Nút "Sửa % chiết khấu": mở khối thông tin báo giá và cuộn tới ô chiết khấu tổng đơn (theo mẫu đang chọn trên màn). */
+  function openOrderDiscount() {
+    setDetailsOpen(true);
+    window.setTimeout(() => {
+      const anchor = document.getElementById(ORDER_DISCOUNT_ANCHOR);
+      anchor?.scrollIntoView?.({ block: 'center' });
+      anchor?.querySelector<HTMLInputElement>('input:not([disabled])')?.focus();
+    }, 0);
   }
 
   /** Trình duyệt hoặc gửi khách; có thay đổi chưa lưu thì lưu trước, lưu lỗi thì dừng (plan 9.4). */
@@ -517,15 +539,23 @@ export function QuoteEditor({
               nameError={generalError}
               showTemplate={false}
             />
-            <div className={styles.toolbar}>
-              <button type="button" className={styles.buttonGhost} disabled={busy} onClick={() => setEditingHeader('all')}>
-                <Plus size={14} /> Cập nhật thông tin báo giá
-              </button>
-              <span className={styles.muted}>
-                Thêm tuỳ chọn: ngày tính giá, phí, vận chuyển, chiết khấu và thuế tổng đơn, mô tả, trường tuỳ biến.
-              </span>
-            </div>
           </>
+        ) : null}
+        {shownDetails ? (
+          <QuoteDetailsBlock
+            open={detailsOpen}
+            onToggle={() => setDetailsOpen((value) => !value)}
+            editable={editable}
+            value={shownDetails}
+            onChange={(next) => {
+              setDetailsDraft(next);
+              setDetailsMissing([]);
+            }}
+            fields={lookups.fields}
+            missing={detailsMissing}
+            modes={shownModes}
+            version={version}
+          />
         ) : null}
         <ApprovalNotice detail={detail} />
         {canConvert ? (
@@ -613,7 +643,7 @@ export function QuoteEditor({
             shownDiscountMode === 'ORDER'
               ? 'Nhập chiết khấu một lần cho cả báo giá.'
               : 'Mẫu báo giá này tính chiết khấu theo dòng; chọn mẫu tính theo tổng đơn để nhập chiết khấu tổng đơn.',
-          onOpen: () => void openOrderDiscount(),
+          onOpen: openOrderDiscount,
         }}
         onAdd={(search) => setPicking({ search })}
         onInsert={(line) => setPicking({ search: '', beforeLineNo: line.lineNo })}
@@ -697,28 +727,6 @@ export function QuoteEditor({
       <WorkspaceSection title="Tài liệu">
         <DocumentsPanel entityType="quote" entityId={detail.id} showTitle />
         <QuoteDocumentReferences quoteId={detail.id} canWrite={capabilities.isTenantAdmin || capabilities.canWriteDocument} />
-      </WorkspaceSection>
-
-      <WorkspaceSection title="Mô tả và trường tuỳ biến">
-        <section className={styles.panel} aria-label="Mô tả">
-          <h3 className={styles.sectionTitle}>Mô tả</h3>
-          {version.note ? <p>{version.note}</p> : <p className={styles.muted}>Chưa có mô tả.</p>}
-        </section>
-        <section className={styles.panel} aria-label="Trường tuỳ biến">
-          <h3 className={styles.sectionTitle}>Trường tuỳ biến</h3>
-          {activeFields(lookups.fields).length ? (
-            <dl className={styles.facts}>
-              {activeFields(lookups.fields).map((field) => (
-                <Fragment key={field.id}>
-                  <dt>{field.name}</dt>
-                  <dd>{form.customFields[field.id] === undefined ? <span className={styles.muted}>Chưa nhập</span> : String(form.customFields[field.id])}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          ) : (
-            <p className={styles.muted}>Chưa có trường tuỳ biến nào.</p>
-          )}
-        </section>
       </WorkspaceSection>
 
       <WorkspaceSection title="Liên quan">
@@ -843,6 +851,8 @@ export function QuoteEditor({
                 setGeneralError(undefined);
                 setSellerDraft(null);
                 setSellerFieldErrors({});
+                setDetailsDraft(null);
+                setDetailsMissing([]);
               }}
               onSave={() => void saveGeneral()}
               onSubmit={() => void saveThen('submit')}
@@ -901,30 +911,6 @@ export function QuoteEditor({
         />
       ) : null}
       {viewingLine ? <LineDialog line={viewingLine} readOnly onClose={() => setViewingLine(undefined)} onSave={async () => undefined} /> : null}
-      {editingHeader ? (
-        <HeaderDialog
-          detail={detail}
-          lookups={lookups}
-          initialGeneral={draft ?? undefined}
-          only={editingHeader === 'orderDiscount' ? 'orderDiscount' : undefined}
-          onClose={() => setEditingHeader(false)}
-          onSave={async (patch) => {
-            // Lỗi từ server ném lên để hộp thoại hiện đúng lời; thành công thì cập nhật chi tiết.
-            // Tổ chức báo giá đang sửa dở ở cột trái lưu cùng lần.
-            const next = await updateQuoteVersion(detail.id, version.versionNo, {
-              ...patch,
-              ...(sellerDirty && sellerDraft ? sellerPatch(sellerDraft) : {}),
-            });
-            setViewing(undefined);
-            setDetail(next);
-            setDraft(null);
-            setSellerDraft(null);
-            setSellerFieldErrors({});
-            toast.success('Đã cập nhật báo giá.');
-            setEditingHeader(false);
-          }}
-        />
-      ) : null}
       {reasonFor ? (
         <ReasonDialog
           title={reasonFor === 'reject' ? 'Từ chối duyệt báo giá' : 'Khách từ chối báo giá'}
@@ -1339,177 +1325,6 @@ function LineDialog({
  * Cập nhật thông tin báo giá Nháp theo mẫu: thông tin chung, chiết khấu và thuế tổng đơn (theo mẫu), phí trên hợp
  * đồng, vận chuyển, mô tả, trường tuỳ biến. Lưu bằng một lần `PATCH` phiên bản.
  */
-function HeaderDialog({
-  detail,
-  lookups,
-  initialGeneral,
-  only,
-  onClose,
-  onSave,
-}: {
-  detail: QuoteDetail;
-  lookups: ReturnType<typeof useQuoteFormLookups>;
-  /** Thông tin chung đang sửa dở ở cột trái (chưa lưu); rỗng thì lấy bản đã lưu. */
-  initialGeneral?: GeneralState;
-  /** `orderDiscount`: chỉ hiện phần chiết khấu tổng đơn (nút "Chiết khấu" của bảng dòng hàng). */
-  only?: 'orderDiscount';
-  onClose: () => void;
-  onSave: (patch: UpdateQuoteVersionRequest) => Promise<void>;
-}) {
-  const version = detail.version;
-  const form = version.form;
-  const [general, setGeneral] = useState<GeneralState>(
-    initialGeneral ?? {
-      code: detail.code,
-      name: form.quoteName ?? '',
-      quoteDate: form.quoteDate ?? '',
-      validUntil: version.validUntil ?? '',
-      templateId: form.templateId ?? '',
-      typeId: form.quoteTypeId ?? '',
-    },
-  );
-  const [priceDate, setPriceDate] = useState(version.priceDate ?? '');
-  const [note, setNote] = useState(version.note ?? '');
-  const [shipping, setShipping] = useState(version.shipping.amount ? String(version.shipping.amount) : '');
-  const [shippingVat, setShippingVat] = useState(String(version.shipping.vatRate));
-  const [shippingCost, setShippingCost] = useState(version.shipping.amount || version.shipping.cost ? String(version.shipping.cost) : '');
-  const [discount, setDiscount] = useState<OrderAmountText>(orderAmountText(form.orderDiscount));
-  const [tax, setTax] = useState<OrderAmountText>(orderAmountText(form.orderTax));
-  const [fees, setFees] = useState<FeeRow[]>(feeRowsOf(form.fees));
-  const [custom, setCustom] = useState<CustomFieldTexts>(customFieldTexts(form.customFields));
-  const [missing, setMissing] = useState<string[]>([]);
-  const [nameError, setNameError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
-
-  const template = lookups.templates.find((item) => item.id === general.templateId);
-  // Báo giá cũ chưa có mẫu: giữ chế độ theo dòng của engine phase 1.
-  const modes = general.templateId ? templateModes(template) : templateModes(undefined);
-  const orderDiscountOn = modes.discount === 'ORDER';
-  const orderTaxOn = modes.tax === 'ORDER';
-
-  async function save() {
-    setError(undefined);
-    setMissing([]);
-    const invalid = generalInfoError({ name: general.name, code: general.code, requireCode: true });
-    setNameError(invalid && invalid.includes('tên') ? invalid : undefined);
-    if (invalid) return setError(invalid);
-    const absent = missingRequiredFields(lookups.fields, custom);
-    if (absent.length) {
-      setMissing(absent);
-      return setError(requiredFieldsMessage(absent));
-    }
-    const builtCustom = buildCustomFields(lookups.fields, custom);
-    if (!builtCustom.ok) return setError(builtCustom.error);
-    const builtFees = buildFees(fees);
-    if (!builtFees.ok) return setError(builtFees.error);
-    const builtDiscount = orderDiscountOn ? buildOrderAmount(discount, 'chiết khấu') : undefined;
-    if (builtDiscount && !builtDiscount.ok) return setError(builtDiscount.error);
-    const builtTax = orderTaxOn ? buildOrderAmount(tax, 'thuế') : undefined;
-    if (builtTax && !builtTax.ok) return setError(builtTax.error);
-
-    setSaving(true);
-    try {
-      const amount = shipping.trim() ? (parseNumber(shipping) ?? Number.NaN) : 0;
-      const cost = shippingCost.trim() ? (parseNumber(shippingCost) ?? Number.NaN) : null;
-      await onSave({
-        revision: version.revision,
-        code: general.code.trim() !== detail.code ? general.code.trim() : undefined,
-        quoteName: general.name.trim(),
-        quoteDate: general.quoteDate || null,
-        templateId: general.templateId || undefined,
-        quoteTypeId: general.typeId || undefined,
-        validUntil: general.validUntil || null,
-        priceDate: priceDate || null,
-        note: note.trim() || null,
-        shipping: amount || cost ? { amount, vatRate: parseNumber(shippingVat) ?? null, cost } : null,
-        orderDiscount: builtDiscount?.ok ? builtDiscount.value : undefined,
-        orderTax: builtTax?.ok ? builtTax.value : undefined,
-        fees: builtFees.fees,
-        customFields: builtCustom.values,
-      });
-    } catch (cause) {
-      setError(quoteFormErrorMessage(cause, 'Không cập nhật được báo giá.'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <CrmDialog
-      open
-      wide
-      title={only === 'orderDiscount' ? 'Chiết khấu tổng đơn' : 'Cập nhật thông tin báo giá'}
-      subtitle={`Báo giá ${detail.code} · phiên bản ${version.versionNo}`}
-      submitLabel="Cập nhật"
-      cancelLabel="Huỷ bỏ"
-      submitting={saving}
-      error={error}
-      onClose={onClose}
-      onSubmit={() => void save()}
-    >
-      {only === 'orderDiscount' ? (
-        <OrderAmountField
-          label="Chiết khấu"
-          value={discount}
-          allowed={orderDiscountOn}
-          lineHint="mẫu báo giá này tính chiết khấu theo dòng (chính sách và ghi đè trên từng dòng hàng). Chọn mẫu tính theo tổng đơn để nhập một lần cho cả báo giá."
-          onChange={setDiscount}
-        />
-      ) : (
-        <>
-        <h4 className={styles.sectionTitle}>Thông tin chung</h4>
-        <GeneralFields
-          value={general}
-          onChange={setGeneral}
-          templates={lookups.templates}
-          types={lookups.types}
-          codeEditable
-          generateCode={false}
-          nameError={nameError}
-        />
-        <h4 className={styles.sectionTitle}>Nội dung báo giá</h4>
-        <div className={styles.fieldGrid}>
-          <Field label="Ngày tính giá" hint="Bỏ trống: tính theo ngày hôm nay">
-            <DatePickerInput value={priceDate || undefined} onChange={setPriceDate} height={38} placeholder="Hôm nay" aria-label="Ngày tính giá" />
-          </Field>
-          <Field label="Phí vận chuyển thu khách (VND)">
-            <input className={styles.input} inputMode="decimal" value={shipping} onChange={(event) => setShipping(event.target.value)} />
-          </Field>
-          <Field label="Thuế suất vận chuyển (%)">
-            <input className={styles.input} inputMode="decimal" value={shippingVat} onChange={(event) => setShippingVat(event.target.value)} />
-          </Field>
-          <Field label="Chi phí vận chuyển bên bán chịu (VND)" hint="Trừ vào lợi nhuận; bỏ trống là bằng phí thu khách">
-            <input className={styles.input} inputMode="decimal" value={shippingCost} onChange={(event) => setShippingCost(event.target.value)} />
-          </Field>
-        </div>
-        <OrderAmountField
-          label="Chiết khấu"
-          value={discount}
-          allowed={orderDiscountOn}
-          lineHint="mẫu báo giá này tính chiết khấu theo dòng (chính sách và ghi đè trên từng dòng hàng). Chọn mẫu tính theo tổng đơn để nhập một lần cho cả báo giá."
-          onChange={setDiscount}
-        />
-        <OrderAmountField
-          label="Thuế"
-          value={tax}
-          allowed={orderTaxOn}
-          lineHint="mẫu báo giá này tính thuế theo dòng (VAT của từng mặt hàng). Chọn mẫu tính theo tổng đơn để nhập một lần cho cả báo giá."
-          onChange={setTax}
-        />
-        <FeesEditor rows={fees} onChange={setFees} />
-        <h4 className={styles.sectionTitle}>Mô tả</h4>
-        <Field label="Mô tả" wide>
-          <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
-        <h4 className={styles.sectionTitle}>Trường tuỳ biến</h4>
-        <CustomFieldsEditor definitions={lookups.fields} texts={custom} missing={missing} onChange={setCustom} />
-        </>
-      )}
-    </CrmDialog>
-  );
-}
-
 function ReasonDialog({ title, onClose, onConfirm }: { title: string; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);

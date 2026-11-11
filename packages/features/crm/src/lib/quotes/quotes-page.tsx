@@ -357,8 +357,8 @@ export function CreateQuoteDialog({
         generateCode
         nameError={nameError}
       />
-      <h4 className={styles.sectionTitle}>Mô tả</h4>
-      <Field label="Mô tả" wide>
+      <h4 className={styles.sectionTitle}>Ghi chú</h4>
+      <Field label="Ghi chú" hint='In vào mục "Ghi chú" của báo giá (trên các điều khoản)' wide>
         <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <h4 className={styles.sectionTitle}>Trường tuỳ biến</h4>
@@ -614,7 +614,7 @@ function NewQuoteForm({
           nameError={nameError}
           showTemplate={false}
         />
-        <Field label="Mô tả" wide>
+        <Field label="Ghi chú" hint='In vào mục "Ghi chú" của báo giá (trên các điều khoản)' wide>
           <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => change(setNote)(event.target.value)} />
         </Field>
         {lookups.fields.length ? (
