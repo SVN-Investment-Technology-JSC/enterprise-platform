@@ -93,8 +93,28 @@ export class HttpInventoryCatalogReader implements CatalogReader {
     return result;
   }
 
-  search(tenantId: string, query: string, limit: number): Promise<CatalogMaterial[]> {
-    return this.fetch(tenantId, { search: query.trim(), kind: ALL_KINDS, limit: String(limit) });
+  search(
+    tenantId: string,
+    query: string,
+    limit: number,
+    options: { readonly cursor?: string; readonly kinds?: readonly string[]; readonly tradeCategory?: string } = {},
+  ): Promise<CatalogMaterial[]> {
+    return this.fetch(tenantId, {
+      search: query.trim(),
+      kind: options.kinds?.length ? options.kinds.join(',') : ALL_KINDS,
+      limit: String(limit),
+      cursor: options.cursor ?? '',
+      tradeCategory: options.tradeCategory ?? '',
+    });
+  }
+
+  /** `GET /v1/internal/material-trade-categories?kind=`. */
+  async tradeCategories(tenantId: string, kinds: readonly string[]): Promise<string[]> {
+    const body = await this.get<{ categories?: unknown }>(tenantId, '/v1/internal/material-trade-categories', {
+      kind: kinds.length ? kinds.join(',') : ALL_KINDS,
+    });
+    if (!Array.isArray(body?.categories)) throw inventoryUnavailable();
+    return body.categories.map(text).filter((name): name is string => name !== null);
   }
 
   /** Danh sách kho (T4-19) qua `GET /v1/internal/warehouses?search=&codes=`. */

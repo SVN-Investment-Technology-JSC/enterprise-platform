@@ -5,10 +5,13 @@ import {
   CUSTOM_FIELD_TYPES,
   CUSTOM_FIELD_TYPE_LABELS,
   QUOTE_CODE_PATTERN_HELP,
+  QUOTE_LINE_PICKER_COLUMNS,
+  QUOTE_LINE_PICKER_COLUMN_LABELS,
   type CustomFieldDefinition,
   type CustomFieldType,
   type QuoteAdjustmentMode,
   type QuoteCodeSettings,
+  type QuoteLinePickerColumn,
   type QuoteTemplate,
   type QuoteType,
 } from '@enterprise-platform/contracts-crm';
@@ -28,7 +31,9 @@ import {
   listQuoteTemplates,
   listQuoteTypes,
   loadQuoteCodeSettings,
+  loadQuoteLinePickerSettings,
   saveQuoteCodeSettings,
+  saveQuoteLinePickerSettings,
   updateCustomField,
   updateQuoteTemplate,
   updateQuoteType,
@@ -54,6 +59,7 @@ export function QuoteFormSettings() {
       <QuoteTemplates />
       <QuoteTypes />
       <QuoteCodePanel />
+      <QuoteLinePickerPanel />
       <QuoteCustomFields />
     </>
   );
@@ -724,6 +730,66 @@ function QuoteCodePanel() {
               </ul>
             </div>
           ) : null}
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+/** Cột của hộp thoại "Thêm dòng báo giá": quản trị chọn cột thông tin hiện; cột Mã và Số lượng luôn hiện. */
+function QuoteLinePickerPanel() {
+  const [columns, setColumns] = useState<readonly QuoteLinePickerColumn[]>();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    loadQuoteLinePickerSettings()
+      .then((value) => setColumns(value.columns))
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình cột.')));
+  }, []);
+
+  const toggle = (column: QuoteLinePickerColumn, on: boolean) =>
+    setColumns((current) => QUOTE_LINE_PICKER_COLUMNS.filter((key) => (key === column ? on : (current ?? []).includes(key))));
+
+  async function save() {
+    if (!columns) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      setColumns((await saveQuoteLinePickerSettings({ columns })).columns);
+      toast.success('Đã lưu cột hộp thoại thêm dòng báo giá.');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được cấu hình cột.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className={styles.panel} aria-label="Cột khi thêm dòng báo giá">
+      <h2 className={styles.title}>Cột khi thêm dòng báo giá</h2>
+      <p className={styles.muted}>Chọn các cột hiện trong hộp thoại "Thêm dòng báo giá". Cột Mã và Số lượng luôn hiện.</p>
+      {error ? <p className={styles.alert}>{error}</p> : null}
+      {columns ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <div className={styles.toolbar}>
+            {QUOTE_LINE_PICKER_COLUMNS.map((column) => (
+              <label key={column} className={styles.checkbox}>
+                <input type="checkbox" checked={columns.includes(column)} onChange={(event) => toggle(column, event.target.checked)} />
+                {QUOTE_LINE_PICKER_COLUMN_LABELS[column]}
+              </label>
+            ))}
+          </div>
+          <div className={styles.formActions}>
+            <button type="submit" className={styles.buttonPrimary} disabled={saving}>
+              {saving ? 'Đang lưu…' : 'Lưu cột'}
+            </button>
+          </div>
         </form>
       ) : null}
     </section>

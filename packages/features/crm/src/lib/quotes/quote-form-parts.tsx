@@ -337,8 +337,18 @@ export function CustomFieldsEditor({
         const text = texts[field.id] ?? '';
         const error = missing.includes(field.name) ? 'Trường bắt buộc.' : undefined;
         return (
-          <Field key={field.id} label={field.name} required={field.required} error={error}>
-            {field.fieldType === 'SELECT' ? (
+          <Field key={field.id} label={field.name} required={field.required} error={error} wide={field.fieldType === 'TEXT'}>
+            {field.fieldType === 'TEXT' ? (
+              <textarea
+                className={styles.textarea}
+                rows={3}
+                value={text}
+                maxLength={1000}
+                aria-label={field.name}
+                aria-invalid={error ? true : undefined}
+                onChange={(event) => set(field.id, event.target.value)}
+              />
+            ) : field.fieldType === 'SELECT' ? (
               <SearchableSelect
                 options={field.options.map((option) => ({ value: option, label: option }))}
                 value={text}
@@ -353,7 +363,7 @@ export function CustomFieldsEditor({
                 className={styles.input}
                 inputMode={field.fieldType === 'NUMBER' ? 'decimal' : undefined}
                 value={text}
-                maxLength={field.fieldType === 'TEXT' ? 1000 : 30}
+                maxLength={30}
                 aria-label={field.name}
                 aria-invalid={error ? true : undefined}
                 onChange={(event) => set(field.id, event.target.value)}

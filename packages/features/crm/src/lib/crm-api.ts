@@ -68,7 +68,8 @@ import type {
   ApprovalBinding,
   ApprovalKind,
   CreateQuoteRequest,
-  CrmCatalogMaterial,
+  CrmCatalogPage,
+  QuoteLinePickerSettings,
   ProcedureDefinitionOption,
   QuoteApprovalSettings,
   QuoteComparison,
@@ -402,8 +403,31 @@ export const quoteAction = (id: string, versionNo: number, action: QuoteAction, 
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/${action}`, body);
 export const compareQuote = (id: string, from: number, to: number) =>
   request<QuoteComparison>(`${quotePath(id)}/compare${toQuery({ from, to })}`, { cache: 'no-store' });
-export const searchCatalog = (search: string) =>
-  request<CrmCatalogMaterial[]>(`/catalog/materials${toQuery({ search, limit: 30 })}`, { cache: 'no-store' });
+export interface CatalogSearchQuery {
+  readonly search: string;
+  /** `nextCursor` của trang trước; rỗng là trang đầu. */
+  readonly cursor?: string | null;
+  /** Lọc nhóm: STOCK (hàng hoá), SERVICE (dịch vụ); rỗng là cả hai. */
+  readonly kind?: string;
+  /** Lọc đúng phân loại; rỗng là mọi phân loại. */
+  readonly tradeCategory?: string;
+  /** Chỉ mặt hàng có giá bán cho phiên bản báo giá này (bảng giá của khách, bảng chuẩn, hợp đồng). */
+  readonly pricedFor?: { readonly quoteId: string; readonly versionNo: number };
+}
+/** Số mặt hàng mỗi trang của hộp chọn mặt hàng. */
+export const CATALOG_PAGE_SIZE = 20;
+/** Tìm mặt hàng theo trang, xếp theo mã. */
+export const searchCatalog = ({ search, cursor, kind, tradeCategory, pricedFor }: CatalogSearchQuery) =>
+  request<CrmCatalogPage>(
+    `/catalog/materials${toQuery({ search, limit: CATALOG_PAGE_SIZE, cursor, kind, tradeCategory, ...(pricedFor ?? {}) })}`,
+    { cache: 'no-store' },
+  );
+/** Phân loại đang dùng trên mặt hàng ở Kho (ô lọc Phân loại); `kind` thu hẹp theo nhóm. */
+export const listCatalogTradeCategories = (kind?: string) =>
+  request<string[]>(`/catalog/trade-categories${toQuery({ kind })}`, { cache: 'no-store' });
+export const loadQuoteLinePickerSettings = () => request<QuoteLinePickerSettings>('/quote-line-picker-settings', { cache: 'no-store' });
+export const saveQuoteLinePickerSettings = (body: QuoteLinePickerSettings) =>
+  send<QuoteLinePickerSettings>('PUT', '/quote-line-picker-settings', body);
 
 // Cách duyệt, ngưỡng duyệt
 export const listApprovalBindings = () => request<ApprovalBinding[]>('/approval-bindings', { cache: 'no-store' });

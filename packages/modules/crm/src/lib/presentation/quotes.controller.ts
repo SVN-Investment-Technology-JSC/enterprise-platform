@@ -9,7 +9,7 @@ import type {
   ApprovalBinding,
   BusinessPlanDeviationSettings,
   CreateQuoteRequest,
-  CrmCatalogMaterial,
+  CrmCatalogPage,
   CrmPage,
   ProcedureDefinitionOption,
   QuoteApprovalSettings,
@@ -18,6 +18,7 @@ import type {
   QuoteDetail,
   QuoteListQuery,
   QuoteCodeSettings,
+  QuoteLinePickerSettings,
   QuoteTemplate,
   QuoteTemplateLayout,
   QuoteType,
@@ -66,10 +67,31 @@ export class QuotesController {
     return runCrm(() => this.quotes.create(crmActor(request), body(payload)));
   }
 
-  /** Mặt hàng trong danh mục Kho kèm tồn khả dụng, giá vốn bình quân (chọn khi thêm dòng). */
+  /**
+   * Mặt hàng trong danh mục Kho kèm tồn khả dụng, giá vốn bình quân (chọn khi thêm dòng), theo trang: `cursor` là
+   * `nextCursor` của trang trước; `kind` lọc nhóm (STOCK, SERVICE). Có `quoteId`, `versionNo`: chỉ mặt hàng có giá bán
+   * cho báo giá đó.
+   */
   @Get('catalog/materials')
-  catalog(@Req() request: CrmRequest, @Query('search') search?: string, @Query('limit') limit?: string): Promise<CrmCatalogMaterial[]> {
-    return runCrm(() => this.quotes.catalogMaterials(crmActor(request), { search, limit }));
+  catalog(
+    @Req() request: CrmRequest,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+    @Query('kind') kind?: string,
+    @Query('tradeCategory') tradeCategory?: string,
+    @Query('quoteId') quoteId?: string,
+    @Query('versionNo') versionNo?: string,
+  ): Promise<CrmCatalogPage> {
+    return runCrm(() =>
+      this.quotes.catalogMaterials(crmActor(request), { search, limit, cursor, kind, tradeCategory, quoteId, versionNo }),
+    );
+  }
+
+  /** Phân loại đang dùng trên mặt hàng ở Kho (ô lọc Phân loại); `kind` thu hẹp theo nhóm. */
+  @Get('catalog/trade-categories')
+  catalogTradeCategories(@Req() request: CrmRequest, @Query('kind') kind?: string): Promise<string[]> {
+    return runCrm(() => this.quotes.catalogTradeCategories(crmActor(request), kind));
   }
 
   @Get('quotes/:id')
@@ -264,6 +286,17 @@ export class QuoteFormController {
   @Put('quote-code-settings')
   saveCodeSettings(@Req() request: CrmRequest, @Body() payload: Payload<SaveQuoteCodeSettingsRequest>): Promise<QuoteCodeSettings> {
     return runCrm(() => this.form.saveCodeSettings(crmActor(request), body(payload)));
+  }
+
+  /** Cột hộp thoại "Thêm dòng báo giá": đọc `crm.read`, sửa `crm.manage`. */
+  @Get('quote-line-picker-settings')
+  linePickerSettings(@Req() request: CrmRequest): Promise<QuoteLinePickerSettings> {
+    return runCrm(() => this.form.linePickerSettings(crmActor(request)));
+  }
+
+  @Put('quote-line-picker-settings')
+  saveLinePickerSettings(@Req() request: CrmRequest, @Body() payload: Payload<QuoteLinePickerSettings>): Promise<QuoteLinePickerSettings> {
+    return runCrm(() => this.form.saveLinePickerSettings(crmActor(request), body(payload)));
   }
 
   /** Trường tuỳ biến (P2I-06): đọc `crm.read`; thêm, sửa, tắt (`active: false`) chỉ `crm.manage`. */

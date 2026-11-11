@@ -276,16 +276,20 @@ function TotalsView({ block, ctx }: { block: QuoteLayoutTotalsBlock; ctx: BlockC
 }
 
 function TermsView({ block, ctx }: { block: QuoteLayoutTermsBlock; ctx: BlockContext }) {
-  const items = block.items.map((item, index) => (
-    <li key={index} className={styles.termItem}>
-      {item.label ? (
-        <span className={styles.termLabel}>
-          <BoundText text={item.label} mode={ctx.mode} values={ctx.data.values} />:{' '}
-        </span>
-      ) : null}
-      <BoundText text={item.value} mode={ctx.mode} values={ctx.data.values} />
-    </li>
-  ));
+  const items = block.items.map((item, index) => {
+    // Giá trị nhiều dòng (ghi chú, trường tuỳ biến văn bản) bắt đầu ở dòng dưới nhãn để các dòng thẳng hàng.
+    const breakAfterLabel = Boolean(item.label) && ctx.mode !== 'design' && bindQuoteText(item.value, ctx.data.values, 'view').includes('\n');
+    return (
+      <li key={index} className={styles.termItem}>
+        {item.label ? (
+          <span className={styles.termLabel}>
+            <BoundText text={item.label} mode={ctx.mode} values={ctx.data.values} />:{breakAfterLabel ? '\n' : ' '}
+          </span>
+        ) : null}
+        <BoundText text={item.value} mode={ctx.mode} values={ctx.data.values} />
+      </li>
+    );
+  });
   return block.numbered ? <ol className={styles.terms}>{items}</ol> : <ul className={cx(styles.terms, styles.termsPlain)}>{items}</ul>;
 }
 

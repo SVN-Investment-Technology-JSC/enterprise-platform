@@ -483,6 +483,17 @@ export interface CrmCatalogMaterial {
   readonly availableByWarehouse: readonly CatalogMaterialStock[] | null;
 }
 
+/** Nhóm mặt hàng ở Kho (mã `kind`): hàng hoá có tồn, hoặc dịch vụ. */
+export const CATALOG_MATERIAL_KINDS = ['STOCK', 'SERVICE'] as const;
+export type CatalogMaterialKind = (typeof CATALOG_MATERIAL_KINDS)[number];
+export const CATALOG_MATERIAL_KIND_LABELS: Readonly<Record<CatalogMaterialKind, string>> = { STOCK: 'Hàng hóa', SERVICE: 'Dịch vụ' };
+
+/** Một trang tìm mặt hàng (`GET /catalog/materials`); `nextCursor` rỗng là hết. */
+export interface CrmCatalogPage {
+  readonly items: readonly CrmCatalogMaterial[];
+  readonly nextCursor: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Cách duyệt và ngưỡng duyệt
 // ---------------------------------------------------------------------------

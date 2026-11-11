@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { CRM_NO_CAPABILITIES, defaultQuoteLayout, QUOTE_LAYOUT_LIMITS, type QuoteLayout } from '@enterprise-platform/contracts-crm';
+import { CRM_NO_CAPABILITIES, defaultQuoteLayout, QUOTE_LAYOUT_LIMITS, QUOTE_LINE_PICKER_COLUMNS, type QuoteLayout } from '@enterprise-platform/contracts-crm';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
@@ -183,6 +183,17 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
       `SELECT column_name FROM information_schema.columns WHERE table_schema = 'crm_schema' AND table_name = 'quote_versions' AND column_name = 'custom_fields'`,
     );
     expect(columns.rows).toHaveLength(1);
+  });
+
+  it('cột hộp thoại "Thêm dòng báo giá": mặc định mọi cột; quản trị chọn, lưu theo thứ tự cố định; nhân viên không sửa được', async () => {
+    await expect(form.linePickerSettings(nv1)).resolves.toEqual({ columns: [...QUOTE_LINE_PICKER_COLUMNS] });
+    await expect(form.saveLinePickerSettings(admin, { columns: ['salePrice', 'kind', 'khong-co', 'kind'] as never })).resolves.toEqual({
+      columns: ['kind', 'salePrice'],
+    });
+    await expect(form.linePickerSettings(nv1)).resolves.toEqual({ columns: ['kind', 'salePrice'] });
+    await expect(form.saveLinePickerSettings(nv1, { columns: [] })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(form.saveLinePickerSettings(admin, {} as never)).rejects.toMatchObject({ code: 'INVALID_COLUMNS' });
+    await form.saveLinePickerSettings(admin, { columns: [...QUOTE_LINE_PICKER_COLUMNS] });
   });
 
   it('TC-QF-16: báo giá lập từ mẫu mặc định cho đúng kết quả giá của phase 1', async () => {

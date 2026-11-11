@@ -15,12 +15,14 @@ import type {
   PriceListItemRecord,
   PriceListRecord,
   PriceListStore,
+  PricedMaterial,
+  PricedMaterialsQuery,
   PricingStore,
 } from '../application/pricing-store.port.js';
 import { CrmConflictError } from '../domain/crm.error.js';
 import type { PricingContractPrice, PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
 import type { CrmDatabase } from './crm.database.js';
-import { constraintViolation, toDateOnly, toIso } from './sql-helpers.js';
+import { constraintViolation, containsPattern, toDateOnly, toIso } from './sql-helpers.js';
 
 /** Khoá cấu hình trần chiết khấu tổng (migration 0005 ghi giá trị mặc định). */
 export const DISCOUNT_CAP_SETTING_KEY = 'pricing.discountCap';
@@ -583,6 +585,35 @@ export class PostgresPricingStore implements PricingStore {
           .map((item) => ({ materialId: item.material_id, unit: item.unit, price: Number(item.price), vatRate: Number(item.vat_rate) })),
       ),
     );
+  }
+
+  async pricedMaterials(tenantId: string, query: PricedMaterialsQuery): Promise<PricedMaterial[]> {
+    const pool = await this.database.pool(tenantId);
+    const search = query.search.trim();
+    const result = await pool.query<{ material_id: string; code: string; units: string[] }>(
+      `WITH priced AS (
+         SELECT i.material_id, i.material_code AS code, i.material_name AS name, i.unit
+           FROM crm_schema.price_list_items i
+           JOIN crm_schema.price_lists l ON l.id = i.price_list_id
+          WHERE l.status = 'ACTIVE' AND l.valid_from <= $1::date AND (l.valid_to IS NULL OR l.valid_to >= $1::date)
+            AND (l.is_standard OR l.id = $2::uuid)
+         UNION ALL
+         SELECT cl.material_id, cl.material_code, cl.material_name, cl.unit
+           FROM crm_schema.contracts c
+           JOIN crm_schema.contract_lines cl ON cl.contract_id = c.id
+          WHERE $3::uuid IS NOT NULL AND c.customer_id = $3::uuid AND c.type IN ('FRAMEWORK', 'PRINCIPLE')
+            AND c.status = 'ACTIVE' AND c.valid_from <= $1::date AND (c.valid_to IS NULL OR c.valid_to >= $1::date)
+       )
+       SELECT material_id, min(code) AS code, array_agg(DISTINCT lower(btrim(unit))) AS units
+         FROM priced
+        WHERE $4::text IS NULL OR code ILIKE $4 OR name ILIKE $4
+        GROUP BY material_id
+       HAVING $6::text IS NULL OR min(code) > $6
+        ORDER BY min(code), material_id
+        LIMIT $5`,
+      [query.date, query.customerPriceListId, query.customerId, search ? containsPattern(search) : null, query.limit, query.cursor ?? null],
+    );
+    return result.rows.map((row) => ({ materialId: row.material_id, code: row.code, units: row.units }));
   }
 
   async policiesForPricing(tenantId: string, date: string): Promise<PricingPolicy[]> {

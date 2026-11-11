@@ -36,6 +36,7 @@ jest.mock('../crm-api', () => ({
   listQuoteTypes: () => Promise.resolve([]),
   listQuoteCustomFields: () => Promise.resolve([]),
   loadQuoteCodeSettings: () => new Promise(() => undefined),
+  loadQuoteLinePickerSettings: () => new Promise(() => undefined),
 }));
 
 beforeAll(() => {

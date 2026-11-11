@@ -4,6 +4,7 @@ import type {
   GeneratedQuoteCode,
   QuoteCodeSettings,
   QuoteLayout,
+  QuoteLinePickerSettings,
   QuoteTemplate,
   QuoteTemplateLayout,
   QuoteType,
@@ -18,7 +19,9 @@ import {
   CUSTOM_FIELD_OPTIONS_MAX,
   CUSTOM_FIELD_TYPES,
   CUSTOM_FIELDS_MAX,
+  DEFAULT_QUOTE_LINE_PICKER_COLUMNS,
   QUOTE_ADJUSTMENT_MODES,
+  normalizeQuoteLinePickerColumns,
   utf8ByteLength,
   validateQuoteLayout,
 } from '@enterprise-platform/contracts-crm';
@@ -158,6 +161,21 @@ export class QuoteFormService {
     const updated = await this.store.updateCustomField(actor.tenantId, id, record, actor.userId);
     if (!updated) throw new CrmNotFoundError('Không tìm thấy trường tuỳ biến.');
     return updated;
+  }
+
+  // Cột hộp thoại "Thêm dòng báo giá" -------------------------------------------
+
+  /** Ai có `crm.read` cũng đọc (hộp thoại cần biết cột nào hiện); chưa cấu hình thì hiện mọi cột. */
+  async linePickerSettings(actor: CrmActor): Promise<QuoteLinePickerSettings> {
+    return { columns: (await this.store.linePickerColumns(actor.tenantId)) ?? DEFAULT_QUOTE_LINE_PICKER_COLUMNS };
+  }
+
+  async saveLinePickerSettings(actor: CrmActor, request: QuoteLinePickerSettings): Promise<QuoteLinePickerSettings> {
+    requireSalesManager(actor);
+    const columns = normalizeQuoteLinePickerColumns(request?.columns);
+    if (!columns) throw new CrmValidationError('INVALID_COLUMNS', 'Vui lòng chọn các cột hiển thị.');
+    await this.store.saveLinePickerColumns(actor.tenantId, columns, actor.userId);
+    return { columns };
   }
 
   // Mã báo giá ----------------------------------------------------------------
