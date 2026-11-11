@@ -176,6 +176,9 @@ const ERROR_TOAST_ID = 'maintenance-error';
 /** Lỗi khiến cả màn trống (không tải được dữ liệu) cần ở lại lâu hơn mặc định. */
 const LOAD_ERROR_DURATION_MS = 12_000;
 
+/** Số dòng mỗi trang của Lịch sử khi người dùng chưa chọn; khớp giá trị mặc định của ô chọn ở màn Lịch sử. */
+const DEFAULT_HISTORY_LIMIT = 15;
+
 /** Báo lỗi bằng toast. `title` là việc không làm được, `description` là lý do hoặc việc nên làm tiếp. */
 function showError(title: string, description?: string, duration?: number) {
   toast.error({ title, ...(description ? { description } : {}) }, { id: ERROR_TOAST_ID, ...(duration ? { duration } : {}) });
@@ -469,7 +472,7 @@ export function MaintenanceScreen() {
     async (filter: MaintenanceHistoryFilter, append = false) => {
       setBusy(true);
       try {
-        const page = await loadMaintenanceHistory(filter);
+        const page = await loadMaintenanceHistory({ ...filter, limit: filter.limit ?? DEFAULT_HISTORY_LIMIT });
         setHistory((current) =>
           append && current ? { ...page, items: [...current.items, ...page.items] } : page,
         );
@@ -503,16 +506,26 @@ export function MaintenanceScreen() {
     setBusy(true);
     try {
       const created = await createMaintenanceIncident(input);
+      // Sự cố đã được tạo: từ đây không được để lỗi tải tệp làm form kẹt mở, vì bấm gửi lại sẽ tạo thêm một sự cố
+      // trùng. Tải từng tệp độc lập, tệp nào lỗi thì báo riêng và để người dùng tải lại trong chi tiết phiếu.
+      const failedFiles: string[] = [];
       if (files && files.length > 0) {
-        await Promise.all(
-          files.map((file) => uploadOccurrenceAttachment(created.id, file)),
-        );
+        const results = await Promise.allSettled(files.map((file) => uploadOccurrenceAttachment(created.id, file)));
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') failedFiles.push(files[index].name);
+        });
       }
       setIncidentOpen(false);
       await reload();
       navigate('history');
       setHistoryFilter({});
       setSelectedOccurrence(created);
+      if (failedFiles.length > 0) {
+        showError(
+          'Đã tạo sự cố nhưng chưa tải lên được tệp đính kèm',
+          `${failedFiles.join(', ')}. Mở chi tiết sự cố vừa tạo để tải lại các tệp này.`,
+        );
+      }
     } catch (cause) {
       notifyError(cause, 'Không tạo được sự cố.');
     } finally {

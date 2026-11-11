@@ -156,3 +156,31 @@ describe('lưu trữ và bật lại lịch', () => {
     expect(update?.[1]?.[5]).toBeNull();
   });
 });
+
+describe('lọc Lịch sử theo ngày', () => {
+  function history() {
+    const query = jest.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [], rowCount: 0 }));
+    const store = new PostgresMaintenanceStore(
+      { require: () => ({ tenantId: 'tenant' }) } as unknown as TenantDatabaseRegistry,
+      { forTenant: async () => ({ query }) } as unknown as PostgresPoolRegistry,
+      'http://procedure.test',
+    );
+    return { store, query };
+  }
+
+  it('ngày YYYY-MM-DD tính theo giờ địa phương; "đến ngày" gồm cả ngày được chọn', async () => {
+    const { store, query } = history();
+    await store.readHistory('tenant', { from: '2026-11-10', to: '2026-11-10' });
+    const [sql, params] = query.mock.calls[0];
+    expect(String(sql)).toContain("o.due_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')");
+    expect(String(sql)).toContain("o.due_at < (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')");
+    expect(params).toEqual(['2026-11-10', '2026-11-10']);
+  });
+
+  it('giá trị có kèm giờ giữ nguyên nghĩa cũ', async () => {
+    const { store, query } = history();
+    await store.readHistory('tenant', { from: '2026-11-10T03:00:00.000Z' });
+    expect(String(query.mock.calls[0][0])).toContain('o.due_at >= $1');
+    expect(query.mock.calls[0][1]?.[0]).toEqual(new Date('2026-11-10T03:00:00.000Z'));
+  });
+});

@@ -44,6 +44,10 @@ function mapSettingsEntry(row: Row): MaintenanceSettingsEntry<unknown> {
   };
 }
 
+/** Múi giờ để hiểu ngày trong bộ lọc Lịch sử; cùng múi giờ mặc định của lịch bảo trì. */
+const HISTORY_TIMEZONE = 'Asia/Ho_Chi_Minh';
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Số lần gửi tối đa cho lỗi tạm thời trước khi phiếu chuyển 'failed' để người dùng xử lý. */
 const MAX_DISPATCH_ATTEMPTS = 5;
 
@@ -120,8 +124,17 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     }
     if (filter.kind) add('o.kind = ?', filter.kind);
     if (filter.status) add('o.status = ?', filter.status);
-    if (filter.from) add('o.due_at >= ?', new Date(filter.from));
-    if (filter.to) add('o.due_at <= ?', new Date(filter.to));
+    // Ngày dạng YYYY-MM-DD (từ ô chọn ngày) tính theo giờ địa phương: "từ" là đầu ngày đó, "đến" gồm CẢ ngày đó (nhỏ hơn đầu
+    // ngày kế). new Date('2026-11-10') là 00:00 UTC nên trước đây "Đến ngày" loại mất chính ngày được chọn còn "Từ ngày"
+    // lệch 7 tiếng. Giá trị có kèm giờ thì giữ nguyên nghĩa cũ.
+    if (filter.from) {
+      if (DATE_ONLY.test(filter.from)) add(`o.due_at >= (?::date::timestamp AT TIME ZONE '${HISTORY_TIMEZONE}')`, filter.from);
+      else add('o.due_at >= ?', new Date(filter.from));
+    }
+    if (filter.to) {
+      if (DATE_ONLY.test(filter.to)) add(`o.due_at < ((?::date + 1)::timestamp AT TIME ZONE '${HISTORY_TIMEZONE}')`, filter.to);
+      else add('o.due_at <= ?', new Date(filter.to));
+    }
 
     // Keyset thay OFFSET: danh sách sắp theo (due_at, id) giảm dần, nên trang sau
     // chỉ cần "nhỏ hơn con trỏ". OFFSET sẽ nhảy cóc hoặc lặp khi có phiếu mới chèn vào.
