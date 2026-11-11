@@ -136,6 +136,7 @@ function setup(detail = order(), contract?: ContractDetail) {
       { id: 'pl', code: 'BG', isStandard: true, validFrom: '2026-01-01', validTo: null, status: 'ACTIVE', customerGroupIds: [], items: [{ materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 }] },
     ],
     policiesForPricing: async () => [],
+    pricedMaterials: async () => [],
     contractPricesForPricing: jest.fn(async (_t, _d, _c, _m, contractId?: string | null) =>
       contractId ? [{ contractId, contractCode: 'HD1', materialId: CAP, unit: 'Cái', price: 900_000, vatRate: 10, validFrom: '2026-01-01', validTo: null }] : [],
     ),

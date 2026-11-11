@@ -10,7 +10,9 @@ import {
   quoteDeepLink,
   sellerFromOrganization,
   type CreateQuoteRequest,
-  type CrmCatalogMaterial,
+  CATALOG_MATERIAL_KINDS,
+  type CatalogMaterialKind,
+  type CrmCatalogPage,
   type CrmPage,
   type QuoteApprovalReason,
   type QuoteComparison,
@@ -122,6 +124,13 @@ function revisionOf(value: unknown): number {
     throw new CrmValidationError('VERSION_REQUIRED', 'Thiếu số lần sửa của phiên bản; vui lòng tải lại báo giá.');
   }
   return number;
+}
+
+/** `kind=STOCK,SERVICE` gửi lên: giữ nhóm hợp lệ; rỗng là mọi nhóm. */
+function catalogKindsOf(value: unknown): CatalogMaterialKind[] | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const kinds = CATALOG_MATERIAL_KINDS.filter((kind) => value.split(',').map((part) => part.trim().toUpperCase()).includes(kind));
+  return kinds.length ? kinds : undefined;
 }
 
 function versionNoOf(value: unknown): number {
@@ -587,23 +596,107 @@ export class QuoteService {
     };
   }
 
-  async catalogMaterials(actor: CrmActor, query: { search?: unknown; limit?: unknown }): Promise<CrmCatalogMaterial[]> {
+  /**
+   * Tìm mặt hàng để thêm dòng, theo trang (xếp theo mã; `cursor` là mã cuối của trang trước). `kind`: lọc nhóm
+   * (STOCK, SERVICE). Có `quoteId`: chỉ mặt hàng có giá bán cho báo giá đó tại ngày tính giá (bảng giá của khách, bảng
+   * giá chuẩn, hợp đồng khung của khách; đúng ĐVT), để không chọn phải mặt hàng sẽ báo "Chưa có giá bán".
+   */
+  async catalogMaterials(
+    actor: CrmActor,
+    query: {
+      search?: unknown;
+      limit?: unknown;
+      cursor?: unknown;
+      kind?: unknown;
+      tradeCategory?: unknown;
+      quoteId?: unknown;
+      versionNo?: unknown;
+    },
+  ): Promise<CrmCatalogPage> {
     const search = normalizeSearch(query.search) ?? '';
     const limit = Math.min(pageLimit(query.limit ?? CATALOG_SEARCH_LIMIT), 100);
-    const materials = await this.catalog.search(actor.tenantId, search, limit);
-    return materials.map((material) => ({
-      id: material.id,
-      code: material.code,
-      name: material.name,
-      unit: material.unit,
-      kind: material.kind ?? null,
-      category: material.category,
-      tradeCategory: material.tradeCategory ?? null,
-      salePrice: material.salePrice ?? null,
-      avgCost: material.avgCost ?? null,
-      totalAvailable: material.totalAvailable ?? null,
-      availableByWarehouse: material.availableByWarehouse ?? null,
-    }));
+    const cursor = typeof query.cursor === 'string' && query.cursor.trim() ? query.cursor.trim().slice(0, 100) : undefined;
+    const kinds = catalogKindsOf(query.kind);
+    const tradeCategory = typeof query.tradeCategory === 'string' && query.tradeCategory.trim() ? query.tradeCategory.trim().slice(0, 100) : undefined;
+    const page =
+      query.quoteId === undefined || query.quoteId === ''
+        ? await this.catalogPage(actor.tenantId, search, limit, cursor, kinds, tradeCategory)
+        : await this.pricedCatalogPage(actor, String(query.quoteId), query.versionNo, { search, limit, cursor, kinds, tradeCategory });
+    return {
+      nextCursor: page.nextCursor,
+      items: page.materials.map((material) => ({
+        id: material.id,
+        code: material.code,
+        name: material.name,
+        unit: material.unit,
+        kind: material.kind ?? null,
+        category: material.category,
+        tradeCategory: material.tradeCategory ?? null,
+        salePrice: material.salePrice ?? null,
+        avgCost: material.avgCost ?? null,
+        totalAvailable: material.totalAvailable ?? null,
+        availableByWarehouse: material.availableByWarehouse ?? null,
+      })),
+    };
+  }
+
+  /** Phân loại đang dùng trên mặt hàng ở Kho, cho ô lọc Phân loại; `kind` thu hẹp theo nhóm. */
+  async catalogTradeCategories(actor: CrmActor, kind: unknown): Promise<string[]> {
+    if (!this.catalog.tradeCategories) return [];
+    return this.catalog.tradeCategories(actor.tenantId, catalogKindsOf(kind) ?? [...CATALOG_MATERIAL_KINDS]);
+  }
+
+  /** Lấy dư một dòng để biết còn trang sau. */
+  private async catalogPage(
+    tenantId: string,
+    search: string,
+    limit: number,
+    cursor: string | undefined,
+    kinds: readonly CatalogMaterialKind[] | undefined,
+    tradeCategory: string | undefined,
+  ): Promise<{ materials: CatalogMaterial[]; nextCursor: string | null }> {
+    const rows = await this.catalog.search(tenantId, search, limit + 1, { cursor, kinds, tradeCategory });
+    const materials = rows.slice(0, limit);
+    return { materials, nextCursor: rows.length > limit ? materials[materials.length - 1].code : null };
+  }
+
+  private async pricedCatalogPage(
+    actor: CrmActor,
+    quoteId: string,
+    versionNo: unknown,
+    query: {
+      search: string;
+      limit: number;
+      cursor: string | undefined;
+      kinds: readonly CatalogMaterialKind[] | undefined;
+      tradeCategory: string | undefined;
+    },
+  ): Promise<{ materials: CatalogMaterial[]; nextCursor: string | null }> {
+    const quote = await this.requireEditable(actor, quoteId, versionNoOf(versionNo));
+    const rows = await this.pricing.pricedMaterials(actor.tenantId, {
+      date: quote.version.priceDate ?? this.today(),
+      customerPriceListId: quote.head.customerPriceListId ?? null,
+      customerId: quote.head.customerId,
+      search: query.search,
+      limit: query.limit + 1,
+      cursor: query.cursor,
+    });
+    const priced = rows.slice(0, query.limit);
+    const nextCursor = rows.length > query.limit ? priced[priced.length - 1].code : null;
+    if (!priced.length) return { materials: [], nextCursor };
+    const known = await this.catalog.materials(
+      actor.tenantId,
+      priced.map((entry) => entry.materialId),
+    );
+    // Dòng mới lấy ĐVT của danh mục Kho; giá phải đúng ĐVT đó thì mới tính được (Kho không có ĐVT thì không thêm được).
+    const materials = priced.flatMap((entry) => {
+      const material = known.get(entry.materialId);
+      const priceable = material?.unit && entry.units.includes(material.unit.trim().toLowerCase());
+      const inKind = !query.kinds || query.kinds.includes((material?.kind ?? 'STOCK') as CatalogMaterialKind);
+      const inCategory = !query.tradeCategory || material?.tradeCategory?.trim().toLowerCase() === query.tradeCategory.toLowerCase();
+      return material && priceable && inKind && inCategory ? [material] : [];
+    });
+    return { materials, nextCursor };
   }
 
   // -------------------------------------------------------------------------

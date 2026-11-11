@@ -64,6 +64,11 @@ export function prefixPattern(text: string): string {
   return `${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
 }
 
+/** `abc` → `%abc%` cho `LIKE`, thoát `%`, `_`, `\` mà người dùng gõ. */
+export function containsPattern(text: string): string {
+  return `%${prefixPattern(text)}`;
+}
+
 /**
  * Truy vấn full-text khớp đầu từ: `minh anh` → `minh:* & anh:*`. Chỉ giữ chữ
  * và số (mọi ký tự khác thành dấu cách), nên chuỗi đưa vào `to_tsquery` không

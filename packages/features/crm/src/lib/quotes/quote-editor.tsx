@@ -1,8 +1,11 @@
 'use client';
 
 import {
+  DEFAULT_QUOTE_LINE_PICKER_COLUMNS,
+  QUOTE_LINE_PICKER_COLUMNS,
   QUOTE_STATUS_LABELS,
   type CrmCatalogMaterial,
+  type QuoteLinePickerColumn,
   type CustomerDetail,
   type QuoteLineError,
   type QuoteLineInput,
@@ -15,6 +18,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeft, Eye, Trash2 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
+import { CatalogPager, CatalogSearchBar, catalogKindLabel, useCatalogSearch } from '../components/catalog-search';
 import { useDebounced } from '../components/use-debounced';
 import {
   addQuoteLines,
@@ -22,10 +26,10 @@ import {
   errorMessage,
   getCustomer,
   getQuote,
+  loadQuoteLinePickerSettings,
   quoteAction,
   deleteQuote,
   removeQuoteLine,
-  searchCatalog,
   updateQuoteLine,
   updateQuoteVersion,
   type QuoteAction,
@@ -864,6 +868,7 @@ export function QuoteEditor({
 
       {picking ? (
         <MaterialPicker
+          pricedFor={{ quoteId: detail.id, versionNo: version.versionNo }}
           existingMaterialIds={new Set(version.lines.map((line) => line.materialId))}
           initialSearch={picking.search}
           beforeLineNo={picking.beforeLineNo}
@@ -1027,13 +1032,19 @@ interface AddFailure {
  * Chọn nhiều mặt hàng từ danh mục Kho (`GET /catalog/materials`) rồi thêm một lần
  * (`POST .../lines/batch`, tất cả hoặc không). Tập đã chọn giữ khi đổi từ khoá tìm.
  */
+const NO_PRICED_MATERIAL =
+  'Không có mặt hàng nào có giá bán cho khách hàng này. Nhờ quản trị bán hàng thêm dòng giá ở Cài đặt > Bảng giá.';
+
 function MaterialPicker({
+  pricedFor,
   existingMaterialIds,
   initialSearch = '',
   beforeLineNo,
   onClose,
   onAdd,
 }: {
+  /** Phiên bản báo giá: chỉ liệt kê mặt hàng có giá bán cho báo giá này. */
+  pricedFor: { readonly quoteId: string; readonly versionNo: number };
   existingMaterialIds: ReadonlySet<string>;
   /** Chữ đã gõ ở ô tìm của bảng dòng hàng. */
   initialSearch?: string;
@@ -1042,34 +1053,27 @@ function MaterialPicker({
   onClose: () => void;
   onAdd: (lines: QuoteLineInput[]) => Promise<AddFailure | undefined>;
 }) {
-  const [search, setSearch] = useState(initialSearch);
-  const [items, setItems] = useState<readonly CrmCatalogMaterial[]>([]);
+  const catalog = useCatalogSearch(pricedFor, initialSearch);
   const [picked, setPickedState] = useState<PickedMap>(new Map());
   const [onlyPicked, setOnlyPicked] = useState(false);
   const [confirmingDuplicates, setConfirmingDuplicates] = useState(false);
   const [invalidIds, setInvalidIds] = useState<readonly string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const [lineErrors, setLineErrors] = useState<readonly string[]>([]);
   const [lineHint, setLineHint] = useState<string>();
-  const q = useDebounced(search.trim(), 300);
+  const [shown, setShown] = useState<readonly QuoteLinePickerColumn[]>(DEFAULT_QUOTE_LINE_PICKER_COLUMNS);
 
+  // Cột hiện do quản trị chọn ở Cài đặt; không tải được thì hiện mọi cột.
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    searchCatalog(q)
-      .then((result) => {
-        if (!active) return;
-        setItems(result);
-        setError(undefined);
-      })
-      .catch((cause) => active && setError(errorMessage(cause, 'Không tải được danh mục Kho.')))
-      .finally(() => active && setLoading(false));
+    loadQuoteLinePickerSettings()
+      .then((settings) => active && setShown(settings.columns))
+      .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [q]);
+  }, []);
 
   const update = (next: PickedMap) => {
     setPickedState(next);
@@ -1080,7 +1084,41 @@ function MaterialPicker({
     setError(undefined);
   };
   const duplicates = duplicatePicks(picked, existingMaterialIds);
-  const rows = onlyPicked ? [...picked.values()].map((entry) => entry.material) : [...items];
+  const rows = onlyPicked ? [...picked.values()].map((entry) => entry.material) : [...catalog.items];
+
+  const optional: Record<QuoteLinePickerColumn, ColumnsType<CrmCatalogMaterial>[number]> = {
+    name: { title: 'Tên', dataIndex: 'name', width: 240, ellipsis: true },
+    kind: { title: 'Nhóm', dataIndex: 'kind', width: 100, render: (value: string | null) => catalogKindLabel(value) },
+    tradeCategory: {
+      title: 'Phân loại',
+      dataIndex: 'tradeCategory',
+      width: 140,
+      ellipsis: true,
+      render: (value: string | null | undefined) => value ?? '',
+    },
+    unit: { title: 'ĐVT', dataIndex: 'unit', width: 70 },
+    totalAvailable: {
+      title: 'Tồn khả dụng',
+      dataIndex: 'totalAvailable',
+      width: 110,
+      align: 'right',
+      render: (value: number | null, row) => (row.kind === 'SERVICE' ? <span className={styles.muted}>Dịch vụ</span> : quantityText(value ?? 0)),
+    },
+    avgCost: {
+      title: 'Giá vốn bình quân',
+      dataIndex: 'avgCost',
+      width: 150,
+      align: 'right',
+      render: (value: number | null) => (value === null ? '' : formatMoney(value)),
+    },
+    salePrice: {
+      title: 'Giá bán đề xuất (Kho)',
+      dataIndex: 'salePrice',
+      width: 150,
+      align: 'right',
+      render: (value: number | null | undefined) => (value === null || value === undefined ? '' : formatMoney(value)),
+    },
+  };
 
   const columns: ColumnsType<CrmCatalogMaterial> = [
     {
@@ -1094,29 +1132,7 @@ function MaterialPicker({
         </span>
       ),
     },
-    { title: 'Tên', dataIndex: 'name', ellipsis: true },
-    { title: 'ĐVT', dataIndex: 'unit', width: 70 },
-    {
-      title: 'Tồn khả dụng',
-      dataIndex: 'totalAvailable',
-      width: 110,
-      align: 'right',
-      render: (value: number | null, row) => (row.kind === 'SERVICE' ? <span className={styles.muted}>Dịch vụ</span> : quantityText(value ?? 0)),
-    },
-    {
-      title: 'Giá vốn bình quân',
-      dataIndex: 'avgCost',
-      width: 150,
-      align: 'right',
-      render: (value: number | null) => (value === null ? '' : formatMoney(value)),
-    },
-    {
-      title: 'Giá bán đề xuất (Kho)',
-      dataIndex: 'salePrice',
-      width: 150,
-      align: 'right',
-      render: (value: number | null | undefined) => (value === null || value === undefined ? '' : formatMoney(value)),
-    },
+    ...QUOTE_LINE_PICKER_COLUMNS.filter((key) => shown.includes(key)).map((key) => optional[key]),
     {
       title: 'Số lượng',
       key: 'quantity',
@@ -1167,10 +1183,10 @@ function MaterialPicker({
       open
       wide
       title={beforeLineNo ? `Chèn dòng trước dòng ${beforeLineNo}` : 'Thêm dòng báo giá'}
-      subtitle="Chọn một hoặc nhiều mặt hàng từ danh mục Kho"
+      subtitle="Chọn một hoặc nhiều mặt hàng có giá bán trong bảng giá áp dụng cho khách hàng của báo giá"
       submitLabel={addLinesLabel(picked.size, confirmingDuplicates)}
       submitting={saving}
-      error={error}
+      error={error ?? catalog.error}
       notice={
         confirmingDuplicates && duplicates.length ? (
           <p role="alert">{duplicateWarning(duplicates)}</p>
@@ -1188,14 +1204,7 @@ function MaterialPicker({
       onClose={onClose}
       onSubmit={() => void save()}
     >
-      <input
-        className={styles.input}
-        type="search"
-        placeholder="Tìm theo mã hoặc tên mặt hàng…"
-        maxLength={100}
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+      <CatalogSearchBar catalog={catalog} />
       <div className={styles.muted}>
         Đã chọn {picked.size} mặt hàng
         {picked.size ? (
@@ -1214,11 +1223,11 @@ function MaterialPicker({
       <Table<CrmCatalogMaterial>
         size="small"
         rowKey="id"
-        loading={loading}
+        loading={catalog.loading}
         columns={columns}
         dataSource={rows}
         pagination={false}
-        scroll={{ y: 280 }}
+        scroll={{ x: 'max-content', y: 280 }}
         rowSelection={{
           type: 'checkbox',
           selectedRowKeys: [...picked.keys()],
@@ -1226,8 +1235,9 @@ function MaterialPicker({
           onSelectAll: (on, _selected, changed) => update(setPicked(picked, changed, on)),
         }}
         onRow={(row) => ({ onClick: () => update(setPicked(picked, [row], !picked.has(row.id))) })}
-        locale={{ emptyText: loading ? 'Đang tải…' : onlyPicked ? 'Chưa chọn mặt hàng nào.' : 'Không có mặt hàng nào.' }}
+        locale={{ emptyText: catalog.loading ? 'Đang tải…' : onlyPicked ? 'Chưa chọn mặt hàng nào.' : NO_PRICED_MATERIAL }}
       />
+      {onlyPicked ? null : <CatalogPager catalog={catalog} />}
     </CrmDialog>
   );
 }

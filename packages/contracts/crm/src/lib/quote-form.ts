@@ -238,3 +238,35 @@ export interface AddQuoteLinkRequest {
   readonly targetType: QuoteLinkTargetType;
   readonly targetId: string;
 }
+
+// ---------------------------------------------------------------------------
+// Cột hộp thoại "Thêm dòng báo giá" (quản trị chọn ở Cài đặt)
+// ---------------------------------------------------------------------------
+
+/** Cột thông tin chọn được; cột Mã và Số lượng luôn hiện. */
+export const QUOTE_LINE_PICKER_COLUMNS = ['name', 'kind', 'tradeCategory', 'unit', 'totalAvailable', 'avgCost', 'salePrice'] as const;
+export type QuoteLinePickerColumn = (typeof QUOTE_LINE_PICKER_COLUMNS)[number];
+
+export const QUOTE_LINE_PICKER_COLUMN_LABELS: Readonly<Record<QuoteLinePickerColumn, string>> = {
+  name: 'Tên',
+  kind: 'Nhóm',
+  tradeCategory: 'Phân loại',
+  unit: 'ĐVT',
+  totalAvailable: 'Tồn khả dụng',
+  avgCost: 'Giá vốn bình quân',
+  salePrice: 'Giá bán đề xuất (Kho)',
+};
+
+/** Chưa cấu hình: hiện mọi cột. */
+export const DEFAULT_QUOTE_LINE_PICKER_COLUMNS: readonly QuoteLinePickerColumn[] = QUOTE_LINE_PICKER_COLUMNS;
+
+export interface QuoteLinePickerSettings {
+  /** Cột hiện, theo thứ tự cố định của `QUOTE_LINE_PICKER_COLUMNS`. */
+  readonly columns: readonly QuoteLinePickerColumn[];
+}
+
+/** Giữ cột hợp lệ, bỏ trùng, xếp theo thứ tự cố định; không phải mảng thì `undefined`. */
+export function normalizeQuoteLinePickerColumns(value: unknown): QuoteLinePickerColumn[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return QUOTE_LINE_PICKER_COLUMNS.filter((column) => value.includes(column));
+}

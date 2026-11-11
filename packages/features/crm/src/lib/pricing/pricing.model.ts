@@ -194,6 +194,9 @@ export interface PriceRowDraft {
     readonly salePrice?: number | null;
     /** Giá vốn bình quân của Kho, chỉ để tham khảo khi định giá. */
     readonly avgCost?: number | null;
+    /** Nhóm ở Kho (STOCK hàng hoá, SERVICE dịch vụ) và phân loại, chỉ để hiện. */
+    readonly kind?: string | null;
+    readonly tradeCategory?: string | null;
   };
   /** Đơn vị tính: lấy theo Kho; chỉ gõ tay khi danh mục Kho chưa có đơn vị. */
   readonly unit: string;

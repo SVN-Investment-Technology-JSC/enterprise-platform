@@ -75,6 +75,12 @@ describe('createQuoteDocument', () => {
     expect(xml).toMatch(/<w:pBdr><w:bottom w:val="single"/);
   });
 
+  it('điều khoản nhiều dòng: ngắt dòng sau nhãn và giữa các dòng', async () => {
+    const data = buildQuoteLayoutData({ detail: fixtureDetail(fixtureSellerVersion()), customer: fixtureCustomer(), now });
+    const { xml } = await documentXml(defaultQuoteLayout(), { ...data, values: { ...data.values, 'quote.note': 'a/ EX\nb/ EX' } });
+    expect(xml).toMatch(/Ghi chú:<\/w:t><\/w:r><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:br\/><w:t[^>]*>(<\/w:t><\/w:r><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t[^>]*>)?a\/ EX<\/w:t><\/w:r><w:r><w:br\/><w:t[^>]*>b\/ EX/);
+  });
+
   it('TC-EX-08: khổ, hướng, lề và font mặc định', async () => {
     const portrait = await documentXml();
     expect(portrait.xml).toContain(`<w:pgSz w:w="${mmToTwip(210)}" w:h="${mmToTwip(297)}" w:orient="portrait"/>`);

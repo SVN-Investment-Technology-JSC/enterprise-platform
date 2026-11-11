@@ -128,6 +128,31 @@ export interface PricingStore {
     materialIds: readonly string[],
     contractId?: string | null,
   ): Promise<PricingContractPrice[]>;
+  /**
+   * Mặt hàng có giá bán cho báo giá (hộp thoại "Thêm dòng báo giá" chỉ liệt kê các mặt hàng này): có dòng trong bảng
+   * giá chuẩn hoặc bảng giá của khách `customerPriceListId` đang hiệu lực ngày `date`, hoặc trong hợp đồng khung,
+   * nguyên tắc đang hiệu lực của `customerId` (cùng nguồn với engine giá). Mã hoặc tên (bản chụp) chứa `search`;
+   * xếp theo mã; tối đa `limit` mặt hàng.
+   */
+  pricedMaterials(tenantId: string, query: PricedMaterialsQuery): Promise<PricedMaterial[]>;
+}
+
+export interface PricedMaterialsQuery {
+  readonly date: string;
+  readonly customerPriceListId: string | null;
+  readonly customerId: string | null;
+  readonly search: string;
+  readonly limit: number;
+  /** Chỉ mặt hàng có mã (bản chụp) đứng sau mã này: trang kế. */
+  readonly cursor?: string;
+}
+
+/** Mặt hàng có giá và các ĐVT có giá (chữ thường, đã bỏ khoảng trắng hai đầu). */
+export interface PricedMaterial {
+  readonly materialId: string;
+  /** Mã (bản chụp) dùng xếp và làm cursor trang kế. */
+  readonly code: string;
+  readonly units: readonly string[];
 }
 
 /** Mặt hàng theo danh mục Kho. */
@@ -169,8 +194,18 @@ export interface CatalogMaterialStock {
 export interface CatalogReader {
   /** Mặt hàng danh mục biết, theo id; id không biết thì vắng trong kết quả. */
   materials(tenantId: string, ids: readonly string[]): Promise<ReadonlyMap<string, CatalogMaterial>>;
-  /** Tìm theo mã hoặc tên (chọn mặt hàng khi thêm dòng báo giá). */
-  search(tenantId: string, query: string, limit: number): Promise<CatalogMaterial[]>;
+  /**
+   * Tìm theo mã, tên hoặc phân loại (chọn mặt hàng khi thêm dòng báo giá, dòng giá), xếp theo mã. `cursor`: chỉ mã
+   * đứng sau mã này (trang kế); `kinds`: chỉ các nhóm này (STOCK, SERVICE).
+   */
+  search(
+    tenantId: string,
+    query: string,
+    limit: number,
+    options?: { readonly cursor?: string; readonly kinds?: readonly string[]; readonly tradeCategory?: string },
+  ): Promise<CatalogMaterial[]>;
+  /** Phân loại đang gắn trên mặt hàng của các nhóm `kinds` (ô lọc Phân loại). Bản giả trong test có thể không có. */
+  tradeCategories?(tenantId: string, kinds: readonly string[]): Promise<string[]>;
   /**
    * Danh sách kho của Kho (`GET /v1/internal/warehouses?search=&codes=`) để chọn
    * kho xuất (T4-19). Bản giả trong test có thể không có.

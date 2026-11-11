@@ -110,11 +110,11 @@ export function QuoteDetailsBlock({
               </Fragment>
             ))}
             <dt>Ghi chú</dt>
-            <dd>{version.note || <span className={styles.muted}>Chưa có ghi chú.</span>}</dd>
+            <dd style={{ whiteSpace: 'pre-wrap' }}>{version.note || <span className={styles.muted}>Chưa có ghi chú.</span>}</dd>
             {activeFields(fields).map((field) => (
               <Fragment key={field.id}>
                 <dt>{field.name}</dt>
-                <dd>
+                <dd style={{ whiteSpace: 'pre-wrap' }}>
                   {version.form.customFields[field.id] === undefined ? <span className={styles.muted}>Chưa nhập</span> : String(version.form.customFields[field.id])}
                 </dd>
               </Fragment>

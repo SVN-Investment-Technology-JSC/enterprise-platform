@@ -1,9 +1,11 @@
 import {
   QUOTE_LAYOUT_CONFLICT_CODE,
+  normalizeQuoteLinePickerColumns,
   type CustomFieldDefinition,
   type CustomFieldEntityType,
   type CustomFieldType,
   type QuoteAdjustmentMode,
+  type QuoteLinePickerColumn,
   type QuoteTemplate,
   type QuoteType,
 } from '@enterprise-platform/contracts-crm';
@@ -30,6 +32,10 @@ export const QUOTE_CODE_SETTING_AUDIT_ENTITY = 'quote_code_setting';
 export const CUSTOM_FIELD_AUDIT_ENTITY = 'custom_field';
 /** `audit_log.entity_id` là UUID: cài đặt mã chỉ có một bản ghi nên dùng id cố định. */
 const QUOTE_CODE_SETTING_ID = '00000000-0000-0000-0000-000000000001';
+/** Khoá trong `crm_schema.settings`: cột hộp thoại "Thêm dòng báo giá". */
+export const QUOTE_LINE_PICKER_SETTING_KEY = 'quote.linePickerColumns';
+export const QUOTE_LINE_PICKER_SETTING_AUDIT_ENTITY = 'quote_line_picker_setting';
+const QUOTE_LINE_PICKER_SETTING_ID = '00000000-0000-0000-0000-000000000002';
 
 interface TemplateRow {
   id: string;
@@ -306,6 +312,31 @@ export class PostgresQuoteFormStore implements QuoteFormStore {
         return toCustomField(row);
       })
       .catch(rethrowName(CUSTOM_FIELD_NAME_EXISTS, 'uq_crm_custom_field_definitions_name'));
+  }
+
+  // Cột hộp thoại "Thêm dòng báo giá" -------------------------------------------
+
+  async linePickerColumns(tenantId: string): Promise<readonly QuoteLinePickerColumn[] | undefined> {
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<{ value: unknown }>(`SELECT value FROM crm_schema.settings WHERE key = $1`, [
+      QUOTE_LINE_PICKER_SETTING_KEY,
+    ]);
+    const value = result.rows[0]?.value as { columns?: unknown } | undefined;
+    // Giá trị hỏng (sửa tay trong DB) coi như chưa cấu hình.
+    return normalizeQuoteLinePickerColumns(value?.columns);
+  }
+
+  saveLinePickerColumns(tenantId: string, columns: readonly QuoteLinePickerColumn[], actorId: string): Promise<void> {
+    return this.database.transaction(tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO crm_schema.settings (key, value, updated_by) VALUES ($1, $2::jsonb, $3)
+         ON CONFLICT (key) DO UPDATE
+           SET value = EXCLUDED.value, version = crm_schema.settings.version + 1,
+               updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [QUOTE_LINE_PICKER_SETTING_KEY, JSON.stringify({ columns }), actorId],
+      );
+      await auditSetting(client, QUOTE_LINE_PICKER_SETTING_AUDIT_ENTITY, QUOTE_LINE_PICKER_SETTING_ID, 'update', actorId, { columns });
+    });
   }
 
   // Mã báo giá ----------------------------------------------------------------

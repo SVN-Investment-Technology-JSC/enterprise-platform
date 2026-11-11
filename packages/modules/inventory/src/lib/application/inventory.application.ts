@@ -237,6 +237,12 @@ export class InventoryApplication {
     return { materials: page, nextCursor: page[page.length - 1].code };
   }
 
+  /** Phân loại đang dùng trên mặt hàng (lọc khi chọn mặt hàng ở phân hệ khác); mặc định cả hàng hoá và dịch vụ. */
+  async listMaterialTradeCategories(actor: InventoryActor, kinds?: readonly string[]): Promise<{ categories: string[] }> {
+    const normalized = (kinds ?? []).map((kind) => requireMaterialKind(kind) as MaterialKind);
+    return { categories: await this.store.material.tradeCategories(actor.tenantId, normalized.length ? normalized : ['STOCK', 'SERVICE']) };
+  }
+
   /**
    * Danh mục vật tư kèm tồn khả dụng, cho module khác chọn vật tư.
    *
@@ -1836,6 +1842,7 @@ function normalizeCatalogQuery(query: InternalMaterialCatalogQuery): InternalMat
     codes: codes.length ? codes : undefined,
     warehouseCode: query.warehouseCode?.trim() || undefined,
     kinds: kinds.length ? kinds : undefined,
+    tradeCategory: query.tradeCategory?.trim().slice(0, 100) || undefined,
     limit,
     cursor: query.cursor?.trim() || undefined,
   };
