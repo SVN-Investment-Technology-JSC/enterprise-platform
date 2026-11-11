@@ -50,10 +50,11 @@ export function validityLabel(from: string, to: string | null): string {
   return to ? `${formatDate(from)} – ${formatDate(to)}` : `Từ ${formatDate(from)}`;
 }
 
-export function priceListScopeLabel(list: Pick<PriceListSummary, 'isStandard' | 'customerGroups'>): string {
-  if (list.isStandard) return 'Bảng giá chuẩn (mọi khách)';
-  if (!list.customerGroups.length) return 'Chưa gán nhóm khách';
-  return list.customerGroups.map((group) => group.name).join(', ');
+/** Cột "Áp dụng cho" (D3-38): bảng chuẩn áp cho khách chưa chọn bảng giá; bảng riêng áp cho khách chọn nó ở hồ sơ. */
+export function priceListScopeLabel(list: Pick<PriceListSummary, 'isStandard' | 'customerCount'>): string {
+  if (list.isStandard) return 'Khách chưa chọn bảng giá';
+  if (!list.customerCount) return 'Chưa khách nào chọn';
+  return `${list.customerCount} khách hàng`;
 }
 
 export interface PastedItems {

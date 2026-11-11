@@ -129,6 +129,7 @@ export class LeadService {
           phone: lead.phone,
           email: lead.email,
           groupId: null,
+          priceListId: null,
           kind: DEFAULT_CUSTOMER_KIND,
           creditLimit: null,
           paymentTermDays: null,

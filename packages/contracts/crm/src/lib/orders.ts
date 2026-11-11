@@ -151,6 +151,11 @@ export interface SalesOrderLine {
   readonly lineTotal: number;
   /** Giá vốn bình quân lúc lập (ước tính). */
   readonly estUnitCost: number | null;
+  /**
+   * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của đơn. Dịch vụ không dùng.
+   */
+  readonly warehouseCode?: string | null;
+
   /** Số còn đang giữ ở Kho (đã trừ phần đã xuất). */
   readonly reservedQuantity: number;
   /** Tổng số đã đưa vào các đợt giao còn hiệu lực. */
@@ -276,6 +281,10 @@ export interface SaveSalesOrderLineRequest {
   readonly unit?: string | null;
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
+  /**
+   * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của đơn. Dịch vụ không dùng.
+   */
+  readonly warehouseCode?: string | null;
 }
 
 export interface CreateSalesOrderRequest {
@@ -302,6 +311,11 @@ export interface UpdateSalesOrderRequest {
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
   /** Thay toàn bộ dòng (chỉ đơn Nháp, không phải đơn từ báo giá); bỏ trống thì giữ dòng. */
   readonly lines?: readonly SaveSalesOrderLineRequest[];
+  /**
+   * Chỉ đổi kho giữ hàng của các dòng (D3-37), không tính lại giá, không bỏ đợt giao; dùng được cả với đơn từ báo giá.
+   * `warehouseCode` rỗng là theo kho mặc định của đơn. Không dùng cùng `lines`.
+   */
+  readonly lineWarehouses?: readonly { readonly lineId: string; readonly warehouseCode: string | null }[];
 }
 
 /** Lưu ghi chú thông tin đơn hàng; chuỗi rỗng hoặc `null` là xoá. */

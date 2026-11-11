@@ -1,0 +1,503 @@
+// Bố cục in của báo giá (phase 3, plan mục 9.2, 10.1).
+//
+// Trang dựng theo mm và pt để bản in và khung xem trước giống nhau; khung xem trước thu phóng bằng `transform`.
+// Màu chữ trên trang luôn đen trên nền trắng (giấy in), không theo token của khung. Luật `@page` (khổ, hướng, lề) đổi
+// theo bố cục nên do `export-pdf.ts` chèn lúc in, không viết ở đây.
+
+// ---------------------------------------------------------------------------
+// Khung và trang
+// ---------------------------------------------------------------------------
+
+.viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.sheet {
+  position: relative;
+  box-sizing: border-box;
+  transform-origin: top left;
+  background: #ffffff;
+  box-shadow:
+    0 1px 3px rgb(15 23 42 / 12%),
+    0 0 0 1px rgb(15 23 42 / 6%);
+  color: #111111;
+  line-height: 1.35;
+}
+
+.sheetDesign {
+  cursor: default;
+}
+
+.sheetPrint {
+  box-sizing: border-box;
+  width: 100%;
+  background: #ffffff;
+  color: #000000;
+  line-height: 1.35;
+}
+
+.pageBreak {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 0;
+  border-top: 1px dashed #94a3b8;
+  pointer-events: none;
+}
+
+.pageBreakLabel {
+  position: absolute;
+  top: -1.4em;
+  right: 2mm;
+  padding: 0 1mm;
+  background: #ffffff;
+  color: #64748b;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 7pt;
+}
+
+// ---------------------------------------------------------------------------
+// Khối
+// ---------------------------------------------------------------------------
+
+.block {
+  position: relative;
+  overflow-wrap: anywhere;
+}
+
+.blockDesign {
+  outline: 1px dashed transparent;
+  outline-offset: 1mm;
+  cursor: pointer;
+
+  &:hover {
+    outline-color: #93c5fd;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+  }
+}
+
+// Đường kẻ chỉ cao vài pt nên khó bấm chọn: thêm vùng bấm 2 mm phía dưới nét kẻ bằng phần tử giả (không chiếm chỗ, vị trí
+// các khối trên trang thiết kế không đổi). Khối sau vẽ đè lên nếu sát ngay bên dưới, nên vẫn bấm chọn được khối sau.
+.blockHitArea > .divider {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: -2mm;
+    left: 0;
+  }
+}
+
+.blockSelected {
+  outline: 2px solid #2563eb;
+
+  &:hover {
+    outline-color: #2563eb;
+  }
+}
+
+.block_signature,
+.block_totals,
+.block_title,
+.block_companyHeader,
+.block_image {
+  break-inside: avoid;
+}
+
+.alignLeft {
+  text-align: left;
+}
+
+.alignCenter {
+  text-align: center;
+}
+
+.alignRight {
+  text-align: right;
+}
+
+.chip {
+  display: inline;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  background: #e0ecff;
+  color: #1d4ed8;
+  box-decoration-break: clone;
+}
+
+.placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30mm;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 8pt;
+}
+
+.imageBlock {
+  line-height: 0;
+}
+
+.image {
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.companyHeader {
+  display: flex;
+  gap: 4mm;
+  align-items: center;
+}
+
+.companyHeaderReverse {
+  flex-direction: row-reverse;
+}
+
+.companyLogo {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 45mm;
+  height: auto;
+  max-height: 22mm;
+  object-fit: contain;
+}
+
+.companyText {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.companyName {
+  font-size: 1.15em;
+  font-weight: 700;
+}
+
+.companyLine {
+  white-space: pre-wrap;
+}
+
+.title {
+  line-height: 1.25;
+}
+
+.titleText {
+  font-weight: 700;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.subtitle {
+  margin-top: 1mm;
+  font-style: italic;
+}
+
+.text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1mm 6mm;
+}
+
+.fieldGridTwo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldItem {
+  display: flex;
+  gap: 2mm;
+  min-width: 0;
+}
+
+.fieldLabel {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.fieldValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.lineTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+
+  th,
+  td {
+    padding: 1mm 1.2mm;
+    border: 0.5pt solid #000000;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  th {
+    background: #f1f5f9;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+}
+
+.zebraRow td {
+  background: #f8fafc;
+}
+
+.groupRow td {
+  background: #f1f5f9;
+  font-weight: 700;
+}
+
+.emptyRow td {
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
+}
+
+.totals {
+  display: flex;
+  flex-direction: column;
+}
+
+.totals.alignLeft {
+  align-items: flex-start;
+}
+
+.totals.alignCenter {
+  align-items: center;
+}
+
+.totals.alignRight {
+  align-items: flex-end;
+}
+
+.totalsTable {
+  min-width: 55%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 0.6mm 1.2mm;
+  }
+
+  th {
+    font-weight: 400;
+    text-align: left;
+  }
+
+  td {
+    text-align: right;
+    white-space: nowrap;
+  }
+}
+
+.grandTotal th,
+.grandTotal td {
+  border-top: 0.5pt solid #000000;
+  font-weight: 700;
+}
+
+.amountInWords {
+  margin: 1.5mm 0 0;
+  font-style: italic;
+}
+
+.terms {
+  margin: 0;
+  padding-left: 6mm;
+}
+
+.termsPlain {
+  padding-left: 0;
+  list-style: none;
+}
+
+.termItem {
+  margin: 0.6mm 0;
+  white-space: pre-wrap;
+}
+
+.termLabel {
+  font-weight: 600;
+}
+
+.signature {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6mm;
+  break-inside: avoid;
+}
+
+.signatureParty {
+  text-align: center;
+}
+
+.signatureTitle,
+.signatureName {
+  font-weight: 700;
+}
+
+.signatureSubtitle {
+  font-style: italic;
+}
+
+.spacer {
+  width: 100%;
+}
+
+.spacerDesign {
+  background: repeating-linear-gradient(135deg, transparent 0 2mm, rgb(148 163 184 / 18%) 2mm 3mm);
+}
+
+.divider {
+  width: 100%;
+  height: 0;
+}
+
+// ---------------------------------------------------------------------------
+// Bản in (iframe của export-pdf, hoặc in cả trang)
+// ---------------------------------------------------------------------------
+
+@media print {
+  .viewport {
+    overflow: visible;
+    height: auto !important;
+  }
+
+  .sheet {
+    width: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+    box-shadow: none;
+  }
+
+  .pageBreak,
+  .chip {
+    background: transparent;
+  }
+
+  .pageBreak {
+    display: none;
+  }
+
+  .blockDesign,
+  .blockSelected {
+    outline: none;
+  }
+
+  .sheetPrint,
+  .sheet {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nút Xuất
+// ---------------------------------------------------------------------------
+
+.exportMenu {
+  position: relative;
+  display: inline-flex;
+}
+
+.exportButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #374151;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #f1f5f9;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.exportList {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ep-border-strong, #e5e7eb);
+  border-radius: var(--ep-radius, 8px);
+  background: var(--ep-surface, #ffffff);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+  list-style: none;
+}
+
+.exportItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text, #18181b);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover, #f4f6f9);
+    outline: none;
+  }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

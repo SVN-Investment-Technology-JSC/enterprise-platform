@@ -30,21 +30,44 @@ import { DocumentTypeSettings } from './document-type-settings';
 import { PipelineSettings } from './pipeline-settings';
 import { PromotionSettings } from './promotion-settings';
 import { QuoteFormSettings } from './quote-form-settings';
+import { SalesOrganizationSettings } from './sales-organization-settings';
 
 /** Thẻ của trang Cấu hình; id cũng là đoạn hash thứ hai (`#settings/price-lists`). */
-export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types' | 'pipelines' | 'quote-forms' | 'promotions';
+export type CrmSettingsTab = 'general' | 'price-lists' | 'discount-policies' | 'quote-preview' | 'approval' | 'document-types' | 'pipelines' | 'quote-forms' | 'sales-organizations' | 'promotions';
 
-const SETTINGS_TABS: readonly { id: CrmSettingsTab; label: string }[] = [
-  { id: 'general', label: 'Chung' },
-  { id: 'price-lists', label: 'Bảng giá' },
-  { id: 'discount-policies', label: 'Chính sách chiết khấu' },
-  { id: 'quote-preview', label: 'Thử tính giá' },
-  { id: 'approval', label: 'Duyệt báo giá' },
-  { id: 'document-types', label: 'Loại tài liệu' },
-  { id: 'pipelines', label: 'Cấu hình luồng' },
-  { id: 'quote-forms', label: 'Mẫu và loại báo giá' },
-  { id: 'promotions', label: 'Khuyến mãi và chiết khấu' },
+/** Các mục của trang Cấu hình, chia nhóm theo việc quản trị; thứ tự trong nhóm là thứ tự thường cấu hình. */
+export const SETTINGS_GROUPS: readonly { id: string; label: string; tabs: readonly { id: CrmSettingsTab; label: string }[] }[] = [
+  {
+    id: 'general',
+    label: 'Chung',
+    tabs: [
+      { id: 'general', label: 'Thiết lập chung' },
+      { id: 'pipelines', label: 'Cấu hình luồng' },
+      { id: 'document-types', label: 'Loại tài liệu' },
+    ],
+  },
+  {
+    id: 'pricing',
+    label: 'Giá và khuyến mãi',
+    tabs: [
+      { id: 'price-lists', label: 'Bảng giá' },
+      { id: 'discount-policies', label: 'Chính sách chiết khấu' },
+      { id: 'promotions', label: 'Khuyến mãi và chiết khấu' },
+      { id: 'quote-preview', label: 'Thử tính giá' },
+    ],
+  },
+  {
+    id: 'quotes',
+    label: 'Báo giá',
+    tabs: [
+      { id: 'quote-forms', label: 'Mẫu và loại báo giá' },
+      { id: 'sales-organizations', label: 'Tổ chức báo giá' },
+      { id: 'approval', label: 'Duyệt báo giá' },
+    ],
+  },
 ];
+
+const SETTINGS_TABS = SETTINGS_GROUPS.flatMap((group) => group.tabs);
 
 export function settingsTab(value: string | undefined): CrmSettingsTab {
   return SETTINGS_TABS.find((tab) => tab.id === value)?.id ?? 'general';
@@ -58,45 +81,57 @@ export function settingsTab(value: string | undefined): CrmSettingsTab {
 export function CrmSettingsPage({ tab, onTab }: { tab?: string; onTab?: (tab: CrmSettingsTab) => void }) {
   const current = settingsTab(tab);
   return (
-    <div className={styles.page}>
-      <nav className={styles.tabs} role="tablist" aria-label="Cấu hình bán hàng">
-        {SETTINGS_TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={current === item.id}
-            className={current === item.id ? styles.tabActive : styles.tab}
-            onClick={() => onTab?.(item.id)}
-          >
-            {item.label}
-          </button>
+    <div className={styles.settingsLayout}>
+      <nav className={styles.settingsNav} aria-label="Cấu hình bán hàng">
+        {SETTINGS_GROUPS.map((group) => (
+          <div key={group.id} role="group" aria-labelledby={`crm-settings-group-${group.id}`} className={styles.settingsNavGroup}>
+            <h2 id={`crm-settings-group-${group.id}`} className={styles.settingsNavTitle}>
+              {group.label}
+            </h2>
+            <div className={styles.settingsNavItems}>
+              {group.tabs.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={current === item.id ? 'page' : undefined}
+                  className={current === item.id ? styles.settingsNavItemActive : styles.settingsNavItem}
+                  onClick={() => onTab?.(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
-      {current === 'price-lists' ? (
-        <PriceListsPage />
-      ) : current === 'discount-policies' ? (
-        <DiscountPoliciesPage />
-      ) : current === 'quote-preview' ? (
-        <QuotePreviewPanel />
-      ) : current === 'approval' ? (
-        <ApprovalSettingsPage />
-      ) : current === 'document-types' ? (
-        <DocumentTypeSettings />
-      ) : current === 'pipelines' ? (
-        <PipelineSettings />
-      ) : current === 'quote-forms' ? (
-        <QuoteFormSettings />
-      ) : current === 'promotions' ? (
-        <PromotionSettings />
-      ) : (
-        <>
-          <GeneralSettings />
-          <SalesSettingsPanel />
-          <CustomerGroups />
-          <CustomerKinds />
-        </>
-      )}
+      <div className={styles.settingsContent}>
+        {current === 'price-lists' ? (
+          <PriceListsPage />
+        ) : current === 'discount-policies' ? (
+          <DiscountPoliciesPage />
+        ) : current === 'quote-preview' ? (
+          <QuotePreviewPanel />
+        ) : current === 'approval' ? (
+          <ApprovalSettingsPage />
+        ) : current === 'document-types' ? (
+          <DocumentTypeSettings />
+        ) : current === 'pipelines' ? (
+          <PipelineSettings />
+        ) : current === 'quote-forms' ? (
+          <QuoteFormSettings />
+        ) : current === 'sales-organizations' ? (
+          <SalesOrganizationSettings />
+        ) : current === 'promotions' ? (
+          <PromotionSettings />
+        ) : (
+          <>
+            <GeneralSettings />
+            <SalesSettingsPanel />
+            <CustomerGroups />
+            <CustomerKinds />
+          </>
+        )}
+      </div>
     </div>
   );
 }

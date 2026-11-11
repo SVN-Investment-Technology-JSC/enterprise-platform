@@ -34,6 +34,13 @@ import {
 } from './quote-procedure-links.js';
 import { HttpFinanceClient } from './http-finance-client.js';
 import { applyTenderPlanProcedureResult, CRM_TENDER_PLAN_SOURCE_TYPE } from './postgres-tender.store.js';
+import {
+  applyBusinessPlanProcedureResult,
+  applyBusinessPlanProcedureReversed,
+  CRM_BUSINESS_PLAN_SOURCE_TYPE,
+} from './postgres-business-plan.store.js';
+import { HttpOrganizationScope } from './http-organization-scope.js';
+import type { PeopleDirectory } from '../application/sales-store.port.js';
 import { PostgresReceivableStore } from './postgres-receivable.store.js';
 import { createCreditApprovals, CRM_RECEIVABLE_BINDINGS, handleReceivableEvent, runReceivableJobs } from './receivable-events.js';
 
@@ -126,6 +133,12 @@ export function createCrmIntegrationEvents(
           await applyTenderPlanProcedureResult(database, tenantId, event);
           return;
         }
+        // PAKD trình riêng qua Quy trình (D3-30).
+        if (event.sourceType === CRM_BUSINESS_PLAN_SOURCE_TYPE) {
+          if (!(await quoteTablesReady(database, tenantId))) return;
+          await applyBusinessPlanProcedureResult(database, tenantId, event);
+          return;
+        }
         // Hồ sơ của phân hệ khác: bỏ qua nhanh, không mở transaction.
         if (event.sourceType !== 'crm_quote') return;
         if (!(await quoteTablesReady(database, tenantId))) return;
@@ -134,6 +147,11 @@ export function createCrmIntegrationEvents(
       }
       if (type === PROCEDURE_INSTANCE_REVERSED) {
         const event = (payload ?? {}) as ProcedureReversedPayload;
+        if (event.sourceType === CRM_BUSINESS_PLAN_SOURCE_TYPE) {
+          if (!(await quoteTablesReady(database, tenantId))) return;
+          await applyBusinessPlanProcedureReversed(database, tenantId, event);
+          return;
+        }
         if (event.sourceType !== 'crm_quote') return;
         if (!(await quoteTablesReady(database, tenantId))) return;
         await applyQuoteProcedureReversed(database, tenantId, event);
@@ -176,7 +194,8 @@ export function createCrmIntegrationEvents(
  * Việc định kỳ của Bán hàng. Worker gọi mỗi tick (1 giây); module tự giãn nhịp:
  * - hết hạn báo giá (T3-11): báo giá Đã duyệt, Đã gửi khách quá hạn hiệu lực
  *   chuyển Hết hạn, nhật ký người làm là hệ thống, báo người phụ trách;
- * - tạo phiên Quy trình cho liên kết duyệt còn chờ hoặc lỗi tạm (T3-12);
+ * - tạo phiên Quy trình cho liên kết duyệt còn chờ hoặc lỗi tạm (T3-12), bổ sung thông tin nguồn cho hồ sơ đang
+ *   chạy chưa có (plan mục 17.2);
  * - hết hạn hợp đồng (mục 5.3) và báo giao trễ một lần mỗi đợt (T4-14);
  * - gửi lại lệnh sang Kho đang chờ hoặc lỗi tạm (nhả giữ hàng khi huỷ).
  */
@@ -188,6 +207,8 @@ export function createCrmJobs(
     readonly procedures?: HttpProcedureClient;
     readonly inventory?: InventoryClient;
     readonly finance?: FinanceClient;
+    /** Danh bạ ghi tên người phụ trách vào thông tin nguồn gửi Quy trình. */
+    readonly people?: PeopleDirectory;
   } = {},
 ): CrmJobs {
   const database = new CrmDatabase(references, pools);
@@ -198,7 +219,7 @@ export function createCrmJobs(
   const procedures = options.procedures ?? new HttpProcedureClient();
   const inventory = options.inventory ?? new HttpInventoryClient();
   const finance = options.finance ?? new HttpFinanceClient();
-  const links = new PostgresApprovalLinks(database, procedures);
+  const links = new PostgresApprovalLinks(database, procedures, options.people ?? new HttpOrganizationScope());
   // Gửi lại lệnh sang Kho (nhả giữ hàng) và Tài chính (tạo phiếu thu, TC-INT-08).
   const requests = new PostgresIntegrationRequests(database, inventory, finance);
   let approvals: CreditApprovalService | undefined;
@@ -246,6 +267,7 @@ async function reconcileProcedureLinks(
   for (const event of await reconcileRunningLinks(database, procedures, tenantId)) {
     if (event.sourceType === 'crm_quote') await applyQuoteProcedureResult(database, tenantId, event);
     else if (event.sourceType === CRM_TENDER_PLAN_SOURCE_TYPE) await applyTenderPlanProcedureResult(database, tenantId, event);
+    else if (event.sourceType === CRM_BUSINESS_PLAN_SOURCE_TYPE) await applyBusinessPlanProcedureResult(database, tenantId, event);
     else await handleReceivableEvent(database, approvals, tenantId, PROCEDURE_INSTANCE_COMPLETED, event);
   }
 }

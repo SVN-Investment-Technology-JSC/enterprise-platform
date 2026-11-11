@@ -7,6 +7,7 @@ import {
   type BusinessPlanRound,
   type BusinessPlanStatus,
 } from '@enterprise-platform/contracts-crm';
+import { randomUUID } from 'node:crypto';
 import type {
   BusinessPlanChange,
   BusinessPlanRecord,
@@ -14,15 +15,22 @@ import type {
   NewBusinessPlanRecord,
   PlanAttachment,
   PlanLineRecord,
+  PlanProcedureStart,
+  PlanRoundLink,
 } from '../application/business-plan-store.port.js';
 import { normalizeDeviationSettings } from '../domain/business-plan.js';
 import { CrmConflictError, CrmForbiddenError, CrmNotFoundError } from '../domain/crm.error.js';
+import { isUuid } from '../domain/fields.js';
+import { QUOTE_PROCEDURE_REVERSED_REASON } from '../domain/quote.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
+import type { ProcedureCompletedPayload, ProcedureReversedPayload } from './quote-procedure-links.js';
 import { constraintViolation, toIso } from './sql-helpers.js';
 
 /** Thực thể ghi vào `audit_log` cho PAKD; `metadata` có `quoteId`, `versionNo`, `round`. */
 export const BUSINESS_PLAN_AUDIT_ENTITY = 'business_plan';
+/** Nguồn phiên Quy trình duyệt PAKD trình riêng (`procedure_links.source_type`); `source_id` là id vòng duyệt. */
+export const CRM_BUSINESS_PLAN_SOURCE_TYPE = 'crm_business_plan';
 /** Khoá cấu hình so lệch PAKD trong `crm_schema.settings`. */
 export const BUSINESS_PLAN_SETTING_KEY = 'business-plan.deviation';
 
@@ -220,7 +228,14 @@ export class PostgresBusinessPlanStore implements BusinessPlanStore {
     });
   }
 
-  submit(tenantId: string, planId: string, expectedVersion: number, figures: BusinessPlanFigures, actorId: string): Promise<void> {
+  submit(
+    tenantId: string,
+    planId: string,
+    expectedVersion: number,
+    figures: BusinessPlanFigures,
+    actorId: string,
+    procedure?: PlanProcedureStart | null,
+  ): Promise<string | null> {
     return this.database.transaction(tenantId, async (client) => {
       const locked = await lockPlan(client, planId, expectedVersion);
       assertQuoteDraft(locked.quote_status);
@@ -232,8 +247,31 @@ export class PostgresBusinessPlanStore implements BusinessPlanStore {
             : 'Phương án kinh doanh đã được trình duyệt.',
         );
       }
-      await openRound(client, locked, figures, 'STANDALONE', actorId);
+      const roundId = await openRound(client, locked, figures, 'STANDALONE', actorId, procedure ? { procedure: true } : {});
+      if (!procedure) return null;
+      const linkId = randomUUID();
+      await client.query(
+        `INSERT INTO crm_schema.procedure_links (id, source_type, source_id, definition_id, title, initiated_by, start_idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [linkId, CRM_BUSINESS_PLAN_SOURCE_TYPE, roundId, procedure.definitionId, procedure.title, actorId, `crm:${linkId}`],
+      );
+      return linkId;
     });
+  }
+
+  async currentRoundLink(tenantId: string, planId: string): Promise<PlanRoundLink | undefined> {
+    const pool = await this.database.pool(tenantId);
+    const row = (
+      await pool.query<{ id: string; status: string; instance_id: string | null; instance_code: string | null }>(
+        `SELECT l.id, l.status, l.instance_id, l.instance_code
+           FROM crm_schema.business_plans p
+           JOIN crm_schema.business_plan_rounds r ON r.quote_id = p.quote_id AND r.round_no = p.current_round_no
+           JOIN crm_schema.procedure_links l ON l.source_type = $2 AND l.source_id = r.id
+          WHERE p.id = $1`,
+        [planId, CRM_BUSINESS_PLAN_SOURCE_TYPE],
+      )
+    ).rows[0];
+    return row ? { id: row.id, status: row.status, instanceId: row.instance_id, instanceCode: row.instance_code } : undefined;
   }
 
   decide(
@@ -256,6 +294,13 @@ export class PostgresBusinessPlanStore implements BusinessPlanStore {
         throw new CrmForbiddenError('Không được tự duyệt phương án kinh doanh do mình trình.');
       }
       await closeRound(client, locked, decision, reason, actorId, 'STANDALONE');
+      // Duyệt tay khi phiên Quy trình không tạo được: đóng liên kết của vòng để worker không thử lại.
+      await client.query(
+        `UPDATE crm_schema.procedure_links SET status = 'CLOSED', lease_until = NULL, updated_at = now()
+          WHERE source_type = $1 AND status IN ('START_PENDING', 'FAILED')
+            AND source_id = (SELECT id FROM crm_schema.business_plan_rounds WHERE quote_id = $2 AND round_no = $3)`,
+        [CRM_BUSINESS_PLAN_SOURCE_TYPE, locked.quote_id, locked.current_round_no],
+      );
     });
   }
 
@@ -327,6 +372,117 @@ export async function syncPlanWithQuoteDecision(
 }
 
 // ---------------------------------------------------------------------------
+// Kết quả Quy trình của PAKD trình riêng (D3-30)
+// ---------------------------------------------------------------------------
+
+const PROCEDURE_RESULTS = new Set(['completed', 'rejected', 'cancelled']);
+
+/** Liên kết `crm_business_plan` đã khoá và vòng duyệt của nó; rỗng khi không phải liên kết của PAKD. */
+async function lockPlanLink(client: CrmSqlClient, linkId: string) {
+  return (
+    await client.query<{
+      source_id: string;
+      status: string;
+      result: string | null;
+      instance_id: string | null;
+      instance_code: string | null;
+      plan_id: string | null;
+      round_no: number | null;
+    }>(
+      `SELECT l.source_id, l.status, l.result, l.instance_id, l.instance_code, r.plan_id, r.round_no
+         FROM crm_schema.procedure_links l
+         LEFT JOIN crm_schema.business_plan_rounds r ON r.id = l.source_id
+        WHERE l.id = $1 AND l.source_type = $2
+        FOR UPDATE OF l`,
+      [linkId, CRM_BUSINESS_PLAN_SOURCE_TYPE],
+    )
+  ).rows[0];
+}
+
+/**
+ * Áp kết quả `procedure.instance.completed` (sourceType `crm_business_plan`) lên vòng duyệt PAKD trình riêng: hoàn
+ * tất thì Đã duyệt; từ chối hoặc huỷ thì Bị từ chối kèm lý do của Quy trình. Nhận trùng hoặc đến muộn (liên kết đã
+ * áp, đã đóng; PAKD không còn chờ ở đúng vòng này; phiên khác) thì bỏ qua.
+ */
+export async function applyBusinessPlanProcedureResult(
+  database: CrmDatabase,
+  tenantId: string,
+  payload: ProcedureCompletedPayload,
+): Promise<'applied' | 'ignored'> {
+  if (payload.sourceType !== CRM_BUSINESS_PLAN_SOURCE_TYPE || !isUuid(payload.sourceId)) return 'ignored';
+  const status = payload.status ?? '';
+  if (!PROCEDURE_RESULTS.has(status)) return 'ignored';
+  const linkId = payload.sourceId;
+  return database.transaction(tenantId, async (client) => {
+    const link = await lockPlanLink(client, linkId);
+    if (!link || link.status === 'APPLIED' || link.status === 'CLOSED') return 'ignored';
+    if (link.instance_id && payload.instanceId && link.instance_id !== payload.instanceId) return 'ignored';
+    const approve = status === 'completed';
+    const code = payload.instanceCode ?? link.instance_code;
+    const reason = approve
+      ? `Theo quy trình ${code ?? ''}`.trim()
+      : (payload.reason?.trim() || payload.comment?.trim() || (status === 'rejected' ? 'Quy trình từ chối duyệt.' : 'Hồ sơ Quy trình đã bị huỷ.')).slice(0, 2000);
+    await client.query(
+      `UPDATE crm_schema.procedure_links
+          SET result = $2, result_reason = $3, instance_id = COALESCE(instance_id, $4::uuid),
+              instance_code = COALESCE(instance_code, $5), lease_until = NULL, lease_token = NULL, last_error = NULL, updated_at = now()
+        WHERE id = $1`,
+      [linkId, status, approve ? null : reason, isUuid(payload.instanceId) ? payload.instanceId : null, payload.instanceCode ?? null],
+    );
+    const close = async () => {
+      await client.query(`UPDATE crm_schema.procedure_links SET status = 'CLOSED', updated_at = now() WHERE id = $1`, [linkId]);
+      return 'ignored' as const;
+    };
+    if (!link.plan_id) return close();
+    const plan = await lockPlan(client, link.plan_id, undefined);
+    if (plan.status !== 'PENDING' || plan.round_via !== 'STANDALONE' || plan.current_round_no !== link.round_no) return close();
+    await closeRound(client, plan, approve ? 'APPROVED' : 'REJECTED', reason, isUuid(payload.actorId) ? payload.actorId : null, 'STANDALONE', {
+      action: approve ? 'approve-procedure' : 'reject-procedure',
+      metadata: { procedureLinkId: linkId, instanceId: payload.instanceId ?? link.instance_id, instanceCode: code, result: status },
+    });
+    await client.query(
+      `UPDATE crm_schema.procedure_links SET status = 'APPLIED', last_error = NULL, updated_at = now() WHERE id = $1`,
+      [linkId],
+    );
+    return 'applied';
+  });
+}
+
+/**
+ * Quy trình thu hồi phiên đã duyệt PAKD (`procedure.instance.reversed`, sourceType `crm_business_plan`): PAKD vẫn
+ * Đã duyệt theo đúng vòng này thì về Bị từ chối với lý do "Quy trình đã thu hồi" (sửa lại rồi trình lại). Nhận lặp
+ * hoặc PAKD đã đổi thì bỏ qua.
+ */
+export async function applyBusinessPlanProcedureReversed(
+  database: CrmDatabase,
+  tenantId: string,
+  payload: ProcedureReversedPayload,
+): Promise<'applied' | 'ignored'> {
+  if (payload.sourceType !== CRM_BUSINESS_PLAN_SOURCE_TYPE || !isUuid(payload.sourceId)) return 'ignored';
+  const linkId = payload.sourceId;
+  return database.transaction(tenantId, async (client) => {
+    const link = await lockPlanLink(client, linkId);
+    if (!link || link.result !== 'completed') return 'ignored';
+    if (link.instance_id && payload.instanceId && link.instance_id !== payload.instanceId) return 'ignored';
+    const detail = payload.reason?.trim();
+    const reason = `${QUOTE_PROCEDURE_REVERSED_REASON}${detail ? `: ${detail}` : ''}`.slice(0, 2000);
+    await client.query(
+      `UPDATE crm_schema.procedure_links SET result = 'reversed', result_reason = $2, updated_at = now() WHERE id = $1`,
+      [linkId, reason],
+    );
+    if (!link.plan_id) return 'ignored';
+    const plan = await lockPlan(client, link.plan_id, undefined);
+    if (plan.status !== 'APPROVED' || plan.current_round_no !== link.round_no) return 'ignored';
+    const actor = isUuid(payload.reversedBy) ? payload.reversedBy : isUuid(payload.actorUserId) ? payload.actorUserId : null;
+    await closeRound(client, plan, 'REJECTED', reason, actor, 'STANDALONE', {
+      action: 'procedure-reversed',
+      metadata: { procedureLinkId: linkId, instanceId: payload.instanceId ?? link.instance_id, instanceCode: payload.instanceCode ?? link.instance_code },
+    });
+    return 'applied';
+  });
+}
+
+// ---------------------------------------------------------------------------
 
 interface LockedPlan {
   id: string;
@@ -383,17 +539,19 @@ async function openRound(
   figures: BusinessPlanFigures,
   via: 'STANDALONE' | 'QUOTE',
   actorId: string,
-): Promise<void> {
+  metadata: Readonly<Record<string, unknown>> = {},
+): Promise<string> {
   const next = await client.query<{ n: number }>(
     `SELECT COALESCE(MAX(round_no), 0) + 1 AS n FROM crm_schema.business_plan_rounds WHERE quote_id = $1`,
     [plan.quote_id],
   );
   const roundNo = Number(next.rows[0].n);
-  await client.query(
+  const inserted = await client.query<{ id: string }>(
     `INSERT INTO crm_schema.business_plan_rounds
        (plan_id, quote_id, round_no, quote_version_no, via, submitted_by,
         gross_amount, revenue, goods_cost, discount_amount, extra_cost_total, total_cost, profit, margin_percent, discount_percent)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     RETURNING id`,
     [plan.id, plan.quote_id, roundNo, plan.version_no, via, actorId, ...figureValues(figures)],
   );
   await client.query(
@@ -411,8 +569,9 @@ async function openRound(
     toStatus: 'PENDING',
     action: 'submit',
     actorId,
-    metadata: { quoteId: plan.quote_id, versionNo: plan.version_no, round: roundNo, via },
+    metadata: { quoteId: plan.quote_id, versionNo: plan.version_no, round: roundNo, via, ...metadata },
   });
+  return inserted.rows[0].id;
 }
 
 async function closeRound(
@@ -422,6 +581,7 @@ async function closeRound(
   reason: string | null,
   actorId: string | null,
   via: 'STANDALONE' | 'QUOTE',
+  audit: { readonly action?: string; readonly metadata?: Readonly<Record<string, unknown>> } = {},
 ): Promise<void> {
   await client.query(
     `UPDATE crm_schema.business_plan_rounds
@@ -441,10 +601,10 @@ async function closeRound(
     entityId: plan.id,
     fromStatus: plan.status,
     toStatus: decision,
-    action: decision === 'APPROVED' ? 'approve' : 'reject',
+    action: audit.action ?? (decision === 'APPROVED' ? 'approve' : 'reject'),
     actorId,
     reason,
-    metadata: { quoteId: plan.quote_id, versionNo: plan.version_no, round: plan.current_round_no, via },
+    metadata: { quoteId: plan.quote_id, versionNo: plan.version_no, round: plan.current_round_no, via, ...audit.metadata },
   });
 }
 

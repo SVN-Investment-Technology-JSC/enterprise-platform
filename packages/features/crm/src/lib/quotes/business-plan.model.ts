@@ -108,9 +108,19 @@ export function copySourceVersion(versionNos: readonly number[], current: number
   return earlier.length ? Math.max(...earlier) : undefined;
 }
 
-/** Lời nhắn khi lưu thất bại: 409 là có người sửa trước, cần tải lại. */
+/** Câu mặc định khi PAKD đang duyệt qua Quy trình mà bấm Duyệt, Từ chối trong CRM (409 `PLAN_IN_PROCEDURE`, D3-30). */
+export const PLAN_IN_PROCEDURE_MESSAGE = 'Phương án kinh doanh đang được duyệt qua Quy trình; vui lòng thao tác trên hồ sơ Quy trình.';
+
+/** 409 `PLAN_IN_PROCEDURE`: PAKD trình riêng đang chờ trên Quy trình, không duyệt trực tiếp được. */
+export function isPlanInProcedure(cause: unknown): boolean {
+  const error = cause as { statusCode?: number; code?: string } | undefined;
+  return error?.statusCode === 409 && error.code === 'PLAN_IN_PROCEDURE';
+}
+
+/** Lời nhắn khi lưu thất bại: 409 là có người sửa trước, cần tải lại; riêng `PLAN_IN_PROCEDURE` báo đang duyệt qua Quy trình. */
 export function planConflictMessage(cause: unknown, fallback: string): string {
   const error = cause as { statusCode?: number; message?: string } | undefined;
+  if (isPlanInProcedure(cause)) return typeof error?.message === 'string' && error.message ? error.message : PLAN_IN_PROCEDURE_MESSAGE;
   if (error?.statusCode === 409) {
     return 'Phương án kinh doanh vừa được người khác thay đổi. Đã tải lại bản mới nhất, vui lòng kiểm tra rồi thao tác lại.';
   }
@@ -118,5 +128,5 @@ export function planConflictMessage(cause: unknown, fallback: string): string {
 }
 
 export function isPlanConflict(cause: unknown): boolean {
-  return (cause as { statusCode?: number } | undefined)?.statusCode === 409;
+  return (cause as { statusCode?: number } | undefined)?.statusCode === 409 && !isPlanInProcedure(cause);
 }

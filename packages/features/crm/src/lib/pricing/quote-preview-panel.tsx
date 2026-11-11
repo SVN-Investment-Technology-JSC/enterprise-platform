@@ -5,6 +5,7 @@ import {
   type CustomerSummary,
   type PricedLine,
   type PriceListItem,
+  type PriceListSummary,
   type PricingResult,
   type QuotePreviewLine,
 } from '@enterprise-platform/contracts-crm';
@@ -49,6 +50,8 @@ export function QuotePreviewPanel() {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [groupId, setGroupId] = useState('');
+  const [priceListId, setPriceListId] = useState('');
+  const [priceLists, setPriceLists] = useState<readonly PriceListSummary[]>([]);
   const [date, setDate] = useState('');
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine()]);
   const [shipping, setShipping] = useState('');
@@ -63,7 +66,10 @@ export function QuotePreviewPanel() {
       .catch(() => undefined);
     // Mặt hàng lấy từ các bảng giá (danh mục Kho chưa có API nội bộ).
     listPriceLists()
-      .then((lists) => Promise.all(lists.slice(0, 20).map((list) => getPriceList(list.id))))
+      .then((lists) => {
+        setPriceLists(lists);
+        return Promise.all(lists.slice(0, 20).map((list) => getPriceList(list.id)));
+      })
       .then((details) => {
         const seen = new Map<string, Material>();
         for (const item of details.flatMap((detail) => detail.items)) {
@@ -123,6 +129,7 @@ export function QuotePreviewPanel() {
         await previewQuote({
           customerId: customerId || null,
           customerGroupId: customerId ? null : groupId || null,
+          priceListId: customerId ? null : priceListId || null,
           date: date || null,
           lines: payload,
           shipping: shippingAmount === undefined ? null : { amount: shippingAmount, vatRate: parseNumber(shippingVat) ?? null },
@@ -141,7 +148,7 @@ export function QuotePreviewPanel() {
       <section className={styles.panel} aria-label="Thử tính giá">
         <h2 className={styles.title}>Thử tính giá</h2>
         <p className={styles.muted}>
-          Chạy đúng engine giá mà báo giá dùng, với bảng giá và chính sách đang lưu. Không tạo báo giá.
+          Tính giá đúng như khi lập báo giá, theo bảng giá và chính sách đang lưu. Chỉ để thử, không tạo báo giá.
         </p>
         <div className={styles.fieldGrid}>
           <label className={local.inlineField}>
@@ -149,7 +156,7 @@ export function QuotePreviewPanel() {
             <SearchableSelect
               options={customerOptions}
               value={customerId}
-              placeholder="Chọn khách (nhóm lấy theo hồ sơ)"
+              placeholder="Chọn khách (nhóm, bảng giá lấy theo hồ sơ)"
               clearable
               onChange={setCustomerId}
             />
@@ -163,6 +170,17 @@ export function QuotePreviewPanel() {
               disabled={Boolean(customerId)}
               clearable
               onChange={setGroupId}
+            />
+          </label>
+          <label className={local.inlineField}>
+            Hoặc bảng giá
+            <SearchableSelect
+              options={priceLists.filter((list) => !list.isStandard).map((list) => ({ value: list.id, label: list.name, badge: list.code }))}
+              value={customerId ? '' : priceListId}
+              placeholder="Bảng giá chuẩn"
+              disabled={Boolean(customerId)}
+              clearable
+              onChange={setPriceListId}
             />
           </label>
           <label className={local.inlineField}>

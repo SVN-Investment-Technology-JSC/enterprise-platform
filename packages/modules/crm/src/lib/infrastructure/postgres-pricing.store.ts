@@ -4,7 +4,6 @@ import {
   type DiscountPolicyRule,
   type DiscountStacking,
   type PriceListDetail,
-  type PriceListGroupRef,
   type PriceListItem,
   type PriceListSummary,
   type PricingStatus,
@@ -18,7 +17,7 @@ import type {
   PriceListStore,
   PricingStore,
 } from '../application/pricing-store.port.js';
-import { CrmConflictError, CrmValidationError } from '../domain/crm.error.js';
+import { CrmConflictError } from '../domain/crm.error.js';
 import type { PricingContractPrice, PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
 import type { CrmDatabase } from './crm.database.js';
 import { constraintViolation, toDateOnly, toIso } from './sql-helpers.js';
@@ -39,7 +38,7 @@ interface PriceListRow {
   status: PricingStatus;
   note: string | null;
   item_count: number;
-  customer_groups: PriceListGroupRef[] | null;
+  customer_count: number;
   updated_at: Date;
 }
 
@@ -56,10 +55,7 @@ interface PriceListItemRow {
 const PRICE_LIST_COLUMNS = `
   l.id, l.code, l.name, l.is_standard, l.valid_from, l.valid_to, l.status, l.note, l.updated_at,
   (SELECT count(*)::int FROM crm_schema.price_list_items i WHERE i.price_list_id = l.id) AS item_count,
-  (SELECT json_agg(json_build_object('id', g.id, 'code', g.code, 'name', g.name) ORDER BY g.name, g.code)
-     FROM crm_schema.price_list_customer_groups pg
-     JOIN crm_schema.customer_groups g ON g.id = pg.customer_group_id
-    WHERE pg.price_list_id = l.id) AS customer_groups`;
+  (SELECT count(*)::int FROM crm_schema.customers c WHERE c.price_list_id = l.id) AS customer_count`;
 
 const PRICE_LIST_CODE_EXISTS = () => new CrmConflictError('PRICE_LIST_CODE_EXISTS', 'Mã bảng giá đã tồn tại.');
 const ITEM_EXISTS = () =>
@@ -94,16 +90,10 @@ export class PostgresPriceListStore implements PriceListStore {
     return { ...toPriceListSummary(header.rows[0]), items: items.rows.map(toItem) };
   }
 
-  async createPriceList(
-    tenantId: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[],
-    actorId: string,
-  ): Promise<string> {
-    const groups = record.isStandard ? [] : customerGroupIds;
+  async createPriceList(tenantId: string, record: PriceListRecord, actorId: string): Promise<string> {
     try {
       return await this.database.transaction(tenantId, async (client) => {
-        await assertNoOverlap(client, null, record, groups);
+        await assertNoOverlap(client, null, record);
         const result = await client.query<{ id: string }>(
           `INSERT INTO crm_schema.price_lists
              (code, name, is_standard, valid_from, valid_to, status, note, created_by, updated_by)
@@ -111,9 +101,7 @@ export class PostgresPriceListStore implements PriceListStore {
            RETURNING id`,
           [record.code, record.name, record.isStandard, record.validFrom, record.validTo, record.status, record.note, actorId],
         );
-        const id = result.rows[0].id;
-        await replaceGroups(client, id, groups, actorId);
-        return id;
+        return result.rows[0].id;
       });
     } catch (error) {
       if (constraintViolation(error, '23505', 'uq_crm_price_lists_code')) throw PRICE_LIST_CODE_EXISTS();
@@ -121,13 +109,7 @@ export class PostgresPriceListStore implements PriceListStore {
     }
   }
 
-  async updatePriceList(
-    tenantId: string,
-    id: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[] | undefined,
-    actorId: string,
-  ): Promise<boolean> {
+  async updatePriceList(tenantId: string, id: string, record: PriceListRecord, actorId: string): Promise<boolean> {
     try {
       return await this.database.transaction(tenantId, async (client) => {
         const current = await client.query<{ id: string }>(
@@ -135,17 +117,9 @@ export class PostgresPriceListStore implements PriceListStore {
           [id],
         );
         if (!current.rows[0]) return false;
-        let groups: readonly string[];
-        if (record.isStandard) groups = [];
-        else if (customerGroupIds) groups = customerGroupIds;
-        else {
-          const existing = await client.query<{ id: string }>(
-            `SELECT customer_group_id::text AS id FROM crm_schema.price_list_customer_groups WHERE price_list_id = $1`,
-            [id],
-          );
-          groups = existing.rows.map((row) => row.id);
-        }
-        await assertNoOverlap(client, id, record, groups);
+        // Bảng giá đổi thành bảng chuẩn thì không còn là bảng giá riêng của khách: bỏ chọn ở hồ sơ khách.
+        if (record.isStandard) await client.query(`UPDATE crm_schema.customers SET price_list_id = NULL WHERE price_list_id = $1`, [id]);
+        await assertNoOverlap(client, id, record);
         await client.query(
           `UPDATE crm_schema.price_lists
               SET code = $2, name = $3, is_standard = $4, valid_from = $5, valid_to = $6, status = $7,
@@ -153,7 +127,6 @@ export class PostgresPriceListStore implements PriceListStore {
             WHERE id = $1`,
           [id, record.code, record.name, record.isStandard, record.validFrom, record.validTo, record.status, record.note, actorId],
         );
-        await replaceGroups(client, id, groups, actorId);
         return true;
       });
     } catch (error) {
@@ -280,57 +253,23 @@ async function assertNoOverlap(
   client: PoolClient,
   id: string | null,
   record: PriceListRecord,
-  groupIds: readonly string[],
 ): Promise<void> {
-  if (record.isStandard) {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [STANDARD_LIST_LOCK]);
-  } else if (groupIds.length) {
-    const locked = await client.query<{ id: string }>(
-      `SELECT id FROM crm_schema.customer_groups WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
-      [groupIds],
-    );
-    if (locked.rows.length !== groupIds.length) {
-      throw new CrmValidationError('INVALID_REFERENCE', 'Nhóm khách hàng không tồn tại.');
-    }
-  }
-  if (record.status !== 'ACTIVE' || (!record.isStandard && !groupIds.length)) return;
-
+  // Chỉ bảng chuẩn không được chồng hiệu lực (D3-38): bảng giá riêng chọn theo từng khách, mỗi khách một bảng.
+  if (!record.isStandard || record.status !== 'ACTIVE') return;
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [STANDARD_LIST_LOCK]);
   const overlap = `daterange(l.valid_from, l.valid_to, '[]') && daterange($2::date, $3::date, '[]')`;
-  const result = record.isStandard
-    ? await client.query<{ code: string }>(
-        `SELECT l.code FROM crm_schema.price_lists l
-          WHERE l.is_standard AND l.status = 'ACTIVE' AND ($1::uuid IS NULL OR l.id <> $1) AND ${overlap}
-          ORDER BY l.valid_from, l.code LIMIT 1`,
-        [id, record.validFrom, record.validTo],
-      )
-    : await client.query<{ code: string }>(
-        `SELECT l.code FROM crm_schema.price_lists l
-          WHERE NOT l.is_standard AND l.status = 'ACTIVE' AND ($1::uuid IS NULL OR l.id <> $1) AND ${overlap}
-            AND EXISTS (SELECT 1 FROM crm_schema.price_list_customer_groups g
-                         WHERE g.price_list_id = l.id AND g.customer_group_id = ANY($4::uuid[]))
-          ORDER BY l.valid_from, l.code LIMIT 1`,
-        [id, record.validFrom, record.validTo, groupIds],
-      );
+  const result = await client.query<{ code: string }>(
+    `SELECT l.code FROM crm_schema.price_lists l
+      WHERE l.is_standard AND l.status = 'ACTIVE' AND ($1::uuid IS NULL OR l.id <> $1) AND ${overlap}
+      ORDER BY l.valid_from, l.code LIMIT 1`,
+    [id, record.validFrom, record.validTo],
+  );
   const conflict = result.rows[0];
   if (conflict) {
     throw new CrmConflictError('PRICE_LIST_OVERLAP', `Trùng thời gian hiệu lực với bảng giá ${conflict.code}`, {
       conflictCode: conflict.code,
     });
   }
-}
-
-async function replaceGroups(client: PoolClient, id: string, groupIds: readonly string[], actorId: string): Promise<void> {
-  await client.query(
-    `DELETE FROM crm_schema.price_list_customer_groups WHERE price_list_id = $1 AND NOT (customer_group_id = ANY($2::uuid[]))`,
-    [id, groupIds],
-  );
-  if (!groupIds.length) return;
-  await client.query(
-    `INSERT INTO crm_schema.price_list_customer_groups (price_list_id, customer_group_id, created_by)
-     SELECT $1, unnest($2::uuid[]), $3
-     ON CONFLICT DO NOTHING`,
-    [id, groupIds, actorId],
-  );
 }
 
 async function touch(pool: Pool, priceListId: string, actorId: string): Promise<void> {
@@ -356,7 +295,7 @@ function toPriceListSummary(row: PriceListRow): PriceListSummary {
     status: row.status,
     note: row.note,
     itemCount: Number(row.item_count),
-    customerGroups: row.customer_groups ?? [],
+    customerCount: Number(row.customer_count ?? 0),
     updatedAt: toIso(row.updated_at) as string,
   };
 }
@@ -610,7 +549,7 @@ export class PostgresPricingStore implements PricingStore {
   async priceListsForPricing(
     tenantId: string,
     date: string,
-    customerGroupId: string | null,
+    customerPriceListId: string | null,
     materialIds: readonly string[],
   ): Promise<PricingPriceList[]> {
     const pool = await this.database.pool(tenantId);
@@ -621,16 +560,12 @@ export class PostgresPricingStore implements PricingStore {
       valid_from: string | Date;
       valid_to: string | Date | null;
       status: PricingStatus;
-      group_ids: string[];
     }>(
-      `SELECT l.id, l.code, l.is_standard, l.valid_from, l.valid_to, l.status,
-              COALESCE((SELECT array_agg(g.customer_group_id::text) FROM crm_schema.price_list_customer_groups g
-                         WHERE g.price_list_id = l.id), '{}') AS group_ids
+      `SELECT l.id, l.code, l.is_standard, l.valid_from, l.valid_to, l.status
          FROM crm_schema.price_lists l
         WHERE l.status = 'ACTIVE' AND l.valid_from <= $1::date AND (l.valid_to IS NULL OR l.valid_to >= $1::date)
-          AND (l.is_standard OR EXISTS (SELECT 1 FROM crm_schema.price_list_customer_groups g
-                                         WHERE g.price_list_id = l.id AND g.customer_group_id = $2::uuid))`,
-      [date, customerGroupId],
+          AND (l.is_standard OR l.id = $2::uuid)`,
+      [date, customerPriceListId],
     );
     if (!lists.rows.length || !materialIds.length) {
       return lists.rows.map((row) => toPricingList(row, []));
@@ -704,7 +639,7 @@ export class PostgresPricingStore implements PricingStore {
 }
 
 function toPricingList(
-  row: { id: string; code: string; is_standard: boolean; valid_from: string | Date; valid_to: string | Date | null; status: PricingStatus; group_ids: string[] },
+  row: { id: string; code: string; is_standard: boolean; valid_from: string | Date; valid_to: string | Date | null; status: PricingStatus },
   items: PricingPriceList['items'],
 ): PricingPriceList {
   return {
@@ -714,7 +649,6 @@ function toPricingList(
     validFrom: toDateOnly(row.valid_from) as string,
     validTo: toDateOnly(row.valid_to),
     status: row.status,
-    customerGroupIds: row.group_ids,
     items,
   };
 }
