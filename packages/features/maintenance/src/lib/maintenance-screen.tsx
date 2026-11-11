@@ -175,7 +175,25 @@ function formatDateTime(value?: string): string {
 }
 
 export function MaintenanceScreen() {
-  const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  const { view, sub, navigate: navigateRaw } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  // Ma trận còn thay đổi chưa lưu: hỏi trước khi rời màn, vì chuyển màn tháo luôn ma trận và mất bản nháp.
+  const matrixDirtyRef = useRef(false);
+  const onMatrixDirtyChange = useCallback((dirty: boolean) => {
+    matrixDirtyRef.current = dirty;
+  }, []);
+  const navigate = useCallback(
+    (next: View, nextSub?: string) => {
+      if (
+        matrixDirtyRef.current &&
+        next !== 'matrix' &&
+        !window.confirm('Ma trận còn thay đổi chưa lưu. Rời khỏi màn này sẽ mất các thay đổi đó. Tiếp tục?')
+      ) {
+        return;
+      }
+      navigateRaw(next, nextSub);
+    },
+    [navigateRaw],
+  );
   const [matrix, setMatrix] = useState<MaintenanceMatrix>();
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
@@ -1016,6 +1034,7 @@ export function MaintenanceScreen() {
               matrix={matrix}
               frequencies={frequencyOptions}
               onAddAsset={addAssetToMatrix}
+              onDirtyChange={onMatrixDirtyChange}
               onRemoveAsset={removeAsset}
               onRunNow={runNow}
               onOpenHistory={(assetCode) => {
