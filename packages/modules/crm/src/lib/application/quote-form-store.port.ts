@@ -4,6 +4,7 @@ import type {
   CustomFieldType,
   QuoteAdjustmentMode,
   QuoteLayout,
+  QuoteLinePickerColumn,
   QuoteTemplate,
   QuoteTemplateLayout,
   QuoteType,
@@ -77,6 +78,9 @@ export interface QuoteFormStore {
   createType(tenantId: string, record: QuoteTypeRecord, actorId: string): Promise<QuoteType>;
   updateType(tenantId: string, id: string, record: QuoteTypeRecord, actorId: string): Promise<QuoteType | undefined>;
 
+  /** Cột hộp thoại "Thêm dòng báo giá" đã lưu; rỗng là chưa cấu hình. */
+  linePickerColumns(tenantId: string): Promise<readonly QuoteLinePickerColumn[] | undefined>;
+  saveLinePickerColumns(tenantId: string, columns: readonly QuoteLinePickerColumn[], actorId: string): Promise<void>;
   /** Mẫu mã báo giá đã lưu; rỗng là dùng mã mặc định. */
   codePattern(tenantId: string): Promise<string | null>;
   saveCodePattern(tenantId: string, pattern: string | null, actorId: string): Promise<void>;

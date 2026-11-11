@@ -158,6 +158,8 @@ const mockApi = {
   updateQuoteLine: jest.fn(),
   convertQuote: jest.fn(),
   searchCatalog: jest.fn(),
+  loadQuoteLinePickerSettings: jest.fn(),
+  listCatalogTradeCategories: jest.fn(),
   listQuoteTemplates: jest.fn(),
   listQuoteTypes: jest.fn(),
   listQuoteCustomFields: jest.fn(),
@@ -180,7 +182,7 @@ jest.mock('../crm-api', () => ({
       'getQuote', 'getCustomer', 'getOpportunity', 'updateQuoteVersion', 'quoteAction', 'addQuoteLines', 'removeQuoteLine',
       'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
       'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
-      'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks', 'deleteQuote',
+      'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks', 'deleteQuote', 'loadQuoteLinePickerSettings', 'listCatalogTradeCategories',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
 }));
@@ -230,7 +232,9 @@ beforeEach(() => {
   stubLookups();
   mockApi.getQuoteTemplateLayout.mockImplementation(layoutFor);
   mockApi.getCustomer.mockResolvedValue(fixtureCustomer());
-  mockApi.searchCatalog.mockResolvedValue([]);
+  mockApi.searchCatalog.mockResolvedValue({ items: [], nextCursor: null });
+  mockApi.loadQuoteLinePickerSettings.mockResolvedValue({ columns: ['name', 'unit'] });
+  mockApi.listCatalogTradeCategories.mockResolvedValue(['Thiết bị điện']);
   mockApi.listCustomers.mockResolvedValue({ items: [] });
   mockApi.listOpportunities.mockResolvedValue({ items: [] });
   mockApi.listSalesOrganizations.mockResolvedValue([]);
@@ -702,7 +706,10 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
 
   it('TC-QW-14: menu Chèn mở chọn mặt hàng và thêm với beforeLineNo của dòng đang chọn', async () => {
     const detail = fixtureDetail(fixtureVersion({ lines: [fixtureLine({ id: 'l1', lineNo: 1 }), fixtureLine({ id: 'l2', lineNo: 2, materialId: 'm2', materialCode: 'VT-02' })] }));
-    mockApi.searchCatalog.mockResolvedValue([{ id: 'm9', code: 'VT-09', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: null }]);
+    mockApi.searchCatalog.mockResolvedValue({
+      items: [{ id: 'm9', code: 'VT-09', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: null }],
+      nextCursor: null,
+    });
     mockApi.addQuoteLines.mockResolvedValue(detail);
     renderEditor(detail);
     await screen.findByText('Thông tin chung');
@@ -715,6 +722,34 @@ describe('QuoteEditor 2 cột (P3C4-02 đến P3C4-05)', () => {
       expect(mockApi.addQuoteLines).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ revision: 3, beforeLineNo: 2, lines: [expect.objectContaining({ materialId: 'm9' })] })),
     );
     expect(mockToast.success).toHaveBeenCalledWith('Đã chèn 1 dòng trước dòng 2.');
+  });
+
+  it('thêm dòng: chỉ hiện cột quản trị chọn; phân trang 1, 2 theo cursor; chỉ tìm mặt hàng có giá cho báo giá', async () => {
+    const detail = fixtureDetail(fixtureVersion({ lines: [fixtureLine({ id: 'l1', lineNo: 1 })] }));
+    const van = { id: 'm9', code: 'VT-09', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: 5, salePrice: null };
+    mockApi.searchCatalog.mockImplementation(async (query: { cursor?: string | null }) =>
+      query.cursor ? { items: [{ ...van, id: 'm10', code: 'VT-10', name: 'Bơm' }], nextCursor: null } : { items: [van], nextCursor: 'VT-09' },
+    );
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.contextMenu(screen.getByRole('row', { name: /^Dòng 1:/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Chèn' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Chèn dòng trước dòng 1' });
+    await within(dialog).findByText('VT-09');
+    // Cấu hình chỉ Tên, ĐVT: không còn ô giá vốn (5 ₫).
+    await waitFor(() => expect(dialog.textContent).not.toContain('₫'));
+    expect(within(dialog).getByText('Van')).toBeTruthy();
+    expect(mockApi.searchCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: null, pricedFor: { quoteId: 'q1', versionNo: 1 } }));
+    const pager = within(dialog).getByRole('navigation', { name: 'Phân trang mặt hàng' });
+    fireEvent.click(within(pager).getByRole('button', { name: '2' }));
+    await within(dialog).findByText('VT-10');
+    expect(mockApi.searchCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'VT-09' }));
+    // Trang 2 thay trang 1; trang cuối thì "Sau" tắt, quay lại trang 1 được.
+    expect(within(dialog).queryByText('VT-09')).toBeNull();
+    expect((within(pager).getByRole('button', { name: 'Trang sau' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(pager).getByRole('button', { name: '1' }));
+    await within(dialog).findByText('VT-09');
+    expect(mockApi.searchCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: null }));
   });
 
   it('TC-QW-18: báo giá đã gửi bấm đúp mở dòng chỉ đọc', async () => {

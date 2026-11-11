@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { QUOTE_LAYOUT_BLOCK_TYPES, validateQuoteLayout, type QuoteLayout } from '@enterprise-platform/contracts-crm';
+import { QUOTE_LAYOUT_BLOCK_TYPES, defaultQuoteLayout, validateQuoteLayout, type QuoteLayout } from '@enterprise-platform/contracts-crm';
 import { fireEvent, render, screen } from '@testing-library/react';
 import {
   FIXTURE_PNG,
@@ -44,6 +44,16 @@ describe('QuoteLayoutView', () => {
     expect(container.textContent).toContain('Một triệu chín trăm tám mươi nghìn đồng');
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+
+  it('điều khoản: giá trị nhiều dòng bắt đầu ở dòng dưới nhãn, một dòng thì liền sau nhãn', () => {
+    const base = data();
+    const multi = { ...base, values: { ...base.values, 'quote.note': 'a/ EX\nb/ EX' } };
+    const { container, rerender } = render(<QuoteLayoutView layout={defaultQuoteLayout()} data={multi} mode="preview" />);
+    const items = () => Array.from(container.querySelectorAll('[data-block-id="terms"] li')).map((item) => item.textContent);
+    expect(items()[1]).toBe('Ghi chú:\na/ EX\nb/ EX');
+    rerender(<QuoteLayoutView layout={defaultQuoteLayout()} data={{ ...base, values: { ...base.values, 'quote.note': 'Một dòng' } }} mode="preview" />);
+    expect(items()[1]).toBe('Ghi chú: Một dòng');
   });
 
   it('căn lề theo khối', () => {

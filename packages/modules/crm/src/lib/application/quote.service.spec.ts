@@ -37,7 +37,7 @@ class FakeCatalog implements CatalogReader {
 
 const catalog = () =>
   new FakeCatalog([
-    { id: CAP, code: 'QA-KHO-CAP', name: 'Cáp', unit: 'Cái', category: null, kind: 'STOCK', avgCost: 800_000, totalAvailable: 70 },
+    { id: CAP, code: 'QA-KHO-CAP', name: 'Cáp', unit: 'Cái', category: null, kind: 'STOCK', avgCost: 800_000, totalAvailable: 70, tradeCategory: 'Dây cáp' },
     { id: BT, code: 'QA-KHO-BT', name: 'Gói bảo trì', unit: 'Gói', category: null, kind: 'SERVICE', avgCost: null, totalAvailable: null },
   ]);
 
@@ -61,6 +61,11 @@ const pricing: PricingStore = {
     },
   ],
   policiesForPricing: async () => [],
+  // Cáp có giá đúng ĐVT; gói bảo trì chỉ có giá theo "Thùng" (khác ĐVT "Gói" của Kho) nên không tính được.
+  pricedMaterials: jest.fn(async () => [
+    { materialId: CAP, code: 'QA-KHO-CAP', units: ['cái'] },
+    { materialId: BT, code: 'QA-KHO-BT', units: ['thùng'] },
+  ]),
 };
 
 function quoteLine(extra: Partial<QuoteLine>): QuoteLine {
@@ -266,6 +271,37 @@ describe('QuoteService', () => {
     await service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: BT, quantity: 5 });
     const service5 = quotes.saveVersion.mock.calls[1][4].lines[0];
     expect(service5).toMatchObject({ materialKind: 'SERVICE', unit: 'Gói', estUnitCost: null, lineAmount: 2_500_000 });
+  });
+
+  it('tìm mặt hàng theo báo giá: chỉ mặt hàng có giá cho khách của báo giá, đúng ĐVT; không theo báo giá thì cả danh mục', async () => {
+    const { service } = setup(version('DRAFT', 1, []));
+    const priced = await service.catalogMaterials(seller, { search: 'ca', quoteId: QUOTE_ID, versionNo: '1' });
+    expect(priced).toEqual({ items: [expect.objectContaining({ id: CAP })], nextCursor: null });
+    // Lấy dư một dòng để biết còn trang sau.
+    expect(pricing.pricedMaterials).toHaveBeenLastCalledWith('t1', expect.objectContaining({ customerId: 'c1', customerPriceListId: null, search: 'ca', limit: 31 }));
+    const all = await service.catalogMaterials(seller, { search: 'ca' });
+    expect(all.items.map((material) => material.id)).toEqual([CAP, BT]);
+    expect(all.nextCursor).toBeNull();
+  });
+
+  it('tìm mặt hàng theo trang: còn trang sau thì trả mã cuối làm cursor; lọc nhóm hàng hoá, dịch vụ', async () => {
+    const { service } = setup(version('DRAFT', 1, []));
+    const first = await service.catalogMaterials(seller, { limit: '1' });
+    expect(first).toEqual({ items: [expect.objectContaining({ id: CAP })], nextCursor: 'QA-KHO-CAP' });
+    const pricedFirst = await service.catalogMaterials(seller, { limit: '1', quoteId: QUOTE_ID, versionNo: '1', cursor: 'QA-KHO-A' });
+    expect(pricedFirst.nextCursor).toBe('QA-KHO-CAP');
+    expect(pricing.pricedMaterials).toHaveBeenLastCalledWith('t1', expect.objectContaining({ cursor: 'QA-KHO-A', limit: 2 }));
+    // Cáp là hàng hoá: lọc dịch vụ thì không còn mặt hàng nào có giá.
+    const services = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', kind: 'SERVICE' });
+    expect(services.items).toEqual([]);
+    // Lọc phân loại theo bảng giá: so với phân loại ở Kho, không phân biệt hoa thường.
+    const cable = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', tradeCategory: 'dây CÁP' });
+    expect(cable.items.map((material) => material.id)).toEqual([CAP]);
+    const none = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', tradeCategory: 'Chiếu sáng' });
+    expect(none.items).toEqual([]);
+    // Bản giả không đọc được phân loại: trả rỗng, không lỗi.
+    await expect(service.catalogTradeCategories(seller, 'STOCK')).resolves.toEqual([]);
+    await expect(service.catalogMaterials(seller, { quoteId: 'khong-phai-id', versionNo: '1' })).rejects.toThrow('Không tìm thấy báo giá');
   });
 
   it('TC-QW-14/15: chèn lô trước một dòng; số dòng liên tục; vị trí không có thì 400 LINE_POSITION_INVALID', async () => {

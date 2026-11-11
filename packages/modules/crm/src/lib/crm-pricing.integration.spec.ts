@@ -142,6 +142,25 @@ integration('Bán hàng GĐ3a: bảng giá, chính sách, thử tính giá (Post
     expect(byGroup.lines[0]).toMatchObject({ priceSource: 'STANDARD_LIST' });
   });
 
+  it('mặt hàng có giá cho báo giá: bảng chuẩn và bảng của khách đang hiệu lực, lọc theo mã, tên; ĐVT chữ thường', async () => {
+    const store = new PostgresPricingStore(handle.database);
+    const listId = (await customers.get({ ...admin, canWriteOpportunity: true }, vipCustomerId)).priceListId as string;
+    const rieng = randomUUID();
+    await lists.addItem(admin, listId, { ...item(70_000), materialId: rieng, materialCode: 'QA-RIENG', materialName: 'Hoá chất riêng', unit: ' Lít ' });
+    const query = { date: '2026-12-31', customerPriceListId: listId, customerId: vipCustomerId, search: '', limit: 30 };
+    await expect(store.pricedMaterials(tenantId, query)).resolves.toEqual([
+      { materialId: CAP, code: 'QA-KHO-CAP', units: ['cái'] },
+      { materialId: rieng, code: 'QA-RIENG', units: ['lít'] },
+    ]);
+    // Không có bảng của khách, hoặc bảng đã hết hiệu lực: chỉ còn bảng chuẩn.
+    await expect(store.pricedMaterials(tenantId, { ...query, customerPriceListId: null })).resolves.toEqual([{ materialId: CAP, code: 'QA-KHO-CAP', units: ['cái'] }]);
+    await expect(store.pricedMaterials(tenantId, { ...query, date: '2027-01-01' })).resolves.toEqual([{ materialId: CAP, code: 'QA-KHO-CAP', units: ['cái'] }]);
+    await expect(store.pricedMaterials(tenantId, { ...query, search: 'chất' })).resolves.toEqual([{ materialId: rieng, code: 'QA-RIENG', units: ['lít'] }]);
+    await expect(store.pricedMaterials(tenantId, { ...query, search: '100%_' })).resolves.toEqual([]);
+    // Trang kế: chỉ mã đứng sau cursor.
+    await expect(store.pricedMaterials(tenantId, { ...query, cursor: 'QA-KHO-CAP' })).resolves.toEqual([{ materialId: rieng, code: 'QA-RIENG', units: ['lít'] }]);
+  });
+
   it('CRUD chính sách: bậc số lượng, VIP; trùng mã 409; NV không ghi được', async () => {
     const tiers = await policies.create(admin, {
       code: 'BAC-SL',

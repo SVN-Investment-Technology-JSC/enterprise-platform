@@ -235,6 +235,7 @@ describe('PricingService.preview', () => {
       priceListsForPricing: jest.fn().mockResolvedValue([standard]),
       policiesForPricing: jest.fn().mockResolvedValue([vipPolicy]),
       contractPricesForPricing: jest.fn().mockResolvedValue([]),
+      pricedMaterials: jest.fn().mockResolvedValue([]),
     };
     const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP, priceListId: 'list-kh' } as CustomerDetail) };
     const service = new PricingService(store, customers, new FakeCatalogReader(), () => new Date('2026-12-31T18:30:00Z'));

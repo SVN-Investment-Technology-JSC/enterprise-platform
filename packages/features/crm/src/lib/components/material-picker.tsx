@@ -3,14 +3,13 @@
 import type { CrmCatalogMaterial } from '@enterprise-platform/contracts-crm';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useEffect, useState } from 'react';
-import { errorMessage, searchCatalog } from '../crm-api';
+import { useState } from 'react';
 import { formatQuantity } from '../fulfillment.model';
 import { parseNumber } from '../pricing/pricing.model';
 import { formatMoney } from '../sales.model';
 import styles from '../sales.module.scss';
+import { CatalogPager, CatalogSearchBar, useCatalogSearch } from './catalog-search';
 import { CrmDialog, Field } from './crm-ui';
-import { useDebounced } from './use-debounced';
 
 export interface PickedMaterial {
   readonly material: CrmCatalogMaterial;
@@ -38,32 +37,13 @@ export function MaterialPickerDialog({
   onClose: () => void;
   onPick: (picked: PickedMaterial) => Promise<void>;
 }) {
-  const [search, setSearch] = useState('');
-  const [items, setItems] = useState<readonly CrmCatalogMaterial[]>([]);
+  const catalog = useCatalogSearch();
   const [selected, setSelected] = useState<CrmCatalogMaterial>();
   const [quantity, setQuantity] = useState(quantityOptional ? '' : '1');
   const [price, setPrice] = useState('');
   const [vat, setVat] = useState('10');
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const q = useDebounced(search.trim(), 300);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    searchCatalog(q)
-      .then((result) => {
-        if (!active) return;
-        setItems(result);
-        setError(undefined);
-      })
-      .catch((cause) => active && setError(errorMessage(cause, 'Không tải được danh mục Kho.')))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [q]);
 
   const columns: ColumnsType<CrmCatalogMaterial> = [
     { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
@@ -102,27 +82,21 @@ export function MaterialPickerDialog({
   }
 
   return (
-    <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
-      <input
-        className={styles.input}
-        type="search"
-        placeholder="Tìm theo mã hoặc tên mặt hàng…"
-        maxLength={100}
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+    <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error ?? catalog.error} onClose={onClose} onSubmit={() => void save()}>
+      <CatalogSearchBar catalog={catalog} />
       <Table<CrmCatalogMaterial>
         size="small"
         rowKey="id"
-        loading={loading}
+        loading={catalog.loading}
         columns={columns}
-        dataSource={[...items]}
+        dataSource={[...catalog.items]}
         pagination={false}
         scroll={{ y: 260 }}
         rowSelection={{ type: 'radio', selectedRowKeys: selected ? [selected.id] : [], onChange: (_keys, rows) => setSelected(rows[0]) }}
         onRow={(row) => ({ onClick: () => setSelected(row) })}
-        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
+        locale={{ emptyText: catalog.loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
       />
+      <CatalogPager catalog={catalog} />
       <div className={styles.fieldGrid}>
         <Field
           label="Số lượng"

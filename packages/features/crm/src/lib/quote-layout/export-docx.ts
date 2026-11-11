@@ -336,8 +336,10 @@ export function createQuoteDocument(docx: DocxModule, layout: QuoteLayout, data:
   const terms = (block: QuoteLayoutTermsBlock) =>
     block.items.map((item, index) => {
       const prefix = block.numbered ? `${index + 1}. ` : '';
-      const label = item.label ? `${bind(item.label)}: ` : '';
-      return paragraph([...runs(prefix), ...runs(label, { bold: true }), ...runs(bind(item.value))], {
+      const value = bind(item.value);
+      // Giá trị nhiều dòng bắt đầu ở dòng dưới nhãn, giống màn xem trước.
+      const label = item.label ? `${bind(item.label)}:${/\r?\n/.test(value) ? '\n' : ' '}` : '';
+      return paragraph([...runs(prefix), ...runs(label, { bold: true }), ...runs(value)], {
         before: mmToTwip(0.6),
         ...(block.numbered ? { indentLeft: mmToTwip(6), hanging: mmToTwip(6) } : {}),
       });
