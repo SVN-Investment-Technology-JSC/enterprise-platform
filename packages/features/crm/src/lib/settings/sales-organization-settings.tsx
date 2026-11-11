@@ -410,7 +410,7 @@ function SalesOrganizationForm({ saved, onClose, onSaved }: { saved?: SalesOrgan
               {fieldErrors.logo}
             </span>
           ) : (
-            <span className={styles.fieldHint}>PNG hoặc JPEG, tối đa 300 KB; ảnh rộng hơn 1.000 px được tự thu nhỏ.</span>
+            <span className={styles.fieldHint}>PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.</span>
           )}
         </div>
       </div>

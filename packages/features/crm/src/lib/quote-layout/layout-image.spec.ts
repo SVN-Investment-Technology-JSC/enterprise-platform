@@ -18,7 +18,7 @@ const SVG_HEAD = Array.from('<svg xml', (char) => char.charCodeAt(0));
 const dataUrlOf = (mime: string, bytes: number) => `data:${mime};base64,${'A'.repeat(Math.ceil(bytes / 3) * 4)}`;
 
 function deps(head: number[], options: { width: number; bytes: number; resizedBytes?: number; mime?: string }) {
-  const resize = jest.fn((_width: number, _height: number, mime: string) => dataUrlOf(mime, options.resizedBytes ?? options.bytes));
+  const resize = jest.fn((...args: [width: number, height: number, mime: string, quality?: number]) => dataUrlOf(args[2], options.resizedBytes ?? options.bytes));
   const value: LayoutImageDeps = {
     readBytes: async () => new Uint8Array(head),
     readDataUrl: async () => dataUrlOf(options.mime ?? 'image/png', options.bytes),
@@ -45,7 +45,7 @@ describe('layout-image', () => {
     expect(dataUrlByteLength('data:image/png;base64,QUJD')).toBe(3);
     expect(dataUrlByteLength('data:image/png;base64,QUI=')).toBe(2);
     expect(dataUrlByteLength('data:image/png;base64,QQ==')).toBe(1);
-    expect(scaledImageSize(2000, 1000)).toEqual({ width: 1000, height: 500 });
+    expect(scaledImageSize(3200, 1600)).toEqual({ width: 1600, height: 800 });
     expect(scaledImageSize(800, 600)).toEqual({ width: 800, height: 600 });
   });
 
@@ -57,19 +57,35 @@ describe('layout-image', () => {
     expect(resize).not.toHaveBeenCalled();
   });
 
-  it('TC-DS-11: ảnh rộng hơn 1.000 px tự thu nhỏ; sau đó ≤ 300 KB thì nhận, vẫn quá thì báo lỗi', async () => {
+  it('TC-DS-11: ảnh rộng hơn 1.600 px tự thu về 1.600 px và nén JPEG; đủ nhỏ ở lần đầu thì nhận', async () => {
     const small = deps(JPEG_HEAD, { width: 4000, bytes: 5 * 1024 * 1024, resizedBytes: 180 * 1024, mime: 'image/jpeg' });
     const accepted = await readLayoutImage(file(5 * 1024 * 1024, 'image/jpeg'), small.value);
-    expect(small.resize).toHaveBeenCalledWith(1000, 500, 'image/jpeg');
+    expect(small.resize).toHaveBeenCalledTimes(1);
+    expect(small.resize).toHaveBeenCalledWith(1600, 800, 'image/jpeg', 0.85);
     expect(accepted.ok).toBe(true);
-    const big = deps(PNG_HEAD, { width: 2000, bytes: 500 * 1024, resizedBytes: 400 * 1024 });
-    expect(await readLayoutImage(file(500 * 1024), big.value)).toEqual({ ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE });
-    expect(LAYOUT_IMAGE_TOO_LARGE_MESSAGE.startsWith('Ảnh vượt 300 KB')).toBe(true);
+    if (accepted.ok) expect(accepted.dataUrl.startsWith('data:image/jpeg;base64,')).toBe(true);
   });
 
-  it('TC-DS-11: ảnh nhỏ px nhưng quá 300 KB thì báo lỗi', async () => {
-    const { value } = deps(PNG_HEAD, { width: 900, bytes: 310 * 1024 });
-    expect(await readLayoutImage(file(310 * 1024), value)).toEqual({ ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE });
+  it('TC-DS-11: PNG nhỏ px nhưng quá 300 KB thì tự nén JPEG (trước đây bị từ chối)', async () => {
+    const { value, resize } = deps(PNG_HEAD, { width: 900, bytes: 310 * 1024, resizedBytes: 120 * 1024 });
+    const result = await readLayoutImage(file(310 * 1024), value);
+    expect(result.ok).toBe(true);
+    expect(resize).toHaveBeenCalledWith(900, 450, 'image/jpeg', 0.85);
+  });
+
+  it('TC-DS-11: còn lớn thì hạ chất lượng rồi thu nhỏ dần; không xuống dưới 300 KB được mới báo lỗi', async () => {
+    const sizes = [400, 350, 320, 310, 290];
+    const shrinking = deps(JPEG_HEAD, { width: 3000, bytes: 3 * 1024 * 1024, mime: 'image/jpeg' });
+    shrinking.resize.mockImplementation((...args: [width: number, height: number, mime: string, quality?: number]) => `data:${args[2]};base64,${'A'.repeat(Math.ceil(((sizes.shift() ?? 290) * 1024) / 3) * 4)}`);
+    const ok = await readLayoutImage(file(3 * 1024 * 1024, 'image/jpeg'), shrinking.value);
+    expect(ok.ok).toBe(true);
+    // 4 mức chất lượng ở 1.600 px chưa đủ, lần thứ 5 ở 1.280 px (80%) thì đủ.
+    expect(shrinking.resize.mock.calls.map((call) => [call[0], call[3]])).toEqual([
+      [1600, 0.85], [1600, 0.75], [1600, 0.65], [1600, 0.55], [1280, 0.85],
+    ]);
+    const hopeless = deps(PNG_HEAD, { width: 2000, bytes: 500 * 1024, resizedBytes: 400 * 1024 });
+    expect(await readLayoutImage(file(500 * 1024), hopeless.value)).toEqual({ ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE });
+    expect(hopeless.resize.mock.calls.at(-1)?.[0]).toBe(320);
   });
 
   it('TC-DS-11: SVG, PDF đổi đuôi .png bị từ chối dù trình duyệt báo image/png', async () => {

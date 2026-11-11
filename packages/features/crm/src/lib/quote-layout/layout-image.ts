@@ -1,15 +1,23 @@
 /**
- * Tải ảnh cho khối `image` và logo của `companyHeader` (plan mục 9.3): chỉ nhận PNG, JPEG (kiểm chữ ký đầu file, không tin
- * đuôi); rộng quá 1.000 px thì thu nhỏ bằng canvas; sau đó vẫn quá 300 KB thì từ chối và gợi ý giảm kích thước.
+ * Tải ảnh cho khối `image`, logo của `companyHeader` và logo tổ chức báo giá (plan mục 9.3): chỉ nhận PNG, JPEG (kiểm chữ
+ * ký đầu file, không tin đuôi). Tự nén ở trình duyệt: ảnh đã gọn (rộng ≤ 1.600 px, ≤ 300 KB) giữ nguyên (PNG giữ nền
+ * trong suốt); còn lại vẽ lại bằng canvas với chiều rộng tối đa 1.600 px rồi nén JPEG, hạ dần chất lượng rồi chiều rộng tới
+ * khi ≤ 300 KB. Không nén được xuống mới báo lỗi.
  */
 import { QUOTE_LAYOUT_LIMITS } from '@enterprise-platform/contracts-crm';
 
-export const LAYOUT_IMAGE_MAX_WIDTH_PX = 1000;
+export const LAYOUT_IMAGE_MAX_WIDTH_PX = 1600;
+/** Chất lượng JPEG thử lần lượt; hết mà vẫn lớn thì thu nhỏ chiều rộng. */
+export const LAYOUT_IMAGE_JPEG_QUALITIES: readonly number[] = [0.85, 0.75, 0.65, 0.55];
+/** Mỗi lần thu nhỏ còn chừng này phần chiều rộng; không thu dưới `LAYOUT_IMAGE_MIN_WIDTH_PX`. */
+const SHRINK_FACTOR = 0.8;
+export const LAYOUT_IMAGE_MIN_WIDTH_PX = 320;
+/** Gợi ý ở ô tải ảnh. */
+export const LAYOUT_IMAGE_HINT = 'PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.';
 /** File gốc quá lớn thì từ chối ngay, không giải mã (tránh treo trang). */
 export const LAYOUT_IMAGE_MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 export const LAYOUT_IMAGE_TYPE_MESSAGE = 'Chỉ nhận ảnh PNG hoặc JPEG.';
-export const LAYOUT_IMAGE_TOO_LARGE_MESSAGE =
-  'Ảnh vượt 300 KB. Hãy giảm kích thước ảnh (chiều ngang dưới 1.000 px) hoặc lưu dạng JPEG rồi tải lại.';
+export const LAYOUT_IMAGE_TOO_LARGE_MESSAGE = 'Ảnh quá lớn, không nén được xuống dưới 300 KB. Hãy chọn ảnh nhỏ hơn.';
 export const LAYOUT_IMAGE_READ_MESSAGE = 'Không đọc được ảnh. Thử ảnh khác.';
 
 export type LayoutImageMime = 'image/png' | 'image/jpeg';
@@ -43,7 +51,9 @@ export interface LayoutImageDeps {
   readonly readBytes: (file: Blob, length: number) => Promise<Uint8Array>;
   readonly readDataUrl: (file: Blob) => Promise<string>;
   /** Giải mã ảnh, trả kích thước và hàm vẽ lại ở kích thước mới thành data URL. */
-  readonly decode: (dataUrl: string) => Promise<{ width: number; height: number; resize: (width: number, height: number, mime: LayoutImageMime) => string }>;
+  readonly decode: (
+    dataUrl: string,
+  ) => Promise<{ width: number; height: number; resize: (width: number, height: number, mime: LayoutImageMime, quality?: number) => string }>;
 }
 
 function readWith<T>(start: (reader: FileReader) => void, pick: (reader: FileReader) => T): Promise<T> {
@@ -73,7 +83,7 @@ export const browserImageDeps: LayoutImageDeps = {
         resolve({
           width: image.naturalWidth,
           height: image.naturalHeight,
-          resize: (width, height, mime) => {
+          resize: (width, height, mime, quality = 0.88) => {
             const canvas = document.createElement('canvas');
             canvas.width = width;
             canvas.height = height;
@@ -85,7 +95,7 @@ export const browserImageDeps: LayoutImageDeps = {
               context.fillRect(0, 0, width, height);
             }
             context.drawImage(image, 0, 0, width, height);
-            return canvas.toDataURL(mime, 0.88);
+            return canvas.toDataURL(mime, quality);
           },
         });
       image.onerror = () => reject(new Error('decode failed'));
@@ -93,21 +103,26 @@ export const browserImageDeps: LayoutImageDeps = {
     }),
 };
 
-/** Đổi file người dùng chọn thành data URL hợp lệ cho bố cục, hoặc câu báo lỗi tiếng Việt. */
+/** Đổi file người dùng chọn thành data URL hợp lệ cho bố cục (tự nén nếu cần), hoặc câu báo lỗi tiếng Việt. */
 export async function readLayoutImage(file: File, deps: LayoutImageDeps = browserImageDeps): Promise<LayoutImageResult> {
   if (file.size > LAYOUT_IMAGE_MAX_SOURCE_BYTES) return { ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE };
   try {
     const mime = detectImageType(await deps.readBytes(file, 8));
     if (!mime) return { ok: false, message: LAYOUT_IMAGE_TYPE_MESSAGE };
-    const original = await deps.readDataUrl(file);
-    let dataUrl = original.replace(/^data:[^;,]*;base64,/, `data:${mime};base64,`);
-    const decoded = await deps.decode(dataUrl);
-    if (decoded.width > LAYOUT_IMAGE_MAX_WIDTH_PX) {
-      const size = scaledImageSize(decoded.width, decoded.height);
-      dataUrl = decoded.resize(size.width, size.height, mime);
+    const original = (await deps.readDataUrl(file)).replace(/^data:[^;,]*;base64,/, `data:${mime};base64,`);
+    const decoded = await deps.decode(original);
+    const limit = QUOTE_LAYOUT_LIMITS.maxImageBytes;
+    // Ảnh đã gọn thì giữ nguyên: không mất chất lượng, PNG giữ nền trong suốt.
+    if (decoded.width <= LAYOUT_IMAGE_MAX_WIDTH_PX && dataUrlByteLength(original) <= limit) return { ok: true, dataUrl: original };
+    let size = scaledImageSize(decoded.width, decoded.height);
+    for (;;) {
+      for (const quality of LAYOUT_IMAGE_JPEG_QUALITIES) {
+        const dataUrl = decoded.resize(size.width, size.height, 'image/jpeg', quality);
+        if (dataUrlByteLength(dataUrl) <= limit) return { ok: true, dataUrl };
+      }
+      if (size.width <= LAYOUT_IMAGE_MIN_WIDTH_PX) return { ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE };
+      size = scaledImageSize(size.width, size.height, Math.max(LAYOUT_IMAGE_MIN_WIDTH_PX, Math.round(size.width * SHRINK_FACTOR)));
     }
-    if (dataUrlByteLength(dataUrl) > QUOTE_LAYOUT_LIMITS.maxImageBytes) return { ok: false, message: LAYOUT_IMAGE_TOO_LARGE_MESSAGE };
-    return { ok: true, dataUrl };
   } catch {
     return { ok: false, message: LAYOUT_IMAGE_READ_MESSAGE };
   }

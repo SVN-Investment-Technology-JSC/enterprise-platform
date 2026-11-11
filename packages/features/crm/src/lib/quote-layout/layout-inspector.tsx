@@ -162,7 +162,7 @@ function ImagePicker({ label, value, onChange, onRemove }: { label: string; valu
     else setError(result.message);
   };
   return (
-    <FieldRow label={label} error={error} hint="PNG hoặc JPEG, tối đa 300 KB; ảnh rộng hơn 1.000 px được tự thu nhỏ.">
+    <FieldRow label={label} error={error} hint="PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.">
       <div className={styles.imagePicker}>
         {value ? <img src={value} alt="" className={styles.imageThumb} /> : <span className={styles.imageEmpty}>Chưa có ảnh</span>}
         <div className={styles.imageActions}>
