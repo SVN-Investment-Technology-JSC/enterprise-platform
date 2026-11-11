@@ -119,6 +119,8 @@ interface Draft {
   startDates: Map<MaintenanceFrequency, string>;
   procedureDefinitionId: string;
   priority: MaintenancePriority;
+  /** Người phụ trách (id người dùng); rỗng là chưa giao. Phiếu định kỳ sinh ra được giao cho người này. */
+  assigneeId: string;
 }
 
 /** Mặc định gợi ý: một tuần nữa, không phải hôm nay. */
@@ -139,6 +141,7 @@ function toDraft(
     startDates: new Map(),
     procedureDefinitionId: row.procedureDefinitionId ?? '',
     priority: row.priority,
+    assigneeId: row.assigneeId ?? '',
   };
 }
 
@@ -146,6 +149,7 @@ function toDraft(
 function sameDraft(left: Draft, right: Draft): boolean {
   if (left.procedureDefinitionId !== right.procedureDefinitionId) return false;
   if (left.priority !== right.priority) return false;
+  if (left.assigneeId !== right.assigneeId) return false;
   if (left.frequencies.size !== right.frequencies.size) return false;
   return [...left.frequencies].every((frequency) => right.frequencies.has(frequency));
 }
@@ -181,6 +185,7 @@ export function MaintenanceMatrixBoard({
   onSave,
   onEditTasks,
   onAddAsset,
+  members,
   onDirtyChange,
   onRemoveAsset,
   onRunNow,
@@ -204,6 +209,8 @@ export function MaintenanceMatrixBoard({
   onEditTasks?: (assetCode: string) => void;
   /** Thêm một thiết bị của Kho vào ma trận. */
   onAddAsset?: (assetCode: string) => void | Promise<void>;
+  /** Danh sách người có thể giao phụ trách (thành viên tenant). */
+  members?: readonly { userId: string; displayName: string }[];
   /** Báo cho màn hình cha biết đang có thay đổi chưa lưu, để cảnh báo trước khi chuyển màn. */
   onDirtyChange?: (dirty: boolean) => void;
   /** Gỡ thiết bị khỏi ma trận: lưu trữ lịch của nó, giữ lịch sử phiếu. */
@@ -496,6 +503,8 @@ export function MaintenanceMatrixBoard({
           startDates: Object.fromEntries(draft.startDates),
           procedureDefinitionId: draft.procedureDefinitionId || undefined,
           priority: draft.priority,
+          assigneeId: draft.assigneeId || null,
+          assigneeName: members?.find((member) => member.userId === draft.assigneeId)?.displayName ?? null,
         };
       }),
     );
@@ -546,6 +555,11 @@ export function MaintenanceMatrixBoard({
       description: proc.name,
     }));
   }, [matrix.procedureCatalog]);
+
+  const assigneeOptions = useMemo(
+    () => (members ?? []).map((member) => ({ value: member.userId, label: member.displayName })),
+    [members],
+  );
 
   const priorityImportOptions = useMemo(() => {
     return [
@@ -1328,6 +1342,7 @@ export function MaintenanceMatrixBoard({
                 </th>
                 <th className="w-[170px]">Thiết bị</th>
                 <th className="w-[130px]">Đơn vị phụ trách</th>
+                <th className="w-[170px]">Người phụ trách</th>
                 <th className="w-[110px]">Ưu tiên</th>
                 {frequencies.map((entry) => (
                   <th key={entry.id} className="w-[88px] text-center!">
@@ -1395,6 +1410,24 @@ export function MaintenanceMatrixBoard({
                     </td>
                     <td className="truncate text-sm text-slate-700">
                       {row.asset.orgUnitId ? (unitNames?.get(row.asset.orgUnitId) ?? '—') : '—'}
+                    </td>
+                    <td>
+                      <SearchableSelect
+                        className={SELECT_CLASS}
+                        height={36}
+                        searchInDropdown
+                        clearable
+                        options={assigneeOptions}
+                        value={draft.assigneeId}
+                        placeholder="— Chưa giao —"
+                        disabled={!canManage || busy}
+                        onChange={(val) =>
+                          mutate(row.asset.code, (current) => ({
+                            ...current,
+                            assigneeId: val,
+                          }))
+                        }
+                      />
                     </td>
                     <td>
                       <SearchableSelect

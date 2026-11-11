@@ -97,6 +97,59 @@ describe('MaintenanceApplication', () => {
       expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { status: 'active' }, { nextDueAt: '2026-11-20' });
     });
 
+    it('giao người phụ trách: lịch mới tạo mang theo người đó, lịch đang chạy được cập nhật khi đổi', async () => {
+      const createSchedule = jest.fn().mockResolvedValue({});
+      const updateSchedule = jest.fn().mockResolvedValue({});
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'active', assigneeId: 'u-old', assigneeName: 'Cũ' })],
+        }),
+        createSchedule,
+        updateSchedule,
+      } as unknown as MaintenanceStore;
+      await new MaintenanceApplication(store).saveMatrix(actor, {
+        entries: [
+          {
+            assetCode: 'MBA-T1',
+            frequencies: ['week', 'month'],
+            assigneeId: 'u-new',
+            assigneeName: 'Mới',
+            startDates: { month: '2026-12-01' },
+          },
+        ],
+      });
+      expect(createSchedule).toHaveBeenCalledWith('tenant', expect.objectContaining({ frequency: 'month', assigneeId: 'u-new', assigneeName: 'Mới' }));
+      expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { assigneeId: 'u-new', assigneeName: 'Mới' }, undefined);
+    });
+
+    it('không gửi assigneeId (client cũ) thì giữ nguyên người phụ trách; gửi null là bỏ', async () => {
+      const updateSchedule = jest.fn().mockResolvedValue({});
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'active', assigneeId: 'u-old', assigneeName: 'Cũ' })],
+        }),
+        updateSchedule,
+      } as unknown as MaintenanceStore;
+      const app = new MaintenanceApplication(store);
+      await app.saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'] }] });
+      expect(updateSchedule).not.toHaveBeenCalled();
+      await app.saveMatrix(actor, { entries: [{ assetCode: 'MBA-T1', frequencies: ['week'], assigneeId: null }] });
+      expect(updateSchedule).toHaveBeenCalledWith('tenant', 'sch-1', { assigneeId: null, assigneeName: null }, undefined);
+    });
+
+    it('ma trận trả người phụ trách của thiết bị', async () => {
+      const store = {
+        read: jest.fn().mockResolvedValue({
+          assets: [], jobPlans: [], occurrences: [], procedureCatalog: [],
+          schedules: [schedule({ status: 'active', assigneeId: 'u1', assigneeName: 'Tài' })],
+        }),
+      } as unknown as MaintenanceStore;
+      const matrix = await new MaintenanceApplication(store).getMatrix(actor);
+      expect(matrix.rows[0]).toMatchObject({ assigneeId: 'u1', assigneeName: 'Tài' });
+    });
+
     it('sửa ưu tiên của lịch đang chạy không đụng tới hạn', async () => {
       const updateSchedule = jest.fn().mockResolvedValue({});
       const store = {

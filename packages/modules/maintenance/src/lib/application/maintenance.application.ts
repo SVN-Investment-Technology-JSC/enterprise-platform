@@ -195,8 +195,11 @@ export class MaintenanceApplication {
             nextDueAt: schedule.nextDueAt,
           };
         }
+        const assigned = own.find((schedule) => schedule.assigneeId);
         return {
           asset,
+          assigneeId: assigned?.assigneeId,
+          assigneeName: assigned?.assigneeName,
           cells,
           procedureDefinitionId: own.find((schedule) => schedule.procedureDefinitionId)
             ?.procedureDefinitionId,
@@ -307,6 +310,8 @@ export class MaintenanceApplication {
             // Ngày người dùng chọn cho đúng ô này; không có thì mới lấy hôm nay.
             startDate: entry.startDates?.[frequency] ?? today,
             activate: true,
+            assigneeId: entry.assigneeId ?? undefined,
+            assigneeName: entry.assigneeName ?? undefined,
           });
           result.created += 1;
           continue;
@@ -318,6 +323,11 @@ export class MaintenanceApplication {
           patch.procedureDefinitionId = entry.procedureDefinitionId ?? null;
         }
         if (entry.priority && match.priority !== entry.priority) patch.priority = entry.priority;
+        // Không gửi assigneeId (client cũ) thì giữ nguyên; gửi null là bỏ người phụ trách.
+        if (entry.assigneeId !== undefined && (match.assigneeId ?? null) !== (entry.assigneeId ?? null)) {
+          patch.assigneeId = entry.assigneeId;
+          patch.assigneeName = entry.assigneeName ?? null;
+        }
         if (Object.keys(patch).length === 0) continue;
 
         // Bật lại lịch: áp ngày bắt đầu người dùng chọn cho đúng ô này (nếu có) thay vì giữ hạn cũ.

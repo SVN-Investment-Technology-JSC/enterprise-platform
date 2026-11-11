@@ -184,3 +184,42 @@ describe('lọc Lịch sử theo ngày', () => {
     expect(query.mock.calls[0][1]?.[0]).toEqual(new Date('2026-11-10T03:00:00.000Z'));
   });
 });
+
+describe('người phụ trách của lịch', () => {
+  function pool() {
+    const query = jest.fn(async (_sql: string, _params?: unknown[]) => ({
+      rows: [{ id: 'sch-1', code: 'SCH-1', title: 'Bảo trì', asset_code: 'MBA-T1', frequency: 'week', priority: 'Normal', status: 'active', start_date: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', created_at: new Date(), updated_at: new Date(), next_due_at: new Date(), assignee_id: '11111111-1111-4111-8111-111111111111', assignee_name: 'Tài' }],
+      rowCount: 1,
+    }));
+    const store = new PostgresMaintenanceStore(
+      { require: () => ({ tenantId: 'tenant' }) } as unknown as TenantDatabaseRegistry,
+      { forTenant: async () => ({ query }) } as unknown as PostgresPoolRegistry,
+      'http://procedure.test',
+    );
+    return { store, query };
+  }
+
+  it('tạo lịch ghi người phụ trách; id không phải uuid thì thành NULL', async () => {
+    const { store, query } = pool();
+    await store.createSchedule('tenant', { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20', assigneeId: '11111111-1111-4111-8111-111111111111', assigneeName: ' Tài ' });
+    expect(query.mock.calls[0][1]?.slice(-2)).toEqual(['11111111-1111-4111-8111-111111111111', 'Tài']);
+    query.mockClear();
+    await store.createSchedule('tenant', { assetCode: 'MBA-T1', frequency: 'week', startDate: '2026-11-20', assigneeId: 'khong-phai-uuid', assigneeName: 'X' });
+    expect(query.mock.calls[0][1]?.slice(-2)).toEqual([null, null]);
+  });
+
+  it('cập nhật: không có khoá assigneeId thì giữ nguyên, có null thì bỏ', async () => {
+    const { store, query } = pool();
+    await store.updateSchedule('tenant', 'sch-1', { priority: 'High' });
+    expect(query.mock.calls[0][1]?.[7]).toBe(false);
+    query.mockClear();
+    await store.updateSchedule('tenant', 'sch-1', { assigneeId: null });
+    expect(query.mock.calls[0][1]?.slice(7)).toEqual([true, null, null]);
+  });
+
+  it('lịch đọc ra mang người phụ trách', async () => {
+    const { store } = pool();
+    const saved = await store.updateSchedule('tenant', 'sch-1', { priority: 'High' });
+    expect(saved).toMatchObject({ assigneeId: '11111111-1111-4111-8111-111111111111', assigneeName: 'Tài' });
+  });
+});
