@@ -8,6 +8,7 @@ import {
   FileJson,
   FilePen,
   Images,
+  ListChecks,
   Plus,
   SearchX,
   Trash2,
@@ -353,6 +354,60 @@ export function IconLibraryPage() {
   const actionBtn = cn(RAISED, 'px-2.5');
   const total = library.docs.length;
 
+  // Thao tác hàng loạt nằm ngay trong thanh tiêu đề của khối icon (chỗ trống giữa tiêu đề và bộ đếm): hiện ra khi có icon được
+  // chọn mà không đẩy nội dung xuống, nên chọn icon không làm trang nhảy. Màn hình hẹp chỉ còn biểu tượng (nhãn vẫn là tên nút).
+  const bulkToolbar =
+    picked.length > 0 ? (
+      <div className="flex min-w-0 items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs" data-testid="bulk-bar">
+        <span className="shrink-0 whitespace-nowrap px-1 font-medium text-blue-900">Đã chọn {picked.length}</span>
+        {slice.pages > 1 && picked.length < visible.length ? (
+          <Hint label={`Chọn cả ${visible.length} icon`}>
+            <Button aria-label={`Chọn cả ${visible.length} icon`} className="rounded-md" onClick={selectAllVisible} size="sm" variant="ghost">
+              <ListChecks aria-hidden />
+              <span className="max-xl:hidden">Chọn cả {visible.length} icon</span>
+            </Button>
+          </Hint>
+        ) : null}
+        <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-blue-200" />
+        <Hint label="Xuất">
+          <Button aria-label="Xuất" className="rounded-md" onClick={() => setExportDocs(picked)} size="sm" variant="ghost">
+            <Download aria-hidden />
+            <span className="max-xl:hidden">Xuất</span>
+          </Button>
+        </Hint>
+        <Hint label="Phát hành">
+          <Button aria-label="Phát hành" className="rounded-md" onClick={() => setStatusForPicked('published')} size="sm" variant="ghost">
+            <Check aria-hidden />
+            <span className="max-xl:hidden">Phát hành</span>
+          </Button>
+        </Hint>
+        <Hint label="Chuyển nháp">
+          <Button aria-label="Chuyển nháp" className="rounded-md" onClick={() => setStatusForPicked('draft')} size="sm" variant="ghost">
+            <FilePen aria-hidden />
+            <span className="max-xl:hidden">Chuyển nháp</span>
+          </Button>
+        </Hint>
+        <Popconfirm
+          cancelText="Hủy"
+          description={removeDescription}
+          okText={archiving ? 'Lưu trữ' : 'Xoá'}
+          onConfirm={removePicked}
+          placement="bottom-end"
+          title={`${archiving ? 'Lưu trữ' : 'Xoá'} ${picked.length} icon đã chọn?`}
+        >
+          <Hint label={archiving ? 'Lưu trữ' : 'Xoá'}>
+            <Button aria-label={archiving ? 'Lưu trữ' : 'Xoá'} className="rounded-md text-red-600 hover:bg-red-50 hover:text-red-700" size="sm" variant="ghost">
+              <Trash2 aria-hidden />
+              <span className="max-xl:hidden">{archiving ? 'Lưu trữ' : 'Xoá'}</span>
+            </Button>
+          </Hint>
+        </Popconfirm>
+        <IconButton label="Bỏ chọn" onClick={() => setSelected(new Set())}>
+          <X aria-hidden className="size-4" />
+        </IconButton>
+      </div>
+    ) : null;
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -456,47 +511,8 @@ export function IconLibraryPage() {
         view={view}
       />
 
-      {picked.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm shadow-sm" data-testid="bulk-bar">
-          <span className="font-medium text-blue-900">Đã chọn {picked.length}</span>
-          {slice.pages > 1 && picked.length < visible.length ? (
-            <Button className="rounded-md" onClick={selectAllVisible} size="sm" variant="ghost">
-              Chọn cả {visible.length} icon
-            </Button>
-          ) : null}
-          <span aria-hidden className="h-4 w-px bg-blue-200" />
-          <Button className="rounded-md" onClick={() => setExportDocs(picked)} size="sm" variant="ghost">
-            <Download aria-hidden />
-            Xuất
-          </Button>
-          <Button className="rounded-md" onClick={() => setStatusForPicked('published')} size="sm" variant="ghost">
-            <Check aria-hidden />
-            Phát hành
-          </Button>
-          <Button className="rounded-md" onClick={() => setStatusForPicked('draft')} size="sm" variant="ghost">
-            <FilePen aria-hidden />
-            Chuyển nháp
-          </Button>
-          <Popconfirm
-            cancelText="Hủy"
-            description={removeDescription}
-            okText={archiving ? 'Lưu trữ' : 'Xoá'}
-            onConfirm={removePicked}
-            placement="bottom-start"
-            title={`${archiving ? 'Lưu trữ' : 'Xoá'} ${picked.length} icon đã chọn?`}
-          >
-            <Button className="rounded-md text-red-600 hover:bg-red-50 hover:text-red-700" size="sm" variant="ghost">
-              <Trash2 aria-hidden />
-              {archiving ? 'Lưu trữ' : 'Xoá'}
-            </Button>
-          </Popconfirm>
-          <IconButton className="ml-auto" label="Bỏ chọn" onClick={() => setSelected(new Set())}>
-            <X aria-hidden className="size-4" />
-          </IconButton>
-        </div>
-      ) : null}
-
       <Panel
+        toolbar={bulkToolbar}
         actions={
           library.ready && visible.length > 0 ? (
             <>
