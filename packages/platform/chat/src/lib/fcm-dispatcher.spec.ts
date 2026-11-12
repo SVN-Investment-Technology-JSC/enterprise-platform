@@ -192,6 +192,8 @@ describe('FcmPushDispatcher', () => {
   });
 
   it('xoá đúng token của phiên khi logout và xoá toàn bộ token của người dùng khi khoá tài khoản', async () => {
+    const session1 = '44444444-4444-4444-8444-444444444444';
+    const session2 = '55555555-5555-4555-8555-555555555555';
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const db = {
       query: jest.fn(async (sql: string, params?: unknown[]) => {
@@ -204,22 +206,62 @@ describe('FcmPushDispatcher', () => {
 
     await dispatcher.handleSessionRevoked(db as never, {
       userId: RECIPIENT_1,
-      sessionId: 'sess-1',
+      sessionId: session1,
       reason: 'logout',
     });
     expect(calls.at(-1)).toEqual({
       sql: 'DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1 AND session_id = $2',
-      params: [RECIPIENT_1, 'sess-1'],
+      params: [RECIPIENT_1, session1],
     });
 
     await dispatcher.handleSessionRevoked(db as never, {
       userId: RECIPIENT_1,
-      sessionId: 'sess-2',
+      sessionId: session2,
       reason: 'user-disabled',
     });
     expect(calls.at(-1)).toEqual({
       sql: 'DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1',
       params: [RECIPIENT_1],
+    });
+    // Lần gọi thứ hai trên cùng pool không hỏi lại `to_regclass` nhờ bộ nhớ đệm WeakSet.
+    expect(calls.filter((call) => call.sql.includes('to_regclass'))).toHaveLength(1);
+  });
+
+  it('cắt gọn nội dung quá dài để gói tin APNs/FCM luôn dưới ngưỡng 4 KB và bỏ qua userId không phải UUID', async () => {
+    const db = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('to_regclass')) return { rows: [{ relation: 'core_schema.fcm_device_tokens' }] };
+        if (sql.includes('FROM core_schema.fcm_device_tokens t')) {
+          return {
+            rows: [{ id: 'd1', user_id: RECIPIENT_1, token: 'token_recipient_1_aaaa', platform: 'ios' }],
+          };
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+    const sender: FcmMulticastSender = {
+      sendEachForMulticast: jest.fn(async () => [{ success: true }]),
+    };
+    const dispatcher = new FcmPushDispatcher(sender);
+
+    const longEnvelope = notificationEnvelope();
+    const record = (longEnvelope.data as { notification: Record<string, unknown> }).notification;
+    record.title = 'T'.repeat(300);
+    record.body = 'B'.repeat(1200);
+    record.deepLink = `/${'x'.repeat(2000)}`;
+
+    await dispatcher.handleNotificationDelivery(db as never, longEnvelope);
+    const sentMessage = (sender.sendEachForMulticast as jest.Mock).mock.calls[0][1];
+    expect(sentMessage.notification.title).toHaveLength(160);
+    expect(sentMessage.notification.body).toHaveLength(500);
+    expect(sentMessage.data.deepLink).toHaveLength(1024);
+
+    // Sự kiện mang userId không phải UUID không được ép kiểu `::uuid[]` làm hỏng truy vấn PostgreSQL.
+    const invalidUserEnvelope = { ...notificationEnvelope(), userId: 'system-bot' };
+    await expect(dispatcher.handleNotificationDelivery(db as never, invalidUserEnvelope)).resolves.toEqual({
+      sent: 0,
+      removed: 0,
+      failed: 0,
     });
   });
 });

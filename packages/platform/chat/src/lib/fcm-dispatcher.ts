@@ -21,6 +21,15 @@ import { parseMessagePayload, pushMessageFor, type DispatchOutcome } from './pus
 const FCM_APP_NAME = 'enterprise-platform-fcm';
 /** Giới hạn tối đa mỗi lần gọi `sendEachForMulticast` của Firebase Admin SDK. */
 const FCM_MULTICAST_LIMIT = 500;
+/** Giới hạn độ dài tiêu đề, nội dung và đường dẫn để gói tin APNs/FCM luôn dưới ngưỡng 4 KB. */
+const MAX_PUSH_TITLE_LENGTH = 160;
+const MAX_PUSH_BODY_LENGTH = 500;
+const MAX_PUSH_DEEPLINK_LENGTH = 1024;
+
+function truncatePushText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
+}
 
 /** Các mã lỗi Firebase cho biết token đã gỡ cài đặt ứng dụng hoặc không còn tồn tại: xoá ngay khỏi DB. */
 const UNREGISTERED_ERROR_CODES = new Set([
@@ -156,17 +165,19 @@ export class FcmPushDispatcher {
 
     // Gom theo nội dung thông báo: người được @nhắc tên có tiêu đề riêng, còn lại dùng chung một lượt multicast.
     const groups = new Map<string, { readonly message: FcmMessagePayload; readonly records: FcmDeviceTokenRecord[] }>();
-    const deepLink = chatNotificationLink(payload.conversationId);
+    const deepLink = chatNotificationLink(payload.conversationId).slice(0, MAX_PUSH_DEEPLINK_LENGTH);
     for (const device of devices) {
       const chatNotice = pushMessageFor(payload, device.userId);
-      const groupKey = `${chatNotice.title}\n${chatNotice.body}`;
+      const title = truncatePushText(chatNotice.title, MAX_PUSH_TITLE_LENGTH);
+      const body = truncatePushText(chatNotice.body, MAX_PUSH_BODY_LENGTH);
+      const groupKey = `${title}\n${body}`;
       const existing = groups.get(groupKey);
       if (existing) {
         existing.records.push(device);
       } else {
         groups.set(groupKey, {
           message: {
-            notification: { title: chatNotice.title, body: chatNotice.body },
+            notification: { title, body },
             data: {
               type: 'chat.message',
               module: 'chat',
@@ -218,8 +229,8 @@ export class FcmPushDispatcher {
     const { notification } = parsed;
     const message: FcmMessagePayload = {
       notification: {
-        title: notification.title,
-        body: notification.body,
+        title: truncatePushText(notification.title, MAX_PUSH_TITLE_LENGTH),
+        body: truncatePushText(notification.body, MAX_PUSH_BODY_LENGTH),
       },
       data: {
         type: envelope.event,
@@ -228,7 +239,7 @@ export class FcmPushDispatcher {
         category: notification.category,
         sourceType: notification.sourceType,
         targetId: notification.sourceId,
-        deepLink: notification.deepLink ?? '',
+        deepLink: (notification.deepLink ?? '').slice(0, MAX_PUSH_DEEPLINK_LENGTH),
       },
     };
 

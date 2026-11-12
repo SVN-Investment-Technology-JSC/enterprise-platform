@@ -297,11 +297,10 @@ void chatPushConsumer
       async () => {
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
         // Chat là của core nên không kiểm phân hệ; nhận trùng (giao lại) thì bỏ qua để không báo hai lần.
+        // Chạy tuần tự trên cùng pool (mặc định 4 kết nối/tenant) để không tranh chấp kết nối với IdempotentInbox.
         await new IdempotentInbox(pool, CHAT_PUSH_QUEUE).process(event, async () => {
-          await Promise.all([
-            chatPush.handle(pool, event.payload),
-            fcmPush.handleChatMessage(pool, event.payload),
-          ]);
+          await chatPush.handle(pool, event.payload);
+          await fcmPush.handleChatMessage(pool, event.payload);
         });
       },
       { mode: 'shared' },

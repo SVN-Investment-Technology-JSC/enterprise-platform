@@ -13,11 +13,21 @@ export interface FcmDeviceTokenRecord {
   readonly platform: FcmPlatform;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const readyPools = new WeakSet<ChatDb>();
+
+function isUuid(value: string | null | undefined): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
 export async function fcmTableReady(db: ChatDb): Promise<boolean> {
+  if (readyPools.has(db)) return true;
   const result = await db.query<{ relation: string | null }>(
     `SELECT to_regclass('core_schema.fcm_device_tokens')::text AS relation`,
   );
-  return Boolean(result.rows[0]?.relation);
+  const ready = Boolean(result.rows[0]?.relation);
+  if (ready) readyPools.add(db);
+  return ready;
 }
 
 /**
@@ -77,6 +87,7 @@ export async function deleteFcmDeviceToken(
     readonly deviceId?: string | null;
   },
 ): Promise<number> {
+  if (!isUuid(input.userId) || !(await fcmTableReady(db))) return 0;
   if (input.token) {
     const result = await db.query(
       `DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1 AND token = $2`,
@@ -91,7 +102,7 @@ export async function deleteFcmDeviceToken(
     );
     return result.rowCount ?? 0;
   }
-  if (input.sessionId) {
+  if (isUuid(input.sessionId)) {
     const result = await db.query(
       `DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1 AND session_id = $2`,
       [input.userId, input.sessionId],
@@ -106,10 +117,12 @@ export async function revokeFcmDeviceTokens(
   db: ChatDb,
   input: { readonly userId: string; readonly sessionId: string; readonly reason: string },
 ): Promise<number> {
+  if (!isUuid(input.userId)) return 0;
   if (input.reason === 'user-deleted' || input.reason === 'user-disabled') {
     const result = await db.query(`DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1`, [input.userId]);
     return result.rowCount ?? 0;
   }
+  if (!isUuid(input.sessionId)) return 0;
   const result = await db.query(
     `DELETE FROM core_schema.fcm_device_tokens WHERE user_id = $1 AND session_id = $2`,
     [input.userId, input.sessionId],
@@ -118,7 +131,7 @@ export async function revokeFcmDeviceTokens(
 }
 
 export async function countUserFcmTokens(db: ChatDb, userId: string): Promise<number> {
-  if (!(await fcmTableReady(db))) return 0;
+  if (!isUuid(userId) || !(await fcmTableReady(db))) return 0;
   const result = await db.query<{ total: number }>(
     `SELECT count(*)::int AS total FROM core_schema.fcm_device_tokens WHERE user_id = $1`,
     [userId],
@@ -128,13 +141,14 @@ export async function countUserFcmTokens(db: ChatDb, userId: string): Promise<nu
 
 /** Danh sách FCM token của những người nhận đang hoạt động. */
 export async function fcmTokensOf(db: ChatDb, userIds: readonly string[]): Promise<FcmDeviceTokenRecord[]> {
-  if (userIds.length === 0) return [];
+  const validUserIds = userIds.filter(isUuid);
+  if (validUserIds.length === 0) return [];
   const result = await db.query<{ id: string; user_id: string; token: string; platform: FcmPlatform }>(
     `SELECT t.id, t.user_id, t.token, t.platform
        FROM core_schema.fcm_device_tokens t
        JOIN core_schema.users u ON u.id = t.user_id AND u.status = 'active' AND u.is_active
       WHERE t.user_id = ANY($1::uuid[])`,
-    [userIds],
+    [validUserIds],
   );
   return result.rows.map((row) => ({
     id: row.id,
