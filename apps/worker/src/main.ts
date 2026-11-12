@@ -86,6 +86,8 @@ import { createMaintenanceJobs } from '@enterprise-platform/module-maintenance';
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
+  FcmPushDispatcher,
+  firebaseAdminSender,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
 import type { Pool } from 'pg';
@@ -176,13 +178,18 @@ const crmConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: CRM_INTEGRATION_QUEUE, bindings: [...CRM_INTEGRATION_BINDINGS] },
 );
-// Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Khoá VAPID lấy theo
-// từng công ty (biến môi trường WEB_PUSH_VAPID_* nếu có, không thì cặp khoá tự sinh trong DB công ty).
+// Thông báo đẩy (Web Push trình duyệt + FCM di động) của chat nội bộ core và các thông báo nghiệp vụ ERP.
 const CHAT_PUSH_QUEUE = 'core.chat.push.v1';
+const FCM_PUSH_QUEUE = 'core.fcm.push.v1';
 const chatPush = new ChatPushDispatcher(webPushSender());
+const fcmPush = new FcmPushDispatcher(firebaseAdminSender());
 const chatPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: CHAT_PUSH_QUEUE,
   bindings: [CORE_CHAT_MESSAGE_EVENT],
+});
+const fcmPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
+  queue: FCM_PUSH_QUEUE,
+  bindings: ['notification.delivery.v1', 'identity.session.revoked'],
 });
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
@@ -290,8 +297,10 @@ void chatPushConsumer
       async () => {
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
         // Chat là của core nên không kiểm phân hệ; nhận trùng (giao lại) thì bỏ qua để không báo hai lần.
+        // Chạy tuần tự trên cùng pool (mặc định 4 kết nối/tenant) để không tranh chấp kết nối với IdempotentInbox.
         await new IdempotentInbox(pool, CHAT_PUSH_QUEUE).process(event, async () => {
           await chatPush.handle(pool, event.payload);
+          await fcmPush.handleChatMessage(pool, event.payload);
         });
       },
       { mode: 'shared' },
@@ -302,6 +311,34 @@ void chatPushConsumer
   .catch((error) =>
     console.error(
       'Chat push consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void fcmPushConsumer
+  .start(async (event) => {
+    const database = await activeTenantDatabase(event.tenantId);
+    if (!database) return;
+    const outcome = await withActiveTenant(
+      platformPool,
+      event.tenantId,
+      async () => {
+        const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+        await new IdempotentInbox(pool, FCM_PUSH_QUEUE).process(event, async () => {
+          if (event.type === 'identity.session.revoked') {
+            await fcmPush.handleSessionRevoked(pool, event.payload);
+            return;
+          }
+          await fcmPush.handleNotificationDelivery(pool, event.payload);
+        });
+      },
+      { mode: 'shared' },
+    );
+    if (!outcome.executed && outcome.reason === 'busy')
+      throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+  })
+  .catch((error) =>
+    console.error(
+      'FCM push consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -862,6 +899,7 @@ async function shutdown() {
     socialConsumer.close(),
     crmConsumer.close(),
     chatPushConsumer.close(),
+    fcmPushConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),
