@@ -176,6 +176,7 @@ services:
       # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -478,6 +479,7 @@ services:
       # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
