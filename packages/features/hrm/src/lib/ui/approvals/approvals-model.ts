@@ -1,5 +1,5 @@
 /** Kiểu dữ liệu và hàm thuần cho màn Đơn từ cần xử lý: phân loại tab, chỉ số, nhãn, lọc, phân trang. */
-import { formatDateTime } from '@enterprise-platform/shared-ui';
+import { currentMonthInVietnam, formatDateTime } from '@enterprise-platform/shared-ui';
 import { isPendingStatus, type ApprovalSource } from '../../hrm-approval-kinds';
 import { reasonCell, requestReasonView } from '../../request-reason-form';
 import { procedureFieldsOf } from '../../procedure-progress-view';
@@ -204,7 +204,7 @@ export interface ApprovalCounts {
 }
 
 export function approvalCounts(rows: readonly Row[], a: ActionAbility, now: Date = new Date()): ApprovalCounts {
-  const month = now.toISOString().slice(0, 7);
+  const month = currentMonthInVietnam(now);
   return {
     all: rows.length,
     mine: rows.filter((r) => isMine(r, a)).length,
@@ -232,7 +232,7 @@ export function filterApprovals(rows: readonly Row[], f: ApprovalFilter, a: Acti
     if (f.tab === 'PROCESSING' && !isProcessing(r, a)) return false;
     if (f.tab === 'DONE' && !isDone(r)) return false;
     if (f.tab === 'OVERDUE' && !isOverdue(r, now)) return false;
-    if (f.tab === 'DONE_MONTH' && !(isDone(r) && decidedAt(r).slice(0, 7) === now.toISOString().slice(0, 7))) return false;
+    if (f.tab === 'DONE_MONTH' && !(isDone(r) && decidedAt(r).slice(0, 7) === currentMonthInVietnam(now))) return false;
     if (f.kind && r.source.kind !== f.kind) return false;
     if (f.department && r.department !== f.department) return false;
     if (f.status && (f.status === 'PENDING' ? !isPendingStatus(r.status) : r.status !== f.status)) return false;

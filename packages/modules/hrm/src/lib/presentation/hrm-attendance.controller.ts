@@ -33,6 +33,7 @@ import {
   Req,
   UseInterceptors,
 } from '@nestjs/common';
+import { HrmPublicRoute } from '../infrastructure/hrm-access.guard.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import { parseCorrectionPunches } from '../domain/correction-punches.js';
 import type { Request } from 'express';
@@ -351,22 +352,25 @@ export class HrmAttendanceController {
     };
   }
 
+  @HrmPublicRoute()
   @Post('internal/attendance/ingest')
   async ingestAttendance(
     @Req() req: Request,
     @Body() body: IngestAttendanceRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
-      req,
-      'hrm.attendance.import',
+    const { pool, tenantId } = await this.ctx.serviceContext(req);
+    const row = await ingestEvent(
+      pool,
+      tenantId,
+      '00000000-0000-4000-8000-000000000004',
+      {
+        employeeId: body.employeeId,
+        kind: body.kind,
+        occurredAt: body.occurredAt,
+        source: body.source,
+        externalEventId: body.externalEventId || '',
+      },
     );
-    const row = await ingestEvent(pool, tenantId, principal.userId, {
-      employeeId: body.employeeId,
-      kind: body.kind,
-      occurredAt: body.occurredAt,
-      source: body.source,
-      externalEventId: body.externalEventId || '',
-    });
     return {
       data: this.mapAttendance(row),
       meta: { requestId: req.headers['x-request-id'] },

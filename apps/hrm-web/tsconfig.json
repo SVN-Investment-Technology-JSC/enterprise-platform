@@ -50,9 +50,6 @@
     },
     {
       "path": "../../packages/features/hrm"
-    },
-    {
-      "path": "../../packages/contracts/hrm"
     }
   ]
 }

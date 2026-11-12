@@ -12,7 +12,7 @@ import {
   Settings,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
-import { Popconfirm, formatDateTime, formatMonth } from '@enterprise-platform/shared-ui';
+import { Popconfirm, currentMonthInVietnam, formatDateTime, formatMonth } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatDateVn } from '../personnel-decision-rules';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -541,7 +541,7 @@ export default function OperationsScreen() {
                     key: 'fromMonth',
                     label: 'Tháng bắt đầu tích phép',
                     type: 'month',
-                    value: data.settings?.from_month || new Date().toISOString().slice(0, 7),
+                    value: data.settings?.from_month || currentMonthInVietnam(),
                   },
                   {
                     key: 'timezone',

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plane, Plus, Trash2 } from 'lucide-react';
 import type { HrmTripAllowanceRate } from '@enterprise-platform/contracts-hrm';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { formatMoneyVnd } from '../hrm-salary-format';
 import { Button } from './button';
@@ -22,7 +22,7 @@ const TRIP_TYPE_OPTIONS = (Object.keys(TRIP_TYPE_LABEL) as HrmTripAllowanceRate[
 }));
 
 const vnDate = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayInVietnam();
 
 /**
  * Mức công tác phí mỗi ngày theo hình thức công tác, có phiên bản theo ngày hiệu lực. Công tác phí được tính khi tính

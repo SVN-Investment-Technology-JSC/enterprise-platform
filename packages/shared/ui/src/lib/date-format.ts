@@ -57,3 +57,15 @@ export function formatDateRange(
 ): string {
   return `${formatDate(from, openText)} - ${formatDate(to, openText)}`;
 }
+
+const VIETNAM_OFFSET_MS = 7 * 3_600_000;
+
+/** Ngày hôm nay theo giờ Việt Nam (UTC+7) dạng `YYYY-MM-DD`. */
+export function todayInVietnam(now: Date = new Date()): string {
+  return new Date(now.getTime() + VIETNAM_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Tháng hiện tại theo giờ Việt Nam (UTC+7) dạng `YYYY-MM`. */
+export function currentMonthInVietnam(now: Date = new Date()): string {
+  return new Date(now.getTime() + VIETNAM_OFFSET_MS).toISOString().slice(0, 7);
+}

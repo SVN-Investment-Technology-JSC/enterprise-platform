@@ -36,6 +36,7 @@ import {
   type TransportFieldValue,
   fromLocalInput,
   toTransportPayload,
+  todayInVietnam,
   transportError,
 } from '@enterprise-platform/shared-ui';
 import { Button } from './button';
@@ -461,8 +462,8 @@ export function CreateRequestForm({
   );
 
   // State form nhập liệu chung & từng loại đơn
-  const [fromDate, setFromDate] = useState(() => start.fromDate ?? new Date().toISOString().slice(0, 10));
-  const [toDate, setToDate] = useState(() => start.toDate ?? new Date().toISOString().slice(0, 10));
+  const [fromDate, setFromDate] = useState(() => start.fromDate ?? todayInVietnam());
+  const [toDate, setToDate] = useState(() => start.toDate ?? todayInVietnam());
   const [leaveStartTime, setLeaveStartTime] = useState((kind === 'leave' && start.startTime) || '07:30');
   const [leaveEndTime, setLeaveEndTime] = useState((kind === 'leave' && start.endTime) || '17:00');
   // Người dùng đã tự sửa giờ (hoặc giờ được điền sẵn): không tự điền lại theo ca của nhân viên nữa.

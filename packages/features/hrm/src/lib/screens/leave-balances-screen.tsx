@@ -8,7 +8,7 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { Popover } from '@base-ui/react/popover';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, todayInVietnam } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
   ChevronDown,
@@ -171,7 +171,7 @@ type BalanceState = {
   readonly title: string;
 };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayInVietnam();
 
 /** Trạng thái ưu tiên lý do cần lưu ý nhất, rồi mới đến tình trạng số dư. */
 function getBalanceState(row: Row): BalanceState {

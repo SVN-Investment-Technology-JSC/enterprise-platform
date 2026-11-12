@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Loader2, MessageSquare, Paperclip, Send, X } from 'lucide-react';
 import type { HrmMentionCandidate, HrmRequestComment } from '@enterprise-platform/contracts-hrm';
-import { useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
+import { toast, useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
 import { HrmApiError, hrmFetch } from '../../hrm-api';
 import { uploadHrmAttachment } from '../../hrm-attachment-upload';
 import { Button } from '../button';
@@ -340,7 +340,7 @@ export function RequestThread({
                                   const res = await hrmFetch<{ data: { url: string } }>(`/attachments/${att.id}/download`);
                                   if (res.data?.url) window.open(res.data.url, '_blank');
                                 } catch {
-                                  alert('Không thể tải tệp đính kèm.');
+                                  toast.error('Không thể tải tệp đính kèm.');
                                 }
                               }}
                             >

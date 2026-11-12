@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
-    "@enterprise-platform/contracts-hrm": "workspace:*",
     "@enterprise-platform/feature-hrm": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@swc/helpers": "0.5.23",

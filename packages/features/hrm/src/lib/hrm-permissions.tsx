@@ -10,6 +10,7 @@ import {
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import {
   HRM_PERMISSIONS_INVALIDATED_EVENT,
+  HrmApiError,
   hrmFetch,
 } from './hrm-api';
 import { hubPagePermissions } from './hrm-hub-tabs';
@@ -51,8 +52,14 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
                 },
           );
       } catch (error) {
-        if (active)
-          setState({
+        if (!active) return;
+        const revoked =
+          error instanceof HrmApiError &&
+          (error.status === 401 || error.status === 403);
+        setState((prev) => {
+          // Lỗi tạm thời (503, mất mạng) khi đã có quyền trước đó: giữ nguyên phiên làm việc để không unmount form đang nhập.
+          if (!revoked && prev.actions.length > 0) return prev;
+          return {
             actions: [],
             displayName: '',
             loading: false,
@@ -60,7 +67,8 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
               error instanceof Error
                 ? error.message
                 : 'Không tải được quyền HRM',
-          });
+          };
+        });
       }
     }
     let lastAt = Date.now();

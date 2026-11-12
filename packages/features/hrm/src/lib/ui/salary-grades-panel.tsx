@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Layers, ListOrdered, Loader2, Plus } from 'lucide-react';
 import type { HrmSalaryGrade, HrmSalaryGradeStep } from '@enterprise-platform/contracts-hrm';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
 import { formatMoneyVnd } from '../hrm-salary-format';
@@ -15,7 +15,7 @@ import { EmptyPanel, IconTile, InfoNote, SettingsField, StatusPill } from './set
 import { ActionMenu, DataList, type ActionItem, type DataColumn } from './payroll-settings/data-rows';
 import { toast } from './toast';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayInVietnam();
 
 /** Đổi trạng thái (Ngừng/Kích hoạt) và xóa một ngạch hoặc bậc: cùng API và xác nhận như bản cũ. */
 function lifecycleItems({

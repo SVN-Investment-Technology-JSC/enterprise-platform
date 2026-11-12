@@ -58,7 +58,6 @@
     "infra:up": "docker compose --env-file .env -f infrastructure/docker/compose.local.yml up -d",
     "infra:down": "docker compose --env-file .env -f infrastructure/docker/compose.local.yml down",
     "db:provision": "nx run migrator:serve:development --watch=false --inspect=false",
-    "seed:hrm": "node scripts/seed-hrm-demo.mjs",
     "graph": "nx graph",
     "start:web": "nx start web",
     "format:check": "nx format:check",

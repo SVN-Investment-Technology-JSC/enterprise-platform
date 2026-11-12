@@ -36,6 +36,7 @@ import { toast } from '../ui/toast';
 import {
   SearchableSelect,
   type SearchableSelectOption,
+  todayInVietnam,
 } from '@enterprise-platform/shared-ui';
 
 /** Số nhân viên mỗi trang của danh sách. */
@@ -343,7 +344,7 @@ export default function EmployeesManagementPage() {
       downloadEmployeesXlsx(
         rows,
         employmentLabels,
-        `danh-sach-nhan-vien-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        `danh-sach-nhan-vien-${todayInVietnam()}.xlsx`,
       );
       toast.success(`Đã xuất ${rows.length} nhân viên`);
     } catch (err) {

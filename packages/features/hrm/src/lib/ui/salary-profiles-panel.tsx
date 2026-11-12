@@ -6,7 +6,7 @@ import type {
   HrmSalaryGrade,
   HrmSalaryGradeStep,
 } from '@enterprise-platform/contracts-hrm';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { hrmEmployeeOptions, hrmFetch } from '../hrm-api';
 import {
   SALARY_PROFILE_STATUS_LABELS,
@@ -39,7 +39,7 @@ const SALARY_TYPE_OPTIONS = [
   { value: 'NET', label: SALARY_TYPE_LABELS.NET },
 ];
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayInVietnam();
 
 function dateVn(value?: string | null) {
   if (!value) return '----';
