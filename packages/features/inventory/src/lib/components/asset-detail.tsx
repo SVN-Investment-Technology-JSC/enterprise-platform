@@ -24,7 +24,7 @@ import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
 import { SparePartPanel } from './spare-part-panel';
 import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
-import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { Folder, Link2, Printer, X } from 'lucide-react';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -436,50 +436,28 @@ export function AssetDetail({
                   <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                     Trạng thái vận hành
                   </label>
-                  <select
-                    style={{
-                      fontSize: '14px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+                  <SearchableSelect
                     value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as typeof asset.status)}
-                  >
-                    {Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEditStatus(val as typeof asset.status)}
+                    options={Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => ({
+                      value: val,
+                      label: lbl,
+                    }))}
+                  />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                     Độ quan trọng
                   </label>
-                  <select
-                    style={{
-                      fontSize: '14px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+                  <SearchableSelect
                     value={editCriticality}
-                    onChange={(e) => setEditCriticality(e.target.value as typeof asset.criticality)}
-                  >
-                    {Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEditCriticality(val as typeof asset.criticality)}
+                    options={Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => ({
+                      value: val,
+                      label: lbl,
+                    }))}
+                  />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

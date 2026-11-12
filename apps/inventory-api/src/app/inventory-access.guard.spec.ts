@@ -52,6 +52,10 @@ describe('inventory module capabilities', () => {
     const { guard, context } = setup(['inventory.read', 'inventory.transaction.write'], '/materials');
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
   });
+  it('does not bypass inventory.manage when asset code matches transaction path segment', async () => {
+    const { guard, context } = setup(['inventory.read', 'inventory.transaction.write'], '/assets/receipts', 'PATCH');
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+  });
   it('allows read requests without write capabilities', async () => {
     const { guard, context, request } = setup(['inventory.read'], '/materials', 'GET');
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -89,5 +93,18 @@ describe('inventory module capabilities', () => {
     const reader = setup(['inventory.read'], '/serials/SN001/history', 'GET');
     await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
     expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
+  });
+  it('stocktakes: writing needs transaction.write, approving/rejecting needs stocktake.approve', async () => {
+    const writer = ['inventory.read', 'inventory.transaction.write'];
+    const create = setup(writer, '/stocktakes');
+    await expect(create.guard.canActivate(create.context)).resolves.toBe(true);
+    const submit = setup(writer, '/stocktakes/st-1/submit');
+    await expect(submit.guard.canActivate(submit.context)).resolves.toBe(true);
+    const approveDenied = setup(writer, '/stocktakes/st-1/approve');
+    await expect(approveDenied.guard.canActivate(approveDenied.context)).rejects.toMatchObject({ status: 403 });
+
+    const approver = setup(['inventory.read', 'inventory.stocktake.approve'], '/stocktakes/st-1/approve');
+    await expect(approver.guard.canActivate(approver.context)).resolves.toBe(true);
+    expect(approver.request.inventoryActor).toMatchObject({ canApproveStocktake: true });
   });
 });

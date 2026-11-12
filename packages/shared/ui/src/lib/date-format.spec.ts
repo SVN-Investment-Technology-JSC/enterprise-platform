@@ -1,9 +1,11 @@
 import {
+  currentMonthInVietnam,
   formatDate,
   formatDateRange,
   formatDateTime,
   formatMonth,
   formatTime,
+  todayInVietnam,
 } from './date-format';
 
 describe('date-format', () => {
@@ -30,5 +32,12 @@ describe('date-format', () => {
     expect(formatDate(null, '—')).toBe('—');
     expect(formatDate('không phải ngày', '—')).toBe('—');
     expect(formatDate('')).toBe('');
+  });
+
+  it('computes today and current month in Vietnam timezone (UTC+7)', () => {
+    // 2026-10-01 18:30:00 UTC = 2026-10-02 01:30:00 Vietnam
+    const earlyMorningVn = new Date('2026-10-01T18:30:00.000Z');
+    expect(todayInVietnam(earlyMorningVn)).toBe('2026-10-02');
+    expect(currentMonthInVietnam(new Date('2026-09-30T18:30:00.000Z'))).toBe('2026-10');
   });
 });

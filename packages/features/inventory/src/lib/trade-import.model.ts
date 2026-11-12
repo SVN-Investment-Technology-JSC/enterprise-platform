@@ -1,5 +1,10 @@
 import type { ImportMaterialRow, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
-import * as XLSX from 'xlsx';
+import {
+  downloadXlsxWorkbook,
+  parseExcelFileInWorker,
+  recordsToSheetRows,
+  sheetRowsToRecords,
+} from './excel-io';
 import { categoriesOf, fold, type TradeGroup } from './trade-items.model';
 
 /**
@@ -59,10 +64,10 @@ export interface ImportSheet {
 }
 
 export async function readImportSheet(file: File): Promise<ImportSheet> {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) return { headers: [], rows: [] };
-  return sheetFromRecords(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }));
+  const parsed = await parseExcelFileInWorker(file);
+  const firstSheet = parsed.sheetNames[0];
+  if (!firstSheet) return { headers: [], rows: [] };
+  return sheetFromRecords(sheetRowsToRecords(parsed.sheets[firstSheet] ?? []));
 }
 
 export function sheetFromRecords(records: readonly Record<string, unknown>[]): ImportSheet {
@@ -329,11 +334,13 @@ export function unimportedRecords(sheet: ImportSheet, lines: readonly number[]):
 }
 
 export function downloadUnimported(sheet: ImportSheet, lines: readonly number[], sourceName: string): void {
-  const ws = XLSX.utils.json_to_sheet(unimportedRecords(sheet, lines), { header: [...sheet.headers] });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   const base = sourceName.replace(/\.[^.]+$/, '') || 'tep';
-  XLSX.writeFile(wb, `${base}_chua_nhap.xlsx`);
+  void downloadXlsxWorkbook(`${base}_chua_nhap.xlsx`, [
+    {
+      name: 'Sheet1',
+      rows: recordsToSheetRows(unimportedRecords(sheet, lines), [...sheet.headers]),
+    },
+  ]);
 }
 
 /** Giá trị phân loại và sử dụng chưa khai trong Cài đặt, kèm danh sách người tạo, để màn hình hỏi người dùng. */

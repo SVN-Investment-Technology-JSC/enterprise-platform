@@ -22,26 +22,26 @@ interface InventoryRequest extends Request {
 function requiredInventoryPermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
-  const path = request.path;
+  const path = request.path.replace(/^\/api\/inventory/, '').replace(/^\/v\d+/, '');
   // Đổi trạng thái chất lượng lô, serial (Cách ly, Lỗi, Chờ kiểm định): quyền
   // riêng của người kiểm định, không đi theo quyền ghi phát sinh tồn kho.
-  if (/\/(lots|serials)\/[^/]+\/quality\/?$/.test(path)) {
+  if (/^\/(lots|serials)\/[^/]+\/quality\/?$/.test(path)) {
     return 'inventory.quality.write';
   }
 
   // Duyệt, từ chối chứng từ kho: quyền riêng, người duyệt không nhất thiết là thủ kho.
-  if (/\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
+  if (/^\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
     return 'inventory.document.approve';
   }
 
-  // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư, chứng từ kho.
-  if (
-    path.includes('/stock-documents') ||
-    path.includes('/receipts') ||
-    path.includes('/issues') ||
-    path.includes('/transfers') ||
-    path.includes('/reservations')
-  ) {
+  // Duyệt, ghi sổ hoặc trả lại đợt kiểm kê: quyền riêng `inventory.stocktake.approve`.
+  if (/^\/stocktakes\/[^/]+\/(approve|reject)\/?$/.test(path)) {
+    return 'inventory.stocktake.approve';
+  }
+
+  // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư, chứng từ kho, kiểm kê.
+  // Neo đầu path để tránh lách quyền qua mã đối tượng (VD: PATCH /v1/assets/receipts).
+  if (/^\/(stock-documents|stocktakes|receipts|issues|transfers|reservations)(\/|$)/.test(path)) {
     return 'inventory.transaction.write';
   }
 
@@ -91,9 +91,11 @@ export class InventoryAccessGuard implements CanActivate {
             ? 'Bạn không có quyền ghi phát sinh tồn kho.'
             : required === 'inventory.document.approve'
               ? 'Bạn không có quyền duyệt chứng từ kho.'
-              : required === 'inventory.quality.write'
-                ? 'Bạn không có quyền đổi trạng thái chất lượng hàng.'
-                : 'Bạn không có quyền sửa danh mục kho.',
+              : required === 'inventory.stocktake.approve'
+                ? 'Bạn không có quyền duyệt kiểm kê kho.'
+                : required === 'inventory.quality.write'
+                  ? 'Bạn không có quyền đổi trạng thái chất lượng hàng.'
+                  : 'Bạn không có quyền sửa danh mục kho.',
       });
     }
 
@@ -105,6 +107,7 @@ export class InventoryAccessGuard implements CanActivate {
       canManage: tenantActionHeld(held, 'inventory.manage'),
       canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
       canApproveDocuments: tenantActionHeld(held, 'inventory.document.approve'),
+      canApproveStocktake: tenantActionHeld(held, 'inventory.stocktake.approve'),
       canWriteQuality: tenantActionHeld(held, 'inventory.quality.write'),
     };
     return true;
@@ -127,6 +130,7 @@ export class InventoryAccessGuard implements CanActivate {
       canWriteTransactions: true,
       // Dịch vụ không duyệt thay người: chứng từ cần duyệt phải có người duyệt thật.
       canApproveDocuments: false,
+      canApproveStocktake: false,
       // Đổi chất lượng cần người kiểm định thật, có lý do và người chịu trách nhiệm.
       canWriteQuality: false,
     };

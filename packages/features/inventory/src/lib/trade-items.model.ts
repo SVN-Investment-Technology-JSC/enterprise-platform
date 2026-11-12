@@ -4,7 +4,12 @@ import type {
   Material,
 } from '@enterprise-platform/contracts-inventory';
 import { formatCurrencyVn, parseVnNumber } from '@enterprise-platform/shared-ui';
-import * as XLSX from 'xlsx';
+import {
+  downloadXlsxWorkbook,
+  parseExcelFileInWorker,
+  recordsToSheetRows,
+  sheetRowsToRecords,
+} from './excel-io';
 
 /** Nhóm trên trang: dịch vụ không quản lý tồn, còn lại là hàng hóa. */
 export type TradeGroup = 'GOODS' | 'SERVICE';
@@ -184,13 +189,15 @@ export function toExportRows(items: readonly Material[]): Record<string, string 
 }
 
 export function exportTradeItems(items: readonly Material[]): void {
-  const ws = XLSX.utils.json_to_sheet(toExportRows(items));
-  ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'HangHoa');
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  XLSX.writeFile(wb, `Hang_hoa_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
+  void downloadXlsxWorkbook(`Hang_hoa_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`, [
+    {
+      name: 'HangHoa',
+      rows: recordsToSheetRows(toExportRows(items)),
+      colWidths: [16, 40, 18, 12, 20, 10, 18, 14],
+    },
+  ]);
 }
 
 /** Cột của tệp mẫu. Tiêu đề khớp đúng tên trường nên nút Nhập Excel tự ghép cột, không cần chỉnh. */
@@ -278,14 +285,18 @@ export function tradeTemplateGuide(): Record<string, string>[] {
 
 /** Tệp mẫu để người dùng điền rồi nhập lại. */
 export function downloadTradeTemplate(catalog?: InventoryTradeCatalog): void {
-  const ws = XLSX.utils.json_to_sheet(tradeTemplateRows(catalog), { header: [...TEMPLATE_HEADERS] });
-  ws['!cols'] = [16, 34, 16, 12, 18, 10, 24, 14, 14, 16, 34, 18, 12, 18].map((wch) => ({ wch }));
-  const guide = XLSX.utils.json_to_sheet(tradeTemplateGuide());
-  guide['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 100 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'HangHoa');
-  XLSX.utils.book_append_sheet(wb, guide, 'HuongDan');
-  XLSX.writeFile(wb, 'Mau_nhap_hang_hoa.xlsx');
+  void downloadXlsxWorkbook('Mau_nhap_hang_hoa.xlsx', [
+    {
+      name: 'HangHoa',
+      rows: recordsToSheetRows(tradeTemplateRows(catalog), [...TEMPLATE_HEADERS]),
+      colWidths: [16, 34, 16, 12, 18, 10, 24, 14, 14, 16, 34, 18, 12, 18],
+    },
+    {
+      name: 'HuongDan',
+      rows: recordsToSheetRows(tradeTemplateGuide()),
+      colWidths: [14, 10, 100],
+    },
+  ]);
 }
 
 export interface ImportRow {
@@ -371,8 +382,8 @@ export function parseImportRows(
 }
 
 export async function readImportFile(file: File, catalog?: InventoryTradeCatalog): Promise<ImportRow[]> {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) return [];
-  return parseImportRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }), catalog);
+  const parsed = await parseExcelFileInWorker(file);
+  const firstSheet = parsed.sheetNames[0];
+  if (!firstSheet) return [];
+  return parseImportRows(sheetRowsToRecords(parsed.sheets[firstSheet] ?? []), catalog);
 }

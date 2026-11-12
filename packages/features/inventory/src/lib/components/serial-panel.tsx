@@ -3,7 +3,7 @@ import { useInventoryPermissions } from '../inventory-permissions';
 
 import type { Material, SerialTracking } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
-import { toast } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { loadSerials, registerSerials, updateSerial } from '../inventory-api';
 import { ASSET_STATUS_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
@@ -120,43 +120,39 @@ export function SerialPanel({
               <tr key={row.id}>
                 <td className={styles.code}>{row.serialNumber}</td>
                 <td>
-                  <select
+                  <SearchableSelect
                     value={row.currentStatus}
                     disabled={disabled}
                     aria-label={`Tình trạng của ${row.serialNumber}`}
-                    onChange={(event) =>
-                      void patch(row.serialNumber, { currentStatus: event.target.value })
+                    onChange={(value) =>
+                      void patch(row.serialNumber, { currentStatus: value })
                     }
-                  >
-                    {/* Giá trị đang gắn luôn có mặt kể cả khi admin vừa bỏ nó
-                        khỏi danh mục — nếu không, mở ra là ô nhảy sang giá trị
-                        khác và lần đổi kế tiếp ghi đè mất tình trạng thật. */}
-                    {withCurrent(statuses, row.currentStatus).map((status) => (
-                      <option key={status} value={status}>
-                        {ASSET_STATUS_LABEL[status as keyof typeof ASSET_STATUS_LABEL] ?? status}
-                      </option>
-                    ))}
-                  </select>
+                    options={withCurrent(statuses, row.currentStatus).map((status) => ({
+                      value: status,
+                      label:
+                        ASSET_STATUS_LABEL[status as keyof typeof ASSET_STATUS_LABEL] ?? status,
+                    }))}
+                  />
                 </td>
                 <td>
                   {usageStates.length === 0 ? (
                     <span className={styles.muted}>Chưa khai danh mục trong Cài đặt</span>
                   ) : (
-                    <select
+                    <SearchableSelect
                       value={row.locationType}
                       disabled={disabled}
                       aria-label={`Vị trí sử dụng của ${row.serialNumber}`}
-                      onChange={(event) =>
-                        void patch(row.serialNumber, { locationType: event.target.value })
+                      onChange={(value) =>
+                        void patch(row.serialNumber, { locationType: value })
                       }
-                    >
-                      <option value="">— Chưa xác định —</option>
-                      {withCurrent(usageStates, row.locationType).map((state) => (
-                        <option key={state} value={state}>
-                          {state}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: '— Chưa xác định —' },
+                        ...withCurrent(usageStates, row.locationType).map((state) => ({
+                          value: state,
+                          label: state,
+                        })),
+                      ]}
+                    />
                   )}
                 </td>
               </tr>

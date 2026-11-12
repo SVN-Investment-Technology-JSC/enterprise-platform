@@ -112,6 +112,10 @@ export interface InventoryActor {
    */
   readonly canWriteTransactions?: boolean;
   /**
+   * Duyệt và ghi sổ kiểm kê (`inventory.stocktake.approve`). Bỏ trống = suy theo `canManage`.
+   */
+  readonly canApproveStocktake?: boolean;
+  /**
    * Duyệt, từ chối chứng từ kho (`inventory.document.approve`). Bỏ trống = suy
    * theo `canManage`, như `canWriteTransactions`.
    */
@@ -235,12 +239,6 @@ export class InventoryApplication {
     }
     const page = rows.slice(0, normalized.limit);
     return { materials: page, nextCursor: page[page.length - 1].code };
-  }
-
-  /** Phân loại đang dùng trên mặt hàng (lọc khi chọn mặt hàng ở phân hệ khác); mặc định cả hàng hoá và dịch vụ. */
-  async listMaterialTradeCategories(actor: InventoryActor, kinds?: readonly string[]): Promise<{ categories: string[] }> {
-    const normalized = (kinds ?? []).map((kind) => requireMaterialKind(kind) as MaterialKind);
-    return { categories: await this.store.material.tradeCategories(actor.tenantId, normalized.length ? normalized : ['STOCK', 'SERVICE']) };
   }
 
   /**
@@ -793,6 +791,16 @@ export class InventoryApplication {
 
   listRecentTransactions(actor: InventoryActor, limit = 50): Promise<InventoryTransaction[]> {
     return this.store.transaction.listRecent(actor.tenantId, Math.min(Math.max(limit, 1), 200));
+  }
+
+  async listFulfilledRequisitionCodes(
+    actor: InventoryActor,
+    codes: readonly string[],
+  ): Promise<string[]> {
+    if (!this.store.transaction.findFulfilledCodes) return [];
+    const clean = [...new Set(codes.map((c) => c.trim()).filter(Boolean))].slice(0, 200);
+    if (clean.length === 0) return [];
+    return this.store.transaction.findFulfilledCodes(actor.tenantId, clean);
   }
 
   listReservations(actor: InventoryActor): Promise<Reservation[]> {
@@ -1842,7 +1850,6 @@ function normalizeCatalogQuery(query: InternalMaterialCatalogQuery): InternalMat
     codes: codes.length ? codes : undefined,
     warehouseCode: query.warehouseCode?.trim() || undefined,
     kinds: kinds.length ? kinds : undefined,
-    tradeCategory: query.tradeCategory?.trim().slice(0, 100) || undefined,
     limit,
     cursor: query.cursor?.trim() || undefined,
   };

@@ -25,6 +25,10 @@ import {
 import { InventoryReportService } from './application/inventory-report.service.js';
 import { PostgresInventoryReportStore } from './infrastructure/postgres-inventory-report.store.js';
 import { InventoryReportsController } from './presentation/inventory-reports.controller.js';
+import { StocktakeService } from './application/stocktake.service.js';
+import { STOCKTAKE_STORE, type StocktakeStore } from './application/stocktake-store.port.js';
+import { PostgresStocktakeStore } from './infrastructure/postgres-stocktake.store.js';
+import { StocktakeController } from './presentation/stocktake.controller.js';
 import { InventoryController } from './presentation/inventory.controller.js';
 import { InternalCatalogController } from './presentation/internal-catalog.controller.js';
 import { InternalDocumentsController } from './presentation/internal-documents.controller.js';
@@ -41,6 +45,7 @@ import { StockDocumentController } from './presentation/stock-document.controlle
     InternalCatalogController,
     InternalDocumentsController,
     InventoryReportsController,
+    StocktakeController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -108,10 +113,22 @@ import { StockDocumentController } from './presentation/stock-document.controlle
         new AssetDocumentService(references, pools),
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
+    {
+      provide: STOCKTAKE_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresStocktakeStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: StocktakeService,
+      useFactory: (store: StocktakeStore) => new StocktakeService(store),
+      inject: [STOCKTAKE_STORE],
+    },
   ],
   exports: [
     InventoryApplication,
     StockDocumentService,
+    StocktakeService,
     LotService,
     SerialService,
     QualityService,

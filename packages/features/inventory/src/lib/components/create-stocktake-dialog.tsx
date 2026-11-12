@@ -10,7 +10,7 @@ import {
   loadAuditorCandidates,
   type AuditorCandidate,
 } from '../inventory-api';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { useState, useMemo, useEffect } from 'react';
 import {
   X,
@@ -369,10 +369,8 @@ export function CreateStocktakeDialog({
   // Tên đợt kiểm kê - Để trống mặc định cho người dùng tự nhập
   const [title, setTitle] = useState('');
 
-  // Thời gian kiểm kê - Mặc định ngày hôm nay YYYY-MM-DD
-  const [stocktakeDate, setStocktakeDate] = useState(() => {
-    return new Date().toISOString().slice(0, 10);
-  });
+  // Thời gian kiểm kê - Mặc định ngày hôm nay YYYY-MM-DD (giờ Việt Nam)
+  const [stocktakeDate, setStocktakeDate] = useState(() => todayInVietnam());
 
   // Phạm vi kiểm đếm: ALL, CATEGORY, SPECIFIC_ITEMS
   const [scopeType, setScopeType] = useState<StocktakeScopeType>(() =>
@@ -583,7 +581,7 @@ export function CreateStocktakeDialog({
         {
           title: title.trim(),
           warehouseCode,
-          stocktakeDate: stocktakeDate || new Date().toISOString().slice(0, 10),
+          stocktakeDate: stocktakeDate || todayInVietnam(),
           scopeType,
           scopeCategories: scopeType === 'CATEGORY' ? selectedCategories : undefined,
           specificMaterialCodes: specificCodes,

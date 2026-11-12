@@ -18,7 +18,7 @@ import { loadMaterialHistory } from '../inventory-api';
 import { exportStockToExcel } from '../inventory-export';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Ban, Download } from 'lucide-react';
 import styles from '../inventory.module.scss';
 
@@ -410,25 +410,22 @@ export function StockTable({
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>Hiển thị:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '13px',
-                  }}
-                >
-                  <option value={15}>15 / trang</option>
-                  <option value={30}>30 / trang</option>
-                  <option value={45}>45 / trang</option>
-                  <option value={60}>60 / trang</option>
-                  <option value={100}>100 / trang</option>
-                </select>
+                <div style={{ width: '120px' }}>
+                  <SearchableSelect
+                    value={String(pageSize)}
+                    onChange={(val) => {
+                      setPageSize(Number(val));
+                      setCurrentPage(1);
+                    }}
+                    options={[
+                      { value: '15', label: '15 / trang' },
+                      { value: '30', label: '30 / trang' },
+                      { value: '45', label: '45 / trang' },
+                      { value: '60', label: '60 / trang' },
+                      { value: '100', label: '100 / trang' },
+                    ]}
+                  />
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

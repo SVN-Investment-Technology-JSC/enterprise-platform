@@ -24,3 +24,6 @@ export * from './lib/domain/inventory-report.js';
 export * from './lib/application/inventory-report-store.port.js';
 export * from './lib/application/inventory-report.service.js';
 export * from './lib/presentation/inventory-reports.controller.js';
+export * from './lib/application/stocktake.service.js';
+export * from './lib/application/stocktake-store.port.js';
+export * from './lib/presentation/stocktake.controller.js';

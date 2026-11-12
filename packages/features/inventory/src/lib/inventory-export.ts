@@ -5,7 +5,7 @@ import type {
   MaterialInventory,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import * as XLSX from 'xlsx';
+import { downloadXlsxWorkbook, recordsToSheetRows } from './excel-io';
 import type { InventoryLedgerRow } from './inventory-api';
 import {
   ASSET_STATUS_LABEL,
@@ -23,9 +23,9 @@ function getTimestamp(): string {
   )}${padZero(d.getMinutes())}`;
 }
 
-function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, unknown>[]): void {
-  if (data.length === 0) return;
-  const colWidths = Object.keys(data[0]).map((key) => {
+function computeColWidths(data: Record<string, unknown>[]): number[] | undefined {
+  if (data.length === 0) return undefined;
+  return Object.keys(data[0]).map((key) => {
     let maxLen = key.length;
     const sample = data.slice(0, 80);
     for (const row of sample) {
@@ -35,9 +35,8 @@ function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, unknown>[]): vo
         maxLen = strVal.length;
       }
     }
-    return { wch: Math.min(Math.max(maxLen + 3, 10), 45) };
+    return Math.min(Math.max(maxLen + 3, 10), 45);
   });
-  ws['!cols'] = colWidths;
 }
 
 /**
@@ -72,13 +71,14 @@ export function exportStockToExcel(params: {
     };
   });
 
-  const ws = XLSX.utils.json_to_sheet(exportData);
-  autoFitColumns(ws, exportData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'TonKho');
-
   const cleanLabel = warehouseLabel.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, '_');
-  XLSX.writeFile(wb, `Ton_Kho_${cleanLabel}_${getTimestamp()}.xlsx`);
+  void downloadXlsxWorkbook(`Ton_Kho_${cleanLabel}_${getTimestamp()}.xlsx`, [
+    {
+      name: 'TonKho',
+      rows: recordsToSheetRows(exportData),
+      colWidths: computeColWidths(exportData),
+    },
+  ]);
 }
 
 /**
@@ -343,11 +343,6 @@ export function exportCatalogToExcel(params: {
     }
   }
 
-  const ws = XLSX.utils.json_to_sheet(exportRows);
-  autoFitColumns(ws, exportRows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'TonKho_ChiTiet');
-
   const timestamp = getTimestamp();
   let fileName = `Ton_Kho_ngay_${timestamp}.xlsx`;
   if (warehouseFilter && warehouseFilter !== 'all') {
@@ -358,7 +353,13 @@ export function exportCatalogToExcel(params: {
     fileName = `Ton_Kho_${cleanWh}_ngay_${timestamp}.xlsx`;
   }
 
-  XLSX.writeFile(wb, fileName);
+  void downloadXlsxWorkbook(fileName, [
+    {
+      name: 'TonKho_ChiTiet',
+      rows: recordsToSheetRows(exportRows),
+      colWidths: computeColWidths(exportRows),
+    },
+  ]);
 }
 
 /**
@@ -395,10 +396,11 @@ export function exportLedgerToExcel(params: {
     };
   });
 
-  const ws = XLSX.utils.json_to_sheet(exportData);
-  autoFitColumns(ws, exportData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'SoCaiGiaoDich');
-
-  XLSX.writeFile(wb, `Nhat_Ky_Giao_Dich_${getTimestamp()}.xlsx`);
+  void downloadXlsxWorkbook(`Nhat_Ky_Giao_Dich_${getTimestamp()}.xlsx`, [
+    {
+      name: 'SoCaiGiaoDich',
+      rows: recordsToSheetRows(exportData),
+      colWidths: computeColWidths(exportData),
+    },
+  ]);
 }

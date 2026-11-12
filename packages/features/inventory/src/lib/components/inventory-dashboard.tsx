@@ -3,7 +3,7 @@ import {
   resolveDashboardCards,
   type DashboardCardSize,
 } from '@enterprise-platform/feature-module-shell';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
@@ -341,31 +341,24 @@ export function InventoryDashboard({
                 <span>
                   Trang <strong>{safeCurrentPage}</strong> / <strong>{totalPages}</strong> ({ledger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => {
-                      setPageSize(Number(event.target.value) || 5);
-                      setCurrentPage(1);
-                    }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={5}>5 / trang</option>
-                    <option value={10}>10 / trang</option>
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                  </select>
-                </label>
+                  <div style={{ width: '115px' }}>
+                    <SearchableSelect
+                      value={String(pageSize)}
+                      onChange={(val) => {
+                        setPageSize(Number(val) || 5);
+                        setCurrentPage(1);
+                      }}
+                      options={[
+                        { value: '5', label: '5 / trang' },
+                        { value: '10', label: '10 / trang' },
+                        { value: '15', label: '15 / trang' },
+                        { value: '30', label: '30 / trang' },
+                      ]}
+                    />
+                  </div>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button

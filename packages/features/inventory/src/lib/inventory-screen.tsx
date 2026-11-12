@@ -160,9 +160,10 @@ export function InventoryScreen() {
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
   const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
   const canApproveDocuments = workspace?.permissions?.canApproveDocuments ?? false;
+  const canApproveStocktake = workspace?.permissions?.canApproveStocktake ?? false;
   const uiPermissions = useMemo(
-    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments }),
-    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments],
+    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments, canApproveStocktake }),
+    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments, canApproveStocktake],
   );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();

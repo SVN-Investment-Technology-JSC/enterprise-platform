@@ -21,7 +21,7 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { SearchableSelect, VnNumberInput, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, formatDate, CloseGuard, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
 import type {
@@ -197,7 +197,7 @@ function parseSerials(draft: string): string[] {
  * lấy lô Đạt còn hạn; phiếu chuyển mang được cả lô không Đạt (sang kho lỗi).
  */
 function lotChoices(lots: readonly Lot[], warehouseCode: string, kind: string): { lot: Lot; available: number }[] {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInVietnam();
   return lots
     .map((lot) => {
       const balance = lot.balances.find((candidate) => candidate.warehouseCode === warehouseCode);

@@ -1,5 +1,5 @@
 'use client';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 import { formatNoteDates, formatNumber } from '../inventory-labels';
 
@@ -18,8 +18,6 @@ import { MovementDetailDrawer } from './movement-detail-drawer';
 import {
   loadProcedureRequisitions,
   loadProcedureOptions,
-  getFulfilledRequisitionCodes,
-  markRequisitionFulfilled,
 } from '../inventory-api';
 import styles from '../inventory.module.scss';
 
@@ -101,11 +99,9 @@ export function TransactionHub({
     void loadProcedureOptions().then(setProcedures);
   }, [reloadRequisitions]);
 
-  // Lọc các yêu cầu còn hiệu lực: loại trừ yêu cầu đã xuất trong phiên, trong storage, hoặc đã có giao dịch trên sổ cái
+  // Lọc các yêu cầu còn hiệu lực: server đã lọc theo toàn bộ sổ cái, ở đây lọc thêm giao dịch vừa xuất trong phiên
   const _visibleRequisitions = useMemo(() => {
-    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
     return requisitions.filter((req) => {
-      if (fulfilledCodes.has(req.code)) return false;
       if (req.status === 'completed' || req.status === 'cancelled' || req.status === 'rejected') {
         return false;
       }
@@ -116,7 +112,6 @@ export function TransactionHub({
             (tx.note.includes(req.code) || (req.csvFileName && tx.note.includes(req.csvFileName))),
         );
         if (hasTx) {
-          markRequisitionFulfilled(req.code);
           return false;
         }
       }
@@ -302,38 +297,39 @@ export function TransactionHub({
 
           {/* Filters */}
           <div className={styles.filterRow} style={{ marginTop: '12px', marginBottom: '12px' }}>
-            <label>
-              Loại giao dịch
-              <select
+            <div>
+              <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>Loại giao dịch</div>
+              <SearchableSelect
                 value={ledgerTypeFilter}
-                onChange={(e) => {
-                  setLedgerTypeFilter(e.target.value);
+                onChange={(val) => {
+                  setLedgerTypeFilter(val);
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả loại</option>
-                <option value="IMPORT">Nhập kho</option>
-                <option value="EXPORT">Xuất kho</option>
-              </select>
-            </label>
+                options={[
+                  { value: 'all', label: 'Tất cả loại' },
+                  { value: 'IMPORT', label: 'Nhập kho' },
+                  { value: 'EXPORT', label: 'Xuất kho' },
+                ]}
+              />
+            </div>
 
-            <label>
-              Kho hàng
-              <select
+            <div>
+              <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>Kho hàng</div>
+              <SearchableSelect
                 value={ledgerWarehouseFilter}
-                onChange={(e) => {
-                  setLedgerWarehouseFilter(e.target.value);
+                onChange={(val) => {
+                  setLedgerWarehouseFilter(val);
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả kho</option>
-                {workspace.warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} {w.name ? `— ${w.name}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={[
+                  { value: 'all', label: 'Tất cả kho' },
+                  ...workspace.warehouses.map((w) => ({
+                    value: w.id,
+                    label: `${w.code}${w.name ? ` — ${w.name}` : ''}`,
+                  })),
+                ]}
+              />
+            </div>
 
             <label>
               Tìm kiếm mã phiếu / vật tư
@@ -537,31 +533,24 @@ export function TransactionHub({
                 <span>
                   Trang <strong>{safeLedgerPage}</strong> / <strong>{totalLedgerPages}</strong> ({filteredLedger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
-                    value={ledgerPageSize}
-                    onChange={(event) => {
-                      setLedgerPageSize(Number(event.target.value) || 15);
-                      setLedgerPage(1);
-                    }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
+                  <div style={{ width: '120px' }}>
+                    <SearchableSelect
+                      value={String(ledgerPageSize)}
+                      onChange={(val) => {
+                        setLedgerPageSize(Number(val) || 15);
+                        setLedgerPage(1);
+                      }}
+                      options={[
+                        { value: '15', label: '15 / trang' },
+                        { value: '30', label: '30 / trang' },
+                        { value: '45', label: '45 / trang' },
+                        { value: '60', label: '60 / trang' },
+                      ]}
+                    />
+                  </div>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button
@@ -609,7 +598,6 @@ export function TransactionHub({
             await (onSubmitMovementInDialog ?? onSubmitMovement)(input);
             if (popupMovement.reqCode) {
               const code = popupMovement.reqCode;
-              markRequisitionFulfilled(code);
               setRequisitions((prev) => prev.filter((r) => r.code !== code));
             }
             setPopupMovement({ open: false });
@@ -626,7 +614,6 @@ export function TransactionHub({
           onClose={() => setBatchReq(null)}
           onSuccess={async (message, fulfilledCode) => {
             const code = fulfilledCode || batchReq.code;
-            markRequisitionFulfilled(code);
             setBatchReq(null);
             setRequisitions((prev) => prev.filter((r) => r.code !== code && r.id !== batchReq.id));
             if (onNotice) onNotice(message);

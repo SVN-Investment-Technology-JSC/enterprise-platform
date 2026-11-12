@@ -46,6 +46,8 @@ import type {
   Warehouse,
   StocktakeSession,
   StocktakeLine,
+  UpdateStocktakeLineInput,
+  AuditorCandidate,
   MovementCounterparty,
   CreateStocktakeRequest,
   StockApprovalReport,
@@ -55,7 +57,7 @@ import type {
   StockReport,
   StockReportQuery,
 } from '@enterprise-platform/contracts-inventory';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, todayInVietnam } from '@enterprise-platform/shared-ui';
 
 const API = '/api/inventory/v1';
 
@@ -106,6 +108,7 @@ export interface InventoryWorkspace {
     canWriteTransactions: boolean;
     canWriteQuality?: boolean;
     canApproveDocuments?: boolean;
+    canApproveStocktake?: boolean;
   };
   readonly warehouses: Warehouse[];
   readonly materials: Material[];
@@ -332,28 +335,20 @@ export interface ProcedureRequisition {
   readonly downloadUrl?: string;
 }
 
-const FULFILLED_REQUISITIONS_STORAGE_KEY = 'ep:inventory:fulfilled_requisitions';
-
-export function getFulfilledRequisitionCodes(): string[] {
-  if (typeof window === 'undefined') return [];
+/** Kiểm tra trên toàn bộ sổ cái server xem các mã bảng kê nào đã có bút toán xuất kho. */
+export async function loadFulfilledRequisitionCodes(
+  codes: readonly string[],
+): Promise<string[]> {
+  const clean = [...new Set(codes.map((c) => c.trim()).filter(Boolean))];
+  if (clean.length === 0) return [];
   try {
-    const raw = window.localStorage.getItem(FULFILLED_REQUISITIONS_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
+    const query = encodeURIComponent(clean.join(','));
+    const data = await request<{ fulfilledCodes?: string[] }>(
+      `/requisitions/fulfilled?codes=${query}`,
+    );
+    return data.fulfilledCodes ?? [];
   } catch {
     return [];
-  }
-}
-
-export function markRequisitionFulfilled(code: string): void {
-  if (!code || typeof window === 'undefined') return;
-  try {
-    const current = getFulfilledRequisitionCodes();
-    if (!current.includes(code)) {
-      current.push(code);
-      window.localStorage.setItem(FULFILLED_REQUISITIONS_STORAGE_KEY, JSON.stringify(current));
-    }
-  } catch {
-    // Bỏ qua nếu không truy cập được localStorage
   }
 }
 
@@ -393,15 +388,12 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
     };
 
     const instances = body.instances ?? [];
-    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
     const requisitions: ProcedureRequisition[] = [];
 
     // 1. Thu thập từ `materialOrders` ghi trên hồ sơ cha
     for (const inst of instances) {
       if (inst.materialOrders && inst.materialOrders.length > 0) {
         for (const order of inst.materialOrders) {
-          if (fulfilledCodes.has(order.code)) continue;
-
           const childInst = instances.find((c) => c.code === order.code);
           const status = childInst?.status ?? 'active';
           if (status === 'completed' || status === 'cancelled' || status === 'rejected') {
@@ -431,7 +423,6 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
         inst.sourceType === 'auto_from_parent' &&
         !requisitions.some((r) => r.code === inst.code || r.id === inst.id)
       ) {
-        if (fulfilledCodes.has(inst.code)) continue;
         if (inst.status === 'completed' || inst.status === 'cancelled' || inst.status === 'rejected') {
           continue;
         }
@@ -452,9 +443,15 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
       }
     }
 
-    // Lấy đính kèm downloadUrl cho từng yêu cầu
+    // Lọc các bảng kê đã được xuất kho trên sổ cái server (không giới hạn 50 giao dịch gần nhất)
+    const serverFulfilled = new Set(
+      await loadFulfilledRequisitionCodes(requisitions.map((r) => r.code)),
+    );
+    const pendingRequisitions = requisitions.filter((r) => !serverFulfilled.has(r.code));
+
+    // Lấy đính kèm downloadUrl cho từng yêu cầu còn chờ xuất
     await Promise.all(
-      requisitions.map(async (req) => {
+      pendingRequisitions.map(async (req) => {
         if (!req.id || req.id === req.code) return;
         try {
           const attRes = await authFetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
@@ -473,7 +470,7 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
       }),
     );
 
-    return requisitions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return pendingRequisitions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   } catch {
     return [];
   }
@@ -936,6 +933,8 @@ export const removeAssetDocument = (assetCode: string, documentId: string) =>
  * Tải lịch sử sự cố và bảo trì từ module Maintenance (nếu có entitlement).
  * Trả về undefined nếu module Maintenance không bật hoặc không phản hồi.
  */
+let maintenanceAccessDenied = false;
+
 export async function loadMaintenanceHistoryForAsset(assetCode: string): Promise<{
   items: Array<{
     id: string;
@@ -953,11 +952,16 @@ export async function loadMaintenanceHistoryForAsset(assetCode: string): Promise
   }>;
   stats: { total: number; completed: number; onTimeRate: number };
 } | undefined> {
+  if (maintenanceAccessDenied) return undefined;
   try {
     const response = await authFetch(
       `/api/maintenance/v1/occurrences/history?assetCode=${encodeURIComponent(assetCode)}`,
       { cache: 'no-store' },
     );
+    if (response.status === 401 || response.status === 403) {
+      maintenanceAccessDenied = true;
+      return undefined;
+    }
     if (!response.ok) return undefined;
     return await response.json();
   } catch {
@@ -977,11 +981,15 @@ export interface MaintenanceScheduleSummary {
 export async function loadMaintenanceSchedulesForAsset(
   assetCode: string,
 ): Promise<MaintenanceScheduleSummary[] | undefined> {
+  if (maintenanceAccessDenied) return undefined;
   try {
-    const response = await fetch('/api/maintenance/v1/workspace', {
+    const response = await authFetch('/api/maintenance/v1/workspace', {
       cache: 'no-store',
-      credentials: 'include',
     });
+    if (response.status === 401 || response.status === 403) {
+      maintenanceAccessDenied = true;
+      return undefined;
+    }
     if (!response.ok) return undefined;
     const workspace = (await response.json()) as {
       schedules?: MaintenanceScheduleSummary[];
@@ -1037,715 +1045,106 @@ export async function createMaintenanceIncidentForAsset(input: {
 }
 
 // ============================================================================
-// STOCKTAKE (KIỂM KÊ KHO) API
+// STOCKTAKE (KIỂM KÊ KHO) API (chạy hoàn toàn trên server)
 // ============================================================================
 
-const STOCKTAKES_STORAGE_KEY = 'ep:inventory:stocktakes';
-const STOCKTAKE_LINES_STORAGE_KEY = 'ep:inventory:stocktake_lines';
+export type { AuditorCandidate };
 
-function initMockStocktakes(warehouses: Warehouse[], _materials?: Material[], _stock?: MaterialInventory[]): StocktakeSession[] {
-  const defaultWarehouse = warehouses[0]?.code ?? 'WH-CENTRAL';
-  const defaultWhName = warehouses[0]?.name ?? 'Kho Vật tư Trung tâm';
-  const whId = warehouses[0]?.id ?? 'wh-central-id';
-
-  const s1: StocktakeSession = {
-    id: 'st-2026-00018',
-    code: 'KK-2026-00018',
-    title: 'Kiểm kê định kỳ Kho Trung tâm - Tháng 9/2026',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'COUNTING',
-    scopeType: 'ALL',
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
-    leadAuditor: 'Nguyễn Văn An (Tổ trưởng)',
-    auditors: ['Trần Thị Mai', 'Phạm Quốc Bảo'],
-    note: 'Kiểm đếm toàn bộ vật tư và linh kiện tiêu hao phục vụ quyết toán quý 3.',
-    totalItems: 8,
-    countedItems: 5,
-    differenceItems: 2,
-    totalVarianceValue: -4500000,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 5).toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const s2: StocktakeSession = {
-    id: 'st-2026-00017',
-    code: 'KK-2026-00017',
-    title: 'Kiểm kê đột xuất nhóm Cáp & Thiết bị điện',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'PENDING_APPROVAL',
-    scopeType: 'CATEGORY',
-    scopeCategories: ['EQUIPMENT', 'CONSUMABLE'],
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 48).toISOString(),
-    leadAuditor: 'Trần Thị Mai',
-    auditors: ['Nguyễn Văn An'],
-    note: 'Đã hoàn tất đếm 2 vòng, phát hiện lệch 1 máy đo nhiệt do chưa làm phiếu xuất công trình.',
-    totalItems: 12,
-    countedItems: 12,
-    differenceItems: 1,
-    totalVarianceValue: -12500000,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 50).toISOString(),
-    updatedAt: new Date(Date.now() - 3600 * 1000 * 2).toISOString(),
-  };
-
-  const s3: StocktakeSession = {
-    id: 'st-2026-00016',
-    code: 'KK-2026-00016',
-    title: 'Kiểm kê định kỳ Quý 2/2026',
-    warehouseId: whId,
-    warehouseCode: defaultWarehouse,
-    warehouseName: defaultWhName,
-    status: 'POSTED',
-    scopeType: 'ALL',
-    snapshotAt: new Date(Date.now() - 3600 * 1000 * 24 * 70).toISOString(),
-    leadAuditor: 'Nguyễn Văn An (Tổ trưởng)',
-    auditors: ['Lê Hoàng Nam', 'Đỗ Hải Đăng'],
-    approvedBy: 'Trần Quốc Tuấn (Phó Giám đốc Kỹ thuật)',
-    approvedAt: new Date(Date.now() - 3600 * 1000 * 24 * 68).toISOString(),
-    note: 'Đã duyệt biên bản và ghi sổ bút toán cân kho hoàn tất.',
-    totalItems: 25,
-    countedItems: 25,
-    differenceItems: 0,
-    totalVarianceValue: 0,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 24 * 72).toISOString(),
-    updatedAt: new Date(Date.now() - 3600 * 1000 * 24 * 68).toISOString(),
-  };
-
-  const list = [s1, s2, s3];
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(list));
-  }
-  return list;
+export function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
+  return request<AuditorCandidate[]>('/auditor-candidates').catch(() => []);
 }
 
-function initMockLinesForSession(session: StocktakeSession, workspace: InventoryWorkspace): StocktakeLine[] {
-  const stockRows = workspace.stock.filter((s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode);
-  const materials = workspace.materials;
-  const matMap = new Map(materials.map((m) => [m.id, m]));
-
-  const lines: StocktakeLine[] = [];
-  const sampleMats = stockRows.length > 0 ? stockRows.slice(0, 10) : materials.slice(0, 8).map((m) => ({
-    materialId: m.id,
-    quantity: 50,
-    quantityReserved: 0,
-    available: 50,
-    warehouseCode: session.warehouseCode,
-    updatedAt: new Date().toISOString(),
-  }));
-
-  sampleMats.forEach((item, idx) => {
-    const mat = matMap.get(item.materialId) || {
-      id: item.materialId,
-      code: `VT-${100 + idx}`,
-      name: `Vật tư kiểm kê mẫu ${idx + 1}`,
-      unit: 'Cái',
-      purchasePrice: 250000 + idx * 50000,
-      isSerialized: idx % 3 === 0,
-    };
-
-    const sysQty = item.quantity ?? 20;
-    // Tạo giả lập một vài dòng có chênh lệch cho sinh động
-    let actualQty: number | undefined;
-    let round1: number | undefined;
-    let round2: number | undefined;
-    let reason: string | undefined;
-
-    if (session.status === 'POSTED' || session.status === 'PENDING_APPROVAL' || idx < 4) {
-      if (idx === 1) {
-        actualQty = sysQty - 2;
-        round1 = sysQty - 2;
-        round2 = sysQty - 2;
-        reason = 'Hao hụt rách vỡ trong quá trình vận chuyển bốc dỡ';
-      } else if (idx === 3) {
-        actualQty = sysQty + 1;
-        round1 = sysQty + 1;
-        reason = 'Nhập thừa từ đợt bảo trì hoàn trả chưa ghi phiếu';
-      } else {
-        actualQty = sysQty;
-        round1 = sysQty;
-      }
-    }
-
-    const diff = actualQty !== undefined ? actualQty - sysQty : 0;
-    const unitCost = (mat as any).purchasePrice ?? 350000;
-    const diffVal = diff * unitCost;
-
-    let status: StocktakeLine['status'] = 'UNCOUNTED';
-    if (actualQty !== undefined) {
-      if (diff === 0) status = 'MATCHED';
-      else if (diff > 0) status = 'SURPLUS';
-      else status = 'DEFICIT';
-    }
-
-    lines.push({
-      id: `line-${session.id}-${idx}`,
-      sessionId: session.id,
-      materialId: mat.id,
-      materialCode: mat.code,
-      materialName: mat.name,
-      unit: mat.unit || 'Cái',
-      binLocation: undefined,
-      isSerialized: mat.isSerialized,
-      isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
-      systemQuantity: sysQty,
-      countRound1: round1,
-      countRound2: round2,
-      actualQuantity: actualQty,
-      difference: diff,
-      unitCost,
-      differenceValue: diffVal,
-      reason,
-      status,
-      updatedAt: new Date().toISOString(),
-      audits: round1 !== undefined ? [
-        {
-          id: `audit-${session.id}-${idx}-1`,
-          lineId: `line-${session.id}-${idx}`,
-          previousQuantity: undefined,
-          newQuantity: round1,
-          operator: session.leadAuditor || 'Thủ kho',
-          timestamp: session.snapshotAt || new Date().toISOString(),
-          reason: 'Ghi nhận kết quả đếm lần 1',
-        },
-      ] : [],
-    });
-  });
-
-  return lines;
+export function loadStocktakes(_workspace?: InventoryWorkspace): Promise<StocktakeSession[]> {
+  return request<StocktakeSession[]>('/stocktakes');
 }
 
-// Biến cờ kiểm tra xem server backend đã hỗ trợ API /stocktakes chưa để tránh bắn 404 đỏ lòm ra console
-let isBackendStocktakeSupported: boolean | null = null;
-
-export async function loadStocktakes(workspace?: InventoryWorkspace): Promise<StocktakeSession[]> {
-  if (isBackendStocktakeSupported !== false) {
-    try {
-      const res = await request<StocktakeSession[]>('/stocktakes').catch(() => null);
-      if (res && Array.isArray(res)) {
-        isBackendStocktakeSupported = true;
-        return res;
-      }
-      if (res === null) {
-        // Backend trả về 404/500 hoặc không kết nối được
-        isBackendStocktakeSupported = false;
-      }
-    } catch {
-      isBackendStocktakeSupported = false;
-    }
-  }
-
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(STOCKTAKES_STORAGE_KEY);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      /* ignore invalid cached json */
-    }
-  }
-
-  if (workspace) {
-    return initMockStocktakes(workspace.warehouses, workspace.materials, workspace.stock);
-  }
-  return [];
+export function loadStocktakeLines(
+  sessionId: string,
+  _workspace?: InventoryWorkspace,
+): Promise<StocktakeLine[]> {
+  return request<StocktakeLine[]>(`/stocktakes/${encodeURIComponent(sessionId)}/lines`);
 }
 
-export async function loadStocktakeLines(sessionId: string, workspace?: InventoryWorkspace): Promise<StocktakeLine[]> {
-  if (isBackendStocktakeSupported) {
-    try {
-      const res = await request<StocktakeLine[]>(`/stocktakes/${encodeURIComponent(sessionId)}/lines`).catch(() => null);
-      if (res && Array.isArray(res)) return res;
-    } catch {
-      /* ignore backend failure and fall back */
-    }
-  }
-
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      /* ignore invalid cached json */
-    }
-  }
-
-  // Khởi tạo mock lines nếu chưa có
-  if (workspace) {
-    const sessions = await loadStocktakes(workspace);
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) {
-      const generated = initMockLinesForSession(session, workspace);
-      localStorage.setItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`, JSON.stringify(generated));
-      return generated;
-    }
-  }
-
-  return [];
-}
-
-export interface AuditorCandidate {
-  readonly id: string;
-  readonly name: string;
-  readonly code?: string;
-  readonly department?: string;
-  readonly position?: string;
-  readonly email?: string;
-  readonly hasWarehouseAccess?: boolean;
-}
-
-export const DEFAULT_WAREHOUSE_AUDITORS: readonly AuditorCandidate[] = [
-  {
-    id: 'auditor-1',
-    name: 'Trần Văn Hưng',
-    code: 'NV-KHO-01',
-    position: 'Thủ kho trưởng',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-2',
-    name: 'Nguyễn Văn An',
-    code: 'NV-KT-02',
-    position: 'Kế toán vật tư',
-    department: 'Phòng Kế toán',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-3',
-    name: 'Lê Thị Mai',
-    code: 'NV-KHO-03',
-    position: 'Nhân viên thủ kho',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-4',
-    name: 'Phạm Minh Đức',
-    code: 'NV-QL-04',
-    position: 'Quản lý kho tổng',
-    department: 'Ban Quản trị Cơ sở',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-5',
-    name: 'Hoàng Quốc Việt',
-    code: 'NV-KT-05',
-    position: 'Kỹ thuật viên vật tư',
-    department: 'Bộ phận Kỹ thuật',
-    hasWarehouseAccess: true,
-  },
-];
-
-let cachedAuditors: AuditorCandidate[] | null = null;
-
-export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
-  if (cachedAuditors && cachedAuditors.length > 0) return cachedAuditors;
-
-  // 1. Tải danh sách nhân sự kèm thông tin phân quyền kho chính xác từ Inventory API
-  try {
-    const list = await request<AuditorCandidate[]>('/auditor-candidates');
-    if (Array.isArray(list) && list.length > 0) {
-      cachedAuditors = list;
-      return list;
-    }
-  } catch {
-    // Không gọi được endpoint mới, tiếp tục fallback
-  }
-
-  // 2. Thử tải từ HRM Employee Directory nếu có
-  try {
-    const res = await authFetch('/api/hrm/v1/employees?page_size=100');
-    if (res.ok) {
-      const json = (await res.json()) as { data?: any[] };
-      if (Array.isArray(json?.data) && json.data.length > 0) {
-        const candidates: AuditorCandidate[] = json.data.map((emp) => {
-          const dept = emp.departmentName || emp.department || '';
-          const pos = emp.positionTitle || emp.position || '';
-          const d = dept.toLowerCase();
-          const p = pos.toLowerCase();
-          const isWh =
-            d.includes('kho') ||
-            d.includes('vật tư') ||
-            d.includes('hậu cần') ||
-            d.includes('logistics') ||
-            p.includes('kho') ||
-            p.includes('vật tư') ||
-            p.includes('thủ kho') ||
-            p.includes('kế toán kho') ||
-            p.includes('kế toán vật tư');
-          return {
-            id: emp.employeeId || emp.id || emp.employeeCode,
-            name: emp.fullName || emp.name,
-            code: emp.employeeCode || emp.code,
-            department: dept,
-            position: pos,
-            email: emp.workEmail || emp.email,
-            hasWarehouseAccess: isWh,
-          };
-        });
-        candidates.sort((a, b) => (b.hasWarehouseAccess ? 1 : 0) - (a.hasWarehouseAccess ? 1 : 0));
-        cachedAuditors = candidates;
-        return candidates;
-      }
-    }
-  } catch {
-    // Không truy cập được HRM, thử tiếp nguồn khác
-  }
-
-  // 2. Thử tải từ Directory của Workspace nếu có
-  try {
-    const res = await authFetch('/api/workspace/v1/directory');
-    if (res.ok) {
-      const json = (await res.json()) as { people?: any[] };
-      if (Array.isArray(json?.people) && json.people.length > 0) {
-        const candidates: AuditorCandidate[] = json.people.map((p) => {
-          const unit = Array.isArray(p.unitNames) ? p.unitNames.join(', ') : '';
-          const pos = p.positionName || '';
-          const u = unit.toLowerCase();
-          const pLower = pos.toLowerCase();
-          const isWh =
-            u.includes('kho') ||
-            u.includes('vật tư') ||
-            u.includes('hậu cần') ||
-            u.includes('logistics') ||
-            pLower.includes('kho') ||
-            pLower.includes('vật tư') ||
-            pLower.includes('thủ kho') ||
-            pLower.includes('kế toán kho') ||
-            pLower.includes('kế toán vật tư');
-          return {
-            id: p.userId,
-            name: p.displayName || p.name,
-            code: undefined,
-            department: unit,
-            position: pos,
-            email: p.email,
-            hasWarehouseAccess: isWh,
-          };
-        });
-        candidates.sort((a, b) => (b.hasWarehouseAccess ? 1 : 0) - (a.hasWarehouseAccess ? 1 : 0));
-        cachedAuditors = candidates;
-        return candidates;
-      }
-    }
-  } catch {
-    // Bỏ qua
-  }
-
-  // 3. Fallback danh sách nhân sự kho chuẩn
-  cachedAuditors = [...DEFAULT_WAREHOUSE_AUDITORS];
-  return cachedAuditors;
-}
-
-export async function createStocktakeSession(
+export function createStocktakeSession(
   input: CreateStocktakeRequest,
-  workspace: InventoryWorkspace,
+  _workspace?: InventoryWorkspace,
 ): Promise<StocktakeSession> {
-  const current = await loadStocktakes(workspace);
-  const nextNum = current.length + 1;
-  const year = new Date().getFullYear();
-  const code = input.code || `KK-${year}-${String(nextNum).padStart(5, '0')}`;
-  const wh = workspace.warehouses.find((w) => w.code === input.warehouseCode);
-
-  const newSession: StocktakeSession = {
-    id: `st-${Date.now()}`,
-    code,
-    title: input.title,
-    warehouseId: wh?.id ?? 'wh-id',
-    warehouseCode: input.warehouseCode,
-    warehouseName: wh?.name ?? input.warehouseCode,
-    status: 'DRAFT',
-    scopeType: input.scopeType,
-    scopeCategories: input.scopeCategories,
-    specificMaterialCodes: input.specificMaterialCodes,
-    stocktakeDate: input.stocktakeDate || new Date().toISOString().slice(0, 10),
-    leadAuditor: input.leadAuditor || 'Thủ kho trưởng',
-    auditors: input.auditors || [],
-    note: input.note,
-    totalItems: input.specificMaterialCodes?.length ?? 0,
-    countedItems: 0,
-    differenceItems: 0,
-    totalVarianceValue: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const updated = [newSession, ...current];
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(updated));
-  }
-  return newSession;
-}
-
-export async function startStocktakeCounting(
-  sessionId: string,
-  workspace: InventoryWorkspace,
-): Promise<{ session: StocktakeSession; lines: StocktakeLine[] }> {
-  const sessions = await loadStocktakes(workspace);
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
-
-  const matMap = new Map(workspace.materials.map((m) => [m.id, m]));
-  const matByCode = new Map(workspace.materials.map((m) => [m.code, m]));
-
-  let lines: StocktakeLine[] = [];
-
-  if (
-    session.scopeType === 'SPECIFIC_ITEMS' &&
-    session.specificMaterialCodes &&
-    session.specificMaterialCodes.length > 0
-  ) {
-    lines = session.specificMaterialCodes.map((code, idx) => {
-      const mat = matByCode.get(code);
-      const stockRow = workspace.stock.find(
-        (s) =>
-          (s.materialCode === code || (mat && s.materialId === mat.id)) &&
-          (s.warehouseCode === session.warehouseCode || !s.warehouseCode),
-      );
-      const systemQty = stockRow?.quantity ?? 0;
-      return {
-        id: `line-${sessionId}-${idx}`,
-        sessionId,
-        materialId: mat?.id ?? `mat-${code}`,
-        materialCode: code,
-        materialName: mat?.name ?? code,
-        unit: mat?.unit || 'Cái',
-        binLocation: undefined,
-        isSerialized: Boolean(mat?.isSerialized),
-        isLotTracked: code.includes('DAU') || code.includes('CAP'),
-        systemQuantity: systemQty,
-        difference: 0,
-        unitCost: (mat as any)?.purchasePrice || 200000,
-        differenceValue: 0,
-        status: 'UNCOUNTED',
-        updatedAt: new Date().toISOString(),
-        audits: [],
-      };
-    });
-  } else {
-    let stockRows = workspace.stock.filter(
-      (s) => s.warehouseCode === session.warehouseCode || !s.warehouseCode,
-    );
-
-    if (
-      session.scopeType === 'CATEGORY' &&
-      session.scopeCategories &&
-      session.scopeCategories.length > 0
-    ) {
-      const catSet = new Set(session.scopeCategories);
-      stockRows = stockRows.filter((item) => {
-        const mat = matMap.get(item.materialId) || matByCode.get(item.materialCode ?? '');
-        return mat?.type && catSet.has(mat.type);
-      });
-    }
-
-    lines = stockRows.map((item, idx) => {
-      const mat = matMap.get(item.materialId) || matByCode.get(item.materialCode ?? '') || {
-        id: item.materialId,
-        code: item.materialCode || `VT-${100 + idx}`,
-        name: `Vật tư ${idx + 1}`,
-        unit: 'Cái',
-        purchasePrice: 200000,
-      };
-      return {
-        id: `line-${sessionId}-${idx}`,
-        sessionId,
-        materialId: mat.id,
-        materialCode: mat.code,
-        materialName: mat.name,
-        unit: mat.unit || 'Cái',
-        binLocation: undefined,
-        isSerialized: Boolean((mat as any).isSerialized),
-        isLotTracked: mat.code.includes('DAU') || mat.code.includes('CAP'),
-        systemQuantity: item.quantity,
-        difference: 0,
-        unitCost: (mat as any).purchasePrice || 200000,
-        differenceValue: 0,
-        status: 'UNCOUNTED',
-        updatedAt: new Date().toISOString(),
-        audits: [],
-      };
-    });
-  }
-
-  const updatedSession: StocktakeSession = {
-    ...session,
-    status: 'COUNTING',
-    snapshotAt: new Date().toISOString(),
-    totalItems: lines.length,
-    countedItems: 0,
-    differenceItems: 0,
-    totalVarianceValue: 0,
-    updatedAt: new Date().toISOString(),
-  };
-
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-    localStorage.setItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`, JSON.stringify(lines));
-  }
-
-  return { session: updatedSession, lines };
-}
-
-export async function saveStocktakeLines(
-  sessionId: string,
-  updatedLines: StocktakeLine[],
-  _operator = 'Thủ kho',
-): Promise<{ session: StocktakeSession; lines: StocktakeLine[] }> {
-  const sessions = await loadStocktakes();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
-
-  let counted = 0;
-  let diffCount = 0;
-  let totalVariance = 0;
-
-  const processedLines = updatedLines.map((line) => {
-    const isCounted = line.actualQuantity !== undefined && line.actualQuantity !== null;
-    if (isCounted) counted++;
-    const diff = isCounted ? (line.actualQuantity ?? 0) - line.systemQuantity : 0;
-    const diffVal = diff * (line.unitCost ?? 0);
-    if (diff !== 0) {
-      diffCount++;
-      totalVariance += diffVal;
-    }
-
-    let status: StocktakeLine['status'] = 'UNCOUNTED';
-    if (isCounted) {
-      if (diff === 0) status = 'MATCHED';
-      else if (diff > 0) status = 'SURPLUS';
-      else status = 'DEFICIT';
-    }
-
-    return {
-      ...line,
-      difference: diff,
-      differenceValue: diffVal,
-      status,
-      updatedAt: new Date().toISOString(),
-    };
+  return request<StocktakeSession>('/stocktakes', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      stocktakeDate: input.stocktakeDate || todayInVietnam(),
+    }),
   });
-
-  const updatedSession: StocktakeSession = {
-    ...session,
-    countedItems: counted,
-    differenceItems: diffCount,
-    totalVarianceValue: totalVariance,
-    updatedAt: new Date().toISOString(),
-  };
-
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-    localStorage.setItem(`${STOCKTAKE_LINES_STORAGE_KEY}:${sessionId}`, JSON.stringify(processedLines));
-  }
-
-  return { session: updatedSession, lines: processedLines };
 }
 
-export async function submitStocktakeForApproval(sessionId: string): Promise<StocktakeSession> {
-  const sessions = await loadStocktakes();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
+export function startStocktakeCounting(
+  sessionId: string,
+  _workspace?: InventoryWorkspace,
+): Promise<{ session: StocktakeSession; lines: StocktakeLine[] }> {
+  return request<{ session: StocktakeSession; lines: StocktakeLine[] }>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/start`,
+    { method: 'POST' },
+  );
+}
 
-  const updatedSession: StocktakeSession = {
-    ...session,
-    status: 'PENDING_APPROVAL',
-    updatedAt: new Date().toISOString(),
-  };
+export function saveStocktakeLines(
+  sessionId: string,
+  updates: readonly UpdateStocktakeLineInput[],
+  _operator?: string,
+): Promise<{ session: StocktakeSession; lines: StocktakeLine[] }> {
+  return request<{ session: StocktakeSession; lines: StocktakeLine[] }>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/lines`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ lines: updates }),
+    },
+  );
+}
 
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-  }
-  return updatedSession;
+export function submitStocktakeForApproval(sessionId: string): Promise<StocktakeSession> {
+  return request<StocktakeSession>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/submit`,
+    { method: 'POST' },
+  );
 }
 
 export async function approveAndPostStocktake(
   sessionId: string,
-  approvedBy = 'Trưởng phòng Kho vận',
-  onSubmitMovement?: (input: any) => Promise<void>,
+  _approvedBy?: string,
+  _onSubmitMovement?: unknown,
 ): Promise<StocktakeSession> {
-  const sessions = await loadStocktakes();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
-
-  const lines = await loadStocktakeLines(sessionId);
-
-  // Sinh các bút toán cân kho ADJUSTMENT cho các dòng chênh lệch
-  const diffLines = lines.filter((l) => l.difference !== 0 && l.actualQuantity !== undefined);
-  if (onSubmitMovement && diffLines.length > 0) {
-    for (const line of diffLines) {
-      try {
-        await onSubmitMovement({
-          kind: line.difference > 0 ? 'receipt' : 'issue',
-          materialCode: line.materialCode,
-          warehouseCode: session.warehouseCode,
-          quantity: Math.abs(line.difference),
-          note: `[Cân kho đợt ${session.code}] ${line.difference > 0 ? 'Thừa' : 'Thiếu'} ${Math.abs(line.difference)} ${line.unit}. Lý do: ${line.reason || 'Đối soát kiểm kê'}`,
-        });
-      } catch (err) {
-        console.warn('Không thể tự động post adjustment lên ledger:', err);
-      }
-    }
-  }
-
-  const updatedSession: StocktakeSession = {
-    ...session,
-    status: 'POSTED',
-    approvedBy,
-    approvedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-  }
-  return updatedSession;
+  const result = await request<{ session: StocktakeSession; transactionsCreated: number }>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/approve`,
+    { method: 'POST' },
+  );
+  return result.session;
 }
 
-export async function cancelStocktakeSession(sessionId: string, reason?: string): Promise<StocktakeSession> {
-  const sessions = await loadStocktakes();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
-
-  const updatedSession: StocktakeSession = {
-    ...session,
-    status: 'CANCELLED',
-    note: [session.note, reason ? `Lý do hủy: ${reason}` : ''].filter(Boolean).join(' | '),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-  }
-  return updatedSession;
+export function cancelStocktakeSession(
+  sessionId: string,
+  reason?: string,
+): Promise<StocktakeSession> {
+  return request<StocktakeSession>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/cancel`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
 }
 
-export async function rejectStocktakeSession(sessionId: string, reason?: string): Promise<StocktakeSession> {
-  const sessions = await loadStocktakes();
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error('Không tìm thấy đợt kiểm kê.');
-
-  const updatedSession: StocktakeSession = {
-    ...session,
-    status: 'COUNTING',
-    note: [session.note, reason ? `Yêu cầu đếm lại: ${reason}` : 'Yêu cầu kiểm đếm lại số liệu'].filter(Boolean).join(' | '),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const newSessions = sessions.map((s) => (s.id === sessionId ? updatedSession : s));
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STOCKTAKES_STORAGE_KEY, JSON.stringify(newSessions));
-  }
-  return updatedSession;
+export function rejectStocktakeSession(
+  sessionId: string,
+  reason?: string,
+): Promise<StocktakeSession> {
+  return request<StocktakeSession>(
+    `/stocktakes/${encodeURIComponent(sessionId)}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
 }
 
 // ---------------------------------------------------------------- Báo cáo kho (T7-06, T7-07)

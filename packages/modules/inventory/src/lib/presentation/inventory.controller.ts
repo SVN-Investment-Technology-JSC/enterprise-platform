@@ -51,6 +51,7 @@ export class InventoryController {
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
       canWriteQuality: actor.canWriteQuality ?? actor.canManage,
       canApproveDocuments: actor.canApproveDocuments ?? actor.canManage,
+      canApproveStocktake: actor.canApproveStocktake ?? actor.canManage,
     };
   }
 
@@ -338,6 +339,17 @@ export class InventoryController {
     return this.execute(() =>
       this.app.listRecentTransactions(this.actor(request), Number(limit) || 50),
     );
+  }
+
+  @Get('requisitions/fulfilled')
+  listFulfilledRequisitions(@Req() request: InventoryRequest, @Query('codes') codes?: string) {
+    const list = (codes ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return this.execute(async () => ({
+      fulfilledCodes: await this.app.listFulfilledRequisitionCodes(this.actor(request), list),
+    }));
   }
 
   @Get('reservations')

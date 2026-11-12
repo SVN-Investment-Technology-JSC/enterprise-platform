@@ -34,9 +34,15 @@ import {
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { SearchableSelect, Popconfirm, VnNumberInput, formatCurrencyVn } from '@enterprise-platform/shared-ui';
+import {
+  downloadXlsxWorkbook,
+  parseExcelFileInWorker,
+  recordsToSheetRows,
+  sheetRowsToRecords,
+} from '../excel-io';
+import { SearchableSelect, Popconfirm, VnNumberInput, formatCurrencyVn, toast } from '@enterprise-platform/shared-ui';
 import { CreateStocktakeDialog } from './create-stocktake-dialog';
+import type { MovementInput } from './movement-form';
 import { StocktakeLotSerialDrawer } from './stocktake-lot-serial-drawer';
 import styles from '../inventory.module.scss';
 
@@ -64,7 +70,7 @@ function formatDateTime(value?: string): string {
 export interface StocktakeHubProps {
   workspace: InventoryWorkspace;
   busy?: boolean;
-  onSubmitMovement: (input: any) => Promise<void>;
+  onSubmitMovement: (input: MovementInput) => Promise<void>;
   onNotice?: (msg: string) => void;
 }
 
@@ -91,7 +97,9 @@ export function StocktakeHub({
 
   // Modals & Drawers
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const { canManage } = useInventoryPermissions();
+  const { canManage, canWriteTransactions, canApproveStocktake } = useInventoryPermissions();
+  const canOperateStocktake = canManage || canWriteTransactions;
+  const canApprove = canManage || canApproveStocktake;
   const [drawerLine, setDrawerLine] = useState<StocktakeLine | null>(null);
   const [auditLine, setAuditLine] = useState<StocktakeLine | null>(null);
 
@@ -142,7 +150,7 @@ export function StocktakeHub({
   );
 
   const isReadOnly =
-    !canManage ||
+    !canOperateStocktake ||
     !selectedSession ||
     selectedSession.status === 'POSTED' ||
     selectedSession.status === 'CANCELLED' ||
@@ -223,13 +231,25 @@ export function StocktakeHub({
   const handleSaveDraft = async () => {
     if (!selectedSessionId) return;
     try {
-      const res = await saveStocktakeLines(selectedSessionId, lines);
+      const res = await saveStocktakeLines(
+        selectedSessionId,
+        lines.map((l) => ({
+          lineId: l.id,
+          countRound1: l.countRound1,
+          countRound2: l.countRound2,
+          actualQuantity: l.actualQuantity,
+          reason: l.reason,
+          note: l.note,
+          lotAllocations: l.lotAllocations,
+          serialAllocations: l.serialAllocations,
+        })),
+      );
       setSessions((prev) => prev.map((s) => (s.id === res.session.id ? res.session : s)));
       setLines(res.lines);
       setDirty(false);
       if (onNotice) onNotice('Đã lưu nháp tiến độ kiểm đếm.');
     } catch (err) {
-      alert('Không thể lưu số đếm: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể lưu số đếm: ' + (err instanceof Error ? err.message : 'Lỗi'));
     }
   };
 
@@ -242,7 +262,7 @@ export function StocktakeHub({
       setLines(res.lines);
       if (onNotice) onNotice(`Đã chốt snapshot và chuyển đợt ${res.session.code} sang Đang kiểm đếm.`);
     } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
     }
   };
 
@@ -268,7 +288,7 @@ export function StocktakeHub({
       setConfirmSubmitOpen(false);
       if (onNotice) onNotice(`Đã gửi trình duyệt đợt kiểm kê ${updated.code}.`);
     } catch (err) {
-      alert('Không thể gửi trình duyệt: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể gửi trình duyệt: ' + (err instanceof Error ? err.message : 'Lỗi'));
     }
   };
 
@@ -286,7 +306,7 @@ export function StocktakeHub({
       setRejectDialogOpen(false);
       if (onNotice) onNotice(`Đã trả đợt kiểm kê ${updated.code} về trạng thái Đang kiểm đếm.`);
     } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
     }
   };
 
@@ -320,80 +340,76 @@ export function StocktakeHub({
       'Lý do chênh lệch': l.reason || '',
     }));
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'KiemKe');
-    XLSX.writeFile(wb, `Bien_Ban_Kiem_Ke_${selectedSession.code}.xlsx`);
+    void downloadXlsxWorkbook(`Bien_Ban_Kiem_Ke_${selectedSession.code}.xlsx`, [
+      {
+        name: 'KiemKe',
+        rows: recordsToSheetRows(exportData),
+      },
+    ]);
     if (onNotice) onNotice(`Đã xuất mẫu Excel kiểm kê cho đợt ${selectedSession.code}.`);
   };
 
-  // Nhập file Excel kiểm kê
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Nhập file Excel kiểm kê (parse trong Web Worker)
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsName = wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        const data = XLSX.utils.sheet_to_json<any>(ws);
+    try {
+      const parsed = await parseExcelFileInWorker(file);
+      const wsName = parsed.sheetNames[0];
+      const data = wsName ? sheetRowsToRecords(parsed.sheets[wsName] ?? []) : [];
 
-        let matchCount = 0;
-        const codeToRow = new Map<string, { actual?: number; reason?: string; binLocation?: string }>();
+      let matchCount = 0;
+      const codeToRow = new Map<string, { actual?: number; reason?: string; binLocation?: string }>();
 
-        data.forEach((row) => {
-          const code = row['Mã vật tư'] || row['Ma vat tu'] || row['Mã VT'] || row['Code'];
-          const actual = row['Thực đếm'] !== undefined ? Number(row['Thực đếm']) : undefined;
-          const reason = row['Lý do chênh lệch'] || row['Ly do'] || '';
-          const binLocation = row['Vị trí kệ'] || row['Vi tri ke'] || row['Vị trí'] || row['Vi tri'] || undefined;
-          if (code) {
-            codeToRow.set(String(code).trim().toUpperCase(), {
-              actual: isNaN(actual as any) ? undefined : actual,
-              reason,
-              binLocation: binLocation ? String(binLocation).trim() : undefined,
-            });
+      data.forEach((row) => {
+        const code = row['Mã vật tư'] || row['Ma vat tu'] || row['Mã VT'] || row['Code'];
+        const actual = row['Thực đếm'] !== undefined && row['Thực đếm'] !== '' ? Number(row['Thực đếm']) : undefined;
+        const reason = String(row['Lý do chênh lệch'] || row['Ly do'] || '');
+        const binLocation = row['Vị trí kệ'] || row['Vi tri ke'] || row['Vị trí'] || row['Vi tri'] || undefined;
+        if (code) {
+          codeToRow.set(String(code).trim().toUpperCase(), {
+            actual: actual === undefined || Number.isNaN(actual) ? undefined : actual,
+            reason,
+            binLocation: binLocation ? String(binLocation).trim() : undefined,
+          });
+        }
+      });
+
+      setLines((prev) =>
+        prev.map((l) => {
+          const hit = codeToRow.get(l.materialCode.toUpperCase());
+          if (hit && hit.actual !== undefined) {
+            matchCount++;
+            const actual = hit.actual;
+            const diff = actual - l.systemQuantity;
+            const diffVal = diff * (l.unitCost ?? 0);
+            let status: StocktakeLine['status'] = 'UNCOUNTED';
+            if (diff === 0) status = 'MATCHED';
+            else if (diff > 0) status = 'SURPLUS';
+            else status = 'DEFICIT';
+
+            return {
+              ...l,
+              binLocation: hit.binLocation || l.binLocation,
+              actualQuantity: actual,
+              difference: diff,
+              differenceValue: diffVal,
+              reason: hit.reason || l.reason,
+              status,
+            };
           }
-        });
+          return l;
+        }),
+      );
 
-        setLines((prev) =>
-          prev.map((l) => {
-            const hit = codeToRow.get(l.materialCode.toUpperCase());
-            if (hit && hit.actual !== undefined) {
-              matchCount++;
-              const actual = hit.actual;
-              const diff = actual - l.systemQuantity;
-              const diffVal = diff * (l.unitCost ?? 0);
-              let status: StocktakeLine['status'] = 'UNCOUNTED';
-              if (diff === 0) status = 'MATCHED';
-              else if (diff > 0) status = 'SURPLUS';
-              else status = 'DEFICIT';
-
-              return {
-                ...l,
-                binLocation: hit.binLocation || l.binLocation,
-                actualQuantity: actual,
-                difference: diff,
-                differenceValue: diffVal,
-                reason: hit.reason || l.reason,
-                status,
-              };
-            }
-            return l;
-          }),
-        );
-
-        setDirty(true);
-        if (onNotice) onNotice(`Đã nạp số đếm từ Excel cho ${matchCount} mặt hàng.`);
-      } catch (err) {
-        alert('Không thể đọc file Excel: ' + (err instanceof Error ? err.message : 'Định dạng không hợp lệ'));
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsBinaryString(file);
+      setDirty(true);
+      if (onNotice) onNotice(`Đã nạp số đếm từ Excel cho ${matchCount} mặt hàng.`);
+    } catch (err) {
+      toast.error('Không thể đọc file Excel: ' + (err instanceof Error ? err.message : 'Định dạng không hợp lệ'));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -435,7 +451,7 @@ export function StocktakeHub({
             <button
               type="button"
               onClick={() => setOpenCreateDialog(true)}
-              disabled={!canManage}
+              disabled={!canOperateStocktake}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -632,7 +648,7 @@ export function StocktakeHub({
               {/* Action Toolbar buttons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 {/* 1. Nút bắt đầu đếm nếu DRAFT */}
-                {canManage && selectedSession.status === 'DRAFT' ? (
+                {canOperateStocktake && selectedSession.status === 'DRAFT' ? (
                   <button
                     type="button"
                     onClick={handleStartCounting}
@@ -724,7 +740,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 5. Gửi duyệt (khi đang COUNTING) */}
-                {canManage && selectedSession.status === 'COUNTING' ? (
+                {canOperateStocktake && selectedSession.status === 'COUNTING' ? (
                   <button
                     type="button"
                     onClick={handleSubmitApproval}
@@ -747,7 +763,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 6. Phê duyệt & Ghi sổ (khi PENDING_APPROVAL) */}
-                {canManage && selectedSession.status === 'PENDING_APPROVAL' ? (
+                {canApprove && selectedSession.status === 'PENDING_APPROVAL' ? (
                   <>
                     <button
                       type="button"
@@ -801,7 +817,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 7. Hủy đợt nếu chưa POSTED */}
-                {canManage && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
+                {canOperateStocktake && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
                   <Popconfirm
                     title="Hủy đợt kiểm kê này?"
                     description="Hành động này sẽ hủy tiến độ kiểm kê hiện tại và lưu vào lịch sử hủy."
@@ -1221,7 +1237,7 @@ export function StocktakeHub({
       </div>
 
       {/* Popup Form Tạo đợt kiểm kê mới */}
-      {openCreateDialog && canManage ? (
+      {openCreateDialog && canOperateStocktake ? (
         <CreateStocktakeDialog
           workspace={workspace}
           busy={busy}

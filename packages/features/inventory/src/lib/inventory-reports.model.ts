@@ -6,7 +6,7 @@ import type {
   StockMovementReport,
   StockReport,
 } from '@enterprise-platform/contracts-inventory';
-import * as XLSX from 'xlsx';
+import { downloadXlsxWorkbook } from './excel-io';
 import { QUALITY_STATUS_LABEL, formatDateTime } from './inventory-labels';
 import { STOCK_DOCUMENT_STATUS_LABEL, STOCK_DOCUMENT_TYPE_LABEL } from './stock-document.model';
 
@@ -68,21 +68,26 @@ export interface ReportSheet {
   readonly rows: readonly (readonly Cell[])[];
 }
 
-/** Ghi tệp .xlsx ở trình duyệt; ô chữ ghi dạng chữ nên không chạy như công thức. */
+/** Ghi tệp .xlsx ở trình duyệt bằng exceljs. */
 export function downloadReportSheets(fileName: string, sheets: readonly ReportSheet[]): void {
-  const workbook = XLSX.utils.book_new();
-  for (const sheet of sheets) {
-    const aoa: Cell[][] = [...sheet.intro.map((line) => [line]), [], [...sheet.headers], ...sheet.rows.map((row) => [...row])];
-    const worksheet = XLSX.utils.aoa_to_sheet(aoa);
-    worksheet['!cols'] = sheet.headers.map((header, column) => ({
-      wch: Math.min(
-        48,
-        Math.max(8, header.length + 2, ...sheet.rows.slice(0, 500).map((row) => String(row[column] ?? '').length + 2)),
+  void downloadXlsxWorkbook(
+    fileName,
+    sheets.map((sheet) => ({
+      name: sheet.name.slice(0, 31),
+      rows: [
+        ...sheet.intro.map((line) => [line]),
+        [],
+        [...sheet.headers],
+        ...sheet.rows.map((row) => [...row]),
+      ],
+      colWidths: sheet.headers.map((header, column) =>
+        Math.min(
+          48,
+          Math.max(8, header.length + 2, ...sheet.rows.slice(0, 500).map((row) => String(row[column] ?? '').length + 2)),
+        ),
       ),
-    }));
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name.slice(0, 31));
-  }
-  XLSX.writeFile(workbook, fileName);
+    })),
+  );
 }
 
 /** Phân loại khai trong Cài đặt; hàng chưa phân loại để trống. */

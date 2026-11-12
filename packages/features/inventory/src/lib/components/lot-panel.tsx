@@ -10,7 +10,7 @@ import {
 import { Table, type TableColumnsType } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { Layers, ShieldCheck, X } from 'lucide-react';
-import { SearchableSelect, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDate, CloseGuard, todayInVietnam } from '@enterprise-platform/shared-ui';
 import { changeLotQuality, loadLots } from '../inventory-api';
 import { QUALITY_STATUS_BADGE, QUALITY_STATUS_LABEL, formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
@@ -21,7 +21,7 @@ const QUALITY_OPTIONS = QUALITY_STATUSES.map((status) => ({
 }));
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInVietnam();
 }
 
 /**

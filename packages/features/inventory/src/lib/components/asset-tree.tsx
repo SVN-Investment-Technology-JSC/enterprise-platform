@@ -333,12 +333,6 @@ export function AssetTree({
         ) : null}
       </div>
 
-      {/* 
-        TODO (Mobile Optimization):
-        1. Thêm gesture vuốt ngang (swipe) để đóng/mở sidebar trên màn hình nhỏ (<768px).
-        2. Tự động thu gọn các nhánh cấp sâu (depth > 2) trên viewport điện thoại để tránh tràn ngang.
-        3. Tăng touch target kích thước nút toggle và action buttons lên tối thiểu 36px khi trên mobile.
-      */}
       <div
         role="tree"
         aria-label="Cây cấu trúc thiết bị"

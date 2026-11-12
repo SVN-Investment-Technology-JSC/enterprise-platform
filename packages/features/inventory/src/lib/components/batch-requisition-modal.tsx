@@ -2,9 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { X, CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
-import { VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
-import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
+import { issueStock, installItem } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
@@ -175,7 +175,6 @@ export function BatchRequisitionModal({
         }
       }
 
-      markRequisitionFulfilled(req.code);
       if (req.id && req.id !== req.code) {
         try {
           const csrfToken =
@@ -437,27 +436,19 @@ export function BatchRequisitionModal({
                   <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
                     Thiết bị tiếp nhận:
                   </span>
-                  <select
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #86efac',
-                      fontSize: '13px',
-                      background: '#ffffff',
-                      outline: 'none',
-                      flex: 1,
-                      maxWidth: '380px',
-                    }}
-                    value={selectedAssetCode}
-                    onChange={(e) => setSelectedAssetCode(e.target.value)}
-                  >
-                    <option value="">— Chọn thiết bị nhận lắp đặt trên Cây tài sản —</option>
-                    {workspace.assets.map((asset) => (
-                      <option key={asset.id} value={asset.code}>
-                        {asset.code} — {asset.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ flex: 1, maxWidth: '380px' }}>
+                    <SearchableSelect
+                      value={selectedAssetCode}
+                      onChange={setSelectedAssetCode}
+                      options={[
+                        { value: '', label: '— Chọn thiết bị nhận lắp đặt trên Cây tài sản —' },
+                        ...workspace.assets.map((asset) => ({
+                          value: asset.code,
+                          label: `${asset.code} — ${asset.name}`,
+                        })),
+                      ]}
+                    />
+                  </div>
                   <span style={{ fontSize: '12px', color: '#15803d' }}>
                     Các vật tư xuất ra sẽ được tự động cộng vào cột <strong>"Đang sử dụng"</strong>.
                   </span>
@@ -565,30 +556,20 @@ export function BatchRequisitionModal({
                           ) : null}
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <select
+                          <SearchableSelect
                             value={item.warehouseCode}
-                            onChange={(e) => handleItemChange(idx, { warehouseCode: e.target.value })}
-                            style={{
-                              width: '100%',
-                              padding: '5px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '13px',
-                              background: '#ffffff',
-                            }}
-                          >
-                            {workspace.warehouses.map((w) => {
+                            onChange={(val) => handleItemChange(idx, { warehouseCode: val })}
+                            options={workspace.warehouses.map((w) => {
                               const wStock = workspace.stock.find(
                                 (s) => s.materialCode === item.materialCode && s.warehouseCode === w.code,
                               );
                               const wAvail = wStock?.available ?? 0;
-                              return (
-                                <option key={w.id} value={w.code}>
-                                  {w.name} (khả dụng: {formatNumber(wAvail)})
-                                </option>
-                              );
+                              return {
+                                value: w.code,
+                                label: `${w.name} (khả dụng: ${formatNumber(wAvail)})`,
+                              };
                             })}
-                          </select>
+                          />
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                           {status.tier === 'single_ready' ? (

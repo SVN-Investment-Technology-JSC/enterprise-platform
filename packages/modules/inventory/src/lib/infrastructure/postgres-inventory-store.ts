@@ -14,7 +14,6 @@ import type {
   UpdateMaterialRequest,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
-  MaterialKind,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -671,9 +670,8 @@ export class PostgresInventoryStore implements InventoryStore {
       if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
       if (query.search) {
         const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
-        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern} OR m.trade_category ILIKE ${pattern})`);
+        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern})`);
       }
-      if (query.tradeCategory) where.push(`lower(btrim(m.trade_category)) = lower(${push(query.tradeCategory)})`);
       if (query.cursor) where.push(`m.code > ${push(query.cursor)}`);
       const warehouseFilter = query.warehouseCode ? `AND w.code = ${push(query.warehouseCode)}` : '';
       const limit = query.limit ? `LIMIT ${push(query.limit + 1)}` : '';
@@ -705,19 +703,6 @@ export class PostgresInventoryStore implements InventoryStore {
         values,
       );
       return result.rows.map(mapCatalogItem);
-    },
-
-    tradeCategories: async (tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]> => {
-      const pool = await this.poolFor(tenantId);
-      const result = await pool.query<{ name: string }>(
-        `SELECT min(btrim(trade_category)) AS name
-           FROM inventory_schema.materials
-          WHERE is_active = true AND kind = ANY($1::text[]) AND btrim(COALESCE(trade_category, '')) <> ''
-          GROUP BY lower(btrim(trade_category))
-          ORDER BY 1`,
-        [[...kinds]],
-      );
-      return result.rows.map((row) => row.name);
     },
   };
 
@@ -1415,6 +1400,26 @@ export class PostgresInventoryStore implements InventoryStore {
         [limit],
       );
       return result.rows.map(mapTransaction);
+    },
+
+    findFulfilledCodes: async (tenantId: string, codes: readonly string[]): Promise<string[]> => {
+      const clean = [...new Set(codes.map((c) => c.trim()).filter(Boolean))];
+      if (clean.length === 0) return [];
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ code: string }>(
+        `SELECT DISTINCT c.code
+           FROM unnest($1::text[]) AS c(code)
+          WHERE EXISTS (
+            SELECT 1
+              FROM inventory_schema.inventory_transactions t
+             WHERE t.type IN ('EXPORT', 'BORROW')
+               AND COALESCE(t.workflow_status, 'APPROVED') = 'APPROVED'
+               AND t.note IS NOT NULL
+               AND strpos(t.note, c.code) > 0
+          )`,
+        [clean],
+      );
+      return result.rows.map((r) => r.code);
     },
 
     listByMaterial: async (

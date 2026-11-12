@@ -7,6 +7,7 @@ export const InventoryPermissionsContext = createContext({
   canWriteTransactions: false,
   canWriteQuality: false,
   canApproveDocuments: false,
+  canApproveStocktake: false,
 });
 
 /** UI capabilities only; every mutation is independently authorized by the API. */

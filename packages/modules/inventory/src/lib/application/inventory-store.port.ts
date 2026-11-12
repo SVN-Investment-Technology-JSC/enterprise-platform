@@ -8,7 +8,6 @@ import type {
   CreateMaterialRequest,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
-  MaterialKind,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -126,8 +125,6 @@ export interface InventoryStore {
       tenantId: string,
       query: InternalMaterialCatalogQuery,
     ): Promise<InternalMaterialCatalogItem[]>;
-    /** Các phân loại đang gắn trên mặt hàng còn dùng của các nhóm `kinds`, xếp theo chữ. */
-    tradeCategories(tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]>;
   };
 
   /**
@@ -216,6 +213,8 @@ export interface InventoryStore {
     append(tenantId: string, input: AppendTransactionInput): Promise<InventoryTransaction>;
     /** Most recent ledger entries across all warehouses, for the ledger view. */
     listRecent(tenantId: string, limit: number): Promise<InventoryTransaction[]>;
+    /** Kiểm tra trên toàn bộ sổ cái xem các mã bảng kê/yêu cầu nào đã có bút toán xuất kho. */
+    findFulfilledCodes?(tenantId: string, codes: readonly string[]): Promise<string[]>;
     /**
      * Lịch sử nhập/xuất của MỘT mã vật tư, mới nhất trước.
      *

@@ -1,7 +1,7 @@
 'use client';
 
 import type { Material, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, formatCurrencyVn, formatQuantityVn, parseVnNumber, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatCurrencyVn, formatQuantityVn, parseVnNumber, CloseGuard, toast } from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { downloadXlsxWorkbook, parseExcelFileInWorker } from '../excel-io';
 import type { MovementKind, MovementLineItem } from './movement-form';
 import styles from '../inventory.module.scss';
 
@@ -774,34 +774,24 @@ export function ExcelImportDialog({
         : `${Math.round(file.size / 1024)} KB`,
     );
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetList = workbook.SheetNames;
+    void parseExcelFileInWorker(file)
+      .then((parsed) => {
+        const sheetList = parsed.sheetNames;
         setSheets(sheetList);
         if (sheetList.length > 0) {
           const firstSheet = sheetList[0];
           setSelectedSheet(firstSheet);
-          parseSheetData(workbook, firstSheet);
+          parseSheetData(parsed.sheets[firstSheet] ?? []);
         }
-      } catch (err) {
-        alert('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng tệp!');
-      }
-    };
-    reader.readAsArrayBuffer(file);
+      })
+      .catch(() => {
+        toast.error('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng tệp!');
+      });
   };
 
   // Trích xuất mảng 2 chiều từ Sheet
-  const parseSheetData = (workbook: XLSX.WorkBook, sheetName: string) => {
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) return;
-    const jsonRows = XLSX.utils.sheet_to_json<any[]>(worksheet, {
-      header: 1,
-      defval: '',
-      blankrows: false,
-    });
+  const parseSheetData = (jsonRows: unknown[][]) => {
+    if (!jsonRows || jsonRows.length === 0) return;
     setRawRows(jsonRows);
 
     // Tự động tìm dòng Header tốt nhất (dòng đầu tiên có ít nhất 2 cột text có nghĩa)
@@ -991,28 +981,13 @@ export function ExcelImportDialog({
         'Vật tư tiêu hao',
       ],
     ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 34 },
-      { wch: 24 },
-      { wch: 16 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 20 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 16 },
-      { wch: 28 },
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Mau_Ton_Kho_Chuan');
-    XLSX.writeFile(wb, 'Mau_Nhap_Ton_Kho_Chuan_ERP.xlsx');
+    void downloadXlsxWorkbook('Mau_Nhap_Ton_Kho_Chuan_ERP.xlsx', [
+      {
+        name: 'Mau_Ton_Kho_Chuan',
+        rows: wsData,
+        colWidths: [18, 18, 34, 24, 16, 14, 14, 20, 18, 18, 14, 22, 22, 18, 16, 28],
+      },
+    ]);
   };
 
   // Phân tích & Tiền kiểm tra dữ liệu theo ánh xạ cột (Data Validation)
@@ -1234,7 +1209,7 @@ export function ExcelImportDialog({
     if (stats.blockedByErrors) return;
     const validRows = parsedDataResults.filter((r) => r.status !== 'error');
     if (validRows.length === 0) {
-      alert('Không có dòng vật tư nào hợp lệ để nạp vào hệ thống!');
+      toast.error('Không có dòng vật tư nào hợp lệ để nạp vào hệ thống!');
       return;
     }
 
