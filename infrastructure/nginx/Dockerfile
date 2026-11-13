@@ -9,3 +9,4 @@ COPY infrastructure/nginx/assistant-maintenance.html /usr/share/nginx/html/assis
 COPY infrastructure/nginx/shared-maintenance.html /usr/share/nginx/html/shared-maintenance.html
 COPY infrastructure/nginx/social-maintenance.html /usr/share/nginx/html/social-maintenance.html
 COPY infrastructure/nginx/crm-maintenance.html /usr/share/nginx/html/crm-maintenance.html
+COPY infrastructure/nginx/correspondence-maintenance.html /usr/share/nginx/html/correspondence-maintenance.html

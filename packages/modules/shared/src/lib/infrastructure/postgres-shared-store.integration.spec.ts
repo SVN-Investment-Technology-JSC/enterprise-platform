@@ -106,6 +106,19 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     await expect(pool.query(await readFile(resolve(MIGRATIONS, file), 'utf8'))).resolves.toBeDefined();
   });
 
+  it('thư mục gốc của phân hệ: tìm theo mã phân hệ, tìm con theo tên, đi ngược về gốc', async () => {
+    const root = await store.folders.createSystemRoot(TENANT, alice, 'correspondence', 'Văn thư');
+    expect(root.systemModule).toBe('correspondence');
+    expect((await store.folders.systemRoot(TENANT, 'correspondence'))?.id).toBe(root.id);
+    await expect(store.folders.createSystemRoot(TENANT, alice, 'correspondence', 'Văn thư 2')).rejects.toBeDefined();
+    const year = await folder('2026', root);
+    const dossier = await folder('41/CVĐ - Giải trình', year);
+    expect((await store.folders.activeChild(TENANT, root.id, '2026'))?.id).toBe(year.id);
+    expect(await store.folders.rootOf(TENANT, dossier.id)).toEqual({ rootId: root.id, systemModule: 'correspondence', active: true });
+    const plain = await folder('Không thuộc phân hệ');
+    expect(await store.folders.rootOf(TENANT, plain.id)).toEqual({ rootId: plain.id, systemModule: undefined, active: true });
+  });
+
   it('nhật ký truy cập nhận thao tác xoá và khôi phục', async () => {
     const root = await folder('Nhật ký');
     const { document: doc } = await document(root, 'HĐ');

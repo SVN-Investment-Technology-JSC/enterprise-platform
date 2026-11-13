@@ -20,6 +20,8 @@ import {
   type CreateSharedFolderRequest,
   type CreateSharedVersionRequest,
   type RestoreSharedTrashRequest,
+  type SharedFilingDocumentRequest,
+  type SharedFilingFolderUpdateRequest,
   type SharedDocumentKind,
   type SharedDocumentStatus,
   type SharedStatus,
@@ -29,6 +31,7 @@ import {
   type UpdateSharedFolderSharesRequest,
 } from '@enterprise-platform/contracts-shared';
 import { CompanyDocumentService } from '../application/company-document.service.js';
+import { FilingService } from '../application/filing.service.js';
 import { FolderSharingService } from '../application/folder-sharing.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
@@ -60,6 +63,7 @@ export class SharedController {
     private readonly documents: CompanyDocumentService,
     private readonly sharing: FolderSharingService,
     private readonly quota: StorageQuotaService,
+    private readonly filings: FilingService,
     @Inject(SHARED_STORE) private readonly store: SharedStore,
   ) {}
 
@@ -121,6 +125,67 @@ export class SharedController {
         throw error;
       }
     });
+  }
+
+  /* ------------------------------------------------------- lưu hồ sơ (nội bộ) */
+
+  /**
+   * Phân hệ khác (Văn thư) lưu tệp của nó vào kho: tạo tài liệu dưới thư mục gốc
+   * của phân hệ đó và trả URL tải lên. Phân hệ gọi đã kiểm quyền người dùng.
+   */
+  @Post('internal/filings/documents')
+  createFiling(@Req() request: SharedRequest, @Body() body: SharedFilingDocumentRequest) {
+    return this.execute(() =>
+      this.filings.createDocument(this.actor(request).tenantId, body ?? ({} as SharedFilingDocumentRequest)),
+    );
+  }
+
+  @Post('internal/filings/documents/:id/versions/:versionId/complete')
+  @HttpCode(200)
+  completeFiling(
+    @Req() request: SharedRequest,
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Body() body: { module?: string; sizeBytes?: unknown } | undefined,
+  ) {
+    return this.execute(() =>
+      this.filings.completeUpload(this.actor(request).tenantId, body?.module, id, versionId, body?.sizeBytes),
+    );
+  }
+
+  @Get('internal/filings/documents/:id/download')
+  filingDownload(
+    @Req() request: SharedRequest,
+    @Param('id') id: string,
+    @Query('module') module?: string,
+    @Query('userId') userId?: string,
+    @Query('mode') mode?: string,
+  ) {
+    return this.execute(() =>
+      this.filings.download(this.actor(request).tenantId, module, id, userId, mode === 'preview' ? 'preview' : 'download'),
+    );
+  }
+
+  @Delete('internal/filings/documents/:id')
+  @HttpCode(204)
+  async trashFiling(
+    @Req() request: SharedRequest,
+    @Param('id') id: string,
+    @Query('module') module?: string,
+    @Query('userId') userId?: string,
+  ): Promise<void> {
+    await this.execute(() => this.filings.trashDocument(this.actor(request).tenantId, module, id, userId));
+  }
+
+  @Patch('internal/filings/folders/:id')
+  updateFilingFolder(
+    @Req() request: SharedRequest,
+    @Param('id') id: string,
+    @Body() body: SharedFilingFolderUpdateRequest,
+  ) {
+    return this.execute(() =>
+      this.filings.updateFolder(this.actor(request).tenantId, id, body ?? ({} as SharedFilingFolderUpdateRequest)),
+    );
   }
 
   /* ------------------------------------------------------------ thư mục */

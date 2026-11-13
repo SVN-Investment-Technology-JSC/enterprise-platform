@@ -14,7 +14,7 @@ const actor = {
 
 function controller(ensureCapacity: jest.Mock) {
   const quota = { ensureCapacity } as unknown as StorageQuotaService;
-  return new SharedController({} as never, {} as never, quota, {} as never);
+  return new SharedController({} as never, {} as never, quota, {} as never, {} as never);
 }
 
 describe('SharedController.capacityCheck', () => {
