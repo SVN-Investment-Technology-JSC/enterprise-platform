@@ -245,6 +245,18 @@
     },
     {
       "path": "./packages/contracts/task-approval"
+    },
+    {
+      "path": "./packages/contracts/correspondence"
+    },
+    {
+      "path": "./packages/modules/correspondence"
+    },
+    {
+      "path": "./apps/correspondence-api"
+    },
+    {
+      "path": "./apps/correspondence-web"
     }
   ]
 }

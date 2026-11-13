@@ -348,6 +348,22 @@ services:
     init: true
     restart: unless-stopped
 
+  correspondence-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:correspondence-api-${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3345'
+      # Tệp của hồ sơ văn thư nằm trong kho tài liệu của Hệ dùng chung (route nội bộ, service token).
+      SHARED_API_URL: http://shared-api:3342/api/shared
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:realtime-api-${IMAGE_TAG:-production}
@@ -566,6 +582,15 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:crm-web-${IMAGE_TAG:-production}
     depends_on:
       crm-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  correspondence-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:correspondence-web-${IMAGE_TAG:-production}
+    depends_on:
+      correspondence-api:
         condition: service_healthy
     init: true
     restart: unless-stopped

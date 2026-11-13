@@ -470,6 +470,18 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
   { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
   { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
+  { key: 'correspondence.read', group: 'Văn thư', label: 'Xem công văn mình được trình, được giao xử lý' },
+  {
+    key: 'correspondence.letter.register',
+    group: 'Văn thư',
+    label: 'Văn thư: tiếp nhận, vào sổ, trình, phát hành và lưu trữ công văn',
+  },
+  {
+    key: 'correspondence.letter.direct',
+    group: 'Văn thư',
+    label: 'Lãnh đạo: chỉ đạo, giao phòng ban xử lý và duyệt văn bản phản hồi',
+  },
+  { key: 'correspondence.manage', group: 'Văn thư', label: 'Quản trị văn thư: xem mọi công văn và cấu hình sổ' },
   { key: 'social.read', group: 'Mạng nội bộ', label: 'Xem bảng tin và bài viết' },
   { key: 'social.post.write', group: 'Mạng nội bộ', label: 'Đăng bài, bình luận và phản ứng' },
   { key: 'social.post.moderate', group: 'Mạng nội bộ', label: 'Kiểm duyệt bài viết và bình luận' },
@@ -596,6 +608,11 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'shared.manage': ['shared.read', 'shared.document.write'],
   'shared.document.write': ['shared.read'],
   'shared.document.delete': ['shared.read'],
+  // Văn thư: mọi quyền đều cần vào được phân hệ. Quản trị gồm việc của văn thư nhưng không
+  // biến người đó thành lãnh đạo chỉ đạo, quyền chỉ đạo cấp riêng.
+  'correspondence.manage': ['correspondence.read', 'correspondence.letter.register'],
+  'correspondence.letter.register': ['correspondence.read'],
+  'correspondence.letter.direct': ['correspondence.read'],
   // Mạng nội bộ: đăng bài hay kiểm duyệt cũng xem được bảng tin; kiểm duyệt gồm quyền đăng.
   'social.manage': ['social.read', 'social.post.write', 'social.post.moderate'],
   'social.post.moderate': ['social.read', 'social.post.write'],
@@ -644,6 +661,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   shared: 'shared',
   social: 'social',
   crm: 'crm',
+  correspondence: 'correspondence',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([

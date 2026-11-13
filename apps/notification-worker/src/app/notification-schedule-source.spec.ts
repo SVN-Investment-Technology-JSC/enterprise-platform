@@ -155,4 +155,40 @@ describe('notification schedule source', () => {
       expect((broken.query.mock.calls.find(([sql]) => sql.includes('FROM crm_schema.contracts'))?.[1] as unknown[] | undefined)?.[1]).toBe(30);
     });
   });
+  describe('nhắc hạn công văn Văn thư', () => {
+    const letter = (overrides: Record<string, unknown> = {}) => ({
+      id: 'letter-a', incoming_no: '41/CVĐ', subject: 'Giải trình thuế', due_at: new Date('2026-11-18T17:00:00Z'),
+      stage: 'directing', leader_user_id: 'user-leader', received_by: 'user-clerk', pending_unit_ids: [], ...overrides,
+    });
+    const run = async (rows: unknown[], organization?: () => Promise<unknown>) => {
+      const query = jest.fn(async (sql: string) => {
+        if (sql.includes('to_regclass')) return { rows: [{ correspondence: true }] };
+        if (sql.includes('FROM correspondence_schema.letters')) return { rows };
+        return { rows: [] };
+      });
+      return new PostgresNotificationScheduleSource({ query } as never, 'Asia/Ho_Chi_Minh', organization)
+        .candidates(new Date('2026-11-18T01:00:00Z'));
+    };
+
+    it('chờ chỉ đạo thì nhắc lãnh đạo, trước hạn và đúng hạn', async () => {
+      const candidates = await run([letter()]);
+      expect(candidates).toEqual([
+        expect.objectContaining({ eventType: 'correspondence.letter.due-soon', userId: 'user-leader', scheduledFor: '2026-11-17T17:00:00.000Z' }),
+        expect.objectContaining({ eventType: 'correspondence.letter.overdue', userId: 'user-leader', scheduledFor: '2026-11-18T17:00:00.000Z' }),
+      ]);
+      expect(candidates[0].payload).toMatchObject({ letterId: 'letter-a', code: '41/CVĐ', title: 'Giải trình thuế' });
+    });
+
+    it('đang xử lý thì nhắc người phụ trách phòng ban chưa phản hồi; không đọc được sơ đồ tổ chức thì nhắc văn thư', async () => {
+      const organization = {
+        units: [{ id: 'unit-finance', typeCategory: 'unit' }, { id: 'pos-head', parentId: 'unit-finance', typeCategory: 'position' }],
+        members: [{ membershipId: 'm1', userId: 'user-head', unitId: 'pos-head', isHead: true }],
+        membershipSubjects: { m1: { organizationUnitIds: ['pos-head'], positionIds: ['pos-head'] } },
+      };
+      const processing = letter({ stage: 'processing', pending_unit_ids: ['unit-finance'] });
+      expect((await run([processing], async () => organization)).map((item) => item.userId)).toEqual(['user-head', 'user-head']);
+      const failing = async () => { throw new Error('core down'); };
+      expect((await run([processing], failing)).map((item) => item.userId)).toEqual(['user-clerk', 'user-clerk']);
+    });
+  });
 });

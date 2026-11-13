@@ -8,6 +8,7 @@ import {
   CheckCheck,
   ChevronRight,
   Handshake,
+  Stamp,
   Landmark,
   LoaderCircle,
   Package,
@@ -1060,6 +1061,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   maintenance: Wrench,
   social: Newspaper,
   crm: Handshake,
+  correspondence: Stamp,
   chat: MessagesSquare,
 };
 
@@ -1074,6 +1076,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
     crm: 'CRM',
+    correspondence: 'Văn thư',
     chat: 'Chat nội bộ',
   } as const)[module];
 }

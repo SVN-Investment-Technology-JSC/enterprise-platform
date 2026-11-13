@@ -144,6 +144,11 @@ export interface SharedFolder extends SharedRecordMeta {
    * Quản trị kho luôn là `manager`. Ghi và xoá còn cần quyền của phân hệ.
    */
   readonly access?: SharedFolderRole;
+  /**
+   * Thư mục gốc do một phân hệ khác dựng và quản lý (ví dụ `correspondence`: hồ sơ Văn thư).
+   * Không xoá, không chuyển được; đổi tên và chia sẻ thì vẫn như thư mục thường.
+   */
+  readonly systemModule?: string;
 }
 
 export interface SharedDocumentVersion {
@@ -480,6 +485,59 @@ export interface SharedDocumentQuery {
   readonly status?: SharedDocumentStatus;
   /** Chỉ tài liệu hết hiệu lực trong số ngày tới (đã hết thì cũng tính). */
   readonly expiringWithinDays?: number;
+}
+
+/* ------------------------------------------------------------ lưu hồ sơ */
+
+/**
+ * Phân hệ được lưu tệp vào kho qua route nội bộ `/v1/internal/filings/*`.
+ *
+ * Mỗi phân hệ có một thư mục gốc riêng (`systemModule`), tạo ở lần lưu đầu
+ * tiên. Route nội bộ chỉ đụng tới tài liệu và thư mục nằm dưới thư mục gốc
+ * của chính phân hệ gọi; người dùng vẫn xem các thư mục đó trong kho theo
+ * chia sẻ như mọi thư mục khác.
+ */
+export const SHARED_FILING_MODULES = ['correspondence'] as const;
+export type SharedFilingModule = (typeof SHARED_FILING_MODULES)[number];
+
+/** Một cấp thư mục dưới thư mục gốc của phân hệ; chưa có thì tạo. */
+export interface SharedFilingPathSegment extends SharedRecordMeta {
+  readonly name: string;
+  readonly note?: string;
+}
+
+/** `POST /v1/internal/filings/documents`: tạo tài liệu và xin URL tải lên. */
+export interface SharedFilingDocumentRequest extends SharedRecordMeta {
+  readonly module: SharedFilingModule;
+  /** Người tải lên (người dùng của phân hệ gọi), ghi vào tài liệu và nhật ký. */
+  readonly userId: string;
+  /** Tên thư mục gốc khi phải tạo mới, ví dụ "Văn thư". */
+  readonly rootName: string;
+  /** Thư mục đích đã có (thường là id trả về ở lần lưu trước). */
+  readonly folderId?: string;
+  /** Hoặc đường dẫn dưới thư mục gốc, tối đa 4 cấp. */
+  readonly path?: readonly SharedFilingPathSegment[];
+  readonly name: string;
+  readonly description?: string;
+  readonly sourceLabel?: string;
+  readonly confidentiality?: SharedConfidentiality;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+export interface SharedFilingDocumentResponse {
+  readonly folderId: string;
+  readonly documentId: string;
+  readonly versionId: string;
+  readonly uploadUrl: string;
+  readonly expiresInSeconds: number;
+}
+
+/** `PATCH /v1/internal/filings/folders/:id`: đổi thông tin hồ sơ của một thư mục của phân hệ. */
+export interface SharedFilingFolderUpdateRequest extends SharedRecordMeta {
+  readonly module: SharedFilingModule;
+  readonly note?: string;
 }
 
 /* ------------------------------------------------------------ dung lượng */

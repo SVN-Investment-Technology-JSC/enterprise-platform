@@ -23,6 +23,7 @@ const DELIBERATELY_UNREGISTERED: Readonly<Record<string, string>> = {
 
 const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   assistant: 'tenant/assistant',
+  correspondence: 'tenant/correspondence',
   crm: 'tenant/crm',
   finance: 'tenant/finance',
   hrm: 'tenant/hrm',

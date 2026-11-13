@@ -11,12 +11,13 @@ interface DeadlineRow {
   id: string; title: string; due_at: Date; project_id?: string; assignee_user_id?: string;
   assignee_id?: string; created_by?: string; code?: string | null;
 }
-type DeadlineModule = 'workspace' | 'maintenance' | 'crm';
+type DeadlineModule = 'workspace' | 'maintenance' | 'crm' | 'correspondence';
 /** Đối tượng có hạn của từng phân hệ: phần giữa của loại sự kiện và tên trường id trong payload. */
 const DEADLINE_SUBJECTS: Readonly<Record<DeadlineModule, { subject: string; idField: string }>> = {
   workspace: { subject: 'work-item', idField: 'workItemId' },
   maintenance: { subject: 'occurrence', idField: 'occurrenceId' },
   crm: { subject: 'activity', idField: 'activityId' },
+  correspondence: { subject: 'letter', idField: 'letterId' },
 };
 /** Nhắc trước hạn mặc định của Công việc và Bảo trì. */
 const DEFAULT_DUE_SOON_MINUTES = 24 * 60;
@@ -31,6 +32,10 @@ interface CrmActivityRow {
 }
 /** The workspace query filters `assignee_user_id IS NOT NULL`, so rows from it always carry the assignee. */
 type AssignedDeadlineRow = DeadlineRow & { assignee_user_id: string };
+interface CorrespondenceLetterRow {
+  id: string; incoming_no: string; subject: string; due_at: Date; stage: string;
+  leader_user_id: string | null; received_by: string; pending_unit_ids: string[] | null;
+}
 interface CalendarRow {
   id: string; series_id: string; project_id?: string; title: string; start_at: Date; end_at: Date;
   timezone: string; recurrence_rule: string | null; recurrence_until: Date | null;
@@ -53,14 +58,15 @@ export class PostgresNotificationScheduleSource {
   async candidates(now: Date): Promise<readonly NotificationScheduleCandidate[]> {
     const tables = await this.pool.query<{
       workspace: boolean; calendar: boolean; procedure: boolean; maintenance: boolean; inventory: boolean; crm: boolean;
-      crm_contracts?: boolean;
+      crm_contracts?: boolean; correspondence?: boolean;
     }>(`SELECT to_regclass('workspace_schema.work_items') IS NOT NULL AS workspace,
                to_regclass('workspace_schema.calendar_event_exceptions') IS NOT NULL AS calendar,
                to_regclass('procedure_schema.instances') IS NOT NULL AS procedure,
                to_regclass('maintenance_schema.occurrences') IS NOT NULL AS maintenance,
                to_regclass('inventory_schema.reservations') IS NOT NULL AS inventory,
                to_regclass('crm_schema.activities') IS NOT NULL AS crm,
-               to_regclass('crm_schema.contract_payment_terms') IS NOT NULL AS crm_contracts`);
+               to_regclass('crm_schema.contract_payment_terms') IS NOT NULL AS crm_contracts,
+               to_regclass('correspondence_schema.letters') IS NOT NULL AS correspondence`);
     const installed = tables.rows[0];
     const candidates: NotificationScheduleCandidate[] = [];
     /**
@@ -216,6 +222,37 @@ export class PostgresNotificationScheduleSource {
             deepLink: `/modules/crm#contracts/${encodeURIComponent(row.id)}`,
           },
         });
+      }
+    }
+    if (installed.correspondence) {
+      // Hạn xử lý công văn (hết ngày `due_on`, giờ Việt Nam). Nhắc người đang phải làm ở bước hiện tại: lãnh đạo khi
+      // chờ chỉ đạo hay duyệt, người phụ trách các phòng ban chưa phản hồi khi đang xử lý, văn thư tiếp nhận ở các bước còn lại.
+      const letters = await this.pool.query<CorrespondenceLetterRow>(
+        `SELECT l.id, l.incoming_no, l.subject, l.stage, l.leader_user_id, l.received_by,
+                ((l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
+                ARRAY(SELECT a.unit_id::text FROM correspondence_schema.assignments a
+                       WHERE a.letter_id = l.id AND a.status = 'pending') AS pending_unit_ids
+           FROM correspondence_schema.letters l
+          WHERE l.stage IN ('received','registered','directing','processing','reviewing','publishing','closing')
+            AND l.due_on BETWEEN ($1::timestamptz AT TIME ZONE $2)::date - 90
+                             AND ($1::timestamptz AT TIME ZONE $2)::date + 1`, [now, this.timezone]);
+      let organizationOnce: Promise<unknown> | undefined;
+      for (const row of letters.rows) {
+        let users: string[] = [row.received_by];
+        if ((row.stage === 'directing' || row.stage === 'reviewing') && row.leader_user_id) users = [row.leader_user_id];
+        if (row.stage === 'processing' && row.pending_unit_ids?.length && this.organization) {
+          try {
+            const resolved = resolveProcedureAssigneeUserIds(
+              row.pending_unit_ids.map((unitId) => ({ subjectType: 'organization_unit', subjectId: unitId, role: 'E' })),
+              await (organizationOnce ??= this.organization()),
+            );
+            if (resolved.length > 0) users = resolved;
+          } catch {
+            // Tenant Core chập chờn: lần quét này nhắc văn thư tiếp nhận, lần sau thử lại theo phòng ban.
+          }
+        }
+        deadlines('correspondence', { id: row.id, title: row.subject, code: row.incoming_no, due_at: row.due_at }, users,
+          DEFAULT_DUE_SOON_MINUTES, {});
       }
     }
     return candidates;

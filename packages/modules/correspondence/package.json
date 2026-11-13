@@ -1,0 +1,38 @@
+{
+  "name": "@enterprise-platform/module-correspondence",
+  "version": "0.0.1",
+  "description": "Văn thư — công văn đến, chỉ đạo, phòng ban xử lý, phát hành và lưu trữ",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@enterprise-platform/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "module-correspondence",
+    "tags": [
+      "type:module",
+      "scope:correspondence"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-correspondence": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-shared": "workspace:*",
+    "@nestjs/common": "^11.2.1",
+    "pg": "^8.23.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0"
+  }
+}

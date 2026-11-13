@@ -780,3 +780,72 @@ describe('hợp đồng, đơn bán Bán hàng', () => {
     expect(resolved?.template.sourceId).toBe(sourceId);
   });
 });
+
+describe('Văn thư', () => {
+  const base = {
+    letterId: 'letter-1',
+    incomingNo: '41/CVĐ',
+    actorUserId: 'user-clerk',
+    summary: 'Lê Thu Hà trình công văn 41/CVĐ · Yêu cầu giải trình.',
+    deepLink: '/modules/correspondence#letters/letter-1',
+  };
+
+  it.each([
+    ['correspondence.letter.submitted', 'Công văn chờ bạn chỉ đạo', 'actionable'],
+    ['correspondence.letter.review-requested', 'Văn bản phản hồi chờ bạn duyệt', 'actionable'],
+    ['correspondence.letter.approved', 'Văn bản phản hồi đã được duyệt', 'actionable'],
+    ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],
+    ['correspondence.letter.returned', 'Công văn bị lãnh đạo trả lại', 'actionable'],
+    ['correspondence.letter.published', 'Công văn đi đã phát hành', 'informational'],
+    ['correspondence.letter.archived', 'Hồ sơ công văn đã lưu trữ', 'informational'],
+  ])('%s báo người trong payload, không báo người thao tác, mở đúng công văn', async (type, title, priority) => {
+    const resolved = await registry.resolve(
+      event(type, { ...base, recipientUserIds: ['user-leader', 'user-clerk'] }),
+      directory(),
+    );
+    expect(resolved?.policy.module).toBe('correspondence');
+    expect(resolved?.policy.priority).toBe(priority);
+    expect(resolved?.recipients).toEqual(['user-leader']);
+    expect(resolved?.template).toMatchObject({
+      title,
+      body: base.summary,
+      deepLink: '/modules/correspondence#letters/letter-1',
+      sourceType: 'correspondence_letter',
+    });
+  });
+
+  it.each(['correspondence.letter.assigned', 'correspondence.letter.revision-requested'])(
+    '%s giải phòng ban thành người phụ trách đơn vị',
+    async (type) => {
+      const usersForProcedureAssignments = jest.fn(async () => ['user-head']);
+      const assignments = [{ subjectType: 'organization_unit', subjectId: 'unit-finance', role: 'E' }];
+      const resolved = await registry.resolve(
+        event(type, { ...base, recipientUserIds: ['user-accountant'], assignments }),
+        directory({ usersForProcedureAssignments }),
+      );
+      expect(usersForProcedureAssignments).toHaveBeenCalledWith(assignments);
+      expect(resolved?.recipients).toEqual(['user-accountant', 'user-head']);
+      expect(resolved?.template.deepLink).toBe('/modules/correspondence#letters/letter-1');
+    },
+  );
+
+  it.each([
+    ['correspondence.letter.due-soon', 'Công văn sắp đến hạn xử lý'],
+    ['correspondence.letter.overdue', 'Công văn đã quá hạn xử lý'],
+  ])('%s nhắc người đang phải làm, nêu số đến và hạn', async (type, title) => {
+    const resolved = await registry.resolve(
+      event(type, {
+        letterId: 'letter-1',
+        title: 'Yêu cầu giải trình',
+        code: '41/CVĐ',
+        dueAt: '2026-11-18T17:00:00.000Z',
+        assigneeUserId: 'user-leader',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-leader']);
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.body).toBe('41/CVĐ · Yêu cầu giải trình (hạn 19/11/2026 00:00)');
+    expect(resolved?.template.deepLink).toBe('/modules/correspondence#letters/letter-1');
+  });
+});

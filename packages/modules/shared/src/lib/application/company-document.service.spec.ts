@@ -29,6 +29,7 @@ import {
   sortFolders,
   withFreeName,
 } from './company-document.service.js';
+import { FilingService, SHARED_SYSTEM_USER_ID } from './filing.service.js';
 import { canSee, FolderAccessService, type ShareRecord } from './folder-access.js';
 import { FolderSharingService } from './folder-sharing.service.js';
 import type { OrganizationSnapshot } from './organization.port.js';
@@ -123,6 +124,43 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
           isActive: folder.isActive,
         })),
       find: async (_tenant, folderId) => folders.get(folderId),
+      systemRoot: async (_tenant, module) =>
+        [...folders.values()].find((folder) => folder.isActive && !folder.parentId && folder.systemModule === module),
+      createSystemRoot: async (_tenant, userId, module, name) => {
+        const taken = [...folders.values()].some(
+          (folder) => folder.isActive && !folder.parentId && folder.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (taken) throw new SharedNameTakenError(name);
+        const folder: SharedFolder = {
+          id: id('folder'),
+          name,
+          depth: 0,
+          isActive: true,
+          documentCount: 0,
+          totalDocumentCount: 0,
+          totalBytes: 0,
+          createdBy: userId,
+          createdAt: now,
+          updatedAt: now,
+          systemModule: module,
+        };
+        folders.set(folder.id, folder);
+        return folder;
+      },
+      activeChild: async (_tenant, parentId, name) =>
+        [...folders.values()].find(
+          (folder) => folder.isActive && folder.parentId === parentId && folder.name.toLowerCase() === name.toLowerCase(),
+        ),
+      rootOf: async (_tenant, folderId) => {
+        let current = folders.get(folderId);
+        let active = true;
+        for (let guard = 0; current && guard < 10; guard += 1) {
+          active = active && current.isActive;
+          if (!current.parentId) return { rootId: current.id, systemModule: current.systemModule, active };
+          current = folders.get(current.parentId);
+        }
+        return undefined;
+      },
       create: async (_tenant, userId, input) => {
         const folder: SharedFolder = {
           id: id('folder'),
@@ -148,7 +186,18 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
       },
       update: async (_tenant, folderId, input) => {
         const current = folders.get(folderId)!;
-        const next = { ...current, name: input.name, parentId: input.parentId ?? undefined, depth: current.depth + input.depthDelta };
+        const next = {
+          ...current,
+          name: input.name,
+          parentId: input.parentId ?? undefined,
+          depth: current.depth + input.depthDelta,
+          note: input.note ?? undefined,
+          docKind: input.docKind ?? undefined,
+          docNumber: input.docNumber ?? undefined,
+          partner: input.partner ?? undefined,
+          issuedOn: input.issuedOn ?? undefined,
+          effectiveTo: input.effectiveTo ?? undefined,
+        };
         folders.set(folderId, next);
         return next;
       },
@@ -1388,5 +1437,112 @@ describe('withFreeName', () => {
     const attempt = jest.fn().mockRejectedValue(new SharedNameTakenError('HĐ'));
     await expect(withFreeName('HĐ', 255, 'khôi phục', attempt)).rejects.toBeInstanceOf(SharedNameTakenError);
     expect(attempt.mock.calls.length).toBeGreaterThan(10);
+  });
+});
+
+describe('FilingService – lưu hồ sơ của phân hệ khác', () => {
+  function filingSetup() {
+    const fake = fakeStore();
+    const quota = new StorageQuotaService(fake.store, { storageLimit: async () => undefined }, () => 0);
+    const files = fakeStorage();
+    const organization = fakeOrganization();
+    const access = new FolderAccessService(fake.store, organization.reader, () => TODAY);
+    return {
+      ...fake,
+      files,
+      filings: new FilingService(fake.store, quota, files.port),
+      service: new CompanyDocumentService(fake.store, quota, access, files.port),
+    };
+  }
+
+  const request = {
+    module: 'correspondence' as const,
+    userId: 'user-clerk',
+    rootName: 'Văn thư',
+    path: [{ name: '2026' }, { name: 'Công văn đến' }, { name: '41/CVĐ - Đề nghị báo cáo', docNumber: '41/CVĐ' }],
+    name: 'Bản quét công văn',
+    ...pdf,
+  };
+
+  it('dựng thư mục gốc của phân hệ và từng cấp, lần sau dùng lại', async () => {
+    const { filings, folders, files } = filingSetup();
+    const first = await filings.createDocument(TENANT, request);
+    expect(first.uploadUrl).toContain(`tenants/${TENANT}/shared/`);
+    const root = [...folders.values()].find((folder) => !folder.parentId);
+    expect(root).toMatchObject({ name: 'Văn thư', systemModule: 'correspondence', createdBy: SHARED_SYSTEM_USER_ID });
+    expect(folders.get(first.folderId)).toMatchObject({ depth: 3, docNumber: '41/CVĐ' });
+
+    const second = await filings.createDocument(TENANT, { ...request, name: 'Phụ lục' });
+    expect(second.folderId).toBe(first.folderId);
+    expect(folders.size).toBe(4);
+
+    const third = await filings.createDocument(TENANT, { ...request, path: undefined, folderId: first.folderId });
+    expect(third.folderId).toBe(first.folderId);
+    expect(files.copies).toHaveLength(0);
+  });
+
+  it('kho đã có thư mục gốc cùng tên thì thư mục của phân hệ thêm hậu tố', async () => {
+    const { filings, service, folders } = filingSetup();
+    await service.createFolder(admin, { name: 'Văn thư' });
+    await filings.createDocument(TENANT, request);
+    const roots = [...folders.values()].filter((folder) => !folder.parentId).map((folder) => folder.name);
+    expect(roots).toEqual(['Văn thư', 'Văn thư (hệ thống)']);
+  });
+
+  it('không cho đụng thư mục, tài liệu ngoài thư mục gốc của phân hệ', async () => {
+    const { filings, service } = filingSetup();
+    const other = await service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    await expect(
+      filings.createDocument(TENANT, { ...request, path: undefined, folderId: other.id }),
+    ).rejects.toBeInstanceOf(SharedFolderNotFoundError);
+    const outside = await service.create(actor(), { folderId: other.id, name: 'HĐ 01', ...pdf });
+    await expect(
+      filings.download(TENANT, 'correspondence', outside.document.id, 'user-clerk', 'download'),
+    ).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+    await expect(
+      filings.trashDocument(TENANT, 'correspondence', outside.document.id, 'user-clerk'),
+    ).rejects.toBeInstanceOf(SharedDocumentNotFoundError);
+  });
+
+  it('chỉ nhận phân hệ trong danh sách được lưu hồ sơ', async () => {
+    const { filings } = filingSetup();
+    await expect(
+      filings.createDocument(TENANT, { ...request, module: 'hrm' as unknown as 'correspondence' }),
+    ).rejects.toBeInstanceOf(SharedValidationError);
+  });
+
+  it('tải xuống cần tệp đã tải lên xong và ghi nhật ký theo người xem', async () => {
+    const { filings, files } = filingSetup();
+    const created = await filings.createDocument(TENANT, request);
+    await expect(
+      filings.download(TENANT, 'correspondence', created.documentId, 'user-leader', 'download'),
+    ).rejects.toBeInstanceOf(SharedValidationError);
+    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId, pdf.sizeBytes);
+    const ticket = await filings.download(TENANT, 'correspondence', created.documentId, 'user-leader', 'preview');
+    expect(ticket.fileName).toBe(pdf.fileName);
+    expect(files.downloads.at(-1)?.options).toMatchObject({ inline: true });
+  });
+
+  it('ghi số lưu trữ lên thư mục hồ sơ', async () => {
+    const { filings } = filingSetup();
+    const created = await filings.createDocument(TENANT, request);
+    const folder = await filings.updateFolder(TENANT, created.folderId, {
+      module: 'correspondence',
+      docKind: 'official_letter',
+      docNumber: 'HS-2026-0001',
+      partner: 'Sở Tài chính',
+    });
+    expect(folder.docNumber).toBe('HS-2026-0001');
+  });
+
+  it('thư mục gốc của phân hệ không xoá, không chuyển được', async () => {
+    const { filings, service, folders } = filingSetup();
+    await filings.createDocument(TENANT, request);
+    const root = [...folders.values()].find((folder) => folder.systemModule === 'correspondence')!;
+    const other = await service.createFolder(admin, { name: 'Lưu trữ cũ' });
+    await expect(service.deleteFolder(admin, root.id)).rejects.toBeInstanceOf(SharedForbiddenError);
+    await expect(service.updateFolder(admin, root.id, { parentId: other.id })).rejects.toBeInstanceOf(
+      SharedForbiddenError,
+    );
   });
 });

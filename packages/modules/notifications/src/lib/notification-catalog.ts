@@ -1146,6 +1146,81 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
+  // Văn thư: người nhận ghi sẵn trong payload (`recipientUserIds`: lãnh đạo được trình, văn thư tiếp nhận, người đã gửi
+  // phản hồi). Mỗi lần chuyển bước là một thông báo riêng, nên khoá nguồn gồm id sự kiện.
+  ...(
+    [
+      ['correspondence.letter.submitted', 'approval', 'actionable', 'Công văn chờ bạn chỉ đạo'],
+      ['correspondence.letter.returned', 'assignment', 'actionable', 'Công văn bị lãnh đạo trả lại'],
+      ['correspondence.letter.review-requested', 'approval', 'actionable', 'Văn bản phản hồi chờ bạn duyệt'],
+      ['correspondence.letter.approved', 'result', 'actionable', 'Văn bản phản hồi đã được duyệt'],
+      ['correspondence.letter.archive-requested', 'assignment', 'actionable', 'Công văn chờ lưu trữ'],
+      ['correspondence.letter.published', 'result', 'informational', 'Công văn đi đã phát hành'],
+      ['correspondence.letter.archived', 'result', 'informational', 'Hồ sơ công văn đã lưu trữ'],
+    ] as const
+  ).map(([eventType, category, priority, title]) =>
+    directPolicy({
+      eventType,
+      module: 'correspondence',
+      category,
+      priority,
+      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      actorField: 'actorUserId',
+      template: ({ payload, event }) => ({
+        title,
+        body: text(payload, 'summary', 'Công văn có cập nhật mới.'),
+        deepLink: text(payload, 'deepLink', '/modules/correspondence'),
+        sourceType: 'correspondence_letter',
+        sourceId: `${id(payload, 'letterId')}:${eventType}:${event.id}`,
+      }),
+    }),
+  ),
+  // Văn thư giao phòng ban xử lý hoặc yêu cầu phòng ban sửa dự thảo: các phòng đi kèm dưới dạng vai của đơn vị
+  // (`assignments`), worker giải ra người phụ trách đơn vị như bước quy trình giao cho đơn vị; cộng người đã gửi phản hồi.
+  ...(
+    [
+      ['correspondence.letter.assigned', 'Phòng bạn được giao xử lý công văn'],
+      ['correspondence.letter.revision-requested', 'Văn bản phản hồi cần sửa lại'],
+    ] as const
+  ).map(([eventType, title]) =>
+    directPolicy({
+      eventType,
+      module: 'correspondence',
+      category: 'assignment',
+      priority: 'actionable',
+      recipients: { kind: 'procedure-assignments', userFields: ['recipientUserIds'], assignmentsField: 'assignments' },
+      actorField: 'actorUserId',
+      template: ({ payload, event }) => ({
+        title,
+        body: text(payload, 'summary', 'Công văn cần phòng bạn xử lý.'),
+        deepLink: text(payload, 'deepLink', '/modules/correspondence'),
+        sourceType: 'correspondence_letter',
+        sourceId: `${id(payload, 'letterId')}:${eventType}:${event.id}`,
+      }),
+    }),
+  ),
+  // Nhắc hạn xử lý công văn (nguồn lịch của notification-worker): báo người đang phải làm ở bước hiện tại.
+  ...(['due-soon', 'overdue'] as const).map((kind) =>
+    directPolicy({
+      eventType: `correspondence.letter.${kind}`,
+      module: 'correspondence',
+      category: 'deadline',
+      priority: kind === 'overdue' ? 'actionable' : 'informational',
+      recipients: { kind: 'payload', fields: ['assigneeUserId'] },
+      template: ({ payload }) => {
+        const due = formatDue(payload.dueAt);
+        const code = typeof payload.code === 'string' && payload.code.trim() ? `${payload.code.trim()} · ` : '';
+        return {
+          title: kind === 'overdue' ? 'Công văn đã quá hạn xử lý' : 'Công văn sắp đến hạn xử lý',
+          body: `${code}${text(payload, 'title', 'Công văn')}${due ? ` (hạn ${due})` : ''}`,
+          deepLink: `/modules/correspondence#letters/${encodeURIComponent(id(payload, 'letterId'))}`,
+          sourceType: 'correspondence_letter_deadline',
+          // Gồm hạn để dời hạn thì là thông báo mới.
+          sourceId: `${id(payload, 'letterId')}:${kind}:${text(payload, 'dueAt', '')}`,
+        };
+      },
+    }),
+  ),
   ...[
     ['maintenance.occurrence.assigned', 'assignment', 'Bạn được giao phiếu bảo trì'],
     ['maintenance.occurrence.due-soon', 'deadline', 'Phiếu bảo trì sắp đến hạn'],
