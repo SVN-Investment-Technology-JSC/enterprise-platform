@@ -6,6 +6,7 @@ import type { CrmCapabilities, CrmStatus } from '@enterprise-platform/contracts-
  */
 export type CrmView =
   | 'overview'
+  | 'tasks'
   | 'customers'
   | 'leads'
   | 'opportunities'
@@ -33,6 +34,7 @@ export const CRM_VIEWS: readonly CrmView[] = [
   'leads',
   'activities',
   'overview',
+  'tasks',
   'opportunities',
   'quotes',
   'contracts',
@@ -61,7 +63,7 @@ export const CRM_SECTIONS: readonly CrmSection[] = [
   {
     id: 'sales',
     label: 'Bán hàng',
-    views: ['overview', 'opportunities', 'quotes', 'contracts', 'orders', 'receivables', 'warranty', 'reports'],
+    views: ['overview', 'tasks', 'opportunities', 'quotes', 'contracts', 'orders', 'receivables', 'warranty', 'reports'],
   },
 ];
 
@@ -96,6 +98,12 @@ export const CRM_PAGES: readonly CrmPage[] = [
     label: 'Tổng quan',
     group: 'Bán hàng',
     summary: 'Doanh thu, lợi nhuận, dự án bán hàng, công nợ so với kỳ trước và các việc cần chú ý trong phạm vi của bạn.',
+  },
+  {
+    id: 'tasks',
+    label: 'Việc cần xử lý',
+    group: 'Bán hàng',
+    summary: 'Báo giá, phương án kinh doanh đang chờ bạn duyệt và việc của báo giá bạn phụ trách.',
   },
   {
     id: 'opportunities',

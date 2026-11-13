@@ -7,6 +7,8 @@ import {
   type QuoteLinkTargetType,
   type QuoteOrderAmountInput,
   type QuoteTemplate,
+  type QuoteVersion,
+  type UpdateQuoteVersionRequest,
 } from '@enterprise-platform/contracts-crm';
 
 /** Logic thuần của form báo giá theo mẫu (P2I-10, P2I-08, P2I-06): kiểm nhập, dựng yêu cầu gửi server. */
@@ -180,4 +182,95 @@ export function hasLink(
   targetId: string,
 ): boolean {
   return links.some((link) => link.targetType === targetType && link.targetId === targetId);
+}
+
+// Khối "Cập nhật thông tin báo giá" trên màn báo giá (nhập trực tiếp, lưu chung bằng nút Lưu)
+
+/** Phần thông tin thêm của phiên bản: ngày tính giá, vận chuyển, chiết khấu và thuế tổng đơn, phí, ghi chú, trường tuỳ biến. */
+export interface QuoteDetailsState {
+  readonly priceDate: string;
+  readonly shipping: string;
+  readonly shippingVat: string;
+  readonly shippingCost: string;
+  readonly discount: OrderAmountText;
+  readonly tax: OrderAmountText;
+  readonly fees: readonly FeeRow[];
+  /** In ở mục "Ghi chú" của báo giá. */
+  readonly note: string;
+  readonly custom: CustomFieldTexts;
+}
+
+export function quoteDetailsOf(version: QuoteVersion): QuoteDetailsState {
+  const form = version.form;
+  return {
+    priceDate: version.priceDate ?? '',
+    shipping: version.shipping.amount ? String(version.shipping.amount) : '',
+    shippingVat: String(version.shipping.vatRate),
+    shippingCost: version.shipping.amount || version.shipping.cost ? String(version.shipping.cost) : '',
+    discount: orderAmountText(form.orderDiscount),
+    tax: orderAmountText(form.orderTax),
+    fees: feeRowsOf(form.fees),
+    note: version.note ?? '',
+    custom: customFieldTexts(form.customFields),
+  };
+}
+
+/** Giống nhau sau khi bỏ khoảng trắng hai đầu; bỏ qua khoá dòng phí, dòng phí trống, trường tuỳ biến trống. */
+export function sameQuoteDetails(left: QuoteDetailsState, right: QuoteDetailsState): boolean {
+  const normal = (state: QuoteDetailsState) =>
+    JSON.stringify({
+      priceDate: state.priceDate,
+      shipping: state.shipping.trim(),
+      shippingVat: state.shippingVat.trim(),
+      shippingCost: state.shippingCost.trim(),
+      discount: [state.discount.percent.trim(), state.discount.amount.trim()],
+      tax: [state.tax.percent.trim(), state.tax.amount.trim()],
+      fees: state.fees.filter((row) => row.feeType.trim() || row.amount.trim()).map((row) => [row.feeType.trim(), row.amount.trim()]),
+      note: state.note.trim(),
+      custom: Object.entries(state.custom)
+        .filter(([, value]) => value.trim())
+        .map(([id, value]) => [id, value.trim()])
+        .sort(([a], [b]) => a.localeCompare(b)),
+    });
+  return normal(left) === normal(right);
+}
+
+/**
+ * Phần yêu cầu sửa phiên bản cho khối thông tin thêm; chiết khấu, thuế tổng đơn chỉ gửi khi mẫu tính theo tổng đơn.
+ * Lỗi nhập trả câu tiếng Việt. Không kiểm trường bắt buộc (bên gọi kiểm để chỉ ra ô thiếu).
+ */
+export function buildQuoteDetailsPatch(
+  state: QuoteDetailsState,
+  fields: readonly CustomFieldDefinition[],
+  modes: { readonly discount: QuoteAdjustmentMode; readonly tax: QuoteAdjustmentMode },
+):
+  | {
+      ok: true;
+      patch: Pick<UpdateQuoteVersionRequest, 'priceDate' | 'shipping' | 'orderDiscount' | 'orderTax' | 'fees' | 'note' | 'customFields'>;
+    }
+  | { ok: false; error: string } {
+  const fees = buildFees(state.fees);
+  if (!fees.ok) return fees;
+  const discount = modes.discount === 'ORDER' ? buildOrderAmount(state.discount, 'chiết khấu') : undefined;
+  if (discount && !discount.ok) return discount;
+  const tax = modes.tax === 'ORDER' ? buildOrderAmount(state.tax, 'thuế') : undefined;
+  if (tax && !tax.ok) return tax;
+  const custom = buildCustomFields(fields, state.custom);
+  if (!custom.ok) return custom;
+  const amount = state.shipping.trim() ? (parseDecimal(state.shipping) ?? Number.NaN) : 0;
+  const cost = state.shippingCost.trim() ? (parseDecimal(state.shippingCost) ?? Number.NaN) : null;
+  if (Number.isNaN(amount) || amount < 0) return { ok: false, error: 'Phí vận chuyển thu khách phải là số không âm.' };
+  if (cost !== null && (Number.isNaN(cost) || cost < 0)) return { ok: false, error: 'Chi phí vận chuyển bên bán chịu phải là số không âm.' };
+  return {
+    ok: true,
+    patch: {
+      priceDate: state.priceDate || null,
+      shipping: amount || cost ? { amount, vatRate: parseDecimal(state.shippingVat) ?? null, cost } : null,
+      orderDiscount: discount?.ok ? discount.value : undefined,
+      orderTax: tax?.ok ? tax.value : undefined,
+      fees: fees.fees,
+      note: state.note.trim() || null,
+      customFields: custom.values,
+    },
+  };
 }

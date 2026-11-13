@@ -21,6 +21,7 @@ import { Paperclip, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { IncidentFormValues } from '../assistant-incident-draft';
 import { loadFleetAvailability } from '../maintenance-api';
+import { selectableProcedures } from '../procedure-options';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { SELECT_CLASS } from '../ui/select-class';
@@ -87,6 +88,7 @@ export function IncidentForm({
   assets,
   catalog,
   members,
+  unitNames,
   busy,
   onCancel,
   onSubmit,
@@ -97,6 +99,8 @@ export function IncidentForm({
   assets: readonly MaintenanceMatrixRow[];
   catalog: readonly MaintenanceProcedureCatalogEntry[];
   members: readonly { userId: string; displayName: string }[];
+  /** Tên đơn vị theo id, để hiện tên thay vì mã nội bộ ở ô chọn thiết bị. */
+  unitNames?: ReadonlyMap<string, string>;
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaintenanceIncidentRequest, files?: File[]) => Promise<void> | void;
@@ -175,10 +179,15 @@ export function IncidentForm({
     return assets.map((row) => ({
       value: row.asset.code,
       label: `${row.asset.name} (${row.asset.code})`,
-      description: row.asset.orgUnitId ? `Đơn vị: ${row.asset.orgUnitId}` : 'Kho thiết bị',
+      // Không bao giờ hiện id nội bộ (uuid) cho người dùng: có tên thì hiện tên, chưa tra được thì bỏ dòng mô tả.
+      description: row.asset.orgUnitId
+        ? unitNames?.get(row.asset.orgUnitId)
+          ? `Đơn vị: ${unitNames.get(row.asset.orgUnitId)}`
+          : undefined
+        : 'Kho thiết bị',
       badge: row.asset.code,
     }));
-  }, [assets]);
+  }, [assets, unitNames]);
 
   // Danh mục thành viên phụ trách dạng SearchableSelectOption
   const memberOptions = useMemo(() => {
@@ -191,7 +200,7 @@ export function IncidentForm({
 
   // Danh mục quy trình dạng SearchableSelectOption
   const procedureOptions = useMemo(() => {
-    return catalog.map((entry) => ({
+    return selectableProcedures(catalog).map((entry) => ({
       value: entry.definitionId,
       label: `${entry.code} — ${entry.name}`,
       description: entry.code,

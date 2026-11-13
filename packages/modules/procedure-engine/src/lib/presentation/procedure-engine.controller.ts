@@ -13,7 +13,6 @@ import type {
   RequestProcedureMaterialsRequest,
   SaveProcedureAttributeValuesRequest,
   SetProcedureSubtasksRequest,
-  StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
   UpdateProcedureSettingsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -31,7 +30,10 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { ProcedureEngineApplication } from '../application/procedure-engine.application.js';
+import {
+  ProcedureEngineApplication,
+  type StartProcedureInstanceInput,
+} from '../application/procedure-engine.application.js';
 import { ProcedureAttachmentService } from '../application/procedure-attachment.service.js';
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
@@ -177,7 +179,7 @@ export class ProcedureEngineController {
   @Post('instances')
   startInstance(
     @Req() request: ProcedureRequest,
-    @Body() input: StartProcedureInstanceRequest,
+    @Body() input: StartProcedureInstanceInput,
   ) {
     return this.execute(() =>
       this.procedures.startInstance(this.actor(request), input),
@@ -232,6 +234,42 @@ export class ProcedureEngineController {
     return this.execute(() =>
       this.procedures.getInstanceProgressForService(tenantId, instanceId, actorUserId),
     );
+  }
+
+  /**
+   * Module nguồn cập nhật thông tin nguồn của hồ sơ (D3-31), kể cả hồ sơ đã kết thúc. Body `{ sourceSummary }`,
+   * `null` là xoá. Không ghi lịch sử bước.
+   */
+  @Put('internal/instances/:instanceId/source-summary')
+  @HttpCode(200)
+  internalUpdateSourceSummary(
+    @Req() request: { headers: Record<string, unknown> },
+    @Param('instanceId') instanceId: string,
+    @Body() input: { sourceSummary?: unknown },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(async () => {
+      // Thiếu hẳn trường thì báo lỗi, không hiểu ngầm là xoá: xoá phải gửi `null` rõ ràng.
+      if (!input || typeof input !== 'object' || !('sourceSummary' in input)) {
+        throw new ProcedureEngineError('validation', 'Cần trường sourceSummary (gửi null để xoá thông tin nguồn).');
+      }
+      return this.procedures.updateSourceSummaryForService(tenantId, instanceId, input.sourceSummary);
+    });
+  }
+
+  /**
+   * Phân hệ nguồn huỷ hồ sơ đang chạy khi chứng từ gốc bị xoá (CRM xoá báo giá Chờ duyệt). Body
+   * `{ reason, actorUserId?, actorName? }`; gọi lại khi đã huỷ vẫn 200; hồ sơ đã kết thúc khác thì 409.
+   */
+  @Post('internal/instances/:instanceId/cancel')
+  @HttpCode(200)
+  internalCancelInstance(
+    @Req() request: { headers: Record<string, unknown> },
+    @Param('instanceId') instanceId: string,
+    @Body() input: { reason?: unknown; actorUserId?: unknown; actorName?: unknown },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() => this.procedures.cancelInstanceForService(tenantId, instanceId, input));
   }
 
   /** Workspace hỏi trước khi huỷ hiệu lực công việc gắn hồ sơ (chỉ đọc). */

@@ -44,6 +44,8 @@ const openQuote = async (page, code) => {
   if (await search.count()) { await search.fill(code); await page.waitForTimeout(1500); }
   await page.locator('tbody tr.ant-table-row', { hasText: code }).first().first().click();
   await page.waitForTimeout(3000);
+  // Phase 3 (C4): PAKD nằm trong khối thu gọn của màn báo giá 2 cột; mở các khối để thao tác như trước.
+  await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
 };
 const CODE = process.env.PAKD_QUOTE_CODE ?? 'BG2600022';
 

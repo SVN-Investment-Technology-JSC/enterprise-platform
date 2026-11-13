@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import { usePagedList } from '../components/use-paged-list';
+import { WarehouseSelect } from '../components/warehouse-select';
 import { createOrder, errorMessage, listContracts, listCustomers, listOrders } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { ORDER_STATUS_TONE, formatDay } from '../fulfillment.model';
@@ -207,8 +208,8 @@ function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCrea
             onChange={setCustomerId}
           />
         </Field>
-        <Field label="Mã kho giữ hàng" hint="Bỏ trống với đơn từ hợp đồng: dùng kho của hợp đồng">
-          <input className={styles.input} maxLength={50} value={warehouseCode} onChange={(event) => setWarehouseCode(event.target.value.toUpperCase())} />
+        <Field label="Kho giữ hàng mặc định" hint="Bỏ trống với đơn từ hợp đồng: dùng kho của hợp đồng. Chọn kho từng dòng ở bảng dòng hàng">
+          <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
         <Field label="Ngày giao dự kiến" hint="Hạn giữ hàng = ngày giao dự kiến + 2 ngày">
           <DatePickerInput value={expectedDeliveryDate || undefined} onChange={setExpectedDeliveryDate} height={38} aria-label="Ngày giao dự kiến" />

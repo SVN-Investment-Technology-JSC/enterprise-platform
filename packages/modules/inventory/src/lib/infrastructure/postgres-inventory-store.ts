@@ -14,6 +14,7 @@ import type {
   UpdateMaterialRequest,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
+  MaterialKind,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -670,8 +671,9 @@ export class PostgresInventoryStore implements InventoryStore {
       if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
       if (query.search) {
         const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
-        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern})`);
+        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern} OR m.trade_category ILIKE ${pattern})`);
       }
+      if (query.tradeCategory) where.push(`lower(btrim(m.trade_category)) = lower(${push(query.tradeCategory)})`);
       if (query.cursor) where.push(`m.code > ${push(query.cursor)}`);
       const warehouseFilter = query.warehouseCode ? `AND w.code = ${push(query.warehouseCode)}` : '';
       const limit = query.limit ? `LIMIT ${push(query.limit + 1)}` : '';
@@ -703,6 +705,19 @@ export class PostgresInventoryStore implements InventoryStore {
         values,
       );
       return result.rows.map(mapCatalogItem);
+    },
+
+    tradeCategories: async (tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ name: string }>(
+        `SELECT min(btrim(trade_category)) AS name
+           FROM inventory_schema.materials
+          WHERE is_active = true AND kind = ANY($1::text[]) AND btrim(COALESCE(trade_category, '')) <> ''
+          GROUP BY lower(btrim(trade_category))
+          ORDER BY 1`,
+        [[...kinds]],
+      );
+      return result.rows.map((row) => row.name);
     },
   };
 

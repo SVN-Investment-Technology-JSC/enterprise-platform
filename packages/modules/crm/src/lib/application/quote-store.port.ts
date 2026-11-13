@@ -12,6 +12,7 @@ import type {
   QuoteFee,
   QuoteOrderAmountInput,
   QuoteLine,
+  QuoteSeller,
   QuoteShipping,
   QuoteStatus,
   QuoteSummary,
@@ -22,6 +23,7 @@ import type { PlanAttachment } from './business-plan-store.port.js';
 import type { KeysetCursor } from '../domain/pagination.js';
 import type { QuoteEditPlan } from '../domain/quote.js';
 import type { CrmDataScope } from './data-scope.js';
+import type { CrmSourceSummary } from '../domain/procedure-source-summary.js';
 
 /**
  * Port của báo giá (GĐ3b): lưu trữ, cấu hình duyệt, client Quy trình và việc
@@ -43,6 +45,8 @@ export interface QuoteFilter {
   readonly customerId?: string;
   readonly opportunityId?: string;
   readonly ownerUserId?: string;
+  /** Chỉ các báo giá này (bộ lọc "Cần tôi duyệt"); mảng rỗng là không có báo giá nào. */
+  readonly ids?: readonly string[];
   readonly cursor?: KeysetCursor;
   /** Phân trang theo số trang (bỏ qua `cursor`). */
   readonly page?: number;
@@ -57,6 +61,8 @@ export interface QuoteHead {
   readonly customerId: string;
   readonly customerName: string;
   readonly customerGroupId: string | null;
+  /** Bảng giá khách đã chọn ở hồ sơ (D3-38). */
+  readonly customerPriceListId?: string | null;
   readonly ownerUserId: string;
   readonly status: QuoteStatus;
   readonly currentVersion: number;
@@ -89,6 +95,17 @@ export interface NewQuoteRecord {
   readonly form?: NewQuoteForm | null;
   /** Giá trị trường tuỳ biến đã kiểm (P2I-06). */
   readonly customFields?: QuoteCustomFields;
+  /**
+   * Tổ chức báo giá đã chọn và thông tin chữ của nó (plan mục 16). Không có (`undefined`, ví dụ báo giá tự tạo khi cơ
+   * hội sang giai đoạn Báo giá): store chọn tổ chức mặc định đang bật và chép thông tin của nó.
+   */
+  readonly organization?: QuoteOrganizationInput;
+}
+
+/** Tổ chức báo giá trên phiên bản: id (rỗng là không chọn) và thông tin chữ in lên báo giá (rỗng là không có). */
+export interface QuoteOrganizationInput {
+  readonly organizationId: string | null;
+  readonly seller: QuoteSeller | null;
 }
 
 /** Dòng đã tính giá, giá vốn, sẵn sàng ghi. */
@@ -108,6 +125,9 @@ export interface QuoteFormInput {
   readonly fees: readonly QuoteFee[];
   /** Giá trị trường tuỳ biến của phiên bản (đã gộp, đã kiểm). */
   readonly customFields: QuoteCustomFields;
+  /** Tổ chức báo giá và thông tin chữ của nó (plan mục 16); phiên bản mới chép từ phiên bản trước. */
+  readonly organizationId: string | null;
+  readonly seller: QuoteSeller | null;
 }
 
 export interface QuoteFormWrite extends QuoteFormInput {
@@ -156,8 +176,31 @@ export interface QuoteTransition {
   readonly reason: string | null;
 }
 
+/** Liên kết Quy trình của báo giá sắp xoá, đã tạm đóng (`CLOSED`) để kết quả đến giữa chừng không áp vào báo giá. */
+export interface QuoteDeletionLink {
+  readonly id: string;
+  /** Hồ sơ đã tạo bên Quy trình; rỗng là chưa tạo (không cần huỷ). */
+  readonly instanceId: string | null;
+  /** Trạng thái trước khi đóng, để mở lại nếu không huỷ được hồ sơ. */
+  readonly previousStatus: string;
+}
+
+export interface QuoteDeletion {
+  readonly code: string;
+  readonly links: readonly QuoteDeletionLink[];
+}
+
 export interface QuoteStore {
   listQuotes(tenantId: string, scope: CrmDataScope, filter: QuoteFilter): Promise<CrmPage<QuoteSummary>>;
+  /**
+   * Bước 1 của xoá báo giá: khoá báo giá, kiểm còn xoá được (một phiên bản, Nháp hoặc Chờ duyệt, chưa chuyển đơn), tạm
+   * đóng các liên kết Quy trình còn mở của báo giá và PAKD. Đang gửi sang Quy trình (liên kết đang giữ lease) thì 409.
+   */
+  prepareDelete(tenantId: string, quoteId: string): Promise<QuoteDeletion>;
+  /** Không huỷ được hồ sơ Quy trình: mở lại các liên kết đã tạm đóng. */
+  reopenDeletionLinks(tenantId: string, links: readonly QuoteDeletionLink[]): Promise<void>;
+  /** Bước 2: kiểm lại rồi xoá hẳn báo giá (dòng hàng, PAKD, người theo dõi, liên kết, tài liệu), ghi nhật ký. */
+  deleteQuote(tenantId: string, quoteId: string, actorId: string, reason: string): Promise<void>;
   /** Báo giá kèm phiên bản `versionNo` (mặc định phiên bản hiện tại), danh sách phiên bản, lịch sử. */
   getQuote(tenantId: string, scope: CrmDataScope, id: string, versionNo?: number): Promise<QuoteDetail | undefined>;
   loadForEdit(tenantId: string, scope: CrmDataScope, id: string, versionNo: number): Promise<EditableQuote | undefined>;
@@ -197,12 +240,17 @@ export interface QuoteSettingsStore {
 export interface StartProcedureInstance {
   readonly definitionId: string;
   readonly title: string;
-  readonly sourceType: 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan';
+  readonly sourceType: CrmProcedureSourceType;
   readonly sourceId: string;
   readonly idempotencyKey: string;
   readonly initiatedBy: string;
   readonly autoCompleteInitiatorStep: boolean;
+  /** Thông tin nguồn cho người duyệt (báo giá, PAKD); đã cắt theo giới hạn của Quy trình. */
+  readonly sourceSummary?: CrmSourceSummary | null;
 }
+
+/** Nguồn phiên Quy trình của Bán hàng (`procedure_links.source_type`). */
+export type CrmProcedureSourceType = 'crm_quote' | 'crm_order_credit' | 'crm_tender_plan' | 'crm_business_plan';
 
 /** Phiên của người dùng, chuyển tiếp để Quy trình tự lọc quy trình người đó được thấy. */
 export interface ForwardedSession {
@@ -221,9 +269,50 @@ export interface ProcedureClient {
   /** Định nghĩa đã công bố; chưa công bố hoặc không có thì 409. */
   publishedDefinition(tenantId: string, definitionId: string): Promise<ProcedureDefinitionOption>;
   listPublished(session: ForwardedSession, tenantId: string): Promise<ProcedureDefinitionOption[]>;
+  /**
+   * Bổ sung thông tin nguồn cho hồ sơ đã tạo (`PUT /v1/internal/instances/:id/source-summary`). `false` khi Quy trình
+   * không nhận (route chưa có, dữ liệu sai, hồ sơ không còn): không hỏi lại. Lỗi hạ tầng ném 503 để lần sau thử lại.
+   * Không có (client giả cũ) thì không bổ sung.
+   */
+  updateSourceSummary?(tenantId: string, instanceId: string, summary: CrmSourceSummary): Promise<boolean>;
+  /**
+   * Huỷ hồ sơ đang chạy khi xoá báo giá (`POST /v1/internal/instances/:id/cancel`): `cancelled` đã huỷ, `missing` Quy
+   * trình không còn hồ sơ, `finished` hồ sơ đã kết thúc khác (đã duyệt, từ chối). Không có (client giả cũ) thì không
+   * xoá được báo giá đang duyệt qua Quy trình.
+   */
+  cancelInstance?(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'missing' | 'finished'>;
+}
+
+/**
+ * Hồ sơ người dùng đang được Quy trình giao xử lý (`POST /v1/internal/instances/actionable`, tối đa 100 mã mỗi lần).
+ * Quy trình là nơi duy nhất quyết định người duyệt từng bước.
+ */
+export interface ProcedureActionableReader {
+  actionableInstanceIds(tenantId: string, actorUserId: string, instanceIds: readonly string[]): Promise<string[]>;
+  /**
+   * Bước đang xử lý và người xử lý của các hồ sơ (`POST /v1/internal/instances/status`, tối đa 100 mã), để hiện "đang
+   * chờ ai" ở việc đang chờ duyệt. Không có (client giả cũ) thì không hiện.
+   */
+  instanceStatuses?(
+    tenantId: string,
+    ids: readonly string[],
+  ): Promise<readonly { readonly instanceId: string; readonly status: string; readonly currentStepName?: string | null; readonly currentAssigneeName?: string | null }[]>;
 }
 
 /** Tạo phiên Quy trình cho liên kết vừa ghi (sau commit); lỗi được ghi vào liên kết để worker thử lại. */
 export interface ApprovalLinks {
   start(tenantId: string, linkId: string): Promise<void>;
+  /**
+   * Huỷ hồ sơ Quy trình khi xoá báo giá: `cancelled` đã huỷ hoặc Quy trình không còn hồ sơ; `finished` hồ sơ đã kết
+   * thúc (đã duyệt, từ chối) nên không xoá báo giá. Không hỗ trợ (client giả cũ) thì `unsupported`.
+   */
+  cancel?(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason: string; readonly actorUserId?: string; readonly actorName?: string },
+  ): Promise<'cancelled' | 'finished' | 'unsupported'>;
 }

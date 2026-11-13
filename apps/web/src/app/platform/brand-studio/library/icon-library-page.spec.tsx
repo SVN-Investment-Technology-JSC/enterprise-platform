@@ -10,6 +10,7 @@ import { renderToString } from 'react-dom/server';
 import { STORAGE_KEYS, localStore } from '../store/local-store';
 import { downloadTextFile } from './file-download';
 import { IconLibraryPage } from './icon-library-page';
+import { chooseTileAction, confirmDialog, openTileMenu } from './tile-actions.testing';
 
 jest.mock('../export/export-dialog', () => {
   const { createElement } = jest.requireActual('react');
@@ -44,9 +45,24 @@ function seed(docs: readonly IconDocument[]) {
 const tiles = () => screen.queryAllByTestId('icon-tile');
 const tileNames = () => tiles().map((tile) => within(tile).getAllByRole('link')[0].getAttribute('aria-label')?.replace(/^Mở /, ''));
 const search = () => screen.getByRole('searchbox', { name: 'Tìm icon' });
+const openFilters = () => fireEvent.click(screen.getByRole('button', { name: /^Bộ lọc/ }));
+/** Chọn một mục trong menu Bộ lọc (danh mục hoặc trạng thái) theo tên hiện trên mục. */
+const chooseFilter = (name: RegExp) => {
+  openFilters();
+  fireEvent.click(screen.getByRole('menuitemradio', { name }));
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+};
+/** Số icon ghi bên cạnh một mục của menu Bộ lọc. */
+const filterCount = (name: RegExp) => {
+  openFilters();
+  const text = screen.getByRole('menuitemradio', { name }).textContent ?? '';
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+  return Number(text.replace(/\D+/g, ' ').trim().split(' ').pop());
+};
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   jest.mocked(downloadTextFile).mockReset();
   localStore.reloadForTest();
 });
@@ -88,22 +104,40 @@ describe('IconLibraryPage: tìm, lọc, sắp xếp', () => {
     expect(screen.getByTestId('empty-state').textContent).toContain('Không có icon phù hợp.');
   });
 
-  it('lọc bằng nhóm nút danh mục và trạng thái, con số trên nút khớp kết quả', () => {
+  it('lọc bằng menu Bộ lọc theo danh mục và trạng thái, con số trên mục khớp kết quả', () => {
     seed([...presets, custom('n-1', 'Nháp một', { status: 'draft', category: 'custom' })]);
     render(<IconLibraryPage />);
 
-    const moduleChip = screen.getByRole('button', { name: /^Phân hệ/ });
-    expect(moduleChip.textContent).toContain(String(moduleCount));
-    fireEvent.click(moduleChip);
-    expect(moduleChip.getAttribute('aria-pressed')).toBe('true');
+    expect(filterCount(/^Phân hệ/)).toBe(moduleCount);
+    chooseFilter(/^Phân hệ/);
     expect(tiles()).toHaveLength(moduleCount);
 
-    fireEvent.click(screen.getByRole('button', { name: /^Nháp/ }));
+    chooseFilter(/^Nháp/);
     expect(screen.getByTestId('empty-state')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /^Tất cả/ }));
-    fireEvent.click(screen.getByRole('button', { name: /^Tùy biến/ }));
+    chooseFilter(/^Tất cả danh mục/);
+    chooseFilter(/^Tùy biến/);
     expect(tileNames()).toEqual(['Nháp một']);
+  });
+
+  it('nút Bộ lọc báo số bộ lọc đang bật; chip bỏ riêng từng bộ lọc', () => {
+    seed([...presets, custom('n-1', 'Nháp một', { status: 'draft', category: 'custom' })]);
+    render(<IconLibraryPage />);
+    expect(screen.getByRole('button', { name: 'Bộ lọc' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Bỏ lọc/ })).toBeNull();
+
+    chooseFilter(/^Phân hệ/);
+    chooseFilter(/^Phát hành/);
+    expect(screen.getByRole('button', { name: 'Bộ lọc, đang bật 2' })).toBeTruthy();
+    expect(tiles()).toHaveLength(presets.filter((doc) => doc.category === 'module' && doc.status === 'published').length);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ lọc Phân hệ' }));
+    expect(screen.getByRole('button', { name: 'Bộ lọc, đang bật 1' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Bỏ lọc Phân hệ' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bỏ lọc Phát hành' }));
+    expect(screen.getByRole('button', { name: 'Bộ lọc' })).toBeTruthy();
+    expect(tiles()).toHaveLength(presetCount + 1);
   });
 
   it('"Xoá bộ lọc" đưa danh sách về đầy đủ', () => {
@@ -127,12 +161,35 @@ describe('IconLibraryPage: tìm, lọc, sắp xếp', () => {
 });
 
 describe('IconLibraryPage: thao tác trên một icon', () => {
+  it('mỗi ô chỉ có một nút nhỏ mở menu, không có thanh nút che ô tick; bấm mới hiện các thao tác', async () => {
+    seed([custom('m-1', 'Một ô')]);
+    render(<IconLibraryPage />);
+    const tile = screen.getByRole('link', { name: 'Mở Một ô' }).closest('li') as HTMLElement;
+
+    expect(within(tile).queryByRole('button', { name: 'Nhân bản' })).toBeNull();
+    expect(within(tile).getAllByRole('button')).toHaveLength(1);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    openTileMenu(tile);
+    expect(await screen.findByRole('menu')).toBeTruthy();
+    for (const name of ['Mở trong trình thiết kế', 'Nhân bản', 'Xuất', 'Xoá']) expect(screen.getByRole('menuitem', { name })).toBeTruthy();
+  });
+
+  it('Hủy ở hộp xác nhận xoá thì icon vẫn còn', async () => {
+    seed([custom('m-2', 'Giữ nguyên')]);
+    render(<IconLibraryPage />);
+    await chooseTileAction(screen.getByRole('link', { name: 'Mở Giữ nguyên' }).closest('li') as HTMLElement, 'Xoá');
+    await confirmDialog('Hủy');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('link', { name: 'Mở Giữ nguyên' })).toBeTruthy();
+  });
+
   it('nhân bản tạo thêm một icon nháp và báo kết quả', async () => {
     seed([custom('goc-1', 'Gốc')]);
     render(<IconLibraryPage />);
     const before = tiles().length;
 
-    fireEvent.click(within(screen.getByRole('link', { name: 'Mở Gốc' }).closest('li') as HTMLElement).getByRole('button', { name: 'Nhân bản' }));
+    await chooseTileAction(screen.getByRole('link', { name: 'Mở Gốc' }).closest('li') as HTMLElement, 'Nhân bản');
 
     await waitFor(() => expect(tiles()).toHaveLength(before + 1));
     expect(screen.getByRole('status').textContent).toContain('Đã nhân bản thành "Gốc (bản sao)"');
@@ -144,38 +201,51 @@ describe('IconLibraryPage: thao tác trên một icon', () => {
     render(<IconLibraryPage />);
     const tile = screen.getByRole('link', { name: 'Mở Sắp xoá' }).closest('li') as HTMLElement;
 
-    fireEvent.click(within(tile).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Sắp xoá"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tile, 'Xoá');
+    await confirmDialog('Xoá');
 
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Mở Sắp xoá' })).toBeNull());
     expect(screen.getByRole('status').textContent).toContain('Đã xoá "Sắp xoá"');
   });
 
-  it('icon mẫu không có nút xoá mà có nút đặt lại về bản gốc', async () => {
+  it('icon mẫu không có mục xoá mà có mục đặt lại về bản gốc', async () => {
     render(<IconLibraryPage />);
     const first = tiles()[0];
-    expect(within(first).queryByRole('button', { name: 'Xoá' })).toBeNull();
+    openTileMenu(first);
+    expect(await screen.findByRole('menuitem', { name: 'Đặt lại về bản gốc' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Xoá' })).toBeNull();
 
     const name = within(first).getAllByRole('link')[0].getAttribute('aria-label')?.replace(/^Mở /, '') ?? '';
-    fireEvent.click(within(first).getByRole('button', { name: 'Đặt lại về bản gốc' }));
-    const popup = screen.getByText('Đặt lại về bản gốc?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Đặt lại' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Đặt lại về bản gốc' }));
+    await confirmDialog('Đặt lại');
 
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain(`Đã đặt lại "${name}" về bản gốc`));
   });
 
-  it('Xuất trên một icon mở hộp xuất với đúng icon đó', () => {
+  it('Xuất trên một icon mở hộp xuất với đúng icon đó', async () => {
     seed([custom('x-1', 'Một mình')]);
     render(<IconLibraryPage />);
     const tile = screen.getByRole('link', { name: 'Mở Một mình' }).closest('li') as HTMLElement;
 
-    fireEvent.click(within(tile).getByRole('button', { name: 'Xuất' }));
+    await chooseTileAction(tile, 'Xuất');
     expect(screen.getByTestId('export-dialog').textContent).toBe('Một mình');
   });
 });
 
 describe('IconLibraryPage: chọn nhiều', () => {
+  it('thanh thao tác hàng loạt nằm trong thanh tiêu đề của khối icon, nên chọn icon không đẩy nội dung xuống', () => {
+    render(<IconLibraryPage />);
+    const panel = screen.getByRole('heading', { name: 'Icon' }).closest('section') as HTMLElement;
+    const heightBefore = panel.children.length;
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn SVNDTS Master Logo' }));
+    const bar = screen.getByTestId('bulk-bar');
+    expect(bar.closest('header')).toBe(panel.querySelector('header'));
+    expect(panel.children.length).toBe(heightBefore);
+    expect(within(bar).getByRole('button', { name: 'Xuất' })).toBeTruthy();
+    expect(within(bar).getByRole('button', { name: 'Phát hành' })).toBeTruthy();
+  });
+
   it('thanh thao tác hàng loạt chỉ hiện khi có icon được chọn', () => {
     render(<IconLibraryPage />);
     expect(screen.queryByTestId('bulk-bar')).toBeNull();
@@ -212,11 +282,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Chuyển nháp/ }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Nháp"'));
-    expect(screen.getByRole('button', { name: /^Nháp/ }).textContent).toContain('2');
+    expect(filterCount(/^Nháp/)).toBe(2);
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Phát hành/ }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Phát hành"'));
-    expect(screen.getByRole('button', { name: /^Nháp/ }).textContent).toContain('0');
+    expect(filterCount(/^Nháp/)).toBe(0);
   });
 
   it('xoá hàng loạt giữ lại icon mẫu', async () => {
@@ -240,11 +310,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
 describe('IconLibraryPage: xuất, sao lưu', () => {
   it('Xuất trên thanh công cụ: không chọn thì xuất tất cả, có chọn thì chỉ xuất phần đã chọn', () => {
     render(<IconLibraryPage />);
-    fireEvent.click(screen.getByTitle(`Xuất tất cả ${presetCount} icon`));
+    fireEvent.click(screen.getByRole('button', { name: `Xuất tất cả ${presetCount} icon` }));
     expect(screen.getByTestId('export-dialog').textContent?.split('|')).toHaveLength(presetCount);
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn SVNDTS Master Logo' }));
-    fireEvent.click(screen.getByTitle('Xuất 1 icon đã chọn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Xuất 1 icon đã chọn' }));
     expect(screen.getByTestId('export-dialog').textContent).toBe('SVNDTS Master Logo');
   });
 
@@ -310,7 +380,7 @@ describe('IconLibraryPage: lỗi lưu', () => {
       throw new Error('QuotaExceededError');
     });
 
-    fireEvent.click(within(screen.getByRole('link', { name: 'Mở Gốc' }).closest('li') as HTMLElement).getByRole('button', { name: 'Nhân bản' }));
+    await chooseTileAction(screen.getByRole('link', { name: 'Mở Gốc' }).closest('li') as HTMLElement, 'Nhân bản');
 
     await waitFor(() => expect(screen.getAllByRole('alert').some((node) => /Không lưu được/.test(node.textContent ?? ''))).toBe(true));
   });

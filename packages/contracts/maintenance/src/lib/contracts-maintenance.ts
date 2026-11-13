@@ -43,6 +43,9 @@ export interface MaintenanceSchedule {
   readonly startDate: string;
   readonly timezone: string;
   readonly nextDueAt?: string;
+  /** Người phụ trách; phiếu định kỳ sinh ra từ lịch này được giao cho người đó. */
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -243,12 +246,17 @@ export interface CreateMaintenanceScheduleRequest {
   readonly startDate: string;
   readonly timezone?: string;
   readonly activate?: boolean;
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
 }
 
 export interface UpdateMaintenanceScheduleRequest {
   readonly status?: MaintenanceScheduleStatus;
   readonly priority?: MaintenancePriority;
   readonly procedureDefinitionId?: string | null;
+  /** `null` là bỏ người phụ trách; không có khoá này là giữ nguyên. */
+  readonly assigneeId?: string | null;
+  readonly assigneeName?: string | null;
 }
 
 /** Thiết bị lấy từ Kho; Bảo trì chỉ giữ mã, không sao chép cây tài sản. */
@@ -277,6 +285,14 @@ export interface MaintenanceMatrixCell {
 
 export interface MaintenanceMatrixRow {
   readonly asset: MaintenanceMatrixAsset;
+  /** Người phụ trách chung của các lịch của thiết bị này. */
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
+  /**
+   * Có lịch của thiết bị bị tự tạm dừng vì quy trình: `PROCEDURE_DEFINITION_UNAVAILABLE` (quy trình đã ngừng dùng) hoặc
+   * `PROCEDURE_ENTITLEMENT_DISABLED` (tenant chưa bật module Quy trình). Để giao diện giải thích vì sao ô tick đang trống.
+   */
+  readonly pausedReason?: 'PROCEDURE_DEFINITION_UNAVAILABLE' | 'PROCEDURE_ENTITLEMENT_DISABLED';
   /** Chu kỳ đang bật; một thiết bị có thể có nhiều chu kỳ cùng lúc. */
   readonly cells: Readonly<Partial<Record<MaintenanceFrequency, MaintenanceMatrixCell>>>;
   readonly procedureDefinitionId?: string;
@@ -312,6 +328,9 @@ export interface SaveMaintenanceMatrixRequest {
     readonly startDates?: Readonly<Record<string, string>>;
     readonly procedureDefinitionId?: string;
     readonly priority?: MaintenancePriority;
+    /** Người phụ trách cho mọi lịch của thiết bị; `null` là bỏ, không gửi là giữ nguyên. */
+    readonly assigneeId?: string | null;
+    readonly assigneeName?: string | null;
   }>;
 }
 
@@ -424,6 +443,14 @@ export interface UpdateMaintenanceSettingsRequest<TValue> {
   readonly value: TValue;
   /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
   readonly expectedVersion?: number;
+}
+
+/**
+ * Thẻ Tổng quan do từng người tự chọn. `cardIds: null` nghĩa là người này chưa tuỳ chỉnh,
+ * client dùng mặc định của tenant rồi mới tới mặc định của catalog.
+ */
+export interface MaintenanceMyDashboardCards {
+  readonly cardIds: readonly string[] | null;
 }
 
 /** Định dạng tệp cho phép đính kèm phiếu bảo trì / sự cố. */

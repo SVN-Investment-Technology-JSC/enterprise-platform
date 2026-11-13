@@ -16,6 +16,7 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import {
   MAINTENANCE_SETTINGS_KEYS,
+  type MaintenanceMyDashboardCards,
   type MaintenanceSettingsEntry,
   type MaintenanceSettingsKey,
   type MaintenanceSettingsSnapshot,
@@ -27,9 +28,21 @@ import {
   isMaintenanceSettingsKey,
   normalizeMaintenanceSetting,
 } from './maintenance-settings.js';
+import { validateFrequencyCatalog } from './frequency-catalog-validation.js';
 import type { AssetDirectory } from './asset-directory.port.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
+
+/** Khoá tuỳ chọn cá nhân lưu danh sách thẻ Tổng quan (bảng `user_preferences`). */
+const DASHBOARD_CARDS_PREFERENCE = 'dashboard.cards';
+
+/** Lời báo khi quy trình không dùng được: đã ngừng dùng, hay không có trong danh mục (chưa công bố hoặc không tồn tại). */
+function procedureNotUsableMessage(entry?: { status: string; code?: string }): string {
+  const name = entry?.code ? `Quy trình ${entry.code}` : 'Quy trình đã chọn';
+  return entry?.status === 'archived'
+    ? `${name} đã ngừng dùng. Hãy chọn một quy trình đang công bố.`
+    : `${name} chưa được công bố hoặc không còn trong danh mục. Hãy chọn một quy trình đang công bố.`;
+}
 
 const PRIORITIES: ReadonlySet<string> = new Set(['High', 'Normal', 'Low']);
 
@@ -182,15 +195,27 @@ export class MaintenanceApplication {
         const own = state.schedules.filter((schedule) => schedule.assetCode === asset.code);
         const cells: Partial<Record<MaintenanceFrequency, MaintenanceMatrixRow['cells'][MaintenanceFrequency]>> = {};
         for (const schedule of own) {
-          if (schedule.status === 'paused') continue;
+          // Tạm dừng hoặc nháp đều là "chưa bật": thiết bị vừa thêm từ Kho (nháp) không được tick sẵn rồi bị bật ở lần
+          // Lưu bất kỳ.
+          if (schedule.status === 'paused' || schedule.status === 'draft') continue;
           cells[schedule.frequency] = {
             scheduleId: schedule.id,
             status: schedule.status,
             nextDueAt: schedule.nextDueAt,
           };
         }
+        const assigned = own.find((schedule) => schedule.assigneeId);
+        const pausedByProcedure = own.find(
+          (schedule) =>
+            schedule.status === 'paused' &&
+            (schedule.pausedReason === 'PROCEDURE_DEFINITION_UNAVAILABLE' ||
+              schedule.pausedReason === 'PROCEDURE_ENTITLEMENT_DISABLED'),
+        );
         return {
           asset,
+          assigneeId: assigned?.assigneeId,
+          assigneeName: assigned?.assigneeName,
+          pausedReason: pausedByProcedure?.pausedReason as MaintenanceMatrixRow['pausedReason'],
           cells,
           procedureDefinitionId: own.find((schedule) => schedule.procedureDefinitionId)
             ?.procedureDefinitionId,
@@ -210,11 +235,11 @@ export class MaintenanceApplication {
   }
 
   /**
-   * Gỡ hẳn một thiết bị khỏi ma trận: xoá mọi lịch của nó.
+   * Gỡ một thiết bị khỏi ma trận: lưu trữ mọi lịch của nó (không xoá).
    *
-   * Khác với bỏ tick một chu kỳ — cái đó chỉ tạm dừng và giữ lại lịch sử. Gỡ
-   * thiết bị là nói rằng nó không còn thuộc kế hoạch bảo trì nữa, nên hàng phải
-   * biến mất khỏi bảng chứ không nằm lại ở trạng thái tạm dừng.
+   * Khác với bỏ tick một chu kỳ — cái đó chỉ tạm dừng và hàng vẫn nằm trong bảng. Gỡ thiết bị là nói rằng nó không còn
+   * thuộc kế hoạch bảo trì nữa, nên hàng biến mất khỏi bảng và lịch ngừng sinh phiếu; nhưng phiếu và tệp đã có vẫn giữ
+   * trong Lịch sử, vì đó là hồ sơ thật về công việc đã làm.
    */
   async removeAssetFromMatrix(actor: MaintenanceActor, assetCode: string): Promise<{ removed: number }> {
     this.requireManager(actor);
@@ -282,6 +307,18 @@ export class MaintenanceApplication {
 
     const state = await this.store.read(actor.tenantId);
     const today = new Date().toISOString().slice(0, 10);
+    const procedureStatus = new Map(state.procedureCatalog.map((entry) => [entry.definitionId, entry]));
+    /** Quy trình gắn vào lịch phải là bản đang công bố; bản nháp hoặc đã ngừng dùng thì lịch sinh phiếu ra cũng lỗi. */
+    const assertPublished = (definitionId: string | undefined | null, assetCode: string) => {
+      if (!definitionId) return;
+      const entry = procedureStatus.get(definitionId);
+      if (entry?.status !== 'published') {
+        throw new MaintenanceError(
+          'validation',
+          `Thiết bị ${assetCode}: ${procedureNotUsableMessage(entry)}`,
+        );
+      }
+    };
     const result = { created: 0, reactivated: 0, paused: 0, updated: 0 };
 
     for (const entry of input.entries) {
@@ -293,6 +330,7 @@ export class MaintenanceApplication {
       for (const frequency of wanted) {
         const match = existing.find((schedule) => schedule.frequency === frequency);
         if (!match) {
+          assertPublished(entry.procedureDefinitionId, entry.assetCode);
           await this.store.createSchedule(actor.tenantId, {
             assetCode: entry.assetCode,
             procedureDefinitionId: entry.procedureDefinitionId,
@@ -301,6 +339,8 @@ export class MaintenanceApplication {
             // Ngày người dùng chọn cho đúng ô này; không có thì mới lấy hôm nay.
             startDate: entry.startDates?.[frequency] ?? today,
             activate: true,
+            assigneeId: entry.assigneeId ?? undefined,
+            assigneeName: entry.assigneeName ?? undefined,
           });
           result.created += 1;
           continue;
@@ -312,9 +352,25 @@ export class MaintenanceApplication {
           patch.procedureDefinitionId = entry.procedureDefinitionId ?? null;
         }
         if (entry.priority && match.priority !== entry.priority) patch.priority = entry.priority;
+        // Không gửi assigneeId (client cũ) thì giữ nguyên; gửi null là bỏ người phụ trách.
+        if (entry.assigneeId !== undefined && (match.assigneeId ?? null) !== (entry.assigneeId ?? null)) {
+          patch.assigneeId = entry.assigneeId;
+          patch.assigneeName = entry.assigneeName ?? null;
+        }
         if (Object.keys(patch).length === 0) continue;
+        // Bật lại lịch hoặc đổi quy trình: quy trình đích phải còn dùng được. Lịch đang chạy mà chỉ sửa ưu tiên hay
+        // người phụ trách thì không bị chặn vì một quy trình đã cũ.
+        if (patch.status === 'active' || 'procedureDefinitionId' in patch) {
+          assertPublished(entry.procedureDefinitionId, entry.assetCode);
+        }
 
-        await this.store.updateSchedule(actor.tenantId, match.id, patch);
+        // Bật lại lịch: áp ngày bắt đầu người dùng chọn cho đúng ô này (nếu có) thay vì giữ hạn cũ.
+        await this.store.updateSchedule(
+          actor.tenantId,
+          match.id,
+          patch,
+          patch.status === 'active' ? { nextDueAt: entry.startDates?.[frequency] } : undefined,
+        );
         if (patch.status === 'active') result.reactivated += 1;
         else result.updated += 1;
       }
@@ -366,6 +422,12 @@ export class MaintenanceApplication {
     return this.store.completeOccurrence(actor.tenantId, actor, id, note);
   }
 
+  /** Gửi lại phiếu đã báo lỗi sang Quy trình (nút "Thử lại tạo phiếu"). */
+  async retryDispatch(actor: MaintenanceActor, id: string) {
+    this.requireOccurrenceHandler(actor);
+    return this.store.retryDispatch(actor.tenantId, id);
+  }
+
   async createIncident(actor: MaintenanceActor, input: CreateMaintenanceIncidentRequest) {
     this.requireOccurrenceHandler(actor);
     const assetCode = input.assetCode?.trim();
@@ -373,6 +435,7 @@ export class MaintenanceApplication {
       throw new MaintenanceError('validation', 'Mã thiết bị và tiêu đề sự cố là bắt buộc.');
     }
     requirePriority(input.priority);
+    await this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId);
 
     // Mã thiết bị phải có thật (AC-INC-02). Kho hỏng thì bỏ qua kiểm thay vì chặn
     // ghi nhận sự cố — cùng cách xuống thang mà getMatrix đang dùng. Sự cố lúc 2
@@ -400,19 +463,41 @@ export class MaintenanceApplication {
     return created;
   }
 
-  createSchedule(actor: MaintenanceActor, input: CreateMaintenanceScheduleRequest) {
+  /** Quy trình gắn vào lịch hoặc sự cố phải có trong danh mục và đang công bố. */
+  private async requirePublishedProcedure(tenantId: string, definitionId?: string | null): Promise<void> {
+    if (!definitionId) return;
+    const status = await this.store.getProcedureStatus(tenantId, definitionId);
+    if (status !== 'published') {
+      throw new MaintenanceError('validation', procedureNotUsableMessage(status ? { status } : undefined));
+    }
+  }
+
+  /**
+   * `verifyProcedure: false` chỉ dành cho nhập dữ liệu hàng loạt: quy trình vừa được nhập bên Procedure nên danh mục của
+   * Bảo trì (đồng bộ bằng sự kiện) có thể chưa kịp có nó.
+   */
+  async createSchedule(
+    actor: MaintenanceActor,
+    input: CreateMaintenanceScheduleRequest,
+    options: { readonly verifyProcedure?: boolean } = {},
+  ) {
     this.requireManager(actor);
     if (!input.assetCode?.trim() || !input.startDate) {
       throw new MaintenanceError('validation', 'Mã thiết bị (assetCode) và ngày bắt đầu là bắt buộc.');
     }
     requirePriority(input.priority);
+    if (options.verifyProcedure !== false) {
+      await this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId);
+    }
     return this.store.createSchedule(actor.tenantId, input);
   }
 
   updateSchedule(actor: MaintenanceActor, id: string, input: UpdateMaintenanceScheduleRequest) {
     this.requireManager(actor);
     requirePriority(input.priority);
-    return this.store.updateSchedule(actor.tenantId, id, input);
+    return this.requirePublishedProcedure(actor.tenantId, input.procedureDefinitionId).then(() =>
+      this.store.updateSchedule(actor.tenantId, id, input),
+    );
   }
 
   async generateDueOccurrences(tenantId: string, now = new Date()) {
@@ -456,6 +541,24 @@ export class MaintenanceApplication {
       throw new MaintenanceError('validation', `Khoá cấu hình ${key} không hợp lệ.`);
     }
 
+    // Danh mục tần suất: từ chối dòng hỏng và việc bỏ tần suất đang có lịch dùng, thay vì để chuẩn hoá lặng lẽ bỏ dòng
+    // (cột tần suất biến khỏi ma trận cùng các ô đã tick).
+    if (key === 'catalog.frequency') {
+      const errors = validateFrequencyCatalog(input?.value);
+      if (errors.length > 0) throw new MaintenanceError('validation', errors.join(' '));
+      const kept = new Set(
+        (input.value as { options: { code: string }[] }).options.map((option) => option.code.trim().toLowerCase()),
+      );
+      const inUse = [...new Set((await this.store.read(actor.tenantId)).schedules.map((schedule) => schedule.frequency))]
+        .filter((code) => !kept.has(code));
+      if (inUse.length > 0) {
+        throw new MaintenanceError(
+          'validation',
+          `Không thể bỏ tần suất đang có lịch bảo trì dùng: ${inUse.join(', ')}. Hãy tắt kích hoạt thay vì xoá.`,
+        );
+      }
+    }
+
     // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất ngăn
     // một payload lạ nằm nguyên trạng trong database.
     const value = normalizeMaintenanceSetting(key, input?.value);
@@ -479,6 +582,28 @@ export class MaintenanceApplication {
       );
     }
     return { ...saved, value: normalizeMaintenanceSetting(key, saved.value) };
+  }
+
+  /** Thẻ Tổng quan của chính người dùng này. Không cần quyền quản lý: chỉ đổi cách xem của riêng mình. */
+  async getMyDashboardCards(actor: MaintenanceActor): Promise<MaintenanceMyDashboardCards> {
+    const stored = await this.store.getUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE);
+    if (stored === undefined) return { cardIds: null };
+    return { cardIds: normalizeMaintenanceSetting('dashboard.cards', stored).cardIds };
+  }
+
+  async setMyDashboardCards(actor: MaintenanceActor, input: unknown): Promise<MaintenanceMyDashboardCards> {
+    const raw = (input as { cardIds?: unknown } | null)?.cardIds;
+    // null là "quay về mặc định"; mảng rỗng là "cố ý không hiện thẻ nào".
+    if (raw === null) {
+      await this.store.deleteUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE);
+      return { cardIds: null };
+    }
+    if (!Array.isArray(raw)) {
+      throw new MaintenanceError('validation', 'Danh sách thẻ không hợp lệ.');
+    }
+    const value = normalizeMaintenanceSetting('dashboard.cards', { cardIds: raw });
+    await this.store.setUserPreference(actor.tenantId, actor.userId, DASHBOARD_CARDS_PREFERENCE, value);
+    return { cardIds: value.cardIds };
   }
 
   /** Cổng cho xử lý phiếu — rộng hơn quyền sửa cấu hình. */

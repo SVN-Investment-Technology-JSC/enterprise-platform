@@ -105,6 +105,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0014-hrm-request-approve-merge',
     path: 'tenant/core/0014-hrm-request-approve-merge.sql',
   },
+  {
+    version: '0017-fcm-device-tokens',
+    path: 'tenant/core/0017-fcm-device-tokens.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -147,6 +151,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0031-promotions', path: 'tenant/crm/0031-promotions.sql' },
     { version: '0032-document-references', path: 'tenant/crm/0032-document-references.sql' },
     { version: '0033-customer-kinds', path: 'tenant/crm/0033-customer-kinds.sql' },
+    { version: '0034-quote-template-layouts', path: 'tenant/crm/0034-quote-template-layouts.sql' },
+    { version: '0035-sales-organizations', path: 'tenant/crm/0035-sales-organizations.sql' },
+    { version: '0036-business-plan-procedure', path: 'tenant/crm/0036-business-plan-procedure.sql' },
+    { version: '0037-line-warehouses', path: 'tenant/crm/0037-line-warehouses.sql' },
+    { version: '0038-customer-price-list', path: 'tenant/crm/0038-customer-price-list.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -633,6 +642,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0014-everyone-subject',
       path: 'tenant/procedure/0014-everyone-subject.sql',
     },
+    {
+      version: '0015-instance-source-summary',
+      path: 'tenant/procedure/0015-instance-source-summary.sql',
+    },
   ],
   maintenance: [
     {
@@ -662,6 +675,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0007-maintenance-fleet-transport',
       path: 'tenant/maintenance/0007-maintenance-fleet-transport.sql',
+    },
+    {
+      version: '0008-maintenance-user-preferences',
+      path: 'tenant/maintenance/0008-maintenance-user-preferences.sql',
+    },
+    {
+      version: '0009-occurrence-dispatch-retry',
+      path: 'tenant/maintenance/0009-occurrence-dispatch-retry.sql',
+    },
+    {
+      version: '0010-schedule-archive',
+      path: 'tenant/maintenance/0010-schedule-archive.sql',
+    },
+    {
+      version: '0011-schedule-assignee',
+      path: 'tenant/maintenance/0011-schedule-assignee.sql',
     },
   ],
   workspace: [

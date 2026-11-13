@@ -43,27 +43,12 @@ export interface PriceListStore {
   listPriceLists(tenantId: string): Promise<PriceListSummary[]>;
   getPriceList(tenantId: string, id: string): Promise<PriceListDetail | undefined>;
   /**
-   * Tạo bảng giá cùng nhóm gán trong một transaction, có khoá chống chồng hiệu
-   * lực: trùng với bảng ACTIVE khác (cùng nhóm, hoặc cùng là bảng chuẩn) thì 409
-   * "Trùng thời gian hiệu lực với bảng giá <mã>". Trùng mã: 409. Trả id.
+   * Tạo bảng giá, có khoá chống chồng hiệu lực giữa các bảng chuẩn ACTIVE: trùng thì 409 "Trùng thời gian hiệu lực với
+   * bảng giá <mã>". Bảng giá riêng chọn theo từng khách (D3-38) nên không kiểm chồng. Trùng mã: 409. Trả id.
    */
-  createPriceList(
-    tenantId: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[],
-    actorId: string,
-  ): Promise<string>;
-  /**
-   * Sửa phần đầu; `customerGroupIds` rỗng (`undefined`) thì giữ nhóm đang gán.
-   * Kiểm chồng hiệu lực như khi tạo. `false` khi không có.
-   */
-  updatePriceList(
-    tenantId: string,
-    id: string,
-    record: PriceListRecord,
-    customerGroupIds: readonly string[] | undefined,
-    actorId: string,
-  ): Promise<boolean>;
+  createPriceList(tenantId: string, record: PriceListRecord, actorId: string): Promise<string>;
+  /** Sửa phần đầu, kiểm chồng hiệu lực như khi tạo; đổi thành bảng chuẩn thì bỏ chọn ở hồ sơ khách. `false` khi không có. */
+  updatePriceList(tenantId: string, id: string, record: PriceListRecord, actorId: string): Promise<boolean>;
   deletePriceList(tenantId: string, id: string): Promise<boolean>;
   /** Trùng mặt hàng và đơn vị trong bảng: 409. Trả id; `undefined` khi bảng không có. */
   addItem(tenantId: string, priceListId: string, record: PriceListItemRecord, actorId: string): Promise<string | undefined>;
@@ -119,13 +104,13 @@ export interface PricingStore {
   discountCapPercent(tenantId: string): Promise<number>;
   saveDiscountCapPercent(tenantId: string, percent: number, actorId: string): Promise<void>;
   /**
-   * Bảng giá ACTIVE còn hiệu lực ngày `date` là bảng chuẩn hoặc gán cho
-   * `customerGroupId`; chỉ kèm dòng của các mặt hàng trong `materialIds`.
+   * Bảng giá ACTIVE còn hiệu lực ngày `date` là bảng chuẩn hoặc đúng bảng giá khách đã chọn `customerPriceListId`
+   * (D3-38); chỉ kèm dòng của các mặt hàng trong `materialIds`.
    */
   priceListsForPricing(
     tenantId: string,
     date: string,
-    customerGroupId: string | null,
+    customerPriceListId: string | null,
     materialIds: readonly string[],
   ): Promise<PricingPriceList[]>;
   /** Chính sách ACTIVE còn hiệu lực ngày `date`, kèm tiêu chí. */
@@ -143,6 +128,31 @@ export interface PricingStore {
     materialIds: readonly string[],
     contractId?: string | null,
   ): Promise<PricingContractPrice[]>;
+  /**
+   * Mặt hàng có giá bán cho báo giá (hộp thoại "Thêm dòng báo giá" chỉ liệt kê các mặt hàng này): có dòng trong bảng
+   * giá chuẩn hoặc bảng giá của khách `customerPriceListId` đang hiệu lực ngày `date`, hoặc trong hợp đồng khung,
+   * nguyên tắc đang hiệu lực của `customerId` (cùng nguồn với engine giá). Mã hoặc tên (bản chụp) chứa `search`;
+   * xếp theo mã; tối đa `limit` mặt hàng.
+   */
+  pricedMaterials(tenantId: string, query: PricedMaterialsQuery): Promise<PricedMaterial[]>;
+}
+
+export interface PricedMaterialsQuery {
+  readonly date: string;
+  readonly customerPriceListId: string | null;
+  readonly customerId: string | null;
+  readonly search: string;
+  readonly limit: number;
+  /** Chỉ mặt hàng có mã (bản chụp) đứng sau mã này: trang kế. */
+  readonly cursor?: string;
+}
+
+/** Mặt hàng có giá và các ĐVT có giá (chữ thường, đã bỏ khoảng trắng hai đầu). */
+export interface PricedMaterial {
+  readonly materialId: string;
+  /** Mã (bản chụp) dùng xếp và làm cursor trang kế. */
+  readonly code: string;
+  readonly units: readonly string[];
 }
 
 /** Mặt hàng theo danh mục Kho. */
@@ -184,8 +194,18 @@ export interface CatalogMaterialStock {
 export interface CatalogReader {
   /** Mặt hàng danh mục biết, theo id; id không biết thì vắng trong kết quả. */
   materials(tenantId: string, ids: readonly string[]): Promise<ReadonlyMap<string, CatalogMaterial>>;
-  /** Tìm theo mã hoặc tên (chọn mặt hàng khi thêm dòng báo giá). */
-  search(tenantId: string, query: string, limit: number): Promise<CatalogMaterial[]>;
+  /**
+   * Tìm theo mã, tên hoặc phân loại (chọn mặt hàng khi thêm dòng báo giá, dòng giá), xếp theo mã. `cursor`: chỉ mã
+   * đứng sau mã này (trang kế); `kinds`: chỉ các nhóm này (STOCK, SERVICE).
+   */
+  search(
+    tenantId: string,
+    query: string,
+    limit: number,
+    options?: { readonly cursor?: string; readonly kinds?: readonly string[]; readonly tradeCategory?: string },
+  ): Promise<CatalogMaterial[]>;
+  /** Phân loại đang gắn trên mặt hàng của các nhóm `kinds` (ô lọc Phân loại). Bản giả trong test có thể không có. */
+  tradeCategories?(tenantId: string, kinds: readonly string[]): Promise<string[]>;
   /**
    * Danh sách kho của Kho (`GET /v1/internal/warehouses?search=&codes=`) để chọn
    * kho xuất (T4-19). Bản giả trong test có thể không có.

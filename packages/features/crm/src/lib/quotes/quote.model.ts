@@ -26,6 +26,20 @@ export const QUOTE_STATUS_TONE: Readonly<Record<QuoteStatus, 'neutral' | 'info' 
 export type QuoteUiAction = 'edit' | 'revise' | 'submit' | 'approve' | 'reject' | 'send' | 'accept' | 'decline';
 
 /** Thao tác hiện được cho phiên bản đang xem. */
+/**
+ * Hiện nút Xoá báo giá: chỉ có một phiên bản, đang Nháp hoặc Chờ duyệt; người phụ trách (có quyền lập báo giá) hoặc
+ * quản trị bán hàng. Máy chủ kiểm lại.
+ */
+export function canDeleteQuote(
+  detail: Pick<QuoteDetail, 'ownerUserId' | 'versions'> & { version: Pick<QuoteDetail['version'], 'status'> },
+  capabilities: CrmCapabilities,
+  currentUserId?: string,
+): boolean {
+  if (detail.versions.length !== 1 || !['DRAFT', 'PENDING'].includes(detail.version.status)) return false;
+  if (capabilities.isTenantAdmin || capabilities.canManage) return true;
+  return capabilities.canWriteQuote && !!currentUserId && detail.ownerUserId === currentUserId;
+}
+
 export function quoteActions(
   detail: Pick<QuoteDetail, 'currentVersion' | 'procedure'> & { version: Pick<QuoteDetail['version'], 'versionNo' | 'status' | 'submittedBy'> },
   capabilities: CrmCapabilities,

@@ -14,7 +14,7 @@ import {
 import { Popconfirm, SearchableSelect, toast, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Field } from '../components/crm-ui';
 import {
   addQuoteFollower,
@@ -93,6 +93,7 @@ export function GeneralFields({
   codeEditable,
   generateCode,
   nameError,
+  showTemplate = true,
 }: {
   value: GeneralState;
   onChange: (next: GeneralState) => void;
@@ -103,14 +104,21 @@ export function GeneralFields({
   /** Đang lập mới: mã để trống thì hệ thống sinh, nút "Sinh lại" điền mã kế tiếp để xem. */
   generateCode: boolean;
   nameError?: string;
+  /** `false` ở màn báo giá 2 cột: ô chọn mẫu nằm ở đầu khung xem trước (`TemplatePicker`), cạnh nút Xuất. */
+  showTemplate?: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
-  const set = (patch: Partial<GeneralState>) => onChange({ ...value, ...patch });
+  // Giá trị mới nhất: "Sinh lại" chờ API, trong lúc đó người dùng có thể gõ ô khác; ghép mã vào giá trị cũ lúc bấm sẽ làm
+  // mất phần vừa gõ.
+  const latest = useRef(value);
+  latest.current = value;
+  const set = (patch: Partial<GeneralState>) => onChange({ ...latest.current, ...patch });
 
   async function regenerate() {
     setGenerating(true);
     try {
-      set({ code: (await generateQuoteCode()).code });
+      const { code } = await generateQuoteCode();
+      set({ code });
     } catch (cause) {
       toast.error(quoteFormErrorMessage(cause, 'Không sinh được mã báo giá.'));
     } finally {
@@ -155,15 +163,17 @@ export function GeneralFields({
       <Field label="Hiệu lực đến" hint="Bỏ trống: 30 ngày kể từ hôm nay">
         <DatePickerInput value={value.validUntil || undefined} onChange={(next) => set({ validUntil: next })} height={38} aria-label="Hiệu lực đến" />
       </Field>
-      <Field label="Mẫu báo giá" hint="Mẫu quyết định chiết khấu và thuế tính theo dòng hay theo tổng đơn">
-        <SearchableSelect
-          options={templates.map((item) => ({ value: item.id, label: item.name, description: modeText(item) }))}
-          value={value.templateId}
-          placeholder="Mẫu mặc định"
-          clearable={false}
-          onChange={(next) => set({ templateId: next })}
-        />
-      </Field>
+      {showTemplate ? (
+        <Field label="Mẫu báo giá" hint={TEMPLATE_HINT}>
+          <SearchableSelect
+            options={templateOptions(templates)}
+            value={value.templateId}
+            placeholder="Mẫu mặc định"
+            clearable={false}
+            onChange={(next) => set({ templateId: next })}
+          />
+        </Field>
+      ) : null}
       <Field label="Loại báo giá">
         <SearchableSelect
           options={types.map((item) => ({ value: item.id, label: item.name }))}
@@ -179,6 +189,41 @@ export function GeneralFields({
 
 const modeText = (template: QuoteTemplate) =>
   `Chiết khấu ${QUOTE_ADJUSTMENT_MODE_LABELS[template.discountMode].toLowerCase()}, thuế ${QUOTE_ADJUSTMENT_MODE_LABELS[template.taxMode].toLowerCase()}`;
+
+const TEMPLATE_HINT = 'Mẫu quyết định bố cục in và chiết khấu, thuế tính theo dòng hay theo tổng đơn';
+
+const templateOptions = (templates: readonly QuoteTemplate[]): SearchableSelectOption[] =>
+  templates.map((item) => ({ value: item.id, label: item.name, description: modeText(item) }));
+
+/**
+ * Ô chọn mẫu ở đầu khung xem trước màn báo giá 2 cột (cạnh nút Xuất): đổi mẫu là khung xem trước đổi ngay, chưa cần Lưu.
+ */
+export function TemplatePicker({
+  templates,
+  value,
+  onChange,
+  className,
+}: {
+  templates: readonly QuoteTemplate[];
+  value: string;
+  onChange: (templateId: string) => void;
+  className?: string;
+}) {
+  return (
+    <label className={className} title={TEMPLATE_HINT}>
+      <span>Mẫu</span>
+      <SearchableSelect
+        name="templateId"
+        options={templateOptions(templates)}
+        value={value}
+        placeholder="Mẫu mặc định"
+        clearable={false}
+        height={32}
+        onChange={onChange}
+      />
+    </label>
+  );
+}
 
 /** Chiết khấu hoặc thuế tổng đơn: % HOẶC số tiền; mẫu theo dòng thì khoá và giải thích. */
 export function OrderAmountField({
@@ -292,8 +337,18 @@ export function CustomFieldsEditor({
         const text = texts[field.id] ?? '';
         const error = missing.includes(field.name) ? 'Trường bắt buộc.' : undefined;
         return (
-          <Field key={field.id} label={field.name} required={field.required} error={error}>
-            {field.fieldType === 'SELECT' ? (
+          <Field key={field.id} label={field.name} required={field.required} error={error} wide={field.fieldType === 'TEXT'}>
+            {field.fieldType === 'TEXT' ? (
+              <textarea
+                className={styles.textarea}
+                rows={3}
+                value={text}
+                maxLength={1000}
+                aria-label={field.name}
+                aria-invalid={error ? true : undefined}
+                onChange={(event) => set(field.id, event.target.value)}
+              />
+            ) : field.fieldType === 'SELECT' ? (
               <SearchableSelect
                 options={field.options.map((option) => ({ value: option, label: option }))}
                 value={text}
@@ -308,7 +363,7 @@ export function CustomFieldsEditor({
                 className={styles.input}
                 inputMode={field.fieldType === 'NUMBER' ? 'decimal' : undefined}
                 value={text}
-                maxLength={field.fieldType === 'TEXT' ? 1000 : 30}
+                maxLength={30}
                 aria-label={field.name}
                 aria-invalid={error ? true : undefined}
                 onChange={(event) => set(field.id, event.target.value)}

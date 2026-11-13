@@ -8,6 +8,7 @@ import type {
   CreateMaterialRequest,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
+  MaterialKind,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -125,6 +126,8 @@ export interface InventoryStore {
       tenantId: string,
       query: InternalMaterialCatalogQuery,
     ): Promise<InternalMaterialCatalogItem[]>;
+    /** Các phân loại đang gắn trên mặt hàng còn dùng của các nhóm `kinds`, xếp theo chữ. */
+    tradeCategories(tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]>;
   };
 
   /**

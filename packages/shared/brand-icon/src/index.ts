@@ -2,6 +2,7 @@ export * from './lib/model';
 export * from './lib/path-data';
 export * from './lib/geometry';
 export * from './lib/palette';
+export * from './lib/gradient';
 export * from './lib/render';
 export * from './lib/svg-import';
 export * from './lib/legacy-data';

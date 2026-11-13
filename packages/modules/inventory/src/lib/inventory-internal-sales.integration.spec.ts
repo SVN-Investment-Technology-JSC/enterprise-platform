@@ -82,7 +82,7 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
     }
     await app.createMaterial(admin, { code: 'QA-KHO-CAP', name: 'Cáp đồng', category: 'CONSUMABLE', unit: 'Mét', warrantyMonths: 24 });
     await app.createMaterial(admin, { code: 'QA-KHO-MAY', name: 'Máy cắt', category: 'SPARE_PART', unit: 'Cái', isSerialized: true });
-    await app.createMaterial(admin, { code: 'QA-KHO-BT', name: 'Gói bảo trì', category: 'SPARE_PART', unit: 'Gói', kind: 'SERVICE', warrantyMonths: 0 });
+    await app.createMaterial(admin, { code: 'QA-KHO-BT', name: 'Gói bảo trì', category: 'SPARE_PART', unit: 'Gói', kind: 'SERVICE', warrantyMonths: 0, tradeCategory: 'Dịch vụ định kỳ' });
     await app.createMaterial(admin, { code: 'QA-KHO-NGUNG', name: 'Mã ngừng dùng', category: 'SPARE_PART', unit: 'Cái' });
     await app.retireMaterial(admin, 'QA-KHO-NGUNG');
 
@@ -152,6 +152,14 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
     it('tìm theo mã, tên; phân trang theo mã; id và mã trả cả mã đã ngừng dùng', async () => {
       const search = await app.listMaterialCatalog(service, { search: 'máy' });
       expect(search.materials.map((item) => item.code)).toEqual(['QA-KHO-MAY']);
+      // Tìm cả theo phân loại (cột Phân loại ở màn Hàng hóa).
+      const byTrade = await app.listMaterialCatalog(service, { search: 'định kỳ' });
+      expect(byTrade.materials.map((item) => item.code)).toEqual(['QA-KHO-BT']);
+      // Lọc đúng phân loại (không phân biệt hoa thường); danh sách phân loại đang dùng theo nhóm.
+      const filtered = await app.listMaterialCatalog(service, { tradeCategory: 'dịch vụ định kỳ' });
+      expect(filtered.materials.map((item) => item.code)).toEqual(['QA-KHO-BT']);
+      expect(await app.listMaterialTradeCategories(service)).toEqual({ categories: ['Dịch vụ định kỳ'] });
+      expect(await app.listMaterialTradeCategories(service, ['STOCK'])).toEqual({ categories: [] });
 
       const first = await app.listMaterialCatalog(service, { search: 'QA-KHO', limit: 2 });
       expect(first.materials.map((item) => item.code)).toEqual(['QA-KHO-BT', 'QA-KHO-CAP']);

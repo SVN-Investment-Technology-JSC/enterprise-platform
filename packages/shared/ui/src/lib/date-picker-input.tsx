@@ -19,6 +19,8 @@ export interface DatePickerInputProps {
   'aria-label'?: string;
   /** Chiều cao ô nhập (px). Mặc định 32; dùng 38 để thẳng hàng với SearchableSelect. */
   height?: number;
+  /** Hiện nút xoá ngày (mặc định có). Tắt khi ô luôn phải có giá trị. */
+  allowClear?: boolean;
 }
 
 const DISPLAY_FORMAT = 'DD/MM/YYYY';
@@ -41,6 +43,7 @@ export function DatePickerInput({
   name,
   'aria-label': ariaLabel,
   height = 32,
+  allowClear = true,
 }: DatePickerInputProps) {
   const parsed = value ? dayjs(value) : null;
   const current = parsed && parsed.isValid() ? parsed : null;
@@ -54,7 +57,7 @@ export function DatePickerInput({
       format={DISPLAY_FORMAT}
       placeholder={placeholder}
       disabled={disabled}
-      allowClear
+      allowClear={allowClear}
       needConfirm={false}
       disabledDate={(date) =>
         Boolean(

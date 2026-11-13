@@ -6,6 +6,9 @@
  * (`ORDER`): đã chốt tạm theo đề xuất Q-P2-8, để không tính trùng chiết khấu và VAT.
  */
 
+import type { QuoteLayout } from './quote-layout.js';
+import type { QuoteSeller } from './sales-organizations.js';
+
 export const QUOTE_ADJUSTMENT_MODES = ['LINE', 'ORDER'] as const;
 export type QuoteAdjustmentMode = (typeof QUOTE_ADJUSTMENT_MODES)[number];
 
@@ -26,6 +29,8 @@ export interface QuoteTemplate {
   readonly active: boolean;
   readonly isDefault: boolean;
   readonly sortOrder: number;
+  /** Mẫu đã có bố cục in thiết kế riêng (phase 3); `false` là dùng bố cục mặc định. */
+  readonly hasLayout: boolean;
 }
 
 export interface QuoteType {
@@ -46,6 +51,29 @@ export interface SaveQuoteTemplateRequest {
   readonly isDefault?: boolean;
   readonly sortOrder?: number;
 }
+
+/**
+ * Bố cục in của mẫu (`GET/PUT /v1/quote-templates/:id/layout`). `layout` rỗng là mẫu dùng bố cục mặc định.
+ * `updatedAt`, `updatedBy`: lần lưu hoặc xoá bố cục gần nhất; rỗng khi chưa từng lưu.
+ */
+export interface QuoteTemplateLayout {
+  readonly layout: QuoteLayout | null;
+  readonly updatedAt: string | null;
+  readonly updatedBy: string | null;
+}
+
+/**
+ * Lưu bố cục. `layout: null` là xoá bố cục (mẫu quay về bố cục mặc định).
+ * `expectedUpdatedAt`: giá trị `updatedAt` đọc được lúc mở trình thiết kế; lệch với bản đang lưu thì 409
+ * `LAYOUT_CONFLICT`. Không gửi trường này thì ghi đè, không kiểm.
+ */
+export interface SaveQuoteTemplateLayoutRequest {
+  readonly layout: QuoteLayout | null;
+  readonly expectedUpdatedAt?: string | null;
+}
+
+/** Mã lỗi 409 khi bố cục vừa được người khác sửa. */
+export const QUOTE_LAYOUT_CONFLICT_CODE = 'LAYOUT_CONFLICT';
 
 export interface SaveQuoteTypeRequest {
   readonly name: string;
@@ -90,14 +118,21 @@ export interface QuoteFormData {
   readonly feesAmount: number;
   /** Giá trị trường tuỳ biến theo id định nghĩa (P2I-06); báo giá cũ chưa nhập thì rỗng `{}`. */
   readonly customFields: QuoteCustomFields;
+  /** Tổ chức báo giá đã chọn (plan mục 16); rỗng là không chọn (báo giá cũ hoặc người lập bỏ trống). */
+  readonly organizationId: string | null;
+  readonly organizationName: string | null;
+  /** Thông tin tổ chức in lên báo giá (biến `company.*`), sửa được riêng cho báo giá khi còn Nháp. */
+  readonly seller: QuoteSeller | null;
 }
 
 /** Mẫu mã báo giá, lưu ở Cài đặt: ví dụ `{yyyymmdd}/BG//{seq}` cho ra `20261102/BG//383`. */
 export interface QuoteCodeSettings {
   /** Rỗng: dùng mã mặc định `BG<yy><5 chữ số>`. */
   readonly pattern: string | null;
-  /** Mã sẽ sinh nếu sinh ngay (chỉ xem trước, chưa chiếm số). */
+  /** Mẫu mã đang lưu với số thứ tự 1 (minh hoạ định dạng). */
   readonly example: string;
+  /** Mã sẽ sinh nếu tạo báo giá ngay: số thứ tự kế tiếp của sequence, bỏ qua mã đã có; chỉ xem, chưa chiếm số. */
+  readonly next: string;
 }
 
 export interface SaveQuoteCodeSettingsRequest {
@@ -202,4 +237,36 @@ export interface QuoteLink {
 export interface AddQuoteLinkRequest {
   readonly targetType: QuoteLinkTargetType;
   readonly targetId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Cột hộp thoại "Thêm dòng báo giá" (quản trị chọn ở Cài đặt)
+// ---------------------------------------------------------------------------
+
+/** Cột thông tin chọn được; cột Mã và Số lượng luôn hiện. */
+export const QUOTE_LINE_PICKER_COLUMNS = ['name', 'kind', 'tradeCategory', 'unit', 'totalAvailable', 'avgCost', 'salePrice'] as const;
+export type QuoteLinePickerColumn = (typeof QUOTE_LINE_PICKER_COLUMNS)[number];
+
+export const QUOTE_LINE_PICKER_COLUMN_LABELS: Readonly<Record<QuoteLinePickerColumn, string>> = {
+  name: 'Tên',
+  kind: 'Nhóm',
+  tradeCategory: 'Phân loại',
+  unit: 'ĐVT',
+  totalAvailable: 'Tồn khả dụng',
+  avgCost: 'Giá vốn bình quân',
+  salePrice: 'Giá bán đề xuất (Kho)',
+};
+
+/** Chưa cấu hình: hiện mọi cột. */
+export const DEFAULT_QUOTE_LINE_PICKER_COLUMNS: readonly QuoteLinePickerColumn[] = QUOTE_LINE_PICKER_COLUMNS;
+
+export interface QuoteLinePickerSettings {
+  /** Cột hiện, theo thứ tự cố định của `QUOTE_LINE_PICKER_COLUMNS`. */
+  readonly columns: readonly QuoteLinePickerColumn[];
+}
+
+/** Giữ cột hợp lệ, bỏ trùng, xếp theo thứ tự cố định; không phải mảng thì `undefined`. */
+export function normalizeQuoteLinePickerColumns(value: unknown): QuoteLinePickerColumn[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return QUOTE_LINE_PICKER_COLUMNS.filter((column) => value.includes(column));
 }
