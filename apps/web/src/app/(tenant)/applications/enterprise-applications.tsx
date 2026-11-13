@@ -98,6 +98,26 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     businessValue:
       'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
   },
+  correspondence: {
+    category: 'Vận hành & Quy trình',
+    tagline: 'Sổ công văn đến, đi: tiếp nhận, trình lãnh đạo, giao phòng ban xử lý, phát hành và lưu trữ hồ sơ.',
+    accentColor: {
+      bg: 'bg-indigo-50/70',
+      border: 'border-indigo-200/80',
+      text: 'text-indigo-700',
+      iconBg: 'bg-indigo-100 text-indigo-700',
+    },
+    features: [
+      'Vào sổ công văn đến, cấp số tự động theo năm',
+      'Trình lãnh đạo chỉ đạo, giao nhiều phòng ban xử lý song song',
+      'Phòng ban gửi văn bản phản hồi, lãnh đạo duyệt hoặc yêu cầu sửa',
+      'Cấp số đi, phát hành và lưu trữ hồ sơ có số lưu trữ',
+      'Tệp lưu trong kho tài liệu của Hệ dùng chung, thông báo và nhắc hạn theo từng bước',
+    ],
+    targetRoles: ['Văn thư, Hành chính', 'Ban Tổng giám đốc', 'Trưởng phòng ban'],
+    businessValue:
+      'Biết ngay công văn đang nằm ở bước nào, ai đang giữ, còn bao lâu tới hạn; hồ sơ đóng xong tra được theo số lưu trữ.',
+  },
   crm: {
     category: 'Kinh doanh & Bán hàng',
     tagline: 'Theo dõi khách hàng từ cơ hội, báo giá, hợp đồng đến đơn bán, công nợ và bảo hành trên một luồng.',

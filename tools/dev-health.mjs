@@ -135,6 +135,20 @@ const checks = [
     path: '/api/crm/health/ready',
     validate: (body) => body?.status === 'ready' && body?.service === 'crm-api',
   },
+  {
+    service: 'Văn thư Web',
+    path: '/modules/correspondence',
+  },
+  {
+    service: 'Văn thư API · live',
+    path: '/api/correspondence/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'correspondence-api',
+  },
+  {
+    service: 'Văn thư API · ready',
+    path: '/api/correspondence/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'correspondence-api',
+  },
 ];
 
 async function checkService(check) {

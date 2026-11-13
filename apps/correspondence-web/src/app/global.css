@@ -1,0 +1,69 @@
+html {
+  -webkit-text-size-adjust: 100%;
+  font-family:
+    var(--font-sans),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  line-height: 1.5;
+  tab-size: 4;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #f8f9ff;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+::before,
+::after {
+  box-sizing: border-box;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+pre,
+figure,
+blockquote {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 100%;
+  line-height: 1.15;
+  margin: 0;
+}
+
+/*
+ * Ant Design gán font riêng cho từng thành phần (cửa sổ nổi như lịch chọn ngày, danh sách xổ… render ở cuối body). Ép về
+ * font chung của hệ thống để mọi chữ cùng một font. Selector chỉ khớp class bắt đầu bằng `ant-` (không khớp nhầm
+ * `tenant-…`, `variant-…`) và lặp 3 lần để đủ độ ưu tiên thắng các luật như
+ * `:where(.css-…).ant-table-wrapper .ant-table { font-family: var(--ant-font-family) }` của antd.
+ */
+html body :is([class^='ant-'], [class*=' ant-']):is([class^='ant-'], [class*=' ant-']):is([class^='ant-'], [class*=' ant-']) {
+  font-family: inherit;
+}

@@ -58,6 +58,22 @@ import { isSharedManager, type SharedActor } from './shared-actor.js';
 import type { DocumentRow, PurgeResult, RecordMetaInput, SharedStore } from './shared-store.port.js';
 import type { StorageQuotaService } from './storage-quota.service.js';
 
+/**
+ * Kho đối tượng của phân hệ, dựng từ biến môi trường. Hai đầu nối: server gọi
+ * kho trong mạng nội bộ, còn URL ký sẵn phải mang host công khai cho trình
+ * duyệt mở. Xem `DocumentService` của Workspace.
+ */
+export function sharedObjectStorage(): ObjectStorageManagementPort {
+  return new S3ObjectStorage({
+    internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://minio:9000',
+    publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
+    region: process.env.S3_REGION ?? 'us-east-1',
+    bucket: process.env.S3_BUCKET ?? 'enterprise-platform',
+    accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'platform-development-secret',
+  });
+}
+
 /** Kết quả tìm kiếm toàn kho tối đa từng này dòng; trong một thư mục thì lấy hết. */
 const SEARCH_LIMIT = 200;
 const FOLDER_LIMIT = 5000;
@@ -82,18 +98,7 @@ export class CompanyDocumentService {
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
     private readonly access: FolderAccessService,
-    private readonly storage: ObjectStorageManagementPort = new S3ObjectStorage({
-      // Hai đầu nối: server gọi kho trong mạng nội bộ, còn URL ký sẵn phải mang
-      // host công khai cho trình duyệt mở. Xem `DocumentService` của Workspace.
-      internalEndpoint:
-        process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://minio:9000',
-      publicEndpoint:
-        process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
-      region: process.env.S3_REGION ?? 'us-east-1',
-      bucket: process.env.S3_BUCKET ?? 'enterprise-platform',
-      accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
-      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'platform-development-secret',
-    }),
+    private readonly storage: ObjectStorageManagementPort = sharedObjectStorage(),
   ) {}
 
   private readonly logger = new Logger(CompanyDocumentService.name);
@@ -165,6 +170,11 @@ export class CompanyDocumentService {
       if (!isSharedManager(actor)) {
         throw new SharedForbiddenError('Chỉ người quản trị kho chuyển được thư mục.');
       }
+      if (folder.systemModule) {
+        throw new SharedForbiddenError(
+          `Thư mục “${folder.name}” do phân hệ ${filingModuleLabel(folder.systemModule)} quản lý nên không chuyển được.`,
+        );
+      }
       const folders = await this.store.folders.list(actor.tenantId);
       const branch = branchOf(folders, folder.id);
       let newDepth = 0;
@@ -210,6 +220,11 @@ export class CompanyDocumentService {
     if (!canDeleteIn(actor, role)) throw new SharedForbiddenError('Bạn không có quyền xoá thư mục này.');
     if (folder.depth === 0 && !isSharedManager(actor)) {
       throw new SharedForbiddenError('Chỉ người quản trị kho xoá được thư mục gốc.');
+    }
+    if (folder.systemModule) {
+      throw new SharedForbiddenError(
+        `Thư mục “${folder.name}” do phân hệ ${filingModuleLabel(folder.systemModule)} quản lý nên không xoá được.`,
+      );
     }
     const branch = [...branchOf(await this.store.folders.list(actor.tenantId), folder.id)];
     const locked = await this.store.documents.countLockedByOthers(actor.tenantId, branch, actor.userId);
@@ -896,25 +911,34 @@ export class CompanyDocumentService {
     }
   }
 
-  /**
-   * Khoá object: một bucket dùng chung, tách theo prefix tenant — trùng prefix
-   * mà quy trình xoá tenant dọn — cộng UUID để hai lượt tải cùng tên không đụng
-   * ràng buộc UNIQUE của `storage_key`.
-   */
   private storageKey(actor: SharedActor, versionNo: number, fileName: string): string {
-    const safeName = fileName
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/đ/g, 'd')
-      .replace(/Đ/g, 'D')
-      .replace(/[^a-zA-Z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(-80);
-    return `tenants/${actor.tenantId}/shared/${randomUUID()}/v${versionNo}-${safeName || 'file'}`;
+    return sharedStorageKey(actor.tenantId, versionNo, fileName);
   }
 }
 
+/**
+ * Khoá object: một bucket dùng chung, tách theo prefix tenant — trùng prefix
+ * mà quy trình xoá tenant dọn — cộng UUID để hai lượt tải cùng tên không đụng
+ * ràng buộc UNIQUE của `storage_key`.
+ */
+export function sharedStorageKey(tenantId: string, versionNo: number, fileName: string): string {
+  const safeName = fileName
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(-80);
+  return `tenants/${tenantId}/shared/${randomUUID()}/v${versionNo}-${safeName || 'file'}`;
+}
+
 /* ----------------------------------------------------------- hàm thuần */
+
+/** Tên phân hệ dựng một thư mục gốc hệ thống, để báo lỗi dễ hiểu. */
+export function filingModuleLabel(module: string): string {
+  return module === 'correspondence' ? 'Văn thư' : module;
+}
 
 /**
  * Những thư mục người gọi được vào, mỗi thư mục mang quyền của họ ở đó. Thư
@@ -1005,7 +1029,7 @@ export function branchOf(folders: readonly SharedFolder[], folderId: string): Se
  * Thông tin hồ sơ từ một yêu cầu ghi. Trường không gửi thì giữ giá trị cũ
  * (`current`); gửi chuỗi rỗng là xoá.
  */
-function recordMeta(input: SharedRecordMeta | undefined, current?: SharedRecordMeta): RecordMetaInput {
+export function recordMeta(input: SharedRecordMeta | undefined, current?: SharedRecordMeta): RecordMetaInput {
   const pick = <K extends keyof SharedRecordMeta>(key: K) =>
     input?.[key] === undefined ? current?.[key] : input[key];
   const kind = pick('docKind');
@@ -1018,7 +1042,7 @@ function recordMeta(input: SharedRecordMeta | undefined, current?: SharedRecordM
   };
 }
 
-function validateFile(
+export function validateFile(
   fileName: unknown,
   contentType: unknown,
   sizeBytes: unknown,
@@ -1041,7 +1065,7 @@ function validateFile(
   return { fileName: name, contentType: type, sizeBytes: Math.round(size) };
 }
 
-function requireText(value: unknown, label: string, maxLength: number): string {
+export function requireText(value: unknown, label: string, maxLength: number): string {
   const text = String(value ?? '').trim();
   if (!text) throw new SharedValidationError(`${label} không được để trống.`);
   if (text.length > maxLength) {
@@ -1050,7 +1074,7 @@ function requireText(value: unknown, label: string, maxLength: number): string {
   return text;
 }
 
-function optionalText(value: unknown, label: string, maxLength: number): string | null {
+export function optionalText(value: unknown, label: string, maxLength: number): string | null {
   if (value === undefined || value === null) return null;
   const text = String(value).trim();
   if (!text) return null;
@@ -1060,7 +1084,7 @@ function optionalText(value: unknown, label: string, maxLength: number): string 
   return text;
 }
 
-function optionalDate(value: unknown, label: string): string | null {
+export function optionalDate(value: unknown, label: string): string | null {
   if (value === undefined || value === null || value === '') return null;
   const text = String(value).trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00Z`))) {

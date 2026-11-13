@@ -470,6 +470,27 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'shared.manage', group: 'Hệ dùng chung', label: 'Quản trị kho tài liệu công ty' },
   { key: 'shared.document.write', group: 'Hệ dùng chung', label: 'Tải lên và sửa tài liệu công ty' },
   { key: 'shared.document.delete', group: 'Hệ dùng chung', label: 'Lưu trữ và xoá tài liệu công ty' },
+  { key: 'correspondence.read', group: 'Văn thư', label: 'Xem công văn mình được giao, được trình duyệt' },
+  { key: 'correspondence.letter.read-all', group: 'Văn thư', label: 'Xem mọi công văn (trừ công văn mật)' },
+  { key: 'correspondence.letter.confidential', group: 'Văn thư', label: 'Xem công văn mật' },
+  {
+    key: 'correspondence.letter.register',
+    group: 'Văn thư',
+    label: 'Văn thư: tiếp nhận, vào sổ, phân loại và trình duyệt công văn',
+  },
+  {
+    key: 'correspondence.letter.direct',
+    group: 'Văn thư',
+    label: 'Lãnh đạo: được chọn để chỉ đạo, giao phòng ban xử lý',
+  },
+  { key: 'correspondence.letter.publish', group: 'Văn thư', label: 'Cấp số đi và phát hành công văn' },
+  { key: 'correspondence.letter.archive', group: 'Văn thư', label: 'Lưu trữ hồ sơ công văn' },
+  {
+    key: 'correspondence.config',
+    group: 'Văn thư',
+    label: 'Cấu hình văn thư: danh mục, quy trình duyệt, người duyệt, sổ và đánh số',
+  },
+  { key: 'correspondence.manage', group: 'Văn thư', label: 'Quản trị văn thư: toàn quyền nghiệp vụ và cấu hình' },
   { key: 'social.read', group: 'Mạng nội bộ', label: 'Xem bảng tin và bài viết' },
   { key: 'social.post.write', group: 'Mạng nội bộ', label: 'Đăng bài, bình luận và phản ứng' },
   { key: 'social.post.moderate', group: 'Mạng nội bộ', label: 'Kiểm duyệt bài viết và bình luận' },
@@ -596,6 +617,24 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
   'shared.manage': ['shared.read', 'shared.document.write'],
   'shared.document.write': ['shared.read'],
   'shared.document.delete': ['shared.read'],
+  // Văn thư: mọi quyền đều cần vào được phân hệ. Quản trị gồm mọi việc của văn thư và cấu hình, nhưng không
+  // biến người đó thành lãnh đạo nhận chỉ đạo: quyền chỉ đạo cấp đích danh.
+  'correspondence.manage': [
+    'correspondence.read',
+    'correspondence.letter.read-all',
+    'correspondence.letter.confidential',
+    'correspondence.letter.register',
+    'correspondence.letter.publish',
+    'correspondence.letter.archive',
+    'correspondence.config',
+  ],
+  'correspondence.letter.read-all': ['correspondence.read'],
+  'correspondence.letter.confidential': ['correspondence.read', 'correspondence.letter.read-all'],
+  'correspondence.letter.register': ['correspondence.read', 'correspondence.letter.read-all'],
+  'correspondence.letter.publish': ['correspondence.read', 'correspondence.letter.read-all'],
+  'correspondence.letter.archive': ['correspondence.read', 'correspondence.letter.read-all'],
+  'correspondence.letter.direct': ['correspondence.read'],
+  'correspondence.config': ['correspondence.read'],
   // Mạng nội bộ: đăng bài hay kiểm duyệt cũng xem được bảng tin; kiểm duyệt gồm quyền đăng.
   'social.manage': ['social.read', 'social.post.write', 'social.post.moderate'],
   'social.post.moderate': ['social.read', 'social.post.write'],
@@ -644,6 +683,7 @@ const MODULE_ACTION_PREFIX: Readonly<Record<string, string>> = {
   shared: 'shared',
   social: 'social',
   crm: 'crm',
+  correspondence: 'correspondence',
 };
 /** Module nhận probe `module.access`: chỉ cần được vào module, không đòi action cụ thể. */
 const MODULES_WITH_ADMISSION_PROBE = new Set([
