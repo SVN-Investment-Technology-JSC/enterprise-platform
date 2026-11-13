@@ -25,9 +25,9 @@ export const HRM_HUBS = {
     { id: 'decisions', label: 'Quyết định nhân sự', permissions: ['hrm.appointment.read'] },
   ],
   '/leave': [
-    { id: 'balances', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
-    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read'] },
+    { id: 'balances', label: 'Quỹ phép năm', permissions: ['hrm.leave.read'] },
     { id: 'comp-off', label: 'Quỹ nghỉ bù', permissions: ['hrm.comp_off.view'] },
+    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read', 'hrm.comp_off.view'] },
   ],
   '/timekeeping': [
     { id: 'timesheets', label: 'Bảng công', permissions: ['hrm.timesheet.read'] },

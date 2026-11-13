@@ -119,7 +119,7 @@ export class HrmTaskApprovalService implements UniversalApprovalProvider {
            LEFT JOIN hrm_schema.leave_types lt ON lt.id = lr.leave_type_id
            LEFT JOIN hrm_schema.employee_directory ed ON ed.employee_id = lr.employee_id
            LEFT JOIN hrm_schema.procedure_links pl ON pl.tenant_id = lr.tenant_id AND pl.request_kind = 'leave' AND pl.request_id = lr.id
-          WHERE lr.tenant_id = $1 AND lr.status = 'PENDING' AND ${scope.sql}
+          WHERE lr.tenant_id = $1 AND lr.status = 'PENDING' AND (lr.group_id IS NULL OR lr.group_id = lr.id) AND ${scope.sql}
           ORDER BY lr.created_at DESC LIMIT $${scope.params.length + 2}`,
         [tenantId, ...scope.params, limit],
       );

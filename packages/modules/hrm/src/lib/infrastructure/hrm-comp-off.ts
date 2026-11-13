@@ -3,14 +3,19 @@ import type {
   AdjustHrmCompOffRequest,
   ConfirmHrmCompOffConversionRequest,
   HrmCompOffAvailability,
+  HrmCompOffAdjustmentRow,
   HrmCompOffBalanceDetail,
+  HrmCompOffStatus,
   HrmCompOffBalanceRow,
   HrmCompOffConversionPreview,
   HrmCompOffConversionResult,
   HrmCompOffConversionRow,
   HrmCompOffLedgerEntry,
+  HrmCompOffLedgerSource,
+  ImportHrmCompOffRequest,
+  ImportHrmCompOffResult,
 } from '@enterprise-platform/contracts-hrm';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
   accrualDate,
@@ -80,8 +85,10 @@ async function loadLedgerByEmployee(db: Db, tenant: string): Promise<Map<string,
 }
 
 /**
- * Tạo loại nghỉ "Nghỉ bù" của tenant nếu chưa có: có lương, không trừ phép năm, đánh dấu `comp_off` (số dư lấy từ sổ quỹ).
- * Đã có loại mã COMPENSATORY thì chỉ đánh dấu. Chạy lại được.
+ * Lý do nghỉ "Nghỉ bù" là lý do mặc định của tenant (cùng phép năm): có lương, không trừ phép năm, đánh dấu `comp_off`
+ * (số dư lấy từ sổ quỹ). Tạo nếu chưa có; tenant đã có loại nghỉ bù tự đặt (mã COMPENSATORY hoặc COMP, hoặc tên "Nghỉ bù")
+ * thì dùng lại loại đó, ưu tiên loại đã có nhiều đơn nhất, không tạo thêm. Chạy lại được. Không bật lại loại đã ngừng
+ * nếu tenant chủ động ngừng nó.
  */
 export async function ensureCompOffLeaveType(db: Db, tenant: string): Promise<string> {
   const marked = await db.query(
@@ -89,11 +96,22 @@ export async function ensureCompOffLeaveType(db: Db, tenant: string): Promise<st
     [tenant],
   );
   if (marked.rows[0]) return marked.rows[0].id as string;
-  const byCode = await db.query(
-    `UPDATE hrm_schema.leave_types SET comp_off=true,deduct_balance=false,paid=true,active=true,deleted_at=NULL,updated_at=now() WHERE tenant_id=$1 AND code='COMPENSATORY' RETURNING id`,
+  const existing = await db.query(
+    `SELECT t.id FROM hrm_schema.leave_types t
+      WHERE t.tenant_id=$1 AND t.deleted_at IS NULL AND t.merged_into_id IS NULL AND NOT t.is_annual
+        AND (t.code IN ('COMPENSATORY','COMP') OR lower(t.name)='nghỉ bù')
+      ORDER BY (SELECT count(*) FROM hrm_schema.leave_requests r WHERE r.tenant_id=t.tenant_id AND r.leave_type_id=t.id) DESC,
+               (t.code='COMPENSATORY') DESC, t.created_at
+      LIMIT 1`,
     [tenant],
   );
-  if (byCode.rows[0]) return byCode.rows[0].id as string;
+  if (existing.rows[0]) {
+    await db.query(
+      `UPDATE hrm_schema.leave_types SET comp_off=true,deduct_balance=false,paid=true,updated_at=now() WHERE id=$1`,
+      [existing.rows[0].id],
+    );
+    return existing.rows[0].id as string;
+  }
   const created = await db.query(
     `INSERT INTO hrm_schema.leave_types (tenant_id,code,name,unit,paid,deduct_balance,comp_off,active) VALUES ($1,'COMPENSATORY','Nghỉ bù','DAYS',true,false,true,true) RETURNING id`,
     [tenant],
@@ -120,7 +138,7 @@ export async function compOffAvailability(
   const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(asOf), employeeId);
   const summary = summarizeLedger(await loadLedgerRows(db, tenant, employeeId), asOf);
   return {
-    enabled: policy.enabled,
+    enabled: policy.fundEnabled,
     available: summary.available,
     reserved: summary.reserved,
     usageStepDays: policy.usageStepDays,
@@ -130,7 +148,7 @@ export async function compOffAvailability(
 }
 
 /**
- * Giữ chỗ số ngày nghỉ bù cho đơn nghỉ mới gửi, lấy từ lô gần hết hạn trước. Gọi trong giao dịch đã khóa nhân viên
+ * Giữ chỗ số ngày nghỉ bù cho đơn nghỉ mới gửi (chỉ khi quy tắc nghỉ bù đang bật; tắt thì bỏ qua), lấy từ lô gần hết hạn trước. Gọi trong giao dịch đã khóa nhân viên
  * (`lockEmployee`) để hai đơn đồng thời không dùng chung số dư. Gọi lại với cùng đơn không ghi thêm dòng.
  */
 export async function reserveCompOff(
@@ -140,8 +158,9 @@ export async function reserveCompOff(
   input: { employeeId: string; requestId: string; days: number; usageDate: string },
 ): Promise<void> {
   const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(input.usageDate), input.employeeId);
-  if (!policy.enabled)
-    throw new BadRequestException('Quy tắc làm thêm và nghỉ bù chưa được bật nên chưa thể tạo đơn nghỉ bù');
+  // Khi quản lý quỹ nghỉ bù tắt: không giữ chỗ, không kiểm số dư; người duyệt tự quyết định.
+  // Lưu ý: chỉ kiểm `fundEnabled` để dùng được quản lý quỹ + đơn Nghỉ bù mà chưa cần bật tính toán OT tự động (`enabled`).
+  if (!policy.fundEnabled) return;
   const invalid = validateCompOffUsageDays(input.days, policy.usageStepDays);
   if (invalid) throw new BadRequestException(invalid);
   const rows = await loadLedgerRows(db, tenant, input.employeeId);
@@ -237,6 +256,12 @@ function mapEntry(r: Record<string, any>): HrmCompOffLedgerEntry {
     reason: r.reason ?? null,
     createdBy: r.created_by ?? null,
     createdAt: new Date(r.created_at).toISOString(),
+    actorLabel: (r.actor_label as string | null | undefined) ?? null,
+    actorEmail: (r.actor_email as string | null | undefined) ?? null,
+    source: (r.source as HrmCompOffLedgerSource | null | undefined) ?? null,
+    batchId: r.batch_id ?? null,
+    reversesId: r.reverses_id ?? null,
+    reversedById: r.reversed_by_id ?? null,
   };
 }
 
@@ -249,7 +274,20 @@ export async function compOffDetail(
 ): Promise<HrmCompOffBalanceDetail> {
   const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(asOf), employeeId);
   const entries = await db.query(
-    `SELECT * FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND employee_id=$2 ORDER BY created_at DESC,id DESC LIMIT 500`,
+    `SELECT l.*,
+            CASE WHEN l.created_by IS NULL THEN NULL ELSE COALESCE(
+              (SELECT ad.employee_code||' · '||ad.full_name FROM hrm_schema.employee_directory ad
+                WHERE ad.tenant_id = l.tenant_id AND (ad.user_id = l.created_by OR ad.employee_id = l.created_by) LIMIT 1),
+              (SELECT COALESCE(NULLIF(u.full_name,''), u.email) FROM core_schema.users u WHERE u.id = l.created_by),
+              'Người dùng không còn tồn tại') END AS actor_label,
+            (SELECT u.email FROM core_schema.users u
+              WHERE u.id = l.created_by
+                 OR u.id = (SELECT ad.user_id FROM hrm_schema.employee_directory ad
+                             WHERE ad.tenant_id = l.tenant_id AND ad.employee_id = l.created_by LIMIT 1)
+              LIMIT 1) AS actor_email,
+            (SELECT r.id FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id = l.tenant_id AND r.reverses_id = l.id LIMIT 1) AS reversed_by_id
+       FROM hrm_schema.comp_off_ledger l
+      WHERE l.tenant_id=$1 AND l.employee_id=$2 ORDER BY l.created_at DESC,l.id DESC LIMIT 500`,
     [tenant, employeeId],
   );
   const summary = summarizeLedger(await loadLedgerRows(db, tenant, employeeId), asOf);
@@ -267,6 +305,45 @@ export async function compOffDetail(
     })),
     entries: entries.rows.map(mapEntry),
   };
+}
+
+/** Quỹ nghỉ bù và công thức tính đang bật hay tắt theo cấu hình có hiệu lực tại ngày `asOf`. */
+export async function compOffStatus(db: Db, tenant: string, asOf: string = today()): Promise<HrmCompOffStatus> {
+  const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(asOf));
+  return { fundEnabled: policy.fundEnabled, formulaEnabled: policy.enabled };
+}
+
+/**
+ * Lịch sử điều chỉnh quỹ nghỉ bù của mọi nhân viên (bấm tay, import Excel và dòng đảo), mới nhất trước.
+ * Cùng dạng với sổ từng nhân viên, thêm họ tên, mã và phòng ban.
+ */
+export async function compOffAdjustmentHistory(db: Db, tenant: string): Promise<HrmCompOffAdjustmentRow[]> {
+  const res = await db.query(
+    `SELECT l.*, e.full_name AS employee_name, e.employee_code, e.department_name AS department,
+            CASE WHEN l.created_by IS NULL THEN NULL ELSE COALESCE(
+              (SELECT ad.employee_code||' · '||ad.full_name FROM hrm_schema.employee_directory ad
+                WHERE ad.tenant_id = l.tenant_id AND (ad.user_id = l.created_by OR ad.employee_id = l.created_by) LIMIT 1),
+              (SELECT COALESCE(NULLIF(u.full_name,''), u.email) FROM core_schema.users u WHERE u.id = l.created_by),
+              'Người dùng không còn tồn tại') END AS actor_label,
+            (SELECT u.email FROM core_schema.users u
+              WHERE u.id = l.created_by
+                 OR u.id = (SELECT ad.user_id FROM hrm_schema.employee_directory ad
+                             WHERE ad.tenant_id = l.tenant_id AND ad.employee_id = l.created_by LIMIT 1)
+              LIMIT 1) AS actor_email,
+            (SELECT r.id FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id = l.tenant_id AND r.reverses_id = l.id LIMIT 1) AS reversed_by_id
+       FROM hrm_schema.comp_off_ledger l
+       JOIN hrm_schema.employee_directory e ON e.employee_id = l.employee_id AND e.tenant_id = l.tenant_id
+      WHERE l.tenant_id=$1 AND l.kind='ADJUST'
+      ORDER BY l.created_at DESC, l.id DESC LIMIT 2000`,
+    [tenant],
+  );
+  return res.rows.map((r) => ({
+    ...mapEntry(r),
+    employeeId: r.employee_id as string,
+    employeeName: (r.employee_name as string) ?? '',
+    employeeCode: (r.employee_code as string) ?? '',
+    department: (r.department as string | null) ?? null,
+  }));
 }
 
 /** Kỳ công đã chốt của tháng cùng ảnh chụp chính sách; null khi chưa chốt. */
@@ -415,7 +492,11 @@ export async function adjustCompOff(
   tenant: string,
   actor: string,
   body: AdjustHrmCompOffRequest,
+  /** Nguồn ghi vào sổ để xem lại lịch sử; import Excel kèm mã lô chung cho cả lần import. */
+  opts: { source?: HrmCompOffLedgerSource; batchId?: string | null } = {},
 ): Promise<{ available: number }> {
+  const source = opts.source ?? 'MANUAL';
+  const batchId = opts.batchId ?? null;
   const reason = String(body.reason ?? '').trim();
   if (!reason) throw new BadRequestException('Cần nhập lý do điều chỉnh quỹ nghỉ bù');
   const days = roundLedgerDays(Number(body.days));
@@ -430,9 +511,9 @@ export async function adjustCompOff(
     const id = randomUUID();
     const expires = body.expiresOn === undefined ? expiryDate(date, policy.expiryMonths) : body.expiresOn;
     await db.query(
-      `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,expires_on,reason,idempotency_key,created_by)
-       VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$1,$6::date,$7,$8,$9)`,
-      [id, tenant, body.employeeId, days, date, expires, reason, `adjust:${id}`, actor],
+      `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,expires_on,reason,idempotency_key,created_by,source,batch_id)
+       VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$1,$6::date,$7,$8,$9,$10,$11)`,
+      [id, tenant, body.employeeId, days, date, expires, reason, `adjust:${id}`, actor, source, batchId],
     );
   } else {
     const allocation = allocateFromLots(summary.lots, -days, date);
@@ -441,15 +522,162 @@ export async function adjustCompOff(
     for (const part of allocation) {
       const id = randomUUID();
       await db.query(
-        `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,reason,idempotency_key,created_by)
-         VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$6,$7,$8,$9)`,
-        [id, tenant, body.employeeId, -part.days, date, part.lotId, reason, `adjust:${id}`, actor],
+        `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,reason,idempotency_key,created_by,source,batch_id)
+         VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$6,$7,$8,$9,$10,$11)`,
+        [id, tenant, body.employeeId, -part.days, date, part.lotId, reason, `adjust:${id}`, actor, source, batchId],
       );
     }
   }
-  await lifecycleAudit(db, tenant, actor, 'COMP_OFF_ADJUSTED', body.employeeId, { days, reason });
+  await lifecycleAudit(db, tenant, actor, 'COMP_OFF_ADJUSTED', body.employeeId, { days, reason, source, batchId });
   const after = summarizeLedger(await loadLedgerRows(db, tenant, body.employeeId), date);
   return { available: after.available };
+}
+
+/**
+ * Import điều chỉnh quỹ nghỉ bù hàng loạt từ danh sách (Excel).
+ * Dùng SAVEPOINT cho từng dòng để dòng lỗi (sai mã NV, không đủ số dư trừ) không làm hỏng cả lô.
+ */
+export async function importCompOffAdjustments(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  body: ImportHrmCompOffRequest,
+): Promise<ImportHrmCompOffResult> {
+  const inputRows = Array.isArray(body?.rows) ? body.rows : [];
+  if (inputRows.length === 0) {
+    throw new BadRequestException('Danh sách import quỹ nghỉ bù không được để trống');
+  }
+  if (inputRows.length > 1000) {
+    throw new BadRequestException('Mỗi lần import tối đa 1.000 dòng');
+  }
+
+  const empRes = await db.query<{ id: string; employee_code: string | null }>(
+    `SELECT employee_id AS id, employee_code FROM hrm_schema.employee_directory WHERE tenant_id = $1`,
+    [tenant],
+  );
+  const byCode = new Map<string, string>();
+  for (const row of empRes.rows) {
+    const code = (row.employee_code ?? '').trim().toUpperCase();
+    if (code) byCode.set(code, row.id);
+  }
+
+  let applied = 0;
+  const batchId = randomUUID();
+  const skipped: Array<{ rowIndex: number; employeeCode: string; reason: string }> = [];
+
+  for (let i = 0; i < inputRows.length; i += 1) {
+    const item = inputRows[i];
+    const rowIndex = i + 1;
+    const rawCode = String(item?.employeeCode ?? '').trim();
+    const employeeId = byCode.get(rawCode.toUpperCase());
+    if (!employeeId) {
+      skipped.push({ rowIndex, employeeCode: rawCode, reason: 'Không tìm thấy mã nhân viên' });
+      continue;
+    }
+    const reason = String(item?.reason ?? '').trim();
+    if (!reason) {
+      skipped.push({ rowIndex, employeeCode: rawCode, reason: 'Thiếu lý do điều chỉnh' });
+      continue;
+    }
+    const days = Number(item?.days);
+    if (!Number.isFinite(days) || days === 0 || Math.abs(days) > 365) {
+      skipped.push({ rowIndex, employeeCode: rawCode, reason: 'Số ngày phải khác 0 và không quá 365' });
+      continue;
+    }
+    const expiresOn =
+      item?.expiresOn === undefined
+        ? undefined
+        : item.expiresOn === null || String(item.expiresOn).trim() === ''
+          ? null
+          : String(item.expiresOn).trim();
+    if (expiresOn !== undefined && expiresOn !== null && !/^\d{4}-\d{2}-\d{2}$/.test(expiresOn)) {
+      skipped.push({ rowIndex, employeeCode: rawCode, reason: 'Hạn sử dụng phải dạng YYYY-MM-DD' });
+      continue;
+    }
+
+    await db.query('SAVEPOINT sp_comp_off_import');
+    try {
+      await adjustCompOff(db, tenant, actor, { employeeId, days, reason, expiresOn }, { source: 'IMPORT', batchId });
+      await db.query('RELEASE SAVEPOINT sp_comp_off_import');
+      applied += 1;
+    } catch (error) {
+      await db.query('ROLLBACK TO SAVEPOINT sp_comp_off_import');
+      await db.query('RELEASE SAVEPOINT sp_comp_off_import');
+      skipped.push({
+        rowIndex,
+        employeeCode: rawCode,
+        reason: error instanceof Error ? error.message : 'Lỗi điều chỉnh quỹ',
+      });
+    }
+  }
+
+  // Một dòng nhật ký cho cả lần import: ai nhập, tệp nào, bao nhiêu dòng thành công và bị bỏ qua.
+  await lifecycleAudit(db, tenant, actor, 'COMP_OFF_IMPORTED', batchId, {
+    fileName: String(body?.fileName ?? '').slice(0, 200) || null,
+    total: inputRows.length,
+    applied,
+    skipped: skipped.length,
+  });
+  return { batchId, applied, skipped };
+}
+
+/**
+ * Đảo một dòng điều chỉnh thủ công (kể cả dòng import) bằng dòng đối ứng; dòng gốc được giữ nguyên.
+ * Điều chỉnh dương: trừ lại đúng lô đã mở, chỉ làm được khi lô còn nguyên số ngày (chưa dùng, giữ chỗ hay hết hạn).
+ * Điều chỉnh âm: mở lô mới cùng hạn dùng với lô đã bị trừ, không đảo được khi lô đó đã hết hạn.
+ * Đảo hai lần cùng một dòng trả về kết quả của lần đầu.
+ */
+export async function reverseCompOffAdjustment(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  entryId: string,
+  rawReason: string,
+): Promise<{ available: number; reversalId: string }> {
+  const reason = String(rawReason ?? '').trim();
+  if (!reason) throw new BadRequestException('Cần nhập lý do đảo điều chỉnh');
+  const found = await db.query(`SELECT * FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND id=$2`, [tenant, entryId]);
+  const entry = found.rows[0];
+  if (!entry) throw new NotFoundException('Không tìm thấy giao dịch quỹ nghỉ bù');
+  if (entry.kind !== 'ADJUST' || entry.reverses_id)
+    throw new BadRequestException(
+      'Chỉ đảo được dòng điều chỉnh thủ công; giao dịch từ đơn nghỉ bù hay chuyển đổi tháng phải xử lý ở nguồn gốc.',
+    );
+  const employeeId = entry.employee_id as string;
+  await lockEmployee(db, tenant, employeeId);
+  const key = `reverse-adjust:${entryId}`;
+  const prior = await db.query(`SELECT id FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND idempotency_key=$2`, [tenant, key]);
+  const date = today();
+  const summary = summarizeLedger(await loadLedgerRows(db, tenant, employeeId), date);
+  if (prior.rows[0]) return { available: summary.available, reversalId: prior.rows[0].id as string };
+  const lot = summary.lots.find((l) => l.lotId === entry.lot_id);
+  const delta = -Number(entry.days);
+  const reversalId = randomUUID();
+  if (delta < 0) {
+    if (!lot || lot.remaining < -delta - 0.0001)
+      throw new ConflictException('Lô này đã được dùng, giữ chỗ hoặc hết hạn một phần nên không đảo được điều chỉnh');
+    await db.query(
+      `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,reason,idempotency_key,created_by,source,reverses_id)
+       VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$6,$7,$8,$9,'MANUAL',$10)`,
+      [reversalId, tenant, employeeId, delta, date, entry.lot_id, reason, key, actor, entryId],
+    );
+  } else {
+    const expiresOn = lot?.expiresOn ?? null;
+    if (expiresOn !== null && expiresOn < date) throw new ConflictException('Lô bị trừ đã hết hạn nên không đảo được điều chỉnh');
+    await db.query(
+      `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,expires_on,reason,idempotency_key,created_by,source,reverses_id)
+       VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$1,$6::date,$7,$8,$9,'MANUAL',$10)`,
+      [reversalId, tenant, employeeId, delta, date, expiresOn, reason, key, actor, entryId],
+    );
+  }
+  await lifecycleAudit(db, tenant, actor, 'COMP_OFF_ADJUST_REVERSED', entryId, {
+    reason,
+    reversalId,
+    days: Number(entry.days),
+    employeeId,
+  });
+  const after = summarizeLedger(await loadLedgerRows(db, tenant, employeeId), date);
+  return { available: after.available, reversalId };
 }
 
 /**

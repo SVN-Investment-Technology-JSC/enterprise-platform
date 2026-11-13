@@ -4,12 +4,14 @@ import type { HrmCompOffBalanceRow } from '@enterprise-platform/contracts-hrm';
 import { compOffApi } from '../../hrm-comp-off-api';
 import { hrmEmployeeOptions, type EmployeeOption } from '../../hrm-api';
 import { formatCompDate, formatCompNumber } from '../../comp-off-model';
+import { downloadXlsx } from '../../hrm-xlsx';
 import { normalizeSearchText } from '../../hrm-employee-view';
 import { useHrmPermissions } from '../../hrm-permissions';
 import { Button } from '../button';
 import { Input } from '../input';
 import { toast } from '../toast';
 import { CompOffAdjustDialog } from './comp-off-adjust-dialog';
+import { CompOffImportDialog } from './comp-off-import-dialog';
 import { CompOffLedgerSheet } from './comp-off-ledger-sheet';
 import { EmptyRow, errorText, Notice, TableShell, td, tdRight, th, thRight } from './comp-off-kit';
 
@@ -22,6 +24,7 @@ export function CompOffBalancesPanel() {
   const [query, setQuery] = useState('');
   const [ledger, setLedger] = useState<{ id: string; label: string } | null>(null);
   const [adjusting, setAdjusting] = useState<{ employeeId?: string } | null>(null);
+  const [importing, setImporting] = useState(false);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [expiring, setExpiring] = useState(false);
 
@@ -61,6 +64,27 @@ export function CompOffBalancesPanel() {
     }
   }
 
+  function exportExcel() {
+    if (!shown.length) return;
+    downloadXlsx(
+      'Quy_Nghi_Bu.xlsx',
+      [
+        ['Mã nhân viên', 'Họ tên', 'Đã nhận', 'Điều chỉnh', 'Đã dùng', 'Giữ chỗ', 'Còn lại', 'Sắp hết hạn'],
+        ...shown.map((r) => [
+          r.employeeCode ?? '',
+          r.employeeName ?? r.employeeId,
+          r.accrued,
+          r.adjusted,
+          r.used,
+          r.reserved,
+          r.available,
+          r.nextExpiry ? `${formatCompNumber(r.nextExpiry.days)} ngày (${formatCompDate(r.nextExpiry.on)})` : '',
+        ]),
+      ],
+      'QuyNghiBu',
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -71,14 +95,22 @@ export function CompOffBalancesPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        {canAdjust ? (
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" onClick={() => void expire()} disabled={expiring}>
-              {expiring ? 'Đang chạy…' : 'Chạy hết hạn lô'}
-            </Button>
-            <Button onClick={() => setAdjusting({})}>Điều chỉnh quỹ</Button>
-          </div>
-        ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={exportExcel} disabled={shown.length === 0}>
+            Xuất Excel
+          </Button>
+          {canAdjust ? (
+            <>
+              <Button variant="outline" onClick={() => setImporting(true)}>
+                Import Excel
+              </Button>
+              <Button variant="outline" onClick={() => void expire()} disabled={expiring}>
+                {expiring ? 'Đang chạy…' : 'Chạy hết hạn lô'}
+              </Button>
+              <Button onClick={() => setAdjusting({})}>Điều chỉnh quỹ</Button>
+            </>
+          ) : null}
+        </div>
       </div>
       {error ? <Notice tone="error">{error}</Notice> : null}
       <TableShell label="Số dư quỹ nghỉ bù">
@@ -104,15 +136,15 @@ export function CompOffBalancesPanel() {
             return (
               <tr key={r.employeeId}>
                 <td className={td}>
-                  <div className="font-medium">{r.employeeName ?? r.employeeId}</div>
-                  <div className="text-xs text-slate-500">{r.employeeCode}</div>
+                  <div className="font-semibold text-slate-900">{r.employeeName ?? r.employeeId}</div>
+                  <div className="text-[11px] text-slate-500">{r.employeeCode}</div>
                 </td>
                 <td className={tdRight}>{formatCompNumber(r.accrued)}</td>
                 <td className={tdRight}>{formatCompNumber(r.adjusted)}</td>
                 <td className={tdRight}>{formatCompNumber(r.used)}</td>
                 <td className={tdRight}>{formatCompNumber(r.reserved)}</td>
                 <td className={`${tdRight} font-bold text-[#021E73]`}>{formatCompNumber(r.available)}</td>
-                <td className={`${td} text-xs text-slate-600`}>
+                <td className={`${td} text-slate-600`}>
                   {r.nextExpiry ? `${formatCompNumber(r.nextExpiry.days)} ngày, hạn ${formatCompDate(r.nextExpiry.on)}` : '—'}
                 </td>
                 <td className={`${td} text-right`}>
@@ -125,12 +157,18 @@ export function CompOffBalancesPanel() {
           })}
         </tbody>
       </TableShell>
-      {ledger ? <CompOffLedgerSheet employee={ledger} onClose={() => setLedger(null)} /> : null}
+      {ledger ? <CompOffLedgerSheet employee={ledger} onClose={() => setLedger(null)} onChanged={() => void load()} /> : null}
       {adjusting ? (
         <CompOffAdjustDialog
           employees={employees}
           employeeId={adjusting.employeeId}
           onClose={() => setAdjusting(null)}
+          onDone={() => void load()}
+        />
+      ) : null}
+      {importing ? (
+        <CompOffImportDialog
+          onClose={() => setImporting(false)}
           onDone={() => void load()}
         />
       ) : null}

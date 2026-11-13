@@ -335,7 +335,8 @@ function mapBlock(row: Record<string, any>, timezone: string): HrmOvertimeBlock 
       .replace(' ', 'T');
   return {
     id: row.id,
-    otRequestId: row.ot_request_id,
+    otRequestId: row.ot_request_id ?? null,
+    tripDayLineId: row.trip_day_line_id ?? null,
     employeeId: row.employee_id,
     employeeCode: row.employee_code ?? null,
     employeeName: row.full_name ?? null,

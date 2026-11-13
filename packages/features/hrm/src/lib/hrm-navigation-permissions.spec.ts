@@ -123,6 +123,9 @@ describe('HRM sidebar visibility per sample role', () => {
     const manage = expandTenantActions(['hrm.leave.manage']);
     expect(visibleTabs(manage, '/leave')).toEqual(['balances', 'adjustments']);
     expect(visibleHrefs(manage)).toContain('/leave');
+    // Thứ tự tab: quỹ phép năm, quỹ nghỉ bù, lịch sử; lịch sử cũng mở được với riêng quyền xem quỹ nghỉ bù.
+    expect(visibleTabs(expandTenantActions(['hrm.leave.read', 'hrm.comp_off.view']), '/leave')).toEqual(['balances', 'comp-off', 'adjustments']);
+    expect(visibleTabs(expandTenantActions(['hrm.comp_off.view']), '/leave')).toEqual(['comp-off', 'adjustments']);
     for (const path of ['/employees'] as HrmHubPath[])
       for (const tab of HRM_HUBS[path]) expect(tab.id).not.toBe('leave');
   });
@@ -154,7 +157,7 @@ describe('request reasons and approval configuration tabs', () => {
   it('comp-off fund: the tab needs comp_off.view; the overtime settings need policy.view or policy.manage', () => {
     expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).not.toContain('comp-off');
     for (const key of ['hrm.comp_off.view', 'hrm.comp_off.convert', 'hrm.comp_off.adjust', 'hrm.overtime.classify'])
-      expect(visibleTabs(expandTenantActions([key]), '/leave')).toEqual(['comp-off']);
+      expect(visibleTabs(expandTenantActions([key]), '/leave')).toEqual(['comp-off', 'adjustments']);
     expect(visibleTabs(expandTenantActions(['hrm.leave.manage']), '/settings')).not.toContain('overtime-comp');
     expect(visibleTabs(expandTenantActions(['hrm.policy.view']), '/settings')).toEqual(['overtime-comp']);
     expect(visibleTabs(expandTenantActions(['hrm.policy.manage']), '/settings')).toEqual(['overtime-comp']);

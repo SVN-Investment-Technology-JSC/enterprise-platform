@@ -10,6 +10,8 @@ import type { MonthlyCapConfig, RoundingMethod } from './overtime-monthly-cap.js
 export interface OvertimeCompPolicy {
   /** Ô tích "Áp dụng quy tắc trần làm thêm và nghỉ bù". Tắt: không cắt trần, không quy đổi. */
   readonly enabled: boolean;
+  /** Bật quản lý quỹ nghỉ bù (giữ chỗ, trừ quỹ đơn Nghỉ bù). Tách khỏi `enabled` để dùng được khi chưa bật tính OT tự động. */
+  readonly fundEnabled: boolean;
   readonly ruleSet: OvertimeRuleSet;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
@@ -19,6 +21,8 @@ export interface OvertimeCompPolicy {
   readonly nightEndMinute: number;
   readonly nightRestHoursPerDay: number;
   readonly allowHalfDay: boolean;
+  /** Đơn công tác khai giờ theo ngày: tách giờ đêm trong phần làm thêm theo khung giờ đêm (true) hay gộp chung (false). */
+  readonly declaredNightWindow: boolean;
   readonly compFactor: number;
   /** Số giờ quy đổi một ngày nghỉ; null là bằng giờ chuẩn một ngày. */
   readonly dayBasisHours: number | null;
@@ -35,6 +39,7 @@ export interface OvertimeCompPolicy {
 
 export const DEFAULT_OVERTIME_COMP_POLICY: OvertimeCompPolicy = {
   enabled: false,
+  fundEnabled: false,
   ruleSet: 'CLOCK_WINDOW',
   normalHoursPerDay: 8,
   monthlyCapHours: 40,
@@ -44,6 +49,7 @@ export const DEFAULT_OVERTIME_COMP_POLICY: OvertimeCompPolicy = {
   nightEndMinute: 360,
   nightRestHoursPerDay: 8,
   allowHalfDay: true,
+  declaredNightWindow: false,
   compFactor: 1.5,
   dayBasisHours: null,
   decimals: 1,
@@ -79,8 +85,11 @@ export function parseOvertimeCompPolicy(config: Record<string, unknown> | null |
   const raw = isObject(config?.overtimeComp) ? config.overtimeComp : {};
   const ruleSet = OVERTIME_RULE_SETS.find((r) => r === raw.ruleSet) ?? d.ruleSet;
   const rounding = ROUNDINGS.find((r) => r === raw.rounding) ?? d.rounding;
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : d.enabled;
+  const fundEnabled = typeof raw.fundEnabled === 'boolean' ? raw.fundEnabled : enabled;
   return {
-    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : d.enabled,
+    enabled,
+    fundEnabled,
     ruleSet,
     normalHoursPerDay: num(raw.normalHoursPerDay, d.normalHoursPerDay),
     monthlyCapHours: num(raw.monthlyCapHours, d.monthlyCapHours),
@@ -90,6 +99,7 @@ export function parseOvertimeCompPolicy(config: Record<string, unknown> | null |
     nightEndMinute: num(raw.nightEndMinute ?? config?.nightEndMinute, d.nightEndMinute),
     nightRestHoursPerDay: num(raw.nightRestHoursPerDay, d.nightRestHoursPerDay),
     allowHalfDay: typeof raw.allowHalfDay === 'boolean' ? raw.allowHalfDay : d.allowHalfDay,
+    declaredNightWindow: typeof raw.declaredNightWindow === 'boolean' ? raw.declaredNightWindow : d.declaredNightWindow,
     compFactor: num(raw.compFactor, d.compFactor),
     dayBasisHours: numOrNull(raw.dayBasisHours, d.dayBasisHours),
     decimals: num(raw.decimals, d.decimals),
@@ -136,11 +146,12 @@ export function validateOvertimeCompPolicy(input: unknown): string | null {
     return Number.isFinite(n) && ok(n) ? null : message;
   };
   if (has('enabled') && typeof input.enabled !== 'boolean') return 'Ô áp dụng quy tắc phải là đúng hoặc sai';
+  if (has('fundEnabled') && typeof input.fundEnabled !== 'boolean') return 'Ô bật quản lý quỹ nghỉ bù phải là đúng hoặc sai';
   if (has('ruleSet') && !OVERTIME_RULE_SETS.includes(input.ruleSet as OvertimeRuleSet))
     return 'Chế độ phân loại phải là NIGHT_REST hoặc CLOCK_WINDOW';
   if (has('rounding') && !ROUNDINGS.includes(input.rounding as RoundingMethod))
     return 'Phương pháp làm tròn phải là HALF_UP, DOWN hoặc UP';
-  for (const k of ['allowHalfDay', 'nightCapped'])
+  for (const k of ['allowHalfDay', 'nightCapped', 'declaredNightWindow'])
     if (has(k) && typeof input[k] !== 'boolean') return `Giá trị ${k} phải là đúng hoặc sai`;
   const errors = [
     check('normalHoursPerDay', (n) => n > 0 && n <= 24, 'Số giờ chuẩn một ngày phải lớn hơn 0 và không quá 24'),

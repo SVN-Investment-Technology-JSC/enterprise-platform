@@ -82,6 +82,20 @@ describe('loại đơn và danh mục lý do', () => {
     expect(choiceFromLeaveType({ id: 'l3', code: 'B', name: 'B', paid: false }).paid).toBe(false);
   });
 
+  it('hai lý do mặc định hiện nhãn quỹ riêng; lý do khác không có nhãn quỹ', () => {
+    expect(choiceFromLeaveType({ id: 'a', code: 'AL', name: 'Phép năm', isAnnual: true, deductBalance: true }).fundLabel).toBe(
+      'Trừ quỹ phép năm',
+    );
+    expect(choiceFromLeaveType({ id: 'c', code: 'COMP', name: 'Nghỉ bù', isCompOff: true, deductBalance: false }).fundLabel).toBe(
+      'Trừ quỹ nghỉ bù',
+    );
+    expect(choiceFromLeaveType({ id: 'k', code: 'KL', name: 'Không phép', paid: false }).fundLabel).toBeNull();
+    // Quy tắc nghỉ bù tắt: quỹ tự quản lý ngoài hệ thống, không hiện nhãn trừ quỹ.
+    expect(
+      choiceFromLeaveType({ id: 'c', code: 'COMP', name: 'Nghỉ bù', isCompOff: true, compOffManaged: false }).fundLabel,
+    ).toBeNull();
+  });
+
   it('mô tả chỉ bắt buộc khi lý do cấu hình cần mô tả', () => {
     expect(descriptionRequired(choice())).toBe(false);
     expect(descriptionRequired(choice({ requiresDescription: true }))).toBe(true);

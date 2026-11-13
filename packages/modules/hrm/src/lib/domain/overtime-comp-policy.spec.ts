@@ -81,4 +81,12 @@ describe('overtimeCompLegalWarnings', () => {
     expect(w({ yearlyCapHours: null }).join()).toMatch(/Chưa đặt trần/);
     expect(overtimeCompLegalWarnings(DEFAULT_OVERTIME_COMP_POLICY).join()).toMatch(/đang tắt/);
   });
+
+  it('cho phép bật quản lý quỹ (fundEnabled) mà vẫn tắt tính toán OT tự động (enabled)', () => {
+    const manualOnly = parseOvertimeCompPolicy({ overtimeComp: { enabled: false, fundEnabled: true } });
+    expect(manualOnly.enabled).toBe(false);
+    expect(manualOnly.fundEnabled).toBe(true);
+    const legacy = parseOvertimeCompPolicy({ overtimeComp: { enabled: true } });
+    expect(legacy.fundEnabled).toBe(true);
+  });
 });

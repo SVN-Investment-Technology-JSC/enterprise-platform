@@ -11,6 +11,10 @@ export interface LeaveTypeItem {
   unit: string;
   /** Lý do nghỉ phép năm (mỗi tenant đúng một): chỉ lý do này trừ quỹ phép. */
   isAnnual?: boolean;
+  /** Lý do nghỉ bù (mỗi tenant tối đa một): trừ quỹ nghỉ bù, tính theo bước 0,5 ngày như phép năm. */
+  isCompOff?: boolean;
+  /** Nghỉ bù: true khi hệ thống tính quỹ (quy tắc nghỉ bù bật), false khi tenant tự quản lý quỹ ngoài hệ thống. */
+  compOffManaged?: boolean;
   deductBalance?: boolean;
   allowAdvance?: boolean;
   negativeLimit?: number;
@@ -121,6 +125,19 @@ export function resolveLeavePolicy(
       badgeLabel: 'Có tính lương • Trừ quỹ phép',
       policyNote:
         'Bắt buộc ngày nghỉ là bội số của 0.5 ngày (0.5, 1.0, 1.5...)',
+    };
+  }
+
+  // Lý do nghỉ bù mặc định (đánh dấu ở danh mục): hiển thị và tính ngày như phép năm, chỉ khác quỹ bị trừ.
+  if (leaveType.isCompOff) {
+    return {
+      category: 'COMPENSATORY',
+      name: leaveType.name || 'Nghỉ bù',
+      isPaid: true,
+      deductAnnualBalance: false,
+      stepRule: 'HALF_DAY_STEP',
+      badgeLabel: 'Có tính lương • Trừ quỹ nghỉ bù',
+      policyNote: 'Bắt buộc ngày nghỉ là bội số của 0.5 ngày (0.5, 1.0, 1.5...)',
     };
   }
 
@@ -360,6 +377,32 @@ export function computeLeaveFromPreview(
     });
   });
   return { total: Math.round(total * 1000) / 1000, breakdown, missingShift };
+}
+
+/**
+ * Chi tiết từng ngày của một khoảng nghỉ từ kết quả tính của máy chủ (`GET /requests/time-preview`), dùng cho các khoảng
+ * nghỉ bổ sung. Ngày nghỉ và ngày lễ tính 0; ngày chưa phân ca cần HR phân ca trước khi gửi.
+ */
+export function breakdownFromTimePreview(preview: { days: readonly { date: string; kind: string; quantity: number }[] }): {
+  breakdown: LeaveDayBreakdownItem[];
+  missingShift: boolean;
+} {
+  let missingShift = false;
+  const breakdown = preview.days.map((d): LeaveDayBreakdownItem => {
+    if (d.kind === 'OFF' || d.kind === 'HOLIDAY')
+      return { date: d.date, value: 0, note: d.kind === 'HOLIDAY' ? 'Ngày lễ, không tính' : 'Nghỉ hằng tuần, không tính' };
+    if (d.kind === 'NO_SHIFT') {
+      missingShift = true;
+      return { date: d.date, value: 0, note: 'Chưa phân ca' };
+    }
+    const value = Math.round(d.quantity * 1000) / 1000;
+    return {
+      date: d.date,
+      value,
+      note: value === 0 ? 'Ngoài ca làm việc' : value === 0.5 ? 'Nửa ngày' : value > 0 && value < 1 ? 'Một phần ca' : '',
+    };
+  });
+  return { breakdown, missingShift };
 }
 
 export interface ShiftItem {

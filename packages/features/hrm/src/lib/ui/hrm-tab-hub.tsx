@@ -20,9 +20,11 @@ export function HubTabsSlot() {
 function HubInner({
   tabs,
   tabsInHeader,
+  inactive,
 }: {
   tabs: readonly HrmHubTab[];
   tabsInHeader: boolean;
+  inactive?: Readonly<Record<string, string>>;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -45,12 +47,14 @@ function HubInner({
       >
         {visible.map((tab) => {
           const selected = tab.id === active.id;
+          const note = inactive?.[tab.id];
           return (
             <Link
               key={tab.id}
               role="tab"
               aria-selected={selected}
               href={`${pathname}?view=${tab.id}`}
+              title={note}
               scroll={false}
               replace
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-1.5 text-xs font-semibold transition-colors ${
@@ -60,6 +64,11 @@ function HubInner({
               }`}
             >
               {tab.label}
+              {note ? (
+                <span className="ml-1.5 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                  Đang tắt
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -84,13 +93,16 @@ function HubInner({
 export function HrmTabHub({
   tabs,
   tabsInHeader = false,
+  inactive,
 }: {
   tabs: readonly HrmHubTab[];
   tabsInHeader?: boolean;
+  /** Tab đang tắt theo cấu hình: id tab → lý do. Tab vẫn mở được (xem dữ liệu cũ) nhưng có nhãn "Đang tắt". */
+  inactive?: Readonly<Record<string, string>>;
 }) {
   return (
     <Suspense fallback={null}>
-      <HubInner tabs={tabs} tabsInHeader={tabsInHeader} />
+      <HubInner tabs={tabs} tabsInHeader={tabsInHeader} inactive={inactive} />
     </Suspense>
   );
 }

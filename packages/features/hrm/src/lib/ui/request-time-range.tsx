@@ -8,39 +8,26 @@ import { DateTimeInput, splitDateTime } from './date-time-input';
 const formatDays = (days: number) => String(Math.round(days * 100) / 100).replace('.', ',');
 
 /**
- * Chọn khoảng thời gian của đơn: từ ngày giờ đến ngày giờ. Số giờ và số ngày công do máy chủ tính theo ca thực tế
- * của nhân viên (`GET /requests/time-preview`), nên con số hiển thị trước khi gửi chính là con số sẽ được lưu.
+ * Tính trước thời gian của một khoảng bằng máy chủ (`GET /requests/time-preview`), chờ 300ms sau lần chọn cuối.
+ * Dùng chung cho ô chọn "từ ngày giờ đến ngày giờ" và ô chọn "ngày + giờ" của làm thêm giờ.
  */
-export function RequestTimeRange({
+export function useRequestTimePreview({
   employeeId,
   fromAt,
   toAt,
-  onChange,
-  onPreview,
   leaveTypeId,
-  kind = 'leave',
-  /** false: chỉ ghi nhận khoảng thời gian, không xin tính theo ca (loại đơn tuỳ chỉnh). */
+  kind,
   showPreview = true,
-  fromLabel = 'Từ ngày giờ',
-  toLabel = 'Đến ngày giờ',
-  disabled,
+  onPreview,
 }: {
   employeeId: string;
   fromAt: string;
   toAt: string;
-  onChange: (next: { fromAt: string; toAt: string }) => void;
-  /** Báo kết quả tính cho form cha để chặn gửi khi có lỗi; null khi chưa đủ dữ liệu hoặc đang tính. */
-  onPreview?: (preview: HrmRequestTimePreview | null) => void;
   leaveTypeId?: string;
-  /**
-   * Loại đơn quyết định cách máy chủ tính: `leave` theo ca (bỏ ngày nghỉ), `ot` chỉ tính khoảng đã chọn và bắt lỗi khi trùng
-   * giờ ca, `trip` tính số ngày công tác theo ca (mỗi ngày cả ca hoặc nửa ca, ngày nghỉ và ngày lễ không tính) và báo lỗi khi sai khung ca.
-   */
-  kind?: 'leave' | 'ot' | 'trip';
+  kind: 'leave' | 'ot' | 'trip';
   showPreview?: boolean;
-  fromLabel?: string;
-  toLabel?: string;
-  disabled?: boolean;
+  /** Báo kết quả tính cho form cha; null khi chưa đủ dữ liệu hoặc đang tính. */
+  onPreview?: (preview: HrmRequestTimePreview | null) => void;
 }) {
   const [preview, setPreview] = useState<HrmRequestTimePreview | null>(null);
   const [previewError, setPreviewError] = useState('');
@@ -75,6 +62,59 @@ export function RequestTimeRange({
     };
     // onPreview là callback của form cha, không đưa vào phụ thuộc để tránh tính lại mỗi lần render.
   }, [employeeId, fromAt, toAt, leaveTypeId, kind, showPreview, ordered]);
+  return { preview, previewError, ordered };
+}
+
+/**
+ * Chọn khoảng thời gian của đơn: từ ngày giờ đến ngày giờ. Số giờ và số ngày công do máy chủ tính theo ca thực tế
+ * của nhân viên (`GET /requests/time-preview`), nên con số hiển thị trước khi gửi chính là con số sẽ được lưu.
+ */
+export function RequestTimeRange({
+  employeeId,
+  fromAt,
+  toAt,
+  onChange,
+  onPreview,
+  leaveTypeId,
+  kind = 'leave',
+  /** false: chỉ ghi nhận khoảng thời gian, không xin tính theo ca (loại đơn tuỳ chỉnh). */
+  showPreview = true,
+  fromLabel = 'Từ ngày giờ',
+  toLabel = 'Đến ngày giờ',
+  disabled,
+  dateOnly = false,
+  showSummary = true,
+}: {
+  /** Chỉ chọn ngày bắt đầu và kết thúc; giờ giữ theo giá trị truyền vào. */
+  dateOnly?: boolean;
+  /** false: không hiện thẻ tổng giờ/ngày công và cảnh báo; chỉ còn lỗi chặn gửi đơn (nơi khác đã có thẻ tính riêng). */
+  showSummary?: boolean;
+  employeeId: string;
+  fromAt: string;
+  toAt: string;
+  onChange: (next: { fromAt: string; toAt: string }) => void;
+  /** Báo kết quả tính cho form cha để chặn gửi khi có lỗi; null khi chưa đủ dữ liệu hoặc đang tính. */
+  onPreview?: (preview: HrmRequestTimePreview | null) => void;
+  leaveTypeId?: string;
+  /**
+   * Loại đơn quyết định cách máy chủ tính: `leave` theo ca (bỏ ngày nghỉ), `ot` chỉ tính khoảng đã chọn và bắt lỗi khi trùng
+   * giờ ca, `trip` tính số ngày công tác theo ca (mỗi ngày cả ca hoặc nửa ca, ngày nghỉ và ngày lễ không tính) và báo lỗi khi sai khung ca.
+   */
+  kind?: 'leave' | 'ot' | 'trip';
+  showPreview?: boolean;
+  fromLabel?: string;
+  toLabel?: string;
+  disabled?: boolean;
+}) {
+  const { preview, previewError, ordered } = useRequestTimePreview({
+    employeeId,
+    fromAt,
+    toAt,
+    leaveTypeId,
+    kind,
+    showPreview,
+    onPreview,
+  });
 
   return (
     <div className="space-y-2" data-testid="request-time-range">
@@ -86,6 +126,7 @@ export function RequestTimeRange({
           <DateTimeInput
             value={fromAt}
             disabled={disabled}
+            dateOnly={dateOnly}
             aria-label={fromLabel}
             onChange={(value) => {
               // Chọn ngày bắt đầu sau ngày kết thúc hiện tại thì kéo ngày kết thúc theo, giữ giờ kết thúc.
@@ -109,12 +150,13 @@ export function RequestTimeRange({
           <DateTimeInput
             value={toAt}
             disabled={disabled}
+            dateOnly={dateOnly}
             aria-label={toLabel}
             onChange={(value) => onChange({ fromAt, toAt: value })}
           />
         </label>
       </div>
-      {kind === 'trip' && !preview && !previewError && (
+      {kind === 'trip' && !dateOnly && !preview && !previewError && (
         <p className="text-[11px] text-slate-500">
           Công tác chọn theo cả ngày (đủ khung ca hành chính) hoặc nửa ngày; ngày nghỉ và ngày lễ không tính.
         </p>
@@ -129,14 +171,14 @@ export function RequestTimeRange({
           {previewError}
         </p>
       )}
-      {/* Công tác: không hiện thẻ tính toán; chỉ giữ lỗi chặn gửi đơn để người dùng biết cần sửa gì. */}
-      {kind === 'trip' &&
+      {/* Công tác (hoặc showSummary=false): không hiện thẻ tính toán; chỉ giữ lỗi chặn gửi đơn để người dùng biết cần sửa gì. */}
+      {(kind === 'trip' || !showSummary) &&
         preview?.errors.map((text) => (
           <p key={text} role="alert" className="text-xs font-semibold text-rose-600">
             {text}
           </p>
         ))}
-      {preview && kind !== 'trip' && (
+      {preview && kind !== 'trip' && showSummary && (
         <div
           role="status"
           className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"

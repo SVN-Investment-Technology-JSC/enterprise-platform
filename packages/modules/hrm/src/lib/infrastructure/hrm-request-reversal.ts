@@ -1,4 +1,5 @@
 import { removeOvertimeBlocks } from './hrm-overtime-blocks.js';
+import { voidTripDayLines } from './hrm-trip-day-lines.js';
 import {
   BadRequestException,
   ConflictException,
@@ -182,6 +183,8 @@ export async function reverseApprovedRequest(
     // Ca phân loại và ngày nghỉ sau ca đêm của đơn không còn giá trị.
     await removeOvertimeBlocks(db, tenant, id);
   }
+  // Giờ thực tế của đơn công tác đã xác nhận không còn giá trị: bỏ ca làm thêm sinh từ đó.
+  if (kind === 'business_trip') await voidTripDayLines(db, tenant, actor, id, reason);
   await lifecycleAudit(db, tenant, actor, 'REQUEST_EFFECT_REVERSED', id, {
     kind,
     reason,

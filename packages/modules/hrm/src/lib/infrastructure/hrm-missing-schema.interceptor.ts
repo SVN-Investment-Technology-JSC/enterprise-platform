@@ -41,7 +41,7 @@ export function isMissingSchemaError(error: unknown): boolean {
 export function missingSchemaObject(error: unknown): string | null {
   const message = (error as { message?: unknown } | null)?.message;
   if (typeof message !== 'string') return null;
-  const match = /(?:relation|column|table) "([^"]+)"(?: of relation "([^"]+)")? does not exist/i.exec(message);
+  const match = /(?:relation|column|table) "?([a-zA-Z0-9_.]+)"?(?: of relation "?([a-zA-Z0-9_.]+)"?)? does not exist/i.exec(message);
   return match ? (match[2] ? `${match[2]}.${match[1]}` : match[1]) : null;
 }
 

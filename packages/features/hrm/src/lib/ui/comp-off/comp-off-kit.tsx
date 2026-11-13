@@ -40,10 +40,11 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
   );
 }
 
-export const th = 'whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-600';
-export const thRight = 'whitespace-nowrap px-3 py-2 text-right text-xs font-semibold text-slate-600';
-export const td = 'px-3 py-2 text-sm text-slate-800';
-export const tdRight = 'px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-800';
+// Cùng kiểu chữ với bảng Số dư phép: chữ thường cỡ 12px cho mọi cột, số căn phải (tabular-nums giữ các chữ số thẳng hàng).
+export const th = 'whitespace-nowrap px-3 py-2.5 text-left text-[12px] font-bold text-slate-600';
+export const thRight = 'whitespace-nowrap px-3 py-2.5 text-right text-[12px] font-bold text-slate-600';
+export const td = 'px-3 py-2 text-xs text-slate-800';
+export const tdRight = 'px-3 py-2 text-right text-xs tabular-nums text-slate-800';
 
 /** Khung bảng cuộn ngang có viền, dùng cho mọi bảng của màn này. */
 export function TableShell({ children, label }: { children: ReactNode; label: string }) {
@@ -59,7 +60,7 @@ export function TableShell({ children, label }: { children: ReactNode; label: st
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: ReactNode }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="px-3 py-8 text-center text-sm text-slate-500">
+      <td colSpan={colSpan} className="px-3 py-8 text-center text-xs text-slate-500">
         {children}
       </td>
     </tr>

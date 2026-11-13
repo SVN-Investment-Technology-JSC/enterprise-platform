@@ -539,7 +539,9 @@ export default function RequestReasonsScreen() {
       [...(leaveTypes ?? [])]
         .sort(
           (a, b) =>
-            Number(Boolean(b.isAnnual)) - Number(Boolean(a.isAnnual)) || Number(b.active) - Number(a.active),
+            Number(Boolean(b.isAnnual || b.isCompOff)) - Number(Boolean(a.isAnnual || a.isCompOff)) ||
+            Number(Boolean(b.isAnnual)) - Number(Boolean(a.isAnnual)) ||
+            Number(b.active) - Number(a.active),
         )
         .filter((r) => pickStatus(statusFilter, r.active) && matches(reasonSearch, r.name, r.code)),
     [leaveTypes, statusFilter, reasonSearch],
@@ -691,6 +693,16 @@ export default function RequestReasonsScreen() {
           <span className="flex items-center gap-1.5">
             Có <StatusPill tone="blue">Phép năm</StatusPill>
           </span>
+        ) : r.isCompOff ? (
+          r.compOffManaged === false ? (
+            <span className="flex items-center gap-1.5">
+              Không <StatusPill tone="slate">Quỹ tự quản lý</StatusPill>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              Có <StatusPill tone="violet">Quỹ nghỉ bù</StatusPill>
+            </span>
+          )
         ) : (
           <span className="text-slate-500">Không</span>
         ),
@@ -778,7 +790,9 @@ export default function RequestReasonsScreen() {
   }
 
   function leaveActions(r: HrmLeaveType): ActionItem[] {
-    const lockedActive = r.isAnnual || r.mergedIntoId;
+    // Lý do mặc định (phép năm, nghỉ bù) được ngừng hoặc dùng lại, nhưng không xóa được. Lý do đã gộp thì khóa hẳn.
+    const lockedActive = Boolean(r.mergedIntoId);
+    const isDefault = Boolean(r.isAnnual || r.isCompOff);
     return [
       { key: 'edit', label: 'Sửa', onSelect: () => setLeaveDialog({ row: r }) },
       r.active
@@ -813,7 +827,7 @@ export default function RequestReasonsScreen() {
         key: 'delete',
         label: 'Xóa',
         tone: 'danger',
-        hidden: Boolean(lockedActive),
+        hidden: lockedActive || isDefault,
         confirm: {
           title: `Xóa lý do nghỉ "${r.name}"?`,
           description:

@@ -35,14 +35,18 @@ function format(ms: number): string {
  * Khoảng gợi ý kế tiếp: ngày liền sau ngày kết thúc của khoảng cuối, cùng giờ bắt đầu và giờ kết thúc, giữ số ngày
  * trải rộng của khoảng cuối. Khoảng cuối chưa hợp lệ thì trả khoảng rỗng để người dùng tự chọn.
  */
-export function nextRange(last: TimeRangeInput | null | undefined): TimeRangeInput {
+export function nextRange(
+  last: TimeRangeInput | null | undefined,
+  /** true: ngày liền sau NGÀY BẮT ĐẦU của khoảng cuối (làm thêm giờ xuyên đêm: D → D+1, không nhảy sang D+2). */
+  fromStartDay = false,
+): TimeRangeInput {
   const from = last ? toUtcMs(last.fromAt) : NaN;
   const to = last ? toUtcMs(last.toAt) : NaN;
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return { fromAt: '', toAt: '' };
   const lastDay = Math.floor(to / MS_DAY) * MS_DAY;
   const startDay = Math.floor(from / MS_DAY) * MS_DAY;
   const spanDays = Math.floor((lastDay - startDay) / MS_DAY);
-  const nextStartDay = lastDay + MS_DAY;
+  const nextStartDay = (fromStartDay ? startDay : lastDay) + MS_DAY;
   const nextFrom = nextStartDay + (from - startDay);
   const nextTo = nextStartDay + spanDays * MS_DAY + (to - lastDay);
   return { fromAt: format(nextFrom), toAt: format(nextTo) };

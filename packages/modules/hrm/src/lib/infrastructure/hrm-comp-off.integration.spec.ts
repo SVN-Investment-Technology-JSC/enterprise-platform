@@ -5,14 +5,17 @@ import { createPostgresPool } from '@enterprise-platform/adapter-database';
 import {
   adjustCompOff,
   compOffAvailability,
+  compOffAdjustmentHistory,
   compOffDetail,
   confirmCompOffConversion,
   expireCompOffLots,
+  importCompOffAdjustments,
   listCompOffBalances,
   previewCompOffConversion,
+  reverseCompOffAdjustment,
 } from './hrm-comp-off.js';
 import { approveOvertime, createOvertime } from './hrm-overtime.js';
-import { createLeave, transitionLeave } from './hrm-leave-operations.js';
+import { createLeave, createLeaveGroup, transitionLeave } from './hrm-leave-operations.js';
 import {
   listOvertimeBlocks,
   overrideOvertimeBlock,
@@ -352,6 +355,142 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     expect(await tx((db) => expireCompOffLots(db, tenantId, actor, '2026-11-20'))).toBe(1);
     expect(await tx((db) => expireCompOffLots(db, tenantId, actor, '2026-11-20'))).toBe(0);
     expect((await ledger(e1)).filter((r) => r.kind === 'EXPIRE')).toHaveLength(1);
+  });
+
+  it('lịch sử điều chỉnh: ghi nguồn và lô import, đảo bằng dòng đối ứng, đảo hai lần không ghi thêm', async () => {
+    const e3 = await employee('NV-C');
+    const imported = await tx((db) =>
+      importCompOffAdjustments(db, tenantId, actor, {
+        rows: [
+          { employeeCode: 'NV-C', days: 3, reason: 'Nhập số dư đầu kỳ', expiresOn: null },
+          { employeeCode: 'KHONG-CO', days: 1, reason: 'Sai mã nhân viên' },
+        ],
+        fileName: 'mau.xlsx',
+      }),
+    );
+    expect(imported.applied).toBe(1);
+    expect(imported.batchId).toBeTruthy();
+    let detail = await compOffDetail(pool, tenantId, e3);
+    const grant = detail.entries.find((e) => e.kind === 'ADJUST')!;
+    expect(grant).toMatchObject({ source: 'IMPORT', batchId: imported.batchId, reversedById: null, reversesId: null, days: 3 });
+    expect(detail.available).toBe(3);
+    const audit = await pool.query(`SELECT detail FROM hrm_schema.audit_log WHERE tenant_id=$1 AND action='COMP_OFF_IMPORTED' AND entity_id=$2`, [tenantId, imported.batchId]);
+    expect(audit.rows[0].detail).toMatchObject({ fileName: 'mau.xlsx', total: 2, applied: 1, skipped: 1 });
+
+    await expect(tx((db) => reverseCompOffAdjustment(db, tenantId, actor, grant.id, '  '))).rejects.toThrow('lý do');
+    const reversed = await tx((db) => reverseCompOffAdjustment(db, tenantId, actor, grant.id, 'Nhập nhầm tệp'));
+    expect(reversed.available).toBe(0);
+    const again = await tx((db) => reverseCompOffAdjustment(db, tenantId, actor, grant.id, 'Nhấn hai lần'));
+    expect(again.reversalId).toBe(reversed.reversalId);
+    expect((await ledger(e3)).filter((r) => String(r.idempotency_key).startsWith('reverse-adjust:'))).toHaveLength(1);
+    detail = await compOffDetail(pool, tenantId, e3);
+    expect(detail.entries.find((e) => e.id === grant.id)!.reversedById).toBe(reversed.reversalId);
+    expect(detail.entries.find((e) => e.id === reversed.reversalId)).toMatchObject({ reversesId: grant.id, source: 'MANUAL', days: -3 });
+    await expect(tx((db) => reverseCompOffAdjustment(db, tenantId, actor, reversed.reversalId, 'Đảo dòng đảo'))).rejects.toThrow('Chỉ đảo được');
+
+    // Màn "Lịch sử điều chỉnh" toàn công ty: có dòng import và dòng đảo, kèm nhân viên, không lẫn dòng ACCRUAL/USAGE.
+    const history = (await compOffAdjustmentHistory(pool, tenantId)).filter((r) => r.employeeId === e3);
+    expect(history.map((r) => r.id).sort()).toEqual([grant.id, reversed.reversalId].sort());
+    expect(history.find((r) => r.id === grant.id)).toMatchObject({ employeeCode: 'NV-C', source: 'IMPORT', batchId: imported.batchId });
+    expect(history.find((r) => r.id === reversed.reversalId)).toMatchObject({ reversesId: grant.id });
+  });
+
+  it('đảo điều chỉnh: lô đã bị trừ thì không đảo được; đảo điều chỉnh âm mở lại lô cùng hạn', async () => {
+    const e4 = await employee('NV-D');
+    await tx((db) => adjustCompOff(db, tenantId, actor, { employeeId: e4, days: 2, reason: 'Cộng 2 ngày', expiresOn: '2030-12-31' }));
+    await tx((db) => adjustCompOff(db, tenantId, actor, { employeeId: e4, days: -1, reason: 'Trừ 1 ngày' }));
+    let detail = await compOffDetail(pool, tenantId, e4);
+    expect(detail.available).toBe(1);
+    const plus = detail.entries.find((e) => e.kind === 'ADJUST' && e.days === 2)!;
+    const minus = detail.entries.find((e) => e.kind === 'ADJUST' && e.days === -1)!;
+    await expect(tx((db) => reverseCompOffAdjustment(db, tenantId, actor, plus.id, 'Đảo cộng'))).rejects.toThrow('không đảo được');
+    await tx((db) => reverseCompOffAdjustment(db, tenantId, actor, minus.id, 'Đảo trừ'));
+    detail = await compOffDetail(pool, tenantId, e4);
+    expect(detail.available).toBe(2);
+    const restored = detail.entries.find((e) => e.reversesId === minus.id)!;
+    expect(restored).toMatchObject({ days: 1, expiresOn: '2030-12-31' });
+  });
+
+  it('đơn nghỉ nhiều khoản: tạo cùng giao dịch, một khoản lỗi thì không khoản nào được tạo; duyệt, từ chối, hủy cả nhóm cùng lúc', async () => {
+    const e5 = await employee('NV-G');
+    const typeId = (
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_types (tenant_id, code, name, unit, paid, deduct_balance, comp_off, active)
+         VALUES ($1,'VIECRIENG','Việc riêng','DAYS',false,false,false,true) RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0].id as string;
+    const base = { employeeId: e5, leaveTypeId: typeId, reason: 'Việc gia đình' };
+    const day = (d: string) => ({ fromDate: d, toDate: d, duration: 1 });
+    const count = async () =>
+      (await pool.query(`SELECT count(*)::int AS n FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2`, [tenantId, e5])).rows[0].n as number;
+    const create = (main: ReturnType<typeof day>, extra: ReturnType<typeof day>[]) =>
+      tx((db) => createLeaveGroup(db, tenantId, actor, { ...base, ...main }, extra, { requestTypeLabel: 'Đơn nghỉ phép' }));
+    const statuses = async (groupId: string) =>
+      (await pool.query(`SELECT status FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND group_id=$2 ORDER BY from_date`, [tenantId, groupId])).rows.map((r) => r.status);
+
+    // Khoản 2 trùng khoản 1: lỗi nêu đúng khoản, không đơn nào được tạo.
+    await expect(create(day('2027-01-11'), [day('2027-01-11')])).rejects.toThrow('Khoảng nghỉ 2');
+    expect(await count()).toBe(0);
+
+    // Hợp lệ: ba khoản, mọi dòng có group_id của khoản chính.
+    const leader = await create(day('2027-01-11'), [day('2027-01-13'), day('2027-01-15')]);
+    expect(await count()).toBe(3);
+    expect(leader.group_id).toBe(leader.id);
+    expect(await statuses(leader.id as string)).toEqual(['PENDING', 'PENDING', 'PENDING']);
+
+    // Duyệt khoản chính thì cả nhóm được duyệt.
+    await tx((db) => transitionLeave(db, tenantId, actor, leader.id as string, 'APPROVED'));
+    expect(await statuses(leader.id as string)).toEqual(['APPROVED', 'APPROVED', 'APPROVED']);
+
+    // Hủy hiệu lực một khoản đã duyệt thì cả nhóm bị hủy.
+    await tx((db) => transitionLeave(db, tenantId, actor, leader.id as string, 'CANCELLED', 'Đổi kế hoạch'));
+    expect(await statuses(leader.id as string)).toEqual(['CANCELLED', 'CANCELLED', 'CANCELLED']);
+
+    // Từ chối: cả nhóm bị từ chối.
+    const second = await create(day('2027-01-18'), [day('2027-01-20')]);
+    await tx((db) => transitionLeave(db, tenantId, actor, second.id as string, 'REJECTED', 'Không bố trí được'));
+    expect(await statuses(second.id as string)).toEqual(['REJECTED', 'REJECTED']);
+
+    // Thao tác trên khoản bổ sung cũng áp dụng cho cả nhóm.
+    const third = await create(day('2027-01-25'), [day('2027-01-27')]);
+    const follower = (
+      await pool.query(`SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND group_id=$2 AND id<>$2`, [tenantId, third.id])
+    ).rows[0].id as string;
+    await tx((db) => transitionLeave(db, tenantId, actor, follower, 'CANCELLED'));
+    expect(await statuses(third.id as string)).toEqual(['CANCELLED', 'CANCELLED']);
+  });
+
+  it('đơn nghỉ bù nhiều khoản: giữ chỗ quỹ cho từng khoản, tổng vượt số dư thì không khoản nào được tạo; duyệt trừ quỹ, từ chối hoàn quỹ cả nhóm', async () => {
+    const e6 = await employee('NV-H');
+    await tx((db) => adjustCompOff(db, tenantId, actor, { employeeId: e6, days: 3, reason: 'Cấp quỹ để thử đơn nhiều khoản' }));
+    const base = { employeeId: e6, leaveTypeId: compTypeId, reason: 'Nghỉ bù' };
+    const day = (d: string) => ({ fromDate: d, toDate: d, duration: 1 });
+    const create = (main: ReturnType<typeof day>, extra: ReturnType<typeof day>[]) =>
+      tx((db) => createLeaveGroup(db, tenantId, actor, { ...base, ...main }, extra, { requestTypeLabel: 'Đơn nghỉ phép' }));
+    const available = async () => (await compOffAvailability(pool, tenantId, e6, '2027-02-01')).available;
+
+    // 4 ngày xin, quỹ chỉ 3: khoản thứ 4 vượt số dư, cả nhóm không được tạo và quỹ không bị giữ chỗ.
+    await expect(create(day('2027-02-01'), [day('2027-02-02'), day('2027-02-03'), day('2027-02-04')])).rejects.toThrow('Khoảng nghỉ 4');
+    expect((await ledger(e6)).filter((r) => r.kind === 'RESERVE')).toHaveLength(0);
+    expect(await available()).toBe(3);
+
+    // Hai khoản hợp lệ: mỗi khoản giữ chỗ 1 ngày.
+    const group = await create(day('2027-02-01'), [day('2027-02-02')]);
+    expect(await available()).toBe(1);
+    expect((await ledger(e6)).filter((r) => r.kind === 'RESERVE')).toHaveLength(2);
+    // Duyệt cả nhóm: giữ chỗ chuyển thành đã dùng cho cả hai khoản.
+    await tx((db) => transitionLeave(db, tenantId, actor, group.id as string, 'APPROVED'));
+    expect((await ledger(e6)).filter((r) => r.kind === 'USAGE')).toHaveLength(2);
+    expect(await available()).toBe(1);
+
+    // Nhóm khác bị từ chối: hoàn lại số ngày đã giữ của cả hai khoản.
+    await tx((db) => adjustCompOff(db, tenantId, actor, { employeeId: e6, days: 2, reason: 'Cấp thêm quỹ' }));
+    expect(await available()).toBe(3);
+    const rejected = await create(day('2027-02-08'), [day('2027-02-09')]);
+    expect(await available()).toBe(1);
+    await tx((db) => transitionLeave(db, tenantId, actor, rejected.id as string, 'REJECTED', 'Không bố trí được'));
+    expect(await available()).toBe(3);
   });
 
   it('đảo đơn làm thêm xóa ca phân loại; mở lại kỳ xóa ảnh chụp', async () => {

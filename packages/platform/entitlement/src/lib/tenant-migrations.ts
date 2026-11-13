@@ -515,6 +515,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0078-hrm-comp-off-integration',
       path: 'tenant/hrm/0078-hrm-comp-off-integration.sql',
     },
+    {
+      version: '0079-hrm-comp-off-default-leave-type',
+      path: 'tenant/hrm/0079-hrm-comp-off-default-leave-type.sql',
+    },
+    {
+      version: '0080-hrm-trip-day-lines',
+      path: 'tenant/hrm/0080-hrm-trip-day-lines.sql',
+    },
+    {
+      version: '0081-hrm-comp-off-ledger-history',
+      path: 'tenant/hrm/0081-hrm-comp-off-ledger-history.sql',
+    },
+    {
+      version: '0082-hrm-leave-request-groups',
+      path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

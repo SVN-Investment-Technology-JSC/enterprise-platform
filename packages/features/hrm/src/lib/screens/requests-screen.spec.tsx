@@ -61,6 +61,8 @@ let timePreviewFn: ((path: string) => unknown) | null = null;
 // Số lần POST tới /ot-requests đã gọi và lần bắt đầu trả lỗi (0 = không lỗi).
 let otPostCount = 0;
 let otFailFrom = 0;
+// Khi có: POST /leave-requests bị máy chủ từ chối với thông báo này.
+let leaveFailMessage = '';
 
 const respond = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({ ok, status, json: async () => body } as Response);
@@ -117,6 +119,7 @@ beforeEach(() => {
   timePreviewFn = null;
   otPostCount = 0;
   otFailFrom = 0;
+  leaveFailMessage = '';
   mockActions.clear();
   mockActions.add('hrm.self.request');
   hrmFetchMock.mockReset();
@@ -175,6 +178,8 @@ beforeEach(() => {
       });
     if (method === 'POST' && url.endsWith('/ot-requests') && otFailFrom && ++otPostCount >= otFailFrom)
       return respond({ error: { message: 'Trùng đơn đã có' } }, false, 409);
+    if (method === 'POST' && url.endsWith('/leave-requests') && leaveFailMessage)
+      return respond({ error: { message: leaveFailMessage } }, false, 400);
     if (method === 'POST') return respond({ data: { id: 'new' } });
     if (url.includes('/request-types')) return respond({ data: requestTypeRows });
     if (url.includes('/custom-requests')) return respond({ data: customRows });
@@ -426,19 +431,18 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await submitExpectingError('Thiếu thông tin', 'Vui lòng chọn lý do.');
   });
 
-  it('hiện diễn giải của lý do bằng chữ nhỏ và thẻ Có lương / Không lương theo lý do OT', async () => {
+  it('lý do OT không hiện thẻ Có lương / Không lương và không hiện diễn giải của lý do', async () => {
     reasonCatalog = { OVERTIME: otReasons() };
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
     const guide = screen.getByTestId('reason-guide');
-    expect(guide.textContent).toContain('Làm thêm theo tiến độ dự án');
-    expect(guide.textContent).toContain('Có lương');
-    expect(guide.textContent).not.toContain('Không lương');
+    expect(guide.textContent).not.toContain('Làm thêm theo tiến độ dự án');
+    expect(guide.textContent).not.toContain('lương');
     await chooseReason(/Làm bù không tính tiền/);
     const unpaid = screen.getByTestId('reason-guide');
-    expect(unpaid.textContent).toContain('Làm thêm tự nguyện');
-    expect(unpaid.textContent).toContain('Không lương');
-    expect(unpaid.textContent).toContain('không tính tiền OT');
+    expect(unpaid.textContent).not.toContain('Làm thêm tự nguyện');
+    expect(unpaid.textContent).not.toContain('lương');
+    expect(unpaid.textContent).not.toContain('tính tiền OT');
   });
 
   it('đơn làm thêm giờ luôn bắt buộc Mô tả; lý do cấu hình cần mô tả thì thêm cảnh báo riêng', async () => {
@@ -517,7 +521,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(payload).not.toHaveProperty('reason');
   });
 
-  it('đơn nghỉ: lý do là loại nghỉ, hiện thẻ Có lương và ghi chú Trừ quỹ phép năm, gửi leaveTypeId + description', async () => {
+  it('đơn nghỉ: lý do là loại nghỉ, không hiện thẻ có lương / không lương và nhãn Trừ quỹ, gửi leaveTypeId + description', async () => {
     leaveTypes = [
       leaveType('lt-annual', 'ANNUAL', 'Nghỉ phép năm', { deductBalance: true, isAnnual: true }),
       leaveType('lt-sick', 'SICK', 'Nghỉ ốm', { paid: false }),
@@ -525,11 +529,11 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await openForm('leave');
     await chooseReason(/Nghỉ phép năm/);
     const guide = screen.getByTestId('reason-guide');
-    expect(guide.textContent).toContain('Có lương');
-    expect(guide.textContent).toContain('Trừ quỹ phép năm');
+    expect(guide.textContent).not.toContain('lương');
+    expect(guide.textContent).not.toContain('Trừ quỹ');
     await chooseReason(/Nghỉ ốm/);
-    expect(screen.getByTestId('reason-guide').textContent).toContain('Không lương');
-    expect(screen.getByTestId('reason-guide').textContent).not.toContain('Trừ quỹ phép năm');
+    expect(screen.getByTestId('reason-guide').textContent).not.toContain('lương');
+    expect(screen.getByTestId('reason-guide').textContent).not.toContain('Trừ quỹ');
 
     fireEvent.change(screen.getByLabelText(DESCRIPTION_LABEL), {
       target: { value: 'Khám bệnh định kỳ' },
@@ -760,84 +764,28 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
 
 });
 
-describe('Form tạo đơn: khối Người duyệt', () => {
-  const reasons = () => ({
-    OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')],
-  });
-  const preview = () => screen.findByTestId('approver-preview');
-
-  it('chưa chọn lý do thì chưa gọi approval-route và chưa hiện khối', async () => {
-    reasonCatalog = reasons();
-    approvalRoute = { mode: 'DIRECT', directManager: null };
-    await openForm('ot');
-    await screen.findByPlaceholderText('Chọn lý do...');
-    expect(screen.queryByTestId('approver-preview')).toBeNull();
-    expect(hrmPaths.some((p) => p.startsWith('/approval-route'))).toBe(false);
-  });
-
-  it('DIRECT có quản lý: hiện Quản lý trực tiếp kèm họ tên, chức danh và gọi đúng tham số', async () => {
-    reasonCatalog = reasons();
+describe('Form tạo đơn: không còn khối Người duyệt', () => {
+  it('chọn lý do xong vẫn không hiện khối Người duyệt và không gọi approval-route', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
     approvalRoute = {
       mode: 'DIRECT',
       directManager: { employeeId: 'm1', fullName: 'Trần Văn B', positionName: 'Trưởng phòng' },
-      selfApprovalBlocked: true,
     };
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
-    const block = await preview();
-    expect(block.textContent).toBe('Người duyệt: Quản lý trực tiếp (Trần Văn B, Trưởng phòng)');
-    expect(hrmPaths).toContain('/approval-route?kind=ot&employeeId=e1&reasonId=ot1');
-  });
-
-  it('PROCEDURE: hiện Duyệt theo quy trình kèm tên quy trình', async () => {
-    reasonCatalog = reasons();
-    approvalRoute = { mode: 'PROCEDURE', procedureName: 'Quy trình duyệt OT', directManager: null };
-    await openForm('ot');
-    await chooseReason(/Theo yêu cầu công việc/);
-    expect((await preview()).textContent).toBe(
-      'Người duyệt: Duyệt theo quy trình (Quy trình duyệt OT)',
-    );
-  });
-
-  it('DIRECT nhưng chưa có quản lý: hiện ghi chú của máy chủ', async () => {
-    reasonCatalog = reasons();
-    approvalRoute = {
-      mode: 'DIRECT',
-      directManager: null,
-      note: 'Bạn chưa có quản lý trực tiếp; đơn sẽ do người có quyền duyệt toàn bộ xử lý.',
-    };
-    await openForm('ot');
-    await chooseReason(/Theo yêu cầu công việc/);
-    const block = await preview();
-    expect(block.textContent).toContain('Người duyệt: Quản lý trực tiếp');
-    expect(block.textContent).toContain('Bạn chưa có quản lý trực tiếp');
-  });
-
-  it('lỗi tải người duyệt: ẩn khối và không chặn gửi đơn', async () => {
-    reasonCatalog = reasons();
-    approvalRoute = new Error('Lỗi máy chủ');
-    await openForm('ot');
-    await chooseReason(/Theo yêu cầu công việc/);
-    fireEvent.change(screen.getByLabelText(OT_DESCRIPTION_LABEL), { target: { value: 'Chạy tiến độ' } });
-    await waitFor(() =>
-      expect(hrmPaths.some((p) => p.startsWith('/approval-route'))).toBe(true),
-    );
     expect(screen.queryByTestId('approver-preview')).toBeNull();
-    expect(submitButton().disabled).toBe(false);
+    expect(screen.queryByText(/Người duyệt:/)).toBeNull();
+    expect(hrmPaths.some((p) => p.startsWith('/approval-route'))).toBe(false);
   });
 
-  it('đơn nghỉ gọi approval-route với reasonId là id loại nghỉ', async () => {
+  it('đơn nghỉ cũng không hiện khối Người duyệt', async () => {
     leaveTypes = [leaveType('lt-annual', 'ANNUAL', 'Nghỉ phép năm', { isAnnual: true })];
-    approvalRoute = {
-      mode: 'DIRECT',
-      directManager: { employeeId: 'm1', fullName: 'Trần Văn B', positionName: null },
-    };
+    approvalRoute = { mode: 'DIRECT', directManager: { employeeId: 'm1', fullName: 'Trần Văn B', positionName: null } };
     await openForm('leave');
     await chooseReason(/Nghỉ phép năm/);
-    expect((await preview()).textContent).toBe('Người duyệt: Quản lý trực tiếp (Trần Văn B)');
-    expect(hrmPaths).toContain('/approval-route?kind=leave&employeeId=e1&reasonId=lt-annual');
+    expect(screen.queryByTestId('approver-preview')).toBeNull();
+    expect(hrmPaths.some((p) => p.startsWith('/approval-route'))).toBe(false);
   });
-
 });
 
 describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => {
@@ -1146,7 +1094,9 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
         ),
       ).toBe(true),
     );
-    expect(await screen.findByText('8 giờ (1 ngày công)')).toBeTruthy();
+    // Đơn nghỉ không hiện thẻ tổng giờ / ngày công (đã có thẻ số ngày và chi tiết từng ngày).
+    expect(screen.queryByTestId('time-total')).toBeNull();
+    expect(screen.queryByText('8 giờ (1 ngày công)')).toBeNull();
   });
 
   it('khoảng thời gian có lỗi từ máy chủ thì chặn gửi và báo lỗi đầu tiên', async () => {
@@ -1187,43 +1137,72 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
     fireEvent.change(screen.getByLabelText(OT_DESCRIPTION_LABEL), { target: { value: 'Chạy tiến độ' } });
-    const fromTime = screen.getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement;
+    const fromTime = screen.getByLabelText('Giờ bắt đầu') as HTMLInputElement;
     fireEvent.change(fromTime, { target: { value: '16:00' } });
     fireEvent.blur(fromTime);
     await screen.findAllByText(/trùng ca làm việc/);
     // Lỗi chỉ hiện, không đụng tới lựa chọn của người dùng.
     expect((screen.getByPlaceholderText(/Chọn lý do|Theo yêu cầu/) as HTMLInputElement).value).toBe('Theo yêu cầu công việc');
     expect((screen.getByLabelText(OT_DESCRIPTION_LABEL) as HTMLTextAreaElement).value).toBe('Chạy tiến độ');
-    expect((screen.getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('16:00');
+    expect((screen.getByLabelText('Giờ bắt đầu') as HTMLInputElement).value).toBe('16:00');
     // Bấm gửi: báo lỗi thời gian, không gửi, và vẫn giữ lựa chọn.
     fireEvent.click(submitButton());
     expect((await screen.findAllByText('Thời gian không hợp lệ')).length).toBeGreaterThan(0);
     expect(draftBody('ot')).toBeUndefined();
     expect((screen.getByLabelText(OT_DESCRIPTION_LABEL) as HTMLTextAreaElement).value).toBe('Chạy tiến độ');
-    expect((screen.getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('16:00');
+    expect((screen.getByLabelText('Giờ bắt đầu') as HTMLInputElement).value).toBe('16:00');
   });
 
-  it('đơn làm thêm giờ: đổi giờ bắt đầu muộn hơn giờ kết thúc chỉ hiện lỗi, không tự đổi ngày hay giờ kết thúc', async () => {
+  it('đơn làm thêm giờ: giờ bắt đầu muộn hơn giờ kết thúc chỉ hiện lỗi; chọn Làm xuyên đêm thì kết thúc sang ngày hôm sau', async () => {
     reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
-    const fromTime = (await screen.findByLabelText('Từ ngày giờ làm thêm (giờ)')) as HTMLInputElement;
-    const toTime = screen.getByLabelText('Đến ngày giờ làm thêm (giờ)') as HTMLInputElement;
-    const toDate = screen.getByLabelText('Đến ngày giờ làm thêm (ngày)') as HTMLInputElement;
-    const dateBefore = toDate.value;
+    const fromTime = (await screen.findByLabelText('Giờ bắt đầu')) as HTMLInputElement;
+    const toTime = screen.getByLabelText('Giờ kết thúc') as HTMLInputElement;
+    const overnight = screen.getByLabelText('Làm xuyên đêm') as HTMLInputElement;
+    // Chỉ một ô ngày; không còn ô chọn ngày kết thúc.
+    expect(screen.queryByLabelText('Đến ngày giờ làm thêm (ngày)')).toBeNull();
+    expect(overnight.checked).toBe(false);
     // Mặc định 17:30 - 20:30; đặt bắt đầu 21:00 (sau giờ kết thúc cũ).
     fireEvent.change(fromTime, { target: { value: '2100' } });
     fireEvent.blur(fromTime);
     expect(fromTime.value).toBe('21:00');
     expect(toTime.value).toBe('20:30');
-    expect(toDate.value).toBe(dateBefore);
-    expect((await screen.findAllByText('Thời điểm kết thúc phải sau thời điểm bắt đầu.')).length).toBeGreaterThan(0);
-    // Người dùng tự chọn giờ kết thúc 23:00 cùng ngày: giữ nguyên, hợp lệ.
-    fireEvent.change(toTime, { target: { value: '2300' } });
-    fireEvent.blur(toTime);
-    expect(toTime.value).toBe('23:00');
-    expect(toDate.value).toBe(dateBefore);
-    expect(screen.queryByText('Thời điểm kết thúc phải sau thời điểm bắt đầu.')).toBeNull();
+    expect((await screen.findAllByText(/Giờ kết thúc phải sau giờ bắt đầu/)).length).toBeGreaterThan(0);
+    // Làm xuyên đêm: kết thúc 20:30 ngày hôm sau, lỗi biến mất.
+    fireEvent.click(overnight);
+    expect(overnight.checked).toBe(true);
+    expect(screen.queryByText(/Giờ kết thúc phải sau giờ bắt đầu/)).toBeNull();
+    expect(toTime.value).toBe('20:30');
+    // Bỏ chọn thì kết thúc về cùng ngày.
+    fireEvent.click(overnight);
+    expect(overnight.checked).toBe(false);
+    expect((await screen.findAllByText(/Giờ kết thúc phải sau giờ bắt đầu/)).length).toBeGreaterThan(0);
+  });
+
+  it('đơn làm thêm giờ: nhãn khu vực là "Ngày giờ", không còn thẻ tổng thời gian ở từng vùng mà có bảng tổng hợp', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    timePreviewResult = {
+      fromAt: 'a',
+      toAt: 'b',
+      timezone: 'Asia/Ho_Chi_Minh',
+      totalMinutes: 180,
+      totalHours: 3,
+      totalDays: 0,
+      days: [],
+      warnings: ['Ngày 13/11 là ngày nghỉ hằng tuần.'],
+      errors: [],
+    };
+    await openForm('ot');
+    await chooseReason(/Theo yêu cầu công việc/);
+    const zone = screen.getByTestId('overtime-time-range');
+    expect(within(zone).getByText('Ngày giờ')).toBeTruthy();
+    expect(screen.queryByText('Từ ngày giờ làm thêm')).toBeNull();
+    const total = await screen.findByTestId('ot-total');
+    await waitFor(() => expect(total.textContent).toContain('3 giờ'));
+    expect(screen.queryByTestId('time-total')).toBeNull();
+    expect(screen.getByTestId('ot-range-breakdown').textContent).toContain('Khoảng làm thêm 1');
+    expect(screen.getByTestId('ot-range-breakdown').textContent).toContain('Ngày 13/11 là ngày nghỉ hằng tuần.');
   });
 
   const okPreview = (over: Record<string, unknown> = {}) => ({
@@ -1248,7 +1227,7 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     fireEvent.click(await screen.findByRole('button', { name: /Thêm khoảng làm thêm/ }));
     const extra = await screen.findByTestId('extra-range-2');
     // Máy chủ tính xong khoảng bổ sung (có trễ nhỏ) thì mới gửi được.
-    await within(extra).findByTestId('time-total');
+    await waitFor(() => expect(screen.getByTestId('ot-range-row-2').textContent).toContain('3 giờ'));
     return extra;
   }
 
@@ -1256,9 +1235,10 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     const successSpy = jest.spyOn(toast, 'success');
     const extra = await openOtWithExtraRange();
     // Khoảng 2 lấy ngày liền sau khoảng chính, cùng giờ 17:30 - 20:30.
-    const from = within(extra).getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement;
+    const from = within(extra).getByLabelText('Giờ bắt đầu') as HTMLInputElement;
     expect(from.value).toBe('17:30');
-    expect((within(extra).getByLabelText('Đến ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('20:30');
+    expect((within(extra).getByLabelText('Giờ kết thúc') as HTMLInputElement).value).toBe('20:30');
+    expect(screen.getByTestId('ot-total').textContent).toContain('6 giờ');
     await waitFor(() => expect(submitButton().disabled).toBe(false));
     fireEvent.click(submitButton());
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(2));
@@ -1332,7 +1312,8 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await waitFor(() => expect(screen.queryByTestId('leave-fund-error')).toBeNull());
     fireEvent.click(await screen.findByRole('button', { name: /Thêm khoảng nghỉ/ }));
     const extra = await screen.findByTestId('extra-range-2');
-    await within(extra).findByText(/8 giờ/);
+    await waitFor(() => expect(screen.getByTestId('leave-range-row-2').textContent).toContain('1 ngày'));
+    expect(within(extra).queryByTestId('time-total')).toBeNull();
     // Hai khoảng, tổng 2 ngày vượt quỹ 1,5 ngày.
     expect((await screen.findByTestId('leave-fund-error')).textContent).toContain('vượt quỹ phép năm khả dụng');
     const breakdown = screen.getByTestId('leave-range-breakdown');
@@ -1343,6 +1324,91 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await submitExpectingError('Thời gian nghỉ không hợp lệ', /vượt quỹ phép năm khả dụng/);
     fireEvent.click(within(extra).getByRole('button', { name: /Xoá khoảng nghỉ 2/i }));
     await waitFor(() => expect(screen.queryByTestId('leave-fund-error')).toBeNull());
+  });
+
+  it('đơn nghỉ nhiều khoảng: chi tiết từng ngày có cả khoản bổ sung; không hiện thẻ tổng giờ và cảnh báo ngày nghỉ', async () => {
+    leaveTypes = [leaveType('lt-annual', 'ANNUAL', 'Nghỉ phép năm', { deductBalance: true, isAnnual: true })];
+    leaveBalanceRows = [{ leaveTypeId: 'lt-annual', remaining: 20, pending: 0, available: 20 }];
+    timePreviewFn = () =>
+      okPreview({
+        totalMinutes: 480,
+        totalHours: 8,
+        totalDays: 1,
+        warnings: ['2026-11-22 là ngày nghỉ, không tính vào đơn.'],
+        days: [
+          { date: '2026-11-21', kind: 'WORK', minutes: 480, quantity: 1 },
+          { date: '2026-11-22', kind: 'OFF', minutes: 0, quantity: 0 },
+        ],
+      });
+    await openForm('leave');
+    await chooseReason(/Nghỉ phép năm/);
+    fireEvent.click(await screen.findByRole('button', { name: /Thêm khoảng nghỉ/ }));
+    const detail = await screen.findByTestId('leave-day-detail');
+    expect(detail.textContent).toContain('Khoảng nghỉ 2');
+    expect(detail.textContent).toContain('Nghỉ hằng tuần, không tính');
+    expect(screen.queryByTestId('time-total')).toBeNull();
+    expect(screen.queryByText(/là ngày nghỉ, không tính vào đơn/)).toBeNull();
+  });
+
+  it('đơn nghỉ nhiều khoản: gửi MỘT yêu cầu kèm khoản bổ sung, không tách thành nhiều đơn', async () => {
+    const successSpy = jest.spyOn(toast, 'success');
+    leaveTypes = [leaveType('lt-private', 'PRIVATE', 'Nghỉ việc riêng', { paid: false })];
+    timePreviewFn = () => okPreview({ totalMinutes: 480, totalHours: 8, totalDays: 1 });
+    await openForm('leave');
+    await chooseReason(/Nghỉ việc riêng/);
+    fireEvent.click(await screen.findByRole('button', { name: /Thêm khoảng nghỉ/ }));
+    await screen.findByTestId('extra-range-2');
+    await waitFor(() => expect(screen.getByTestId('leave-range-row-2').textContent).toContain('1 ngày'));
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/leave-requests'))).toHaveLength(1));
+    const drafts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/request-drafts/leave'));
+    expect(drafts).toHaveLength(1);
+    const payload = drafts[0].body?.payload as { extraRanges?: Record<string, unknown>[] };
+    expect(payload.extraRanges).toHaveLength(1);
+    expect(payload.extraRanges?.[0]).toMatchObject({ fromAt: expect.any(String), toAt: expect.any(String), duration: 1 });
+    await waitFor(() => expect(successSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Đã gửi đơn nghỉ (2 khoản)' })));
+  });
+
+  it('đơn nghỉ nhiều khoản: máy chủ từ chối một khoản thì báo khoản lỗi và nêu rõ chưa khoản nào được gửi', async () => {
+    const errorSpy = jest.spyOn(toast, 'error');
+    errorSpy.mockClear();
+    leaveFailMessage = 'Khoảng nghỉ 2: Trùng đơn đã có';
+    leaveTypes = [leaveType('lt-private', 'PRIVATE', 'Nghỉ việc riêng', { paid: false })];
+    timePreviewFn = () => okPreview({ totalMinutes: 480, totalHours: 8, totalDays: 1 });
+    await openForm('leave');
+    await chooseReason(/Nghỉ việc riêng/);
+    fireEvent.click(await screen.findByRole('button', { name: /Thêm khoảng nghỉ/ }));
+    await waitFor(() => expect(screen.getByTestId('leave-range-row-2').textContent).toContain('1 ngày'));
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled());
+    const message = errorSpy.mock.calls[errorSpy.mock.calls.length - 1][0] as { title: string; description: string };
+    expect(message.title).toBe('Đơn nhiều khoản chưa gửi được');
+    expect(message.description).toContain('Khoảng nghỉ 2: Trùng đơn đã có');
+    expect(message.description).toContain('Chưa có khoản nào được gửi.');
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/leave-requests'))).toHaveLength(1);
+  });
+
+  it('danh sách: đơn nghỉ nhiều khoản chỉ hiện khoản chính với tổng số ngày và số khoản', async () => {
+    const leader = leaveRow(1);
+    const follower = { ...leaveRow(2), groupId: leader.id, duration: 1 };
+    leaveRows = [
+      {
+        ...leader,
+        groupId: leader.id,
+        groupRanges: [
+          { id: leader.id, fromDate: '2026-10-01', toDate: '2026-10-02', fromAt: null, toAt: null, duration: 2, status: 'PENDING' },
+          { id: follower.id, fromDate: '2026-10-05', toDate: '2026-10-05', fromAt: null, toAt: null, duration: 1, status: 'PENDING' },
+        ],
+      },
+      follower,
+    ];
+    render(<RequestsPage />);
+    await showAllMonths();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Chi tiết đơn / })).toHaveLength(1));
+    expect(footer()).toContain('Hiển thị 1-1 trên 1 đơn');
+    expect(footer()).toContain('3 ngày (2 khoản)');
   });
 
   it('đơn làm thêm giờ gửi cả fromAt và toAt', async () => {
@@ -1466,7 +1532,7 @@ describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang 
     // Chính form của trang Đơn từ, dựng ngay trong card: không có hộp thoại.
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Đơn làm thêm giờ (OT)' })).toBeTruthy();
-    expect((screen.getByLabelText('Từ ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('18:00');
+    expect((screen.getByLabelText('Giờ bắt đầu') as HTMLInputElement).value).toBe('18:00');
 
     ask('hrm.ot-request.create', 'r1', { description: 'Hoàn thiện hồ sơ nghiệm thu' });
     await waitFor(() =>
@@ -1475,7 +1541,7 @@ describe('Trợ lý Savina: form tạo đơn trong card của khung chat (trang 
       ),
     );
     // Lần sửa tiếp chỉ đổi ô có trong bản nháp mới.
-    expect((screen.getByLabelText('Đến ngày giờ làm thêm (giờ)') as HTMLInputElement).value).toBe('21:00');
+    expect((screen.getByLabelText('Giờ kết thúc') as HTMLInputElement).value).toBe('21:00');
     await waitFor(() => expect(submitButton().disabled).toBe(false));
     fireEvent.click(submitButton());
     await waitFor(() => expect(results).toHaveLength(1));

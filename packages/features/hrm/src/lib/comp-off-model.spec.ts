@@ -21,6 +21,7 @@ const config: HrmOvertimeCompConfig = {
   nightEndMinute: 360,
   nightRestHoursPerDay: 8,
   allowHalfDay: true,
+  declaredNightWindow: false,
   compFactor: 1.5,
   dayBasisHours: null,
   decimals: 1,
@@ -61,9 +62,11 @@ describe('formatCompNumber', () => {
 });
 
 describe('nextFreeEffectiveFrom', () => {
-  it('chọn mùng 1 tháng kế tiếp, bỏ qua tháng đã có phiên bản bắt đầu đúng ngày đó, qua ranh giới năm', () => {
-    expect(nextFreeEffectiveFrom([], '2026-11-10')).toBe('2026-12-01');
-    expect(nextFreeEffectiveFrom([{ effectiveFrom: '2026-12-01' }], '2026-11-10')).toBe('2027-01-01');
+  it('chọn mùng 1 của tháng hiện tại, bỏ qua tháng đã có phiên bản bắt đầu đúng ngày đó, qua ranh giới năm', () => {
+    expect(nextFreeEffectiveFrom([], '2026-11-10')).toBe('2026-11-01');
+    expect(nextFreeEffectiveFrom([], '2026-11-30')).toBe('2026-11-01');
+    expect(nextFreeEffectiveFrom([{ effectiveFrom: '2026-11-01' }], '2026-11-10')).toBe('2026-12-01');
+    expect(nextFreeEffectiveFrom([{ effectiveFrom: '2026-12-01' }], '2026-11-10')).toBe('2026-11-01');
     expect(nextFreeEffectiveFrom([{ effectiveFrom: '2026-12-01' }, { effectiveFrom: '2027-01-01' }], '2026-12-31')).toBe('2027-02-01');
   });
 });
@@ -76,7 +79,8 @@ describe('compOffUsageProblem', () => {
     expect(compOffUsageProblem(2, available)).toContain('vượt số dư khả dụng (1,5 ngày)');
   });
   it('chưa bật quy tắc thì chặn; chưa có thông tin hoặc 0 ngày thì không báo lỗi', () => {
-    expect(compOffUsageProblem(1, { ...available, enabled: false })).toContain('chưa được bật');
+    // Quy tắc tắt: quỹ tự quản lý ngoài hệ thống, không chặn.
+    expect(compOffUsageProblem(1, { ...available, enabled: false })).toBe('');
     expect(compOffUsageProblem(1, null)).toBe('');
     expect(compOffUsageProblem(0, available)).toBe('');
   });
@@ -111,6 +115,7 @@ describe('biểu mẫu cấu hình', () => {
       accrualMonthOffset: 1,
       nightRestHoursPerDay: 8,
       allowHalfDay: true,
+      declaredNightWindow: false,
     });
   });
 

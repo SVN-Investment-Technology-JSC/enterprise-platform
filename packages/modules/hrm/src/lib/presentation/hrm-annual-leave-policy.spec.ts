@@ -822,20 +822,39 @@ describe('Lý do nghỉ: tạo, sửa, ngừng', () => {
     expect(updateCall(calls).params[9]).toBe(false);
   });
 
-  it('lý do phép năm: giữ trừ quỹ, không cho ngừng, không cho đổi thành không lương hoặc không trừ quỹ', async () => {
+  it('lý do phép năm: giữ trừ quỹ, ngừng được nhưng không xóa, không cho đổi thành không lương hoặc không trừ quỹ', async () => {
     const { leave, calls, world } = build({ types: [annualType()] });
     const fresh = () => ({ ...patch, expectedUpdatedAt: world.types[0].updated_at.toISOString() });
-    for (const change of [{ active: false }, { paid: false }, { deductBalance: false }])
+    for (const change of [{ paid: false }, { deductBalance: false }])
       await expect(leave.updateLeaveType(req, ANNUAL, { ...fresh(), ...change })).rejects.toBeInstanceOf(
         ConflictException,
       );
     await expect(leave.deleteLeaveType(req, ANNUAL, fresh())).rejects.toMatchObject({
-      message: 'Không thể ngừng lý do phép năm duy nhất của hệ thống',
+      message: expect.stringContaining('là lý do mặc định của hệ thống nên không xóa được'),
     });
     expect(calls.some(startsWith('UPDATE hrm_schema.leave_types'))).toBe(false);
     await leave.updateLeaveType(req, ANNUAL, { ...fresh(), name: 'Phép năm 2026' });
     expect(updateCall(calls).params[9]).toBe(true);
     expect(world.types[0]).toMatchObject({ active: true, deduct_balance: true });
+    // Tenant được ngừng sử dụng rồi dùng lại; phép năm vẫn trừ quỹ.
+    await leave.updateLeaveType(req, ANNUAL, { ...fresh(), active: false });
+    expect(world.types[0]).toMatchObject({ active: false, deduct_balance: true });
+    await leave.updateLeaveType(req, ANNUAL, { ...fresh(), active: true });
+    expect(world.types[0]).toMatchObject({ active: true, deduct_balance: true });
+  });
+
+  it('lý do nghỉ bù mặc định: ngừng được, không xóa, luôn có lương và không trừ quỹ phép năm', async () => {
+    const COMP = '00000000-0000-4000-8000-0000000000d4';
+    const { leave, world } = build({ types: [leaveType(COMP, { code: 'COMP', name: 'Nghỉ bù', comp_off: true })] });
+    const fresh = () => ({ ...patch, expectedUpdatedAt: world.types[0].updated_at.toISOString() });
+    await expect(leave.updateLeaveType(req, COMP, { ...fresh(), paid: false })).rejects.toBeInstanceOf(ConflictException);
+    await expect(leave.deleteLeaveType(req, COMP, fresh())).rejects.toMatchObject({
+      message: expect.stringContaining('là lý do mặc định của hệ thống nên không xóa được'),
+    });
+    await leave.updateLeaveType(req, COMP, { ...fresh(), active: false });
+    expect(world.types[0]).toMatchObject({ active: false, deduct_balance: false });
+    await leave.updateLeaveType(req, COMP, { ...fresh(), active: true, deductBalance: true });
+    expect(world.types[0]).toMatchObject({ active: true, deduct_balance: false });
   });
 
   it('PATCH không tự đổi is_annual; gửi lại đúng giá trị hiện có thì bỏ qua', async () => {
@@ -870,6 +889,42 @@ describe('Lý do nghỉ: tạo, sửa, ngừng', () => {
       ['AL', true],
       ['b2', false],
     ]);
+  });
+});
+
+describe('GET /leave-types: lý do Nghỉ bù luôn dùng được, kèm chế độ quản lý quỹ', () => {
+  const COMP = '00000000-0000-4000-8000-0000000000d4';
+  const rows = () => [annualType(), leaveType(COMP, { code: 'COMP', name: 'Nghỉ bù', comp_off: true })];
+  const enabledPolicy = {
+    rows: [
+      {
+        id: 'pv',
+        version_no: 1,
+        effective_from: '2000-01-01',
+        effective_to: null,
+        policy_code: 'OT_DEFAULT',
+        config_json: { overtimeComp: { enabled: true } },
+      },
+    ],
+    rowCount: 1,
+  };
+
+  it('quy tắc tắt: Nghỉ bù vẫn có trong danh sách chọn, đánh dấu quỹ tự quản lý', async () => {
+    const { leave, pool } = build({ types: rows() });
+    pool.query.mockResolvedValueOnce({ rows: rows(), rowCount: 2 }).mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const active = await leave.listLeaveTypes(req, 'true');
+    expect(active.data.map((t) => [t.code, t.isCompOff, t.compOffManaged])).toEqual([
+      ['AL', false, undefined],
+      ['COMP', true, false],
+    ]);
+    expect(active.meta.total).toBe(2);
+  });
+
+  it('quy tắc bật: Nghỉ bù do hệ thống tính quỹ', async () => {
+    const { leave, pool } = build({ types: rows() });
+    pool.query.mockResolvedValueOnce({ rows: rows(), rowCount: 2 }).mockResolvedValueOnce(enabledPolicy);
+    const active = await leave.listLeaveTypes(req, 'true');
+    expect(active.data.find((t) => t.code === 'COMP')?.compOffManaged).toBe(true);
   });
 });
 

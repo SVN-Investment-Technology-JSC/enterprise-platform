@@ -8,6 +8,8 @@ import type {
   HrmOvertimeCompSettings,
 } from '@enterprise-platform/contracts-hrm';
 import { compOffApi } from '../hrm-comp-off-api';
+import { buildCompOffFundSummary, compVersionPhase, overlapEffects, removableCompVersionId } from '../comp-off-model';
+import { CompOffFundCard } from '../ui/comp-off-fund-card';
 import { OvertimeClassifyHint } from '../ui/comp-off/comp-off-hints';
 import { CompOffBalancesPanel } from '../ui/comp-off/comp-off-balances-panel';
 import { CompOffConversionPanel } from '../ui/comp-off/comp-off-conversion-panel';
@@ -225,6 +227,7 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     nightEndMinute: 360,
     nightRestHoursPerDay: 8,
     allowHalfDay: true,
+    declaredNightWindow: false,
     compFactor: 1.5,
     dayBasisHours: null,
     decimals: 1,
@@ -267,6 +270,23 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     expect(body?.config).not.toHaveProperty('nightStartMinute');
   });
 
+  it('chọn hiệu lực theo tháng: mặc định tháng hiện tại, không chọn được tháng đã qua, gửi mùng 1 của tháng đã chọn', async () => {
+    mockActions.add('hrm.policy.manage');
+    api.settings.mockResolvedValue(settings);
+    api.saveSettings.mockResolvedValue(settings);
+    render(<OvertimeCompSettingsScreen />);
+    await screen.findByText('Số giờ ca đêm bù cho mỗi ngày nghỉ sau ca đêm');
+    const month = screen.getByLabelText('Hiệu lực từ tháng') as HTMLInputElement;
+    const thisMonth = new Date().toLocaleDateString('en-CA').slice(0, 7);
+    expect(month.value).toBe(thisMonth);
+    expect(month.min).toBe(thisMonth);
+    fireEvent.change(month, { target: { value: '2031-03' } });
+    fireEvent.change(screen.getByPlaceholderText('Bắt buộc'), { target: { value: 'Áp dụng từ tháng 3' } });
+    fireEvent.click(screen.getByText('Lưu phiên bản mới').closest('button') as HTMLButtonElement);
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalled());
+    expect(api.saveSettings.mock.calls[0]?.[0]?.effectiveFrom).toBe('2031-03-01');
+  });
+
   it('hiện lỗi của máy chủ khi lưu', async () => {
     mockActions.add('hrm.policy.manage');
     api.settings.mockResolvedValue(settings);
@@ -276,6 +296,89 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     fireEvent.change(screen.getByPlaceholderText('Bắt buộc'), { target: { value: 'Thử' } });
     fireEvent.click(screen.getByText('Lưu phiên bản mới'));
     expect(await screen.findByText('Khoảng hiệu lực giao với phiên bản đã có')).toBeTruthy();
+  });
+
+  it('khi giao với phiên bản có hạn: hiện lựa chọn ghi đè và gửi onConflict', async () => {
+    mockActions.add('hrm.policy.manage');
+    const v3 = { ...version, id: 'v3', versionNo: 3, effectiveFrom: '2000-01-01', effectiveTo: '2099-12-31' };
+    api.settings.mockResolvedValue({ ...settings, current: v3, versions: [v3] });
+    api.saveSettings.mockResolvedValue(settings);
+    render(<OvertimeCompSettingsScreen />);
+    await screen.findByText('Khi giao với phiên bản đã có');
+    expect(screen.getByText(/đang giao, sẽ báo lỗi khi lưu/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Ghi đè theo thời gian/));
+    expect(screen.getByText(/sẽ kết thúc ngày/)).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Bắt buộc'), { target: { value: 'Thử' } });
+    fireEvent.click(screen.getByText('Lưu phiên bản mới'));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalled());
+    expect(api.saveSettings.mock.calls[0]?.[0]?.onConflict).toBe('OVERWRITE');
+  });
+});
+
+describe('quản lý phiên bản', () => {
+  const v = (id: string, effectiveFrom: string, effectiveTo: string | null) => ({ id, effectiveFrom, effectiveTo });
+  it('phân giai đoạn theo ngày và chỉ cho xóa phiên bản mới nhất chưa hiệu lực', () => {
+    expect(compVersionPhase(v('a', '2026-12-01', null), '2026-11-11')).toBe('UPCOMING');
+    expect(compVersionPhase(v('b', '2026-10-02', '2026-11-30'), '2026-11-11')).toBe('CURRENT');
+    expect(compVersionPhase(v('c', '2026-01-01', '2026-10-01'), '2026-11-11')).toBe('EXPIRED');
+    expect(removableCompVersionId([v('b', '2026-10-02', '2026-11-30'), v('a', '2026-12-01', null)], '2026-11-11')).toBe('a');
+    expect(removableCompVersionId([v('b', '2026-10-02', null)], '2026-11-11')).toBeNull();
+  });
+});
+
+describe('thẻ quỹ nghỉ bù ở Chính sách phép', () => {
+  const config = {
+    enabled: true,
+    ruleSet: 'NIGHT_REST' as const,
+    normalHoursPerDay: 8,
+    monthlyCapHours: 40,
+    yearlyCapHours: 200,
+    nightCapped: false,
+    nightStartMinute: 1320,
+    nightEndMinute: 360,
+    nightRestHoursPerDay: 8,
+    allowHalfDay: true,
+    declaredNightWindow: false,
+    compFactor: 1.5,
+    dayBasisHours: null,
+    decimals: 1,
+    rounding: 'HALF_UP' as const,
+    usageStepDays: 0.5,
+    accrualMonthOffset: 1 as const,
+    expiryMonths: 0,
+    accumulationCapDays: 15,
+  };
+  it('tóm tắt cách tính từ cấu hình', () => {
+    const s = buildCompOffFundSummary(config);
+    expect(s.cap).toBe('40 giờ/tháng trả lương làm thêm, tối đa 200 giờ/năm');
+    expect(s.conversion).toBe('Giờ dư × hệ số 1,5 ÷ 8 giờ/ngày');
+    expect(s.accumulation).toBe('Tối đa 15 ngày');
+    expect(s.expiry).toBe('Không hết hạn');
+    expect(s.example).toContain('1,9 ngày nghỉ bù');
+  });
+  it('hiện thẻ cho người có quyền xem chính sách và ẩn khi không có quyền', async () => {
+    mockActions.clear();
+    mockActions.add('hrm.policy.view');
+    const version = { id: 'v', versionNo: 1, effectiveFrom: '2026-11-01', effectiveTo: null, status: 'ACTIVE', config };
+    api.settings.mockResolvedValue({ policyId: 'p', current: version, versions: [version], legalWarnings: [] });
+    const { unmount } = render(<CompOffFundCard />);
+    expect(await screen.findByText('Quỹ nghỉ bù')).toBeTruthy();
+    expect(await screen.findByText('Tối đa 15 ngày')).toBeTruthy();
+    unmount();
+    mockActions.clear();
+    const hidden = render(<CompOffFundCard />);
+    expect(hidden.container.textContent).toBe('');
+  });
+});
+
+describe('overlapEffects', () => {
+  const v = (versionNo: number, effectiveFrom: string, effectiveTo: string | null) => ({ versionNo, effectiveFrom, effectiveTo });
+  it('cắt đuôi phiên bản bắt đầu trước và thay thế phiên bản bắt đầu sau', () => {
+    const out = overlapEffects([v(4, '2026-12-01', null), v(3, '2026-10-02', '2026-11-30'), v(2, '2026-01-01', '2026-10-01')], '2026-11-01');
+    expect(out.map((o) => [o.versionNo, o.effect, o.newEffectiveTo])).toEqual([
+      [3, 'TRUNCATE', '2026-10-31'],
+      [4, 'REPLACE', null],
+    ]);
   });
 });
 

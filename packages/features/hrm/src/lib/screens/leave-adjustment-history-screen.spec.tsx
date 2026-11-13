@@ -72,6 +72,84 @@ describe('Lịch sử điều chỉnh phép năm', () => {
     expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(2);
   });
 
+  it('có quyền xem quỹ nghỉ bù thì gộp cả dòng import nghỉ bù và lọc được theo quỹ', async () => {
+    mockActions.add('hrm.comp_off.view');
+    fetchMock.mockImplementation((async (path: string) => {
+      if (String(path).startsWith('/comp-off/adjustments'))
+        return {
+          data: [
+            {
+              id: 'c-1',
+              kind: 'ADJUST',
+              days: 4.3,
+              occurredOn: '2026-11-13',
+              createdAt: '2026-11-13T02:00:00.000Z',
+              reason: 'Quy đổi T10 (23 giờ)',
+              source: 'IMPORT',
+              reversesId: null,
+              actorLabel: 'HR01 · Nguyễn Thị Hoa',
+              actorEmail: 'hoa@savinajsc.com',
+              employeeId: 'e-9',
+              employeeName: 'Phạm Văn Bù',
+              employeeCode: 'NV099',
+              department: 'Kho',
+            },
+          ],
+        };
+      return { data: [tx({})] };
+    }) as never);
+    render(<LeaveAdjustmentHistoryScreen />);
+    await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(2));
+    expect(screen.getByText('Phạm Văn Bù')).toBeTruthy();
+    expect(screen.getByText('Import Excel')).toBeTruthy();
+    expect(screen.getByText('Quy đổi T10 (23 giờ)')).toBeTruthy();
+    // Dòng mới nhất (nghỉ bù, 13/11) nằm trên dòng phép năm (01/10).
+    expect(screen.getAllByTestId('leave-adjustment-row')[0].textContent).toContain('Phạm Văn Bù');
+    mockActions.delete('hrm.comp_off.view');
+  });
+
+  it('mặc định sắp xếp mới nhất trước dù hai quỹ trả thời gian khác định dạng', async () => {
+    mockActions.add('hrm.comp_off.view');
+    const compOff = (id: string, createdAt: string) => ({
+      id,
+      kind: 'ADJUST',
+      days: 1,
+      occurredOn: '2026-11-13',
+      createdAt,
+      reason: id,
+      source: 'MANUAL',
+      reversesId: null,
+      employeeId: 'e-9',
+      employeeName: 'Bù ' + id,
+      employeeCode: 'NV099',
+      department: null,
+    });
+    fetchMock.mockImplementation((async (path: string) => {
+      if (String(path).startsWith('/comp-off/adjustments'))
+        return { data: [compOff('moi', '2026-11-13T07:32:35.000Z'), compOff('cu', '2026-11-11T03:00:00.000Z')] };
+      return {
+        data: [
+          tx({ id: 'a-giua', employeeName: 'Phép giữa', createdAt: 'Fri Nov 13 2026 09:00:00 GMT+0700 (Indochina Time)' }),
+          tx({ id: 'a-cu', employeeName: 'Phép cũ', createdAt: '2026-10-01T03:00:00.000Z' }),
+        ],
+      };
+    }) as never);
+    render(<LeaveAdjustmentHistoryScreen />);
+    await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(4));
+    const names = screen.getAllByTestId('leave-adjustment-row').map((r) => r.textContent ?? '');
+    expect(names[0]).toContain('Bù moi');
+    expect(names[1]).toContain('Phép giữa');
+    expect(names[2]).toContain('Bù cu');
+    expect(names[3]).toContain('Phép cũ');
+    mockActions.delete('hrm.comp_off.view');
+  });
+
+  it('không có quyền xem quỹ nghỉ bù thì không gọi API nghỉ bù', async () => {
+    render(<LeaveAdjustmentHistoryScreen />);
+    await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(3));
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).startsWith('/comp-off'))).toBe(false);
+  });
+
   it('không có quyền xem thì báo và không gọi API', () => {
     mockActions.clear();
     render(<LeaveAdjustmentHistoryScreen />);

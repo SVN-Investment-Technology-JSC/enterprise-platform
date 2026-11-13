@@ -152,7 +152,7 @@ export function CompOffConversionPanel() {
                     <div className="flex flex-col items-end gap-1">
                       <Input
                         aria-label={`Số ngày nghỉ bù của ${r.employeeName ?? r.employeeId}`}
-                        className="h-8 w-24 text-right font-mono"
+                        className="h-8 w-24 text-right tabular-nums"
                         inputMode="decimal"
                         value={edit?.days ?? String(r.compDays)}
                         onChange={(e) => setEdits((prev) => ({ ...prev, [r.employeeId]: { days: e.target.value, reason: prev[r.employeeId]?.reason ?? '' } }))}

@@ -25,7 +25,10 @@ export function useCompOffAvailability(employeeId: string, date: string, active:
   return data;
 }
 
-/** Dòng thông tin số dư nghỉ bù trên form đơn nghỉ. */
+/**
+ * Ghi chú dưới thẻ số ngày nghỉ của lý do Nghỉ bù, cùng kiểu với ghi chú của phép năm: số dư còn lại, giữ chỗ, hạn gần nhất,
+ * bước dùng; vượt số dư hoặc sai bước thì báo đỏ đậm. Bốn ô số liệu nằm ở thẻ của form (`create-request-form`).
+ */
 export function CompOffAvailabilityHint({
   availability,
   problem,
@@ -35,17 +38,17 @@ export function CompOffAvailabilityHint({
 }) {
   if (!availability) return null;
   return (
-    <div data-testid="comp-off-availability" className="space-y-1 text-xs">
-      <p className="text-slate-700">
-        Số dư nghỉ bù khả dụng: <strong className="font-mono text-[#021E73]">{formatCompNumber(availability.available)} ngày</strong>
-        {availability.reserved > 0 ? `, đang giữ chỗ ${formatCompNumber(availability.reserved)} ngày` : ''}
+    <div data-testid="comp-off-availability" className="space-y-1">
+      <p className="text-[12px] leading-relaxed text-slate-500">
+        Hiện còn {formatCompNumber(availability.available)} ngày
+        {availability.reserved > 0 ? ` • Đang giữ chỗ ${formatCompNumber(availability.reserved)} ngày` : ''}
         {availability.nextExpiry
-          ? `. Hạn gần nhất: ${formatCompNumber(availability.nextExpiry.days)} ngày, hết hạn ${formatCompDate(availability.nextExpiry.on)}`
+          ? ` • Hạn gần nhất: ${formatCompNumber(availability.nextExpiry.days)} ngày, hết hạn ${formatCompDate(availability.nextExpiry.on)}`
           : ''}
-        . Dùng theo bước {formatCompNumber(availability.usageStepDays)} ngày.
+        {` • Dùng theo bước ${formatCompNumber(availability.usageStepDays)} ngày`}
       </p>
       {problem ? (
-        <p role="alert" className="font-medium text-red-600">
+        <p role="alert" className="text-[12px] font-semibold text-rose-600">
           {problem}
         </p>
       ) : null}

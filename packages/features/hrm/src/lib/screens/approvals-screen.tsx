@@ -20,6 +20,7 @@ import {
   splitEmployeeLabel,
 } from '../hrm-approval-kinds';
 import { formatRequestPeriod } from '../request-time-format';
+import { isLeaveGroupFollower, leaveGroupSummary } from '../leave-group-view';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -246,14 +247,17 @@ function ApprovalsContent() {
         .flatMap((list, i) =>
           // Đơn nhân viên đã rút/hủy không cần người quản lý xử lý: ẩn khỏi bảng (dữ liệu vẫn giữ, chỉ không hiển thị ở đây).
           // Đơn đã duyệt rồi bị huỷ hiệu lực cũng mang trạng thái CANCELLED nhưng là việc của người quản lý nên vẫn hiện.
-          list.filter((r) => r.status !== 'CANCELLED' || reversedReasons.has(r.id)).map((r): Row => {
+          list.filter((r) => !isLeaveGroupFollower(r) && (r.status !== 'CANCELLED' || reversedReasons.has(r.id))).map((r): Row => {
             const employeeId = r.employeeId || r.employee_id || '';
             const person = people.get(employeeId);
             const approvedBy = String(r.approvedBy || r.approved_by || '');
             const approver = approvedBy ? people.get(approvedBy) : undefined;
             const approvedByName = approver?.name || text(r.approvedByName) || text(r.approved_by_name) || '';
+            // Đơn nghỉ nhiều khoản: hiện đủ các khoản và tổng số ngày; duyệt hay từ chối là áp dụng cho cả nhóm.
+            const group = leaveGroupSummary(r);
             return {
               ...withDirectApprover(r, isPendingStatus(String(r.status)), directApprovers),
+              ...(group ? { duration: group.totalDays, groupCount: group.count } : {}),
               // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
               status: r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
               reversalReason: reversedReasons.get(r.id),
@@ -264,7 +268,7 @@ function ApprovalsContent() {
               department: person?.department ?? '',
               approvedByName,
               created: r.createdAt || r.created_at || '',
-              period: formatRequestPeriod(r),
+              period: group ? group.periods.join(' • ') : formatRequestPeriod(r),
               ...reasonColumns(available[i].kind, r),
               link: linkOf.get(`${available[i].kind}:${r.id}`),
             };

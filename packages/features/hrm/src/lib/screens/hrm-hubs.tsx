@@ -1,9 +1,11 @@
 'use client';
 import dynamic from 'next/dynamic';
-import type { ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { HrmTabHub, type HrmHubTab } from '../ui/hrm-tab-hub';
 import { SettingsCenter } from '../ui/settings-center';
 import { HRM_HUBS, type HrmHubPath } from '../hrm-hub-tabs';
+import { compOffApi } from '../hrm-comp-off-api';
+import { useHrmPermissions } from '../hrm-permissions';
 
 /** Mỗi tab là một gói riêng, chỉ tải khi mở tab: vào trang nào chỉ biên dịch và tải đúng màn hình đó. */
 function lazyScreen(loader: () => Promise<{ default: ComponentType }>): ComponentType {
@@ -93,7 +95,28 @@ export const MyProfileHub = () => <HrmTabHub tabs={tabsOf('/profile')} tabsInHea
 /** Nhân sự: hồ sơ nhân viên và mọi thứ gắn với nhân viên. */
 export const PeopleHub = () => <HrmTabHub tabs={tabsOf('/employees')} />;
 /** Phép năm: quỹ phép của nhân viên, chính sách phép năm và lý do nghỉ. */
-export const LeaveHub = () => <HrmTabHub tabs={tabsOf('/leave')} />;
+export function LeaveHub() {
+  const { can } = useHrmPermissions();
+  const canCompOff = can('hrm.comp_off.view');
+  const [fundOff, setFundOff] = useState(false);
+  useEffect(() => {
+    if (!canCompOff) return;
+    let active = true;
+    compOffApi
+      .status()
+      .then((s) => active && setFundOff(!s.fundEnabled))
+      .catch(() => active && setFundOff(false));
+    return () => {
+      active = false;
+    };
+  }, [canCompOff]);
+  return (
+    <HrmTabHub
+      tabs={tabsOf('/leave')}
+      inactive={fundOff ? { 'comp-off': 'Quỹ nghỉ bù đang tắt trong cấu hình Làm thêm và nghỉ bù' } : undefined}
+    />
+  );
+}
 /** Bảng công: bảng công tháng của nhân viên và dữ liệu chấm công. Phân ca và danh mục ca nằm trong Cấu hình. */
 export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} tabsInHeader />;
 /** Lương và chi trả: bảng lương, ứng và thu hồi. */

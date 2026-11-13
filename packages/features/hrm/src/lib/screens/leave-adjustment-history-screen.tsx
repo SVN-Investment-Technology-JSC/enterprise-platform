@@ -2,8 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
 import { AlertTriangle, RefreshCw, Search } from 'lucide-react';
-import type { HrmLeaveTransaction } from '@enterprise-platform/contracts-hrm';
+import type { HrmCompOffAdjustmentRow, HrmLeaveTransaction } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
+import { compOffApi } from '../hrm-comp-off-api';
 import { normalizeSearchText } from '../hrm-employee-view';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from '../ui/badge';
@@ -16,6 +17,72 @@ const PAGE_SIZE = 20;
 const TH = 'px-3 py-2.5 text-left text-[12px] font-bold text-slate-500';
 
 type TypeFilter = 'ALL' | 'ADJUSTMENT' | 'REVERSAL';
+type FundFilter = 'ALL' | 'ANNUAL' | 'COMP_OFF';
+
+const FUND_OPTIONS: { value: FundFilter; label: string }[] = [
+  { value: 'ALL', label: 'Tất cả quỹ' },
+  { value: 'ANNUAL', label: 'Phép năm' },
+  { value: 'COMP_OFF', label: 'Nghỉ bù' },
+];
+
+/** Một dòng lịch sử, chung cho quỹ phép năm và quỹ nghỉ bù. */
+interface HistoryRow {
+  readonly key: string;
+  readonly fund: Exclude<FundFilter, 'ALL'>;
+  readonly createdAt: string;
+  readonly year: string;
+  readonly employeeName: string;
+  readonly employeeCode: string;
+  readonly department: string | null;
+  readonly reversal: boolean;
+  readonly days: number;
+  readonly balanceAfter: number | null;
+  readonly note: string | null;
+  readonly actorLabel: string | null;
+  readonly actorEmail: string | null;
+  /** Nguồn import Excel (chỉ quỹ nghỉ bù). */
+  readonly imported: boolean;
+}
+
+/** Mốc thời gian dạng số; so sánh chuỗi sai khi hai nguồn khác định dạng (ISO với ngày giờ của DB). */
+const timeOf = (value: string): number => {
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? 0 : t;
+};
+
+const fromLeave = (r: HrmLeaveTransaction): HistoryRow => ({
+  key: `a-${r.id}`,
+  fund: 'ANNUAL',
+  createdAt: r.createdAt,
+  year: r.balanceYear ? String(r.balanceYear) : '',
+  employeeName: r.employeeName ?? '',
+  employeeCode: r.employeeCode ?? '',
+  department: r.department ?? null,
+  reversal: r.transactionType === 'REVERSAL',
+  days: r.daysChanged,
+  balanceAfter: r.balanceAfter,
+  note: r.note ?? null,
+  actorLabel: r.actorLabel ?? null,
+  actorEmail: r.actorEmail ?? null,
+  imported: false,
+});
+
+const fromCompOff = (r: HrmCompOffAdjustmentRow): HistoryRow => ({
+  key: `c-${r.id}`,
+  fund: 'COMP_OFF',
+  createdAt: r.createdAt,
+  year: r.occurredOn.slice(0, 4),
+  employeeName: r.employeeName,
+  employeeCode: r.employeeCode,
+  department: r.department,
+  reversal: Boolean(r.reversesId),
+  days: r.days,
+  balanceAfter: null,
+  note: r.reason,
+  actorLabel: r.actorLabel ?? null,
+  actorEmail: r.actorEmail ?? null,
+  imported: r.source === 'IMPORT',
+});
 
 const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
   { value: 'ALL', label: 'Tất cả điều chỉnh' },
@@ -26,18 +93,21 @@ const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
 const signed = (value: number) => (value > 0 ? `+${formatLeaveNumber(value)}` : formatLeaveNumber(value));
 
 /**
- * Lịch sử điều chỉnh phép năm: toàn bộ lần điều chỉnh và đảo điều chỉnh quỹ phép năm của mọi nhân viên, mỗi dòng ghi
- * rõ tài khoản đã thực hiện (tên và email). Điều chỉnh mới luôn bắt buộc có tài khoản thực hiện.
+ * Lịch sử điều chỉnh quỹ phép: lần điều chỉnh, import Excel và đảo điều chỉnh của quỹ phép năm và quỹ nghỉ bù, mỗi dòng
+ * ghi rõ tài khoản đã thực hiện (tên và email). Quỹ nghỉ bù chỉ hiện khi có quyền xem quỹ nghỉ bù.
  */
 export default function LeaveAdjustmentHistoryScreen() {
   const { can, loading: permissionsLoading } = useHrmPermissions();
-  const canRead = can('hrm.leave.read');
+  const canAnnual = can('hrm.leave.read');
+  const canCompOff = can('hrm.comp_off.view');
+  const canRead = canAnnual || canCompOff;
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState('ALL');
   const [type, setType] = useState<TypeFilter>('ALL');
+  const [fund, setFund] = useState<FundFilter>('ALL');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<HrmLeaveTransaction[]>([]);
+  const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadSeq = useRef(0);
@@ -57,17 +127,32 @@ export default function LeaveAdjustmentHistoryScreen() {
     try {
       const query = new URLSearchParams({ types: 'ADJUSTMENT,REVERSAL', annual: '1' });
       if (year !== 'ALL') query.set('year', year);
-      const result = await hrmFetch<{ data: HrmLeaveTransaction[] }>(`/leave-transactions?${query}`);
-      if (seq === loadSeq.current) setRows(result.data);
+      const [annual, compOff] = await Promise.all([
+        canAnnual
+          ? hrmFetch<{ data: HrmLeaveTransaction[] }>(`/leave-transactions?${query}`)
+          : Promise.resolve({ data: [] as HrmLeaveTransaction[] }),
+        canCompOff
+          ? compOffApi.adjustmentHistory().catch((e: unknown) => {
+              if (seq === loadSeq.current)
+                setError(e instanceof Error ? e.message : 'Không đọc được lịch sử điều chỉnh nghỉ bù');
+              return [] as HrmCompOffAdjustmentRow[];
+            })
+          : Promise.resolve([] as HrmCompOffAdjustmentRow[]),
+      ]);
+      const merged = [
+        ...annual.data.map(fromLeave),
+        ...compOff.filter((r) => year === 'ALL' || r.occurredOn.startsWith(year)).map(fromCompOff),
+      ].sort((a, b) => timeOf(b.createdAt) - timeOf(a.createdAt));
+      if (seq === loadSeq.current) setRows(merged);
     } catch (e) {
       if (seq === loadSeq.current) {
         setRows([]);
-        setError(e instanceof Error ? e.message : 'Không đọc được lịch sử điều chỉnh phép năm');
+        setError(e instanceof Error ? e.message : 'Không đọc được lịch sử điều chỉnh quỹ phép');
       }
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [year]);
+  }, [year, canAnnual, canCompOff]);
 
   useEffect(() => {
     if (canRead) void load();
@@ -76,16 +161,17 @@ export default function LeaveAdjustmentHistoryScreen() {
   const filtered = useMemo(() => {
     const needle = normalizeSearchText(search.trim());
     return rows.filter((r) => {
-      if (type !== 'ALL' && r.transactionType !== type) return false;
+      if (fund !== 'ALL' && r.fund !== fund) return false;
+      if (type !== 'ALL' && (type === 'REVERSAL') !== r.reversal) return false;
       if (!needle) return true;
       const hay = normalizeSearchText(
         [r.employeeName, r.employeeCode, r.actorLabel, r.actorEmail, r.note].filter(Boolean).join(' '),
       );
       return hay.includes(needle);
     });
-  }, [rows, type, search]);
+  }, [rows, fund, type, search]);
 
-  useEffect(() => setPage(1), [year, type, search]);
+  useEffect(() => setPage(1), [year, fund, type, search]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const visible = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
@@ -93,15 +179,15 @@ export default function LeaveAdjustmentHistoryScreen() {
   if (!permissionsLoading && !canRead)
     return (
       <div role="alert" className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-        Bạn không có quyền xem lịch sử điều chỉnh phép năm.
+        Bạn không có quyền xem lịch sử điều chỉnh quỹ phép.
       </div>
     );
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-3">
       <PageTitle
-        title="Lịch sử điều chỉnh phép năm"
-        description="Mọi lần điều chỉnh và đảo điều chỉnh quỹ phép năm, kèm tài khoản đã thực hiện."
+        title="Lịch sử điều chỉnh quỹ phép"
+        description="Mọi lần điều chỉnh, import và đảo điều chỉnh quỹ phép năm và quỹ nghỉ bù, kèm tài khoản đã thực hiện."
       />
       <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <div className="w-44">
@@ -114,6 +200,18 @@ export default function LeaveAdjustmentHistoryScreen() {
             placeholder="Chọn năm"
           />
         </div>
+        {canCompOff && canAnnual && (
+          <div className="w-44">
+            <SearchableSelect
+              height={36}
+              value={fund}
+              onChange={(v) => setFund((v || 'ALL') as FundFilter)}
+              options={FUND_OPTIONS}
+              clearable={false}
+              placeholder="Quỹ"
+            />
+          </div>
+        )}
         <div className="w-52">
           <SearchableSelect
             height={36}
@@ -157,7 +255,7 @@ export default function LeaveAdjustmentHistoryScreen() {
               <tr>
                 <th className={TH}>Thời điểm</th>
                 <th className={TH}>Nhân viên</th>
-                <th className={TH}>Năm</th>
+                <th className={TH}>Quỹ</th>
                 <th className={TH}>Loại</th>
                 <th className={`${TH} text-right`}>Số ngày</th>
                 <th className={`${TH} text-right`}>Còn lại sau</th>
@@ -175,12 +273,12 @@ export default function LeaveAdjustmentHistoryScreen() {
               ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-400">
-                    Chưa có lần điều chỉnh phép năm nào khớp bộ lọc.
+                    Chưa có lần điều chỉnh quỹ phép nào khớp bộ lọc.
                   </td>
                 </tr>
               ) : (
                 visible.map((r) => (
-                  <tr key={r.id} data-testid="leave-adjustment-row">
+                  <tr key={r.key} data-testid="leave-adjustment-row">
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[12px] text-slate-600">
                       {formatDateTime(r.createdAt, r.createdAt)}
                     </td>
@@ -191,26 +289,31 @@ export default function LeaveAdjustmentHistoryScreen() {
                         {r.department ? ` · ${r.department}` : ''}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5">{r.balanceYear ?? '—'}</td>
+                    <td className="px-3 py-2.5">
+                      <span className="block font-semibold text-slate-900">
+                        {r.fund === 'COMP_OFF' ? 'Nghỉ bù' : 'Phép năm'}
+                      </span>
+                      {r.year && <span className="block text-[12px] text-slate-500">{r.year}</span>}
+                    </td>
                     <td className="px-3 py-2.5">
                       <Badge
                         className={
-                          r.transactionType === 'REVERSAL'
+                          r.reversal
                             ? 'border-amber-200 bg-amber-50 text-amber-700'
                             : 'border-blue-200 bg-blue-50 text-blue-700'
                         }
                       >
-                        {r.transactionType === 'REVERSAL' ? 'Đảo điều chỉnh' : 'Điều chỉnh'}
+                        {r.reversal ? 'Đảo điều chỉnh' : r.imported ? 'Import Excel' : 'Điều chỉnh'}
                       </Badge>
                     </td>
                     <td
                       className={`px-3 py-2.5 text-right font-mono font-bold ${
-                        r.daysChanged < 0 ? 'text-red-700' : 'text-emerald-700'
+                        r.days < 0 ? 'text-red-700' : 'text-emerald-700'
                       }`}
                     >
-                      {signed(r.daysChanged)}
+                      {signed(r.days)}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono">{formatLeaveNumber(r.balanceAfter)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{r.balanceAfter === null ? '—' : formatLeaveNumber(r.balanceAfter)}</td>
                     <td className="max-w-[320px] px-3 py-2.5 text-slate-700" title={r.note ?? ''}>
                       <span className="line-clamp-2">{r.note || '—'}</span>
                     </td>
