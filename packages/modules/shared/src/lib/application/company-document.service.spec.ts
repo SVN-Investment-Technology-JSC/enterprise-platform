@@ -1523,6 +1523,22 @@ describe('FilingService – lưu hồ sơ của phân hệ khác', () => {
     expect(files.downloads.at(-1)?.options).toMatchObject({ inline: true });
   });
 
+  it('phiên bản mới của tài liệu của phân hệ đánh số tiếp', async () => {
+    const { filings, versions } = filingSetup();
+    const created = await filings.createDocument(TENANT, request);
+    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId, pdf.sizeBytes);
+    const next = await filings.addVersion(TENANT, created.documentId, {
+      module: 'correspondence',
+      userId: 'user-clerk',
+      fileName: 'ban-sua.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      changeNote: 'Sửa số liệu',
+    });
+    expect(next.versionNo).toBe(2);
+    expect(versions.get(next.versionId)).toMatchObject({ documentId: created.documentId, versionNo: 2, fileName: 'ban-sua.pdf' });
+  });
+
   it('ghi số lưu trữ lên thư mục hồ sơ', async () => {
     const { filings } = filingSetup();
     const created = await filings.createDocument(TENANT, request);

@@ -1,23 +1,20 @@
 import {
   MAX_WORKFLOW_STEPS,
+  RETURN_TARGETS,
   type ApproverRule,
+  type ReturnTarget,
   type WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
 import { CorrespondenceValidationError } from './correspondence.error.js';
-import {
-  positionHolders,
-  unitHeads,
-  unitMembers,
-  type OrganizationSnapshot,
-} from './organization.js';
+import { positionHolders, unitHeads, unitMembers, type OrganizationSnapshot } from './organization.js';
 
 /** Những gì cần để giải luật người duyệt của một bước thành người cụ thể. */
 export interface ApproverContext {
   readonly organization: OrganizationSnapshot;
-  /** Người có quyền chỉ đạo (`correspondence.letter.direct`). */
+  /** Người có quyền lãnh đạo (`correspondence.letter.direct`). */
   readonly leaders: readonly { readonly userId: string; readonly name: string }[];
-  readonly directorUserId?: string;
-  readonly assignedUnitIds: readonly string[];
+  /** Phòng ban xử lý (công văn đến) hay phòng ban soạn thảo (công văn đi). */
+  readonly handlingUnitIds: readonly string[];
   /** Người đã được chọn cho bước có luật `choose`. */
   readonly chosenUserId?: string;
 }
@@ -46,16 +43,14 @@ export function chooseCandidates(rule: ApproverRule, context: ApproverContext): 
       : ids.flatMap((unitId) => unitMembers(organization, unitId));
   const byUser = new Map<string, Candidate>();
   for (const member of members) {
-    if (!byUser.has(member.userId)) {
-      byUser.set(member.userId, { userId: member.userId, name: member.name, detail: member.positionName });
-    }
+    if (!byUser.has(member.userId)) byUser.set(member.userId, { userId: member.userId, name: member.name, detail: member.positionName });
   }
   return [...byUser.values()].sort((left, right) => left.name.localeCompare(right.name, 'vi'));
 }
 
 /**
- * Người được giao một bước. Luật `choose` cần người đã chọn (và người đó phải thuộc
- * nhóm); trả mảng rỗng khi sơ đồ tổ chức không có ai khớp, để nơi gọi báo rõ.
+ * Người được giao một bước. Luật `choose` cần người đã chọn (và người đó phải thuộc nhóm);
+ * trả mảng rỗng khi sơ đồ tổ chức không có ai khớp, để nơi gọi báo rõ.
  */
 export function resolveAssignees(rule: ApproverRule, context: ApproverContext): string[] {
   const organization = context.organization;
@@ -71,68 +66,25 @@ export function resolveAssignees(rule: ApproverRule, context: ApproverContext): 
       return positionHolders(organization, rule.positionIds);
     case 'unit_heads':
       return [...new Set(rule.unitIds.flatMap((unitId) => unitHeads(organization, unitId)))];
-    case 'assigned_unit_heads':
-      return [...new Set(context.assignedUnitIds.flatMap((unitId) => unitHeads(organization, unitId)))];
-    case 'director':
-      return context.directorUserId ? [context.directorUserId] : [];
+    case 'handling_unit_heads':
+      return [...new Set(context.handlingUnitIds.flatMap((unitId) => unitHeads(organization, unitId)))];
     default:
       return [];
   }
 }
 
-/** Mô tả luật bằng tiếng Việt, để hiện trong cấu hình và trên bước của công văn. */
-export function describeRule(rule: ApproverRule, organization: OrganizationSnapshot): string {
-  const names = (ids: readonly string[]) =>
-    ids.map((id) => organization.nodes.find((node) => node.id === id)?.name ?? 'không còn trong sơ đồ').join(', ');
-  switch (rule.type) {
-    case 'choose':
-      return rule.pool === 'leaders'
-        ? 'Người trình chọn một lãnh đạo có quyền chỉ đạo'
-        : `Người trình chọn trong ${rule.pool === 'positions' ? 'chức danh' : 'phòng ban'}: ${names(rule.ids ?? [])}`;
-    case 'users':
-      return `Người được chỉ định (${rule.userIds.length})`;
-    case 'positions':
-      return `Người giữ chức danh: ${names(rule.positionIds)}`;
-    case 'unit_heads':
-      return `Trưởng đơn vị: ${names(rule.unitIds)}`;
-    case 'assigned_unit_heads':
-      return 'Trưởng các phòng ban được giao xử lý';
-    case 'director':
-      return 'Người đã chỉ đạo';
-    default:
-      return '';
-  }
-}
-
 /* ------------------------------------------------------------- kiểm cấu hình */
 
-const RULE_TYPES = ['choose', 'users', 'positions', 'unit_heads', 'assigned_unit_heads', 'director'] as const;
-
-/**
- * Kiểm và chuẩn hoá các bước của một quy trình: 1–10 bước, đúng một bước chỉ đạo, luật
- * người duyệt hợp lệ; luật dựa vào kết quả chỉ đạo chỉ đặt sau bước chỉ đạo.
- */
+/** Kiểm và chuẩn hoá các bước duyệt của một quy trình: 0–10 bước, luật người duyệt hợp lệ. */
 export function normalizeSteps(input: unknown): WorkflowStep[] {
-  if (!Array.isArray(input) || input.length === 0) {
-    throw new CorrespondenceValidationError('Quy trình cần ít nhất một bước.');
-  }
+  if (!Array.isArray(input)) throw new CorrespondenceValidationError('Danh sách bước duyệt không hợp lệ.');
   if (input.length > MAX_WORKFLOW_STEPS) {
-    throw new CorrespondenceValidationError(`Quy trình tối đa ${MAX_WORKFLOW_STEPS} bước.`);
+    throw new CorrespondenceValidationError(`Quy trình tối đa ${MAX_WORKFLOW_STEPS} bước duyệt.`);
   }
   const steps = input.map((raw, index) => normalizeStep(raw, index));
-  const directIndex = steps.findIndex((step) => step.kind === 'direct');
-  if (directIndex < 0 || steps.filter((step) => step.kind === 'direct').length !== 1) {
-    throw new CorrespondenceValidationError('Quy trình phải có đúng một bước chỉ đạo (giao phòng ban xử lý).');
+  if (new Set(steps.map((step) => step.key)).size !== steps.length) {
+    throw new CorrespondenceValidationError('Mã các bước không được trùng nhau.');
   }
-  steps.forEach((step, index) => {
-    if (index <= directIndex && (step.approver.type === 'assigned_unit_heads' || step.approver.type === 'director')) {
-      throw new CorrespondenceValidationError(
-        `Bước "${step.name}" dùng người được giao hay người đã chỉ đạo nên phải đặt sau bước chỉ đạo.`,
-      );
-    }
-  });
-  const keys = new Set(steps.map((step) => step.key));
-  if (keys.size !== steps.length) throw new CorrespondenceValidationError('Mã các bước không được trùng nhau.');
   return steps;
 }
 
@@ -141,14 +93,23 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
   const name = String(value['name'] ?? '').trim();
   if (!name) throw new CorrespondenceValidationError(`Bước ${index + 1} chưa có tên.`);
   if (name.length > 160) throw new CorrespondenceValidationError(`Tên bước ${index + 1} dài quá 160 ký tự.`);
-  const kind = value['kind'] === 'direct' ? 'direct' : value['kind'] === 'approve' ? 'approve' : undefined;
-  if (!kind) throw new CorrespondenceValidationError(`Bước "${name}" chưa chọn loại bước.`);
-  const key = String(value['key'] ?? '').trim() || `step-${index + 1}`;
-  const dueDays = value['dueDays'] === undefined || value['dueDays'] === null || value['dueDays'] === '' ? undefined : Number(value['dueDays']);
+  const key = (String(value['key'] ?? '').trim() || `step-${index + 1}`).slice(0, 60);
+  const rawDue = value['dueDays'];
+  const dueDays = rawDue === undefined || rawDue === null || rawDue === '' ? undefined : Number(rawDue);
   if (dueDays !== undefined && (!Number.isInteger(dueDays) || dueDays < 0 || dueDays > 365)) {
     throw new CorrespondenceValidationError(`Số ngày của bước "${name}" phải từ 0 đến 365.`);
   }
-  return { key: key.slice(0, 60), name, kind, approver: normalizeRule(value['approver'], name), ...(dueDays !== undefined ? { dueDays } : {}) };
+  const rejectTo = value['rejectTo'];
+  if (rejectTo !== undefined && rejectTo !== null && rejectTo !== '' && !(RETURN_TARGETS as readonly unknown[]).includes(rejectTo)) {
+    throw new CorrespondenceValidationError(`Bước "${name}": nơi trả về khi không đạt không hợp lệ.`);
+  }
+  return {
+    key,
+    name,
+    approver: normalizeRule(value['approver'], name),
+    ...(rejectTo ? { rejectTo: rejectTo as ReturnTarget } : {}),
+    ...(dueDays !== undefined ? { dueDays } : {}),
+  };
 }
 
 function ids(value: unknown, label: string, stepName: string): string[] {
@@ -160,7 +121,7 @@ function ids(value: unknown, label: string, stepName: string): string[] {
 
 export function normalizeRule(raw: unknown, stepName: string): ApproverRule {
   const value = (raw ?? {}) as Record<string, unknown>;
-  const type = String(value['type'] ?? '') as (typeof RULE_TYPES)[number];
+  const type = String(value['type'] ?? '');
   switch (type) {
     case 'choose': {
       const pool = value['pool'];
@@ -175,9 +136,10 @@ export function normalizeRule(raw: unknown, stepName: string): ApproverRule {
       return { type, positionIds: ids(value['positionIds'], 'chức danh', stepName) };
     case 'unit_heads':
       return { type, unitIds: ids(value['unitIds'], 'đơn vị', stepName) };
+    // Tên cũ của luật trước khi tách hai luồng.
     case 'assigned_unit_heads':
-    case 'director':
-      return { type };
+    case 'handling_unit_heads':
+      return { type: 'handling_unit_heads' };
     default:
       throw new CorrespondenceValidationError(`Bước "${stepName}" chưa chọn cách xác định người duyệt.`);
   }

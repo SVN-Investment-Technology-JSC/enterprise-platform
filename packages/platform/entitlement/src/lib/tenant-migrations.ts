@@ -119,6 +119,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
   // Văn thư: công văn đến, phòng ban xử lý, phát hành, lưu trữ (tệp nằm ở Hệ dùng chung).
   correspondence: [
     { version: '0001-correspondence', path: 'tenant/correspondence/0001-correspondence.sql' },
+    { version: '0002-incoming-outgoing-flows', path: 'tenant/correspondence/0002-incoming-outgoing-flows.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [

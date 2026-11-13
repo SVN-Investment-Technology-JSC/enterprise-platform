@@ -1146,15 +1146,26 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
-  // Văn thư: người nhận ghi sẵn trong payload (`recipientUserIds`: người được giao bước duyệt theo quy trình cấu hình, văn
-  // thư tiếp nhận, người đã tham gia). Mỗi lần chuyển bước là một thông báo riêng, nên khoá nguồn gồm id sự kiện.
+  // Văn thư: người nhận ghi sẵn trong payload (`recipientUserIds`: người được giao bước duyệt theo quy trình cấu hình,
+  // nhân sự phòng ban được giao hay người xử lý được phân công, người được nhắc tên, người đã tham gia), cộng người giữ
+  // quyền trong `notifyPermissions` (văn thư tiếp nhận, ban hành, lưu trữ) khi việc tiếp theo là của văn thư. Mỗi lần
+  // chuyển bước là một thông báo riêng, nên khoá nguồn gồm id sự kiện. Các loại của luồng cũ (`archive-requested`,
+  // `archived`, `revision-requested`) giữ lại cho sự kiện còn trong outbox.
   ...(
     [
-      ['correspondence.letter.step-assigned', 'approval', 'actionable', 'Công văn chờ bạn xử lý'],
+      ['correspondence.letter.assigned', 'assignment', 'actionable', 'Phòng bạn được giao xử lý công văn'],
+      ['correspondence.letter.handler-assigned', 'assignment', 'actionable', 'Bạn được phân công xử lý công văn'],
+      ['correspondence.letter.sent-to-clerk', 'assignment', 'actionable', 'Công văn đi chờ văn thư kiểm tra'],
+      ['correspondence.letter.step-assigned', 'approval', 'actionable', 'Công văn chờ bạn duyệt'],
       ['correspondence.letter.returned', 'assignment', 'actionable', 'Công văn bị trả lại'],
-      ['correspondence.letter.approved', 'result', 'actionable', 'Công văn đã duyệt xong, chờ phát hành'],
+      ['correspondence.letter.approved', 'result', 'actionable', 'Công văn đã duyệt xong'],
+      ['correspondence.letter.completed', 'result', 'informational', 'Công văn đã hoàn tất, lưu trữ'],
+      ['correspondence.letter.published', 'result', 'informational', 'Công văn đi đã ban hành'],
+      ['correspondence.letter.cancelled', 'result', 'informational', 'Công văn đã bị huỷ'],
+      ['correspondence.letter.mentioned', 'mention', 'actionable', 'Bạn được nhắc tên trong công văn'],
+      ['correspondence.letter.commented', 'comment', 'informational', 'Trao đổi mới trong công văn'],
+      ['correspondence.letter.revision-requested', 'assignment', 'actionable', 'Văn bản phản hồi cần sửa lại'],
       ['correspondence.letter.archive-requested', 'assignment', 'actionable', 'Công văn chờ lưu trữ'],
-      ['correspondence.letter.published', 'result', 'informational', 'Công văn đi đã phát hành'],
       ['correspondence.letter.archived', 'result', 'informational', 'Hồ sơ công văn đã lưu trữ'],
     ] as const
   ).map(([eventType, category, priority, title]) =>
@@ -1163,35 +1174,11 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       module: 'correspondence',
       category,
       priority,
-      recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+      recipients: { kind: 'permissions-in-payload', field: 'notifyPermissions', userFields: ['recipientUserIds'] },
       actorField: 'actorUserId',
       template: ({ payload, event }) => ({
         title,
         body: text(payload, 'summary', 'Công văn có cập nhật mới.'),
-        deepLink: text(payload, 'deepLink', '/modules/correspondence'),
-        sourceType: 'correspondence_letter',
-        sourceId: `${id(payload, 'letterId')}:${eventType}:${event.id}`,
-      }),
-    }),
-  ),
-  // Văn thư giao phòng ban xử lý hoặc yêu cầu phòng ban sửa dự thảo: các phòng đi kèm dưới dạng vai của đơn vị
-  // (`assignments`), worker giải ra người phụ trách đơn vị như bước quy trình giao cho đơn vị; cộng người đã gửi phản hồi.
-  ...(
-    [
-      ['correspondence.letter.assigned', 'Phòng bạn được giao xử lý công văn'],
-      ['correspondence.letter.revision-requested', 'Văn bản phản hồi cần sửa lại'],
-    ] as const
-  ).map(([eventType, title]) =>
-    directPolicy({
-      eventType,
-      module: 'correspondence',
-      category: 'assignment',
-      priority: 'actionable',
-      recipients: { kind: 'procedure-assignments', userFields: ['recipientUserIds'], assignmentsField: 'assignments' },
-      actorField: 'actorUserId',
-      template: ({ payload, event }) => ({
-        title,
-        body: text(payload, 'summary', 'Công văn cần phòng bạn xử lý.'),
         deepLink: text(payload, 'deepLink', '/modules/correspondence'),
         sourceType: 'correspondence_letter',
         sourceId: `${id(payload, 'letterId')}:${eventType}:${event.id}`,

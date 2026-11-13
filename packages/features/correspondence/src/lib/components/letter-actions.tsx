@@ -1,29 +1,33 @@
 'use client';
 
-import type {
-  CorrespondenceConfig,
-  CorrespondenceDirectory,
-  LetterDetail,
-  StepChoice,
+import {
+  DELIVERY_STATUSES,
+  DELIVERY_STATUS_LABELS,
+  returnTargetLabel,
+  type CorrespondenceConfig,
+  type CorrespondenceDirectory,
+  type DeliveryStatus,
+  type LetterDetail,
+  type ReturnTarget,
+  type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { CheckCircle2, Undo2, X, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
-  archiveLetter,
   cancelLetter,
-  classifyLetter,
-  closeForInfo,
-  directLetter,
+  completeLetter,
+  dispatchLetter,
   errorMessage,
   loadStepChoice,
   publishLetter,
-  requestRevision,
   returnLetter,
+  sendToClerk,
   submitLetter,
+  updateDelivery,
 } from '../correspondence-api';
-import { catalogOptions, formatDay, localToday } from '../correspondence.model';
+import { catalogOptions, formatDay, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { Field, SelectField } from './form-dialog';
 
@@ -54,21 +58,20 @@ function useRunner(onDone: ActionProps['onDone']) {
 
 /**
  * Người duyệt của bước sắp bắt đầu khi bước đó để người thao tác chọn (luật "chọn trong
- * nhóm" của quy trình). Không cần chọn thì không hiện gì và báo `null`.
+ * nhóm" của quy trình). Không cần chọn thì `null`; đang tải thì `undefined`.
  */
-function useStepChoice(letterId: string, workflowId?: string, enabled = true) {
+function useStepChoice(letterId: string, kind?: string) {
   const [choice, setChoice] = useState<StepChoice | null>();
   useEffect(() => {
-    if (!enabled) return undefined;
     let active = true;
     setChoice(undefined);
-    loadStepChoice(letterId, workflowId)
+    loadStepChoice(letterId, kind)
       .then((next) => active && setChoice(next))
       .catch(() => active && setChoice(null));
     return () => {
       active = false;
     };
-  }, [letterId, workflowId, enabled]);
+  }, [letterId, kind]);
   return choice;
 }
 
@@ -83,11 +86,11 @@ function ChoiceField({
 }) {
   if (!choice) return null;
   return (
-    <SelectField label={`Người thực hiện bước "${choice.stepName}"`} required>
+    <SelectField label={`Người duyệt bước "${choice.stepName}"`} required>
       <SearchableSelect
         options={choice.candidates.map((candidate) => ({ value: candidate.userId, label: candidate.name, description: candidate.detail }))}
         value={value}
-        placeholder="Chọn người"
+        placeholder="Chọn người duyệt"
         emptyText="Nhóm người của bước này đang trống. Kiểm cấu hình quy trình, sơ đồ tổ chức hoặc phân quyền."
         onChange={onChange}
       />
@@ -95,9 +98,9 @@ function ChoiceField({
   );
 }
 
-function Panel({ title, done = false, children }: { readonly title: string; readonly done?: boolean; readonly children: ReactNode }) {
+function Panel({ title, tone, children }: { readonly title: string; readonly tone?: 'done' | 'muted'; readonly children: ReactNode }) {
   return (
-    <section className={done ? `${styles.action} ${styles.actionDone}` : styles.action}>
+    <section className={`${styles.action} ${tone === 'done' ? styles.actionDone : tone === 'muted' ? styles.actionMuted : ''}`}>
       <h3>{title}</h3>
       {children}
     </section>
@@ -112,75 +115,81 @@ function ErrorLine({ error }: { readonly error?: string }) {
   ) : null;
 }
 
+/** Các bước duyệt sẽ áp dụng, đọc theo cấu hình; người dùng không chọn quy trình. */
+function PlannedSteps({ config, letter, kind }: { readonly config: CorrespondenceConfig; readonly letter: LetterDetail; readonly kind: string }) {
+  const workflow = plannedWorkflow(config, letter.direction, kind);
+  if (!workflow) {
+    return <p className={styles.notice}>Chưa có quy trình duyệt đang dùng cho luồng này. Nhờ người quản trị vào Cấu hình đặt quy trình mặc định.</p>;
+  }
+  return (
+    <p className={styles.plan}>
+      <span>Bước duyệt tiếp theo (theo cấu hình):</span>{' '}
+      {workflow.steps.length > 0 ? workflow.steps.map((step) => step.name).join(' → ') : 'không cần duyệt'}
+    </p>
+  );
+}
+
 /** Ô thao tác của bước hiện tại, theo đúng quyền người xem có ở bước đó. */
 export function LetterActionPanel(props: ActionProps) {
   const { letter, onDirtyChange } = props;
   const actions = letter.actions;
   useEffect(() => onDirtyChange(false), [letter.stage, letter.currentStepName, onDirtyChange]);
 
-  if (letter.stage === 'archived') {
-    return (
-      <Panel title="Hồ sơ đã lưu trữ" done>
-        <p className={styles.muted} style={{ margin: 0 }}>
-          Số lưu trữ {letter.archiveCode}, ngày {formatDay(letter.archivedOn)}. Tệp của hồ sơ nằm trong kho tài liệu của
-          Hệ dùng chung, thư mục Văn thư.
-        </p>
-        {letter.sharedFolderId ? (
-          <p style={{ margin: '8px 0 0' }}>
-            <a className={styles.buttonLink} href={`/modules/shared#library/${encodeURIComponent(letter.sharedFolderId)}`}>
-              Mở thư mục hồ sơ trong Hệ dùng chung
-            </a>
-          </p>
-        ) : null}
-      </Panel>
-    );
-  }
+  if (letter.stage === 'archived') return <ArchivedPanel {...props} />;
   if (letter.stage === 'cancelled') {
     return (
-      <Panel title="Công văn đã huỷ khỏi sổ">
+      <Panel title="Công văn đã huỷ" tone="muted">
         <p className={styles.muted} style={{ margin: 0 }}>
           Lý do: {letter.cancelReason}
         </p>
       </Panel>
     );
   }
-  if (actions.classify) return <ClassifyForm {...props} />;
+  if (actions.dispatch) return <DispatchForm {...props} />;
+  if (actions.sendToClerk) return <SendToClerkForm {...props} />;
   if (actions.submit) return <SubmitForm {...props} />;
-  if (actions.direct) return <DirectForm {...props} />;
   if (actions.approve) return <ApproveForm {...props} />;
+  if (actions.complete) return <CompleteForm {...props} />;
   if (actions.publish) return <PublishForm {...props} />;
-  if (actions.archive) return <ArchiveForm {...props} />;
-  return <WaitingNote letter={letter} />;
+  return <WaitingNote {...props} />;
 }
 
-function WaitingNote({ letter }: { readonly letter: LetterDetail }) {
+function WaitingNote({ letter, onDone }: ActionProps) {
   const pending = letter.assignments.filter((item) => item.status === 'pending');
   const who = letter.currentAssigneeNames.join(', ') || 'người được giao';
   const text = (() => {
     switch (letter.stage) {
       case 'received':
-      case 'registered':
-        return 'Văn thư đang phân loại và trình duyệt.';
-      case 'reviewing':
-      case 'directing':
-        return `Bước "${letter.currentStepName ?? ''}" đang chờ ${who}.`;
+        return 'Văn thư đang phân loại và giao phòng ban xử lý.';
       case 'processing':
         return pending.length > 0
-          ? `Đang chờ ${pending.map((item) => item.unitName).join(', ')} gửi văn bản phản hồi.`
-          : 'Các phòng ban đã phản hồi đủ.';
-      case 'publishing':
-        return 'Đã duyệt xong, đang chờ cấp số và phát hành.';
+          ? `Đang chờ ${pending.map((item) => (item.handlerName ? `${item.unitName} (${item.handlerName})` : item.unitName)).join(', ')} gửi kết quả.`
+          : 'Các phòng ban đã gửi đủ kết quả.';
+      case 'drafting':
+        return `${letter.authorName ?? 'Người soạn'} đang soạn thảo.`;
+      case 'checking':
+        return 'Văn thư đang kiểm tra thể thức.';
+      case 'reviewing':
+        return `Bước "${letter.currentStepName ?? ''}" đang chờ ${who}.`;
       case 'closing':
-        return 'Đang chờ đóng hồ sơ để lưu trữ.';
+        return 'Đã duyệt xong, chờ văn thư hoàn tất và lưu trữ.';
+      case 'publishing':
+        return 'Đã duyệt xong, chờ văn thư đánh số và ban hành.';
       default:
         return '';
     }
   })();
   return (
-    <Panel title="Bước hiện tại">
+    <Panel title="Bước hiện tại" tone="muted">
       <p className={styles.muted} style={{ margin: 0 }}>
         {text}
       </p>
+      {letter.actions.returnTargets.length > 0 || letter.actions.cancel ? (
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <ReturnControl letter={letter} onDone={onDone} label="Trả lại văn thư" />
+        </div>
+      ) : null}
     </Panel>
   );
 }
@@ -190,15 +199,15 @@ function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>
   if (!letter.actions.cancel) return null;
   return (
     <Popconfirm
-      title="Huỷ công văn khỏi sổ?"
-      description="Công văn sẽ không đi tiếp trên luồng xử lý. Số đến đã cấp được giữ lại."
+      title="Huỷ công văn?"
+      description="Công văn dừng xử lý, mọi người liên quan được báo. Số đã cấp được giữ lại trong sổ."
       okText="Huỷ công văn"
       cancelText="Không"
       okType="danger"
       reasonRequired
       reasonLabel="Lý do huỷ"
       placement="top"
-      onConfirm={(reason) => run(() => cancelLetter(letter.id, reason ?? ''), 'Đã huỷ công văn khỏi sổ.')}
+      onConfirm={(reason) => run(() => cancelLetter(letter.id, reason ?? ''), 'Đã huỷ công văn.')}
     >
       <button type="button" className={styles.buttonDanger} disabled={busy}>
         Huỷ công văn
@@ -207,42 +216,149 @@ function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>
   );
 }
 
-function ReturnButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>) {
-  const { busy, run } = useRunner(onDone);
-  if (!letter.actions.returnToClerk) return null;
-  return (
-    <Popconfirm
-      title="Trả lại văn thư?"
-      description="Công văn quay về văn thư để trình lại (ví dụ trình nhầm người hay nhầm quy trình)."
-      okText="Trả lại"
-      okType="warning"
-      reasonRequired
-      reasonLabel="Lý do trả lại"
-      placement="top"
-      onConfirm={(reason) => run(() => returnLetter(letter.id, reason ?? ''), 'Đã trả lại văn thư.')}
-    >
-      <button type="button" className={styles.buttonGhost} disabled={busy}>
-        Trả lại văn thư
+/**
+ * "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do.
+ * Mở ngay tại chỗ để người dùng thấy rõ công văn sẽ về đâu.
+ */
+function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }: Pick<ActionProps, 'letter' | 'onDone'> & { readonly label?: string }) {
+  const targets = letter.actions.returnTargets;
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState<ReturnTarget | ''>(letter.actions.defaultReturnTarget ?? targets[0] ?? '');
+  const [reason, setReason] = useState('');
+  const [units, setUnits] = useState<string[]>([]);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => setTarget(letter.actions.defaultReturnTarget ?? targets[0] ?? ''), [letter.actions.defaultReturnTarget, targets]);
+  if (targets.length === 0) return null;
+  if (!open) {
+    return (
+      <button type="button" className={styles.buttonGhost} onClick={() => setOpen(true)}>
+        <Undo2 size={14} /> {label}
       </button>
-    </Popconfirm>
+    );
+  }
+  const toUnits = target === 'handlers' && letter.direction === 'incoming' && letter.assignments.length > 1;
+  return (
+    <div className={styles.returnBox}>
+      <div className={styles.returnHead}>
+        <b>{label}</b>
+        <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={() => setOpen(false)}>
+          <X size={14} />
+        </button>
+      </div>
+      {targets.length > 1 ? (
+        <SelectField label="Trả về" required>
+          <SearchableSelect
+            options={targets.map((value) => ({
+              value,
+              label: returnTargetLabel(value, letter.direction),
+              description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
+            }))}
+            value={target}
+            searchInDropdown
+            hideDropdownSearch
+            onChange={(value) => setTarget(value as ReturnTarget)}
+          />
+        </SelectField>
+      ) : (
+        <p className={styles.muted} style={{ margin: 0, fontSize: 13 }}>
+          Trả về: <b>{returnTargetLabel(targets[0], letter.direction)}</b>
+        </p>
+      )}
+      {toUnits ? (
+        <div className={styles.field} role="group" aria-label="Phòng ban phải làm lại">
+          <span className={styles.fieldLabel}>Phòng ban phải làm lại (bỏ trống là mọi phòng)</span>
+          {letter.assignments.map((item) => (
+            <label key={item.id} className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={units.includes(item.id)}
+                onChange={(event) => setUnits((current) => (event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id)))}
+              />
+              {item.unitName}
+            </label>
+          ))}
+        </div>
+      ) : null}
+      <Field label="Lý do" required>
+        <textarea value={reason} maxLength={4000} rows={2} placeholder="Nêu rõ cần sửa, bổ sung gì" onChange={(event) => setReason(event.target.value)} />
+      </Field>
+      <ErrorLine error={error} />
+      <div className={styles.formActions}>
+        <button type="button" className={styles.buttonGhost} onClick={() => setOpen(false)}>
+          Thôi
+        </button>
+        <button
+          type="button"
+          className={styles.buttonWarning}
+          disabled={busy || !target || !reason.trim()}
+          onClick={() =>
+            target &&
+            run(
+              () => returnLetter(letter.id, { target, reason, assignmentIds: toUnits && units.length > 0 ? units : undefined }),
+              `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`,
+            )
+          }
+        >
+          Xác nhận trả lại
+        </button>
+      </div>
+    </div>
   );
 }
 
-function ClassifyForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
+/* ---------------------------------------------------------------- công văn đến */
+
+interface UnitPick {
+  readonly unitId: string;
+  readonly handlerUserId: string;
+}
+
+/** Văn thư phân loại, chọn phòng ban (cả phòng hay một người xử lý) và giao. */
+function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
   const [kind, setKind] = useState(letter.kind);
   const [urgency, setUrgency] = useState(letter.urgency);
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
-  const { busy, error, run } = useRunner(onDone);
-  useEffect(
-    () => onDirtyChange(kind !== letter.kind || urgency !== letter.urgency || confidentiality !== letter.confidentiality),
-    [kind, urgency, confidentiality, letter, onDirtyChange],
+  const initialUnits = useMemo<UnitPick[]>(
+    () =>
+      letter.assignments.length > 0
+        ? letter.assignments.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId ?? '' }))
+        : (config.catalog.find((item) => item.kind === 'letter_type' && item.code === letter.kind)?.defaultUnitIds ?? []).map((unitId) => ({
+            unitId,
+            handlerUserId: '',
+          })),
+    [letter, config.catalog],
   );
+  const [units, setUnits] = useState<UnitPick[]>(initialUnits);
+  const [dueOn, setDueOn] = useState(letter.dueOn ?? '');
+  const [note, setNote] = useState('');
+  const [assignee, setAssignee] = useState('');
+  const choice = useStepChoice(letter.id, kind);
+  const { busy, error, run } = useRunner(onDone);
+  const mustPickHandler = config.settings.dispatchMode === 'handler';
+  useEffect(
+    () => onDirtyChange(note.trim() !== '' || assignee !== '' || JSON.stringify(units) !== JSON.stringify(initialUnits)),
+    [note, assignee, units, initialUnits, onDirtyChange],
+  );
+  useEffect(() => setAssignee(''), [kind]);
+
+  const changeKind = (value: string) => {
+    setKind(value);
+    // Chưa chọn phòng nào thì gợi ý phòng ban của loại văn bản.
+    if (units.length === 0) {
+      const suggested = config.catalog.find((item) => item.kind === 'letter_type' && item.code === value)?.defaultUnitIds ?? [];
+      setUnits(suggested.map((unitId) => ({ unitId, handlerUserId: '' })));
+    }
+  };
+
+  const all = directory?.units ?? [];
+  const byId = new Map(all.map((unit) => [unit.id, unit]));
+  const missingHandler = mustPickHandler && units.some((unit) => !unit.handlerUserId);
   return (
-    <Panel title="Văn thư: phân loại và vào sổ">
+    <Panel title="Văn thư: phân loại và giao phòng ban xử lý">
       <div className={styles.form}>
-        <div className={styles.formRow}>
+        <div className={styles.formRow3}>
           <SelectField label="Loại văn bản" required>
-            <SearchableSelect options={catalogOptions(config.catalog, 'letter_type', letter.kind)} value={kind} onChange={setKind} />
+            <SearchableSelect options={catalogOptions(config.catalog, 'letter_type', letter.kind)} value={kind} onChange={changeKind} />
           </SelectField>
           <SelectField label="Độ khẩn" required>
             <SearchableSelect
@@ -253,26 +369,105 @@ function ClassifyForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
               onChange={setUrgency}
             />
           </SelectField>
+          <SelectField label="Độ mật">
+            <SearchableSelect
+              options={catalogOptions(config.catalog, 'confidentiality', letter.confidentiality)}
+              value={confidentiality}
+              searchInDropdown
+              hideDropdownSearch
+              onChange={setConfidentiality}
+            />
+          </SelectField>
         </div>
-        <SelectField label="Độ mật">
+        <SelectField label="Phòng ban xử lý" required>
           <SearchableSelect
-            options={catalogOptions(config.catalog, 'confidentiality', letter.confidentiality)}
-            value={confidentiality}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={setConfidentiality}
+            options={all
+              .filter((unit) => !units.some((item) => item.unitId === unit.id))
+              .map((unit) => ({ value: unit.id, label: unit.name, description: [unit.path, `${unit.members.length} người`].filter(Boolean).join(' · ') }))}
+            value=""
+            placeholder="Tìm và thêm phòng ban theo sơ đồ tổ chức"
+            emptyText={directory?.degraded ? 'Chưa đọc được sơ đồ tổ chức, thử lại sau.' : 'Không còn phòng ban nào để thêm.'}
+            onChange={(value) => value && setUnits((current) => [...current, { unitId: value, handlerUserId: '' }])}
           />
         </SelectField>
+        {units.length > 0 ? (
+          <div className={styles.unitPicks}>
+            {units.map((pick) => {
+              const unit = byId.get(pick.unitId);
+              const members = unit?.members ?? [];
+              const heads = members.filter((member) => member.isHead);
+              return (
+                <div key={pick.unitId} className={styles.unitPick}>
+                  <div className={styles.unitPickHead}>
+                    <div className={styles.listMain}>
+                      <b>{unit?.name ?? 'Phòng ban không còn trong sơ đồ'}</b>
+                      <span className={styles.hint}>
+                        {members.length} người · Trưởng đơn vị: {heads.map((member) => member.name).join(', ') || 'chưa có'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label={`Bỏ ${unit?.name ?? 'phòng ban'}`}
+                      onClick={() => setUnits((current) => current.filter((item) => item.unitId !== pick.unitId))}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <SearchableSelect
+                    options={members.map((member) => ({
+                      value: member.userId,
+                      label: member.name,
+                      description: [member.positionName, member.isHead ? 'Trưởng đơn vị' : undefined].filter(Boolean).join(' · ') || undefined,
+                    }))}
+                    value={pick.handlerUserId}
+                    placeholder={mustPickHandler ? 'Chọn người xử lý (bắt buộc)' : 'Cả phòng cùng nhận (hoặc chọn một người xử lý)'}
+                    clearable
+                    emptyText="Phòng chưa có ai trong sơ đồ tổ chức."
+                    onChange={(value) =>
+                      setUnits((current) => current.map((item) => (item.unitId === pick.unitId ? { ...item, handlerUserId: value ?? '' } : item)))
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className={styles.formRow}>
+          <Field label="Hạn xử lý">
+            <input type="date" value={dueOn} min={letter.receivedOn} onChange={(event) => setDueOn(event.target.value)} />
+          </Field>
+          <Field label="Ghi chú cho phòng ban">
+            <input value={note} maxLength={4000} placeholder="Yêu cầu, lưu ý khi xử lý" onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
+        <PlannedSteps config={config} letter={letter} kind={kind} />
+        <ChoiceField choice={choice} value={assignee} onChange={setAssignee} />
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <CancelButton letter={letter} onDone={onDone} />
           <button
             type="button"
             className={styles.buttonPrimary}
-            disabled={busy || !kind || !urgency}
-            onClick={() => run(() => classifyLetter(letter.id, { kind, urgency, confidentiality }), 'Đã phân loại, vào sổ.')}
+            disabled={busy || !kind || !urgency || units.length === 0 || missingHandler || choice === undefined || (Boolean(choice) && !assignee)}
+            title={missingHandler ? 'Cấu hình yêu cầu chọn một người xử lý cho mỗi phòng' : undefined}
+            onClick={() =>
+              run(
+                () =>
+                  dispatchLetter(letter.id, {
+                    kind,
+                    urgency,
+                    confidentiality,
+                    units: units.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId || undefined })),
+                    dueOn: dueOn || undefined,
+                    note: note || undefined,
+                    assigneeUserId: assignee || undefined,
+                  }),
+                `Đã giao ${units.length} phòng ban xử lý.`,
+              )
+            }
           >
-            Phân loại và vào sổ
+            Giao xử lý
           </button>
         </div>
       </div>
@@ -280,38 +475,73 @@ function ClassifyForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   );
 }
 
+function CompleteForm({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  return (
+    <Panel title="Văn thư: hoàn tất và lưu trữ">
+      <div className={styles.form}>
+        <p className={styles.muted} style={{ margin: 0 }}>
+          Phòng ban đã xử lý và lãnh đạo đã duyệt. Kiểm kết quả ở mục Phòng ban xử lý; hoàn tất để cấp số hồ sơ, ghi lên thư
+          mục hồ sơ trong kho lưu trữ.
+        </p>
+        <Field label="Ghi chú hoàn tất">
+          <textarea value={note} maxLength={4000} rows={2} placeholder="Ví dụ: đã gửi văn bản trả lời số …" onChange={(event) => setNote(event.target.value)} />
+        </Field>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <ReturnControl letter={letter} onDone={onDone} />
+          <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => completeLetter(letter.id, note || undefined), 'Đã hoàn tất, lưu trữ hồ sơ.')}>
+            Hoàn tất, lưu trữ
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- công văn đi */
+
+function SendToClerkForm({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  const drafts = letter.attachments.filter((item) => item.kind === 'draft').length;
+  return (
+    <Panel title="Soạn thảo: gửi văn thư kiểm tra">
+      <div className={styles.form}>
+        <p className={styles.muted} style={{ margin: 0 }}>
+          {drafts > 0 ? `Đã có ${drafts} tệp dự thảo.` : 'Tải tệp dự thảo ở mục Tệp của hồ sơ trước khi gửi.'} Văn thư kiểm tra thể thức
+          rồi trình duyệt theo quy trình cấu hình.
+        </p>
+        <Field label="Ghi chú cho văn thư">
+          <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
+        </Field>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => sendToClerk(letter.id, note || undefined), 'Đã gửi văn thư kiểm tra.')}>
+            Gửi văn thư kiểm tra
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** Văn thư kiểm tra thể thức: đạt thì trình duyệt theo quy trình cấu hình, không đạt thì trả người soạn. */
 function SubmitForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
-  const typeWorkflow = config.catalog.find((item) => item.kind === 'letter_type' && item.code === letter.kind)?.workflowId;
-  const active = config.workflows.filter((workflow) => workflow.isActive);
-  const initial = active.find((workflow) => workflow.id === typeWorkflow)?.id ?? active.find((workflow) => workflow.isDefault)?.id ?? active[0]?.id ?? '';
-  const [workflowId, setWorkflowId] = useState(initial);
   const [assignee, setAssignee] = useState('');
   const [note, setNote] = useState('');
-  const choice = useStepChoice(letter.id, workflowId || undefined, Boolean(workflowId));
+  const choice = useStepChoice(letter.id);
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || assignee !== ''), [note, assignee, onDirtyChange]);
-  useEffect(() => setAssignee(''), [workflowId]);
-  const workflow = active.find((item) => item.id === workflowId);
+  const workflow = plannedWorkflow(config, 'outgoing', letter.kind);
   return (
-    <Panel title="Văn thư: trình duyệt">
+    <Panel title="Văn thư: kiểm tra thể thức">
       <div className={styles.form}>
-        <SelectField label="Quy trình duyệt" required>
-          <SearchableSelect
-            options={active.map((item) => ({
-              value: item.id,
-              label: item.name,
-              description: item.steps.map((step) => step.name).join(' → '),
-            }))}
-            value={workflowId}
-            emptyText="Chưa có quy trình duyệt đang dùng. Vào Cấu hình để tạo."
-            onChange={setWorkflowId}
-          />
-        </SelectField>
-        {workflow ? (
-          <p className={styles.muted} style={{ margin: 0, fontSize: 12.5 }}>
-            Các bước: {workflow.steps.map((step) => step.name).join(' → ')}
-          </p>
-        ) : null}
+        <PlannedSteps config={config} letter={letter} kind={letter.kind} />
         <ChoiceField choice={choice} value={assignee} onChange={setAssignee} />
         <Field label="Ghi chú khi trình">
           <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
@@ -319,188 +549,19 @@ function SubmitForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <CancelButton letter={letter} onDone={onDone} />
+          <ReturnControl letter={letter} onDone={onDone} label="Không đạt, trả người soạn" />
           <button
             type="button"
             className={styles.buttonPrimary}
-            disabled={busy || !workflowId || choice === undefined || (Boolean(choice) && !assignee)}
+            disabled={busy || !workflow || choice === undefined || (Boolean(choice) && !assignee)}
             onClick={() =>
               run(
-                () => submitLetter(letter.id, { workflowId, assigneeUserId: assignee || undefined, note: note || undefined }),
-                'Đã trình duyệt.',
+                () => submitLetter(letter.id, { assigneeUserId: assignee || undefined, note: note || undefined }),
+                workflow && workflow.steps.length > 0 ? 'Đã trình duyệt.' : 'Đã chuyển ban hành.',
               )
             }
           >
-            Trình duyệt
-          </button>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-function DirectForm({ letter, directory, onDone, onDirtyChange }: ActionProps) {
-  const [unitIds, setUnitIds] = useState<string[]>([]);
-  const [instruction, setInstruction] = useState('Các phòng liên quan nghiên cứu, soạn dự thảo phản hồi và gửi lại đúng hạn.');
-  const [dueOn, setDueOn] = useState(letter.dueOn ?? '');
-  const [next, setNext] = useState('');
-  const choice = useStepChoice(letter.id);
-  const { busy, error, run } = useRunner(onDone);
-  useEffect(() => onDirtyChange(unitIds.length > 0 || next !== ''), [unitIds, next, onDirtyChange]);
-  const units = directory?.units ?? [];
-  const byId = new Map(units.map((unit) => [unit.id, unit]));
-  return (
-    <Panel title={`${letter.currentStepName ?? 'Chỉ đạo'}: giao phòng ban xử lý`}>
-      <div className={styles.form}>
-        <SelectField label="Phòng ban xử lý" required>
-          <SearchableSelect
-            options={units
-              .filter((unit) => !unitIds.includes(unit.id))
-              .map((unit) => ({
-                value: unit.id,
-                label: unit.name,
-                description: [unit.path, `${unit.members.length} người`].filter(Boolean).join(' · '),
-              }))}
-            value=""
-            placeholder="Tìm và thêm phòng ban theo sơ đồ tổ chức"
-            emptyText={directory?.degraded ? 'Chưa đọc được sơ đồ tổ chức, thử lại sau.' : 'Không còn phòng ban nào để thêm.'}
-            onChange={(value) => value && setUnitIds((current) => [...current, value])}
-          />
-        </SelectField>
-        {unitIds.length > 0 ? (
-          <div className={styles.list}>
-            {unitIds.map((unitId) => {
-              const unit = byId.get(unitId);
-              const heads = unit?.members.filter((member) => member.isHead) ?? [];
-              return (
-                <div key={unitId} className={styles.listRow}>
-                  <div className={styles.listMain}>
-                    <b>{unit?.name ?? unitId}</b>
-                    <span className={styles.hint}>
-                      Trưởng đơn vị: {heads.map((member) => member.name).join(', ') || 'chưa có (giao cho đơn vị cấp trên)'}
-                    </span>
-                    <span className={styles.hint}>
-                      Thành viên: {unit?.members.map((member) => member.name).join(', ') || 'chưa có ai trong sơ đồ tổ chức'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    aria-label={`Bỏ ${unit?.name ?? 'phòng ban'}`}
-                    onClick={() => setUnitIds((current) => current.filter((id) => id !== unitId))}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
-        <Field label="Ý kiến chỉ đạo" required>
-          <textarea value={instruction} maxLength={4000} rows={3} onChange={(event) => setInstruction(event.target.value)} />
-        </Field>
-        <Field label="Hạn xử lý">
-          <input type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} />
-        </Field>
-        <ChoiceField choice={choice} value={next} onChange={setNext} />
-        <ErrorLine error={error} />
-        <div className={styles.formActions}>
-          <ReturnButton letter={letter} onDone={onDone} />
-          <Popconfirm
-            title="Lưu để biết?"
-            description="Không cần phòng ban phản hồi; bỏ các bước còn lại, công văn chuyển sang chờ lưu trữ. Ý kiến chỉ đạo ở trên được ghi kèm."
-            okText="Lưu để biết"
-            okType="primary"
-            placement="top"
-            onConfirm={() => run(() => closeForInfo(letter.id, instruction || undefined), 'Đã chuyển sang chờ lưu trữ.')}
-          >
-            <button type="button" className={styles.buttonGhost} disabled={busy}>
-              Lưu để biết
-            </button>
-          </Popconfirm>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            disabled={busy || unitIds.length === 0 || !instruction.trim() || choice === undefined || (Boolean(choice) && !next)}
-            onClick={() =>
-              run(
-                () => directLetter(letter.id, { unitIds, instruction, dueOn: dueOn || undefined, nextAssigneeUserId: next || undefined }),
-                `Đã giao ${unitIds.length} phòng ban xử lý.`,
-              )
-            }
-          >
-            Giao nhiệm vụ
-          </button>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-/** Bước xem xét (trước chỉ đạo) hay duyệt văn bản phản hồi (sau chỉ đạo) đang chờ người xem. */
-function ApproveForm({ letter, onDone, onDirtyChange }: ActionProps) {
-  const [note, setNote] = useState('');
-  const [next, setNext] = useState('');
-  const [revise, setRevise] = useState<string[]>(letter.assignments.map((item) => item.id));
-  const choice = useStepChoice(letter.id);
-  const { busy, error, run } = useRunner(onDone);
-  useEffect(() => onDirtyChange(note.trim() !== '' || next !== ''), [note, next, onDirtyChange]);
-  const afterDirect = letter.actions.requestRevision;
-  return (
-    <Panel title={letter.currentStepName ?? 'Duyệt'}>
-      <div className={styles.form}>
-        {afterDirect ? (
-          <p className={styles.muted} style={{ margin: 0 }}>
-            Phản hồi từ: {letter.assignments.map((item) => item.unitName).join(', ')}. Xem nội dung và dự thảo ở mục Phòng ban xử
-            lý bên dưới.
-          </p>
-        ) : null}
-        <Field label={afterDirect ? 'Ý kiến duyệt hoặc nội dung cần sửa' : 'Ý kiến'}>
-          <textarea value={note} maxLength={4000} rows={3} onChange={(event) => setNote(event.target.value)} />
-        </Field>
-        <ChoiceField choice={choice} value={next} onChange={setNext} />
-        {afterDirect && letter.assignments.length > 1 ? (
-          <div className={styles.field} role="group" aria-label="Phòng ban cần sửa">
-            <span className={styles.fieldLabel}>Phòng ban cần sửa (khi yêu cầu chỉnh sửa)</span>
-            {letter.assignments.map((item) => (
-              <label key={item.id} className={styles.checkRow}>
-                <input
-                  type="checkbox"
-                  checked={revise.includes(item.id)}
-                  onChange={(event) =>
-                    setRevise((current) => (event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id)))
-                  }
-                />
-                {item.unitName}
-              </label>
-            ))}
-          </div>
-        ) : null}
-        <ErrorLine error={error} />
-        <div className={styles.formActions}>
-          <ReturnButton letter={letter} onDone={onDone} />
-          {afterDirect ? (
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              disabled={busy || !note.trim() || revise.length === 0}
-              title={!note.trim() ? 'Ghi nội dung cần sửa vào ô ở trên' : undefined}
-              onClick={() => run(() => requestRevision(letter.id, { reason: note, assignmentIds: revise }), 'Đã trả phòng ban để sửa.')}
-            >
-              Yêu cầu chỉnh sửa
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            disabled={busy || choice === undefined || (Boolean(choice) && !next)}
-            onClick={() =>
-              run(
-                () => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }),
-                afterDirect ? 'Đã duyệt.' : 'Đã đồng ý, chuyển bước tiếp theo.',
-              )
-            }
-          >
-            {afterDirect ? 'Duyệt' : 'Đồng ý, chuyển tiếp'}
+            {workflow && workflow.steps.length === 0 ? 'Đạt, chuyển ban hành' : 'Đạt, trình duyệt'}
           </button>
         </div>
       </div>
@@ -509,33 +570,51 @@ function ApproveForm({ letter, onDone, onDirtyChange }: ActionProps) {
 }
 
 function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
-  const [recipient, setRecipient] = useState(letter.senderOrg);
+  const [recipient, setRecipient] = useState(letter.recipient ?? '');
   const [publishedOn, setPublishedOn] = useState(localToday());
+  const [deliveryMethod, setDeliveryMethod] = useState('');
+  const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
-  useEffect(() => onDirtyChange(recipient !== letter.senderOrg), [recipient, letter, onDirtyChange]);
+  useEffect(
+    () => onDirtyChange(recipient !== (letter.recipient ?? '') || deliveryMethod.trim() !== '' || note.trim() !== ''),
+    [recipient, deliveryMethod, note, letter, onDirtyChange],
+  );
+  const signed = letter.attachments.some((item) => item.kind === 'outgoing');
   return (
-    <Panel title="Văn thư: cấp số và phát hành">
+    <Panel title="Văn thư: đánh số, ban hành">
       <div className={styles.form}>
-        <p className={styles.muted} style={{ margin: 0 }}>
-          Tải bản đã ký lên mục Tệp của hồ sơ (loại Bản phát hành) trước hoặc sau khi cấp số.
-        </p>
+        {!signed ? <p className={styles.notice}>Chưa có bản ban hành đã ký. Tải ở mục Tệp của hồ sơ (trước hoặc sau khi đánh số).</p> : null}
         <div className={styles.formRow}>
           <Field label="Nơi nhận" required>
             <input value={recipient} maxLength={255} onChange={(event) => setRecipient(event.target.value)} />
           </Field>
-          <Field label="Ngày phát hành">
+          <Field label="Ngày ban hành">
             <input type="date" value={publishedOn} onChange={(event) => setPublishedOn(event.target.value)} />
+          </Field>
+        </div>
+        <div className={styles.formRow}>
+          <Field label="Hình thức gửi">
+            <input value={deliveryMethod} maxLength={120} placeholder="Bưu điện, thư điện tử, trục liên thông…" onChange={(event) => setDeliveryMethod(event.target.value)} />
+          </Field>
+          <Field label="Ghi chú">
+            <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
           </Field>
         </div>
         <ErrorLine error={error} />
         <div className={styles.formActions}>
+          <ReturnControl letter={letter} onDone={onDone} />
           <button
             type="button"
             className={styles.buttonPrimary}
             disabled={busy || !recipient.trim()}
-            onClick={() => run(() => publishLetter(letter.id, { recipient, publishedOn: publishedOn || undefined }), 'Đã cấp số và phát hành.')}
+            onClick={() =>
+              run(
+                () => publishLetter(letter.id, { recipient, publishedOn: publishedOn || undefined, deliveryMethod: deliveryMethod || undefined, note: note || undefined }),
+                'Đã đánh số, ban hành và lưu trữ.',
+              )
+            }
           >
-            Cấp số và phát hành
+            Đánh số, ban hành
           </button>
         </div>
       </div>
@@ -543,30 +622,157 @@ function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
   );
 }
 
-function ArchiveForm({ letter, onDone, onDirtyChange }: ActionProps) {
+function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [status, setStatus] = useState<DeliveryStatus>(letter.deliveryStatus ?? 'sent');
+  const [deliveredOn, setDeliveredOn] = useState(letter.deliveredOn ?? '');
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
-  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  useEffect(
+    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== (letter.deliveredOn ?? '') || note.trim() !== ''),
+    [status, deliveredOn, note, letter, onDirtyChange],
+  );
   return (
-    <Panel title="Đóng hồ sơ">
-      <div className={styles.form}>
-        <p className={styles.muted} style={{ margin: 0 }}>
-          {letter.outgoingNo ? `Văn bản ${letter.outgoingNo} đã phát hành tới ${letter.recipient}. ` : 'Công văn được cho lưu để biết. '}
-          Đóng hồ sơ để cấp số lưu trữ; số này được ghi lên thư mục hồ sơ trong Hệ dùng chung.
+    <Panel title="Hồ sơ đã lưu trữ" tone="done">
+      <p className={styles.muted} style={{ margin: 0 }}>
+        Số hồ sơ {letter.archiveCode}, ngày {formatDay(letter.archivedOn)}.
+        {letter.outgoingNo ? ` Ban hành số ${letter.outgoingNo} ngày ${formatDay(letter.publishedOn)} gửi ${letter.recipient}.` : ''}
+        {letter.completionNote ? ` ${letter.completionNote}` : ''} Tệp xem ở mục Tệp của hồ sơ hay Kho lưu trữ.
+      </p>
+      {letter.actions.updateDelivery ? (
+        <div className={styles.form}>
+          <div className={styles.formRow3}>
+            <SelectField label="Tình trạng gửi">
+              <SearchableSelect
+                options={DELIVERY_STATUSES.map((value) => ({ value, label: DELIVERY_STATUS_LABELS[value] }))}
+                value={status}
+                searchInDropdown
+                hideDropdownSearch
+                onChange={(value) => setStatus(value as DeliveryStatus)}
+              />
+            </SelectField>
+            <Field label="Ngày">
+              <input type="date" value={deliveredOn} onChange={(event) => setDeliveredOn(event.target.value)} />
+            </Field>
+            <Field label="Ghi chú">
+              <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
+            </Field>
+          </div>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              disabled={busy}
+              onClick={() =>
+                run(() => updateDelivery(letter.id, { status, deliveredOn: deliveredOn || undefined, note: note || undefined }), 'Đã cập nhật tình trạng gửi.')
+              }
+            >
+              Cập nhật tình trạng gửi
+            </button>
+          </div>
+        </div>
+      ) : letter.deliveryStatus ? (
+        <p className={styles.muted} style={{ margin: '6px 0 0' }}>
+          Tình trạng gửi: {DELIVERY_STATUS_LABELS[letter.deliveryStatus]}
+          {letter.deliveredOn ? ` · ${formatDay(letter.deliveredOn)}` : ''}
         </p>
-        <Field label="Ghi chú lưu trữ">
-          <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
-        </Field>
-        <ErrorLine error={error} />
-        <div className={styles.formActions}>
+      ) : null}
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- duyệt */
+
+/** Bước duyệt đang chờ người xem: Đạt (chuyển bước sau) hay Không đạt (trả về nơi cấu hình, mặc định bước trước). */
+function ApproveForm({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [decision, setDecision] = useState<'approve' | 'reject'>('approve');
+  const [note, setNote] = useState('');
+  const [next, setNext] = useState('');
+  const targets = letter.actions.returnTargets;
+  const [target, setTarget] = useState<ReturnTarget | ''>(letter.actions.defaultReturnTarget ?? targets[0] ?? '');
+  const choice = useStepChoice(letter.id);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== '' || next !== ''), [note, next, onDirtyChange]);
+  const reject = decision === 'reject';
+  return (
+    <Panel title={letter.currentStepName ?? 'Duyệt'}>
+      <div className={styles.form}>
+        {letter.direction === 'incoming' && letter.assignments.length > 0 ? (
+          <p className={styles.muted} style={{ margin: 0 }}>
+            Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
+          </p>
+        ) : null}
+        <div className={styles.decision} role="radiogroup" aria-label="Kết quả duyệt">
           <button
             type="button"
-            className={styles.buttonPrimary}
-            disabled={busy}
-            onClick={() => run(() => archiveLetter(letter.id, note || undefined), 'Đã lưu trữ hồ sơ.')}
+            role="radio"
+            aria-checked={!reject}
+            className={!reject ? `${styles.decisionOption} ${styles.decisionApprove}` : styles.decisionOption}
+            onClick={() => setDecision('approve')}
           >
-            Lưu trữ hồ sơ
+            <CheckCircle2 size={16} /> Đạt
           </button>
+          {targets.length > 0 ? (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={reject}
+              className={reject ? `${styles.decisionOption} ${styles.decisionReject}` : styles.decisionOption}
+              onClick={() => setDecision('reject')}
+            >
+              <XCircle size={16} /> Không đạt
+            </button>
+          ) : null}
+        </div>
+        {reject && targets.length > 0 ? (
+          <SelectField label="Trả về" required>
+            <SearchableSelect
+              options={targets.map((value) => ({
+                value,
+                label: returnTargetLabel(value, letter.direction),
+                description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
+              }))}
+              value={target}
+              searchInDropdown
+              hideDropdownSearch
+              onChange={(value) => setTarget(value as ReturnTarget)}
+            />
+          </SelectField>
+        ) : null}
+        <Field label={reject ? 'Lý do không đạt' : 'Ý kiến'} required={reject}>
+          <textarea
+            value={note}
+            maxLength={4000}
+            rows={3}
+            placeholder={reject ? 'Nêu rõ cần sửa, bổ sung gì' : 'Ý kiến kèm theo (nếu có)'}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </Field>
+        {!reject ? <ChoiceField choice={choice} value={next} onChange={setNext} /> : null}
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          {reject ? (
+            <button
+              type="button"
+              className={styles.buttonWarning}
+              disabled={busy || !target || !note.trim()}
+              onClick={() =>
+                target &&
+                run(() => returnLetter(letter.id, { target, reason: note }), `Không đạt, đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`)
+              }
+            >
+              Không đạt, trả lại
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              disabled={busy || choice === undefined || (Boolean(choice) && !next)}
+              onClick={() => run(() => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }), 'Đã duyệt, chuyển bước tiếp theo.')}
+            >
+              Đạt, chuyển tiếp
+            </button>
+          )}
         </div>
       </div>
     </Panel>

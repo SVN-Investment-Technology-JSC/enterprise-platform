@@ -1,13 +1,18 @@
 'use client';
 
-import type { CorrespondenceSettings } from '@enterprise-platform/contracts-correspondence';
-import { toast, useBeforeUnloadGuard } from '@enterprise-platform/shared-ui';
+import {
+  DISPATCH_MODES,
+  DISPATCH_MODE_LABELS,
+  type CorrespondenceSettings,
+  type DispatchMode,
+} from '@enterprise-platform/contracts-correspondence';
+import { SearchableSelect, toast, useBeforeUnloadGuard } from '@enterprise-platform/shared-ui';
 import { useEffect, useState } from 'react';
 import { errorMessage, saveSettings } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
-import { Field } from './form-dialog';
+import { Field, SelectField } from './form-dialog';
 
-/** Cấu hình sổ văn thư: ký hiệu số đến, số đi, tiền tố số hồ sơ và hạn xử lý mặc định. */
+/** Cấu hình sổ văn thư: ký hiệu số đến, số đi, tiền tố số hồ sơ, hạn xử lý mặc định, cách giao phòng ban. */
 export function SettingsView({
   settings,
   onSaved,
@@ -24,9 +29,10 @@ export function SettingsView({
     form.incomingSuffix !== settings.incomingSuffix ||
     form.outgoingSuffix !== settings.outgoingSuffix ||
     form.archivePrefix !== settings.archivePrefix ||
-    form.defaultDueDays !== String(settings.defaultDueDays);
+    form.defaultDueDays !== String(settings.defaultDueDays) ||
+    form.dispatchMode !== settings.dispatchMode;
   useBeforeUnloadGuard(dirty);
-  const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
   const year = new Date().getFullYear();
 
   const save = async () => {
@@ -38,6 +44,7 @@ export function SettingsView({
         outgoingSuffix: form.outgoingSuffix,
         archivePrefix: form.archivePrefix,
         defaultDueDays: Number(form.defaultDueDays),
+        dispatchMode: form.dispatchMode,
       });
       onSaved(next);
       toast.success('Đã lưu cấu hình sổ văn thư.');
@@ -89,6 +96,19 @@ export function SettingsView({
             <span className={styles.hint}>0 là không tự đặt hạn khi tiếp nhận.</span>
           </Field>
         </div>
+        <SelectField label="Khi văn thư giao công văn đến cho phòng ban">
+          <SearchableSelect
+            options={DISPATCH_MODES.map((value) => ({ value, label: DISPATCH_MODE_LABELS[value] }))}
+            value={form.dispatchMode}
+            searchInDropdown
+            hideDropdownSearch
+            onChange={(value) => set('dispatchMode', value as DispatchMode)}
+          />
+          <span className={styles.hint}>
+            Cả phòng cùng nhận: mọi nhân sự của phòng được báo, trưởng phòng phân công người xử lý sau nếu cần. Phải chọn người xử
+            lý: văn thư chọn sẵn một người cho mỗi phòng.
+          </span>
+        </SelectField>
         {error ? (
           <p role="alert" className={styles.alert}>
             {error}

@@ -158,7 +158,8 @@ describe('notification schedule source', () => {
   describe('nhắc hạn công văn Văn thư', () => {
     const letter = (overrides: Record<string, unknown> = {}) => ({
       id: 'letter-a', incoming_no: '41/CVĐ', subject: 'Giải trình thuế', due_at: new Date('2026-11-18T17:00:00Z'),
-      stage: 'directing', step_user_ids: ['user-leader'], received_by: 'user-clerk', pending_unit_ids: [], ...overrides,
+      stage: 'reviewing', step_user_ids: ['user-leader'], received_by: 'user-clerk', author_user_id: null,
+      pending_unit_ids: [], pending_handler_ids: [], ...overrides,
     });
     const run = async (rows: unknown[], organization?: () => Promise<unknown>) => {
       const query = jest.fn(async (sql: string) => {
@@ -189,6 +190,13 @@ describe('notification schedule source', () => {
       expect((await run([processing], async () => organization)).map((item) => item.userId)).toEqual(['user-head', 'user-head']);
       const failing = async () => { throw new Error('core down'); };
       expect((await run([processing], failing)).map((item) => item.userId)).toEqual(['user-clerk', 'user-clerk']);
+    });
+
+    it('phòng đã phân công người xử lý thì nhắc người đó; công văn đi đang soạn thì nhắc người soạn', async () => {
+      const handled = letter({ stage: 'processing', pending_handler_ids: ['user-handler'] });
+      expect((await run([handled])).map((item) => item.userId)).toEqual(['user-handler', 'user-handler']);
+      const draft = letter({ stage: 'drafting', step_user_ids: null, author_user_id: 'user-author', received_by: 'user-author' });
+      expect((await run([draft])).map((item) => item.userId)).toEqual(['user-author', 'user-author']);
     });
   });
 });

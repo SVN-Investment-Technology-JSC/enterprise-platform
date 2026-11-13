@@ -1,16 +1,19 @@
 'use client';
 
 import {
+  DIRECTION_STAGES,
+  LETTER_DIRECTION_LABELS,
   LETTER_STAGE_LABELS,
-  OPEN_LETTER_STAGES,
   type CorrespondenceOverview,
+  type LetterDirection,
   type LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
+import { ChevronRight } from 'lucide-react';
 import styles from '../correspondence.module.scss';
 import type { CorrespondenceView } from '../correspondence.model';
 import { LetterTable } from './letter-table';
 
-/** Tổng quan: số liệu nhanh, công văn theo từng bước, công văn cần xử lý gấp. */
+/** Tổng quan: số liệu nhanh, công văn theo bước của từng luồng, công văn cần xử lý gấp. */
 export function OverviewView({
   overview,
   today,
@@ -21,13 +24,14 @@ export function OverviewView({
   readonly overview: CorrespondenceOverview;
   readonly today: string;
   readonly onNavigate: (view: CorrespondenceView) => void;
-  readonly onOpenStage: (stage: LetterStage) => void;
+  readonly onOpenStage: (direction: LetterDirection, stage: LetterStage) => void;
   readonly onOpenLetter: (letterId: string) => void;
 }) {
   const stats: { label: string; value: number; tone?: string; view: CorrespondenceView }[] = [
     { label: 'Cần tôi xử lý', value: overview.awaitingMe, tone: 'stat-accent', view: 'mine' },
-    { label: 'Đang xử lý', value: overview.open, view: 'incoming' },
-    { label: 'Đang chờ duyệt, chỉ đạo', value: overview.awaitingApproval, tone: 'stat-warning', view: 'incoming' },
+    { label: 'Công văn đến đang xử lý', value: overview.incomingOpen, view: 'incoming' },
+    { label: 'Công văn đi đang xử lý', value: overview.outgoingOpen, view: 'outgoing' },
+    { label: 'Đang trình duyệt', value: overview.awaitingApproval, tone: 'stat-warning', view: 'incoming' },
     { label: 'Quá hạn', value: overview.overdue, tone: 'stat-danger', view: 'incoming' },
     { label: 'Đã lưu trữ', value: overview.archived, tone: 'stat-success', view: 'archive' },
   ];
@@ -46,31 +50,27 @@ export function OverviewView({
           </button>
         ))}
       </div>
-      <section className={styles.card}>
-        <h2>Công văn theo từng bước xử lý</h2>
-        <div className={styles.flow}>
-          {OPEN_LETTER_STAGES.map((stage) => (
-            <button key={stage} type="button" className={styles.flowStep} onClick={() => onOpenStage(stage)}>
-              <b>{overview.byStage[stage] ?? 0}</b>
-              {LETTER_STAGE_LABELS[stage]}
-            </button>
-          ))}
-        </div>
-      </section>
+      <div className={styles.flowColumns}>
+        {(['incoming', 'outgoing'] as const).map((direction) => (
+          <section key={direction} className={styles.card}>
+            <h2>{LETTER_DIRECTION_LABELS[direction]} theo bước</h2>
+            <div className={styles.flow}>
+              {DIRECTION_STAGES[direction].map((stage, index) => (
+                <button key={stage} type="button" className={styles.flowStep} onClick={() => onOpenStage(direction, stage)}>
+                  <b>{overview.byStage[direction][stage] ?? 0}</b>
+                  <span>{LETTER_STAGE_LABELS[stage]}</span>
+                  {index < DIRECTION_STAGES[direction].length - 1 ? <ChevronRight size={14} className={styles.flowArrow} aria-hidden /> : null}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
       <section>
         <div className={styles.cardHead}>
           <h2 style={{ fontSize: 15 }}>Cần xử lý gấp</h2>
-          <button type="button" className={styles.buttonLink} onClick={() => onNavigate('incoming')}>
-            Xem tất cả công văn đến
-          </button>
         </div>
-        <LetterTable
-          letters={overview.urgent}
-          mode="incoming"
-          today={today}
-          emptyText="Không còn công văn nào đang mở."
-          onOpen={onOpenLetter}
-        />
+        <LetterTable letters={overview.urgent} mode="mixed" today={today} emptyText="Không còn công văn nào đang mở." onOpen={onOpenLetter} />
       </section>
     </div>
   );

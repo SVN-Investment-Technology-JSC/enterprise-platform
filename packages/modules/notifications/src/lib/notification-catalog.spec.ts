@@ -791,15 +791,20 @@ describe('Văn thư', () => {
   };
 
   it.each([
-    ['correspondence.letter.step-assigned', 'Công văn chờ bạn xử lý', 'actionable'],
-    ['correspondence.letter.approved', 'Công văn đã duyệt xong, chờ phát hành', 'actionable'],
-    ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],
+    ['correspondence.letter.assigned', 'Phòng bạn được giao xử lý công văn', 'actionable'],
+    ['correspondence.letter.handler-assigned', 'Bạn được phân công xử lý công văn', 'actionable'],
+    ['correspondence.letter.step-assigned', 'Công văn chờ bạn duyệt', 'actionable'],
     ['correspondence.letter.returned', 'Công văn bị trả lại', 'actionable'],
-    ['correspondence.letter.published', 'Công văn đi đã phát hành', 'informational'],
+    ['correspondence.letter.completed', 'Công văn đã hoàn tất, lưu trữ', 'informational'],
+    ['correspondence.letter.published', 'Công văn đi đã ban hành', 'informational'],
+    ['correspondence.letter.cancelled', 'Công văn đã bị huỷ', 'informational'],
+    ['correspondence.letter.mentioned', 'Bạn được nhắc tên trong công văn', 'actionable'],
+    ['correspondence.letter.commented', 'Trao đổi mới trong công văn', 'informational'],
+    ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],
     ['correspondence.letter.archived', 'Hồ sơ công văn đã lưu trữ', 'informational'],
   ])('%s báo người trong payload, không báo người thao tác, mở đúng công văn', async (type, title, priority) => {
     const resolved = await registry.resolve(
-      event(type, { ...base, recipientUserIds: ['user-leader', 'user-clerk'] }),
+      event(type, { ...base, recipientUserIds: ['user-leader', 'user-clerk'], notifyPermissions: [] }),
       directory(),
     );
     expect(resolved?.policy.module).toBe('correspondence');
@@ -813,20 +818,18 @@ describe('Văn thư', () => {
     });
   });
 
-  it.each(['correspondence.letter.assigned', 'correspondence.letter.revision-requested'])(
-    '%s giải phòng ban thành người phụ trách đơn vị',
-    async (type) => {
-      const usersForProcedureAssignments = jest.fn(async () => ['user-head']);
-      const assignments = [{ subjectType: 'organization_unit', subjectId: 'unit-finance', role: 'E' }];
-      const resolved = await registry.resolve(
-        event(type, { ...base, recipientUserIds: ['user-accountant'], assignments }),
-        directory({ usersForProcedureAssignments }),
-      );
-      expect(usersForProcedureAssignments).toHaveBeenCalledWith(assignments);
-      expect(resolved?.recipients).toEqual(['user-accountant', 'user-head']);
-      expect(resolved?.template.deepLink).toBe('/modules/correspondence#letters/letter-1');
-    },
-  );
+  it.each([
+    ['correspondence.letter.sent-to-clerk', 'correspondence.letter.register'],
+    ['correspondence.letter.approved', 'correspondence.letter.publish'],
+  ])('%s báo thêm người giữ quyền văn thư đi cùng sự kiện', async (type, permission) => {
+    const usersWithPermission = jest.fn(async () => ['user-clerk-2', 'user-clerk']);
+    const resolved = await registry.resolve(
+      event(type, { ...base, recipientUserIds: ['user-author'], notifyPermissions: [permission] }),
+      directory({ usersWithPermission }),
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith(permission);
+    expect(resolved?.recipients).toEqual(['user-author', 'user-clerk-2']);
+  });
 
   it.each([
     ['correspondence.letter.due-soon', 'Công văn sắp đến hạn xử lý'],
