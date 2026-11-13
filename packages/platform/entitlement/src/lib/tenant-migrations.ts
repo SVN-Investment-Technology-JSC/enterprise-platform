@@ -105,6 +105,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0014-hrm-request-approve-merge',
     path: 'tenant/core/0014-hrm-request-approve-merge.sql',
   },
+  {
+    version: '0017-fcm-device-tokens',
+    path: 'tenant/core/0017-fcm-device-tokens.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<

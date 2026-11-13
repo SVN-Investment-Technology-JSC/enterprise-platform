@@ -112,7 +112,9 @@ export class PlatformIdentityController {
   @HttpCode(204)
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const principal = await this.requirePrincipal(request);
-    if (!this.validCsrf(request)) throw new UnauthorizedException('CSRF token không hợp lệ.');
+    const bearer = request.headers.authorization;
+    const hasBearer = Boolean(bearer?.startsWith('Bearer ') && bearer.slice(7).trim());
+    if (!hasBearer && !this.validCsrf(request)) throw new UnauthorizedException('CSRF token không hợp lệ.');
     await this.identity.logout(principal.sessionId);
     response.clearCookie(ACCESS_COOKIE, { path: '/' });
     response.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });

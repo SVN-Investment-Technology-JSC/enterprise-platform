@@ -154,4 +154,26 @@ describe('PlatformIdentityController change password', () => {
     await expect(controller.changePassword(input, request())).rejects.toMatchObject({ status: 429 });
     expect(changeOwnPassword).toHaveBeenCalledTimes(2);
   });
+
+  it('allows mobile Bearer logout without CSRF cookie while still requiring CSRF for cookie sessions', async () => {
+    const logout = jest.fn().mockResolvedValue(undefined);
+    const controller = new PlatformIdentityController({
+      verifyAccessToken: jest.fn().mockResolvedValue(principal),
+      logout,
+    } as unknown as PlatformIdentityService);
+    const response = { clearCookie: jest.fn() } as unknown as Response;
+
+    const bearerReq = {
+      headers: { authorization: 'Bearer mobile-access-token' },
+      cookies: {},
+    } as never;
+    await expect(controller.logout(bearerReq, response)).resolves.toBeUndefined();
+    expect(logout).toHaveBeenCalledWith('session-1');
+
+    const cookieReqMissingCsrf = {
+      headers: {},
+      cookies: { ep_access: 'cookie-token' },
+    } as never;
+    await expect(controller.logout(cookieReqMissingCsrf, response)).rejects.toMatchObject({ status: 401 });
+  });
 });
