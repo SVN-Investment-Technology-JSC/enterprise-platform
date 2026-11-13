@@ -2,114 +2,159 @@ import {
   isOpenStage,
   type AttachmentKind,
   type LetterActions,
+  type LetterDirection,
   type LetterStage,
   type LetterStepStatus,
+  type ReturnTarget,
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Người đang thao tác, đủ để quyết định quyền theo bước. */
 export interface LetterViewer {
   readonly userId: string;
   readonly isTenantAdmin: boolean;
-  /** Tiếp nhận, phân loại, trình, huỷ, sửa thông tin. */
+  /** Văn thư: tiếp nhận, giao phòng ban, kiểm tra và trình công văn đi, huỷ. */
   readonly canRegister: boolean;
+  readonly canCreateOutgoing: boolean;
   readonly canPublish: boolean;
   readonly canArchive: boolean;
-  /** Xem mọi công văn không mật. */
   readonly canReadAll: boolean;
   readonly canReadConfidential: boolean;
   /** Đơn vị và chức danh người đó thuộc về, gồm cả đơn vị cha (sơ đồ tổ chức). */
   readonly unitIds: ReadonlySet<string>;
+  /** Đơn vị người đó là trưởng. */
+  readonly headUnitIds: ReadonlySet<string>;
 }
 
 export interface StepFacts {
   readonly seq: number;
-  readonly kind: 'direct' | 'approve';
   readonly status: LetterStepStatus;
   readonly assigneeUserIds: readonly string[];
   readonly actedBy?: string;
+  readonly rejectTo?: ReturnTarget;
+}
+
+export interface AssignmentFacts {
+  readonly unitId: string;
+  readonly status: 'pending' | 'submitted';
+  readonly submittedBy?: string;
+  readonly handlerUserId?: string;
 }
 
 /** Phần công văn mà luật quyền cần. */
 export interface LetterFacts {
+  readonly direction: LetterDirection;
   readonly stage: LetterStage;
   readonly receivedBy: string;
-  /** Độ mật đang dùng có cờ "chỉ người liên quan". */
+  readonly authorUserId?: string;
+  readonly authorUnitId?: string;
   readonly restricted: boolean;
   readonly steps: readonly StepFacts[];
-  readonly assignments: readonly {
-    readonly unitId: string;
-    readonly status: 'pending' | 'submitted';
-    readonly submittedBy?: string;
-  }[];
+  readonly assignments: readonly AssignmentFacts[];
+  readonly mentionedUserIds: readonly string[];
 }
 
 export function activeStep(letter: Pick<LetterFacts, 'steps'>): StepFacts | undefined {
   return letter.steps.find((step) => step.status === 'active');
 }
 
-function directSeq(letter: Pick<LetterFacts, 'steps'>): number {
-  return letter.steps.find((step) => step.kind === 'direct')?.seq ?? Number.MAX_SAFE_INTEGER;
-}
-
-/** Người xem được giao bước đang chạy; quản trị tenant làm thay được khi người duyệt vắng. */
+/** Người xem được giao bước duyệt đang chạy; quản trị tenant làm thay được khi người duyệt vắng. */
 export function actsOnActiveStep(viewer: LetterViewer, letter: Pick<LetterFacts, 'steps'>): boolean {
   const step = activeStep(letter);
   return Boolean(step && (step.assigneeUserIds.includes(viewer.userId) || viewer.isTenantAdmin));
 }
 
-export function memberOf(viewer: LetterViewer, unitId: string): boolean {
-  return viewer.unitIds.has(unitId);
+export function memberOf(viewer: LetterViewer, unitId: string | undefined): boolean {
+  return Boolean(unitId && viewer.unitIds.has(unitId));
 }
 
-/** Người tiếp nhận, người được giao hay đã làm một bước, người thuộc phòng ban được giao. */
+/** Người soạn hay người cùng phòng soạn thảo (công văn đi). */
+export function isAuthorSide(viewer: LetterViewer, letter: Pick<LetterFacts, 'authorUserId' | 'authorUnitId'>): boolean {
+  return letter.authorUserId === viewer.userId || memberOf(viewer, letter.authorUnitId);
+}
+
+/** Người tiếp nhận, người soạn, người được giao hay đã làm một bước, người thuộc phòng ban xử lý, người được nhắc tên. */
 export function involves(viewer: LetterViewer, letter: LetterFacts): boolean {
-  if (letter.receivedBy === viewer.userId) return true;
-  if (letter.steps.some((step) => step.actedBy === viewer.userId || (step.status !== 'waiting' && step.assigneeUserIds.includes(viewer.userId)))) {
+  if (letter.receivedBy === viewer.userId || isAuthorSide(viewer, letter)) return true;
+  if (letter.mentionedUserIds.includes(viewer.userId)) return true;
+  if (
+    letter.steps.some(
+      (step) => step.actedBy === viewer.userId || (step.status !== 'waiting' && step.assigneeUserIds.includes(viewer.userId)),
+    )
+  ) {
     return true;
   }
   return letter.assignments.some(
-    (assignment) => memberOf(viewer, assignment.unitId) || assignment.submittedBy === viewer.userId,
+    (assignment) =>
+      memberOf(viewer, assignment.unitId) || assignment.submittedBy === viewer.userId || assignment.handlerUserId === viewer.userId,
   );
 }
 
-/**
- * Ai thấy công văn: người liên quan; người có quyền xem mọi công văn (công văn mật thì cần
- * quyền xem công văn mật); quản trị tenant.
- */
+/** Ai thấy công văn: người liên quan; người xem mọi công văn (công văn mật cần quyền xem mật); quản trị tenant. */
 export function canViewLetter(viewer: LetterViewer, letter: LetterFacts): boolean {
   if (viewer.isTenantAdmin || involves(viewer, letter)) return true;
   return letter.restricted ? viewer.canReadConfidential : viewer.canReadAll;
 }
 
-export function canRespondFor(
-  viewer: LetterViewer,
-  letter: Pick<LetterFacts, 'stage'>,
-  assignment: { readonly unitId: string; readonly status: 'pending' | 'submitted' },
-): boolean {
-  return (
-    letter.stage === 'processing' &&
-    assignment.status === 'pending' &&
-    (viewer.canRegister || memberOf(viewer, assignment.unitId))
-  );
+/**
+ * Gửi được kết quả cho phòng ban: văn thư, trưởng phòng; phòng đã có người xử lý thì người
+ * đó, chưa có thì mọi nhân sự của phòng.
+ */
+export function canRespondFor(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
+  if (letter.stage !== 'processing' || assignment.status !== 'pending') return false;
+  if (viewer.canRegister || viewer.headUnitIds.has(assignment.unitId)) return true;
+  return assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId);
+}
+
+/** Phân công người xử lý cho phòng: văn thư, trưởng phòng; phòng chưa có người xử lý thì nhân sự của phòng nhận việc. */
+export function canAssignHandler(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
+  if (letter.stage !== 'processing' || assignment.status !== 'pending') return false;
+  if (viewer.canRegister || viewer.headUnitIds.has(assignment.unitId)) return true;
+  return !assignment.handlerUserId && memberOf(viewer, assignment.unitId);
 }
 
 /** Người xem có việc phải làm ở bước hiện tại (không tính quyền làm thay của quản trị). */
 export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean {
   switch (letter.stage) {
     case 'received':
-    case 'registered':
+    case 'checking':
       return viewer.canRegister;
+    case 'drafting':
+      return letter.authorUserId === viewer.userId;
     case 'reviewing':
-    case 'directing':
       return Boolean(activeStep(letter)?.assigneeUserIds.includes(viewer.userId));
     case 'processing':
-      return letter.assignments.some((assignment) => assignment.status === 'pending' && memberOf(viewer, assignment.unitId));
-    case 'publishing':
-      return viewer.canPublish;
+      return letter.assignments.some(
+        (assignment) =>
+          assignment.status === 'pending' &&
+          (assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId)),
+      );
     case 'closing':
       return viewer.canArchive;
+    case 'publishing':
+      return viewer.canPublish;
     default:
       return false;
+  }
+}
+
+/** Nơi người xem trả công văn về được ở bước hiện tại ("Không đạt", "Trả lại"). */
+export function returnTargets(viewer: LetterViewer, letter: LetterFacts): ReturnTarget[] {
+  const hasSteps = letter.steps.length > 0;
+  switch (letter.stage) {
+    case 'reviewing':
+      return actsOnActiveStep(viewer, letter) ? ['previous-step', 'handlers', 'clerk'] : [];
+    case 'processing':
+      return letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment)) && !viewer.canRegister
+        ? ['clerk']
+        : [];
+    case 'checking':
+      return viewer.canRegister ? ['handlers'] : [];
+    case 'closing':
+      return viewer.canArchive ? [...(hasSteps ? (['previous-step'] as const) : []), 'handlers'] : [];
+    case 'publishing':
+      return viewer.canPublish ? [...(hasSteps ? (['previous-step'] as const) : []), 'clerk', 'handlers'] : [];
+    default:
+      return [];
   }
 }
 
@@ -117,27 +162,41 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
 export function letterActions(viewer: LetterViewer, letter: LetterFacts): LetterActions {
   const open = isOpenStage(letter.stage);
   const stage = letter.stage;
-  const step = activeStep(letter);
-  const onStep = actsOnActiveStep(viewer, letter);
-  const beforeDirect = Boolean(step && step.seq < directSeq(letter));
-  const attachKinds: AttachmentKind[] = [];
-  if (viewer.canRegister && open) attachKinds.push('incoming', 'reference');
-  else if (onStep && (stage === 'reviewing' || stage === 'directing')) attachKinds.push('reference');
-  if (letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment))) attachKinds.push('draft');
-  if (viewer.canPublish && (stage === 'publishing' || stage === 'closing')) attachKinds.push('outgoing');
+  const incoming = letter.direction === 'incoming';
+  const onStep = stage === 'reviewing' && actsOnActiveStep(viewer, letter);
+  const authorSide = !incoming && isAuthorSide(viewer, letter);
+  const respondsSomewhere = letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment));
+
+  const attachKinds = new Set<AttachmentKind>();
+  if (incoming && viewer.canRegister && open) ['incoming', 'reference'].forEach((kind) => attachKinds.add(kind as AttachmentKind));
+  if (incoming && respondsSomewhere) attachKinds.add('draft');
+  if (!incoming && ((stage === 'drafting' && (authorSide || viewer.canRegister)) || (stage === 'checking' && viewer.canRegister))) {
+    attachKinds.add('draft');
+    attachKinds.add('reference');
+  }
+  if (!incoming && stage === 'publishing' && viewer.canPublish) {
+    attachKinds.add('outgoing');
+    attachKinds.add('reference');
+  }
+  if (onStep) attachKinds.add('reference');
+
+  const targets = returnTargets(viewer, letter);
+  const active = activeStep(letter);
   return {
-    edit: viewer.canRegister && open,
-    classify: viewer.canRegister && stage === 'received',
-    submit: viewer.canRegister && stage === 'registered',
-    approve: onStep && stage === 'reviewing',
-    returnToClerk: onStep && ((stage === 'reviewing' && beforeDirect) || stage === 'directing'),
-    direct: onStep && stage === 'directing',
-    closeForInfo: onStep && stage === 'directing',
-    requestRevision: onStep && stage === 'reviewing' && !beforeDirect,
-    publish: viewer.canPublish && stage === 'publishing',
-    archive: viewer.canArchive && stage === 'closing',
-    cancel: viewer.canRegister && (stage === 'received' || stage === 'registered'),
-    attachKinds,
+    edit: open && (viewer.canRegister || (stage === 'drafting' && authorSide)),
+    dispatch: incoming && stage === 'received' && viewer.canRegister,
+    sendToClerk: !incoming && stage === 'drafting' && (authorSide || viewer.canRegister),
+    submit: !incoming && stage === 'checking' && viewer.canRegister,
+    approve: onStep,
+    complete: incoming && stage === 'closing' && viewer.canArchive,
+    publish: !incoming && stage === 'publishing' && viewer.canPublish,
+    updateDelivery: !incoming && stage === 'archived' && viewer.canPublish,
+    cancel: open && (viewer.canRegister || (stage === 'drafting' && letter.authorUserId === viewer.userId)),
+    returnTargets: targets,
+    defaultReturnTarget: stage === 'reviewing' ? (active?.rejectTo ?? 'previous-step') : targets[0],
+    comment: letter.stage !== 'cancelled',
+    reply: incoming && viewer.canCreateOutgoing && letter.stage !== 'cancelled',
+    attachKinds: [...attachKinds],
   };
 }
 
@@ -152,7 +211,10 @@ export function canDeleteAttachment(
 ): boolean {
   if (!isOpenStage(letter.stage)) return false;
   if (attachment.uploadedBy !== viewer.userId && !viewer.canRegister) return false;
-  if (attachment.kind === 'draft') return letter.stage === 'processing' && attachment.assignment?.status === 'pending';
+  if (attachment.kind === 'draft') {
+    if (attachment.assignment) return letter.stage === 'processing' && attachment.assignment.status === 'pending';
+    return letter.stage === 'drafting' || letter.stage === 'checking';
+  }
   return true;
 }
 
@@ -184,7 +246,7 @@ export function formatArchiveCode(prefix: string, year: number, seq: number): st
 }
 
 /** Tên thư mục hồ sơ bên Hệ dùng chung: "41/CVĐ - Trích yếu…", tối đa 180 ký tự. */
-export function dossierFolderName(incomingNo: string, subject: string): string {
-  const name = `${incomingNo} - ${subject.replace(/\s+/g, ' ').trim()}`;
+export function dossierFolderName(number: string, subject: string): string {
+  const name = `${number} - ${subject.replace(/\s+/g, ' ').trim()}`;
   return name.length <= 180 ? name : `${name.slice(0, 179).trimEnd()}…`;
 }

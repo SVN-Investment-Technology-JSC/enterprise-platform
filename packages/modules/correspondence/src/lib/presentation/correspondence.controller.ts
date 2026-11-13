@@ -14,22 +14,26 @@ import {
 } from '@nestjs/common';
 import type {
   ApproveStepRequest,
-  ClassifyLetterRequest,
+  AssignHandlerRequest,
+  CommentRequest,
   CompleteAttachmentRequest,
   CorrespondenceSettings,
   CreateAttachmentRequest,
+  CreateAttachmentVersionRequest,
   CreateLetterRequest,
-  DirectLetterRequest,
+  CreateOutgoingRequest,
+  DispatchLetterRequest,
   LetterBox,
   LetterStage,
   NoteRequest,
   PublishLetterRequest,
   ReasonRequest,
-  RequestRevisionRequest,
   RespondAssignmentRequest,
+  ReturnLetterRequest,
   SaveCatalogItemRequest,
   SaveWorkflowRequest,
   SubmitLetterRequest,
+  UpdateDeliveryRequest,
   UpdateLetterRequest,
 } from '@enterprise-platform/contracts-correspondence';
 import { CorrespondenceService } from '../application/correspondence.service.js';
@@ -58,6 +62,17 @@ export class CorrespondenceController {
   @Get('overview')
   overview(@Req() request: CorrespondenceRequest) {
     return this.execute(() => this.service.overview(this.actor(request)));
+  }
+
+  /** Cây lưu trữ (năm › công văn đến / đi › hồ sơ › tệp) như thư mục Văn thư bên Hệ dùng chung. */
+  @Get('archive-tree')
+  archiveTree(@Req() request: CorrespondenceRequest) {
+    return this.execute(() => this.service.archiveTree(this.actor(request)));
+  }
+
+  @Get('reports')
+  report(@Req() request: CorrespondenceRequest, @Query('year') year?: string) {
+    return this.execute(() => this.service.report(this.actor(request), year));
   }
 
   /* ----------------------------------------------------------- cấu hình */
@@ -123,9 +138,16 @@ export class CorrespondenceController {
     }));
   }
 
+  /** Công văn đến: văn thư tiếp nhận, vào sổ. */
   @Post('letters')
   create(@Req() request: CorrespondenceRequest, @Body() body: CreateLetterRequest) {
     return this.execute(() => this.service.create(this.actor(request), body));
+  }
+
+  /** Công văn đi: phòng ban soạn thảo. */
+  @Post('outgoing')
+  createOutgoing(@Req() request: CorrespondenceRequest, @Body() body: CreateOutgoingRequest) {
+    return this.execute(() => this.service.createOutgoing(this.actor(request), body));
   }
 
   @Get('letters/:id')
@@ -133,10 +155,13 @@ export class CorrespondenceController {
     return this.execute(() => this.service.detail(this.actor(request), id));
   }
 
-  /** Ứng viên cho bước sắp bắt đầu khi bước đó để người thao tác chọn người duyệt. */
+  /**
+   * Ứng viên cho bước duyệt sắp bắt đầu khi bước đó để người thao tác chọn người duyệt.
+   * `kind`: loại văn bản văn thư đang chọn khi giao (quy trình theo loại văn bản).
+   */
   @Get('letters/:id/step-choice')
-  stepChoice(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Query('workflowId') workflowId?: string) {
-    return this.execute(async () => ({ choice: await this.service.stepChoice(this.actor(request), id, workflowId || undefined) }));
+  stepChoice(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Query('kind') kind?: string) {
+    return this.execute(async () => ({ choice: await this.service.stepChoice(this.actor(request), id, kind || undefined) }));
   }
 
   @Patch('letters/:id')
@@ -144,34 +169,21 @@ export class CorrespondenceController {
     return this.execute(() => this.service.update(this.actor(request), id, body));
   }
 
-  @Post('letters/:id/classify')
+  @Post('letters/:id/dispatch')
   @HttpCode(200)
-  classify(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ClassifyLetterRequest) {
-    return this.execute(() => this.service.classify(this.actor(request), id, body));
+  dispatch(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: DispatchLetterRequest) {
+    return this.execute(() => this.service.dispatch(this.actor(request), id, body));
   }
 
-  @Post('letters/:id/submit')
+  @Post('letters/:id/assignments/:assignmentId/handler')
   @HttpCode(200)
-  submit(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SubmitLetterRequest) {
-    return this.execute(() => this.service.submit(this.actor(request), id, body));
-  }
-
-  @Post('letters/:id/return')
-  @HttpCode(200)
-  returnToClerk(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ReasonRequest) {
-    return this.execute(() => this.service.returnToClerk(this.actor(request), id, body));
-  }
-
-  @Post('letters/:id/direct')
-  @HttpCode(200)
-  direct(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: DirectLetterRequest) {
-    return this.execute(() => this.service.direct(this.actor(request), id, body));
-  }
-
-  @Post('letters/:id/close-for-info')
-  @HttpCode(200)
-  closeForInfo(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: NoteRequest) {
-    return this.execute(() => this.service.closeForInfo(this.actor(request), id, body));
+  assignHandler(
+    @Req() request: CorrespondenceRequest,
+    @Param('id') id: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() body: AssignHandlerRequest,
+  ) {
+    return this.execute(() => this.service.assignHandler(this.actor(request), id, assignmentId, body));
   }
 
   @Post('letters/:id/assignments/:assignmentId/respond')
@@ -185,20 +197,35 @@ export class CorrespondenceController {
     return this.execute(() => this.service.respond(this.actor(request), id, assignmentId, body));
   }
 
+  @Post('letters/:id/send-to-clerk')
+  @HttpCode(200)
+  sendToClerk(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: NoteRequest) {
+    return this.execute(() => this.service.sendToClerk(this.actor(request), id, body));
+  }
+
+  @Post('letters/:id/submit')
+  @HttpCode(200)
+  submit(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SubmitLetterRequest) {
+    return this.execute(() => this.service.submit(this.actor(request), id, body));
+  }
+
   @Post('letters/:id/approve')
   @HttpCode(200)
   approve(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ApproveStepRequest) {
     return this.execute(() => this.service.approve(this.actor(request), id, body));
   }
 
-  @Post('letters/:id/request-revision')
+  /** "Không đạt" / trả lại kèm lý do. */
+  @Post('letters/:id/return')
   @HttpCode(200)
-  requestRevision(
-    @Req() request: CorrespondenceRequest,
-    @Param('id') id: string,
-    @Body() body: RequestRevisionRequest,
-  ) {
-    return this.execute(() => this.service.requestRevision(this.actor(request), id, body));
+  returnLetter(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ReturnLetterRequest) {
+    return this.execute(() => this.service.returnLetter(this.actor(request), id, body));
+  }
+
+  @Post('letters/:id/complete')
+  @HttpCode(200)
+  complete(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: NoteRequest) {
+    return this.execute(() => this.service.complete(this.actor(request), id, body));
   }
 
   @Post('letters/:id/publish')
@@ -207,16 +234,22 @@ export class CorrespondenceController {
     return this.execute(() => this.service.publish(this.actor(request), id, body));
   }
 
-  @Post('letters/:id/archive')
+  @Post('letters/:id/delivery')
   @HttpCode(200)
-  archive(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: NoteRequest) {
-    return this.execute(() => this.service.archive(this.actor(request), id, body));
+  updateDelivery(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: UpdateDeliveryRequest) {
+    return this.execute(() => this.service.updateDelivery(this.actor(request), id, body));
   }
 
   @Post('letters/:id/cancel')
   @HttpCode(200)
   cancel(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ReasonRequest) {
     return this.execute(() => this.service.cancel(this.actor(request), id, body));
+  }
+
+  @Post('letters/:id/comments')
+  @HttpCode(200)
+  comment(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: CommentRequest) {
+    return this.execute(() => this.service.comment(this.actor(request), id, body));
   }
 
   /* --------------------------------------------------------------- tệp */
@@ -228,6 +261,17 @@ export class CorrespondenceController {
     @Body() body: CreateAttachmentRequest,
   ) {
     return this.execute(() => this.service.createAttachment(this.actor(request), id, body));
+  }
+
+  /** Phiên bản mới của một tệp đã đính kèm. */
+  @Post('letters/:id/attachments/:attachmentId/versions')
+  addAttachmentVersion(
+    @Req() request: CorrespondenceRequest,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @Body() body: CreateAttachmentVersionRequest,
+  ) {
+    return this.execute(() => this.service.addAttachmentVersion(this.actor(request), id, attachmentId, body));
   }
 
   @Post('letters/:id/attachments/:attachmentId/complete')

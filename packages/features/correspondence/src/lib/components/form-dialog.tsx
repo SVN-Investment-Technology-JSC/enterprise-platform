@@ -69,20 +69,23 @@ export function FormDialog({
             </button>
           </CloseGuard>
         </header>
+        {/* Thân cuộn riêng, chân hộp thoại (Huỷ, Lưu) luôn hiện dù form dài. */}
         <form
-          className={styles.dialogBody}
+          className={styles.dialogForm}
           onSubmit={(event) => {
             event.preventDefault();
             if (!submitting && !submitDisabled) onSubmit();
           }}
         >
-          {children}
-          {error ? (
-            <p role="alert" className={styles.alert}>
-              {error}
-            </p>
-          ) : null}
-          <footer className={styles.formActions}>
+          <div className={styles.dialogBody}>
+            {children}
+            {error ? (
+              <p role="alert" className={styles.alert}>
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <footer className={styles.dialogFooter}>
             <CloseGuard dirty={dirty} busy={submitting} onClose={onClose}>
               <button type="button" className={styles.buttonGhost}>
                 Huỷ

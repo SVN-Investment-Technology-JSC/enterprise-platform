@@ -119,3 +119,16 @@ export function nodePath(snapshot: OrganizationSnapshot, nodeId: string): string
 export function memberName(snapshot: OrganizationSnapshot, userId: string): string | undefined {
   return snapshot.members.find((member) => member.userId === userId)?.name;
 }
+
+/** Đơn vị người dùng là trưởng: đơn vị được đánh dấu trực tiếp, hay đơn vị cha của chức danh trưởng. */
+export function headedUnits(snapshot: OrganizationSnapshot, userId: string): Set<string> {
+  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
+  const units = new Set<string>();
+  for (const member of snapshot.members) {
+    if (member.userId !== userId || !member.isHead) continue;
+    const node = byId.get(member.nodeId);
+    if (node?.kind === 'unit') units.add(node.id);
+    else if (node?.parentId) units.add(node.parentId);
+  }
+  return units;
+}

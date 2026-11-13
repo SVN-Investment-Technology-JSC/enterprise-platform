@@ -61,10 +61,12 @@ describe('CorrespondenceAccessGuard', () => {
     expect(register).toHaveBeenCalledWith({ tenantId: 't1' });
     expect(request.correspondenceActor).toMatchObject({
       canRegister: true,
+      canCreateOutgoing: true,
       canPublish: true,
       canArchive: true,
       canReadAll: true,
       canReadConfidential: true,
+      canReadReports: true,
       canConfigure: true,
       canDirect: false,
     });
@@ -73,7 +75,17 @@ describe('CorrespondenceAccessGuard', () => {
   it('quyền chỉ đạo cấp đích danh; quản trị tenant làm việc văn thư nhưng không là lãnh đạo', async () => {
     const leader = setup(allowed(['correspondence.letter.direct']));
     await leader.guard.canActivate(leader.context);
-    expect(leader.request.correspondenceActor).toMatchObject({ canRegister: false, canDirect: true, canConfigure: false, canReadAll: false });
+    expect(leader.request.correspondenceActor).toMatchObject({
+      canRegister: false,
+      canCreateOutgoing: false,
+      canDirect: true,
+      canConfigure: false,
+      canReadAll: false,
+      canReadReports: false,
+    });
+    const drafter = setup(allowed(['correspondence.outgoing.create']));
+    await drafter.guard.canActivate(drafter.context);
+    expect(drafter.request.correspondenceActor).toMatchObject({ canCreateOutgoing: true, canRegister: false, canPublish: false });
     const admin = setup(allowed([], ['tenant-admin']));
     await admin.guard.canActivate(admin.context);
     expect(admin.request.correspondenceActor).toMatchObject({ isTenantAdmin: true, canRegister: true, canDirect: false });

@@ -6,6 +6,8 @@ import type {
   SharedFilingDocumentRequest,
   SharedFilingDocumentResponse,
   SharedFilingFolderUpdateRequest,
+  SharedFilingVersionRequest,
+  SharedFilingVersionResponse,
 } from '@enterprise-platform/contracts-shared';
 import { FileStoreMissingError, type FileStore } from '../application/ports.js';
 import { CorrespondenceValidationError, FileStoreUnavailableError } from '../domain/correspondence.error.js';
@@ -30,6 +32,17 @@ export class HttpFileStore implements FileStore {
     input: Omit<SharedFilingDocumentRequest, 'module'>,
   ): Promise<SharedFilingDocumentResponse> {
     return this.call(tenantId, 'POST', '/v1/internal/filings/documents', { ...input, module: MODULE });
+  }
+
+  addVersion(
+    tenantId: string,
+    documentId: string,
+    input: Omit<SharedFilingVersionRequest, 'module'>,
+  ): Promise<SharedFilingVersionResponse> {
+    return this.call(tenantId, 'POST', `/v1/internal/filings/documents/${encodeURIComponent(documentId)}/versions`, {
+      ...input,
+      module: MODULE,
+    });
   }
 
   async complete(tenantId: string, documentId: string, versionId: string, sizeBytes: number): Promise<void> {

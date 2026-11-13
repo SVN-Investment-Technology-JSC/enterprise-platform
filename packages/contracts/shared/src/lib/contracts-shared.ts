@@ -534,6 +534,23 @@ export interface SharedFilingDocumentResponse {
   readonly expiresInSeconds: number;
 }
 
+/** `POST /v1/internal/filings/documents/:id/versions`: phiên bản mới của một tài liệu của phân hệ. */
+export interface SharedFilingVersionRequest {
+  readonly module: SharedFilingModule;
+  readonly userId: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly changeNote?: string;
+}
+
+export interface SharedFilingVersionResponse {
+  readonly versionId: string;
+  readonly versionNo: number;
+  readonly uploadUrl: string;
+  readonly expiresInSeconds: number;
+}
+
 /** `PATCH /v1/internal/filings/folders/:id`: đổi thông tin hồ sơ của một thư mục của phân hệ. */
 export interface SharedFilingFolderUpdateRequest extends SharedRecordMeta {
   readonly module: SharedFilingModule;

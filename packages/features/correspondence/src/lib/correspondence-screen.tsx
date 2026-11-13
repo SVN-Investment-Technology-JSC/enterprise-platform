@@ -1,10 +1,6 @@
 'use client';
 
-import {
-  ModuleShell,
-  useHashView,
-  type ModuleNavItem,
-} from '@enterprise-platform/feature-module-shell';
+import { ModuleShell, useHashView, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import type {
   CorrespondenceConfig,
   CorrespondenceDirectory,
@@ -12,13 +8,16 @@ import type {
   CorrespondenceStatus,
   LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
-import { Archive, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
+import { Archive, BarChart3, FilePen, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ArchiveView } from './components/archive-view';
+import { ConfigView } from './components/config-view';
 import { IntakeDialog } from './components/intake-dialog';
 import { LetterDrawer } from './components/letter-drawer';
 import { LetterListView } from './components/letter-list-view';
+import { OutgoingDialog } from './components/outgoing-dialog';
 import { OverviewView } from './components/overview-view';
-import { ConfigView } from './components/config-view';
+import { ReportView } from './components/report-view';
 import { errorMessage, loadConfig, loadDirectory, loadOverview, loadStatus, loadTenantHomePath } from './correspondence-api';
 import { CORRESPONDENCE_VIEWS, localToday, type CorrespondenceView } from './correspondence.model';
 import styles from './correspondence.module.scss';
@@ -26,9 +25,9 @@ import styles from './correspondence.module.scss';
 type ListView = Exclude<CorrespondenceView, 'letters' | 'settings'>;
 
 /**
- * Văn thư: tiếp nhận công văn đến, trình lãnh đạo, giao phòng ban, duyệt, phát hành
- * và lưu trữ. Mở thẳng một công văn bằng `#letters/<id>` (liên kết trong thông báo):
- * ngăn chi tiết mở đè lên danh sách công văn đến.
+ * Văn thư: công văn đến (tiếp nhận, giao phòng ban, duyệt theo quy trình, hoàn tất) và công
+ * văn đi (soạn thảo, văn thư kiểm tra, duyệt, ban hành), kho lưu trữ và báo cáo. Mở thẳng một
+ * công văn bằng `#letters/<id>` (liên kết trong thông báo): ngăn chi tiết mở đè lên danh sách.
  */
 export function CorrespondenceScreen() {
   const { view, sub, navigate } = useHashView<CorrespondenceView>({
@@ -44,6 +43,7 @@ export function CorrespondenceScreen() {
   const [stageFilter, setStageFilter] = useState<LetterStage>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [outgoingOpen, setOutgoingOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   // Màn đang xem phía sau ngăn chi tiết, để đóng ngăn thì quay về đúng chỗ.
   const [base, setBase] = useState<ListView>('incoming');
@@ -91,6 +91,7 @@ export function CorrespondenceScreen() {
   const provisioning = Boolean(status && !status.tablesReady);
   const shown: ListView | 'settings' = view === 'letters' ? base : view;
   const drawerId = view === 'letters' ? sub : undefined;
+  const canConfigure = Boolean(capabilities?.canConfigure || capabilities?.isTenantAdmin);
 
   const nav: readonly ModuleNavItem<CorrespondenceView>[] = [
     { id: 'overview', label: 'Tổng quan', group: 'Văn thư', icon: <LayoutDashboard size={16} /> },
@@ -106,13 +107,38 @@ export function CorrespondenceScreen() {
       label: 'Công văn đến',
       group: 'Sổ công văn',
       icon: <Inbox size={16} />,
-      badge: overview?.open ? overview.open : undefined,
+      badge: overview?.incomingOpen ? overview.incomingOpen : undefined,
     },
-    { id: 'outgoing', label: 'Công văn đi', group: 'Sổ công văn', icon: <Send size={16} /> },
+    {
+      id: 'outgoing',
+      label: 'Công văn đi',
+      group: 'Sổ công văn',
+      icon: <Send size={16} />,
+      badge: overview?.outgoingOpen ? overview.outgoingOpen : undefined,
+    },
     { id: 'archive', label: 'Kho lưu trữ', group: 'Sổ công văn', icon: <Archive size={16} /> },
+    ...(capabilities?.canReadReports
+      ? [{ id: 'reports' as const, label: 'Báo cáo', group: 'Sổ công văn', icon: <BarChart3 size={16} /> }]
+      : []),
     // Mở bằng nút bánh răng; khai ở đây để breadcrumb mang tên trang.
     { id: 'settings', label: 'Cấu hình', hidden: true },
   ];
+
+  const headActions =
+    !provisioning && config && (capabilities?.canRegister || capabilities?.canCreateOutgoing) ? (
+      <div className={styles.headActions}>
+        {capabilities?.canCreateOutgoing ? (
+          <button type="button" className={capabilities.canRegister ? styles.buttonGhost : styles.buttonPrimary} onClick={() => setOutgoingOpen(true)}>
+            <FilePen size={15} /> Soạn công văn đi
+          </button>
+        ) : null}
+        {capabilities?.canRegister ? (
+          <button type="button" className={styles.buttonPrimary} onClick={() => setIntakeOpen(true)}>
+            <Plus size={15} /> Tiếp nhận công văn đến
+          </button>
+        ) : null}
+      </div>
+    ) : undefined;
 
   return (
     <ModuleShell<CorrespondenceView>
@@ -121,25 +147,16 @@ export function CorrespondenceScreen() {
       title="Văn thư"
       nav={nav}
       view={shown}
-      onViewChange={(next) => navigate(next)}
+      onViewChange={(next) => {
+        setStageFilter(undefined);
+        navigate(next);
+      }}
       homeHref={homePath}
       collapsible
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
-      settings={
-        capabilities?.canConfigure || capabilities?.isTenantAdmin
-          ? { label: 'Cấu hình', active: view === 'settings', onOpen: () => navigate('settings') }
-          : undefined
-      }
-      actions={
-        capabilities?.canRegister && !provisioning ? (
-          <div className={styles.headActions}>
-            <button type="button" className={styles.buttonPrimary} onClick={() => setIntakeOpen(true)}>
-              <Plus size={15} /> Tiếp nhận công văn
-            </button>
-          </div>
-        ) : undefined
-      }
+      settings={canConfigure ? { label: 'Cấu hình', active: view === 'settings', onOpen: () => navigate('settings') } : undefined}
+      actions={headActions}
       banner={
         <>
           {error ? (
@@ -151,24 +168,31 @@ export function CorrespondenceScreen() {
         </>
       }
     >
-      {!status || provisioning || !config ? null : shown === 'settings' && (capabilities?.canConfigure || capabilities?.isTenantAdmin) ? (
+      {!status || provisioning || !config ? null : shown === 'settings' && canConfigure ? (
         <ConfigView config={config} directory={directory} onChanged={reloadConfig} />
       ) : shown === 'overview' ? (
         overview ? (
           <OverviewView
             overview={overview}
             today={today}
-            onNavigate={(next) => navigate(next)}
-            onOpenStage={(stage) => {
+            onNavigate={(next) => {
+              setStageFilter(undefined);
+              navigate(next);
+            }}
+            onOpenStage={(direction, stage) => {
               setStageFilter(stage);
-              navigate('incoming');
+              navigate(direction);
             }}
             onOpenLetter={openLetter}
           />
         ) : null
+      ) : shown === 'archive' ? (
+        <ArchiveView refreshKey={refreshKey} onOpenLetter={openLetter} />
+      ) : shown === 'reports' && capabilities?.canReadReports ? (
+        <ReportView refreshKey={refreshKey} />
       ) : (
         <LetterListView
-          box={shown === 'mine' ? 'mine' : shown === 'outgoing' ? 'outgoing' : shown === 'archive' ? 'archive' : 'all'}
+          box={shown === 'mine' ? 'mine' : shown === 'outgoing' ? 'outgoing' : 'incoming'}
           stage={stageFilter}
           today={today}
           refreshKey={refreshKey}
@@ -179,20 +203,41 @@ export function CorrespondenceScreen() {
       )}
 
       {drawerId && status?.tablesReady && config ? (
-        <LetterDrawer letterId={drawerId} config={config} directory={directory} onClose={closeLetter} onChanged={refresh} />
+        <LetterDrawer
+          letterId={drawerId}
+          config={config}
+          directory={directory}
+          currentUserId={status.userId}
+          onClose={closeLetter}
+          onChanged={refresh}
+          onOpenLetter={openLetter}
+        />
       ) : null}
 
       {config ? (
-        <IntakeDialog
-          open={intakeOpen}
-          config={config}
-          onClose={() => setIntakeOpen(false)}
-          onCreated={(letterId) => {
-            setIntakeOpen(false);
-            refresh();
-            openLetter(letterId);
-          }}
-        />
+        <>
+          <IntakeDialog
+            open={intakeOpen}
+            config={config}
+            onClose={() => setIntakeOpen(false)}
+            onCreated={(letterId) => {
+              setIntakeOpen(false);
+              refresh();
+              openLetter(letterId);
+            }}
+          />
+          <OutgoingDialog
+            open={outgoingOpen}
+            config={config}
+            directory={directory}
+            onClose={() => setOutgoingOpen(false)}
+            onCreated={(letterId) => {
+              setOutgoingOpen(false);
+              refresh();
+              openLetter(letterId);
+            }}
+          />
+        </>
       ) : null}
     </ModuleShell>
   );

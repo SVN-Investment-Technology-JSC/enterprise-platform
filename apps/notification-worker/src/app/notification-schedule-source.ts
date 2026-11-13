@@ -34,7 +34,8 @@ interface CrmActivityRow {
 type AssignedDeadlineRow = DeadlineRow & { assignee_user_id: string };
 interface CorrespondenceLetterRow {
   id: string; incoming_no: string; subject: string; due_at: Date; stage: string;
-  step_user_ids: string[] | null; received_by: string; pending_unit_ids: string[] | null;
+  step_user_ids: string[] | null; received_by: string; author_user_id: string | null;
+  pending_unit_ids: string[] | null; pending_handler_ids: string[] | null;
 }
 interface CalendarRow {
   id: string; series_id: string; project_id?: string; title: string; start_at: Date; end_at: Date;
@@ -226,33 +227,48 @@ export class PostgresNotificationScheduleSource {
     }
     if (installed.correspondence) {
       // Hạn xử lý công văn (hết ngày `due_on`, giờ Việt Nam). Nhắc người đang phải làm ở bước hiện tại: người được giao
-      // bước duyệt đang chạy (theo quy trình cấu hình), người phụ trách các phòng ban chưa phản hồi khi đang xử lý, văn thư
-      // tiếp nhận ở các bước còn lại.
+      // bước duyệt đang chạy (theo quy trình cấu hình); khi phòng ban đang xử lý thì người xử lý được phân công, phòng chưa
+      // phân công thì người phụ trách phòng; người soạn khi công văn đi đang soạn; văn thư tiếp nhận ở các bước còn lại.
       const letters = await this.pool.query<CorrespondenceLetterRow>(
-        `SELECT l.id, l.incoming_no, l.subject, l.stage, l.received_by,
+        `SELECT l.id, COALESCE(l.outgoing_no, l.incoming_no) AS incoming_no, l.subject, l.stage, l.received_by, l.author_user_id,
                 (SELECT s.assignee_user_ids::text[] FROM correspondence_schema.letter_steps s
                   WHERE s.letter_id = l.id AND s.status = 'active') AS step_user_ids,
-                ((l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
+                -- Bước duyệt đang chạy có số ngày riêng thì nhắc theo hạn của bước, không thì theo hạn của công văn.
+                COALESCE(step.due_at, (l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
                 ARRAY(SELECT a.unit_id::text FROM correspondence_schema.assignments a
-                       WHERE a.letter_id = l.id AND a.status = 'pending') AS pending_unit_ids
+                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.handler_user_id IS NULL) AS pending_unit_ids,
+                ARRAY(SELECT a.handler_user_id::text FROM correspondence_schema.assignments a
+                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.handler_user_id IS NOT NULL) AS pending_handler_ids
            FROM correspondence_schema.letters l
-          WHERE l.stage IN ('received','registered','directing','processing','reviewing','publishing','closing')
-            AND l.due_on BETWEEN ($1::timestamptz AT TIME ZONE $2)::date - 90
-                             AND ($1::timestamptz AT TIME ZONE $2)::date + 1`, [now, this.timezone]);
+           LEFT JOIN LATERAL (
+                SELECT s.activated_at + make_interval(days => s.due_days) AS due_at
+                  FROM correspondence_schema.letter_steps s
+                 WHERE s.letter_id = l.id AND s.status = 'active' AND s.due_days IS NOT NULL AND s.activated_at IS NOT NULL
+           ) step ON l.stage = 'reviewing'
+          WHERE l.stage IN ('received','registered','directing','processing','reviewing','closing','drafting','checking','publishing')
+            AND (l.due_on BETWEEN ($1::timestamptz AT TIME ZONE $2)::date - 90
+                              AND ($1::timestamptz AT TIME ZONE $2)::date + 1
+                 OR step.due_at BETWEEN $1::timestamptz - interval '90 days' AND $1::timestamptz + interval '1 day')`, [now, this.timezone]);
       let organizationOnce: Promise<unknown> | undefined;
       for (const row of letters.rows) {
         let users: string[] = [row.received_by];
         if ((row.stage === 'directing' || row.stage === 'reviewing') && row.step_user_ids?.length) users = row.step_user_ids;
-        if (row.stage === 'processing' && row.pending_unit_ids?.length && this.organization) {
-          try {
-            const resolved = resolveProcedureAssigneeUserIds(
-              row.pending_unit_ids.map((unitId) => ({ subjectType: 'organization_unit', subjectId: unitId, role: 'E' })),
-              await (organizationOnce ??= this.organization()),
-            );
-            if (resolved.length > 0) users = resolved;
-          } catch {
-            // Tenant Core chập chờn: lần quét này nhắc văn thư tiếp nhận, lần sau thử lại theo phòng ban.
+        if (row.stage === 'drafting' && row.author_user_id) users = [row.author_user_id];
+        if (row.stage === 'processing') {
+          const handlers = row.pending_handler_ids ?? [];
+          let heads: string[] = [];
+          if (row.pending_unit_ids?.length && this.organization) {
+            try {
+              heads = resolveProcedureAssigneeUserIds(
+                row.pending_unit_ids.map((unitId) => ({ subjectType: 'organization_unit', subjectId: unitId, role: 'E' })),
+                await (organizationOnce ??= this.organization()),
+              );
+            } catch {
+              // Tenant Core chập chờn: lần quét này nhắc người khác, lần sau thử lại theo phòng ban.
+            }
           }
+          const resolved = [...new Set([...handlers, ...heads])];
+          if (resolved.length > 0) users = resolved;
         }
         deadlines('correspondence', { id: row.id, title: row.subject, code: row.incoming_no, due_at: row.due_at }, users,
           DEFAULT_DUE_SOON_MINUTES, {});
