@@ -1,8 +1,8 @@
 'use client';
 
 import {
-  LETTER_FLOW_LABELS,
-  LETTER_FLOW_STAGES,
+  LETTER_STAGE_LABELS,
+  OPEN_LETTER_STAGES,
   type CorrespondenceOverview,
   type LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
@@ -27,7 +27,7 @@ export function OverviewView({
   const stats: { label: string; value: number; tone?: string; view: CorrespondenceView }[] = [
     { label: 'Cần tôi xử lý', value: overview.awaitingMe, tone: 'stat-accent', view: 'mine' },
     { label: 'Đang xử lý', value: overview.open, view: 'incoming' },
-    { label: 'Chờ lãnh đạo cho ý kiến', value: overview.awaitingLeader, tone: 'stat-warning', view: 'incoming' },
+    { label: 'Đang chờ duyệt, chỉ đạo', value: overview.awaitingApproval, tone: 'stat-warning', view: 'incoming' },
     { label: 'Quá hạn', value: overview.overdue, tone: 'stat-danger', view: 'incoming' },
     { label: 'Đã lưu trữ', value: overview.archived, tone: 'stat-success', view: 'archive' },
   ];
@@ -49,10 +49,10 @@ export function OverviewView({
       <section className={styles.card}>
         <h2>Công văn theo từng bước xử lý</h2>
         <div className={styles.flow}>
-          {LETTER_FLOW_STAGES.map((stage, index) => (
+          {OPEN_LETTER_STAGES.map((stage) => (
             <button key={stage} type="button" className={styles.flowStep} onClick={() => onOpenStage(stage)}>
               <b>{overview.byStage[stage] ?? 0}</b>
-              {LETTER_FLOW_LABELS[index]}
+              {LETTER_STAGE_LABELS[stage]}
             </button>
           ))}
         </div>

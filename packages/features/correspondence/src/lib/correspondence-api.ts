@@ -4,7 +4,10 @@ import {
   type AttachmentDownloadTicket,
   type AttachmentKind,
   type AttachmentUploadTicket,
+  type ApproveStepRequest,
+  type CatalogItem,
   type ClassifyLetterRequest,
+  type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type CorrespondenceOverview,
   type CorrespondenceSettings,
@@ -17,7 +20,12 @@ import {
   type LetterSummary,
   type PublishLetterRequest,
   type RequestRevisionRequest,
+  type SaveCatalogItemRequest,
+  type SaveWorkflowRequest,
+  type StepChoice,
+  type SubmitLetterRequest,
   type UpdateLetterRequest,
+  type Workflow,
 } from '@enterprise-platform/contracts-correspondence';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -64,8 +72,28 @@ export async function loadTenantHomePath(): Promise<string> {
 export const loadStatus = () => request<CorrespondenceStatus>('/status', { cache: 'no-store' });
 export const loadDirectory = () => request<CorrespondenceDirectory>('/directory', { cache: 'no-store' });
 export const loadOverview = () => request<CorrespondenceOverview>('/overview', { cache: 'no-store' });
+export const loadConfig = () => request<CorrespondenceConfig>('/config', { cache: 'no-store' });
 export const saveSettings = (settings: CorrespondenceSettings) =>
   request<CorrespondenceSettings>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
+
+export const saveCatalogItem = (id: string | undefined, body: SaveCatalogItemRequest) =>
+  id
+    ? request<CatalogItem>(`/catalog/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
+    : post<CatalogItem>('/catalog', body);
+export const deleteCatalogItem = (id: string) => request<void>(`/catalog/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const saveWorkflow = (id: string | undefined, body: SaveWorkflowRequest) =>
+  id
+    ? request<Workflow>(`/workflows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
+    : post<Workflow>('/workflows', body);
+export const deleteWorkflow = (id: string) => request<void>(`/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+/** Ứng viên cho bước sắp bắt đầu khi bước đó để người thao tác chọn người duyệt; `null` là không cần chọn. */
+export const loadStepChoice = (letterId: string, workflowId?: string) =>
+  request<{ choice: StepChoice | null }>(
+    `/letters/${encodeURIComponent(letterId)}/step-choice${workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : ''}`,
+    { cache: 'no-store' },
+  ).then((body) => body.choice);
 
 export function listLetters(query: LetterQuery): Promise<LetterSummary[]> {
   const params = new URLSearchParams();
@@ -86,14 +114,13 @@ export const updateLetter = (id: string, body: UpdateLetterRequest) =>
 const letter = (id: string, action: string) => `/letters/${encodeURIComponent(id)}/${action}`;
 
 export const classifyLetter = (id: string, body: ClassifyLetterRequest) => post<LetterDetail>(letter(id, 'classify'), body);
-export const submitLetter = (id: string, leaderUserId: string, note?: string) =>
-  post<LetterDetail>(letter(id, 'submit'), { leaderUserId, note });
+export const submitLetter = (id: string, body: SubmitLetterRequest) => post<LetterDetail>(letter(id, 'submit'), body);
 export const returnLetter = (id: string, reason: string) => post<LetterDetail>(letter(id, 'return'), { reason });
 export const directLetter = (id: string, body: DirectLetterRequest) => post<LetterDetail>(letter(id, 'direct'), body);
 export const closeForInfo = (id: string, note?: string) => post<LetterDetail>(letter(id, 'close-for-info'), { note });
 export const respondLetter = (id: string, assignmentId: string, note: string) =>
   post<LetterDetail>(letter(id, `assignments/${encodeURIComponent(assignmentId)}/respond`), { note });
-export const approveLetter = (id: string, note?: string) => post<LetterDetail>(letter(id, 'approve'), { note });
+export const approveLetter = (id: string, body: ApproveStepRequest) => post<LetterDetail>(letter(id, 'approve'), body);
 export const requestRevision = (id: string, body: RequestRevisionRequest) =>
   post<LetterDetail>(letter(id, 'request-revision'), body);
 export const publishLetter = (id: string, body: PublishLetterRequest) => post<LetterDetail>(letter(id, 'publish'), body);

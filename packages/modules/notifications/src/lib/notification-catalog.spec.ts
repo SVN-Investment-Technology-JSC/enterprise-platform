@@ -791,11 +791,10 @@ describe('Văn thư', () => {
   };
 
   it.each([
-    ['correspondence.letter.submitted', 'Công văn chờ bạn chỉ đạo', 'actionable'],
-    ['correspondence.letter.review-requested', 'Văn bản phản hồi chờ bạn duyệt', 'actionable'],
-    ['correspondence.letter.approved', 'Văn bản phản hồi đã được duyệt', 'actionable'],
+    ['correspondence.letter.step-assigned', 'Công văn chờ bạn xử lý', 'actionable'],
+    ['correspondence.letter.approved', 'Công văn đã duyệt xong, chờ phát hành', 'actionable'],
     ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],
-    ['correspondence.letter.returned', 'Công văn bị lãnh đạo trả lại', 'actionable'],
+    ['correspondence.letter.returned', 'Công văn bị trả lại', 'actionable'],
     ['correspondence.letter.published', 'Công văn đi đã phát hành', 'informational'],
     ['correspondence.letter.archived', 'Hồ sơ công văn đã lưu trữ', 'informational'],
   ])('%s báo người trong payload, không báo người thao tác, mở đúng công văn', async (type, title, priority) => {

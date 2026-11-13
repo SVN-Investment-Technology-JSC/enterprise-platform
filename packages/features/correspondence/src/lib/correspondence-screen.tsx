@@ -6,6 +6,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import type {
+  CorrespondenceConfig,
   CorrespondenceDirectory,
   CorrespondenceOverview,
   CorrespondenceStatus,
@@ -17,8 +18,8 @@ import { IntakeDialog } from './components/intake-dialog';
 import { LetterDrawer } from './components/letter-drawer';
 import { LetterListView } from './components/letter-list-view';
 import { OverviewView } from './components/overview-view';
-import { SettingsView } from './components/settings-view';
-import { errorMessage, loadDirectory, loadOverview, loadStatus, loadTenantHomePath } from './correspondence-api';
+import { ConfigView } from './components/config-view';
+import { errorMessage, loadConfig, loadDirectory, loadOverview, loadStatus, loadTenantHomePath } from './correspondence-api';
 import { CORRESPONDENCE_VIEWS, localToday, type CorrespondenceView } from './correspondence.model';
 import styles from './correspondence.module.scss';
 
@@ -37,6 +38,7 @@ export function CorrespondenceScreen() {
   const [homePath, setHomePath] = useState('/');
   const [status, setStatus] = useState<CorrespondenceStatus>();
   const [directory, setDirectory] = useState<CorrespondenceDirectory>();
+  const [config, setConfig] = useState<CorrespondenceConfig>();
   const [overview, setOverview] = useState<CorrespondenceOverview>();
   const [error, setError] = useState<string>();
   const [stageFilter, setStageFilter] = useState<LetterStage>();
@@ -59,6 +61,16 @@ export function CorrespondenceScreen() {
       .then(setDirectory)
       .catch(() => undefined);
   }, []);
+
+  const reloadConfig = useCallback(() => {
+    loadConfig()
+      .then(setConfig)
+      .catch((cause) => setError(errorMessage(cause, 'Không tải được cấu hình Văn thư.')));
+  }, []);
+
+  useEffect(() => {
+    if (status?.tablesReady) reloadConfig();
+  }, [status, reloadConfig]);
 
   useEffect(() => {
     if (!status?.tablesReady) return;
@@ -99,7 +111,7 @@ export function CorrespondenceScreen() {
     { id: 'outgoing', label: 'Công văn đi', group: 'Sổ công văn', icon: <Send size={16} /> },
     { id: 'archive', label: 'Kho lưu trữ', group: 'Sổ công văn', icon: <Archive size={16} /> },
     // Mở bằng nút bánh răng; khai ở đây để breadcrumb mang tên trang.
-    { id: 'settings', label: 'Cấu hình sổ', hidden: true },
+    { id: 'settings', label: 'Cấu hình', hidden: true },
   ];
 
   return (
@@ -115,8 +127,8 @@ export function CorrespondenceScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       settings={
-        capabilities?.canManage
-          ? { label: 'Cấu hình sổ', active: view === 'settings', onOpen: () => navigate('settings') }
+        capabilities?.canConfigure || capabilities?.isTenantAdmin
+          ? { label: 'Cấu hình', active: view === 'settings', onOpen: () => navigate('settings') }
           : undefined
       }
       actions={
@@ -139,11 +151,8 @@ export function CorrespondenceScreen() {
         </>
       }
     >
-      {!status || provisioning ? null : shown === 'settings' && capabilities?.canManage ? (
-        <SettingsView
-          settings={status.settings}
-          onSaved={(settings) => setStatus((current) => (current ? { ...current, settings } : current))}
-        />
+      {!status || provisioning || !config ? null : shown === 'settings' && (capabilities?.canConfigure || capabilities?.isTenantAdmin) ? (
+        <ConfigView config={config} directory={directory} onChanged={reloadConfig} />
       ) : shown === 'overview' ? (
         overview ? (
           <OverviewView
@@ -169,14 +178,14 @@ export function CorrespondenceScreen() {
         />
       )}
 
-      {drawerId && status?.tablesReady ? (
-        <LetterDrawer letterId={drawerId} directory={directory} onClose={closeLetter} onChanged={refresh} />
+      {drawerId && status?.tablesReady && config ? (
+        <LetterDrawer letterId={drawerId} config={config} directory={directory} onClose={closeLetter} onChanged={refresh} />
       ) : null}
 
-      {status ? (
+      {config ? (
         <IntakeDialog
           open={intakeOpen}
-          settings={status.settings}
+          config={config}
           onClose={() => setIntakeOpen(false)}
           onCreated={(letterId) => {
             setIntakeOpen(false);

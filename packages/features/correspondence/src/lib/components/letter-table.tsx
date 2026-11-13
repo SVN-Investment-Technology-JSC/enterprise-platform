@@ -1,9 +1,6 @@
 'use client';
 
-import {
-  LETTER_URGENCY_LABELS,
-  type LetterSummary,
-} from '@enterprise-platform/contracts-correspondence';
+import type { LetterSummary } from '@enterprise-platform/contracts-correspondence';
 import { dueText, formatDay, stageLabel, stageTone, urgencyTone } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 
@@ -75,15 +72,21 @@ export function LetterTable({
                         {letter.senderRef ? ` · ${letter.senderRef}` : ''}
                       </span>
                     </td>
-                    <td>{tag(urgencyTone(letter.urgency), LETTER_URGENCY_LABELS[letter.urgency])}</td>
+                    <td>
+                      {tag(urgencyTone(letter), letter.urgencyName)}
+                      {letter.restricted ? <span className={styles.hint}>{letter.confidentialityName}</span> : null}
+                    </td>
                     <td>
                       {tag(stageTone(letter.stage), stageLabel(letter.stage))}
                       {letter.stage === 'processing' ? (
                         <span className={styles.hint}>
                           Phòng ban đã phản hồi: {letter.assignmentsDone}/{letter.assignmentsTotal}
                         </span>
-                      ) : letter.leaderName && (letter.stage === 'directing' || letter.stage === 'reviewing') ? (
-                        <span className={styles.hint}>{letter.leaderName}</span>
+                      ) : letter.currentStepName ? (
+                        <span className={styles.hint}>
+                          {letter.currentStepName}
+                          {letter.currentAssigneeNames.length > 0 ? ` · ${letter.currentAssigneeNames.join(', ')}` : ''}
+                        </span>
                       ) : null}
                     </td>
                     <td>

@@ -921,6 +921,10 @@
   }
 }
 
+.dialogWide {
+  width: min(920px, 100%);
+}
+
 @keyframes popIn {
   from {
     transform: scale(0.97);
@@ -981,4 +985,75 @@
 
 .settings {
   max-width: 640px;
+}
+
+/* ------------------------------------------------------------------ cấu hình */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+.stepEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stepEditorHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  b {
+    font-size: 13.5px;
+  }
+}
+
+.formRow3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.orgUnit {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ep-line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.memberChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.memberChip {
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+}
+
+.memberHead {
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 600;
 }

@@ -55,17 +55,25 @@ describe('CorrespondenceAccessGuard', () => {
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
   });
 
-  it('dựng actor theo quyền: quản trị văn thư làm việc văn thư, không tự thành lãnh đạo', async () => {
+  it('dựng actor theo quyền: quản trị văn thư có mọi việc và cấu hình, không tự thành lãnh đạo', async () => {
     const { guard, context, request, register } = setup(allowed(['correspondence.manage']), { method: 'POST', csrf: true });
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(register).toHaveBeenCalledWith({ tenantId: 't1' });
-    expect(request.correspondenceActor).toMatchObject({ canRegister: true, canManage: true, canDirect: false });
+    expect(request.correspondenceActor).toMatchObject({
+      canRegister: true,
+      canPublish: true,
+      canArchive: true,
+      canReadAll: true,
+      canReadConfidential: true,
+      canConfigure: true,
+      canDirect: false,
+    });
   });
 
   it('quyền chỉ đạo cấp đích danh; quản trị tenant làm việc văn thư nhưng không là lãnh đạo', async () => {
     const leader = setup(allowed(['correspondence.letter.direct']));
     await leader.guard.canActivate(leader.context);
-    expect(leader.request.correspondenceActor).toMatchObject({ canRegister: false, canDirect: true, canManage: false });
+    expect(leader.request.correspondenceActor).toMatchObject({ canRegister: false, canDirect: true, canConfigure: false, canReadAll: false });
     const admin = setup(allowed([], ['tenant-admin']));
     await admin.guard.canActivate(admin.context);
     expect(admin.request.correspondenceActor).toMatchObject({ isTenantAdmin: true, canRegister: true, canDirect: false });

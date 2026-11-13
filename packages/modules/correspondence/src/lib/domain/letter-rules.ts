@@ -3,23 +3,39 @@ import {
   type AttachmentKind,
   type LetterActions,
   type LetterStage,
+  type LetterStepStatus,
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Người đang thao tác, đủ để quyết định quyền theo bước. */
 export interface LetterViewer {
   readonly userId: string;
-  /** Văn thư (tiếp nhận, phát hành, lưu trữ), quản trị văn thư hoặc quản trị tenant. */
-  readonly isClerk: boolean;
   readonly isTenantAdmin: boolean;
+  /** Tiếp nhận, phân loại, trình, huỷ, sửa thông tin. */
+  readonly canRegister: boolean;
+  readonly canPublish: boolean;
+  readonly canArchive: boolean;
+  /** Xem mọi công văn không mật. */
+  readonly canReadAll: boolean;
+  readonly canReadConfidential: boolean;
   /** Đơn vị và chức danh người đó thuộc về, gồm cả đơn vị cha (sơ đồ tổ chức). */
   readonly unitIds: ReadonlySet<string>;
+}
+
+export interface StepFacts {
+  readonly seq: number;
+  readonly kind: 'direct' | 'approve';
+  readonly status: LetterStepStatus;
+  readonly assigneeUserIds: readonly string[];
+  readonly actedBy?: string;
 }
 
 /** Phần công văn mà luật quyền cần. */
 export interface LetterFacts {
   readonly stage: LetterStage;
-  readonly leaderUserId?: string;
   readonly receivedBy: string;
+  /** Độ mật đang dùng có cờ "chỉ người liên quan". */
+  readonly restricted: boolean;
+  readonly steps: readonly StepFacts[];
   readonly assignments: readonly {
     readonly unitId: string;
     readonly status: 'pending' | 'submitted';
@@ -27,29 +43,44 @@ export interface LetterFacts {
   }[];
 }
 
-/** Người xem là lãnh đạo được trình công văn này; quản trị tenant làm thay được khi lãnh đạo vắng. */
-export function actsAsLeader(viewer: LetterViewer, letter: LetterFacts): boolean {
-  return Boolean(letter.leaderUserId && letter.leaderUserId === viewer.userId) || viewer.isTenantAdmin;
+export function activeStep(letter: Pick<LetterFacts, 'steps'>): StepFacts | undefined {
+  return letter.steps.find((step) => step.status === 'active');
 }
 
-/** Người xem thuộc phòng ban được giao (kể cả qua đơn vị cha của chức danh mình). */
+function directSeq(letter: Pick<LetterFacts, 'steps'>): number {
+  return letter.steps.find((step) => step.kind === 'direct')?.seq ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** Người xem được giao bước đang chạy; quản trị tenant làm thay được khi người duyệt vắng. */
+export function actsOnActiveStep(viewer: LetterViewer, letter: Pick<LetterFacts, 'steps'>): boolean {
+  const step = activeStep(letter);
+  return Boolean(step && (step.assigneeUserIds.includes(viewer.userId) || viewer.isTenantAdmin));
+}
+
 export function memberOf(viewer: LetterViewer, unitId: string): boolean {
   return viewer.unitIds.has(unitId);
 }
 
-/**
- * Ai được thấy công văn: văn thư thấy tất cả; người khác thấy công văn mình
- * tiếp nhận, được trình, thuộc phòng ban được giao hoặc từng gửi phản hồi.
- */
-export function canViewLetter(viewer: LetterViewer, letter: LetterFacts): boolean {
-  if (viewer.isClerk || viewer.isTenantAdmin) return true;
-  if (letter.receivedBy === viewer.userId || letter.leaderUserId === viewer.userId) return true;
+/** Người tiếp nhận, người được giao hay đã làm một bước, người thuộc phòng ban được giao. */
+export function involves(viewer: LetterViewer, letter: LetterFacts): boolean {
+  if (letter.receivedBy === viewer.userId) return true;
+  if (letter.steps.some((step) => step.actedBy === viewer.userId || (step.status !== 'waiting' && step.assigneeUserIds.includes(viewer.userId)))) {
+    return true;
+  }
   return letter.assignments.some(
     (assignment) => memberOf(viewer, assignment.unitId) || assignment.submittedBy === viewer.userId,
   );
 }
 
-/** Phòng ban này đang chờ phản hồi và người xem gửi được thay cho phòng. */
+/**
+ * Ai thấy công văn: người liên quan; người có quyền xem mọi công văn (công văn mật thì cần
+ * quyền xem công văn mật); quản trị tenant.
+ */
+export function canViewLetter(viewer: LetterViewer, letter: LetterFacts): boolean {
+  if (viewer.isTenantAdmin || involves(viewer, letter)) return true;
+  return letter.restricted ? viewer.canReadConfidential : viewer.canReadAll;
+}
+
 export function canRespondFor(
   viewer: LetterViewer,
   letter: Pick<LetterFacts, 'stage'>,
@@ -58,25 +89,25 @@ export function canRespondFor(
   return (
     letter.stage === 'processing' &&
     assignment.status === 'pending' &&
-    (viewer.isClerk || memberOf(viewer, assignment.unitId))
+    (viewer.canRegister || memberOf(viewer, assignment.unitId))
   );
 }
 
-/** Người xem có việc phải làm ở bước hiện tại. */
+/** Người xem có việc phải làm ở bước hiện tại (không tính quyền làm thay của quản trị). */
 export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean {
   switch (letter.stage) {
     case 'received':
     case 'registered':
-    case 'publishing':
-    case 'closing':
-      return viewer.isClerk;
-    case 'directing':
+      return viewer.canRegister;
     case 'reviewing':
-      return Boolean(letter.leaderUserId && letter.leaderUserId === viewer.userId);
+    case 'directing':
+      return Boolean(activeStep(letter)?.assigneeUserIds.includes(viewer.userId));
     case 'processing':
-      return letter.assignments.some(
-        (assignment) => assignment.status === 'pending' && memberOf(viewer, assignment.unitId),
-      );
+      return letter.assignments.some((assignment) => assignment.status === 'pending' && memberOf(viewer, assignment.unitId));
+    case 'publishing':
+      return viewer.canPublish;
+    case 'closing':
+      return viewer.canArchive;
     default:
       return false;
   }
@@ -84,32 +115,32 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
 
 /** Thao tác người xem làm được ở bước hiện tại. Service kiểm lại đúng các luật này trước khi ghi. */
 export function letterActions(viewer: LetterViewer, letter: LetterFacts): LetterActions {
-  const clerk = viewer.isClerk;
   const open = isOpenStage(letter.stage);
-  const leader = actsAsLeader(viewer, letter);
   const stage = letter.stage;
+  const step = activeStep(letter);
+  const onStep = actsOnActiveStep(viewer, letter);
+  const beforeDirect = Boolean(step && step.seq < directSeq(letter));
   const attachKinds: AttachmentKind[] = [];
-  if (clerk && open) attachKinds.push('incoming', 'reference');
-  if (!clerk && leader && (stage === 'directing' || stage === 'reviewing')) attachKinds.push('reference');
+  if (viewer.canRegister && open) attachKinds.push('incoming', 'reference');
+  else if (onStep && (stage === 'reviewing' || stage === 'directing')) attachKinds.push('reference');
   if (letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment))) attachKinds.push('draft');
-  if (clerk && (stage === 'publishing' || stage === 'closing')) attachKinds.push('outgoing');
+  if (viewer.canPublish && (stage === 'publishing' || stage === 'closing')) attachKinds.push('outgoing');
   return {
-    edit: clerk && open,
-    classify: clerk && stage === 'received',
-    submit: clerk && stage === 'registered',
-    direct: leader && stage === 'directing',
-    returnToClerk: leader && stage === 'directing',
-    closeForInfo: leader && stage === 'directing',
-    approve: leader && stage === 'reviewing',
-    requestRevision: leader && stage === 'reviewing',
-    publish: clerk && stage === 'publishing',
-    archive: clerk && stage === 'closing',
-    cancel: clerk && (stage === 'received' || stage === 'registered'),
+    edit: viewer.canRegister && open,
+    classify: viewer.canRegister && stage === 'received',
+    submit: viewer.canRegister && stage === 'registered',
+    approve: onStep && stage === 'reviewing',
+    returnToClerk: onStep && ((stage === 'reviewing' && beforeDirect) || stage === 'directing'),
+    direct: onStep && stage === 'directing',
+    closeForInfo: onStep && stage === 'directing',
+    requestRevision: onStep && stage === 'reviewing' && !beforeDirect,
+    publish: viewer.canPublish && stage === 'publishing',
+    archive: viewer.canArchive && stage === 'closing',
+    cancel: viewer.canRegister && (stage === 'received' || stage === 'registered'),
     attachKinds,
   };
 }
 
-/** Gỡ được tệp: người tải lên hoặc văn thư, khi hồ sơ còn mở; dự thảo chỉ khi phòng ban chưa gửi. */
 export function canDeleteAttachment(
   viewer: LetterViewer,
   letter: LetterFacts,
@@ -120,14 +151,13 @@ export function canDeleteAttachment(
   },
 ): boolean {
   if (!isOpenStage(letter.stage)) return false;
-  if (attachment.uploadedBy !== viewer.userId && !viewer.isClerk) return false;
+  if (attachment.uploadedBy !== viewer.userId && !viewer.canRegister) return false;
   if (attachment.kind === 'draft') return letter.stage === 'processing' && attachment.assignment?.status === 'pending';
   return true;
 }
 
 /* -------------------------------------------------------------- định dạng */
 
-/** Ngày hôm nay theo giờ Việt Nam, `YYYY-MM-DD`. */
 export function vietnamToday(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh',

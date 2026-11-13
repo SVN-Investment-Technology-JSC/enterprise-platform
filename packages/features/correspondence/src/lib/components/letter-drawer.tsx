@@ -2,16 +2,13 @@
 
 import {
   ATTACHMENT_KIND_LABELS,
-  LETTER_CONFIDENTIALITY_LABELS,
-  LETTER_FLOW_LABELS,
-  LETTER_KIND_LABELS,
-  LETTER_URGENCY_LABELS,
-  stageIndex,
   type AttachmentKind,
+  type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type LetterAssignment,
   type LetterAttachment,
   type LetterDetail,
+  type LetterStep,
 } from '@enterprise-platform/contracts-correspondence';
 import { CloseGuard, formatDateTime, Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import { Check, Download, Eye, Pencil, Trash2, Upload, X } from 'lucide-react';
@@ -36,11 +33,13 @@ import { LetterActionPanel } from './letter-actions';
  */
 export function LetterDrawer({
   letterId,
+  config,
   directory,
   onClose,
   onChanged,
 }: {
   readonly letterId: string;
+  readonly config: CorrespondenceConfig;
   readonly directory?: CorrespondenceDirectory;
   readonly onClose: () => void;
   /** Công văn vừa đổi (bước, tệp): danh sách và tổng quan tải lại. */
@@ -91,7 +90,6 @@ export function LetterDrawer({
 
   if (!mounted) return null;
   const today = localToday();
-  const current = letter ? stageIndex(letter.stage) : -1;
   const due = letter ? dueText(letter, today) : undefined;
   const tag = (tone: string, label: string) => <span className={`${styles.tag} ${styles[`tone-${tone}`]}`}>{label}</span>;
 
@@ -105,8 +103,8 @@ export function LetterDrawer({
                 <div className={styles.drawerTags}>
                   {tag('neutral', `Số đến ${letter.incomingNo}`)}
                   {tag(stageTone(letter.stage), stageLabel(letter.stage))}
-                  {letter.urgency !== 'normal' ? tag(urgencyTone(letter.urgency), LETTER_URGENCY_LABELS[letter.urgency]) : null}
-                  {letter.confidentiality === 'confidential' ? tag('danger', 'Mật') : null}
+                  {letter.urgencyHighlight ? tag(urgencyTone(letter), letter.urgencyName) : null}
+                  {letter.restricted ? tag('danger', letter.confidentialityName) : null}
                 </div>
                 <h1>{letter.subject}</h1>
                 <p className={styles.muted} style={{ margin: 0 }}>
@@ -142,12 +140,13 @@ export function LetterDrawer({
           <>
             {letter.stage !== 'cancelled' ? (
               <ol className={styles.steps} aria-label="Tiến trình xử lý">
-                {LETTER_FLOW_LABELS.map((label, index) => {
-                  const done = index < current;
-                  const active = index === current;
+                {letter.flow.map((node, index) => {
+                  const done = node.state === 'done';
+                  const active = node.state === 'current';
+                  const label = node.label;
                   return (
                     <li
-                      key={label}
+                      key={`${index}-${label}`}
                       className={`${styles.step} ${done ? styles.stepDone : ''} ${active ? styles.stepCurrent : ''}`}
                       aria-current={active ? 'step' : undefined}
                       style={{ listStyle: 'none' }}
@@ -172,11 +171,11 @@ export function LetterDrawer({
               </div>
               <div>
                 <span>Loại văn bản</span>
-                {LETTER_KIND_LABELS[letter.kind]}
+                {letter.kindName}
               </div>
               <div>
                 <span>Độ khẩn · Độ mật</span>
-                {LETTER_URGENCY_LABELS[letter.urgency]} · {LETTER_CONFIDENTIALITY_LABELS[letter.confidentiality]}
+                {letter.urgencyName} · {letter.confidentialityName}
               </div>
               <div>
                 <span>Ngày văn bản</span>
@@ -186,10 +185,10 @@ export function LetterDrawer({
                 <span>Văn thư tiếp nhận</span>
                 {letter.receivedByName ?? 'Không rõ'}
               </div>
-              {letter.leaderUserId ? (
+              {letter.workflowName ? (
                 <div>
-                  <span>Lãnh đạo phụ trách</span>
-                  {letter.leaderName ?? 'Không rõ'}
+                  <span>Quy trình duyệt</span>
+                  {letter.workflowName}
                 </div>
               ) : null}
               {letter.outgoingNo ? (
@@ -210,15 +209,17 @@ export function LetterDrawer({
                   {letter.instruction}
                 </div>
               ) : null}
-              {letter.approvalNote ? (
-                <div className={styles.metaWide}>
-                  <span>Ý kiến duyệt</span>
-                  {letter.approvalNote}
-                </div>
-              ) : null}
             </section>
 
-            <LetterActionPanel letter={letter} directory={directory} onDone={applied} onDirtyChange={setActionDirty} />
+            <LetterActionPanel
+              letter={letter}
+              config={config}
+              directory={directory}
+              onDone={applied}
+              onDirtyChange={setActionDirty}
+            />
+
+            {letter.steps.length > 0 ? <StepsSection steps={letter.steps} /> : null}
 
             {letter.assignments.length > 0 ? (
               <AssignmentsSection letter={letter} onDone={applied} onDirtyChange={setResponseDirty} onFilesChanged={reload} />
@@ -255,6 +256,56 @@ export function LetterDrawer({
       </aside>
     </div>,
     document.body,
+  );
+}
+
+/* ------------------------------------------------------ quy trình duyệt */
+
+const DECISION_LABELS: Readonly<Record<NonNullable<LetterStep['decision']>, string>> = {
+  approved: 'Đồng ý',
+  directed: 'Đã chỉ đạo',
+  closed: 'Lưu để biết',
+  returned: 'Trả lại văn thư',
+  revision: 'Yêu cầu sửa',
+};
+
+const STEP_STATUS: Readonly<Record<LetterStep['status'], { label: string; tone: string }>> = {
+  waiting: { label: 'Chưa tới', tone: 'tone-muted' },
+  active: { label: 'Đang chờ', tone: 'tone-warning' },
+  done: { label: 'Xong', tone: 'tone-success' },
+  skipped: { label: 'Bỏ qua', tone: 'tone-muted' },
+};
+
+function StepsSection({ steps }: { readonly steps: readonly LetterStep[] }) {
+  return (
+    <section className={styles.card}>
+      <h2>Các bước duyệt</h2>
+      <div className={styles.list}>
+        {steps.map((step) => {
+          const status = STEP_STATUS[step.status];
+          return (
+            <div key={step.id} className={styles.listRow}>
+              <div className={styles.listMain}>
+                <b>
+                  {step.seq}. {step.name}
+                </b>
+                {step.assignees.length > 0 ? (
+                  <span className={styles.hint}>Người thực hiện: {step.assignees.map((item) => item.name ?? 'Người dùng').join(', ')}</span>
+                ) : null}
+                {step.actedAt ? (
+                  <span className={styles.hint}>
+                    {step.decision ? DECISION_LABELS[step.decision] : 'Đã xử lý'} · {step.actedByName ?? 'Người dùng'} lúc{' '}
+                    {formatDateTime(step.actedAt)}
+                  </span>
+                ) : null}
+                {step.note ? <p>{step.note}</p> : null}
+              </div>
+              <span className={`${styles.tag} ${styles[status.tone]}`}>{status.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -307,6 +358,9 @@ function AssignmentsSection({
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                 <div className={styles.listMain}>
                   <b>{assignment.unitName}</b>
+                  {assignment.headNames.length > 0 ? (
+                    <span className={styles.hint}>Trưởng đơn vị: {assignment.headNames.join(', ')}</span>
+                  ) : null}
                   {assignment.round > 1 ? <span className={styles.hint}>Lượt {assignment.round}</span> : null}
                 </div>
                 <span

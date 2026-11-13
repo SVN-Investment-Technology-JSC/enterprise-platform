@@ -13,6 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type {
+  ApproveStepRequest,
   ClassifyLetterRequest,
   CompleteAttachmentRequest,
   CorrespondenceSettings,
@@ -26,6 +27,8 @@ import type {
   ReasonRequest,
   RequestRevisionRequest,
   RespondAssignmentRequest,
+  SaveCatalogItemRequest,
+  SaveWorkflowRequest,
   SubmitLetterRequest,
   UpdateLetterRequest,
 } from '@enterprise-platform/contracts-correspondence';
@@ -57,14 +60,49 @@ export class CorrespondenceController {
     return this.execute(() => this.service.overview(this.actor(request)));
   }
 
-  @Get('settings')
-  settings(@Req() request: CorrespondenceRequest) {
-    return this.execute(() => this.service.settings(this.actor(request)));
+  /* ----------------------------------------------------------- cấu hình */
+
+  /** Sổ, danh mục và quy trình duyệt: ai vào được phân hệ cũng đọc được, chỉ người có quyền cấu hình sửa. */
+  @Get('config')
+  config(@Req() request: CorrespondenceRequest) {
+    return this.execute(() => this.service.config(this.actor(request)));
   }
 
   @Put('settings')
   saveSettings(@Req() request: CorrespondenceRequest, @Body() body: CorrespondenceSettings) {
     return this.execute(() => this.service.saveSettings(this.actor(request), body));
+  }
+
+  @Post('catalog')
+  createCatalogItem(@Req() request: CorrespondenceRequest, @Body() body: SaveCatalogItemRequest) {
+    return this.execute(() => this.service.saveCatalogItem(this.actor(request), undefined, body));
+  }
+
+  @Put('catalog/:id')
+  updateCatalogItem(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SaveCatalogItemRequest) {
+    return this.execute(() => this.service.saveCatalogItem(this.actor(request), id, body));
+  }
+
+  @Delete('catalog/:id')
+  @HttpCode(204)
+  async deleteCatalogItem(@Req() request: CorrespondenceRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.service.deleteCatalogItem(this.actor(request), id));
+  }
+
+  @Post('workflows')
+  createWorkflow(@Req() request: CorrespondenceRequest, @Body() body: SaveWorkflowRequest) {
+    return this.execute(() => this.service.saveWorkflow(this.actor(request), undefined, body));
+  }
+
+  @Put('workflows/:id')
+  updateWorkflow(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SaveWorkflowRequest) {
+    return this.execute(() => this.service.saveWorkflow(this.actor(request), id, body));
+  }
+
+  @Delete('workflows/:id')
+  @HttpCode(204)
+  async deleteWorkflow(@Req() request: CorrespondenceRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.service.deleteWorkflow(this.actor(request), id));
   }
 
   /* ----------------------------------------------------------- công văn */
@@ -93,6 +131,12 @@ export class CorrespondenceController {
   @Get('letters/:id')
   detail(@Req() request: CorrespondenceRequest, @Param('id') id: string) {
     return this.execute(() => this.service.detail(this.actor(request), id));
+  }
+
+  /** Ứng viên cho bước sắp bắt đầu khi bước đó để người thao tác chọn người duyệt. */
+  @Get('letters/:id/step-choice')
+  stepChoice(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Query('workflowId') workflowId?: string) {
+    return this.execute(async () => ({ choice: await this.service.stepChoice(this.actor(request), id, workflowId || undefined) }));
   }
 
   @Patch('letters/:id')
@@ -143,7 +187,7 @@ export class CorrespondenceController {
 
   @Post('letters/:id/approve')
   @HttpCode(200)
-  approve(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: NoteRequest) {
+  approve(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ApproveStepRequest) {
     return this.execute(() => this.service.approve(this.actor(request), id, body));
   }
 

@@ -1,5 +1,5 @@
 import type { LetterSummary } from '@enterprise-platform/contracts-correspondence';
-import { dueText, formatDay, isPreviewable, matchesSearch, stageTone } from './correspondence.model';
+import { catalogOptions, dueText, formatDay, isPreviewable, matchesSearch, stageTone } from './correspondence.model';
 
 const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   id: 'l1',
@@ -8,8 +8,14 @@ const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   senderOrg: 'Sở Tài chính TP. Đà Nẵng',
   subject: 'Yêu cầu giải trình số liệu quyết toán thuế',
   kind: 'finance',
+  kindName: 'Tài chính – thuế',
   urgency: 'urgent',
+  urgencyName: 'Khẩn',
+  urgencyHighlight: true,
   confidentiality: 'normal',
+  confidentialityName: 'Thường',
+  restricted: false,
+  currentAssigneeNames: [],
   dueOn: '2026-11-14',
   stage: 'processing',
   assignmentsDone: 1,
@@ -42,5 +48,15 @@ describe('correspondence.model', () => {
     expect(stageTone('archived')).toBe('success');
     expect(isPreviewable('application/pdf')).toBe(true);
     expect(isPreviewable('application/msword')).toBe(false);
+  });
+
+  it('lựa chọn danh mục chỉ gồm mục đang dùng, giữ giá trị cũ đã ngừng dùng', () => {
+    const catalog = [
+      { id: '1', kind: 'urgency' as const, code: 'b', name: 'Khẩn', sortOrder: 2, isActive: true },
+      { id: '2', kind: 'urgency' as const, code: 'a', name: 'Thường', sortOrder: 1, isActive: true },
+      { id: '3', kind: 'urgency' as const, code: 'old', name: 'Cũ', sortOrder: 3, isActive: false },
+    ];
+    expect(catalogOptions(catalog, 'urgency').map((option) => option.value)).toEqual(['a', 'b']);
+    expect(catalogOptions(catalog, 'urgency', 'old').at(-1)).toEqual({ value: 'old', label: 'Cũ (ngừng dùng)' });
   });
 });

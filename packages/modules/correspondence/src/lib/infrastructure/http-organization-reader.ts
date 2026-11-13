@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import type { OrganizationReader, OrganizationSnapshot, OrganizationUnit } from '../application/ports.js';
+import type { OrganizationReader } from '../application/ports.js';
+import type { OrganizationMember, OrganizationNode, OrganizationSnapshot } from '../domain/organization.js';
 
 /** Sơ đồ tổ chức đổi chậm; đọc lại sau mỗi phút như Hệ dùng chung. */
 const CACHE_TTL_MS = 60_000;
@@ -41,7 +42,7 @@ export class HttpOrganizationReader implements OrganizationReader {
       );
       const fallback: OrganizationSnapshot = cached
         ? { ...cached.snapshot, degraded: true }
-        : { nodes: [], assignments: [], degraded: true };
+        : { nodes: [], members: [], degraded: true };
       this.cache.set(tenantId, { expiresAt: Date.now() + RETRY_AFTER_MS, snapshot: fallback });
       return fallback;
     }
@@ -49,14 +50,15 @@ export class HttpOrganizationReader implements OrganizationReader {
 }
 
 /**
- * Node và phân công từ payload organization context: `units` chứa mọi node, kể cả chức
- * danh (`typeCategory = 'position'`); `members[].unitId` là node được bổ nhiệm.
+ * Node và người từ payload organization context: `units` chứa mọi node, kể cả chức danh
+ * (`typeCategory = 'position'`); `members[].unitId` là node được bổ nhiệm, `isHead` là
+ * trưởng đơn vị. Trường lạ bỏ qua, thiếu trường thì bỏ dòng đó.
  */
 export function parseOrganization(payload: unknown): OrganizationSnapshot {
   const root = asRecord(payload);
   const units = Array.isArray(root?.['units']) ? (root['units'] as unknown[]) : [];
   const members = Array.isArray(root?.['members']) ? (root['members'] as unknown[]) : [];
-  const nodes: OrganizationUnit[] = [];
+  const nodes: OrganizationNode[] = [];
   for (const entry of units) {
     const unit = asRecord(entry);
     const id = text(unit?.['id']);
@@ -68,14 +70,21 @@ export function parseOrganization(payload: unknown): OrganizationSnapshot {
       kind: text(unit?.['typeCategory']) === 'position' ? 'position' : 'unit',
     });
   }
-  const assignments: { userId: string; nodeId: string }[] = [];
+  const people: OrganizationMember[] = [];
   for (const entry of members) {
     const member = asRecord(entry);
     const userId = text(member?.['userId']);
     const nodeId = text(member?.['unitId']) ?? text(member?.['positionId']);
-    if (userId && nodeId) assignments.push({ userId, nodeId });
+    if (!userId || !nodeId) continue;
+    people.push({
+      userId,
+      nodeId,
+      name: text(member?.['displayName']) ?? text(member?.['email']) ?? userId,
+      positionName: text(member?.['positionName']),
+      isHead: member?.['isHead'] === true,
+    });
   }
-  return { nodes, assignments, degraded: false };
+  return { nodes, members: people, degraded: false };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

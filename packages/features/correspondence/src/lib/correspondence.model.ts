@@ -1,10 +1,11 @@
 import {
   daysUntil,
-  LETTER_FLOW_STAGES,
+  isOpenStage,
   LETTER_STAGE_LABELS,
+  type CatalogItem,
+  type CatalogKind,
   type LetterStage,
   type LetterSummary,
-  type LetterUrgency,
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Màn hình của phân hệ; `letters` là liên kết mở thẳng một công văn (`#letters/<id>`). */
@@ -33,8 +34,16 @@ export function stageTone(stage: LetterStage): Tone {
   }
 }
 
-export function urgencyTone(urgency: LetterUrgency): Tone {
-  return urgency === 'normal' ? 'neutral' : 'danger';
+export function urgencyTone(letter: Pick<LetterSummary, 'urgencyHighlight'>): Tone {
+  return letter.urgencyHighlight ? 'danger' : 'neutral';
+}
+
+/** Lựa chọn của một danh mục: mục đang dùng, theo thứ tự; giữ cả mục `keep` (giá trị cũ đã ngừng dùng). */
+export function catalogOptions(catalog: readonly CatalogItem[], kind: CatalogKind, keep?: string) {
+  return catalog
+    .filter((item) => item.kind === kind && (item.isActive || item.code === keep))
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, 'vi'))
+    .map((item) => ({ value: item.code, label: item.isActive ? item.name : `${item.name} (ngừng dùng)` }));
 }
 
 export function stageLabel(stage: LetterStage): string {
@@ -50,7 +59,7 @@ export function formatDay(value: string | undefined): string {
 
 /** "Còn 3 ngày", "Đến hạn hôm nay", "Quá hạn 2 ngày" cho công văn còn mở; đã đóng thì không ghi gì. */
 export function dueText(letter: Pick<LetterSummary, 'dueOn' | 'stage'>, today: string): { text: string; tone: Tone } | undefined {
-  if (!letter.dueOn || !LETTER_FLOW_STAGES.includes(letter.stage)) return undefined;
+  if (!letter.dueOn || !isOpenStage(letter.stage)) return undefined;
   const days = daysUntil(letter.dueOn, today);
   if (days < 0) return { text: `Quá hạn ${-days} ngày`, tone: 'danger' };
   if (days === 0) return { text: 'Đến hạn hôm nay', tone: 'warning' };

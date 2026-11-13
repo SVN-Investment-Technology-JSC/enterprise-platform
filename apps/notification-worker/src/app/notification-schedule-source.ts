@@ -34,7 +34,7 @@ interface CrmActivityRow {
 type AssignedDeadlineRow = DeadlineRow & { assignee_user_id: string };
 interface CorrespondenceLetterRow {
   id: string; incoming_no: string; subject: string; due_at: Date; stage: string;
-  leader_user_id: string | null; received_by: string; pending_unit_ids: string[] | null;
+  step_user_ids: string[] | null; received_by: string; pending_unit_ids: string[] | null;
 }
 interface CalendarRow {
   id: string; series_id: string; project_id?: string; title: string; start_at: Date; end_at: Date;
@@ -225,10 +225,13 @@ export class PostgresNotificationScheduleSource {
       }
     }
     if (installed.correspondence) {
-      // Hạn xử lý công văn (hết ngày `due_on`, giờ Việt Nam). Nhắc người đang phải làm ở bước hiện tại: lãnh đạo khi
-      // chờ chỉ đạo hay duyệt, người phụ trách các phòng ban chưa phản hồi khi đang xử lý, văn thư tiếp nhận ở các bước còn lại.
+      // Hạn xử lý công văn (hết ngày `due_on`, giờ Việt Nam). Nhắc người đang phải làm ở bước hiện tại: người được giao
+      // bước duyệt đang chạy (theo quy trình cấu hình), người phụ trách các phòng ban chưa phản hồi khi đang xử lý, văn thư
+      // tiếp nhận ở các bước còn lại.
       const letters = await this.pool.query<CorrespondenceLetterRow>(
-        `SELECT l.id, l.incoming_no, l.subject, l.stage, l.leader_user_id, l.received_by,
+        `SELECT l.id, l.incoming_no, l.subject, l.stage, l.received_by,
+                (SELECT s.assignee_user_ids::text[] FROM correspondence_schema.letter_steps s
+                  WHERE s.letter_id = l.id AND s.status = 'active') AS step_user_ids,
                 ((l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
                 ARRAY(SELECT a.unit_id::text FROM correspondence_schema.assignments a
                        WHERE a.letter_id = l.id AND a.status = 'pending') AS pending_unit_ids
@@ -239,7 +242,7 @@ export class PostgresNotificationScheduleSource {
       let organizationOnce: Promise<unknown> | undefined;
       for (const row of letters.rows) {
         let users: string[] = [row.received_by];
-        if ((row.stage === 'directing' || row.stage === 'reviewing') && row.leader_user_id) users = [row.leader_user_id];
+        if ((row.stage === 'directing' || row.stage === 'reviewing') && row.step_user_ids?.length) users = row.step_user_ids;
         if (row.stage === 'processing' && row.pending_unit_ids?.length && this.organization) {
           try {
             const resolved = resolveProcedureAssigneeUserIds(

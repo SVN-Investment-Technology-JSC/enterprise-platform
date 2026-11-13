@@ -1,21 +1,10 @@
 'use client';
 
-import {
-  LETTER_CONFIDENTIALITIES,
-  LETTER_CONFIDENTIALITY_LABELS,
-  LETTER_KINDS,
-  LETTER_KIND_LABELS,
-  LETTER_URGENCIES,
-  LETTER_URGENCY_LABELS,
-  type CorrespondenceSettings,
-  type LetterConfidentiality,
-  type LetterKind,
-  type LetterUrgency,
-} from '@enterprise-platform/contracts-correspondence';
+import type { CorrespondenceConfig } from '@enterprise-platform/contracts-correspondence';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { localToday } from '../correspondence.model';
+import { catalogOptions, localToday } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { Field, FormDialog, SelectField } from './form-dialog';
 
@@ -26,44 +15,50 @@ interface IntakeForm {
   subject: string;
   receivedOn: string;
   dueOn: string;
-  kind: LetterKind;
-  urgency: LetterUrgency;
-  confidentiality: LetterConfidentiality;
+  kind: string;
+  urgency: string;
+  confidentiality: string;
 }
 
-function emptyForm(settings: CorrespondenceSettings): IntakeForm {
+/** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ. */
+function defaultDue(config: CorrespondenceConfig, kind: string, receivedOn: string): string {
+  const typeDays = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind)?.defaultDueDays;
+  const days = typeDays ?? config.settings.defaultDueDays;
+  if (!days || !receivedOn) return '';
+  const due = new Date(`${receivedOn}T00:00:00`);
+  due.setDate(due.getDate() + days);
+  return localToday(due);
+}
+
+function emptyForm(config: CorrespondenceConfig): IntakeForm {
   const today = localToday();
-  const due = new Date(`${today}T00:00:00`);
-  due.setDate(due.getDate() + settings.defaultDueDays);
+  const kind = catalogOptions(config.catalog, 'letter_type')[0]?.value ?? '';
   return {
     senderOrg: '',
     senderRef: '',
     senderDate: '',
     subject: '',
     receivedOn: today,
-    dueOn: settings.defaultDueDays > 0 ? localToday(due) : '',
-    kind: 'other',
-    urgency: 'normal',
-    confidentiality: 'normal',
+    dueOn: defaultDue(config, kind, today),
+    kind,
+    urgency: catalogOptions(config.catalog, 'urgency')[0]?.value ?? '',
+    confidentiality: catalogOptions(config.catalog, 'confidentiality')[0]?.value ?? '',
   };
 }
-
-const options = <T extends string>(values: readonly T[], labels: Readonly<Record<T, string>>) =>
-  values.map((value) => ({ value, label: labels[value] }));
 
 /** Văn thư tiếp nhận công văn đến: vào sổ, cấp số đến, kèm bản quét nếu có. */
 export function IntakeDialog({
   open,
-  settings,
+  config,
   onClose,
   onCreated,
 }: {
   readonly open: boolean;
-  readonly settings: CorrespondenceSettings;
+  readonly config: CorrespondenceConfig;
   readonly onClose: () => void;
   readonly onCreated: (letterId: string) => void;
 }) {
-  const initial = useMemo(() => emptyForm(settings), [settings]);
+  const initial = useMemo(() => emptyForm(config), [config]);
   const [form, setForm] = useState<IntakeForm>(initial);
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -178,31 +173,40 @@ export function IntakeDialog({
       <div className={styles.formRow}>
         <SelectField label="Loại văn bản">
           <SearchableSelect
-            options={options(LETTER_KINDS, LETTER_KIND_LABELS)}
+            options={catalogOptions(config.catalog, 'letter_type')}
             value={form.kind}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => set('kind', (value || 'other') as LetterKind)}
+            emptyText="Chưa có loại văn bản. Vào Cấu hình để thêm."
+            onChange={(value) =>
+              setForm((current) => ({
+                ...current,
+                kind: value,
+                // Hạn chưa sửa tay thì theo số ngày của loại văn bản mới.
+                dueOn:
+                  current.dueOn === defaultDue(config, current.kind, current.receivedOn)
+                    ? defaultDue(config, value, current.receivedOn)
+                    : current.dueOn,
+              }))
+            }
           />
         </SelectField>
         <SelectField label="Độ khẩn">
           <SearchableSelect
-            options={options(LETTER_URGENCIES, LETTER_URGENCY_LABELS)}
+            options={catalogOptions(config.catalog, 'urgency')}
             value={form.urgency}
             searchInDropdown
             hideDropdownSearch
-            onChange={(value) => set('urgency', (value || 'normal') as LetterUrgency)}
+            onChange={(value) => set('urgency', value)}
           />
         </SelectField>
       </div>
       <div className={styles.formRow}>
         <SelectField label="Độ mật">
           <SearchableSelect
-            options={options(LETTER_CONFIDENTIALITIES, LETTER_CONFIDENTIALITY_LABELS)}
+            options={catalogOptions(config.catalog, 'confidentiality')}
             value={form.confidentiality}
             searchInDropdown
             hideDropdownSearch
-            onChange={(value) => set('confidentiality', (value || 'normal') as LetterConfidentiality)}
+            onChange={(value) => set('confidentiality', value)}
           />
         </SelectField>
         <Field label="Bản quét công văn">

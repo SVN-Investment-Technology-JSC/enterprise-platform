@@ -46,15 +46,20 @@ export class CorrespondenceAccessGuard implements CanActivate {
     const held = decision.principal.permissions;
     const tenantAdmin = isTenantAdmin(decision.principal.roles);
     this.databases.register(decision.database);
+    const can = (action: string) => tenantAdmin || tenantActionHeld(held, action);
     request.correspondenceActor = {
       tenantId: decision.principal.tenantId,
       userId: decision.principal.userId,
       displayName: decision.principal.displayName,
       isTenantAdmin: tenantAdmin,
-      canRegister: tenantAdmin || tenantActionHeld(held, 'correspondence.letter.register'),
+      canRegister: can('correspondence.letter.register'),
+      canPublish: can('correspondence.letter.publish'),
+      canArchive: can('correspondence.letter.archive'),
       // Quyền chỉ đạo cấp đích danh: quản trị tenant không tự thành lãnh đạo nhận công văn.
       canDirect: held.includes('correspondence.letter.direct'),
-      canManage: tenantAdmin || tenantActionHeld(held, 'correspondence.manage'),
+      canReadAll: can('correspondence.letter.read-all'),
+      canReadConfidential: can('correspondence.letter.confidential'),
+      canConfigure: can('correspondence.config'),
     };
     return true;
   }

@@ -1146,14 +1146,13 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
     }),
   ),
-  // Văn thư: người nhận ghi sẵn trong payload (`recipientUserIds`: lãnh đạo được trình, văn thư tiếp nhận, người đã gửi
-  // phản hồi). Mỗi lần chuyển bước là một thông báo riêng, nên khoá nguồn gồm id sự kiện.
+  // Văn thư: người nhận ghi sẵn trong payload (`recipientUserIds`: người được giao bước duyệt theo quy trình cấu hình, văn
+  // thư tiếp nhận, người đã tham gia). Mỗi lần chuyển bước là một thông báo riêng, nên khoá nguồn gồm id sự kiện.
   ...(
     [
-      ['correspondence.letter.submitted', 'approval', 'actionable', 'Công văn chờ bạn chỉ đạo'],
-      ['correspondence.letter.returned', 'assignment', 'actionable', 'Công văn bị lãnh đạo trả lại'],
-      ['correspondence.letter.review-requested', 'approval', 'actionable', 'Văn bản phản hồi chờ bạn duyệt'],
-      ['correspondence.letter.approved', 'result', 'actionable', 'Văn bản phản hồi đã được duyệt'],
+      ['correspondence.letter.step-assigned', 'approval', 'actionable', 'Công văn chờ bạn xử lý'],
+      ['correspondence.letter.returned', 'assignment', 'actionable', 'Công văn bị trả lại'],
+      ['correspondence.letter.approved', 'result', 'actionable', 'Công văn đã duyệt xong, chờ phát hành'],
       ['correspondence.letter.archive-requested', 'assignment', 'actionable', 'Công văn chờ lưu trữ'],
       ['correspondence.letter.published', 'result', 'informational', 'Công văn đi đã phát hành'],
       ['correspondence.letter.archived', 'result', 'informational', 'Hồ sơ công văn đã lưu trữ'],

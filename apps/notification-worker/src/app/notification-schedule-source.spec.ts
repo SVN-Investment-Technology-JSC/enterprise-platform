@@ -158,7 +158,7 @@ describe('notification schedule source', () => {
   describe('nhắc hạn công văn Văn thư', () => {
     const letter = (overrides: Record<string, unknown> = {}) => ({
       id: 'letter-a', incoming_no: '41/CVĐ', subject: 'Giải trình thuế', due_at: new Date('2026-11-18T17:00:00Z'),
-      stage: 'directing', leader_user_id: 'user-leader', received_by: 'user-clerk', pending_unit_ids: [], ...overrides,
+      stage: 'directing', step_user_ids: ['user-leader'], received_by: 'user-clerk', pending_unit_ids: [], ...overrides,
     });
     const run = async (rows: unknown[], organization?: () => Promise<unknown>) => {
       const query = jest.fn(async (sql: string) => {
@@ -170,7 +170,7 @@ describe('notification schedule source', () => {
         .candidates(new Date('2026-11-18T01:00:00Z'));
     };
 
-    it('chờ chỉ đạo thì nhắc lãnh đạo, trước hạn và đúng hạn', async () => {
+    it('đang ở bước duyệt thì nhắc người được giao bước đó, trước hạn và đúng hạn', async () => {
       const candidates = await run([letter()]);
       expect(candidates).toEqual([
         expect.objectContaining({ eventType: 'correspondence.letter.due-soon', userId: 'user-leader', scheduledFor: '2026-11-17T17:00:00.000Z' }),

@@ -16,6 +16,8 @@ export interface FormDialogProps {
   /** Form đã có thay đổi: đóng phải hỏi lại, Esc không đóng. */
   readonly dirty: boolean;
   readonly error?: string;
+  /** Hộp thoại rộng cho form nhiều cột (quy trình duyệt). */
+  readonly wide?: boolean;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -34,6 +36,7 @@ export function FormDialog({
   submitDisabled = false,
   dirty,
   error,
+  wide = false,
   onClose,
   onSubmit,
   children,
@@ -54,7 +57,7 @@ export function FormDialog({
 
   return createPortal(
     <div className={styles.modal} role="presentation">
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={wide ? `${styles.dialog} ${styles.dialogWide}` : styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
         <header className={styles.dialogHead}>
           <div>
             <h2>{title}</h2>
