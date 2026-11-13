@@ -7211,6 +7211,137 @@
   }
 }
 
+/*
+ * Từ hai việc trở lên: mỗi việc là một thẻ có viền riêng và thanh tiêu đề (số thứ tự, tên, các nút), thu gọn được.
+ * Thu gọn thì chỉ còn thanh tiêu đề kèm dòng tóm tắt (người phụ trách, hạn, ưu tiên).
+ */
+.draftToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.draftToolbarCount {
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.draftToolbarActions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.draftItemCard {
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 10px;
+  background: var(--ep-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+
+  /* Thẻ nào cũng đủ viền; bỏ vạch ngăn trên của kiểu cũ. */
+  &:first-child {
+    padding-top: 0;
+  }
+
+  & + & {
+    margin-top: 16px;
+    border-top: 1px solid var(--ep-border-strong);
+  }
+
+  .draftGrid {
+    padding: 16px 16px 18px;
+  }
+}
+
+.draftCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 8px;
+  border-bottom: 1px solid var(--ep-border);
+  border-radius: 9px 9px 0 0;
+  background: #f1f3f6;
+}
+
+/* Thu gọn: không còn phần thân nên thanh tiêu đề bo đủ bốn góc. */
+.draftItemCard:has(.draftGridCollapsed) .draftCardHead {
+  border-bottom: 0;
+  border-radius: 9px;
+}
+
+.draftCardToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover {
+    background: rgb(15 23 42 / 6%);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.draftCardNumber {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--ep-accent);
+  color: var(--ep-text);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.draftCardSummary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.draftCardTitle,
+.draftCardTitleEmpty,
+.draftCardMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draftCardTitle {
+  color: var(--ep-text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.draftCardTitleEmpty {
+  color: var(--ep-text-muted);
+  font-size: 13.5px;
+  font-style: italic;
+}
+
+.draftCardMeta {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.draftGrid.draftGridCollapsed {
+  display: none;
+}
+
 .draftHead {
   display: flex;
   align-items: center;
@@ -10313,6 +10444,130 @@ button.kpiCard {
 /* Bảng WBS tự bớt cột phụ theo bề ngang của khung chứa (xem .wbsTable @container). */
 .ledgerScroll:has(.wbsTable) {
   container-type: inline-size;
+}
+
+/*
+ * Bảng "Công việc của tôi": bố cục cố định để mở/thu nhóm không làm cột dịch chỗ.
+ *
+ * Ô đầu tiên là một "cây" hai cấp, cùng một lưới ở cả hai cấp:
+ *   hàng nhóm : [mũi tên][mã dự án][tên dự án ........ ↗]
+ *   hàng việc : [thụt lề ][mã việc][tên việc .........]
+ * Chỗ của mã luôn một bề rộng (--work-code-w) nên tên dự án và tên việc bắt đầu cùng một cột; việc nằm lùi vào so với
+ * nhóm một khoảng bằng mũi tên + thụt lề nhỏ. Tên dài bị cắt một dòng, rê chuột để xem đủ.
+ */
+.myWorkTable {
+  --work-code-w: 9rem;
+  --work-arrow-w: 14px;
+  --work-gap: 8px;
+  --work-indent: 14px;
+
+  min-width: 1060px;
+  table-layout: fixed;
+}
+
+.myWorkColAssigner {
+  width: 130px;
+}
+
+.myWorkColPriority {
+  width: 168px;
+}
+
+.myWorkColStatus {
+  width: 172px;
+}
+
+.myWorkColDue {
+  width: 152px;
+}
+
+.myWorkColProgress {
+  width: 144px;
+}
+
+.workCell {
+  display: flex;
+  align-items: center;
+  gap: var(--work-gap);
+  min-width: 0;
+}
+
+.myWorkTable .groupToggle {
+  flex: 1;
+  min-width: 0;
+  gap: var(--work-gap);
+  text-align: left;
+
+  svg {
+    flex: none;
+    width: var(--work-arrow-w);
+  }
+}
+
+/* Chỗ của mã: một bề rộng cho cả nhóm lẫn việc; mã dài bị cắt. */
+.myWorkTable .workCell .treeCode {
+  display: inline-block;
+  flex: none;
+  width: var(--work-code-w);
+  margin: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Việc nằm lùi vào: mũi tên của nhóm + thụt lề, trừ bớt vào chỗ của mã để tên hai cấp vẫn thẳng cột. */
+.workIndent {
+  flex: none;
+  width: calc(var(--work-arrow-w) + var(--work-indent));
+}
+
+.myWorkTable .workChild .treeCode {
+  width: calc(var(--work-code-w) - var(--work-indent));
+}
+
+.myWorkTable .workChild .cellTitleButton {
+  flex: 1;
+  gap: var(--work-gap);
+  min-width: 0;
+}
+
+.workTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myWorkTable .cellSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mở thẳng dự án: một biểu tượng nhỏ cuối ô tên, thay cho chữ "Mở dự án" lặp ở từng nhóm. */
+.groupOpenIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
 }
 
 /* Đầu bảng dính trên, dòng tổng dính dưới khi cuộn. */

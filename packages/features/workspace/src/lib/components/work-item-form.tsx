@@ -163,6 +163,8 @@ export function WorkItemForm({
   const [confirmOutside, setConfirmOutside] = useState(false);
   /** Các việc sẽ tạo, mỗi việc đủ trường riêng (chỉ dùng khi tạo mới); sửa việc thì dùng `form`. */
   const [rows, setRows] = useState<DraftRow[]>(() => [draftRow()]);
+  /** Các việc đang thu gọn (chỉ dùng khi tạo từ hai việc trở lên). */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   /** Tên công việc đã dùng, gợi ý khi gõ tên. */
   const titleHistory = useRecentTitles(open);
 
@@ -222,6 +224,7 @@ export function WorkItemForm({
           : { ...EMPTY, parentId: defaultParentId ?? parent?.id ?? '' };
     setForm(initial);
     setRows([draftRow(initial)]);
+    setCollapsed(new Set());
     setError(undefined);
     setSubmitting(false);
     setConfirmOutside(false);
@@ -255,6 +258,25 @@ export function WorkItemForm({
   const copyOf = (row: DraftRow, title = ''): DraftRow => draftRow({ ...row, title });
 
   /** Thêm việc mới: chép công việc cha, loại, ưu tiên, người phụ trách và ngày của việc cuối cho đỡ chọn lại. */
+  const toggleCollapsed = (key: number) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  /** Báo lỗi của một việc: mở rộng việc đó ra để người dùng thấy ngay chỗ cần sửa. */
+  const failRow = (key: number, message: string) => {
+    setCollapsed((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+    setError(message);
+  };
+
   const addRow = () =>
     setRows((current) => {
       const last = current[current.length - 1];
@@ -529,21 +551,21 @@ export function WorkItemForm({
     for (const row of filled) {
       const label = filled.length > 1 ? `Công việc ${rows.indexOf(row) + 1}: ` : '';
       if (row.itemType !== 'phase' && row.executionType === 'procedure' && !row.procedureDefinitionId) {
-        setError(`${label}hãy chọn quy trình sẽ mở cho công việc này.`);
+        failRow(row.key, `${label}hãy chọn quy trình sẽ mở cho công việc này.`);
         return;
       }
       const rowTransport = transports.current.get(row.key);
       if (row.itemType !== 'phase' && rowTransport?.value.mode && rowTransport.problem) {
-        setError(`${label}${rowTransport.problem}`);
+        failRow(row.key, `${label}${rowTransport.problem}`);
         return;
       }
       const conditionProblem = row.itemType === 'phase' ? undefined : completionProblem(row.completion);
       if (conditionProblem) {
-        setError(`${label}${conditionProblem}`);
+        failRow(row.key, `${label}${conditionProblem}`);
         return;
       }
       if (!row.reopenParent && (parentOptions ?? []).some((option) => option.id === row.parentId && option.done)) {
-        setError(`${label}công việc cha đã hoàn thành. Hãy chọn mở lại công việc cha, hoặc chọn công việc cha khác.`);
+        failRow(row.key, `${label}công việc cha đã hoàn thành. Hãy chọn mở lại công việc cha, hoặc chọn công việc cha khác.`);
         return;
       }
     }
@@ -680,6 +702,30 @@ export function WorkItemForm({
             </Field>
           ) : null}
 
+          {rows.length > 1 ? (
+            <div className={styles.draftToolbar}>
+              <span className={styles.draftToolbarCount}>{rows.length} công việc</span>
+              <span className={styles.draftToolbarActions}>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={rows.every((row) => collapsed.has(row.key))}
+                  onClick={() => setCollapsed(new Set(rows.map((row) => row.key)))}
+                >
+                  Thu gọn tất cả
+                </button>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={rows.every((row) => !collapsed.has(row.key))}
+                  onClick={() => setCollapsed(new Set())}
+                >
+                  Mở rộng tất cả
+                </button>
+              </span>
+            </div>
+          ) : null}
+
           <div className={styles.draftList}>
             {rows.map((row, index) => (
               <WorkItemDraftEditor
@@ -688,6 +734,8 @@ export function WorkItemForm({
                 index={index}
                 row={row}
                 removable={rows.length > 1}
+                collapsed={collapsed.has(row.key)}
+                onToggleCollapsed={() => toggleCollapsed(row.key)}
                 onChange={(patch) => setRow(row.key, patch)}
                 onRemove={() =>
                   setRows((current) => current.filter((entry) => entry.key !== row.key))
