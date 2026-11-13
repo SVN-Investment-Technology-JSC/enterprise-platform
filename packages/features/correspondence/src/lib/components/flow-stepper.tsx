@@ -21,9 +21,14 @@ export function FlowStepper({
   readonly workflowName?: string;
   readonly cancelled?: boolean;
 }) {
+  const track = useRef<HTMLOListElement>(null);
   const current = useRef<HTMLLIElement>(null);
+  // Chỉ cuộn ngang thanh tiến trình cho bước đang xử lý vào giữa; không cuộn ngăn chi tiết.
   useEffect(() => {
-    current.current?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const list = track.current;
+    const item = current.current;
+    if (!list || !item || list.scrollWidth <= list.clientWidth) return;
+    list.scrollLeft = Math.max(0, item.offsetLeft - (list.clientWidth - item.clientWidth) / 2);
   }, [nodes]);
 
   const approvals = nodes.filter((node) => node.approval).length;
@@ -36,7 +41,7 @@ export function FlowStepper({
           {approvals === 0 ? ' · không có bước duyệt' : ` · ${approvals} bước duyệt`}
         </span>
       </div>
-      <ol className={styles.flowTrack}>
+      <ol ref={track} className={styles.flowTrack}>
         {nodes.map((node, index) => {
           const state = cancelled && node.state !== 'done' ? 'todo' : node.state;
           return (

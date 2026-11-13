@@ -32,6 +32,7 @@ const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   currentAssigneeNames: [],
   dueOn: '2026-11-14',
   stage: 'processing',
+  stageLabel: 'Phòng ban xử lý',
   assignmentsDone: 1,
   assignmentsTotal: 2,
   receivedBy: 'u1',
@@ -101,7 +102,7 @@ describe('correspondence.model', () => {
       updatedAt: '',
     });
     const config = {
-      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const },
+      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [] },
       catalog: [{ id: 't', kind: 'letter_type' as const, code: 'hd', name: 'Hợp đồng', sortOrder: 0, isActive: true, outgoingWorkflowId: 'out-hd' }],
       workflows: [workflow('in', 'incoming', true), workflow('out', 'outgoing', true), workflow('out-hd', 'outgoing')],
     };

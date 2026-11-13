@@ -1,8 +1,9 @@
 'use client';
 
 import { CloseGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { FileText, Paperclip, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { formatBytes } from '../correspondence.model';
 import { createPortal } from 'react-dom';
 import styles from '../correspondence.module.scss';
 
@@ -16,8 +17,10 @@ export interface FormDialogProps {
   /** Form đã có thay đổi: đóng phải hỏi lại, Esc không đóng. */
   readonly dirty: boolean;
   readonly error?: string;
-  /** Hộp thoại rộng cho form nhiều cột (quy trình duyệt). */
+  /** Hộp thoại rộng cho form nhiều cột (tạo công văn, quy trình duyệt). */
   readonly wide?: boolean;
+  /** Màu nút xác nhận: huỷ là đỏ, trả lại là vàng. */
+  readonly tone?: 'primary' | 'danger' | 'warning';
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -37,6 +40,7 @@ export function FormDialog({
   dirty,
   error,
   wide = false,
+  tone = 'primary',
   onClose,
   onSubmit,
   children,
@@ -91,8 +95,12 @@ export function FormDialog({
                 Huỷ
               </button>
             </CloseGuard>
-            <button type="submit" className={styles.buttonPrimary} disabled={submitting || submitDisabled}>
-              {submitting ? 'Đang lưu…' : submitLabel}
+            <button
+              type="submit"
+              className={tone === 'danger' ? styles.buttonDangerSolid : tone === 'warning' ? styles.buttonWarning : styles.buttonPrimary}
+              disabled={submitting || submitDisabled}
+            >
+              {submitting ? 'Đang xử lý…' : submitLabel}
             </button>
           </footer>
         </form>
@@ -140,5 +148,55 @@ export function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+/** Chọn nhiều tệp: nút chọn tệp và danh sách tệp đã chọn (bỏ được từng tệp). */
+export function FilePickField({
+  label,
+  files,
+  hint,
+  onChange,
+}: {
+  readonly label: string;
+  readonly files: readonly File[];
+  readonly hint?: string;
+  readonly onChange: (files: File[]) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className={styles.field} role="group" aria-label={label}>
+      <span className={styles.fieldLabel}>{label}</span>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        className={styles.fileInput}
+        onChange={(event) => {
+          onChange([...files, ...Array.from(event.target.files ?? [])]);
+          event.target.value = '';
+        }}
+      />
+      <div className={styles.filePick}>
+        <button type="button" className={styles.buttonGhost} onClick={() => input.current?.click()}>
+          <Paperclip size={14} /> Chọn tệp
+        </button>
+        <span className={styles.hint}>{files.length > 0 ? `Đã chọn ${files.length} tệp` : (hint ?? 'Chưa chọn tệp nào')}</span>
+      </div>
+      {files.length > 0 ? (
+        <ul className={styles.pickedFiles}>
+          {files.map((file, index) => (
+            <li key={`${file.name}-${index}`}>
+              <FileText size={14} />
+              <span title={file.name}>{file.name}</span>
+              <small>{formatBytes(file.size)}</small>
+              <button type="button" aria-label={`Bỏ ${file.name}`} onClick={() => onChange(files.filter((_, at) => at !== index))}>
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

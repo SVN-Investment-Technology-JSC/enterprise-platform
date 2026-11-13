@@ -23,6 +23,11 @@ export interface LetterViewer {
   readonly unitIds: ReadonlySet<string>;
   /** Đơn vị người đó là trưởng. */
   readonly headUnitIds: ReadonlySet<string>;
+  /**
+   * Việc của văn thư tính là việc của người này: cấu hình chưa chỉ định người làm văn thư, hoặc
+   * người này được chỉ định. Người có quyền mà không được chỉ định vẫn làm thay được.
+   */
+  readonly clerkOnDuty: boolean;
 }
 
 export interface StepFacts {
@@ -117,7 +122,7 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
   switch (letter.stage) {
     case 'received':
     case 'checking':
-      return viewer.canRegister;
+      return viewer.canRegister && viewer.clerkOnDuty;
     case 'drafting':
       return letter.authorUserId === viewer.userId;
     case 'reviewing':
@@ -129,9 +134,9 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
           (assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId)),
       );
     case 'closing':
-      return viewer.canArchive;
+      return viewer.canArchive && viewer.clerkOnDuty;
     case 'publishing':
-      return viewer.canPublish;
+      return viewer.canPublish && viewer.clerkOnDuty;
     default:
       return false;
   }
