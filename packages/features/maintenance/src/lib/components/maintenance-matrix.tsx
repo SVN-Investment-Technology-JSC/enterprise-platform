@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { excelSerialToIsoDate } from './matrix-import';
+import { procedureOptionsKeepingInUse, selectableProcedures } from '../procedure-options';
 import { loadAssetTasks, loadMaintenanceHistory, type AssetTaskList } from '../maintenance-api';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -92,7 +94,8 @@ export interface MatrixImportRow {
   rawStartDate?: string;
   procedureCode?: string;
   procedureDefinitionId?: string;
-  priority: MaintenancePriority;
+  /** Trống nghĩa là file không nêu ưu tiên: giữ nguyên ưu tiên hiện có của thiết bị. */
+  priority?: MaintenancePriority;
   rawPriority?: string;
   errors: string[];
 }
@@ -117,6 +120,8 @@ interface Draft {
   startDates: Map<MaintenanceFrequency, string>;
   procedureDefinitionId: string;
   priority: MaintenancePriority;
+  /** Người phụ trách (id người dùng); rỗng là chưa giao. Phiếu định kỳ sinh ra được giao cho người này. */
+  assigneeId: string;
 }
 
 /** Mặc định gợi ý: một tuần nữa, không phải hôm nay. */
@@ -137,7 +142,17 @@ function toDraft(
     startDates: new Map(),
     procedureDefinitionId: row.procedureDefinitionId ?? '',
     priority: row.priority,
+    assigneeId: row.assigneeId ?? '',
   };
+}
+
+/** Hai bản nháp giống nhau về những thứ người dùng chỉnh được (ngày bắt đầu chỉ có nghĩa kèm ô vừa tick). */
+function sameDraft(left: Draft, right: Draft): boolean {
+  if (left.procedureDefinitionId !== right.procedureDefinitionId) return false;
+  if (left.priority !== right.priority) return false;
+  if (left.assigneeId !== right.assigneeId) return false;
+  if (left.frequencies.size !== right.frequencies.size) return false;
+  return [...left.frequencies].every((frequency) => right.frequencies.has(frequency));
 }
 
 function formatDue(value?: string): string {
@@ -171,6 +186,8 @@ export function MaintenanceMatrixBoard({
   onSave,
   onEditTasks,
   onAddAsset,
+  members,
+  onDirtyChange,
   onRemoveAsset,
   onRunNow,
   onOpenHistory,
@@ -192,8 +209,12 @@ export function MaintenanceMatrixBoard({
   ) => void;
   onEditTasks?: (assetCode: string) => void;
   /** Thêm một thiết bị của Kho vào ma trận. */
-  onAddAsset?: (assetCode: string) => void;
-  /** Gỡ thiết bị khỏi ma trận, xoá mọi lịch của nó. */
+  onAddAsset?: (assetCode: string) => void | Promise<void>;
+  /** Danh sách người có thể giao phụ trách (thành viên tenant). */
+  members?: readonly { userId: string; displayName: string }[];
+  /** Báo cho màn hình cha biết đang có thay đổi chưa lưu, để cảnh báo trước khi chuyển màn. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Gỡ thiết bị khỏi ma trận: lưu trữ lịch của nó, giữ lịch sử phiếu. */
   onRemoveAsset?: (assetCodes: readonly string[]) => void | Promise<void>;
   /** Tạo phiếu bảo trì ngay cho thiết bị. */
   onRunNow?: (assetCodes: readonly string[]) => void | Promise<void>;
@@ -388,32 +409,56 @@ export function MaintenanceMatrixBoard({
       })),
     [],
   );
-  const flowOptions = useMemo(
-    () => [
-      { value: '', label: '— Chưa gắn —' },
-      ...(matrix.procedureCatalog ?? []).map((entry) => ({
-        value: entry.definitionId,
-        label: `${entry.code} — ${entry.name}`,
-      })),
-    ],
-    [matrix.procedureCatalog],
-  );
+  const flowOptions = useMemo(() => {
+    // Chỉ bản đang công bố được chọn mới; bản đã ngừng dùng chỉ hiện khi còn thiết bị đang gắn, kèm nhãn để người dùng đổi.
+    const inUse = new Set(
+      (matrix.rows ?? []).map((row) => row.procedureDefinitionId).filter((id): id is string => Boolean(id)),
+    );
+    return [{ value: '', label: '— Chưa gắn —' }, ...procedureOptionsKeepingInUse(matrix.procedureCatalog, inUse)];
+  }, [matrix.procedureCatalog, matrix.rows]);
 
+  // Nạp lại ma trận (thêm thiết bị, Bảo trì ngay, Gỡ...) KHÔNG được xoá thay đổi chưa lưu: hàng nào người dùng đã sửa so với
+  // bản server trước đó thì giữ nguyên bản nháp; chỉ hàng chưa sửa mới lấy dữ liệu mới.
+  const previousRowsRef = useRef<ReadonlyMap<string, MaintenanceMatrixRow>>(new Map());
   useEffect(() => {
-    setDrafts(new Map(rows.map((row) => [row.asset.code, toDraft(row, frequencies)])));
+    const previous = previousRowsRef.current;
+    setDrafts((current) => {
+      const next = new Map<string, Draft>();
+      for (const row of rows) {
+        const code = row.asset.code;
+        const draft = current.get(code);
+        const before = previous.get(code);
+        const edited = draft !== undefined && before !== undefined && !sameDraft(draft, toDraft(before, frequencies));
+        next.set(code, edited ? draft : toDraft(row, frequencies));
+      }
+      return next;
+    });
+    previousRowsRef.current = new Map(rows.map((row) => [row.asset.code, row]));
   }, [rows]);
 
   const dirty = useMemo(() => {
     return rows.some((row) => {
       const draft = drafts.get(row.asset.code);
       if (!draft) return false;
-      const original = toDraft(row, frequencies);
-      if (draft.procedureDefinitionId !== original.procedureDefinitionId) return true;
-      if (draft.priority !== original.priority) return true;
-      if (draft.frequencies.size !== original.frequencies.size) return true;
-      return [...draft.frequencies].some((frequency) => !original.frequencies.has(frequency));
+      return !sameDraft(draft, toDraft(row, frequencies));
     });
   }, [drafts, rows]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  // Đóng tab, tải lại trang khi còn thay đổi chưa lưu: hỏi lại.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   const mutate = (assetCode: string, change: (draft: Draft) => Draft) =>
     setDrafts((current) => {
@@ -456,12 +501,24 @@ export function MaintenanceMatrixBoard({
           startDates: Object.fromEntries(draft.startDates),
           procedureDefinitionId: draft.procedureDefinitionId || undefined,
           priority: draft.priority,
+          assigneeId: draft.assigneeId || null,
+          assigneeName: members?.find((member) => member.userId === draft.assigneeId)?.displayName ?? null,
         };
       }),
     );
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [importReview, setImportReview] = useState<MatrixImportReview | null>(null);
+  const [importReview, setImportReviewState] = useState<MatrixImportReview | null>(null);
+  // Ref giữ bản mới nhất: một lần chọn có thể gọi updateImportCell hai lần liên tiếp (thiết bị rồi tên thiết bị), lần hai
+  // phải thấy kết quả lần một chứ không phải state cũ của lần render trước.
+  const importReviewRef = useRef<MatrixImportReview | null>(null);
+  const setImportReview = (review: MatrixImportReview | null) => {
+    importReviewRef.current = review;
+    setImportReviewState(review);
+  };
+  /** Thiết bị mới từ file đang được thêm vào ma trận; áp dữ liệu nhập khi hàng của chúng xuất hiện. */
+  const [pendingImport, setPendingImport] = useState<MatrixImportRow[]>([]);
+  const [importNotice, setImportNotice] = useState<string>();
 
   /** Options danh sách thiết bị dùng cho SearchableSelect trong Modal Import */
   const assetImportOptions = useMemo(() => {
@@ -490,18 +547,26 @@ export function MaintenanceMatrixBoard({
 
   /** Options quy trình cho SearchableSelect trong Modal Import */
   const procedureImportOptions = useMemo(() => {
-    return (matrix.procedureCatalog ?? []).map((proc) => ({
+    return selectableProcedures(matrix.procedureCatalog).map((proc) => ({
       value: proc.code,
       label: `${proc.code} - ${proc.name}`,
       description: proc.name,
     }));
   }, [matrix.procedureCatalog]);
 
+  const assigneeOptions = useMemo(
+    () => (members ?? []).map((member) => ({ value: member.userId, label: member.displayName })),
+    [members],
+  );
+
   const priorityImportOptions = useMemo(() => {
-    return (Object.entries(PRIORITY_LABEL) as [MaintenancePriority, string][]).map(([val, lbl]) => ({
-      value: val,
-      label: lbl,
-    }));
+    return [
+      { value: '', label: 'Giữ nguyên' },
+      ...(Object.entries(PRIORITY_LABEL) as [MaintenancePriority, string][]).map(([val, lbl]) => ({
+        value: val,
+        label: lbl,
+      })),
+    ];
   }, []);
 
   const downloadImportTemplate = () => {
@@ -621,9 +686,10 @@ export function MaintenanceMatrixBoard({
           }
 
           // 3. Ngày bắt đầu
-          const rawStart = String(
-            item['Ngày bắt đầu'] || item['Ngay bat dau'] || item['Bắt đầu'] || item['Bat dau'] || '',
-          ).trim();
+          const startCell = item['Ngày bắt đầu'] || item['Ngay bat dau'] || item['Bắt đầu'] || item['Bat dau'] || '';
+          // Ô ngày của Excel đọc ra là số serial (ngày kể từ 30/12/1899), không phải chuỗi: đổi thẳng, nếu không
+          // new Date('46371') cho ra năm 46370.
+          const rawStart = excelSerialToIsoDate(startCell) ?? String(startCell).trim();
           let startDate: string | undefined = undefined;
           if (rawStart) {
             if (/^\d{4}-\d{2}-\d{2}$/.test(rawStart)) {
@@ -664,7 +730,8 @@ export function MaintenanceMatrixBoard({
           const rawPriority = String(
             item['Mức ưu tiên'] || item['Muc uu tien'] || item['Ưu tiên'] || item['Uu tien'] || '',
           ).trim();
-          let priority: MaintenancePriority = 'Normal';
+          // File không nêu ưu tiên thì để trống (giữ nguyên ưu tiên hiện có), không ép về "Thường".
+          let priority: MaintenancePriority | undefined = undefined;
           const normPri = normalize(rawPriority);
           if (normPri === 'cao' || normPri === 'high') priority = 'High';
           else if (normPri === 'thap' || normPri === 'low') priority = 'Low';
@@ -706,8 +773,9 @@ export function MaintenanceMatrixBoard({
   };
 
   const updateImportCell = (index: number, field: keyof MatrixImportRow, value: unknown) => {
-    if (!importReview) return;
-    const updatedRows = [...importReview.rows];
+    const current = importReviewRef.current ?? importReview;
+    if (!current) return;
+    const updatedRows = [...current.rows];
     const currentRow = { ...updatedRows[index], [field]: value };
     updatedRows[index] = currentRow;
 
@@ -715,7 +783,7 @@ export function MaintenanceMatrixBoard({
   };
 
   const revalidateImport = (sourceRows?: MatrixImportRow[]) => {
-    const baseRows = sourceRows ?? importReview?.rows ?? [];
+    const baseRows = sourceRows ?? importReviewRef.current?.rows ?? importReview?.rows ?? [];
     const knownAssets = new Map<string, { code: string; name: string }>();
     for (const r of rows) {
       knownAssets.set(normalize(r.asset.code), { code: r.asset.code, name: r.asset.name });
@@ -782,43 +850,60 @@ export function MaintenanceMatrixBoard({
     });
   };
 
-  const confirmImport = () => {
-    if (!importReview || importReview.validRows.length === 0) return;
+  /** Áp một dòng nhập vào bản nháp của thiết bị (thiết bị phải đã có hàng trên ma trận). */
+  const applyImportRow = (vr: MatrixImportRow) =>
+    mutate(vr.assetCode, (prevDraft) => {
+      const nextFreqs = new Set(prevDraft.frequencies);
+      const nextDates = new Map(prevDraft.startDates);
 
-    for (const vr of importReview.validRows) {
-      // Nếu thiết bị chưa có trên ma trận thì thêm vào
-      const existsOnMatrix = rows.some((r) => r.asset.code === vr.assetCode);
-      if (!existsOnMatrix && onAddAsset) {
-        onAddAsset(vr.assetCode);
+      for (const f of vr.frequencies) {
+        nextFreqs.add(f);
+        if (vr.startDate) {
+          nextDates.set(f, vr.startDate);
+        } else if (!nextDates.has(f)) {
+          nextDates.set(f, defaultStartDate());
+        }
       }
 
-      mutate(vr.assetCode, (prevDraft) => {
-        const nextFreqs = new Set(prevDraft.frequencies);
-        const nextDates = new Map(prevDraft.startDates);
+      return {
+        ...prevDraft,
+        frequencies: nextFreqs,
+        startDates: nextDates,
+        priority: vr.priority ?? prevDraft.priority,
+        procedureDefinitionId: vr.procedureDefinitionId ?? prevDraft.procedureDefinitionId,
+      };
+    });
 
-        for (const f of vr.frequencies) {
-          nextFreqs.add(f);
-          if (vr.startDate) {
-            nextDates.set(f, vr.startDate);
-          } else if (!nextDates.has(f)) {
-            nextDates.set(f, defaultStartDate());
-          }
-        }
+  // Thiết bị mới từ file: sau khi hàng của chúng xuất hiện (đã thêm vào ma trận và nạp lại) mới áp dữ liệu nhập.
+  useEffect(() => {
+    if (pendingImport.length === 0) return;
+    const present = new Set(rows.map((row) => row.asset.code));
+    const ready = pendingImport.filter((vr) => present.has(vr.assetCode));
+    if (ready.length === 0) return;
+    ready.forEach(applyImportRow);
+    setPendingImport((current) => current.filter((vr) => !present.has(vr.assetCode)));
+  }, [rows, pendingImport]);
 
-        return {
-          ...prevDraft,
-          frequencies: nextFreqs,
-          startDates: nextDates,
-          priority: vr.priority,
-          procedureDefinitionId: vr.procedureDefinitionId ?? prevDraft.procedureDefinitionId,
-        };
-      });
+  const confirmImport = async () => {
+    if (!importReview || importReview.validRows.length === 0) return;
+    const valid = importReview.validRows;
+    const onMatrix = new Set(rows.map((row) => row.asset.code));
+
+    // Thiết bị đã có trên ma trận: áp ngay. Thiết bị mới: thêm vào ma trận trước, áp khi hàng của chúng xuất hiện.
+    const existing = valid.filter((vr) => onMatrix.has(vr.assetCode));
+    const fresh = valid.filter((vr) => !onMatrix.has(vr.assetCode));
+    existing.forEach(applyImportRow);
+    setImportReview(null);
+
+    if (fresh.length > 0 && onAddAsset) {
+      setPendingImport((current) => [...current, ...fresh]);
+      await Promise.allSettled([...new Set(fresh.map((vr) => vr.assetCode))].map((code) => onAddAsset(code)));
     }
 
-    alert(
-      `Đã nạp thành công dữ liệu của ${importReview.validRows.length} thiết bị vào ma trận nháp. Hãy kiểm tra lại và nhấn "Lưu thay đổi" để áp dụng lên máy chủ.`,
+    const added = fresh.length > 0 && !onAddAsset ? existing.length : valid.length;
+    setImportNotice(
+      `Đã nạp ${added}/${valid.length} dòng vào ma trận nháp${importReview.invalidRows.length ? `, bỏ qua ${importReview.invalidRows.length} dòng lỗi` : ''}. Kiểm tra lại rồi nhấn "Lưu thay đổi" để áp dụng.`,
     );
-    setImportReview(null);
   };
 
   /** Tính toán phân trang */
@@ -923,6 +1008,22 @@ export function MaintenanceMatrixBoard({
         </div>
       </header>
 
+      {importNotice ? (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+        >
+          <span>{importNotice}</span>
+          <button
+            type="button"
+            className="cursor-pointer border-0 bg-transparent p-0 text-sm font-medium text-emerald-800 underline"
+            onClick={() => setImportNotice(undefined)}
+          >
+            Đóng
+          </button>
+        </div>
+      ) : null}
+
       {/* MODAL KIỂM TRA DỮ LIỆU NHẬP EXCEL */}
       {importReview ? (
         <MinimalPopupForm
@@ -1004,10 +1105,10 @@ export function MaintenanceMatrixBoard({
                         <td className={styles.importSelectCell}>
                           <SearchableSelect
                             options={priorityImportOptions}
-                            value={r.priority}
+                            value={r.priority ?? ''}
                             clearable={false}
                             onChange={(val) => {
-                              updateImportCell(idx, 'priority', (val as MaintenancePriority) || 'Normal');
+                              updateImportCell(idx, 'priority', (val as MaintenancePriority) || undefined);
                             }}
                           />
                         </td>
@@ -1040,7 +1141,7 @@ export function MaintenanceMatrixBoard({
               <button
                 type="button"
                 className={styles.confirmActionBtn}
-                onClick={confirmImport}
+                onClick={() => void confirmImport()}
                 disabled={importReview.validRows.length === 0}
               >
                 Xác nhận ({importReview.validRows.length}/{importReview.totalRows} dòng)
@@ -1239,6 +1340,7 @@ export function MaintenanceMatrixBoard({
                 </th>
                 <th className="w-[170px]">Thiết bị</th>
                 <th className="w-[130px]">Đơn vị phụ trách</th>
+                <th className="w-[170px]">Người phụ trách</th>
                 <th className="w-[110px]">Ưu tiên</th>
                 {frequencies.map((entry) => (
                   <th key={entry.id} className="w-[88px] text-center!">
@@ -1306,6 +1408,24 @@ export function MaintenanceMatrixBoard({
                     </td>
                     <td className="truncate text-sm text-slate-700">
                       {row.asset.orgUnitId ? (unitNames?.get(row.asset.orgUnitId) ?? '—') : '—'}
+                    </td>
+                    <td>
+                      <SearchableSelect
+                        className={SELECT_CLASS}
+                        height={36}
+                        searchInDropdown
+                        clearable
+                        options={assigneeOptions}
+                        value={draft.assigneeId}
+                        placeholder="— Chưa giao —"
+                        disabled={!canManage || busy}
+                        onChange={(val) =>
+                          mutate(row.asset.code, (current) => ({
+                            ...current,
+                            assigneeId: val,
+                          }))
+                        }
+                      />
                     </td>
                     <td>
                       <SearchableSelect
@@ -1382,6 +1502,13 @@ export function MaintenanceMatrixBoard({
                           }))
                         }
                       />
+                      {row.pausedReason ? (
+                        <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">
+                          {row.pausedReason === 'PROCEDURE_ENTITLEMENT_DISABLED'
+                            ? 'Tạm dừng: chưa bật module Quy trình'
+                            : 'Tạm dừng: quy trình đã ngừng dùng, hãy chọn quy trình khác'}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -1628,7 +1755,7 @@ export function MaintenanceMatrixBoard({
         open={confirming === 'remove'}
         onOpenChange={(open) => setConfirming(open ? 'remove' : undefined)}
         title={`Gỡ ${selectedRows.length} thiết bị khỏi ma trận?`}
-        description="Các thiết bị đã chọn sẽ bị gỡ khỏi ma trận bảo trì và toàn bộ lịch định kỳ liên quan sẽ bị xoá. Hành động này không hoàn tác được."
+        description="Các thiết bị đã chọn sẽ bị gỡ khỏi ma trận và ngừng sinh phiếu định kỳ. Lịch sử phiếu và tệp đính kèm đã có vẫn được giữ trong mục Lịch sử; thêm lại thiết bị từ Kho khi cần."
         confirmText="Gỡ thiết bị"
         destructive
         busy={bulkRunning}

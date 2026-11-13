@@ -89,6 +89,12 @@ export function MaintenanceHistory({
   performers?: ReadonlyMap<string, string[]>;
 }) {
   const [note, setNote] = useState('');
+  // Ô tìm mã thiết bị là ô có trạng thái riêng nhưng phải theo bộ lọc: "Xoá bộ lọc" làm filter.assetCode trống thì chữ
+  // trong ô cũng phải sạch.
+  const [assetText, setAssetText] = useState(filter.assetCode ?? '');
+  useEffect(() => {
+    setAssetText(filter.assetCode ?? '');
+  }, [filter.assetCode]);
   const [loadedAttachments, setLoadedAttachments] = useState<OccurrenceAttachment[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; name: string; size: string }>>([]);
@@ -176,13 +182,18 @@ export function MaintenanceHistory({
               className="h-9 rounded-md pl-8 text-sm"
               placeholder="Tìm theo mã thiết bị (MBA-01, MC-22)..."
               aria-label="Tìm theo mã thiết bị"
-              defaultValue={filter.assetCode ?? ''}
+              value={assetText}
+              onChange={(e) => setAssetText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   onFilter({ ...filter, assetCode: (e.target as HTMLInputElement).value, cursor: undefined });
                 }
               }}
-              onBlur={(event) => onFilter({ ...filter, assetCode: event.target.value, cursor: undefined })}
+              onBlur={(event) => {
+                // Chỉ gọi khi giá trị thật sự đổi: blur không đổi gì thì không nạp lại danh sách.
+                if (event.target.value.trim() === (filter.assetCode ?? '').trim()) return;
+                onFilter({ ...filter, assetCode: event.target.value, cursor: undefined });
+              }}
             />
           </div>
 

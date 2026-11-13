@@ -11,6 +11,15 @@ import type {
 import { formatDate } from '@enterprise-platform/shared-ui';
 import { ArrowRight, CalendarClock, CheckCircle2, ClipboardList, ListChecks, RotateCcw, TriangleAlert, UserRound } from 'lucide-react';
 import { useState } from 'react';
+import {
+  dueTime,
+  isAssignedTo,
+  isDueWithinSevenDays,
+  isOpenOccurrence as isOpen,
+  isOverdueOccurrence as isOverdue,
+  startOfDay,
+  type OccurrenceQuickFilter,
+} from './occurrence-rules';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -21,8 +30,8 @@ import { cn } from './utils';
 export interface MaintenanceDashboardActions {
   /** Mở chi tiết một phiếu trong màn Lịch sử. */
   readonly openOccurrence: (id: string) => void;
-  /** Mở màn Phiếu phát sinh, tuỳ chọn lọc sẵn theo loại. */
-  readonly openOccurrences: (kind?: MaintenanceOccurrenceKind) => void;
+  /** Mở màn Phiếu phát sinh, tuỳ chọn lọc sẵn theo loại và bộ lọc nhanh (cùng quy tắc với con số trên thẻ). */
+  readonly openOccurrences: (options?: { kind?: MaintenanceOccurrenceKind; quick?: OccurrenceQuickFilter }) => void;
   /** Mở Lịch sử đã lọc theo trạng thái. */
   readonly openHistoryByStatus: (status: MaintenanceOccurrenceStatus) => void;
   /** Gửi lại phiếu báo lỗi sang Quy trình; ném lỗi nếu không gửi được. */
@@ -70,26 +79,6 @@ const STATUS_BAR: ReadonlyArray<{ status: MaintenanceOccurrenceStatus; bar: stri
 ];
 
 const DAY_MS = 86_400_000;
-
-/** Chưa đóng, kể cả phiếu gửi Quy trình lỗi: nó vẫn cần người xử lý (thử lại hoặc đóng tay), không được biến mất khỏi thẻ. */
-function isOpen(occurrence: MaintenanceOccurrence): boolean {
-  return occurrence.status !== 'completed';
-}
-
-function dueTime(occurrence: MaintenanceOccurrence): number {
-  const value = Date.parse(occurrence.dueAt);
-  return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
-}
-
-/** Đầu ngày (giờ máy) cách hôm nay `offsetDays` ngày; làm mốc cho "quá hạn" và "7 ngày tới". */
-function startOfDay(offsetDays = 0): number {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetDays).getTime();
-}
-
-function isOverdue(occurrence: MaintenanceOccurrence): boolean {
-  return isOpen(occurrence) && dueTime(occurrence) < startOfDay();
-}
 
 // ---------------------------------------------------------------- Thành phần nhỏ dùng trong thẻ
 
@@ -279,10 +268,10 @@ function BarRow(props: { label: string; value: number; max: number; barClass: st
 
 /** Mở màn tương ứng của thẻ số; `undefined` nghĩa là thẻ không dẫn đi đâu. */
 const KPI_VIEW: Readonly<Partial<Record<string, (actions: MaintenanceDashboardActions) => void>>> = {
-  'metric.overdue': (actions) => actions.openOccurrences(),
-  'metric.dueThisWeek': (actions) => actions.openOccurrences(),
-  'metric.openIncidents': (actions) => actions.openOccurrences('incident'),
-  'metric.myOpen': (actions) => actions.openOccurrences(),
+  'metric.overdue': (actions) => actions.openOccurrences({ quick: 'overdue' }),
+  'metric.dueThisWeek': (actions) => actions.openOccurrences({ quick: 'due7' }),
+  'metric.openIncidents': (actions) => actions.openOccurrences({ kind: 'incident', quick: 'open' }),
+  'metric.myOpen': (actions) => actions.openOccurrences({ quick: 'mine' }),
 };
 
 /**
@@ -299,7 +288,7 @@ export const MAINTENANCE_DASHBOARD_CARDS: DashboardCardCatalog<MaintenanceDashbo
     size: 'sm',
     defaultEnabled: true,
     render: (data) => {
-      const count = data.workspace.occurrences.filter(isOverdue).length;
+      const count = data.workspace.occurrences.filter((item) => isOverdue(item)).length;
       return <Metric value={count} alert={count > 0} />;
     },
   },
@@ -309,15 +298,7 @@ export const MAINTENANCE_DASHBOARD_CARDS: DashboardCardCatalog<MaintenanceDashbo
     description: 'Phiếu chưa đóng có hạn từ hôm nay đến hết 7 ngày tới.',
     size: 'sm',
     defaultEnabled: true,
-    render: (data) => {
-      const from = startOfDay();
-      const to = startOfDay(8);
-      const count = data.workspace.occurrences.filter((item) => {
-        const due = dueTime(item);
-        return isOpen(item) && due >= from && due < to;
-      }).length;
-      return <Metric value={count} />;
-    },
+    render: (data) => <Metric value={data.workspace.occurrences.filter((item) => isDueWithinSevenDays(item)).length} />,
   },
   {
     id: 'metric.openIncidents',
@@ -340,7 +321,7 @@ export const MAINTENANCE_DASHBOARD_CARDS: DashboardCardCatalog<MaintenanceDashbo
     defaultEnabled: true,
     render: (data) => {
       const me = data.workspace.actor.id;
-      return <Metric value={data.workspace.occurrences.filter((item) => isOpen(item) && item.assigneeId === me).length} />;
+      return <Metric value={data.workspace.occurrences.filter((item) => isOpen(item) && isAssignedTo(item, me)).length} />;
     },
   },
   {
@@ -388,7 +369,7 @@ export const MAINTENANCE_DASHBOARD_CARDS: DashboardCardCatalog<MaintenanceDashbo
     render: (data) => {
       const me = data.workspace.actor.id;
       const rows = data.workspace.occurrences
-        .filter((item) => isOpen(item) && item.assigneeId === me)
+        .filter((item) => isOpen(item) && isAssignedTo(item, me))
         .sort((left, right) => dueTime(left) - dueTime(right))
         .slice(0, 6);
       if (rows.length === 0) return <Empty>Chưa có phiếu nào giao cho bạn.</Empty>;

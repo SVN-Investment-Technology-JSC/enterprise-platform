@@ -44,6 +44,17 @@ function mapSettingsEntry(row: Row): MaintenanceSettingsEntry<unknown> {
   };
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Id người dùng hợp lệ (uuid) hoặc null: cột assignee_id kiểu uuid, giá trị lạ phải thành NULL chứ không làm vỡ câu lệnh. */
+function asUuid(value: string | null | undefined): string | null {
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
+}
+
+/** Múi giờ để hiểu ngày trong bộ lọc Lịch sử; cùng múi giờ mặc định của lịch bảo trì. */
+const HISTORY_TIMEZONE = 'Asia/Ho_Chi_Minh';
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Số lần gửi tối đa cho lỗi tạm thời trước khi phiếu chuyển 'failed' để người dùng xử lý. */
 const MAX_DISPATCH_ATTEMPTS = 5;
 
@@ -81,6 +92,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       pool.query<Row>(`SELECT s.*, p.code AS procedure_code, p.name AS procedure_name
         FROM maintenance_schema.schedules s
         LEFT JOIN maintenance_schema.procedure_catalog p ON p.definition_id = s.procedure_definition_id
+        WHERE s.archived_at IS NULL
         ORDER BY s.created_at DESC`),
       // LEFT JOIN: sự cố không có lịch cha, INNER JOIN sẽ làm chúng biến mất
       // khỏi mọi màn hình. COALESCE để phiếu định kỳ vẫn lấy được thiết bị và
@@ -119,8 +131,17 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     }
     if (filter.kind) add('o.kind = ?', filter.kind);
     if (filter.status) add('o.status = ?', filter.status);
-    if (filter.from) add('o.due_at >= ?', new Date(filter.from));
-    if (filter.to) add('o.due_at <= ?', new Date(filter.to));
+    // Ngày dạng YYYY-MM-DD (từ ô chọn ngày) tính theo giờ địa phương: "từ" là đầu ngày đó, "đến" gồm CẢ ngày đó (nhỏ hơn đầu
+    // ngày kế). new Date('2026-11-10') là 00:00 UTC nên trước đây "Đến ngày" loại mất chính ngày được chọn còn "Từ ngày"
+    // lệch 7 tiếng. Giá trị có kèm giờ thì giữ nguyên nghĩa cũ.
+    if (filter.from) {
+      if (DATE_ONLY.test(filter.from)) add(`o.due_at >= (?::date::timestamp AT TIME ZONE '${HISTORY_TIMEZONE}')`, filter.from);
+      else add('o.due_at >= ?', new Date(filter.from));
+    }
+    if (filter.to) {
+      if (DATE_ONLY.test(filter.to)) add(`o.due_at < ((?::date + 1)::timestamp AT TIME ZONE '${HISTORY_TIMEZONE}')`, filter.to);
+      else add('o.due_at <= ?', new Date(filter.to));
+    }
 
     // Keyset thay OFFSET: danh sách sắp theo (due_at, id) giảm dần, nên trang sau
     // chỉ cần "nhỏ hơn con trỏ". OFFSET sẽ nhảy cóc hoặc lặp khi có phiếu mới chèn vào.
@@ -193,22 +214,19 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
   }
 
   /** Actor nội bộ có userId 'system' — không phải uuid, ghi NULL thay vì vỡ kiểu. */
+  /**
+   * Gỡ thiết bị khỏi ma trận bằng cách LƯU TRỮ lịch, không xoá: lịch ẩn khỏi ma trận và ngừng sinh phiếu, còn các phiếu
+   * đã sinh (kể cả phiếu hoàn thành, nhật ký và tệp đính kèm) vẫn nằm trong Lịch sử. Trả về số lịch vừa lưu trữ.
+   */
   async removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
-    return inTransaction(pool, async (client) => {
-      // Phiếu tham chiếu lịch bằng khoá ngoại nên phải xoá trước; phiếu đã mở hồ
-      // sơ bên Quy trình thì hồ sơ đó vẫn còn, chỉ mất đường quay ngược về lịch.
-      await client.query(
-        `DELETE FROM maintenance_schema.occurrences
-          WHERE schedule_id IN (SELECT id FROM maintenance_schema.schedules WHERE asset_code = $1)`,
-        [assetCode],
-      );
-      const result = await client.query(
-        `DELETE FROM maintenance_schema.schedules WHERE asset_code = $1`,
-        [assetCode],
-      );
-      return result.rowCount ?? 0;
-    });
+    const result = await pool.query(
+      `UPDATE maintenance_schema.schedules
+          SET archived_at = now(), status = 'paused', paused_reason = 'MANUAL', updated_at = now()
+        WHERE asset_code = $1 AND archived_at IS NULL`,
+      [assetCode],
+    );
+    return result.rowCount ?? 0;
   }
 
   async markSchedulesDueNow(
@@ -446,13 +464,31 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     const title = input.procedureDefinitionId
       ? `Bảo trì ${input.assetCode}`
       : `Quản lý ${input.assetCode}`;
+    // Một thiết bị chỉ có MỘT lịch cho mỗi tần suất: lịch thứ hai sinh phiếu trùng mỗi kỳ và làm ma trận (mỗi ô một lịch)
+    // hiển thị sai. Muốn đổi thì bật lại hoặc sửa lịch hiện có.
+    const existing = (
+      await pool.query<Row>(
+        `SELECT code, status FROM maintenance_schema.schedules
+          WHERE asset_code = $1 AND frequency = $2 AND archived_at IS NULL LIMIT 1`,
+        [input.assetCode, input.frequency],
+      )
+    ).rows[0];
+    if (existing) {
+      throw new MaintenanceError(
+        'conflict',
+        `Thiết bị ${input.assetCode} đã có lịch tần suất "${input.frequency}" (${String(existing.code)}${
+          existing.status === 'active' ? '' : ', đang ' + (existing.status === 'paused' ? 'tạm dừng' : 'ở trạng thái nháp')
+        }). Hãy bật hoặc sửa lịch đó thay vì tạo thêm.`,
+      );
+    }
     try {
       const result = await pool.query<Row>(`INSERT INTO maintenance_schema.schedules
-        (id, code, title, asset_code, procedure_definition_id, frequency, priority, status, start_date, timezone, next_due_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::date::timestamptz) RETURNING *`, [
+        (id, code, title, asset_code, procedure_definition_id, frequency, priority, status, start_date, timezone, next_due_at, assignee_id, assignee_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::date::timestamptz,$12,$13) RETURNING *`, [
         id, code, title, input.assetCode, input.procedureDefinitionId ?? null, input.frequency,
         input.priority ?? 'Normal', input.activate ? 'active' : 'draft', input.startDate,
         input.timezone ?? 'Asia/Ho_Chi_Minh', input.startDate,
+        asUuid(input.assigneeId), asUuid(input.assigneeId) ? (input.assigneeName?.trim() || null) : null,
       ]);
       if (!result.rows[0]) throw new MaintenanceError('not_found', 'Không thể tạo lịch bảo trì.');
       return mapSchedule(result.rows[0]);
@@ -462,16 +498,51 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     }
   }
 
-  async updateSchedule(tenantId: string, id: string, input: UpdateMaintenanceScheduleRequest): Promise<MaintenanceSchedule> {
+  async updateSchedule(
+    tenantId: string,
+    id: string,
+    input: UpdateMaintenanceScheduleRequest,
+    options?: { readonly nextDueAt?: string },
+  ): Promise<MaintenanceSchedule> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
+
+    // Bật lại một lịch đang tạm dừng/nháp: hạn cũ có thể đã qua nhiều kỳ, để nguyên thì scheduler sinh dồn phiếu quá
+    // hạn từng phút một. Dời sang ngày người dùng chọn, hoặc kỳ kế tiếp tính từ hôm nay.
+    let nextDueAt: Date | null = null;
+    let startDate: string | null = null;
+    if (input.status === 'active') {
+      const current = (
+        await pool.query<Row>(
+          `SELECT status, frequency, next_due_at FROM maintenance_schema.schedules WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+      if (current && current.status !== 'active') {
+        const startOfToday = new Date(new Date().toISOString().slice(0, 10));
+        if (options?.nextDueAt) {
+          nextDueAt = new Date(options.nextDueAt);
+          startDate = options.nextDueAt;
+        } else if (!current.next_due_at || asDate(current.next_due_at) < startOfToday) {
+          nextDueAt = nextDue(startOfToday, String(current.frequency), await readFrequencyCatalog(pool));
+        }
+      }
+    }
+
     const result = await pool.query<Row>(`UPDATE maintenance_schema.schedules SET
       status=COALESCE($2,status),
       priority=COALESCE($3,priority),
       paused_reason=CASE WHEN $2='paused' THEN 'MANUAL' WHEN $2='active' THEN NULL ELSE paused_reason END,
       procedure_definition_id=CASE WHEN $4::boolean THEN $5 ELSE procedure_definition_id END,
+      next_due_at=COALESCE($6::timestamptz,next_due_at),
+      start_date=COALESCE($7::date,start_date),
+      assignee_id=CASE WHEN $8::boolean THEN $9::uuid ELSE assignee_id END,
+      assignee_name=CASE WHEN $8::boolean THEN $10 ELSE assignee_name END,
       updated_at=now() WHERE id=$1 RETURNING *`, [
       id, input.status ?? null, input.priority ?? null,
       'procedureDefinitionId' in input, input.procedureDefinitionId ?? null,
+      nextDueAt, startDate,
+      'assigneeId' in input, asUuid(input.assigneeId),
+      asUuid(input.assigneeId) ? (input.assigneeName?.trim() || null) : null,
     ]);
     if (!result.rows[0]) throw new MaintenanceError('not_found', 'Không tìm thấy lịch bảo trì.');
     return mapSchedule(result.rows[0]);
@@ -507,7 +578,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       const frequencyCatalog = await readFrequencyCatalog(client);
       const claimed: DispatchTarget[] = [];
       for (const schedule of due.rows) {
-        const target = await this.insertOccurrence(client, schedule, frequencyCatalog);
+        const target = await this.insertOccurrence(client, schedule, frequencyCatalog, tenantId);
         if (target) claimed.push(target);
       }
       return claimed;
@@ -577,18 +648,33 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     client: PoolClient,
     schedule: Row,
     frequencyCatalog: ReadonlyMap<string, { unit: string; count: number }>,
+    tenantId: string,
   ): Promise<DispatchTarget | null> {
     const occurrenceId = randomUUID();
     const dueAt = asDate(schedule.next_due_at);
     const idempotencyKey = `maintenance:${String(schedule.id)}:${dueAt.toISOString()}`;
     const hasProcedure = Boolean(schedule.procedure_definition_id && schedule.procedure_version);
 
+    // Phiếu định kỳ nhận người phụ trách của lịch, để "Việc của tôi" và thông báo được giao việc dùng được.
+    const assigneeId = asUuid(schedule.assignee_id as string | null | undefined);
+    const assigneeName = assigneeId && schedule.assignee_name ? String(schedule.assignee_name) : null;
     const inserted = await client.query(`INSERT INTO maintenance_schema.occurrences
-      (id, schedule_id, due_at, status, idempotency_key, priority)
-      VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`, [
+      (id, schedule_id, due_at, status, idempotency_key, priority, assignee_id, assignee_name)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id`, [
       occurrenceId, schedule.id, dueAt, hasProcedure ? 'dispatch_pending' : 'planned',
-      idempotencyKey, schedule.priority ?? 'Normal',
+      idempotencyKey, schedule.priority ?? 'Normal', assigneeId, assigneeName,
     ]);
+    if (inserted.rowCount && assigneeId) {
+      await writeMaintenanceOutbox(
+        client,
+        tenantId,
+        maintenanceOccurrenceEvent('assigned', {
+          occurrenceId,
+          title: String(schedule.title),
+          assigneeUserId: assigneeId,
+        }),
+      );
+    }
 
     await client.query(`UPDATE maintenance_schema.schedules SET next_due_at=$2,updated_at=now() WHERE id=$1`, [
       schedule.id, nextDue(dueAt, String(schedule.frequency), frequencyCatalog),
@@ -672,6 +758,18 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         { retryable: true, attempts },
       );
     }
+  }
+
+  async getProcedureStatus(tenantId: string, definitionId: string): Promise<'published' | 'archived' | undefined> {
+    // definition_id kiểu uuid: chuỗi lạ phải thành "không có" chứ không làm vỡ câu lệnh.
+    if (!asUuid(definitionId)) return undefined;
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT status FROM maintenance_schema.procedure_catalog WHERE definition_id = $1`,
+      [definitionId],
+    );
+    const status = result.rows[0]?.status;
+    return status === 'published' || status === 'archived' ? status : undefined;
   }
 
   /**
@@ -819,6 +917,8 @@ function mapSchedule(row?: Row): MaintenanceSchedule {
     startDate: String(row.start_date).slice(0, 10),
     timezone: String(row.timezone),
     nextDueAt: row.next_due_at ? iso(row.next_due_at) : undefined,
+    assigneeId: optional(row.assignee_id),
+    assigneeName: optional(row.assignee_name),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };

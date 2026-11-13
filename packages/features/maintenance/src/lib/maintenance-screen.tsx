@@ -85,6 +85,14 @@ import { SELECT_CLASS } from './ui/select-class';
 import { Tip } from './ui/tooltip';
 import { useFillViewportHeight } from './ui/use-fill-viewport';
 import { MaintenanceCardPicker } from './maintenance-card-picker';
+import { validateFrequencyDraft } from './frequency-validation';
+import { selectableProcedures } from './procedure-options';
+import {
+  matchesQuickFilter,
+  QUICK_FILTER_LABEL,
+  QUICK_FILTER_ORDER,
+  type OccurrenceQuickFilter,
+} from './occurrence-rules';
 import { describeDispatchFailure, describeError } from './maintenance-messages';
 import styles from './maintenance.module.scss';
 
@@ -176,6 +184,9 @@ const ERROR_TOAST_ID = 'maintenance-error';
 /** Lỗi khiến cả màn trống (không tải được dữ liệu) cần ở lại lâu hơn mặc định. */
 const LOAD_ERROR_DURATION_MS = 12_000;
 
+/** Số dòng mỗi trang của Lịch sử khi người dùng chưa chọn; khớp giá trị mặc định của ô chọn ở màn Lịch sử. */
+const DEFAULT_HISTORY_LIMIT = 15;
+
 /** Báo lỗi bằng toast. `title` là việc không làm được, `description` là lý do hoặc việc nên làm tiếp. */
 function showError(title: string, description?: string, duration?: number) {
   toast.error({ title, ...(description ? { description } : {}) }, { id: ERROR_TOAST_ID, ...(duration ? { duration } : {}) });
@@ -192,7 +203,25 @@ function formatDateTime(value?: string): string {
 }
 
 export function MaintenanceScreen() {
-  const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  const { view, sub, navigate: navigateRaw } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  // Ma trận còn thay đổi chưa lưu: hỏi trước khi rời màn, vì chuyển màn tháo luôn ma trận và mất bản nháp.
+  const matrixDirtyRef = useRef(false);
+  const onMatrixDirtyChange = useCallback((dirty: boolean) => {
+    matrixDirtyRef.current = dirty;
+  }, []);
+  const navigate = useCallback(
+    (next: View, nextSub?: string) => {
+      if (
+        matrixDirtyRef.current &&
+        next !== 'matrix' &&
+        !window.confirm('Ma trận còn thay đổi chưa lưu. Rời khỏi màn này sẽ mất các thay đổi đó. Tiếp tục?')
+      ) {
+        return;
+      }
+      navigateRaw(next, nextSub);
+    },
+    [navigateRaw],
+  );
   const [matrix, setMatrix] = useState<MaintenanceMatrix>();
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
@@ -224,6 +253,7 @@ export function MaintenanceScreen() {
   /** Thẻ Tổng quan của riêng người dùng; null là chưa tuỳ chỉnh (dùng mặc định), undefined là đang tải. */
   const [myCards, setMyCards] = useState<readonly string[] | null>();
   const [savingMyCards, setSavingMyCards] = useState(false);
+  const [myCardsFailed, setMyCardsFailed] = useState(false);
   const [freqDraft, setFreqDraft] = useState<MaintenanceFrequencyCatalog>();
   const [settingsSection, setSettingsSection] = useState('frequencies');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -246,11 +276,46 @@ export function MaintenanceScreen() {
     void loadTenantHomePath().then(setHomePath);
     void loadOrganizationUnitNames().then(setUnitNames);
     void loadTenantMembers().then(setMembers);
-    // Lỗi nạp thẻ cá nhân không chặn màn hình: coi như chưa tuỳ chỉnh, dùng thẻ mặc định.
-    void loadMyDashboardCards()
-      .then((mine) => setMyCards(mine.cardIds))
-      .catch(() => setMyCards(null));
+    void fetchMyCards();
   }, [reload]);
+
+  /**
+   * Nạp thẻ Tổng quan của riêng người dùng. Lỗi nạp KHÔNG được coi là "chưa tuỳ chỉnh": nếu vậy lần chỉnh đầu tiên sẽ
+   * lưu danh sách mặc định đè lên lựa chọn đã lưu. Khi lỗi, lưới vẫn hiện thẻ mặc định nhưng khoá Tuỳ chỉnh và có nút
+   * Thử lại.
+   */
+  const fetchMyCards = useCallback(async () => {
+    setMyCardsFailed(false);
+    try {
+      const mine = await loadMyDashboardCards();
+      setMyCards(mine.cardIds);
+    } catch {
+      setMyCardsFailed(true);
+    }
+  }, []);
+
+  // Dữ liệu Tổng quan không tự cập nhật nên dễ cũ (người khác vừa đóng phiếu): nạp lại mỗi lần quay về Tổng quan và khi
+  // quay lại tab trình duyệt (tối đa mỗi 60 giây).
+  const lastRefreshRef = useRef(0);
+  const firstDashboardRef = useRef(true);
+  useEffect(() => {
+    if (view !== 'dashboard') return;
+    if (firstDashboardRef.current) {
+      // Lần vào đầu tiên đã được effect nạp ban đầu lo.
+      firstDashboardRef.current = false;
+      lastRefreshRef.current = Date.now();
+      return;
+    }
+    lastRefreshRef.current = Date.now();
+    void reload();
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastRefreshRef.current < 60_000) return;
+      lastRefreshRef.current = Date.now();
+      void reload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [view, reload]);
 
   /**
    * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
@@ -290,7 +355,7 @@ export function MaintenanceScreen() {
 
   const procedureOptions = useMemo(
     () =>
-      (workspace?.procedureCatalog ?? []).map((entry) => ({
+      selectableProcedures(workspace?.procedureCatalog).map((entry) => ({
         value: entry.definitionId,
         label: `${entry.code} · ${entry.name}`,
       })),
@@ -451,7 +516,7 @@ export function MaintenanceScreen() {
     async (filter: MaintenanceHistoryFilter, append = false) => {
       setBusy(true);
       try {
-        const page = await loadMaintenanceHistory(filter);
+        const page = await loadMaintenanceHistory({ ...filter, limit: filter.limit ?? DEFAULT_HISTORY_LIMIT });
         setHistory((current) =>
           append && current ? { ...page, items: [...current.items, ...page.items] } : page,
         );
@@ -485,16 +550,26 @@ export function MaintenanceScreen() {
     setBusy(true);
     try {
       const created = await createMaintenanceIncident(input);
+      // Sự cố đã được tạo: từ đây không được để lỗi tải tệp làm form kẹt mở, vì bấm gửi lại sẽ tạo thêm một sự cố
+      // trùng. Tải từng tệp độc lập, tệp nào lỗi thì báo riêng và để người dùng tải lại trong chi tiết phiếu.
+      const failedFiles: string[] = [];
       if (files && files.length > 0) {
-        await Promise.all(
-          files.map((file) => uploadOccurrenceAttachment(created.id, file)),
-        );
+        const results = await Promise.allSettled(files.map((file) => uploadOccurrenceAttachment(created.id, file)));
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') failedFiles.push(files[index].name);
+        });
       }
       setIncidentOpen(false);
       await reload();
       navigate('history');
       setHistoryFilter({});
       setSelectedOccurrence(created);
+      if (failedFiles.length > 0) {
+        showError(
+          'Đã tạo sự cố nhưng chưa tải lên được tệp đính kèm',
+          `${failedFiles.join(', ')}. Mở chi tiết sự cố vừa tạo để tải lại các tệp này.`,
+        );
+      }
     } catch (cause) {
       notifyError(cause, 'Không tạo được sự cố.');
     } finally {
@@ -578,6 +653,12 @@ export function MaintenanceScreen() {
 
   const saveFrequencies = async () => {
     if (!settings || !freqDraft) return;
+    // Báo lỗi ngay nếu có dòng không hợp lệ: không gửi lên rồi để dòng bị bỏ lặng lẽ.
+    const problems = validateFrequencyDraft(freqDraft);
+    if (problems.length > 0) {
+      showError('Danh mục tần suất chưa hợp lệ', problems.join(' '));
+      return;
+    }
     setSavingSettings(true);
     try {
       const saved = await saveMaintenanceSetting(
@@ -624,6 +705,7 @@ export function MaintenanceScreen() {
   const occSectionRef = useRef<HTMLDivElement>(null);
   useFillViewportHeight(occSectionRef, 360, `${view}:${workspace ? 'ready' : 'loading'}`, 16);
   const [occSearch, setOccSearch] = useState('');
+  const [occQuick, setOccQuick] = useState<OccurrenceQuickFilter>('all');
   const [occKind, setOccKind] = useState('all');
   const [occPriority, setOccPriority] = useState('all');
   const [occStatus, setOccStatus] = useState('all');
@@ -653,6 +735,7 @@ export function MaintenanceScreen() {
       if (occPriority !== 'all' && occ.priority !== occPriority) return false;
       if (occStatus !== 'all' && occ.status !== occStatus) return false;
       if (occAsset !== 'all' && occ.assetCode !== occAsset) return false;
+      if (!matchesQuickFilter(occ, occQuick, workspace.actor.id)) return false;
 
       if (!query) return true;
 
@@ -665,7 +748,7 @@ export function MaintenanceScreen() {
 
       return codeMatch || assetMatch || assetNameMatch || titleMatch || scheduleMatch || procMatch;
     });
-  }, [workspace?.occurrences, occSearch, occKind, occPriority, occStatus, occAsset]);
+  }, [workspace?.occurrences, workspace?.actor.id, occSearch, occQuick, occKind, occPriority, occStatus, occAsset]);
 
   const occTotalRecords = filteredOccurrences.length;
   const numPageSize = Number(occPageSize) || 15;
@@ -680,6 +763,7 @@ export function MaintenanceScreen() {
   const occFilterCount = [occKind, occPriority, occStatus, occAsset].filter((value) => value !== 'all').length;
   const isOccFilterActive =
     occSearch.trim() !== '' ||
+    occQuick !== 'all' ||
     occKind !== 'all' ||
     occPriority !== 'all' ||
     occStatus !== 'all' ||
@@ -687,6 +771,7 @@ export function MaintenanceScreen() {
 
   const resetOccFilters = () => {
     setOccSearch('');
+    setOccQuick('all');
     setOccKind('all');
     setOccPriority('all');
     setOccStatus('all');
@@ -697,9 +782,10 @@ export function MaintenanceScreen() {
   /** Việc thẻ Tổng quan làm được: mở phiếu, mở danh sách đã lọc sẵn, đóng phiếu tại chỗ. */
   const dashboardActions: MaintenanceDashboardActions = {
     openOccurrence: (id) => navigate('history', id),
-    openOccurrences: (kind) => {
+    openOccurrences: (options) => {
       resetOccFilters();
-      if (kind) setOccKind(kind);
+      if (options?.kind) setOccKind(options.kind);
+      if (options?.quick) setOccQuick(options.quick);
       navigate('occurrences');
     },
     openHistoryByStatus: (status) => {
@@ -713,6 +799,8 @@ export function MaintenanceScreen() {
         await reload();
       } catch (cause) {
         notifyError(cause, 'Không đánh dấu hoàn thành được.');
+        // Có thể người khác vừa đóng phiếu này: nạp lại để danh sách không còn giữ phiếu đã cũ.
+        void reload();
         throw cause;
       }
     },
@@ -738,6 +826,7 @@ export function MaintenanceScreen() {
           assets={matrix.rows}
           catalog={workspace.procedureCatalog}
           members={members}
+          unitNames={unitNames}
           busy={busy}
           onCancel={() => setIncidentOpen(false)}
           onSubmit={submitIncident}
@@ -802,7 +891,7 @@ export function MaintenanceScreen() {
                           size="lg"
                           className="gap-1.5 rounded-md px-3"
                           aria-label="Tuỳ chỉnh thẻ Tổng quan"
-                          disabled={myCards === undefined}
+                          disabled={myCards === undefined || myCardsFailed}
                         />
                       }
                     >
@@ -827,7 +916,19 @@ export function MaintenanceScreen() {
                 </div>
               </div>
 
-              {myCards === undefined ? null : (
+              {myCardsFailed ? (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                >
+                  <span>Không tải được thẻ Tổng quan đã lưu của bạn nên đang hiện bộ thẻ mặc định.</span>
+                  <Button type="button" variant="outline" size="sm" className="rounded-md" onClick={() => void fetchMyCards()}>
+                    Thử lại
+                  </Button>
+                </div>
+              ) : null}
+
+              {myCards === undefined && !myCardsFailed ? null : (
                 <MaintenanceDashboardGrid
                   selection={effectiveCards}
                   data={{
@@ -994,6 +1095,8 @@ export function MaintenanceScreen() {
               matrix={matrix}
               frequencies={frequencyOptions}
               onAddAsset={addAssetToMatrix}
+              members={members}
+              onDirtyChange={onMatrixDirtyChange}
               onRemoveAsset={removeAsset}
               onRunNow={runNow}
               onOpenHistory={(assetCode) => {
@@ -1092,6 +1195,29 @@ export function MaintenanceScreen() {
                         setOccCurrentPage(1);
                       }}
                     />
+                  </div>
+
+                  {/* Lọc nhanh: cùng định nghĩa với các thẻ số trên Tổng quan, nên bấm từ thẻ sang là khớp con số */}
+                  <div role="group" aria-label="Lọc nhanh" className="flex flex-wrap items-center gap-1.5">
+                    {QUICK_FILTER_ORDER.map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={occQuick === key}
+                        className={cn(
+                          'h-9 cursor-pointer rounded-md border px-3 text-sm font-medium transition-colors',
+                          occQuick === key
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-border bg-white text-slate-700 hover:bg-muted',
+                        )}
+                        onClick={() => {
+                          setOccQuick(key);
+                          setOccCurrentPage(1);
+                        }}
+                      >
+                        {QUICK_FILTER_LABEL[key]}
+                      </button>
+                    ))}
                   </div>
 
                   <Popover>

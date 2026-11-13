@@ -87,10 +87,21 @@ export interface MaintenanceStore {
     note?: string,
   ): Promise<MaintenanceOccurrence>;
   createSchedule(tenantId: string, input: CreateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
-  updateSchedule(tenantId: string, id: string, input: UpdateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
+  /**
+   * `options.nextDueAt` (YYYY-MM-DD) chỉ có tác dụng khi lịch chuyển sang 'active': đặt hạn kế tiếp và ngày bắt đầu theo
+   * ngày người dùng chọn. Không truyền mà hạn cũ đã qua thì store tự dời sang kỳ kế tiếp tính từ hôm nay.
+   */
+  updateSchedule(
+    tenantId: string,
+    id: string,
+    input: UpdateMaintenanceScheduleRequest,
+    options?: { readonly nextDueAt?: string },
+  ): Promise<MaintenanceSchedule>;
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;
   /** Retries occurrences stranded in 'dispatch_pending' by a crash mid-dispatch. */
   reconcileStuckDispatches(tenantId: string, now: Date): Promise<number>;
+  /** Trạng thái của một quy trình trong danh mục đã đồng bộ; `undefined` khi không có trong danh mục. */
+  getProcedureStatus(tenantId: string, definitionId: string): Promise<'published' | 'archived' | undefined>;
   /** Thử lại tay phiếu 'failed' đã gắn quy trình; trả phiếu sau lần gửi mới. */
   retryDispatch(tenantId: string, id: string): Promise<MaintenanceOccurrence>;
   /** Xoá mọi lịch của một thiết bị, kèm phiếu đã sinh ra từ chúng. Trả về số lịch đã xoá. */
