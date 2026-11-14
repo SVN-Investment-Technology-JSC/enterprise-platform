@@ -665,6 +665,9 @@ $fs-meta: 12px;
 .drawer {
   @include scroll-reveal;
 
+  // Khối chứa của ô xác nhận (Popconfirm) mở bên trong ngăn.
+  position: relative;
+
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1173,6 +1176,8 @@ $fs-meta: 12px;
 }
 
 .dialog {
+  // Khối chứa của ô xác nhận (Popconfirm) mở bên trong.
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(640px, 100%);
@@ -1882,6 +1887,8 @@ $fs-meta: 12px;
 }
 
 .previewPanel {
+  // Khối chứa của ô xác nhận (Popconfirm) mở bên trong.
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(1200px, 100%);
