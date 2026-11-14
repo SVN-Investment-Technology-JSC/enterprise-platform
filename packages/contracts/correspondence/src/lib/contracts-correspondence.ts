@@ -774,7 +774,15 @@ export interface CorrespondenceSettings {
   readonly archivePrefix: string;
   readonly defaultDueDays: number;
   readonly dispatchMode: DispatchMode;
+  /**
+   * Người làm văn thư (1–10 người): làm được việc của văn thư trong phân hệ (tiếp nhận, kiểm tra,
+   * ban hành, lưu trữ), nhận thông báo việc của văn thư và hiện tên ở các bước của văn thư. Trống
+   * là mọi người có quyền văn thư trong Phân quyền.
+   */
+  readonly clerkUserIds: readonly string[];
 }
+
+export const MAX_CLERKS = 10;
 
 export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   incomingSuffix: 'CVĐ',
@@ -782,6 +790,7 @@ export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   archivePrefix: 'HS',
   defaultDueDays: 7,
   dispatchMode: 'all',
+  clerkUserIds: [],
 };
 
 export interface CorrespondenceConfig {

@@ -67,7 +67,7 @@ export function ConfigView({
         ))}
       </div>
       {tab === 'register' ? (
-        <SettingsView settings={config.settings} onSaved={() => onChanged()} />
+        <SettingsView settings={config.settings} directory={directory} onSaved={() => onChanged()} />
       ) : tab === 'catalog' ? (
         <CatalogManager config={config} directory={directory} onChanged={onChanged} />
       ) : tab === 'workflows' ? (
@@ -355,9 +355,9 @@ function CatalogDialog({
 
 const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
   incoming:
-    'Công văn đến: Văn thư tiếp nhận → Phòng ban xử lý → các bước duyệt dưới đây → Văn thư hoàn tất → Lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
+    'Công văn đến: Văn thư tiếp nhận → Phòng ban xử lý → các bước duyệt dưới đây → Văn thư hoàn tất, lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
   outgoing:
-    'Công văn đi: Phòng ban soạn thảo → Văn thư kiểm tra → các bước duyệt dưới đây → Văn thư đánh số, ban hành → Lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
+    'Công văn đi: Phòng ban soạn thảo → Văn thư kiểm tra → các bước duyệt dưới đây → Văn thư đánh số, ban hành, lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
 };
 
 function WorkflowManager({
@@ -551,7 +551,7 @@ function WorkflowDialog({
   }));
   const peopleOptions = (directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }));
   const fixedStart = direction === 'incoming' ? ['Văn thư tiếp nhận', 'Phòng ban xử lý'] : ['Phòng ban soạn thảo', 'Văn thư kiểm tra'];
-  const fixedEnd = direction === 'incoming' ? ['Văn thư hoàn tất', 'Lưu trữ'] : ['Văn thư ban hành', 'Lưu trữ'];
+  const fixedEnd = direction === 'incoming' ? ['Văn thư hoàn tất, lưu trữ'] : ['Văn thư ban hành, lưu trữ'];
 
   return (
     <FormDialog

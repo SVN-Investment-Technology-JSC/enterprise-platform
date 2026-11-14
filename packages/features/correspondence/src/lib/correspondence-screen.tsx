@@ -128,7 +128,7 @@ export function CorrespondenceScreen() {
     !provisioning && config && (capabilities?.canRegister || capabilities?.canCreateOutgoing) ? (
       <div className={styles.headActions}>
         {capabilities?.canCreateOutgoing ? (
-          <button type="button" className={capabilities.canRegister ? styles.buttonGhost : styles.buttonPrimary} onClick={() => setOutgoingOpen(true)}>
+          <button type="button" className={styles.buttonPrimary} onClick={() => setOutgoingOpen(true)}>
             <FilePen size={15} /> Soạn công văn đi
           </button>
         ) : null}

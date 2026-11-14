@@ -483,8 +483,7 @@ describe('Công văn đến – tiếp nhận, giao phòng ban', () => {
       ['Phòng ban xử lý', 'todo', false],
       ['Trưởng phòng kiểm tra', 'todo', true],
       ['Lãnh đạo xem xét', 'todo', true],
-      ['Văn thư hoàn tất', 'todo', false],
-      ['Lưu trữ', 'todo', false],
+      ['Văn thư hoàn tất, lưu trữ', 'todo', false],
     ]);
     expect(letter.flow[2].people).toBe('Trưởng phòng ban xử lý');
     expect(letter.flow[3].people).toBe('Lãnh đạo được chọn khi trình');
@@ -551,7 +550,7 @@ describe('Công văn đến – tiếp nhận, giao phòng ban', () => {
     expect(letter.currentAssigneeNames).toEqual(['KTT', 'TP Pháp chế']);
     expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.stepAssigned });
     expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(['u-fin-head', 'u-legal-head']);
-    expect(letter.flow.map((node) => node.state)).toEqual(['done', 'done', 'current', 'todo', 'todo', 'todo']);
+    expect(letter.flow.map((node) => node.state)).toEqual(['done', 'done', 'current', 'todo', 'todo']);
   });
 
   it('phòng ban trả về văn thư khi không thuộc phòng mình; văn thư giao lại', async () => {
@@ -566,7 +565,7 @@ describe('Công văn đến – tiếp nhận, giao phòng ban', () => {
   it('loại văn bản gắn quy trình không có bước duyệt: xử lý xong là chờ văn thư hoàn tất', async () => {
     const { service, outbox } = setup();
     const letter = await service.create(clerk, { ...intake, kind: 'quick' });
-    expect(letter.flow.map((node) => node.label)).toEqual(['Văn thư tiếp nhận', 'Phòng ban xử lý', 'Văn thư hoàn tất', 'Lưu trữ']);
+    expect(letter.flow.map((node) => node.label)).toEqual(['Văn thư tiếp nhận', 'Phòng ban xử lý', 'Văn thư hoàn tất, lưu trữ']);
     const done = await service.dispatch(clerk, letter.id, { kind: 'quick', urgency: 'normal', units: [{ unitId: 'unit-finance' }] });
     const closed = await service.respond(accountant, letter.id, done.assignments[0].id, { note: 'Đã nắm.' });
     expect(closed.stage).toBe('closing');
@@ -646,6 +645,7 @@ describe('Công văn đến – duyệt, không đạt, hoàn tất', () => {
     const archived = await service.complete(clerk, letter.id, { note: 'Đã gửi văn bản giải trình.' });
     expect(archived).toMatchObject({ stage: 'archived', archiveCode: 'HS-2026-0001', completionNote: 'Đã gửi văn bản giải trình.' });
     expect(archived.flow.every((node) => node.state === 'done')).toBe(true);
+    expect(archived.flow.at(-1)).toMatchObject({ label: 'Văn thư hoàn tất, lưu trữ', people: 'Lê Thu Hà · Hồ sơ HS-2026-0001' });
     expect(folderUpdates).toEqual([{ folderId: 'folder-1', docNumber: 'HS-2026-0001' }]);
     expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.completed });
   });
@@ -668,8 +668,7 @@ describe('Công văn đi', () => {
       ['Văn thư kiểm tra', 'todo', undefined],
       ['Trưởng phòng soạn thảo duyệt', 'todo', 'KTT'],
       ['Lãnh đạo duyệt ban hành', 'todo', 'Nguyễn Văn An'],
-      ['Văn thư ban hành', 'todo', undefined],
-      ['Lưu trữ', 'todo', undefined],
+      ['Văn thư ban hành, lưu trữ', 'todo', undefined],
     ]);
     expect(draft.actions).toMatchObject({ sendToClerk: true, edit: true, cancel: true });
     await expect(service.createOutgoing(lawyer, { subject: 'x', recipient: 'y' })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
@@ -919,6 +918,40 @@ describe('Cây lưu trữ', () => {
   });
 });
 
+describe('Người làm văn thư được chỉ định', () => {
+  it('làm được việc văn thư, nhận thông báo thay người giữ quyền, tên hiện ở bước của văn thư', async () => {
+    const { service, outbox, setSettings } = setup();
+    setSettings({ clerkUserIds: ['u-lawyer'] });
+    // Người được chỉ định làm được việc văn thư dù chưa có quyền trong Phân quyền.
+    expect((await service.status(lawyer)).capabilities).toMatchObject({ canRegister: true, canPublish: true, canCreateOutgoing: true });
+    const draft = await service.createOutgoing(accountant, { subject: 'Giải trình', recipient: 'Sở Tài chính', kind: 'finance' });
+    expect(draft.flow[1]).toMatchObject({ label: 'Văn thư kiểm tra', people: 'Pháp chế' });
+    expect(draft.flow.at(-1)).toMatchObject({ label: 'Văn thư ban hành, lưu trữ', people: 'Pháp chế' });
+    await service.sendToClerk(accountant, draft.id, {});
+    expect(outbox.at(-1)).toMatchObject({
+      type: CORRESPONDENCE_EVENTS.sentToClerk,
+      payload: { recipientUserIds: ['u-lawyer'], notifyPermissions: [] },
+    });
+    // Việc chờ văn thư: chỉ người được chỉ định thấy trong "Cần tôi xử lý"; văn thư khác vẫn làm thay được.
+    expect((await service.list(lawyer, { box: 'mine' })).map((item) => item.id)).toEqual([draft.id]);
+    expect(await service.list(clerk, { box: 'mine' })).toEqual([]);
+    const submitted = await service.submit(lawyer, draft.id, {});
+    expect(submitted.flow[1]).toMatchObject({ state: 'done', people: 'Pháp chế' });
+  });
+
+  it('chỉ chọn được người dùng đang hoạt động, tối đa 10 người', async () => {
+    const { service } = setup();
+    await expect(
+      service.saveSettings(configurer, { ...DEFAULT_CORRESPONDENCE_SETTINGS, clerkUserIds: ['u-ghost'] }),
+    ).rejects.toThrow('không còn hoạt động');
+    await expect(
+      service.saveSettings(configurer, { ...DEFAULT_CORRESPONDENCE_SETTINGS, clerkUserIds: Array.from({ length: 11 }, (_, index) => `u-${index}`) }),
+    ).rejects.toThrow('tối đa 10');
+    const saved = await service.saveSettings(configurer, { ...DEFAULT_CORRESPONDENCE_SETTINGS, clerkUserIds: ['u-clerk', 'u-clerk', 'u-lawyer'] });
+    expect(saved.clerkUserIds).toEqual(['u-clerk', 'u-lawyer']);
+  });
+});
+
 describe('Cấu hình động', () => {
   it('quy trình theo luồng, mỗi luồng một mặc định; không đổi được luồng của quy trình đã có', async () => {
     const { service, workflows } = setup();
@@ -999,6 +1032,6 @@ describe('flowOf', () => {
       { seq: 1, name: 'A', status: 'done' },
       { seq: 2, name: 'B', status: 'skipped' },
     ]);
-    expect(nodes.map((node) => node.state)).toEqual(['done', 'todo', 'done', 'todo', 'todo', 'todo']);
+    expect(nodes.map((node) => node.state)).toEqual(['done', 'todo', 'done', 'todo', 'todo']);
   });
 });

@@ -13,6 +13,7 @@ import {
   LETTER_DIRECTIONS,
   LETTER_STAGES,
   LETTER_STAGE_LABELS,
+  MAX_CLERKS,
   OPEN_LETTER_STAGES,
   RETURN_TARGETS,
   letterDeepLink,
@@ -43,6 +44,7 @@ import {
   type CreateOutgoingRequest,
   type DispatchLetterRequest,
   type FlowNode,
+  type LetterHistoryEntry,
   type LetterAttachment,
   type LetterDetail,
   type LetterDirection,
@@ -160,7 +162,8 @@ export class CorrespondenceService {
 
   /* ================================================================ đọc */
 
-  async status(actor: CorrespondenceActor): Promise<CorrespondenceStatus> {
+  async status(original: CorrespondenceActor): Promise<CorrespondenceStatus> {
+    const actor = await this.effective(original);
     return {
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -275,7 +278,7 @@ export class CorrespondenceService {
     const viewer = await this.viewer(actor);
     const letter = await this.store.findLetter(actor.tenantId, letterId);
     if (!letter) throw new LetterNotFoundError();
-    const [catalog, steps, assignments, attachments, comments, history, organization, leaders] = await Promise.all([
+    const [catalog, steps, assignments, attachments, comments, history, organization, leaders, settings] = await Promise.all([
       this.catalogMap(actor.tenantId),
       this.store.steps(actor.tenantId, letterId),
       this.store.assignments(actor.tenantId, letterId),
@@ -284,6 +287,7 @@ export class CorrespondenceService {
       this.store.history(actor.tenantId, letterId),
       this.organization.snapshot(actor.tenantId),
       this.store.leaders(actor.tenantId),
+      this.settingsOrDefault(actor.tenantId),
     ]);
     const row: Row = { ...letter, steps, assignments, mentionedUserIds: comments.flatMap((item) => item.mentionedUserIds) };
     const letterFacts = facts(row, catalog);
@@ -317,6 +321,7 @@ export class CorrespondenceService {
       ...attachments.map((item) => item.uploadedBy),
       ...comments.flatMap((item) => [item.authorId, ...item.mentionedUserIds]),
       ...history.map((item) => item.actorUserId).filter((id): id is string => Boolean(id)),
+      ...settings.clerkUserIds,
     ]);
     const nameOf = (userId: string) => names.get(userId) ?? 'Người dùng';
     const byId = new Map(assignments.map((item) => [item.id, item]));
@@ -362,7 +367,7 @@ export class CorrespondenceService {
                 ? step.assigneeUserIds.map(nameOf).join(', ')
                 : peopleLabel(expected.get(step.seq) ?? [], nameOf, step.approver, letter.direction),
         })),
-        fixedPeople(letter, assignments, nameOf),
+        fixedPeople(letter, assignments, nameOf, history, settings.clerkUserIds),
       ),
       assignments: assignments.map((item) => ({
         id: item.id,
@@ -549,7 +554,8 @@ export class CorrespondenceService {
   /* ================================================================ công văn đến */
 
   /** Văn thư tiếp nhận, vào sổ, cấp số đến. */
-  async create(actor: CorrespondenceActor, input: CreateLetterRequest): Promise<LetterDetail> {
+  async create(original: CorrespondenceActor, input: CreateLetterRequest): Promise<LetterDetail> {
+    const actor = await this.effective(original);
     if (!actor.canRegister && !actor.isTenantAdmin) throw new CorrespondenceForbiddenError('Bạn không có quyền tiếp nhận công văn đến.');
     const [settings, catalog] = await Promise.all([this.store.settings(actor.tenantId), this.catalogMap(actor.tenantId)]);
     const codes = this.classification(catalog, input);
@@ -712,7 +718,8 @@ export class CorrespondenceService {
   /* ================================================================ công văn đi */
 
   /** Phòng ban soạn công văn đi; đơn vị soạn thảo là phòng của người soạn theo sơ đồ tổ chức. */
-  async createOutgoing(actor: CorrespondenceActor, input: CreateOutgoingRequest): Promise<LetterDetail> {
+  async createOutgoing(original: CorrespondenceActor, input: CreateOutgoingRequest): Promise<LetterDetail> {
+    const actor = await this.effective(original);
     if (!actor.canCreateOutgoing && !actor.isTenantAdmin) throw new CorrespondenceForbiddenError('Bạn không có quyền soạn công văn đi.');
     const [settings, catalog, snapshot] = await Promise.all([
       this.store.settings(actor.tenantId),
@@ -766,13 +773,14 @@ export class CorrespondenceService {
   /** Người soạn gửi văn thư kiểm tra thể thức. */
   async sendToClerk(actor: CorrespondenceActor, letterId: string, input: NoteRequest): Promise<LetterDetail> {
     const note = optionalText(input?.note, 'Ghi chú', 2000);
+    const clerks = await this.clerkTargets(actor.tenantId, ROUTE_PERMISSIONS.register);
     await this.transition(actor, letterId, (actions) => actions.sendToClerk, async (tx) => {
       const letter = await tx.update({ stage: 'checking' });
       await tx.history({ action: 'send-to-clerk', summary: 'Gửi văn thư kiểm tra', note, actorUserId: actor.userId });
       await tx.outbox(
-        this.event(CORRESPONDENCE_EVENTS.sentToClerk, letter, actor, [], {
+        this.event(CORRESPONDENCE_EVENTS.sentToClerk, letter, actor, clerks.recipients, {
           summary: `${actor.displayName} gửi công văn đi ${letterTitle(withNo(letter))} để văn thư kiểm tra.`,
-          notifyPermissions: [ROUTE_PERMISSIONS.register],
+          notifyPermissions: clerks.notifyPermissions,
         }),
       );
     });
@@ -902,6 +910,7 @@ export class CorrespondenceService {
     const target = requireEnum(input?.target, RETURN_TARGETS, 'Nơi trả về');
     const reason = requireText(input?.reason, 'Lý do', 4000);
     const viewer = await this.viewer(actor);
+    const clerks = await this.clerkTargets(actor.tenantId, ROUTE_PERMISSIONS.register);
     await this.inLetter(actor, letterId, async (tx, letterFacts) => {
       const allowed = returnTargets(viewer, letterFacts);
       if (!allowed.includes(target)) {
@@ -934,7 +943,7 @@ export class CorrespondenceService {
         await this.resetSteps(tx);
         const stage: LetterStage = direction === 'incoming' ? 'received' : 'checking';
         await tx.update({ stage });
-        recipients = direction === 'incoming' ? [tx.letter.receivedBy] : [];
+        recipients = [...(direction === 'incoming' ? [tx.letter.receivedBy] : []), ...clerks.recipients];
         notifyClerks = direction === 'outgoing';
         landed = LETTER_STAGE_LABELS[stage];
       } else if (direction === 'incoming') {
@@ -960,7 +969,7 @@ export class CorrespondenceService {
         this.event(CORRESPONDENCE_EVENTS.returned, tx.letter, actor, recipients, {
           summary: `${actor.displayName} trả lại công văn ${letterTitle(withNo(tx.letter))} ở bước "${fromLabel}" về ${landed}: ${reason}`,
           reason,
-          ...(notifyClerks ? { notifyPermissions: [ROUTE_PERMISSIONS.register] } : {}),
+          ...(notifyClerks ? { notifyPermissions: clerks.notifyPermissions } : {}),
         }),
       );
     });
@@ -1141,7 +1150,13 @@ export class CorrespondenceService {
     };
   }
 
-  async completeAttachment(actor: CorrespondenceActor, letterId: string, attachmentId: string, sizeBytes: unknown): Promise<LetterAttachment> {
+  async completeAttachment(
+    original: CorrespondenceActor,
+    letterId: string,
+    attachmentId: string,
+    sizeBytes: unknown,
+  ): Promise<LetterAttachment> {
+    const actor = await this.effective(original);
     const attachment = await this.visibleAttachment(actor, letterId, attachmentId);
     if (attachment.uploadedBy !== actor.userId && !actor.canRegister && !actor.isTenantAdmin) {
       throw new CorrespondenceForbiddenError('Chỉ người tải tệp lên mới báo xong được.');
@@ -1202,9 +1217,20 @@ export class CorrespondenceService {
       archivePrefix: requireText(input?.archivePrefix, 'Tiền tố số hồ sơ', 20),
       defaultDueDays: days,
       dispatchMode: parseOptional(input?.dispatchMode, DISPATCH_MODES, 'Cách giao phòng ban') ?? 'all',
+      clerkUserIds: await this.clerkList(actor.tenantId, input?.clerkUserIds),
     };
     await this.store.saveSettings(actor.tenantId, actor.userId, settings);
     return settings;
+  }
+
+  /** Người làm văn thư: người dùng đang hoạt động của tenant, không trùng, tối đa MAX_CLERKS. */
+  private async clerkList(tenantId: string, raw: unknown): Promise<string[]> {
+    const ids = [...new Set((Array.isArray(raw) ? raw : []).map((item) => String(item ?? '').trim()).filter(Boolean))];
+    if (ids.length > MAX_CLERKS) throw new CorrespondenceValidationError(`Chỉ định tối đa ${MAX_CLERKS} người làm văn thư.`);
+    if (ids.length === 0) return [];
+    const active = new Set((await this.store.people(tenantId)).map((person) => person.userId));
+    if (ids.some((id) => !active.has(id))) throw new CorrespondenceValidationError('Người làm văn thư được chọn không còn hoạt động.');
+    return ids;
   }
 
   async saveCatalogItem(actor: CorrespondenceActor, id: string | undefined, input: SaveCatalogItemRequest): Promise<CatalogItem> {
@@ -1351,13 +1377,15 @@ export class CorrespondenceService {
   /** Duyệt xong: công văn đến chờ văn thư hoàn tất, công văn đi chờ văn thư ban hành. */
   private async finishApprovals(actor: CorrespondenceActor, tx: LetterTransaction): Promise<void> {
     const incoming = tx.letter.direction === 'incoming';
+    const clerks = await this.clerkTargets(actor.tenantId, incoming ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.publish);
     const letter = await tx.update({ stage: incoming ? 'closing' : 'publishing' });
+    const owner = incoming ? [letter.receivedBy] : letter.authorUserId ? [letter.authorUserId] : [];
     await tx.outbox(
-      this.event(CORRESPONDENCE_EVENTS.approved, letter, actor, incoming ? [letter.receivedBy] : letter.authorUserId ? [letter.authorUserId] : [], {
+      this.event(CORRESPONDENCE_EVENTS.approved, letter, actor, [...owner, ...clerks.recipients], {
         summary: incoming
-          ? `Công văn ${letterTitle(withNo(letter))} đã xử lý, duyệt xong; chờ văn thư hoàn tất.`
+          ? `Công văn ${letterTitle(withNo(letter))} đã xử lý, duyệt xong; chờ văn thư hoàn tất, lưu trữ.`
           : `Công văn đi ${letterTitle(withNo(letter))} đã duyệt xong; chờ văn thư đánh số, ban hành.`,
-        notifyPermissions: [incoming ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.publish],
+        notifyPermissions: clerks.notifyPermissions,
       }),
     );
   }
@@ -1557,8 +1585,36 @@ export class CorrespondenceService {
     return attachment;
   }
 
-  private async viewer(actor: CorrespondenceActor): Promise<LetterViewer> {
-    const snapshot = await this.organization.snapshot(actor.tenantId);
+  /** Cấu hình sổ; phân hệ chưa khởi tạo xong thì cấu hình mặc định. */
+  private settingsOrDefault(tenantId: string): Promise<CorrespondenceSettings> {
+    return this.store
+      .settings(tenantId)
+      .then((settings) => ({ ...settings, clerkUserIds: Array.isArray(settings.clerkUserIds) ? settings.clerkUserIds : [] }))
+      .catch(() => DEFAULT_CORRESPONDENCE_SETTINGS);
+  }
+
+  /**
+   * Người được chỉ định làm văn thư trong cấu hình làm được việc của văn thư trong phân hệ
+   * (tiếp nhận, soạn, kiểm tra, ban hành, lưu trữ, xem công văn không mật) dù chưa được cấp
+   * quyền đó trong Phân quyền. Người cấu hình văn thư mới đặt được danh sách này.
+   */
+  private async effective(actor: CorrespondenceActor, known?: CorrespondenceSettings): Promise<CorrespondenceActor> {
+    const settings = known ?? (await this.settingsOrDefault(actor.tenantId));
+    if (!settings.clerkUserIds.includes(actor.userId)) return actor;
+    return { ...actor, canRegister: true, canCreateOutgoing: true, canPublish: true, canArchive: true, canReadAll: true };
+  }
+
+  /** Báo việc của văn thư: người làm văn thư được chỉ định, chưa chỉ định thì mọi người giữ quyền. */
+  private async clerkTargets(tenantId: string, permission: string): Promise<{ recipients: string[]; notifyPermissions: string[] }> {
+    const settings = await this.settingsOrDefault(tenantId);
+    return settings.clerkUserIds.length > 0
+      ? { recipients: [...settings.clerkUserIds], notifyPermissions: [] }
+      : { recipients: [], notifyPermissions: [permission] };
+  }
+
+  private async viewer(original: CorrespondenceActor): Promise<LetterViewer> {
+    const [snapshot, settings] = await Promise.all([this.organization.snapshot(original.tenantId), this.settingsOrDefault(original.tenantId)]);
+    const actor = await this.effective(original, settings);
     const admin = actor.isTenantAdmin;
     return {
       userId: actor.userId,
@@ -1571,6 +1627,7 @@ export class CorrespondenceService {
       canReadConfidential: actor.canReadConfidential || admin,
       unitIds: membershipNodes(snapshot, actor.userId),
       headUnitIds: headedUnits(snapshot, actor.userId),
+      clerkOnDuty: settings.clerkUserIds.length === 0 || settings.clerkUserIds.includes(actor.userId),
     };
   }
 
@@ -1772,14 +1829,27 @@ function peopleLabel(
   return APPROVER_RULE_LABELS[rule.type];
 }
 
-/** Người, thời điểm ở các bước cố định của luồng. */
+/** Người, thời điểm ở các bước cố định của luồng; bước của văn thư chưa làm thì ghi người làm văn thư được chỉ định. */
 function fixedPeople(
   letter: LetterRecord,
   assignments: readonly AssignmentRecord[],
   nameOf: (userId: string) => string,
+  history: readonly Pick<LetterHistoryEntry, 'action' | 'actorUserId' | 'at'>[] = [],
+  clerkUserIds: readonly string[] = [],
 ): Partial<Record<LetterStage, { readonly people?: string; readonly at?: string }>> {
   const submitted = assignments.filter((item) => item.status === 'submitted').map((item) => item.submittedAt ?? '');
   const allSubmitted = assignments.length > 0 && submitted.length === assignments.length;
+  const clerks = clerkUserIds.map(nameOf).join(', ') || undefined;
+  const lastBy = (action: LetterHistoryEntry['action']) => [...history].reverse().find((item) => item.action === action);
+  const doneBy = (action: LetterHistoryEntry['action'], extra?: string) => {
+    const entry = lastBy(action);
+    return {
+      people: [entry?.actorUserId ? nameOf(entry.actorUserId) : undefined, extra].filter(Boolean).join(' · ') || undefined,
+      at: entry?.at,
+    };
+  };
+  const archived = letter.stage === 'archived';
+  const checked = lastBy('submit');
   return {
     received: { people: nameOf(letter.receivedBy), at: letter.createdAt },
     processing: {
@@ -1790,14 +1860,18 @@ function fixedPeople(
       people: [letter.authorUserId ? nameOf(letter.authorUserId) : undefined, letter.authorUnitName].filter(Boolean).join(' · ') || undefined,
       at: letter.createdAt,
     },
-    publishing: { people: letter.outgoingNo ? `Số ${letter.outgoingNo}` : undefined, at: letter.publishedOn },
-    archived: { people: letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined, at: letter.archivedOn },
+    checking: checked && letter.stage !== 'checking' ? doneBy('submit') : { people: clerks },
+    closing: archived ? doneBy('complete', letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined) : { people: clerks },
+    publishing: archived
+      ? doneBy('publish', [letter.outgoingNo ? `Số ${letter.outgoingNo}` : undefined, letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined].filter(Boolean).join(', '))
+      : { people: clerks },
   };
 }
 
 /**
  * Thanh tiến trình theo luồng, các bước duyệt của quy trình chen giữa; trạng thái từng ô theo
- * bước hiện tại của công văn.
+ * bước hiện tại của công văn. Bước cuối là một bước của văn thư (hoàn tất hay ban hành, rồi
+ * lưu trữ luôn), không tách ô lưu trữ riêng.
  */
 export function flowOf(
   direction: LetterDirection,
@@ -1821,15 +1895,13 @@ export function flowOf(
           stageNode('received', 'Văn thư tiếp nhận'),
           stageNode('processing', 'Phòng ban xử lý'),
           ...approvals,
-          stageNode('closing', 'Văn thư hoàn tất'),
-          stageNode('archived', 'Lưu trữ'),
+          stageNode('closing', 'Văn thư hoàn tất, lưu trữ'),
         ]
       : [
           stageNode('drafting', 'Phòng ban soạn thảo'),
           stageNode('checking', 'Văn thư kiểm tra'),
           ...approvals,
-          stageNode('publishing', 'Văn thư ban hành'),
-          stageNode('archived', 'Lưu trữ'),
+          stageNode('publishing', 'Văn thư ban hành, lưu trữ'),
         ];
   if (stage === 'archived') return nodes.map((node) => ({ ...node, state: 'done' }));
   if (stage === 'cancelled') {

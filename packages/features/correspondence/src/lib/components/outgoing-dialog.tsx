@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
 import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 
 interface OutgoingForm {
   subject: string;
@@ -125,6 +125,7 @@ export function OutgoingDialog({
   return (
     <FormDialog
       open={open}
+      wide
       title={replyTo ? 'Soạn công văn trả lời' : 'Soạn công văn đi'}
       subtitle={
         replyTo
@@ -196,13 +197,11 @@ export function OutgoingDialog({
         <Field label="Hạn ban hành">
           <input type="date" value={form.dueOn} min={localToday()} onChange={(event) => set('dueOn', event.target.value)} />
         </Field>
-        <Field label="Tệp dự thảo">
-          <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
-        </Field>
+        <FilePickField label="Tệp dự thảo" files={files} hint="Tệp Word, PDF của dự thảo" onChange={setFiles} />
       </div>
       <p className={styles.plan}>
-        <span>Quy trình duyệt (theo cấu hình):</span> Phòng ban soạn thảo → Văn thư kiểm tra
-        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư ban hành → Lưu trữ
+        <span>Quy trình (theo cấu hình):</span> Phòng ban soạn thảo → Văn thư kiểm tra
+        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư ban hành, lưu trữ
       </p>
     </FormDialog>
   );

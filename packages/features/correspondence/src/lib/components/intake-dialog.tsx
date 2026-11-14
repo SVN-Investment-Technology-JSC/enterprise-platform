@@ -4,9 +4,9 @@ import type { CorrespondenceConfig } from '@enterprise-platform/contracts-corres
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, localToday } from '../correspondence.model';
+import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 
 interface IntakeForm {
   senderOrg: string;
@@ -73,6 +73,7 @@ export function IntakeDialog({
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof IntakeForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const workflow = plannedWorkflow(config, 'incoming', form.kind);
 
   const submit = async () => {
     if (!form.senderOrg.trim() || !form.subject.trim()) {
@@ -122,8 +123,9 @@ export function IntakeDialog({
   return (
     <FormDialog
       open={open}
+      wide
       title="Tiếp nhận công văn đến"
-      subtitle="Vào sổ và cấp số đến. Bản quét công văn lưu trong kho tài liệu của Hệ dùng chung."
+      subtitle="Vào sổ, cấp số đến; sau đó văn thư phân loại và giao phòng ban xử lý. Bản quét lưu trong kho tài liệu của Hệ dùng chung."
       submitLabel="Vào sổ công văn"
       submitting={submitting}
       dirty={dirty}
@@ -140,17 +142,15 @@ export function IntakeDialog({
           onChange={(event) => set('senderOrg', event.target.value)}
         />
       </Field>
-      <div className={styles.formRow}>
+      <div className={styles.formRow3}>
         <Field label="Số, ký hiệu văn bản">
-          <input
-            value={form.senderRef}
-            maxLength={120}
-            placeholder="1234/SKHĐT-QLDA"
-            onChange={(event) => set('senderRef', event.target.value)}
-          />
+          <input value={form.senderRef} maxLength={120} placeholder="1234/SKHĐT-QLDA" onChange={(event) => set('senderRef', event.target.value)} />
         </Field>
         <Field label="Ngày văn bản">
           <input type="date" value={form.senderDate} onChange={(event) => set('senderDate', event.target.value)} />
+        </Field>
+        <Field label="Ngày đến" required>
+          <input type="date" value={form.receivedOn} onChange={(event) => set('receivedOn', event.target.value)} />
         </Field>
       </div>
       <Field label="Trích yếu nội dung" required>
@@ -162,15 +162,7 @@ export function IntakeDialog({
           onChange={(event) => set('subject', event.target.value)}
         />
       </Field>
-      <div className={styles.formRow}>
-        <Field label="Ngày đến" required>
-          <input type="date" value={form.receivedOn} onChange={(event) => set('receivedOn', event.target.value)} />
-        </Field>
-        <Field label="Hạn xử lý">
-          <input type="date" value={form.dueOn} onChange={(event) => set('dueOn', event.target.value)} />
-        </Field>
-      </div>
-      <div className={styles.formRow}>
+      <div className={styles.formRow3}>
         <SelectField label="Loại văn bản">
           <SearchableSelect
             options={catalogOptions(config.catalog, 'letter_type')}
@@ -198,8 +190,6 @@ export function IntakeDialog({
             onChange={(value) => set('urgency', value)}
           />
         </SelectField>
-      </div>
-      <div className={styles.formRow}>
         <SelectField label="Độ mật">
           <SearchableSelect
             options={catalogOptions(config.catalog, 'confidentiality')}
@@ -209,14 +199,17 @@ export function IntakeDialog({
             onChange={(value) => set('confidentiality', value)}
           />
         </SelectField>
-        <Field label="Bản quét công văn">
-          <input
-            type="file"
-            multiple
-            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-          />
-        </Field>
       </div>
+      <div className={styles.formRow}>
+        <Field label="Hạn xử lý">
+          <input type="date" value={form.dueOn} min={form.receivedOn} onChange={(event) => set('dueOn', event.target.value)} />
+        </Field>
+        <FilePickField label="Bản quét công văn" files={files} hint="PDF, ảnh hay tệp Word của công văn" onChange={setFiles} />
+      </div>
+      <p className={styles.plan}>
+        <span>Quy trình (theo cấu hình):</span> Văn thư tiếp nhận → Phòng ban xử lý
+        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư hoàn tất, lưu trữ
+      </p>
     </FormDialog>
   );
 }

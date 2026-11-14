@@ -11,8 +11,8 @@ import {
   type ReturnTarget,
   type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { CheckCircle2, Undo2, X, XCircle } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Ban, CheckCircle2, Undo2, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
@@ -29,7 +29,7 @@ import {
 } from '../correspondence-api';
 import { catalogOptions, formatDay, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, SelectField } from './form-dialog';
+import { Field, FormDialog, SelectField } from './form-dialog';
 
 interface ActionProps {
   readonly letter: LetterDetail;
@@ -195,75 +195,164 @@ function WaitingNote({ letter, onDone }: ActionProps) {
 }
 
 function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>) {
-  const { busy, run } = useRunner(onDone);
+  const [open, setOpen] = useState(false);
   if (!letter.actions.cancel) return null;
   return (
-    <Popconfirm
-      title="Huỷ công văn?"
-      description="Công văn dừng xử lý, mọi người liên quan được báo. Số đã cấp được giữ lại trong sổ."
-      okText="Huỷ công văn"
-      cancelText="Không"
-      okType="danger"
-      reasonRequired
-      reasonLabel="Lý do huỷ"
-      placement="top"
-      onConfirm={(reason) => run(() => cancelLetter(letter.id, reason ?? ''), 'Đã huỷ công văn.')}
-    >
-      <button type="button" className={styles.buttonDanger} disabled={busy}>
-        Huỷ công văn
+    <>
+      <button type="button" className={styles.buttonDanger} onClick={() => setOpen(true)}>
+        <Ban size={14} /> Huỷ công văn
       </button>
-    </Popconfirm>
+      <ReasonDialog
+        open={open}
+        letter={letter}
+        title="Huỷ công văn"
+        subtitle={`Công văn ${letter.displayNo} dừng xử lý, mọi người liên quan được báo. Số đã cấp vẫn giữ trong sổ.`}
+        reasonLabel="Lý do huỷ"
+        placeholder="Ví dụ: cơ quan gửi đã thu hồi, vào sổ trùng"
+        submitLabel="Huỷ công văn"
+        tone="danger"
+        onClose={() => setOpen(false)}
+        onSubmit={async ({ reason }) => {
+          const next = await cancelLetter(letter.id, reason);
+          setOpen(false);
+          onDone(next, 'Đã huỷ công văn.');
+        }}
+      />
+    </>
+  );
+}
+
+/** "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do. */
+function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }: Pick<ActionProps, 'letter' | 'onDone'> & { readonly label?: string }) {
+  const [open, setOpen] = useState(false);
+  if (letter.actions.returnTargets.length === 0) return null;
+  return (
+    <>
+      <button type="button" className={styles.buttonGhost} onClick={() => setOpen(true)}>
+        <Undo2 size={14} /> {label}
+      </button>
+      <ReasonDialog
+        open={open}
+        letter={letter}
+        title={label}
+        subtitle="Công văn quay về nơi được chọn kèm lý do; người nhận được báo ngay."
+        reasonLabel="Lý do"
+        placeholder="Nêu rõ cần sửa, bổ sung gì"
+        submitLabel="Xác nhận trả lại"
+        tone="warning"
+        withTarget
+        onClose={() => setOpen(false)}
+        onSubmit={async ({ reason, target, assignmentIds }) => {
+          if (!target) return;
+          const next = await returnLetter(letter.id, { target, reason, assignmentIds });
+          setOpen(false);
+          onDone(next, `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`);
+        }}
+      />
+    </>
   );
 }
 
 /**
- * "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do.
- * Mở ngay tại chỗ để người dùng thấy rõ công văn sẽ về đâu.
+ * Hộp thoại nhập lý do dùng chung cho Huỷ và Trả lại: cùng khổ, cùng cách nhập, nút xác nhận
+ * theo màu thao tác (đỏ huỷ, vàng trả lại). Trả lại thì chọn nơi trả về và phòng ban phải làm lại.
  */
-function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }: Pick<ActionProps, 'letter' | 'onDone'> & { readonly label?: string }) {
+function ReasonDialog({
+  open,
+  letter,
+  title,
+  subtitle,
+  reasonLabel,
+  placeholder,
+  submitLabel,
+  tone,
+  withTarget = false,
+  onClose,
+  onSubmit,
+}: {
+  readonly open: boolean;
+  readonly letter: LetterDetail;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly reasonLabel: string;
+  readonly placeholder: string;
+  readonly submitLabel: string;
+  readonly tone: 'danger' | 'warning';
+  readonly withTarget?: boolean;
+  readonly onClose: () => void;
+  readonly onSubmit: (input: { reason: string; target?: ReturnTarget; assignmentIds?: string[] }) => Promise<void>;
+}) {
   const targets = letter.actions.returnTargets;
-  const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<ReturnTarget | ''>(letter.actions.defaultReturnTarget ?? targets[0] ?? '');
+  const initialTarget = letter.actions.defaultReturnTarget ?? targets[0] ?? '';
   const [reason, setReason] = useState('');
+  const [target, setTarget] = useState<ReturnTarget | ''>(initialTarget);
   const [units, setUnits] = useState<string[]>([]);
-  const { busy, error, run } = useRunner(onDone);
-  useEffect(() => setTarget(letter.actions.defaultReturnTarget ?? targets[0] ?? ''), [letter.actions.defaultReturnTarget, targets]);
-  if (targets.length === 0) return null;
-  if (!open) {
-    return (
-      <button type="button" className={styles.buttonGhost} onClick={() => setOpen(true)}>
-        <Undo2 size={14} /> {label}
-      </button>
-    );
-  }
-  const toUnits = target === 'handlers' && letter.direction === 'incoming' && letter.assignments.length > 1;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    setReason('');
+    setTarget(initialTarget);
+    setUnits([]);
+    setError(undefined);
+  }, [open, initialTarget]);
+
+  const toUnits = withTarget && target === 'handlers' && letter.direction === 'incoming' && letter.assignments.length > 1;
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError(`Nhập ${reasonLabel.toLowerCase()}.`);
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onSubmit({
+        reason,
+        target: withTarget && target ? target : undefined,
+        assignmentIds: toUnits && units.length > 0 ? units : undefined,
+      });
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không thực hiện được thao tác.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className={styles.returnBox}>
-      <div className={styles.returnHead}>
-        <b>{label}</b>
-        <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={() => setOpen(false)}>
-          <X size={14} />
-        </button>
-      </div>
-      {targets.length > 1 ? (
-        <SelectField label="Trả về" required>
-          <SearchableSelect
-            options={targets.map((value) => ({
-              value,
-              label: returnTargetLabel(value, letter.direction),
-              description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
-            }))}
-            value={target}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => setTarget(value as ReturnTarget)}
-          />
-        </SelectField>
-      ) : (
-        <p className={styles.muted} style={{ margin: 0, fontSize: 13 }}>
-          Trả về: <b>{returnTargetLabel(targets[0], letter.direction)}</b>
-        </p>
-      )}
+    <FormDialog
+      open={open}
+      title={title}
+      subtitle={subtitle}
+      submitLabel={submitLabel}
+      submitting={busy}
+      submitDisabled={!reason.trim() || (withTarget && !target)}
+      dirty={reason.trim() !== ''}
+      tone={tone}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      {withTarget ? (
+        targets.length > 1 ? (
+          <SelectField label="Trả về" required>
+            <SearchableSelect
+              options={targets.map((value) => ({
+                value,
+                label: returnTargetLabel(value, letter.direction),
+                description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
+              }))}
+              value={target}
+              searchInDropdown
+              hideDropdownSearch
+              onChange={(value) => setTarget(value as ReturnTarget)}
+            />
+          </SelectField>
+        ) : (
+          <p className={styles.plan}>
+            <span>Trả về:</span> {targets[0] ? returnTargetLabel(targets[0], letter.direction) : ''}
+          </p>
+        )
+      ) : null}
       {toUnits ? (
         <div className={styles.field} role="group" aria-label="Phòng ban phải làm lại">
           <span className={styles.fieldLabel}>Phòng ban phải làm lại (bỏ trống là mọi phòng)</span>
@@ -279,30 +368,10 @@ function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }:
           ))}
         </div>
       ) : null}
-      <Field label="Lý do" required>
-        <textarea value={reason} maxLength={4000} rows={2} placeholder="Nêu rõ cần sửa, bổ sung gì" onChange={(event) => setReason(event.target.value)} />
+      <Field label={reasonLabel} required>
+        <textarea value={reason} maxLength={4000} rows={4} autoFocus placeholder={placeholder} onChange={(event) => setReason(event.target.value)} />
       </Field>
-      <ErrorLine error={error} />
-      <div className={styles.formActions}>
-        <button type="button" className={styles.buttonGhost} onClick={() => setOpen(false)}>
-          Thôi
-        </button>
-        <button
-          type="button"
-          className={styles.buttonWarning}
-          disabled={busy || !target || !reason.trim()}
-          onClick={() =>
-            target &&
-            run(
-              () => returnLetter(letter.id, { target, reason, assignmentIds: toUnits && units.length > 0 ? units : undefined }),
-              `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`,
-            )
-          }
-        >
-          Xác nhận trả lại
-        </button>
-      </div>
-    </div>
+    </FormDialog>
   );
 }
 
