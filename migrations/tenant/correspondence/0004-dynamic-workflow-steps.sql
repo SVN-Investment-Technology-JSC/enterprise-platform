@@ -7,9 +7,15 @@ SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
 
 -- --------------------------------------------------------------------------------------------- quy trình
+-- Ô đầu, ô cuối cũng cấu hình được: tên, tự chuyển bước đầu khi vào sổ, người làm ô cuối (trống là văn thư),
+-- tự hoàn tất / ban hành khi xong bước cuối, có cấp số hồ sơ lưu trữ hay không.
 ALTER TABLE correspondence_schema.workflows
-    ADD COLUMN IF NOT EXISTS start_name VARCHAR(160),
-    ADD COLUMN IF NOT EXISTS end_name   VARCHAR(160);
+    ADD COLUMN IF NOT EXISTS start_name  VARCHAR(160),
+    ADD COLUMN IF NOT EXISTS end_name    VARCHAR(160),
+    ADD COLUMN IF NOT EXISTS auto_start  BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS end_actor   JSONB,
+    ADD COLUMN IF NOT EXISTS auto_end    BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS end_archive BOOLEAN NOT NULL DEFAULT true;
 
 -- Bước cũ không ghi loại là bước duyệt; quy trình chưa có bước phòng ban / văn thư thì thêm bước cứng cũ lên đầu.
 UPDATE correspondence_schema.workflows w

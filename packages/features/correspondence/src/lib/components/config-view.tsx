@@ -467,6 +467,8 @@ function WorkflowManager({
 }
 
 const RULE_TYPES: readonly ApproverRuleType[] = ['choose', 'users', 'positions', 'unit_heads', 'handling_unit_heads'];
+/** Ô cuối không có ai "chọn trong nhóm" lúc chuyển tới. */
+const END_RULE_TYPES: readonly ApproverRuleType[] = ['users', 'positions', 'unit_heads', 'handling_unit_heads'];
 
 function blankStep(type: StepType, index: number): WorkflowStep {
   const key = `step-${Date.now().toString(36)}-${index}`;
@@ -526,6 +528,10 @@ function WorkflowDialog({
       isDefault: workflow?.isDefault ?? false,
       startName: workflow?.startName ?? '',
       endName: workflow?.endName ?? '',
+      autoStart: workflow?.autoStart ?? false,
+      endActor: workflow?.endActor ?? null,
+      autoEnd: workflow?.autoEnd ?? false,
+      archive: workflow?.archive ?? true,
       steps: workflow?.steps ?? starterSteps(direction),
     }),
     [workflow, direction],
@@ -559,6 +565,10 @@ function WorkflowDialog({
         isDefault: form.isDefault,
         startName: form.startName.trim() || undefined,
         endName: form.endName.trim() || undefined,
+        autoStart: form.autoStart,
+        endActor: form.autoEnd ? null : form.endActor,
+        autoEnd: form.autoEnd,
+        archive: form.archive,
         steps: form.steps,
       });
       toast.success('Đã lưu quy trình.');
@@ -637,24 +647,6 @@ function WorkflowDialog({
           onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
         />
       </Field>
-      <div className={styles.formRow}>
-        <Field label="Tên ô đầu">
-          <input
-            value={form.startName}
-            maxLength={160}
-            placeholder={FLOW_START_NAMES[direction]}
-            onChange={(event) => setForm((current) => ({ ...current, startName: event.target.value }))}
-          />
-        </Field>
-        <Field label="Tên ô cuối">
-          <input
-            value={form.endName}
-            maxLength={160}
-            placeholder={FLOW_END_NAMES[direction]}
-            onChange={(event) => setForm((current) => ({ ...current, endName: event.target.value }))}
-          />
-        </Field>
-      </div>
       <div className={styles.flowPreview} aria-label="Luồng xử lý">
         {preview.map((label, index, all) => (
           <span key={`${index}-${label}`} className={index > 0 && index < all.length - 1 ? styles.flowPreviewStep : undefined}>
@@ -664,6 +656,35 @@ function WorkflowDialog({
         ))}
       </div>
       {directory?.degraded ? <p className={styles.notice}>Chưa đọc được sơ đồ tổ chức; danh sách phòng ban, chức danh có thể thiếu.</p> : null}
+      <div className={`${styles.stepEditor} ${styles.stepEditorFixed}`}>
+        <div className={styles.stepEditorHead}>
+          <b>Ô đầu · {direction === 'incoming' ? 'tiếp nhận, vào sổ' : 'soạn thảo'}</b>
+        </div>
+        <div className={styles.formRow}>
+          <Field label="Tên ô đầu">
+            <input
+              value={form.startName}
+              maxLength={160}
+              placeholder={FLOW_START_NAMES[direction]}
+              onChange={(event) => setForm((current) => ({ ...current, startName: event.target.value }))}
+            />
+          </Field>
+          {direction === 'incoming' ? (
+            <CheckGroup label="Chuyển bước">
+              <label className={styles.checkRow}>
+                <input
+                  type="checkbox"
+                  checked={form.autoStart}
+                  onChange={(event) => setForm((current) => ({ ...current, autoStart: event.target.checked }))}
+                />
+                Vào sổ xong tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì giao phòng ban gợi ý của loại văn bản)
+              </label>
+            </CheckGroup>
+          ) : (
+            <p className={styles.sectionNote}>Người soạn gửi đi là sang bước đầu của quy trình.</p>
+          )}
+        </div>
+      </div>
       {form.steps.length === 0 ? (
         <p className={styles.sectionNote}>Chưa có bước nào ở giữa: công văn đi thẳng từ ô đầu tới ô cuối.</p>
       ) : null}
@@ -787,6 +808,75 @@ function WorkflowDialog({
             <Plus size={14} /> {STEP_TYPE_LABELS[value]}
           </button>
         ))}
+      </div>
+      <div className={`${styles.stepEditor} ${styles.stepEditorFixed}`}>
+        <div className={styles.stepEditorHead}>
+          <b>Ô cuối · {direction === 'incoming' ? 'hoàn tất' : 'đánh số đi, ban hành'}</b>
+        </div>
+        <div className={styles.formRow}>
+          <Field label="Tên ô cuối">
+            <input
+              value={form.endName}
+              maxLength={160}
+              placeholder={FLOW_END_NAMES[direction]}
+              onChange={(event) => setForm((current) => ({ ...current, endName: event.target.value }))}
+            />
+          </Field>
+          <CheckGroup label="Cách làm">
+            <label className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={form.autoEnd}
+                onChange={(event) => setForm((current) => ({ ...current, autoEnd: event.target.checked }))}
+              />
+              {direction === 'incoming'
+                ? 'Xong bước cuối là tự hoàn tất, không chờ ai bấm'
+                : 'Xong bước cuối là tự cấp số đi, ban hành gửi nơi nhận đã ghi'}
+            </label>
+            <label className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={form.archive}
+                onChange={(event) => setForm((current) => ({ ...current, archive: event.target.checked }))}
+              />
+              Cấp số hồ sơ, lưu trữ
+            </label>
+          </CheckGroup>
+        </div>
+        {!form.autoEnd ? (
+          <>
+            <SelectField label="Người làm ô cuối">
+              <SearchableSelect
+                options={[
+                  { value: 'clerk', label: 'Văn thư', description: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư' },
+                  ...END_RULE_TYPES.map((value) => ({ value, label: APPROVER_RULE_LABELS[value] })),
+                ]}
+                value={form.endActor?.type ?? 'clerk'}
+                searchInDropdown
+                hideDropdownSearch
+                onChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    endActor:
+                      !value || value === 'clerk'
+                        ? null
+                        : ruleFor(value as ApproverRuleType, current.endActor ?? { type: 'handling_unit_heads' }),
+                  }))
+                }
+              />
+            </SelectField>
+            {form.endActor ? (
+              <RuleDetail
+                rule={form.endActor}
+                direction={direction}
+                unitOptions={unitOptions}
+                positionOptions={positionOptions}
+                peopleOptions={peopleOptions}
+                onChange={(endActor) => setForm((current) => ({ ...current, endActor }))}
+              />
+            ) : null}
+          </>
+        ) : null}
       </div>
     </FormDialog>
   );

@@ -237,6 +237,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
         copyCount: 2,
         addressedTo: 'Công đoàn',
         addressedUserId: addressee,
+        closerIds: [author],
         directive: {
           note: 'Kế toán chủ trì',
           dueOn: '2026-11-20',
@@ -265,6 +266,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
       copyCount: 2,
       addressedTo: 'Công đoàn',
       addressedUserId: addressee,
+      closerIds: [author],
       directive: { note: 'Kế toán chủ trì', dueOn: '2026-11-20', units: [{ role: 'lead' }, { role: 'support', handlerUserId: author }] },
     });
     // Văn bản tối mật gửi đích danh: người nhận đích danh thấy, người ngoài không.
@@ -333,6 +335,10 @@ integration('Sổ công văn (PostgreSQL)', () => {
       description: null,
       startName: null,
       endName: 'Ban hành ngay',
+      autoStart: false,
+      endActor: { type: 'users', userIds: [clerk] },
+      autoEnd: true,
+      archive: false,
       direction: 'outgoing',
       isActive: true,
       isDefault: true,
@@ -343,7 +349,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
       ['incoming', 'c0000000-0000-4000-8000-000000000001'],
       ['outgoing', outgoing.id],
     ]);
-    expect(outgoing).toMatchObject({ startName: undefined, endName: 'Ban hành ngay' });
+    expect(outgoing).toMatchObject({ startName: undefined, endName: 'Ban hành ngay', autoStart: false, endActor: { type: 'users', userIds: [clerk] }, autoEnd: true, archive: false });
     expect(outgoing.steps[0]).toMatchObject({ type: 'approve', rejectTo: 'clerk' });
   });
 });

@@ -15,7 +15,9 @@ ALTER TABLE correspondence_schema.letters
     ADD COLUMN IF NOT EXISTS addressed_to      VARCHAR(255),
     ADD COLUMN IF NOT EXISTS addressed_user_id UUID,
     -- Bút phê của bước chỉ đạo gần nhất: ý kiến, đơn vị chủ trì / phối hợp, thời hạn, người và lúc bút phê.
-    ADD COLUMN IF NOT EXISTS directive         JSONB;
+    ADD COLUMN IF NOT EXISTS directive         JSONB,
+    -- Người làm ô cuối theo cấu hình quy trình, giải lúc xong bước cuối; trống là văn thư.
+    ADD COLUMN IF NOT EXISTS closer_ids        UUID[] NOT NULL DEFAULT '{}';
 
 DO $$
 BEGIN

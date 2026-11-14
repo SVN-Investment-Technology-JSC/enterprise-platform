@@ -1308,6 +1308,12 @@ $fs-meta: 12px;
   background: #fff;
 }
 
+// Ô đầu, ô cuối: luôn có, nền nhạt để phân biệt với các bước thêm bớt được.
+.stepEditorFixed {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
 .stepEditorHead {
   display: flex;
   align-items: center;

@@ -102,6 +102,8 @@ export interface LetterRecord {
   readonly addressedUserId?: string;
   /** Bút phê của bước chỉ đạo gần nhất (tên người lấy lúc đọc). */
   readonly directive?: Omit<LetterDirective, 'byName'>;
+  /** Người làm ô cuối theo cấu hình quy trình (trống là văn thư). */
+  readonly closerIds?: readonly string[];
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -322,6 +324,10 @@ export interface WorkflowUpsert {
   readonly isDefault: boolean;
   readonly startName: string | null;
   readonly endName: string | null;
+  readonly autoStart: boolean;
+  readonly endActor: ApproverRule | null;
+  readonly autoEnd: boolean;
+  readonly archive: boolean;
   readonly steps: readonly WorkflowStep[];
 }
 

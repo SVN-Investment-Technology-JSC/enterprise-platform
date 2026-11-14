@@ -303,6 +303,7 @@ function fakeStore() {
         description: input.description ?? undefined,
         startName: input.startName ?? undefined,
         endName: input.endName ?? undefined,
+        endActor: input.endActor ?? undefined,
         updatedAt: TODAY,
       };
       const index = workflows.findIndex((item) => item.id === saved.id);
@@ -1178,6 +1179,94 @@ describe('Quy trình chuẩn văn bản đến: dựng bằng cấu hình', () =
     expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-fin-head', 'u-accountant', 'u-lawyer']));
     // Bộ phận tổng hợp (xem báo cáo) cũng đôn đốc được.
     await expect(service.remind(actor('u-outsider', { canReadReports: true, canReadAll: true }), soon.id, {})).resolves.toBeDefined();
+  });
+});
+
+describe('Ô đầu, ô cuối cấu hình được', () => {
+  it('tự chuyển bước đầu khi vào sổ: giao phòng ban gợi ý của loại văn bản', async () => {
+    const { service, outbox } = setup();
+    await service.saveCatalogItem(configurer, 'letter_type-finance', {
+      kind: 'letter_type',
+      code: 'finance',
+      name: 'Tài chính – thuế',
+      defaultDueDays: 7,
+      defaultUnitIds: ['unit-finance', 'unit-legal'],
+    });
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Vào sổ là giao',
+      direction: 'incoming',
+      isDefault: true,
+      autoStart: true,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' }],
+    });
+    const letter = await service.create(clerk, intake);
+    expect(letter).toMatchObject({ stage: 'processing' });
+    expect(letter.assignments.map((item) => [item.unitName, item.role])).toEqual([
+      ['Phòng Kế toán', 'lead'],
+      ['Phòng Pháp chế', 'support'],
+    ]);
+    expect(outbox.some((event) => event.type === CORRESPONDENCE_EVENTS.assigned)).toBe(true);
+    // Loại văn bản không có phòng gợi ý: văn thư chuyển tay như thường.
+    expect((await service.create(clerk, { ...intake, kind: 'quick' })).stage).toBe('received');
+  });
+
+  it('người làm ô cuối theo cấu hình, không cấp số hồ sơ khi tắt lưu trữ', async () => {
+    const { service } = setup();
+    await expect(
+      service.saveWorkflow(configurer, undefined, {
+        name: 'Sai',
+        direction: 'incoming',
+        endActor: { type: 'choose', pool: 'leaders' },
+        steps: [],
+      }),
+    ).rejects.toThrow('Ô cuối không dùng được luật');
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Pháp chế chốt',
+      direction: 'incoming',
+      isDefault: true,
+      endName: 'Pháp chế hoàn tất',
+      endActor: { type: 'users', userIds: ['u-legal-head'] },
+      archive: false,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' }],
+    });
+    const letter = await service.create(clerk, intake);
+    const processing = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal', units: [{ unitId: 'unit-finance' }] });
+    const closing = await service.respond(accountant, letter.id, processing.assignments[0].id, { note: 'Xong.' });
+    expect(closing).toMatchObject({ stage: 'closing' });
+    expect(closing.flow.at(-1)).toMatchObject({ label: 'Pháp chế hoàn tất', state: 'current', people: 'TP Pháp chế' });
+    expect((await service.detail(clerk, letter.id)).actions.complete).toBe(false);
+    expect((await service.detail(legalHead, letter.id)).actions.complete).toBe(true);
+    expect((await service.list(legalHead, { box: 'mine' })).map((item) => item.id)).toContain(letter.id);
+    const done = await service.complete(legalHead, letter.id, {});
+    expect(done).toMatchObject({ stage: 'archived', stageLabel: 'Đã hoàn tất', archiveCode: undefined });
+  });
+
+  it('tự hoàn tất / tự ban hành khi xong bước cuối', async () => {
+    const { service } = setup();
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Tự hoàn tất',
+      direction: 'incoming',
+      isDefault: true,
+      autoEnd: true,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' }],
+    });
+    const letter = await service.create(clerk, intake);
+    const processing = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal', units: [{ unitId: 'unit-finance' }] });
+    const done = await service.respond(accountant, letter.id, processing.assignments[0].id, { note: 'Xong.' });
+    expect(done).toMatchObject({ stage: 'archived', archiveCode: 'HS-2026-0001' });
+    expect(done.history.at(-1)?.summary).toBe('Tự động: Hoàn tất; lưu trữ hồ sơ số HS-2026-0001');
+
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Duyệt là ban hành',
+      direction: 'outgoing',
+      isDefault: true,
+      autoEnd: true,
+      steps: [{ key: 'a', name: 'Lãnh đạo duyệt', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } }],
+    });
+    const draft = await service.createOutgoing(accountant, { subject: 'Thông báo', recipient: 'Toàn công ty', kind: 'finance' });
+    await service.sendToClerk(accountant, draft.id, {});
+    const issued = await service.approve(leader, draft.id, {});
+    expect(issued).toMatchObject({ stage: 'archived', outgoingNo: '1/CV', recipient: 'Toàn công ty', deliveryStatus: 'sent' });
   });
 });
 

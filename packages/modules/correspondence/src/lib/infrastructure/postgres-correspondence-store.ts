@@ -61,6 +61,7 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.cancel_reason, l.revoke_kind, l.revoke_reason, l.revoke_requested_by, l.revoke_requested_at,
   l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
   l.envelope_status, l.sealed, l.page_count, l.copy_count, l.addressed_to, l.addressed_user_id, l.directive,
+  l.closer_ids::text[] AS closer_ids,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
 const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.reject_to, s.due_days, s.status, s.chosen_user_id,
@@ -82,7 +83,8 @@ const CATALOG_COLUMNS = `c.id, c.kind, c.code, c.name, c.sort_order, c.is_active
               OR (c.kind = 'urgency' AND u.urgency = c.code)
               OR (c.kind = 'confidentiality' AND u.confidentiality = c.code)) AS in_use`;
 
-const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, start_name, end_name, steps, updated_at`;
+const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, start_name, end_name, auto_start, end_actor,
+  auto_end, end_archive, steps, updated_at`;
 
 /** Cột được phép ghi qua `update`, theo tên trường của `LetterPatch`. */
 const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
@@ -128,6 +130,7 @@ const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
   addressedTo: 'addressed_to',
   addressedUserId: 'addressed_user_id',
   directive: 'directive',
+  closerIds: 'closer_ids',
   sharedFolderId: 'shared_folder_id',
 };
 
@@ -291,20 +294,26 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           input.direction,
           input.startName,
           input.endName,
+          input.autoStart,
+          input.endActor ? JSON.stringify(input.endActor) : null,
+          input.autoEnd,
+          input.archive,
         ];
         const result = id
           ? await client.query<Row>(
               `UPDATE correspondence_schema.workflows
                   SET name = $1, description = $2, is_active = $3, is_default = $4, steps = $5::jsonb,
-                      updated_by = $6, direction = $7, start_name = $8, end_name = $9, updated_at = now()
-                WHERE id = $10
+                      updated_by = $6, direction = $7, start_name = $8, end_name = $9, auto_start = $10,
+                      end_actor = $11::jsonb, auto_end = $12, end_archive = $13, updated_at = now()
+                WHERE id = $14
                 RETURNING ${WORKFLOW_COLUMNS}`,
               [...params, id],
             )
           : await client.query<Row>(
               `INSERT INTO correspondence_schema.workflows
-                      (name, description, is_active, is_default, steps, updated_by, direction, start_name, end_name)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+                      (name, description, is_active, is_default, steps, updated_by, direction, start_name, end_name,
+                       auto_start, end_actor, auto_end, end_archive)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
                RETURNING ${WORKFLOW_COLUMNS}`,
               params,
             );
@@ -1012,6 +1021,10 @@ function mapWorkflow(row: Row): Workflow {
     isDefault: Boolean(row['is_default']),
     startName: optional(row['start_name']),
     endName: optional(row['end_name']),
+    autoStart: row['auto_start'] === true,
+    ...(row['end_actor'] ? { endActor: row['end_actor'] as ApproverRule } : {}),
+    autoEnd: row['auto_end'] === true,
+    archive: row['end_archive'] !== false,
     steps: Array.isArray(row['steps']) ? (row['steps'] as Row[]).map(mapWorkflowStep) : [],
     updatedAt: iso(row['updated_at']),
   };
@@ -1091,6 +1104,7 @@ function mapLetter(row: Row): LetterRecord {
     addressedTo: optional(row['addressed_to']),
     addressedUserId: optional(row['addressed_user_id']),
     directive: row['directive'] && typeof row['directive'] === 'object' ? (row['directive'] as LetterRecord['directive']) : undefined,
+    closerIds: Array.isArray(row['closer_ids']) ? (row['closer_ids'] as unknown[]).map(String) : [],
     sharedFolderId: optional(row['shared_folder_id']),
     receivedBy: String(row['received_by']),
     createdAt: iso(row['created_at']),

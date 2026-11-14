@@ -607,16 +607,21 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
   );
 }
 
-function CompleteForm({ letter, onDone, onDirtyChange }: ActionProps) {
+/** Quy trình của công văn có cấp số hồ sơ, lưu trữ ở ô cuối không (mặc định có). */
+function archivesAtEnd(letter: LetterDetail, config: CorrespondenceConfig): boolean {
+  return config.workflows.find((workflow) => workflow.id === letter.workflowId)?.archive !== false;
+}
+
+function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
   return (
-    <Panel title="Văn thư: hoàn tất và lưu trữ">
+    <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư hoàn tất, lưu trữ'}>
       <div className={styles.form}>
         <p className={styles.sectionNote}>
-          Công văn đã qua đủ các bước của quy trình. Kiểm kết quả ở mục Phòng ban xử lý (nếu có); hoàn tất để cấp số hồ sơ, ghi
-          lên thư mục hồ sơ trong kho lưu trữ.
+          Công văn đã qua đủ các bước của quy trình. Kiểm kết quả ở mục Phòng ban xử lý (nếu có)
+          {archivesAtEnd(letter, config) ? '; hoàn tất để cấp số hồ sơ, ghi lên thư mục hồ sơ trong kho lưu trữ.' : '; hoàn tất để đóng công văn.'}
         </p>
         <Field label="Ghi chú hoàn tất">
           <textarea value={note} maxLength={4000} rows={2} placeholder="Ví dụ: đã gửi văn bản trả lời số …" onChange={(event) => setNote(event.target.value)} />
@@ -624,8 +629,15 @@ function CompleteForm({ letter, onDone, onDirtyChange }: ActionProps) {
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <ReturnControl letter={letter} onDone={onDone} />
-          <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => completeLetter(letter.id, note || undefined), 'Đã hoàn tất, lưu trữ hồ sơ.')}>
-            Hoàn tất, lưu trữ
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy}
+            onClick={() =>
+              run(() => completeLetter(letter.id, note || undefined), archivesAtEnd(letter, config) ? 'Đã hoàn tất, lưu trữ hồ sơ.' : 'Đã hoàn tất.')
+            }
+          >
+            {archivesAtEnd(letter, config) ? 'Hoàn tất, lưu trữ' : 'Hoàn tất'}
           </button>
         </div>
       </div>
@@ -725,7 +737,7 @@ function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: Action
   );
 }
 
-function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
+function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   const [recipient, setRecipient] = useState(letter.recipient ?? '');
   const [publishedOn, setPublishedOn] = useState(localToday());
   const [deliveryMethod, setDeliveryMethod] = useState('');
@@ -737,7 +749,7 @@ function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
   );
   const signed = letter.attachments.some((item) => item.kind === 'outgoing');
   return (
-    <Panel title="Văn thư: đánh số, ban hành">
+    <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư ban hành, lưu trữ'}>
       <div className={styles.form}>
         {!signed ? <p className={styles.notice}>Chưa có bản ban hành đã ký. Tải ở mục Tệp của hồ sơ (trước hoặc sau khi đánh số).</p> : null}
         <div className={styles.formRow}>
@@ -766,7 +778,7 @@ function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
             onClick={() =>
               run(
                 () => publishLetter(letter.id, { recipient, publishedOn: publishedOn || undefined, deliveryMethod: deliveryMethod || undefined, note: note || undefined }),
-                'Đã đánh số, ban hành và lưu trữ.',
+                archivesAtEnd(letter, config) ? 'Đã đánh số, ban hành và lưu trữ.' : 'Đã đánh số, ban hành.',
               )
             }
           >

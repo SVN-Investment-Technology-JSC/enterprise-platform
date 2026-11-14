@@ -263,6 +263,17 @@ export interface Workflow {
   /** Tên ô đầu, ô cuối của thanh tiến trình; trống là tên mặc định của luồng. */
   readonly startName?: string;
   readonly endName?: string;
+  /**
+   * Công văn đến: văn thư vào sổ xong là tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì
+   * giao phòng ban gợi ý của loại văn bản), không cần bước phân loại riêng.
+   */
+  readonly autoStart?: boolean;
+  /** Người làm ô cuối (hoàn tất / ban hành); trống là văn thư. */
+  readonly endActor?: ApproverRule;
+  /** Xong bước cuối là tự hoàn tất (đến) / tự cấp số đi, ban hành (đi), không chờ ai bấm. */
+  readonly autoEnd?: boolean;
+  /** Ô cuối cấp số hồ sơ, lưu trữ (mặc định có). */
+  readonly archive?: boolean;
   /** Các bước ở giữa theo thứ tự; rỗng là đi thẳng từ ô đầu tới ô cuối. */
   readonly steps: readonly WorkflowStep[];
   readonly updatedAt: string;
@@ -276,6 +287,10 @@ export interface SaveWorkflowRequest {
   readonly isDefault?: boolean;
   readonly startName?: string;
   readonly endName?: string;
+  readonly autoStart?: boolean;
+  readonly endActor?: ApproverRule | null;
+  readonly autoEnd?: boolean;
+  readonly archive?: boolean;
   readonly steps: readonly WorkflowStep[];
 }
 

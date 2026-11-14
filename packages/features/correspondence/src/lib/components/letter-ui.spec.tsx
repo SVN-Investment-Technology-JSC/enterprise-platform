@@ -757,3 +757,28 @@ describe('Bút phê, đôn đốc', () => {
     expect(mocked.remind).toHaveBeenCalledWith('letter-1', 'Gửi kết quả trong hôm nay.');
   });
 });
+
+describe('Ô cuối theo cấu hình', () => {
+  it('quy trình tắt lưu trữ: khối ô cuối mang tên cấu hình, nút chỉ "Hoàn tất"', () => {
+    const closing = letter(
+      {
+        stage: 'closing',
+        workflowId: 'wf-no-archive',
+        currentStepName: undefined,
+        flow: [
+          { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+          { key: 'closing', label: 'Pháp chế hoàn tất', kind: 'end', state: 'current', approval: false },
+        ],
+      },
+      { complete: true },
+    );
+    const withWorkflow: CorrespondenceConfig = {
+      ...config,
+      workflows: [{ id: 'wf-no-archive', name: 'W', direction: 'incoming', isActive: true, isDefault: true, archive: false, steps: [], updatedAt: '' }],
+    };
+    render(<LetterActionPanel letter={closing} config={withWorkflow} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Pháp chế hoàn tất' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeTruthy();
+    expect(screen.getByText(/hoàn tất để đóng công văn/)).toBeTruthy();
+  });
+});
