@@ -316,7 +316,7 @@ function fakeStore() {
       return letters.get(letter.id) as LetterRecord;
     },
     withLetter: async (_tenant, letterId, work) => {
-      if (!letters.has(letterId)) throw new LetterNotFoundError();
+      if (!letters.has(letterId) || letters.get(letterId)?.deletedAt) throw new LetterNotFoundError();
       // Lỗi giữa chừng không để lại thay đổi, như rollback.
       const snapshot = {
         letters: new Map(letters),
@@ -339,14 +339,16 @@ function fakeStore() {
         throw error;
       }
     },
-    findLetter: async (_tenant, letterId) => letters.get(letterId),
+    findLetter: async (_tenant, letterId) => (letters.get(letterId)?.deletedAt ? undefined : letters.get(letterId)),
     listLetters: async (_tenant, filter) =>
       [...letters.values()]
+        .filter((letter) => !letter.deletedAt)
         .filter((letter) => !filter.direction || letter.direction === filter.direction)
         .filter((letter) => !filter.stages || filter.stages.includes(letter.stage))
         .filter((letter) => !filter.year || letter.year === filter.year)
         .map((letter) => ({ ...letter, steps: stepsOf(letter.id), assignments: assignmentsOf(letter.id), mentionedUserIds: mentionsOf(letter.id) })),
-    countArchived: async () => [...letters.values()].filter((letter) => letter.stage === 'archived').length,
+    countArchived: async () =>
+      [...letters.values()].filter((letter) => !letter.deletedAt && (letter.stage === 'archived' || letter.stage === 'revoking')).length,
     steps: async (_tenant, letterId) => stepsOf(letterId),
     assignments: async (_tenant, letterId) => assignmentsOf(letterId),
     attachments: async (_tenant, letterId) => attachments.filter((item) => item.letterId === letterId),
@@ -813,6 +815,97 @@ describe('Trao đổi, huỷ, quyền xem', () => {
     const draft = await service.createOutgoing(accountant, { subject: 'Nháp', recipient: 'x' });
     expect((await service.list(accountant, { box: 'mine' })).map((item) => item.id)).toEqual([draft.id]);
     expect((await service.list(accountant, { box: 'outgoing' })).map((item) => item.id)).toEqual([draft.id]);
+  });
+});
+
+describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
+  /** Công văn đi kế toán soạn (có tệp dự thảo), duyệt qua trưởng phòng và lãnh đạo, văn thư đã ban hành. */
+  async function published(service: CorrespondenceService) {
+    const draft = await service.createOutgoing(accountant, { subject: 'Giải trình số liệu quyết toán', recipient: 'Sở Tài chính', kind: 'finance' });
+    await service.createAttachment(accountant, draft.id, { kind: 'draft', fileName: 'du-thao.docx', contentType: 'application/msword', sizeBytes: 10 });
+    await service.sendToClerk(accountant, draft.id, {});
+    await service.submit(clerk, draft.id, {});
+    await service.approve(financeHead, draft.id, {});
+    await service.approve(leader, draft.id, {});
+    return service.publish(clerk, draft.id, { recipient: 'Sở Tài chính' });
+  }
+
+  it('văn thư đề nghị thu hồi kèm lý do; người duyệt cuối theo cấu hình xác nhận, đồng ý thì công văn bị huỷ', async () => {
+    const { service, outbox } = setup();
+    const letter = await published(service);
+    expect(letter.actions).toMatchObject({ requestRevoke: true, cancel: false });
+    expect((await service.detail(accountant, letter.id)).actions.requestRevoke).toBe(false);
+    await expect(service.requestRevoke(accountant, letter.id, { kind: 'recall', reason: 'x' })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    await expect(service.requestRevoke(clerk, letter.id, { kind: 'recall', reason: '  ' })).rejects.toBeInstanceOf(CorrespondenceValidationError);
+    await expect(service.requestRevoke(clerk, letter.id, { kind: 'burn' as never, reason: 'x' })).rejects.toBeInstanceOf(CorrespondenceValidationError);
+
+    const pending = await service.requestRevoke(clerk, letter.id, { kind: 'recall', reason: 'Sai số liệu mục 2.' });
+    expect(pending).toMatchObject({
+      stage: 'revoking',
+      stageLabel: 'Chờ duyệt huỷ',
+      revoke: { kind: 'recall', kindLabel: 'Thu hồi', reason: 'Sai số liệu mục 2.', approverNames: ['Nguyễn Văn An'] },
+    });
+    expect(pending.flow.at(-1)).toMatchObject({ key: 'revoke', state: 'current', people: 'Nguyễn Văn An' });
+    expect(pending.flow.slice(0, -1).every((node) => node.state === 'done')).toBe(true);
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.revokeRequested, payload: { recipientUserIds: ['u-leader'] } });
+
+    // Người xác nhận thấy việc trong "Cần tôi xử lý"; người soạn, văn thư không xác nhận thay được.
+    expect((await service.list(leader, { box: 'mine' })).map((item) => item.id)).toContain(letter.id);
+    expect((await service.overview(leader)).awaitingMe).toBe(1);
+    expect((await service.detail(leader, letter.id)).actions).toMatchObject({ decideRevoke: true, withdrawRevoke: false });
+    await expect(service.decideRevoke(clerk, letter.id, { approve: true })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    // Vẫn nằm trong kho lưu trữ cho tới khi được đồng ý.
+    expect((await service.list(clerk, { box: 'archive' })).map((item) => item.id)).toContain(letter.id);
+
+    const cancelled = await service.decideRevoke(leader, letter.id, { approve: true, note: 'Đồng ý thu hồi.' });
+    expect(cancelled).toMatchObject({ stage: 'cancelled', cancelReason: 'Thu hồi: Sai số liệu mục 2.', revoke: { kind: 'recall' } });
+    expect(cancelled.flow.at(-1)).toMatchObject({ key: 'revoke', state: 'done', people: 'Nguyễn Văn An' });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.cancelled });
+    expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-clerk', 'u-accountant', 'u-fin-head']));
+    expect(cancelled.history.map((item) => item.action)).toEqual(expect.arrayContaining(['revoke-request', 'revoke-approve']));
+    await expect(service.decideRevoke(leader, letter.id, { approve: false })).rejects.toBeInstanceOf(LetterStageConflictError);
+  });
+
+  it('không đồng ý huỷ thì công văn về lại đã lưu trữ, văn thư được báo; văn thư rút được đề nghị', async () => {
+    const { service, outbox } = setup();
+    const letter = await published(service);
+    await service.requestRevoke(clerk, letter.id, { kind: 'amend', reason: 'Ban hành văn bản thay thế.' });
+    const kept = await service.decideRevoke(leader, letter.id, { approve: false, note: 'Giữ nguyên, ra văn bản bổ sung.' });
+    expect(kept).toMatchObject({ stage: 'archived', revoke: undefined, archiveCode: 'HS-2026-0001' });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.revokeRejected, payload: { recipientUserIds: ['u-clerk'] } });
+
+    await service.requestRevoke(clerk, letter.id, { kind: 'recall', reason: 'Lần hai.' });
+    expect((await service.detail(clerk, letter.id)).actions).toMatchObject({ withdrawRevoke: true, decideRevoke: false });
+    const withdrawn = await service.withdrawRevoke(clerk, letter.id);
+    expect(withdrawn).toMatchObject({ stage: 'archived', revoke: undefined });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.revokeWithdrawn, payload: { recipientUserIds: ['u-leader'] } });
+  });
+
+  it('quy trình không có bước duyệt thì không có người xác nhận: đề nghị là huỷ luôn', async () => {
+    const { service } = setup();
+    const draft = await service.createOutgoing(accountant, { subject: 'Thông báo nghỉ lễ', recipient: 'Toàn công ty', kind: 'quick' });
+    await service.sendToClerk(accountant, draft.id, {});
+    await service.submit(clerk, draft.id, {});
+    await service.publish(clerk, draft.id, { recipient: 'Toàn công ty' });
+    const cancelled = await service.requestRevoke(clerk, draft.id, { kind: 'recall', reason: 'Đổi lịch nghỉ.' });
+    expect(cancelled).toMatchObject({ stage: 'cancelled', cancelReason: 'Thu hồi: Đổi lịch nghỉ.' });
+  });
+
+  it('xoá công văn đã huỷ: văn thư mới xoá được, công văn biến mất khỏi danh sách, tệp vào Thùng rác', async () => {
+    const { service, trashed } = setup();
+    const letter = await published(service);
+    // Chưa huỷ thì chưa xoá được (sai bước).
+    await expect(service.remove(clerk, letter.id)).rejects.toBeInstanceOf(LetterStageConflictError);
+    await service.requestRevoke(clerk, letter.id, { kind: 'recall', reason: 'Sai số liệu.' });
+    const cancelled = await service.decideRevoke(leader, letter.id, { approve: true });
+    expect(cancelled.actions.remove).toBe(false);
+    expect((await service.detail(clerk, letter.id)).actions.remove).toBe(true);
+    await expect(service.remove(accountant, letter.id)).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    await service.remove(clerk, letter.id);
+    await expect(service.detail(clerk, letter.id)).rejects.toBeInstanceOf(LetterNotFoundError);
+    expect((await service.list(clerk, { box: 'outgoing' })).map((item) => item.id)).not.toContain(letter.id);
+    expect(trashed).toEqual(['doc-1']);
+    await expect(service.remove(clerk, letter.id)).rejects.toBeInstanceOf(LetterNotFoundError);
   });
 });
 

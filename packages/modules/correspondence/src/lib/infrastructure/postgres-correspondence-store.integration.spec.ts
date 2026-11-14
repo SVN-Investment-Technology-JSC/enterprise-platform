@@ -12,7 +12,7 @@ import { PostgresCorrespondenceStore } from './postgres-correspondence-store.js'
 const integration = process.env.CORRESPONDENCE_TEST_ADMIN_URL ? describe : describe.skip;
 
 const TENANT = 'tenant-1';
-const MIGRATIONS = ['0001-correspondence.sql', '0002-incoming-outgoing-flows.sql'].map((file) =>
+const MIGRATIONS = ['0001-correspondence.sql', '0002-incoming-outgoing-flows.sql', '0003-revoke-and-delete.sql'].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
 
@@ -72,7 +72,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
     }
   }, 60_000);
 
-  it('migration 0002 chạy lại được; mỗi luồng một quy trình mặc định, bước không còn bước chỉ đạo', async () => {
+  it('migration 0002, 0003 chạy lại được; mỗi luồng một quy trình mặc định, bước không còn bước chỉ đạo', async () => {
     // Lỗi giữa chừng lúc deploy thì migrator chạy lại đúng file đó.
     await migrate(pool, MIGRATIONS.slice(1));
     expect(await store.tablesReady(TENANT)).toBe(true);
@@ -162,6 +162,50 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const events = await pool.query(`SELECT event_type FROM integration_schema.outbox_events`);
     expect(events.rows).toEqual([{ event_type: 'correspondence.letter.step-assigned' }]);
     expect((await store.history(TENANT, first.id)).map((item) => item.action)).toEqual(['receive']);
+  });
+
+  it('đề nghị huỷ: người xác nhận thấy công văn, vẫn đếm là đã lưu trữ; công văn đã xoá không còn đọc được', async () => {
+    const letter = await store.createLetter(
+      TENANT,
+      { direction: 'outgoing', stage: 'drafting', receivedOn: '2026-11-13', senderOrg: 'P', subject: 'Thông báo', kind: 'finance', urgency: 'normal', confidentiality: 'normal', receivedBy: author, authorUserId: author },
+      { counter: 'draft', suffix: 'DT' },
+      async () => undefined,
+    );
+    const approver = randomUUID();
+    const nobody = { userId: approver, unitIds: [], readAll: false, readConfidential: false };
+    await store.withLetter(TENANT, letter.id, (tx) => tx.update({ stage: 'archived' }));
+    const archivedBefore = await store.countArchived(TENANT);
+    expect(await store.listLetters(TENANT, { visibleTo: nobody, limit: 10 })).toEqual([]);
+
+    const requestedAt = new Date().toISOString();
+    await store.withLetter(TENANT, letter.id, (tx) =>
+      tx.update({ stage: 'revoking', revokeKind: 'recall', revokeReason: 'Sai số liệu', revokeRequestedBy: clerk, revokeRequestedAt: requestedAt, revokeApproverIds: [approver] }),
+    );
+    expect(await store.findLetter(TENANT, letter.id)).toMatchObject({
+      stage: 'revoking',
+      revokeKind: 'recall',
+      revokeReason: 'Sai số liệu',
+      revokeRequestedBy: clerk,
+      revokeApproverIds: [approver],
+    });
+    expect((await store.listLetters(TENANT, { visibleTo: nobody, limit: 10 })).map((row) => row.id)).toEqual([letter.id]);
+    expect(await store.countArchived(TENANT)).toBe(archivedBefore);
+    await expect(
+      store.withLetter(TENANT, letter.id, (tx) => tx.update({ revokeKind: 'burn' as never })),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    // Rút đề nghị: xoá dấu đề nghị, người xác nhận không còn thấy.
+    await store.withLetter(TENANT, letter.id, (tx) =>
+      tx.update({ stage: 'archived', revokeKind: undefined, revokeReason: undefined, revokeRequestedBy: undefined, revokeRequestedAt: undefined, revokeApproverIds: [] }),
+    );
+    expect(await store.findLetter(TENANT, letter.id)).toMatchObject({ stage: 'archived', revokeKind: undefined, revokeApproverIds: [] });
+    expect(await store.listLetters(TENANT, { visibleTo: nobody, limit: 10 })).toEqual([]);
+
+    await store.withLetter(TENANT, letter.id, (tx) => tx.update({ stage: 'cancelled', deletedAt: new Date().toISOString(), deletedBy: clerk }));
+    expect(await store.findLetter(TENANT, letter.id)).toBeUndefined();
+    expect((await store.listLetters(TENANT, { limit: 100 })).map((row) => row.id)).not.toContain(letter.id);
+    await expect(store.withLetter(TENANT, letter.id, async () => undefined)).rejects.toThrow();
+    expect(await store.countArchived(TENANT)).toBe(archivedBefore - 1);
   });
 
   it('tệp: phiên bản mới về chưa tải xong, người tải là người tải phiên bản', async () => {

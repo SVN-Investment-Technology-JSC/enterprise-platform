@@ -1382,6 +1382,92 @@ $fs-meta: 12px;
 }
 
 
+// Chọn một trong vài phương án (hình thức huỷ): thẻ có tiêu đề và câu giải thích.
+.choiceRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  b {
+    color: var(--ep-text);
+    font-size: $fs-body;
+    font-weight: 600;
+  }
+
+  span {
+    font-size: $fs-meta;
+    line-height: 1.4;
+  }
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+.choiceActive {
+  border-color: #b91c1c;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #b91c1c inset;
+
+  b {
+    color: #991b1b;
+  }
+}
+
+// Thông tin đề nghị huỷ: nhãn nhỏ trên, nội dung dưới, hai cột.
+.revokeInfo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 4px;
+
+  dt {
+    color: var(--ep-text-muted);
+    font-size: $fs-meta;
+  }
+
+  dd {
+    margin: 2px 0 0;
+    color: var(--ep-text);
+    font-size: $fs-body;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.revokeWide {
+  grid-column: 1 / -1;
+}
+
 .plan {
   margin: 0;
   padding: 8px 12px;

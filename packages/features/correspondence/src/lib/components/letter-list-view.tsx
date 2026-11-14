@@ -46,7 +46,7 @@ export function LetterListView({
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState('');
   const direction = box === 'incoming' || box === 'outgoing' ? box : undefined;
-  const filters = direction ? [...DIRECTION_STAGES[direction], 'archived', 'cancelled'] as LetterStage[] : [];
+  const filters = direction ? ([...DIRECTION_STAGES[direction], 'archived', 'revoking', 'cancelled'] as LetterStage[]) : [];
   const activeStage = stage && filters.includes(stage) ? stage : undefined;
 
   useEffect(() => {

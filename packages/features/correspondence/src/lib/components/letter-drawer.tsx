@@ -26,8 +26,8 @@ import { OutgoingDialog } from './outgoing-dialog';
 
 /**
  * Ngăn chi tiết một công văn, trượt từ cạnh phải: tiến trình theo quy trình, thao tác của
- * bước hiện tại, phòng ban, ý kiến duyệt, trao đổi, tệp và lịch sử. Có ô nhập liệu nên bấm
- * ra ngoài không đóng; nút Đóng và Esc hỏi lại khi đang nhập dở.
+ * bước hiện tại, phòng ban, ý kiến duyệt, trao đổi, tệp và lịch sử. Bấm ra ngoài, nút Đóng
+ * hay Esc đều đóng; đang nhập dở thì hỏi lại trước.
  */
 export function LetterDrawer({
   letterId,
@@ -174,7 +174,18 @@ export function LetterDrawer({
           <>
             <FlowStepper nodes={letter.flow} workflowName={letter.workflowName} cancelled={letter.stage === 'cancelled'} />
 
-            <LetterActionPanel letter={letter} config={config} directory={directory} onDone={applied} onDirtyChange={setActionDirty} />
+            <LetterActionPanel
+              letter={letter}
+              config={config}
+              directory={directory}
+              onDone={applied}
+              onDirtyChange={setActionDirty}
+              onRemoved={(message) => {
+                toast.success(message);
+                onChanged();
+                onClose();
+              }}
+            />
 
             <section className={`${styles.card} ${styles.meta}`}>
               {incoming ? (

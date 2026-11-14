@@ -11,7 +11,7 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import { decideRevoke, removeLetter, requestRevoke, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
 import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
@@ -28,6 +28,9 @@ jest.mock('../correspondence-api', () => ({
   cancelLetter: jest.fn(),
   commentLetter: jest.fn(),
   loadStepChoice: jest.fn(),
+  requestRevoke: jest.fn(),
+  decideRevoke: jest.fn(),
+  removeLetter: jest.fn(),
 }));
 
 const mocked = {
@@ -36,6 +39,9 @@ const mocked = {
   cancel: cancelLetter as jest.MockedFunction<typeof cancelLetter>,
   comment: commentLetter as jest.MockedFunction<typeof commentLetter>,
   choice: loadStepChoice as jest.MockedFunction<typeof loadStepChoice>,
+  requestRevoke: requestRevoke as jest.MockedFunction<typeof requestRevoke>,
+  decideRevoke: decideRevoke as jest.MockedFunction<typeof decideRevoke>,
+  removeLetter: removeLetter as jest.MockedFunction<typeof removeLetter>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -48,6 +54,10 @@ const NO_ACTIONS: LetterActions = {
   publish: false,
   updateDelivery: false,
   cancel: false,
+  requestRevoke: false,
+  decideRevoke: false,
+  withdrawRevoke: false,
+  remove: false,
   returnTargets: [],
   comment: true,
   reply: false,
@@ -371,5 +381,93 @@ describe('Ô chọn ngày điền sẵn hôm nay', () => {
   it('soạn công văn đi: hạn ban hành', () => {
     render(<OutgoingDialog open config={config} onClose={jest.fn()} onCreated={jest.fn()} />);
     expect(dates(screen.getByRole('dialog'))).toEqual([localToday()]);
+  });
+});
+
+describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
+  const issued = letter(
+    {
+      direction: 'outgoing',
+      displayNo: '7/CV',
+      stage: 'archived',
+      stageLabel: 'Đã lưu trữ',
+      archiveCode: 'HS-2026-0007',
+      currentStepName: undefined,
+      steps: [
+        {
+          id: 'step-1',
+          seq: 1,
+          name: 'Lãnh đạo duyệt ban hành',
+          approver: { type: 'users', userIds: ['u-leader'] },
+          status: 'done',
+          assignees: [{ userId: 'u-leader', name: 'Nguyễn Văn An' }],
+          actedBy: 'u-leader',
+          actedByName: 'Nguyễn Văn An',
+        },
+      ],
+    },
+    { requestRevoke: true },
+  );
+
+  it('quy trình không có bước duyệt: hộp thoại nói rõ là huỷ ngay', () => {
+    render(<LetterActionPanel letter={{ ...issued, steps: [] }} config={config} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị huỷ công văn' }));
+    const dialog = screen.getByRole('dialog', { name: 'Đề nghị huỷ công văn' });
+    expect(within(dialog).getByRole('button', { name: 'Huỷ công văn' })).toBeTruthy();
+    expect(within(dialog).getByText(/huỷ ngay khi gửi/)).toBeTruthy();
+  });
+
+  it('văn thư đề nghị huỷ: chọn hình thức, bắt nhập lý do', async () => {
+    const onDone = jest.fn();
+    mocked.requestRevoke.mockResolvedValue({ ...issued, stage: 'revoking' });
+    render(<LetterActionPanel letter={issued} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Đề nghị huỷ công văn' }));
+    const dialog = screen.getByRole('dialog', { name: 'Đề nghị huỷ công văn' });
+    expect(within(dialog).getByRole('radio', { name: /Thu hồi/ }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Sửa đổi, thay thế/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gửi đề nghị' }));
+    expect(await within(dialog).findByText('Nhập lý do.')).toBeTruthy();
+    expect(mocked.requestRevoke).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText(/Lý do/), { target: { value: 'Ban hành văn bản thay thế.' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gửi đề nghị' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.requestRevoke).toHaveBeenCalledWith('letter-1', { kind: 'amend', reason: 'Ban hành văn bản thay thế.' });
+  });
+
+  it('người có thẩm quyền đồng ý huỷ phải xác nhận lần nữa', async () => {
+    const onDone = jest.fn();
+    const pending = letter(
+      {
+        ...issued,
+        stage: 'revoking',
+        stageLabel: 'Chờ duyệt huỷ',
+        revoke: { kind: 'recall', kindLabel: 'Thu hồi', reason: 'Sai số liệu mục 2.', requestedByName: 'Văn thư', approverNames: ['Nguyễn Văn An'] },
+      },
+      { decideRevoke: true },
+    );
+    mocked.decideRevoke.mockResolvedValue({ ...pending, stage: 'cancelled' });
+    render(<LetterActionPanel letter={pending} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
+    expect(screen.getByText('Sai số liệu mục 2.')).toBeTruthy();
+    expect(screen.getByText('Thu hồi')).toBeTruthy();
+    const agree = screen.getByRole('button', { name: 'Đồng ý huỷ' });
+    fireEvent.click(agree);
+    expect(await screen.findByText('Đồng ý huỷ công văn này?')).toBeTruthy();
+    expect(mocked.decideRevoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Đồng ý huỷ' }).find((button) => button !== agree) as HTMLElement);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.decideRevoke).toHaveBeenCalledWith('letter-1', { approve: true, note: undefined });
+  });
+
+  it('xoá công văn đã huỷ: hỏi xác nhận rồi đóng ngăn chi tiết', async () => {
+    const onRemoved = jest.fn();
+    const cancelled = letter({ ...issued, stage: 'cancelled', stageLabel: 'Đã huỷ', cancelReason: 'Thu hồi: sai số liệu' }, { remove: true });
+    mocked.removeLetter.mockResolvedValue(undefined);
+    render(<LetterActionPanel letter={cancelled} config={config} onDone={jest.fn()} onDirtyChange={jest.fn()} onRemoved={onRemoved} />);
+    const remove = screen.getByRole('button', { name: 'Xoá công văn' });
+    fireEvent.click(remove);
+    expect(await screen.findByText('Xoá công văn khỏi Văn thư?')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Xoá công văn' }).find((button) => button !== remove) as HTMLElement);
+    await waitFor(() => expect(onRemoved).toHaveBeenCalledWith('Đã xoá công văn 7/CV.'));
+    expect(mocked.removeLetter).toHaveBeenCalledWith('letter-1');
   });
 });

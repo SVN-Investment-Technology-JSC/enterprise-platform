@@ -55,7 +55,9 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.author_user_id, l.author_unit_id, l.author_unit_name, l.related_letter_id, l.completion_note,
   l.outgoing_no, l.published_on::text AS published_on, l.recipient, l.delivery_method, l.delivery_status,
   l.delivery_note, l.delivered_on::text AS delivered_on, l.archive_code, l.archived_on::text AS archived_on,
-  l.cancel_reason, l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
+  l.cancel_reason, l.revoke_kind, l.revoke_reason, l.revoke_requested_by, l.revoke_requested_at,
+  l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
+  l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
 const STEP_COLUMNS = `s.id, s.seq, s.name, s.approver, s.reject_to, s.due_days, s.status, s.chosen_user_id,
   s.assignee_user_ids::text[] AS assignee_user_ids, s.activated_at, s.acted_by, s.acted_at, s.decision, s.note`;
@@ -108,6 +110,13 @@ const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
   archiveCode: 'archive_code',
   archivedOn: 'archived_on',
   cancelReason: 'cancel_reason',
+  revokeKind: 'revoke_kind',
+  revokeReason: 'revoke_reason',
+  revokeRequestedBy: 'revoke_requested_by',
+  revokeRequestedAt: 'revoke_requested_at',
+  revokeApproverIds: 'revoke_approver_ids',
+  deletedAt: 'deleted_at',
+  deletedBy: 'deleted_by',
   sharedFolderId: 'shared_folder_id',
 };
 
@@ -353,7 +362,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
     return this.run(tenantId, (pool) =>
       inTransaction(pool, async (client) => {
         const locked = await client.query<Row>(
-          `SELECT ${LETTER_COLUMNS} FROM correspondence_schema.letters l WHERE l.id = $1 FOR UPDATE`,
+          `SELECT ${LETTER_COLUMNS} FROM correspondence_schema.letters l WHERE l.id = $1 AND l.deleted_at IS NULL FOR UPDATE`,
           [letterId],
         );
         if (!locked.rows[0]) throw new LetterNotFoundError();
@@ -369,7 +378,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
 
   findLetter(tenantId: string, letterId: string): Promise<LetterRecord | undefined> {
     return this.run(tenantId, async (pool) => {
-      const result = await pool.query<Row>(`SELECT ${LETTER_COLUMNS} FROM correspondence_schema.letters l WHERE l.id = $1`, [
+      const result = await pool.query<Row>(`SELECT ${LETTER_COLUMNS} FROM correspondence_schema.letters l WHERE l.id = $1 AND l.deleted_at IS NULL`, [
         letterId,
       ]);
       return result.rows[0] ? mapLetter(result.rows[0]) : undefined;
@@ -378,7 +387,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
 
   listLetters(tenantId: string, filter: LetterListFilter): Promise<LetterListRow[]> {
     return this.run(tenantId, async (pool) => {
-      const where: string[] = [];
+      const where: string[] = ['l.deleted_at IS NULL'];
       const params: unknown[] = [];
       const param = (value: unknown) => {
         params.push(value);
@@ -409,7 +418,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
                    FROM correspondence_schema.comments cm, unnest(cm.mentioned_user_ids) AS mentioned
                   WHERE cm.letter_id = l.id) AS mentioned
            FROM correspondence_schema.letters l
-          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+          WHERE ${where.join(' AND ')}
           ORDER BY l.received_on DESC, l.created_at DESC
           LIMIT ${param(filter.limit)}`,
         params,
@@ -446,7 +455,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
       };
       const visibility = visibleTo ? ` AND ${visibilityClause(visibleTo, param)}` : '';
       const result = await pool.query<{ count: string }>(
-        `SELECT count(*) AS count FROM correspondence_schema.letters l WHERE l.stage = 'archived'${visibility}`,
+        `SELECT count(*) AS count FROM correspondence_schema.letters l
+          WHERE l.stage IN ('archived', 'revoking') AND l.deleted_at IS NULL${visibility}`,
         params,
       );
       return Number(result.rows[0]?.count ?? 0);
@@ -861,6 +871,7 @@ function visibilityClause(
   return `(l.received_by = ${user}::uuid
            OR l.author_user_id = ${user}::uuid
            OR l.author_unit_id::text = ANY(${units}::text[])
+           OR ${user}::uuid = ANY(l.revoke_approver_ids)
            OR EXISTS (SELECT 1 FROM correspondence_schema.letter_steps vs
                        WHERE vs.letter_id = l.id
                          AND (vs.acted_by = ${user}::uuid
@@ -1011,6 +1022,13 @@ function mapLetter(row: Row): LetterRecord {
     archiveCode: optional(row['archive_code']),
     archivedOn: optional(row['archived_on']),
     cancelReason: optional(row['cancel_reason']),
+    revokeKind: row['revoke_kind'] === 'recall' || row['revoke_kind'] === 'amend' ? row['revoke_kind'] : undefined,
+    revokeReason: optional(row['revoke_reason']),
+    revokeRequestedBy: optional(row['revoke_requested_by']),
+    revokeRequestedAt: row['revoke_requested_at'] ? iso(row['revoke_requested_at']) : undefined,
+    revokeApproverIds: Array.isArray(row['revoke_approver_ids']) ? (row['revoke_approver_ids'] as unknown[]).map(String) : [],
+    deletedAt: row['deleted_at'] ? iso(row['deleted_at']) : undefined,
+    deletedBy: optional(row['deleted_by']),
     sharedFolderId: optional(row['shared_folder_id']),
     receivedBy: String(row['received_by']),
     createdAt: iso(row['created_at']),
