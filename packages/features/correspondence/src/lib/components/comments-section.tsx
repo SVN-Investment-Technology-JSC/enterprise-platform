@@ -97,7 +97,6 @@ export function CommentsSection({
             <li key={comment.id}>
               <div className={styles.commentHead}>
                 <b>{comment.authorName ?? 'Người dùng'}</b>
-                <span className={styles.stepBadge}>{comment.stepLabel}</span>
                 <small>{formatDateTime(comment.at)}</small>
               </div>
               <p>

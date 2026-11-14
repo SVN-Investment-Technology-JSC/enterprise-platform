@@ -225,6 +225,18 @@ describe('Huỷ và trả lại dùng chung một kiểu hộp thoại', () => {
 });
 
 describe('Trao đổi có nhắc tên', () => {
+  it('mỗi ý kiến chỉ ghi tên người viết và thời gian, không kèm nhãn bước', () => {
+    const current = letter({
+      comments: [
+        { id: 'c-1', stepLabel: 'Phòng ban xử lý', body: 'Xin phép chiều xử lý', mentions: [], authorId: 'u-1', authorName: 'Hoàng Ngọc Linh', at: '2026-11-13T12:45:00Z' },
+      ],
+    });
+    render(<CommentsSection letter={current} directory={directory} currentUserId="u-me" onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    const item = screen.getByText('Hoàng Ngọc Linh').closest('li') as HTMLElement;
+    expect(within(item).getByText('Xin phép chiều xử lý')).toBeTruthy();
+    expect(within(item).queryByText('Phòng ban xử lý')).toBeNull();
+  });
+
   it('gõ @ gợi ý người, chọn thì chèn tên, gửi kèm người được nhắc', async () => {
     const current = letter();
     mocked.comment.mockResolvedValue(current);
