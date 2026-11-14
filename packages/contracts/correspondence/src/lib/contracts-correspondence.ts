@@ -56,6 +56,7 @@ export const LETTER_STAGES = [
   'closing',
   'publishing',
   'archived',
+  'revoking',
   'cancelled',
 ] as const;
 export type LetterStage = (typeof LETTER_STAGES)[number];
@@ -69,7 +70,20 @@ export const LETTER_STAGE_LABELS: Readonly<Record<LetterStage, string>> = {
   closing: 'Chờ hoàn tất',
   publishing: 'Chờ ban hành',
   archived: 'Đã lưu trữ',
+  revoking: 'Chờ duyệt huỷ',
   cancelled: 'Đã huỷ',
+};
+
+/**
+ * Huỷ công văn đã ban hành (đi) hay đã hoàn tất (đến): văn thư đề nghị thu hồi, hoặc sửa đổi,
+ * thay thế bằng văn bản khác; người có thẩm quyền ở bước duyệt cuối xác nhận.
+ */
+export const REVOKE_KINDS = ['recall', 'amend'] as const;
+export type RevokeKind = (typeof REVOKE_KINDS)[number];
+
+export const REVOKE_KIND_LABELS: Readonly<Record<RevokeKind, string>> = {
+  recall: 'Thu hồi',
+  amend: 'Sửa đổi, thay thế',
 };
 
 export const OPEN_LETTER_STAGES: readonly LetterStage[] = [
@@ -137,6 +151,12 @@ export interface SaveCatalogItemRequest {
   readonly defaultUnitIds?: readonly string[];
   readonly highlight?: boolean;
   readonly restricted?: boolean;
+}
+
+/** Thêm nhanh một mục danh mục ngay lúc nhập công văn: chỉ cần tên, mã tự sinh. */
+export interface QuickCatalogItemRequest {
+  readonly kind: CatalogKind;
+  readonly name: string;
 }
 
 /* --------------------------------------------------------- quy trình duyệt */
@@ -341,6 +361,11 @@ export const LETTER_HISTORY_ACTIONS = [
   'attach',
   'detach',
   'version',
+  'revoke-request',
+  'revoke-approve',
+  'revoke-reject',
+  'revoke-withdraw',
+  'delete',
   // Giá trị của luồng cũ, còn trong nhật ký công văn trước đây.
   'classify',
   'direct',
@@ -435,6 +460,8 @@ export interface LetterDetail extends LetterSummary {
   readonly relatedLetterId?: string;
   readonly relatedLetterNo?: string;
   readonly cancelReason?: string;
+  /** Đề nghị huỷ công văn đã ban hành / hoàn tất: đang chờ xác nhận (giai đoạn `revoking`) hay đã được đồng ý. */
+  readonly revoke?: LetterRevoke;
   readonly completionNote?: string;
   readonly deliveryMethod?: string;
   readonly deliveryNote?: string;
@@ -447,6 +474,17 @@ export interface LetterDetail extends LetterSummary {
   readonly comments: readonly LetterComment[];
   readonly history: readonly LetterHistoryEntry[];
   readonly actions: LetterActions;
+}
+
+export interface LetterRevoke {
+  readonly kind: RevokeKind;
+  readonly kindLabel: string;
+  readonly reason: string;
+  readonly requestedBy?: string;
+  readonly requestedByName?: string;
+  readonly requestedAt?: string;
+  /** Người có thẩm quyền xác nhận (bước duyệt cuối của quy trình). */
+  readonly approverNames: readonly string[];
 }
 
 /** Thao tác người xem làm được ở bước hiện tại; quyền thật vẫn kiểm ở API. */
@@ -467,6 +505,14 @@ export interface LetterActions {
   /** Công văn đi đã ban hành: cập nhật tình trạng gửi. */
   readonly updateDelivery: boolean;
   readonly cancel: boolean;
+  /** Văn thư đề nghị huỷ (thu hồi, sửa đổi) công văn đã ban hành / hoàn tất. */
+  readonly requestRevoke: boolean;
+  /** Người có thẩm quyền xác nhận huỷ hay không. */
+  readonly decideRevoke: boolean;
+  /** Văn thư rút đề nghị huỷ khi chưa được xác nhận. */
+  readonly withdrawRevoke: boolean;
+  /** Xoá công văn đã huỷ khỏi Văn thư. */
+  readonly remove: boolean;
   /** Người xem trả lại được về đâu ở bước hiện tại ("Không đạt"). */
   readonly returnTargets: readonly ReturnTarget[];
   /** Nơi trả về mặc định của bước hiện tại (cấu hình của bước duyệt). */
@@ -497,7 +543,7 @@ export interface CreateLetterRequest {
   readonly confidentiality?: string;
 }
 
-/** Soạn công văn đi. Đơn vị soạn thảo là phòng ban của người soạn trong sơ đồ tổ chức. */
+/** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
 export interface CreateOutgoingRequest {
   readonly subject: string;
   readonly recipient: string;
@@ -576,6 +622,17 @@ export interface NoteRequest {
 
 export interface ReasonRequest {
   readonly reason: string;
+}
+
+export interface RequestRevokeRequest {
+  readonly kind: RevokeKind;
+  readonly reason: string;
+}
+
+export interface DecideRevokeRequest {
+  /** true: đồng ý huỷ; false: giữ công văn. */
+  readonly approve: boolean;
+  readonly note?: string;
 }
 
 export interface RespondAssignmentRequest {
@@ -838,6 +895,12 @@ export const CORRESPONDENCE_EVENTS = {
   completed: 'correspondence.letter.completed',
   published: 'correspondence.letter.published',
   cancelled: 'correspondence.letter.cancelled',
+  /** Văn thư đề nghị huỷ công văn đã ban hành / hoàn tất, chờ người có thẩm quyền xác nhận. */
+  revokeRequested: 'correspondence.letter.revoke-requested',
+  /** Người có thẩm quyền không đồng ý huỷ. */
+  revokeRejected: 'correspondence.letter.revoke-rejected',
+  /** Văn thư rút đề nghị huỷ. */
+  revokeWithdrawn: 'correspondence.letter.revoke-withdrawn',
   commented: 'correspondence.letter.commented',
   mentioned: 'correspondence.letter.mentioned',
   dueSoon: 'correspondence.letter.due-soon',

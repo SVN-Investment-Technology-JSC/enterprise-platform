@@ -7,7 +7,7 @@ import {
   type LetterDetail,
 } from '@enterprise-platform/contracts-correspondence';
 import { formatDateTime, Popconfirm, toast } from '@enterprise-platform/shared-ui';
-import { Download, Eye, History, Trash2, Upload } from 'lucide-react';
+import { Download, Eye, FileText, History, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { deleteAttachment, downloadAttachment, errorMessage, uploadAttachment, uploadAttachmentVersion } from '../correspondence-api';
 import { formatBytes, previewKind } from '../correspondence.model';
@@ -38,14 +38,14 @@ export function AttachmentsSection({
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Tệp của hồ sơ</h2>
-        <span className={styles.muted} style={{ fontSize: 12.5 }}>
+        <span className={styles.muted}>
           Lưu tại Hệ dùng chung, có phiên bản
         </span>
       </div>
       {files.length > 0 ? (
         <FileRows letter={letter} files={files} onPreview={onPreview} onChanged={onChanged} />
       ) : (
-        <p className={styles.muted} style={{ margin: 0, fontSize: 13 }}>
+        <p className={styles.sectionNote}>
           Chưa có tệp nào.
           {letter.direction === 'incoming' ? ' Kết quả xử lý của phòng ban nằm ở mục Phòng ban xử lý.' : ''}
         </p>
@@ -87,8 +87,9 @@ export function FileRows({
         const ready = file.sizeBytes !== undefined;
         const viewable = ready && previewKind(file.contentType, file.fileName) !== 'none';
         return (
-          <div key={file.id} className={styles.listRow}>
-            <div className={styles.listMain}>
+          <div key={file.id} className={styles.fileRow}>
+            <FileText size={18} className={styles.fileIcon} aria-hidden />
+            <div className={styles.fileMain}>
               {viewable ? (
                 <button type="button" className={styles.fileName} onClick={() => onPreview({ letterId: letter.id, file })}>
                   {file.fileName}

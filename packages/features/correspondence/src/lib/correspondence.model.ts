@@ -32,6 +32,8 @@ export function stageTone(stage: LetterStage): Tone {
       return 'info';
     case 'archived':
       return 'success';
+    case 'revoking':
+      return 'danger';
     default:
       return 'muted';
   }

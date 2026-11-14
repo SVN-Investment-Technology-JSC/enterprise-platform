@@ -8,6 +8,7 @@ import {
   type ArchiveTree,
   type AssignHandlerRequest,
   type CatalogItem,
+  type CatalogKind,
   type CommentRequest,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
@@ -17,7 +18,9 @@ import {
   type CorrespondenceStatus,
   type CreateLetterRequest,
   type CreateOutgoingRequest,
+  type DecideRevokeRequest,
   type DispatchLetterRequest,
+  type RequestRevokeRequest,
   type LetterAttachment,
   type LetterDetail,
   type LetterQuery,
@@ -87,6 +90,7 @@ export const saveCatalogItem = (id: string | undefined, body: SaveCatalogItemReq
   id
     ? request<CatalogItem>(`/catalog/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
     : post<CatalogItem>('/catalog', body);
+export const quickAddCatalogItem = (kind: CatalogKind, name: string) => post<CatalogItem>('/catalog/quick', { kind, name });
 export const deleteCatalogItem = (id: string) => request<void>(`/catalog/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const saveWorkflow = (id: string | undefined, body: SaveWorkflowRequest) =>
@@ -138,6 +142,10 @@ export const completeLetter = (id: string, note?: string) => post<LetterDetail>(
 export const publishLetter = (id: string, body: PublishLetterRequest) => post<LetterDetail>(letter(id, 'publish'), body);
 export const updateDelivery = (id: string, body: UpdateDeliveryRequest) => post<LetterDetail>(letter(id, 'delivery'), body);
 export const cancelLetter = (id: string, reason: string) => post<LetterDetail>(letter(id, 'cancel'), { reason });
+export const requestRevoke = (id: string, body: RequestRevokeRequest) => post<LetterDetail>(letter(id, 'revoke'), body);
+export const decideRevoke = (id: string, body: DecideRevokeRequest) => post<LetterDetail>(letter(id, 'revoke/decision'), body);
+export const withdrawRevoke = (id: string) => post<LetterDetail>(letter(id, 'revoke/withdraw'), {});
+export const removeLetter = (id: string) => request<void>(`/letters/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const commentLetter = (id: string, body: CommentRequest) => post<LetterDetail>(letter(id, 'comments'), body);
 
 /* --------------------------------------------------------------- tệp */

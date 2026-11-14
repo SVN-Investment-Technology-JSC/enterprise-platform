@@ -4,6 +4,22 @@
 // và hộp thoại dựng qua portal vào `document.body`, ngoài vỏ trang, nên `.overlay` khai
 // lại đúng bộ biến đó.
 
+// Thang chữ: mỗi cấp một vai trò, không dùng cỡ lẻ ngoài thang.
+//   number  số liệu lớn (thẻ thống kê, đếm theo bước)
+//   h1      tiêu đề chính: tên công văn ở ngăn chi tiết, tiêu đề hộp thoại
+//   h2      tiêu đề mục: thẻ, khối trong ngăn, tên hồ sơ, xem trước
+//   h3      tiêu đề phụ: khối thao tác, bước trong cấu hình, gốc cây lưu trữ
+//   body    nội dung: chữ trong bảng, ô nhập, ý kiến, trao đổi
+//   small   chữ phụ: nhãn trường, nút, đầu cột, mô tả mục
+//   meta    chú thích: thời gian, người làm, nhãn trạng thái, gợi ý
+$fs-number: 24px;
+$fs-h1: 20px;
+$fs-h2: 16px;
+$fs-h3: 14px;
+$fs-body: 14px;
+$fs-small: 13px;
+$fs-meta: 12px;
+
 @mixin ep-tokens {
   --ep-accent: #ffc90a;
   --ep-accent-strong: #d9ab00;
@@ -65,7 +81,7 @@
   background: var(--ep-surface);
   color: var(--ep-text);
   font: inherit;
-  font-size: 14px;
+  font-size: $fs-body;
 
   &:focus {
     outline: none;
@@ -118,7 +134,7 @@
 .buttonWarning {
   min-height: 36px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: $fs-small;
 }
 
 .buttonPrimary {
@@ -187,7 +203,7 @@
   border: 1px solid #d1d5db;
   background: var(--ep-surface);
   color: var(--ep-text-sub);
-  font-size: 12px;
+  font-size: $fs-meta;
 
   &:hover:not(:disabled) {
     border-color: #2563eb;
@@ -200,7 +216,7 @@
   border: 0;
   background: none;
   color: var(--ep-link);
-  font-size: 12.5px;
+  font-size: $fs-small;
   font-weight: 600;
 
   &:hover:not(:disabled) {
@@ -222,7 +238,7 @@
   padding: 10px 14px;
   border: 1px solid;
   border-radius: var(--ep-radius-md);
-  font-size: 13px;
+  font-size: $fs-small;
   line-height: 1.55;
 }
 
@@ -246,7 +262,7 @@
   padding: 36px 16px;
   color: var(--ep-text-muted);
   text-align: center;
-  font-size: 13.5px;
+  font-size: $fs-body;
 }
 
 /* ------------------------------------------------------------------ nhãn */
@@ -257,7 +273,7 @@
   gap: 5px;
   padding: 1px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: $fs-meta;
   font-weight: 600;
   white-space: nowrap;
   line-height: 1.6;
@@ -304,7 +320,7 @@
 .hint {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: $fs-meta;
   color: var(--ep-text-muted);
 }
 
@@ -342,13 +358,13 @@
 
   b {
     display: block;
-    font-size: 26px;
+    font-size: $fs-number;
     line-height: 1.2;
     color: var(--ep-text);
   }
 
   span {
-    font-size: 13px;
+    font-size: $fs-small;
     color: var(--ep-text-muted);
   }
 }
@@ -378,7 +394,7 @@
 
   h2 {
     margin: 0 0 12px;
-    font-size: 15px;
+    font-size: $fs-h2;
     font-weight: 700;
   }
 }
@@ -392,38 +408,121 @@
 
   h2 {
     margin: 0;
+    font-size: $fs-h2;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  > .muted {
+    font-size: $fs-meta;
   }
 }
 
-.flow {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+// Câu mô tả ngay dưới tiêu đề mục.
+.sectionNote {
+  margin: 0 0 10px;
+  color: var(--ep-text-muted);
+  font-size: $fs-small;
+  line-height: 1.5;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
-.flowStep {
+.stageFlow {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+// Mỗi bước một cột bằng nhau; đường nối chạy giữa tâm hai chấm liền kề.
+.stageItem {
   position: relative;
+  display: flex;
+
+  &:not(:last-child)::after {
+    position: absolute;
+    top: 23px;
+    right: calc(-50% + 18px);
+    left: calc(50% + 18px);
+    height: 2px;
+    border-radius: 1px;
+    background: #e2e8f0;
+    content: '';
+  }
+}
+
+.stageStep {
+  display: flex;
   flex: 1;
-  min-width: 110px;
-  padding: 10px 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 6px 8px;
   border: 0;
-  border-radius: 8px;
-  background: #f1f5f9;
+  border-radius: 10px;
+  background: transparent;
   color: var(--ep-text-muted);
   font: inherit;
-  font-size: 12px;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 
   b {
-    display: block;
-    font-size: 20px;
-    color: var(--ep-text);
+    margin-top: 4px;
+    color: var(--ep-text-sub);
+    font-size: $fs-number;
+    font-weight: 700;
+    line-height: 1.1;
   }
 
   &:hover {
-    background: #e2e8f0;
+    background: #f1f5f9;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+.stageDot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  background: var(--ep-surface);
+  color: #64748b;
+  font-size: $fs-meta;
+  font-weight: 700;
+}
+
+.stageLabel {
+  font-size: $fs-small;
+  line-height: 1.35;
+}
+
+// Bước đang có công văn: chấm và số nổi lên.
+.stageStepBusy {
+  .stageDot {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+  }
+
+  b {
+    color: var(--ep-text);
+  }
+
+  .stageLabel {
+    color: var(--ep-text-sub);
+    font-weight: 600;
   }
 }
 
@@ -443,7 +542,7 @@
   background: var(--ep-surface);
   color: var(--ep-text-sub);
   font: inherit;
-  font-size: 13px;
+  font-size: $fs-small;
   cursor: pointer;
 
   &:hover {
@@ -482,7 +581,7 @@
     padding: 10px 14px;
     border-bottom: 1px solid #e2e8f0;
     color: #475569;
-    font-size: 12.5px;
+    font-size: $fs-small;
     font-weight: 700;
     text-align: left;
     white-space: nowrap;
@@ -492,7 +591,7 @@
     padding: 11px 14px;
     border-bottom: 1px solid var(--ep-line);
     vertical-align: top;
-    font-size: 13.5px;
+    font-size: $fs-body;
   }
 
   tbody tr {
@@ -534,7 +633,7 @@
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #64748b;
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .mineDot {
@@ -618,7 +717,7 @@
 
   h1 {
     margin: 8px 0 2px;
-    font-size: 18px;
+    font-size: $fs-h1;
     font-weight: 700;
     line-height: 1.4;
   }
@@ -671,14 +770,14 @@
   justify-content: space-between;
   gap: 4px 12px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: $fs-small;
 
   > span:first-child {
     font-weight: 700;
   }
 
   .muted {
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 }
 
@@ -728,7 +827,7 @@
   border-radius: 50%;
   background: #fff;
   color: #64748b;
-  font-size: 12px;
+  font-size: $fs-meta;
   font-weight: 700;
 }
 
@@ -739,7 +838,7 @@
 .flowLabel {
   max-width: 100%;
   color: var(--ep-text-sub);
-  font-size: 12.5px;
+  font-size: $fs-small;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -748,7 +847,7 @@
   display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: $fs-meta;
   line-height: 1.3;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -757,7 +856,7 @@
 
 .flowWhen {
   min-height: 15px;
-  font-size: 11px;
+  font-size: $fs-meta;
   white-space: nowrap;
 }
 
@@ -804,11 +903,11 @@
     display: block;
     margin-bottom: 2px;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 
   div {
-    font-size: 13.5px;
+    font-size: $fs-body;
     overflow-wrap: anywhere;
   }
 }
@@ -826,11 +925,11 @@
   h3 {
     margin: 0 0 4px;
     color: #1d4ed8;
-    font-size: 14px;
+    font-size: $fs-h3;
   }
 
   > p {
-    font-size: 13.5px;
+    font-size: $fs-body;
     line-height: 1.55;
   }
 }
@@ -866,7 +965,8 @@
   gap: 6px;
   min-width: 0;
 
-  input,
+  // Ô đánh dấu, nút chọn giữ cỡ gốc; chỉ ô nhập chữ mới mang kiểu ô nhập.
+  input:not([type='checkbox'], [type='radio']),
   textarea {
     @include input-base;
   }
@@ -879,7 +979,7 @@
 
 .fieldLabel {
   color: #334155;
-  font-size: 13.5px;
+  font-size: $fs-small;
   font-weight: 600;
 }
 
@@ -912,7 +1012,7 @@
   border-radius: 14px;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 12.5px;
+  font-size: $fs-meta;
 
   button {
     display: grid;
@@ -933,9 +1033,34 @@
 
 .checkRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ep-text);
+  font-size: $fs-body;
+  font-weight: 400;
+  line-height: 1.45;
+  cursor: pointer;
+
+  input[type='checkbox'] {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: #2563eb;
+    cursor: pointer;
+  }
+}
+
+// Nhóm ô đánh dấu dưới một nhãn trường: khung cùng kiểu ô nhập để hai cột của hàng cân nhau.
+.checkGroup {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  font-size: 13.5px;
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
 }
 
 /* ------------------------------------------------------- phòng ban, tệp */
@@ -960,7 +1085,7 @@
 
 .listMain {
   min-width: 0;
-  font-size: 13.5px;
+  font-size: $fs-body;
 
   b {
     font-weight: 600;
@@ -969,7 +1094,7 @@
   p {
     margin: 4px 0 0;
     color: var(--ep-text-sub);
-    font-size: 13px;
+    font-size: $fs-small;
     white-space: pre-wrap;
   }
 }
@@ -1002,7 +1127,7 @@
   li {
     position: relative;
     margin-bottom: 12px;
-    font-size: 13.5px;
+    font-size: $fs-body;
 
     &::before {
       content: '';
@@ -1019,13 +1144,13 @@
   small {
     display: block;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 
   p {
     margin: 3px 0 0;
     color: var(--ep-text-sub);
-    font-size: 13px;
+    font-size: $fs-small;
     white-space: pre-wrap;
   }
 }
@@ -1083,14 +1208,14 @@
   h2 {
     margin: 0;
     color: #333;
-    font-size: 24px;
+    font-size: $fs-h1;
     font-weight: 700;
   }
 
   p {
     margin: 4px 0 0;
     color: #666;
-    font-size: 13.5px;
+    font-size: $fs-body;
     line-height: 1.4;
   }
 }
@@ -1190,7 +1315,7 @@
   gap: 8px;
 
   b {
-    font-size: 13.5px;
+    font-size: $fs-h3;
   }
 }
 
@@ -1225,7 +1350,7 @@
   border-radius: 12px;
   background: #f1f5f9;
   color: var(--ep-text-sub);
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .memberHead {
@@ -1246,15 +1371,6 @@
   }
 }
 
-.flowArrow {
-  position: absolute;
-  top: 50%;
-  right: -10px;
-  z-index: 1;
-  color: #94a3b8;
-  transform: translateY(-50%);
-}
-
 /* ------------------------------------------------------------ thao tác theo bước */
 
 .actionMuted {
@@ -1266,63 +1382,154 @@
 }
 
 
+// Chọn một trong vài phương án (hình thức huỷ): thẻ có tiêu đề và câu giải thích.
+// Ô chọn danh mục kèm nút "+" thêm nhanh: nút vuông cao bằng ô chọn.
+.selectAdd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.addButton {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: #2563eb;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #2563eb;
+    background: #eff6ff;
+  }
+
+  &[aria-expanded='true'] {
+    border-color: #2563eb;
+    background: #dbeafe;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+// Dòng nhập tên mục mới ngay dưới ô chọn.
+.quickAdd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border: 1px dashed #93c5fd;
+  border-radius: 8px;
+  background: #f8fbff;
+
+  > button {
+    min-height: 38px;
+  }
+}
+
+.choiceRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  b {
+    color: var(--ep-text);
+    font-size: $fs-body;
+    font-weight: 600;
+  }
+
+  span {
+    font-size: $fs-meta;
+    line-height: 1.4;
+  }
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+.choiceActive {
+  border-color: #b91c1c;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #b91c1c inset;
+
+  b {
+    color: #991b1b;
+  }
+}
+
+// Thông tin đề nghị huỷ: nhãn nhỏ trên, nội dung dưới, hai cột.
+.revokeInfo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 4px;
+
+  dt {
+    color: var(--ep-text-muted);
+    font-size: $fs-meta;
+  }
+
+  dd {
+    margin: 2px 0 0;
+    color: var(--ep-text);
+    font-size: $fs-body;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.revokeWide {
+  grid-column: 1 / -1;
+}
+
 .plan {
   margin: 0;
   padding: 8px 12px;
   border-radius: 8px;
   background: #f8fafc;
   color: var(--ep-text-sub);
-  font-size: 12.5px;
+  font-size: $fs-small;
   line-height: 1.5;
 
   span {
     color: var(--ep-text-muted);
-  }
-}
-
-.decision {
-  display: flex;
-  gap: 8px;
-}
-
-.decisionOption {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 38px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  color: var(--ep-text-sub);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--ep-hover);
-  }
-}
-
-.decisionApprove {
-  border-color: #059669;
-  background: #ecfdf5;
-  color: #047857;
-
-  &:hover {
-    background: #d1fae5;
-  }
-}
-
-.decisionReject {
-  border-color: #dc2626;
-  background: #fef2f2;
-  color: #b91c1c;
-
-  &:hover {
-    background: #fee2e2;
   }
 }
 
@@ -1357,7 +1564,7 @@
   border-left: 3px solid #93c5fd;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 13px;
+  font-size: $fs-body;
   white-space: pre-wrap;
 }
 
@@ -1392,7 +1599,7 @@
   p {
     margin: 0 0 4px;
     color: var(--ep-text);
-    font-size: 13.5px;
+    font-size: $fs-body;
     white-space: pre-wrap;
   }
 }
@@ -1427,7 +1634,7 @@
 
   p {
     margin: 4px 0 0;
-    font-size: 13.5px;
+    font-size: $fs-body;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -1438,21 +1645,13 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  font-size: 13px;
+  font-size: $fs-small;
 
   small {
     margin-left: auto;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
-}
-
-.stepBadge {
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: #e0e7ff;
-  color: #3730a3;
-  font-size: 11.5px;
 }
 
 .mention {
@@ -1504,7 +1703,7 @@
     background: transparent;
     color: var(--ep-text);
     font: inherit;
-    font-size: 13.5px;
+    font-size: $fs-body;
     text-align: left;
     cursor: pointer;
 
@@ -1546,8 +1745,37 @@
 
 .fileIcon {
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin-top: 1px;
   color: #64748b;
+}
+
+// Hàng tệp: biểu tượng | tên và thông tin (chiếm hết phần còn lại, căn trái) | nút. Dùng chung
+// cho "Tệp của hồ sơ" trong ngăn chi tiết và Kho lưu trữ, tên dài ngắn đều thẳng mép trái.
+.fileRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ep-line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.fileMain {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+
+  b {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* ------------------------------------------------------------ xem trước tệp */
@@ -1600,14 +1828,14 @@
 
   b {
     overflow: hidden;
-    font-size: 14.5px;
+    font-size: $fs-h2;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   span {
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 }
 
@@ -1667,7 +1895,7 @@
 .previewText {
   margin: 0;
   font-family: ui-monospace, 'SFMono-Regular', menlo, consolas, monospace;
-  font-size: 13px;
+  font-size: $fs-small;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1704,7 +1932,7 @@
 
 .sheetTable {
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: $fs-small;
 
   th,
   td {
@@ -1754,7 +1982,7 @@
   figcaption {
     margin-top: 6px;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
     text-align: center;
   }
 }
@@ -1809,7 +2037,7 @@
   align-items: center;
   gap: 6px;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: $fs-meta;
 
   i {
     display: inline-block;
@@ -1846,7 +2074,7 @@
 
   small {
     color: var(--ep-text-muted);
-    font-size: 11.5px;
+    font-size: $fs-meta;
   }
 }
 
@@ -1910,7 +2138,7 @@
   align-items: center;
   gap: 6px;
   padding: 2px 8px 8px;
-  font-size: 13.5px;
+  font-size: $fs-h3;
   font-weight: 700;
 
   .hint {
@@ -1941,7 +2169,7 @@
   background: transparent;
   color: var(--ep-text);
   font: inherit;
-  font-size: 13px;
+  font-size: $fs-small;
   text-align: left;
   cursor: pointer;
 
@@ -1979,7 +2207,7 @@
   border-radius: 10px;
   background: #f1f5f9;
   color: var(--ep-text-muted);
-  font-size: 11.5px;
+  font-size: $fs-meta;
   font-weight: 500;
 }
 
@@ -1997,17 +2225,16 @@
 
 .archiveEmpty {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 16px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
   color: var(--ep-text-muted);
-  text-align: center;
 
   p {
-    max-width: 420px;
+    max-width: 520px;
     margin: 0;
-    font-size: 13.5px;
+    font-size: $fs-body;
+    line-height: 1.5;
   }
 }
 
@@ -2016,10 +2243,19 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ep-border-strong);
 
-  b {
-    font-size: 14.5px;
+  h2 {
+    margin: 2px 0 0;
+    font-size: $fs-h2;
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  > button {
+    flex: none;
   }
 }
 
@@ -2037,7 +2273,7 @@
   border-radius: 12px;
   background: #eef2ff;
   color: #3730a3;
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .flowPreview {
@@ -2049,7 +2285,7 @@
   border-radius: 8px;
   background: #fff;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: $fs-small;
 
   > span {
     display: inline-flex;
@@ -2093,7 +2329,7 @@
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     background: #fff;
-    font-size: 13px;
+    font-size: $fs-small;
 
     svg {
       flex: 0 0 auto;
@@ -2110,7 +2346,7 @@
 
     small {
       color: var(--ep-text-muted);
-      font-size: 12px;
+      font-size: $fs-meta;
     }
 
     button {

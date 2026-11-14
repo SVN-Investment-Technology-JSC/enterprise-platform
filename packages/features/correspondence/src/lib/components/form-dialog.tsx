@@ -151,6 +151,19 @@ export function Field({
   );
 }
 
+/**
+ * Nhóm ô đánh dấu có nhãn như một trường của form, đặt cạnh ô nhập khác trong cùng hàng thì
+ * nhãn và khung thẳng hàng với ô bên cạnh.
+ */
+export function CheckGroup({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <div className={styles.field} role="group" aria-label={label}>
+      <span className={styles.fieldLabel}>{label}</span>
+      <div className={styles.checkGroup}>{children}</div>
+    </div>
+  );
+}
+
 /** Chọn nhiều tệp: nút chọn tệp và danh sách tệp đã chọn (bỏ được từng tệp). */
 export function FilePickField({
   label,

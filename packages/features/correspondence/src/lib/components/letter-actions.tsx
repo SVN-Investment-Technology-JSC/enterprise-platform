@@ -3,33 +3,42 @@
 import {
   DELIVERY_STATUSES,
   DELIVERY_STATUS_LABELS,
+  REVOKE_KINDS,
+  REVOKE_KIND_LABELS,
   returnTargetLabel,
+  type CatalogItem,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type DeliveryStatus,
   type LetterDetail,
   type ReturnTarget,
+  type RevokeKind,
   type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { Ban, CheckCircle2, Undo2, X, XCircle } from 'lucide-react';
+import { Popconfirm, SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
+import { Ban, CheckCircle2, ShieldX, Trash2, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
   cancelLetter,
   completeLetter,
+  decideRevoke,
   dispatchLetter,
   errorMessage,
   loadStepChoice,
   publishLetter,
+  removeLetter,
+  requestRevoke,
   returnLetter,
   sendToClerk,
   submitLetter,
   updateDelivery,
+  withdrawRevoke,
 } from '../correspondence-api';
-import { catalogOptions, formatDay, localToday, plannedWorkflow } from '../correspondence.model';
+import { formatDay, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { CatalogField } from './catalog-field';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 
 interface ActionProps {
   readonly letter: LetterDetail;
@@ -37,6 +46,11 @@ interface ActionProps {
   readonly directory?: CorrespondenceDirectory;
   readonly onDone: (next: LetterDetail, message: string) => void;
   readonly onDirtyChange: (dirty: boolean) => void;
+  /** Công văn đã bị xoá khỏi Văn thư: ngăn chi tiết đóng lại. */
+  readonly onRemoved?: (message: string) => void;
+  /** Được thêm nhanh danh mục bằng nút "+"; mục mới báo lên để cấu hình trên màn hình có ngay. */
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }
 
 function useRunner(onDone: ActionProps['onDone']) {
@@ -136,15 +150,8 @@ export function LetterActionPanel(props: ActionProps) {
   useEffect(() => onDirtyChange(false), [letter.stage, letter.currentStepName, onDirtyChange]);
 
   if (letter.stage === 'archived') return <ArchivedPanel {...props} />;
-  if (letter.stage === 'cancelled') {
-    return (
-      <Panel title="Công văn đã huỷ" tone="muted">
-        <p className={styles.muted} style={{ margin: 0 }}>
-          Lý do: {letter.cancelReason}
-        </p>
-      </Panel>
-    );
-  }
+  if (letter.stage === 'revoking') return <RevokingPanel {...props} />;
+  if (letter.stage === 'cancelled') return <CancelledPanel {...props} />;
   if (actions.dispatch) return <DispatchForm {...props} />;
   if (actions.sendToClerk) return <SendToClerkForm {...props} />;
   if (actions.submit) return <SubmitForm {...props} />;
@@ -223,18 +230,29 @@ function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>
 }
 
 /** "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do. */
-function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }: Pick<ActionProps, 'letter' | 'onDone'> & { readonly label?: string }) {
+function ReturnControl({
+  letter,
+  onDone,
+  label = 'Không đạt, trả lại',
+  dialogTitle,
+  warning = false,
+}: Pick<ActionProps, 'letter' | 'onDone'> & {
+  readonly label?: string;
+  readonly dialogTitle?: string;
+  /** Nút vàng (thao tác chính của bước duyệt) thay vì nút viền. */
+  readonly warning?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   if (letter.actions.returnTargets.length === 0) return null;
   return (
     <>
-      <button type="button" className={styles.buttonGhost} onClick={() => setOpen(true)}>
+      <button type="button" className={warning ? styles.buttonWarning : styles.buttonGhost} onClick={() => setOpen(true)}>
         <Undo2 size={14} /> {label}
       </button>
       <ReasonDialog
         open={open}
         letter={letter}
-        title={label}
+        title={dialogTitle ?? label}
         subtitle="Công văn quay về nơi được chọn kèm lý do; người nhận được báo ngay."
         reasonLabel="Lý do"
         placeholder="Nêu rõ cần sửa, bổ sung gì"
@@ -354,8 +372,7 @@ function ReasonDialog({
         )
       ) : null}
       {toUnits ? (
-        <div className={styles.field} role="group" aria-label="Phòng ban phải làm lại">
-          <span className={styles.fieldLabel}>Phòng ban phải làm lại (bỏ trống là mọi phòng)</span>
+        <CheckGroup label="Phòng ban phải làm lại (bỏ trống là mọi phòng)">
           {letter.assignments.map((item) => (
             <label key={item.id} className={styles.checkRow}>
               <input
@@ -366,7 +383,7 @@ function ReasonDialog({
               {item.unitName}
             </label>
           ))}
-        </div>
+        </CheckGroup>
       ) : null}
       <Field label={reasonLabel} required>
         <textarea value={reason} maxLength={4000} rows={4} autoFocus placeholder={placeholder} onChange={(event) => setReason(event.target.value)} />
@@ -383,7 +400,7 @@ interface UnitPick {
 }
 
 /** Văn thư phân loại, chọn phòng ban (cả phòng hay một người xử lý) và giao. */
-function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQuickAdd, onCatalogAdded }: ActionProps) {
   const [kind, setKind] = useState(letter.kind);
   const [urgency, setUrgency] = useState(letter.urgency);
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
@@ -398,7 +415,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: Acti
     [letter, config.catalog],
   );
   const [units, setUnits] = useState<UnitPick[]>(initialUnits);
-  const [dueOn, setDueOn] = useState(letter.dueOn ?? '');
+  const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
   const [note, setNote] = useState('');
   const [assignee, setAssignee] = useState('');
   const choice = useStepChoice(letter.id, kind);
@@ -426,27 +443,38 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: Acti
     <Panel title="Văn thư: phân loại và giao phòng ban xử lý">
       <div className={styles.form}>
         <div className={styles.formRow3}>
-          <SelectField label="Loại văn bản" required>
-            <SearchableSelect options={catalogOptions(config.catalog, 'letter_type', letter.kind)} value={kind} onChange={changeKind} />
-          </SelectField>
-          <SelectField label="Độ khẩn" required>
-            <SearchableSelect
-              options={catalogOptions(config.catalog, 'urgency', letter.urgency)}
-              value={urgency}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={setUrgency}
-            />
-          </SelectField>
-          <SelectField label="Độ mật">
-            <SearchableSelect
-              options={catalogOptions(config.catalog, 'confidentiality', letter.confidentiality)}
-              value={confidentiality}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={setConfidentiality}
-            />
-          </SelectField>
+          <CatalogField
+            label="Loại văn bản"
+            kind="letter_type"
+            required
+            catalog={config.catalog}
+            keep={letter.kind}
+            value={kind}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={changeKind}
+          />
+          <CatalogField
+            label="Độ khẩn"
+            kind="urgency"
+            required
+            catalog={config.catalog}
+            keep={letter.urgency}
+            value={urgency}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setUrgency}
+          />
+          <CatalogField
+            label="Độ mật"
+            kind="confidentiality"
+            catalog={config.catalog}
+            keep={letter.confidentiality}
+            value={confidentiality}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setConfidentiality}
+          />
         </div>
         <SelectField label="Phòng ban xử lý" required>
           <SearchableSelect
@@ -693,12 +721,14 @@ function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
 
 function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
   const [status, setStatus] = useState<DeliveryStatus>(letter.deliveryStatus ?? 'sent');
-  const [deliveredOn, setDeliveredOn] = useState(letter.deliveredOn ?? '');
+  // Ô ngày điền sẵn hôm nay; chỉ tính là đã sửa khi khác ngày ban đầu đó.
+  const initialDelivered = letter.deliveredOn ?? localToday();
+  const [deliveredOn, setDeliveredOn] = useState(initialDelivered);
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
   useEffect(
-    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== (letter.deliveredOn ?? '') || note.trim() !== ''),
-    [status, deliveredOn, note, letter, onDirtyChange],
+    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== initialDelivered || note.trim() !== ''),
+    [status, deliveredOn, initialDelivered, note, letter, onDirtyChange],
   );
   return (
     <Panel title="Hồ sơ đã lưu trữ" tone="done">
@@ -746,102 +776,299 @@ function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
           {letter.deliveredOn ? ` · ${formatDay(letter.deliveredOn)}` : ''}
         </p>
       ) : null}
+      {letter.actions.requestRevoke ? (
+        <div className={styles.formActions}>
+          <RevokeRequestButton letter={letter} onDone={onDone} />
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+/**
+ * Văn thư đề nghị huỷ công văn đã ban hành / hoàn tất: chọn thu hồi hay sửa đổi, thay thế và ghi
+ * lý do; người có thẩm quyền ở bước duyệt cuối của quy trình xác nhận.
+ */
+function RevokeRequestButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<RevokeKind>('recall');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    setKind('recall');
+    setReason('');
+    setError(undefined);
+  }, [open]);
+  const approver = [...letter.steps].reverse().find((step) => step.status === 'done');
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError('Nhập lý do.');
+      return;
+    }
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const next = await requestRevoke(letter.id, { kind, reason });
+      setOpen(false);
+      onDone(next, next.stage === 'cancelled' ? 'Đã huỷ công văn.' : 'Đã gửi đề nghị huỷ, chờ người có thẩm quyền xác nhận.');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không gửi được đề nghị huỷ.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" className={styles.buttonDanger} onClick={() => setOpen(true)}>
+        <ShieldX size={14} /> Đề nghị huỷ công văn
+      </button>
+      <FormDialog
+        open={open}
+        title="Đề nghị huỷ công văn"
+        subtitle={
+          approver
+            ? `Công văn ${letter.displayNo} đã ${letter.direction === 'outgoing' ? 'ban hành' : 'hoàn tất'}. Đề nghị chuyển tới người có thẩm quyền của bước "${approver.name}" xác nhận; chưa xác nhận thì công văn vẫn giữ nguyên.`
+            : `Công văn ${letter.displayNo} không qua bước duyệt nào nên huỷ ngay khi gửi.`
+        }
+        submitLabel={approver ? 'Gửi đề nghị' : 'Huỷ công văn'}
+        tone="danger"
+        submitting={submitting}
+        dirty={reason.trim() !== ''}
+        error={error}
+        onClose={() => setOpen(false)}
+        onSubmit={() => void submit()}
+      >
+        <div className={styles.field} role="radiogroup" aria-label="Hình thức">
+          <span className={styles.fieldLabel}>
+            Hình thức<span className={styles.required}> *</span>
+          </span>
+          <div className={styles.choiceRow}>
+            {REVOKE_KINDS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={kind === value}
+                className={kind === value ? `${styles.choice} ${styles.choiceActive}` : styles.choice}
+                onClick={() => setKind(value)}
+              >
+                <b>{REVOKE_KIND_LABELS[value]}</b>
+                <span>{value === 'recall' ? 'Công văn hết hiệu lực, thu hồi về.' : 'Huỷ để thay bằng văn bản sửa đổi, ban hành lại.'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <Field label="Lý do" required>
+          <textarea
+            value={reason}
+            maxLength={2000}
+            rows={4}
+            autoFocus
+            placeholder="Ví dụ: sai số liệu tại mục 2, cần ban hành văn bản thay thế"
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+      </FormDialog>
+    </>
+  );
+}
+
+function RevokeSummary({ letter }: { readonly letter: LetterDetail }) {
+  const revoke = letter.revoke;
+  if (!revoke) return null;
+  return (
+    <dl className={styles.revokeInfo}>
+      <div>
+        <dt>Hình thức</dt>
+        <dd>{revoke.kindLabel}</dd>
+      </div>
+      <div>
+        <dt>Người đề nghị</dt>
+        <dd>
+          {revoke.requestedByName ?? 'Văn thư'}
+          {revoke.requestedAt ? ` · ${formatDateTime(revoke.requestedAt)}` : ''}
+        </dd>
+      </div>
+      <div className={styles.revokeWide}>
+        <dt>Lý do</dt>
+        <dd>{revoke.reason}</dd>
+      </div>
+      {letter.stage === 'revoking' ? (
+        <div className={styles.revokeWide}>
+          <dt>Người xác nhận</dt>
+          <dd>{revoke.approverNames.join(', ') || 'Người có thẩm quyền của bước duyệt cuối'}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+/** Đề nghị huỷ đang chờ: người có thẩm quyền đồng ý / không; văn thư rút đề nghị. */
+function RevokingPanel({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  const actions = letter.actions;
+  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  return (
+    <Panel title="Đề nghị huỷ công văn">
+      <RevokeSummary letter={letter} />
+      {actions.decideRevoke ? (
+        <div className={styles.form}>
+          <Field label="Ý kiến (nếu có)">
+            <textarea value={note} maxLength={2000} rows={2} placeholder="Ý kiến kèm theo quyết định" onChange={(event) => setNote(event.target.value)} />
+          </Field>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <Popconfirm
+              title="Giữ nguyên công văn?"
+              description="Đề nghị huỷ bị từ chối, công văn về lại đã lưu trữ."
+              okText="Không huỷ"
+              cancelText="Xem lại"
+              okType="primary"
+              placement="top-end"
+              disabled={busy}
+              onConfirm={() => run(() => decideRevoke(letter.id, { approve: false, note: note || undefined }), 'Đã giữ nguyên công văn.')}
+            >
+              <button type="button" className={styles.buttonGhost} disabled={busy}>
+                Không huỷ
+              </button>
+            </Popconfirm>
+            <Popconfirm
+              title="Đồng ý huỷ công văn này?"
+              description={`Công văn ${letter.displayNo} chuyển sang đã huỷ; mọi người liên quan được báo.`}
+              okText="Đồng ý huỷ"
+              cancelText="Xem lại"
+              okType="danger"
+              placement="top-end"
+              disabled={busy}
+              onConfirm={() => run(() => decideRevoke(letter.id, { approve: true, note: note || undefined }), 'Đã đồng ý huỷ công văn.')}
+            >
+              <button type="button" className={styles.buttonDangerSolid} disabled={busy}>
+                <Ban size={14} /> Đồng ý huỷ
+              </button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className={styles.sectionNote}>Đang chờ người có thẩm quyền xác nhận. Công văn vẫn giữ nguyên cho tới khi được đồng ý huỷ.</p>
+          <ErrorLine error={error} />
+          {actions.withdrawRevoke ? (
+            <div className={styles.formActions}>
+              <Popconfirm
+                title="Rút đề nghị huỷ?"
+                description="Công văn về lại đã lưu trữ; người xác nhận được báo không cần xử lý nữa."
+                okText="Rút đề nghị"
+                cancelText="Xem lại"
+                okType="warning"
+                placement="top-end"
+                disabled={busy}
+                onConfirm={() => run(() => withdrawRevoke(letter.id), 'Đã rút đề nghị huỷ.')}
+              >
+                <button type="button" className={styles.buttonGhost} disabled={busy}>
+                  <Undo2 size={14} /> Rút đề nghị
+                </button>
+              </Popconfirm>
+            </div>
+          ) : null}
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/** Công văn đã huỷ: lý do; văn thư xoá được khỏi Văn thư. */
+function CancelledPanel({ letter, onRemoved }: ActionProps) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const remove = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await removeLetter(letter.id);
+      onRemoved?.(`Đã xoá công văn ${letter.displayNo}.`);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không xoá được công văn.'));
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title="Công văn đã huỷ" tone="muted">
+      {letter.revoke ? <RevokeSummary letter={letter} /> : <p className={styles.sectionNote}>Lý do: {letter.cancelReason}</p>}
+      <ErrorLine error={error} />
+      {letter.actions.remove ? (
+        <div className={styles.formActions}>
+          <Popconfirm
+            title="Xoá công văn khỏi Văn thư?"
+            description="Công văn không còn trong danh sách, kho lưu trữ và báo cáo; tệp chuyển vào Thùng rác của Hệ dùng chung. Số đã cấp không cấp lại."
+            okText="Xoá công văn"
+            cancelText="Giữ lại"
+            okType="danger"
+            placement="top-end"
+            disabled={busy}
+            onConfirm={() => remove()}
+          >
+            <button type="button" className={styles.buttonDanger} disabled={busy}>
+              <Trash2 size={14} /> Xoá công văn
+            </button>
+          </Popconfirm>
+        </div>
+      ) : null}
     </Panel>
   );
 }
 
 /* ---------------------------------------------------------------- duyệt */
 
-/** Bước duyệt đang chờ người xem: Đạt (chuyển bước sau) hay Không đạt (trả về nơi cấu hình, mặc định bước trước). */
+/** Bước tiếp theo trên thanh tiến trình, để hỏi xác nhận nói rõ công văn sẽ đi đâu. */
+function nextStepLabel(letter: LetterDetail): string | undefined {
+  const at = letter.flow.findIndex((node) => node.state === 'current');
+  return at >= 0 ? letter.flow[at + 1]?.label : undefined;
+}
+
+/**
+ * Bước duyệt: một thao tác. "Duyệt" hỏi xác nhận ngay tại nút (tránh bấm nhầm) rồi chuyển bước;
+ * "Không đạt" mở hộp thoại chọn nơi trả về và bắt nhập lý do.
+ */
 function ApproveForm({ letter, onDone, onDirtyChange }: ActionProps) {
-  const [decision, setDecision] = useState<'approve' | 'reject'>('approve');
   const [note, setNote] = useState('');
   const [next, setNext] = useState('');
-  const targets = letter.actions.returnTargets;
-  const [target, setTarget] = useState<ReturnTarget | ''>(letter.actions.defaultReturnTarget ?? targets[0] ?? '');
   const choice = useStepChoice(letter.id);
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next !== ''), [note, next, onDirtyChange]);
-  const reject = decision === 'reject';
+  const ready = !busy && choice !== undefined && (!choice || Boolean(next));
+  const after = nextStepLabel(letter);
   return (
     <Panel title={letter.currentStepName ?? 'Duyệt'}>
       <div className={styles.form}>
         {letter.direction === 'incoming' && letter.assignments.length > 0 ? (
-          <p className={styles.muted} style={{ margin: 0 }}>
+          <p className={styles.sectionNote}>
             Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
           </p>
         ) : null}
-        <div className={styles.decision} role="radiogroup" aria-label="Kết quả duyệt">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!reject}
-            className={!reject ? `${styles.decisionOption} ${styles.decisionApprove}` : styles.decisionOption}
-            onClick={() => setDecision('approve')}
-          >
-            <CheckCircle2 size={16} /> Đạt
-          </button>
-          {targets.length > 0 ? (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={reject}
-              className={reject ? `${styles.decisionOption} ${styles.decisionReject}` : styles.decisionOption}
-              onClick={() => setDecision('reject')}
-            >
-              <XCircle size={16} /> Không đạt
-            </button>
-          ) : null}
-        </div>
-        {reject && targets.length > 0 ? (
-          <SelectField label="Trả về" required>
-            <SearchableSelect
-              options={targets.map((value) => ({
-                value,
-                label: returnTargetLabel(value, letter.direction),
-                description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
-              }))}
-              value={target}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={(value) => setTarget(value as ReturnTarget)}
-            />
-          </SelectField>
-        ) : null}
-        <Field label={reject ? 'Lý do không đạt' : 'Ý kiến'} required={reject}>
-          <textarea
-            value={note}
-            maxLength={4000}
-            rows={3}
-            placeholder={reject ? 'Nêu rõ cần sửa, bổ sung gì' : 'Ý kiến kèm theo (nếu có)'}
-            onChange={(event) => setNote(event.target.value)}
-          />
+        <Field label="Ý kiến (nếu có)">
+          <textarea value={note} maxLength={4000} rows={3} placeholder="Ý kiến kèm theo khi duyệt" onChange={(event) => setNote(event.target.value)} />
         </Field>
-        {!reject ? <ChoiceField choice={choice} value={next} onChange={setNext} /> : null}
+        <ChoiceField choice={choice} value={next} onChange={setNext} />
         <ErrorLine error={error} />
         <div className={styles.formActions}>
-          {reject ? (
-            <button
-              type="button"
-              className={styles.buttonWarning}
-              disabled={busy || !target || !note.trim()}
-              onClick={() =>
-                target &&
-                run(() => returnLetter(letter.id, { target, reason: note }), `Không đạt, đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`)
-              }
-            >
-              Không đạt, trả lại
+          <ReturnControl letter={letter} onDone={onDone} label="Không đạt" dialogTitle="Không đạt, trả lại" warning />
+          <Popconfirm
+            title="Duyệt công văn này?"
+            description={after ? `Công văn chuyển sang bước "${after}".` : 'Công văn chuyển sang bước tiếp theo.'}
+            okText="Duyệt"
+            cancelText="Xem lại"
+            okType="primary"
+            placement="top-end"
+            disabled={!ready}
+            onConfirm={() => run(() => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }), 'Đã duyệt, chuyển bước tiếp theo.')}
+          >
+            <button type="button" className={styles.buttonPrimary} disabled={!ready}>
+              <CheckCircle2 size={15} /> Duyệt
             </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={busy || choice === undefined || (Boolean(choice) && !next)}
-              onClick={() => run(() => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }), 'Đã duyệt, chuyển bước tiếp theo.')}
-            >
-              Đạt, chuyển tiếp
-            </button>
-          )}
+          </Popconfirm>
         </div>
       </div>
     </Panel>

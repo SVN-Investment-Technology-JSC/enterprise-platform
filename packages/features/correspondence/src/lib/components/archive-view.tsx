@@ -165,7 +165,7 @@ export function ArchiveView({ refreshKey, onOpenLetter }: { readonly refreshKey:
             <DossierView dossier={dossier} onOpenLetter={onOpenLetter} onPreview={setPreview} />
           ) : (
             <div className={styles.archiveEmpty}>
-              <FolderOpen size={28} />
+              <FolderOpen size={20} aria-hidden />
               <p>Chọn một hồ sơ bên trái để xem tệp. Tệp lưu tại kho tài liệu của Hệ dùng chung, thư mục Văn thư.</p>
             </div>
           )}
@@ -194,18 +194,16 @@ function DossierView({
   return (
     <>
       <div className={styles.dossierHead}>
-        <div className={styles.listMain}>
-          <b>{dossier.folderName}</b>
+        <div className={styles.fileMain}>
+          <span className={`${styles.tag} ${styles[`tone-${stageTone(dossier.stage)}`]}`}>
+            {dossier.archiveCode ? `Hồ sơ ${dossier.archiveCode}` : dossier.stageLabel}
+          </span>
+          <h2>{dossier.folderName}</h2>
           <span className={styles.hint}>
             {dossier.direction === 'incoming' ? 'Công văn đến' : 'Công văn đi'} {dossier.displayNo}
             {dossier.partner ? ` · ${dossier.partner}` : ''} · {formatDay(dossier.receivedOn)}
           </span>
         </div>
-        <span className={`${styles.tag} ${styles[`tone-${stageTone(dossier.stage)}`]}`}>
-          {dossier.archiveCode ? `Hồ sơ ${dossier.archiveCode}` : dossier.stageLabel}
-        </span>
-      </div>
-      <div className={styles.formActions} style={{ borderTop: 0, paddingTop: 0, justifyContent: 'flex-start' }}>
         <button type="button" className={styles.buttonGhost} onClick={() => onOpenLetter(dossier.letterId)}>
           Mở công văn
         </button>
@@ -217,9 +215,9 @@ function DossierView({
           {dossier.files.map((file) => {
             const ready = file.sizeBytes !== undefined;
             return (
-              <div key={file.id} className={styles.listRow}>
-                <FileText size={18} className={styles.fileIcon} />
-                <div className={styles.listMain}>
+              <div key={file.id} className={styles.fileRow}>
+                <FileText size={18} className={styles.fileIcon} aria-hidden />
+                <div className={styles.fileMain}>
                   {ready ? (
                     <button type="button" className={styles.fileName} onClick={() => onPreview({ letterId: dossier.letterId, file: asAttachment(file) })}>
                       {file.fileName}
@@ -249,7 +247,9 @@ function DossierView({
                       <Download size={13} />
                     </button>
                   </div>
-                ) : null}
+                ) : (
+                  <span />
+                )}
               </div>
             );
           })}

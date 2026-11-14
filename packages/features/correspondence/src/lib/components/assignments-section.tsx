@@ -69,7 +69,7 @@ export function AssignmentsSection({
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Phòng ban xử lý</h2>
-        <span className={styles.muted} style={{ fontSize: 12.5 }}>
+        <span className={styles.muted}>
           Đã gửi kết quả {done}/{letter.assignments.length}
         </span>
       </div>

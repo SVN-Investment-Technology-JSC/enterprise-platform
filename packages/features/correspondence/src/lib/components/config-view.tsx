@@ -23,7 +23,7 @@ import { ArrowDown, ArrowRight, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-
 import { useEffect, useMemo, useState } from 'react';
 import { deleteCatalogItem, deleteWorkflow, errorMessage, saveCatalogItem, saveWorkflow } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 import { SettingsView } from './settings-view';
 
 type ConfigTab = 'register' | 'catalog' | 'workflows' | 'organization';
@@ -329,7 +329,7 @@ function CatalogDialog({
         <Field label="Thứ tự">
           <input type="number" value={form.sortOrder} onChange={(event) => set('sortOrder', event.target.value)} />
         </Field>
-        <div className={styles.field}>
+        <CheckGroup label="Trạng thái">
           <label className={styles.checkRow}>
             <input type="checkbox" checked={form.isActive} onChange={(event) => set('isActive', event.target.checked)} /> Đang dùng
           </label>
@@ -345,7 +345,7 @@ function CatalogDialog({
               liên quan và người có quyền xem công văn mật thấy
             </label>
           ) : null}
-        </div>
+        </CheckGroup>
       </div>
     </FormDialog>
   );
@@ -391,7 +391,7 @@ function WorkflowManager({
                 <Plus size={13} /> Thêm quy trình
               </button>
             </div>
-            <p className={styles.muted} style={{ margin: '0 0 10px', fontSize: 13 }}>
+            <p className={styles.sectionNote}>
               {DIRECTION_HELP[direction]} Sửa quy trình không đổi công văn đã trình.
             </p>
             <div className={styles.list}>
@@ -571,7 +571,7 @@ function WorkflowDialog({
         <Field label="Tên quy trình" required>
           <input value={form.name} maxLength={160} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
         </Field>
-        <div className={styles.field}>
+        <CheckGroup label="Trạng thái">
           <label className={styles.checkRow}>
             <input
               type="checkbox"
@@ -588,7 +588,7 @@ function WorkflowDialog({
             />{' '}
             Mặc định cho {direction === 'incoming' ? 'công văn đến' : 'công văn đi'} (khi loại văn bản chưa gắn quy trình)
           </label>
-        </div>
+        </CheckGroup>
       </div>
       <Field label="Mô tả">
         <textarea
@@ -808,7 +808,7 @@ function RuleDetail({
       return <MultiPick label="Đơn vị" options={unitOptions} values={rule.unitIds} onChange={(unitIds) => onChange({ type: 'unit_heads', unitIds })} />;
     default:
       return (
-        <p className={styles.muted} style={{ margin: 0, fontSize: 12.5 }}>
+        <p className={styles.sectionNote}>
           {direction === 'incoming'
             ? 'Trưởng của từng phòng ban văn thư đã giao xử lý công văn (theo sơ đồ tổ chức).'
             : 'Trưởng phòng ban soạn thảo công văn đi (theo sơ đồ tổ chức).'}
@@ -833,7 +833,7 @@ function OrganizationView({ directory }: { readonly directory?: CorrespondenceDi
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Sơ đồ tổ chức</h2>
-        <span className={styles.muted} style={{ fontSize: 12.5 }}>
+        <span className={styles.muted}>
           Lấy từ Tenant Core; sửa ở trang Sơ đồ tổ chức của Tenant Portal
         </span>
       </div>
@@ -846,7 +846,7 @@ function OrganizationView({ directory }: { readonly directory?: CorrespondenceDi
         aria-label="Tìm trong sơ đồ tổ chức"
         onChange={(event) => setSearch(event.target.value)}
       />
-      <p className={styles.muted} style={{ fontSize: 12.5 }}>
+      <p className={styles.sectionNote}>
         Lãnh đạo (được chọn duyệt công văn): {directory.leaders.map((leader) => leader.name).join(', ') || 'chưa ai được cấp quyền (Phân quyền)'}
       </p>
       {units.map((unit) => (

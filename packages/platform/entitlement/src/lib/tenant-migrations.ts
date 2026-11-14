@@ -120,6 +120,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
   correspondence: [
     { version: '0001-correspondence', path: 'tenant/correspondence/0001-correspondence.sql' },
     { version: '0002-incoming-outgoing-flows', path: 'tenant/correspondence/0002-incoming-outgoing-flows.sql' },
+    { version: '0003-revoke-and-delete', path: 'tenant/correspondence/0003-revoke-and-delete.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [

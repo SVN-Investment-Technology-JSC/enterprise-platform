@@ -22,12 +22,15 @@ import type {
   CreateAttachmentVersionRequest,
   CreateLetterRequest,
   CreateOutgoingRequest,
+  DecideRevokeRequest,
   DispatchLetterRequest,
   LetterBox,
   LetterStage,
   NoteRequest,
   PublishLetterRequest,
+  QuickCatalogItemRequest,
   ReasonRequest,
+  RequestRevokeRequest,
   RespondAssignmentRequest,
   ReturnLetterRequest,
   SaveCatalogItemRequest,
@@ -96,6 +99,13 @@ export class CorrespondenceController {
   @Put('catalog/:id')
   updateCatalogItem(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SaveCatalogItemRequest) {
     return this.execute(() => this.service.saveCatalogItem(this.actor(request), id, body));
+  }
+
+  /** Thêm nhanh mục danh mục lúc nhập công văn (người cấu hình, văn thư). */
+  @Post('catalog/quick')
+  @HttpCode(201)
+  quickAddCatalogItem(@Req() request: CorrespondenceRequest, @Body() body: QuickCatalogItemRequest) {
+    return this.execute(() => this.service.quickAddCatalogItem(this.actor(request), body));
   }
 
   @Delete('catalog/:id')
@@ -244,6 +254,33 @@ export class CorrespondenceController {
   @HttpCode(200)
   cancel(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ReasonRequest) {
     return this.execute(() => this.service.cancel(this.actor(request), id, body));
+  }
+
+  /** Văn thư đề nghị huỷ công văn đã ban hành / hoàn tất (thu hồi, sửa đổi). */
+  @Post('letters/:id/revoke')
+  @HttpCode(200)
+  requestRevoke(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: RequestRevokeRequest) {
+    return this.execute(() => this.service.requestRevoke(this.actor(request), id, body));
+  }
+
+  /** Người có thẩm quyền xác nhận huỷ hay không. */
+  @Post('letters/:id/revoke/decision')
+  @HttpCode(200)
+  decideRevoke(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: DecideRevokeRequest) {
+    return this.execute(() => this.service.decideRevoke(this.actor(request), id, body));
+  }
+
+  @Post('letters/:id/revoke/withdraw')
+  @HttpCode(200)
+  withdrawRevoke(@Req() request: CorrespondenceRequest, @Param('id') id: string) {
+    return this.execute(() => this.service.withdrawRevoke(this.actor(request), id));
+  }
+
+  /** Xoá công văn đã huỷ khỏi Văn thư. */
+  @Delete('letters/:id')
+  @HttpCode(204)
+  async removeLetter(@Req() request: CorrespondenceRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.service.remove(this.actor(request), id));
   }
 
   @Post('letters/:id/comments')

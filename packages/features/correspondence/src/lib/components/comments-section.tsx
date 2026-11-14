@@ -87,7 +87,7 @@ export function CommentsSection({
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Trao đổi</h2>
-        <span className={styles.muted} style={{ fontSize: 12.5 }}>
+        <span className={styles.muted}>
           {letter.comments.length > 0 ? `${letter.comments.length} ý kiến` : 'Gõ @ để nhắc tên'}
         </span>
       </div>
@@ -97,7 +97,6 @@ export function CommentsSection({
             <li key={comment.id}>
               <div className={styles.commentHead}>
                 <b>{comment.authorName ?? 'Người dùng'}</b>
-                <span className={styles.stepBadge}>{comment.stepLabel}</span>
                 <small>{formatDateTime(comment.at)}</small>
               </div>
               <p>
@@ -115,7 +114,7 @@ export function CommentsSection({
           ))}
         </ol>
       ) : (
-        <p className={styles.muted} style={{ margin: '0 0 10px', fontSize: 13 }}>
+        <p className={styles.sectionNote}>
           Chưa có trao đổi nào. Trao đổi ở đây gắn với bước đang xử lý.
         </p>
       )}

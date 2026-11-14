@@ -19,7 +19,7 @@ export interface LetterViewer {
   readonly canArchive: boolean;
   readonly canReadAll: boolean;
   readonly canReadConfidential: boolean;
-  /** Đơn vị và chức danh người đó thuộc về, gồm cả đơn vị cha (sơ đồ tổ chức). */
+  /** Đơn vị người đó trực tiếp thuộc về theo sơ đồ tổ chức (không tính đơn vị cha). */
   readonly unitIds: ReadonlySet<string>;
   /** Đơn vị người đó là trưởng. */
   readonly headUnitIds: ReadonlySet<string>;
@@ -56,6 +56,9 @@ export interface LetterFacts {
   readonly steps: readonly StepFacts[];
   readonly assignments: readonly AssignmentFacts[];
   readonly mentionedUserIds: readonly string[];
+  /** Đề nghị huỷ đang chờ (giai đoạn `revoking`): người đề nghị, người có thẩm quyền xác nhận. */
+  readonly revokeRequestedBy?: string;
+  readonly revokeApproverIds?: readonly string[];
 }
 
 export function activeStep(letter: Pick<LetterFacts, 'steps'>): StepFacts | undefined {
@@ -81,6 +84,7 @@ export function isAuthorSide(viewer: LetterViewer, letter: Pick<LetterFacts, 'au
 export function involves(viewer: LetterViewer, letter: LetterFacts): boolean {
   if (letter.receivedBy === viewer.userId || isAuthorSide(viewer, letter)) return true;
   if (letter.mentionedUserIds.includes(viewer.userId)) return true;
+  if (letter.revokeApproverIds?.includes(viewer.userId)) return true;
   if (
     letter.steps.some(
       (step) => step.actedBy === viewer.userId || (step.status !== 'waiting' && step.assigneeUserIds.includes(viewer.userId)),
@@ -137,9 +141,16 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
       return viewer.canArchive && viewer.clerkOnDuty;
     case 'publishing':
       return viewer.canPublish && viewer.clerkOnDuty;
+    case 'revoking':
+      return Boolean(letter.revokeApproverIds?.includes(viewer.userId));
     default:
       return false;
   }
+}
+
+/** Văn thư của luồng: ban hành (công văn đi) hay hoàn tất, lưu trữ (công văn đến). */
+function clerkOfDirection(viewer: LetterViewer, direction: LetterDirection): boolean {
+  return viewer.isTenantAdmin || (direction === 'incoming' ? viewer.canArchive : viewer.canPublish);
 }
 
 /** Nơi người xem trả công văn về được ở bước hiện tại ("Không đạt", "Trả lại"). */
@@ -197,6 +208,11 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     publish: !incoming && stage === 'publishing' && viewer.canPublish,
     updateDelivery: !incoming && stage === 'archived' && viewer.canPublish,
     cancel: open && (viewer.canRegister || (stage === 'drafting' && letter.authorUserId === viewer.userId)),
+    requestRevoke: stage === 'archived' && clerkOfDirection(viewer, letter.direction),
+    decideRevoke: stage === 'revoking' && (Boolean(letter.revokeApproverIds?.includes(viewer.userId)) || viewer.isTenantAdmin),
+    withdrawRevoke:
+      stage === 'revoking' && (letter.revokeRequestedBy === viewer.userId || clerkOfDirection(viewer, letter.direction)),
+    remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
     defaultReturnTarget: stage === 'reviewing' ? (active?.rejectTo ?? 'previous-step') : targets[0],
     comment: letter.stage !== 'cancelled',

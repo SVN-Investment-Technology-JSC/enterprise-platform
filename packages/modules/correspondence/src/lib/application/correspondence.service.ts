@@ -16,6 +16,9 @@ import {
   MAX_CLERKS,
   OPEN_LETTER_STAGES,
   RETURN_TARGETS,
+  REVOKE_KINDS,
+  REVOKE_KIND_LABELS,
+  isOpenStage,
   letterDeepLink,
   letterTitle,
   returnTargetLabel,
@@ -42,6 +45,7 @@ import {
   type CreateAttachmentVersionRequest,
   type CreateLetterRequest,
   type CreateOutgoingRequest,
+  type DecideRevokeRequest,
   type DispatchLetterRequest,
   type FlowNode,
   type LetterHistoryEntry,
@@ -54,7 +58,9 @@ import {
   type LetterSummary,
   type NoteRequest,
   type PublishLetterRequest,
+  type QuickCatalogItemRequest,
   type ReasonRequest,
+  type RequestRevokeRequest,
   type RespondAssignmentRequest,
   type ReturnLetterRequest,
   type SaveCatalogItemRequest,
@@ -90,7 +96,7 @@ import {
   type LetterFacts,
   type LetterViewer,
 } from '../domain/letter-rules.js';
-import { headedUnits, membershipNodes, nodePath, unitHeads, unitMembers, type OrganizationSnapshot } from '../domain/organization.js';
+import { headedUnits, memberUnits, nodePath, unitHeads, unitMembers, type OrganizationSnapshot } from '../domain/organization.js';
 import {
   FileStoreMissingError,
   type AssignmentRecord,
@@ -117,6 +123,10 @@ const FOLDER_BY_DIRECTION: Readonly<Record<LetterDirection, string>> = { incomin
 const DRAFT_SUFFIX = 'DT';
 /** Bước công văn chưa chép quy trình: thanh tiến trình vẽ theo quy trình sẽ áp dụng. */
 const PLANNING_STAGES: readonly LetterStage[] = ['received', 'drafting', 'checking'];
+/** "Cần tôi xử lý": các bước còn mở và đề nghị huỷ đang chờ xác nhận. */
+const AWAITING_STAGES: readonly LetterStage[] = [...OPEN_LETTER_STAGES, 'revoking'];
+/** Kho lưu trữ: đã lưu trữ, kể cả đang chờ xác nhận huỷ. */
+const ARCHIVE_STAGES: readonly LetterStage[] = ['archived', 'revoking'];
 const ROUTE_PERMISSIONS = {
   register: 'correspondence.letter.register',
   publish: 'correspondence.letter.publish',
@@ -238,7 +248,7 @@ export class CorrespondenceService {
     const rows = await this.store.listLetters(actor.tenantId, {
       visibleTo: this.visibility(viewer),
       direction: box === 'incoming' ? 'incoming' : box === 'outgoing' ? 'outgoing' : undefined,
-      stages: box === 'archive' ? ['archived'] : box === 'mine' ? OPEN_LETTER_STAGES : stage ? [stage] : undefined,
+      stages: box === 'archive' ? ARCHIVE_STAGES : box === 'mine' ? AWAITING_STAGES : stage ? [stage] : undefined,
       search: query.search?.trim() || undefined,
       limit: LIST_LIMIT,
     });
@@ -252,10 +262,11 @@ export class CorrespondenceService {
     const catalog = await this.catalogMap(actor.tenantId);
     const visibleTo = this.visibility(viewer);
     const [rows, archived] = await Promise.all([
-      this.store.listLetters(actor.tenantId, { visibleTo, stages: OPEN_LETTER_STAGES, limit: OVERVIEW_LIMIT }),
+      this.store.listLetters(actor.tenantId, { visibleTo, stages: AWAITING_STAGES, limit: OVERVIEW_LIMIT }),
       this.store.countArchived(actor.tenantId, visibleTo),
     ]);
-    const open = rows.filter((row) => canViewLetter(viewer, facts(row, catalog)));
+    const visible = rows.filter((row) => canViewLetter(viewer, facts(row, catalog)));
+    const open = visible.filter((row) => isOpenStage(row.stage));
     const today = this.today();
     const byStage: Record<LetterDirection, Partial<Record<LetterStage, number>>> = { incoming: {}, outgoing: {} };
     for (const row of open) byStage[row.direction][row.stage] = (byStage[row.direction][row.stage] ?? 0) + 1;
@@ -268,7 +279,7 @@ export class CorrespondenceService {
       awaitingApproval: open.filter((row) => row.stage === 'reviewing').length,
       overdue: open.filter((row) => row.dueOn && row.dueOn < today).length,
       archived,
-      awaitingMe: open.filter((row) => awaitsViewer(viewer, facts(row, catalog))).length,
+      awaitingMe: visible.filter((row) => awaitsViewer(viewer, facts(row, catalog))).length,
       byStage,
       urgent: await this.summaries(actor, viewer, catalog, urgent),
     };
@@ -322,6 +333,8 @@ export class CorrespondenceService {
       ...comments.flatMap((item) => [item.authorId, ...item.mentionedUserIds]),
       ...history.map((item) => item.actorUserId).filter((id): id is string => Boolean(id)),
       ...settings.clerkUserIds,
+      ...(letter.revokeRequestedBy ? [letter.revokeRequestedBy] : []),
+      ...(letter.revokeApproverIds ?? []),
     ]);
     const nameOf = (userId: string) => names.get(userId) ?? 'Người dùng';
     const byId = new Map(assignments.map((item) => [item.id, item]));
@@ -334,6 +347,17 @@ export class CorrespondenceService {
       relatedLetterId: letter.relatedLetterId,
       relatedLetterNo: related ? displayNo(related) : undefined,
       cancelReason: letter.cancelReason,
+      revoke: letter.revokeKind
+        ? {
+            kind: letter.revokeKind,
+            kindLabel: REVOKE_KIND_LABELS[letter.revokeKind],
+            reason: letter.revokeReason ?? '',
+            requestedBy: letter.revokeRequestedBy,
+            requestedByName: letter.revokeRequestedBy ? names.get(letter.revokeRequestedBy) : undefined,
+            requestedAt: letter.revokeRequestedAt,
+            approverNames: (letter.revokeApproverIds ?? []).map(nameOf),
+          }
+        : undefined,
       completionNote: letter.completionNote,
       deliveryMethod: letter.deliveryMethod,
       deliveryNote: letter.deliveryNote,
@@ -368,6 +392,7 @@ export class CorrespondenceService {
                 : peopleLabel(expected.get(step.seq) ?? [], nameOf, step.approver, letter.direction),
         })),
         fixedPeople(letter, assignments, nameOf, history, settings.clerkUserIds),
+        revokeNode(letter, history, nameOf),
       ),
       assignments: assignments.map((item) => ({
         id: item.id,
@@ -451,7 +476,8 @@ export class CorrespondenceService {
       (row) => row.stage !== 'cancelled' && canViewLetter(viewer, facts(row, catalog)),
     );
     const today = this.today();
-    const done = (row: Row) => row.stage === 'archived';
+    // Đang chờ duyệt huỷ vẫn là công văn đã xong cho tới khi được đồng ý huỷ.
+    const done = (row: Row) => row.stage === 'archived' || row.stage === 'revoking';
     const late = (row: Row) => Boolean(row.dueOn && (done(row) ? (row.archivedOn ?? '') > row.dueOn : row.dueOn < today));
     const tally = (label: string, list: readonly Row[]): CorrespondenceReportRow => ({
       label,
@@ -728,10 +754,8 @@ export class CorrespondenceService {
     ]);
     const codes = this.classification(catalog, input);
     const mine = ownUnits(snapshot, actor.userId);
+    // Mặc định là phòng của người soạn; soạn thay phòng khác thì chọn phòng đó (phải có trong sơ đồ tổ chức).
     const wanted = optionalText(input?.authorUnitId, 'Phòng ban soạn thảo', 64);
-    if (wanted && !mine.includes(wanted) && !actor.canRegister && !actor.isTenantAdmin) {
-      throw new CorrespondenceValidationError('Chỉ chọn được phòng ban bạn thuộc về.');
-    }
     const unitId = wanted ?? mine[0];
     const unit = unitId ? snapshot.nodes.find((node) => node.id === unitId && node.kind === 'unit') : undefined;
     if (wanted && !unit) throw new CorrespondenceValidationError('Phòng ban soạn thảo không còn trong sơ đồ tổ chức.');
@@ -993,6 +1017,119 @@ export class CorrespondenceService {
       );
     });
     return this.detail(actor, letterId);
+  }
+
+  /**
+   * Văn thư đề nghị huỷ công văn đã ban hành (đi) hay đã hoàn tất (đến): thu hồi, hoặc sửa đổi,
+   * thay thế. Người xác nhận là người có thẩm quyền ở bước duyệt cuối, giải lại theo cấu hình và
+   * sơ đồ tổ chức hiện tại (người đã ký nếu không giải được). Quy trình không có bước duyệt thì
+   * không có ai trên văn thư: huỷ ngay.
+   */
+  async requestRevoke(actor: CorrespondenceActor, letterId: string, input: RequestRevokeRequest): Promise<LetterDetail> {
+    const kind = requireEnum(input?.kind, REVOKE_KINDS, 'Hình thức huỷ');
+    const reason = requireText(input?.reason, 'Lý do', 2000);
+    const kindLabel = REVOKE_KIND_LABELS[kind];
+    await this.transition(actor, letterId, (actions) => actions.requestRevoke, async (tx) => {
+      const approvers = await this.finalApprovers(actor, tx);
+      const requested = {
+        revokeKind: kind,
+        revokeReason: reason,
+        revokeRequestedBy: actor.userId,
+        revokeRequestedAt: new Date().toISOString(),
+        revokeApproverIds: approvers,
+      };
+      if (approvers.length === 0) {
+        const letter = await tx.update({ ...requested, stage: 'cancelled', cancelReason: `${kindLabel}: ${reason}` });
+        await tx.history({ action: 'cancel', summary: `Huỷ công văn (${kindLabel.toLowerCase()})`, note: reason, actorUserId: actor.userId });
+        await tx.outbox(
+          this.event(CORRESPONDENCE_EVENTS.cancelled, letter, actor, participants(tx), {
+            summary: `${actor.displayName} huỷ công văn ${letterTitle(withNo(letter))} (${kindLabel.toLowerCase()}): ${reason}`,
+            reason,
+          }),
+        );
+        return;
+      }
+      const letter = await tx.update({ ...requested, stage: 'revoking' });
+      await tx.history({ action: 'revoke-request', summary: `Đề nghị huỷ công văn (${kindLabel.toLowerCase()})`, note: reason, actorUserId: actor.userId });
+      await tx.outbox(
+        this.event(CORRESPONDENCE_EVENTS.revokeRequested, letter, actor, approvers, {
+          summary: `${actor.displayName} đề nghị ${kindLabel.toLowerCase()} công văn ${letterTitle(withNo(letter))}: ${reason}. Chờ bạn xác nhận huỷ.`,
+          reason,
+          revokeKind: kind,
+        }),
+      );
+    });
+    return this.detail(actor, letterId);
+  }
+
+  /** Người có thẩm quyền xác nhận: đồng ý thì công văn bị huỷ; không thì giữ nguyên, về lại đã lưu trữ. */
+  async decideRevoke(actor: CorrespondenceActor, letterId: string, input: DecideRevokeRequest): Promise<LetterDetail> {
+    if (typeof input?.approve !== 'boolean') throw new CorrespondenceValidationError('Chọn đồng ý huỷ hay không.');
+    const note = optionalText(input.note, 'Ý kiến', 2000);
+    await this.transition(actor, letterId, (actions) => actions.decideRevoke, async (tx) => {
+      const kindLabel = tx.letter.revokeKind ? REVOKE_KIND_LABELS[tx.letter.revokeKind] : 'Huỷ';
+      const reason = tx.letter.revokeReason ?? '';
+      const requester = tx.letter.revokeRequestedBy ? [tx.letter.revokeRequestedBy] : [];
+      const clerks = await this.clerkTargets(
+        actor.tenantId,
+        tx.letter.direction === 'incoming' ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.publish,
+      );
+      if (input.approve) {
+        const letter = await tx.update({ stage: 'cancelled', cancelReason: `${kindLabel}: ${reason}` });
+        await tx.history({ action: 'revoke-approve', summary: `Đồng ý huỷ công văn (${kindLabel.toLowerCase()})`, note, actorUserId: actor.userId });
+        await tx.outbox(
+          this.event(CORRESPONDENCE_EVENTS.cancelled, letter, actor, [...participants(tx), ...requester, ...clerks.recipients], {
+            summary: `${actor.displayName} đồng ý huỷ công văn ${letterTitle(withNo(letter))} (${kindLabel.toLowerCase()}): ${reason}`,
+            reason,
+            notifyPermissions: clerks.notifyPermissions,
+          }),
+        );
+        return;
+      }
+      const letter = await tx.update({ ...CLEARED_REVOKE, stage: 'archived' });
+      await tx.history({ action: 'revoke-reject', summary: 'Không đồng ý huỷ, công văn giữ nguyên', note, actorUserId: actor.userId });
+      await tx.outbox(
+        this.event(CORRESPONDENCE_EVENTS.revokeRejected, letter, actor, [...requester, ...clerks.recipients], {
+          summary: `${actor.displayName} không đồng ý huỷ công văn ${letterTitle(withNo(letter))}${note ? `: ${note}` : ''}. Công văn giữ nguyên.`,
+          note: note ?? null,
+          notifyPermissions: clerks.notifyPermissions,
+        }),
+      );
+    });
+    return this.detail(actor, letterId);
+  }
+
+  /** Văn thư rút đề nghị huỷ khi chưa được xác nhận. */
+  async withdrawRevoke(actor: CorrespondenceActor, letterId: string): Promise<LetterDetail> {
+    await this.transition(actor, letterId, (actions) => actions.withdrawRevoke, async (tx) => {
+      const approvers = tx.letter.revokeApproverIds ?? [];
+      const letter = await tx.update({ ...CLEARED_REVOKE, stage: 'archived' });
+      await tx.history({ action: 'revoke-withdraw', summary: 'Rút đề nghị huỷ công văn', actorUserId: actor.userId });
+      await tx.outbox(
+        this.event(CORRESPONDENCE_EVENTS.revokeWithdrawn, letter, actor, approvers, {
+          summary: `${actor.displayName} rút đề nghị huỷ công văn ${letterTitle(withNo(letter))}. Bạn không cần xác nhận nữa.`,
+        }),
+      );
+    });
+    return this.detail(actor, letterId);
+  }
+
+  /**
+   * Xoá công văn đã huỷ khỏi Văn thư (xoá mềm): số sổ không cấp lại, lịch sử giữ trong DB; tệp
+   * của hồ sơ chuyển vào Thùng rác của Hệ dùng chung, khôi phục được ở đó.
+   */
+  async remove(actor: CorrespondenceActor, letterId: string): Promise<void> {
+    const documentIds = await this.transition(actor, letterId, (actions) => actions.remove, async (tx) => {
+      const files = await this.store.attachments(actor.tenantId, letterId);
+      await tx.update({ deletedAt: new Date().toISOString(), deletedBy: actor.userId });
+      await tx.history({ action: 'delete', summary: 'Xoá công văn khỏi Văn thư', actorUserId: actor.userId });
+      return files.map((file) => file.sharedDocumentId);
+    });
+    for (const documentId of documentIds) {
+      await this.files.trash(actor.tenantId, documentId, actor.userId).catch((error: unknown) => {
+        this.logger.warn(`Không chuyển được tài liệu ${documentId} vào Thùng rác: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
   }
 
   /** Trao đổi theo bước; nhắc tên (@) được người dùng của tenant, người được nhắc xem được công văn. */
@@ -1278,6 +1415,43 @@ export class CorrespondenceService {
     });
   }
 
+  /**
+   * Thêm nhanh mục danh mục lúc nhập công văn (nút "+" cạnh ô chọn): người cấu hình và văn thư
+   * làm được. Chỉ cần tên; mã tự sinh từ tên, xếp cuối danh mục, các tuỳ chọn khác để mặc định
+   * (sửa thêm trong Cấu hình). Tên đã có thì trả mục đó, không tạo trùng.
+   */
+  async quickAddCatalogItem(original: CorrespondenceActor, input: QuickCatalogItemRequest): Promise<CatalogItem> {
+    const actor = await this.effective(original);
+    if (!actor.canConfigure && !actor.isTenantAdmin && !actor.canRegister) {
+      throw new CorrespondenceForbiddenError('Bạn không có quyền thêm danh mục văn thư.');
+    }
+    const kind = requireEnum(input?.kind, CATALOG_KINDS, 'Loại danh mục');
+    const name = requireText(input?.name, 'Tên', 120).replace(/\s+/g, ' ');
+    const items = (await this.store.catalog(actor.tenantId)).filter((item) => item.kind === kind);
+    const same = items.find((item) => foldName(item.name) === foldName(name));
+    if (same) {
+      if (!same.isActive) throw new CorrespondenceValidationError(`"${same.name}" đã có nhưng đang ngừng dùng. Vào Cấu hình để dùng lại.`);
+      return same;
+    }
+    const base = catalogCode(name);
+    const taken = new Set(items.map((item) => item.code));
+    let code = base;
+    for (let index = 2; taken.has(code); index += 1) code = `${base.slice(0, 36)}-${index}`;
+    return this.store.saveCatalogItem(actor.tenantId, actor.userId, undefined, {
+      kind,
+      code,
+      name,
+      sortOrder: items.reduce((max, item) => Math.max(max, item.sortOrder), 0) + 10,
+      isActive: true,
+      defaultDueDays: null,
+      workflowId: null,
+      outgoingWorkflowId: null,
+      defaultUnitIds: [],
+      highlight: false,
+      restricted: false,
+    });
+  }
+
   async deleteCatalogItem(actor: CorrespondenceActor, id: string): Promise<void> {
     this.requireConfigure(actor);
     if (!(await this.store.deleteCatalogItem(actor.tenantId, id))) {
@@ -1365,6 +1539,21 @@ export class CorrespondenceService {
       }
       return work(tx);
     });
+  }
+
+  /**
+   * Người có thẩm quyền ở bước duyệt cuối đã làm: giải lại luật của bước theo sơ đồ tổ chức hiện
+   * tại (người giữ chức vụ đó bây giờ); không giải được thì người đã duyệt bước đó.
+   */
+  private async finalApprovers(actor: CorrespondenceActor, tx: LetterTransaction): Promise<string[]> {
+    const last = [...tx.steps].filter((step) => step.status === 'done').sort((left, right) => right.seq - left.seq)[0];
+    if (!last) return [];
+    const pick = last.chosenUserId ?? (last.approver.type === 'choose' ? last.actedBy : undefined);
+    const resolved = await this.approverContext(actor.tenantId, tx.letter, tx.assignments, pick)
+      .then((context) => resolveAssignees(last.approver, context))
+      .catch(() => [] as string[]);
+    if (resolved.length > 0) return [...new Set(resolved)];
+    return last.actedBy ? [last.actedBy] : [...new Set(last.assigneeUserIds)];
   }
 
   /** Bước duyệt đầu tiên; quy trình không có bước nào thì xong duyệt ngay. */
@@ -1625,7 +1814,7 @@ export class CorrespondenceService {
       canArchive: actor.canArchive || admin,
       canReadAll: actor.canReadAll || admin,
       canReadConfidential: actor.canReadConfidential || admin,
-      unitIds: membershipNodes(snapshot, actor.userId),
+      unitIds: memberUnits(snapshot, actor.userId),
       headUnitIds: headedUnits(snapshot, actor.userId),
       clerkOnDuty: settings.clerkUserIds.length === 0 || settings.clerkUserIds.includes(actor.userId),
     };
@@ -1720,6 +1909,8 @@ function facts(row: Row, catalog: Catalog): LetterFacts {
     steps: row.steps,
     assignments: row.assignments,
     mentionedUserIds: row.mentionedUserIds,
+    revokeRequestedBy: row.revokeRequestedBy,
+    revokeApproverIds: row.revokeApproverIds ?? [],
   };
 }
 
@@ -1797,15 +1988,7 @@ function defaultDue(catalog: Catalog, settings: CorrespondenceSettings, kind: st
 
 /** Phòng ban trực tiếp của người dùng (đơn vị được bổ nhiệm, hay đơn vị cha của chức danh). */
 export function ownUnits(snapshot: OrganizationSnapshot, userId: string): string[] {
-  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  const units: string[] = [];
-  for (const member of snapshot.members) {
-    if (member.userId !== userId) continue;
-    const node = byId.get(member.nodeId);
-    const unitId = node?.kind === 'unit' ? node.id : node?.parentId;
-    if (unitId && byId.get(unitId)?.kind === 'unit' && !units.includes(unitId)) units.push(unitId);
-  }
-  return units;
+  return [...memberUnits(snapshot, userId)];
 }
 
 function displayNo(letter: Pick<LetterRecord, 'direction' | 'incomingNo' | 'outgoingNo'>): string {
@@ -1868,6 +2051,21 @@ function fixedPeople(
   };
 }
 
+/** Ô "Xác nhận huỷ" khi công văn đã ban hành / hoàn tất được đề nghị huỷ. */
+function revokeNode(
+  letter: LetterRecord,
+  history: readonly Pick<LetterHistoryEntry, 'action' | 'actorUserId' | 'at'>[],
+  nameOf: (userId: string) => string,
+): { readonly label: string; readonly people?: string; readonly at?: string } | undefined {
+  if (!letter.revokeKind) return undefined;
+  const label = letter.revokeKind === 'recall' ? 'Xác nhận thu hồi, huỷ' : 'Xác nhận huỷ để sửa đổi';
+  if (letter.stage === 'cancelled') {
+    const decided = [...history].reverse().find((item) => item.action === 'revoke-approve' || item.action === 'cancel');
+    return { label, people: decided?.actorUserId ? nameOf(decided.actorUserId) : undefined, at: decided?.at };
+  }
+  return { label, people: (letter.revokeApproverIds ?? []).map(nameOf).join(', ') || undefined };
+}
+
 /**
  * Thanh tiến trình theo luồng, các bước duyệt của quy trình chen giữa; trạng thái từng ô theo
  * bước hiện tại của công văn. Bước cuối là một bước của văn thư (hoàn tất hay ban hành, rồi
@@ -1878,6 +2076,7 @@ export function flowOf(
   stage: LetterStage,
   steps: readonly { readonly seq: number; readonly name: string; readonly status: LetterStepStatus; readonly people?: string; readonly at?: string }[],
   fixed: Partial<Record<LetterStage, { readonly people?: string; readonly at?: string }>> = {},
+  revoke?: { readonly label: string; readonly people?: string; readonly at?: string },
 ): FlowNode[] {
   const ordered = sortedSteps(steps);
   const stageNode = (key: LetterStage, label: string): FlowNode => ({ key, label, state: 'todo', approval: false, ...fixed[key] });
@@ -1904,6 +2103,20 @@ export function flowOf(
           stageNode('publishing', 'Văn thư ban hành, lưu trữ'),
         ];
   if (stage === 'archived') return nodes.map((node) => ({ ...node, state: 'done' }));
+  // Công văn đã ban hành / hoàn tất rồi mới đề nghị huỷ: luồng cũ đã xong, thêm ô xác nhận huỷ.
+  if (revoke && (stage === 'revoking' || stage === 'cancelled')) {
+    return [
+      ...nodes.map((node) => ({ ...node, state: 'done' as const })),
+      {
+        key: 'revoke',
+        label: revoke.label,
+        state: stage === 'revoking' ? 'current' : 'done',
+        approval: true,
+        people: revoke.people,
+        at: stage === 'cancelled' ? revoke.at : undefined,
+      },
+    ];
+  }
   if (stage === 'cancelled') {
     const done = new Set(ordered.filter((step) => step.status === 'done').map((step) => `step-${step.seq}`));
     return nodes.map((node, index) => ({ ...node, state: index === 0 || done.has(node.key) ? 'done' : 'todo' }));
@@ -1988,6 +2201,34 @@ function attachmentView(
 }
 
 /** Người đã tham gia: người tiếp nhận, người soạn, người duyệt, người phòng ban gửi kết quả hay được phân công. */
+/** So tên danh mục không phân biệt hoa thường, dấu cách. */
+function foldName(value: string): string {
+  return value.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi');
+}
+
+/** Mã danh mục sinh từ tên: bỏ dấu tiếng Việt, chữ thường, gạch ngang; "Chỉ đạo - điều hành" thành "chi-dao-dieu-hanh". */
+export function catalogCode(name: string): string {
+  const code = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return code || 'muc';
+}
+
+/** Xoá dấu đề nghị huỷ khi công văn về lại đã lưu trữ. */
+const CLEARED_REVOKE = {
+  revokeKind: undefined,
+  revokeReason: undefined,
+  revokeRequestedBy: undefined,
+  revokeRequestedAt: undefined,
+  revokeApproverIds: [] as readonly string[],
+} as const;
+
 function participants(tx: LetterTransaction): string[] {
   return [
     tx.letter.receivedBy,

@@ -70,7 +70,7 @@ export function SettingsView({
   return (
     <section className={`${styles.card} ${styles.settings}`}>
       <h2>Cấu hình sổ văn thư</h2>
-      <p className={styles.muted} style={{ margin: '0 0 8px', fontSize: 13 }}>
+      <p className={styles.sectionNote}>
         Số thứ tự đếm lại từ 1 mỗi năm. Đổi ký hiệu chỉ áp dụng cho số cấp sau khi lưu.
       </p>
       <form

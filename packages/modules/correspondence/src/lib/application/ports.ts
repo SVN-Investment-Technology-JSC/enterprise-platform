@@ -14,6 +14,7 @@ import type {
   LetterStepDecision,
   LetterStepStatus,
   ReturnTarget,
+  RevokeKind,
   Workflow,
   WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -82,6 +83,15 @@ export interface LetterRecord {
   readonly archiveCode?: string;
   readonly archivedOn?: string;
   readonly cancelReason?: string;
+  /** Đề nghị huỷ công văn đã ban hành / hoàn tất. */
+  readonly revokeKind?: RevokeKind;
+  readonly revokeReason?: string;
+  readonly revokeRequestedBy?: string;
+  readonly revokeRequestedAt?: string;
+  readonly revokeApproverIds?: readonly string[];
+  /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
+  readonly deletedAt?: string;
+  readonly deletedBy?: string;
   readonly sharedFolderId?: string;
   readonly receivedBy: string;
   readonly createdAt: string;

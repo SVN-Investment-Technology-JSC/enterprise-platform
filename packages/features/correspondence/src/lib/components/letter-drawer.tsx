@@ -3,6 +3,7 @@
 import {
   DELIVERY_STATUS_LABELS,
   LETTER_DIRECTION_LABELS,
+  type CatalogItem,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type LetterDetail,
@@ -10,7 +11,7 @@ import {
 } from '@enterprise-platform/contracts-correspondence';
 import { CloseGuard, formatDateTime, toast } from '@enterprise-platform/shared-ui';
 import { CornerUpLeft, Pencil, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { errorMessage, loadLetter } from '../correspondence-api';
 import { dueText, formatDay, localToday, stageTone, urgencyTone } from '../correspondence.model';
@@ -26,8 +27,8 @@ import { OutgoingDialog } from './outgoing-dialog';
 
 /**
  * Ngăn chi tiết một công văn, trượt từ cạnh phải: tiến trình theo quy trình, thao tác của
- * bước hiện tại, phòng ban, ý kiến duyệt, trao đổi, tệp và lịch sử. Có ô nhập liệu nên bấm
- * ra ngoài không đóng; nút Đóng và Esc hỏi lại khi đang nhập dở.
+ * bước hiện tại, phòng ban, ý kiến duyệt, trao đổi, tệp và lịch sử. Bấm ra ngoài, nút Đóng
+ * hay Esc đều đóng; đang nhập dở thì hỏi lại trước.
  */
 export function LetterDrawer({
   letterId,
@@ -37,6 +38,8 @@ export function LetterDrawer({
   onClose,
   onChanged,
   onOpenLetter,
+  canQuickAdd,
+  onCatalogAdded,
 }: {
   readonly letterId: string;
   readonly config: CorrespondenceConfig;
@@ -46,6 +49,8 @@ export function LetterDrawer({
   /** Công văn vừa đổi (bước, tệp): danh sách và tổng quan tải lại. */
   readonly onChanged: () => void;
   readonly onOpenLetter: (letterId: string) => void;
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [letter, setLetter] = useState<LetterDetail>();
@@ -57,6 +62,11 @@ export function LetterDrawer({
   const [replying, setReplying] = useState(false);
   const [preview, setPreview] = useState<PreviewTarget>();
   const dirty = actionDirty || responseDirty || commentDirty;
+  const closeButton = useRef<HTMLButtonElement>(null);
+  // Chỉ đóng khi cả lúc nhấn và lúc thả chuột đều ở vùng tối bên ngoài ngăn (kéo chọn chữ từ
+  // trong ngăn ra ngoài không làm đóng). Hộp thoại con, xem trước tệp, danh sách chọn là portal
+  // riêng nên bấm vào chúng không trùng vùng tối này.
+  const pressedOutside = useRef(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -98,6 +108,18 @@ export function LetterDrawer({
     onChanged();
   }, [reload, onChanged]);
 
+  const outsideDown = (event: MouseEvent<HTMLDivElement>) => {
+    pressedOutside.current = event.target === event.currentTarget;
+  };
+  const outsideClick = (event: MouseEvent<HTMLDivElement>) => {
+    const outside = pressedOutside.current && event.target === event.currentTarget;
+    pressedOutside.current = false;
+    if (!outside || editing || replying || preview) return;
+    // Đang nhập dở: mở hỏi xác nhận ngay tại nút X thay vì đóng mất nội dung.
+    if (dirty) closeButton.current?.click();
+    else onClose();
+  };
+
   if (!mounted) return null;
   const today = localToday();
   const due = letter ? dueText(letter, today) : undefined;
@@ -105,7 +127,7 @@ export function LetterDrawer({
   const incoming = letter?.direction === 'incoming';
 
   return createPortal(
-    <div className={styles.overlay} role="presentation">
+    <div className={styles.overlay} role="presentation" onMouseDown={outsideDown} onClick={outsideClick}>
       <aside className={styles.drawer} role="dialog" aria-modal="true" aria-label="Chi tiết công văn">
         <header className={styles.drawerHead}>
           <div className={styles.drawerTitle}>
@@ -140,7 +162,7 @@ export function LetterDrawer({
               </button>
             ) : null}
             <CloseGuard dirty={dirty} onClose={onClose}>
-              <button type="button" className={styles.iconButton} aria-label="Đóng">
+              <button ref={closeButton} type="button" className={styles.iconButton} aria-label="Đóng">
                 <X size={16} />
               </button>
             </CloseGuard>
@@ -157,7 +179,20 @@ export function LetterDrawer({
           <>
             <FlowStepper nodes={letter.flow} workflowName={letter.workflowName} cancelled={letter.stage === 'cancelled'} />
 
-            <LetterActionPanel letter={letter} config={config} directory={directory} onDone={applied} onDirtyChange={setActionDirty} />
+            <LetterActionPanel
+              letter={letter}
+              config={config}
+              directory={directory}
+              onDone={applied}
+              onDirtyChange={setActionDirty}
+              canQuickAdd={canQuickAdd}
+              onCatalogAdded={onCatalogAdded}
+              onRemoved={(message) => {
+                toast.success(message);
+                onChanged();
+                onClose();
+              }}
+            />
 
             <section className={`${styles.card} ${styles.meta}`}>
               {incoming ? (
@@ -278,6 +313,8 @@ export function LetterDrawer({
               }}
             />
             <OutgoingDialog
+              canQuickAdd={canQuickAdd}
+              onCatalogAdded={onCatalogAdded}
               open={replying}
               config={config}
               directory={directory}

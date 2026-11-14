@@ -1,12 +1,13 @@
 'use client';
 
-import type { CorrespondenceConfig } from '@enterprise-platform/contracts-correspondence';
-import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
-import { useEffect, useMemo, useState } from 'react';
+import type { CatalogItem, CorrespondenceConfig } from '@enterprise-platform/contracts-correspondence';
+import { toast } from '@enterprise-platform/shared-ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
 import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
+import { CatalogField } from './catalog-field';
+import { Field, FilePickField, FormDialog } from './form-dialog';
 
 interface IntakeForm {
   senderOrg: string;
@@ -20,11 +21,12 @@ interface IntakeForm {
   confidentiality: string;
 }
 
-/** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ. */
+/** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
 function defaultDue(config: CorrespondenceConfig, kind: string, receivedOn: string): string {
   const typeDays = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind)?.defaultDueDays;
   const days = typeDays ?? config.settings.defaultDueDays;
-  if (!days || !receivedOn) return '';
+  if (!receivedOn) return '';
+  if (!days) return receivedOn;
   const due = new Date(`${receivedOn}T00:00:00`);
   due.setDate(due.getDate() + days);
   return localToday(due);
@@ -36,7 +38,7 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
   return {
     senderOrg: '',
     senderRef: '',
-    senderDate: '',
+    senderDate: today,
     subject: '',
     receivedOn: today,
     dueOn: defaultDue(config, kind, today),
@@ -52,13 +54,21 @@ export function IntakeDialog({
   config,
   onClose,
   onCreated,
+  canQuickAdd = false,
+  onCatalogAdded,
 }: {
   readonly open: boolean;
   readonly config: CorrespondenceConfig;
   readonly onClose: () => void;
   readonly onCreated: (letterId: string) => void;
+  /** Được thêm nhanh danh mục bằng nút "+". */
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }) {
   const initial = useMemo(() => emptyForm(config), [config]);
+  // Mở hộp thoại thì làm mới form; cấu hình đổi lúc đang nhập (thêm nhanh danh mục) thì giữ nguyên.
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
   const [form, setForm] = useState<IntakeForm>(initial);
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -66,10 +76,10 @@ export function IntakeDialog({
 
   useEffect(() => {
     if (!open) return;
-    setForm(initial);
+    setForm(initialRef.current);
     setFiles([]);
     setError(undefined);
-  }, [open, initial]);
+  }, [open]);
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof IntakeForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -163,42 +173,43 @@ export function IntakeDialog({
         />
       </Field>
       <div className={styles.formRow3}>
-        <SelectField label="Loại văn bản">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'letter_type')}
-            value={form.kind}
-            emptyText="Chưa có loại văn bản. Vào Cấu hình để thêm."
-            onChange={(value) =>
-              setForm((current) => ({
-                ...current,
-                kind: value,
-                // Hạn chưa sửa tay thì theo số ngày của loại văn bản mới.
-                dueOn:
-                  current.dueOn === defaultDue(config, current.kind, current.receivedOn)
-                    ? defaultDue(config, value, current.receivedOn)
-                    : current.dueOn,
-              }))
-            }
-          />
-        </SelectField>
-        <SelectField label="Độ khẩn">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'urgency')}
-            value={form.urgency}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => set('urgency', value)}
-          />
-        </SelectField>
-        <SelectField label="Độ mật">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'confidentiality')}
-            value={form.confidentiality}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => set('confidentiality', value)}
-          />
-        </SelectField>
+        <CatalogField
+          label="Loại văn bản"
+          kind="letter_type"
+          catalog={config.catalog}
+          value={form.kind}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              kind: value,
+              // Hạn chưa sửa tay thì theo số ngày của loại văn bản mới.
+              dueOn:
+                current.dueOn === defaultDue(config, current.kind, current.receivedOn)
+                  ? defaultDue(config, value, current.receivedOn)
+                  : current.dueOn,
+            }))
+          }
+        />
+        <CatalogField
+          label="Độ khẩn"
+          kind="urgency"
+          catalog={config.catalog}
+          value={form.urgency}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) => set('urgency', value)}
+        />
+        <CatalogField
+          label="Độ mật"
+          kind="confidentiality"
+          catalog={config.catalog}
+          value={form.confidentiality}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) => set('confidentiality', value)}
+        />
       </div>
       <div className={styles.formRow}>
         <Field label="Hạn xử lý">
