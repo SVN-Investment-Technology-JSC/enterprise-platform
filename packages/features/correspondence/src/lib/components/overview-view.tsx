@@ -86,7 +86,7 @@ export function OverviewView({
       </div>
       <section>
         <div className={styles.cardHead}>
-          <h2 style={{ fontSize: 15 }}>Cần xử lý gấp</h2>
+          <h2>Cần xử lý gấp</h2>
         </div>
         <LetterTable letters={overview.urgent} mode="mixed" today={today} emptyText="Không còn công văn nào đang mở." onOpen={onOpenLetter} />
       </section>

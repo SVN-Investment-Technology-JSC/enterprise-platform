@@ -144,29 +144,47 @@ describe('Thanh tiến trình', () => {
 describe('Bước duyệt: Đạt / Không đạt', () => {
   const reviewing = letter({}, { approve: true, comment: true, returnTargets: ['previous-step', 'handlers', 'clerk'], defaultReturnTarget: 'previous-step' });
 
-  it('Đạt chuyển bước tiếp theo kèm ý kiến', async () => {
+  it('Duyệt một thao tác: bấm Duyệt, xác nhận tại chỗ rồi mới chuyển bước', async () => {
     const onDone = jest.fn();
     mocked.approve.mockResolvedValue(reviewing);
     render(<LetterActionPanel letter={reviewing} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
-    const send = await screen.findByRole('button', { name: 'Đạt, chuyển tiếp' });
+    // Không còn bước chọn Đạt / Không đạt.
+    expect(screen.queryByRole('radio')).toBeNull();
+    const send = await screen.findByRole('button', { name: 'Duyệt' });
     await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText('Ý kiến'), { target: { value: 'Đồng ý trình TGĐ' } });
+    fireEvent.change(screen.getByLabelText('Ý kiến (nếu có)'), { target: { value: 'Đồng ý trình TGĐ' } });
     fireEvent.click(send);
+    // Bấm nhầm thì chưa có gì xảy ra: phải xác nhận.
+    expect(await screen.findByText('Duyệt công văn này?')).toBeTruthy();
+    expect(mocked.approve).not.toHaveBeenCalled();
+    const confirm = screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement;
+    fireEvent.click(confirm);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.approve).toHaveBeenCalledWith('letter-1', { note: 'Đồng ý trình TGĐ', nextAssigneeUserId: undefined });
   });
 
-  it('Không đạt bắt nhập lý do, trả về bước trước theo mặc định của bước', async () => {
+  it('Xem lại thì đóng hỏi xác nhận, không duyệt', async () => {
+    render(<LetterActionPanel letter={reviewing} config={config} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    fireEvent.click(await screen.findByRole('button', { name: 'Xem lại' }));
+    await waitFor(() => expect(screen.queryByText('Duyệt công văn này?')).toBeNull());
+    expect(mocked.approve).not.toHaveBeenCalled();
+  });
+
+  it('Không đạt mở hộp thoại, bắt nhập lý do, trả về bước trước theo mặc định của bước', async () => {
     const onDone = jest.fn();
     mocked.ret.mockResolvedValue(reviewing);
     render(<LetterActionPanel letter={reviewing} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
-    fireEvent.click(await screen.findByRole('radio', { name: 'Không đạt' }));
-    const send = screen.getByRole('button', { name: 'Không đạt, trả lại' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Không đạt' }));
+    const dialog = screen.getByRole('dialog', { name: 'Không đạt, trả lại' });
+    const send = within(dialog).getByRole('button', { name: 'Xác nhận trả lại' });
     expect((send as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Lý do không đạt/), { target: { value: 'Thiếu số liệu quý 3' } });
+    fireEvent.change(within(dialog).getByLabelText(/Lý do/), { target: { value: 'Thiếu số liệu quý 3' } });
     fireEvent.click(send);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(mocked.ret).toHaveBeenCalledWith('letter-1', { target: 'previous-step', reason: 'Thiếu số liệu quý 3' });
+    expect(mocked.ret).toHaveBeenCalledWith('letter-1', { target: 'previous-step', reason: 'Thiếu số liệu quý 3', assignmentIds: undefined });
     expect(mocked.approve).not.toHaveBeenCalled();
   });
 });

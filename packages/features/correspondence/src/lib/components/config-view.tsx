@@ -391,7 +391,7 @@ function WorkflowManager({
                 <Plus size={13} /> Thêm quy trình
               </button>
             </div>
-            <p className={styles.muted} style={{ margin: '0 0 10px', fontSize: 13 }}>
+            <p className={styles.sectionNote}>
               {DIRECTION_HELP[direction]} Sửa quy trình không đổi công văn đã trình.
             </p>
             <div className={styles.list}>
@@ -808,7 +808,7 @@ function RuleDetail({
       return <MultiPick label="Đơn vị" options={unitOptions} values={rule.unitIds} onChange={(unitIds) => onChange({ type: 'unit_heads', unitIds })} />;
     default:
       return (
-        <p className={styles.muted} style={{ margin: 0, fontSize: 12.5 }}>
+        <p className={styles.sectionNote}>
           {direction === 'incoming'
             ? 'Trưởng của từng phòng ban văn thư đã giao xử lý công văn (theo sơ đồ tổ chức).'
             : 'Trưởng phòng ban soạn thảo công văn đi (theo sơ đồ tổ chức).'}
@@ -833,7 +833,7 @@ function OrganizationView({ directory }: { readonly directory?: CorrespondenceDi
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Sơ đồ tổ chức</h2>
-        <span className={styles.muted} style={{ fontSize: 12.5 }}>
+        <span className={styles.muted}>
           Lấy từ Tenant Core; sửa ở trang Sơ đồ tổ chức của Tenant Portal
         </span>
       </div>
@@ -846,7 +846,7 @@ function OrganizationView({ directory }: { readonly directory?: CorrespondenceDi
         aria-label="Tìm trong sơ đồ tổ chức"
         onChange={(event) => setSearch(event.target.value)}
       />
-      <p className={styles.muted} style={{ fontSize: 12.5 }}>
+      <p className={styles.sectionNote}>
         Lãnh đạo (được chọn duyệt công văn): {directory.leaders.map((leader) => leader.name).join(', ') || 'chưa ai được cấp quyền (Phân quyền)'}
       </p>
       {units.map((unit) => (

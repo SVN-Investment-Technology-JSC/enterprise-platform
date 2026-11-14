@@ -11,8 +11,8 @@ import {
   type ReturnTarget,
   type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { Ban, CheckCircle2, Undo2, X, XCircle } from 'lucide-react';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Ban, CheckCircle2, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
@@ -223,18 +223,29 @@ function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>
 }
 
 /** "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do. */
-function ReturnControl({ letter, onDone, label = 'Không đạt, trả lại' }: Pick<ActionProps, 'letter' | 'onDone'> & { readonly label?: string }) {
+function ReturnControl({
+  letter,
+  onDone,
+  label = 'Không đạt, trả lại',
+  dialogTitle,
+  warning = false,
+}: Pick<ActionProps, 'letter' | 'onDone'> & {
+  readonly label?: string;
+  readonly dialogTitle?: string;
+  /** Nút vàng (thao tác chính của bước duyệt) thay vì nút viền. */
+  readonly warning?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   if (letter.actions.returnTargets.length === 0) return null;
   return (
     <>
-      <button type="button" className={styles.buttonGhost} onClick={() => setOpen(true)}>
+      <button type="button" className={warning ? styles.buttonWarning : styles.buttonGhost} onClick={() => setOpen(true)}>
         <Undo2 size={14} /> {label}
       </button>
       <ReasonDialog
         open={open}
         letter={letter}
-        title={label}
+        title={dialogTitle ?? label}
         subtitle="Công văn quay về nơi được chọn kèm lý do; người nhận được báo ngay."
         reasonLabel="Lý do"
         placeholder="Nêu rõ cần sửa, bổ sung gì"
@@ -754,95 +765,53 @@ function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
 /* ---------------------------------------------------------------- duyệt */
 
 /** Bước duyệt đang chờ người xem: Đạt (chuyển bước sau) hay Không đạt (trả về nơi cấu hình, mặc định bước trước). */
+/** Bước tiếp theo trên thanh tiến trình, để hỏi xác nhận nói rõ công văn sẽ đi đâu. */
+function nextStepLabel(letter: LetterDetail): string | undefined {
+  const at = letter.flow.findIndex((node) => node.state === 'current');
+  return at >= 0 ? letter.flow[at + 1]?.label : undefined;
+}
+
+/**
+ * Bước duyệt: một thao tác. "Duyệt" hỏi xác nhận ngay tại nút (tránh bấm nhầm) rồi chuyển bước;
+ * "Không đạt" mở hộp thoại chọn nơi trả về và bắt nhập lý do.
+ */
 function ApproveForm({ letter, onDone, onDirtyChange }: ActionProps) {
-  const [decision, setDecision] = useState<'approve' | 'reject'>('approve');
   const [note, setNote] = useState('');
   const [next, setNext] = useState('');
-  const targets = letter.actions.returnTargets;
-  const [target, setTarget] = useState<ReturnTarget | ''>(letter.actions.defaultReturnTarget ?? targets[0] ?? '');
   const choice = useStepChoice(letter.id);
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next !== ''), [note, next, onDirtyChange]);
-  const reject = decision === 'reject';
+  const ready = !busy && choice !== undefined && (!choice || Boolean(next));
+  const after = nextStepLabel(letter);
   return (
     <Panel title={letter.currentStepName ?? 'Duyệt'}>
       <div className={styles.form}>
         {letter.direction === 'incoming' && letter.assignments.length > 0 ? (
-          <p className={styles.muted} style={{ margin: 0 }}>
+          <p className={styles.sectionNote}>
             Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
           </p>
         ) : null}
-        <div className={styles.decision} role="radiogroup" aria-label="Kết quả duyệt">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!reject}
-            className={!reject ? `${styles.decisionOption} ${styles.decisionApprove}` : styles.decisionOption}
-            onClick={() => setDecision('approve')}
-          >
-            <CheckCircle2 size={16} /> Đạt
-          </button>
-          {targets.length > 0 ? (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={reject}
-              className={reject ? `${styles.decisionOption} ${styles.decisionReject}` : styles.decisionOption}
-              onClick={() => setDecision('reject')}
-            >
-              <XCircle size={16} /> Không đạt
-            </button>
-          ) : null}
-        </div>
-        {reject && targets.length > 0 ? (
-          <SelectField label="Trả về" required>
-            <SearchableSelect
-              options={targets.map((value) => ({
-                value,
-                label: returnTargetLabel(value, letter.direction),
-                description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
-              }))}
-              value={target}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={(value) => setTarget(value as ReturnTarget)}
-            />
-          </SelectField>
-        ) : null}
-        <Field label={reject ? 'Lý do không đạt' : 'Ý kiến'} required={reject}>
-          <textarea
-            value={note}
-            maxLength={4000}
-            rows={3}
-            placeholder={reject ? 'Nêu rõ cần sửa, bổ sung gì' : 'Ý kiến kèm theo (nếu có)'}
-            onChange={(event) => setNote(event.target.value)}
-          />
+        <Field label="Ý kiến (nếu có)">
+          <textarea value={note} maxLength={4000} rows={3} placeholder="Ý kiến kèm theo khi duyệt" onChange={(event) => setNote(event.target.value)} />
         </Field>
-        {!reject ? <ChoiceField choice={choice} value={next} onChange={setNext} /> : null}
+        <ChoiceField choice={choice} value={next} onChange={setNext} />
         <ErrorLine error={error} />
         <div className={styles.formActions}>
-          {reject ? (
-            <button
-              type="button"
-              className={styles.buttonWarning}
-              disabled={busy || !target || !note.trim()}
-              onClick={() =>
-                target &&
-                run(() => returnLetter(letter.id, { target, reason: note }), `Không đạt, đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`)
-              }
-            >
-              Không đạt, trả lại
+          <ReturnControl letter={letter} onDone={onDone} label="Không đạt" dialogTitle="Không đạt, trả lại" warning />
+          <Popconfirm
+            title="Duyệt công văn này?"
+            description={after ? `Công văn chuyển sang bước "${after}".` : 'Công văn chuyển sang bước tiếp theo.'}
+            okText="Duyệt"
+            cancelText="Xem lại"
+            okType="primary"
+            placement="top-end"
+            disabled={!ready}
+            onConfirm={() => run(() => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }), 'Đã duyệt, chuyển bước tiếp theo.')}
+          >
+            <button type="button" className={styles.buttonPrimary} disabled={!ready}>
+              <CheckCircle2 size={15} /> Duyệt
             </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={busy || choice === undefined || (Boolean(choice) && !next)}
-              onClick={() => run(() => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next || undefined }), 'Đã duyệt, chuyển bước tiếp theo.')}
-            >
-              Đạt, chuyển tiếp
-            </button>
-          )}
+          </Popconfirm>
         </div>
       </div>
     </Panel>

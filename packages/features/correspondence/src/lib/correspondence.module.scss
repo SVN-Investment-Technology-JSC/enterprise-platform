@@ -4,6 +4,22 @@
 // và hộp thoại dựng qua portal vào `document.body`, ngoài vỏ trang, nên `.overlay` khai
 // lại đúng bộ biến đó.
 
+// Thang chữ: mỗi cấp một vai trò, không dùng cỡ lẻ ngoài thang.
+//   number  số liệu lớn (thẻ thống kê, đếm theo bước)
+//   h1      tiêu đề chính: tên công văn ở ngăn chi tiết, tiêu đề hộp thoại
+//   h2      tiêu đề mục: thẻ, khối trong ngăn, tên hồ sơ, xem trước
+//   h3      tiêu đề phụ: khối thao tác, bước trong cấu hình, gốc cây lưu trữ
+//   body    nội dung: chữ trong bảng, ô nhập, ý kiến, trao đổi
+//   small   chữ phụ: nhãn trường, nút, đầu cột, mô tả mục
+//   meta    chú thích: thời gian, người làm, nhãn trạng thái, gợi ý
+$fs-number: 24px;
+$fs-h1: 20px;
+$fs-h2: 16px;
+$fs-h3: 14px;
+$fs-body: 14px;
+$fs-small: 13px;
+$fs-meta: 12px;
+
 @mixin ep-tokens {
   --ep-accent: #ffc90a;
   --ep-accent-strong: #d9ab00;
@@ -65,7 +81,7 @@
   background: var(--ep-surface);
   color: var(--ep-text);
   font: inherit;
-  font-size: 14px;
+  font-size: $fs-body;
 
   &:focus {
     outline: none;
@@ -118,7 +134,7 @@
 .buttonWarning {
   min-height: 36px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: $fs-small;
 }
 
 .buttonPrimary {
@@ -187,7 +203,7 @@
   border: 1px solid #d1d5db;
   background: var(--ep-surface);
   color: var(--ep-text-sub);
-  font-size: 12px;
+  font-size: $fs-meta;
 
   &:hover:not(:disabled) {
     border-color: #2563eb;
@@ -200,7 +216,7 @@
   border: 0;
   background: none;
   color: var(--ep-link);
-  font-size: 12.5px;
+  font-size: $fs-small;
   font-weight: 600;
 
   &:hover:not(:disabled) {
@@ -222,7 +238,7 @@
   padding: 10px 14px;
   border: 1px solid;
   border-radius: var(--ep-radius-md);
-  font-size: 13px;
+  font-size: $fs-small;
   line-height: 1.55;
 }
 
@@ -246,7 +262,7 @@
   padding: 36px 16px;
   color: var(--ep-text-muted);
   text-align: center;
-  font-size: 13.5px;
+  font-size: $fs-body;
 }
 
 /* ------------------------------------------------------------------ nhãn */
@@ -257,7 +273,7 @@
   gap: 5px;
   padding: 1px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: $fs-meta;
   font-weight: 600;
   white-space: nowrap;
   line-height: 1.6;
@@ -304,7 +320,7 @@
 .hint {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: $fs-meta;
   color: var(--ep-text-muted);
 }
 
@@ -342,13 +358,13 @@
 
   b {
     display: block;
-    font-size: 26px;
+    font-size: $fs-number;
     line-height: 1.2;
     color: var(--ep-text);
   }
 
   span {
-    font-size: 13px;
+    font-size: $fs-small;
     color: var(--ep-text-muted);
   }
 }
@@ -378,7 +394,7 @@
 
   h2 {
     margin: 0 0 12px;
-    font-size: 15px;
+    font-size: $fs-h2;
     font-weight: 700;
   }
 }
@@ -392,6 +408,25 @@
 
   h2 {
     margin: 0;
+    font-size: $fs-h2;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  > .muted {
+    font-size: $fs-meta;
+  }
+}
+
+// Câu mô tả ngay dưới tiêu đề mục.
+.sectionNote {
+  margin: 0 0 10px;
+  color: var(--ep-text-muted);
+  font-size: $fs-small;
+  line-height: 1.5;
+
+  &:last-child {
+    margin-bottom: 0;
   }
 }
 
@@ -440,7 +475,7 @@
   b {
     margin-top: 4px;
     color: var(--ep-text-sub);
-    font-size: 22px;
+    font-size: $fs-number;
     font-weight: 700;
     line-height: 1.1;
   }
@@ -464,12 +499,12 @@
   border-radius: 50%;
   background: var(--ep-surface);
   color: #64748b;
-  font-size: 12px;
+  font-size: $fs-meta;
   font-weight: 700;
 }
 
 .stageLabel {
-  font-size: 12.5px;
+  font-size: $fs-small;
   line-height: 1.35;
 }
 
@@ -507,7 +542,7 @@
   background: var(--ep-surface);
   color: var(--ep-text-sub);
   font: inherit;
-  font-size: 13px;
+  font-size: $fs-small;
   cursor: pointer;
 
   &:hover {
@@ -546,7 +581,7 @@
     padding: 10px 14px;
     border-bottom: 1px solid #e2e8f0;
     color: #475569;
-    font-size: 12.5px;
+    font-size: $fs-small;
     font-weight: 700;
     text-align: left;
     white-space: nowrap;
@@ -556,7 +591,7 @@
     padding: 11px 14px;
     border-bottom: 1px solid var(--ep-line);
     vertical-align: top;
-    font-size: 13.5px;
+    font-size: $fs-body;
   }
 
   tbody tr {
@@ -598,7 +633,7 @@
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #64748b;
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .mineDot {
@@ -682,7 +717,7 @@
 
   h1 {
     margin: 8px 0 2px;
-    font-size: 18px;
+    font-size: $fs-h1;
     font-weight: 700;
     line-height: 1.4;
   }
@@ -735,14 +770,14 @@
   justify-content: space-between;
   gap: 4px 12px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: $fs-small;
 
   > span:first-child {
     font-weight: 700;
   }
 
   .muted {
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 }
 
@@ -792,7 +827,7 @@
   border-radius: 50%;
   background: #fff;
   color: #64748b;
-  font-size: 12px;
+  font-size: $fs-meta;
   font-weight: 700;
 }
 
@@ -803,7 +838,7 @@
 .flowLabel {
   max-width: 100%;
   color: var(--ep-text-sub);
-  font-size: 12.5px;
+  font-size: $fs-small;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -812,7 +847,7 @@
   display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: $fs-meta;
   line-height: 1.3;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -821,7 +856,7 @@
 
 .flowWhen {
   min-height: 15px;
-  font-size: 11px;
+  font-size: $fs-meta;
   white-space: nowrap;
 }
 
@@ -868,11 +903,11 @@
     display: block;
     margin-bottom: 2px;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 
   div {
-    font-size: 13.5px;
+    font-size: $fs-body;
     overflow-wrap: anywhere;
   }
 }
@@ -890,11 +925,11 @@
   h3 {
     margin: 0 0 4px;
     color: #1d4ed8;
-    font-size: 14px;
+    font-size: $fs-h3;
   }
 
   > p {
-    font-size: 13.5px;
+    font-size: $fs-body;
     line-height: 1.55;
   }
 }
@@ -944,7 +979,7 @@
 
 .fieldLabel {
   color: #334155;
-  font-size: 13.5px;
+  font-size: $fs-small;
   font-weight: 600;
 }
 
@@ -977,7 +1012,7 @@
   border-radius: 14px;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 12.5px;
+  font-size: $fs-meta;
 
   button {
     display: grid;
@@ -1001,7 +1036,7 @@
   align-items: flex-start;
   gap: 9px;
   color: var(--ep-text);
-  font-size: 13.5px;
+  font-size: $fs-body;
   font-weight: 400;
   line-height: 1.45;
   cursor: pointer;
@@ -1050,7 +1085,7 @@
 
 .listMain {
   min-width: 0;
-  font-size: 13.5px;
+  font-size: $fs-body;
 
   b {
     font-weight: 600;
@@ -1059,7 +1094,7 @@
   p {
     margin: 4px 0 0;
     color: var(--ep-text-sub);
-    font-size: 13px;
+    font-size: $fs-small;
     white-space: pre-wrap;
   }
 }
@@ -1092,7 +1127,7 @@
   li {
     position: relative;
     margin-bottom: 12px;
-    font-size: 13.5px;
+    font-size: $fs-body;
 
     &::before {
       content: '';
@@ -1109,13 +1144,13 @@
   small {
     display: block;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 
   p {
     margin: 3px 0 0;
     color: var(--ep-text-sub);
-    font-size: 13px;
+    font-size: $fs-small;
     white-space: pre-wrap;
   }
 }
@@ -1173,14 +1208,14 @@
   h2 {
     margin: 0;
     color: #333;
-    font-size: 24px;
+    font-size: $fs-h1;
     font-weight: 700;
   }
 
   p {
     margin: 4px 0 0;
     color: #666;
-    font-size: 13.5px;
+    font-size: $fs-body;
     line-height: 1.4;
   }
 }
@@ -1280,7 +1315,7 @@
   gap: 8px;
 
   b {
-    font-size: 13.5px;
+    font-size: $fs-h3;
   }
 }
 
@@ -1315,7 +1350,7 @@
   border-radius: 12px;
   background: #f1f5f9;
   color: var(--ep-text-sub);
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .memberHead {
@@ -1353,57 +1388,11 @@
   border-radius: 8px;
   background: #f8fafc;
   color: var(--ep-text-sub);
-  font-size: 12.5px;
+  font-size: $fs-small;
   line-height: 1.5;
 
   span {
     color: var(--ep-text-muted);
-  }
-}
-
-.decision {
-  display: flex;
-  gap: 8px;
-}
-
-.decisionOption {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 38px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  color: var(--ep-text-sub);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--ep-hover);
-  }
-}
-
-.decisionApprove {
-  border-color: #059669;
-  background: #ecfdf5;
-  color: #047857;
-
-  &:hover {
-    background: #d1fae5;
-  }
-}
-
-.decisionReject {
-  border-color: #dc2626;
-  background: #fef2f2;
-  color: #b91c1c;
-
-  &:hover {
-    background: #fee2e2;
   }
 }
 
@@ -1438,7 +1427,7 @@
   border-left: 3px solid #93c5fd;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 13px;
+  font-size: $fs-body;
   white-space: pre-wrap;
 }
 
@@ -1473,7 +1462,7 @@
   p {
     margin: 0 0 4px;
     color: var(--ep-text);
-    font-size: 13.5px;
+    font-size: $fs-body;
     white-space: pre-wrap;
   }
 }
@@ -1508,7 +1497,7 @@
 
   p {
     margin: 4px 0 0;
-    font-size: 13.5px;
+    font-size: $fs-body;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -1519,12 +1508,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  font-size: 13px;
+  font-size: $fs-small;
 
   small {
     margin-left: auto;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 }
 
@@ -1533,7 +1522,7 @@
   border-radius: 10px;
   background: #e0e7ff;
   color: #3730a3;
-  font-size: 11.5px;
+  font-size: $fs-meta;
 }
 
 .mention {
@@ -1585,7 +1574,7 @@
     background: transparent;
     color: var(--ep-text);
     font: inherit;
-    font-size: 13.5px;
+    font-size: $fs-body;
     text-align: left;
     cursor: pointer;
 
@@ -1627,8 +1616,37 @@
 
 .fileIcon {
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin-top: 1px;
   color: #64748b;
+}
+
+// Hàng tệp: biểu tượng | tên và thông tin (chiếm hết phần còn lại, căn trái) | nút. Dùng chung
+// cho "Tệp của hồ sơ" trong ngăn chi tiết và Kho lưu trữ, tên dài ngắn đều thẳng mép trái.
+.fileRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ep-line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.fileMain {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+
+  b {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* ------------------------------------------------------------ xem trước tệp */
@@ -1681,14 +1699,14 @@
 
   b {
     overflow: hidden;
-    font-size: 14.5px;
+    font-size: $fs-h2;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   span {
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
   }
 }
 
@@ -1748,7 +1766,7 @@
 .previewText {
   margin: 0;
   font-family: ui-monospace, 'SFMono-Regular', menlo, consolas, monospace;
-  font-size: 13px;
+  font-size: $fs-small;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1785,7 +1803,7 @@
 
 .sheetTable {
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: $fs-small;
 
   th,
   td {
@@ -1835,7 +1853,7 @@
   figcaption {
     margin-top: 6px;
     color: var(--ep-text-muted);
-    font-size: 12px;
+    font-size: $fs-meta;
     text-align: center;
   }
 }
@@ -1890,7 +1908,7 @@
   align-items: center;
   gap: 6px;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: $fs-meta;
 
   i {
     display: inline-block;
@@ -1927,7 +1945,7 @@
 
   small {
     color: var(--ep-text-muted);
-    font-size: 11.5px;
+    font-size: $fs-meta;
   }
 }
 
@@ -1991,7 +2009,7 @@
   align-items: center;
   gap: 6px;
   padding: 2px 8px 8px;
-  font-size: 13.5px;
+  font-size: $fs-h3;
   font-weight: 700;
 
   .hint {
@@ -2022,7 +2040,7 @@
   background: transparent;
   color: var(--ep-text);
   font: inherit;
-  font-size: 13px;
+  font-size: $fs-small;
   text-align: left;
   cursor: pointer;
 
@@ -2060,7 +2078,7 @@
   border-radius: 10px;
   background: #f1f5f9;
   color: var(--ep-text-muted);
-  font-size: 11.5px;
+  font-size: $fs-meta;
   font-weight: 500;
 }
 
@@ -2078,17 +2096,16 @@
 
 .archiveEmpty {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 16px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
   color: var(--ep-text-muted);
-  text-align: center;
 
   p {
-    max-width: 420px;
+    max-width: 520px;
     margin: 0;
-    font-size: 13.5px;
+    font-size: $fs-body;
+    line-height: 1.5;
   }
 }
 
@@ -2097,10 +2114,19 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ep-border-strong);
 
-  b {
-    font-size: 14.5px;
+  h2 {
+    margin: 2px 0 0;
+    font-size: $fs-h2;
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  > button {
+    flex: none;
   }
 }
 
@@ -2118,7 +2144,7 @@
   border-radius: 12px;
   background: #eef2ff;
   color: #3730a3;
-  font-size: 12px;
+  font-size: $fs-meta;
 }
 
 .flowPreview {
@@ -2130,7 +2156,7 @@
   border-radius: 8px;
   background: #fff;
   color: var(--ep-text-muted);
-  font-size: 12.5px;
+  font-size: $fs-small;
 
   > span {
     display: inline-flex;
@@ -2174,7 +2200,7 @@
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     background: #fff;
-    font-size: 13px;
+    font-size: $fs-small;
 
     svg {
       flex: 0 0 auto;
@@ -2191,7 +2217,7 @@
 
     small {
       color: var(--ep-text-muted);
-      font-size: 12px;
+      font-size: $fs-meta;
     }
 
     button {
