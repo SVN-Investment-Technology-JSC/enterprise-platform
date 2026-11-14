@@ -1,3 +1,4 @@
+import { payrollOvertimeInputs, readOvertimeCompSnapshot } from './hrm-overtime-month.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
@@ -50,6 +51,10 @@ export const payrollSystemInputs = [
   'WORKED_MINUTES',
   'OT_MINUTES',
   'WEIGHTED_OT_MINUTES',
+  'OT_COUNTED_MINUTES',
+  'NIGHT_MINUTES',
+  'OT_EXCESS_MINUTES',
+  'NIGHT_REST_DAYS',
   'LATE_MINUTES',
   'EARLY_MINUTES',
   'WORKDAY_UNITS',
@@ -81,7 +86,14 @@ export async function timesheetFingerprint(
     [tenant, periodId],
   );
   const x = r.rows[0] ?? {};
-  return [x.n, x.last_update, x.paid, x.worked, x.ot, x.trip].join('|');
+  const parts = [x.n, x.last_update, x.paid, x.worked, x.ot, x.trip];
+  // Ảnh chụp chính sách làm thêm của kỳ (chỉ có khi đã chốt sau khi bật quy tắc): đổi ảnh thì phải tính lương lại.
+  const snapshot = await db.query(
+    `SELECT md5((to_jsonb(p)->'policy_snapshot')::text) AS hash FROM hrm_schema.timesheet_periods p WHERE p.tenant_id=$1 AND p.id=$2 AND to_jsonb(p)->'policy_snapshot' IS NOT NULL AND to_jsonb(p)->'policy_snapshot' <> 'null'::jsonb`,
+    [tenant, periodId],
+  );
+  if (snapshot.rows[0]?.hash) parts.push(snapshot.rows[0].hash);
+  return parts.join('|');
 }
 
 /** Gom lỗi của nhiều nhân viên để người dùng sửa một lần thay vì dừng ở lỗi đầu tiên. */
@@ -103,7 +115,7 @@ export async function calculatePayroll(
   runId: string,
 ) {
   const result = await db.query(
-    `SELECT r.*,p.timesheet_period_id,p.from_date,p.to_date,t.status AS timesheet_status FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.id=r.payroll_period_id AND p.tenant_id=r.tenant_id LEFT JOIN hrm_schema.timesheet_periods t ON t.id=p.timesheet_period_id AND t.tenant_id=p.tenant_id WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF r,p`,
+    `SELECT r.*,p.timesheet_period_id,p.from_date,p.to_date,t.status AS timesheet_status,to_jsonb(t)->'policy_snapshot' AS overtime_snapshot FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.id=r.payroll_period_id AND p.tenant_id=r.tenant_id LEFT JOIN hrm_schema.timesheet_periods t ON t.id=p.timesheet_period_id AND t.tenant_id=p.tenant_id WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF r,p`,
     [tenant, runId],
   );
   const run = result.rows[0];
@@ -139,6 +151,7 @@ export async function calculatePayroll(
       )
     ).rows[0]?.standard ?? 0,
   );
+  const overtimeSnapshot = readOvertimeCompSnapshot(run.overtime_snapshot);
   const employeeErrors: { employee: string; message: string }[] = [];
   for (const employee of employees.rows) {
     const employeeId = employee.employee_id;
@@ -305,6 +318,8 @@ export async function calculatePayroll(
       PAID_MINUTES: sum('paid_minutes'),
       WORKED_MINUTES: sum('worked_minutes'),
       OT_MINUTES: sum('ot_minutes'),
+      // Làm thêm tính lương và ca đêm theo chính sách đã chụp khi chốt công; chưa bật quy tắc thì bằng số cũ.
+      ...payrollOvertimeInputs(overtimeSnapshot, employeeId, sum('ot_minutes')),
       WEIGHTED_OT_MINUTES:
         Math.round(
           rows.rows.reduce(

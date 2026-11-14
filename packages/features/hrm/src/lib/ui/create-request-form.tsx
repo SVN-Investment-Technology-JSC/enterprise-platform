@@ -45,6 +45,8 @@ import { ExtraTimeRanges } from './extra-time-ranges';
 import { extraRangesProblem, rangeLabel, type ExtraRange } from '../request-ranges';
 import { DatePickerInput } from './date-picker-input';
 import { splitDateTime } from './date-time-input';
+import { formatHours } from '../request-time-format';
+import { OvertimeTimeRange } from './overtime-time-range';
 import { RequestTimeRange } from './request-time-range';
 import {
   GenericRequestForm,
@@ -75,6 +77,9 @@ import {
 } from '../request-form-attributes';
 import { MAX_ATTRIBUTE_FILE_BYTES, uploadHrmAttachment } from '../hrm-attachment-upload';
 
+/** Khai giờ làm dự kiến theo ngày của đơn công tác: tạm ẩn khỏi form tạo đơn (dữ liệu đã khai vẫn xem được ở chi tiết đơn). */
+const SHOW_TRIP_DAY_PLANS = false;
+
 /** 'YYYY-MM-DDTHH:mm' -> 'DD/MM HH:mm' cho bảng tách từng khoản của đơn nghỉ nhiều khoảng. */
 const shortRangeTime = (value: string): string =>
   `${value.slice(8, 10)}/${value.slice(5, 7)} ${value.slice(11, 16)}`;
@@ -86,15 +91,25 @@ import {
   reasonPayload,
 } from '../request-reason-form';
 import {
-  ApproverPreview,
   RequestReasonSection,
-  useApprovalRoutePreview,
   useRequestReasonCatalog,
 } from './request-reason-fields';
 import type { RequestFormPatch } from '../assistant-request-draft';
+import type { HrmNextDayRest } from '@enterprise-platform/contracts-hrm';
+import { compOffUsageProblem, formatCompNumber } from '../comp-off-model';
+import { CompOffAvailabilityHint, OvertimeClassifyHint, useCompOffAvailability } from './comp-off/comp-off-hints';
+import { compOffApi } from '../hrm-comp-off-api';
+import {
+  TripDayPlanFields,
+  tripDatesBetween,
+  tripDayPlanLines,
+  tripDayPlansProblem,
+  type TripDayPlans,
+} from './trip-day-plan-fields';
 import {
   STANDARD_SHIFT_HC,
   calculateWorkingMinutesInShift,
+  breakdownFromTimePreview,
   computeLeaveFromPreview,
   leaveDisplayGroup,
   projectLeaveBalance,
@@ -435,6 +450,7 @@ export function CreateRequestForm({
   const [customTransportRange, setCustomTransportRange] = useState({ startAt: '', endAt: '' });
   // Các khoảng thời gian bổ sung của đơn nghỉ, làm thêm giờ, công tác (mỗi khoảng gửi thành một đơn).
   const [extraRanges, setExtraRanges] = useState<ExtraRange[]>([]);
+  const [tripDayPlans, setTripDayPlans] = useState<TripDayPlans>({});
   // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
   const [timePreview, setTimePreview] = useState<HrmRequestTimePreview | null>(
     null,
@@ -736,15 +752,6 @@ export function CreateRequestForm({
     }
   };
 
-  // Đơn ứng lương và đính chính hồ sơ không có lý do danh mục nhưng vẫn cho biết người duyệt.
-  const plainApprovalPreview = useApprovalRoutePreview({
-    kind: selectedCatalogId,
-    employeeId,
-    // Đơn tuỳ chỉnh: "lý do" của đường duyệt là loại đơn.
-    reasonId: selectedCatalogId === 'custom' ? selectedCustomType?.id : undefined,
-    enabled: !reasonedKind,
-  });
-
   const leaveBalance = leaveBalances[selectedLeaveTypeId] || {
     remaining: '----',
     entitlement: '----',
@@ -758,6 +765,17 @@ export function CreateRequestForm({
         : null,
     [dayPreview, fromDate, leaveStartTime, leaveEndTime],
   );
+  // Chi tiết từng ngày của mọi khoảng nghỉ: khoảng chính (tính theo ca đã tải) và từng khoảng bổ sung (máy chủ tính).
+  const dayDetailGroups = useMemo(() => {
+    const groups: { id: string; label: string; breakdown: { date: string; value: number; note: string }[]; missingShift: boolean }[] = [];
+    if (previewBreakdown) {
+      groups.push({ id: 'main', label: rangeLabel(0, 'leave'), breakdown: previewBreakdown.breakdown, missingShift: previewBreakdown.missingShift });
+    }
+    extraRanges.forEach((r, i) => {
+      if (r.preview) groups.push({ id: r.id, label: rangeLabel(i + 1, 'leave'), ...breakdownFromTimePreview(r.preview) });
+    });
+    return groups;
+  }, [previewBreakdown, extraRanges]);
   // Tổng số ngày nghỉ của mọi khoảng: khoảng chính cộng các khoảng bổ sung (số ngày do máy chủ tính cho từng khoảng).
   const totalLeaveDays = useMemo(
     () =>
@@ -768,6 +786,32 @@ export function CreateRequestForm({
       ) / 100,
     [leaveDuration, extraRanges],
   );
+  // Tổng hợp mọi khoảng làm thêm: khoảng chính (kết quả tính của form chính) và các khoảng bổ sung (máy chủ tính từng khoảng).
+  const otRangeRows = useMemo(
+    () => [
+      {
+        id: 'main',
+        fromAt: otFromAt,
+        toAt: otToAt,
+        minutes: timePreview?.totalMinutes ?? 0,
+        pending: !timePreview,
+        error: timePreview?.errors[0] ?? null,
+        warnings: timePreview?.warnings ?? [],
+      },
+      ...extraRanges.map((r) => ({
+        id: r.id,
+        fromAt: r.fromAt,
+        toAt: r.toAt,
+        minutes: r.preview?.totalMinutes ?? 0,
+        pending: !r.preview,
+        error: r.preview?.errors[0] ?? null,
+        warnings: r.preview?.warnings ?? [],
+      })),
+    ],
+    [otFromAt, otToAt, timePreview, extraRanges],
+  );
+  const otTotalMinutes = otRangeRows.reduce((n, r) => n + r.minutes, 0);
+  const otWarnings = [...new Set(otRangeRows.flatMap((r) => r.warnings))];
   const leaveDisplay = useMemo(() => {
     const available = parseFloat(leaveBalance.remaining);
     if (Number.isNaN(available)) return null;
@@ -799,14 +843,24 @@ export function CreateRequestForm({
       return `Số ngày nghỉ vượt quỹ phép năm khả dụng (còn ${leaveDisplay.available.toFixed(2)} ngày, tối đa nghỉ được ${leaveDisplay.maxUsable.toFixed(2)} ngày). Giảm số ngày nghỉ hoặc chọn lý do nghỉ khác.`;
     return '';
   }, [showLeaveFund, loading, leaveDisplay]);
+  // Nghỉ bù: số dư lấy từ quỹ nghỉ bù (sổ riêng), chặn vượt số dư và số ngày không là bội số của bước tối thiểu.
+  const [nextDayRest, setNextDayRest] = useState<HrmNextDayRest>('NONE');
+  const compOffAvailability = useCompOffAvailability(employeeId, fromDate, selectedCatalogId === 'leave' && Boolean(selectedLeaveTypeId));
+  // Chỉ coi là nghỉ bù có quỹ hệ thống khi quy tắc đang bật; tắt thì như một lý do nghỉ có lương thường (quỹ quản lý ngoài hệ thống).
+  const isCompOffLeave = Boolean(
+    compOffAvailability?.enabled && compOffAvailability.leaveTypeId && compOffAvailability.leaveTypeId === selectedLeaveTypeId,
+  );
+  const compOffProblem = isCompOffLeave ? compOffUsageProblem(totalLeaveDays, compOffAvailability) : '';
   const leaveValidation = useMemo(
     () =>
       !leaveDurationValidation.isValid
         ? leaveDurationValidation
         : leaveFundError
           ? { isValid: false, errorMessage: leaveFundError }
-          : leaveDurationValidation,
-    [leaveDurationValidation, leaveFundError],
+          : compOffProblem
+            ? { isValid: false, errorMessage: compOffProblem }
+            : leaveDurationValidation,
+    [leaveDurationValidation, leaveFundError, compOffProblem],
   );
 
   // Mã loại con quyết định binding PE nào sẽ được dùng khi gửi đơn.
@@ -1184,6 +1238,9 @@ export function CreateRequestForm({
       // Nhiều khoảng thời gian: mỗi khoảng là một đơn; ghi lại khoảng lỗi và số đơn đã gửi để báo rõ.
       let rangeFailure: { index: number; sent: number; kind: 'leave' | 'ot' | 'trip' } | null = null;
       let submittedCount = 1;
+      // Đơn nghỉ nhiều khoản gửi bằng MỘT yêu cầu (máy chủ tạo cả nhóm trong một giao dịch); số khoản của nhóm đã gửi.
+      let groupSize = 1;
+      let groupAttempt = false;
       const rangeOf = (fromAt: string, toAt: string, duration: number) => {
         const from = splitDateTime(fromAt);
         const to = splitDateTime(toAt);
@@ -1242,7 +1299,25 @@ export function CreateRequestForm({
         mainRange: SubmitRange,
         build: (range: SubmitRange) => Record<string, unknown>,
       ): Promise<Response> => {
-        const list: SubmitRange[] = saveAsDraft
+        // Đơn nghỉ nhiều khoản: một yêu cầu duy nhất kèm các khoản bổ sung. Máy chủ tạo cả nhóm trong một giao dịch nên
+        // một khoản không hợp lệ thì không khoản nào được gửi; cả nhóm được duyệt hoặc từ chối cùng lúc.
+        if (kind === 'leave' && !saveAsDraft && extraRanges.length) {
+          const extras = extraRanges.map((r) => {
+            const x = rangeOf(r.fromAt, r.toAt, r.preview?.totalDays ?? 0);
+            return { fromAt: x.fromAt, toAt: x.toAt, fromDate: x.fromDate, toDate: x.toDate, duration: x.duration };
+          });
+          groupAttempt = true;
+          const grouped = await persistRequest(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
+            credentials: 'same-origin',
+            body: JSON.stringify({ ...build(mainRange), extraRanges: extras }),
+          });
+          if (grouped.ok) groupSize = extras.length + 1;
+          return grouped;
+        }
+        // Đơn công tác luôn là một khoảng: mỗi chuyến công tác (dự án, đối tượng khác nhau) là một đơn riêng.
+        const list: SubmitRange[] = saveAsDraft || kind === 'trip'
           ? [mainRange]
           : [
               mainRange,
@@ -1383,6 +1458,7 @@ export function CreateRequestForm({
             plannedMinutes: Math.round(
               (new Date(range.toAt).getTime() - new Date(range.fromAt).getTime()) / 60000,
             ),
+            nextDayRest,
             ...reasonPayload('ot', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -1441,6 +1517,14 @@ export function CreateRequestForm({
           const problem = extraRangesProblem('trip', { fromAt: tripFromAt, toAt: tripToAt }, extraRanges);
           if (problem) {
             notifyFormError(problem.title, problem.message);
+            return;
+          }
+        }
+
+        if (!saveAsDraft && !extraRanges.length) {
+          const planProblem = tripDayPlansProblem(tripDayPlans, tripDatesBetween(fromDate, toDate));
+          if (planProblem) {
+            notifyFormError('Giờ làm theo ngày chưa hợp lệ', planProblem);
             return;
           }
         }
@@ -1760,6 +1844,20 @@ export function CreateRequestForm({
         // Thân phản hồi chưa được đọc ở đâu khác: lấy mã đơn vừa tạo (gửi nhiều khoảng là đơn cuối cùng).
         const created = (await res.json().catch(() => null)) as { data?: { id?: unknown } } | null;
         const id = typeof created?.data?.id === 'string' ? created.data.id : undefined;
+        // Giờ làm dự kiến theo ngày của đơn công tác: lưu ngay sau khi đơn được tạo. Lỗi ở bước này không làm mất đơn.
+        if (selectedCatalogId === 'business_trip' && id && !saveAsDraft && submittedCount === 1) {
+          const planLines = tripDayPlanLines(tripDayPlans, tripDatesBetween(fromDate, toDate));
+          if (planLines.length) {
+            try {
+              await compOffApi.saveTripDayLines(id, { mode: 'PLANNED', lines: planLines });
+            } catch {
+              toast.error({
+                title: 'Đơn đã gửi nhưng chưa lưu được giờ làm theo ngày',
+                description: 'Mở chi tiết đơn, mục Giờ làm theo ngày để khai lại.',
+              });
+            }
+          }
+        }
         const period =
           fromDate && toDate && toDate !== fromDate
             ? `${formatVnDate(fromDate)} - ${formatVnDate(toDate)}`
@@ -1769,21 +1867,25 @@ export function CreateRequestForm({
           toast.success({
             title: saveAsDraft
               ? 'Đã lưu bản nháp'
-              : submittedCount > 1
-                ? `Đã gửi ${submittedCount} đơn`
-                : 'Đã gửi đơn',
+              : groupSize > 1
+                ? `Đã gửi đơn nghỉ (${groupSize} khoản)`
+                : submittedCount > 1
+                  ? `Đã gửi ${submittedCount} đơn`
+                  : 'Đã gửi đơn',
             description: saveAsDraft
               ? 'Nháp chưa phát sinh hiệu lực nghiệp vụ.'
-              : submittedCount > 1
-                ? `Mỗi khoảng thời gian là một đơn riêng; theo dõi trạng thái trong danh sách.`
-                : 'Đơn đã được ghi nhận; theo dõi trạng thái trong danh sách.',
+              : groupSize > 1
+                ? 'Các khoản được duyệt hoặc từ chối cùng lúc; theo dõi trạng thái trong danh sách.'
+                : submittedCount > 1
+                  ? `Mỗi khoảng thời gian là một đơn riêng; theo dõi trạng thái trong danh sách.`
+                  : 'Đơn đã được ghi nhận; theo dõi trạng thái trong danh sách.',
           });
         await onSubmitted({
           ...(id ? { id } : {}),
           label: [
             selectedTypeTitle,
             selectedCatalogId === 'custom' ? '' : period,
-            submittedCount > 1 ? `(${submittedCount} đơn)` : '',
+            groupSize > 1 ? `(${groupSize} khoản)` : submittedCount > 1 ? `(${submittedCount} đơn)` : '',
           ]
             .filter((part) => part && part !== '----')
             .join(' '),
@@ -1817,10 +1919,12 @@ export function CreateRequestForm({
           notifyFormError(
             unavailable
               ? 'Procedure Engine không khả dụng'
-              : failure
-                ? `${rangeLabel(failure.index, failure.kind)} gửi không thành công`
-                : 'Tạo đơn thất bại',
-            errMsg,
+              : groupAttempt
+                ? 'Đơn nhiều khoản chưa gửi được'
+                : failure
+                  ? `${rangeLabel(failure.index, failure.kind)} gửi không thành công`
+                  : 'Tạo đơn thất bại',
+            groupAttempt && !unavailable ? `${errMsg} Chưa có khoản nào được gửi.` : errMsg,
           );
         }
       }
@@ -2034,6 +2138,8 @@ export function CreateRequestForm({
               fromAt={leaveFromAt}
               toAt={leaveToAt}
               leaveTypeId={selectedLeaveTypeId || undefined}
+              // Đơn nghỉ đã có thẻ quỹ/số ngày và bảng chi tiết từng ngày nên bỏ thẻ tổng giờ và cảnh báo ngày nghỉ.
+              showSummary={false}
               onChange={applyTimeRange(
                 setLeaveStartTime,
                 setLeaveEndTime,
@@ -2051,6 +2157,7 @@ export function CreateRequestForm({
               ranges={extraRanges}
               onChange={setExtraRanges}
               disabled={isSubmitting}
+              showSummary={false}
             />
 
             {/* Thông tin ngày nghỉ: số ngày tính toán; quỹ phép chỉ có với lý do trừ phép năm */}
@@ -2059,7 +2166,7 @@ export function CreateRequestForm({
               className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3"
             >
               <div
-                className={`grid gap-3 ${showLeaveFund ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1'}`}
+                className={`grid gap-3 ${showLeaveFund || isCompOffLeave ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1'}`}
               >
                 {showLeaveFund && (
                   <div data-testid="leave-fund" className="space-y-0.5">
@@ -2068,6 +2175,16 @@ export function CreateRequestForm({
                     </span>
                     <span className="font-mono text-sm font-bold text-[#021E73]">
                       {leaveBalance.remaining} ngày
+                    </span>
+                  </div>
+                )}
+                {isCompOffLeave && compOffAvailability && (
+                  <div data-testid="comp-off-fund" className="space-y-0.5">
+                    <span className="block text-[12px] text-slate-600">
+                      Quỹ nghỉ bù khả dụng
+                    </span>
+                    <span className="font-mono text-sm font-bold text-[#021E73]">
+                      {formatCompNumber(compOffAvailability.available)} ngày
                     </span>
                   </div>
                 )}
@@ -2103,6 +2220,28 @@ export function CreateRequestForm({
                     )}
                   </span>
                 </div>
+                {isCompOffLeave && compOffAvailability && (
+                  <>
+                    <div className="space-y-0.5">
+                      <span className="block text-[12px] text-slate-600">
+                        Sau khi xin
+                      </span>
+                      <span
+                        className={`font-mono text-sm font-bold ${compOffProblem ? 'text-rose-600' : 'text-emerald-700'}`}
+                      >
+                        {formatCompNumber(compOffAvailability.available - totalLeaveDays)} ngày
+                      </span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="block text-[12px] text-slate-600">
+                        Đang giữ chỗ
+                      </span>
+                      <span className="font-mono text-sm font-bold text-slate-700">
+                        {formatCompNumber(compOffAvailability.reserved)} ngày
+                      </span>
+                    </div>
+                  </>
+                )}
                 {showLeaveFund && (
                   <>
                     <div className="space-y-0.5">
@@ -2138,6 +2277,7 @@ export function CreateRequestForm({
                   </>
                 )}
               </div>
+              {isCompOffLeave && <CompOffAvailabilityHint availability={compOffAvailability} problem={compOffProblem} />}
               {showLeaveFund && leaveDisplay && (
                 <p className="text-[12px] leading-relaxed text-slate-500">
                   Hiện còn {leaveDisplay.available.toFixed(2)} ngày
@@ -2232,32 +2372,42 @@ export function CreateRequestForm({
               </div>
             )}
 
-            {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
-              <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[12px] text-slate-600">
+            {dayDetailGroups.reduce((n, g) => n + g.breakdown.length, 0) > 1 && (
+              <div
+                data-testid="leave-day-detail"
+                className="space-y-1 rounded-lg border border-slate-200 bg-white p-2.5 text-[12px] text-slate-600"
+              >
                 <strong className="block font-semibold text-slate-700">
                   Chi tiết từng ngày
                 </strong>
-                {previewBreakdown.breakdown.map((item) => (
-                  <div
-                    key={item.date}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="font-mono">
-                      {new Date(`${item.date}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                    </span>
-                    <span className="flex-1 text-right text-slate-500">
-                      {item.note}
-                    </span>
-                    <span className="w-12 text-right font-mono font-semibold">
-                      {item.value}
-                    </span>
+                {dayDetailGroups.map((group) => (
+                  <div key={group.id} className="space-y-1">
+                    {extraRanges.length > 0 && (
+                      <p className="pt-1 font-semibold text-slate-700">{group.label}</p>
+                    )}
+                    {group.breakdown.map((item) => (
+                      <div
+                        key={`${group.id}-${item.date}`}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="font-mono">
+                          {new Date(`${item.date}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                        </span>
+                        <span className="flex-1 text-right text-slate-500">
+                          {item.note}
+                        </span>
+                        <span className="w-12 text-right font-mono font-semibold">
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                    {group.missingShift && (
+                      <p className="text-amber-700">
+                        Có ngày chưa phân ca; cần HR phân ca trước khi gửi đơn.
+                      </p>
+                    )}
                   </div>
                 ))}
-                {previewBreakdown.missingShift && (
-                  <p className="text-amber-700">
-                    Có ngày chưa phân ca; cần HR phân ca trước khi gửi đơn.
-                  </p>
-                )}
               </div>
             )}
 
@@ -2502,15 +2652,15 @@ export function CreateRequestForm({
           <>
 
 
-            <RequestTimeRange
+            <OvertimeTimeRange
               employeeId={employeeId}
               fromAt={otFromAt}
               toAt={otToAt}
-              kind="ot"
-              fromLabel="Từ ngày giờ làm thêm"
-              toLabel="Đến ngày giờ làm thêm"
+              startTime={startTime}
+              endTime={endTime}
               onChange={applyTimeRange(setStartTime, setEndTime)}
               onPreview={handleTimePreview}
+              disabled={isSubmitting}
             />
             <ExtraTimeRanges
               kind="ot"
@@ -2518,6 +2668,70 @@ export function CreateRequestForm({
               main={{ fromAt: otFromAt, toAt: otToAt }}
               ranges={extraRanges}
               onChange={setExtraRanges}
+              disabled={isSubmitting}
+            />
+
+            {otFromAt && otToAt && (
+              <div
+                data-testid="ot-range-breakdown"
+                className="overflow-hidden rounded-md border border-blue-200 bg-white"
+              >
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="bg-blue-50 text-left text-slate-600">
+                      <th className="px-2.5 py-1.5 font-semibold">Khoảng</th>
+                      <th className="px-2.5 py-1.5 font-semibold">Thời gian</th>
+                      <th className="px-2.5 py-1.5 text-right font-semibold">Số giờ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {otRangeRows.map((row, i) => (
+                      <tr key={row.id} data-testid={`ot-range-row-${i + 1}`}>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-slate-800">
+                          {rangeLabel(i, 'ot')}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-slate-600">
+                          {row.fromAt && row.toAt
+                            ? `${shortRangeTime(row.fromAt)} - ${shortRangeTime(row.toAt)}`
+                            : 'Chưa chọn thời gian'}
+                          {row.error && <span className="block text-rose-600">{row.error}</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-mono font-bold text-[#021E73]">
+                          {row.pending ? '...' : `${formatHours(row.minutes)} giờ`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50/60">
+                      <td className="px-2.5 py-1.5 font-semibold text-slate-800" colSpan={2}>
+                        Tổng cộng
+                      </td>
+                      <td
+                        data-testid="ot-total"
+                        className="px-2.5 py-1.5 text-right font-mono font-bold text-[#021E73]"
+                      >
+                        {formatHours(otTotalMinutes)} giờ
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+                {otWarnings.length > 0 && (
+                  <div className="space-y-0.5 border-t border-slate-100 px-2.5 py-1.5 text-[12px] text-amber-700">
+                    {otWarnings.map((text) => (
+                      <p key={text}>{text}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <OvertimeClassifyHint
+              employeeId={employeeId}
+              fromAt={otFromAt}
+              toAt={otToAt}
+              value={nextDayRest}
+              onChange={setNextDayRest}
               disabled={isSubmitting}
             />
 
@@ -2643,17 +2857,23 @@ export function CreateRequestForm({
               fromAt={tripFromAt}
               toAt={tripToAt}
               kind="trip"
+              fromLabel="Từ ngày giờ"
+              toLabel="Đến ngày giờ"
               onChange={applyTimeRange(setTripStartTime, setTripEndTime)}
               onPreview={handleTimePreview}
             />
-            <ExtraTimeRanges
-              kind="trip"
-              employeeId={employeeId}
-              main={{ fromAt: tripFromAt, toAt: tripToAt }}
-              ranges={extraRanges}
-              onChange={setExtraRanges}
-              disabled={isSubmitting}
-            />
+
+            {/* Tạm ẩn "khai giờ dự kiến theo ngày": bật lại bằng SHOW_TRIP_DAY_PLANS. */}
+            {SHOW_TRIP_DAY_PLANS && (
+              <TripDayPlanFields
+                fromDate={fromDate}
+                toDate={toDate}
+                value={tripDayPlans}
+                onChange={setTripDayPlans}
+                disabled={isSubmitting}
+              />
+            )}
+
 
             {/* Hàng 2: Hình thức công tác & Phòng ban */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3261,7 +3481,6 @@ export function CreateRequestForm({
                 required
               />
             </div>
-            <ApproverPreview preview={plainApprovalPreview} />
           </>
         )}
 

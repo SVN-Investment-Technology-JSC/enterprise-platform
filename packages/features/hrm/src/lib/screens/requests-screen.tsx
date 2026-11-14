@@ -44,6 +44,7 @@ import type {
   HrmRequestType,
 } from '@enterprise-platform/contracts-hrm';
 import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
+import { isLeaveGroupFollower, leaveGroupSummary } from '../leave-group-view';
 import {
   Sheet,
   SheetContent,
@@ -94,6 +95,7 @@ import {
 } from '../ui/create-request-form';
 import { isHiddenRequestKind, splitEmployeeLabel } from '../hrm-approval-kinds';
 import { leaveBalancesOf, type LeaveTypeItem, type ShiftItem } from '../request-form-model';
+import { TripDayLinesPanel } from '../ui/trip-day-lines-panel';
 
 /** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
 function customRequestItem(
@@ -530,6 +532,9 @@ export default function RequestsPage() {
       if (leaveRes.ok) {
         const payload = await leaveRes.json();
         for (const item of payload.data || []) {
+          // Đơn nhiều khoản: chỉ hiện khoản chính; các khoản bổ sung được duyệt, từ chối, hủy cùng khoản chính.
+          if (isLeaveGroupFollower(item)) continue;
+          const group = leaveGroupSummary(item);
           const isApproved = item.status === 'APPROVED';
           const isApplied = Boolean(item.appliedAt);
           const wfStatus = isApproved
@@ -568,10 +573,12 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: item.fromAt
-              ? formatRequestPeriod(item)
-              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
-            duration: `${item.duration || 1} ngày`,
+            effectiveDate: group
+              ? group.periods.join(' • ')
+              : item.fromAt
+                ? formatRequestPeriod(item)
+                : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
+            duration: group ? `${group.totalDays} ngày (${group.count} khoản)` : `${item.duration || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
@@ -2249,6 +2256,10 @@ export default function RequestsPage() {
                     projects={workspaceProjects}
                   />
                 )}
+                {selectedRequest?.kind === 'business_trip' &&
+                  ['SUBMITTED', 'PENDING', 'APPROVED', 'APPLIED'].includes(selectedRequest.requestStatus) && (
+                    <TripDayLinesPanel tripId={String(selectedRequest.id)} />
+                  )}
                 {selectedRequest?.kind === 'shift_change' && (
                   <div className="flex justify-between">
                     <span>Tình trạng xác nhận chéo:</span>

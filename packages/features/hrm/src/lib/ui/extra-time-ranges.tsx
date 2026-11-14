@@ -10,6 +10,7 @@ import {
   type TimeRangeInput,
 } from '../request-ranges';
 import { Button } from './button';
+import { OvertimeTimeRange } from './overtime-time-range';
 import { RequestTimeRange } from './request-time-range';
 
 /**
@@ -25,6 +26,7 @@ export function ExtraTimeRanges({
   ranges,
   onChange,
   disabled,
+  showSummary = true,
 }: {
   kind: 'leave' | 'ot' | 'trip';
   employeeId: string;
@@ -34,6 +36,8 @@ export function ExtraTimeRanges({
   ranges: readonly ExtraRange[];
   onChange: (ranges: ExtraRange[]) => void;
   disabled?: boolean;
+  /** false: mỗi khoảng không hiện thẻ tổng giờ (xem RequestTimeRange). */
+  showSummary?: boolean;
 }) {
   const noun = kind === 'leave' ? 'nghỉ' : kind === 'ot' ? 'làm thêm' : 'công tác';
   const total = ranges.length + 1;
@@ -49,7 +53,7 @@ export function ExtraTimeRanges({
 
   function add() {
     const last = ranges.length ? ranges[ranges.length - 1] : main;
-    const suggestion = nextRange(last);
+    const suggestion = nextRange(last, kind === 'ot');
     onChange([...ranges, { id: `${Date.now()}-${ranges.length}`, ...suggestion, preview: null }]);
   }
 
@@ -76,10 +80,22 @@ export function ExtraTimeRanges({
               Xoá
             </Button>
           </div>
+          {kind === 'ot' ? (
+            <OvertimeTimeRange
+              employeeId={employeeId}
+              idPrefix={`extra-ot-${index + 2}`}
+              fromAt={range.fromAt}
+              toAt={range.toAt}
+              disabled={disabled}
+              onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
+              onPreview={(preview) => patch(range.id, { preview })}
+            />
+          ) : (
           <RequestTimeRange
             employeeId={employeeId}
             kind={kind}
             leaveTypeId={leaveTypeId}
+            showSummary={showSummary}
             fromAt={range.fromAt}
             toAt={range.toAt}
             fromLabel={`Từ ngày giờ ${noun}`}
@@ -88,6 +104,7 @@ export function ExtraTimeRanges({
             onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
             onPreview={(preview) => patch(range.id, { preview })}
           />
+          )}
         </div>
       ))}
       <div className="flex items-center justify-between">
@@ -104,7 +121,9 @@ export function ExtraTimeRanges({
         </Button>
         {ranges.length > 0 && (
           <span className="text-[12px] text-slate-500">
-            Gửi thành {total} đơn {noun}, cùng lý do, mô tả và chứng từ.
+            {kind === 'leave'
+              ? `Gửi thành một đơn ${total} khoản, cùng lý do, mô tả và chứng từ; các khoản được duyệt hoặc từ chối cùng lúc.`
+              : `Gửi thành ${total} đơn ${noun}, cùng lý do, mô tả và chứng từ.`}
           </span>
         )}
       </div>

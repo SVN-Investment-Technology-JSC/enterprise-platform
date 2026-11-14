@@ -55,6 +55,8 @@ import { accrueMonth } from '../infrastructure/hrm-leave-accrual.js';
 import {
   createLeave,
   transitionLeave,
+  createLeaveGroup,
+  parseLeaveGroupRanges,
   ensureLeaveBalance,
 } from '../infrastructure/hrm-leave-operations.js';
 import {
@@ -97,6 +99,7 @@ import {
   waiveSettlement,
 } from '../infrastructure/hrm-leave-settlement.js';
 import { sumEntitlement } from '../domain/annual-leave-entitlement.js';
+import { loadOvertimeCompPolicy } from '../infrastructure/hrm-overtime-blocks.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import { markOnBehalf, onBehalfView } from '../infrastructure/hrm-request-proxy.js';
 import {
@@ -230,8 +233,19 @@ export class HrmLeaveController {
        ORDER BY code ASC`,
       [tenantId, active !== undefined ? active === 'true' : null],
     );
+    // Lý do Nghỉ bù luôn dùng được. Quy tắc làm thêm và nghỉ bù (tháng này) bật thì quỹ do hệ thống tính: form hiện thẻ
+    // quỹ, giữ chỗ và chặn vượt số dư. Tắt thì quỹ do doanh nghiệp tự quản lý ngoài hệ thống: không tính, không chặn,
+    // người duyệt toàn quyền duyệt hoặc từ chối. `compOffManaged` cho client biết đang ở chế độ nào.
+    let managed = false;
+    if (res.rows.some((r) => r.comp_off)) {
+      const month = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(0, 7);
+      managed = (await loadOvertimeCompPolicy(pool, tenantId, month)).policy.fundEnabled;
+    }
     return {
-      data: res.rows.map(this.mapLeaveType),
+      data: res.rows.map((row) => ({
+        ...this.mapLeaveType(row),
+        ...(row.comp_off ? { compOffManaged: managed } : {}),
+      })),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -353,13 +367,18 @@ export class HrmLeaveController {
       const isAnnual = Boolean(before.is_annual);
       if (body.isAnnual !== undefined && body.isAnnual !== isAnnual)
         throw new BadRequestException(ANNUAL_ONLY_MESSAGE);
+      const isCompOff = Boolean(before.comp_off);
+      if (isCompOff) {
+        // Lý do nghỉ bù mặc định: luôn có lương, không trừ quỹ phép năm (số dư lấy từ quỹ nghỉ bù), không chuyển năm sau.
+        // Tenant được ngừng hoặc dùng lại, nhưng không được xóa.
+        if (body.paid === false)
+          throw new ConflictException('Lý do nghỉ bù luôn có lương');
+        if (body.carryoverAllowed === true)
+          throw new ConflictException('Nghỉ bù dùng quỹ nghỉ bù, không dùng chuyển phép sang năm sau');
+      }
       if (isAnnual) {
-        // Lý do phép năm là duy nhất của tenant: luôn có lương, trừ quỹ, không được ngừng,
-        // và không chuyển phép sang năm sau.
-        if (body.active === false)
-          throw new ConflictException(
-            'Không thể ngừng lý do phép năm duy nhất của hệ thống',
-          );
+        // Lý do phép năm là duy nhất của tenant: luôn có lương, trừ quỹ và không chuyển phép sang năm sau.
+        // Tenant được ngừng hoặc dùng lại, nhưng không được xóa.
         if (body.paid === false || body.deductBalance === false)
           throw new ConflictException(
             'Lý do phép năm luôn có lương và trừ quỹ phép',
@@ -442,9 +461,10 @@ export class HrmLeaveController {
       if (body?.expectedUpdatedAt) {
         assertLifecycleVersion(before, body.expectedUpdatedAt);
       }
-      if (before.is_annual) {
+      if (before.is_annual || before.comp_off) {
+        // Lý do mặc định có xử lý riêng (phép năm, nghỉ bù): không xóa, kể cả xóa mềm; chỉ ngừng sử dụng.
         throw new ConflictException(
-          'Không thể ngừng lý do phép năm duy nhất của hệ thống',
+          `Lý do "${before.name}" là lý do mặc định của hệ thống nên không xóa được. Dùng "Ngừng" nếu tổ chức không áp dụng.`,
         );
       }
 
@@ -1398,20 +1418,29 @@ export class HrmLeaveController {
         attributes: body.attributes,
       },
       async (db) => {
-        const created = await createLeave(db, tenantId, principal.userId, {
-          ...body,
-          employeeId,
-        });
-        return onBehalf
-          ? markOnBehalf(db, created, {
-              tenantId,
-              table: 'leave_requests',
-              kind: 'leave',
-              employeeId,
-              actorUserId: principal.userId,
-              reason: onBehalf.reason,
-            })
-          : created;
+        // Đơn nhiều khoản: mọi khoản tạo trong giao dịch này; một khoản không hợp lệ thì không khoản nào được gửi.
+        const extra = parseLeaveGroupRanges(body.extraRanges);
+        return createLeaveGroup(
+          db,
+          tenantId,
+          principal.userId,
+          { ...body, employeeId },
+          extra,
+          {
+            requestTypeLabel: 'Đơn nghỉ phép',
+            afterCreate: onBehalf
+              ? (row) =>
+                  markOnBehalf(db, row, {
+                    tenantId,
+                    table: 'leave_requests',
+                    kind: 'leave',
+                    employeeId,
+                    actorUserId: principal.userId,
+                    reason: onBehalf.reason,
+                  })
+              : undefined,
+          },
+        );
       },
     );
     return {
@@ -1523,13 +1552,21 @@ export class HrmLeaveController {
       assignee,
       currentStep,
     });
+    // Người duyệt chỉ thấy khoản chính của đơn nhiều khoản; duyệt khoản chính là duyệt cả nhóm.
+    const hideFollowers = forApproval === '1' ? 'AND (lr.group_id IS NULL OR lr.group_id = lr.id)' : '';
     const res = await pool.query(
-      `SELECT lr.*, lt.code as leave_type_code, lt.name as leave_type_name, lt.paid as is_paid
+      `SELECT lr.*, lt.code as leave_type_code, lt.name as leave_type_name, lt.paid as is_paid,
+              CASE WHEN lr.group_id = lr.id THEN (
+                SELECT json_agg(json_build_object('id', g.id, 'fromDate', g.from_date, 'toDate', g.to_date,
+                                                  'fromAt', g.from_at, 'toAt', g.to_at, 'duration', g.duration, 'status', g.status)
+                                ORDER BY g.from_date, g.from_at, g.id)
+                  FROM hrm_schema.leave_requests g WHERE g.tenant_id = lr.tenant_id AND g.group_id = lr.id) END AS group_ranges
        FROM hrm_schema.leave_requests lr
        LEFT JOIN hrm_schema.leave_types lt ON lr.leave_type_id = lt.id
        WHERE lr.tenant_id = $1
          AND ($2::uuid IS NULL OR lr.employee_id = $2)
          AND ($3::text IS NULL OR lr.status = $3)
+         ${hideFollowers}
          AND ${approvalScope.sql}
          AND ${progress.sql}
        ORDER BY lr.created_at DESC`,
@@ -1690,6 +1727,8 @@ export class HrmLeaveController {
         const leave = current.rows[0];
         if (!leave || leave.status !== 'PENDING')
           throw new BadRequestException('Chỉ sửa đơn đang chờ duyệt');
+        if (leave.group_id)
+          throw new ConflictException('Đơn gồm nhiều khoản: hủy cả đơn rồi tạo lại, không sửa riêng từng khoản.');
         assertLifecycleVersion(leave, body.expectedUpdatedAt);
         if (
           (
@@ -1765,6 +1804,7 @@ export class HrmLeaveController {
       unit: row.unit as any,
       paid: Boolean(row.paid),
       isAnnual: Boolean(row.is_annual),
+      isCompOff: Boolean(row.comp_off),
       deductBalance: Boolean(row.deduct_balance),
       negativeLimit: row.is_annual ? 0 : Number(row.negative_limit || 0),
       requiresAttachment: Boolean(row.requires_attachment),
@@ -1905,6 +1945,18 @@ export class HrmLeaveController {
       appliedAt: row.applied_at
         ? new Date(row.applied_at as string).toISOString()
         : null,
+      groupId: (row.group_id as string | null | undefined) ?? null,
+      groupRanges: Array.isArray(row.group_ranges)
+        ? (row.group_ranges as Record<string, unknown>[]).map((g) => ({
+            id: g.id as string,
+            fromDate: String(g.fromDate).slice(0, 10),
+            toDate: String(g.toDate).slice(0, 10),
+            fromAt: g.fromAt ? new Date(String(g.fromAt)).toISOString() : null,
+            toAt: g.toAt ? new Date(String(g.toAt)).toISOString() : null,
+            duration: Number(g.duration),
+            status: g.status as HrmLeaveRequest['status'],
+          }))
+        : undefined,
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };

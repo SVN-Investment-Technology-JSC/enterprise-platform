@@ -18,6 +18,7 @@ import {
 import { localMinutesOfDay } from './hrm-leave-day-preview.js';
 import { requireDate } from './hrm-validation.js';
 import { assertNoRequestOverlap, tripBlocksOt } from './hrm-request-overlap.js';
+import { syncOvertimeBlocks } from './hrm-overtime-blocks.js';
 import {
   computeOvertimeTime,
   deriveOvertimeTime,
@@ -42,7 +43,7 @@ export type OtCreateInput = Pick<CreateOtRequestPayload, 'employeeId'> &
   Partial<
     Pick<
       CreateOtRequestPayload,
-      'fromAt' | 'toAt' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes'
+      'fromAt' | 'toAt' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes' | 'nextDayRest'
     >
   >;
 
@@ -401,6 +402,17 @@ export async function createOvertime(
         `INSERT INTO hrm_schema.ot_requests (tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,ot_type,ot_rate_multiplier,reason,reason_id,reason_name,paid,policy_version_id,rate_source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
         [...params, rateSource],
       );
+  // Ngày nghỉ sau ca xuyên đêm (chỉ ghi khi khác mặc định); dùng để phân loại làm thêm / ca đêm khi duyệt.
+  const nextDayRest = input.nextDayRest ?? 'NONE';
+  if (!['NONE', 'HALF', 'FULL'].includes(nextDayRest))
+    throw new BadRequestException('Nghỉ ngày kế tiếp chỉ nhận NONE, HALF hoặc FULL');
+  if (nextDayRest !== 'NONE') {
+    const withRest = await db.query(
+      `UPDATE hrm_schema.ot_requests SET next_day_rest=$3 WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+      [tenant, result.rows[0].id, nextDayRest],
+    );
+    return withRest.rows[0];
+  }
   return result.rows[0];
 }
 export async function approveOvertime(
@@ -446,5 +458,7 @@ export async function approveOvertime(
     `UPDATE hrm_schema.ot_requests SET status='APPROVED',approved_minutes=planned_minutes,ot_rate_multiplier=$4,policy_version_id=$5,rate_source=$6,ot_type=$7,approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenant, id, actor, rate, rule.policyId, reasonRate == null ? 'POLICY' : 'REASON', rule.kind],
   );
+  // Phân loại làm thêm / ca đêm theo chính sách của tháng (không ghi gì khi quy tắc chưa bật).
+  await syncOvertimeBlocks(db, tenant, actor, id, updated.rows[0]);
   return updated.rows[0];
 }

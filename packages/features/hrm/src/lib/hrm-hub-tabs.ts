@@ -25,8 +25,9 @@ export const HRM_HUBS = {
     { id: 'decisions', label: 'Quyết định nhân sự', permissions: ['hrm.appointment.read'] },
   ],
   '/leave': [
-    { id: 'balances', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
-    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read'] },
+    { id: 'balances', label: 'Quỹ phép năm', permissions: ['hrm.leave.read'] },
+    { id: 'comp-off', label: 'Quỹ nghỉ bù', permissions: ['hrm.comp_off.view'] },
+    { id: 'adjustments', label: 'Lịch sử điều chỉnh', permissions: ['hrm.leave.read', 'hrm.comp_off.view'] },
   ],
   '/timekeeping': [
     { id: 'timesheets', label: 'Bảng công', permissions: ['hrm.timesheet.read'] },
@@ -43,6 +44,7 @@ export const HRM_HUBS = {
   ],
   '/settings': [
     { id: 'leave', label: 'Chính sách phép năm', permissions: ['hrm.leave.manage'] },
+    { id: 'overtime-comp', label: 'Làm thêm và nghỉ bù', permissions: ['hrm.policy.view', 'hrm.policy.manage'] },
     { id: 'time', label: 'Chấm công', permissions: ['hrm.time.configure'] },
     { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
     { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },

@@ -7,6 +7,7 @@ import {
 import type { PoolClient } from 'pg';
 import { lifecycleAudit } from './hrm-lifecycle.js';
 import { isoDate } from './hrm-time.js';
+import { clearOvertimeCompSnapshot, snapshotOvertimeComp } from './hrm-overtime-month.js';
 
 /**
  * Luật khóa / mở lại kỳ công, dùng chung cho API kỳ công cũ (/timesheet-periods/:id/lock|reopen)
@@ -59,6 +60,8 @@ export async function lockTimesheetPeriod(
   await lifecycleAudit(db, tenantId, actorId, 'TIMESHEET_PERIOD_LOCKED', id, {
     before: period.rows[0],
   });
+  // Chụp chính sách làm thêm và số liệu của tháng: từ đây lương và chuyển đổi nghỉ bù đọc ảnh này.
+  await snapshotOvertimeComp(db, tenantId, actorId, period.rows[0]);
   const locked = await db.query(
     `UPDATE hrm_schema.timesheet_periods SET status='LOCKED',locked_by=$3,locked_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenantId, id, actorId],
@@ -103,6 +106,7 @@ export async function reopenTimesheetPeriod(
     `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status<>'CANCELLED'`,
     [tenantId, runs.rows.map((r) => r.id)],
   );
+  await clearOvertimeCompSnapshot(db, tenantId, id);
   await lifecycleAudit(
     db,
     tenantId,

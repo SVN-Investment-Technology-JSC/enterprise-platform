@@ -49,6 +49,8 @@ export interface RequestReasonChoice {
   requiresDescription: boolean;
   /** Chỉ lý do nghỉ phép năm trừ quỹ phép. */
   deductBalance: boolean;
+  /** Quỹ riêng mà lý do trừ, hiện cạnh lý do: "Trừ quỹ phép năm" hoặc "Trừ quỹ nghỉ bù". */
+  fundLabel?: string | null;
   /** Hệ số tăng ca của lý do OT (cấu hình động); null/thiếu = theo chính sách OT. */
   rateMultiplier?: number | null;
 }
@@ -76,6 +78,8 @@ export interface LeaveTypeLike {
   paid?: boolean;
   deductBalance?: boolean;
   isAnnual?: boolean;
+  isCompOff?: boolean;
+  compOffManaged?: boolean;
   requiresDescription?: boolean;
 }
 
@@ -88,6 +92,7 @@ export function choiceFromLeaveType(type: LeaveTypeLike): RequestReasonChoice {
     paid: type.paid !== false,
     requiresDescription: type.requiresDescription === true,
     deductBalance: type.deductBalance ?? type.isAnnual === true,
+    fundLabel: type.isCompOff ? (type.compOffManaged === false ? null : 'Trừ quỹ nghỉ bù') : type.deductBalance ?? type.isAnnual === true ? 'Trừ quỹ phép năm' : null,
   };
 }
 

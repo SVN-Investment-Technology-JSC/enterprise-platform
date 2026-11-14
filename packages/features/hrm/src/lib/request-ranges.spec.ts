@@ -35,6 +35,18 @@ describe('nextRange', () => {
     });
   });
 
+  it('làm thêm giờ xuyên đêm: khoảng mới bắt đầu ngày liền sau ngày bắt đầu (D+1), không phải D+2', () => {
+    const overnight = { fromAt: '2026-11-13T22:00', toAt: '2026-11-14T04:00' };
+    expect(nextRange(overnight, true)).toEqual({ fromAt: '2026-11-14T22:00', toAt: '2026-11-15T04:00' });
+    // Khoảng nghỉ, công tác vẫn nối tiếp sau ngày kết thúc.
+    expect(nextRange(overnight)).toEqual({ fromAt: '2026-11-15T22:00', toAt: '2026-11-16T04:00' });
+    // Cùng ngày: hai cách như nhau.
+    expect(nextRange({ fromAt: '2026-11-13T17:30', toAt: '2026-11-13T20:30' }, true)).toEqual({
+      fromAt: '2026-11-14T17:30',
+      toAt: '2026-11-14T20:30',
+    });
+  });
+
   it('khoảng cuối chưa hợp lệ: trả khoảng rỗng', () => {
     expect(nextRange(null)).toEqual({ fromAt: '', toAt: '' });
     expect(nextRange({ fromAt: '2026-10-12T10:00', toAt: '2026-10-12T09:00' })).toEqual({ fromAt: '', toAt: '' });

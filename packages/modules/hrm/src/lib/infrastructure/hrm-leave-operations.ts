@@ -1,4 +1,7 @@
-import { assertQuotaOnApprove } from './hrm-request-quota.js';
+import { assertQuotaOnApprove, assertQuotaOnCreate } from './hrm-request-quota.js';
+import { assertRequestWithinMonth } from './hrm-request-month.js';
+import { assertRequestTiming } from './hrm-request-time-rules.js';
+import { attachRequestToOverlappingTrips } from './hrm-request-project-links.js';
 import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 import {
   reserveCarryover,
@@ -7,6 +10,7 @@ import {
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   NotFoundException,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
@@ -28,6 +32,7 @@ import { descriptionColumn, pickDescription } from './hrm-request-reason-input.j
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
 import { assertNoRequestOverlap } from './hrm-request-overlap.js';
 import { leaveDayWeight } from './hrm-leave-day-preview.js';
+import { reserveCompOff, settleCompOffRequest } from './hrm-comp-off.js';
 
 async function todayInDb(db: PoolClient): Promise<string> {
   return isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today);
@@ -231,8 +236,12 @@ export async function createLeave(
     const year = Number(day.date.slice(0, 4));
     years.set(year, (years.get(year) || 0) + day.quantity);
   }
+  // Nghỉ bù dùng quỹ nghỉ bù (sổ comp_off_ledger), không dùng quỹ phép năm; chỉ tính theo ngày.
+  const isCompOff = Boolean(type.comp_off);
+  if (isCompOff && type.unit === 'HOURS')
+    throw new BadRequestException('Nghỉ bù chỉ tính theo ngày');
   // Quỹ phép chỉ áp dụng cho phép năm: nghỉ không lương không bao giờ kiểm tra/trừ quỹ.
-  const deductsBalance = Boolean(type.deduct_balance) && type.paid !== false;
+  const deductsBalance = !isCompOff && Boolean(type.deduct_balance) && type.paid !== false;
   if (deductsBalance)
     for (const [year, amount] of years) {
       const balance = await ensureLeaveBalance(
@@ -298,13 +307,21 @@ export async function createLeave(
       `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes) VALUES ($1,$2,$3,$4,$5)`,
       [result.rows[0].id, tenant, day.date, day.quantity, day.paidMinutes],
     );
+  // Giữ chỗ quỹ nghỉ bù theo lô gần hết hạn trước; không đủ số dư hoặc sai bước 0,5 ngày thì cả đơn không được tạo.
+  if (isCompOff)
+    await reserveCompOff(db, tenant, actor, {
+      employeeId: body.employeeId,
+      requestId: result.rows[0].id,
+      days: time.duration,
+      usageDate: time.fromDate,
+    });
   await db.query(
     `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_id,detail) VALUES ($1,$2,'LEAVE_SUBMITTED',$3,$4)`,
     [tenant, actor, result.rows[0].id, JSON.stringify({ days })],
   );
   return result.rows[0];
 }
-export async function transitionLeave(
+async function transitionLeaveRow(
   db: PoolClient,
   tenant: string,
   actor: string,
@@ -441,6 +458,13 @@ export async function transitionLeave(
     target,
     new Date().toISOString().slice(0, 10),
   );
+  // Đơn nghỉ bù: duyệt thì giữ chỗ thành đã dùng; từ chối, rút, hủy thì hoàn số ngày đơn đang chiếm.
+  const compOff = await db.query(
+    `SELECT to_jsonb(t)->>'comp_off' AS comp_off FROM hrm_schema.leave_types t WHERE t.tenant_id=$1 AND t.id=$2`,
+    [tenant, leave.leave_type_id],
+  );
+  if (compOff.rows[0]?.comp_off === 'true')
+    await settleCompOffRequest(db, tenant, actor, { employeeId: leave.employee_id, requestId: id, target });
   const updated = await db.query(
     `UPDATE hrm_schema.leave_requests SET status=$3::varchar,approved_by=$4,approved_at=now(),applied_at=CASE WHEN $3::varchar='APPROVED' THEN now() ELSE applied_at END,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenant, id, target, actor],
@@ -456,4 +480,128 @@ export async function transitionLeave(
     ],
   );
   return updated.rows[0];
+}
+
+/**
+ * Duyệt, từ chối hoặc hủy một đơn nghỉ. Đơn thuộc nhóm nhiều khoản (`group_id`) thì mọi khoản của nhóm đổi trạng thái cùng
+ * lúc trong một giao dịch: khoản được thao tác xử lý trước (lỗi của nó dừng cả nhóm), các khoản còn lại đi theo nếu đang ở
+ * trạng thái cho phép (duyệt, từ chối: chờ duyệt; hủy: chờ duyệt hoặc đã duyệt).
+ */
+export async function transitionLeave(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  id: string,
+  target: 'APPROVED' | 'REJECTED' | 'CANCELLED',
+  reason?: string,
+) {
+  const head = await db.query(`SELECT group_id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND id=$2`, [tenant, id]);
+  const groupId = head.rows[0]?.group_id as string | null | undefined;
+  if (!groupId) return transitionLeaveRow(db, tenant, actor, id, target, reason);
+  // Khóa cả nhóm theo thứ tự id để hai thao tác đồng thời trên hai khoản của nhóm không khóa chéo nhau.
+  const members = await db.query(
+    `SELECT id,status FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND group_id=$2 ORDER BY id FOR UPDATE`,
+    [tenant, groupId],
+  );
+  const result = await transitionLeaveRow(db, tenant, actor, id, target, reason);
+  for (const member of members.rows) {
+    if (member.id === id) continue;
+    const movable = target === 'CANCELLED' ? member.status === 'PENDING' || member.status === 'APPROVED' : member.status === 'PENDING';
+    if (!movable) continue;
+    await transitionLeaveRow(db, tenant, actor, member.id as string, target, reason);
+  }
+  return result;
+}
+
+export const MAX_LEAVE_GROUP_RANGES = 10;
+
+export interface LeaveGroupRange {
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly duration?: number;
+}
+
+/** Đọc danh sách khoản bổ sung từ nội dung gửi lên; sai hình dạng thì từ chối cả đơn. */
+export function parseLeaveGroupRanges(value: unknown): LeaveGroupRange[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new BadRequestException('Danh sách khoản nghỉ bổ sung không hợp lệ');
+  if (value.length + 1 > MAX_LEAVE_GROUP_RANGES)
+    throw new BadRequestException(`Một đơn nghỉ chỉ có tối đa ${MAX_LEAVE_GROUP_RANGES} khoản`);
+  const text = (v: unknown) => (typeof v === 'string' && v.length <= 40 ? v : undefined);
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item))
+      throw new BadRequestException(`Khoảng nghỉ ${index + 2} không hợp lệ`);
+    const r = item as Record<string, unknown>;
+    const duration = r.duration === undefined ? undefined : Number(r.duration);
+    if (duration !== undefined && !Number.isFinite(duration))
+      throw new BadRequestException(`Khoảng nghỉ ${index + 2}: số ngày không hợp lệ`);
+    return { fromAt: text(r.fromAt), toAt: text(r.toAt), fromDate: text(r.fromDate), toDate: text(r.toDate), duration };
+  });
+}
+
+function labelled(error: unknown, label: string): unknown {
+  if (!(error instanceof HttpException)) return error;
+  const response = error.getResponse();
+  const raw = typeof response === 'string' ? response : (response as { message?: unknown }).message ?? error.message;
+  const message = `${label}: ${Array.isArray(raw) ? raw.join('; ') : String(raw)}`;
+  return new HttpException(typeof response === 'string' ? message : { ...(response as object), message }, error.getStatus());
+}
+
+/**
+ * Tạo đơn nghỉ một khoản hoặc nhiều khoản trong CÙNG một giao dịch của người gọi: một khoản không hợp lệ (trùng đơn khác,
+ * vượt quỹ, sai tháng, sai giờ...) thì giao dịch bị hủy và không khoản nào được tạo. Khoản chính nối quy trình duyệt do
+ * `submitHrmRequest` lo (và kiểm tra khoản chính ở đó); các khoản bổ sung có `group_id` của khoản chính, không có quy trình riêng.
+ */
+export async function createLeaveGroup(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  body: CreateLeaveRequestPayload,
+  extra: readonly LeaveGroupRange[],
+  opts: { requestTypeLabel: string; afterCreate?: (row: Record<string, unknown>) => Promise<Record<string, unknown>> },
+) {
+  const grouped = extra.length > 0;
+  const guard = async <T>(index: number, work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      throw grouped ? labelled(error, `Khoảng nghỉ ${index + 1}`) : error;
+    }
+  };
+  let leader: Record<string, unknown> = await guard(0, () => createLeave(db, tenant, actor, body));
+  if (grouped) {
+    await db.query(`UPDATE hrm_schema.leave_requests SET group_id=id WHERE tenant_id=$1 AND id=$2`, [tenant, leader.id]);
+    leader = { ...leader, group_id: leader.id };
+  }
+  if (opts.afterCreate) leader = await opts.afterCreate(leader);
+  for (const [i, range] of extra.entries()) {
+    await guard(i + 1, async () => {
+      let row: Record<string, unknown> = await createLeave(db, tenant, actor, {
+        ...body,
+        fromAt: range.fromAt,
+        toAt: range.toAt,
+        fromDate: range.fromDate,
+        toDate: range.toDate,
+        duration: range.duration,
+      });
+      await db.query(`UPDATE hrm_schema.leave_requests SET group_id=$3 WHERE tenant_id=$1 AND id=$2`, [tenant, row.id, leader.id]);
+      row = { ...row, group_id: leader.id };
+      if (opts.afterCreate) row = await opts.afterCreate(row);
+      assertRequestWithinMonth('leave', row);
+      await assertQuotaOnCreate(db, tenant, 'leave', row);
+      await assertRequestTiming(db, tenant, 'leave', row);
+      await attachRequestToOverlappingTrips(db, {
+        tenantId: tenant,
+        kind: 'leave',
+        requestId: row.id as string,
+        employeeId: String(row.employee_id),
+        initiatedBy: actor,
+        requestTypeLabel: opts.requestTypeLabel,
+        status: String(row.status),
+      });
+    });
+  }
+  return leader;
 }

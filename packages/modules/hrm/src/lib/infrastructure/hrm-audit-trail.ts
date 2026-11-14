@@ -74,6 +74,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   approve: 'Duyệt thiết bị chấm công',
   revoke: 'Thu hồi thiết bị chấm công',
   POLICY_VERSION_PUBLISHED: 'Ban hành phiên bản chính sách',
+  OVERTIME_COMP_SETTINGS_SAVED: 'Lưu cấu hình làm thêm và nghỉ bù',
+  OVERTIME_COMP_VERSION_REMOVED: 'Xóa phiên bản làm thêm và nghỉ bù',
   SHIFT_CREATED: 'Tạo ca làm việc',
   SHIFT_UPDATED: 'Cập nhật ca làm việc',
   SHIFT_DELETED: 'Xóa ca làm việc',

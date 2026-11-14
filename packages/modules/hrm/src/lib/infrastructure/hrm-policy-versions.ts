@@ -59,13 +59,26 @@ export function dayBefore(date: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Pure planning step: which existing versions must be closed, and which block the publish. */
+/** REPORT (mặc định): báo xung đột, không ghi. OVERWRITE: phiên bản mới thay phần giao nhau của các phiên bản cũ. */
+export type PublishConflictMode = 'REPORT' | 'OVERWRITE';
+
+export function isPublishConflictMode(value: unknown): value is PublishConflictMode {
+  return value === 'REPORT' || value === 'OVERWRITE';
+}
+
+/**
+ * Pure planning step: which existing versions must be closed, and which block the publish.
+ * Với OVERWRITE: phiên bản bắt đầu trước ngày mới được cắt đuôi (`toClose`); phiên bản nằm trọn trong khoảng mới bị
+ * thay thế (`toRemove`); phiên bản kéo dài quá ngày kết thúc của khoảng mới vẫn là xung đột vì không tách đôi được.
+ */
 export function planPolicyPublish(
   existing: PolicyVersionLike[],
   range: PublishRange,
   excludeVersionId?: string,
+  mode: PublishConflictMode = 'REPORT',
 ) {
   const toClose: PolicyVersionLike[] = [];
+  const toRemove: PolicyVersionLike[] = [];
   const conflicts: PublishConflict[] = [];
   const warnings: string[] = [];
   for (const v of existing) {
@@ -80,6 +93,17 @@ export function planPolicyPublish(
       effectiveFrom: v.effective_from,
       effectiveTo: v.effective_to,
     };
+    if (mode === 'OVERWRITE') {
+      const tailBeyondRange = Boolean(range.to) && (!v.effective_to || v.effective_to > (range.to as string));
+      if (v.effective_from >= range.from) {
+        if (tailBeyondRange)
+          conflicts.push({ ...info, reason: 'Phiên bản này kéo dài quá ngày kết thúc của khoảng mới nên không ghi đè được' });
+        else toRemove.push(v);
+      } else if (range.to && v.effective_to && v.effective_to > range.to)
+        conflicts.push({ ...info, reason: 'Phiên bản này kéo dài quá ngày kết thúc của khoảng mới nên không ghi đè được' });
+      else toClose.push(v);
+      continue;
+    }
     if (v.effective_from >= range.from)
       conflicts.push({
         ...info,
@@ -96,7 +120,7 @@ export function planPolicyPublish(
     warnings.push(
       `Sau ngày ${displayDate(range.to)} sẽ không còn phiên bản nào áp dụng cho phạm vi này`,
     );
-  return { toClose, conflicts, warnings };
+  return { toClose, toRemove, conflicts, warnings };
 }
 
 export function conflictMessage(conflicts: PublishConflict[]) {
@@ -186,10 +210,10 @@ export async function closeConflictingVersions(
   tenantId: string,
   policyType: string,
   range: PublishRange,
-  options: { excludeVersionId?: string; touchUpdatedAt?: boolean } = {},
+  options: { excludeVersionId?: string; touchUpdatedAt?: boolean; onConflict?: PublishConflictMode } = {},
 ) {
   const existing = await versionsOfType(db, tenantId, policyType);
-  const plan = planPolicyPublish(existing, range, options.excludeVersionId);
+  const plan = planPolicyPublish(existing, range, options.excludeVersionId, options.onConflict);
   if (plan.conflicts.length)
     throw new ConflictException({
       code: 'HRM_POLICY_VERSION_CONFLICT',
@@ -205,7 +229,24 @@ export async function closeConflictingVersions(
       } WHERE id=$1`,
       [v.id, dayBefore(range.from)],
     );
-  return { closed: plan.toClose, warnings: plan.warnings, existing };
+  for (const v of plan.toRemove) await removeReplacedVersion(db, v);
+  return { closed: plan.toClose, removed: plan.toRemove, warnings: plan.warnings, existing };
+}
+
+/** Xóa phiên bản bị thay thế; nếu dữ liệu công, nghỉ bù hay lương đã tham chiếu thì giữ lại và báo lỗi rõ ràng. */
+async function removeReplacedVersion(db: PoolClient, v: PolicyVersionLike) {
+  await db.query('SAVEPOINT replaced_policy_version');
+  try {
+    await db.query(`DELETE FROM hrm_schema.policy_versions WHERE id=$1`, [v.id]);
+    await db.query('RELEASE SAVEPOINT replaced_policy_version');
+  } catch (e) {
+    await db.query('ROLLBACK TO SAVEPOINT replaced_policy_version');
+    if ((e as { code?: string }).code === '23503')
+      throw new ConflictException(
+        `Không ghi đè được v${v.version_no ?? '?'} (${displayDate(v.effective_from)}): phiên bản này đã được dữ liệu công hoặc nghỉ bù tham chiếu. Chọn ngày hiệu lực sau phiên bản này.`,
+      );
+    throw e;
+  }
 }
 
 export interface PublishOptions {
@@ -219,6 +260,8 @@ export interface PublishOptions {
   defaultCode: string;
   defaultName: string;
   inherit?: boolean;
+  /** Mặc định REPORT: báo xung đột. OVERWRITE: thay phần giao nhau của phiên bản cũ. */
+  onConflict?: PublishConflictMode;
   touchUpdatedAt?: boolean;
   /** Payroll controller performs its own payroll-period guard. */
   skipPeriodGuard?: boolean;
@@ -271,12 +314,12 @@ export async function publishPolicyVersion(
       )
     ).rows[0].id as string;
   const range: PublishRange = { from: options.effectiveFrom, to, employeeIds };
-  const { closed, warnings, existing } = await closeConflictingVersions(
+  const { closed, removed, warnings, existing } = await closeConflictingVersions(
     db,
     tenantId,
     policyType,
     range,
-    { touchUpdatedAt: options.touchUpdatedAt },
+    { touchUpdatedAt: options.touchUpdatedAt, onConflict: options.onConflict },
   );
   let config = { ...options.config };
   if (employeeIds.length) config.employeeIds = employeeIds;
@@ -315,11 +358,19 @@ export async function publishPolicyVersion(
         versionNo: v.version_no,
         effectiveTo: dayBefore(range.from),
       })),
+      onConflict: options.onConflict ?? 'REPORT',
+      replaced: removed.map((v) => ({
+        id: v.id,
+        versionNo: v.version_no,
+        effectiveFrom: v.effective_from,
+        effectiveTo: v.effective_to,
+      })),
       reason: options.reason,
     },
   );
   return {
     version: inserted,
+    replaced: removed.map((v) => ({ id: v.id, versionNo: v.version_no })),
     closed: closed.map((v) => ({
       id: v.id,
       versionNo: v.version_no,

@@ -98,6 +98,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
     await migrate('hrm/0054-hrm-direct-fallback-position.sql');
     await migrate('hrm/0073-hrm-direct-approver-source.sql');
+    // Hủy hiệu lực đơn công tác xóa ca làm thêm sinh từ giờ thực tế (bảng của quỹ nghỉ bù và công tác theo ngày).
+    await migrate('hrm/0077-hrm-comp-off-foundation.sql');
+    await migrate('hrm/0078-hrm-comp-off-integration.sql');
+    await migrate('hrm/0080-hrm-trip-day-lines.sql');
+    await migrate('hrm/0082-hrm-leave-request-groups.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();

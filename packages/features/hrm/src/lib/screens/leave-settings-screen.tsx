@@ -17,6 +17,7 @@ import {
   policyStatus,
   useAnnualLeavePolicyForm,
 } from '../ui/annual-leave-policy-card';
+import { CompOffFundCard } from '../ui/comp-off-fund-card';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { PageTitle } from '../ui/page-title';
 
@@ -221,6 +222,8 @@ export default function LeaveSettingsScreen() {
         loadError={policyError}
         onReload={() => void loadPolicy()}
       />
+
+      <CompOffFundCard />
 
       {canManage ? (
         <section
