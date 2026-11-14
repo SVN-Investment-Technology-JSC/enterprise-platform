@@ -1001,6 +1001,33 @@ export interface CalendarOccurrence {
   readonly isException: boolean;
   /** Sự kiện gốc có lặp hay không; quyết định hộp thoại có hỏi phạm vi sửa. */
   readonly isRecurring: boolean;
+  /**
+   * Có thì đây KHÔNG phải dòng của `calendar_events` mà là lịch công tác dựng từ một đơn công tác gắn dự án này:
+   * chỉ xem, bấm vào mở đơn ở module nguồn. `eventId` lúc này là `trip:<id đơn>`, không dùng để sửa hay huỷ.
+   */
+  readonly businessTrip?: CalendarBusinessTrip;
+}
+
+/** Đơn công tác hiện trên lịch dự án. Đơn bị từ chối hay huỷ không hiện. */
+export interface CalendarBusinessTrip {
+  /** Id đơn gắn dự án trong Workspace (`project_requests.id`). */
+  readonly requestId: string;
+  /** DT001, DT002… */
+  readonly code: string;
+  readonly requesterUserId: string;
+  readonly requesterName?: string;
+  /** `PENDING`: chờ duyệt (hiện nhạt); `APPROVED`: đã duyệt. */
+  readonly status: 'PENDING' | 'APPROVED';
+  /** Loại đơn đã dịch sẵn bên nguồn, ví dụ "Đơn công tác". */
+  readonly requestTypeLabel: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly submittedAt: string;
+  readonly statusChangedAt?: string;
+  /** Mã hồ sơ quy trình duyệt đơn, nếu đơn chạy qua quy trình. */
+  readonly procedureInstanceCode?: string;
+  /** Chi tiết đầy đủ của đơn để hiện trong hộp thoại, không phải mở module gốc. */
+  readonly details?: readonly ProjectRequestDetail[];
 }
 
 export interface EventParticipant {
@@ -2350,6 +2377,12 @@ export const PROJECT_REQUEST_STATUSES = [
 ] as const;
 export type ProjectRequestStatus = (typeof PROJECT_REQUEST_STATUSES)[number];
 
+/** Một dòng chi tiết của đơn: module nguồn dịch sẵn nhãn và giá trị, Workspace chỉ hiển thị. */
+export interface ProjectRequestDetail {
+  readonly label: string;
+  readonly value: string;
+}
+
 export interface ProjectRequest {
   readonly id: string;
   readonly projectId: string;
@@ -2381,6 +2414,8 @@ export interface ProjectRequest {
   readonly statusNote?: string;
   /** Yêu cầu huỷ hiệu lực đã gửi từ dự án, chờ module nguồn xử lý. */
   readonly reversalRequest?: ProjectRequestReversalRequest;
+  /** Chi tiết đầy đủ của đơn (đơn công tác: hình thức, địa điểm, thời gian, lý do, phương tiện, phụ phí…). */
+  readonly details?: readonly ProjectRequestDetail[];
 }
 
 export interface ProjectRequestReversalRequest {

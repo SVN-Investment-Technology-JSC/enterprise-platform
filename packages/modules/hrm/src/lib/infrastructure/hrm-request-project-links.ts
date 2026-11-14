@@ -10,6 +10,7 @@ import type {
   HrmRequestProjectLink,
 } from '@enterprise-platform/contracts-hrm';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
+import type { RequestProjectDetail } from './hrm-trip-details.js';
 import { hrmTransaction } from './hrm-transaction.js';
 
 /**
@@ -125,6 +126,8 @@ export async function registerRequestProject(
     readonly linkType?: RequestProjectLinkType;
     /** Đơn công tác đã kéo đơn này vào dự án (chỉ với `BUSINESS_TRIP`). */
     readonly viaRequestId?: string;
+    /** Chi tiết đơn dịch sẵn thành "nhãn – giá trị", để Workspace hiện đầy đủ đơn mà không đọc bảng của HRM. */
+    readonly details?: readonly RequestProjectDetail[];
   },
 ): Promise<void> {
   const linkType = input.linkType ?? 'DIRECT';
@@ -182,6 +185,7 @@ export async function registerRequestProject(
       linkType,
       viaRequestKind: linkType === 'BUSINESS_TRIP' ? 'business_trip' : null,
       viaRequestId: input.viaRequestId ?? null,
+      details: input.details?.length ? input.details : null,
     },
   });
   await db.query(

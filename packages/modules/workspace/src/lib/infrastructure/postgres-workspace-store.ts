@@ -181,7 +181,19 @@ const PROJECT_REQUEST_COLUMNS = `r.id, r.project_id, r.code, r.source_module, r.
        r.status, r.procedure_instance_id, r.procedure_instance_code, r.launch_url,
        r.submitted_at, r.status_changed_at, r.linked_via_kind, via.code AS linked_via_code,
        r.status_note, r.reversal_requested_at, r.reversal_requested_by, r.reversal_requested_name,
-       r.reversal_reason, r.adjustment_requested, r.reversal_error`;
+       r.reversal_reason, r.adjustment_requested, r.reversal_error, r.details`;
+
+/** Chi tiết đơn lưu dạng JSONB; bỏ mọi phần tử sai hình dạng thay vì làm hỏng cả danh sách đơn. */
+function mapRequestDetails(value: unknown): ProjectRequest['details'] {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.flatMap((entry) => {
+    const item = (entry ?? {}) as { label?: unknown; value?: unknown };
+    return typeof item.label === 'string' && typeof item.value === 'string' && item.label && item.value
+      ? [{ label: item.label, value: item.value }]
+      : [];
+  });
+  return items.length > 0 ? items : undefined;
+}
 
 function mapProjectRequest(row: Row): ProjectRequest {
   return {
@@ -215,6 +227,7 @@ function mapProjectRequest(row: Row): ProjectRequest {
           error: opt(row.reversal_error),
         }
       : undefined,
+    details: mapRequestDetails(row.details),
   };
 }
 

@@ -65,6 +65,7 @@ import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
 import { MembersDialog } from './members-dialog';
+import { BusinessTripDialog } from './business-trip-dialog';
 import { MoveDialog } from './move-dialog';
 import { NodeHeader } from './node-header';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
@@ -279,6 +280,8 @@ export function ProjectsView({
   const [deletingItem, setDeletingItem] = useState<WorkItem>();
   const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
+  /** Mục công tác đang xem chi tiết (từ tab Lịch). */
+  const [tripView, setTripView] = useState<CalendarOccurrence>();
   const [moving, setMoving] = useState<WorkItem>();
   /**
    * Menu lệnh đang mở: của dự án (nút "⋯" đầu trang), hay của một công việc
@@ -1334,7 +1337,14 @@ export function ProjectsView({
                   canWrite={canWrite}
                   reloadToken={calendarToken}
                   onCreate={(date) => setEventForm({ open: true, date })}
-                  onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
+                  onOpenEvent={(occurrence) => {
+                    // Lịch công tác dựng từ đơn ở HRM: chỉ xem, bấm vào mở hộp chi tiết đơn thay vì hộp sửa sự kiện.
+                    if (occurrence.businessTrip) {
+                      setTripView(occurrence);
+                      return;
+                    }
+                    setEventForm({ open: true, occurrence });
+                  }}
                   onOpenWorkItem={goToItem}
                 />
               ) : null}
@@ -1679,6 +1689,8 @@ export function ProjectsView({
           if (openId) await refreshDetail(openId);
         }}
       />
+
+      <BusinessTripDialog occurrence={tripView} onClose={() => setTripView(undefined)} />
 
       <MembersDialog
         open={membersOpen && Boolean(detail)}

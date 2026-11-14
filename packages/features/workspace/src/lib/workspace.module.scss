@@ -6675,6 +6675,26 @@
   }
 }
 
+/* Hộp chi tiết đơn công tác trên lịch dự án: hai khối (thông tin đơn, chi tiết công tác). */
+.tripSectionTitle {
+  margin: 0 0 10px;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* Bọc cặp nhãn/giá trị mà không phá lưới hai cột của .detailGrid. */
+.detailRow {
+  display: contents;
+
+  dd {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
 /* Thanh nút ở góc tab "Đơn từ" và trong ngăn báo cáo. */
 .requestToolbar {
   display: flex;
