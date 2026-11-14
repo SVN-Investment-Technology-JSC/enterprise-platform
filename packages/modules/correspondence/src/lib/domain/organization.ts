@@ -31,34 +31,48 @@ function parents(snapshot: OrganizationSnapshot): Map<string, string | undefined
   return new Map(snapshot.nodes.map((node) => [node.id, node.parentId]));
 }
 
-/** Node và mọi node cha của nó. */
-function ancestry(parentOf: ReadonlyMap<string, string | undefined>, nodeId: string): Set<string> {
+/**
+ * Đơn vị trực tiếp chứa một node: chính nó nếu là đơn vị, không thì đơn vị gần nhất phía trên
+ * (chức danh có thể nằm dưới chức danh khác).
+ */
+function nearestUnit(snapshot: OrganizationSnapshot, nodeId: string): string | undefined {
+  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
   const seen = new Set<string>();
   let current: string | undefined = nodeId;
   while (current && !seen.has(current)) {
     seen.add(current);
-    current = parentOf.get(current);
+    const node = byId.get(current);
+    if (!node) return undefined;
+    if (node.kind === 'unit') return node.id;
+    current = node.parentId;
   }
-  return seen;
+  return undefined;
 }
 
-/** Mọi node người dùng thuộc về: node được bổ nhiệm và mọi node cha. */
-export function membershipNodes(snapshot: OrganizationSnapshot, userId: string): Set<string> {
-  const parentOf = parents(snapshot);
-  const nodes = new Set<string>();
+/**
+ * Đơn vị người dùng trực tiếp thuộc về (đơn vị chứa chức danh được bổ nhiệm). Không tính đơn vị
+ * cha: nhân viên Phòng Kinh doanh không phải là nhân sự của Ban Tổng Giám đốc chỉ vì phòng nằm
+ * dưới ban trong sơ đồ.
+ */
+export function memberUnits(snapshot: OrganizationSnapshot, userId: string): Set<string> {
+  const units = new Set<string>();
   for (const member of snapshot.members) {
-    if (member.userId === userId) for (const id of ancestry(parentOf, member.nodeId)) nodes.add(id);
+    if (member.userId !== userId) continue;
+    const unitId = nearestUnit(snapshot, member.nodeId);
+    if (unitId) units.add(unitId);
   }
-  return nodes;
+  return units;
 }
 
-/** Người thuộc đơn vị, kể cả các đơn vị con; mỗi người một dòng, trưởng đơn vị trước. */
+/**
+ * Nhân sự của đơn vị: người được bổ nhiệm vào đơn vị hay chức danh trực thuộc nó; không gồm
+ * người của các đơn vị con (phòng con là phòng ban riêng). Mỗi người một dòng, trưởng đơn vị trước.
+ */
 export function unitMembers(snapshot: OrganizationSnapshot, unitId: string): OrganizationMember[] {
-  const parentOf = parents(snapshot);
   const heads = new Set(unitHeads(snapshot, unitId, { escalate: false }));
   const byUser = new Map<string, OrganizationMember>();
   for (const member of snapshot.members) {
-    if (!ancestry(parentOf, member.nodeId).has(unitId)) continue;
+    if (nearestUnit(snapshot, member.nodeId) !== unitId) continue;
     const isHead = heads.has(member.userId);
     const known = byUser.get(member.userId);
     if (!known || (isHead && !known.isHead)) byUser.set(member.userId, { ...member, isHead });
@@ -118,4 +132,17 @@ export function nodePath(snapshot: OrganizationSnapshot, nodeId: string): string
 /** Tên hiển thị của người theo sơ đồ tổ chức (người dùng chưa bổ nhiệm thì không có). */
 export function memberName(snapshot: OrganizationSnapshot, userId: string): string | undefined {
   return snapshot.members.find((member) => member.userId === userId)?.name;
+}
+
+/** Đơn vị người dùng là trưởng: đơn vị được đánh dấu trực tiếp, hay đơn vị cha của chức danh trưởng. */
+export function headedUnits(snapshot: OrganizationSnapshot, userId: string): Set<string> {
+  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
+  const units = new Set<string>();
+  for (const member of snapshot.members) {
+    if (member.userId !== userId || !member.isHead) continue;
+    const node = byId.get(member.nodeId);
+    if (node?.kind === 'unit') units.add(node.id);
+    else if (node?.parentId) units.add(node.parentId);
+  }
+  return units;
 }

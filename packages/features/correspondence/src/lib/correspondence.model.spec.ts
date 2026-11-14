@@ -1,8 +1,22 @@
 import type { LetterSummary } from '@enterprise-platform/contracts-correspondence';
-import { catalogOptions, dueText, formatDay, isPreviewable, matchesSearch, stageTone } from './correspondence.model';
+import {
+  applyMention,
+  catalogOptions,
+  dueText,
+  findMentionQuery,
+  formatDay,
+  keptMentions,
+  matchesSearch,
+  plannedWorkflow,
+  previewKind,
+  splitMentions,
+  stageTone,
+} from './correspondence.model';
 
 const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   id: 'l1',
+  direction: 'incoming',
+  displayNo: '41/CVĐ',
   incomingNo: '41/CVĐ',
   receivedOn: '2026-11-10',
   senderOrg: 'Sở Tài chính TP. Đà Nẵng',
@@ -18,6 +32,7 @@ const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   currentAssigneeNames: [],
   dueOn: '2026-11-14',
   stage: 'processing',
+  stageLabel: 'Phòng ban xử lý',
   assignmentsDone: 1,
   assignmentsTotal: 2,
   receivedBy: 'u1',
@@ -42,12 +57,58 @@ describe('correspondence.model', () => {
     expect(matchesSearch(letter(), 'hợp đồng')).toBe(false);
   });
 
-  it('định dạng ngày, màu bước và tệp xem trước được', () => {
+  it('định dạng ngày, màu bước', () => {
     expect(formatDay('2026-11-05')).toBe('05/11/2026');
     expect(stageTone('reviewing')).toBe('warning');
+    expect(stageTone('checking')).toBe('neutral');
     expect(stageTone('archived')).toBe('success');
-    expect(isPreviewable('application/pdf')).toBe(true);
-    expect(isPreviewable('application/msword')).toBe(false);
+  });
+
+  it('xem trước được mọi định dạng văn phòng thường dùng, chỉ định dạng nhị phân cũ phải tải về', () => {
+    expect(previewKind('application/pdf', 'a.pdf')).toBe('pdf');
+    expect(previewKind('image/png', 'a.png')).toBe('image');
+    expect(previewKind('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'a.docx')).toBe('docx');
+    expect(previewKind('application/octet-stream', 'bang-luong.xlsx')).toBe('sheet');
+    expect(previewKind('application/vnd.ms-excel', 'cu.xls')).toBe('sheet');
+    expect(previewKind('text/csv', 'a.csv')).toBe('sheet');
+    expect(previewKind('application/vnd.openxmlformats-officedocument.presentationml.presentation', 'a.pptx')).toBe('pptx');
+    expect(previewKind('text/plain', 'ghi-chu.txt')).toBe('text');
+    expect(previewKind('video/mp4', 'hop.mp4')).toBe('video');
+    expect(previewKind('application/msword', 'cu.doc')).toBe('none');
+  });
+
+  it('nhắc tên như ô chat: dò "@", chèn tên, chỉ giữ người còn trong nội dung', () => {
+    expect(findMentionQuery('Nhờ @ngu', 8)).toEqual({ start: 4, query: 'ngu' });
+    expect(findMentionQuery('email@abc', 9)).toBeNull();
+    const applied = applyMention('Nhờ @ngu xem', { start: 4, query: 'ngu' }, 8, 'Nguyễn Văn An');
+    expect(applied).toEqual({ text: 'Nhờ @Nguyễn Văn An  xem', caret: 19 });
+    const picked = new Map([['u1', 'Nguyễn Văn An'], ['u2', 'Lê Hà']]);
+    expect(keptMentions('Nhờ @Nguyễn Văn An xem', picked)).toEqual(['u1']);
+    expect(splitMentions('Nhờ @Nguyễn Văn An xem', [{ userId: 'u1', name: 'Nguyễn Văn An' }])).toEqual([
+      { text: 'Nhờ ', mention: false },
+      { text: '@Nguyễn Văn An', mention: true },
+      { text: ' xem', mention: false },
+    ]);
+  });
+
+  it('quy trình sẽ áp dụng: theo loại văn bản của luồng, không có thì mặc định của luồng', () => {
+    const workflow = (id: string, direction: 'incoming' | 'outgoing', isDefault = false) => ({
+      id,
+      name: id,
+      direction,
+      isActive: true,
+      isDefault,
+      steps: [],
+      updatedAt: '',
+    });
+    const config = {
+      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [] },
+      catalog: [{ id: 't', kind: 'letter_type' as const, code: 'hd', name: 'Hợp đồng', sortOrder: 0, isActive: true, outgoingWorkflowId: 'out-hd' }],
+      workflows: [workflow('in', 'incoming', true), workflow('out', 'outgoing', true), workflow('out-hd', 'outgoing')],
+    };
+    expect(plannedWorkflow(config, 'incoming', 'hd')?.id).toBe('in');
+    expect(plannedWorkflow(config, 'outgoing', 'hd')?.id).toBe('out-hd');
+    expect(plannedWorkflow(config, 'outgoing', 'khac')?.id).toBe('out');
   });
 
   it('lựa chọn danh mục chỉ gồm mục đang dùng, giữ giá trị cũ đã ngừng dùng', () => {

@@ -22,6 +22,7 @@ import {
   type RestoreSharedTrashRequest,
   type SharedFilingDocumentRequest,
   type SharedFilingFolderUpdateRequest,
+  type SharedFilingVersionRequest,
   type SharedDocumentKind,
   type SharedDocumentStatus,
   type SharedStatus,
@@ -137,6 +138,13 @@ export class SharedController {
   createFiling(@Req() request: SharedRequest, @Body() body: SharedFilingDocumentRequest) {
     return this.execute(() =>
       this.filings.createDocument(this.actor(request).tenantId, body ?? ({} as SharedFilingDocumentRequest)),
+    );
+  }
+
+  @Post('internal/filings/documents/:id/versions')
+  addFilingVersion(@Req() request: SharedRequest, @Param('id') id: string, @Body() body: SharedFilingVersionRequest) {
+    return this.execute(() =>
+      this.filings.addVersion(this.actor(request).tenantId, id, body ?? ({} as SharedFilingVersionRequest)),
     );
   }
 

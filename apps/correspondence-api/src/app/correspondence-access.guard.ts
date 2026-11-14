@@ -14,8 +14,8 @@ interface CorrespondenceRequest extends Request {
  * quyền và dựng actor của Văn thư.
  *
  * Mọi lời gọi cần `correspondence.read` (mọi quyền khác của phân hệ kéo theo quyền này,
- * xem TENANT_ACTION_IMPLIES). Ai được làm gì ở bước nào (văn thư, lãnh đạo được trình,
- * người thuộc phòng ban được giao) kiểm tiếp ở tầng application trên dữ liệu đã khoá.
+ * xem TENANT_ACTION_IMPLIES). Ai được làm gì ở bước nào (văn thư, người duyệt của bước,
+ * người thuộc phòng ban được giao, người soạn) kiểm tiếp ở tầng application trên dữ liệu đã khoá.
  *
  * Phân hệ không có route nội bộ `/v1/internal/*`; tệp nằm ở Hệ dùng chung và Văn thư
  * là bên gọi route nội bộ của phân hệ đó.
@@ -53,12 +53,14 @@ export class CorrespondenceAccessGuard implements CanActivate {
       displayName: decision.principal.displayName,
       isTenantAdmin: tenantAdmin,
       canRegister: can('correspondence.letter.register'),
+      canCreateOutgoing: can('correspondence.outgoing.create'),
       canPublish: can('correspondence.letter.publish'),
       canArchive: can('correspondence.letter.archive'),
-      // Quyền chỉ đạo cấp đích danh: quản trị tenant không tự thành lãnh đạo nhận công văn.
+      // Quyền lãnh đạo cấp đích danh: quản trị tenant không tự thành lãnh đạo được chọn duyệt công văn.
       canDirect: held.includes('correspondence.letter.direct'),
       canReadAll: can('correspondence.letter.read-all'),
       canReadConfidential: can('correspondence.letter.confidential'),
+      canReadReports: can('correspondence.report.read'),
       canConfigure: can('correspondence.config'),
     };
     return true;

@@ -7,10 +7,14 @@ import type {
   CatalogItem,
   CatalogKind,
   CorrespondenceSettings,
+  DeliveryStatus,
+  LetterDirection,
   LetterHistoryAction,
   LetterStage,
-  LetterStep,
+  LetterStepDecision,
   LetterStepStatus,
+  ReturnTarget,
+  RevokeKind,
   Workflow,
   WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -18,6 +22,8 @@ import type {
   SharedFilingDocumentRequest,
   SharedFilingDocumentResponse,
   SharedFilingFolderUpdateRequest,
+  SharedFilingVersionRequest,
+  SharedFilingVersionResponse,
 } from '@enterprise-platform/contracts-shared';
 import type { OrganizationSnapshot } from '../domain/organization.js';
 
@@ -28,12 +34,14 @@ export interface CorrespondenceActor {
   readonly displayName: string;
   readonly isTenantAdmin: boolean;
   readonly canRegister: boolean;
+  readonly canCreateOutgoing: boolean;
   readonly canPublish: boolean;
   readonly canArchive: boolean;
-  /** Có quyền chỉ đạo: nằm trong nhóm "lãnh đạo" để người trình chọn. */
+  /** Có quyền lãnh đạo: nằm trong nhóm "lãnh đạo" để người trình chọn. */
   readonly canDirect: boolean;
   readonly canReadAll: boolean;
   readonly canReadConfidential: boolean;
+  readonly canReadReports: boolean;
   readonly canConfigure: boolean;
 }
 
@@ -41,8 +49,10 @@ export interface CorrespondenceActor {
 
 export interface LetterRecord {
   readonly id: string;
+  readonly direction: LetterDirection;
   readonly year: number;
   readonly seq: number;
+  /** Số đến (công văn đến) hay số dự thảo (công văn đi). */
   readonly incomingNo: string;
   readonly receivedOn: string;
   readonly senderOrg: string;
@@ -56,14 +66,32 @@ export interface LetterRecord {
   readonly stage: LetterStage;
   readonly workflowId?: string;
   readonly workflowName?: string;
-  readonly directorUserId?: string;
+  /** Ghi chú khi văn thư giao phòng ban (công văn đến). */
   readonly instruction?: string;
+  readonly authorUserId?: string;
+  readonly authorUnitId?: string;
+  readonly authorUnitName?: string;
+  readonly relatedLetterId?: string;
+  readonly completionNote?: string;
   readonly outgoingNo?: string;
   readonly publishedOn?: string;
   readonly recipient?: string;
+  readonly deliveryMethod?: string;
+  readonly deliveryStatus?: DeliveryStatus;
+  readonly deliveryNote?: string;
+  readonly deliveredOn?: string;
   readonly archiveCode?: string;
   readonly archivedOn?: string;
   readonly cancelReason?: string;
+  /** Đề nghị huỷ công văn đã ban hành / hoàn tất. */
+  readonly revokeKind?: RevokeKind;
+  readonly revokeReason?: string;
+  readonly revokeRequestedBy?: string;
+  readonly revokeRequestedAt?: string;
+  readonly revokeApproverIds?: readonly string[];
+  /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
+  readonly deletedAt?: string;
+  readonly deletedBy?: string;
   readonly sharedFolderId?: string;
   readonly receivedBy: string;
   readonly createdAt: string;
@@ -74,8 +102,8 @@ export interface StepRecord {
   readonly id: string;
   readonly seq: number;
   readonly name: string;
-  readonly kind: 'direct' | 'approve';
   readonly approver: ApproverRule;
+  readonly rejectTo?: ReturnTarget;
   readonly dueDays?: number;
   readonly status: LetterStepStatus;
   readonly chosenUserId?: string;
@@ -83,7 +111,7 @@ export interface StepRecord {
   readonly activatedAt?: string;
   readonly actedBy?: string;
   readonly actedAt?: string;
-  readonly decision?: LetterStep['decision'];
+  readonly decision?: LetterStepDecision;
   readonly note?: string;
 }
 
@@ -94,6 +122,7 @@ export interface AssignmentRecord {
   readonly unitName: string;
   readonly round: number;
   readonly status: AssignmentStatus;
+  readonly handlerUserId?: string;
   readonly responseNote?: string;
   readonly submittedBy?: string;
   readonly submittedAt?: string;
@@ -110,6 +139,7 @@ export interface AttachmentRecord {
   readonly fileName: string;
   readonly contentType: string;
   readonly sizeBytes?: number;
+  readonly versionNo: number;
   readonly uploadedBy: string;
   readonly createdAt: string;
 }
@@ -123,10 +153,21 @@ export interface HistoryRecord {
   readonly at: string;
 }
 
-/** Một dòng danh sách: công văn kèm bước và phòng ban (để tính quyền xem và "việc của tôi"). */
+export interface CommentRecord {
+  readonly id: string;
+  readonly stage: LetterStage;
+  readonly stepName?: string;
+  readonly body: string;
+  readonly mentionedUserIds: readonly string[];
+  readonly authorId: string;
+  readonly at: string;
+}
+
+/** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy'>[];
-  readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'status' | 'submittedBy'>[];
+  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
+  readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
+  readonly mentionedUserIds: readonly string[];
 }
 
 export interface LetterListFilter {
@@ -140,8 +181,9 @@ export interface LetterListFilter {
     readonly readAll: boolean;
     readonly readConfidential: boolean;
   };
+  readonly direction?: LetterDirection;
   readonly stages?: readonly LetterStage[];
-  readonly onlyPublished?: boolean;
+  readonly year?: number;
   readonly search?: string;
   readonly limit: number;
 }
@@ -149,10 +191,11 @@ export interface LetterListFilter {
 /* ---------------------------------------------------------------- ghi */
 
 export type LetterPatch = Partial<
-  Omit<LetterRecord, 'id' | 'year' | 'seq' | 'incomingNo' | 'receivedBy' | 'createdAt' | 'updatedAt'>
+  Omit<LetterRecord, 'id' | 'direction' | 'year' | 'seq' | 'incomingNo' | 'receivedBy' | 'createdAt' | 'updatedAt'>
 >;
 
 export interface LetterInsert {
+  readonly direction: LetterDirection;
   readonly receivedOn: string;
   readonly senderOrg: string;
   readonly senderRef?: string;
@@ -162,6 +205,12 @@ export interface LetterInsert {
   readonly urgency: string;
   readonly confidentiality: string;
   readonly dueOn?: string;
+  readonly stage: LetterStage;
+  readonly authorUserId?: string;
+  readonly authorUnitId?: string;
+  readonly authorUnitName?: string;
+  readonly relatedLetterId?: string;
+  readonly recipient?: string;
   readonly receivedBy: string;
 }
 
@@ -181,10 +230,9 @@ export interface StepUpdate {
   readonly status?: LetterStepStatus;
   readonly chosenUserId?: string | null;
   readonly assigneeUserIds?: readonly string[];
-  /** Ghi `activated_at = now()`. */
   readonly activate?: boolean;
   readonly actedBy?: string | null;
-  readonly decision?: LetterStep['decision'] | null;
+  readonly decision?: LetterStepDecision | null;
   readonly note?: string | null;
 }
 
@@ -196,17 +244,35 @@ export interface LetterTransaction {
   readonly letter: LetterRecord;
   readonly steps: readonly StepRecord[];
   readonly assignments: readonly AssignmentRecord[];
+  readonly mentionedUserIds: readonly string[];
   update(patch: LetterPatch): Promise<LetterRecord>;
   nextNumber(kind: 'outgoing' | 'archive', year: number): Promise<number>;
-  /** Thay toàn bộ bước của công văn bằng các bước chép từ quy trình (lúc trình). */
+  /** Thay toàn bộ bước của công văn bằng các bước chép từ quy trình. */
   replaceSteps(steps: readonly WorkflowStep[]): Promise<void>;
-  /** Ghi một bước; `actedBy` kèm `acted_at = now()`. */
   updateStep(stepId: string, update: StepUpdate): Promise<void>;
-  assign(units: readonly { readonly unitId: string; readonly unitName: string }[]): Promise<void>;
+  /** Thêm phòng ban mới hay đưa phòng ban đã có về chờ ở lượt mới; ghi người xử lý nếu có. */
+  assign(units: readonly { readonly unitId: string; readonly unitName: string; readonly handlerUserId?: string }[]): Promise<void>;
+  /** Bỏ phòng ban khỏi công văn (văn thư giao lại không còn chọn phòng đó). */
+  removeAssignments(assignmentIds: readonly string[]): Promise<void>;
+  setHandler(assignmentId: string, handlerUserId: string | null): Promise<void>;
   submitAssignment(assignmentId: string, input: { readonly note: string; readonly userId: string }): Promise<void>;
   reopenAssignments(assignmentIds: readonly string[], reason: string): Promise<void>;
-  addAttachment(input: Omit<AttachmentRecord, 'id' | 'letterId' | 'createdAt' | 'sizeBytes'>): Promise<AttachmentRecord>;
+  addAttachment(
+    input: Omit<AttachmentRecord, 'id' | 'letterId' | 'createdAt' | 'sizeBytes' | 'versionNo'>,
+  ): Promise<AttachmentRecord>;
+  /** Tệp chuyển sang phiên bản mới, chưa tải lên xong (dung lượng về trống), người tải là người tải phiên bản này. */
+  setAttachmentVersion(
+    attachmentId: string,
+    input: {
+      readonly sharedVersionId: string;
+      readonly versionNo: number;
+      readonly fileName: string;
+      readonly contentType: string;
+      readonly uploadedBy: string;
+    },
+  ): Promise<void>;
   removeAttachment(attachmentId: string): Promise<void>;
+  addComment(input: Omit<CommentRecord, 'id' | 'at'>): Promise<CommentRecord>;
   history(entry: HistoryInsert): Promise<void>;
   outbox(event: OutboxEvent): Promise<void>;
 }
@@ -219,6 +285,8 @@ export interface CatalogUpsert {
   readonly isActive: boolean;
   readonly defaultDueDays: number | null;
   readonly workflowId: string | null;
+  readonly outgoingWorkflowId: string | null;
+  readonly defaultUnitIds: readonly string[];
   readonly highlight: boolean;
   readonly restricted: boolean;
 }
@@ -226,6 +294,7 @@ export interface CatalogUpsert {
 export interface WorkflowUpsert {
   readonly name: string;
   readonly description: string | null;
+  readonly direction: LetterDirection;
   readonly isActive: boolean;
   readonly isDefault: boolean;
   readonly steps: readonly WorkflowStep[];
@@ -238,25 +307,25 @@ export interface CorrespondenceStore {
   saveSettings(tenantId: string, userId: string, settings: CorrespondenceSettings): Promise<void>;
 
   catalog(tenantId: string): Promise<CatalogItem[]>;
-  /** Thêm mới (`id` rỗng) hoặc sửa; trùng mã trong cùng loại thì ném lỗi kiểm tra. */
   saveCatalogItem(tenantId: string, userId: string, id: string | undefined, input: CatalogUpsert): Promise<CatalogItem>;
-  /** Xoá mục chưa từng dùng; đã dùng thì `false`. */
   deleteCatalogItem(tenantId: string, id: string): Promise<boolean>;
 
   workflows(tenantId: string): Promise<Workflow[]>;
-  /** Đặt `isDefault` thì bỏ cờ mặc định ở quy trình khác, cùng transaction. */
+  /** Đặt `isDefault` thì bỏ cờ mặc định ở quy trình khác cùng luồng, cùng transaction. */
   saveWorkflow(tenantId: string, userId: string, id: string | undefined, input: WorkflowUpsert): Promise<Workflow>;
-  /** Xoá quy trình chưa gắn công văn hay loại văn bản nào; đang dùng thì `false`. */
   deleteWorkflow(tenantId: string, id: string): Promise<boolean>;
 
+  /**
+   * Vào sổ một công văn: cấp số theo bộ đếm của luồng (`incoming`: số đến, `draft`: số dự
+   * thảo công văn đi) rồi ghi dòng, một transaction.
+   */
   createLetter(
     tenantId: string,
     input: LetterInsert,
-    incomingSuffix: string,
+    numbering: { readonly counter: 'incoming' | 'draft'; readonly suffix: string },
     after: (tx: LetterTransaction) => Promise<void>,
   ): Promise<LetterRecord>;
 
-  /** Khoá công văn và chạy `work` trong một transaction; không có thì ném `LetterNotFoundError`. */
   withLetter<T>(tenantId: string, letterId: string, work: (tx: LetterTransaction) => Promise<T>): Promise<T>;
 
   findLetter(tenantId: string, letterId: string): Promise<LetterRecord | undefined>;
@@ -266,14 +335,14 @@ export interface CorrespondenceStore {
   assignments(tenantId: string, letterId: string): Promise<AssignmentRecord[]>;
   attachments(tenantId: string, letterId: string): Promise<AttachmentRecord[]>;
   findAttachment(tenantId: string, attachmentId: string): Promise<AttachmentRecord | undefined>;
+  /** Tệp của nhiều công văn một lượt (cây lưu trữ), kèm tên phòng ban gửi tệp kết quả. */
+  attachmentsOf(tenantId: string, letterIds: readonly string[]): Promise<(AttachmentRecord & { readonly unitName?: string })[]>;
   completeAttachment(tenantId: string, attachmentId: string, sizeBytes: number): Promise<void>;
+  comments(tenantId: string, letterId: string): Promise<CommentRecord[]>;
   history(tenantId: string, letterId: string): Promise<HistoryRecord[]>;
 
-  /** Tên hiển thị của người dùng (bảng người dùng của tenant). */
   userNames(tenantId: string, userIds: readonly string[]): Promise<Map<string, string>>;
-  /** Người dùng đang hoạt động của tenant, để chỉ định người duyệt. */
   people(tenantId: string): Promise<{ userId: string; name: string }[]>;
-  /** Người được cấp đích danh quyền chỉ đạo (`correspondence.letter.direct`). */
   leaders(tenantId: string): Promise<{ userId: string; name: string }[]>;
 }
 
@@ -283,20 +352,19 @@ export const CORRESPONDENCE_STORE = Symbol('CORRESPONDENCE_STORE');
 
 export interface FileStore {
   create(tenantId: string, input: Omit<SharedFilingDocumentRequest, 'module'>): Promise<SharedFilingDocumentResponse>;
-  complete(tenantId: string, documentId: string, versionId: string, sizeBytes: number): Promise<void>;
-  download(
+  addVersion(
     tenantId: string,
     documentId: string,
-    userId: string,
-    mode: AttachmentDownloadMode,
-  ): Promise<AttachmentDownloadTicket>;
+    input: Omit<SharedFilingVersionRequest, 'module'>,
+  ): Promise<SharedFilingVersionResponse>;
+  complete(tenantId: string, documentId: string, versionId: string, sizeBytes: number): Promise<void>;
+  download(tenantId: string, documentId: string, userId: string, mode: AttachmentDownloadMode): Promise<AttachmentDownloadTicket>;
   trash(tenantId: string, documentId: string, userId: string): Promise<void>;
   updateFolder(tenantId: string, folderId: string, input: Omit<SharedFilingFolderUpdateRequest, 'module'>): Promise<void>;
 }
 
 export const FILE_STORE = Symbol('CORRESPONDENCE_FILE_STORE');
 
-/** Kho tệp trả 404: thư mục hay tài liệu đã bị xoá bên Hệ dùng chung. */
 export class FileStoreMissingError extends Error {
   constructor() {
     super('Shared filing resource not found.');

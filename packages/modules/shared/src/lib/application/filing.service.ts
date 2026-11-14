@@ -14,6 +14,8 @@ import {
   type SharedFilingFolderUpdateRequest,
   type SharedFilingModule,
   type SharedFilingPathSegment,
+  type SharedFilingVersionRequest,
+  type SharedFilingVersionResponse,
   type SharedFolder,
 } from '@enterprise-platform/contracts-shared';
 import {
@@ -91,6 +93,41 @@ export class FilingService {
       folderId: folder.id,
       documentId: created.document.id,
       versionId: created.version.id,
+      uploadUrl: await this.storage.createUploadUrl({
+        key: storageKey,
+        contentType: file.contentType,
+        expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
+      }),
+      expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
+    };
+  }
+
+  /** Phiên bản mới của một tài liệu của phân hệ; tài liệu cũ giữ nguyên lịch sử phiên bản. */
+  async addVersion(
+    tenantId: string,
+    documentId: string,
+    input: SharedFilingVersionRequest,
+  ): Promise<SharedFilingVersionResponse> {
+    const module = parseModule(input?.module);
+    const userId = requireText(input.userId, 'Người tải lên', 64);
+    await this.moduleDocument(tenantId, module, documentId);
+    const file = validateFile(input.fileName, input.contentType, input.sizeBytes);
+    await this.quota.ensureCapacity(tenantId, file.sizeBytes);
+    const versions = await this.store.documents.listVersions(tenantId, documentId);
+    const versionNo = Math.max(0, ...versions.map((entry) => entry.versionNo)) + 1;
+    const storageKey = sharedStorageKey(tenantId, versionNo, file.fileName);
+    const version = await this.store.documents.addVersion(tenantId, userId, {
+      documentId,
+      versionNo,
+      storageKey,
+      fileName: file.fileName,
+      contentType: file.contentType,
+      changeNote: optionalText(input.changeNote, 'Ghi chú thay đổi', 500),
+    });
+    await this.store.documents.log(tenantId, userId, { documentId, versionId: version.id, action: 'upload' });
+    return {
+      versionId: version.id,
+      versionNo,
       uploadUrl: await this.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
