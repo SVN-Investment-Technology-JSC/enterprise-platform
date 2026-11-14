@@ -96,7 +96,7 @@ import {
   type LetterFacts,
   type LetterViewer,
 } from '../domain/letter-rules.js';
-import { headedUnits, membershipNodes, nodePath, unitHeads, unitMembers, type OrganizationSnapshot } from '../domain/organization.js';
+import { headedUnits, memberUnits, nodePath, unitHeads, unitMembers, type OrganizationSnapshot } from '../domain/organization.js';
 import {
   FileStoreMissingError,
   type AssignmentRecord,
@@ -1814,7 +1814,7 @@ export class CorrespondenceService {
       canArchive: actor.canArchive || admin,
       canReadAll: actor.canReadAll || admin,
       canReadConfidential: actor.canReadConfidential || admin,
-      unitIds: membershipNodes(snapshot, actor.userId),
+      unitIds: memberUnits(snapshot, actor.userId),
       headUnitIds: headedUnits(snapshot, actor.userId),
       clerkOnDuty: settings.clerkUserIds.length === 0 || settings.clerkUserIds.includes(actor.userId),
     };
@@ -1988,15 +1988,7 @@ function defaultDue(catalog: Catalog, settings: CorrespondenceSettings, kind: st
 
 /** Phòng ban trực tiếp của người dùng (đơn vị được bổ nhiệm, hay đơn vị cha của chức danh). */
 export function ownUnits(snapshot: OrganizationSnapshot, userId: string): string[] {
-  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  const units: string[] = [];
-  for (const member of snapshot.members) {
-    if (member.userId !== userId) continue;
-    const node = byId.get(member.nodeId);
-    const unitId = node?.kind === 'unit' ? node.id : node?.parentId;
-    if (unitId && byId.get(unitId)?.kind === 'unit' && !units.includes(unitId)) units.push(unitId);
-  }
-  return units;
+  return [...memberUnits(snapshot, userId)];
 }
 
 function displayNo(letter: Pick<LetterRecord, 'direction' | 'incomingNo' | 'outgoingNo'>): string {

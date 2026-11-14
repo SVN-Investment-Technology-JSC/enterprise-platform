@@ -494,6 +494,20 @@ describe('Công văn đến – tiếp nhận, giao phòng ban', () => {
     await expect(service.create(clerk, { ...intake, kind: 'old' })).rejects.toThrow('đã ngừng dùng');
   });
 
+  it('đơn vị cha không mang nhân sự của phòng con: giao "Công ty" không có ai nhận, người phòng con không xử lý thay', async () => {
+    const { service } = setup();
+    const letter = await service.create(clerk, intake);
+    await expect(service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal', units: [{ unitId: 'unit-company' }] })).rejects.toThrow(
+      'Công ty chưa có nhân sự nào trong sơ đồ tổ chức để nhận công văn.',
+    );
+    await expect(service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal', units: [{ unitId: 'unit-company', handlerUserId: 'u-accountant' }] })).rejects.toThrow(
+      'Người xử lý được chọn không thuộc Công ty.',
+    );
+    const directory = await service.directory(clerk);
+    expect(directory.units.find((unit) => unit.id === 'unit-company')?.members).toEqual([]);
+    expect(directory.units.find((unit) => unit.id === 'unit-finance')?.members.map((member) => member.userId)).toEqual(['u-fin-head', 'u-accountant']);
+  });
+
   it('giao phòng ban: cả phòng cùng nhận hoặc một người xử lý; báo đúng người', async () => {
     const { service, outbox } = setup();
     const letter = await dispatched(service);

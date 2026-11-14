@@ -19,7 +19,7 @@ export interface LetterViewer {
   readonly canArchive: boolean;
   readonly canReadAll: boolean;
   readonly canReadConfidential: boolean;
-  /** Đơn vị và chức danh người đó thuộc về, gồm cả đơn vị cha (sơ đồ tổ chức). */
+  /** Đơn vị người đó trực tiếp thuộc về theo sơ đồ tổ chức (không tính đơn vị cha). */
   readonly unitIds: ReadonlySet<string>;
   /** Đơn vị người đó là trưởng. */
   readonly headUnitIds: ReadonlySet<string>;
