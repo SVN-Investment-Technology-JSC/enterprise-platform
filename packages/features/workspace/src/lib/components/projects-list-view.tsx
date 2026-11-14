@@ -10,18 +10,7 @@ import {
   type Tag,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
-import {
-  Archive,
-  ArchiveRestore,
-  Building2,
-  ChevronDown,
-  ChevronRight,
-  FolderInput,
-  ListFilter,
-  Plus,
-  RefreshCw,
-  Tag as TagIcon,
-} from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, FolderInput, ListFilter, Plus, RefreshCw, Tag as TagIcon, MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
@@ -46,7 +35,7 @@ import { ProjectForm } from './project-form';
 import { ContextMenu } from './project-tree';
 import { TagPicker } from './tag-picker';
 import { tagColor, useTags } from './use-tags';
-import { Confirm } from './confirm-box';
+import { ConfirmBox } from './confirm-box';
 import { Tooltip } from './tooltip';
 import { ProjectFilterButton } from './project-filter-panel';
 import { useDirectory } from './use-directory';
@@ -187,6 +176,8 @@ export function ProjectsListView({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   /** Dự án mà hộp "Chuyển nhóm" / "Gắn nhãn" đang thao tác; rỗng là hộp đóng. */
   const [moveIds, setMoveIds] = useState<readonly string[]>([]);
+  /** Dự án đang chờ xác nhận đóng hồ sơ hoặc mở lưu trữ (từ menu "⋯"). */
+  const [archiveAsk, setArchiveAsk] = useState<{ id: string; mode: 'close' | 'restore' }>();
   const [tagIds, setTagIds] = useState<readonly string[]>([]);
   /** Menu chuột phải: vị trí và các dự án nó áp dụng. */
   const [menu, setMenu] = useState<{ x: number; y: number; ids: string[] }>();
@@ -433,6 +424,8 @@ export function ProjectsListView({
     setMenu({ ...at, ids });
   };
 
+  const menuProject = menu && menu.ids.length === 1 ? projects.find((project) => project.id === menu.ids[0]) : undefined;
+
   const handleCreate = useCallback(
     async (
       input: CreateProjectRequest,
@@ -671,10 +664,21 @@ export function ProjectsListView({
         ) : null}
 
         <div className={styles.ledgerScroll}>
-          <table className={`${styles.table} ${styles.ledgerTable}`}>
+          <table className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.projectsTable}`}>
+            {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
+            <colgroup>
+              <col className={styles.projectsColCheck} />
+              <col />
+              <col className={styles.projectsColCustomer} />
+              <col className={styles.projectsColTags} />
+              <col className={styles.projectsColStatus} />
+              <col className={styles.projectsColTime} />
+              <col className={styles.projectsColProgress} />
+              <col className={styles.projectsColActions} />
+            </colgroup>
             <thead>
               <tr>
-                <th style={{ width: 36 }}>
+                <th>
                   <input
                     type="checkbox"
                     aria-label="Chọn tất cả"
@@ -714,8 +718,6 @@ export function ProjectsListView({
                   onToggle={toggleOne}
                   onMenu={openMenu}
                   onOpen={onOpenProject}
-                  onClose={closeProject}
-                  onUnarchive={unarchive}
                 />
               ))}
             </tbody>
@@ -748,6 +750,16 @@ export function ProjectsListView({
               id: 'tags',
               label: menu.ids.length > 1 ? `Gắn nhãn ${menu.ids.length} dự án…` : 'Gắn nhãn…',
             },
+            // Đóng hồ sơ / mở lưu trữ chỉ làm với một dự án mỗi lần.
+            ...(menuProject
+              ? [
+                  menuProject.archivedAt
+                    ? { id: 'restore', label: 'Mở lưu trữ…', separatorBefore: true }
+                    : !CLOSED_PROJECT_STATUSES.includes(menuProject.status)
+                      ? { id: 'close', label: 'Đóng hồ sơ…', separatorBefore: true }
+                      : undefined,
+                ].filter((action): action is { id: string; label: string; separatorBefore: boolean } => Boolean(action))
+              : []),
           ]}
           onClose={() => setMenu(undefined)}
           onPick={(actionId) => {
@@ -756,9 +768,35 @@ export function ProjectsListView({
             if (actionId === 'open') onOpenProject(ids[0] as string);
             if (actionId === 'move') setMoveIds(ids);
             if (actionId === 'tags') setTagIds(ids);
+            if (actionId === 'close' || actionId === 'restore') {
+              setArchiveAsk({ id: ids[0] as string, mode: actionId });
+            }
           }}
         />
       ) : null}
+
+      <ConfirmBox
+        open={Boolean(archiveAsk)}
+        title={
+          archiveAsk?.mode === 'restore'
+            ? 'Bạn có chắc chắn muốn mở lưu trữ dự án này?'
+            : 'Bạn có chắc chắn muốn đóng hồ sơ dự án này?'
+        }
+        message={
+          archiveAsk?.mode === 'restore'
+            ? 'Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang "Hoàn thành" về "Đang chạy" hoặc giữ nguyên trạng thái, theo Cấu hình chung.'
+            : 'Dự án vào Lưu trữ, trạng thái giữ nguyên. Đóng được cả khi còn công việc chưa xong; mở lại bằng Mở lưu trữ.'
+        }
+        confirmLabel={archiveAsk?.mode === 'restore' ? 'Mở lưu trữ' : 'Đóng hồ sơ'}
+        tone={archiveAsk?.mode === 'restore' ? 'primary' : 'warning'}
+        onConfirm={() => {
+          const ask = archiveAsk;
+          setArchiveAsk(undefined);
+          if (!ask) return;
+          void (ask.mode === 'restore' ? unarchive(ask.id) : closeProject(ask.id));
+        }}
+        onCancel={() => setArchiveAsk(undefined)}
+      />
 
       <MoveGroupDialog
         open={moveIds.length > 0}
@@ -813,8 +851,6 @@ function GroupRows({
   onToggle,
   onMenu,
   onOpen,
-  onClose,
-  onUnarchive,
 }: {
   type: string;
   rows: readonly ProjectSummary[];
@@ -834,9 +870,6 @@ function GroupRows({
   onToggle: (id: string) => void;
   onMenu: (id: string, at: { x: number; y: number }) => void;
   onOpen: (id: string) => void;
-  onClose: (id: string) => void;
-  /** Mở lưu trữ (chỉ dòng của dự án đang lưu trữ). */
-  onUnarchive: (id: string) => void;
 }) {
   const today = new Date().toLocaleDateString('en-CA');
   const countOf = (test: (project: ProjectSummary) => boolean) => rows.filter(test).length;
@@ -879,11 +912,17 @@ function GroupRows({
           />
         </td>
         <th scope="row">
-          <button type="button" className={styles.groupToggle} aria-expanded={!collapsed} onClick={onToggleGroup}>
-            {collapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-            {type}
-            <span className={styles.groupSummaryMuted}>· {rows.length} dự án</span>
-          </button>
+          <div className={styles.workCell}>
+            <button type="button" className={styles.groupToggle} aria-expanded={!collapsed} onClick={onToggleGroup}>
+              {collapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+              <Tooltip content={type}>
+                <span className={styles.workTitle}>
+                  {type}
+                  <span className={styles.groupSummaryMuted}> · {rows.length} dự án</span>
+                </span>
+              </Tooltip>
+            </button>
+          </div>
         </th>
         <td>
           {customerCount > 0 ? (
@@ -967,35 +1006,49 @@ function GroupRows({
               />
             </td>
             <td>
-              <button
-                type="button"
-                className={styles.cellTitleButton}
-                onClick={() => onOpen(project.id)}
-              >
-                <span className={styles.treeCode}>{project.code}</span>
-                {project.name}
-                {returnedId === project.id ? <span className={styles.returnedBadge}>Vừa xem</span> : null}
-              </button>
+              <div className={`${styles.workCell} ${styles.workChild}`}>
+                <span className={styles.workIndent} aria-hidden />
+                <button type="button" className={styles.cellTitleButton} onClick={() => onOpen(project.id)}>
+                  <Tooltip content={project.code}>
+                    <span className={styles.treeCode}>{project.code}</span>
+                  </Tooltip>
+                  <Tooltip content={project.name}>
+                    <span className={styles.workTitle}>{project.name}</span>
+                  </Tooltip>
+                  {returnedId === project.id ? <span className={styles.returnedBadge}>Vừa xem</span> : null}
+                </button>
+              </div>
             </td>
-            <td className={styles.inlineCell}>
-              <ChipSelect
-                label={`Khách hàng của ${project.code}`}
-                title={customer?.name ?? 'Chưa gắn khách hàng'}
-                value={project.customerId ?? ''}
-                emptyLabel="Chọn khách hàng"
-                options={customerOptions}
-                lead={<Building2 size={13} aria-hidden />}
-                maxWidth={150}
-                disabled={!canEdit || busy}
-                onChange={(value) =>
-                  onPatch(project.id, { customerId: value || null }, 'Không đổi được khách hàng.')
-                }
-              />
+            <td className={customer || !canEdit ? styles.inlineCell : `${styles.inlineCell} ${styles.emptyEdit}`}>
+              {!customer && !canEdit ? (
+                <span className={styles.muted}>—</span>
+              ) : (
+                <>
+                  {customer ? null : <span className={styles.emptyDash}>—</span>}
+                  <ChipSelect
+                    label={`Khách hàng của ${project.code}`}
+                    title={customer?.name ?? 'Chưa gắn khách hàng'}
+                    value={project.customerId ?? ''}
+                    emptyLabel="Chọn khách hàng"
+                    options={customerOptions}
+                    lead={<Building2 size={13} aria-hidden />}
+                    maxWidth={150}
+                    disabled={!canEdit || busy}
+                    onChange={(value) =>
+                      onPatch(project.id, { customerId: value || null }, 'Không đổi được khách hàng.')
+                    }
+                  />
+                </>
+              )}
             </td>
-            <td className={styles.inlineCell}>
+            <td
+              className={
+                project.tagIds?.length || !canEdit ? styles.inlineCell : `${styles.inlineCell} ${styles.emptyEdit}`
+              }
+            >
               {project.tagIds?.length ? (
                 <span className={styles.chipGroup}>
-                  {project.tagIds.map((tagId) => {
+                  {project.tagIds.slice(0, 2).map((tagId) => {
                     const tag = tagOf(tagId);
                     if (!tag) return null;
                     const color = tagColor(tag);
@@ -1011,11 +1064,25 @@ function GroupRows({
                       </ChipButton>
                     );
                   })}
+                  {project.tagIds.length > 2 ? (
+                    <Tooltip
+                      content={project.tagIds
+                        .slice(2)
+                        .map((tagId) => tagOf(tagId)?.name)
+                        .filter(Boolean)
+                        .join(', ')}
+                    >
+                      <span className={styles.muted}>+{project.tagIds.length - 2}</span>
+                    </Tooltip>
+                  ) : null}
                 </span>
               ) : canEdit ? (
-                <ChipButton dashed label={`Gắn nhãn cho ${project.code}`} onClick={() => onEditTags(project.id)}>
-                  <TagIcon size={13} aria-hidden /> Gắn nhãn
-                </ChipButton>
+                <>
+                  <span className={styles.emptyDash}>—</span>
+                  <ChipButton dashed label={`Gắn nhãn cho ${project.code}`} onClick={() => onEditTags(project.id)}>
+                    <TagIcon size={13} aria-hidden /> Gắn nhãn
+                  </ChipButton>
+                </>
               ) : (
                 <span className={styles.muted}>—</span>
               )}
@@ -1062,32 +1129,18 @@ function GroupRows({
               />
             </td>
             <td>
-              <div className={styles.rowActions}>
-                {project.archivedAt ? (
-                  <Confirm
-                    title="Bạn có chắc chắn muốn mở lưu trữ dự án này?"
-                    description={'Dự án về lại danh sách đang làm và chỉnh sửa được. Dự án đang "Hoàn thành" về "Đang chạy" hoặc giữ nguyên trạng thái, theo Cấu hình chung.'}
-                    okText="Mở lưu trữ"
-                    onConfirm={() => onUnarchive(project.id)}
-                  >
-                    <button type="button" className={styles.textButton}>
-                      <ArchiveRestore size={13} aria-hidden /> Mở lưu trữ
-                    </button>
-                  </Confirm>
-                ) : closable ? (
-                  <Confirm
-                    title="Bạn có chắc chắn muốn đóng hồ sơ dự án này?"
-                    description="Dự án vào Lưu trữ, trạng thái giữ nguyên. Đóng được cả khi còn công việc chưa xong; mở lại bằng Mở lưu trữ."
-                    okText="Đóng hồ sơ"
-                    okType="warning"
-                    onConfirm={() => onClose(project.id)}
-                  >
-                    <button type="button" className={styles.textButton}>
-                      <Archive size={13} aria-hidden /> Đóng hồ sơ
-                    </button>
-                  </Confirm>
-                ) : null}
-              </div>
+              <button
+                type="button"
+                className={styles.rowKebab}
+                aria-label={`Thao tác với ${project.code}`}
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  onMenu(project.id, { x: box.left, y: box.bottom + 4 });
+                }}
+              >
+                <MoreHorizontal size={16} aria-hidden />
+              </button>
             </td>
           </tr>
         );

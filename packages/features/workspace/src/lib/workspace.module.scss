@@ -10447,7 +10447,7 @@ button.kpiCard {
 }
 
 /*
- * Bảng "Công việc của tôi": bố cục cố định để mở/thu nhóm không làm cột dịch chỗ.
+ * Bảng dạng cây hai cấp (nhóm → dòng): "Công việc của tôi" và "Dự án". Bố cục cố định để mở/thu nhóm không làm cột dịch chỗ.
  *
  * Ô đầu tiên là một "cây" hai cấp, cùng một lưới ở cả hai cấp:
  *   hàng nhóm : [mũi tên][mã dự án][tên dự án ........ ↗]
@@ -10455,13 +10455,12 @@ button.kpiCard {
  * Chỗ của mã luôn một bề rộng (--work-code-w) nên tên dự án và tên việc bắt đầu cùng một cột; việc nằm lùi vào so với
  * nhóm một khoảng bằng mũi tên + thụt lề nhỏ. Tên dài bị cắt một dòng, rê chuột để xem đủ.
  */
-.myWorkTable {
+.treeTable {
   --work-code-w: 9rem;
   --work-arrow-w: 14px;
   --work-gap: 8px;
   --work-indent: 14px;
 
-  min-width: 1060px;
   table-layout: fixed;
 }
 
@@ -10492,7 +10491,7 @@ button.kpiCard {
   min-width: 0;
 }
 
-.myWorkTable .groupToggle {
+.treeTable .groupToggle {
   flex: 1;
   min-width: 0;
   gap: var(--work-gap);
@@ -10505,7 +10504,7 @@ button.kpiCard {
 }
 
 /* Chỗ của mã: một bề rộng cho cả nhóm lẫn việc; mã dài bị cắt. */
-.myWorkTable .workCell .treeCode {
+.treeTable .workCell .treeCode {
   display: inline-block;
   flex: none;
   width: var(--work-code-w);
@@ -10522,11 +10521,11 @@ button.kpiCard {
   width: calc(var(--work-arrow-w) + var(--work-indent));
 }
 
-.myWorkTable .workChild .treeCode {
+.treeTable .workChild .treeCode {
   width: calc(var(--work-code-w) - var(--work-indent));
 }
 
-.myWorkTable .workChild .cellTitleButton {
+.treeTable .workChild .cellTitleButton {
   flex: 1;
   gap: var(--work-gap);
   min-width: 0;
@@ -10540,7 +10539,7 @@ button.kpiCard {
   white-space: nowrap;
 }
 
-.myWorkTable .cellSub {
+.treeTable .cellSub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10568,6 +10567,112 @@ button.kpiCard {
   &:focus-visible {
     @include focus-ring;
   }
+}
+
+.myWorkTable {
+  min-width: 1060px;
+}
+
+.projectsTable {
+  --work-code-w: 7rem;
+
+  min-width: 1134px;
+}
+
+.projectsColCheck {
+  width: 40px;
+}
+
+.projectsColCustomer {
+  width: 164px;
+}
+
+.projectsColTags {
+  width: 150px;
+}
+
+.projectsColStatus {
+  width: 148px;
+}
+
+.projectsColTime {
+  width: 198px;
+}
+
+.projectsColProgress {
+  width: 140px;
+}
+
+.projectsColActions {
+  width: 44px;
+}
+
+/*
+ * Ô còn trống nhưng sửa được (chưa có khách hàng, chưa có nhãn): ngày thường chỉ hiện "—" cho bảng đỡ lặp chữ; rê
+ * chuột vào dòng (hoặc tab tới ô) mới hiện ô chọn. Chiều rộng cột cố định nên đổi qua lại không làm bảng xê dịch.
+ */
+.emptyEdit {
+  position: relative;
+
+  > .emptyDash {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    color: var(--ep-text-muted);
+  }
+
+  > :not(.emptyDash) {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.projectsTable tbody tr:hover .emptyEdit > :not(.emptyDash),
+.projectsTable .emptyEdit:focus-within > :not(.emptyDash) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.projectsTable tbody tr:hover .emptyEdit > .emptyDash,
+.projectsTable .emptyEdit:focus-within > .emptyDash {
+  opacity: 0;
+}
+
+/* Nhãn: tối đa hai nhãn trên một dòng, còn lại gộp thành "+N" (rê chuột xem đủ). */
+.projectsTable .chipGroup {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Nút "⋯" cuối dòng: chỉ hiện khi rê chuột, tab tới hoặc đang mở menu, để bảng khỏi lặp một biểu tượng ở mọi dòng. */
+.rowKebab {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+  opacity: 0;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.projectsTable tbody tr:hover .rowKebab,
+.rowKebab:focus-visible,
+.rowKebab[aria-expanded='true'] {
+  opacity: 1;
 }
 
 /* Đầu bảng dính trên, dòng tổng dính dưới khi cuộn. */

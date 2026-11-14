@@ -711,7 +711,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           ) : null}
 
           <div className={styles.ledgerScroll}>
-            <table className={`${styles.table} ${styles.ledgerTable} ${styles.myWorkTable}`}>
+            <table className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.myWorkTable}`}>
               {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
               <colgroup>
                 <col />
