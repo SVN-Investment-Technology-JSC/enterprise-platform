@@ -1,13 +1,20 @@
 'use client';
 
-import type { CatalogItem, CorrespondenceConfig } from '@enterprise-platform/contracts-correspondence';
-import { toast } from '@enterprise-platform/shared-ui';
+import {
+  ENVELOPE_STATUSES,
+  ENVELOPE_STATUS_LABELS,
+  type CatalogItem,
+  type CorrespondenceConfig,
+  type CorrespondenceDirectory,
+  type EnvelopeStatus,
+} from '@enterprise-platform/contracts-correspondence';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
+import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
-import { Field, FilePickField, FormDialog } from './form-dialog';
+import { CheckGroup, Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 
 interface IntakeForm {
   senderOrg: string;
@@ -19,6 +26,12 @@ interface IntakeForm {
   kind: string;
   urgency: string;
   confidentiality: string;
+  envelopeStatus: EnvelopeStatus;
+  sealed: boolean;
+  pageCount: string;
+  copyCount: string;
+  addressedTo: string;
+  addressedUserId: string;
 }
 
 /** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
@@ -45,6 +58,12 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
     kind,
     urgency: catalogOptions(config.catalog, 'urgency')[0]?.value ?? '',
     confidentiality: catalogOptions(config.catalog, 'confidentiality')[0]?.value ?? '',
+    envelopeStatus: 'intact',
+    sealed: false,
+    pageCount: '',
+    copyCount: '',
+    addressedTo: '',
+    addressedUserId: '',
   };
 }
 
@@ -52,6 +71,7 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
 export function IntakeDialog({
   open,
   config,
+  directory,
   onClose,
   onCreated,
   canQuickAdd = false,
@@ -59,6 +79,8 @@ export function IntakeDialog({
 }: {
   readonly open: boolean;
   readonly config: CorrespondenceConfig;
+  /** Người trong tenant, để chọn người nhận khi văn bản gửi đích danh. */
+  readonly directory?: CorrespondenceDirectory;
   readonly onClose: () => void;
   readonly onCreated: (letterId: string) => void;
   /** Được thêm nhanh danh mục bằng nút "+". */
@@ -85,6 +107,8 @@ export function IntakeDialog({
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const workflow = plannedWorkflow(config, 'incoming', form.kind);
 
+  const restricted = Boolean(config.catalog.find((item) => item.kind === 'confidentiality' && item.code === form.confidentiality)?.restricted);
+
   const submit = async () => {
     if (!form.senderOrg.trim() || !form.subject.trim()) {
       setError('Nhập cơ quan gửi và trích yếu nội dung.');
@@ -107,6 +131,12 @@ export function IntakeDialog({
         kind: form.kind,
         urgency: form.urgency,
         confidentiality: form.confidentiality,
+        envelopeStatus: form.envelopeStatus,
+        sealed: restricted ? form.sealed : undefined,
+        pageCount: form.pageCount === '' ? undefined : Number(form.pageCount),
+        copyCount: form.copyCount === '' ? undefined : Number(form.copyCount),
+        addressedTo: form.addressedTo.trim() || undefined,
+        addressedUserId: form.addressedUserId || undefined,
       });
       let failed = 0;
       for (const file of files) {
@@ -211,6 +241,54 @@ export function IntakeDialog({
           onChange={(value) => set('confidentiality', value)}
         />
       </div>
+      <fieldset className={styles.fieldset}>
+        <legend>Phân loại sơ bộ</legend>
+        <div className={styles.formRow3}>
+          <SelectField label="Tình trạng bì">
+            <SearchableSelect
+              options={ENVELOPE_STATUSES.map((value) => ({ value, label: ENVELOPE_STATUS_LABELS[value] }))}
+              value={form.envelopeStatus}
+              searchInDropdown
+              hideDropdownSearch
+              onChange={(value) => value && set('envelopeStatus', value as EnvelopeStatus)}
+            />
+          </SelectField>
+          <Field label="Số tờ">
+            <input type="number" min={0} max={10000} value={form.pageCount} onChange={(event) => set('pageCount', event.target.value)} />
+          </Field>
+          <Field label="Số bản">
+            <input type="number" min={0} max={1000} value={form.copyCount} onChange={(event) => set('copyCount', event.target.value)} />
+          </Field>
+        </div>
+        {restricted ? (
+          <CheckGroup label="Văn bản mật">
+            <label className={styles.checkRow}>
+              <input type="checkbox" checked={form.sealed} onChange={(event) => set('sealed', event.target.checked)} />
+              Dấu niêm phong còn nguyên
+            </label>
+          </CheckGroup>
+        ) : null}
+        <div className={styles.formRow}>
+          <Field label="Gửi đích danh (cá nhân, tổ chức đoàn thể)">
+            <input
+              value={form.addressedTo}
+              maxLength={255}
+              placeholder="Để trống nếu gửi cơ quan"
+              onChange={(event) => set('addressedTo', event.target.value)}
+            />
+          </Field>
+          <SelectField label="Người nhận đích danh trong hệ thống">
+            <SearchableSelect
+              options={(directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }))}
+              value={form.addressedUserId}
+              placeholder="Chọn nếu người nhận có tài khoản"
+              clearable
+              onChange={(value) => set('addressedUserId', value ?? '')}
+            />
+            <span className={styles.hint}>Người này nhận thông báo và xem được công văn.</span>
+          </SelectField>
+        </div>
+      </fieldset>
       <div className={styles.formRow}>
         <Field label="Hạn xử lý">
           <input type="date" value={form.dueOn} min={form.receivedOn} onChange={(event) => set('dueOn', event.target.value)} />
@@ -218,8 +296,8 @@ export function IntakeDialog({
         <FilePickField label="Bản quét công văn" files={files} hint="PDF, ảnh hay tệp Word của công văn" onChange={setFiles} />
       </div>
       <p className={styles.plan}>
-        <span>Quy trình (theo cấu hình):</span> Văn thư tiếp nhận → Phòng ban xử lý
-        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư hoàn tất, lưu trữ
+        <span>Quy trình (theo cấu hình):</span>{' '}
+        {workflow ? flowLabels(workflow, 'incoming').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );

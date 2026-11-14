@@ -30,6 +30,7 @@ import {
   type SaveCatalogItemRequest,
   type SaveWorkflowRequest,
   type StepChoice,
+  type SendLetterRequest,
   type SubmitLetterRequest,
   type UpdateDeliveryRequest,
   type UpdateLetterRequest,
@@ -134,7 +135,7 @@ export const assignHandler = (id: string, assignmentId: string, body: AssignHand
   post<LetterDetail>(assignment(id, assignmentId, 'handler'), body);
 export const respondLetter = (id: string, assignmentId: string, note: string) =>
   post<LetterDetail>(assignment(id, assignmentId, 'respond'), { note });
-export const sendToClerk = (id: string, note?: string) => post<LetterDetail>(letter(id, 'send-to-clerk'), { note });
+export const sendToClerk = (id: string, body: SendLetterRequest) => post<LetterDetail>(letter(id, 'send-to-clerk'), body);
 export const submitLetter = (id: string, body: SubmitLetterRequest) => post<LetterDetail>(letter(id, 'submit'), body);
 export const approveLetter = (id: string, body: ApproveStepRequest) => post<LetterDetail>(letter(id, 'approve'), body);
 export const returnLetter = (id: string, body: ReturnLetterRequest) => post<LetterDetail>(letter(id, 'return'), body);
@@ -145,6 +146,7 @@ export const cancelLetter = (id: string, reason: string) => post<LetterDetail>(l
 export const requestRevoke = (id: string, body: RequestRevokeRequest) => post<LetterDetail>(letter(id, 'revoke'), body);
 export const decideRevoke = (id: string, body: DecideRevokeRequest) => post<LetterDetail>(letter(id, 'revoke/decision'), body);
 export const withdrawRevoke = (id: string) => post<LetterDetail>(letter(id, 'revoke/withdraw'), {});
+export const remindLetter = (id: string, note?: string) => post<LetterDetail>(letter(id, 'remind'), { note });
 export const removeLetter = (id: string) => request<void>(`/letters/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const commentLetter = (id: string, body: CommentRequest) => post<LetterDetail>(letter(id, 'comments'), body);
 

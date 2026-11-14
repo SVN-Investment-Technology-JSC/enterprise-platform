@@ -121,6 +121,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0001-correspondence', path: 'tenant/correspondence/0001-correspondence.sql' },
     { version: '0002-incoming-outgoing-flows', path: 'tenant/correspondence/0002-incoming-outgoing-flows.sql' },
     { version: '0003-revoke-and-delete', path: 'tenant/correspondence/0003-revoke-and-delete.sql' },
+    { version: '0004-dynamic-workflow-steps', path: 'tenant/correspondence/0004-dynamic-workflow-steps.sql' },
+    { version: '0005-directive-intake-tracking', path: 'tenant/correspondence/0005-directive-intake-tracking.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [

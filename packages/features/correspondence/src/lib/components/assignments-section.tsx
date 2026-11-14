@@ -73,7 +73,11 @@ export function AssignmentsSection({
           Đã gửi kết quả {done}/{letter.assignments.length}
         </span>
       </div>
-      {letter.instruction ? <p className={styles.instruction}>Văn thư ghi chú: {letter.instruction}</p> : null}
+      {letter.instruction ? (
+        <p className={styles.instruction}>
+          {letter.directive?.note && letter.directive.note === letter.instruction ? 'Bút phê' : 'Ghi chú khi giao'}: {letter.instruction}
+        </p>
+      ) : null}
       <div className={styles.list}>
         {letter.assignments.map((assignment) => {
           const results = letter.attachments.filter((item) => item.assignmentId === assignment.id);
@@ -82,7 +86,12 @@ export function AssignmentsSection({
             <div key={assignment.id} className={styles.assignment}>
               <div className={styles.assignmentHead}>
                 <div className={styles.listMain}>
-                  <b>{assignment.unitName}</b>
+                  <b>
+                    {assignment.unitName}{' '}
+                    <span className={`${styles.tag} ${styles[assignment.role === 'lead' ? 'tone-info' : 'tone-neutral']}`}>
+                      {assignment.role === 'lead' ? 'Chủ trì' : 'Phối hợp'}
+                    </span>
+                  </b>
                   <span className={styles.hint}>
                     {assignment.handlerName ? (
                       <>

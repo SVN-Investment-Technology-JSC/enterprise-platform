@@ -1165,6 +1165,8 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       ['correspondence.letter.revoke-requested', 'approval', 'actionable', 'Đề nghị huỷ công văn chờ bạn xác nhận'],
       ['correspondence.letter.revoke-rejected', 'result', 'informational', 'Đề nghị huỷ công văn không được đồng ý'],
       ['correspondence.letter.revoke-withdrawn', 'result', 'informational', 'Đề nghị huỷ công văn đã được rút'],
+      ['correspondence.letter.reminded', 'assignment', 'actionable', 'Đôn đốc xử lý công văn'],
+      ['correspondence.letter.addressed', 'assignment', 'informational', 'Công văn gửi đích danh bạn'],
       ['correspondence.letter.mentioned', 'mention', 'actionable', 'Bạn được nhắc tên trong công văn'],
       ['correspondence.letter.commented', 'comment', 'informational', 'Trao đổi mới trong công văn'],
       ['correspondence.letter.revision-requested', 'assignment', 'actionable', 'Văn bản phản hồi cần sửa lại'],

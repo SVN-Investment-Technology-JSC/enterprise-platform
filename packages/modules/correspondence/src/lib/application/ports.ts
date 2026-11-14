@@ -1,5 +1,6 @@
 import type {
   ApproverRule,
+  AssignmentRole,
   AssignmentStatus,
   AttachmentDownloadMode,
   AttachmentDownloadTicket,
@@ -8,13 +9,16 @@ import type {
   CatalogKind,
   CorrespondenceSettings,
   DeliveryStatus,
+  EnvelopeStatus,
   LetterDirection,
+  LetterDirective,
   LetterHistoryAction,
   LetterStage,
   LetterStepDecision,
   LetterStepStatus,
   ReturnTarget,
   RevokeKind,
+  StepType,
   Workflow,
   WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -89,6 +93,17 @@ export interface LetterRecord {
   readonly revokeRequestedBy?: string;
   readonly revokeRequestedAt?: string;
   readonly revokeApproverIds?: readonly string[];
+  /** Phân loại sơ bộ lúc tiếp nhận. */
+  readonly envelopeStatus?: EnvelopeStatus;
+  readonly sealed?: boolean;
+  readonly pageCount?: number;
+  readonly copyCount?: number;
+  readonly addressedTo?: string;
+  readonly addressedUserId?: string;
+  /** Bút phê của bước chỉ đạo gần nhất (tên người lấy lúc đọc). */
+  readonly directive?: Omit<LetterDirective, 'byName'>;
+  /** Người làm ô cuối theo cấu hình quy trình (trống là văn thư). */
+  readonly closerIds?: readonly string[];
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -102,7 +117,12 @@ export interface StepRecord {
   readonly id: string;
   readonly seq: number;
   readonly name: string;
-  readonly approver: ApproverRule;
+  /** Phòng ban xử lý, văn thư kiểm tra hay duyệt. */
+  readonly kind: StepType;
+  /** Luật người duyệt; chỉ bước duyệt có. */
+  readonly approver?: ApproverRule;
+  /** Bước chỉ đạo (bút phê). */
+  readonly directs?: boolean;
   readonly rejectTo?: ReturnTarget;
   readonly dueDays?: number;
   readonly status: LetterStepStatus;
@@ -120,6 +140,7 @@ export interface AssignmentRecord {
   readonly letterId: string;
   readonly unitId: string;
   readonly unitName: string;
+  readonly role: AssignmentRole;
   readonly round: number;
   readonly status: AssignmentStatus;
   readonly handlerUserId?: string;
@@ -165,8 +186,10 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
-  readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
+  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
+  readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'role' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
+  /** Có công văn đi (chưa huỷ) trả lời công văn này. */
+  readonly replied?: boolean;
   readonly mentionedUserIds: readonly string[];
 }
 
@@ -251,7 +274,9 @@ export interface LetterTransaction {
   replaceSteps(steps: readonly WorkflowStep[]): Promise<void>;
   updateStep(stepId: string, update: StepUpdate): Promise<void>;
   /** Thêm phòng ban mới hay đưa phòng ban đã có về chờ ở lượt mới; ghi người xử lý nếu có. */
-  assign(units: readonly { readonly unitId: string; readonly unitName: string; readonly handlerUserId?: string }[]): Promise<void>;
+  assign(
+    units: readonly { readonly unitId: string; readonly unitName: string; readonly handlerUserId?: string; readonly role?: AssignmentRole }[],
+  ): Promise<void>;
   /** Bỏ phòng ban khỏi công văn (văn thư giao lại không còn chọn phòng đó). */
   removeAssignments(assignmentIds: readonly string[]): Promise<void>;
   setHandler(assignmentId: string, handlerUserId: string | null): Promise<void>;
@@ -297,6 +322,12 @@ export interface WorkflowUpsert {
   readonly direction: LetterDirection;
   readonly isActive: boolean;
   readonly isDefault: boolean;
+  readonly startName: string | null;
+  readonly endName: string | null;
+  readonly autoStart: boolean;
+  readonly endActor: ApproverRule | null;
+  readonly autoEnd: boolean;
+  readonly archive: boolean;
   readonly steps: readonly WorkflowStep[];
 }
 

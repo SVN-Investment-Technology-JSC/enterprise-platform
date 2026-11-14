@@ -199,16 +199,53 @@ export const RETURN_TARGETS = ['previous-step', 'handlers', 'clerk'] as const;
 export type ReturnTarget = (typeof RETURN_TARGETS)[number];
 
 export function returnTargetLabel(target: ReturnTarget, direction: LetterDirection): string {
-  if (target === 'previous-step') return 'Bước duyệt trước';
+  if (target === 'previous-step') return 'Bước trước';
   if (target === 'clerk') return 'Văn thư';
   return direction === 'incoming' ? 'Phòng ban xử lý' : 'Người soạn thảo';
 }
 
-/** Một bước duyệt của quy trình. */
+/**
+ * Loại bước ở giữa quy trình (giữa ô tiếp nhận / soạn thảo và ô hoàn tất / ban hành, lưu trữ):
+ * phòng ban xử lý (phòng do người làm bước liền trước chọn), văn thư kiểm tra, duyệt theo luật
+ * người duyệt. Thêm, bớt, đổi thứ tự tự do trong cấu hình.
+ */
+export const STEP_TYPES = ['process', 'check', 'approve'] as const;
+export type StepType = (typeof STEP_TYPES)[number];
+
+export const STEP_TYPE_LABELS: Readonly<Record<StepType, string>> = {
+  process: 'Phòng ban xử lý',
+  check: 'Văn thư kiểm tra',
+  approve: 'Duyệt',
+};
+
+/** Tên mặc định của ô đầu (nơi công văn được tạo) và ô cuối (đánh số, lưu trữ) theo luồng. */
+export const FLOW_START_NAMES: Readonly<Record<LetterDirection, string>> = {
+  incoming: 'Văn thư tiếp nhận',
+  outgoing: 'Phòng ban soạn thảo',
+};
+export const FLOW_END_NAMES: Readonly<Record<LetterDirection, string>> = {
+  incoming: 'Văn thư hoàn tất, lưu trữ',
+  outgoing: 'Văn thư ban hành, lưu trữ',
+};
+
+/** Loại của bước; bước cũ không ghi loại là bước duyệt. */
+export function stepTypeOf(step: { readonly type?: StepType }): StepType {
+  return step.type ?? 'approve';
+}
+
+/** Một bước ở giữa quy trình. */
 export interface WorkflowStep {
   readonly key: string;
   readonly name: string;
-  readonly approver: ApproverRule;
+  /** Trống là bước duyệt (dữ liệu trước khi có loại bước). */
+  readonly type?: StepType;
+  /** Luật người duyệt; chỉ bước duyệt có. */
+  readonly approver?: ApproverRule;
+  /**
+   * Bước duyệt là bước chỉ đạo (bút phê): người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân
+   * chủ trì, phối hợp và thời hạn; bước phòng ban xử lý sau đó giao theo bút phê.
+   */
+  readonly directs?: boolean;
   /** Không đạt thì trả về đâu; trống là bước trước. */
   readonly rejectTo?: ReturnTarget;
   /** Số ngày cho bước, để nhắc hạn; trống là theo hạn của công văn. */
@@ -223,7 +260,21 @@ export interface Workflow {
   readonly isActive: boolean;
   /** Dùng khi loại văn bản chưa gắn quy trình của luồng này. */
   readonly isDefault: boolean;
-  /** Các bước duyệt theo thứ tự; rỗng là không cần duyệt. */
+  /** Tên ô đầu, ô cuối của thanh tiến trình; trống là tên mặc định của luồng. */
+  readonly startName?: string;
+  readonly endName?: string;
+  /**
+   * Công văn đến: văn thư vào sổ xong là tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì
+   * giao phòng ban gợi ý của loại văn bản), không cần bước phân loại riêng.
+   */
+  readonly autoStart?: boolean;
+  /** Người làm ô cuối (hoàn tất / ban hành); trống là văn thư. */
+  readonly endActor?: ApproverRule;
+  /** Xong bước cuối là tự hoàn tất (đến) / tự cấp số đi, ban hành (đi), không chờ ai bấm. */
+  readonly autoEnd?: boolean;
+  /** Ô cuối cấp số hồ sơ, lưu trữ (mặc định có). */
+  readonly archive?: boolean;
+  /** Các bước ở giữa theo thứ tự; rỗng là đi thẳng từ ô đầu tới ô cuối. */
   readonly steps: readonly WorkflowStep[];
   readonly updatedAt: string;
 }
@@ -234,10 +285,16 @@ export interface SaveWorkflowRequest {
   readonly direction: LetterDirection;
   readonly isActive?: boolean;
   readonly isDefault?: boolean;
+  readonly startName?: string;
+  readonly endName?: string;
+  readonly autoStart?: boolean;
+  readonly endActor?: ApproverRule | null;
+  readonly autoEnd?: boolean;
+  readonly archive?: boolean;
   readonly steps: readonly WorkflowStep[];
 }
 
-export const MAX_WORKFLOW_STEPS = 10;
+export const MAX_WORKFLOW_STEPS = 30;
 
 /* ------------------------------------------------------------- bước thật */
 
@@ -246,12 +303,15 @@ export type LetterStepStatus = (typeof LETTER_STEP_STATUSES)[number];
 
 export type LetterStepDecision = 'approved' | 'returned';
 
-/** Một bước duyệt trên một công văn cụ thể (chép từ quy trình lúc trình). */
+/** Một bước trên một công văn cụ thể (chép từ quy trình khi công văn rời ô đầu). */
 export interface LetterStep {
   readonly id: string;
   readonly seq: number;
   readonly name: string;
-  readonly approver: ApproverRule;
+  readonly type: StepType;
+  readonly approver?: ApproverRule;
+  /** Bước chỉ đạo (bút phê). */
+  readonly directs?: boolean;
   readonly status: LetterStepStatus;
   readonly assignees: readonly { readonly userId: string; readonly name?: string }[];
   readonly actedBy?: string;
@@ -269,6 +329,8 @@ export interface LetterStep {
 export interface FlowNode {
   readonly key: string;
   readonly label: string;
+  /** Ô đầu, ô cuối, hay loại bước ở giữa; ô xác nhận huỷ là `revoke`. */
+  readonly kind: 'start' | 'end' | 'revoke' | StepType;
   readonly state: 'done' | 'current' | 'todo';
   /** Bước duyệt của quy trình (không phải bước cố định của luồng). */
   readonly approval: boolean;
@@ -319,10 +381,42 @@ export interface LetterAttachment {
 export const ASSIGNMENT_STATUSES = ['pending', 'submitted'] as const;
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
+/** Vai trò của đơn vị được giao: chủ trì (chịu trách nhiệm kết quả) hay phối hợp. */
+export const ASSIGNMENT_ROLES = ['lead', 'support'] as const;
+export type AssignmentRole = (typeof ASSIGNMENT_ROLES)[number];
+export const ASSIGNMENT_ROLE_LABELS: Readonly<Record<AssignmentRole, string>> = { lead: 'Chủ trì', support: 'Phối hợp' };
+
+/** Bút phê của bước chỉ đạo: ý kiến chỉ đạo, đơn vị / cá nhân chủ trì, phối hợp, thời hạn. */
+export interface LetterDirective {
+  readonly note?: string;
+  readonly dueOn?: string;
+  readonly units: readonly {
+    readonly unitId: string;
+    readonly unitName: string;
+    readonly role: AssignmentRole;
+    readonly handlerUserId?: string;
+    readonly handlerName?: string;
+  }[];
+  readonly stepName?: string;
+  readonly by?: string;
+  readonly byName?: string;
+  readonly at?: string;
+}
+
+/** Tình trạng bì văn bản đến lúc tiếp nhận. */
+export const ENVELOPE_STATUSES = ['intact', 'damaged', 'electronic'] as const;
+export type EnvelopeStatus = (typeof ENVELOPE_STATUSES)[number];
+export const ENVELOPE_STATUS_LABELS: Readonly<Record<EnvelopeStatus, string>> = {
+  intact: 'Bì nguyên vẹn',
+  damaged: 'Bì rách, có dấu hiệu bóc mở',
+  electronic: 'Văn bản điện tử',
+};
+
 export interface LetterAssignment {
   readonly id: string;
   readonly unitId: string;
   readonly unitName: string;
+  readonly role: AssignmentRole;
   readonly round: number;
   readonly status: AssignmentStatus;
   /** Người xử lý do phòng ban phân công. */
@@ -361,6 +455,7 @@ export const LETTER_HISTORY_ACTIONS = [
   'attach',
   'detach',
   'version',
+  'remind',
   'revoke-request',
   'revoke-approve',
   'revoke-reject',
@@ -450,6 +545,10 @@ export interface LetterSummary {
   readonly receivedByName?: string;
   readonly updatedAt: string;
   readonly awaitingMe: boolean;
+  /** Phòng ban được giao, kèm vai trò: "Phòng Kế toán (chủ trì)". */
+  readonly unitNames: readonly string[];
+  /** Có công văn đi trả lời công văn đến này. */
+  readonly replied?: boolean;
 }
 
 export interface LetterDetail extends LetterSummary {
@@ -460,6 +559,16 @@ export interface LetterDetail extends LetterSummary {
   readonly relatedLetterId?: string;
   readonly relatedLetterNo?: string;
   readonly cancelReason?: string;
+  /** Phân loại sơ bộ lúc tiếp nhận. */
+  readonly envelopeStatus?: EnvelopeStatus;
+  readonly sealed?: boolean;
+  readonly pageCount?: number;
+  readonly copyCount?: number;
+  readonly addressedTo?: string;
+  readonly addressedUserId?: string;
+  readonly addressedUserName?: string;
+  /** Bút phê của bước chỉ đạo gần nhất. */
+  readonly directive?: LetterDirective;
   /** Đề nghị huỷ công văn đã ban hành / hoàn tất: đang chờ xác nhận (giai đoạn `revoking`) hay đã được đồng ý. */
   readonly revoke?: LetterRevoke;
   readonly completionNote?: string;
@@ -513,6 +622,8 @@ export interface LetterActions {
   readonly withdrawRevoke: boolean;
   /** Xoá công văn đã huỷ khỏi Văn thư. */
   readonly remove: boolean;
+  /** Văn thư / bộ phận tổng hợp đôn đốc người đang xử lý. */
+  readonly remind: boolean;
   /** Người xem trả lại được về đâu ở bước hiện tại ("Không đạt"). */
   readonly returnTargets: readonly ReturnTarget[];
   /** Nơi trả về mặc định của bước hiện tại (cấu hình của bước duyệt). */
@@ -531,7 +642,19 @@ export interface StepChoice {
 
 /* -------------------------------------------------------------- yêu cầu */
 
-export interface CreateLetterRequest {
+/** Phân loại sơ bộ lúc tiếp nhận: bì, niêm phong, số tờ, số bản, văn bản gửi đích danh. */
+export interface IntakeCheck {
+  readonly envelopeStatus?: EnvelopeStatus;
+  /** Văn bản mật: dấu niêm phong còn nguyên. */
+  readonly sealed?: boolean;
+  readonly pageCount?: number;
+  readonly copyCount?: number;
+  /** Gửi đích danh cá nhân hay tổ chức đoàn thể (ghi tên); `addressedUserId` khi là người trong hệ thống. */
+  readonly addressedTo?: string;
+  readonly addressedUserId?: string;
+}
+
+export interface CreateLetterRequest extends IntakeCheck {
   readonly senderOrg: string;
   readonly senderRef?: string;
   readonly senderDate?: string;
@@ -557,7 +680,7 @@ export interface CreateOutgoingRequest {
   readonly relatedLetterId?: string;
 }
 
-export interface UpdateLetterRequest {
+export interface UpdateLetterRequest extends IntakeCheck {
   readonly senderOrg?: string;
   readonly senderRef?: string;
   readonly senderDate?: string;
@@ -577,14 +700,31 @@ export interface UpdateLetterRequest {
 export interface DispatchUnit {
   readonly unitId: string;
   readonly handlerUserId?: string;
+  /** Trống là chủ trì. */
+  readonly role?: AssignmentRole;
+}
+
+/** Văn thư / bộ phận tổng hợp nhắc người đang phải xử lý công văn. */
+export interface RemindRequest {
+  readonly note?: string;
 }
 
 /** Văn thư phân loại, chọn phòng ban xử lý và giao (công văn đến). */
-export interface DispatchLetterRequest {
+/**
+ * Khi chuyển sang bước kế tiếp: bước đó là "Phòng ban xử lý" thì người làm bước liền trước chọn
+ * phòng ban (`units`); bước duyệt để người trình chọn người thì chọn người (`assigneeUserId` /
+ * `nextAssigneeUserId`).
+ */
+export interface NextStepInput {
+  readonly units?: readonly DispatchUnit[];
+  /** Thời hạn hoàn thành khi giao phòng ban / bút phê; đặt lại hạn xử lý của công văn. */
+  readonly dueOn?: string;
+}
+
+export interface DispatchLetterRequest extends NextStepInput {
   readonly kind: string;
   readonly urgency: string;
   readonly confidentiality?: string;
-  readonly units: readonly DispatchUnit[];
   readonly dueOn?: string;
   readonly note?: string;
   /** Quy trình lãnh đạo xem xét sau khi phòng ban xử lý xong; trống là mặc định. */
@@ -598,13 +738,19 @@ export interface AssignHandlerRequest {
   readonly note?: string;
 }
 
-export interface SubmitLetterRequest {
+export interface SubmitLetterRequest extends NextStepInput {
   readonly workflowId?: string;
   readonly assigneeUserId?: string;
   readonly note?: string;
 }
 
-export interface ApproveStepRequest {
+/** Người soạn gửi công văn đi sang bước đầu của quy trình. */
+export interface SendLetterRequest extends NextStepInput {
+  readonly note?: string;
+  readonly assigneeUserId?: string;
+}
+
+export interface ApproveStepRequest extends NextStepInput {
   readonly note?: string;
   readonly nextAssigneeUserId?: string;
 }
@@ -692,7 +838,8 @@ export interface AttachmentDownloadTicket {
   readonly contentType: string;
 }
 
-export const LETTER_BOXES = ['incoming', 'outgoing', 'mine', 'archive'] as const;
+/** `tracking`: theo dõi, đôn đốc công văn còn mở có hạn xử lý (sắp xếp theo hạn). */
+export const LETTER_BOXES = ['incoming', 'outgoing', 'mine', 'archive', 'tracking'] as const;
 export type LetterBox = (typeof LETTER_BOXES)[number];
 
 export interface LetterQuery {
@@ -837,9 +984,29 @@ export interface CorrespondenceSettings {
    * là mọi người có quyền văn thư trong Phân quyền.
    */
   readonly clerkUserIds: readonly string[];
+  /**
+   * Ủy quyền duyệt: trong khoảng ngày, người được ủy quyền (thường là cấp phó) làm được các bước
+   * duyệt, bút phê giao cho người ủy quyền.
+   */
+  readonly delegations: readonly Delegation[];
+}
+
+export interface Delegation {
+  readonly fromUserId: string;
+  readonly toUserId: string;
+  /** `YYYY-MM-DD`, tính cả hai đầu. */
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly note?: string;
 }
 
 export const MAX_CLERKS = 10;
+export const MAX_DELEGATIONS = 50;
+
+/** Ủy quyền đang có hiệu lực vào ngày `on`. */
+export function activeDelegations(delegations: readonly Delegation[] | undefined, on: string): Delegation[] {
+  return (delegations ?? []).filter((item) => item.fromDate <= on && on <= item.toDate);
+}
 
 export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   incomingSuffix: 'CVĐ',
@@ -848,6 +1015,7 @@ export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   defaultDueDays: 7,
   dispatchMode: 'all',
   clerkUserIds: [],
+  delegations: [],
 };
 
 export interface CorrespondenceConfig {
@@ -901,6 +1069,10 @@ export const CORRESPONDENCE_EVENTS = {
   revokeRejected: 'correspondence.letter.revoke-rejected',
   /** Văn thư rút đề nghị huỷ. */
   revokeWithdrawn: 'correspondence.letter.revoke-withdrawn',
+  /** Văn thư / bộ phận tổng hợp đôn đốc người đang phải xử lý. */
+  reminded: 'correspondence.letter.reminded',
+  /** Văn bản gửi đích danh một người: báo người đó lúc tiếp nhận. */
+  addressed: 'correspondence.letter.addressed',
   commented: 'correspondence.letter.commented',
   mentioned: 'correspondence.letter.mentioned',
   dueSoon: 'correspondence.letter.due-soon',

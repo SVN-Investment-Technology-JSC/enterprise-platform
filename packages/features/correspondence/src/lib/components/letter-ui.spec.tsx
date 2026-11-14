@@ -12,7 +12,7 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { decideRevoke, quickAddCatalogItem, removeLetter, requestRevoke, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import { decideRevoke, quickAddCatalogItem, remindLetter, removeLetter, requestRevoke, submitLetter, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
 import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
@@ -21,6 +21,7 @@ import { IntakeDialog } from './intake-dialog';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
 import { OverviewView } from './overview-view';
+import { RemindDialog } from './tracking-view';
 
 jest.mock('../correspondence-api', () => ({
   ...jest.requireActual('../correspondence-api'),
@@ -33,6 +34,8 @@ jest.mock('../correspondence-api', () => ({
   decideRevoke: jest.fn(),
   removeLetter: jest.fn(),
   quickAddCatalogItem: jest.fn(),
+  submitLetter: jest.fn(),
+  remindLetter: jest.fn(),
 }));
 
 const mocked = {
@@ -45,6 +48,8 @@ const mocked = {
   decideRevoke: decideRevoke as jest.MockedFunction<typeof decideRevoke>,
   removeLetter: removeLetter as jest.MockedFunction<typeof removeLetter>,
   quickAdd: quickAddCatalogItem as jest.MockedFunction<typeof quickAddCatalogItem>,
+  submit: submitLetter as jest.MockedFunction<typeof submitLetter>,
+  remind: remindLetter as jest.MockedFunction<typeof remindLetter>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -61,6 +66,7 @@ const NO_ACTIONS: LetterActions = {
   decideRevoke: false,
   withdrawRevoke: false,
   remove: false,
+  remind: false,
   returnTargets: [],
   comment: true,
   reply: false,
@@ -95,6 +101,7 @@ function letter(overrides: Partial<LetterDetail> = {}, actions: Partial<LetterAc
     receivedByName: 'Hồ Thọ',
     updatedAt: '2026-11-13T12:00:00.000Z',
     awaitingMe: true,
+    unitNames: [],
     steps: [],
     flow: [],
     assignments: [],
@@ -107,7 +114,7 @@ function letter(overrides: Partial<LetterDetail> = {}, actions: Partial<LetterAc
 }
 
 const config: CorrespondenceConfig = {
-  settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all', clerkUserIds: [] },
+  settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all', clerkUserIds: [], delegations: [] },
   catalog: [],
   workflows: [],
 };
@@ -133,10 +140,10 @@ beforeEach(() => {
 describe('Thanh tiến trình', () => {
   it('vẽ đúng các bước của quy trình, đánh dấu bước đang xử lý, ghi người và lúc xong', () => {
     const nodes: FlowNode[] = [
-      { key: 'received', label: 'Văn thư tiếp nhận', state: 'done', approval: false, people: 'Hồ Thọ', at: '2026-11-13' },
-      { key: 'processing', label: 'Phòng ban xử lý', state: 'done', approval: false, people: 'Phòng Kinh doanh' },
-      { key: 'step-1', label: 'Lãnh đạo duyệt và ký', state: 'current', approval: true, people: 'Hà Nguyên Hoàng' },
-      { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', state: 'todo', approval: false, people: 'Lê Thu Hà' },
+      { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false, people: 'Hồ Thọ', at: '2026-11-13' },
+      { key: 'step-1', label: 'Phòng ban xử lý', kind: 'process', state: 'done', approval: false, people: 'Phòng Kinh doanh' },
+      { key: 'step-2', label: 'Lãnh đạo duyệt và ký', kind: 'approve', state: 'current', approval: true, people: 'Hà Nguyên Hoàng' },
+      { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false, people: 'Lê Thu Hà' },
     ];
     render(<FlowStepper nodes={nodes} workflowName="Quy trình mặc định" />);
     const items = screen.getAllByRole('listitem');
@@ -150,7 +157,7 @@ describe('Thanh tiến trình', () => {
     expect(within(items[2]).getByText('Đang xử lý')).toBeTruthy();
     expect(within(items[0]).getByText('13/11/2026')).toBeTruthy();
     expect(within(items[3]).getByText('Lê Thu Hà')).toBeTruthy();
-    expect(screen.getByText(/Quy trình: Quy trình mặc định · 1 bước duyệt/)).toBeTruthy();
+    expect(screen.getByText(/Quy trình: Quy trình mặc định · 4 bước, 1 bước duyệt/)).toBeTruthy();
   });
 });
 
@@ -401,6 +408,7 @@ describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
           id: 'step-1',
           seq: 1,
           name: 'Lãnh đạo duyệt ban hành',
+          type: 'approve',
           approver: { type: 'users', userIds: ['u-leader'] },
           status: 'done',
           assignees: [{ userId: 'u-leader', name: 'Nguyễn Văn An' }],
@@ -549,5 +557,228 @@ describe('Thêm nhanh danh mục, phòng ban soạn thảo', () => {
     expect(options[0]).toContain('Phòng Kế toán');
     expect(options[0]).toContain('Phòng của bạn');
     expect(options.some((text) => text.includes('Phòng Pháp chế'))).toBe(true);
+  });
+});
+
+describe('Quy trình động trên khối thao tác', () => {
+  const org = {
+    ...directory,
+    units: [
+      {
+        id: 'unit-sales',
+        name: 'Phòng Kinh doanh',
+        path: 'Công ty',
+        members: [{ userId: 'u-an', name: 'Nguyễn Văn An', positionName: 'Trưởng phòng', isHead: true }],
+      },
+    ],
+  } as unknown as CorrespondenceDirectory;
+  const directing = letter(
+    {
+      stage: 'reviewing',
+      currentStepName: 'Lãnh đạo chỉ đạo',
+      flow: [
+        { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+        { key: 'step-1', label: 'Lãnh đạo chỉ đạo', kind: 'approve', state: 'current', approval: true },
+        { key: 'step-2', label: 'Phòng ban xử lý', kind: 'process', state: 'todo', approval: false },
+        { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+      ],
+    },
+    { approve: true, returnTargets: ['clerk'] },
+  );
+
+  it('bước sau là phòng ban xử lý: người duyệt chọn phòng ban rồi mới duyệt được', async () => {
+    const onDone = jest.fn();
+    mocked.approve.mockResolvedValue(directing);
+    render(<LetterActionPanel letter={directing} config={config} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    await waitFor(() => expect(mocked.choice).toHaveBeenCalled());
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    const group = screen.getByRole('group', { name: 'Phòng ban cho bước "Phòng ban xử lý"' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Phòng Kinh doanh/ }));
+    expect(await screen.findByRole('button', { name: 'Bỏ Phòng Kinh doanh' })).toBeTruthy();
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(screen.getByLabelText(/Ý kiến, chỉ đạo cho phòng ban/), { target: { value: 'Kinh doanh xử lý.' } });
+    fireEvent.click(send);
+    expect(await screen.findByText('Công văn chuyển sang bước "Phòng ban xử lý".')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.approve).toHaveBeenCalledWith('letter-1', {
+      note: 'Kinh doanh xử lý.',
+      nextAssigneeUserId: undefined,
+      units: [{ unitId: 'unit-sales', handlerUserId: undefined, role: 'lead' }],
+      dueOn: '2026-11-20',
+    });
+  });
+
+  it('bước văn thư kiểm tra ở giữa quy trình đến: đạt thì chuyển bước kế tiếp', async () => {
+    const onDone = jest.fn();
+    const checking = letter(
+      {
+        stage: 'checking',
+        currentStepName: 'Văn thư rà soát',
+        flow: [
+          { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+          { key: 'step-1', label: 'Văn thư rà soát', kind: 'check', state: 'current', approval: false },
+          { key: 'step-2', label: 'Lãnh đạo ký', kind: 'approve', state: 'todo', approval: true },
+          { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+        ],
+      },
+      { submit: true, returnTargets: ['clerk'] },
+    );
+    mocked.submit.mockResolvedValue(checking);
+    render(<LetterActionPanel letter={checking} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Văn thư rà soát' })).toBeTruthy();
+    const send = await screen.findByRole('button', { name: 'Đạt, chuyển "Lãnh đạo ký"' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.submit).toHaveBeenCalledWith('letter-1', { assigneeUserId: undefined, units: undefined, note: undefined });
+  });
+});
+
+describe('Bút phê, đôn đốc', () => {
+  const org = {
+    ...directory,
+    units: [
+      { id: 'unit-sales', name: 'Phòng Kinh doanh', path: 'Công ty', members: [{ userId: 'u-an', name: 'Nguyễn Văn An', isHead: true }] },
+      { id: 'unit-legal', name: 'Phòng Pháp chế', path: 'Công ty', members: [{ userId: 'u-ha', name: 'Lê Thu Hà', isHead: true }] },
+    ],
+  } as unknown as CorrespondenceDirectory;
+  const directing = letter(
+    {
+      stage: 'reviewing',
+      currentStepName: 'Lãnh đạo bút phê',
+      steps: [
+        {
+          id: 's1',
+          seq: 1,
+          name: 'Lãnh đạo bút phê',
+          type: 'approve',
+          directs: true,
+          approver: { type: 'users', userIds: ['u-an'] },
+          status: 'active',
+          assignees: [{ userId: 'u-an', name: 'Nguyễn Văn An' }],
+        },
+      ],
+      flow: [
+        { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+        { key: 'step-1', label: 'Lãnh đạo bút phê', kind: 'approve', state: 'current', approval: true },
+        { key: 'step-2', label: 'Văn thư phân phối', kind: 'check', state: 'todo', approval: false },
+        { key: 'step-3', label: 'Đơn vị xử lý', kind: 'process', state: 'todo', approval: false },
+        { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+      ],
+    },
+    { approve: true, returnTargets: ['clerk'] },
+  );
+  const pick = (name: RegExp) => {
+    const group = screen.getByRole('group', { name: 'Đơn vị chủ trì, phối hợp (bút phê)' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name }));
+  };
+
+  it('bút phê: chọn đơn vị chủ trì, phối hợp, thời hạn dù bước kế tiếp là văn thư phân phối', async () => {
+    const onDone = jest.fn();
+    mocked.approve.mockResolvedValue(directing);
+    render(<LetterActionPanel letter={directing} config={config} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    await waitFor(() => expect(mocked.choice).toHaveBeenCalled());
+    // Còn bước phòng ban xử lý phía sau: bút phê phải có đơn vị.
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    pick(/Phòng Kinh doanh/);
+    pick(/Phòng Pháp chế/);
+    // Đơn vị đầu chủ trì, đơn vị sau phối hợp; đổi được.
+    expect(screen.getByRole('radiogroup', { name: 'Vai trò của Phòng Pháp chế' }).querySelector('[aria-checked="true"]')?.textContent).toBe('Phối hợp');
+    fireEvent.change(screen.getByLabelText('Thời hạn hoàn thành'), { target: { value: '2026-11-25' } });
+    fireEvent.change(screen.getByLabelText(/Ý kiến chỉ đạo \(bút phê\)/), { target: { value: 'Kinh doanh chủ trì.' } });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.approve).toHaveBeenCalledWith('letter-1', {
+      note: 'Kinh doanh chủ trì.',
+      nextAssigneeUserId: undefined,
+      units: [
+        { unitId: 'unit-sales', handlerUserId: undefined, role: 'lead' },
+        { unitId: 'unit-legal', handlerUserId: undefined, role: 'support' },
+      ],
+      dueOn: '2026-11-25',
+    });
+  });
+
+  it('văn thư phân phối: phòng ban gợi ý sẵn theo bút phê', async () => {
+    const distributing = letter(
+      {
+        stage: 'checking',
+        currentStepName: 'Văn thư phân phối',
+        directive: {
+          note: 'Kinh doanh chủ trì.',
+          dueOn: '2026-11-25',
+          byName: 'Nguyễn Văn An',
+          units: [
+            { unitId: 'unit-sales', unitName: 'Phòng Kinh doanh', role: 'lead' },
+            { unitId: 'unit-legal', unitName: 'Phòng Pháp chế', role: 'support' },
+          ],
+        },
+        flow: [
+          { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+          { key: 'step-1', label: 'Văn thư phân phối', kind: 'check', state: 'current', approval: false },
+          { key: 'step-2', label: 'Đơn vị xử lý', kind: 'process', state: 'todo', approval: false },
+          { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+        ],
+      },
+      { submit: true, returnTargets: ['previous-step'] },
+    );
+    mocked.submit.mockResolvedValue(distributing);
+    render(<LetterActionPanel letter={distributing} config={config} directory={org} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    expect(screen.getByText(/Theo bút phê của Nguyễn Văn An:/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bỏ Phòng Kinh doanh' })).toBeTruthy();
+    expect((screen.getByLabelText('Thời hạn hoàn thành') as HTMLInputElement).value).toBe('2026-11-25');
+    const send = await screen.findByRole('button', { name: 'Đạt, giao phòng ban xử lý' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(mocked.submit).toHaveBeenCalled());
+    expect(mocked.submit.mock.calls[0][1]).toMatchObject({
+      units: [
+        { unitId: 'unit-sales', role: 'lead' },
+        { unitId: 'unit-legal', role: 'support' },
+      ],
+      dueOn: '2026-11-25',
+    });
+  });
+
+  it('đôn đốc: gửi lời nhắc kèm ghi chú', async () => {
+    const onDone = jest.fn();
+    mocked.remind.mockResolvedValue(letter());
+    render(<RemindDialog letter={{ id: 'letter-1', displayNo: '3/CVĐ', subject: 'X', stageLabel: 'Phòng ban xử lý' }} onClose={jest.fn()} onDone={onDone} />);
+    fireEvent.change(screen.getByLabelText('Lời nhắc (nếu có)'), { target: { value: 'Gửi kết quả trong hôm nay.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi lời nhắc' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.remind).toHaveBeenCalledWith('letter-1', 'Gửi kết quả trong hôm nay.');
+  });
+});
+
+describe('Ô cuối theo cấu hình', () => {
+  it('quy trình tắt lưu trữ: khối ô cuối mang tên cấu hình, nút chỉ "Hoàn tất"', () => {
+    const closing = letter(
+      {
+        stage: 'closing',
+        workflowId: 'wf-no-archive',
+        currentStepName: undefined,
+        flow: [
+          { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+          { key: 'closing', label: 'Pháp chế hoàn tất', kind: 'end', state: 'current', approval: false },
+        ],
+      },
+      { complete: true },
+    );
+    const withWorkflow: CorrespondenceConfig = {
+      ...config,
+      workflows: [{ id: 'wf-no-archive', name: 'W', direction: 'incoming', isActive: true, isDefault: true, archive: false, steps: [], updatedAt: '' }],
+    };
+    render(<LetterActionPanel letter={closing} config={withWorkflow} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Pháp chế hoàn tất' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeTruthy();
+    expect(screen.getByText(/hoàn tất để đóng công văn/)).toBeTruthy();
   });
 });

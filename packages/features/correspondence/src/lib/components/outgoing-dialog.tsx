@@ -4,7 +4,7 @@ import type { CatalogItem, CorrespondenceConfig, CorrespondenceDirectory } from 
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
+import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
@@ -215,8 +215,8 @@ export function OutgoingDialog({
         <FilePickField label="Tệp dự thảo" files={files} hint="Tệp Word, PDF của dự thảo" onChange={setFiles} />
       </div>
       <p className={styles.plan}>
-        <span>Quy trình (theo cấu hình):</span> Phòng ban soạn thảo → Văn thư kiểm tra
-        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư ban hành, lưu trữ
+        <span>Quy trình (theo cấu hình):</span>{' '}
+        {workflow ? flowLabels(workflow, 'outgoing').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );
