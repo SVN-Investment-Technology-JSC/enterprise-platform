@@ -2,6 +2,7 @@
 
 import { ModuleShell, useHashView, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import type {
+  CatalogItem,
   CorrespondenceConfig,
   CorrespondenceDirectory,
   CorrespondenceOverview,
@@ -92,6 +93,15 @@ export function CorrespondenceScreen() {
   const shown: ListView | 'settings' = view === 'letters' ? base : view;
   const drawerId = view === 'letters' ? sub : undefined;
   const canConfigure = Boolean(capabilities?.canConfigure || capabilities?.isTenantAdmin);
+  // Nút "+" thêm nhanh danh mục lúc nhập: người cấu hình và văn thư.
+  const canQuickAdd = Boolean(canConfigure || capabilities?.canRegister);
+  const catalogAdded = useCallback(
+    (item: CatalogItem) =>
+      setConfig((current) =>
+        current && !current.catalog.some((existing) => existing.id === item.id) ? { ...current, catalog: [...current.catalog, item] } : current,
+      ),
+    [],
+  );
 
   const nav: readonly ModuleNavItem<CorrespondenceView>[] = [
     { id: 'overview', label: 'Tổng quan', group: 'Văn thư', icon: <LayoutDashboard size={16} /> },
@@ -211,6 +221,8 @@ export function CorrespondenceScreen() {
           onClose={closeLetter}
           onChanged={refresh}
           onOpenLetter={openLetter}
+          canQuickAdd={canQuickAdd}
+          onCatalogAdded={catalogAdded}
         />
       ) : null}
 
@@ -219,6 +231,8 @@ export function CorrespondenceScreen() {
           <IntakeDialog
             open={intakeOpen}
             config={config}
+            canQuickAdd={canQuickAdd}
+            onCatalogAdded={catalogAdded}
             onClose={() => setIntakeOpen(false)}
             onCreated={(letterId) => {
               setIntakeOpen(false);
@@ -230,6 +244,8 @@ export function CorrespondenceScreen() {
             open={outgoingOpen}
             config={config}
             directory={directory}
+            canQuickAdd={canQuickAdd}
+            onCatalogAdded={catalogAdded}
             onClose={() => setOutgoingOpen(false)}
             onCreated={(letterId) => {
               setOutgoingOpen(false);

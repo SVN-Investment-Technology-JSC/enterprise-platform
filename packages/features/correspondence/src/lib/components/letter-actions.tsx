@@ -6,6 +6,7 @@ import {
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
   returnTargetLabel,
+  type CatalogItem,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type DeliveryStatus,
@@ -34,8 +35,9 @@ import {
   updateDelivery,
   withdrawRevoke,
 } from '../correspondence-api';
-import { catalogOptions, formatDay, localToday, plannedWorkflow } from '../correspondence.model';
+import { formatDay, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
+import { CatalogField } from './catalog-field';
 import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 
 interface ActionProps {
@@ -46,6 +48,9 @@ interface ActionProps {
   readonly onDirtyChange: (dirty: boolean) => void;
   /** Công văn đã bị xoá khỏi Văn thư: ngăn chi tiết đóng lại. */
   readonly onRemoved?: (message: string) => void;
+  /** Được thêm nhanh danh mục bằng nút "+"; mục mới báo lên để cấu hình trên màn hình có ngay. */
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }
 
 function useRunner(onDone: ActionProps['onDone']) {
@@ -395,7 +400,7 @@ interface UnitPick {
 }
 
 /** Văn thư phân loại, chọn phòng ban (cả phòng hay một người xử lý) và giao. */
-function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQuickAdd, onCatalogAdded }: ActionProps) {
   const [kind, setKind] = useState(letter.kind);
   const [urgency, setUrgency] = useState(letter.urgency);
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
@@ -438,27 +443,38 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: Acti
     <Panel title="Văn thư: phân loại và giao phòng ban xử lý">
       <div className={styles.form}>
         <div className={styles.formRow3}>
-          <SelectField label="Loại văn bản" required>
-            <SearchableSelect options={catalogOptions(config.catalog, 'letter_type', letter.kind)} value={kind} onChange={changeKind} />
-          </SelectField>
-          <SelectField label="Độ khẩn" required>
-            <SearchableSelect
-              options={catalogOptions(config.catalog, 'urgency', letter.urgency)}
-              value={urgency}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={setUrgency}
-            />
-          </SelectField>
-          <SelectField label="Độ mật">
-            <SearchableSelect
-              options={catalogOptions(config.catalog, 'confidentiality', letter.confidentiality)}
-              value={confidentiality}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={setConfidentiality}
-            />
-          </SelectField>
+          <CatalogField
+            label="Loại văn bản"
+            kind="letter_type"
+            required
+            catalog={config.catalog}
+            keep={letter.kind}
+            value={kind}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={changeKind}
+          />
+          <CatalogField
+            label="Độ khẩn"
+            kind="urgency"
+            required
+            catalog={config.catalog}
+            keep={letter.urgency}
+            value={urgency}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setUrgency}
+          />
+          <CatalogField
+            label="Độ mật"
+            kind="confidentiality"
+            catalog={config.catalog}
+            keep={letter.confidentiality}
+            value={confidentiality}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setConfidentiality}
+          />
         </div>
         <SelectField label="Phòng ban xử lý" required>
           <SearchableSelect

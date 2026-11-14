@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import type {
+  CatalogItem,
   CorrespondenceConfig,
   CorrespondenceDirectory,
   FlowNode,
@@ -11,7 +12,7 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { decideRevoke, removeLetter, requestRevoke, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import { decideRevoke, quickAddCatalogItem, removeLetter, requestRevoke, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
 import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
@@ -31,6 +32,7 @@ jest.mock('../correspondence-api', () => ({
   requestRevoke: jest.fn(),
   decideRevoke: jest.fn(),
   removeLetter: jest.fn(),
+  quickAddCatalogItem: jest.fn(),
 }));
 
 const mocked = {
@@ -42,6 +44,7 @@ const mocked = {
   requestRevoke: requestRevoke as jest.MockedFunction<typeof requestRevoke>,
   decideRevoke: decideRevoke as jest.MockedFunction<typeof decideRevoke>,
   removeLetter: removeLetter as jest.MockedFunction<typeof removeLetter>,
+  quickAdd: quickAddCatalogItem as jest.MockedFunction<typeof quickAddCatalogItem>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -469,5 +472,82 @@ describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Xoá công văn' }).find((button) => button !== remove) as HTMLElement);
     await waitFor(() => expect(onRemoved).toHaveBeenCalledWith('Đã xoá công văn 7/CV.'));
     expect(mocked.removeLetter).toHaveBeenCalledWith('letter-1');
+  });
+});
+
+describe('Thêm nhanh danh mục, phòng ban soạn thảo', () => {
+  const catalogItem = (kind: CatalogItem['kind'], code: string, name: string, sortOrder: number): CatalogItem => ({
+    id: `${kind}-${code}`,
+    kind,
+    code,
+    name,
+    sortOrder,
+    isActive: true,
+    defaultUnitIds: [],
+    highlight: false,
+    restricted: false,
+    inUse: false,
+  });
+  const withCatalog: CorrespondenceConfig = {
+    ...config,
+    catalog: [catalogItem('letter_type', 'finance', 'Tài chính', 10), catalogItem('urgency', 'normal', 'Thường', 10), catalogItem('confidentiality', 'normal', 'Thường', 10)],
+  };
+  const org: CorrespondenceDirectory = {
+    ...directory,
+    units: [
+      { id: 'unit-legal', name: 'Phòng Pháp chế', path: 'Công ty', members: [] },
+      { id: 'unit-finance', name: 'Phòng Kế toán', path: 'Công ty', members: [] },
+    ],
+    myUnitIds: ['unit-finance'],
+  } as unknown as CorrespondenceDirectory;
+
+  it('nút + thêm loại văn bản ngay trên form, chọn luôn mục mới, không mất phần đang nhập', async () => {
+    const onCatalogAdded = jest.fn();
+    const added = catalogItem('letter_type', 'to-trinh', 'Tờ trình', 20);
+    mocked.quickAdd.mockResolvedValue(added);
+    const { rerender } = render(
+      <OutgoingDialog open config={withCatalog} directory={org} canQuickAdd onCatalogAdded={onCatalogAdded} onClose={jest.fn()} onCreated={jest.fn()} />,
+    );
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Trích yếu/), { target: { value: 'Báo cáo quý IV' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm loại văn bản' }));
+    const name = within(dialog).getByRole('textbox', { name: 'Tên loại văn bản mới' });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    expect(await within(dialog).findByText('Nhập tên loại văn bản.')).toBeTruthy();
+    fireEvent.change(name, { target: { value: 'Tờ trình' } });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    await waitFor(() => expect(onCatalogAdded).toHaveBeenCalledWith(added));
+    expect(mocked.quickAdd).toHaveBeenCalledWith('letter_type', 'Tờ trình');
+    // Màn hình cập nhật cấu hình: form giữ nguyên, ô loại văn bản chọn mục mới.
+    rerender(
+      <OutgoingDialog
+        open
+        config={{ ...withCatalog, catalog: [...withCatalog.catalog, added] }}
+        directory={org}
+        canQuickAdd
+        onCatalogAdded={onCatalogAdded}
+        onClose={jest.fn()}
+        onCreated={jest.fn()}
+      />,
+    );
+    expect((within(dialog).getByLabelText(/Trích yếu/) as HTMLTextAreaElement).value).toBe('Báo cáo quý IV');
+    expect(within(dialog).getByDisplayValue('Tờ trình')).toBeTruthy();
+    expect(within(dialog).queryByRole('textbox', { name: 'Tên loại văn bản mới' })).toBeNull();
+  });
+
+  it('người không được thêm danh mục thì không có nút +', () => {
+    render(<OutgoingDialog open config={withCatalog} directory={org} onClose={jest.fn()} onCreated={jest.fn()} />);
+    expect(screen.queryByRole('button', { name: /^Thêm (loại văn bản|độ khẩn|độ mật)$/ })).toBeNull();
+  });
+
+  it('phòng ban soạn thảo mặc định là phòng của người soạn, chọn lại được phòng khác', () => {
+    render(<OutgoingDialog open config={withCatalog} directory={org} onClose={jest.fn()} onCreated={jest.fn()} />);
+    const unitGroup = screen.getByRole('group', { name: 'Phòng ban soạn thảo' });
+    const unit = within(unitGroup).getByDisplayValue('Phòng Kế toán');
+    fireEvent.click(unit);
+    const options = within(unitGroup).getAllByRole('option').map((option) => option.textContent ?? '');
+    expect(options[0]).toContain('Phòng Kế toán');
+    expect(options[0]).toContain('Phòng của bạn');
+    expect(options.some((text) => text.includes('Phòng Pháp chế'))).toBe(true);
   });
 });

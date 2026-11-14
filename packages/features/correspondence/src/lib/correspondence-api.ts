@@ -8,6 +8,7 @@ import {
   type ArchiveTree,
   type AssignHandlerRequest,
   type CatalogItem,
+  type CatalogKind,
   type CommentRequest,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
@@ -89,6 +90,7 @@ export const saveCatalogItem = (id: string | undefined, body: SaveCatalogItemReq
   id
     ? request<CatalogItem>(`/catalog/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
     : post<CatalogItem>('/catalog', body);
+export const quickAddCatalogItem = (kind: CatalogKind, name: string) => post<CatalogItem>('/catalog/quick', { kind, name });
 export const deleteCatalogItem = (id: string) => request<void>(`/catalog/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const saveWorkflow = (id: string | undefined, body: SaveWorkflowRequest) =>

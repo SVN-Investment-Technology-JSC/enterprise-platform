@@ -674,8 +674,11 @@ describe('Công văn đi', () => {
     ]);
     expect(draft.actions).toMatchObject({ sendToClerk: true, edit: true, cancel: true });
     await expect(service.createOutgoing(lawyer, { subject: 'x', recipient: 'y' })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
-    await expect(service.createOutgoing(accountant, { subject: 'x', recipient: 'y', authorUnitId: 'unit-legal' })).rejects.toThrow(
-      'Chỉ chọn được phòng ban bạn thuộc về.',
+    // Mặc định phòng của người soạn; chọn lại được phòng khác có trong sơ đồ tổ chức.
+    const forLegal = await service.createOutgoing(accountant, { subject: 'x', recipient: 'y', authorUnitId: 'unit-legal' });
+    expect(forLegal).toMatchObject({ authorUnitName: 'Phòng Pháp chế' });
+    await expect(service.createOutgoing(accountant, { subject: 'x', recipient: 'y', authorUnitId: 'unit-gone' })).rejects.toThrow(
+      'Phòng ban soạn thảo không còn trong sơ đồ tổ chức.',
     );
     // Cùng phòng soạn thì xem được; phòng khác thì không.
     await expect(service.detail(financeHead, draft.id)).resolves.toBeDefined();
@@ -1086,6 +1089,18 @@ describe('Cấu hình động', () => {
       defaultUnitIds: ['unit-legal', 'unit-legal'],
     });
     expect(saved).toMatchObject({ workflowId: 'wf-none', outgoingWorkflowId: 'wf-out-none', defaultUnitIds: ['unit-legal'] });
+  });
+
+  it('thêm nhanh danh mục lúc nhập: văn thư và người cấu hình thêm được, mã tự sinh, không tạo trùng tên', async () => {
+    const { service } = setup();
+    await expect(service.quickAddCatalogItem(accountant, { kind: 'letter_type', name: 'Tờ trình' })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    const added = await service.quickAddCatalogItem(clerk, { kind: 'letter_type', name: '  Chỉ đạo - điều  hành ' });
+    expect(added).toMatchObject({ kind: 'letter_type', code: 'chi-dao-dieu-hanh', name: 'Chỉ đạo - điều hành', isActive: true });
+    const again = await service.quickAddCatalogItem(configurer, { kind: 'letter_type', name: 'chỉ đạo - ĐIỀU HÀNH' });
+    expect(again.id).toBe(added.id);
+    const other = await service.quickAddCatalogItem(configurer, { kind: 'urgency', name: 'Hoả tốc' });
+    expect(other).toMatchObject({ kind: 'urgency', code: 'hoa-toc' });
+    await expect(service.quickAddCatalogItem(clerk, { kind: 'letter_type', name: ' ' })).rejects.toBeInstanceOf(CorrespondenceValidationError);
   });
 
   it('cách giao phòng ban lưu trong cấu hình sổ', async () => {

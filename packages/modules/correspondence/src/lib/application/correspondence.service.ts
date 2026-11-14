@@ -58,6 +58,7 @@ import {
   type LetterSummary,
   type NoteRequest,
   type PublishLetterRequest,
+  type QuickCatalogItemRequest,
   type ReasonRequest,
   type RequestRevokeRequest,
   type RespondAssignmentRequest,
@@ -753,10 +754,8 @@ export class CorrespondenceService {
     ]);
     const codes = this.classification(catalog, input);
     const mine = ownUnits(snapshot, actor.userId);
+    // Mặc định là phòng của người soạn; soạn thay phòng khác thì chọn phòng đó (phải có trong sơ đồ tổ chức).
     const wanted = optionalText(input?.authorUnitId, 'Phòng ban soạn thảo', 64);
-    if (wanted && !mine.includes(wanted) && !actor.canRegister && !actor.isTenantAdmin) {
-      throw new CorrespondenceValidationError('Chỉ chọn được phòng ban bạn thuộc về.');
-    }
     const unitId = wanted ?? mine[0];
     const unit = unitId ? snapshot.nodes.find((node) => node.id === unitId && node.kind === 'unit') : undefined;
     if (wanted && !unit) throw new CorrespondenceValidationError('Phòng ban soạn thảo không còn trong sơ đồ tổ chức.');
@@ -1413,6 +1412,43 @@ export class CorrespondenceService {
       defaultUnitIds: letterType ? defaultUnitIds : [],
       highlight: kind === 'urgency' && input?.highlight === true,
       restricted: kind === 'confidentiality' && input?.restricted === true,
+    });
+  }
+
+  /**
+   * Thêm nhanh mục danh mục lúc nhập công văn (nút "+" cạnh ô chọn): người cấu hình và văn thư
+   * làm được. Chỉ cần tên; mã tự sinh từ tên, xếp cuối danh mục, các tuỳ chọn khác để mặc định
+   * (sửa thêm trong Cấu hình). Tên đã có thì trả mục đó, không tạo trùng.
+   */
+  async quickAddCatalogItem(original: CorrespondenceActor, input: QuickCatalogItemRequest): Promise<CatalogItem> {
+    const actor = await this.effective(original);
+    if (!actor.canConfigure && !actor.isTenantAdmin && !actor.canRegister) {
+      throw new CorrespondenceForbiddenError('Bạn không có quyền thêm danh mục văn thư.');
+    }
+    const kind = requireEnum(input?.kind, CATALOG_KINDS, 'Loại danh mục');
+    const name = requireText(input?.name, 'Tên', 120).replace(/\s+/g, ' ');
+    const items = (await this.store.catalog(actor.tenantId)).filter((item) => item.kind === kind);
+    const same = items.find((item) => foldName(item.name) === foldName(name));
+    if (same) {
+      if (!same.isActive) throw new CorrespondenceValidationError(`"${same.name}" đã có nhưng đang ngừng dùng. Vào Cấu hình để dùng lại.`);
+      return same;
+    }
+    const base = catalogCode(name);
+    const taken = new Set(items.map((item) => item.code));
+    let code = base;
+    for (let index = 2; taken.has(code); index += 1) code = `${base.slice(0, 36)}-${index}`;
+    return this.store.saveCatalogItem(actor.tenantId, actor.userId, undefined, {
+      kind,
+      code,
+      name,
+      sortOrder: items.reduce((max, item) => Math.max(max, item.sortOrder), 0) + 10,
+      isActive: true,
+      defaultDueDays: null,
+      workflowId: null,
+      outgoingWorkflowId: null,
+      defaultUnitIds: [],
+      highlight: false,
+      restricted: false,
     });
   }
 
@@ -2173,6 +2209,25 @@ function attachmentView(
 }
 
 /** Người đã tham gia: người tiếp nhận, người soạn, người duyệt, người phòng ban gửi kết quả hay được phân công. */
+/** So tên danh mục không phân biệt hoa thường, dấu cách. */
+function foldName(value: string): string {
+  return value.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi');
+}
+
+/** Mã danh mục sinh từ tên: bỏ dấu tiếng Việt, chữ thường, gạch ngang; "Chỉ đạo - điều hành" thành "chi-dao-dieu-hanh". */
+export function catalogCode(name: string): string {
+  const code = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return code || 'muc';
+}
+
 /** Xoá dấu đề nghị huỷ khi công văn về lại đã lưu trữ. */
 const CLEARED_REVOKE = {
   revokeKind: undefined,

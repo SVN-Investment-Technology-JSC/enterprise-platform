@@ -3,6 +3,7 @@
 import {
   DELIVERY_STATUS_LABELS,
   LETTER_DIRECTION_LABELS,
+  type CatalogItem,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type LetterDetail,
@@ -37,6 +38,8 @@ export function LetterDrawer({
   onClose,
   onChanged,
   onOpenLetter,
+  canQuickAdd,
+  onCatalogAdded,
 }: {
   readonly letterId: string;
   readonly config: CorrespondenceConfig;
@@ -46,6 +49,8 @@ export function LetterDrawer({
   /** Công văn vừa đổi (bước, tệp): danh sách và tổng quan tải lại. */
   readonly onChanged: () => void;
   readonly onOpenLetter: (letterId: string) => void;
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [letter, setLetter] = useState<LetterDetail>();
@@ -180,6 +185,8 @@ export function LetterDrawer({
               directory={directory}
               onDone={applied}
               onDirtyChange={setActionDirty}
+              canQuickAdd={canQuickAdd}
+              onCatalogAdded={onCatalogAdded}
               onRemoved={(message) => {
                 toast.success(message);
                 onChanged();
@@ -306,6 +313,8 @@ export function LetterDrawer({
               }}
             />
             <OutgoingDialog
+              canQuickAdd={canQuickAdd}
+              onCatalogAdded={onCatalogAdded}
               open={replying}
               config={config}
               directory={directory}

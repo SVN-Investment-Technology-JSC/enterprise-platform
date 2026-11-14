@@ -153,6 +153,12 @@ export interface SaveCatalogItemRequest {
   readonly restricted?: boolean;
 }
 
+/** Thêm nhanh một mục danh mục ngay lúc nhập công văn: chỉ cần tên, mã tự sinh. */
+export interface QuickCatalogItemRequest {
+  readonly kind: CatalogKind;
+  readonly name: string;
+}
+
 /* --------------------------------------------------------- quy trình duyệt */
 
 /**
@@ -537,7 +543,7 @@ export interface CreateLetterRequest {
   readonly confidentiality?: string;
 }
 
-/** Soạn công văn đi. Đơn vị soạn thảo là phòng ban của người soạn trong sơ đồ tổ chức. */
+/** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
 export interface CreateOutgoingRequest {
   readonly subject: string;
   readonly recipient: string;

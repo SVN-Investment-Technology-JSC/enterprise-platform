@@ -1,11 +1,12 @@
 'use client';
 
-import type { CorrespondenceConfig, CorrespondenceDirectory } from '@enterprise-platform/contracts-correspondence';
+import type { CatalogItem, CorrespondenceConfig, CorrespondenceDirectory } from '@enterprise-platform/contracts-correspondence';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
 import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
+import { CatalogField } from './catalog-field';
 import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 
 interface OutgoingForm {
@@ -38,6 +39,8 @@ export function OutgoingDialog({
   replyTo,
   onClose,
   onCreated,
+  canQuickAdd = false,
+  onCatalogAdded,
 }: {
   readonly open: boolean;
   readonly config: CorrespondenceConfig;
@@ -45,11 +48,21 @@ export function OutgoingDialog({
   readonly replyTo?: ReplyTo;
   readonly onClose: () => void;
   readonly onCreated: (letterId: string) => void;
+  /** Được thêm nhanh danh mục bằng nút "+". */
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
 }) {
-  const myUnits = useMemo(
-    () => (directory?.units ?? []).filter((unit) => directory?.myUnitIds.includes(unit.id)),
-    [directory],
-  );
+  // Mặc định phòng của người soạn, xếp lên đầu; chọn lại được mọi phòng trong sơ đồ tổ chức.
+  const unitOptions = useMemo(() => {
+    const mine = new Set(directory?.myUnitIds ?? []);
+    return [...(directory?.units ?? [])]
+      .sort((left, right) => Number(mine.has(right.id)) - Number(mine.has(left.id)) || left.name.localeCompare(right.name, 'vi'))
+      .map((unit) => ({
+        value: unit.id,
+        label: unit.name,
+        description: [mine.has(unit.id) ? 'Phòng của bạn' : undefined, unit.path || undefined].filter(Boolean).join(' · ') || undefined,
+      }));
+  }, [directory]);
   const initial = useMemo<OutgoingForm>(
     () => ({
       subject: replyTo ? `V/v trả lời công văn số ${replyTo.number}: ${replyTo.subject}`.slice(0, 1000) : '',
@@ -63,16 +76,19 @@ export function OutgoingDialog({
     [config, directory, replyTo],
   );
   const [form, setForm] = useState(initial);
+  // Mở hộp thoại thì làm mới form; cấu hình đổi lúc đang nhập (thêm nhanh danh mục) thì giữ nguyên.
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     if (!open) return;
-    setForm(initial);
+    setForm(initialRef.current);
     setFiles([]);
     setError(undefined);
-  }, [open, initial]);
+  }, [open]);
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof OutgoingForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof OutgoingForm>(key: K, value: OutgoingForm[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -155,43 +171,42 @@ export function OutgoingDialog({
         </Field>
         <SelectField label="Phòng ban soạn thảo">
           <SearchableSelect
-            options={myUnits.map((unit) => ({ value: unit.id, label: unit.name, description: unit.path || undefined }))}
+            options={unitOptions}
             value={form.authorUnitId}
-            placeholder={myUnits.length === 0 ? 'Bạn chưa thuộc phòng ban nào trong sơ đồ tổ chức' : 'Chọn phòng ban'}
-            emptyText="Bạn chưa thuộc phòng ban nào trong sơ đồ tổ chức."
-            searchInDropdown
-            hideDropdownSearch
+            placeholder="Chọn phòng ban soạn thảo"
+            emptyText={directory?.degraded ? 'Chưa đọc được sơ đồ tổ chức, thử lại sau.' : 'Sơ đồ tổ chức chưa có phòng ban.'}
             onChange={(value) => set('authorUnitId', value)}
           />
         </SelectField>
       </div>
       <div className={styles.formRow3}>
-        <SelectField label="Loại văn bản">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'letter_type')}
-            value={form.kind}
-            emptyText="Chưa có loại văn bản. Vào Cấu hình để thêm."
-            onChange={(value) => set('kind', value)}
-          />
-        </SelectField>
-        <SelectField label="Độ khẩn">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'urgency')}
-            value={form.urgency}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => set('urgency', value)}
-          />
-        </SelectField>
-        <SelectField label="Độ mật">
-          <SearchableSelect
-            options={catalogOptions(config.catalog, 'confidentiality')}
-            value={form.confidentiality}
-            searchInDropdown
-            hideDropdownSearch
-            onChange={(value) => set('confidentiality', value)}
-          />
-        </SelectField>
+        <CatalogField
+          label="Loại văn bản"
+          kind="letter_type"
+          catalog={config.catalog}
+          value={form.kind}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) => set('kind', value)}
+        />
+        <CatalogField
+          label="Độ khẩn"
+          kind="urgency"
+          catalog={config.catalog}
+          value={form.urgency}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) => set('urgency', value)}
+        />
+        <CatalogField
+          label="Độ mật"
+          kind="confidentiality"
+          catalog={config.catalog}
+          value={form.confidentiality}
+          canAdd={canQuickAdd}
+          onAdded={onCatalogAdded}
+          onChange={(value) => set('confidentiality', value)}
+        />
       </div>
       <div className={styles.formRow}>
         <Field label="Hạn ban hành">

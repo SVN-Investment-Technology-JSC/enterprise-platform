@@ -28,6 +28,7 @@ import type {
   LetterStage,
   NoteRequest,
   PublishLetterRequest,
+  QuickCatalogItemRequest,
   ReasonRequest,
   RequestRevokeRequest,
   RespondAssignmentRequest,
@@ -98,6 +99,13 @@ export class CorrespondenceController {
   @Put('catalog/:id')
   updateCatalogItem(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SaveCatalogItemRequest) {
     return this.execute(() => this.service.saveCatalogItem(this.actor(request), id, body));
+  }
+
+  /** Thêm nhanh mục danh mục lúc nhập công văn (người cấu hình, văn thư). */
+  @Post('catalog/quick')
+  @HttpCode(201)
+  quickAddCatalogItem(@Req() request: CorrespondenceRequest, @Body() body: QuickCatalogItemRequest) {
+    return this.execute(() => this.service.quickAddCatalogItem(this.actor(request), body));
   }
 
   @Delete('catalog/:id')
