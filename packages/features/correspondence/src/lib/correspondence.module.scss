@@ -1434,6 +1434,86 @@ $fs-meta: 12px;
   }
 }
 
+// Chủ trì / phối hợp của một đơn vị được giao.
+.roleToggle {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+
+  button {
+    padding: 4px 10px;
+    border: 0;
+    background: var(--ep-surface);
+    color: var(--ep-text-sub);
+    font: inherit;
+    font-size: $fs-small;
+    cursor: pointer;
+
+    & + button {
+      border-left: 1px solid #cbd5e1;
+    }
+  }
+
+  .roleOn {
+    background: #2563eb;
+    color: #fff;
+    font-weight: 600;
+  }
+}
+
+// Một dòng ủy quyền: người ủy quyền, người được ủy quyền, từ ngày, đến ngày, bỏ.
+.delegationRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 150px 150px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ep-line);
+
+  > .hint {
+    grid-column: 1 / -1;
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+// Bút phê của lãnh đạo: viền trái màu nhấn để nổi giữa các khối.
+.directive {
+  border-left: 4px solid #2563eb;
+}
+
+.directiveNote {
+  margin: 0 0 10px;
+  color: var(--ep-text);
+  font-size: $fs-body;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+// Nhóm trường trong form (phân loại sơ bộ lúc tiếp nhận).
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+
+  legend {
+    padding: 0 6px;
+    color: var(--ep-text-sub);
+    font-size: $fs-small;
+    font-weight: 600;
+  }
+}
+
 .choiceRow {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

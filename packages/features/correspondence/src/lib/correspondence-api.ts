@@ -146,6 +146,7 @@ export const cancelLetter = (id: string, reason: string) => post<LetterDetail>(l
 export const requestRevoke = (id: string, body: RequestRevokeRequest) => post<LetterDetail>(letter(id, 'revoke'), body);
 export const decideRevoke = (id: string, body: DecideRevokeRequest) => post<LetterDetail>(letter(id, 'revoke/decision'), body);
 export const withdrawRevoke = (id: string) => post<LetterDetail>(letter(id, 'revoke/withdraw'), {});
+export const remindLetter = (id: string, note?: string) => post<LetterDetail>(letter(id, 'remind'), { note });
 export const removeLetter = (id: string) => request<void>(`/letters/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const commentLetter = (id: string, body: CommentRequest) => post<LetterDetail>(letter(id, 'comments'), body);
 

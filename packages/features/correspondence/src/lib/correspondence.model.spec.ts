@@ -15,6 +15,7 @@ import {
   previousNode,
   upcomingStep,
 } from './correspondence.model';
+import { registerRows } from './register-export';
 
 const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   id: 'l1',
@@ -41,6 +42,7 @@ const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
   receivedBy: 'u1',
   updatedAt: '2026-11-10T00:00:00.000Z',
   awaitingMe: false,
+  unitNames: [],
   ...overrides,
 });
 
@@ -105,7 +107,7 @@ describe('correspondence.model', () => {
       updatedAt: '',
     });
     const config = {
-      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [] },
+      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [], delegations: [] },
       catalog: [{ id: 't', kind: 'letter_type' as const, code: 'hd', name: 'Hợp đồng', sortOrder: 0, isActive: true, outgoingWorkflowId: 'out-hd' }],
       workflows: [workflow('in', 'incoming', true), workflow('out', 'outgoing', true), workflow('out-hd', 'outgoing')],
     };
@@ -122,7 +124,7 @@ describe('correspondence.model', () => {
     expect(flowLabels({ steps }, 'incoming')).toEqual(['Văn thư tiếp nhận', 'Lãnh đạo chỉ đạo', 'Phòng ban xử lý', 'Văn thư hoàn tất, lưu trữ']);
     expect(flowLabels({ steps: [], startName: 'Vào sổ', endName: ' ' }, 'outgoing')).toEqual(['Vào sổ', 'Văn thư ban hành, lưu trữ']);
     const config = {
-      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [] },
+      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [], delegations: [] },
       catalog: [],
       workflows: [{ id: 'w', name: 'W', direction: 'incoming' as const, isActive: true, isDefault: true, steps, updatedAt: '' }],
     };
@@ -139,6 +141,26 @@ describe('correspondence.model', () => {
     // Bước sau là ô cuối: không còn bước.
     const last = flow.map((node, index) => ({ ...node, state: index < 2 ? ('done' as const) : index === 2 ? ('current' as const) : node.state }));
     expect(upcomingStep({ stage: 'processing', direction: 'incoming', kind: 'x', flow: last }, config)).toBeUndefined();
+  });
+
+  it('sổ đăng ký theo mẫu: văn bản đến theo ngày đến, văn bản đi chỉ gồm văn bản đã ban hành', () => {
+    const base = letter({});
+    const incoming = registerRows('incoming', [
+      { ...base, id: 'b', incomingNo: '2/CVĐ', receivedOn: '2026-11-12', unitNames: ['Phòng Kế toán (chủ trì)'] },
+      { ...base, id: 'a', incomingNo: '1/CVĐ', receivedOn: '2026-11-11', stage: 'cancelled', unitNames: [] },
+    ]);
+    expect(incoming[0]).toEqual(['Ngày đến', 'Số đến', 'Tác giả', 'Số, ký hiệu', 'Ngày tháng', 'Tên loại và trích yếu nội dung', 'Đơn vị hoặc người nhận', 'Ký nhận', 'Ghi chú']);
+    expect(incoming.slice(1).map((row) => [row[0], row[1], row[6], row[8]])).toEqual([
+      ['11/11/2026', '1/CVĐ', '', 'Đã huỷ'],
+      ['12/11/2026', '2/CVĐ', 'Phòng Kế toán (chủ trì)', base.stageLabel],
+    ]);
+    const outgoing = registerRows('outgoing', [
+      { ...base, direction: 'outgoing', outgoingNo: '5/CV', publishedOn: '2026-11-13', stage: 'archived', archiveCode: 'HS-1', recipient: 'Sở' },
+      { ...base, direction: 'outgoing', outgoingNo: undefined },
+    ]);
+    expect(outgoing).toHaveLength(2);
+    expect(outgoing[1].slice(0, 2)).toEqual(['5/CV', '13/11/2026']);
+    expect(outgoing[1].at(-1)).toBe('Hồ sơ HS-1');
   });
 
   it('lựa chọn danh mục chỉ gồm mục đang dùng, giữ giá trị cũ đã ngừng dùng', () => {

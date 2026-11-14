@@ -123,6 +123,8 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
     type,
     // Chỉ bước duyệt có luật người duyệt; phòng ban do người làm bước trước chọn, văn thư theo cấu hình người làm văn thư.
     ...(type === 'approve' ? { approver: normalizeRule(value['approver'], name) } : {}),
+    // Bước chỉ đạo (bút phê): người duyệt chọn đơn vị chủ trì, phối hợp, thời hạn.
+    ...(type === 'approve' && value['directs'] === true ? { directs: true } : {}),
     ...(rejectTo && type !== 'process' ? { rejectTo: rejectTo as ReturnTarget } : {}),
     ...(dueDays !== undefined ? { dueDays } : {}),
   };

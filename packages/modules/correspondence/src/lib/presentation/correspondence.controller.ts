@@ -30,6 +30,7 @@ import type {
   PublishLetterRequest,
   QuickCatalogItemRequest,
   ReasonRequest,
+  RemindRequest,
   RequestRevokeRequest,
   RespondAssignmentRequest,
   ReturnLetterRequest,
@@ -254,6 +255,13 @@ export class CorrespondenceController {
   @HttpCode(200)
   cancel(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: ReasonRequest) {
     return this.execute(() => this.service.cancel(this.actor(request), id, body));
+  }
+
+  /** Văn thư / bộ phận tổng hợp đôn đốc người đang xử lý. */
+  @Post('letters/:id/remind')
+  @HttpCode(200)
+  remind(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: RemindRequest) {
+    return this.execute(() => this.service.remind(this.actor(request), id, body));
   }
 
   /** Văn thư đề nghị huỷ công văn đã ban hành / hoàn tất (thu hồi, sửa đổi). */

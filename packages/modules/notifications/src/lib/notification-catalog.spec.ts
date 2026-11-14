@@ -801,6 +801,8 @@ describe('Văn thư', () => {
     ['correspondence.letter.revoke-requested', 'Đề nghị huỷ công văn chờ bạn xác nhận', 'actionable'],
     ['correspondence.letter.revoke-rejected', 'Đề nghị huỷ công văn không được đồng ý', 'informational'],
     ['correspondence.letter.revoke-withdrawn', 'Đề nghị huỷ công văn đã được rút', 'informational'],
+    ['correspondence.letter.reminded', 'Đôn đốc xử lý công văn', 'actionable'],
+    ['correspondence.letter.addressed', 'Công văn gửi đích danh bạn', 'informational'],
     ['correspondence.letter.mentioned', 'Bạn được nhắc tên trong công văn', 'actionable'],
     ['correspondence.letter.commented', 'Trao đổi mới trong công văn', 'informational'],
     ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],

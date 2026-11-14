@@ -8,9 +8,10 @@ import {
   type CorrespondenceDirectory,
   type LetterDetail,
   type LetterStep,
+  ENVELOPE_STATUS_LABELS,
 } from '@enterprise-platform/contracts-correspondence';
 import { CloseGuard, formatDateTime, toast } from '@enterprise-platform/shared-ui';
-import { CornerUpLeft, Pencil, X } from 'lucide-react';
+import { BellRing, CornerUpLeft, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { errorMessage, loadLetter } from '../correspondence-api';
@@ -24,6 +25,7 @@ import { FilePreview, type PreviewTarget } from './file-preview';
 import { FlowStepper } from './flow-stepper';
 import { LetterActionPanel } from './letter-actions';
 import { OutgoingDialog } from './outgoing-dialog';
+import { RemindDialog } from './tracking-view';
 
 /**
  * Ngăn chi tiết một công văn, trượt từ cạnh phải: tiến trình theo quy trình, thao tác của
@@ -60,6 +62,7 @@ export function LetterDrawer({
   const [commentDirty, setCommentDirty] = useState(false);
   const [editing, setEditing] = useState(false);
   const [replying, setReplying] = useState(false);
+  const [reminding, setReminding] = useState(false);
   const [preview, setPreview] = useState<PreviewTarget>();
   const dirty = actionDirty || responseDirty || commentDirty;
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -156,6 +159,11 @@ export function LetterDrawer({
                 <CornerUpLeft size={13} /> Soạn trả lời
               </button>
             ) : null}
+            {letter?.actions.remind ? (
+              <button type="button" className={styles.buttonSmall} onClick={() => setReminding(true)}>
+                <BellRing size={13} /> Đôn đốc
+              </button>
+            ) : null}
             {letter?.actions.edit ? (
               <button type="button" className={styles.buttonSmall} onClick={() => setEditing(true)}>
                 <Pencil size={13} /> Sửa thông tin
@@ -193,6 +201,42 @@ export function LetterDrawer({
                 onClose();
               }}
             />
+
+            {letter.directive ? (
+              <section className={`${styles.card} ${styles.directive}`} aria-label="Bút phê">
+                <div className={styles.cardHead}>
+                  <h2>Bút phê{letter.directive.stepName ? ` · ${letter.directive.stepName}` : ''}</h2>
+                  <span className={styles.muted}>
+                    {[letter.directive.byName, letter.directive.at ? formatDateTime(letter.directive.at) : undefined].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                {letter.directive.note ? <p className={styles.directiveNote}>{letter.directive.note}</p> : null}
+                <dl className={styles.revokeInfo}>
+                  <div>
+                    <dt>Chủ trì</dt>
+                    <dd>
+                      {letter.directive.units
+                        .filter((unit) => unit.role === 'lead')
+                        .map((unit) => (unit.handlerName ? `${unit.unitName} (${unit.handlerName})` : unit.unitName))
+                        .join(', ') || 'Không ghi'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Phối hợp</dt>
+                    <dd>
+                      {letter.directive.units
+                        .filter((unit) => unit.role === 'support')
+                        .map((unit) => (unit.handlerName ? `${unit.unitName} (${unit.handlerName})` : unit.unitName))
+                        .join(', ') || 'Không có'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Thời hạn</dt>
+                    <dd>{formatDay(letter.directive.dueOn) || 'Theo hạn của công văn'}</dd>
+                  </div>
+                </dl>
+              </section>
+            ) : null}
 
             <section className={`${styles.card} ${styles.meta}`}>
               {incoming ? (
@@ -263,6 +307,25 @@ export function LetterDrawer({
                   {letter.archiveCode} · {formatDay(letter.archivedOn)}
                 </div>
               ) : null}
+              {incoming && (letter.envelopeStatus || letter.pageCount !== undefined || letter.copyCount !== undefined || letter.sealed) ? (
+                <div>
+                  <span>Tiếp nhận sơ bộ</span>
+                  {[
+                    letter.envelopeStatus ? ENVELOPE_STATUS_LABELS[letter.envelopeStatus] : undefined,
+                    letter.sealed ? 'Niêm phong còn nguyên' : undefined,
+                    letter.pageCount !== undefined ? `${letter.pageCount} tờ` : undefined,
+                    letter.copyCount !== undefined ? `${letter.copyCount} bản` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              ) : null}
+              {letter.addressedTo || letter.addressedUserName ? (
+                <div>
+                  <span>Gửi đích danh</span>
+                  {[letter.addressedTo, letter.addressedUserName].filter(Boolean).join(' · ')}
+                </div>
+              ) : null}
               {letter.cancelReason ? (
                 <div className={styles.metaWide}>
                   <span>Lý do huỷ</span>
@@ -330,6 +393,15 @@ export function LetterDrawer({
         ) : null}
       </aside>
       <FilePreview target={preview} onClose={() => setPreview(undefined)} />
+      <RemindDialog
+        letter={reminding ? letter : undefined}
+        onClose={() => setReminding(false)}
+        onDone={() => {
+          setReminding(false);
+          reload();
+          onChanged();
+        }}
+      />
     </div>,
     document.body,
   );

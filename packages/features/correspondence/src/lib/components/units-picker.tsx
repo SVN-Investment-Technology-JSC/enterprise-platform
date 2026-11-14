@@ -1,6 +1,15 @@
 'use client';
 
-import type { CorrespondenceConfig, CorrespondenceDirectory, DispatchUnit, LetterAssignment } from '@enterprise-platform/contracts-correspondence';
+import {
+  ASSIGNMENT_ROLES,
+  ASSIGNMENT_ROLE_LABELS,
+  type AssignmentRole,
+  type CorrespondenceConfig,
+  type CorrespondenceDirectory,
+  type DispatchUnit,
+  type LetterAssignment,
+  type LetterDirective,
+} from '@enterprise-platform/contracts-correspondence';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import styles from '../correspondence.module.scss';
@@ -10,21 +19,31 @@ import { SelectField } from './form-dialog';
 export interface UnitPick {
   readonly unitId: string;
   readonly handlerUserId: string;
+  readonly role: AssignmentRole;
 }
 
-/** Gợi ý ban đầu: phòng đã giao lượt trước, không có thì phòng ban gợi ý của loại văn bản. */
+/**
+ * Gợi ý ban đầu: theo bút phê của lãnh đạo, không có thì phòng đã giao lượt trước, không có nữa
+ * thì phòng ban gợi ý của loại văn bản (phòng đầu chủ trì, các phòng sau phối hợp).
+ */
 export function suggestedUnits(
   config: CorrespondenceConfig,
   kind: string,
-  assignments: readonly Pick<LetterAssignment, 'unitId' | 'handlerUserId'>[] = [],
+  assignments: readonly Pick<LetterAssignment, 'unitId' | 'handlerUserId' | 'role'>[] = [],
+  directive?: Pick<LetterDirective, 'units'>,
 ): UnitPick[] {
-  if (assignments.length > 0) return assignments.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId ?? '' }));
+  if (directive && directive.units.length > 0) {
+    return directive.units.map((unit) => ({ unitId: unit.unitId, handlerUserId: unit.handlerUserId ?? '', role: unit.role }));
+  }
+  if (assignments.length > 0) {
+    return assignments.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId ?? '', role: item.role ?? 'lead' }));
+  }
   const defaults = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind)?.defaultUnitIds ?? [];
-  return defaults.map((unitId) => ({ unitId, handlerUserId: '' }));
+  return defaults.map((unitId, index) => ({ unitId, handlerUserId: '', role: index === 0 ? 'lead' : 'support' }));
 }
 
 export function unitsPayload(units: readonly UnitPick[]): DispatchUnit[] {
-  return units.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId || undefined }));
+  return units.map((item) => ({ unitId: item.unitId, handlerUserId: item.handlerUserId || undefined, role: item.role }));
 }
 
 /** Cấu hình "phải chọn người xử lý" mà còn phòng chưa chọn người. */
@@ -62,7 +81,9 @@ export function UnitsPicker({
           value=""
           placeholder="Tìm và thêm phòng ban theo sơ đồ tổ chức"
           emptyText={directory?.degraded ? 'Chưa đọc được sơ đồ tổ chức, thử lại sau.' : 'Không còn phòng ban nào để thêm.'}
-          onChange={(value) => value && onChange([...units, { unitId: value, handlerUserId: '' }])}
+          onChange={(value) =>
+            value && onChange([...units, { unitId: value, handlerUserId: '', role: units.some((item) => item.role === 'lead') ? 'support' : 'lead' }])
+          }
         />
       </SelectField>
       {units.length > 0 ? (
@@ -79,6 +100,20 @@ export function UnitsPicker({
                     <span className={styles.hint}>
                       {members.length} người · Trưởng đơn vị: {heads.map((member) => member.name).join(', ') || 'chưa có'}
                     </span>
+                  </div>
+                  <div className={styles.roleToggle} role="radiogroup" aria-label={`Vai trò của ${unit?.name ?? 'phòng ban'}`}>
+                    {ASSIGNMENT_ROLES.map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        role="radio"
+                        aria-checked={pick.role === role}
+                        className={pick.role === role ? styles.roleOn : undefined}
+                        onClick={() => onChange(units.map((item) => (item.unitId === pick.unitId ? { ...item, role } : item)))}
+                      >
+                        {ASSIGNMENT_ROLE_LABELS[role]}
+                      </button>
+                    ))}
                   </div>
                   <button
                     type="button"

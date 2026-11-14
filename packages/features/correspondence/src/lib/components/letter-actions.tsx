@@ -3,6 +3,7 @@
 import {
   DELIVERY_STATUSES,
   DELIVERY_STATUS_LABELS,
+  ASSIGNMENT_ROLE_LABELS,
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
   returnTargetLabel,
@@ -149,41 +150,90 @@ function PlannedSteps({ config, letter, kind }: { readonly config: Correspondenc
  */
 function useNextStep(letter: LetterDetail, config: CorrespondenceConfig, kind?: string) {
   const upcoming = upcomingStep(letter, config, kind);
-  const initialUnits = useMemo(() => suggestedUnits(config, kind ?? letter.kind, letter.assignments), [config, kind, letter]);
+  const active = letter.steps.find((step) => step.status === 'active');
+  // Bước chỉ đạo (bút phê): chọn đơn vị chủ trì, phối hợp và thời hạn dù bước kế tiếp là gì.
+  const directs = letter.stage === 'reviewing' && active?.type === 'approve' && active.directs === true;
+  const current = letter.flow.findIndex((node) => node.state === 'current');
+  const laterProcess = current >= 0 && letter.flow.slice(current + 1).some((node) => node.kind === 'process');
+  const initialUnits = useMemo(
+    () => suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive),
+    [config, kind, letter, directs],
+  );
+  const initialDue = (directs ? undefined : letter.directive?.dueOn) ?? letter.dueOn ?? '';
   const [units, setUnits] = useState<UnitPick[]>(initialUnits);
+  const [dueOn, setDueOn] = useState(initialDue);
   const [assignee, setAssignee] = useState('');
   const choice = useStepChoice(letter.id, kind);
   useEffect(() => setAssignee(''), [kind]);
-  const needsUnits = upcoming?.type === 'process';
+  const needsUnits = upcoming?.type === 'process' || directs;
+  const unitsRequired = upcoming?.type === 'process' || (directs && laterProcess);
   const blocked =
-    choice === undefined || (Boolean(choice) && !assignee) || (needsUnits && (units.length === 0 || missingHandler(config, units)));
+    choice === undefined ||
+    (Boolean(choice) && !assignee) ||
+    (unitsRequired && units.length === 0) ||
+    (needsUnits && missingHandler(config, units)) ||
+    (needsUnits && units.length > 0 && !units.some((unit) => unit.role === 'lead'));
   return {
     upcoming,
+    directs,
     units,
     setUnits,
-    unitsChanged: needsUnits && JSON.stringify(units) !== JSON.stringify(initialUnits),
+    dueOn,
+    setDueOn,
+    unitsChanged: needsUnits && (JSON.stringify(units) !== JSON.stringify(initialUnits) || dueOn !== initialDue),
     assignee,
     setAssignee,
     choice,
     needsUnits,
     blocked,
-    payload: { units: needsUnits ? unitsPayload(units) : undefined, assignee: assignee || undefined },
+    payload: {
+      units: needsUnits && units.length > 0 ? unitsPayload(units) : undefined,
+      dueOn: needsUnits && dueOn ? dueOn : undefined,
+      assignee: assignee || undefined,
+    },
   };
 }
 
 function NextStepFields({
   next,
+  letter,
   config,
   directory,
+  showDue = true,
 }: {
   readonly next: ReturnType<typeof useNextStep>;
+  readonly letter: LetterDetail;
   readonly config: CorrespondenceConfig;
   readonly directory?: CorrespondenceDirectory;
+  /** Form đã có ô hạn riêng (văn thư tiếp nhận) thì không lặp ô thời hạn. */
+  readonly showDue?: boolean;
 }) {
+  const directive = letter.directive;
   return (
     <>
-      {next.needsUnits && next.upcoming ? (
-        <UnitsPicker label={`Phòng ban cho bước "${next.upcoming.name}"`} config={config} directory={directory} units={next.units} onChange={next.setUnits} />
+      {!next.directs && next.needsUnits && directive && directive.units.length > 0 ? (
+        <p className={styles.plan}>
+          <span>Theo bút phê{directive.byName ? ` của ${directive.byName}` : ''}:</span>{' '}
+          {directive.units.map((unit) => `${unit.unitName} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}
+          {directive.dueOn ? `; hạn ${formatDay(directive.dueOn)}` : ''}. Phân phối đúng theo bút phê hoặc điều chỉnh bên dưới.
+        </p>
+      ) : null}
+      {next.needsUnits ? (
+        <UnitsPicker
+          label={next.directs ? 'Đơn vị chủ trì, phối hợp (bút phê)' : `Phòng ban cho bước "${next.upcoming?.name ?? ''}"`}
+          config={config}
+          directory={directory}
+          units={next.units}
+          onChange={next.setUnits}
+        />
+      ) : null}
+      {next.needsUnits && next.units.length > 0 && !next.units.some((unit) => unit.role === 'lead') ? (
+        <p className={styles.notice}>Chọn ít nhất một đơn vị chủ trì.</p>
+      ) : null}
+      {next.needsUnits && showDue ? (
+        <Field label="Thời hạn hoàn thành">
+          <input type="date" value={next.dueOn} min={letter.receivedOn} onChange={(event) => next.setDueOn(event.target.value)} />
+        </Field>
       ) : null}
       <ChoiceField choice={next.choice} value={next.assignee} onChange={next.setAssignee} />
     </>
@@ -516,7 +566,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
           />
         </div>
         <PlannedSteps config={config} letter={letter} kind={kind} />
-        <NextStepFields next={next} config={config} directory={directory} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} showDue={false} />
         <div className={styles.formRow}>
           <Field label="Hạn xử lý">
             <input type="date" value={dueOn} min={letter.receivedOn} onChange={(event) => setDueOn(event.target.value)} />
@@ -602,7 +652,7 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
           {drafts > 0 ? `Đã có ${drafts} tệp dự thảo.` : 'Tải tệp dự thảo ở mục Tệp của hồ sơ trước khi gửi.'}
         </p>
         <PlannedSteps config={config} letter={letter} kind={letter.kind} />
-        <NextStepFields next={next} config={config} directory={directory} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
         <Field label="Ghi chú">
           <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
         </Field>
@@ -615,7 +665,8 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
             disabled={busy || !workflow || next.blocked}
             onClick={() =>
               run(
-                () => sendToClerk(letter.id, { note: note || undefined, units: next.payload.units, assigneeUserId: next.payload.assignee }),
+                () =>
+                  sendToClerk(letter.id, { note: note || undefined, units: next.payload.units, dueOn: next.payload.dueOn, assigneeUserId: next.payload.assignee }),
                 `Đã gửi "${target}".`,
               )
             }
@@ -641,7 +692,7 @@ function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: Action
         <p className={styles.plan}>
           <span>Bước tiếp theo:</span> {next.upcoming?.name ?? end}
         </p>
-        <NextStepFields next={next} config={config} directory={directory} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
         <Field label="Ghi chú">
           <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
         </Field>
@@ -655,7 +706,13 @@ function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: Action
             disabled={busy || next.blocked}
             onClick={() =>
               run(
-                () => submitLetter(letter.id, { assigneeUserId: next.payload.assignee, units: next.payload.units, note: note || undefined }),
+                () =>
+                  submitLetter(letter.id, {
+                    assigneeUserId: next.payload.assignee,
+                    units: next.payload.units,
+                    dueOn: next.payload.dueOn,
+                    note: note || undefined,
+                  }),
                 `Đạt, đã chuyển "${next.upcoming?.name ?? end}".`,
               )
             }
@@ -1049,10 +1106,10 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
             Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
           </p>
         ) : null}
-        <Field label={next.needsUnits ? 'Ý kiến, chỉ đạo cho phòng ban (nếu có)' : 'Ý kiến (nếu có)'}>
+        <Field label={next.directs ? 'Ý kiến chỉ đạo (bút phê)' : next.needsUnits ? 'Ý kiến, chỉ đạo cho phòng ban (nếu có)' : 'Ý kiến (nếu có)'}>
           <textarea value={note} maxLength={4000} rows={3} placeholder="Ý kiến kèm theo khi duyệt" onChange={(event) => setNote(event.target.value)} />
         </Field>
-        <NextStepFields next={next} config={config} directory={directory} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <ReturnControl letter={letter} onDone={onDone} label="Không đạt" dialogTitle="Không đạt, trả lại" warning />
@@ -1066,7 +1123,13 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
             disabled={!ready}
             onConfirm={() =>
               run(
-                () => approveLetter(letter.id, { note: note || undefined, nextAssigneeUserId: next.payload.assignee, units: next.payload.units }),
+                () =>
+                  approveLetter(letter.id, {
+                    note: note || undefined,
+                    nextAssigneeUserId: next.payload.assignee,
+                    units: next.payload.units,
+                    dueOn: next.payload.dueOn,
+                  }),
                 'Đã duyệt, chuyển bước tiếp theo.',
               )
             }

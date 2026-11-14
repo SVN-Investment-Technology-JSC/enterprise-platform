@@ -4,20 +4,23 @@ import {
   DISPATCH_MODES,
   DISPATCH_MODE_LABELS,
   MAX_CLERKS,
+  MAX_DELEGATIONS,
   type CorrespondenceDirectory,
+  type Delegation,
   type CorrespondenceSettings,
   type DispatchMode,
 } from '@enterprise-platform/contracts-correspondence';
 import { SearchableSelect, toast, useBeforeUnloadGuard } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { errorMessage, saveSettings } from '../correspondence-api';
+import { localToday } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { Field, SelectField } from './form-dialog';
 
 /**
- * Cấu hình sổ văn thư: người làm văn thư, ký hiệu số đến, số đi, tiền tố số hồ sơ, hạn xử lý
- * mặc định, cách giao phòng ban.
+ * Cấu hình sổ văn thư: người làm văn thư, ủy quyền duyệt, ký hiệu số đến, số đi, tiền tố số hồ
+ * sơ, hạn xử lý mặc định, cách giao phòng ban.
  */
 export function SettingsView({
   settings,
@@ -39,7 +42,8 @@ export function SettingsView({
     form.archivePrefix !== settings.archivePrefix ||
     form.defaultDueDays !== String(settings.defaultDueDays) ||
     form.dispatchMode !== settings.dispatchMode ||
-    form.clerkUserIds.join() !== settings.clerkUserIds.join();
+    form.clerkUserIds.join() !== settings.clerkUserIds.join() ||
+    JSON.stringify(form.delegations ?? []) !== JSON.stringify(settings.delegations ?? []);
   useBeforeUnloadGuard(dirty);
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
   const year = new Date().getFullYear();
@@ -57,6 +61,7 @@ export function SettingsView({
         defaultDueDays: Number(form.defaultDueDays),
         dispatchMode: form.dispatchMode,
         clerkUserIds: form.clerkUserIds,
+        delegations: form.delegations ?? [],
       });
       onSaved(next);
       toast.success('Đã lưu cấu hình sổ văn thư.');
@@ -134,6 +139,12 @@ export function SettingsView({
             <span className={styles.hint}>0 là không tự đặt hạn khi tiếp nhận.</span>
           </Field>
         </div>
+        <DelegationsField
+          delegations={form.delegations ?? []}
+          people={people}
+          nameOf={nameOf}
+          onChange={(delegations) => set('delegations', delegations)}
+        />
         <SelectField label="Khi văn thư giao công văn đến cho phòng ban">
           <SearchableSelect
             options={DISPATCH_MODES.map((value) => ({ value, label: DISPATCH_MODE_LABELS[value] }))}
@@ -159,5 +170,84 @@ export function SettingsView({
         </div>
       </form>
     </section>
+  );
+}
+
+/**
+ * Ủy quyền duyệt: trong khoảng ngày, người được ủy quyền (thường là cấp phó) làm được các bước
+ * duyệt, bút phê giao cho người ủy quyền; lịch sử ghi rõ duyệt thay ai.
+ */
+function DelegationsField({
+  delegations,
+  people,
+  nameOf,
+  onChange,
+}: {
+  readonly delegations: readonly Delegation[];
+  readonly people: readonly { readonly userId: string; readonly name: string }[];
+  readonly nameOf: ReadonlyMap<string, string>;
+  readonly onChange: (delegations: Delegation[]) => void;
+}) {
+  const options = people.map((person) => ({ value: person.userId, label: person.name }));
+  const update = (index: number, patch: Partial<Delegation>) =>
+    onChange(delegations.map((item, at) => (at === index ? { ...item, ...patch } : item)));
+  const today = localToday();
+  return (
+    <div className={styles.field} role="group" aria-label="Ủy quyền duyệt">
+      <span className={styles.fieldLabel}>Ủy quyền duyệt</span>
+      <span className={styles.hint}>
+        Người được ủy quyền (thường là cấp phó) duyệt, bút phê thay trong khoảng ngày; lịch sử ghi rõ duyệt thay ai.
+      </span>
+      {delegations.map((item, index) => {
+        const active = item.fromDate <= today && today <= item.toDate;
+        return (
+          <div key={index} className={styles.delegationRow}>
+            <SearchableSelect
+              options={options}
+              value={item.fromUserId}
+              placeholder="Người ủy quyền"
+              onChange={(value) => update(index, { fromUserId: value ?? '' })}
+            />
+            <SearchableSelect
+              options={options.filter((option) => option.value !== item.fromUserId)}
+              value={item.toUserId}
+              placeholder="Người được ủy quyền"
+              onChange={(value) => update(index, { toUserId: value ?? '' })}
+            />
+            <input type="date" aria-label={`Từ ngày ${index + 1}`} value={item.fromDate} onChange={(event) => update(index, { fromDate: event.target.value })} />
+            <input
+              type="date"
+              aria-label={`Đến ngày ${index + 1}`}
+              value={item.toDate}
+              min={item.fromDate}
+              onChange={(event) => update(index, { toDate: event.target.value })}
+            />
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={`Bỏ ủy quyền ${index + 1}`}
+              onClick={() => onChange(delegations.filter((_, at) => at !== index))}
+            >
+              <X size={14} />
+            </button>
+            <span className={styles.hint}>
+              {item.fromUserId && item.toUserId
+                ? `${nameOf.get(item.toUserId) ?? 'Người được ủy quyền'} duyệt thay ${nameOf.get(item.fromUserId) ?? 'người ủy quyền'}${active ? ' · đang hiệu lực' : ''}`
+                : 'Chọn người ủy quyền và người được ủy quyền'}
+            </span>
+          </div>
+        );
+      })}
+      <div>
+        <button
+          type="button"
+          className={styles.buttonGhost}
+          disabled={delegations.length >= MAX_DELEGATIONS}
+          onClick={() => onChange([...delegations, { fromUserId: '', toUserId: '', fromDate: today, toDate: today }])}
+        >
+          <Plus size={14} /> Thêm ủy quyền
+        </button>
+      </div>
+    </div>
   );
 }

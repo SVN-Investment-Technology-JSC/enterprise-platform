@@ -7,8 +7,11 @@ import {
   type LetterStage,
   type LetterSummary,
 } from '@enterprise-platform/contracts-correspondence';
+import { toast } from '@enterprise-platform/shared-ui';
+import { FileSpreadsheet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, listLetters } from '../correspondence-api';
+import { downloadRegister } from '../register-export';
 import { matchesSearch } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { LetterTable, type LetterTableMode } from './letter-table';
@@ -18,6 +21,7 @@ const EMPTY: Readonly<Record<LetterBox, string>> = {
   outgoing: 'Chưa có công văn đi nào ở mục này. Chọn bộ lọc khác hoặc soạn công văn đi.',
   mine: 'Không có công văn nào đang chờ bạn xử lý.',
   archive: 'Chưa có hồ sơ nào được lưu trữ.',
+  tracking: 'Không có công văn nào có hạn cần theo dõi.',
 };
 
 /**
@@ -94,6 +98,20 @@ export function LetterListView({
           aria-label="Tìm công văn"
           onChange={(event) => setSearch(event.target.value)}
         />
+        {direction && letters ? (
+          <button
+            type="button"
+            className={styles.buttonGhost}
+            title={direction === 'incoming' ? 'Sổ đăng ký văn bản đến của danh sách đang lọc' : 'Sổ đăng ký văn bản đi (công văn đã ban hành) của danh sách đang lọc'}
+            onClick={() =>
+              void downloadRegister(direction, visible, today)
+                .then((count) => toast.success(`Đã xuất sổ đăng ký: ${count} văn bản.`))
+                .catch((cause) => toast.error(errorMessage(cause, 'Không xuất được sổ đăng ký.')))
+            }
+          >
+            <FileSpreadsheet size={14} /> Xuất sổ đăng ký
+          </button>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className={styles.alert}>

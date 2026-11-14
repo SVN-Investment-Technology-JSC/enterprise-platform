@@ -29,6 +29,8 @@ export interface LetterViewer {
    * người này được chỉ định. Người có quyền mà không được chỉ định vẫn làm thay được.
    */
   readonly clerkOnDuty: boolean;
+  /** Văn thư hay bộ phận tổng hợp: theo dõi, đôn đốc việc giải quyết công văn. */
+  readonly canTrack?: boolean;
 }
 
 export interface StepFacts {
@@ -62,6 +64,8 @@ export interface LetterFacts {
   /** Đề nghị huỷ đang chờ (giai đoạn `revoking`): người đề nghị, người có thẩm quyền xác nhận. */
   readonly revokeRequestedBy?: string;
   readonly revokeApproverIds?: readonly string[];
+  /** Văn bản gửi đích danh người này. */
+  readonly addressedUserId?: string;
 }
 
 export function activeStep(letter: Pick<LetterFacts, 'steps'>): StepFacts | undefined {
@@ -88,6 +92,7 @@ export function involves(viewer: LetterViewer, letter: LetterFacts): boolean {
   if (letter.receivedBy === viewer.userId || isAuthorSide(viewer, letter)) return true;
   if (letter.mentionedUserIds.includes(viewer.userId)) return true;
   if (letter.revokeApproverIds?.includes(viewer.userId)) return true;
+  if (letter.addressedUserId === viewer.userId) return true;
   if (
     letter.steps.some(
       (step) => step.actedBy === viewer.userId || (step.status !== 'waiting' && step.assigneeUserIds.includes(viewer.userId)),
@@ -246,6 +251,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     decideRevoke: stage === 'revoking' && (Boolean(letter.revokeApproverIds?.includes(viewer.userId)) || viewer.isTenantAdmin),
     withdrawRevoke:
       stage === 'revoking' && (letter.revokeRequestedBy === viewer.userId || clerkOfDirection(viewer, letter.direction)),
+    remind: open && stage !== 'received' && Boolean(viewer.canTrack || viewer.isTenantAdmin),
     remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
     defaultReturnTarget:

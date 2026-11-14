@@ -17,6 +17,7 @@ const MIGRATIONS = [
   '0002-incoming-outgoing-flows.sql',
   '0003-revoke-and-delete.sql',
   '0004-dynamic-workflow-steps.sql',
+  '0005-directive-intake-tracking.sql',
 ].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
@@ -77,12 +78,12 @@ integration('Sổ công văn (PostgreSQL)', () => {
     }
   }, 60_000);
 
-  it('migration 0002 tới 0004 chạy lại được; mỗi luồng một quy trình mặc định, bước cứng cũ thành bước đầu', async () => {
+  it('migration 0002 tới 0005 chạy lại được; mỗi luồng một quy trình mặc định, bước cứng cũ thành bước đầu', async () => {
     // Lỗi giữa chừng lúc deploy thì migrator chạy lại đúng file đó.
     await migrate(pool, MIGRATIONS.slice(1));
     expect(await store.tablesReady(TENANT)).toBe(true);
     const catalog = await store.catalog(TENANT);
-    expect(catalog.filter((item) => item.kind === 'urgency').map((item) => item.code)).toEqual(['normal', 'urgent', 'flash']);
+    expect(catalog.filter((item) => item.kind === 'urgency').map((item) => item.code)).toEqual(['normal', 'urgent', 'top_urgent', 'flash']);
     const workflows = await store.workflows(TENANT);
     expect(workflows.filter((item) => item.isDefault).map((item) => item.direction)).toEqual(['incoming', 'outgoing']);
     const incoming = workflows.find((item) => item.isDefault && item.direction === 'incoming');
@@ -217,6 +218,64 @@ integration('Sổ công văn (PostgreSQL)', () => {
     expect((await store.listLetters(TENANT, { limit: 100 })).map((row) => row.id)).not.toContain(letter.id);
     await expect(store.withLetter(TENANT, letter.id, async () => undefined)).rejects.toThrow();
     expect(await store.countArchived(TENANT)).toBe(archivedBefore - 1);
+  });
+
+  it('bút phê, vai trò chủ trì / phối hợp, phân loại sơ bộ; người nhận đích danh thấy công văn', async () => {
+    const letter = await store.createLetter(
+      TENANT,
+      { direction: 'incoming', stage: 'received', receivedOn: '2026-11-14', senderOrg: 'Sở', subject: 'Đích danh', kind: 'finance', urgency: 'top_urgent', confidentiality: 'secret', receivedBy: clerk },
+      { counter: 'incoming', suffix: 'CVĐ' },
+      async () => undefined,
+    );
+    const addressee = randomUUID();
+    const [lead, support] = [randomUUID(), randomUUID()];
+    await store.withLetter(TENANT, letter.id, async (tx) => {
+      await tx.update({
+        envelopeStatus: 'damaged',
+        sealed: true,
+        pageCount: 12,
+        copyCount: 2,
+        addressedTo: 'Công đoàn',
+        addressedUserId: addressee,
+        directive: {
+          note: 'Kế toán chủ trì',
+          dueOn: '2026-11-20',
+          units: [
+            { unitId: lead, unitName: 'Phòng Kế toán', role: 'lead' },
+            { unitId: support, unitName: 'Phòng Pháp chế', role: 'support', handlerUserId: author },
+          ],
+          stepName: 'Lãnh đạo bút phê',
+          by: leader,
+          at: '2026-11-14T02:00:00.000Z',
+        },
+      });
+      await tx.assign([
+        { unitId: lead, unitName: 'Phòng Kế toán', role: 'lead' },
+        { unitId: support, unitName: 'Phòng Pháp chế', role: 'support', handlerUserId: author },
+      ]);
+      expect(tx.assignments.map((item) => [item.unitName, item.role])).toEqual([
+        ['Phòng Kế toán', 'lead'],
+        ['Phòng Pháp chế', 'support'],
+      ]);
+    });
+    expect(await store.findLetter(TENANT, letter.id)).toMatchObject({
+      envelopeStatus: 'damaged',
+      sealed: true,
+      pageCount: 12,
+      copyCount: 2,
+      addressedTo: 'Công đoàn',
+      addressedUserId: addressee,
+      directive: { note: 'Kế toán chủ trì', dueOn: '2026-11-20', units: [{ role: 'lead' }, { role: 'support', handlerUserId: author }] },
+    });
+    // Văn bản tối mật gửi đích danh: người nhận đích danh thấy, người ngoài không.
+    const outsider = { userId: randomUUID(), unitIds: [], readAll: true, readConfidential: false };
+    expect((await store.listLetters(TENANT, { visibleTo: outsider, limit: 50 })).map((row) => row.id)).not.toContain(letter.id);
+    const [row] = await store.listLetters(TENANT, { visibleTo: { ...outsider, userId: addressee }, limit: 50 });
+    expect(row).toMatchObject({ id: letter.id, replied: false, assignments: [{ role: 'lead' }, { role: 'support' }] });
+    await expect(store.withLetter(TENANT, letter.id, (tx) => tx.update({ envelopeStatus: 'lost' as never }))).rejects.toMatchObject({ code: '23514' });
+    const catalog = await store.catalog(TENANT);
+    expect(catalog.filter((item) => item.kind === 'urgency').map((item) => item.name)).toEqual(['Thường', 'Khẩn', 'Thượng khẩn', 'Hỏa tốc']);
+    expect(catalog.filter((item) => item.kind === 'confidentiality').map((item) => item.name)).toEqual(['Thường', 'Mật', 'Tối mật', 'Tuyệt mật']);
   });
 
   it('tệp: phiên bản mới về chưa tải xong, người tải là người tải phiên bản', async () => {
@@ -385,6 +444,7 @@ integration('Nâng cấp quy trình động (migration 0004)', () => {
     // Công văn đến mới tiếp nhận: chưa chuyển bước, không đụng tới.
     const received = await legacyLetter('incoming', 'received', 3);
 
+    // 0004 chuyển dữ liệu; 0005 thêm cột mà kho đọc.
     await migrate(pool, MIGRATIONS.slice(3));
     const snapshot = async () => ({
       processing: (await store.steps(TENANT, processing)).map((step) => [step.seq, step.kind, step.status]),
@@ -424,7 +484,7 @@ integration('Nâng cấp quy trình động (migration 0004)', () => {
     expect(approveStep.approver).toEqual({ type: 'handling_unit_heads' });
 
     // Chạy lại (lỗi giữa chừng lúc deploy): không thêm bước lần nữa.
-    await migrate(pool, MIGRATIONS.slice(3));
+    await migrate(pool, MIGRATIONS.slice(3, 4));
     expect(await snapshot()).toEqual(after);
     const workflows = await store.workflows(TENANT);
     expect(workflows.find((item) => item.direction === 'incoming' && item.isDefault)?.steps.map((step) => step.type)).toEqual([

@@ -182,6 +182,7 @@ function fakeStore() {
           name: step.name,
           kind: step.type ?? 'approve',
           approver: step.approver,
+          directs: step.directs,
           rejectTo: step.rejectTo,
           status: 'waiting',
           assigneeUserIds: [],
@@ -205,13 +206,14 @@ function fakeStore() {
       for (const unit of units) {
         const existing = assignments.find((item) => item.letterId === letterId && item.unitId === unit.unitId);
         if (existing) {
-          patchAssignment(existing.id, { status: 'pending', submittedAt: undefined, handlerUserId: unit.handlerUserId });
+          patchAssignment(existing.id, { status: 'pending', submittedAt: undefined, handlerUserId: unit.handlerUserId, role: unit.role ?? 'lead' });
         } else {
           assignments.push({
             id: id('assignment'),
             letterId,
             unitId: unit.unitId,
             unitName: unit.unitName,
+            role: unit.role ?? 'lead',
             round: 1,
             status: 'pending',
             handlerUserId: unit.handlerUserId,
@@ -376,13 +378,15 @@ function fakeStore() {
     userNames: async () =>
       new Map([
         ['u-leader', 'Nguyễn Văn An'],
+        ['u-leader-2', 'Trần Minh Châu'],
         ['u-clerk', 'Lê Thu Hà'],
         ['u-fin-head', 'KTT'],
         ['u-legal-head', 'TP Pháp chế'],
         ['u-accountant', 'Kế toán'],
         ['u-lawyer', 'Pháp chế'],
       ]),
-    people: async () => ['u-leader', 'u-clerk', 'u-fin-head', 'u-legal-head', 'u-accountant', 'u-lawyer', 'u-outsider'].map((userId) => ({ userId, name: userId })),
+    people: async () =>
+      ['u-leader', 'u-leader-2', 'u-clerk', 'u-fin-head', 'u-legal-head', 'u-accountant', 'u-lawyer', 'u-outsider'].map((userId) => ({ userId, name: userId })),
     leaders: async () => [
       { userId: 'u-leader', name: 'Nguyễn Văn An' },
       { userId: 'u-leader-2', name: 'Trần Minh Châu' },
@@ -1040,6 +1044,140 @@ describe('Quy trình động: các bước giữa cấu hình tự do', () => {
     await expect(
       service.saveWorkflow(configurer, undefined, { name: 'Thiếu', direction: 'incoming', steps: [{ key: 'a', name: 'Duyệt', type: 'approve' }] }),
     ).rejects.toThrow('chưa chọn cách xác định người duyệt');
+  });
+});
+
+describe('Quy trình chuẩn văn bản đến: dựng bằng cấu hình', () => {
+  /** Tiếp nhận → Lãnh đạo bút phê → Văn thư phân phối theo bút phê → Đơn vị chủ trì, phối hợp xử lý → Hoàn tất. */
+  async function standardFlow(service: CorrespondenceService) {
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Văn bản đến theo chuẩn',
+      direction: 'incoming',
+      isDefault: true,
+      steps: [
+        { key: 'directive', name: 'Lãnh đạo bút phê', type: 'approve', directs: true, approver: { type: 'users', userIds: ['u-leader'] } },
+        { key: 'distribute', name: 'Văn thư phân phối', type: 'check' },
+        { key: 'process', name: 'Đơn vị xử lý', type: 'process' },
+      ],
+    });
+  }
+
+  it('lãnh đạo bút phê đơn vị chủ trì, phối hợp, thời hạn; văn thư phân phối theo bút phê', async () => {
+    const { service } = setup();
+    await standardFlow(service);
+    const letter = await service.create(clerk, intake);
+    const presented = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'urgent' });
+    expect(presented).toMatchObject({ stage: 'reviewing', currentStepName: 'Lãnh đạo bút phê' });
+    expect(presented.steps[0]).toMatchObject({ directs: true });
+    const directed = await service.approve(leader, letter.id, {
+      note: 'Kế toán chủ trì, Pháp chế phối hợp, trả lời Sở trước 20/11.',
+      dueOn: '2026-11-20',
+      units: [{ unitId: 'unit-finance', role: 'lead' }, { unitId: 'unit-legal', role: 'support', handlerUserId: 'u-lawyer' }],
+    });
+    expect(directed).toMatchObject({ stage: 'checking', stageLabel: 'Văn thư phân phối', dueOn: '2026-11-20' });
+    expect(directed.directive).toMatchObject({
+      note: 'Kế toán chủ trì, Pháp chế phối hợp, trả lời Sở trước 20/11.',
+      dueOn: '2026-11-20',
+      stepName: 'Lãnh đạo bút phê',
+      byName: 'Nguyễn Văn An',
+      units: [
+        { unitId: 'unit-finance', unitName: 'Phòng Kế toán', role: 'lead' },
+        { unitId: 'unit-legal', unitName: 'Phòng Pháp chế', role: 'support', handlerName: 'Pháp chế' },
+      ],
+    });
+    expect(directed.history.at(-1)?.summary).toBe('Lãnh đạo bút phê: bút phê; giao Phòng Kế toán (chủ trì), Phòng Pháp chế (phối hợp)');
+    // Văn thư không chọn lại: giao đúng theo bút phê.
+    const distributed = await service.submit(clerk, letter.id, {});
+    expect(distributed).toMatchObject({ stage: 'processing', instruction: 'Kế toán chủ trì, Pháp chế phối hợp, trả lời Sở trước 20/11.' });
+    expect(distributed.assignments.map((item) => [item.unitName, item.role, item.handlerUserId])).toEqual([
+      ['Phòng Kế toán', 'lead', undefined],
+      ['Phòng Pháp chế', 'support', 'u-lawyer'],
+    ]);
+    const [list] = await service.list(clerk, { box: 'incoming' });
+    expect(list.unitNames).toEqual(['Phòng Kế toán (chủ trì)', 'Phòng Pháp chế (phối hợp)']);
+    await expect(service.approve(leader, letter.id, {})).rejects.toBeInstanceOf(LetterStageConflictError);
+  });
+
+  it('ủy quyền: cấp phó được ủy quyền bút phê thay trong khoảng ngày, ghi rõ duyệt thay ai', async () => {
+    const { service } = setup();
+    await standardFlow(service);
+    const leaderTwo = actor('u-leader-2');
+    await expect(
+      service.saveSettings(configurer, {
+        ...DEFAULT_CORRESPONDENCE_SETTINGS,
+        delegations: [{ fromUserId: 'u-leader', toUserId: 'u-leader', fromDate: '2026-11-10', toDate: '2026-11-15' }],
+      }),
+    ).rejects.toThrow('người được ủy quyền phải khác người ủy quyền');
+    await expect(
+      service.saveSettings(configurer, {
+        ...DEFAULT_CORRESPONDENCE_SETTINGS,
+        delegations: [{ fromUserId: 'u-leader', toUserId: 'u-leader-2', fromDate: '2026-11-15', toDate: '2026-11-10' }],
+      }),
+    ).rejects.toThrow('đến ngày phải sau từ ngày');
+    await service.saveSettings(configurer, {
+      ...DEFAULT_CORRESPONDENCE_SETTINGS,
+      delegations: [{ fromUserId: 'u-leader', toUserId: 'u-leader-2', fromDate: '2026-11-10', toDate: '2026-11-15', note: 'TGĐ đi công tác' }],
+    });
+    const letter = await service.create(clerk, intake);
+    const presented = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal' });
+    expect(presented.currentAssigneeNames).toEqual(['Nguyễn Văn An', 'Trần Minh Châu']);
+    expect((await service.list(leaderTwo, { box: 'mine' })).map((item) => item.id)).toContain(letter.id);
+    const done = await service.approve(leaderTwo, letter.id, { units: [{ unitId: 'unit-finance' }] });
+    expect(done.history.at(-1)?.summary).toContain('(ủy quyền của Nguyễn Văn An)');
+
+    // Hết hạn ủy quyền: chỉ người ủy quyền.
+    await service.saveSettings(configurer, {
+      ...DEFAULT_CORRESPONDENCE_SETTINGS,
+      delegations: [{ fromUserId: 'u-leader', toUserId: 'u-leader-2', fromDate: '2026-11-01', toDate: '2026-11-05' }],
+    });
+    const later = await service.create(clerk, intake);
+    expect((await service.dispatch(clerk, later.id, { kind: 'finance', urgency: 'normal' })).currentAssigneeNames).toEqual(['Nguyễn Văn An']);
+  });
+
+  it('tiếp nhận: phân loại sơ bộ (bì, niêm phong, số tờ, số bản), văn bản gửi đích danh báo người nhận', async () => {
+    const { service, outbox } = setup();
+    await expect(service.create(clerk, { ...intake, envelopeStatus: 'burnt' as never })).rejects.toThrow('Tình trạng bì');
+    await expect(service.create(clerk, { ...intake, pageCount: -1 })).rejects.toThrow('Số tờ là số từ 0 đến 10000.');
+    const letter = await service.create(clerk, {
+      ...intake,
+      confidentiality: 'confidential',
+      envelopeStatus: 'damaged',
+      sealed: true,
+      pageCount: 12,
+      copyCount: 2,
+      addressedTo: 'Công đoàn công ty',
+      addressedUserId: 'u-lawyer',
+    });
+    expect(letter).toMatchObject({
+      envelopeStatus: 'damaged',
+      sealed: true,
+      pageCount: 12,
+      copyCount: 2,
+      addressedTo: 'Công đoàn công ty',
+      addressedUserName: 'Pháp chế',
+    });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.addressed, payload: { recipientUserIds: ['u-lawyer'] } });
+    // Người nhận đích danh xem được công văn mật gửi mình.
+    await expect(service.detail(lawyer, letter.id)).resolves.toBeDefined();
+    const edited = await service.update(clerk, letter.id, { pageCount: 13, addressedTo: '' });
+    expect(edited).toMatchObject({ pageCount: 13, addressedTo: undefined, copyCount: 2 });
+  });
+
+  it('theo dõi, đôn đốc: văn thư nhắc người đang xử lý; danh sách theo hạn, quá hạn lên đầu', async () => {
+    const { service, outbox } = setup();
+    const late = await service.create(clerk, { ...intake, receivedOn: '2026-11-01', dueOn: '2026-11-05' });
+    const soon = await dispatched(service);
+    await service.create(clerk, { ...intake, dueOn: undefined });
+    const tracking = await service.list(clerk, { box: 'tracking' });
+    expect(tracking.map((item) => item.id).slice(0, 2)).toEqual([late.id, soon.id]);
+    expect(soon.actions.remind).toBe(true);
+    await expect(service.remind(accountant, soon.id, {})).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    const reminded = await service.remind(clerk, soon.id, { note: 'Sở hỏi lại, gửi kết quả trong hôm nay.' });
+    expect(reminded.history.at(-1)).toMatchObject({ action: 'remind', summary: 'Đôn đốc bước "Phòng ban xử lý"' });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.reminded });
+    expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-fin-head', 'u-accountant', 'u-lawyer']));
+    // Bộ phận tổng hợp (xem báo cáo) cũng đôn đốc được.
+    await expect(service.remind(actor('u-outsider', { canReadReports: true, canReadAll: true }), soon.id, {})).resolves.toBeDefined();
   });
 });
 

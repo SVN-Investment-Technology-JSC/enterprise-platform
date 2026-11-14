@@ -19,7 +19,7 @@ import {
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Màn hình của phân hệ; `letters` là liên kết mở thẳng một công văn (`#letters/<id>`). */
-export const CORRESPONDENCE_VIEWS = ['overview', 'mine', 'incoming', 'outgoing', 'archive', 'reports', 'settings', 'letters'] as const;
+export const CORRESPONDENCE_VIEWS = ['overview', 'mine', 'tracking', 'incoming', 'outgoing', 'archive', 'reports', 'settings', 'letters'] as const;
 export type CorrespondenceView = (typeof CORRESPONDENCE_VIEWS)[number];
 
 export type Tone = 'neutral' | 'info' | 'warning' | 'danger' | 'success' | 'muted';

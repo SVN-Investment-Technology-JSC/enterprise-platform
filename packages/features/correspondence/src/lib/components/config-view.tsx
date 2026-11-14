@@ -731,6 +731,17 @@ function WorkflowDialog({
                 peopleOptions={peopleOptions}
                 onChange={(approver) => setStep(index, { approver })}
               />
+              <CheckGroup label="Bước chỉ đạo">
+                <label className={styles.checkRow}>
+                  <input
+                    type="checkbox"
+                    checked={step.directs === true}
+                    onChange={(event) => setStep(index, { directs: event.target.checked || undefined })}
+                  />
+                  Bút phê: người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân chủ trì, phối hợp và thời hạn; bước phòng ban xử lý
+                  sau đó giao theo bút phê (văn thư phân phối)
+                </label>
+              </CheckGroup>
             </>
           ) : (
             <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>

@@ -9,7 +9,7 @@ import type {
   CorrespondenceStatus,
   LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
-import { Archive, BarChart3, FilePen, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
+import { Archive, BarChart3, BellRing, FilePen, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ArchiveView } from './components/archive-view';
 import { ConfigView } from './components/config-view';
@@ -19,6 +19,7 @@ import { LetterListView } from './components/letter-list-view';
 import { OutgoingDialog } from './components/outgoing-dialog';
 import { OverviewView } from './components/overview-view';
 import { ReportView } from './components/report-view';
+import { TrackingView } from './components/tracking-view';
 import { errorMessage, loadConfig, loadDirectory, loadOverview, loadStatus, loadTenantHomePath } from './correspondence-api';
 import { CORRESPONDENCE_VIEWS, localToday, type CorrespondenceView } from './correspondence.model';
 import styles from './correspondence.module.scss';
@@ -93,6 +94,8 @@ export function CorrespondenceScreen() {
   const shown: ListView | 'settings' = view === 'letters' ? base : view;
   const drawerId = view === 'letters' ? sub : undefined;
   const canConfigure = Boolean(capabilities?.canConfigure || capabilities?.isTenantAdmin);
+  // Văn thư hay bộ phận tổng hợp (xem báo cáo) theo dõi, đôn đốc.
+  const canTrack = Boolean(capabilities?.canRegister || capabilities?.canReadReports || capabilities?.isTenantAdmin);
   // Nút "+" thêm nhanh danh mục lúc nhập: người cấu hình và văn thư.
   const canQuickAdd = Boolean(canConfigure || capabilities?.canRegister);
   const catalogAdded = useCallback(
@@ -112,6 +115,7 @@ export function CorrespondenceScreen() {
       icon: <UserCheck size={16} />,
       badge: overview?.awaitingMe ? overview.awaitingMe : undefined,
     },
+    ...(canTrack ? [{ id: 'tracking' as const, label: 'Theo dõi đôn đốc', group: 'Văn thư', icon: <BellRing size={16} /> }] : []),
     {
       id: 'incoming',
       label: 'Công văn đến',
@@ -196,6 +200,8 @@ export function CorrespondenceScreen() {
             onOpenLetter={openLetter}
           />
         ) : null
+      ) : shown === 'tracking' && canTrack ? (
+        <TrackingView today={today} refreshKey={refreshKey} canRemind={canTrack} onOpen={openLetter} onChanged={refresh} />
       ) : shown === 'archive' ? (
         <ArchiveView refreshKey={refreshKey} onOpenLetter={openLetter} />
       ) : shown === 'reports' && capabilities?.canReadReports ? (
@@ -231,6 +237,7 @@ export function CorrespondenceScreen() {
           <IntakeDialog
             open={intakeOpen}
             config={config}
+            directory={directory}
             canQuickAdd={canQuickAdd}
             onCatalogAdded={catalogAdded}
             onClose={() => setIntakeOpen(false)}

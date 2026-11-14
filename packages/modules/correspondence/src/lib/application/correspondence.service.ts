@@ -1,5 +1,10 @@
 import {
   APPROVER_RULE_LABELS,
+  ASSIGNMENT_ROLES,
+  ASSIGNMENT_ROLE_LABELS,
+  ENVELOPE_STATUSES,
+  MAX_DELEGATIONS,
+  activeDelegations,
   ATTACHMENT_KINDS,
   ATTACHMENT_KIND_LABELS,
   CATALOG_CODE_PATTERN,
@@ -48,6 +53,9 @@ import {
   type CreateAttachmentVersionRequest,
   type CreateLetterRequest,
   type CreateOutgoingRequest,
+  type Delegation,
+  type IntakeCheck,
+  type RemindRequest,
   type DecideRevokeRequest,
   type DispatchLetterRequest,
   type FlowNode,
@@ -110,6 +118,7 @@ import {
   type CorrespondenceStore,
   type FileStore,
   type LetterListRow,
+  type LetterPatch,
   type LetterRecord,
   type LetterTransaction,
   type OrganizationReader,
@@ -141,6 +150,7 @@ const ROUTE_PERMISSIONS = {
 
 type Catalog = ReadonlyMap<CatalogKind, ReadonlyMap<string, CatalogItem>>;
 type Row = LetterRecord & {
+  readonly replied?: boolean;
   readonly steps: LetterListRow['steps'];
   readonly assignments: LetterListRow['assignments'];
   readonly mentionedUserIds: readonly string[];
@@ -254,12 +264,17 @@ export class CorrespondenceService {
     const rows = await this.store.listLetters(actor.tenantId, {
       visibleTo: this.visibility(viewer),
       direction: box === 'incoming' ? 'incoming' : box === 'outgoing' ? 'outgoing' : undefined,
-      stages: box === 'archive' ? ARCHIVE_STAGES : box === 'mine' ? AWAITING_STAGES : stage ? [stage] : undefined,
+      stages:
+        box === 'archive' ? ARCHIVE_STAGES : box === 'mine' ? AWAITING_STAGES : box === 'tracking' ? OPEN_LETTER_STAGES : stage ? [stage] : undefined,
       search: query.search?.trim() || undefined,
       limit: LIST_LIMIT,
     });
     let visible = rows.filter((row) => canViewLetter(viewer, facts(row, catalog)));
     if (box === 'mine') visible = visible.filter((row) => awaitsViewer(viewer, facts(row, catalog)));
+    // Theo dõi, đôn đốc: công văn còn mở có hạn, hạn gần nhất (quá hạn) lên đầu.
+    if (box === 'tracking') {
+      visible = visible.filter((row) => Boolean(row.dueOn)).sort((left, right) => (left.dueOn ?? '').localeCompare(right.dueOn ?? ''));
+    }
     return this.summaries(actor, viewer, catalog, visible);
   }
 
@@ -350,6 +365,9 @@ export class CorrespondenceService {
       ...settings.clerkUserIds,
       ...(letter.revokeRequestedBy ? [letter.revokeRequestedBy] : []),
       ...(letter.revokeApproverIds ?? []),
+      ...(letter.addressedUserId ? [letter.addressedUserId] : []),
+      ...(letter.directive?.by ? [letter.directive.by] : []),
+      ...(letter.directive?.units ?? []).map((unit) => unit.handlerUserId).filter((id): id is string => Boolean(id)),
     ]);
     const nameOf = (userId: string) => names.get(userId) ?? 'Người dùng';
     const byId = new Map(assignments.map((item) => [item.id, item]));
@@ -373,6 +391,23 @@ export class CorrespondenceService {
             approverNames: (letter.revokeApproverIds ?? []).map(nameOf),
           }
         : undefined,
+      envelopeStatus: letter.envelopeStatus,
+      sealed: letter.sealed,
+      pageCount: letter.pageCount,
+      copyCount: letter.copyCount,
+      addressedTo: letter.addressedTo,
+      addressedUserId: letter.addressedUserId,
+      addressedUserName: letter.addressedUserId ? names.get(letter.addressedUserId) : undefined,
+      directive: letter.directive
+        ? {
+            ...letter.directive,
+            byName: letter.directive.by ? names.get(letter.directive.by) : undefined,
+            units: letter.directive.units.map((unit) => ({
+              ...unit,
+              handlerName: unit.handlerUserId ? names.get(unit.handlerUserId) : undefined,
+            })),
+          }
+        : undefined,
       completionNote: letter.completionNote,
       deliveryMethod: letter.deliveryMethod,
       deliveryNote: letter.deliveryNote,
@@ -384,6 +419,7 @@ export class CorrespondenceService {
         name: step.name,
         type: step.kind,
         approver: step.approver,
+        directs: step.directs,
         status: step.status,
         assignees: step.assigneeUserIds.map((userId) => ({ userId, name: names.get(userId) })),
         actedBy: step.actedBy,
@@ -417,6 +453,7 @@ export class CorrespondenceService {
         id: item.id,
         unitId: item.unitId,
         unitName: item.unitName,
+        role: item.role,
         round: item.round,
         status: item.status,
         handlerUserId: item.handlerUserId,
@@ -624,7 +661,16 @@ export class CorrespondenceService {
       },
       { counter: 'incoming', suffix: settings.incomingSuffix },
       async (tx) => {
+        const check = await this.intakeCheck(actor.tenantId, input, tx.letter);
+        if (Object.keys(check).length > 0) await tx.update(check);
         await tx.history({ action: 'receive', summary: `Tiếp nhận, vào sổ công văn đến số ${tx.letter.incomingNo}`, actorUserId: actor.userId });
+        if (tx.letter.addressedUserId) {
+          await tx.outbox(
+            this.event(CORRESPONDENCE_EVENTS.addressed, tx.letter, actor, [tx.letter.addressedUserId], {
+              summary: `Công văn ${letterTitle(withNo(tx.letter))} của ${tx.letter.senderOrg} gửi đích danh bạn.`,
+            }),
+          );
+        }
       },
     );
     return this.detail(actor, letter.id);
@@ -819,7 +865,7 @@ export class CorrespondenceService {
         note,
         actorUserId: actor.userId,
       });
-      await this.advance(actor, tx, 0, { units: input?.units, chosen, note, restart: true });
+      await this.advance(actor, tx, 0, { units: input?.units, dueOn: input?.dueOn, chosen, note, restart: true });
     });
     return this.detail(actor, letterId);
   }
@@ -844,7 +890,7 @@ export class CorrespondenceService {
         await tx.updateStep(step.id, { status: 'done', activate: step.status !== 'active', actedBy: actor.userId, decision: 'approved', note: note ?? null });
       }
       await tx.history({ action: 'submit', summary: `${step?.kind === 'check' ? step.name : 'Văn thư kiểm tra'}: đạt, chuyển tiếp`, note, actorUserId: actor.userId });
-      await this.advance(actor, tx, step?.kind === 'check' ? step.seq : 0, { units: input?.units, chosen, note });
+      await this.advance(actor, tx, step?.kind === 'check' ? step.seq : 0, { units: input?.units, dueOn: input?.dueOn, chosen, note });
     });
     return this.detail(actor, letterId);
   }
@@ -922,6 +968,7 @@ export class CorrespondenceService {
         kind: this.catalogCode(catalog, 'letter_type', patch.kind, 'Loại văn bản') ?? tx.letter.kind,
         urgency: this.catalogCode(catalog, 'urgency', patch.urgency, 'Độ khẩn') ?? tx.letter.urgency,
         confidentiality: this.catalogCode(catalog, 'confidentiality', patch.confidentiality, 'Độ mật') ?? tx.letter.confidentiality,
+        ...(incoming ? await this.intakeCheck(actor.tenantId, patch, tx.letter) : {}),
       });
       await tx.history({ action: 'update', summary: 'Sửa thông tin công văn', actorUserId: actor.userId });
     });
@@ -936,11 +983,47 @@ export class CorrespondenceService {
   async approve(actor: CorrespondenceActor, letterId: string, input: ApproveStepRequest): Promise<LetterDetail> {
     const note = optionalText(input?.note, 'Ý kiến', 4000);
     const nextAssignee = optionalText(input?.nextAssigneeUserId, 'Người duyệt bước sau', 64);
+    const [settings, snapshot] = await Promise.all([this.settingsOrDefault(actor.tenantId), this.organization.snapshot(actor.tenantId)]);
     await this.transition(actor, letterId, (actions) => actions.approve, async (tx) => {
       const step = requireActive(tx);
+      const dueOn = optionalDate(input?.dueOn, 'Thời hạn hoàn thành');
+      if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Thời hạn hoàn thành không được trước ngày đến.');
+      // Người được ủy quyền duyệt thay (không tự thuộc luật người duyệt của bước): ghi rõ duyệt thay ai.
+      const delegated = activeDelegations(settings.delegations, this.today()).find(
+        (item) => item.toUserId === actor.userId && step.assigneeUserIds.includes(item.fromUserId),
+      );
+      const own =
+        delegated && step.approver
+          ? resolveAssignees(step.approver, await this.approverContext(actor.tenantId, tx.letter, tx.assignments, step.chosenUserId))
+          : [];
+      const onBehalf = delegated && !own.includes(actor.userId) ? delegated : undefined;
+      const behalfName = onBehalf ? (await this.store.userNames(actor.tenantId, [onBehalf.fromUserId])).get(onBehalf.fromUserId) : undefined;
       await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: note ?? null });
-      await tx.history({ action: 'approve', summary: `${step.name}: đạt`, note, actorUserId: actor.userId });
-      await this.advance(actor, tx, step.seq, { units: input?.units, chosen: nextAssignee, note });
+      let directive: LetterRecord['directive'];
+      if (step.directs) {
+        // Bút phê: ý kiến chỉ đạo, đơn vị chủ trì / phối hợp, thời hạn; bước phòng ban xử lý sau đó giao theo bút phê.
+        const units = Array.isArray(input?.units) && input.units.length > 0 ? this.dispatchUnits(snapshot, settings, input.units) : [];
+        directive = {
+          note,
+          dueOn,
+          units: units.map(({ unitId, unitName, role, handlerUserId }) => ({ unitId, unitName, role, handlerUserId })),
+          stepName: step.name,
+          by: actor.userId,
+          at: new Date().toISOString(),
+        };
+        await tx.update({ directive, ...(dueOn ? { dueOn } : {}) });
+      }
+      await tx.history({
+        action: 'approve',
+        summary: `${step.name}: ${step.directs ? 'bút phê' : 'đạt'}${behalfName ? ` (ủy quyền của ${behalfName})` : ''}${
+          directive && directive.units.length > 0
+            ? `; giao ${directive.units.map((unit) => `${unit.unitName} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}`
+            : ''
+        }`,
+        note,
+        actorUserId: actor.userId,
+      });
+      await this.advance(actor, tx, step.seq, { units: input?.units, dueOn, chosen: nextAssignee, note });
     });
     return this.detail(actor, letterId);
   }
@@ -1157,6 +1240,44 @@ export class CorrespondenceService {
         this.logger.warn(`Không chuyển được tài liệu ${documentId} vào Thùng rác: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
+  }
+
+  /**
+   * Đôn đốc: văn thư / bộ phận tổng hợp (người có quyền xem báo cáo) nhắc người đang phải xử lý
+   * công văn: người được giao bước duyệt, phòng ban còn chưa gửi kết quả, văn thư, người soạn.
+   */
+  async remind(actor: CorrespondenceActor, letterId: string, input: RemindRequest): Promise<LetterDetail> {
+    const note = optionalText(input?.note, 'Lời nhắc', 1000);
+    const snapshot = await this.organization.snapshot(actor.tenantId);
+    await this.transition(actor, letterId, (actions) => actions.remind, async (tx) => {
+      const active = tx.steps.find((item) => item.status === 'active');
+      let recipients: string[] = [];
+      let notifyPermissions: string[] = [];
+      if (tx.letter.stage === 'processing') {
+        recipients = tx.assignments
+          .filter((item) => item.status === 'pending')
+          .flatMap((item) => (item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)]));
+      } else if (tx.letter.stage === 'reviewing') {
+        recipients = [...(active?.assigneeUserIds ?? [])];
+      } else if (tx.letter.stage === 'drafting') {
+        recipients = tx.letter.authorUserId ? [tx.letter.authorUserId] : [];
+      } else {
+        const permission = tx.letter.stage === 'publishing' ? ROUTE_PERMISSIONS.publish : tx.letter.stage === 'closing' ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.register;
+        const clerks = await this.clerkTargets(actor.tenantId, permission);
+        recipients = clerks.recipients;
+        notifyPermissions = clerks.notifyPermissions;
+      }
+      const stepName = active?.name ?? LETTER_STAGE_LABELS[tx.letter.stage];
+      await tx.history({ action: 'remind', summary: `Đôn đốc bước "${stepName}"`, note, actorUserId: actor.userId });
+      await tx.outbox(
+        this.event(CORRESPONDENCE_EVENTS.reminded, tx.letter, actor, recipients, {
+          summary: `${actor.displayName} đôn đốc xử lý công văn ${letterTitle(withNo(tx.letter))} (bước "${stepName}").${dueText(tx.letter.dueOn)}${note ? ` ${note}` : ''}`,
+          stepName,
+          notifyPermissions,
+        }),
+      );
+    });
+    return this.detail(actor, letterId);
   }
 
   /** Trao đổi theo bước; nhắc tên (@) được người dùng của tenant, người được nhắc xem được công văn. */
@@ -1382,9 +1503,31 @@ export class CorrespondenceService {
       defaultDueDays: days,
       dispatchMode: parseOptional(input?.dispatchMode, DISPATCH_MODES, 'Cách giao phòng ban') ?? 'all',
       clerkUserIds: await this.clerkList(actor.tenantId, input?.clerkUserIds),
+      delegations: await this.delegationList(actor.tenantId, input?.delegations),
     };
     await this.store.saveSettings(actor.tenantId, actor.userId, settings);
     return settings;
+  }
+
+  /** Ủy quyền duyệt: người dùng đang hoạt động, khác nhau, khoảng ngày hợp lệ. */
+  private async delegationList(tenantId: string, raw: unknown): Promise<Delegation[]> {
+    const items = Array.isArray(raw) ? raw : [];
+    if (items.length > MAX_DELEGATIONS) throw new CorrespondenceValidationError(`Tối đa ${MAX_DELEGATIONS} ủy quyền.`);
+    if (items.length === 0) return [];
+    const people = new Set((await this.store.people(tenantId)).map((person) => person.userId));
+    return items.map((entry, index) => {
+      const value = (entry ?? {}) as Record<string, unknown>;
+      const fromUserId = String(value['fromUserId'] ?? '').trim();
+      const toUserId = String(value['toUserId'] ?? '').trim();
+      const label = `Ủy quyền ${index + 1}`;
+      if (!people.has(fromUserId) || !people.has(toUserId)) throw new CorrespondenceValidationError(`${label}: chọn người ủy quyền và người được ủy quyền đang hoạt động.`);
+      if (fromUserId === toUserId) throw new CorrespondenceValidationError(`${label}: người được ủy quyền phải khác người ủy quyền.`);
+      const fromDate = requireDate(value['fromDate'], `${label}: từ ngày`);
+      const toDate = requireDate(value['toDate'], `${label}: đến ngày`);
+      if (toDate < fromDate) throw new CorrespondenceValidationError(`${label}: đến ngày phải sau từ ngày.`);
+      const note = optionalText(value['note'], `${label}: ghi chú`, 500);
+      return { fromUserId, toUserId, fromDate, toDate, ...(note ? { note } : {}) };
+    });
   }
 
   /** Người làm văn thư: người dùng đang hoạt động của tenant, không trùng, tối đa MAX_CLERKS. */
@@ -1524,6 +1667,43 @@ export class CorrespondenceService {
 
   /* ================================================================ nội bộ */
 
+  /** Phân loại sơ bộ lúc tiếp nhận: chỉ ghi trường có trong yêu cầu. */
+  private async intakeCheck(tenantId: string, input: IntakeCheck | undefined, letter: LetterRecord): Promise<LetterPatch> {
+    const value = input ?? {};
+    const patch: { -readonly [K in keyof LetterPatch]: LetterPatch[K] } = {};
+    if (value.envelopeStatus !== undefined) {
+      patch.envelopeStatus = value.envelopeStatus ? requireEnum(value.envelopeStatus, ENVELOPE_STATUSES, 'Tình trạng bì') : undefined;
+    }
+    if (value.sealed !== undefined) patch.sealed = value.sealed === true;
+    const count = (raw: unknown, label: string, max: number) => {
+      if (raw === undefined || raw === null || raw === '') return undefined;
+      const number = Number(raw);
+      if (!Number.isInteger(number) || number < 0 || number > max) throw new CorrespondenceValidationError(`${label} là số từ 0 đến ${max}.`);
+      return number;
+    };
+    if (value.pageCount !== undefined) patch.pageCount = count(value.pageCount, 'Số tờ', 10000);
+    if (value.copyCount !== undefined) patch.copyCount = count(value.copyCount, 'Số bản', 1000);
+    if (value.addressedTo !== undefined) patch.addressedTo = optionalText(value.addressedTo, 'Gửi đích danh', 255);
+    if (value.addressedUserId !== undefined) {
+      const userId = optionalText(value.addressedUserId, 'Người nhận đích danh', 64);
+      if (userId && !(await this.store.people(tenantId)).some((person) => person.userId === userId)) {
+        throw new CorrespondenceValidationError('Người nhận đích danh không còn hoạt động.');
+      }
+      patch.addressedUserId = userId;
+    }
+    void letter;
+    return patch;
+  }
+
+  /** Thêm người được ủy quyền (đang hiệu lực hôm nay) của những người được giao. */
+  private async withDelegates(tenantId: string, assignees: readonly string[]): Promise<string[]> {
+    const settings = await this.settingsOrDefault(tenantId);
+    const delegates = activeDelegations(settings.delegations, this.today())
+      .filter((item) => assignees.includes(item.fromUserId))
+      .map((item) => item.toUserId);
+    return [...new Set([...assignees, ...delegates])];
+  }
+
   private requireConfigure(actor: CorrespondenceActor): void {
     if (!actor.canConfigure && !actor.isTenantAdmin) throw new CorrespondenceForbiddenError('Bạn không có quyền cấu hình văn thư.');
   }
@@ -1587,7 +1767,7 @@ export class CorrespondenceService {
     const resolved = await this.approverContext(actor.tenantId, tx.letter, tx.assignments, pick)
       .then((context) => (rule ? resolveAssignees(rule, context) : []))
       .catch(() => [] as string[]);
-    if (resolved.length > 0) return [...new Set(resolved)];
+    if (resolved.length > 0) return this.withDelegates(actor.tenantId, resolved);
     return last.actedBy ? [last.actedBy] : [...new Set(last.assigneeUserIds)];
   }
 
@@ -1660,7 +1840,7 @@ export class CorrespondenceService {
     const pick = step.chosenUserId ?? input.chosen;
     if (rule.type === 'choose' && !pick) throw new CorrespondenceValidationError(`Chọn người cho bước "${step.name}".`);
     const context = await this.approverContext(actor.tenantId, tx.letter, tx.assignments, pick);
-    const assignees = resolveAssignees(rule, context);
+    const assignees = await this.withDelegates(actor.tenantId, resolveAssignees(rule, context));
     if (assignees.length === 0) {
       throw new CorrespondenceValidationError(
         rule.type === 'choose'
@@ -1695,22 +1875,32 @@ export class CorrespondenceService {
     input: AdvanceInput,
     options: { readonly notify?: boolean },
   ): Promise<void> {
-    if (!Array.isArray(input.units) || input.units.length === 0) {
+    // Không chọn lại thì giao theo bút phê của bước chỉ đạo (văn thư phân phối theo bút phê).
+    const chosenUnits = Array.isArray(input.units) && input.units.length > 0 ? input.units : (tx.letter.directive?.units ?? []);
+    if (chosenUnits.length === 0) {
       throw new CorrespondenceValidationError(`Chọn phòng ban xử lý cho bước "${step.name}".`);
     }
     const [settings, snapshot] = await Promise.all([this.store.settings(actor.tenantId), this.organization.snapshot(actor.tenantId)]);
-    const units = this.dispatchUnits(snapshot, settings, input.units);
+    const units = this.dispatchUnits(snapshot, settings, chosenUnits);
+    const dueOn = optionalDate(input.dueOn, 'Thời hạn hoàn thành') ?? (input.units ? undefined : tx.letter.directive?.dueOn);
+    if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Thời hạn hoàn thành không được trước ngày đến.');
     await this.preselect(actor.tenantId, tx, step.seq, input.chosen, units.map((unit) => unit.unitId));
     const keep = new Set(units.map((unit) => unit.unitId));
     // Phòng còn treo mà lần này không được chọn (giao lại từ ô đầu) thì bỏ, để không chặn bước sau.
     const dropped = tx.assignments.filter((item) => !keep.has(item.unitId) && (input.restart || item.status === 'pending'));
     if (dropped.length > 0) await tx.removeAssignments(dropped.map((item) => item.id));
-    await tx.assign(units.map(({ unitId, unitName, handlerUserId }) => ({ unitId, unitName, handlerUserId })));
+    await tx.assign(units.map(({ unitId, unitName, handlerUserId, role }) => ({ unitId, unitName, handlerUserId, role })));
     await tx.updateStep(step.id, { status: 'active', activate: true, assigneeUserIds: [], actedBy: null, decision: null, note: null });
-    const letter = await tx.update({ stage: 'processing', instruction: input.note ?? tx.letter.instruction });
+    const letter = await tx.update({
+      stage: 'processing',
+      instruction: input.note ?? tx.letter.directive?.note ?? tx.letter.instruction,
+      ...(dueOn ? { dueOn } : {}),
+    });
     await tx.history({
       action: 'dispatch',
-      summary: `${step.name}: giao ${units.map((unit) => (unit.handlerName ? `${unit.unitName} (${unit.handlerName})` : unit.unitName)).join(', ')}`,
+      summary: `${step.name}: giao ${units
+        .map((unit) => `${unit.unitName}${unit.handlerName ? ` – ${unit.handlerName}` : ''} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`)
+        .join(', ')}`,
       note: input.note,
       actorUserId: actor.userId,
     });
@@ -1804,7 +1994,7 @@ export class CorrespondenceService {
   private dispatchUnits(snapshot: OrganizationSnapshot, settings: CorrespondenceSettings, raw: unknown) {
     const seen = new Set<string>();
     const entries = (Array.isArray(raw) ? raw : [])
-      .map((entry) => (entry ?? {}) as { unitId?: unknown; handlerUserId?: unknown })
+      .map((entry) => (entry ?? {}) as { unitId?: unknown; handlerUserId?: unknown; role?: unknown })
       .filter((entry) => {
         const id = String(entry.unitId ?? '').trim();
         if (!id || seen.has(id)) return false;
@@ -1833,9 +2023,13 @@ export class CorrespondenceService {
       if (!handler && members.length === 0) {
         throw new CorrespondenceValidationError(`${node.name} chưa có nhân sự nào trong sơ đồ tổ chức để nhận công văn.`);
       }
+      if (entry.role !== undefined && entry.role !== null && !(ASSIGNMENT_ROLES as readonly unknown[]).includes(entry.role)) {
+        throw new CorrespondenceValidationError(`Vai trò của ${node.name} không hợp lệ.`);
+      }
       return {
         unitId,
         unitName: node.name,
+        role: entry.role === 'support' ? ('support' as const) : ('lead' as const),
         handlerUserId: handler?.userId,
         handlerName: handler?.name,
         recipients: handler ? [handler.userId] : members.map((member) => member.userId),
@@ -1890,7 +2084,11 @@ export class CorrespondenceService {
   private settingsOrDefault(tenantId: string): Promise<CorrespondenceSettings> {
     return this.store
       .settings(tenantId)
-      .then((settings) => ({ ...settings, clerkUserIds: Array.isArray(settings.clerkUserIds) ? settings.clerkUserIds : [] }))
+      .then((settings) => ({
+        ...settings,
+        clerkUserIds: Array.isArray(settings.clerkUserIds) ? settings.clerkUserIds : [],
+        delegations: Array.isArray(settings.delegations) ? settings.delegations : [],
+      }))
       .catch(() => DEFAULT_CORRESPONDENCE_SETTINGS);
   }
 
@@ -1929,6 +2127,8 @@ export class CorrespondenceService {
       unitIds: memberUnits(snapshot, actor.userId),
       headUnitIds: headedUnits(snapshot, actor.userId),
       clerkOnDuty: settings.clerkUserIds.length === 0 || settings.clerkUserIds.includes(actor.userId),
+      // Văn thư hay bộ phận tổng hợp (xem báo cáo) theo dõi, đôn đốc.
+      canTrack: actor.canRegister || actor.canReadReports || admin,
     };
   }
 
@@ -2003,6 +2203,8 @@ interface AdvanceInput {
   readonly chosen?: string;
   /** Ghi chú, chỉ đạo kèm khi giao phòng ban. */
   readonly note?: string;
+  /** Thời hạn hoàn thành khi giao phòng ban. */
+  readonly dueOn?: unknown;
   /** Chuyển từ ô đầu (giao lại từ đầu). */
   readonly restart?: boolean;
 }
@@ -2036,6 +2238,7 @@ function facts(row: Row, catalog: Catalog): LetterFacts {
     mentionedUserIds: row.mentionedUserIds,
     revokeRequestedBy: row.revokeRequestedBy,
     revokeApproverIds: row.revokeApproverIds ?? [],
+    addressedUserId: row.addressedUserId,
   };
 }
 
@@ -2353,6 +2556,8 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     receivedByName: names.get(row.receivedBy),
     updatedAt: row.updatedAt,
     awaitingMe: awaitsViewer(viewer, facts(row, catalog)),
+    unitNames: row.assignments.map((assignment) => (assignment.role === 'support' ? `${assignment.unitName} (phối hợp)` : `${assignment.unitName} (chủ trì)`)),
+    replied: row.replied,
   };
 }
 
