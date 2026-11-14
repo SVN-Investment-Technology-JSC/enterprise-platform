@@ -233,7 +233,8 @@ export class PostgresNotificationScheduleSource {
         `SELECT l.id, COALESCE(l.outgoing_no, l.incoming_no) AS incoming_no, l.subject, l.stage, l.received_by, l.author_user_id,
                 (SELECT s.assignee_user_ids::text[] FROM correspondence_schema.letter_steps s
                   WHERE s.letter_id = l.id AND s.status = 'active') AS step_user_ids,
-                -- Bước duyệt đang chạy có số ngày riêng thì nhắc theo hạn của bước, không thì theo hạn của công văn.
+                -- Bước đang chạy (duyệt, phòng ban xử lý, văn thư kiểm tra) có số ngày riêng thì nhắc theo hạn của bước,
+                -- không thì theo hạn của công văn.
                 COALESCE(step.due_at, (l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
                 ARRAY(SELECT a.unit_id::text FROM correspondence_schema.assignments a
                        WHERE a.letter_id = l.id AND a.status = 'pending' AND a.handler_user_id IS NULL) AS pending_unit_ids,
@@ -244,7 +245,7 @@ export class PostgresNotificationScheduleSource {
                 SELECT s.activated_at + make_interval(days => s.due_days) AS due_at
                   FROM correspondence_schema.letter_steps s
                  WHERE s.letter_id = l.id AND s.status = 'active' AND s.due_days IS NOT NULL AND s.activated_at IS NOT NULL
-           ) step ON l.stage = 'reviewing'
+           ) step ON l.stage IN ('reviewing', 'processing', 'checking')
           WHERE l.stage IN ('received','registered','directing','processing','reviewing','closing','drafting','checking','publishing')
             AND (l.due_on BETWEEN ($1::timestamptz AT TIME ZONE $2)::date - 90
                               AND ($1::timestamptz AT TIME ZONE $2)::date + 1
@@ -252,7 +253,8 @@ export class PostgresNotificationScheduleSource {
       let organizationOnce: Promise<unknown> | undefined;
       for (const row of letters.rows) {
         let users: string[] = [row.received_by];
-        if ((row.stage === 'directing' || row.stage === 'reviewing') && row.step_user_ids?.length) users = row.step_user_ids;
+        // Bước duyệt: người được giao; bước văn thư kiểm tra: người làm văn thư được chỉ định (nếu có).
+        if ((row.stage === 'directing' || row.stage === 'reviewing' || row.stage === 'checking') && row.step_user_ids?.length) users = row.step_user_ids;
         if (row.stage === 'drafting' && row.author_user_id) users = [row.author_user_id];
         if (row.stage === 'processing') {
           const handlers = row.pending_handler_ids ?? [];

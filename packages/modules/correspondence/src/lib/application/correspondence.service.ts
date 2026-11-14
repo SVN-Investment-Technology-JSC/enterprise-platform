@@ -10,6 +10,8 @@ import {
   DELIVERY_STATUSES,
   DELIVERY_STATUS_LABELS,
   DISPATCH_MODES,
+  FLOW_END_NAMES,
+  FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   LETTER_STAGES,
   LETTER_STAGE_LABELS,
@@ -20,6 +22,7 @@ import {
   REVOKE_KIND_LABELS,
   isOpenStage,
   letterDeepLink,
+  stepTypeOf,
   letterTitle,
   returnTargetLabel,
   type ApproveStepRequest,
@@ -64,6 +67,8 @@ import {
   type RespondAssignmentRequest,
   type ReturnLetterRequest,
   type SaveCatalogItemRequest,
+  type SendLetterRequest,
+  type StepType,
   type SaveWorkflowRequest,
   type StepChoice,
   type SubmitLetterRequest,
@@ -122,7 +127,8 @@ export const CORRESPONDENCE_FILING_ROOT = 'Văn thư';
 const FOLDER_BY_DIRECTION: Readonly<Record<LetterDirection, string>> = { incoming: 'Công văn đến', outgoing: 'Công văn đi' };
 const DRAFT_SUFFIX = 'DT';
 /** Bước công văn chưa chép quy trình: thanh tiến trình vẽ theo quy trình sẽ áp dụng. */
-const PLANNING_STAGES: readonly LetterStage[] = ['received', 'drafting', 'checking'];
+/** Công văn còn ở ô đầu: chưa chép bước, thanh tiến trình vẽ theo quy trình sẽ áp dụng. */
+const PLANNING_STAGES: readonly LetterStage[] = ['received', 'drafting'];
 /** "Cần tôi xử lý": các bước còn mở và đề nghị huỷ đang chờ xác nhận. */
 const AWAITING_STAGES: readonly LetterStage[] = [...OPEN_LETTER_STAGES, 'revoking'];
 /** Kho lưu trữ: đã lưu trữ, kể cả đang chờ xác nhận huỷ. */
@@ -289,7 +295,7 @@ export class CorrespondenceService {
     const viewer = await this.viewer(actor);
     const letter = await this.store.findLetter(actor.tenantId, letterId);
     if (!letter) throw new LetterNotFoundError();
-    const [catalog, steps, assignments, attachments, comments, history, organization, leaders, settings] = await Promise.all([
+    const [catalog, steps, assignments, attachments, comments, history, organization, leaders, settings, workflows] = await Promise.all([
       this.catalogMap(actor.tenantId),
       this.store.steps(actor.tenantId, letterId),
       this.store.assignments(actor.tenantId, letterId),
@@ -299,17 +305,26 @@ export class CorrespondenceService {
       this.organization.snapshot(actor.tenantId),
       this.store.leaders(actor.tenantId),
       this.settingsOrDefault(actor.tenantId),
+      this.store.workflows(actor.tenantId).catch(() => [] as Workflow[]),
     ]);
     const row: Row = { ...letter, steps, assignments, mentionedUserIds: comments.flatMap((item) => item.mentionedUserIds) };
     const letterFacts = facts(row, catalog);
     if (!canViewLetter(viewer, letterFacts)) throw new LetterNotFoundError();
 
-    // Chưa trình thì vẽ theo quy trình sẽ áp dụng; đã trình thì theo các bước đã chép.
+    // Còn ở ô đầu thì vẽ theo quy trình sẽ áp dụng; đã chuyển bước thì theo các bước đã chép.
     const planned = PLANNING_STAGES.includes(letter.stage)
       ? await this.pickWorkflow(actor.tenantId, letter).catch(() => undefined)
       : undefined;
+    const workflow = planned ?? workflows.find((item) => item.id === letter.workflowId);
     const flowSteps: FlowStep[] = planned
-      ? planned.steps.map((step, index) => ({ seq: index + 1, name: step.name, approver: step.approver, status: 'waiting', assigneeUserIds: [] }))
+      ? planned.steps.map((step, index) => ({
+          seq: index + 1,
+          name: step.name,
+          kind: stepTypeOf(step),
+          approver: step.approver,
+          status: 'waiting',
+          assigneeUserIds: [],
+        }))
       : steps;
     const context: ApproverContext = {
       organization,
@@ -318,8 +333,8 @@ export class CorrespondenceService {
     };
     const expected = new Map(
       flowSteps
-        .filter((step) => step.status === 'waiting' || step.status === 'skipped')
-        .map((step) => [step.seq, step.chosenUserId ? [step.chosenUserId] : resolveAssignees(step.approver, context)]),
+        .filter((step) => step.kind === 'approve' && step.approver && (step.status === 'waiting' || step.status === 'skipped'))
+        .map((step) => [step.seq, step.chosenUserId ? [step.chosenUserId] : resolveAssignees(step.approver as ApproverRule, context)]),
     );
 
     const related = letter.relatedLetterId ? await this.store.findLetter(actor.tenantId, letter.relatedLetterId) : undefined;
@@ -367,6 +382,7 @@ export class CorrespondenceService {
         id: step.id,
         seq: step.seq,
         name: step.name,
+        type: step.kind,
         approver: step.approver,
         status: step.status,
         assignees: step.assigneeUserIds.map((userId) => ({ userId, name: names.get(userId) })),
@@ -382,17 +398,20 @@ export class CorrespondenceService {
         flowSteps.map((step) => ({
           seq: step.seq,
           name: step.name,
+          kind: step.kind,
           status: step.status,
-          at: step.status === 'done' ? step.actedAt : undefined,
-          people:
-            step.status === 'done' && step.actedBy
-              ? nameOf(step.actedBy)
-              : step.status === 'active'
-                ? step.assigneeUserIds.map(nameOf).join(', ')
-                : peopleLabel(expected.get(step.seq) ?? [], nameOf, step.approver, letter.direction),
+          at: step.status === 'done' ? (step.actedAt ?? (step.kind === 'process' ? lastSubmittedAt(assignments) : undefined)) : undefined,
+          people: stepPeople(step, {
+            nameOf,
+            assignments,
+            clerkUserIds: settings.clerkUserIds,
+            expected: expected.get(step.seq) ?? [],
+            direction: letter.direction,
+          }),
         })),
-        fixedPeople(letter, assignments, nameOf, history, settings.clerkUserIds),
+        fixedPeople(letter, nameOf, history, settings.clerkUserIds),
         revokeNode(letter, history, nameOf),
+        { start: workflow?.startName, end: workflow?.endName },
       ),
       assignments: assignments.map((item) => ({
         id: item.id,
@@ -443,24 +462,25 @@ export class CorrespondenceService {
   }
 
   /**
-   * Ứng viên khi bước duyệt sắp bắt đầu để người thao tác chọn người duyệt: lúc văn thư giao
-   * xử lý / trình duyệt (bước đầu của quy trình theo cấu hình), lúc duyệt (bước kế tiếp).
-   * Không cần chọn thì `null`.
+   * Ứng viên khi bước duyệt sắp tới để người thao tác chọn người duyệt (luật "chọn trong nhóm"):
+   * bước kế tiếp của thao tác đang làm; bước kế tiếp là phòng ban xử lý thì bước duyệt ngay sau
+   * nó (phòng ban gửi kết quả xong là tự chuyển, không ai chọn lúc đó). Không cần chọn thì `null`.
    */
   async stepChoice(actor: CorrespondenceActor, letterId: string, kind?: string): Promise<StepChoice | null> {
     const viewer = await this.viewer(actor);
     const catalog = await this.catalogMap(actor.tenantId);
     const { letter, steps, assignments, row } = await this.loadRow(actor.tenantId, letterId);
     if (!canViewLetter(viewer, facts(row, catalog))) throw new LetterNotFoundError();
-    let target: { name: string; approver: ApproverRule; chosenUserId?: string } | undefined;
-    if (letter.stage === 'received' || letter.stage === 'checking') {
+    let upcoming: readonly (Pick<StepRecord, 'name' | 'approver' | 'chosenUserId'> & { readonly kind: StepType })[] = [];
+    if (PLANNING_STAGES.includes(letter.stage)) {
       const typeCode = kind && catalog.get('letter_type')?.has(kind) ? kind : letter.kind;
-      target = (await this.pickWorkflow(actor.tenantId, { ...letter, kind: typeCode })).steps[0];
-    } else if (letter.stage === 'reviewing') {
+      upcoming = (await this.pickWorkflow(actor.tenantId, { ...letter, kind: typeCode })).steps.map((step) => ({ ...step, kind: stepTypeOf(step) }));
+    } else if (letter.stage === 'reviewing' || letter.stage === 'checking') {
       const current = steps.find((step) => step.status === 'active');
-      if (current) target = sortedSteps(steps).find((step) => step.seq > current.seq && step.status === 'waiting');
+      if (current) upcoming = sortedSteps(steps).filter((step) => step.seq > current.seq && step.status === 'waiting');
     }
-    if (!target || target.approver.type !== 'choose' || target.chosenUserId) return null;
+    const target = upcoming[0]?.kind === 'process' ? upcoming[1] : upcoming[0];
+    if (!target || target.kind !== 'approve' || target.approver?.type !== 'choose' || target.chosenUserId) return null;
     const context = await this.approverContext(actor.tenantId, letter, assignments);
     return { stepName: target.name, candidates: chooseCandidates(target.approver, context) };
   }
@@ -611,52 +631,33 @@ export class CorrespondenceService {
   }
 
   /**
-   * Văn thư phân loại, chọn phòng ban xử lý và giao. Mỗi phòng: cả phòng cùng nhận, hoặc
-   * một người xử lý (bắt buộc khi cấu hình đặt "phải chọn người xử lý"). Các bước duyệt sau
-   * khi phòng ban xử lý xong lấy theo quy trình cấu hình cho loại văn bản.
+   * Văn thư phân loại công văn đến và chuyển sang bước đầu của quy trình cấu hình cho loại văn
+   * bản. Bước đầu là phòng ban xử lý thì văn thư chọn phòng ban (cả phòng cùng nhận, hoặc một
+   * người xử lý; bắt buộc khi cấu hình đặt "phải chọn người xử lý").
    */
   async dispatch(actor: CorrespondenceActor, letterId: string, input: DispatchLetterRequest): Promise<LetterDetail> {
-    const [settings, catalog, snapshot] = await Promise.all([
-      this.store.settings(actor.tenantId),
-      this.catalogMap(actor.tenantId),
-      this.organization.snapshot(actor.tenantId),
-    ]);
+    const catalog = await this.catalogMap(actor.tenantId);
     const codes = this.classification(catalog, input, true);
-    const units = this.dispatchUnits(snapshot, settings, input?.units);
     const dueOn = optionalDate(input?.dueOn, 'Hạn xử lý');
     const note = optionalText(input?.note, 'Ghi chú', 4000);
     const current = await this.store.findLetter(actor.tenantId, letterId);
     if (!current) throw new LetterNotFoundError();
     const workflow = await this.pickWorkflow(actor.tenantId, { ...current, kind: codes.kind }, input?.workflowId);
-    const firstChoice = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
+    const chosen = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
     await this.transition(actor, letterId, (actions) => actions.dispatch, async (tx) => {
       if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Hạn xử lý không được trước ngày đến.');
       await tx.replaceSteps(workflow.steps);
-      await this.preselect(actor.tenantId, tx, firstChoice, units.map((unit) => unit.unitId));
-      const keep = new Set(units.map((unit) => unit.unitId));
-      const dropped = tx.assignments.filter((item) => !keep.has(item.unitId));
-      if (dropped.length > 0) await tx.removeAssignments(dropped.map((item) => item.id));
-      await tx.assign(units.map(({ unitId, unitName, handlerUserId }) => ({ unitId, unitName, handlerUserId })));
-      const letter = await tx.update({
-        ...codes,
-        dueOn: dueOn ?? tx.letter.dueOn,
-        instruction: note,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        stage: 'processing',
-      });
-      await tx.history({
-        action: 'dispatch',
-        summary: `Giao ${units.map((unit) => (unit.handlerName ? `${unit.unitName} (${unit.handlerName})` : unit.unitName)).join(', ')} xử lý`,
-        note,
-        actorUserId: actor.userId,
-      });
-      await tx.outbox(
-        this.event(CORRESPONDENCE_EVENTS.assigned, letter, actor, units.flatMap((unit) => unit.recipients), {
-          summary: `Công văn ${letterTitle(withNo(letter))} của ${letter.senderOrg} được giao xử lý.${note ? ` ${note}` : ''}${dueText(letter.dueOn)}`,
-          unitNames: units.map((unit) => unit.unitName),
-        }),
-      );
+      await tx.update({ ...codes, dueOn: dueOn ?? tx.letter.dueOn, workflowId: workflow.id, workflowName: workflow.name });
+      const first = nextWaiting(tx, 0);
+      if (first?.kind !== 'process') {
+        await tx.history({
+          action: 'dispatch',
+          summary: first ? `Phân loại, chuyển bước "${first.name}"` : 'Phân loại, chuyển văn thư hoàn tất',
+          note,
+          actorUserId: actor.userId,
+        });
+      }
+      await this.advance(actor, tx, 0, { units: input?.units, chosen, note, restart: true });
     });
     return this.detail(actor, letterId);
   }
@@ -693,7 +694,7 @@ export class CorrespondenceService {
     return this.detail(actor, letterId);
   }
 
-  /** Phòng ban gửi kết quả; đủ kết quả của mọi phòng thì sang bước duyệt đầu tiên. */
+  /** Phòng ban gửi kết quả; đủ kết quả của mọi phòng thì sang bước kế tiếp của quy trình. */
   async respond(
     actor: CorrespondenceActor,
     letterId: string,
@@ -715,7 +716,11 @@ export class CorrespondenceService {
       }
       await tx.submitAssignment(assignment.id, { note, userId: actor.userId });
       await tx.history({ action: 'respond', summary: `${assignment.unitName} gửi kết quả xử lý`, note, actorUserId: actor.userId });
-      if (!tx.assignments.some((item) => item.status === 'pending')) await this.startApprovals(actor, tx, undefined);
+      if (!tx.assignments.some((item) => item.status === 'pending')) {
+        const step = tx.steps.find((item) => item.status === 'active' && item.kind === 'process');
+        if (step) await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: null });
+        await this.advance(actor, tx, step?.seq ?? 0, {});
+      }
     });
     return this.detail(actor, letterId);
   }
@@ -794,40 +799,52 @@ export class CorrespondenceService {
     return this.detail(actor, letter.id);
   }
 
-  /** Người soạn gửi văn thư kiểm tra thể thức. */
-  async sendToClerk(actor: CorrespondenceActor, letterId: string, input: NoteRequest): Promise<LetterDetail> {
+  /**
+   * Người soạn gửi công văn đi sang bước đầu của quy trình cấu hình cho loại văn bản (thường là
+   * văn thư kiểm tra). Bước đầu là phòng ban xử lý thì người soạn chọn phòng ban.
+   */
+  async sendToClerk(actor: CorrespondenceActor, letterId: string, input: SendLetterRequest): Promise<LetterDetail> {
     const note = optionalText(input?.note, 'Ghi chú', 2000);
-    const clerks = await this.clerkTargets(actor.tenantId, ROUTE_PERMISSIONS.register);
+    const chosen = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
+    const current = await this.store.findLetter(actor.tenantId, letterId);
+    if (!current) throw new LetterNotFoundError();
+    const workflow = await this.pickWorkflow(actor.tenantId, current);
     await this.transition(actor, letterId, (actions) => actions.sendToClerk, async (tx) => {
-      const letter = await tx.update({ stage: 'checking' });
-      await tx.history({ action: 'send-to-clerk', summary: 'Gửi văn thư kiểm tra', note, actorUserId: actor.userId });
-      await tx.outbox(
-        this.event(CORRESPONDENCE_EVENTS.sentToClerk, letter, actor, clerks.recipients, {
-          summary: `${actor.displayName} gửi công văn đi ${letterTitle(withNo(letter))} để văn thư kiểm tra.`,
-          notifyPermissions: clerks.notifyPermissions,
-        }),
-      );
+      await tx.replaceSteps(workflow.steps);
+      await tx.update({ workflowId: workflow.id, workflowName: workflow.name });
+      const first = nextWaiting(tx, 0);
+      await tx.history({
+        action: 'send-to-clerk',
+        summary: first ? `Gửi bước "${first.name}"` : 'Gửi văn thư ban hành',
+        note,
+        actorUserId: actor.userId,
+      });
+      await this.advance(actor, tx, 0, { units: input?.units, chosen, note, restart: true });
     });
     return this.detail(actor, letterId);
   }
 
-  /** Văn thư xác nhận hợp lệ, trình duyệt theo quy trình cấu hình (không có bước duyệt thì chờ ban hành). */
+  /** Văn thư kiểm tra xong ("đạt"), chuyển bước kế tiếp của quy trình. */
   async submit(actor: CorrespondenceActor, letterId: string, input: SubmitLetterRequest): Promise<LetterDetail> {
     const note = optionalText(input?.note, 'Ghi chú', 2000);
+    const chosen = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
     const current = await this.store.findLetter(actor.tenantId, letterId);
     if (!current) throw new LetterNotFoundError();
-    const workflow = await this.pickWorkflow(actor.tenantId, current, input?.workflowId);
-    const firstChoice = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
+    const workflow = await this.pickWorkflow(actor.tenantId, current, input?.workflowId).catch(() => undefined);
     await this.transition(actor, letterId, (actions) => actions.submit, async (tx) => {
-      await tx.replaceSteps(workflow.steps);
-      await tx.update({ workflowId: workflow.id, workflowName: workflow.name });
-      await tx.history({
-        action: 'submit',
-        summary: workflow.steps.length > 0 ? `Xác nhận hợp lệ, trình duyệt (${workflow.name})` : 'Xác nhận hợp lệ, chuyển ban hành',
-        note,
-        actorUserId: actor.userId,
-      });
-      await this.startApprovals(actor, tx, firstChoice);
+      let step = tx.steps.find((item) => item.status === 'active');
+      if (!step) {
+        // Công văn chờ kiểm tra theo luồng cũ chưa chép bước: chép quy trình, bước văn thư kiểm tra đầu tiên coi như đang làm.
+        if (!workflow) throw new CorrespondenceValidationError('Chưa có quy trình đang dùng cho luồng này. Vào Cấu hình để đặt quy trình mặc định.');
+        await tx.replaceSteps(workflow.steps);
+        await tx.update({ workflowId: workflow.id, workflowName: workflow.name });
+        step = nextWaiting(tx, 0);
+      }
+      if (step && step.kind === 'check') {
+        await tx.updateStep(step.id, { status: 'done', activate: step.status !== 'active', actedBy: actor.userId, decision: 'approved', note: note ?? null });
+      }
+      await tx.history({ action: 'submit', summary: `${step?.kind === 'check' ? step.name : 'Văn thư kiểm tra'}: đạt, chuyển tiếp`, note, actorUserId: actor.userId });
+      await this.advance(actor, tx, step?.kind === 'check' ? step.seq : 0, { units: input?.units, chosen, note });
     });
     return this.detail(actor, letterId);
   }
@@ -911,7 +928,11 @@ export class CorrespondenceService {
     return this.detail(actor, letterId);
   }
 
-  /** "Đạt": sang bước duyệt kế tiếp (chọn người nếu bước đó để người thao tác chọn), hết bước thì xong duyệt. */
+  /**
+   * "Đạt": sang bước kế tiếp của quy trình (bước duyệt để người trình chọn thì chọn người; bước
+   * phòng ban xử lý thì người duyệt chọn phòng ban, ý kiến là chỉ đạo cho phòng ban); hết bước
+   * thì chờ văn thư hoàn tất / ban hành.
+   */
   async approve(actor: CorrespondenceActor, letterId: string, input: ApproveStepRequest): Promise<LetterDetail> {
     const note = optionalText(input?.note, 'Ý kiến', 4000);
     const nextAssignee = optionalText(input?.nextAssigneeUserId, 'Người duyệt bước sau', 64);
@@ -919,16 +940,15 @@ export class CorrespondenceService {
       const step = requireActive(tx);
       await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: note ?? null });
       await tx.history({ action: 'approve', summary: `${step.name}: đạt`, note, actorUserId: actor.userId });
-      const next = nextWaiting(tx, step.seq);
-      if (next) await this.activate(actor, tx, next, nextAssignee);
-      else await this.finishApprovals(actor, tx);
+      await this.advance(actor, tx, step.seq, { units: input?.units, chosen: nextAssignee, note });
     });
     return this.detail(actor, letterId);
   }
 
   /**
-   * "Không đạt" / trả lại kèm lý do: về bước trước (mặc định), về người xử lý (phòng ban hay
-   * người soạn) hoặc về văn thư, tuỳ bước hiện tại và quyền của người trả.
+   * "Không đạt" / trả lại kèm lý do. Về bước đã xong ngay trước (bất kể loại), về phòng ban xử lý
+   * gần nhất (đến) / người soạn (đi), hay về văn thư (đến: tiếp nhận để giao lại; đi: bước văn thư
+   * kiểm tra gần nhất). Các bước giữa nơi về và bước hiện tại chạy lại từ đầu.
    */
   async returnLetter(actor: CorrespondenceActor, letterId: string, input: ReturnLetterRequest): Promise<LetterDetail> {
     const target = requireEnum(input?.target, RETURN_TARGETS, 'Nơi trả về');
@@ -941,52 +961,59 @@ export class CorrespondenceService {
         if (allowed.length === 0) throw new LetterStageConflictError();
         throw new CorrespondenceValidationError('Không trả về được nơi này ở bước hiện tại.');
       }
-      const from = tx.letter.stage;
       const direction = tx.letter.direction;
       const active = tx.steps.find((item) => item.status === 'active');
-      const fromLabel = active?.name ?? LETTER_STAGE_LABELS[from];
+      const fromLabel = active?.name ?? LETTER_STAGE_LABELS[tx.letter.stage];
+      const landing =
+        target === 'previous-step'
+          ? lastDoneBefore(tx, active?.seq)
+          : target === 'handlers' && direction === 'incoming'
+            ? lastDoneBefore(tx, active?.seq, 'process')
+            : target === 'clerk' && direction === 'outgoing'
+              ? lastDoneBefore(tx, active?.seq, 'check')
+              : undefined;
       if (active) {
         await tx.updateStep(active.id, { status: 'waiting', assigneeUserIds: [], actedBy: actor.userId, decision: 'returned', note: reason });
       }
-      // "Bước trước": bước duyệt xong gần nhất; chưa có thì bước cố định ngay trước của luồng.
-      const previous = target === 'previous-step' ? lastDoneBefore(tx, active?.seq) : undefined;
-      const landing =
-        target === 'previous-step' && !previous
-          ? from === 'publishing' || (from === 'reviewing' && direction === 'outgoing')
-            ? 'clerk'
-            : 'handlers'
-          : target;
       let recipients: string[] = [];
       let notifyClerks = false;
       let landed: string;
-      if (previous) {
-        await this.activate(actor, tx, previous, undefined, { notify: false });
-        recipients = [...(tx.steps.find((item) => item.id === previous.id)?.assigneeUserIds ?? [])];
-        landed = previous.name;
-      } else if (landing === 'clerk') {
-        await this.resetSteps(tx);
-        const stage: LetterStage = direction === 'incoming' ? 'received' : 'checking';
-        await tx.update({ stage });
-        recipients = [...(direction === 'incoming' ? [tx.letter.receivedBy] : []), ...clerks.recipients];
-        notifyClerks = direction === 'outgoing';
-        landed = LETTER_STAGE_LABELS[stage];
-      } else if (direction === 'incoming') {
-        // Về phòng ban xử lý; các bước duyệt chạy lại từ đầu khi phòng ban gửi lại kết quả.
-        await this.resetSteps(tx);
-        const wanted = Array.isArray(input?.assignmentIds) && input.assignmentIds.length > 0 ? new Set(input.assignmentIds.map(String)) : undefined;
-        const targets = tx.assignments.filter((item) => !wanted || wanted.has(item.id));
-        if (targets.length === 0 || (wanted && targets.length !== wanted.size)) {
-          throw new CorrespondenceValidationError('Chọn phòng ban phải làm lại trong số phòng ban đã giao.');
+      if (landing) {
+        await this.resetSteps(tx, landing.seq);
+        if (landing.kind === 'process') {
+          // Về phòng ban xử lý: phòng được chọn làm lại (trống là mọi phòng), bước sau chạy lại khi gửi đủ kết quả.
+          const wanted = Array.isArray(input?.assignmentIds) && input.assignmentIds.length > 0 ? new Set(input.assignmentIds.map(String)) : undefined;
+          const targets = tx.assignments.filter((item) => !wanted || wanted.has(item.id));
+          if (targets.length === 0 || (wanted && targets.length !== wanted.size)) {
+            throw new CorrespondenceValidationError('Chọn phòng ban phải làm lại trong số phòng ban đã giao.');
+          }
+          await tx.reopenAssignments(targets.map((item) => item.id), reason);
+          await tx.updateStep(landing.id, { status: 'active', activate: true, actedBy: null, decision: null, note: null });
+          await tx.update({ stage: 'processing' });
+          recipients = targets.flatMap((item) => [item.handlerUserId, item.submittedBy].filter((id): id is string => Boolean(id)));
+          landed = targets.map((item) => item.unitName).join(', ');
+        } else {
+          await this.activate(actor, tx, landing, {}, { notify: false });
+          const reactivated = tx.steps.find((item) => item.id === landing.id);
+          recipients = [...(reactivated?.assigneeUserIds ?? [])];
+          if (landing.kind === 'check') {
+            recipients = [...recipients, ...clerks.recipients];
+            notifyClerks = true;
+          }
+          landed = landing.name;
         }
-        await tx.reopenAssignments(targets.map((item) => item.id), reason);
-        await tx.update({ stage: 'processing' });
-        recipients = targets.flatMap((item) => [item.handlerUserId, item.submittedBy].filter((id): id is string => Boolean(id)));
-        landed = targets.map((item) => item.unitName).join(', ');
       } else {
+        // Về ô đầu: văn thư tiếp nhận giao lại (đến), người soạn sửa (đi); các bước chạy lại khi chuyển tiếp.
         await this.resetSteps(tx);
-        await tx.update({ stage: 'drafting' });
-        recipients = tx.letter.authorUserId ? [tx.letter.authorUserId] : [];
-        landed = returnTargetLabel('handlers', direction);
+        const stage: LetterStage = direction === 'incoming' ? 'received' : 'drafting';
+        await tx.update({ stage });
+        if (direction === 'incoming') {
+          recipients = [tx.letter.receivedBy, ...clerks.recipients];
+          notifyClerks = true;
+        } else {
+          recipients = tx.letter.authorUserId ? [tx.letter.authorUserId] : [];
+        }
+        landed = direction === 'incoming' ? FLOW_START_NAMES.incoming : returnTargetLabel('handlers', direction);
       }
       await tx.history({ action: 'return', summary: `${fromLabel}: không đạt, trả về ${landed}`, note: reason, actorUserId: actor.userId });
       await tx.outbox(
@@ -1480,6 +1507,8 @@ export class CorrespondenceService {
       direction,
       isActive,
       isDefault,
+      startName: optionalText(input?.startName, 'Tên ô đầu', 160) ?? null,
+      endName: optionalText(input?.endName, 'Tên ô cuối', 160) ?? null,
       steps,
     });
   }
@@ -1532,7 +1561,10 @@ export class CorrespondenceService {
         );
         // Người đã được giao một bước duyệt vừa chuyển đi (người khác cùng bước đã duyệt).
         const stepMoved = letterFacts.steps.some(
-          (step) => step.status !== 'active' && (step.actedBy === viewer.userId || step.assigneeUserIds.includes(viewer.userId)),
+          (step) =>
+            (step.kind ?? 'approve') === 'approve' &&
+            step.status !== 'active' &&
+            (step.actedBy === viewer.userId || step.assigneeUserIds.includes(viewer.userId)),
         );
         if (elsewhere || stepMoved) throw new LetterStageConflictError();
         throw new CorrespondenceForbiddenError();
@@ -1546,20 +1578,26 @@ export class CorrespondenceService {
    * tại (người giữ chức vụ đó bây giờ); không giải được thì người đã duyệt bước đó.
    */
   private async finalApprovers(actor: CorrespondenceActor, tx: LetterTransaction): Promise<string[]> {
-    const last = [...tx.steps].filter((step) => step.status === 'done').sort((left, right) => right.seq - left.seq)[0];
+    const last = [...tx.steps]
+      .filter((step) => step.status === 'done' && step.kind === 'approve')
+      .sort((left, right) => right.seq - left.seq)[0];
     if (!last) return [];
-    const pick = last.chosenUserId ?? (last.approver.type === 'choose' ? last.actedBy : undefined);
+    const rule = last.approver;
+    const pick = last.chosenUserId ?? (rule?.type === 'choose' ? last.actedBy : undefined);
     const resolved = await this.approverContext(actor.tenantId, tx.letter, tx.assignments, pick)
-      .then((context) => resolveAssignees(last.approver, context))
+      .then((context) => (rule ? resolveAssignees(rule, context) : []))
       .catch(() => [] as string[]);
     if (resolved.length > 0) return [...new Set(resolved)];
     return last.actedBy ? [last.actedBy] : [...new Set(last.assigneeUserIds)];
   }
 
-  /** Bước duyệt đầu tiên; quy trình không có bước nào thì xong duyệt ngay. */
-  private async startApprovals(actor: CorrespondenceActor, tx: LetterTransaction, chosen: string | undefined): Promise<void> {
-    const first = nextWaiting(tx, 0);
-    if (first) await this.activate(actor, tx, first, chosen);
+  /**
+   * Sang bước chờ kế tiếp sau `fromSeq` (0 là bước đầu); hết bước thì chờ văn thư hoàn tất / ban
+   * hành. `restart`: chuyển từ ô đầu, phòng ban còn treo của lượt trước được bỏ.
+   */
+  private async advance(actor: CorrespondenceActor, tx: LetterTransaction, fromSeq: number, input: AdvanceInput): Promise<void> {
+    const next = nextWaiting(tx, fromSeq);
+    if (next) await this.activate(actor, tx, next, input);
     else await this.finishApprovals(actor, tx);
   }
 
@@ -1580,23 +1618,52 @@ export class CorrespondenceService {
   }
 
   /**
-   * Bắt đầu một bước duyệt: giải người được giao theo sơ đồ tổ chức (luật `choose` cần người
-   * đã chọn), báo người được giao (trừ khi nơi gọi đã báo qua sự kiện khác).
+   * Bắt đầu một bước, theo loại:
+   * - duyệt: giải người duyệt theo sơ đồ tổ chức (luật `choose` cần người đã chọn);
+   * - văn thư kiểm tra: người làm văn thư được chỉ định (không chỉ định thì người có quyền);
+   * - phòng ban xử lý: phòng ban do người làm bước liền trước chọn (`input.units`); bước duyệt
+   *   ngay sau để người trình chọn người thì chọn luôn lúc này.
+   * Báo người được giao, trừ khi nơi gọi đã báo qua sự kiện khác.
    */
   private async activate(
     actor: CorrespondenceActor,
     tx: LetterTransaction,
     step: StepRecord,
-    chosen: string | undefined,
+    input: AdvanceInput,
     options: { readonly notify?: boolean } = {},
   ): Promise<void> {
-    const pick = step.chosenUserId ?? chosen;
-    if (step.approver.type === 'choose' && !pick) throw new CorrespondenceValidationError(`Chọn người cho bước "${step.name}".`);
+    if (step.kind === 'process') return this.activateProcess(actor, tx, step, input, options);
+    if (step.kind === 'check') {
+      const settings = await this.settingsOrDefault(actor.tenantId);
+      await tx.updateStep(step.id, {
+        status: 'active',
+        activate: true,
+        assigneeUserIds: settings.clerkUserIds,
+        actedBy: null,
+        decision: null,
+        note: null,
+      });
+      const letter = await tx.update({ stage: 'checking' });
+      if (options.notify === false) return;
+      const clerks = await this.clerkTargets(actor.tenantId, ROUTE_PERMISSIONS.register);
+      await tx.outbox(
+        this.event(CORRESPONDENCE_EVENTS.sentToClerk, letter, actor, clerks.recipients, {
+          summary: `${step.name}: ${letter.direction === 'incoming' ? 'công văn đến' : 'công văn đi'} ${letterTitle(withNo(letter))} chờ văn thư kiểm tra.`,
+          stepName: step.name,
+          notifyPermissions: clerks.notifyPermissions,
+        }),
+      );
+      return;
+    }
+    const rule = step.approver;
+    if (!rule) throw new CorrespondenceValidationError(`Bước "${step.name}" chưa có cách xác định người duyệt. Kiểm cấu hình quy trình.`);
+    const pick = step.chosenUserId ?? input.chosen;
+    if (rule.type === 'choose' && !pick) throw new CorrespondenceValidationError(`Chọn người cho bước "${step.name}".`);
     const context = await this.approverContext(actor.tenantId, tx.letter, tx.assignments, pick);
-    const assignees = resolveAssignees(step.approver, context);
+    const assignees = resolveAssignees(rule, context);
     if (assignees.length === 0) {
       throw new CorrespondenceValidationError(
-        step.approver.type === 'choose'
+        rule.type === 'choose'
           ? `Người được chọn không thuộc nhóm của bước "${step.name}".`
           : `Bước "${step.name}" chưa xác định được người duyệt theo sơ đồ tổ chức. Kiểm cấu hình quy trình hoặc sơ đồ tổ chức.`,
       );
@@ -1620,21 +1687,66 @@ export class CorrespondenceService {
     );
   }
 
-  /** Người được chọn trước cho bước duyệt đầu (luật `choose`), kiểm thuộc nhóm. */
-  private async preselect(tenantId: string, tx: LetterTransaction, chosen: string | undefined, handlingUnitIds: readonly string[]): Promise<void> {
-    const first = nextWaiting(tx, 0);
-    if (!first || first.approver.type !== 'choose') return;
-    if (!chosen) throw new CorrespondenceValidationError(`Chọn người cho bước "${first.name}".`);
-    const context = await this.approverContext(tenantId, tx.letter, handlingUnitIds.map((unitId) => ({ unitId })), chosen);
-    if (!chooseCandidates(first.approver, context).some((candidate) => candidate.userId === chosen)) {
-      throw new CorrespondenceValidationError(`Người được chọn không thuộc nhóm của bước "${first.name}".`);
+  /** Bước phòng ban xử lý: giao các phòng ban được chọn (phòng đã giao lượt trước thì sang lượt mới). */
+  private async activateProcess(
+    actor: CorrespondenceActor,
+    tx: LetterTransaction,
+    step: StepRecord,
+    input: AdvanceInput,
+    options: { readonly notify?: boolean },
+  ): Promise<void> {
+    if (!Array.isArray(input.units) || input.units.length === 0) {
+      throw new CorrespondenceValidationError(`Chọn phòng ban xử lý cho bước "${step.name}".`);
     }
-    await tx.updateStep(first.id, { chosenUserId: chosen });
+    const [settings, snapshot] = await Promise.all([this.store.settings(actor.tenantId), this.organization.snapshot(actor.tenantId)]);
+    const units = this.dispatchUnits(snapshot, settings, input.units);
+    await this.preselect(actor.tenantId, tx, step.seq, input.chosen, units.map((unit) => unit.unitId));
+    const keep = new Set(units.map((unit) => unit.unitId));
+    // Phòng còn treo mà lần này không được chọn (giao lại từ ô đầu) thì bỏ, để không chặn bước sau.
+    const dropped = tx.assignments.filter((item) => !keep.has(item.unitId) && (input.restart || item.status === 'pending'));
+    if (dropped.length > 0) await tx.removeAssignments(dropped.map((item) => item.id));
+    await tx.assign(units.map(({ unitId, unitName, handlerUserId }) => ({ unitId, unitName, handlerUserId })));
+    await tx.updateStep(step.id, { status: 'active', activate: true, assigneeUserIds: [], actedBy: null, decision: null, note: null });
+    const letter = await tx.update({ stage: 'processing', instruction: input.note ?? tx.letter.instruction });
+    await tx.history({
+      action: 'dispatch',
+      summary: `${step.name}: giao ${units.map((unit) => (unit.handlerName ? `${unit.unitName} (${unit.handlerName})` : unit.unitName)).join(', ')}`,
+      note: input.note,
+      actorUserId: actor.userId,
+    });
+    if (options.notify === false) return;
+    await tx.outbox(
+      this.event(CORRESPONDENCE_EVENTS.assigned, letter, actor, units.flatMap((unit) => unit.recipients), {
+        summary: `Công văn ${letterTitle(withNo(letter))} được giao xử lý (${step.name}).${input.note ? ` ${input.note}` : ''}${dueText(letter.dueOn)}`,
+        unitNames: units.map((unit) => unit.unitName),
+      }),
+    );
   }
 
-  /** Mọi bước duyệt về chưa tới (giữ người đã chọn) để chạy lại từ đầu. */
-  private async resetSteps(tx: LetterTransaction): Promise<void> {
-    for (const step of tx.steps.filter((item) => item.status !== 'waiting' || item.assigneeUserIds.length > 0)) {
+  /**
+   * Bước duyệt ngay sau bước phòng ban xử lý mà để người trình chọn người: chọn ngay lúc giao
+   * phòng ban (phòng ban gửi đủ kết quả là tự chuyển bước), kiểm thuộc nhóm.
+   */
+  private async preselect(
+    tenantId: string,
+    tx: LetterTransaction,
+    afterSeq: number,
+    chosen: string | undefined,
+    handlingUnitIds: readonly string[],
+  ): Promise<void> {
+    const following = nextWaiting(tx, afterSeq);
+    if (!following || following.kind !== 'approve' || following.approver?.type !== 'choose' || following.chosenUserId) return;
+    if (!chosen) throw new CorrespondenceValidationError(`Chọn người cho bước "${following.name}".`);
+    const context = await this.approverContext(tenantId, tx.letter, handlingUnitIds.map((unitId) => ({ unitId })), chosen);
+    if (!chooseCandidates(following.approver, context).some((candidate) => candidate.userId === chosen)) {
+      throw new CorrespondenceValidationError(`Người được chọn không thuộc nhóm của bước "${following.name}".`);
+    }
+    await tx.updateStep(following.id, { chosenUserId: chosen });
+  }
+
+  /** Các bước sau `afterSeq` (không có thì mọi bước) về chưa tới, giữ người đã chọn, để chạy lại. */
+  private async resetSteps(tx: LetterTransaction, afterSeq = 0): Promise<void> {
+    for (const step of tx.steps.filter((item) => item.seq > afterSeq && (item.status !== 'waiting' || item.assigneeUserIds.length > 0))) {
       await tx.updateStep(step.id, { status: 'waiting', assigneeUserIds: [] });
     }
   }
@@ -1883,10 +1995,23 @@ export class CorrespondenceService {
 
 /* ---------------------------------------------------------------- hàm thuần */
 
+/** Đầu vào khi chuyển sang bước kế tiếp. */
+interface AdvanceInput {
+  /** Phòng ban cho bước phòng ban xử lý (dạng thô từ yêu cầu, kiểm ở `dispatchUnits`). */
+  readonly units?: unknown;
+  /** Người được chọn cho bước duyệt kế tiếp (luật "chọn trong nhóm"). */
+  readonly chosen?: string;
+  /** Ghi chú, chỉ đạo kèm khi giao phòng ban. */
+  readonly note?: string;
+  /** Chuyển từ ô đầu (giao lại từ đầu). */
+  readonly restart?: boolean;
+}
+
 interface FlowStep {
   readonly seq: number;
   readonly name: string;
-  readonly approver: ApproverRule;
+  readonly kind: StepType;
+  readonly approver?: ApproverRule;
   readonly status: LetterStepStatus;
   readonly assigneeUserIds: readonly string[];
   readonly chosenUserId?: string;
@@ -1968,10 +2093,10 @@ function nextWaiting(tx: LetterTransaction, fromSeq: number): StepRecord | undef
   return sortedSteps(tx.steps).find((step) => step.seq > fromSeq && step.status === 'waiting');
 }
 
-/** Bước duyệt đã xong ngay trước `seq` (không có `seq` thì bước xong cuối cùng). */
-function lastDoneBefore(tx: LetterTransaction, seq: number | undefined): StepRecord | undefined {
+/** Bước đã xong ngay trước `seq` (không có `seq` thì bước xong cuối cùng), có thể lọc theo loại. */
+function lastDoneBefore(tx: LetterTransaction, seq: number | undefined, kind?: StepType): StepRecord | undefined {
   return sortedSteps(tx.steps)
-    .filter((step) => step.status === 'done' && (seq === undefined || step.seq < seq))
+    .filter((step) => step.status === 'done' && (seq === undefined || step.seq < seq) && (!kind || step.kind === kind))
     .at(-1);
 }
 
@@ -2012,16 +2137,13 @@ function peopleLabel(
   return APPROVER_RULE_LABELS[rule.type];
 }
 
-/** Người, thời điểm ở các bước cố định của luồng; bước của văn thư chưa làm thì ghi người làm văn thư được chỉ định. */
+/** Người, thời điểm ở ô đầu và ô cuối; ô cuối chưa làm thì ghi người làm văn thư được chỉ định. */
 function fixedPeople(
   letter: LetterRecord,
-  assignments: readonly AssignmentRecord[],
   nameOf: (userId: string) => string,
   history: readonly Pick<LetterHistoryEntry, 'action' | 'actorUserId' | 'at'>[] = [],
   clerkUserIds: readonly string[] = [],
-): Partial<Record<LetterStage, { readonly people?: string; readonly at?: string }>> {
-  const submitted = assignments.filter((item) => item.status === 'submitted').map((item) => item.submittedAt ?? '');
-  const allSubmitted = assignments.length > 0 && submitted.length === assignments.length;
+): FlowEnds {
   const clerks = clerkUserIds.map(nameOf).join(', ') || undefined;
   const lastBy = (action: LetterHistoryEntry['action']) => [...history].reverse().find((item) => item.action === action);
   const doneBy = (action: LetterHistoryEntry['action'], extra?: string) => {
@@ -2031,24 +2153,60 @@ function fixedPeople(
       at: entry?.at,
     };
   };
-  const archived = letter.stage === 'archived';
-  const checked = lastBy('submit');
+  const incoming = letter.direction === 'incoming';
+  const archived = Boolean(letter.archiveCode);
   return {
-    received: { people: nameOf(letter.receivedBy), at: letter.createdAt },
-    processing: {
-      people: assignments.map((item) => (item.handlerUserId ? `${item.unitName} (${nameOf(item.handlerUserId)})` : item.unitName)).join(', ') || undefined,
-      at: allSubmitted ? submitted.sort().at(-1) : undefined,
-    },
-    drafting: {
-      people: [letter.authorUserId ? nameOf(letter.authorUserId) : undefined, letter.authorUnitName].filter(Boolean).join(' · ') || undefined,
-      at: letter.createdAt,
-    },
-    checking: checked && letter.stage !== 'checking' ? doneBy('submit') : { people: clerks },
-    closing: archived ? doneBy('complete', letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined) : { people: clerks },
-    publishing: archived
-      ? doneBy('publish', [letter.outgoingNo ? `Số ${letter.outgoingNo}` : undefined, letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined].filter(Boolean).join(', '))
-      : { people: clerks },
+    start: incoming
+      ? { people: nameOf(letter.receivedBy), at: letter.createdAt }
+      : {
+          people: [letter.authorUserId ? nameOf(letter.authorUserId) : undefined, letter.authorUnitName].filter(Boolean).join(' · ') || undefined,
+          at: letter.createdAt,
+        },
+    end: !archived
+      ? { people: clerks }
+      : incoming
+        ? doneBy('complete', letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined)
+        : doneBy('publish', [letter.outgoingNo ? `Số ${letter.outgoingNo}` : undefined, letter.archiveCode ? `Hồ sơ ${letter.archiveCode}` : undefined].filter(Boolean).join(', ')),
   };
+}
+
+interface FlowEnds {
+  readonly start?: { readonly people?: string; readonly at?: string };
+  readonly end?: { readonly people?: string; readonly at?: string };
+}
+
+/** Người ở một bước giữa: đã làm, đang được giao, hay sẽ làm. */
+function stepPeople(
+  step: Pick<FlowStep, 'kind' | 'status' | 'actedBy' | 'assigneeUserIds' | 'approver'>,
+  context: {
+    readonly nameOf: (userId: string) => string;
+    readonly assignments: readonly AssignmentRecord[];
+    readonly clerkUserIds: readonly string[];
+    readonly expected: readonly string[];
+    readonly direction: LetterDirection;
+  },
+): string | undefined {
+  const { nameOf } = context;
+  if (step.kind === 'process') {
+    if (step.status === 'waiting' || step.status === 'skipped') return 'Phòng ban do người làm bước trước chọn';
+    return (
+      context.assignments
+        .map((item) => (item.handlerUserId ? `${item.unitName} (${nameOf(item.handlerUserId)})` : item.unitName))
+        .join(', ') || undefined
+    );
+  }
+  if (step.status === 'done' && step.actedBy) return nameOf(step.actedBy);
+  if (step.kind === 'check') return context.clerkUserIds.map(nameOf).join(', ') || undefined;
+  if (step.status === 'active') return step.assigneeUserIds.map(nameOf).join(', ') || undefined;
+  return step.approver ? peopleLabel(context.expected, nameOf, step.approver, context.direction) : undefined;
+}
+
+function lastSubmittedAt(assignments: readonly AssignmentRecord[]): string | undefined {
+  return assignments
+    .map((item) => item.submittedAt)
+    .filter((at): at is string => Boolean(at))
+    .sort()
+    .at(-1);
 }
 
 /** Ô "Xác nhận huỷ" khi công văn đã ban hành / hoàn tất được đề nghị huỷ. */
@@ -2067,41 +2225,52 @@ function revokeNode(
 }
 
 /**
- * Thanh tiến trình theo luồng, các bước duyệt của quy trình chen giữa; trạng thái từng ô theo
- * bước hiện tại của công văn. Bước cuối là một bước của văn thư (hoàn tất hay ban hành, rồi
- * lưu trữ luôn), không tách ô lưu trữ riêng.
+ * Thanh tiến trình dựng theo quy trình cấu hình: ô đầu (tiếp nhận / soạn thảo), các bước ở giữa
+ * theo đúng thứ tự cấu hình (phòng ban xử lý, văn thư kiểm tra, duyệt), ô cuối (hoàn tất / ban
+ * hành, lưu trữ). Trạng thái từng ô theo bước đang chạy của công văn.
  */
 export function flowOf(
   direction: LetterDirection,
   stage: LetterStage,
-  steps: readonly { readonly seq: number; readonly name: string; readonly status: LetterStepStatus; readonly people?: string; readonly at?: string }[],
-  fixed: Partial<Record<LetterStage, { readonly people?: string; readonly at?: string }>> = {},
+  steps: readonly {
+    readonly seq: number;
+    readonly name: string;
+    readonly kind?: StepType;
+    readonly status: LetterStepStatus;
+    readonly people?: string;
+    readonly at?: string;
+  }[],
+  fixed: FlowEnds = {},
   revoke?: { readonly label: string; readonly people?: string; readonly at?: string },
+  labels: { readonly start?: string; readonly end?: string } = {},
 ): FlowNode[] {
   const ordered = sortedSteps(steps);
-  const stageNode = (key: LetterStage, label: string): FlowNode => ({ key, label, state: 'todo', approval: false, ...fixed[key] });
-  const approvals: FlowNode[] = ordered.map((step) => ({
+  const start: FlowNode = {
+    key: direction === 'incoming' ? 'received' : 'drafting',
+    label: labels.start || FLOW_START_NAMES[direction],
+    kind: 'start',
+    state: 'todo',
+    approval: false,
+    ...fixed.start,
+  };
+  const end: FlowNode = {
+    key: direction === 'incoming' ? 'closing' : 'publishing',
+    label: labels.end || FLOW_END_NAMES[direction],
+    kind: 'end',
+    state: 'todo',
+    approval: false,
+    ...fixed.end,
+  };
+  const middle: FlowNode[] = ordered.map((step) => ({
     key: `step-${step.seq}`,
     label: step.name,
+    kind: step.kind ?? 'approve',
     state: 'todo',
-    approval: true,
+    approval: (step.kind ?? 'approve') === 'approve',
     people: step.people,
     at: step.at,
   }));
-  const nodes: FlowNode[] =
-    direction === 'incoming'
-      ? [
-          stageNode('received', 'Văn thư tiếp nhận'),
-          stageNode('processing', 'Phòng ban xử lý'),
-          ...approvals,
-          stageNode('closing', 'Văn thư hoàn tất, lưu trữ'),
-        ]
-      : [
-          stageNode('drafting', 'Phòng ban soạn thảo'),
-          stageNode('checking', 'Văn thư kiểm tra'),
-          ...approvals,
-          stageNode('publishing', 'Văn thư ban hành, lưu trữ'),
-        ];
+  const nodes: FlowNode[] = [start, ...middle, end];
   if (stage === 'archived') return nodes.map((node) => ({ ...node, state: 'done' }));
   // Công văn đã ban hành / hoàn tất rồi mới đề nghị huỷ: luồng cũ đã xong, thêm ô xác nhận huỷ.
   if (revoke && (stage === 'revoking' || stage === 'cancelled')) {
@@ -2110,6 +2279,7 @@ export function flowOf(
       {
         key: 'revoke',
         label: revoke.label,
+        kind: 'revoke',
         state: stage === 'revoking' ? 'current' : 'done',
         approval: true,
         people: revoke.people,
@@ -2122,7 +2292,14 @@ export function flowOf(
     return nodes.map((node, index) => ({ ...node, state: index === 0 || done.has(node.key) ? 'done' : 'todo' }));
   }
   const active = ordered.find((step) => step.status === 'active');
-  const key = stage === 'reviewing' ? (active ? `step-${active.seq}` : undefined) : stage;
+  const firstOpen = ordered.find((step) => step.status !== 'done');
+  const key = active
+    ? `step-${active.seq}`
+    : stage === 'received' || stage === 'drafting'
+      ? start.key
+      : stage === 'closing' || stage === 'publishing' || !firstOpen
+        ? end.key
+        : `step-${firstOpen.seq}`;
   const current = Math.max(
     0,
     nodes.findIndex((node) => node.key === key),
@@ -2158,7 +2335,7 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     restricted: Boolean(item('confidentiality', row.confidentiality)?.restricted),
     dueOn: row.dueOn,
     stage: row.stage,
-    stageLabel: row.stage === 'reviewing' && active ? active.name : (LETTER_STAGE_LABELS[row.stage] ?? row.stage),
+    stageLabel: active ? active.name : (LETTER_STAGE_LABELS[row.stage] ?? row.stage),
     currentStepName: active?.name,
     currentAssigneeNames: (active?.assigneeUserIds ?? []).map((userId) => names.get(userId) ?? 'Người dùng'),
     assignmentsDone: row.assignments.filter((assignment) => assignment.status === 'submitted').length,

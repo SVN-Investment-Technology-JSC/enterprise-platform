@@ -4,6 +4,7 @@ import {
   inTransaction,
 } from '@enterprise-platform/adapter-database';
 import {
+  stepTypeOf,
   DEFAULT_CORRESPONDENCE_SETTINGS,
   RETURN_TARGETS,
   type ApproverRule,
@@ -16,6 +17,7 @@ import {
   type ReturnTarget,
   type Workflow,
   type WorkflowStep,
+  type StepType,
 } from '@enterprise-platform/contracts-correspondence';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import { randomUUID } from 'node:crypto';
@@ -59,7 +61,7 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
-const STEP_COLUMNS = `s.id, s.seq, s.name, s.approver, s.reject_to, s.due_days, s.status, s.chosen_user_id,
+const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.approver, s.reject_to, s.due_days, s.status, s.chosen_user_id,
   s.assignee_user_ids::text[] AS assignee_user_ids, s.activated_at, s.acted_by, s.acted_at, s.decision, s.note`;
 
 const ASSIGNMENT_COLUMNS = `a.id, a.letter_id, a.unit_id, a.unit_name, a.round, a.status, a.handler_user_id,
@@ -78,7 +80,7 @@ const CATALOG_COLUMNS = `c.id, c.kind, c.code, c.name, c.sort_order, c.is_active
               OR (c.kind = 'urgency' AND u.urgency = c.code)
               OR (c.kind = 'confidentiality' AND u.confidentiality = c.code)) AS in_use`;
 
-const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, steps, updated_at`;
+const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, start_name, end_name, steps, updated_at`;
 
 /** Cột được phép ghi qua `update`, theo tên trường của `LetterPatch`. */
 const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
@@ -270,19 +272,30 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
             [input.direction, id ?? null],
           );
         }
-        const params = [input.name, input.description, input.isActive, input.isDefault, JSON.stringify(input.steps), userId, input.direction];
+        const params = [
+          input.name,
+          input.description,
+          input.isActive,
+          input.isDefault,
+          JSON.stringify(input.steps),
+          userId,
+          input.direction,
+          input.startName,
+          input.endName,
+        ];
         const result = id
           ? await client.query<Row>(
               `UPDATE correspondence_schema.workflows
                   SET name = $1, description = $2, is_active = $3, is_default = $4, steps = $5::jsonb,
-                      updated_by = $6, direction = $7, updated_at = now()
-                WHERE id = $8
+                      updated_by = $6, direction = $7, start_name = $8, end_name = $9, updated_at = now()
+                WHERE id = $10
                 RETURNING ${WORKFLOW_COLUMNS}`,
               [...params, id],
             )
           : await client.query<Row>(
-              `INSERT INTO correspondence_schema.workflows (name, description, is_active, is_default, steps, updated_by, direction)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+              `INSERT INTO correspondence_schema.workflows
+                      (name, description, is_active, is_default, steps, updated_by, direction, start_name, end_name)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
                RETURNING ${WORKFLOW_COLUMNS}`,
               params,
             );
@@ -410,7 +423,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
                                                    'handlerUserId', a.handler_user_id)
                                  ORDER BY a.created_at, a.unit_name)
                    FROM correspondence_schema.assignments a WHERE a.letter_id = l.id) AS assignments,
-                (SELECT json_agg(json_build_object('seq', s.seq, 'name', s.name, 'status', s.status, 'rejectTo', s.reject_to,
+                (SELECT json_agg(json_build_object('seq', s.seq, 'name', s.name, 'kind', s.kind, 'status', s.status, 'rejectTo', s.reject_to,
                                                    'assigneeUserIds', s.assignee_user_ids, 'actedBy', s.acted_by)
                                  ORDER BY s.seq)
                    FROM correspondence_schema.letter_steps s WHERE s.letter_id = l.id) AS steps,
@@ -436,6 +449,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
         steps: (row.steps ?? []).map((item) => ({
           seq: Number(item['seq']),
           name: String(item['name']),
+          kind: stepKind(item['kind']),
           status: String(item['status']) as StepRecord['status'],
           rejectTo: returnTarget(item['rejectTo']),
           assigneeUserIds: Array.isArray(item['assigneeUserIds']) ? (item['assigneeUserIds'] as unknown[]).map(String) : [],
@@ -639,11 +653,19 @@ class PostgresLetterTransaction implements LetterTransaction {
   async replaceSteps(steps: readonly WorkflowStep[]): Promise<void> {
     await this.client.query(`DELETE FROM correspondence_schema.letter_steps WHERE letter_id = $1`, [this.letter.id]);
     for (const [index, step] of steps.entries()) {
-      // Cột `kind` của luồng cũ vẫn bắt buộc: mọi bước bây giờ là bước duyệt.
+      const kind = stepTypeOf(step);
       await this.client.query(
         `INSERT INTO correspondence_schema.letter_steps (letter_id, seq, name, kind, approver, reject_to, due_days)
-         VALUES ($1, $2, $3, 'approve', $4::jsonb, $5, $6)`,
-        [this.letter.id, index + 1, step.name, JSON.stringify(step.approver), step.rejectTo ?? null, step.dueDays ?? null],
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
+        [
+          this.letter.id,
+          index + 1,
+          step.name,
+          kind,
+          kind === 'approve' && step.approver ? JSON.stringify(step.approver) : null,
+          step.rejectTo ?? null,
+          step.dueDays ?? null,
+        ],
       );
     }
     this.steps = await loadSteps(this.client, this.letter.id);
@@ -942,13 +964,20 @@ function mapCatalog(row: Row): CatalogItem {
 }
 
 /** Bước đọc từ JSON chỉ giữ các trường của bước duyệt (bỏ `kind` của luồng cũ). */
+/** Loại bước: 'direct' của luồng cũ và bước không ghi loại đọc là bước duyệt. */
+function stepKind(value: unknown): StepType {
+  return value === 'process' || value === 'check' ? value : 'approve';
+}
+
 function mapWorkflowStep(raw: Row, index: number): WorkflowStep {
   const rejectTo = returnTarget(raw['rejectTo']);
   const dueDays = raw['dueDays'] === undefined || raw['dueDays'] === null ? undefined : Number(raw['dueDays']);
+  const type = stepKind(raw['type']);
   return {
     key: String(raw['key'] ?? `step-${index + 1}`),
     name: String(raw['name'] ?? `Bước ${index + 1}`),
-    approver: raw['approver'] as ApproverRule,
+    type,
+    ...(type === 'approve' && raw['approver'] ? { approver: raw['approver'] as ApproverRule } : {}),
     ...(rejectTo ? { rejectTo } : {}),
     ...(dueDays !== undefined && Number.isFinite(dueDays) ? { dueDays } : {}),
   };
@@ -962,6 +991,8 @@ function mapWorkflow(row: Row): Workflow {
     direction: row['direction'] === 'outgoing' ? 'outgoing' : 'incoming',
     isActive: Boolean(row['is_active']),
     isDefault: Boolean(row['is_default']),
+    startName: optional(row['start_name']),
+    endName: optional(row['end_name']),
     steps: Array.isArray(row['steps']) ? (row['steps'] as Row[]).map(mapWorkflowStep) : [],
     updatedAt: iso(row['updated_at']),
   };
@@ -972,7 +1003,8 @@ function mapStep(row: Row): StepRecord {
     id: String(row['id']),
     seq: Number(row['seq']),
     name: String(row['name']),
-    approver: row['approver'] as ApproverRule,
+    kind: stepKind(row['kind']),
+    approver: row['approver'] ? (row['approver'] as ApproverRule) : undefined,
     rejectTo: returnTarget(row['reject_to']),
     dueDays: row['due_days'] === null || row['due_days'] === undefined ? undefined : Number(row['due_days']),
     status: String(row['status']) as StepRecord['status'],

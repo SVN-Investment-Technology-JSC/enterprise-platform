@@ -6,6 +6,7 @@ import {
   type LetterStage,
   type LetterStepStatus,
   type ReturnTarget,
+  type StepType,
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Người đang thao tác, đủ để quyết định quyền theo bước. */
@@ -32,6 +33,8 @@ export interface LetterViewer {
 
 export interface StepFacts {
   readonly seq: number;
+  /** Phòng ban xử lý, văn thư kiểm tra hay duyệt; trống là duyệt. */
+  readonly kind?: StepType;
   readonly status: LetterStepStatus;
   readonly assigneeUserIds: readonly string[];
   readonly actedBy?: string;
@@ -153,22 +156,53 @@ function clerkOfDirection(viewer: LetterViewer, direction: LetterDirection): boo
   return viewer.isTenantAdmin || (direction === 'incoming' ? viewer.canArchive : viewer.canPublish);
 }
 
+/** Bước đã xong gần nhất trước bước đang chạy (không có bước đang chạy thì bước xong cuối), có thể lọc theo loại. */
+export function doneBefore(letter: Pick<LetterFacts, 'steps'>, kind?: StepType): StepFacts | undefined {
+  const active = activeStep(letter);
+  return [...letter.steps]
+    .sort((left, right) => left.seq - right.seq)
+    .filter((step) => step.status === 'done' && (!active || step.seq < active.seq) && (!kind || (step.kind ?? 'approve') === kind))
+    .at(-1);
+}
+
+/**
+ * Nơi trả về có được ở bước hiện tại:
+ * - `previous-step`: bước đã xong ngay trước (bất kể loại);
+ * - `handlers`: công văn đến về bước phòng ban xử lý gần nhất, công văn đi về người soạn;
+ * - `clerk`: công văn đến về văn thư tiếp nhận (giao lại), công văn đi về bước văn thư kiểm tra gần nhất.
+ */
+function availableTargets(letter: LetterFacts): ReturnTarget[] {
+  const incoming = letter.direction === 'incoming';
+  const targets: ReturnTarget[] = [];
+  if (doneBefore(letter)) targets.push('previous-step');
+  if (incoming ? doneBefore(letter, 'process') : true) targets.push('handlers');
+  if (incoming || doneBefore(letter, 'check')) targets.push('clerk');
+  return targets;
+}
+
 /** Nơi người xem trả công văn về được ở bước hiện tại ("Không đạt", "Trả lại"). */
 export function returnTargets(viewer: LetterViewer, letter: LetterFacts): ReturnTarget[] {
-  const hasSteps = letter.steps.length > 0;
+  const incoming = letter.direction === 'incoming';
+  const available = availableTargets(letter);
   switch (letter.stage) {
     case 'reviewing':
-      return actsOnActiveStep(viewer, letter) ? ['previous-step', 'handlers', 'clerk'] : [];
-    case 'processing':
-      return letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment)) && !viewer.canRegister
-        ? ['clerk']
-        : [];
-    case 'checking':
-      return viewer.canRegister ? ['handlers'] : [];
+      return actsOnActiveStep(viewer, letter) ? available : [];
+    case 'checking': {
+      if (!viewer.canRegister) return [];
+      const back = available.filter((target) => target !== 'clerk');
+      return back.length > 0 ? back : incoming ? ['clerk'] : [];
+    }
+    case 'processing': {
+      // Phòng ban trả lại khi không thuộc phòng mình: về người giao (bước trước), không thì văn thư / người soạn.
+      if (viewer.canRegister || !letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment))) return [];
+      const start: ReturnTarget = incoming ? 'clerk' : 'handlers';
+      return doneBefore(letter) ? ['previous-step', start] : [start];
+    }
     case 'closing':
-      return viewer.canArchive ? [...(hasSteps ? (['previous-step'] as const) : []), 'handlers'] : [];
+      // Người hoàn tất là văn thư: không trả về chính văn thư tiếp nhận.
+      return viewer.canArchive ? available.filter((target) => target !== 'clerk') : [];
     case 'publishing':
-      return viewer.canPublish ? [...(hasSteps ? (['previous-step'] as const) : []), 'clerk', 'handlers'] : [];
+      return viewer.canPublish ? available : [];
     default:
       return [];
   }
@@ -185,7 +219,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
 
   const attachKinds = new Set<AttachmentKind>();
   if (incoming && viewer.canRegister && open) ['incoming', 'reference'].forEach((kind) => attachKinds.add(kind as AttachmentKind));
-  if (incoming && respondsSomewhere) attachKinds.add('draft');
+  if (respondsSomewhere) attachKinds.add('draft');
   if (!incoming && ((stage === 'drafting' && (authorSide || viewer.canRegister)) || (stage === 'checking' && viewer.canRegister))) {
     attachKinds.add('draft');
     attachKinds.add('reference');
@@ -202,7 +236,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     edit: open && (viewer.canRegister || (stage === 'drafting' && authorSide)),
     dispatch: incoming && stage === 'received' && viewer.canRegister,
     sendToClerk: !incoming && stage === 'drafting' && (authorSide || viewer.canRegister),
-    submit: !incoming && stage === 'checking' && viewer.canRegister,
+    submit: stage === 'checking' && viewer.canRegister,
     approve: onStep,
     complete: incoming && stage === 'closing' && viewer.canArchive,
     publish: !incoming && stage === 'publishing' && viewer.canPublish,
@@ -214,7 +248,8 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
       stage === 'revoking' && (letter.revokeRequestedBy === viewer.userId || clerkOfDirection(viewer, letter.direction)),
     remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
-    defaultReturnTarget: stage === 'reviewing' ? (active?.rejectTo ?? 'previous-step') : targets[0],
+    defaultReturnTarget:
+      active?.rejectTo && targets.includes(active.rejectTo) ? active.rejectTo : targets.includes('previous-step') ? 'previous-step' : targets[0],
     comment: letter.stage !== 'cancelled',
     reply: incoming && viewer.canCreateOutgoing && letter.stage !== 'cancelled',
     attachKinds: [...attachKinds],

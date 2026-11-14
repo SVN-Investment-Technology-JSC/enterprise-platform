@@ -2276,6 +2276,15 @@ $fs-meta: 12px;
   font-size: $fs-meta;
 }
 
+// Ô đầu, ô cuối của quy trình (luôn có): viền nét đứt để phân biệt với các bước cấu hình.
+.stepChipFixed {
+  padding: 2px 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 999px;
+  color: var(--ep-text-muted);
+  font-size: $fs-meta;
+}
+
 .flowPreview {
   display: flex;
   flex-wrap: wrap;

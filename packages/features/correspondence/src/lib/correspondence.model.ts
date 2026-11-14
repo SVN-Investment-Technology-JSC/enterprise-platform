@@ -1,13 +1,20 @@
 import {
   daysUntil,
+  FLOW_END_NAMES,
+  FLOW_START_NAMES,
   isOpenStage,
   LETTER_STAGE_LABELS,
+  STEP_TYPE_LABELS,
+  stepTypeOf,
   type CatalogItem,
   type CatalogKind,
   type CorrespondenceConfig,
+  type FlowNode,
+  type LetterDetail,
   type LetterDirection,
   type LetterStage,
   type LetterSummary,
+  type StepType,
   type Workflow,
 } from '@enterprise-platform/contracts-correspondence';
 
@@ -60,6 +67,49 @@ export function plannedWorkflow(config: CorrespondenceConfig, direction: LetterD
   const wanted = direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
   const usable = config.workflows.filter((workflow) => workflow.isActive && workflow.direction === direction);
   return usable.find((workflow) => workflow.id === wanted) ?? usable.find((workflow) => workflow.isDefault);
+}
+
+/** Nhãn các ô của quy trình: ô đầu, các bước ở giữa, ô cuối (tên đổi được theo quy trình). */
+export function flowLabels(
+  workflow: Pick<Workflow, 'steps'> & { readonly startName?: string; readonly endName?: string },
+  direction: LetterDirection,
+): string[] {
+  return [
+    workflow.startName?.trim() || FLOW_START_NAMES[direction],
+    ...workflow.steps.map((step) => step.name.trim() || STEP_TYPE_LABELS[stepTypeOf(step)]),
+    workflow.endName?.trim() || FLOW_END_NAMES[direction],
+  ];
+}
+
+export interface UpcomingStep {
+  readonly type: StepType;
+  readonly name: string;
+}
+
+/**
+ * Bước kế tiếp sau thao tác người xem đang làm. Còn ở ô đầu thì là bước đầu của quy trình sẽ áp
+ * dụng (theo loại văn bản đang chọn); đang ở một bước thì là ô sau nó trên thanh tiến trình. Hết
+ * bước (sang ô cuối) thì `undefined`.
+ */
+export function upcomingStep(
+  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'>,
+  config: CorrespondenceConfig,
+  kind?: string,
+): UpcomingStep | undefined {
+  if (letter.stage === 'received' || letter.stage === 'drafting') {
+    const first = plannedWorkflow(config, letter.direction, kind ?? letter.kind)?.steps[0];
+    return first ? { type: stepTypeOf(first), name: first.name } : undefined;
+  }
+  const at = letter.flow.findIndex((node) => node.state === 'current');
+  const next = at >= 0 ? letter.flow[at + 1] : undefined;
+  if (!next || next.kind === 'start' || next.kind === 'end' || next.kind === 'revoke') return undefined;
+  return { type: next.kind, name: next.label };
+}
+
+/** Ô liền trước ô đang làm trên thanh tiến trình (nơi "Bước trước" trả về). */
+export function previousNode(letter: Pick<LetterDetail, 'flow'>): FlowNode | undefined {
+  const at = letter.flow.findIndex((node) => node.state === 'current');
+  return at > 0 ? letter.flow[at - 1] : undefined;
 }
 
 export function stageLabel(stage: LetterStage): string {

@@ -12,7 +12,12 @@ import { PostgresCorrespondenceStore } from './postgres-correspondence-store.js'
 const integration = process.env.CORRESPONDENCE_TEST_ADMIN_URL ? describe : describe.skip;
 
 const TENANT = 'tenant-1';
-const MIGRATIONS = ['0001-correspondence.sql', '0002-incoming-outgoing-flows.sql', '0003-revoke-and-delete.sql'].map((file) =>
+const MIGRATIONS = [
+  '0001-correspondence.sql',
+  '0002-incoming-outgoing-flows.sql',
+  '0003-revoke-and-delete.sql',
+  '0004-dynamic-workflow-steps.sql',
+].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
 
@@ -72,7 +77,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
     }
   }, 60_000);
 
-  it('migration 0002, 0003 chạy lại được; mỗi luồng một quy trình mặc định, bước không còn bước chỉ đạo', async () => {
+  it('migration 0002 tới 0004 chạy lại được; mỗi luồng một quy trình mặc định, bước cứng cũ thành bước đầu', async () => {
     // Lỗi giữa chừng lúc deploy thì migrator chạy lại đúng file đó.
     await migrate(pool, MIGRATIONS.slice(1));
     expect(await store.tablesReady(TENANT)).toBe(true);
@@ -81,8 +86,14 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const workflows = await store.workflows(TENANT);
     expect(workflows.filter((item) => item.isDefault).map((item) => item.direction)).toEqual(['incoming', 'outgoing']);
     const incoming = workflows.find((item) => item.isDefault && item.direction === 'incoming');
-    expect(incoming?.steps.map((step) => step.approver.type)).toEqual(['handling_unit_heads', 'choose']);
-    expect(incoming?.steps[0]).not.toHaveProperty('kind');
+    expect(incoming?.steps.map((step) => [step.type, step.approver?.type])).toEqual([
+      ['process', undefined],
+      ['approve', 'handling_unit_heads'],
+      ['approve', 'choose'],
+    ]);
+    expect(incoming?.steps[1]).not.toHaveProperty('kind');
+    const outgoing = workflows.find((item) => item.isDefault && item.direction === 'outgoing');
+    expect(outgoing?.steps.map((step) => step.type)).toEqual(['check', 'approve', 'approve']);
     expect(await store.leaders(TENANT)).toEqual([{ userId: leader, name: 'Lãnh đạo' }]);
   });
 
@@ -261,6 +272,8 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const outgoing = await store.saveWorkflow(TENANT, clerk, undefined, {
       name: 'Đi nhanh',
       description: null,
+      startName: null,
+      endName: 'Ban hành ngay',
       direction: 'outgoing',
       isActive: true,
       isDefault: true,
@@ -271,6 +284,153 @@ integration('Sổ công văn (PostgreSQL)', () => {
       ['incoming', 'c0000000-0000-4000-8000-000000000001'],
       ['outgoing', outgoing.id],
     ]);
-    expect(outgoing.steps[0]).toMatchObject({ rejectTo: 'clerk' });
+    expect(outgoing).toMatchObject({ startName: undefined, endName: 'Ban hành ngay' });
+    expect(outgoing.steps[0]).toMatchObject({ type: 'approve', rejectTo: 'clerk' });
+  });
+});
+
+/**
+ * Nâng cấp lên quy trình động trên dữ liệu thật của luồng cũ: quy trình chỉ có bước duyệt, công văn
+ * đến đang chờ phòng ban, công văn đi đang chờ văn thư kiểm tra (chưa chép bước), công văn đi đã
+ * ban hành. Sau 0004 chúng chạy tiếp được theo luồng mới, chạy lại 0004 không đổi gì thêm.
+ */
+integration('Nâng cấp quy trình động (migration 0004)', () => {
+  const databaseName = 'correspondence_test_' + randomUUID().replace(/-/g, '');
+  const clerk = randomUUID();
+  const leader = randomUUID();
+  const author = randomUUID();
+  let admin: ReturnType<typeof createPostgresPool>;
+  let pool: Pool;
+  let store: PostgresCorrespondenceStore;
+
+  beforeAll(async () => {
+    const url = new URL(process.env.CORRESPONDENCE_TEST_ADMIN_URL as string);
+    if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('Only local disposable PostgreSQL is allowed');
+    admin = createPostgresPool(url.toString());
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    url.pathname = '/' + databaseName;
+    pool = createPostgresPool(url.toString()) as unknown as Pool;
+    await pool.query(`
+      CREATE SCHEMA core_schema;
+      CREATE TABLE core_schema.users (id UUID PRIMARY KEY, full_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+        is_active BOOLEAN NOT NULL DEFAULT true);
+      CREATE TABLE core_schema.user_roles (user_id UUID, role_id UUID);
+      CREATE TABLE core_schema.role_permissions (role_id UUID, permission_id UUID);
+      CREATE TABLE core_schema.permission_actions (permission_id UUID, action_key TEXT);
+      CREATE TABLE core_schema.user_permission_grants (user_id UUID, action_key TEXT);
+      CREATE SCHEMA integration_schema;
+      CREATE TABLE integration_schema.outbox_events (id uuid PRIMARY KEY, aggregate_type varchar(100) NOT NULL,
+        aggregate_id varchar(160) NOT NULL, event_type varchar(160) NOT NULL, event_version integer NOT NULL,
+        payload jsonb NOT NULL, occurred_at timestamptz NOT NULL);`);
+    await migrate(pool, MIGRATIONS.slice(0, 3));
+    store = new PostgresCorrespondenceStore(
+      { require: () => ({}) } as unknown as TenantDatabaseRegistry,
+      { forTenant: async () => pool } as unknown as PostgresPoolRegistry,
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    if (admin) {
+      if (!/^correspondence_test_[a-f0-9]{32}$/.test(databaseName)) throw new Error('Invalid test database');
+      await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      await admin.end();
+    }
+  }, 60_000);
+
+  async function legacyLetter(direction: 'incoming' | 'outgoing', stage: string, seq: number): Promise<string> {
+    const result = await pool.query<{ id: string }>(
+      `INSERT INTO correspondence_schema.letters (direction, year, seq, incoming_no, received_on, sender_org, subject, kind,
+                                                  urgency, confidentiality, stage, received_by, author_user_id)
+       VALUES ($1, 2026, $2, $3, '2026-11-10', 'Sở', 'Công văn cũ', 'finance', 'normal', 'normal', $4, $5, $6) RETURNING id`,
+      [direction, seq, `${seq}/X`, stage, clerk, direction === 'outgoing' ? author : null],
+    );
+    return result.rows[0].id;
+  }
+  async function legacySteps(letterId: string, statuses: readonly string[]): Promise<void> {
+    for (const [index, status] of statuses.entries()) {
+      await pool.query(
+        `INSERT INTO correspondence_schema.letter_steps (letter_id, seq, name, kind, approver, status, acted_by)
+         VALUES ($1, $2, $3, 'approve', '{"type": "handling_unit_heads"}', $4, $5)`,
+        [letterId, index + 1, `Duyệt ${index + 1}`, status, status === 'done' ? leader : null],
+      );
+    }
+  }
+  async function history(letterId: string, action: string): Promise<void> {
+    await pool.query(
+      `INSERT INTO correspondence_schema.history (letter_id, action, summary, actor_user_id) VALUES ($1, $2, $2, $3)`,
+      [letterId, action, clerk],
+    );
+  }
+
+  it('công văn đang chạy dở có thêm bước cứng cũ đúng vị trí, chạy tiếp được; chạy lại không đổi', async () => {
+    // Công văn đến đang chờ phòng ban (đã chép hai bước duyệt lúc giao).
+    const processing = await legacyLetter('incoming', 'processing', 1);
+    await legacySteps(processing, ['waiting', 'waiting']);
+    await history(processing, 'dispatch');
+    await pool.query(
+      `INSERT INTO correspondence_schema.assignments (letter_id, unit_id, unit_name, status) VALUES ($1, $2, 'Phòng Kế toán', 'pending')`,
+      [processing, randomUUID()],
+    );
+    // Công văn đến đang ở bước duyệt thứ hai.
+    const reviewing = await legacyLetter('incoming', 'reviewing', 2);
+    await legacySteps(reviewing, ['done', 'active']);
+    await history(reviewing, 'dispatch');
+    // Công văn đi đang chờ văn thư kiểm tra: luồng cũ chưa chép bước.
+    const checking = await legacyLetter('outgoing', 'checking', 1);
+    // Công văn đi đã ban hành.
+    const archived = await legacyLetter('outgoing', 'archived', 2);
+    await legacySteps(archived, ['done', 'done']);
+    await history(archived, 'submit');
+    // Công văn đến mới tiếp nhận: chưa chuyển bước, không đụng tới.
+    const received = await legacyLetter('incoming', 'received', 3);
+
+    await migrate(pool, MIGRATIONS.slice(3));
+    const snapshot = async () => ({
+      processing: (await store.steps(TENANT, processing)).map((step) => [step.seq, step.kind, step.status]),
+      reviewing: (await store.steps(TENANT, reviewing)).map((step) => [step.seq, step.kind, step.status]),
+      checking: (await store.steps(TENANT, checking)).map((step) => [step.seq, step.kind, step.status, step.name]),
+      archived: (await store.steps(TENANT, archived)).map((step) => [step.seq, step.kind, step.status]),
+      received: (await store.steps(TENANT, received)).length,
+    });
+    const after = await snapshot();
+    expect(after).toEqual({
+      processing: [
+        [1, 'process', 'active'],
+        [2, 'approve', 'waiting'],
+        [3, 'approve', 'waiting'],
+      ],
+      reviewing: [
+        [1, 'process', 'done'],
+        [2, 'approve', 'done'],
+        [3, 'approve', 'active'],
+      ],
+      checking: [
+        [1, 'check', 'active', 'Văn thư kiểm tra'],
+        [2, 'approve', 'waiting', 'Trưởng phòng soạn thảo duyệt'],
+        [3, 'approve', 'waiting', 'Lãnh đạo duyệt ban hành'],
+      ],
+      archived: [
+        [1, 'check', 'done'],
+        [2, 'approve', 'done'],
+        [3, 'approve', 'done'],
+      ],
+      received: 0,
+    });
+    expect(await store.findLetter(TENANT, checking)).toMatchObject({ workflowName: 'Duyệt công văn đi' });
+    // Bước cứng không có luật người duyệt; bước duyệt giữ luật cũ.
+    const [processStep, approveStep] = await store.steps(TENANT, processing);
+    expect(processStep.approver).toBeUndefined();
+    expect(approveStep.approver).toEqual({ type: 'handling_unit_heads' });
+
+    // Chạy lại (lỗi giữa chừng lúc deploy): không thêm bước lần nữa.
+    await migrate(pool, MIGRATIONS.slice(3));
+    expect(await snapshot()).toEqual(after);
+    const workflows = await store.workflows(TENANT);
+    expect(workflows.find((item) => item.direction === 'incoming' && item.isDefault)?.steps.map((step) => step.type)).toEqual([
+      'process',
+      'approve',
+      'approve',
+    ]);
   });
 });

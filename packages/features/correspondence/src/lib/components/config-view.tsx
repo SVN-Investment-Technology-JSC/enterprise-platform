@@ -4,8 +4,13 @@ import {
   APPROVER_RULE_LABELS,
   CATALOG_KINDS,
   CATALOG_KIND_LABELS,
+  FLOW_END_NAMES,
+  FLOW_START_NAMES,
   LETTER_DIRECTIONS,
+  MAX_WORKFLOW_STEPS,
   RETURN_TARGETS,
+  STEP_TYPES,
+  STEP_TYPE_LABELS,
   returnTargetLabel,
   type ApproverRule,
   type ApproverRuleType,
@@ -15,6 +20,7 @@ import {
   type CorrespondenceDirectory,
   type LetterDirection,
   type ReturnTarget,
+  type StepType,
   type Workflow,
   type WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -22,6 +28,7 @@ import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared
 import { ArrowDown, ArrowRight, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { deleteCatalogItem, deleteWorkflow, errorMessage, saveCatalogItem, saveWorkflow } from '../correspondence-api';
+import { flowLabels } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 import { SettingsView } from './settings-view';
@@ -355,9 +362,15 @@ function CatalogDialog({
 
 const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
   incoming:
-    'Công văn đến: Văn thư tiếp nhận → Phòng ban xử lý → các bước duyệt dưới đây → Văn thư hoàn tất, lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
+    'Công văn đến bắt đầu ở văn thư tiếp nhận, kết thúc ở văn thư hoàn tất, lưu trữ. Các bước ở giữa (phòng ban xử lý, văn thư kiểm tra, duyệt) thêm, bớt, đổi thứ tự tuỳ quy trình.',
   outgoing:
-    'Công văn đi: Phòng ban soạn thảo → Văn thư kiểm tra → các bước duyệt dưới đây → Văn thư đánh số, ban hành, lưu trữ. Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định.',
+    'Công văn đi bắt đầu ở phòng ban soạn thảo, kết thúc ở văn thư đánh số, ban hành, lưu trữ. Các bước ở giữa (văn thư kiểm tra, duyệt, phòng ban xử lý) thêm, bớt, đổi thứ tự tuỳ quy trình.',
+};
+
+const STEP_TYPE_HELP: Readonly<Record<StepType, string>> = {
+  process: 'Người làm bước liền trước chọn phòng ban; phòng ban gửi đủ kết quả là sang bước sau.',
+  check: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư kiểm tra, đạt thì chuyển tiếp.',
+  approve: 'Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
 };
 
 function WorkflowManager({
@@ -386,13 +399,14 @@ function WorkflowManager({
         return (
           <section key={direction} className={styles.card}>
             <div className={styles.cardHead}>
-              <h2>Quy trình duyệt {direction === 'incoming' ? 'công văn đến' : 'công văn đi'}</h2>
+              <h2>Quy trình {direction === 'incoming' ? 'công văn đến' : 'công văn đi'}</h2>
               <button type="button" className={styles.buttonSmall} onClick={() => setEditing({ direction })}>
                 <Plus size={13} /> Thêm quy trình
               </button>
             </div>
             <p className={styles.sectionNote}>
-              {DIRECTION_HELP[direction]} Sửa quy trình không đổi công văn đã trình.
+              {DIRECTION_HELP[direction]} Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định. Sửa quy trình không
+              đổi công văn đã chuyển bước.
             </p>
             <div className={styles.list}>
               {items.length === 0 ? <p className={styles.muted}>Chưa có quy trình nào.</p> : null}
@@ -403,15 +417,11 @@ function WorkflowManager({
                     {workflow.isDefault ? <span className={`${styles.tag} ${styles['tone-info']}`}>Mặc định</span> : null}{' '}
                     {!workflow.isActive ? <span className={`${styles.tag} ${styles['tone-muted']}`}>Ngừng dùng</span> : null}
                     <div className={styles.stepChips}>
-                      {workflow.steps.length === 0 ? (
-                        <span className={styles.muted}>Không cần duyệt</span>
-                      ) : (
-                        workflow.steps.map((step, index) => (
-                          <span key={step.key} className={styles.stepChip}>
-                            {index + 1}. {step.name}
-                          </span>
-                        ))
-                      )}
+                      {flowLabels(workflow, direction).map((label, index, all) => (
+                        <span key={`${index}-${label}`} className={index === 0 || index === all.length - 1 ? styles.stepChipFixed : styles.stepChip}>
+                          {label}
+                        </span>
+                      ))}
                     </div>
                     {workflow.description ? <p>{workflow.description}</p> : null}
                   </div>
@@ -458,12 +468,25 @@ function WorkflowManager({
 
 const RULE_TYPES: readonly ApproverRuleType[] = ['choose', 'users', 'positions', 'unit_heads', 'handling_unit_heads'];
 
-function blankStep(index: number, direction: LetterDirection): WorkflowStep {
-  return {
-    key: `step-${Date.now().toString(36)}-${index}`,
-    name: index === 0 ? (direction === 'incoming' ? 'Trưởng phòng kiểm tra' : 'Trưởng phòng soạn thảo duyệt') : 'Lãnh đạo duyệt',
-    approver: index === 0 ? { type: 'handling_unit_heads' } : { type: 'choose', pool: 'leaders' },
-  };
+function blankStep(type: StepType, index: number): WorkflowStep {
+  const key = `step-${Date.now().toString(36)}-${index}`;
+  if (type !== 'approve') return { key, name: STEP_TYPE_LABELS[type], type };
+  return { key, name: index === 0 ? 'Trưởng phòng duyệt' : 'Lãnh đạo duyệt', type, approver: { type: 'choose', pool: 'leaders' } };
+}
+
+/** Quy trình mới: theo đúng luồng quen thuộc của từng hướng, sửa thêm tuỳ ý. */
+function starterSteps(direction: LetterDirection): WorkflowStep[] {
+  return direction === 'incoming'
+    ? [
+        blankStep('process', 0),
+        { ...blankStep('approve', 1), name: 'Trưởng phòng kiểm tra', approver: { type: 'handling_unit_heads' } },
+        blankStep('approve', 2),
+      ]
+    : [
+        blankStep('check', 0),
+        { ...blankStep('approve', 1), name: 'Trưởng phòng soạn thảo duyệt', approver: { type: 'handling_unit_heads' } },
+        blankStep('approve', 2),
+      ];
 }
 
 function ruleFor(type: ApproverRuleType, current: ApproverRule): ApproverRule {
@@ -501,7 +524,9 @@ function WorkflowDialog({
       description: workflow?.description ?? '',
       isActive: workflow?.isActive ?? true,
       isDefault: workflow?.isDefault ?? false,
-      steps: workflow?.steps ?? [blankStep(0, direction), blankStep(1, direction)],
+      startName: workflow?.startName ?? '',
+      endName: workflow?.endName ?? '',
+      steps: workflow?.steps ?? starterSteps(direction),
     }),
     [workflow, direction],
   );
@@ -532,9 +557,11 @@ function WorkflowDialog({
         direction,
         isActive: form.isActive,
         isDefault: form.isDefault,
+        startName: form.startName.trim() || undefined,
+        endName: form.endName.trim() || undefined,
         steps: form.steps,
       });
-      toast.success('Đã lưu quy trình duyệt.');
+      toast.success('Đã lưu quy trình.');
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause, 'Không lưu được quy trình.'));
@@ -550,15 +577,27 @@ function WorkflowDialog({
     description: [position.unitName, position.holderNames.join(', ') || 'đang trống'].filter(Boolean).join(' · '),
   }));
   const peopleOptions = (directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }));
-  const fixedStart = direction === 'incoming' ? ['Văn thư tiếp nhận', 'Phòng ban xử lý'] : ['Phòng ban soạn thảo', 'Văn thư kiểm tra'];
-  const fixedEnd = direction === 'incoming' ? ['Văn thư hoàn tất, lưu trữ'] : ['Văn thư ban hành, lưu trữ'];
+  const addStep = (type: StepType) =>
+    setForm((current) => ({ ...current, steps: [...current.steps, blankStep(type, current.steps.length)] }));
+  const changeType = (index: number, type: StepType) =>
+    setForm((current) => ({
+      ...current,
+      steps: current.steps.map((step, at) => {
+        if (at !== index || (step.type ?? 'approve') === type) return step;
+        const fresh = blankStep(type, at);
+        // Tên đang là tên mặc định của loại cũ thì đổi theo loại mới; tên tự đặt thì giữ.
+        const defaultName = (Object.values(STEP_TYPE_LABELS) as string[]).includes(step.name) || !step.name;
+        return { ...fresh, key: step.key, name: defaultName ? fresh.name : step.name, dueDays: step.dueDays };
+      }),
+    }));
+  const preview = flowLabels({ startName: form.startName, endName: form.endName, steps: form.steps }, direction);
 
   return (
     <FormDialog
       open
       wide
-      title={`${workflow ? 'Sửa' : 'Thêm'} quy trình duyệt ${direction === 'incoming' ? 'công văn đến' : 'công văn đi'}`}
-      subtitle="Người duyệt mỗi bước lấy theo sơ đồ tổ chức lúc bước bắt đầu. Không đạt thì trả về nơi cấu hình cho bước (mặc định bước trước)."
+      title={`${workflow ? 'Sửa' : 'Thêm'} quy trình ${direction === 'incoming' ? 'công văn đến' : 'công văn đi'}`}
+      subtitle="Ô đầu và ô cuối luôn có; các bước ở giữa thêm, bớt, đổi thứ tự tuỳ ý. Không đạt thì trả về nơi cấu hình cho bước (mặc định bước liền trước)."
       submitLabel="Lưu quy trình"
       submitting={busy}
       submitDisabled={!dirty || !form.name.trim()}
@@ -598,9 +637,27 @@ function WorkflowDialog({
           onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
         />
       </Field>
+      <div className={styles.formRow}>
+        <Field label="Tên ô đầu">
+          <input
+            value={form.startName}
+            maxLength={160}
+            placeholder={FLOW_START_NAMES[direction]}
+            onChange={(event) => setForm((current) => ({ ...current, startName: event.target.value }))}
+          />
+        </Field>
+        <Field label="Tên ô cuối">
+          <input
+            value={form.endName}
+            maxLength={160}
+            placeholder={FLOW_END_NAMES[direction]}
+            onChange={(event) => setForm((current) => ({ ...current, endName: event.target.value }))}
+          />
+        </Field>
+      </div>
       <div className={styles.flowPreview} aria-label="Luồng xử lý">
-        {[...fixedStart, ...form.steps.map((step) => step.name || 'Bước chưa đặt tên'), ...fixedEnd].map((label, index, all) => (
-          <span key={`${index}-${label}`} className={index >= fixedStart.length && index < all.length - fixedEnd.length ? styles.flowPreviewStep : undefined}>
+        {preview.map((label, index, all) => (
+          <span key={`${index}-${label}`} className={index > 0 && index < all.length - 1 ? styles.flowPreviewStep : undefined}>
             {label}
             {index < all.length - 1 ? <ArrowRight size={12} /> : null}
           </span>
@@ -608,14 +665,16 @@ function WorkflowDialog({
       </div>
       {directory?.degraded ? <p className={styles.notice}>Chưa đọc được sơ đồ tổ chức; danh sách phòng ban, chức danh có thể thiếu.</p> : null}
       {form.steps.length === 0 ? (
-        <p className={styles.muted} style={{ margin: 0 }}>
-          Quy trình không có bước duyệt: xử lý xong là chuyển văn thư {direction === 'incoming' ? 'hoàn tất' : 'ban hành'}.
-        </p>
+        <p className={styles.sectionNote}>Chưa có bước nào ở giữa: công văn đi thẳng từ ô đầu tới ô cuối.</p>
       ) : null}
-      {form.steps.map((step, index) => (
+      {form.steps.map((step, index) => {
+        const type = step.type ?? 'approve';
+        return (
         <div key={step.key} className={styles.stepEditor}>
           <div className={styles.stepEditorHead}>
-            <b>Bước duyệt {index + 1}</b>
+            <b>
+              Bước {index + 1} · {STEP_TYPE_LABELS[type]}
+            </b>
             <div className={styles.listActions}>
               <button type="button" className={styles.buttonSmall} aria-label="Lên" disabled={index === 0} onClick={() => move(index, -1)}>
                 <ArrowUp size={13} />
@@ -640,28 +699,46 @@ function WorkflowDialog({
             </div>
           </div>
           <div className={styles.formRow}>
+            <SelectField label="Loại bước" required>
+              <SearchableSelect
+                options={STEP_TYPES.map((value) => ({ value, label: STEP_TYPE_LABELS[value], description: STEP_TYPE_HELP[value] }))}
+                value={type}
+                searchInDropdown
+                hideDropdownSearch
+                onChange={(value) => value && changeType(index, value as StepType)}
+              />
+            </SelectField>
             <Field label="Tên bước" required>
               <input value={step.name} maxLength={160} onChange={(event) => setStep(index, { name: event.target.value })} />
             </Field>
-            <SelectField label="Người duyệt" required>
-              <SearchableSelect
-                options={RULE_TYPES.map((type) => ({ value: type, label: APPROVER_RULE_LABELS[type] }))}
-                value={step.approver.type}
-                searchInDropdown
-                hideDropdownSearch
-                onChange={(value) => value && setStep(index, { approver: ruleFor(value as ApproverRuleType, step.approver) })}
-              />
-            </SelectField>
           </div>
-          <RuleDetail
-            rule={step.approver}
-            direction={direction}
-            unitOptions={unitOptions}
-            positionOptions={positionOptions}
-            peopleOptions={peopleOptions}
-            onChange={(approver) => setStep(index, { approver })}
-          />
+          {type === 'approve' && step.approver ? (
+            <>
+              <SelectField label="Người duyệt" required>
+                <SearchableSelect
+                  options={RULE_TYPES.map((value) => ({ value, label: APPROVER_RULE_LABELS[value] }))}
+                  value={step.approver.type}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) => value && step.approver && setStep(index, { approver: ruleFor(value as ApproverRuleType, step.approver) })}
+                />
+              </SelectField>
+              <RuleDetail
+                rule={step.approver}
+                direction={direction}
+                unitOptions={unitOptions}
+                positionOptions={positionOptions}
+                peopleOptions={peopleOptions}
+                onChange={(approver) => setStep(index, { approver })}
+              />
+            </>
+          ) : (
+            <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+          )}
           <div className={styles.formRow}>
+            {type === 'process' ? (
+              <p className={styles.sectionNote}>Phòng ban trả lại khi không thuộc phạm vi: về bước liền trước.</p>
+            ) : (
             <SelectField label="Không đạt thì trả về">
               <SearchableSelect
                 options={RETURN_TARGETS.map((value) => ({
@@ -669,9 +746,7 @@ function WorkflowDialog({
                   label: returnTargetLabel(value, direction),
                   description:
                     value === 'previous-step'
-                      ? index === 0
-                        ? `Bước đầu: về ${direction === 'incoming' ? 'phòng ban xử lý' : 'văn thư kiểm tra'}`
-                        : `Về "${form.steps[index - 1]?.name ?? 'bước trước'}"`
+                      ? `Về "${index === 0 ? preview[0] : (form.steps[index - 1]?.name ?? 'bước trước')}"`
                       : undefined,
                 }))}
                 value={step.rejectTo ?? 'previous-step'}
@@ -680,6 +755,7 @@ function WorkflowDialog({
                 onChange={(value) => setStep(index, { rejectTo: value === 'previous-step' ? undefined : (value as ReturnTarget) })}
               />
             </SelectField>
+            )}
             <Field label="Số ngày cho bước (để nhắc hạn)">
               <input
                 type="number"
@@ -692,16 +768,14 @@ function WorkflowDialog({
             </Field>
           </div>
         </div>
-      ))}
+        );
+      })}
       <div className={styles.uploadBar}>
-        <button
-          type="button"
-          className={styles.buttonGhost}
-          disabled={form.steps.length >= 10}
-          onClick={() => setForm((current) => ({ ...current, steps: [...current.steps, blankStep(current.steps.length, direction)] }))}
-        >
-          <Plus size={14} /> Thêm bước duyệt
-        </button>
+        {STEP_TYPES.map((value) => (
+          <button key={value} type="button" className={styles.buttonGhost} disabled={form.steps.length >= MAX_WORKFLOW_STEPS} onClick={() => addStep(value)}>
+            <Plus size={14} /> {STEP_TYPE_LABELS[value]}
+          </button>
+        ))}
       </div>
     </FormDialog>
   );

@@ -7,9 +7,16 @@ import { useEffect, useRef } from 'react';
 import { formatDay } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 
+/** Ô chưa tới: ghi loại bước để người xem biết ai sẽ làm. */
+const TODO_HINTS: Partial<Record<FlowNode['kind'], string>> = {
+  approve: 'Bước duyệt',
+  process: 'Phòng ban xử lý',
+  check: 'Văn thư kiểm tra',
+};
+
 /**
- * Thanh tiến trình của công văn, dựng đúng theo quy trình cấu hình: các bước cố định của luồng
- * xen các bước duyệt. Mỗi ô ghi người đã làm / đang được giao / sẽ làm, và lúc xong. Nhiều
+ * Thanh tiến trình của công văn, dựng đúng theo quy trình cấu hình: ô đầu, các bước ở giữa theo
+ * thứ tự cấu hình, ô cuối. Mỗi ô ghi người đã làm / đang được giao / sẽ làm, và lúc xong. Nhiều
  * bước thì cuộn ngang, ô đang làm luôn được cuộn tới cho thấy.
  */
 export function FlowStepper({
@@ -38,7 +45,8 @@ export function FlowStepper({
         <span>Tiến trình xử lý</span>
         <span className={styles.muted}>
           {workflowName ? `Quy trình: ${workflowName}` : 'Theo cấu hình'}
-          {approvals === 0 ? ' · không có bước duyệt' : ` · ${approvals} bước duyệt`}
+          {` · ${nodes.length} bước`}
+          {approvals === 0 ? ', không có bước duyệt' : `, ${approvals} bước duyệt`}
         </span>
       </div>
       <ol ref={track} className={styles.flowTrack}>
@@ -74,9 +82,7 @@ export function FlowStepper({
                       : formatDay(node.at)
                     : state === 'done'
                       ? 'Đã xong'
-                      : node.approval
-                        ? 'Bước duyệt'
-                        : ' '}
+                      : (TODO_HINTS[node.kind] ?? ' ')}
               </span>
             </li>
           );

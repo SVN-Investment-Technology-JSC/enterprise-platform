@@ -89,10 +89,12 @@ const organization: OrganizationSnapshot = {
 };
 
 const INCOMING_STEPS: WorkflowStep[] = [
+  { key: 'dept-process', name: 'Phòng ban xử lý', type: 'process' },
   { key: 'unit-check', name: 'Trưởng phòng kiểm tra', approver: { type: 'handling_unit_heads' } },
   { key: 'sign', name: 'Lãnh đạo xem xét', approver: { type: 'choose', pool: 'leaders' } },
 ];
 const OUTGOING_STEPS: WorkflowStep[] = [
+  { key: 'clerk-check', name: 'Văn thư kiểm tra', type: 'check' },
   { key: 'unit-head', name: 'Trưởng phòng soạn thảo duyệt', approver: { type: 'handling_unit_heads' } },
   { key: 'sign', name: 'Lãnh đạo duyệt ban hành', approver: { type: 'users', userIds: ['u-leader'] }, rejectTo: 'handlers' },
 ];
@@ -130,9 +132,9 @@ function fakeStore() {
   let catalog = catalogSeed();
   const workflows: Workflow[] = [
     { id: 'wf-in', name: 'Xem xét công văn đến', direction: 'incoming', isActive: true, isDefault: true, steps: INCOMING_STEPS, updatedAt: TODAY },
-    { id: 'wf-none', name: 'Không cần duyệt', direction: 'incoming', isActive: true, isDefault: false, steps: [], updatedAt: TODAY },
+    { id: 'wf-none', name: 'Không cần duyệt', direction: 'incoming', isActive: true, isDefault: false, steps: [INCOMING_STEPS[0]], updatedAt: TODAY },
     { id: 'wf-out', name: 'Duyệt công văn đi', direction: 'outgoing', isActive: true, isDefault: true, steps: OUTGOING_STEPS, updatedAt: TODAY },
-    { id: 'wf-out-none', name: 'Ban hành ngay', direction: 'outgoing', isActive: true, isDefault: false, steps: [], updatedAt: TODAY },
+    { id: 'wf-out-none', name: 'Ban hành ngay', direction: 'outgoing', isActive: true, isDefault: false, steps: [OUTGOING_STEPS[0]], updatedAt: TODAY },
   ];
   let settings: CorrespondenceSettings = DEFAULT_CORRESPONDENCE_SETTINGS;
   let sequence = 0;
@@ -178,6 +180,7 @@ function fakeStore() {
           letterId,
           seq: index + 1,
           name: step.name,
+          kind: step.type ?? 'approve',
           approver: step.approver,
           rejectTo: step.rejectTo,
           status: 'waiting',
@@ -292,7 +295,14 @@ function fakeStore() {
           if (item.direction === input.direction) workflows[index] = { ...item, isDefault: false };
         });
       }
-      const saved: Workflow = { ...input, id: workflowId ?? id('wf'), description: input.description ?? undefined, updatedAt: TODAY };
+      const saved: Workflow = {
+        ...input,
+        id: workflowId ?? id('wf'),
+        description: input.description ?? undefined,
+        startName: input.startName ?? undefined,
+        endName: input.endName ?? undefined,
+        updatedAt: TODAY,
+      };
       const index = workflows.findIndex((item) => item.id === saved.id);
       if (index >= 0) workflows[index] = saved;
       else workflows.push(saved);
@@ -620,7 +630,7 @@ describe('Công văn đến – duyệt, không đạt, hoàn tất', () => {
     await expect(service.returnLetter(leader, letter.id, { target: 'previous-step', reason: '' })).rejects.toThrow('Lý do không được để trống.');
     const back = await service.returnLetter(leader, letter.id, { target: 'previous-step', reason: 'Bổ sung bảng đối chiếu.' });
     expect(back).toMatchObject({ stage: 'reviewing', currentStepName: 'Trưởng phòng kiểm tra' });
-    expect(back.steps[1]).toMatchObject({ status: 'waiting', decision: 'returned', note: 'Bổ sung bảng đối chiếu.' });
+    expect(back.steps[2]).toMatchObject({ status: 'waiting', decision: 'returned', note: 'Bổ sung bảng đối chiếu.' });
     expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.returned, payload: { reason: 'Bổ sung bảng đối chiếu.' } });
     expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(['u-fin-head', 'u-legal-head']);
     // Người trả lại vẫn xem được công văn.
@@ -640,7 +650,12 @@ describe('Công văn đến – duyệt, không đạt, hoàn tất', () => {
     });
     expect(back).toMatchObject({ stage: 'processing', assignmentsDone: 1 });
     expect(back.assignments[1]).toMatchObject({ status: 'pending', round: 2, revisionReason: 'Thiếu căn cứ pháp lý.' });
-    expect(back.steps.every((step) => step.status === 'waiting')).toBe(true);
+    // Bước phòng ban xử lý chạy lại; các bước duyệt sau nó chờ phòng ban gửi lại kết quả.
+    expect(back.steps.map((step) => [step.type, step.status])).toEqual([
+      ['process', 'active'],
+      ['approve', 'waiting'],
+      ['approve', 'waiting'],
+    ]);
     const resent = await service.respond(lawyer, letter.id, legal.id, { note: 'Đã bổ sung.' });
     expect(resent).toMatchObject({ stage: 'reviewing', currentStepName: 'Trưởng phòng kiểm tra' });
   });
@@ -802,7 +817,7 @@ describe('Trao đổi, huỷ, quyền xem', () => {
     await expect(service.cancel(financeHead, letter.id, { reason: 'x' })).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
     const cancelled = await service.cancel(clerk, letter.id, { reason: 'Cơ quan gửi đã thu hồi.' });
     expect(cancelled).toMatchObject({ stage: 'cancelled', cancelReason: 'Cơ quan gửi đã thu hồi.' });
-    expect(cancelled.steps.every((step) => step.status === 'skipped')).toBe(true);
+    expect(cancelled.steps.map((step) => step.status)).toEqual(['done', 'skipped', 'skipped']);
     expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-accountant', 'u-lawyer', 'u-fin-head', 'u-legal-head']));
     expect(cancelled.actions).toMatchObject({ approve: false, cancel: false, comment: false, returnTargets: [] });
     await expect(service.approve(financeHead, letter.id, {})).rejects.toBeInstanceOf(LetterStageConflictError);
@@ -923,6 +938,108 @@ describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
     expect((await service.list(clerk, { box: 'outgoing' })).map((item) => item.id)).not.toContain(letter.id);
     expect(trashed).toEqual(['doc-1']);
     await expect(service.remove(clerk, letter.id)).rejects.toBeInstanceOf(LetterNotFoundError);
+  });
+});
+
+describe('Quy trình động: các bước giữa cấu hình tự do', () => {
+  it('công văn đến: lãnh đạo chỉ đạo chọn phòng ban, phòng ban xử lý, trưởng phòng duyệt, văn thư rà soát', async () => {
+    const { service } = setup();
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Lãnh đạo chỉ đạo trước',
+      direction: 'incoming',
+      isDefault: true,
+      startName: 'Văn thư vào sổ',
+      endName: 'Lưu hồ sơ',
+      steps: [
+        { key: 'direct', name: 'Lãnh đạo chỉ đạo', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } },
+        { key: 'process', name: 'Phòng ban xử lý', type: 'process' },
+        { key: 'head', name: 'Trưởng phòng kiểm tra', type: 'approve', approver: { type: 'handling_unit_heads' } },
+        { key: 'review', name: 'Văn thư rà soát', type: 'check' },
+      ],
+    });
+    const letter = await service.create(clerk, intake);
+    expect(letter.flow.map((node) => [node.kind, node.label])).toEqual([
+      ['start', 'Văn thư vào sổ'],
+      ['approve', 'Lãnh đạo chỉ đạo'],
+      ['process', 'Phòng ban xử lý'],
+      ['approve', 'Trưởng phòng kiểm tra'],
+      ['check', 'Văn thư rà soát'],
+      ['end', 'Lưu hồ sơ'],
+    ]);
+    // Bước đầu là duyệt: văn thư không phải chọn phòng ban.
+    const directing = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal' });
+    expect(directing).toMatchObject({ stage: 'reviewing', currentStepName: 'Lãnh đạo chỉ đạo', currentAssigneeNames: ['Nguyễn Văn An'] });
+    // Bước sau là phòng ban xử lý: lãnh đạo chọn phòng, ý kiến là chỉ đạo.
+    await expect(service.approve(leader, letter.id, {})).rejects.toThrow('Chọn phòng ban xử lý cho bước "Phòng ban xử lý".');
+    const processing = await service.approve(leader, letter.id, { note: 'Kế toán làm giải trình.', units: [{ unitId: 'unit-finance' }] });
+    expect(processing).toMatchObject({ stage: 'processing', instruction: 'Kế toán làm giải trình.' });
+    expect(processing.assignments.map((item) => item.unitName)).toEqual(['Phòng Kế toán']);
+    const headStep = await service.respond(accountant, letter.id, processing.assignments[0].id, { note: 'Đã giải trình.' });
+    expect(headStep).toMatchObject({ stage: 'reviewing', currentStepName: 'Trưởng phòng kiểm tra', currentAssigneeNames: ['KTT'] });
+    const checking = await service.approve(financeHead, letter.id, {});
+    expect(checking).toMatchObject({ stage: 'checking', stageLabel: 'Văn thư rà soát' });
+    const clerkView = await service.detail(clerk, letter.id);
+    expect(clerkView.actions).toMatchObject({ submit: true, defaultReturnTarget: 'previous-step' });
+    // Văn thư trả lại bước liền trước (trưởng phòng), trưởng phòng duyệt lại.
+    const back = await service.returnLetter(clerk, letter.id, { target: 'previous-step', reason: 'Thiếu chữ ký nháy.' });
+    expect(back).toMatchObject({ stage: 'reviewing', currentStepName: 'Trưởng phòng kiểm tra' });
+    await service.approve(financeHead, letter.id, {});
+    const closing = await service.submit(clerk, letter.id, {});
+    expect(closing.stage).toBe('closing');
+    expect(closing.flow.map((node) => node.state)).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
+  });
+
+  it('công văn đi: lãnh đạo duyệt trước, văn thư kiểm tra sau rồi ban hành', async () => {
+    const { service } = setup();
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Duyệt trước, kiểm tra sau',
+      direction: 'outgoing',
+      isDefault: true,
+      steps: [
+        { key: 'sign', name: 'Lãnh đạo duyệt', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } },
+        { key: 'check', name: 'Văn thư kiểm tra thể thức', type: 'check' },
+      ],
+    });
+    const draft = await service.createOutgoing(accountant, { subject: 'Báo cáo quý', recipient: 'Sở', kind: 'finance' });
+    const sent = await service.sendToClerk(accountant, draft.id, {});
+    expect(sent).toMatchObject({ stage: 'reviewing', currentStepName: 'Lãnh đạo duyệt' });
+    const checking = await service.approve(leader, draft.id, {});
+    expect(checking.stage).toBe('checking');
+    // Văn thư trả người soạn thì quy trình chạy lại từ đầu.
+    expect((await service.detail(clerk, draft.id)).actions.returnTargets).toEqual(['previous-step', 'handlers']);
+    const ready = await service.submit(clerk, draft.id, {});
+    expect(ready.stage).toBe('publishing');
+  });
+
+  it('cấu hình bước: loại bước, bước duyệt phải có người duyệt, không để hai bước phòng ban liền nhau', async () => {
+    const { service } = setup();
+    const saved = await service.saveWorkflow(configurer, undefined, {
+      name: 'Đủ loại',
+      direction: 'incoming',
+      steps: [
+        { key: 'p', name: '', type: 'process' } as never,
+        { key: 'c', name: 'Văn thư soát', type: 'check', approver: { type: 'users', userIds: ['u'] } } as never,
+        { key: 'a', name: 'Duyệt', approver: { type: 'users', userIds: ['u-leader'] } },
+      ],
+    });
+    expect(saved.steps.map((step) => [step.type, step.name, Boolean(step.approver)])).toEqual([
+      ['process', 'Phòng ban xử lý', false],
+      ['check', 'Văn thư soát', false],
+      ['approve', 'Duyệt', true],
+    ]);
+    await expect(
+      service.saveWorkflow(configurer, undefined, {
+        name: 'Sai',
+        direction: 'incoming',
+        steps: [
+          { key: 'p1', name: 'Phòng ban A', type: 'process' },
+          { key: 'p2', name: 'Phòng ban B', type: 'process' },
+        ],
+      }),
+    ).rejects.toThrow('đều là phòng ban xử lý, đứng liền nhau');
+    await expect(
+      service.saveWorkflow(configurer, undefined, { name: 'Thiếu', direction: 'incoming', steps: [{ key: 'a', name: 'Duyệt', type: 'approve' }] }),
+    ).rejects.toThrow('chưa chọn cách xác định người duyệt');
   });
 });
 
@@ -1154,6 +1271,6 @@ describe('flowOf', () => {
       { seq: 1, name: 'A', status: 'done' },
       { seq: 2, name: 'B', status: 'skipped' },
     ]);
-    expect(nodes.map((node) => node.state)).toEqual(['done', 'todo', 'done', 'todo', 'todo']);
+    expect(nodes.map((node) => node.state)).toEqual(['done', 'done', 'todo', 'todo']);
   });
 });

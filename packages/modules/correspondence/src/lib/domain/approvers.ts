@@ -1,7 +1,10 @@
 import {
   MAX_WORKFLOW_STEPS,
   RETURN_TARGETS,
+  STEP_TYPES,
+  STEP_TYPE_LABELS,
   type ApproverRule,
+  type StepType,
   type ReturnTarget,
   type WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -79,18 +82,26 @@ export function resolveAssignees(rule: ApproverRule, context: ApproverContext): 
 export function normalizeSteps(input: unknown): WorkflowStep[] {
   if (!Array.isArray(input)) throw new CorrespondenceValidationError('Danh sách bước duyệt không hợp lệ.');
   if (input.length > MAX_WORKFLOW_STEPS) {
-    throw new CorrespondenceValidationError(`Quy trình tối đa ${MAX_WORKFLOW_STEPS} bước duyệt.`);
+    throw new CorrespondenceValidationError(`Quy trình tối đa ${MAX_WORKFLOW_STEPS} bước.`);
   }
   const steps = input.map((raw, index) => normalizeStep(raw, index));
   if (new Set(steps.map((step) => step.key)).size !== steps.length) {
     throw new CorrespondenceValidationError('Mã các bước không được trùng nhau.');
+  }
+  // Phòng ban của bước "phòng ban xử lý" do người làm bước liền trước chọn; hai bước liền nhau thì không ai chọn.
+  const doubled = steps.findIndex((step, index) => index > 0 && step.type === 'process' && steps[index - 1].type === 'process');
+  if (doubled > 0) {
+    throw new CorrespondenceValidationError(
+      `Bước "${steps[doubled - 1].name}" và "${steps[doubled].name}" đều là phòng ban xử lý, đứng liền nhau. Gộp thành một bước hoặc đặt một bước khác ở giữa.`,
+    );
   }
   return steps;
 }
 
 function normalizeStep(raw: unknown, index: number): WorkflowStep {
   const value = (raw ?? {}) as Record<string, unknown>;
-  const name = String(value['name'] ?? '').trim();
+  const typed = (STEP_TYPES as readonly unknown[]).includes(value['type']) ? (value['type'] as StepType) : 'approve';
+  const name = String(value['name'] ?? '').trim() || (typed === 'approve' ? '' : STEP_TYPE_LABELS[typed]);
   if (!name) throw new CorrespondenceValidationError(`Bước ${index + 1} chưa có tên.`);
   if (name.length > 160) throw new CorrespondenceValidationError(`Tên bước ${index + 1} dài quá 160 ký tự.`);
   const key = (String(value['key'] ?? '').trim() || `step-${index + 1}`).slice(0, 60);
@@ -99,6 +110,9 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
   if (dueDays !== undefined && (!Number.isInteger(dueDays) || dueDays < 0 || dueDays > 365)) {
     throw new CorrespondenceValidationError(`Số ngày của bước "${name}" phải từ 0 đến 365.`);
   }
+  const rawType = value['type'] ?? 'approve';
+  if (!(STEP_TYPES as readonly unknown[]).includes(rawType)) throw new CorrespondenceValidationError(`Bước "${name}": loại bước không hợp lệ.`);
+  const type = rawType as StepType;
   const rejectTo = value['rejectTo'];
   if (rejectTo !== undefined && rejectTo !== null && rejectTo !== '' && !(RETURN_TARGETS as readonly unknown[]).includes(rejectTo)) {
     throw new CorrespondenceValidationError(`Bước "${name}": nơi trả về khi không đạt không hợp lệ.`);
@@ -106,8 +120,10 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
   return {
     key,
     name,
-    approver: normalizeRule(value['approver'], name),
-    ...(rejectTo ? { rejectTo: rejectTo as ReturnTarget } : {}),
+    type,
+    // Chỉ bước duyệt có luật người duyệt; phòng ban do người làm bước trước chọn, văn thư theo cấu hình người làm văn thư.
+    ...(type === 'approve' ? { approver: normalizeRule(value['approver'], name) } : {}),
+    ...(rejectTo && type !== 'process' ? { rejectTo: rejectTo as ReturnTarget } : {}),
     ...(dueDays !== undefined ? { dueDays } : {}),
   };
 }

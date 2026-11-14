@@ -15,6 +15,7 @@ import type {
   LetterStepStatus,
   ReturnTarget,
   RevokeKind,
+  StepType,
   Workflow,
   WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -102,7 +103,10 @@ export interface StepRecord {
   readonly id: string;
   readonly seq: number;
   readonly name: string;
-  readonly approver: ApproverRule;
+  /** Phòng ban xử lý, văn thư kiểm tra hay duyệt. */
+  readonly kind: StepType;
+  /** Luật người duyệt; chỉ bước duyệt có. */
+  readonly approver?: ApproverRule;
   readonly rejectTo?: ReturnTarget;
   readonly dueDays?: number;
   readonly status: LetterStepStatus;
@@ -165,7 +169,7 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
+  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
   readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
   readonly mentionedUserIds: readonly string[];
 }
@@ -297,6 +301,8 @@ export interface WorkflowUpsert {
   readonly direction: LetterDirection;
   readonly isActive: boolean;
   readonly isDefault: boolean;
+  readonly startName: string | null;
+  readonly endName: string | null;
   readonly steps: readonly WorkflowStep[];
 }
 

@@ -11,6 +11,9 @@ import {
   previewKind,
   splitMentions,
   stageTone,
+  flowLabels,
+  previousNode,
+  upcomingStep,
 } from './correspondence.model';
 
 const letter = (overrides: Partial<LetterSummary> = {}): LetterSummary => ({
@@ -109,6 +112,33 @@ describe('correspondence.model', () => {
     expect(plannedWorkflow(config, 'incoming', 'hd')?.id).toBe('in');
     expect(plannedWorkflow(config, 'outgoing', 'hd')?.id).toBe('out-hd');
     expect(plannedWorkflow(config, 'outgoing', 'khac')?.id).toBe('out');
+  });
+
+  it('các ô của quy trình động: ô đầu, bước giữa theo thứ tự cấu hình, ô cuối; bước kế tiếp, bước liền trước', () => {
+    const steps = [
+      { key: 'a', name: 'Lãnh đạo chỉ đạo', type: 'approve' as const, approver: { type: 'choose' as const, pool: 'leaders' as const } },
+      { key: 'p', name: '', type: 'process' as const },
+    ];
+    expect(flowLabels({ steps }, 'incoming')).toEqual(['Văn thư tiếp nhận', 'Lãnh đạo chỉ đạo', 'Phòng ban xử lý', 'Văn thư hoàn tất, lưu trữ']);
+    expect(flowLabels({ steps: [], startName: 'Vào sổ', endName: ' ' }, 'outgoing')).toEqual(['Vào sổ', 'Văn thư ban hành, lưu trữ']);
+    const config = {
+      settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [] },
+      catalog: [],
+      workflows: [{ id: 'w', name: 'W', direction: 'incoming' as const, isActive: true, isDefault: true, steps, updatedAt: '' }],
+    };
+    // Còn ở ô đầu: bước kế tiếp là bước đầu của quy trình sẽ áp dụng.
+    expect(upcomingStep({ stage: 'received', direction: 'incoming', kind: 'x', flow: [] }, config)).toEqual({ type: 'approve', name: 'Lãnh đạo chỉ đạo' });
+    const flow = [
+      { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start' as const, state: 'done' as const, approval: false },
+      { key: 'step-1', label: 'Lãnh đạo chỉ đạo', kind: 'approve' as const, state: 'current' as const, approval: true },
+      { key: 'step-2', label: 'Phòng ban xử lý', kind: 'process' as const, state: 'todo' as const, approval: false },
+      { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end' as const, state: 'todo' as const, approval: false },
+    ];
+    expect(upcomingStep({ stage: 'reviewing', direction: 'incoming', kind: 'x', flow }, config)).toEqual({ type: 'process', name: 'Phòng ban xử lý' });
+    expect(previousNode({ flow })?.label).toBe('Văn thư tiếp nhận');
+    // Bước sau là ô cuối: không còn bước.
+    const last = flow.map((node, index) => ({ ...node, state: index < 2 ? ('done' as const) : index === 2 ? ('current' as const) : node.state }));
+    expect(upcomingStep({ stage: 'processing', direction: 'incoming', kind: 'x', flow: last }, config)).toBeUndefined();
   });
 
   it('lựa chọn danh mục chỉ gồm mục đang dùng, giữ giá trị cũ đã ngừng dùng', () => {

@@ -12,7 +12,7 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { decideRevoke, quickAddCatalogItem, removeLetter, requestRevoke, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import { decideRevoke, quickAddCatalogItem, removeLetter, requestRevoke, submitLetter, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
 import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
@@ -33,6 +33,7 @@ jest.mock('../correspondence-api', () => ({
   decideRevoke: jest.fn(),
   removeLetter: jest.fn(),
   quickAddCatalogItem: jest.fn(),
+  submitLetter: jest.fn(),
 }));
 
 const mocked = {
@@ -45,6 +46,7 @@ const mocked = {
   decideRevoke: decideRevoke as jest.MockedFunction<typeof decideRevoke>,
   removeLetter: removeLetter as jest.MockedFunction<typeof removeLetter>,
   quickAdd: quickAddCatalogItem as jest.MockedFunction<typeof quickAddCatalogItem>,
+  submit: submitLetter as jest.MockedFunction<typeof submitLetter>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -133,10 +135,10 @@ beforeEach(() => {
 describe('Thanh tiến trình', () => {
   it('vẽ đúng các bước của quy trình, đánh dấu bước đang xử lý, ghi người và lúc xong', () => {
     const nodes: FlowNode[] = [
-      { key: 'received', label: 'Văn thư tiếp nhận', state: 'done', approval: false, people: 'Hồ Thọ', at: '2026-11-13' },
-      { key: 'processing', label: 'Phòng ban xử lý', state: 'done', approval: false, people: 'Phòng Kinh doanh' },
-      { key: 'step-1', label: 'Lãnh đạo duyệt và ký', state: 'current', approval: true, people: 'Hà Nguyên Hoàng' },
-      { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', state: 'todo', approval: false, people: 'Lê Thu Hà' },
+      { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false, people: 'Hồ Thọ', at: '2026-11-13' },
+      { key: 'step-1', label: 'Phòng ban xử lý', kind: 'process', state: 'done', approval: false, people: 'Phòng Kinh doanh' },
+      { key: 'step-2', label: 'Lãnh đạo duyệt và ký', kind: 'approve', state: 'current', approval: true, people: 'Hà Nguyên Hoàng' },
+      { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false, people: 'Lê Thu Hà' },
     ];
     render(<FlowStepper nodes={nodes} workflowName="Quy trình mặc định" />);
     const items = screen.getAllByRole('listitem');
@@ -150,7 +152,7 @@ describe('Thanh tiến trình', () => {
     expect(within(items[2]).getByText('Đang xử lý')).toBeTruthy();
     expect(within(items[0]).getByText('13/11/2026')).toBeTruthy();
     expect(within(items[3]).getByText('Lê Thu Hà')).toBeTruthy();
-    expect(screen.getByText(/Quy trình: Quy trình mặc định · 1 bước duyệt/)).toBeTruthy();
+    expect(screen.getByText(/Quy trình: Quy trình mặc định · 4 bước, 1 bước duyệt/)).toBeTruthy();
   });
 });
 
@@ -401,6 +403,7 @@ describe('Huỷ công văn đã ban hành, xoá công văn đã huỷ', () => {
           id: 'step-1',
           seq: 1,
           name: 'Lãnh đạo duyệt ban hành',
+          type: 'approve',
           approver: { type: 'users', userIds: ['u-leader'] },
           status: 'done',
           assignees: [{ userId: 'u-leader', name: 'Nguyễn Văn An' }],
@@ -549,5 +552,81 @@ describe('Thêm nhanh danh mục, phòng ban soạn thảo', () => {
     expect(options[0]).toContain('Phòng Kế toán');
     expect(options[0]).toContain('Phòng của bạn');
     expect(options.some((text) => text.includes('Phòng Pháp chế'))).toBe(true);
+  });
+});
+
+describe('Quy trình động trên khối thao tác', () => {
+  const org = {
+    ...directory,
+    units: [
+      {
+        id: 'unit-sales',
+        name: 'Phòng Kinh doanh',
+        path: 'Công ty',
+        members: [{ userId: 'u-an', name: 'Nguyễn Văn An', positionName: 'Trưởng phòng', isHead: true }],
+      },
+    ],
+  } as unknown as CorrespondenceDirectory;
+  const directing = letter(
+    {
+      stage: 'reviewing',
+      currentStepName: 'Lãnh đạo chỉ đạo',
+      flow: [
+        { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+        { key: 'step-1', label: 'Lãnh đạo chỉ đạo', kind: 'approve', state: 'current', approval: true },
+        { key: 'step-2', label: 'Phòng ban xử lý', kind: 'process', state: 'todo', approval: false },
+        { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+      ],
+    },
+    { approve: true, returnTargets: ['clerk'] },
+  );
+
+  it('bước sau là phòng ban xử lý: người duyệt chọn phòng ban rồi mới duyệt được', async () => {
+    const onDone = jest.fn();
+    mocked.approve.mockResolvedValue(directing);
+    render(<LetterActionPanel letter={directing} config={config} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    await waitFor(() => expect(mocked.choice).toHaveBeenCalled());
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    const group = screen.getByRole('group', { name: 'Phòng ban cho bước "Phòng ban xử lý"' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Phòng Kinh doanh/ }));
+    expect(await screen.findByRole('button', { name: 'Bỏ Phòng Kinh doanh' })).toBeTruthy();
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(screen.getByLabelText(/Ý kiến, chỉ đạo cho phòng ban/), { target: { value: 'Kinh doanh xử lý.' } });
+    fireEvent.click(send);
+    expect(await screen.findByText('Công văn chuyển sang bước "Phòng ban xử lý".')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.approve).toHaveBeenCalledWith('letter-1', {
+      note: 'Kinh doanh xử lý.',
+      nextAssigneeUserId: undefined,
+      units: [{ unitId: 'unit-sales', handlerUserId: undefined }],
+    });
+  });
+
+  it('bước văn thư kiểm tra ở giữa quy trình đến: đạt thì chuyển bước kế tiếp', async () => {
+    const onDone = jest.fn();
+    const checking = letter(
+      {
+        stage: 'checking',
+        currentStepName: 'Văn thư rà soát',
+        flow: [
+          { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+          { key: 'step-1', label: 'Văn thư rà soát', kind: 'check', state: 'current', approval: false },
+          { key: 'step-2', label: 'Lãnh đạo ký', kind: 'approve', state: 'todo', approval: true },
+          { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+        ],
+      },
+      { submit: true, returnTargets: ['clerk'] },
+    );
+    mocked.submit.mockResolvedValue(checking);
+    render(<LetterActionPanel letter={checking} config={config} onDone={onDone} onDirtyChange={jest.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Văn thư rà soát' })).toBeTruthy();
+    const send = await screen.findByRole('button', { name: 'Đạt, chuyển "Lãnh đạo ký"' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.submit).toHaveBeenCalledWith('letter-1', { assigneeUserId: undefined, units: undefined, note: undefined });
   });
 });

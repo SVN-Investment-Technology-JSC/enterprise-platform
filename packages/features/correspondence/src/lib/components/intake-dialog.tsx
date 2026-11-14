@@ -4,7 +4,7 @@ import type { CatalogItem, CorrespondenceConfig } from '@enterprise-platform/con
 import { toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
+import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { Field, FilePickField, FormDialog } from './form-dialog';
@@ -218,8 +218,8 @@ export function IntakeDialog({
         <FilePickField label="Bản quét công văn" files={files} hint="PDF, ảnh hay tệp Word của công văn" onChange={setFiles} />
       </div>
       <p className={styles.plan}>
-        <span>Quy trình (theo cấu hình):</span> Văn thư tiếp nhận → Phòng ban xử lý
-        {workflow && workflow.steps.length > 0 ? ` → ${workflow.steps.map((step) => step.name).join(' → ')}` : ''} → Văn thư hoàn tất, lưu trữ
+        <span>Quy trình (theo cấu hình):</span>{' '}
+        {workflow ? flowLabels(workflow, 'incoming').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );
