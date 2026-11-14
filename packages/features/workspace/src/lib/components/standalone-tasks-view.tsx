@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  User,
   Workflow,
   X,
 } from 'lucide-react';
@@ -300,6 +301,7 @@ export function StandaloneTasksView({
           </label>
           <Choice
             label="Trạng thái"
+            selectOnly
             value={statusFilter}
             emptyOption="Mọi trạng thái"
             options={STATUS_FILTERS}
@@ -307,6 +309,7 @@ export function StandaloneTasksView({
           />
           <Choice
             label="Sắp xếp"
+            selectOnly
             value={sortKey}
             options={SORT_OPTIONS}
             onChange={(value) => setSortKey((value || 'updated') as TaskSort)}
@@ -476,11 +479,10 @@ function TaskRow({
   onSelect: () => void;
 }) {
   const priority = PRIORITY_TONE[task.priority];
-  // "Tôi giao" cần biết ai đang làm; hai ngăn còn lại cần biết ai giao.
-  const person =
-    scope === 'assigned_by_me'
-      ? `Phụ trách: ${directory.nameOf(task.assigneeUserId)}`
-      : `Người giao: ${directory.nameOf(task.createdBy)}`;
+  // "Tôi giao" cần biết ai đang làm; hai ngăn còn lại cần biết ai giao. Vai của người này nằm ở tooltip, không lặp
+  // chữ "Phụ trách:" / "Người giao:" ở mọi dòng.
+  const assignedByMe = scope === 'assigned_by_me';
+  const person = directory.nameOf(assignedByMe ? task.assigneeUserId : task.createdBy);
   return (
     <li>
       <button
@@ -489,10 +491,10 @@ function TaskRow({
         aria-current={active ? 'true' : undefined}
         onClick={onSelect}
       >
-        <span className={styles.taskRowTitle}>
-          <span className={styles.treeCode}>{task.code}</span>
-          {task.title}
-        </span>
+        <span className={styles.treeCode}>{task.code}</span>
+        <Tooltip content={task.title} side="top" align="start">
+          <span className={styles.taskRowTitle}>{task.title}</span>
+        </Tooltip>
         <span className={styles.taskRowMeta}>
           <StatusPill task={task} />
           <span className={styles.pill} style={{ background: priority.bg, color: priority.fg }}>
@@ -519,10 +521,13 @@ function TaskRow({
             </Tooltip>
           ) : null}
         </span>
-        <span className={styles.taskRowPerson}>
-          {parent ? `Thuộc ${parent.code} · ` : ''}
-          {person}
-        </span>
+        <Tooltip content={assignedByMe ? 'Người phụ trách' : 'Người giao'} side="bottom" align="start">
+          <span className={styles.taskRowPerson}>
+            <User size={12} aria-hidden />
+            {parent ? `Thuộc ${parent.code} · ` : ''}
+            {person}
+          </span>
+        </Tooltip>
       </button>
     </li>
   );
@@ -951,7 +956,7 @@ function TaskDetail({
               <li key={child.id}>
                 <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask(child.id)}>
                   <span className={styles.treeCode}>{child.code}</span>
-                  {child.title}
+                  <span className={styles.workTitle}>{child.title}</span>
                 </button>
                 <span className={styles.taskChildMeta}>
                   <StatusPill task={child} />

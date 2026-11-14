@@ -8041,9 +8041,10 @@
   padding: 12px 12px 8px;
 }
 
+/* Ô tìm cả hàng, dưới nó hai ô chọn (trạng thái, sắp xếp) chia đôi bằng nhau. */
 .taskListFilters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 11rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 12px 10px;
   border-bottom: 1px solid var(--ep-line);
@@ -8051,6 +8052,7 @@
 
 .taskSearch {
   display: flex;
+  grid-column: 1 / -1;
   align-items: center;
   gap: 6px;
   min-height: 36px;
@@ -8084,11 +8086,18 @@
   list-style: none;
 }
 
+/*
+ * Dòng việc là lưới hai cột: mã đứng riêng một cột (bề rộng cố định), tên, trạng thái và người phụ trách thẳng
+ * hàng bên phải. Mọi dòng nên mã luôn một cột và tên luôn bắt đầu cùng một chỗ.
+ */
 .taskRow,
 .taskRowActive {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  --task-code-w: 5.5rem;
+
+  display: grid;
+  grid-template-columns: var(--task-code-w) minmax(0, 1fr);
+  gap: 5px 8px;
+  align-items: baseline;
   width: 100%;
   padding: 10px 12px;
   border: 1px solid transparent;
@@ -8117,20 +8126,28 @@
   }
 }
 
+.taskRow .treeCode,
+.taskRowActive .treeCode {
+  grid-column: 1;
+  grid-row: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .taskRowTitle {
+  grid-column: 2;
+  min-width: 0;
   overflow: hidden;
   font-size: 13.5px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-
-  .treeCode {
-    margin-right: 6px;
-  }
 }
 
 .taskRowMeta {
   display: flex;
+  grid-column: 2;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
@@ -8138,8 +8155,20 @@
 }
 
 .taskRowPerson {
+  display: inline-flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--ep-text-muted);
   font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  svg {
+    flex: none;
+  }
 }
 
 .taskDetail {
@@ -8233,6 +8262,21 @@
     &:first-child {
       border-top: 0;
     }
+  }
+}
+
+/* Mã việc con một bề rộng cố định để tên các việc con thẳng cột. */
+.taskChildList .cellTitleButton {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+
+  .treeCode {
+    flex: none;
+    width: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
