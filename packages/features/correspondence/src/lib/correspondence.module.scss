@@ -395,35 +395,99 @@
   }
 }
 
-.flow {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+.stageFlow {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.flowStep {
+// Mỗi bước một cột bằng nhau; đường nối chạy giữa tâm hai chấm liền kề.
+.stageItem {
   position: relative;
+  display: flex;
+
+  &:not(:last-child)::after {
+    position: absolute;
+    top: 23px;
+    right: calc(-50% + 18px);
+    left: calc(50% + 18px);
+    height: 2px;
+    border-radius: 1px;
+    background: #e2e8f0;
+    content: '';
+  }
+}
+
+.stageStep {
+  display: flex;
   flex: 1;
-  min-width: 110px;
-  padding: 10px 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 6px 8px;
   border: 0;
-  border-radius: 8px;
-  background: #f1f5f9;
+  border-radius: 10px;
+  background: transparent;
   color: var(--ep-text-muted);
   font: inherit;
-  font-size: 12px;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 
   b {
-    display: block;
-    font-size: 20px;
-    color: var(--ep-text);
+    margin-top: 4px;
+    color: var(--ep-text-sub);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
   }
 
   &:hover {
-    background: #e2e8f0;
+    background: #f1f5f9;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+.stageDot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  background: var(--ep-surface);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stageLabel {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+// Bước đang có công văn: chấm và số nổi lên.
+.stageStepBusy {
+  .stageDot {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+  }
+
+  b {
+    color: var(--ep-text);
+  }
+
+  .stageLabel {
+    color: var(--ep-text-sub);
+    font-weight: 600;
   }
 }
 
@@ -866,7 +930,8 @@
   gap: 6px;
   min-width: 0;
 
-  input,
+  // Ô đánh dấu, nút chọn giữ cỡ gốc; chỉ ô nhập chữ mới mang kiểu ô nhập.
+  input:not([type='checkbox'], [type='radio']),
   textarea {
     @include input-base;
   }
@@ -933,9 +998,34 @@
 
 .checkRow {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ep-text);
   font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  cursor: pointer;
+
+  input[type='checkbox'] {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: #2563eb;
+    cursor: pointer;
+  }
+}
+
+// Nhóm ô đánh dấu dưới một nhãn trường: khung cùng kiểu ô nhập để hai cột của hàng cân nhau.
+.checkGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
 }
 
 /* ------------------------------------------------------- phòng ban, tệp */
@@ -1244,15 +1334,6 @@
   @media (max-width: 1100px) {
     grid-template-columns: 1fr;
   }
-}
-
-.flowArrow {
-  position: absolute;
-  top: 50%;
-  right: -10px;
-  z-index: 1;
-  color: #94a3b8;
-  transform: translateY(-50%);
 }
 
 /* ------------------------------------------------------------ thao tác theo bước */

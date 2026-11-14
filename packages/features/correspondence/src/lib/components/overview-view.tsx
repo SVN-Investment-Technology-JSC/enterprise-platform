@@ -8,7 +8,6 @@ import {
   type LetterDirection,
   type LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
-import { ChevronRight } from 'lucide-react';
 import styles from '../correspondence.module.scss';
 import type { CorrespondenceView } from '../correspondence.model';
 import { LetterTable } from './letter-table';
@@ -51,20 +50,39 @@ export function OverviewView({
         ))}
       </div>
       <div className={styles.flowColumns}>
-        {(['incoming', 'outgoing'] as const).map((direction) => (
-          <section key={direction} className={styles.card}>
-            <h2>{LETTER_DIRECTION_LABELS[direction]} theo bước</h2>
-            <div className={styles.flow}>
-              {DIRECTION_STAGES[direction].map((stage, index) => (
-                <button key={stage} type="button" className={styles.flowStep} onClick={() => onOpenStage(direction, stage)}>
-                  <b>{overview.byStage[direction][stage] ?? 0}</b>
-                  <span>{LETTER_STAGE_LABELS[stage]}</span>
-                  {index < DIRECTION_STAGES[direction].length - 1 ? <ChevronRight size={14} className={styles.flowArrow} aria-hidden /> : null}
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
+        {(['incoming', 'outgoing'] as const).map((direction) => {
+          const stages = DIRECTION_STAGES[direction];
+          const total = stages.reduce((sum, stage) => sum + (overview.byStage[direction][stage] ?? 0), 0);
+          return (
+            <section key={direction} className={styles.card}>
+              <div className={styles.cardHead}>
+                <h2>{LETTER_DIRECTION_LABELS[direction]} theo bước</h2>
+                <span className={styles.muted}>{total === 0 ? 'Không có công văn đang mở' : `${total} công văn đang mở`}</span>
+              </div>
+              <ol className={styles.stageFlow}>
+                {stages.map((stage, index) => {
+                  const count = overview.byStage[direction][stage] ?? 0;
+                  return (
+                    <li key={stage} className={styles.stageItem}>
+                      <button
+                        type="button"
+                        className={`${styles.stageStep} ${count > 0 ? styles.stageStepBusy : ''}`}
+                        aria-label={`${LETTER_STAGE_LABELS[stage]}: ${count} công văn`}
+                        onClick={() => onOpenStage(direction, stage)}
+                      >
+                        <span className={styles.stageDot} aria-hidden>
+                          {index + 1}
+                        </span>
+                        <b>{count}</b>
+                        <span className={styles.stageLabel}>{LETTER_STAGE_LABELS[stage]}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          );
+        })}
       </div>
       <section>
         <div className={styles.cardHead}>

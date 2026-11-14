@@ -29,7 +29,7 @@ import {
 } from '../correspondence-api';
 import { catalogOptions, formatDay, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 
 interface ActionProps {
   readonly letter: LetterDetail;
@@ -354,8 +354,7 @@ function ReasonDialog({
         )
       ) : null}
       {toUnits ? (
-        <div className={styles.field} role="group" aria-label="Phòng ban phải làm lại">
-          <span className={styles.fieldLabel}>Phòng ban phải làm lại (bỏ trống là mọi phòng)</span>
+        <CheckGroup label="Phòng ban phải làm lại (bỏ trống là mọi phòng)">
           {letter.assignments.map((item) => (
             <label key={item.id} className={styles.checkRow}>
               <input
@@ -366,7 +365,7 @@ function ReasonDialog({
               {item.unitName}
             </label>
           ))}
-        </div>
+        </CheckGroup>
       ) : null}
       <Field label={reasonLabel} required>
         <textarea value={reason} maxLength={4000} rows={4} autoFocus placeholder={placeholder} onChange={(event) => setReason(event.target.value)} />
@@ -398,7 +397,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange }: Acti
     [letter, config.catalog],
   );
   const [units, setUnits] = useState<UnitPick[]>(initialUnits);
-  const [dueOn, setDueOn] = useState(letter.dueOn ?? '');
+  const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
   const [note, setNote] = useState('');
   const [assignee, setAssignee] = useState('');
   const choice = useStepChoice(letter.id, kind);
@@ -693,12 +692,14 @@ function PublishForm({ letter, onDone, onDirtyChange }: ActionProps) {
 
 function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
   const [status, setStatus] = useState<DeliveryStatus>(letter.deliveryStatus ?? 'sent');
-  const [deliveredOn, setDeliveredOn] = useState(letter.deliveredOn ?? '');
+  // Ô ngày điền sẵn hôm nay; chỉ tính là đã sửa khi khác ngày ban đầu đó.
+  const initialDelivered = letter.deliveredOn ?? localToday();
+  const [deliveredOn, setDeliveredOn] = useState(initialDelivered);
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
   useEffect(
-    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== (letter.deliveredOn ?? '') || note.trim() !== ''),
-    [status, deliveredOn, note, letter, onDirtyChange],
+    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== initialDelivered || note.trim() !== ''),
+    [status, deliveredOn, initialDelivered, note, letter, onDirtyChange],
   );
   return (
     <Panel title="Hồ sơ đã lưu trữ" tone="done">

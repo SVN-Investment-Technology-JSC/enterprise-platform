@@ -23,7 +23,7 @@ import { ArrowDown, ArrowRight, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-
 import { useEffect, useMemo, useState } from 'react';
 import { deleteCatalogItem, deleteWorkflow, errorMessage, saveCatalogItem, saveWorkflow } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog, SelectField } from './form-dialog';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 import { SettingsView } from './settings-view';
 
 type ConfigTab = 'register' | 'catalog' | 'workflows' | 'organization';
@@ -329,7 +329,7 @@ function CatalogDialog({
         <Field label="Thứ tự">
           <input type="number" value={form.sortOrder} onChange={(event) => set('sortOrder', event.target.value)} />
         </Field>
-        <div className={styles.field}>
+        <CheckGroup label="Trạng thái">
           <label className={styles.checkRow}>
             <input type="checkbox" checked={form.isActive} onChange={(event) => set('isActive', event.target.checked)} /> Đang dùng
           </label>
@@ -345,7 +345,7 @@ function CatalogDialog({
               liên quan và người có quyền xem công văn mật thấy
             </label>
           ) : null}
-        </div>
+        </CheckGroup>
       </div>
     </FormDialog>
   );
@@ -571,7 +571,7 @@ function WorkflowDialog({
         <Field label="Tên quy trình" required>
           <input value={form.name} maxLength={160} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
         </Field>
-        <div className={styles.field}>
+        <CheckGroup label="Trạng thái">
           <label className={styles.checkRow}>
             <input
               type="checkbox"
@@ -588,7 +588,7 @@ function WorkflowDialog({
             />{' '}
             Mặc định cho {direction === 'incoming' ? 'công văn đến' : 'công văn đi'} (khi loại văn bản chưa gắn quy trình)
           </label>
-        </div>
+        </CheckGroup>
       </div>
       <Field label="Mô tả">
         <textarea

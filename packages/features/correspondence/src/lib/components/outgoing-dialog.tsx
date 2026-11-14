@@ -54,7 +54,7 @@ export function OutgoingDialog({
     () => ({
       subject: replyTo ? `V/v trả lời công văn số ${replyTo.number}: ${replyTo.subject}`.slice(0, 1000) : '',
       recipient: replyTo?.senderOrg ?? '',
-      dueOn: '',
+      dueOn: localToday(),
       kind: replyTo?.kind ?? catalogOptions(config.catalog, 'letter_type')[0]?.value ?? '',
       urgency: catalogOptions(config.catalog, 'urgency')[0]?.value ?? '',
       confidentiality: catalogOptions(config.catalog, 'confidentiality')[0]?.value ?? '',

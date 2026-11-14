@@ -10,12 +10,16 @@ import type {
   LetterSummary,
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { localToday } from '../correspondence.model';
 import { approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
 import { FlowStepper } from './flow-stepper';
-import { FilePickField, FormDialog } from './form-dialog';
+import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
+import { IntakeDialog } from './intake-dialog';
 import { LetterTable } from './letter-table';
+import { OutgoingDialog } from './outgoing-dialog';
+import { OverviewView } from './overview-view';
 
 jest.mock('../correspondence-api', () => ({
   ...jest.requireActual('../correspondence-api'),
@@ -272,5 +276,70 @@ describe('Bảng công văn đến và đi cùng bố cục', () => {
     expect(incomingHeads).toEqual(['Số đến', 'Trích yếu', 'Độ khẩn', 'Bước xử lý', 'Hạn xử lý']);
     expect(outgoingHeads).toEqual(['Số', 'Trích yếu', 'Độ khẩn', 'Bước xử lý', 'Hạn ban hành']);
     expect(screen.getByText('Khối Văn phòng → EVN')).toBeTruthy();
+  });
+});
+
+describe('Tổng quan theo bước', () => {
+  it('đủ bước của cả hai luồng, đếm tổng và mở đúng bước', () => {
+    const onOpenStage = jest.fn();
+    render(
+      <OverviewView
+        overview={{
+          incomingOpen: 3,
+          outgoingOpen: 0,
+          awaitingApproval: 1,
+          overdue: 0,
+          archived: 0,
+          awaitingMe: 0,
+          byStage: { incoming: { received: 2, reviewing: 1 }, outgoing: {} },
+          urgent: [],
+        }}
+        today="2026-11-14"
+        onNavigate={jest.fn()}
+        onOpenStage={onOpenStage}
+        onOpenLetter={jest.fn()}
+      />,
+    );
+    expect(screen.getByText('3 công văn đang mở')).toBeTruthy();
+    expect(screen.getByText('Không có công văn đang mở')).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(8);
+    fireEvent.click(screen.getByRole('button', { name: 'Văn thư tiếp nhận: 2 công văn' }));
+    expect(onOpenStage).toHaveBeenCalledWith('incoming', 'received');
+    fireEvent.click(screen.getByRole('button', { name: 'Văn thư kiểm tra: 0 công văn' }));
+    expect(onOpenStage).toHaveBeenLastCalledWith('outgoing', 'checking');
+  });
+});
+
+describe('Nhóm ô đánh dấu', () => {
+  it('ô đánh dấu nằm trong nhóm có nhãn, không mang kiểu ô nhập', () => {
+    render(
+      <CheckGroup label="Trạng thái">
+        <label>
+          <input type="checkbox" defaultChecked /> Đang dùng
+        </label>
+      </CheckGroup>,
+    );
+    const group = screen.getByRole('group', { name: 'Trạng thái' });
+    expect(within(group).getByRole('checkbox', { name: 'Đang dùng' })).toBeTruthy();
+  });
+});
+
+describe('Ô chọn ngày điền sẵn hôm nay', () => {
+  const dates = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).map((input) => input.value);
+
+  it('tiếp nhận công văn đến: ngày văn bản, ngày đến, hạn xử lý', () => {
+    render(<IntakeDialog open config={config} onClose={jest.fn()} onCreated={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    const values = dates(dialog);
+    expect(values).toHaveLength(3);
+    expect(values.slice(0, 2)).toEqual([localToday(), localToday()]);
+    // Hạn tính từ số ngày cấu hình; không có thì cũng là hôm nay. Không bao giờ để trống.
+    expect(values[2] >= localToday()).toBe(true);
+  });
+
+  it('soạn công văn đi: hạn ban hành', () => {
+    render(<OutgoingDialog open config={config} onClose={jest.fn()} onCreated={jest.fn()} />);
+    expect(dates(screen.getByRole('dialog'))).toEqual([localToday()]);
   });
 });

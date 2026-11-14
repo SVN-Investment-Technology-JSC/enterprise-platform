@@ -20,11 +20,12 @@ interface IntakeForm {
   confidentiality: string;
 }
 
-/** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ. */
+/** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
 function defaultDue(config: CorrespondenceConfig, kind: string, receivedOn: string): string {
   const typeDays = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind)?.defaultDueDays;
   const days = typeDays ?? config.settings.defaultDueDays;
-  if (!days || !receivedOn) return '';
+  if (!receivedOn) return '';
+  if (!days) return receivedOn;
   const due = new Date(`${receivedOn}T00:00:00`);
   due.setDate(due.getDate() + days);
   return localToday(due);
@@ -36,7 +37,7 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
   return {
     senderOrg: '',
     senderRef: '',
-    senderDate: '',
+    senderDate: today,
     subject: '',
     receivedOn: today,
     dueOn: defaultDue(config, kind, today),
