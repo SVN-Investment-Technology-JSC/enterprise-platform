@@ -17,7 +17,7 @@ import {
   statusOnPublish,
   type EntryStatus,
 } from '../domain/social-publishing-rules.js';
-import { mayManage, mayModerate } from '../domain/social-principal.js';
+import { mayManage, mayModerate, mayWrite } from '../domain/social-principal.js';
 import {
   normalizeAttachmentIds,
   normalizeBody,
@@ -154,6 +154,7 @@ export class SocialPublishingService {
   async create(actor: SocialActor, request: CreateSocialPostRequest): Promise<SocialPost> {
     const { store, settings, events } = this.deps;
     const now = this.now();
+    if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền đăng bài.');
     const input = request ?? ({} as CreateSocialPostRequest);
 
     const kind = normalizeKind(input.kind);
@@ -298,6 +299,10 @@ export class SocialPublishingService {
     if (touchesVisibility && !isAuthor) throw new SocialVisibilityChangeForbiddenError();
     if (!isAuthor && !moderates && !(await access.isGroupAdmin(actor, row))) throw new SocialForbiddenError();
     if (touchesContent && !isAuthor && !moderates) throw new SocialForbiddenError();
+    // Tác giả sửa bài của mình vẫn cần quyền đăng bài; bị gỡ quyền thì chỉ moderator/admin nhóm sửa được.
+    if (isAuthor && !moderates && !mayWrite(actor) && !(await access.isGroupAdmin(actor, row))) {
+      throw new SocialForbiddenError('Bạn không có quyền sửa bài viết.');
+    }
     if (input.commentsDisabled !== undefined && !(await access.mayToggleComments(actor, row))) {
       throw new SocialForbiddenError('Bạn không có quyền bật hoặc tắt bình luận của bài viết này.');
     }
@@ -530,6 +535,7 @@ export class SocialPublishingService {
     const { store, groups, settings, events } = this.deps;
     const row = await this.deps.access.requireVisible(actor, postId);
     if (row.authorId.toLowerCase() !== actor.userId.toLowerCase()) throw new SocialForbiddenError();
+    if (!mayWrite(actor)) throw new SocialForbiddenError('Bạn không có quyền đăng bài.');
     if (row.status !== 'scheduled') throw new SocialPostStateError('Chỉ bài đang hẹn giờ mới đăng ngay được.');
     if (row.groupId && !(await groups.isMember(actor.tenantId, row.groupId, actor.userId))) {
       throw new SocialGroupNotMemberError();

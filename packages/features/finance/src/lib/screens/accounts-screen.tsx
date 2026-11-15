@@ -240,13 +240,21 @@ export default function AccountsScreen() {
 
 function AccountDialog({ account, onClose, onSaved }: { account: FinanceAccount | null; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<AccountForm>(account ? toForm(account) : blank());
+  const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = account ? hasMovements(account) : false;
+  // Sửa số dư đầu kỳ ghi vào lịch sử cấu hình; tài khoản đã có bút toán thì bắt buộc nhập lý do (máy chủ cũng kiểm).
+  const openingChanged = !!account && form.openingBalance !== account.openingBalance;
+  const reasonRequired = locked && openingChanged;
   const set = <K extends keyof AccountForm>(key: K, value: AccountForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const bank = form.accountType === 'BANK';
 
   async function submit() {
+    if (reasonRequired && !reason.trim()) {
+      setError('Phải nhập lý do khi sửa số dư đầu kỳ của tài khoản đã có bút toán.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const body: SaveFinanceAccountRequest = {
@@ -260,7 +268,8 @@ function AccountDialog({ account, onClose, onSaved }: { account: FinanceAccount 
       allowNegative: form.allowNegative,
       isActive: form.isActive,
       note: form.note || null,
-      ...(locked ? {} : { openingBalance: form.openingBalance, openingDate: form.openingDate }),
+      ...(locked ? (openingChanged ? { openingBalance: form.openingBalance } : {}) : { openingBalance: form.openingBalance, openingDate: form.openingDate }),
+      ...(openingChanged && reason.trim() ? { reason: reason.trim() } : {}),
     };
     try {
       if (account) await financePut(`/accounts/${account.id}`, body);
@@ -298,8 +307,8 @@ function AccountDialog({ account, onClose, onSaved }: { account: FinanceAccount 
                 <Field label="Chi nhánh">{(id) => <Input id={id} value={form.branch} maxLength={255} onChange={(e) => set('branch', e.target.value)} />}</Field>
               </>
             ) : null}
-            <Field label="Số dư đầu kỳ" hint={locked ? 'Tài khoản đã có bút toán nên không đổi được.' : undefined}>
-              {(id) => <MoneyInput id={id} value={form.openingBalance} disabled={locked} allowNegative onChange={(v) => set('openingBalance', v)} />}
+            <Field label="Số dư đầu kỳ" hint={locked ? 'Tài khoản đã có bút toán: đổi số dư đầu kỳ phải nhập lý do.' : undefined}>
+              {(id) => <MoneyInput id={id} value={form.openingBalance} allowNegative onChange={(v) => set('openingBalance', v)} />}
             </Field>
             <Field label="Ngày bắt đầu sử dụng" hint={locked ? 'Tài khoản đã có bút toán nên không đổi được.' : 'Phiếu có ngày hạch toán trước ngày này không được ghi sổ.'}>
               {(id) => <DatePickerInput id={id} value={form.openingDate} onChange={(v) => set('openingDate', v)} disabled={locked} />}
@@ -313,6 +322,11 @@ function AccountDialog({ account, onClose, onSaved }: { account: FinanceAccount 
               Đang hoạt động
             </label>
             <Field label="Ghi chú" className="sm:col-span-2">{(id) => <Input id={id} value={form.note} maxLength={2000} onChange={(e) => set('note', e.target.value)} />}</Field>
+            {openingChanged ? (
+              <Field label="Lý do sửa số dư đầu kỳ" required={reasonRequired} className="sm:col-span-2" hint="Ghi vào lịch sử thay đổi cấu hình.">
+                {(id) => <Input id={id} value={reason} maxLength={1000} onChange={(e) => setReason(e.target.value)} />}
+              </Field>
+            ) : null}
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
