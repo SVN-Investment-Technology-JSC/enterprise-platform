@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { loadServerSession, platformRedirect } from '../_components/server-session';
 import { PlatformShell } from './platform-shell';
 
 /**
@@ -13,26 +14,11 @@ export default async function PlatformLayout({
 }: {
   children: ReactNode;
 }) {
-  const cookieHeader = (await cookies()).toString();
-  const api = process.env.API_BASE_URL ?? 'http://localhost:3333';
-
-  let principal: AuthenticatedPrincipal | undefined;
-  try {
-    const meResponse = await fetch(`${api}/api/auth/v1/me`, {
-      headers: { cookie: cookieHeader },
-      cache: 'no-store',
-    });
-    if (meResponse.ok) {
-      principal = (await meResponse.json()) as AuthenticatedPrincipal;
-      if (principal.kind !== 'platform-admin') {
-        redirect('/dashboard');
-      }
-    } else {
-      redirect('/login/admin');
-    }
-  } catch {
-    // Development fallback without auth service
-  }
+  // Chuyển hướng nằm ngoài try/catch: `redirect()` ném NEXT_REDIRECT, bọc lại là nuốt mất lệnh.
+  const session = await loadServerSession((await cookies()).toString());
+  const target = platformRedirect(session);
+  if (target) redirect(target);
+  const principal: AuthenticatedPrincipal | undefined = session.status === 'authenticated' ? session.principal : undefined;
 
   const displayName = principal?.displayName ?? 'Platform Admin';
 

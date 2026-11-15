@@ -1,6 +1,12 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT,
+  passwordPolicyViolation,
+} from '@enterprise-platform/contracts-identity';
 import { useRouter } from 'next/navigation';
 import {
   Dialog,
@@ -54,6 +60,12 @@ export function UserFormDialog({
     e.preventDefault();
     if (isLoading) return;
     setError('');
+    // Cùng chính sách với server (ISS-BE-052); server vẫn kiểm lại.
+    const violation = passwordPolicyViolation(form.password);
+    if (violation) {
+      setError(violation);
+      return;
+    }
     try {
       const user = await createUser({
         fullName: form.fullName,
@@ -126,14 +138,14 @@ export function UserFormDialog({
                 type="password"
                 autoComplete="new-password"
                 required
-                minLength={6}
-                maxLength={128}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 className={FIELD}
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
               <span className="text-[12px] text-[#64748b]">
-                Từ 6 đến 128 ký tự.
+                {PASSWORD_POLICY_HINT}
               </span>
             </label>
             {error && (

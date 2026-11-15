@@ -2,7 +2,10 @@ import type { AuthenticatedPrincipal, LoginRequest } from '@enterprise-platform/
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Optional, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PlatformIdentityService } from './platform-identity.service.js';
-import { AuthRateLimiter, defaultAuthRateLimiter } from './auth-rate-limiter.js';
+import { AuthRateLimitedException, AuthRateLimiter, defaultAuthRateLimiter } from './auth-rate-limiter.js';
+import { normalizeClientIp } from './client-ip.js';
+import { PasswordPolicyException } from './password-policy.js';
+import { RefreshSessionExpiredException } from './session-errors.js';
 
 const ACCESS_COOKIE = 'ep_access';
 const REFRESH_COOKIE = 'ep_refresh';
@@ -19,8 +22,20 @@ export class PlatformIdentityController {
     @Optional() private readonly limiter: AuthRateLimiter = defaultAuthRateLimiter,
   ) {}
 
+  /** IP client đã chuẩn hoá; sau gateway cần `TRUST_PROXY` để Express lấy từ X-Forwarded-For. */
   private clientIp(request?: Request) {
-    return request?.ip ?? request?.socket?.remoteAddress ?? 'unknown';
+    return normalizeClientIp(request?.ip ?? request?.socket?.remoteAddress);
+  }
+
+  /** Kiểm giới hạn; khi bị chặn thì đặt header `Retry-After` để client biết thời gian chờ. */
+  private assertAllowed(scope: string, ip: string, email: unknown, response?: Response) {
+    try {
+      this.limiter.assertAllowed(scope, ip, email);
+    } catch (error) {
+      if (error instanceof AuthRateLimitedException)
+        response?.setHeader?.('Retry-After', String(error.retryAfterSeconds));
+      throw error;
+    }
   }
 
   @Post('login')
@@ -31,7 +46,7 @@ export class PlatformIdentityController {
     @Req() request?: Request,
   ) {
     const ip = this.clientIp(request);
-    this.limiter.assertAllowed('login', ip, input?.email);
+    this.assertAllowed('login', ip, input?.email, response);
     let session: Awaited<ReturnType<PlatformIdentityService['login']>>;
     try {
       session = await this.identity.login(input);
@@ -40,7 +55,7 @@ export class PlatformIdentityController {
         this.limiter.recordFailure('login', ip, input?.email);
       throw error;
     }
-    this.limiter.recordSuccess('login', input?.email);
+    this.limiter.recordSuccess('login', ip, input?.email);
     this.writeCookies(response, session);
     return {
       principal: session.principal,
@@ -54,16 +69,18 @@ export class PlatformIdentityController {
     const refreshToken = request.cookies?.[REFRESH_COOKIE] as string | undefined;
     const csrfToken = this.validCsrf(request);
     const ip = this.clientIp(request);
-    this.limiter.assertAllowed('refresh', ip);
-    if (!refreshToken || !csrfToken) {
-      this.limiter.recordFailure('refresh', ip);
-      throw new UnauthorizedException();
-    }
+    this.assertAllowed('refresh', ip, undefined, response);
+    // Thiếu cookie là trình duyệt chưa đăng nhập hoặc cookie đã hết hạn: không phải dò token, không đếm.
+    if (!refreshToken || !csrfToken) throw new UnauthorizedException();
     let session: Awaited<ReturnType<PlatformIdentityService['refresh']>>;
     try {
       session = await this.identity.refresh(refreshToken, csrfToken);
     } catch (error) {
-      if (error instanceof UnauthorizedException || error instanceof ForbiddenException)
+      // Chỉ đếm token không khớp phiên nào; phiên hết hạn hoặc đã thu hồi một cách tự nhiên thì không đếm.
+      if (
+        (error instanceof UnauthorizedException || error instanceof ForbiddenException) &&
+        !(error instanceof RefreshSessionExpiredException)
+      )
         this.limiter.recordFailure('refresh', ip);
       throw error;
     }
@@ -78,7 +95,7 @@ export class PlatformIdentityController {
     @Req() request?: Request,
   ) {
     const ip = this.clientIp(request);
-    this.limiter.assertAllowed('reset', ip);
+    this.assertAllowed('reset', ip, undefined);
     try {
       await this.identity.resetTenantPassword(input);
     } catch (error) {
@@ -96,13 +113,14 @@ export class PlatformIdentityController {
     const principal = await this.requirePrincipal(request);
     if (!this.validCsrf(request)) throw new UnauthorizedException('CSRF token không hợp lệ.');
     const ip = this.clientIp(request);
-    this.limiter.assertAllowed('password-change', ip, principal.email);
+    this.assertAllowed('password-change', ip, principal.email);
     try {
       const result = await this.identity.changeOwnPassword(principal, input);
-      this.limiter.recordSuccess('password-change', principal.email);
+      this.limiter.recordSuccess('password-change', ip, principal.email);
       return result;
     } catch (error) {
-      if (error instanceof BadRequestException)
+      // Mật khẩu mới không đạt chính sách không phải là đoán sai mật khẩu hiện tại, nên không đếm.
+      if (error instanceof BadRequestException && !(error instanceof PasswordPolicyException))
         this.limiter.recordFailure('password-change', ip, principal.email);
       throw error;
     }

@@ -38,6 +38,7 @@ import type {
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -54,6 +55,11 @@ import {
 } from 'jose';
 import { retryOnConnectionError } from './retry-on-connection-error.js';
 import { tenantSlugFromEmail } from './tenant-login.js';
+import {
+  RefreshSessionExpiredException,
+  RefreshSessionIdleExpiredException,
+} from './session-errors.js';
+import { assertPasswordPolicy } from './password-policy.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
 import {
   appendSessionRevokedEvent,
@@ -98,6 +104,26 @@ interface TenantResetRow {
 }
 
 const KEY_ID = 'platform-core-rs256-v1';
+
+/**
+ * Ân hạn (giây) cho refresh token vừa bị xoay: hai tab hoặc hai request gửi cùng token gần như đồng thời thì request
+ * đến sau nhận 401 nhưng phiên không bị thu hồi. Quá ân hạn mà token cũ còn được gửi lại thì thu hồi cả phiên.
+ */
+export function refreshTokenReuseGraceSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.AUTH_REFRESH_REUSE_GRACE_SECONDS?.trim();
+  const value = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(value) && value >= 0 ? value : 10;
+}
+/**
+ * Thời gian chờ (phút) của phiên: refresh token không được dùng để làm mới quá ngần này thì phiên bị thu hồi, dù hạn
+ * tuyệt đối 30 ngày chưa tới. Mốc tính là lần làm mới gần nhất (`rotated_at`), chưa làm mới lần nào thì lúc tạo phiên.
+ */
+export function sessionIdleTimeoutMinutes(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.AUTH_SESSION_IDLE_TIMEOUT_MINUTES?.trim();
+  const value = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(value) && value > 0 ? value : 480;
+}
+
 const derivePassword = promisify(scrypt);
 
 type PlatformIdentityKeys = {
@@ -155,6 +181,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       !row ||
       !(await this.verifyPassword(row.password_hash, input.password))
     ) {
+      if (!row) await this.verifyAgainstDummyHash(input.password);
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
     }
     const expectedKind = 'platform-admin';
@@ -189,8 +216,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
     csrfToken: string;
   }> {
     const slug = tenantSlugFromEmail(email);
-    if (!slug)
+    if (!slug) {
+      await this.verifyAgainstDummyHash(input.password);
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
+    }
     const tenant = await this.pool.query<{
       tenant_id: string;
       tenant_slug: string;
@@ -207,8 +236,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const connectionString =
       target &&
       this.tenantConnectionString(target.secret_ref, target.database_name);
-    if (!target || !connectionString)
+    if (!target || !connectionString) {
+      await this.verifyAgainstDummyHash(input.password);
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
+    }
     const tenantPool = createPostgresPool(connectionString, {
       max: 1,
       application_name: 'enterprise-platform:tenant-login',
@@ -230,6 +261,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
         !coreUser ||
         !(await this.verifyPassword(coreUser.password_hash, input.password))
       ) {
+        if (!coreUser) await this.verifyAgainstDummyHash(input.password);
         throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
       }
       const sessionId = randomUUID();
@@ -287,11 +319,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
     try {
       await client.query('BEGIN');
       const sessionResult = await client.query<
-        LoginRow & { session_id: string }
+        LoginRow & { session_id: string; idle_expired: boolean }
       >(
         `SELECT s.id AS session_id,
                 u.id, u.email, u.display_name, u.password_hash, u.kind,
-                m.id AS membership_id, t.id AS tenant_id, t.slug AS tenant_slug
+                m.id AS membership_id, t.id AS tenant_id, t.slug AS tenant_slug,
+                COALESCE(s.rotated_at, s.created_at) <= now() - make_interval(secs => $3) AS idle_expired
            FROM identity_schema.auth_sessions s
            JOIN identity_schema.users u ON u.id = s.user_id AND u.status = 'active'
            LEFT JOIN tenancy_schema.tenant_memberships m
@@ -301,15 +334,30 @@ export class PlatformIdentityService implements OnModuleDestroy {
           WHERE s.refresh_token_hash = $1 AND s.csrf_token_hash = $2
             AND s.revoked_at IS NULL AND s.expires_at > now()
           FOR UPDATE OF s`,
-        [this.hash(refreshToken), this.hash(csrfToken)],
+        [this.hash(refreshToken), this.hash(csrfToken), sessionIdleTimeoutMinutes() * 60],
       );
       const row = sessionResult.rows[0];
-      if (!row) throw new UnauthorizedException('Phiên đăng nhập đã hết hạn.');
+      if (!row) {
+        // Có thể thu hồi phiên khi token cũ bị dùng lại, nên chốt transaction trước khi báo lỗi.
+        const failure = await this.refreshFailure(client, refreshToken);
+        await client.query('COMMIT');
+        throw failure;
+      }
+      if (row.idle_expired) {
+        await client.query(
+          `UPDATE identity_schema.auth_sessions SET revoked_at = now()
+            WHERE id = $1 AND revoked_at IS NULL`,
+          [row.session_id],
+        );
+        await client.query('COMMIT');
+        throw new RefreshSessionIdleExpiredException();
+      }
       const rotatedRefresh = randomBytes(48).toString('base64url');
       const rotatedCsrf = randomBytes(24).toString('base64url');
       await client.query(
         `UPDATE identity_schema.auth_sessions
-            SET refresh_token_hash = $2, csrf_token_hash = $3, rotated_at = now()
+            SET previous_refresh_token_hash = refresh_token_hash,
+                refresh_token_hash = $2, csrf_token_hash = $3, rotated_at = now()
           WHERE id = $1`,
         [row.session_id, this.hash(rotatedRefresh), this.hash(rotatedCsrf)],
       );
@@ -327,6 +375,80 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Phân loại refresh token không khớp phiên nào đang sống (ISS-BE-010, ISS-BE-053):
+   * - là token vừa bị xoay của một phiên còn sống, gửi lại trong ân hạn: hai tab làm mới cùng lúc, không thu hồi;
+   * - như trên nhưng ngoài ân hạn: token đã lộ, thu hồi cả phiên (người giữ token mới cũng phải đăng nhập lại);
+   * - khớp một phiên đã hết hạn hoặc đã thu hồi: hết hạn tự nhiên, không đếm vào giới hạn thất bại;
+   * - không khớp gì: token lạ.
+   */
+  private async refreshFailure(
+    client: PostgresClient,
+    refreshToken: string,
+  ): Promise<UnauthorizedException> {
+    const hash = this.hash(refreshToken);
+    const reused = await client.query<{
+      kind: 'platform' | 'tenant';
+      id: string;
+      tenant_id: string | null;
+      core_user_id: string | null;
+      within_grace: boolean;
+    }>(
+      `SELECT 'platform' AS kind, id, NULL::uuid AS tenant_id, NULL::uuid AS core_user_id,
+              rotated_at > now() - make_interval(secs => $2) AS within_grace
+         FROM identity_schema.auth_sessions
+        WHERE previous_refresh_token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+       UNION ALL
+       SELECT 'tenant' AS kind, id, tenant_id, core_user_id,
+              rotated_at > now() - make_interval(secs => $2) AS within_grace
+         FROM identity_schema.tenant_auth_sessions
+        WHERE previous_refresh_token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+        LIMIT 1`,
+      [hash, refreshTokenReuseGraceSeconds()],
+    );
+    const session = reused.rows[0];
+    if (session?.within_grace) return new RefreshSessionExpiredException();
+    if (session) {
+      if (session.kind === 'tenant' && session.tenant_id && session.core_user_id) {
+        const revoked = await client.query(
+          `UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now()
+            WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
+          [session.id],
+        );
+        if (revoked.rows.length)
+          await appendSessionRevokedEvent(client, {
+            tenantId: session.tenant_id,
+            userId: session.core_user_id,
+            sessionId: session.id,
+            reason: 'refresh-token-reused',
+          });
+      } else {
+        await client.query(
+          `UPDATE identity_schema.auth_sessions SET revoked_at = now()
+            WHERE id = $1 AND revoked_at IS NULL`,
+          [session.id],
+        );
+      }
+      return new UnauthorizedException({
+        statusCode: 401,
+        code: 'REFRESH_TOKEN_REUSED',
+        message: 'Phát hiện phiên đăng nhập bị dùng lại từ nơi khác. Phiên đã bị thu hồi, vui lòng đăng nhập lại.',
+      });
+    }
+    const known = await client.query(
+      `SELECT 1 FROM identity_schema.auth_sessions
+        WHERE refresh_token_hash = $1 OR previous_refresh_token_hash = $1
+       UNION ALL
+       SELECT 1 FROM identity_schema.tenant_auth_sessions
+        WHERE refresh_token_hash = $1 OR previous_refresh_token_hash = $1
+       LIMIT 1`,
+      [hash],
+    );
+    return known.rows.length
+      ? new RefreshSessionExpiredException()
+      : new UnauthorizedException('Phiên đăng nhập đã hết hạn.');
   }
 
   private async refreshTenantCoreSession(
@@ -351,20 +473,38 @@ export class PlatformIdentityService implements OnModuleDestroy {
         tenant_slug: string;
         secret_ref: string;
         database_name: string;
+        idle_expired: boolean;
       }>(
-        `SELECT s.id AS session_id, s.tenant_id, s.core_user_id, t.slug AS tenant_slug, db.secret_ref, db.database_name
+        `SELECT s.id AS session_id, s.tenant_id, s.core_user_id, t.slug AS tenant_slug, db.secret_ref, db.database_name,
+                COALESCE(s.rotated_at, s.created_at) <= now() - make_interval(secs => $3) AS idle_expired
            FROM identity_schema.tenant_auth_sessions s
            JOIN tenancy_schema.tenants t ON t.id = s.tenant_id AND t.status = 'active'
            JOIN tenancy_schema.tenant_db_configs db ON db.tenant_id = s.tenant_id AND db.status = 'active'
           WHERE s.refresh_token_hash = $1 AND s.csrf_token_hash = $2
             AND s.revoked_at IS NULL AND s.expires_at > now()
           FOR UPDATE OF s`,
-        [this.hash(refreshToken), this.hash(csrfToken)],
+        [this.hash(refreshToken), this.hash(csrfToken), sessionIdleTimeoutMinutes() * 60],
       );
       const row = result.rows[0];
       if (!row) {
         await client.query('ROLLBACK');
         return undefined;
+      }
+      if (row.idle_expired) {
+        const revoked = await client.query(
+          `UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now()
+            WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
+          [row.session_id],
+        );
+        if (revoked.rows.length)
+          await appendSessionRevokedEvent(client, {
+            tenantId: row.tenant_id,
+            userId: row.core_user_id,
+            sessionId: row.session_id,
+            reason: 'idle-timeout',
+          });
+        await client.query('COMMIT');
+        throw new RefreshSessionIdleExpiredException();
       }
       const tenantPool = createPostgresPool(
         this.tenantConnectionString(row.secret_ref, row.database_name),
@@ -398,7 +538,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
       const rotatedCsrf = randomBytes(24).toString('base64url');
       await client.query(
         `UPDATE identity_schema.tenant_auth_sessions
-            SET refresh_token_hash = $2, csrf_token_hash = $3, rotated_at = now() WHERE id = $1`,
+            SET previous_refresh_token_hash = refresh_token_hash,
+                refresh_token_hash = $2, csrf_token_hash = $3, rotated_at = now() WHERE id = $1`,
         [row.session_id, this.hash(rotatedRefresh), this.hash(rotatedCsrf)],
       );
       const principal: TenantUserPrincipal = {
@@ -1797,12 +1938,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
       !fullName ||
       !email ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-      !password ||
-      password.length < 6 ||
-      password.length > 128
+      !password
     ) {
       throw new BadRequestException('Thông tin người dùng không hợp lệ.');
     }
+    assertPasswordPolicy(password);
     if (platformImport && !(await this.pool.query("SELECT 1 FROM identity_schema.users WHERE id=$1 AND kind='platform-admin' AND status='active'", [actorId])).rowCount)
       throw new UnauthorizedException('Platform admin không hợp lệ.');
     try {
@@ -1861,11 +2001,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       throw new BadRequestException('Role người dùng không hợp lệ.');
     if (status !== undefined && !['active', 'disabled'].includes(status))
       throw new BadRequestException('Trạng thái người dùng không hợp lệ.');
-    if (
-      input.password !== undefined &&
-      (input.password.length < 6 || input.password.length > 128)
-    )
-      throw new BadRequestException('Mật khẩu cần từ 6 đến 128 ký tự.');
+    if (input.password !== undefined) assertPasswordPolicy(input.password);
     const directory = await this.pool.query<{ core_user_id: string }>(
       'SELECT core_user_id FROM tenancy_schema.tenant_admin_directory WHERE tenant_id = $1',
       [tenantId],
@@ -1879,8 +2015,21 @@ export class PlatformIdentityService implements OnModuleDestroy {
       );
     }
     try {
-      const result = await this.authorization.mutate(tenantId, actorId, async (pool) => {
+      const { result, emailChanged } = await this.authorization.mutate(tenantId, actorId, async (pool) => {
         await this.authorization.protectAdmin(pool, userId, actorId);
+        const current = (
+          await pool.query<{ email: string }>('SELECT email FROM core_schema.users WHERE id = $1 FOR UPDATE', [userId])
+        ).rows[0];
+        if (!current) throw new NotFoundException('Không tìm thấy người dùng.');
+        const emailChanged = email !== undefined && email !== current.email.toLowerCase();
+        // ISS-BE-002: đổi mật khẩu hoặc email là chiếm được tài khoản, nên chỉ quản trị tenant được làm; người có
+        // core.users.update vẫn sửa được các trường khác. Kiểm trong transaction đã khoá authorization_state.
+        if ((input.password !== undefined || emailChanged) && !(await this.authorization.isAdmin(pool, actorId)))
+          throw new ForbiddenException({
+            statusCode: 403,
+            code: 'CREDENTIAL_CHANGE_ADMIN_ONLY',
+            message: 'Chỉ quản trị tenant được đổi mật khẩu hoặc email của người dùng.',
+          });
         const result = await pool.query(
           `UPDATE core_schema.users SET full_name = coalesce($2, full_name), email = coalesce($3, email),
            username = coalesce($3, username), system_role = coalesce($4, system_role),
@@ -1899,16 +2048,21 @@ export class PlatformIdentityService implements OnModuleDestroy {
           ],
         );
         await this.authorization.assertAdminRemains(pool);
-        return result;
+        // Audit không chứa mật khẩu hay hash; trigger trên core_schema.users đã tăng revision phân quyền.
+        if (input.password)
+          await this.authorization.audit(pool, actorId, 'user.password.reset', userId, null, { passwordReset: true });
+        if (emailChanged)
+          await this.authorization.audit(pool, actorId, 'user.email.change', userId, { email: current.email }, { email });
+        return { result, emailChanged };
       }, 'core.users.update');
       if (!result.rows[0])
         throw new NotFoundException('Không tìm thấy người dùng.');
-      if (status === 'disabled' || input.password) {
+      if (status === 'disabled' || input.password || emailChanged) {
         await inTransaction(this.pool, (client) =>
           revokeTenantUserSessions(client, {
             tenantId,
             userId,
-            reason: input.password ? 'password-reset' : 'user-disabled',
+            reason: input.password ? 'password-reset' : emailChanged ? 'email-changed' : 'user-disabled',
           }),
         );
       }
@@ -2028,15 +2182,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (!adminDisplayName || adminDisplayName.length > 180) {
       throw new BadRequestException('Tên hiển thị tenant admin không hợp lệ.');
     }
-    if (
-      !initialPassword ||
-      initialPassword.length < 6 ||
-      initialPassword.length > 128
-    ) {
-      throw new BadRequestException(
-        'Mật khẩu khởi tạo phải có từ 6 đến 128 ký tự.',
-      );
-    }
+    assertPasswordPolicy(initialPassword);
     if (!databaseName || !/^[a-z][a-z0-9_]{0,62}$/.test(databaseName)) {
       throw new BadRequestException(
         'Tên database phải là định danh PostgreSQL chữ thường hợp lệ.',
@@ -2236,14 +2382,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const genericError =
       'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.';
     const token = input?.token?.trim();
-    if (
-      !token ||
-      !input?.password ||
-      input.password.length < 6 ||
-      input.password.length > 128
-    ) {
+    if (!token || !input?.password) {
       throw new BadRequestException(genericError);
     }
+    assertPasswordPolicy(input.password);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -2325,8 +2467,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       typeof newPassword !== 'string'
     )
       throw new BadRequestException('Thông tin đổi mật khẩu không hợp lệ.');
-    if (newPassword.length < 6 || newPassword.length > 128)
-      throw new BadRequestException('Mật khẩu mới cần từ 6 đến 128 ký tự.');
+    assertPasswordPolicy(newPassword);
     if (newPassword === currentPassword)
       throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại.');
     const mismatch = 'Mật khẩu hiện tại không đúng.';
@@ -3087,6 +3228,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
       'code' in error &&
       error.code === code
     );
+  }
+
+  private dummyPasswordHash: Promise<string> | undefined;
+
+  /**
+   * Email không tồn tại vẫn chạy scrypt với một hash giả, để thời gian phản hồi không cho dò email nào có tài khoản
+   * (ISS-BE-010). Luôn trả false.
+   */
+  private async verifyAgainstDummyHash(password: string): Promise<false> {
+    this.dummyPasswordHash ??= this.hashPassword(randomBytes(18).toString('base64url'));
+    await this.verifyPassword(await this.dummyPasswordHash, String(password ?? ''));
+    return false;
   }
 
   private async verifyPassword(

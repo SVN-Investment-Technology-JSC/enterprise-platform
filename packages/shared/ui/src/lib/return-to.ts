@@ -3,9 +3,43 @@
  * về. Chỉ nhận đường dẫn nội bộ cùng trang web, để link không đẩy người dùng sang trang ngoài.
  */
 export function readReturnTo(search: string): string | undefined {
-  const raw = new URLSearchParams(search).get('returnTo')?.trim();
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return undefined;
+  const value = new URLSearchParams(search).get('returnTo');
+  if (!value || hasControlChar(value)) return undefined;
+  const raw = value.trim();
+  if (!isSameOriginPath(raw)) return undefined;
+  // Giá trị có thể bị mã hoá thêm một lớp (`/%09/...`, `/%5C%5C...`): kiểm cả bản đã giải mã.
+  const decoded = safeDecode(raw);
+  if (decoded === undefined || (decoded !== raw && !isSameOriginPath(decoded))) return undefined;
   return raw;
+}
+
+/** Có ký tự điều khiển U+0000–U+001F, U+007F (tab, xuống dòng...): trình duyệt bỏ chúng khi dựng URL, `/\t/x` thành `//x`. */
+function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/** Origin giả chỉ để dựng URL tương đối; không bao giờ là origin thật. */
+const PROBE_ORIGIN = 'https://return-to.invalid';
+
+function isSameOriginPath(path: string): boolean {
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\') || hasControlChar(path)) return false;
+  try {
+    return new URL(path, PROBE_ORIGIN).origin === PROBE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+function safeDecode(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export interface ReturnTarget {
