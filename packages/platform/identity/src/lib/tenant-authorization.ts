@@ -5,12 +5,14 @@ import {
   type createPostgresPool,
 } from '@enterprise-platform/adapter-database';
 import {
+  CRM_ROLE_TEMPLATES,
   HRM_ROLE_TEMPLATES,
   TENANT_ADMIN_ROLE,
   TENANT_PERMISSION_ACTIONS,
   expandTenantActions,
   tenantModulePermissions,
   tenantModulesForActions,
+  type HrmRoleTemplate,
   type TenantAuthorization,
   type TenantAuthorizationAuditEntry,
   type TenantPermission,
@@ -45,7 +47,9 @@ const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
  * chuyên mục còn đòi quyền (hoặc quản trị tenant).
  */
 export const OPEN_MEMBER_MODULES: readonly string[] = ['assistant', 'social'];
-/** UUID xác định (dạng v5) từ khóa mẫu: cùng khóa cho cùng ID. */
+/** Người thao tác ghi vào audit khi hệ thống tự tạo vai trò mẫu (không phải người dùng tenant nào). */
+export const ROLE_TEMPLATE_SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+/** UUID xác định (dạng v5) từ khóa mẫu: cùng khóa cho cùng ID. Khóa mẫu CRM (`crm-...`) không trùng khóa mẫu HRM. */
 export function hrmTemplateId(kind: 'role' | 'permission', key: string) {
   const h = createHash('sha1')
     .update(`enterprise-platform:hrm-template:${kind}:${key}`)
@@ -314,7 +318,8 @@ export class TenantAuthorizationService {
                   a.created_at AS "createdAt", a.before_data AS before, a.after_data AS after
            FROM core_schema.authorization_audit a
            LEFT JOIN core_schema.users u ON u.id=a.actor_id
-           WHERE a.subject_id=$1 AND a.operation IN ('user.roles.replace','user.permissions.replace')
+           WHERE a.subject_id=$1 AND a.operation IN ('user.roles.replace','user.permissions.replace',
+             'user.password.reset','user.email.change','user.status.change','user.delete')
            ORDER BY a.created_at DESC, a.id DESC
            LIMIT 100`,
           [userId],
@@ -787,84 +792,126 @@ export class TenantAuthorizationService {
    * Trưởng bộ phận). Chỉ đụng tới vai trò mẫu (ID xác định theo khóa mẫu), không đụng vai trò tùy chỉnh.
    */
   async seedHrmRoleTemplates(tenantId: string, actor: string, sync = false) {
-    return this.mutate(tenantId, actor, async (client) => {
-      const created: string[] = [];
-      const skipped: string[] = [];
-      const updated: { name: string; added: string[]; removed: string[] }[] = [];
-      for (const template of HRM_ROLE_TEMPLATES) {
-        const roleId = hrmTemplateId('role', template.key);
-        const permissionId = hrmTemplateId('permission', template.key);
-        const role = await client.query(
-          `INSERT INTO core_schema.roles(id,key,name,description) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-          [roleId, `custom-${roleId}`, template.name, template.description],
+    return this.mutate(tenantId, actor, (client) =>
+      this.seedRoleTemplates(client, HRM_ROLE_TEMPLATES, 'hrm', actor, sync),
+    );
+  }
+
+  /**
+   * Vai trò mẫu Bán hàng "Nhân viên kinh doanh", "Quản lý kinh doanh" (ISS-BE-011), cùng cơ chế với vai trò mẫu HRM:
+   * ID xác định theo khóa mẫu nên chạy lại không tạo trùng; chỉ quản trị tenant. Không gán vai trò cho ai.
+   */
+  async seedCrmRoleTemplates(tenantId: string, actor: string, sync = false) {
+    return this.mutate(tenantId, actor, (client) =>
+      this.seedRoleTemplates(client, CRM_ROLE_TEMPLATES, 'crm', actor, sync),
+    );
+  }
+
+  /**
+   * Hệ thống tự tạo vai trò mẫu Bán hàng khi platform bật phân hệ cho tenant. Không có người dùng tenant thao tác nên
+   * không qua kiểm quản trị của `mutate`, nhưng vẫn khoá `authorization_state` như mọi thao tác phân quyền.
+   * Chỉ tạo vai trò còn thiếu, không đồng bộ đè vai trò mẫu quản trị tenant đã sửa.
+   */
+  async seedCrmRoleTemplatesAsSystem(tenantId: string) {
+    return this.database(tenantId, (pool) =>
+      inTransaction(pool, async (client) => {
+        await client.query(
+          'SELECT revision FROM core_schema.authorization_state WHERE id=true FOR UPDATE',
         );
-        if (!role.rowCount) {
-          if (!sync) {
-            skipped.push(template.name);
-            continue;
-          }
-          const current = await client.query<{ action_key: string }>(
-            'SELECT action_key FROM core_schema.permission_actions WHERE permission_id=$1',
-            [permissionId],
-          );
-          const have = new Set(current.rows.map((r) => r.action_key));
-          const want = new Set<string>(template.actions);
-          const added = [...want].filter((key) => !have.has(key));
-          const removed = [...have].filter((key) => !want.has(key));
-          if (!added.length && !removed.length) {
-            skipped.push(template.name);
-            continue;
-          }
-          for (const key of added)
-            await client.query(
-              'INSERT INTO core_schema.permission_actions VALUES ($1,$2) ON CONFLICT DO NOTHING',
-              [permissionId, key],
-            );
-          if (removed.length)
-            await client.query(
-              'DELETE FROM core_schema.permission_actions WHERE permission_id=$1 AND action_key = ANY($2::text[])',
-              [permissionId, removed],
-            );
-          await client.query(
-            'UPDATE core_schema.roles SET description=$2, updated_at=now() WHERE id=$1',
-            [roleId, template.description],
-          ).catch(() => undefined);
-          await this.audit(client, actor, 'role.template.hrm.sync', roleId, null, {
-            name: template.name,
-            added,
-            removed,
-          });
-          updated.push({ name: template.name, added, removed });
+        return this.seedRoleTemplates(
+          client,
+          CRM_ROLE_TEMPLATES,
+          'crm',
+          ROLE_TEMPLATE_SYSTEM_ACTOR_ID,
+          false,
+        );
+      }),
+    );
+  }
+
+  private async seedRoleTemplates(
+    client: PostgresClient,
+    templates: readonly HrmRoleTemplate[],
+    module: 'hrm' | 'crm',
+    actor: string,
+    sync: boolean,
+  ) {
+    const created: string[] = [];
+    const skipped: string[] = [];
+    const updated: { name: string; added: string[]; removed: string[] }[] = [];
+    for (const template of templates) {
+      const roleId = hrmTemplateId('role', template.key);
+      const permissionId = hrmTemplateId('permission', template.key);
+      const role = await client.query(
+        `INSERT INTO core_schema.roles(id,key,name,description) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+        [roleId, `custom-${roleId}`, template.name, template.description],
+      );
+      if (!role.rowCount) {
+        if (!sync) {
+          skipped.push(template.name);
           continue;
         }
-        await client.query(
-          `INSERT INTO core_schema.permissions(id,name,description) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-          [permissionId, template.name, template.description],
-        );
-        const permission = await client.query(
-          'SELECT id FROM core_schema.permissions WHERE id=$1',
+        const current = await client.query<{ action_key: string }>(
+          'SELECT action_key FROM core_schema.permission_actions WHERE permission_id=$1',
           [permissionId],
         );
-        if (!permission.rowCount)
-          throw new ConflictException(
-            `Đã có quyền trùng tên '${template.name}' không phải bản mẫu; hãy đổi tên rồi thử lại.`,
-          );
-        for (const key of template.actions)
+        const have = new Set(current.rows.map((r) => r.action_key));
+        const want = new Set<string>(template.actions);
+        const added = [...want].filter((key) => !have.has(key));
+        const removed = [...have].filter((key) => !want.has(key));
+        if (!added.length && !removed.length) {
+          skipped.push(template.name);
+          continue;
+        }
+        for (const key of added)
           await client.query(
             'INSERT INTO core_schema.permission_actions VALUES ($1,$2) ON CONFLICT DO NOTHING',
             [permissionId, key],
           );
+        if (removed.length)
+          await client.query(
+            'DELETE FROM core_schema.permission_actions WHERE permission_id=$1 AND action_key = ANY($2::text[])',
+            [permissionId, removed],
+          );
         await client.query(
-          'INSERT INTO core_schema.role_permissions VALUES ($1,$2) ON CONFLICT DO NOTHING',
-          [roleId, permissionId],
-        );
-        await this.audit(client, actor, 'role.template.hrm.create', roleId, null, {
+          'UPDATE core_schema.roles SET description=$2, updated_at=now() WHERE id=$1',
+          [roleId, template.description],
+        ).catch(() => undefined);
+        await this.audit(client, actor, `role.template.${module}.sync`, roleId, null, {
           name: template.name,
-          actionKeys: template.actions,
+          added,
+          removed,
         });
-        created.push(template.name);
+        updated.push({ name: template.name, added, removed });
+        continue;
       }
-      return { created, updated, skipped };
-    });
+      await client.query(
+        `INSERT INTO core_schema.permissions(id,name,description) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+        [permissionId, template.name, template.description],
+      );
+      const permission = await client.query(
+        'SELECT id FROM core_schema.permissions WHERE id=$1',
+        [permissionId],
+      );
+      if (!permission.rowCount)
+        throw new ConflictException(
+          `Đã có quyền trùng tên '${template.name}' không phải bản mẫu; hãy đổi tên rồi thử lại.`,
+        );
+      for (const key of template.actions)
+        await client.query(
+          'INSERT INTO core_schema.permission_actions VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [permissionId, key],
+        );
+      await client.query(
+        'INSERT INTO core_schema.role_permissions VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [roleId, permissionId],
+      );
+      await this.audit(client, actor, `role.template.${module}.create`, roleId, null, {
+        name: template.name,
+        actionKeys: template.actions,
+      });
+      created.push(template.name);
+    }
+    return { created, updated, skipped };
   }
 }

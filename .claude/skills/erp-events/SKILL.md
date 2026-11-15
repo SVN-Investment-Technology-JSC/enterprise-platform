@@ -69,5 +69,9 @@ tượng, `payload` là cả envelope dạng JSON. Mẫu ghi: hàm `writeOutbox`
 
 - Trigger SQL của core và HRM tự ghi outbox mà không có `occurredAt`/`tenantId`; relay bù hai trường này
   (`normalizeOutboxEnvelope`). Code TypeScript mới thì dùng `createIntegrationEvent` với đủ trường.
-- `hrm.employee.offboarded` và `core.org.*` do org-hrm-bridge đọc thẳng từ outbox (`OUTBOX_INTERNALLY_CONSUMED_TYPES`),
-  relay không phát lên RabbitMQ.
+- `core.org.assignment.ended`, `core.org.position.deleted` do org-hrm-bridge đọc thẳng từ outbox
+  (`OUTBOX_INTERNALLY_CONSUMED_TYPES`), relay không phát lên RabbitMQ. `core.org.assignment.created` đi qua relay;
+  Core tự gắn `employee_id` cho bổ nhiệm bằng trigger (`tenant/core/0021`).
+- `hrm.employee.offboarded` đi qua RabbitMQ; Core nhận ở hàng đợi `identity.integrations.v1`
+  (`packages/platform/identity/src/lib/employee-offboarding.consumer.ts`). Handler cần ghi cùng transaction với dòng
+  inbox thì dùng client mà `IdempotentInbox.process` truyền vào.

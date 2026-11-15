@@ -15,6 +15,7 @@ import type {
 } from '@enterprise-platform/contracts-tenancy';
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -550,6 +551,19 @@ export class PlatformAccessController {
     const p = await this.tenantManager(request);
     this.requireCsrf(request);
     return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId, sync === 'true');
+  }
+
+  /**
+   * Tạo bộ vai trò mẫu Bán hàng "Nhân viên kinh doanh", "Quản lý kinh doanh" (idempotent, chỉ tenant admin, ISS-BE-011).
+   * Dùng cho tenant đã bật Bán hàng từ trước; tenant bật mới được tạo tự động. Không gán vai trò cho ai.
+   */
+  @Post('v1/tenant-role-templates/crm')
+  async seedCrmRoleTemplates(@Req() request: Request, @Query('sync') sync?: string) {
+    const p = await this.tenantManager(request);
+    this.requireCsrf(request);
+    if (!(await this.identity.moduleEntitled(p.tenantId, 'crm')))
+      throw new ConflictException('Công ty chưa bật phân hệ Bán hàng.');
+    return this.identity.authorization.seedCrmRoleTemplates(p.tenantId, p.userId, sync === 'true');
   }
 
   @Get('v1/tenant-users/:id/roles')

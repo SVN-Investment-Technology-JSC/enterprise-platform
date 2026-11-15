@@ -147,6 +147,7 @@
     "@enterprise-platform/module-workspace": "workspace:*",
     "@enterprise-platform/platform-chat": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
+    "@enterprise-platform/platform-identity": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",

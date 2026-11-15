@@ -6,6 +6,7 @@ import {
   type DataImportSheetName,
 } from '@enterprise-platform/contracts-data-import';
 import { passwordPolicyViolation } from '@enterprise-platform/contracts-identity';
+import { tenantSlugFromEmail } from '@enterprise-platform/platform-identity';
 
 export interface ExistingCoreImportState {
   readonly userEmails: ReadonlySet<string>;
@@ -22,6 +23,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function validateImportDataset(
   dataset: DataImportDataset,
   existing: ExistingCoreImportState,
+  options: { readonly tenantSlug?: string } = {},
 ): DataImportIssue[] {
   const issues: DataImportIssue[] = [];
   const counts = dataImportRowCounts(dataset);
@@ -30,7 +32,7 @@ export function validateImportDataset(
     return issues;
   }
 
-  validateUsers(dataset, existing, issues);
+  validateUsers(dataset, existing, issues, options.tenantSlug);
   validateOrganization(dataset, existing, issues);
   validateInventory(dataset, existing, issues);
   validateProcedures(dataset, existing, issues);
@@ -42,6 +44,7 @@ function validateUsers(
   dataset: DataImportDataset,
   existing: ExistingCoreImportState,
   issues: DataImportIssue[],
+  tenantSlug?: string,
 ): void {
   const seen = new Set<string>();
   dataset.users.forEach((user, index) => {
@@ -52,6 +55,9 @@ function validateUsers(
     const email = user.email.trim().toLowerCase();
     if (!EMAIL.test(email)) {
       issues.push(error('USER_EMAIL_INVALID', 'Email người dùng không hợp lệ.', DATA_IMPORT_SHEETS.users, row, 'email'));
+    } else if (tenantSlug && tenantSlugFromEmail(email) !== tenantSlug) {
+      // Cùng quy tắc lúc đăng nhập và lúc tạo người dùng (ISS-BE-055).
+      issues.push(error('USER_EMAIL_TENANT_MISMATCH', `Email phải dùng tên miền của công ty: @${tenantSlug}.com.`, DATA_IMPORT_SHEETS.users, row, 'email'));
     }
     const passwordViolation = passwordPolicyViolation(user.temporaryPassword);
     if (passwordViolation) {

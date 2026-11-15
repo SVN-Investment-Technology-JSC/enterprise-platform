@@ -206,8 +206,9 @@ export class TenantDeletionService {
     tenantId: string,
     actor: AuthenticatedPrincipal,
   ): Promise<TenantDeletionPreview> {
-    this.requireEnabled();
+    // ISS-BE-054: kiểm quyền trước, để người không có quyền nhận 403 chứ không biết tính năng đang tắt.
     await this.authorize(actor);
+    this.requireEnabled();
     this.dependencies.drainSeconds();
     const snapshot = await this.snapshot(tenantId);
     await this.dependencies.storage.inspect();
@@ -248,8 +249,8 @@ export class TenantDeletionService {
     actor: AuthenticatedPrincipal,
     csrf: { header: string | undefined; cookie: string | undefined },
   ): Promise<TenantDeletionJob> {
-    this.requireEnabled();
     await this.authorize(actor, csrf);
+    this.requireEnabled();
     if (
       !uuid(tenantId) ||
       !input ||
@@ -379,8 +380,8 @@ export class TenantDeletionService {
     actor: AuthenticatedPrincipal,
     csrf: { header: string | undefined; cookie: string | undefined },
   ): Promise<TenantDeletionJob> {
-    this.requireEnabled();
     await this.authorize(actor, csrf);
+    this.requireEnabled();
     if (!uuid(id)) throw new TenantDeletionError(404, 'JOB_NOT_FOUND');
     return inTransaction(this.pool, async (client) => {
       const result = await client.query<JobRow>(
