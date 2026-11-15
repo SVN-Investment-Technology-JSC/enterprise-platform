@@ -68,6 +68,7 @@ export class HrmSalaryController {
   // Salary Grades & Steps (P2_S3_HRM_API.md § 21)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.salary.read')
   @Get('salary-grades')
   async listGrades(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -87,6 +88,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Post('salary-grades')
   async createGrade(
     @Req() req: Request,
@@ -135,6 +137,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Patch('salary-grades/:id')
   async updateGrade(
     @Req() req: Request,
@@ -179,6 +182,7 @@ export class HrmSalaryController {
     return { data: this.mapGrade(row) };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Delete('salary-grades/:id')
   async deleteGrade(
     @Req() req: Request,
@@ -221,6 +225,7 @@ export class HrmSalaryController {
     return { data: { deleted: true } };
   }
 
+  @RequirePermission('hrm.salary.read')
   @Get('salary-grades/:gradeId/steps')
   async listGradeSteps(@Req() req: Request, @Param('gradeId') gradeId: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -240,6 +245,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Post('salary-grades/:gradeId/steps')
   async createGradeStep(
     @Req() req: Request,
@@ -285,6 +291,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Patch('salary-grades/:gradeId/steps/:id')
   async updateGradeStep(
     @Req() req: Request,
@@ -354,6 +361,7 @@ export class HrmSalaryController {
     return { data: this.mapStep(row) };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Delete('salary-grades/:gradeId/steps/:id')
   async deleteGradeStep(
     @Req() req: Request,
@@ -432,6 +440,7 @@ export class HrmSalaryController {
   // Employee Salary Profiles (P2_S3_HRM_API.md § 22)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/salary-profiles')
   async listEmployeeSalaryProfiles(
     @Req() req: Request,
@@ -458,6 +467,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/salary-profiles/current')
   async getCurrentEmployeeSalaryProfile(
     @Req() req: Request,
@@ -487,6 +497,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.salary.manage')
   @Post('employees/:employeeId/salary-profiles')
   async createEmployeeSalaryProfile(
     @Req() req: Request,
@@ -581,6 +592,7 @@ export class HrmSalaryController {
   // Salary Advance Requests (P2_S3_HRM_API.md § 23)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('salary-advance-requests')
   async createAdvanceRequest(
     @Req() req: Request,
@@ -665,6 +677,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('salary-advance-requests')
   async listAdvanceRequests(
     @Req() req: Request,
@@ -731,7 +744,8 @@ export class HrmSalaryController {
     };
   }
 
-  @RequirePermission('hrm.request.approve')
+  // Người được giao xử lý đúng đơn vẫn duyệt được khi không có hrm.request.approve (approverContext).
+  @RequirePermission('hrm.read')
   @Post('salary-advance-requests/:id/approve')
   async approveAdvance(
     @Req() req: Request,
@@ -755,6 +769,7 @@ export class HrmSalaryController {
     );
     return { data: this.mapAdvance(row) };
   }
+  @RequirePermission('hrm.read')
   @Post('salary-advance-requests/:id/reject')
   async rejectAdvance(
     @Req() req: Request,
@@ -782,6 +797,7 @@ export class HrmSalaryController {
       throw new BadRequestException('Đơn không còn chờ duyệt');
     return { data: this.mapAdvance(result.rows[0]) };
   }
+  @RequirePermission('hrm.advance.disburse')
   @Post('salary-advance-requests/:id/schedule')
   async scheduleAdvance(
     @Req() req: Request,
@@ -847,6 +863,7 @@ export class HrmSalaryController {
     });
   }
 
+  @RequirePermission('hrm.advance.disburse')
   @Patch('salary-advance-deductions/:id')
   async updateDeduction(
     @Req() req: Request,
@@ -858,6 +875,7 @@ export class HrmSalaryController {
     return this.changeDeduction(req, id, body, false);
   }
 
+  @RequirePermission('hrm.advance.disburse')
   @Post('salary-advance-deductions/:id/cancel')
   async cancelDeduction(
     @Req() req: Request,
@@ -953,6 +971,7 @@ export class HrmSalaryController {
     });
   }
 
+  @RequirePermission('hrm.advance.disburse')
   @Post('salary-advance-requests/:id/disburse')
   async disburseAdvance(
     @Req() req: Request,
@@ -988,6 +1007,7 @@ export class HrmSalaryController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('salary-advance-requests/:id/deductions')
   async listAdvanceDeductions(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, employeeId } = await this.ctx.scoped(

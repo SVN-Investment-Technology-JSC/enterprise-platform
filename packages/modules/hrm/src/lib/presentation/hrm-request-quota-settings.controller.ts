@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { lifecycleAudit } from '../infrastructure/hrm-lifecycle.js';
 import { ENGINE_REQUEST_KIND } from '../infrastructure/hrm-request-types.js';
@@ -46,6 +47,7 @@ const present = (row: TypeRow) => ({
 export class HrmRequestQuotaSettingsController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission(PERMISSION)
   @Get('request-quota-settings')
   async get(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, PERMISSION);
@@ -55,6 +57,7 @@ export class HrmRequestQuotaSettingsController {
   }
 
   /** Lưu cả danh sách: `monthlyLimit` null hoặc thiếu là bỏ hạn mức (không giới hạn) của loại đơn đó. */
+  @RequirePermission(PERMISSION)
   @Put('request-quota-settings')
   async save(@Req() req: Request, @Body() body: { items?: unknown }) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, PERMISSION);
@@ -103,6 +106,7 @@ export class HrmRequestQuotaSettingsController {
   }
 
   /** Hạn mức và số đơn đã duyệt tháng này của chính người dùng, theo từng loại đơn có đặt hạn mức (cho form tạo đơn). */
+  @RequirePermission('hrm.read')
   @Get('request-quota/me')
   async mine(@Req() req: Request) {
     const { pool, tenantId, employeeId } = await this.ctx.getRequestContext(req);

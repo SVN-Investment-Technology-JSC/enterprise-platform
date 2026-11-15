@@ -1,6 +1,7 @@
 import { BadRequestException, Controller, Get, NotFoundException, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { PoolClient } from 'pg';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { resolveRequestTime, toTimePreview } from '../infrastructure/hrm-request-time.js';
 import { requireUuid } from '../infrastructure/hrm-validation.js';
@@ -14,6 +15,7 @@ import { requireUuid } from '../infrastructure/hrm-validation.js';
 export class HrmRequestTimeController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.read')
   @Get('requests/time-preview')
   async timePreview(
     @Req() req: Request,

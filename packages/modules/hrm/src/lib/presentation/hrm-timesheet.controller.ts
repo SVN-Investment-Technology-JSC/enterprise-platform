@@ -46,6 +46,7 @@ export class HrmTimesheetController {
    * Bảng công của CHÍNH người đăng nhập (nhân viên tự xem). Chỉ cần quyền cá nhân, luôn lọc theo nhân viên của tài khoản.
    * Dòng thuộc kỳ chưa khóa là số tạm tính; kèm trạng thái kỳ để giao diện hiển thị.
    */
+  @RequirePermission('hrm.self.read')
   @Get('my-timesheet')
   async myTimesheet(
     @Req() req: Request,
@@ -101,6 +102,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.export')
   @Get('timesheet-periods/:id/export')
   async exportPeriod(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -119,6 +121,7 @@ export class HrmTimesheetController {
   // Timesheet Periods (P2_S3_HRM_API.md § 19)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.timesheet.read')
   @Get('timesheet-periods')
   async listPeriods(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -138,6 +141,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.calculate')
   @Post('timesheet-periods')
   async createPeriod(
     @Req() req: Request,
@@ -179,6 +183,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.read')
   @Get('timesheet-periods/:id')
   async getPeriod(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -228,6 +233,7 @@ export class HrmTimesheetController {
     return row;
   }
 
+  @RequirePermission('hrm.timesheet.calculate')
   @Patch('timesheet-periods/:id')
   async updatePeriod(
     @Req() req: Request,
@@ -282,6 +288,7 @@ export class HrmTimesheetController {
     return { data: this.mapPeriod(row) };
   }
 
+  @RequirePermission('hrm.timesheet.calculate')
   @Delete('timesheet-periods/:id')
   async deletePeriod(
     @Req() req: Request,
@@ -316,6 +323,7 @@ export class HrmTimesheetController {
     return { data: { id, deleted: true } };
   }
 
+  @RequirePermission('hrm.timesheet.calculate')
   @Post('timesheet-periods/:id/calculate')
   async calculatePeriod(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -394,6 +402,7 @@ export class HrmTimesheetController {
   // Daily Timesheet Lines (P2_S3_HRM_API.md § 20)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.timesheet.read')
   @Get('timesheets')
   async listTimesheets(
     @Req() req: Request,
@@ -431,6 +440,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.read')
   @Get('timesheets/:id')
   async getTimesheet(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -453,6 +463,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.adjust')
   @Post('timesheets/:id/adjust')
   async adjustTimesheet(
     @Req() req: Request,

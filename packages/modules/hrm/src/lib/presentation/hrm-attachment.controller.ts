@@ -14,6 +14,7 @@ import {
 import { S3ObjectStorage } from '@enterprise-platform/adapter-storage';
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { requireText, requireUuid } from '../infrastructure/hrm-validation.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -64,6 +65,7 @@ export class HrmAttachmentController {
   private readonly storage = new S3ObjectStorage(storageOptions());
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.read')
   @Post()
   async create(
     @Req() req: Request,
@@ -160,6 +162,7 @@ export class HrmAttachmentController {
     );
     return { pool, tenantId, principal, file };
   }
+  @RequirePermission('hrm.read')
   @Post(':id/complete')
   async complete(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, file } = await this.owned(req, id);
@@ -184,6 +187,7 @@ export class HrmAttachmentController {
     if (!updated.rowCount) throw new NotFoundException('Chứng từ đã được gỡ');
     return { data: { id, status: 'READY' } };
   }
+  @RequirePermission('hrm.read')
   @Get(':id/download')
   async download(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal, file } = await this.owned(req, id);
@@ -210,6 +214,7 @@ export class HrmAttachmentController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Delete(':id')
   async remove(
     @Req() req: Request,

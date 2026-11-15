@@ -652,6 +652,8 @@ integration('HRM employee PostgreSQL integration', () => {
       );
       const ctx = {
         getContext: async () => ({ pool, tenantId: t, principal: { userId } }),
+        // Xuất chi trả cần số tài khoản đầy đủ (hrm.employee.sensitive hoặc hrm.payroll.pay).
+        has: () => true,
         resolveEmployee: async () => ({ employeeId: e }),
         getProxyRequestContext: async function (this: any, req: any, requested?: string) {
 

@@ -45,24 +45,30 @@ import {
   recordPayrollActor,
 } from '../infrastructure/hrm-payroll-sod.js';
 import { payslipPublishedEvent } from '../infrastructure/hrm-notification-events.js';
+import { maskAccountNumber } from '../infrastructure/hrm-profile-visibility.js';
 
 @Controller('v1')
 export class HrmPayrollController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.payroll.export')
   @Get('payroll-runs/:runId/export')
   async exportRun(
     @Req() req: Request,
     @Param('runId') runId: string,
     @Query('kind') kind = 'payments',
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(
-      req,
-      'hrm.payroll.export',
-    );
+    const context = await this.ctx.getContext(req, 'hrm.payroll.export');
+    const { pool, tenantId, principal } = context;
     requireUuid(runId, 'Lần tính lương');
     if (!['payments', 'reconciliation'].includes(kind))
       throw new BadRequestException('Loại xuất không hợp lệ');
+    // Số tài khoản đầy đủ chỉ cho người xem được dữ liệu nhạy cảm hoặc người chi trả lương (cần để chuyển khoản);
+    // người chỉ có quyền xuất thấy dạng ****1234. Bản đối soát không có số tài khoản.
+    const fullAccountNumbers =
+      kind === 'payments' &&
+      (this.ctx.has(context, 'hrm.employee.sensitive') ||
+        this.ctx.has(context, 'hrm.payroll.pay'));
     return hrmTransaction(pool, async (db) => {
       const run = (
         await db.query(
@@ -112,7 +118,9 @@ export class HrmPayrollController {
             t.beneficiary_snapshot.full_name,
             t.beneficiary_snapshot.bank_name,
             t.beneficiary_snapshot.bank_branch,
-            t.beneficiary_snapshot.bank_account_number,
+            fullAccountNumbers
+              ? t.beneficiary_snapshot.bank_account_number
+              : maskAccountNumber(t.beneficiary_snapshot.bank_account_number),
             'VND',
             t.net_salary,
             t.payment_status,
@@ -155,7 +163,17 @@ export class HrmPayrollController {
       }
       await db.query(
         `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'PAYROLL_EXPORT','payroll_run',$3,$4)`,
-        [tenantId, principal.userId, runId, JSON.stringify({ kind })],
+        [
+          tenantId,
+          principal.userId,
+          runId,
+          // Ai (actor_id), lúc nào (created_at), kỳ lương nào; không ghi số tài khoản.
+          JSON.stringify({
+            kind,
+            periodCode: run.period_code,
+            ...(kind === 'payments' ? { fullAccountNumbers } : {}),
+          }),
+        ],
       );
       return {
         data: {
@@ -170,6 +188,7 @@ export class HrmPayrollController {
   // Payroll Periods (P2_S3_HRM_API.md § 24)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-periods')
   async listPeriods(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -189,6 +208,7 @@ export class HrmPayrollController {
     };
   }
 
+  @RequirePermission('hrm.payroll.calculate')
   @Post('payroll-periods')
   async createPeriod(
     @Req() req: Request,
@@ -259,6 +279,7 @@ export class HrmPayrollController {
   // Payroll Runs (P2_S3_HRM_API.md § 25)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.payroll.calculate')
   @Patch('payroll-periods/:id')
   async updatePeriod(
     @Req() req: Request,
@@ -315,6 +336,7 @@ export class HrmPayrollController {
     return { data: this.mapPeriod(row) };
   }
 
+  @RequirePermission('hrm.payroll.calculate')
   @Delete('payroll-periods/:id')
   async deletePeriod(
     @Req() req: Request,
@@ -349,6 +371,7 @@ export class HrmPayrollController {
     return { data: { id, deleted: true } };
   }
 
+  @RequirePermission('hrm.payroll.calculate')
   @Post('payroll-runs/:runId/cancel')
   async cancelRun(
     @Req() req: Request,
@@ -394,6 +417,7 @@ export class HrmPayrollController {
     return { data: this.mapRun(row) };
   }
 
+  @RequirePermission('hrm.payroll.calculate')
   @Post('payroll-periods/:periodId/runs')
   async createRun(@Req() req: Request, @Param('periodId') periodId: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -419,6 +443,7 @@ export class HrmPayrollController {
     };
   }
 
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-runs/:runId')
   async getRun(@Req() req: Request, @Param('runId') runId: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -551,6 +576,7 @@ export class HrmPayrollController {
   // Payroll Items & Adjustments (P2_S3_HRM_API.md § 26)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-runs/:runId/items')
   async listItems(@Req() req: Request, @Param('runId') runId: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -571,6 +597,7 @@ export class HrmPayrollController {
   }
 
   /** Truy vết lương của một nhân viên về từng ngày công và đơn từ (nghỉ, làm thêm giờ, công tác...). */
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-runs/:runId/employees/:employeeId/trace')
   async trace(
     @Req() req: Request,
@@ -583,6 +610,7 @@ export class HrmPayrollController {
     };
   }
 
+  @RequirePermission('hrm.payroll.adjust')
   @Post('payroll-runs/:runId/adjustments')
   async addAdjustment(
     @Req() req: Request,
@@ -670,6 +698,7 @@ export class HrmPayrollController {
     };
   }
 
+  @RequirePermission('hrm.payroll.adjust')
   @Patch('payroll-adjustments/:id')
   async updateAdjustment(
     @Req() req: Request,
@@ -681,6 +710,7 @@ export class HrmPayrollController {
     return this.changeAdjustment(req, id, body, false);
   }
 
+  @RequirePermission('hrm.payroll.adjust')
   @Delete('payroll-adjustments/:id')
   async deleteAdjustment(
     @Req() req: Request,
@@ -898,6 +928,7 @@ export class HrmPayrollController {
     return { data: { success: true, count } };
   }
 
+  @RequirePermission('hrm.self.payslip')
   @Get('my-payslips')
   async myPayslips(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -916,6 +947,7 @@ export class HrmPayrollController {
     return { data: result.rows.map(this.mapPayslip) };
   }
 
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-runs/:runId/payslips')
   async listPayslips(@Req() req: Request, @Param('runId') runId: string) {
     const { pool, tenantId } = await this.ctx.getContext(

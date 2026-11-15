@@ -26,18 +26,24 @@ export const HrmPublicRoute = () => SetMetadata(HRM_PUBLIC_ROUTE, true);
 
 export type HrmAccessGuardMode = 'audit' | 'enforce';
 
+/**
+ * Mặc định `enforce`. Chỉ khi đặt đúng `HRM_ACCESS_GUARD_MODE=audit` mới về chế độ chỉ ghi WARN
+ * (dùng tạm khi cần đọc log trước khi chặn); giá trị khác hay để trống đều là `enforce`.
+ */
 export function hrmAccessGuardMode(
   env: NodeJS.ProcessEnv = process.env,
 ): HrmAccessGuardMode {
-  return env.HRM_ACCESS_GUARD_MODE?.trim().toLowerCase() === 'enforce'
-    ? 'enforce'
-    : 'audit';
+  return env.HRM_ACCESS_GUARD_MODE?.trim().toLowerCase() === 'audit'
+    ? 'audit'
+    : 'enforce';
 }
 
 /**
  * HrmAccessGuard (APP_GUARD).
- * - audit (mặc định): chỉ ghi WARN (mỗi route một lần) các route HRM chưa khai báo quyền; KHÔNG chặn.
- * - enforce: từ chối 403 route HRM chưa khai báo quyền; route đã khai báo được kiểm tra quyền.
+ * - enforce (mặc định): từ chối 403 route HRM chưa khai báo quyền; route đã khai báo được kiểm tra quyền
+ *   trước khi vào handler. Quyết định của Platform được HrmContextService giữ theo request, nên handler gọi lại
+ *   `getContext` với quyền đã được cho phép không hỏi Platform lần nữa.
+ * - audit (đặt `HRM_ACCESS_GUARD_MODE=audit`): chỉ ghi WARN (mỗi route một lần) các route chưa khai báo; KHÔNG chặn.
  * Chỉ áp cho controller có tên bắt đầu bằng "Hrm" để không ảnh hưởng route của module khác.
  */
 @Injectable()

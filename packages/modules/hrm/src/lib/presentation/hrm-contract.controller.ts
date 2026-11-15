@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { CreateEmploymentContractRequest } from '@enterprise-platform/contracts-hrm';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import {
@@ -31,6 +32,7 @@ type Version = { expectedUpdatedAt: string };
 @Controller('v1')
 export class HrmContractController {
   constructor(private readonly ctx: HrmContextService) {}
+  @RequirePermission('hrm.employee.manage')
   @Patch('contracts/:id')
   async update(
     @Req() req: Request,
@@ -86,6 +88,7 @@ export class HrmContractController {
       throw error;
     }
   }
+  @RequirePermission('hrm.employee.manage')
   @Delete('contracts/:id')
   async remove(
     @Req() req: Request,
@@ -122,6 +125,7 @@ export class HrmContractController {
       return { data: { deleted: true } };
     });
   }
+  @RequirePermission('hrm.employee.manage')
   @Post('contracts/:id/activate')
   async activate(
     @Req() req: Request,
@@ -223,6 +227,7 @@ export class HrmContractController {
       return { data: mapContract(row) };
     });
   }
+  @RequirePermission('hrm.employee.manage')
   @Post('contracts/:id/amendments')
   async amend(
     @Req() req: Request,
@@ -274,6 +279,7 @@ export class HrmContractController {
       return { data: mapContract(row) };
     });
   }
+  @RequirePermission('hrm.employee.manage')
   @Post('contracts/:id/terminate')
   async terminate(
     @Req() req: Request,

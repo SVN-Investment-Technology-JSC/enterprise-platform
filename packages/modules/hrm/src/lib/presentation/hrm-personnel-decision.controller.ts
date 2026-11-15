@@ -123,7 +123,8 @@ export class HrmPersonnelDecisionController {
   }
 
   @Post('personnel-decisions/:id/cancel')
-  @RequirePermission('hrm.appointment.manage')
+  // Hủy: người lập (manage) hoặc người duyệt (approve); điều kiện chung tối thiểu là xem quyết định, handler kiểm tiếp.
+  @RequirePermission('hrm.appointment.read')
   async cancel(@Req() req: Request, @Param('id') id: string) {
     const context = await this.ctx.getContext(req, 'hrm.appointment.read');
     if (
@@ -170,7 +171,8 @@ export class HrmPersonnelDecisionController {
 
   /** Người quản lý hiện tại (Core, không có thì Tổng giám đốc); nhân viên xem được của chính mình. */
   @Get('employees/:employeeId/reporting-lines')
-  @RequirePermission('hrm.self.read')
+  // Người có hrm.employee.read xem mọi nhân viên kể cả khi không có quyền tự phục vụ; còn lại handler giới hạn về bản thân.
+  @RequirePermission('hrm.read')
   async reportingLines(@Req() req: Request, @Param('employeeId') employeeId: string) {
     requireUuid(employeeId, 'Nhân viên');
     const { pool, tenantId } = await this.ctx.scoped(req, 'hrm.employee.read', employeeId);

@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { policyForMonth, validateEffectiveMonth, validateMonthStandard } from '../domain/standard-workdays.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { lifecycleAudit } from '../infrastructure/hrm-lifecycle.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -31,6 +32,7 @@ const currentMonthOf = () => todayInVietnam().slice(0, 7);
 export class HrmTimesheetStandardController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission(PERMISSION)
   @Get()
   async list(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, PERMISSION);
@@ -47,6 +49,7 @@ export class HrmTimesheetStandardController {
   }
 
   /** Ban hành chính sách mới từ một tháng; cùng tháng đã có chính sách thì thay thế nội dung. */
+  @RequirePermission(PERMISSION)
   @Post()
   async issue(
     @Req() req: Request,
@@ -81,6 +84,7 @@ export class HrmTimesheetStandardController {
   }
 
   /** Xóa chính sách chưa có hiệu lực (tháng bắt đầu sau tháng hiện tại). */
+  @RequirePermission(PERMISSION)
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, PERMISSION);

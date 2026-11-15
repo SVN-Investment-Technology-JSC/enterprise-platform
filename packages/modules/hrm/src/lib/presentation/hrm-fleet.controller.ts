@@ -1,6 +1,7 @@
 import type { SaveFleetDriverRequest, SaveFleetVehicleRequest } from '@enterprise-platform/contracts-hrm';
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   findAvailability,
@@ -25,48 +26,56 @@ import { requireUuid } from '../infrastructure/hrm-validation.js';
 export class HrmFleetController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.fleet.read')
   @Get('vehicles')
   async vehicles(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.read');
     return { data: await listVehicles(pool, tenantId) };
   }
 
+  @RequirePermission('hrm.fleet.manage')
   @Post('vehicles')
   async createVehicle(@Req() req: Request, @Body() body: SaveFleetVehicleRequest) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
     return { data: await hrmTransaction(pool, (db) => saveVehicle(db, tenantId, null, body ?? {})) };
   }
 
+  @RequirePermission('hrm.fleet.manage')
   @Patch('vehicles/:id')
   async updateVehicle(@Req() req: Request, @Param('id') id: string, @Body() body: SaveFleetVehicleRequest) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
     return { data: await hrmTransaction(pool, (db) => saveVehicle(db, tenantId, requireUuid(id, 'id'), body ?? {})) };
   }
 
+  @RequirePermission('hrm.fleet.read')
   @Get('drivers')
   async drivers(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.read');
     return { data: await listDrivers(pool, tenantId) };
   }
 
+  @RequirePermission('hrm.fleet.manage')
   @Post('drivers')
   async createDriver(@Req() req: Request, @Body() body: SaveFleetDriverRequest) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
     return { data: await hrmTransaction(pool, (db) => saveDriver(db, tenantId, null, body ?? {})) };
   }
 
+  @RequirePermission('hrm.fleet.manage')
   @Patch('drivers/:id')
   async updateDriver(@Req() req: Request, @Param('id') id: string, @Body() body: SaveFleetDriverRequest) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
     return { data: await hrmTransaction(pool, (db) => saveDriver(db, tenantId, requireUuid(id, 'id'), body ?? {})) };
   }
 
+  @RequirePermission('hrm.fleet.read')
   @Get('bookings')
   async bookings(@Req() req: Request, @Query('from') from: string, @Query('to') to: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.read');
     return { data: await listBookings(pool, tenantId, from, to) };
   }
 
+  @RequirePermission('hrm.read')
   @Get('availability')
   async availability(
     @Req() req: Request,

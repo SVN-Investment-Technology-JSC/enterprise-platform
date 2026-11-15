@@ -1,7 +1,9 @@
 import { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
-import type {
-  AuthenticatedPrincipal,
-  HrmAction,
+import {
+  type AuthenticatedPrincipal,
+  type HrmAction,
+  expandTenantActions,
+  tenantActionHeld,
 } from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
@@ -29,6 +31,16 @@ export class HrmContextService {
   );
 
   private proxyService?: HrmRequestProxyService;
+
+  /**
+   * Quyết định đã được Platform cho phép trong request hiện tại (guard và handler dùng chung một request).
+   * Lần kiểm sau cùng phiên với quyền mà principal đã có thì trả ngay, không hỏi Platform lần nữa; quyền chưa có
+   * thì vẫn hỏi Platform (nguồn quyết định duy nhất cho mọi lần từ chối).
+   */
+  private readonly decisions = new WeakMap<
+    Request,
+    { token: string; principal: AuthenticatedPrincipal; tenantId: string; pool: Pool }
+  >();
 
   constructor(
     private readonly identity: PlatformIdentityService,
@@ -232,12 +244,10 @@ export class HrmContextService {
     return value;
   }
 
+  /** Có quyền `permission` không, kể cả quyền được bao hàm (`hrm.manage`, `*.manage` kéo theo `*.read`...). */
   has(context: { principal: AuthenticatedPrincipal }, permission: HrmAction) {
-    return (
-      context.principal.permissions?.includes(permission) ||
-      context.principal.permissions?.includes('tenant.manage') ||
-      context.principal.permissions?.includes('hrm.manage')
-    );
+    const held = expandTenantActions(context.principal.permissions ?? []);
+    return held.includes('tenant.manage') || tenantActionHeld(held, permission);
   }
 
   /**
@@ -349,6 +359,15 @@ export class HrmContextService {
       });
     }
 
+    const cached = this.decisions.get(request);
+    if (
+      cached &&
+      cached.token === token &&
+      (requiredPermission === 'module.access' ||
+        cached.principal.permissions?.includes(requiredPermission))
+    )
+      return { principal: cached.principal, tenantId: cached.tenantId, pool: cached.pool };
+
     let principal: AuthenticatedPrincipal;
     try {
       const { payload } = await jwtVerify(token, this.jwks, {
@@ -389,11 +408,15 @@ export class HrmContextService {
     const pool = (await this.pools.forTenant(
       decision.database,
     )) as unknown as Pool;
-    return {
+    const result = {
       principal: decision.principal ?? principal,
       tenantId: principal.tenantId,
       pool,
     };
+    // Chỉ giữ khi Platform trả principal kèm quyền hiệu lực; không có thì lần sau vẫn hỏi lại.
+    if (decision.principal?.permissions)
+      this.decisions.set(request, { token, ...result });
+    return result;
   }
 
   async getPoolForTenant(tenantId: string): Promise<Pool> {

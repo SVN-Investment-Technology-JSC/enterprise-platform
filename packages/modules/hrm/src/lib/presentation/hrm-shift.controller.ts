@@ -28,6 +28,7 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { workScheduleTableExists } from '../infrastructure/hrm-shift-resolution.js';
 import { ruleTableExists } from '../infrastructure/hrm-work-schedule-resolve.js';
 import { requireText, requireUuid } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
 @Controller('v1')
@@ -38,6 +39,7 @@ export class HrmShiftController {
   // Shift Definitions (P2_S3_HRM_API.md § 10.1)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Get('shifts')
   async listShifts(@Req() req: Request, @Query('status') status?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -56,6 +58,7 @@ export class HrmShiftController {
     };
   }
 
+  @RequirePermission('hrm.shift.manage')
   @Post('shifts')
   async createShift(
     @Req() req: Request,
@@ -109,6 +112,7 @@ export class HrmShiftController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('shifts/:shiftId')
   async getShift(@Req() req: Request, @Param('shiftId') shiftId: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -128,6 +132,7 @@ export class HrmShiftController {
     };
   }
 
+  @RequirePermission('hrm.shift.manage')
   @Patch('shifts/:shiftId')
   async updateShift(
     @Req() req: Request,
@@ -262,6 +267,7 @@ export class HrmShiftController {
     };
   }
 
+  @RequirePermission('hrm.shift.manage')
   @Delete('shifts/:shiftId')
   async deleteShift(
     @Req() req: Request,
