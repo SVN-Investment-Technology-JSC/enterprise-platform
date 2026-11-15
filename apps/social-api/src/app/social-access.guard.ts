@@ -13,10 +13,11 @@ interface SocialRequest extends Request {
  * JWT, CSRF, access-decision nằm ở `ModuleAccess` dùng chung; guard này chỉ
  * giữ phần riêng của Mạng nội bộ — ánh xạ quyền và dựng actor.
  *
- * Phân hệ mở cho mọi thành viên của tenant đã bật nó (như Trợ lý): vào bằng probe
- * `module.access`, ai cũng đọc và đăng bài được. Chỉ kiểm duyệt (`social.post.moderate`) và quản lý
- * chuyên mục (`social.manage`) còn đòi quyền, hoặc vai trò quản trị tenant. Thao tác cụ thể (sửa bài
- * của chính mình hay của người khác) kiểm tiếp ở tầng application.
+ * Vào phân hệ bằng probe `module.access` (lấy danh sách quyền), rồi đòi `social.read` cho mọi route:
+ * thiếu thì 403. Đăng bài, bình luận, phản ứng, tải tệp cần `social.post.write` (cờ `canWrite`, kiểm ở
+ * tầng application); kiểm duyệt cần `social.post.moderate`, quản lý chuyên mục cần `social.manage`.
+ * Quản trị tenant có mọi quyền. Vai trò mặc định "Nhân viên mặc định" được gán sẵn `social.read` và
+ * `social.post.write` (migration `tenant/core/0019`) để người dùng hiện có không mất quyền.
  *
  * Phân hệ chưa có route nội bộ `/v1/internal/*` nào, nên không nhận lời gọi
  * service-to-service.
@@ -48,9 +49,15 @@ export class SocialAccessGuard implements CanActivate {
     const tenantAdmin = isTenantAdmin(decision.principal.roles);
     const canManage = tenantAdmin || tenantActionHeld(held, 'social.manage');
     const canModerate = tenantAdmin || tenantActionHeld(held, 'social.post.moderate');
-    // Mạng nội bộ mở cho mọi thành viên của tenant đã bật phân hệ: đọc và đăng bài không đòi quyền.
-    const canWrite = true;
-    const canRead = true;
+    const canWrite = canModerate || tenantActionHeld(held, 'social.post.write');
+    const canRead = canManage || canWrite || tenantActionHeld(held, 'social.read');
+    if (!canRead) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCESS_DENIED',
+        message: 'Bạn không có quyền xem Mạng nội bộ.',
+      });
+    }
 
     this.databases.register(decision.database);
     request.socialActor = {

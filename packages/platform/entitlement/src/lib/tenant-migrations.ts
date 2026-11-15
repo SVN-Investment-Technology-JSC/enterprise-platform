@@ -111,15 +111,20 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
   },
   // Xoá mềm người dùng (ISS-BE-035).
   { version: '0018-user-soft-delete', path: 'tenant/core/0018-user-soft-delete.sql' },
-  // Core tự gắn employee_id cho bổ nhiệm theo user_id; HRM không còn ghi core_schema (E-01).
+  // Mạng nội bộ thực thi social.read/social.post.write: gán sẵn cho vai trò mặc định và người chưa có quyền.
   {
-    version: '0021-assignment-employee-link',
-    path: 'tenant/core/0021-assignment-employee-link.sql',
+    version: '0019-social-default-permissions',
+    path: 'tenant/core/0019-social-default-permissions.sql',
   },
   // Kho tách quyền xem giá vốn: gán sẵn cho vai trò ghi phát sinh kho (ISS-BE-013).
   {
     version: '0020-inventory-cost-read-default',
     path: 'tenant/core/0020-inventory-cost-read-default.sql',
+  },
+  // Core tự gắn employee_id cho bổ nhiệm theo user_id; HRM không còn ghi core_schema (E-01).
+  {
+    version: '0021-assignment-employee-link',
+    path: 'tenant/core/0021-assignment-employee-link.sql',
   },
 ];
 
@@ -193,6 +198,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
     { version: '0011-require-allocation', path: 'tenant/finance/0011-require-allocation.sql' },
     { version: '0012-reason-require-project', path: 'tenant/finance/0012-reason-require-project.sql' },
+    { version: '0013-config-audit', path: 'tenant/finance/0013-config-audit.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },

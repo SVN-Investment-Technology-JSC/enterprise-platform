@@ -141,6 +141,8 @@ export interface SaveFinanceAccountRequest {
   allowNegative?: boolean;
   isActive?: boolean;
   note?: string | null;
+  /** Lý do sửa, ghi vào lịch sử cấu hình. Bắt buộc khi đổi số dư đầu kỳ của tài khoản đã có bút toán. */
+  reason?: string | null;
 }
 
 /** Một dòng sổ cái của tài khoản. */
@@ -688,6 +690,27 @@ export interface SaveFinanceSettingsRequest {
   booksLockedUntil?: string | null;
   allowSelfApproval?: boolean;
   requireAllocation?: boolean;
+  /** Lý do đổi (không bắt buộc), ghi vào lịch sử cấu hình. */
+  reason?: string | null;
+}
+
+/** Đối tượng có lịch sử cấu hình: cấu hình chung của Tài chính hoặc một tài khoản. */
+export type FinanceConfigAuditEntity = 'SETTINGS' | 'ACCOUNT';
+
+/** Một trường cấu hình đã đổi (ai, lúc nào, giá trị cũ, mới, lý do). Giá trị dạng chữ; `null` là trống. */
+export interface FinanceConfigAuditEntry {
+  id: string;
+  entityType: FinanceConfigAuditEntity;
+  entityId: string | null;
+  /** Mã, tên tài khoản khi `entityType = 'ACCOUNT'`. */
+  entityLabel: string | null;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  actorId: string | null;
+  actorName: string | null;
+  createdAt: string;
 }
 
 export interface FinanceCapabilities {

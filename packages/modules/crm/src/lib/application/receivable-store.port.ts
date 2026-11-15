@@ -176,8 +176,20 @@ export interface ReceivableStore {
   cancelAdjustment(tenantId: string, id: string, revision: number, reason: string, actorId: string): Promise<void>;
   settings(tenantId: string): Promise<ReceivableSettings>;
   saveSettings(tenantId: string, settings: ReceivableSettings, actorId: string): Promise<void>;
-  /** Đợt thanh toán điều kiện nghiệm thu (hoặc giao hàng chưa tự kích hoạt): ghi nhận nợ bằng tay. */
-  triggerPaymentTerm(tenantId: string, contractId: string, termId: string, date: string, actorId: string): Promise<void>;
+  /** Hợp đồng trong phạm vi dữ liệu (theo người phụ trách); ngoài phạm vi trả `undefined` như không có. */
+  contractValidity(tenantId: string, scope: CrmDataScope, contractId: string): Promise<{ readonly validFrom: string } | undefined>;
+  /**
+   * Đợt thanh toán điều kiện nghiệm thu (hoặc giao hàng chưa tự kích hoạt): ghi nhận nợ bằng tay. Khoá hợp đồng
+   * trong phạm vi `scope` (ngoài phạm vi: 404) và kiểm lại `date` không trước ngày hiệu lực.
+   */
+  triggerPaymentTerm(
+    tenantId: string,
+    scope: CrmDataScope,
+    contractId: string,
+    termId: string,
+    date: string,
+    actorId: string,
+  ): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

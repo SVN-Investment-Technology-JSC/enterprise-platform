@@ -23,6 +23,14 @@ const binding = (kind: FinanceApprovalBinding['kind'], over: Partial<FinanceAppr
 
 let bindings: FinanceApprovalBinding[];
 
+function auditPage(path: string) {
+  const items = [
+    { id: 'h1', entityType: 'SETTINGS', entityId: null, entityLabel: null, field: 'allowSelfApproval', oldValue: 'false', newValue: 'true', reason: 'Một kế toán', actorId: 'u1', actorName: 'Kế toán trưởng', createdAt: '2026-11-15T03:00:00.000Z' },
+    { id: 'h2', entityType: 'ACCOUNT', entityId: 'a1', entityLabel: 'QUY-TM - Quỹ tiền mặt', field: 'openingBalance', oldValue: '1000000', newValue: '1500000', reason: 'Đối chiếu MISA', actorId: 'u1', actorName: 'Kế toán trưởng', createdAt: '2026-11-15T04:00:00.000Z' },
+  ].filter((row) => !path.includes('entityType=') || path.includes(`entityType=${row.entityType}`));
+  return { items, total: items.length, page: 1, pageSize: 50 };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   bindings = [binding('RECEIPT'), binding('PAYMENT', { mode: 'PROCEDURE', procedureDefinitionId: 'd1', procedureDefinitionName: 'Duyệt phiếu chi' }), binding('TRANSFER')];
@@ -30,6 +38,7 @@ beforeEach(() => {
     if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }, { id: 'r2', kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm', isActive: false, note: null }], counterpartyGroups: [] } as never;
     if (path === '/settings') return { booksLockedUntil: '2026-09-30', allowSelfApproval: false, requireAllocation: false } as never;
     if (path === '/approval-bindings') return bindings as never;
+    if (path.startsWith('/settings/audit')) return auditPage(path) as never;
     if (path === '/approval-bindings/procedure-definitions') return [{ id: 'd1', code: 'DUYET-CHI', name: 'Duyệt phiếu chi' }, { id: 'd2', code: 'DUYET-LON', name: 'Duyệt chi lớn' }] as never;
     throw new Error(`route lạ ${path}`);
   });
@@ -57,6 +66,19 @@ describe('Tùy chỉnh', () => {
     fireEvent.click(screen.getByLabelText(/Cho phép người lập tự duyệt/));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
     await waitFor(() => expect(putMock).toHaveBeenCalledWith('/settings', { booksLockedUntil: '2026-09-30', allowSelfApproval: true, requireAllocation: false }));
+  });
+});
+
+describe('Tab Lịch sử thay đổi (ISS-BE-034)', () => {
+  it('hiện ai đổi gì, giá trị cũ, mới và lý do; lọc theo đối tượng', async () => {
+    render(<SettingsScreen />);
+    await screen.findByText('Thu tiền hàng');
+    fireEvent.click(screen.getByRole('tab', { name: 'Lịch sử thay đổi' }));
+    const panel = await screen.findByRole('region', { name: 'Lịch sử thay đổi' });
+    expect(await within(panel).findByText('Cho phép tự duyệt')).toBeTruthy();
+    expect(within(panel).getByText('Tài khoản QUY-TM - Quỹ tiền mặt')).toBeTruthy();
+    expect(within(panel).getByText('Đối chiếu MISA')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith('/settings/audit?page=1&pageSize=50');
   });
 });
 

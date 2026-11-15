@@ -845,6 +845,16 @@ const iso = (offsetSeconds: number, from = new Date('2026-03-01T08:00:00.000Z'))
 /* ---------------------------------------------------------------- tạo bài */
 
 describe('tạo bài', () => {
+  it('không có social.post.write: không đăng, không sửa, không đăng ngay bài hẹn giờ được (SEC-BE068-01)', async () => {
+    const h = harness();
+    const readOnly = actor(ALICE, { canWrite: false });
+    await expectError(h.publishing.create(readOnly, { bodyHtml: BODY }), 'FORBIDDEN', 403);
+    expect(h.store.events).toEqual([]);
+    const scheduled = await h.publishing.create(alice, { bodyHtml: BODY, scheduledAt: iso(3600) });
+    await expectError(h.publishing.publishNow(readOnly, scheduled.id), 'FORBIDDEN', 403);
+    await expectError(h.publishing.update(readOnly, scheduled.id, { bodyHtml: '<p>Sửa</p>' }), 'FORBIDDEN', 403);
+  });
+
   it('đăng ngay bài Tường công ty: published, phát post.published origin direct', async () => {
     const h = harness();
     const post = await h.publishing.create(alice, { bodyHtml: BODY, title: 'Chào tuần mới', mentionUserIds: [BOB] });

@@ -876,12 +876,46 @@ export class PostgresReceivableStore implements ReceivableStore, OrderBalanceRea
   // Đợt thanh toán (T5-05)
   // -------------------------------------------------------------------------
 
-  triggerPaymentTerm(tenantId: string, contractId: string, termId: string, date: string, actorId: string): Promise<void> {
+  async contractValidity(tenantId: string, scope: CrmDataScope, contractId: string): Promise<{ validFrom: string } | undefined> {
+    if (!isUuid(contractId)) return undefined;
+    const pool = await this.database.pool(tenantId);
+    const where = new SqlConditions();
+    where.add(`k.id = ${where.param(contractId)}::uuid`);
+    where.scope(scope, 'k.owner_user_id');
+    const row = (
+      await pool.query<{ valid_from: string }>(
+        `SELECT k.valid_from::text AS valid_from FROM crm_schema.contracts k ${where.where()}`,
+        where.params,
+      )
+    ).rows[0];
+    return row ? { validFrom: row.valid_from } : undefined;
+  }
+
+  triggerPaymentTerm(
+    tenantId: string,
+    scope: CrmDataScope,
+    contractId: string,
+    termId: string,
+    date: string,
+    actorId: string,
+  ): Promise<void> {
     return this.database.transaction(tenantId, async (client) => {
+      const where = new SqlConditions();
+      where.add(`k.id = ${where.param(contractId)}::uuid`);
+      where.scope(scope, 'k.owner_user_id');
       const contract = (
-        await client.query<{ status: string }>(`SELECT status FROM crm_schema.contracts WHERE id = $1 FOR UPDATE`, [contractId])
+        await client.query<{ status: string; valid_from: string }>(
+          `SELECT k.status, k.valid_from::text AS valid_from FROM crm_schema.contracts k ${where.where()} FOR UPDATE`,
+          where.params,
+        )
       ).rows[0];
       if (!contract) throw new CrmNotFoundError('Không tìm thấy hợp đồng.');
+      if (date < contract.valid_from) {
+        throw new CrmValidationError(
+          'DATE_BEFORE_CONTRACT',
+          'Ngày ghi nhận đợt thanh toán không được trước ngày hiệu lực của hợp đồng.',
+        );
+      }
       if (contract.status !== 'ACTIVE' && contract.status !== 'COMPLETED') {
         throw new CrmConflictError('CONTRACT_NOT_ACTIVE', 'Chỉ ghi nhận đợt thanh toán của hợp đồng đang hiệu lực.');
       }

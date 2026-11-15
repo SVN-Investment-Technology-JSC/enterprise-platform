@@ -18,6 +18,7 @@ import {
   type SaveFinanceApprovalBindingResponse,
   type FinanceCapabilities,
   type FinanceCatalogs,
+  type FinanceConfigAuditEntry,
   type FinanceCounterpartyGroup,
   type FinanceDashboard,
   type FinanceLedgerEntry,
@@ -52,6 +53,7 @@ import {
 import { FinanceError, conflict, forbidden, invalid, notFound } from '../domain/finance.error.js';
 import { computeVoucherPermissions, isValidDate, normalizeVoucherInput } from '../domain/voucher.rules.js';
 import { accountLedger, getAccount, listAccounts, saveAccount, type LedgerQuery } from '../infrastructure/accounts.store.js';
+import { listConfigAudit, type ConfigAuditActor, type ConfigAuditQuery } from '../infrastructure/config-audit.store.js';
 import {
   listCatalogs,
   loadSettings,
@@ -148,6 +150,11 @@ function requirePermission(actor: FinanceActor, action: string, message: string)
 }
 
 /** Dùng được màn hình phiếu của loại này: lập, duyệt, hoặc đọc toàn bộ. */
+/** Người sửa cấu hình, ghi vào lịch sử. */
+function auditActor(actor: FinanceActor): ConfigAuditActor {
+  return { id: actor.userId, name: actor.displayName };
+}
+
 function requireKindAccess(actor: FinanceActor, kind: FinanceVoucherKind): void {
   if (!FINANCE_VOUCHER_KINDS.includes(kind)) throw invalid('Loại phiếu không hợp lệ.');
   if (!canCreate(actor, kind) && !canApprove(actor, kind) && !canReadAll(actor)) throw forbidden('Bạn không có quyền với loại phiếu này.');
@@ -226,7 +233,7 @@ export class FinanceApplication {
   async saveAccount(actor: FinanceActor, id: string | null, input: SaveFinanceAccountRequest): Promise<FinanceAccount> {
     requirePermission(actor, 'finance.account.manage', 'Bạn không có quyền quản lý tài khoản.');
     return this.database.transaction(actor.tenantId, async (db) => {
-      const savedId = await saveAccount(db, actor.tenantId, actor.userId, id, input);
+      const savedId = await saveAccount(db, actor.tenantId, auditActor(actor), id, input);
       return getAccount(db, actor.tenantId, savedId, true);
     });
   }
@@ -292,7 +299,13 @@ export class FinanceApplication {
   }
   async saveSettings(actor: FinanceActor, input: SaveFinanceSettingsRequest): Promise<FinanceSettings> {
     requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền cấu hình Tài chính.');
-    return this.database.transaction(actor.tenantId, (db) => saveSettings(db, actor.tenantId, actor.userId, input));
+    return this.database.transaction(actor.tenantId, (db) => saveSettings(db, actor.tenantId, auditActor(actor), input));
+  }
+
+  /** Lịch sử đổi cấu hình chung và tài khoản: chỉ người cấu hình Tài chính (`finance.settings.manage`). */
+  async configAudit(actor: FinanceActor, query: ConfigAuditQuery): Promise<FinancePage<FinanceConfigAuditEntry>> {
+    requirePermission(actor, 'finance.settings.manage', 'Bạn không có quyền xem lịch sử cấu hình Tài chính.');
+    return listConfigAudit(await this.database.pool(actor.tenantId), actor.tenantId, query);
   }
 
   /* -------------------------------- Phiếu -------------------------------- */
