@@ -405,3 +405,67 @@ describe('RabbitMqConsumer failure handling', () => {
     expect(broker.channel.ack).not.toHaveBeenCalled();
   });
 });
+
+import { IdempotentInbox, OUTBOX_INTERNALLY_CONSUMED_TYPES } from './adapter-events.js';
+
+describe('OUTBOX_INTERNALLY_CONSUMED_TYPES (ISS-BE-020)', () => {
+  it('SEC-BE020-05: hrm.employee.offboarded đi qua relay, không còn do org-hrm-bridge đọc thẳng', () => {
+    expect(OUTBOX_INTERNALLY_CONSUMED_TYPES).not.toContain('hrm.employee.offboarded');
+    expect(OUTBOX_INTERNALLY_CONSUMED_TYPES).toEqual(
+      expect.arrayContaining(['core.org.assignment.ended', 'core.org.position.deleted']),
+    );
+  });
+
+  it('core.org.assignment.created đi qua relay: Core tự gắn employee_id, org-hrm-bridge không còn đọc nó', () => {
+    expect(OUTBOX_INTERNALLY_CONSUMED_TYPES).not.toContain('core.org.assignment.created');
+  });
+});
+
+describe('IdempotentInbox', () => {
+  function fakePool(seen: Set<string>) {
+    const statements: string[] = [];
+    const client = {
+      query: jest.fn(async (sql: string, params: unknown[] = []) => {
+        statements.push(sql.trim().split(/\s+/)[0]);
+        if (sql.includes('INSERT INTO integration_schema.inbox_messages')) {
+          const key = `${params[0]}:${params[1]}`;
+          if (seen.has(key)) return { rowCount: 0, rows: [] };
+          seen.add(key);
+          return { rowCount: 1, rows: [{ event_id: params[1] }] };
+        }
+        return { rowCount: 0, rows: [] };
+      }),
+      release: jest.fn(),
+    };
+    return { pool: { connect: async () => client } as never, client, statements };
+  }
+  const event = { id: '11111111-1111-4111-8111-111111111111', type: 't' } as never;
+
+  it('chạy handler trong cùng transaction với dòng inbox và đưa client cho handler', async () => {
+    const { pool, client, statements } = fakePool(new Set());
+    const handler = jest.fn(async (c: unknown) => {
+      expect(c).toBe(client);
+    });
+    expect(await new IdempotentInbox(pool, 'q').process(event, handler)).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(statements).toEqual(['BEGIN', 'INSERT', 'COMMIT']);
+  });
+
+  it('bỏ qua sự kiện nhận trùng', async () => {
+    const seen = new Set<string>();
+    const handler = jest.fn(async () => undefined);
+    await new IdempotentInbox(fakePool(seen).pool, 'q').process(event, handler);
+    expect(await new IdempotentInbox(fakePool(seen).pool, 'q').process(event, handler)).toBe(false);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('rollback cả dòng inbox khi handler lỗi', async () => {
+    const { pool, statements } = fakePool(new Set());
+    await expect(
+      new IdempotentInbox(pool, 'q').process(event, async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(statements).toEqual(['BEGIN', 'INSERT', 'ROLLBACK']);
+  });
+});

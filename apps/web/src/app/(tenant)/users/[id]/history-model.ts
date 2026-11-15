@@ -13,7 +13,7 @@ export interface HistoryChange {
 
 export interface HistoryItem {
   readonly id: string;
-  readonly operation: 'roles' | 'permissions' | 'other';
+  readonly operation: 'roles' | 'permissions' | 'account' | 'other';
   readonly title: string;
   readonly actorName: string;
   readonly createdAt: string;
@@ -107,12 +107,50 @@ export function describeEntry(
       changes: changesOf(diff, 'quyền bổ sung', actionLabel),
     };
   }
+  const account = describeAccountEntry(entry);
+  if (account) return { ...base, operation: 'account', ...account };
   return {
     ...base,
     operation: 'other',
     title: 'Thay đổi phân quyền',
     changes: [],
   };
+}
+
+function readText(state: unknown, key: string): string | undefined {
+  if (typeof state !== 'object' || state === null) return undefined;
+  const value = (state as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Thao tác trên tài khoản (ISS-BE-034): đặt lại mật khẩu, đổi email, khoá, xoá. */
+function describeAccountEntry(
+  entry: TenantAuthorizationAuditEntry,
+): { title: string; changes: HistoryChange[] } | undefined {
+  switch (entry.operation) {
+    case 'user.password.reset':
+      return { title: 'Đặt lại mật khẩu', changes: [] };
+    case 'user.email.change': {
+      const before = readText(entry.before, 'email');
+      const after = readText(entry.after, 'email');
+      return {
+        title: 'Đổi email',
+        changes: [
+          ...(before ? [{ kind: 'removed' as const, text: `Email cũ ${before}` }] : []),
+          ...(after ? [{ kind: 'added' as const, text: `Email mới ${after}` }] : []),
+        ],
+      };
+    }
+    case 'user.status.change':
+      return {
+        title: readText(entry.after, 'status') === 'disabled' ? 'Khóa tài khoản' : 'Mở khóa tài khoản',
+        changes: [],
+      };
+    case 'user.delete':
+      return { title: 'Xóa người dùng', changes: [] };
+    default:
+      return undefined;
+  }
 }
 
 /** Dòng thời gian: mới nhất trước. */

@@ -84,6 +84,28 @@ describe('describeEntry', () => {
       describeEntry(entry({ operation: 'other.op' }), names).operation,
     ).toBe('other');
   });
+
+  it('SEC-BE034-06: mô tả đặt lại mật khẩu, đổi email, khóa và xóa tài khoản', () => {
+    expect(
+      describeEntry(entry({ operation: 'user.password.reset', before: null, after: { passwordReset: true } }), names),
+    ).toMatchObject({ operation: 'account', title: 'Đặt lại mật khẩu', changes: [] });
+    expect(
+      describeEntry(
+        entry({ operation: 'user.email.change', before: { email: 'a@x.com' }, after: { email: 'b@x.com' } }),
+        names,
+      ).changes,
+    ).toEqual([
+      { kind: 'removed', text: 'Email cũ a@x.com' },
+      { kind: 'added', text: 'Email mới b@x.com' },
+    ]);
+    expect(
+      describeEntry(entry({ operation: 'user.status.change', after: { status: 'disabled' } }), names).title,
+    ).toBe('Khóa tài khoản');
+    expect(
+      describeEntry(entry({ operation: 'user.status.change', after: { status: 'active' } }), names).title,
+    ).toBe('Mở khóa tài khoản');
+    expect(describeEntry(entry({ operation: 'user.delete', after: null }), names).title).toBe('Xóa người dùng');
+  });
 });
 
 describe('buildHistoryItems', () => {

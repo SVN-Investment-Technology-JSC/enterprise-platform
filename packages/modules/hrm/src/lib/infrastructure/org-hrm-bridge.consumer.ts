@@ -76,8 +76,6 @@ export class OrgHrmBridgeConsumer implements OnModuleInit, OnModuleDestroy {
         WHERE published_at IS NULL
           AND attempts < 5
           AND event_type IN (
-            'hrm.employee.offboarded',
-            'core.org.assignment.created',
             'core.org.assignment.ended',
             'core.org.position.deleted'
           )
@@ -124,24 +122,6 @@ export class OrgHrmBridgeConsumer implements OnModuleInit, OnModuleDestroy {
     const data = event.payload?.payload || event.payload;
 
     switch (event.event_type) {
-      case 'hrm.employee.offboarded':
-        await this.deactivateEmployeeAssignments(
-          pool,
-          tenantId,
-          data.employeeId,
-          data.effectiveDate,
-        );
-        break;
-
-      case 'core.org.assignment.created':
-        await this.syncAssignmentEmployeeId(
-          pool,
-          tenantId,
-          data.assignmentId,
-          data.userId,
-        );
-        break;
-
       case 'core.org.assignment.ended':
         await this.checkRemainingAssignments(
           pool,
@@ -163,70 +143,13 @@ export class OrgHrmBridgeConsumer implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  // Tác vụ E-04: Nhân viên nghỉ việc (RESIGNED / TERMINATED) -> Chuyển toàn bộ bổ nhiệm CORE sang inactive
-  private async deactivateEmployeeAssignments(
-    pool: Pool,
-    tenantId: string,
-    employeeId: string,
-    effectiveDate?: string,
-  ) {
-    if (!employeeId) return;
-    const userRes = await pool.query(
-      `SELECT user_id FROM core_schema.employees WHERE id = $1 AND tenant_id = $2`,
-      [employeeId, tenantId],
-    );
-    const userId = userRes.rows[0]?.user_id;
+  // Tác vụ E-04 (nghỉ việc) không còn ở đây: HRM không ghi tài khoản hay bổ nhiệm của Core (ISS-BE-020).
+  // Sự kiện `hrm.employee.offboarded` đi qua relay lên RabbitMQ; Core (platform-identity, hàng đợi
+  // `identity.integrations.v1`) tự vô hiệu tài khoản, đóng bổ nhiệm, ghi audit và thu hồi phiên.
 
-    await pool.query(
-      `
-      UPDATE core_schema.organization_node_assignments
-      SET status = 'inactive',
-          end_date = COALESCE(end_date, COALESCE($3::date, CURRENT_DATE)),
-          updated_at = now()
-      WHERE status = 'active'
-        AND deleted_at IS NULL
-        AND (employee_id = $1 OR (user_id IS NOT NULL AND user_id = $2))
-    `,
-      [employeeId, userId, effectiveDate || null],
-    );
-
-    // Vô hiệu hóa tài khoản liên kết (is_active = false, status = 'disabled')
-    if (userId) {
-      await pool.query(
-        `
-        UPDATE core_schema.users
-        SET is_active = false,
-            status = 'disabled',
-            updated_at = now()
-        WHERE id = $1 AND status <> 'disabled'
-      `,
-        [userId],
-      );
-    }
-  }
-
-  // Tác vụ E-01: Tự động map employee_id khi admin bổ nhiệm theo user_id
-  private async syncAssignmentEmployeeId(
-    pool: Pool,
-    tenantId: string,
-    assignmentId: string,
-    userId: string,
-  ) {
-    if (!userId || !assignmentId) return;
-    await pool.query(
-      `
-      UPDATE core_schema.organization_node_assignments a
-      SET employee_id = e.id, updated_at = now()
-      FROM core_schema.employees e
-      WHERE a.id = $1
-        AND e.user_id = a.user_id
-        AND e.tenant_id = $2
-        AND e.deleted_at IS NULL
-        AND a.employee_id IS NULL
-    `,
-      [assignmentId, tenantId],
-    );
-  }
+  // Tác vụ E-01 (gắn employee_id cho bổ nhiệm theo user_id) không còn ở đây: HRM không ghi core_schema.
+  // Core tự điền bằng trigger (migration tenant/core/0021-assignment-employee-link.sql); `core.org.assignment.created`
+  // đi qua relay như `core.org.assignment.updated`.
 
   // Tác vụ E-02: Kiểm tra nếu nhân viên không còn chức danh nào sau khi bãi nhiệm
   private async checkRemainingAssignments(

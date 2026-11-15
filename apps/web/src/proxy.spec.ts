@@ -16,8 +16,17 @@ describe('proxy route guard', () => {
     },
   );
 
-  it.each(['/dashboard', '/roles', '/users/1'])('chuyển %s về trang đăng nhập khi không có phiên', (path) => {
+  it.each(['/dashboard', '/account', '/users/1'])('chuyển %s về trang đăng nhập khi không có phiên', (path) => {
     expect(run(path).headers.get('location')).toBe('http://localhost/login');
+  });
+
+  // SEC-UI012-01: trang `/roles` cũ dùng dữ liệu giả, chuyển sang màn "Vai trò & phân quyền".
+  it.each([
+    ['/roles', undefined],
+    ['/roles', 'ep_access=token'],
+    ['/roles/abc', 'ep_access=token'],
+  ])('chuyển %s sang /authorization (cookie: %s)', (path, cookie) => {
+    expect(run(path, cookie).headers.get('location')).toBe('http://localhost/authorization');
   });
 
   it('cho qua khi có cookie phiên', () => {

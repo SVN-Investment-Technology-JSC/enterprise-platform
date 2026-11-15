@@ -109,6 +109,13 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0017-fcm-device-tokens',
     path: 'tenant/core/0017-fcm-device-tokens.sql',
   },
+  // Xoá mềm người dùng (ISS-BE-035).
+  { version: '0018-user-soft-delete', path: 'tenant/core/0018-user-soft-delete.sql' },
+  // Core tự gắn employee_id cho bổ nhiệm theo user_id; HRM không còn ghi core_schema (E-01).
+  {
+    version: '0021-assignment-employee-link',
+    path: 'tenant/core/0021-assignment-employee-link.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -543,6 +550,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0082-hrm-leave-request-groups',
       path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
+    },
+    // hrm.employee.offboarded gửi ngày nghỉ việc thật (inactive_from) thay vì CURRENT_DATE.
+    {
+      version: '0083-hrm-offboarding-effective-date',
+      path: 'tenant/hrm/0083-hrm-offboarding-effective-date.sql',
     },
   ],
   inventory: [

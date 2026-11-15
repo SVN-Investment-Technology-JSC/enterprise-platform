@@ -46,8 +46,11 @@ function makeUserService(options: {
         const result = respond(text, params);
         if (result) return { rowCount: result.rows.length, ...result };
       }
-      if (text.startsWith('SELECT email FROM core_schema.users WHERE id = $1 FOR UPDATE'))
-        return { rows: options.currentEmail === undefined ? [] : [{ email: options.currentEmail }], rowCount: 1 };
+      if (text.startsWith('SELECT email, status, is_active FROM core_schema.users WHERE id = $1 AND deleted_at IS NULL'))
+        return {
+          rows: options.currentEmail === undefined ? [] : [{ email: options.currentEmail, status: 'active', is_active: true }],
+          rowCount: 1,
+        };
       if (text.startsWith('UPDATE core_schema.users SET full_name'))
         return { rows: [{ id: params[0], email: params[2] ?? options.currentEmail }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
@@ -64,7 +67,9 @@ function makeUserService(options: {
   };
   const pool = {
     query: jest.fn(async (sql: string, params: unknown[] = []) => {
-      platformCalls.push({ sql: normalize(sql), params });
+      const text = normalize(sql);
+      platformCalls.push({ sql: text, params });
+      if (text.startsWith('SELECT slug FROM tenancy_schema.tenants')) return { rows: [{ slug: 'savinajsc' }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     }),
     connect: jest.fn(async () => platformClient),
@@ -139,6 +144,190 @@ describe('Only tenant administrators change credentials of a user (ISS-BE-002)',
     );
     const event = platformCalls.find((call) => call.sql.startsWith('INSERT INTO integration_schema.outbox_events'));
     expect(JSON.parse(event?.params[4] as string)).toMatchObject({ payload: { reason: 'email-changed' } });
+  });
+});
+
+describe('Audit of sensitive account operations (ISS-BE-034, platform part)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const auditedOperations = (audit: jest.SpyInstance) => audit.mock.calls.map((call) => call[2]);
+
+  it('SEC-BE034-01: locking a user writes exactly one audit row with old and new status', async () => {
+    const { service, audit } = makeUserService({
+      actorIsAdmin: false,
+      currentEmail: 'qa.victim@savinajsc.com',
+      tenantResponders: [
+        (sql) =>
+          sql.startsWith('SELECT email, status, is_active FROM core_schema.users')
+            ? { rows: [{ email: 'qa.victim@savinajsc.com', status: 'active', is_active: true }] }
+            : undefined,
+      ],
+    });
+    await service.updateCoreUser(TENANT, VICTIM, { status: 'disabled' }, ACTOR);
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit).toHaveBeenCalledWith(
+      expect.anything(),
+      ACTOR,
+      'user.status.change',
+      VICTIM,
+      { status: 'active', isActive: true },
+      { status: 'disabled', isActive: false },
+    );
+  });
+
+  it('SEC-BE034-01: password reset and email change each write one audit row without the password', async () => {
+    const { service, audit, tenantCalls } = makeUserService({
+      actorIsAdmin: true,
+      tenantResponders: [
+        (sql) =>
+          sql.startsWith('SELECT email, status, is_active FROM core_schema.users')
+            ? { rows: [{ email: 'qa.victim@savinajsc.com', status: 'active', is_active: true }] }
+            : undefined,
+      ],
+    });
+    await service.updateCoreUser(TENANT, VICTIM, { password: 'Savina2026x', email: 'qa.new@savinajsc.com' }, ACTOR);
+    expect(auditedOperations(audit)).toEqual(['user.password.reset', 'user.email.change']);
+    const inserts = tenantCalls.filter((call) => call.sql.startsWith('INSERT INTO core_schema.authorization_audit'));
+    expect(inserts).toHaveLength(2);
+    expect(JSON.stringify(inserts.map((call) => call.params))).not.toMatch(/Savina2026x|scrypt\$/);
+  });
+
+  it('SEC-BE034-01: deleting a user writes exactly one audit row', async () => {
+    const { service, audit } = makeUserService({
+      actorIsAdmin: true,
+      tenantResponders: [
+        (sql) =>
+          sql.startsWith('SELECT email, full_name AS "fullName" FROM core_schema.users')
+            ? { rows: [{ email: 'qa.victim@savinajsc.com', fullName: 'Victim' }] }
+            : undefined,
+        (sql) => (sql.startsWith('DELETE FROM core_schema.users') ? { rows: [], rowCount: 1 } : undefined),
+      ],
+    });
+    await service.deleteCoreUser(TENANT, VICTIM, ACTOR);
+    expect(auditedOperations(audit)).toEqual(['user.delete']);
+    expect(audit.mock.calls[0][4]).toEqual({ email: 'qa.victim@savinajsc.com', fullName: 'Victim' });
+  });
+});
+
+describe('Deleting a user is a soft delete once the user has data (ISS-BE-035)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const target: ((sql: string) => { rows: unknown[]; rowCount?: number } | undefined) = (sql) =>
+    sql.startsWith('SELECT email, full_name AS "fullName" FROM core_schema.users WHERE id = $1 AND deleted_at IS NULL')
+      ? { rows: [{ email: 'qa.victim@savinajsc.com', fullName: 'Victim' }] }
+      : undefined;
+  const references = (sql: string) =>
+    sql.includes('FROM pg_constraint c')
+      ? {
+          rows: [
+            { table_name: 'core_schema.user_roles', column_name: 'user_id' },
+            { table_name: 'core_schema.organization_node_assignments', column_name: 'user_id' },
+          ],
+        }
+      : undefined;
+
+  it('SEC-BE035-02: a user with an appointment is marked deleted, not DELETEd', async () => {
+    const { service, tenantCalls, platformCalls, audit } = makeUserService({
+      actorIsAdmin: true,
+      tenantResponders: [
+        target,
+        references,
+        (sql) => (sql.startsWith('SELECT 1 FROM core_schema.organization_node_assignments') ? { rows: [{}] } : undefined),
+        (sql) => (sql.startsWith('UPDATE core_schema.users SET is_active = false') ? { rows: [], rowCount: 1 } : undefined),
+      ],
+    });
+    await service.deleteCoreUser(TENANT, VICTIM, ACTOR);
+    const update = tenantCalls.find((call) => call.sql.startsWith('UPDATE core_schema.users SET is_active = false'));
+    expect(update?.sql).toContain('deleted_at = now()');
+    expect(update?.params).toEqual([VICTIM]);
+    expect(tenantCalls.some((call) => call.sql.startsWith('DELETE FROM core_schema.users'))).toBe(false);
+    // Vai trò là cấu hình tài khoản, không được tính là dữ liệu.
+    expect(tenantCalls.some((call) => call.sql.startsWith('SELECT 1 FROM core_schema.user_roles'))).toBe(false);
+    expect(audit).toHaveBeenCalledWith(expect.anything(), ACTOR, 'user.delete', VICTIM, expect.anything(), { mode: 'soft' });
+    expect(platformCalls.some((call) => call.sql.startsWith('UPDATE identity_schema.tenant_auth_sessions'))).toBe(true);
+  });
+
+  it('SEC-BE035-03: a user without any data is deleted for real', async () => {
+    const { service, tenantCalls, audit } = makeUserService({
+      actorIsAdmin: true,
+      tenantResponders: [
+        target,
+        references,
+        (sql) => (sql.startsWith('DELETE FROM core_schema.users') ? { rows: [], rowCount: 1 } : undefined),
+      ],
+    });
+    await service.deleteCoreUser(TENANT, VICTIM, ACTOR);
+    expect(tenantCalls.some((call) => call.sql.startsWith('DELETE FROM core_schema.users'))).toBe(true);
+    expect(tenantCalls.some((call) => call.sql.includes('deleted_at = now()'))).toBe(false);
+    expect(audit).toHaveBeenCalledWith(expect.anything(), ACTOR, 'user.delete', VICTIM, expect.anything(), { mode: 'hard' });
+  });
+
+  it('a user who granted permissions to others keeps a soft-deleted row so the audit names stay', async () => {
+    const { service, tenantCalls } = makeUserService({
+      actorIsAdmin: true,
+      tenantResponders: [
+        target,
+        (sql) => (sql.startsWith('SELECT 1 FROM core_schema.authorization_audit WHERE actor_id') ? { rows: [{}] } : undefined),
+        (sql) => (sql.startsWith('UPDATE core_schema.users SET is_active = false') ? { rows: [], rowCount: 1 } : undefined),
+      ],
+    });
+    await service.deleteCoreUser(TENANT, VICTIM, ACTOR);
+    expect(tenantCalls.some((call) => call.sql.startsWith('DELETE FROM core_schema.users'))).toBe(false);
+  });
+
+  it('an already deleted user is 404', async () => {
+    const { service } = makeUserService({ actorIsAdmin: true });
+    await expect(service.deleteCoreUser(TENANT, VICTIM, ACTOR)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('SEC-BE035-09: deleting oneself is still refused', async () => {
+    const { service } = makeUserService({ actorIsAdmin: true });
+    await expect(service.deleteCoreUser(TENANT, ACTOR, ACTOR)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('SEC-BE035-05/06: lists and login ignore soft-deleted rows', async () => {
+    const { service } = makeUserService({ actorIsAdmin: true });
+    const tenantPool = { query: jest.fn().mockResolvedValue({ rows: [] }) };
+    jest
+      .spyOn(service as unknown as { withTenantCoreDatabase: (id: string, op: (pool: unknown) => unknown) => unknown }, 'withTenantCoreDatabase')
+      .mockImplementation(async (_id, operation) => operation(tenantPool));
+    await service.coreUsers(TENANT);
+    expect(tenantPool.query.mock.calls[0][0]).toContain('WHERE deleted_at IS NULL');
+    await service.coreUsers(TENANT, { includeDeleted: true });
+    expect(tenantPool.query.mock.calls[1][0]).not.toContain('deleted_at');
+  });
+});
+
+describe('User email must belong to the tenant domain (ISS-BE-055)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['a@gmail.com', 'a@savinajsc.com.vn', 'a@khac.com'])(
+    'SEC-BE055-01: creating %p in tenant savinajsc is 400 naming the right domain',
+    async (email) => {
+      const { service, audit } = makeUserService({ actorIsAdmin: true });
+      await expect(
+        service.createCoreUser(TENANT, { fullName: 'A', email, password: 'Savina2026x' }, ACTOR),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: { code: 'EMAIL_TENANT_MISMATCH', message: expect.stringContaining('@savinajsc.com') },
+      });
+      expect(audit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('SEC-BE055-02: a@savinajsc.com is accepted', async () => {
+    const { service, tenantCalls } = makeUserService({ actorIsAdmin: true });
+    await service.createCoreUser(TENANT, { fullName: 'A', email: 'A@savinajsc.com', password: 'Savina2026x' }, ACTOR);
+    const insert = tenantCalls.find((call) => call.sql.startsWith('INSERT INTO core_schema.users'));
+    expect(insert?.params[1]).toBe('a@savinajsc.com');
+  });
+
+  it('SEC-BE055-04: changing an email to another domain is 400', async () => {
+    const { service, tenantCalls } = makeUserService({ actorIsAdmin: true, currentEmail: 'qa.victim@savinajsc.com' });
+    await expect(
+      service.updateCoreUser(TENANT, VICTIM, { email: 'qa.victim@gmail.com' }, ACTOR),
+    ).rejects.toMatchObject({ status: 400, response: { code: 'EMAIL_TENANT_MISMATCH' } });
+    expect(tenantCalls.some((call) => call.sql.startsWith('UPDATE core_schema.users'))).toBe(false);
   });
 });
 

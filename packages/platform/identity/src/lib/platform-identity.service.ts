@@ -253,7 +253,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
         system_role: string;
       }>(
         `SELECT id, email, full_name, password_hash, system_role FROM core_schema.users
-          WHERE lower(email) = lower($1) AND status = 'active' AND is_active = true`,
+          WHERE lower(email) = lower($1) AND status = 'active' AND is_active = true AND deleted_at IS NULL`,
         [email],
       );
       const coreUser = user.rows[0];
@@ -523,7 +523,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
           system_role: string;
         }>(
           `SELECT email, full_name, system_role FROM core_schema.users
-            WHERE id = $1 AND status = 'active' AND is_active = true`,
+            WHERE id = $1 AND status = 'active' AND is_active = true AND deleted_at IS NULL`,
           [row.core_user_id],
         );
         coreUser = user.rows[0];
@@ -872,13 +872,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
                 status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
            FROM core_schema.users`;
 
-  async coreUsers(tenantId: string): Promise<unknown[]> {
+  /**
+   * Danh sách người dùng của tenant, bỏ người đã xoá mềm (ISS-BE-035). `includeDeleted` chỉ dùng để kiểm trùng email
+   * (email của người đã xoá không dùng lại được).
+   */
+  async coreUsers(tenantId: string, options: { includeDeleted?: boolean } = {}): Promise<unknown[]> {
+    const filter = options.includeDeleted ? '' : ' WHERE deleted_at IS NULL';
     return this.withTenantCoreDatabase(
       tenantId,
       async (pool) =>
         (
           await pool.query(
-            `${PlatformIdentityService.CORE_USER_SELECT} ORDER BY created_at DESC`,
+            `${PlatformIdentityService.CORE_USER_SELECT}${filter} ORDER BY created_at DESC`,
           )
         ).rows,
     );
@@ -889,7 +894,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
       const row = (
         await pool.query(
-          `${PlatformIdentityService.CORE_USER_SELECT} WHERE id=$1`,
+          `${PlatformIdentityService.CORE_USER_SELECT} WHERE id=$1 AND deleted_at IS NULL`,
           [userId],
         )
       ).rows[0];
@@ -1943,6 +1948,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       throw new BadRequestException('Thông tin người dùng không hợp lệ.');
     }
     assertPasswordPolicy(password);
+    await this.assertTenantEmailDomain(tenantId, email);
     if (platformImport && !(await this.pool.query("SELECT 1 FROM identity_schema.users WHERE id=$1 AND kind='platform-admin' AND status='active'", [actorId])).rowCount)
       throw new UnauthorizedException('Platform admin không hợp lệ.');
     try {
@@ -2002,6 +2008,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (status !== undefined && !['active', 'disabled'].includes(status))
       throw new BadRequestException('Trạng thái người dùng không hợp lệ.');
     if (input.password !== undefined) assertPasswordPolicy(input.password);
+    if (email !== undefined) await this.assertTenantEmailDomain(tenantId, email);
     const directory = await this.pool.query<{ core_user_id: string }>(
       'SELECT core_user_id FROM tenancy_schema.tenant_admin_directory WHERE tenant_id = $1',
       [tenantId],
@@ -2018,7 +2025,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
       const { result, emailChanged } = await this.authorization.mutate(tenantId, actorId, async (pool) => {
         await this.authorization.protectAdmin(pool, userId, actorId);
         const current = (
-          await pool.query<{ email: string }>('SELECT email FROM core_schema.users WHERE id = $1 FOR UPDATE', [userId])
+          await pool.query<{ email: string; status: string; is_active: boolean }>(
+            'SELECT email, status, is_active FROM core_schema.users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+            [userId],
+          )
         ).rows[0];
         if (!current) throw new NotFoundException('Không tìm thấy người dùng.');
         const emailChanged = email !== undefined && email !== current.email.toLowerCase();
@@ -2053,6 +2063,16 @@ export class PlatformIdentityService implements OnModuleDestroy {
           await this.authorization.audit(pool, actorId, 'user.password.reset', userId, null, { passwordReset: true });
         if (emailChanged)
           await this.authorization.audit(pool, actorId, 'user.email.change', userId, { email: current.email }, { email });
+        // ISS-BE-034: khoá, mở khoá tài khoản.
+        if (status !== undefined && status !== current.status)
+          await this.authorization.audit(
+            pool,
+            actorId,
+            'user.status.change',
+            userId,
+            { status: current.status, isActive: current.is_active },
+            { status, isActive: status === 'active' },
+          );
         return { result, emailChanged };
       }, 'core.users.update');
       if (!result.rows[0])
@@ -2074,6 +2094,23 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Email người dùng tenant phải suy ra đúng tenant bằng cùng quy tắc lúc đăng nhập (`tenantSlugFromEmail`), nếu không
+   * tài khoản tạo ra không đăng nhập được hoặc rơi vào tenant khác (ISS-BE-055).
+   */
+  private async assertTenantEmailDomain(tenantId: string, email: string): Promise<void> {
+    const slug = (
+      await this.pool.query<{ slug: string }>('SELECT slug FROM tenancy_schema.tenants WHERE id = $1', [tenantId])
+    ).rows[0]?.slug;
+    if (!slug) throw new NotFoundException('Không tìm thấy tenant.');
+    if (tenantSlugFromEmail(email) !== slug)
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'EMAIL_TENANT_MISMATCH',
+        message: `Email phải dùng tên miền của công ty: @${slug}.com (ví dụ ten.nguoi.dung@${slug}.com).`,
+      });
+  }
+
   async deleteCoreUser(
     tenantId: string,
     userId: string,
@@ -2090,8 +2127,28 @@ export class PlatformIdentityService implements OnModuleDestroy {
     uuid(userId);
     const result = await this.authorization.mutate(tenantId, actorId, async (pool) => {
       await this.authorization.protectAdmin(pool, userId, actorId);
-      const result = await pool.query('DELETE FROM core_schema.users WHERE id = $1', [userId]);
+      const target = (
+        await pool.query<{ email: string; fullName: string }>(
+          'SELECT email, full_name AS "fullName" FROM core_schema.users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+          [userId],
+        )
+      ).rows[0];
+      if (!target) return { rowCount: 0 };
+      // ISS-BE-035: người đã phát sinh dữ liệu chỉ xoá mềm, để bổ nhiệm, chat, thông báo... (ON DELETE CASCADE) còn
+      // nguyên và tên người đó vẫn hiện ở dữ liệu cũ. Email giữ ràng buộc duy nhất nên không dùng lại được.
+      const soft = await this.userHasRecordedData(pool, userId);
+      const result = soft
+        ? await pool.query(
+            `UPDATE core_schema.users
+                SET is_active = false, status = 'disabled', deleted_at = now(), updated_at = now()
+              WHERE id = $1 AND deleted_at IS NULL`,
+            [userId],
+          )
+        : await pool.query('DELETE FROM core_schema.users WHERE id = $1', [userId]);
       await this.authorization.assertAdminRemains(pool);
+      // ISS-BE-034: nhật ký xoá người dùng (không có FK tới users nên còn sau khi xoá cứng).
+      if (result.rowCount)
+        await this.authorization.audit(pool, actorId, 'user.delete', userId, target, { mode: soft ? 'soft' : 'hard' });
       return result;
     }, 'core.users.delete');
     if (!result.rowCount)
@@ -2103,6 +2160,45 @@ export class PlatformIdentityService implements OnModuleDestroy {
         reason: 'user-deleted',
       }),
     );
+  }
+
+  /**
+   * Bảng chỉ là cấu hình của chính tài khoản, xoá theo người dùng không mất dữ liệu nghiệp vụ. Mọi bảng khác có khoá
+   * ngoại tới core_schema.users (bổ nhiệm, thành viên chat, thông báo, hồ sơ nhân sự...) được tìm từ catalog, nên
+   * bảng mới thêm sau này tự được tính.
+   */
+  private static readonly USER_ACCOUNT_CONFIG_TABLES: ReadonlySet<string> = new Set([
+    'core_schema.user_roles',
+    'core_schema.user_permission_grants',
+    'core_schema.user_profiles',
+    'core_schema.web_push_subscriptions',
+    'notification_schema.user_state',
+    'notification_schema.preferences',
+  ]);
+
+  /** Người dùng đã có dữ liệu tham chiếu (ngoài cấu hình tài khoản) hoặc đã thao tác phân quyền với người khác. */
+  private async userHasRecordedData(client: PostgresClient, userId: string): Promise<boolean> {
+    const references = await client.query<{ table_name: string; column_name: string }>(
+      `SELECT c.conrelid::regclass::text AS table_name, quote_ident(a.attname) AS column_name
+         FROM pg_constraint c
+         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+        WHERE c.contype = 'f' AND c.confrelid = 'core_schema.users'::regclass
+          AND array_length(c.conkey, 1) = 1`,
+    );
+    for (const reference of references.rows) {
+      if (PlatformIdentityService.USER_ACCOUNT_CONFIG_TABLES.has(reference.table_name)) continue;
+      // Tên bảng và cột lấy từ catalog, đã được PostgreSQL trích dẫn (regclass::text, quote_ident).
+      const found = await client.query(
+        `SELECT 1 FROM ${reference.table_name} WHERE ${reference.column_name} = $1 LIMIT 1`,
+        [userId],
+      );
+      if (found.rowCount) return true;
+    }
+    const acted = await client.query(
+      'SELECT 1 FROM core_schema.authorization_audit WHERE actor_id = $1 AND subject_id <> $1 LIMIT 1',
+      [userId],
+    );
+    return Boolean(acted.rowCount);
   }
 
   async platformOverview(): Promise<{ tenants: TenantSummary[] }> {
@@ -2684,7 +2780,35 @@ export class PlatformIdentityService implements OnModuleDestroy {
       );
       await this.appendEntitlementEvent(query, tenantId, moduleKey, true);
     });
+    if (moduleKey === 'crm') await this.seedCrmRoleTemplatesOnEnable(tenantId);
     return { status: 'provisioning' };
+  }
+
+  /**
+   * Bật Bán hàng thì tạo sẵn vai trò mẫu "Nhân viên kinh doanh", "Quản lý kinh doanh" (ISS-BE-011). Idempotent, không gán
+   * cho ai. Lỗi (DB tenant chưa sẵn sàng...) không chặn việc bật phân hệ: quản trị tenant tạo lại bằng
+   * POST /api/platform/v1/tenant-role-templates/crm.
+   */
+  private async seedCrmRoleTemplatesOnEnable(tenantId: string): Promise<void> {
+    try {
+      await this.authorization.seedCrmRoleTemplatesAsSystem(tenantId);
+    } catch (error) {
+      console.warn(
+        `Chưa tạo được vai trò mẫu Bán hàng cho tenant ${tenantId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  /** Tenant đã được bật phân hệ (đang khởi tạo hoặc đang hoạt động). */
+  async moduleEntitled(tenantId: string, moduleKey: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM subscription_schema.tenant_entitlements e
+         JOIN module_registry_schema.modules m ON m.id = e.module_id
+        WHERE e.tenant_id = $1 AND m.key = $2 AND m.status = 'active' AND e.status IN ('active', 'provisioning')`,
+      [tenantId, moduleKey],
+    );
+    return Boolean(result.rowCount);
   }
 
   private async appendEntitlementEvent(

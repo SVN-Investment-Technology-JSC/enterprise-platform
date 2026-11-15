@@ -33,6 +33,9 @@
       "path": "../../contracts/identity/tsconfig.lib.json"
     },
     {
+      "path": "../../adapters/events/tsconfig.lib.json"
+    },
+    {
       "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],
