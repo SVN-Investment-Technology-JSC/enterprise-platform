@@ -757,10 +757,11 @@ export interface WorkspaceStore {
      */
     storageKeyOf(tenantId: string, versionId: string): Promise<string | undefined>;
     /**
-     * Ghi `size_bytes` khi trình duyệt báo đã tải lên xong.
+     * Ghi `size_bytes` (dung lượng thật đọc từ kho) khi tệp đã tải lên xong, và
+     * phát `workspace.document.published` trong cùng transaction.
      *
-     * Chỉ ghi khi cột còn rỗng — gọi lại lần hai trả nguyên phiên bản, không
-     * đổi con số đã ghi.
+     * Chỉ ghi khi cột còn rỗng; phiên bản đã hoàn tất (hoặc không có) thì trả
+     * `undefined`, không đổi con số đã ghi và không phát sự kiện lần nữa.
      */
     completeVersion(
       tenantId: string,

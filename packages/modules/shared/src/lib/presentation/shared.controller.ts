@@ -157,7 +157,7 @@ export class SharedController {
     @Body() body: { module?: string; sizeBytes?: unknown } | undefined,
   ) {
     return this.execute(() =>
-      this.filings.completeUpload(this.actor(request).tenantId, body?.module, id, versionId, body?.sizeBytes),
+      this.filings.completeUpload(this.actor(request).tenantId, body?.module, id, versionId),
     );
   }
 

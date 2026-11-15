@@ -1,6 +1,11 @@
-import type { ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
+import {
+  readObjectSize,
+  type ObjectStorageManagementPort,
+  type ObjectStorageMetadataPort,
+} from '@enterprise-platform/adapter-storage';
 import {
   SHARED_CONFIDENTIALITY_LEVELS,
+  SHARED_DOCUMENT_MAX_BYTES,
   SHARED_FILING_MODULES,
   SHARED_MAX_FOLDER_DEPTH,
   SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -20,6 +25,7 @@ import {
 } from '@enterprise-platform/contracts-shared';
 import {
   SharedDocumentNotFoundError,
+  SharedError,
   SharedFolderNotFoundError,
   SharedNameTakenError,
   SharedValidationError,
@@ -30,6 +36,7 @@ import {
   requireText,
   sharedObjectStorage,
   sharedStorageKey,
+  uploadAlreadyCompleted,
   validateFile,
 } from './company-document.service.js';
 import type { DocumentRow, SharedStore } from './shared-store.port.js';
@@ -53,7 +60,7 @@ export class FilingService {
   constructor(
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
-    private readonly storage: ObjectStorageManagementPort = sharedObjectStorage(),
+    private readonly storage: ObjectStorageManagementPort & ObjectStorageMetadataPort = sharedObjectStorage(),
   ) {}
 
   async createDocument(tenantId: string, input: SharedFilingDocumentRequest): Promise<SharedFilingDocumentResponse> {
@@ -96,6 +103,8 @@ export class FilingService {
       uploadUrl: await this.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
+        // Ghim dung lượng đã qua hạn mức: kho từ chối PUT nặng hơn con số này.
+        sizeBytes: file.sizeBytes,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
       }),
       expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -131,30 +140,43 @@ export class FilingService {
       uploadUrl: await this.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
+        // Ghim dung lượng đã qua hạn mức: kho từ chối PUT nặng hơn con số này.
+        sizeBytes: file.sizeBytes,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
       }),
       expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
     };
   }
 
+  /**
+   * Báo đã tải tệp xong. Dung lượng lấy từ kho (lệnh HEAD), không tin số phân hệ gọi gửi lên:
+   * chưa có object thì 409 `UPLOAD_NOT_FOUND`, đã xác nhận rồi thì 409 `UPLOAD_ALREADY_COMPLETED` (ISS-BE-016).
+   */
   async completeUpload(
     tenantId: string,
     moduleValue: unknown,
     documentId: string,
     versionId: string,
-    sizeBytes: unknown,
   ): Promise<SharedDocumentVersion> {
     const module = parseModule(moduleValue);
     await this.moduleDocument(tenantId, module, documentId);
     const version = await this.store.documents.findVersion(tenantId, versionId);
     if (!version || version.documentId !== documentId) throw new SharedDocumentNotFoundError(versionId);
-    const size = Number(sizeBytes);
-    if (!Number.isInteger(size) || size < 0) {
-      throw new SharedValidationError('Dung lượng tệp phải là số nguyên không âm.');
+    if (version.sizeBytes != null) throw uploadAlreadyCompleted();
+    const key = await this.store.documents.storageKeyOf(tenantId, versionId);
+    if (!key) throw new SharedDocumentNotFoundError(versionId);
+    const size = await readObjectSize(this.storage, key);
+    if (size === null || size <= 0) {
+      throw new SharedError('UPLOAD_NOT_FOUND', 'Chưa thấy tệp trên kho lưu trữ. Hãy tải lên lại.', 409);
     }
-    validateFile(version.fileName, version.contentType, size);
+    if (size > SHARED_DOCUMENT_MAX_BYTES) {
+      throw new SharedValidationError(
+        `Tệp không được vượt quá ${Math.round(SHARED_DOCUMENT_MAX_BYTES / 1024 / 1024)} MB.`,
+      );
+    }
     const completed = await this.store.documents.completeVersion(tenantId, versionId, size);
-    if (!completed) throw new SharedDocumentNotFoundError(versionId);
+    // `undefined`: lượt báo xong khác đã ghi trước (store chỉ ghi khi còn rỗng).
+    if (!completed) throw uploadAlreadyCompleted();
     return completed;
   }
 

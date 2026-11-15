@@ -2858,20 +2858,35 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
 
     completeVersion: async (tenantId: string, versionId: string, sizeBytes: number) => {
       const pool = await this.poolFor(tenantId);
-      // `size_bytes IS NULL` làm lệnh này lặp lại được: bấm lại sau khi mạng
-      // chập chờn không ghi đè con số đã có.
-      await pool.query(
-        `UPDATE workspace_schema.document_versions
-            SET size_bytes = $2
-          WHERE id = $1 AND size_bytes IS NULL`,
-        [versionId, sizeBytes],
-      );
-      const result = await pool.query<Row>(
-        `SELECT ${VERSION_COLUMNS} FROM workspace_schema.document_versions WHERE id = $1`,
-        [versionId],
-      );
-      const row = result.rows[0];
-      return row ? mapVersion(row) : undefined;
+      return inTransaction(pool, async (client) => {
+        // `size_bytes IS NULL`: mỗi phiên bản chỉ hoàn tất một lần; lần sau
+        // không ghi đè con số đã có và không phát sự kiện lần nữa.
+        const updated = await client.query<Row>(
+          `UPDATE workspace_schema.document_versions
+              SET size_bytes = $2
+            WHERE id = $1 AND size_bytes IS NULL
+            RETURNING ${VERSION_COLUMNS}`,
+          [versionId, sizeBytes],
+        );
+        const row = updated.rows[0];
+        if (!row) return undefined;
+        const version = mapVersion(row);
+        const document = await client.query<Row>(
+          `SELECT ${DOCUMENT_COLUMNS} FROM workspace_schema.documents WHERE id = $1`,
+          [version.documentId],
+        );
+        const documentRow = document.rows[0];
+        // Tệp đã có thật trên kho: lúc này mới "phát hành".
+        if (documentRow) {
+          const published = mapDocument(documentRow);
+          await writeOutbox(
+            client,
+            tenantId,
+            publishedEvent(published, version, await projectMemberIds(client, published.projectId)),
+          );
+        }
+        return version;
+      });
     },
 
     create: async (
@@ -2935,11 +2950,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [document.id, first.id],
         );
 
-        await writeOutbox(
-          client,
-          tenantId,
-          publishedEvent(document, first, await projectMemberIds(client, document.projectId)),
-        );
+        // Tải lên từ trình duyệt thì tệp chưa có (dung lượng rỗng): sự kiện
+        // phát ở `completeVersion`. Tệp đã có sẵn trên kho (đính kèm Quy trình)
+        // thì phát ngay.
+        if (first.sizeBytes != null) {
+          await writeOutbox(
+            client,
+            tenantId,
+            publishedEvent(document, first, await projectMemberIds(client, document.projectId)),
+          );
+        }
         return { document: { ...document, currentVersionId: first.id }, version: first };
       });
     },
@@ -2985,15 +3005,18 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [input.documentId, version.id],
         );
         const publishedDocument = mapDocument(updated.rows[0] as Row);
-        await writeOutbox(
-          client,
-          tenantId,
-          publishedEvent(
-            publishedDocument,
-            version,
-            await projectMemberIds(client, publishedDocument.projectId),
-          ),
-        );
+        // Như `create`: chưa có tệp thì để `completeVersion` phát.
+        if (version.sizeBytes != null) {
+          await writeOutbox(
+            client,
+            tenantId,
+            publishedEvent(
+              publishedDocument,
+              version,
+              await projectMemberIds(client, publishedDocument.projectId),
+            ),
+          );
+        }
         return version;
       });
     },

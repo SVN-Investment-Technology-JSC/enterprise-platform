@@ -892,7 +892,7 @@ export class PostgresSharedStore implements SharedStore {
       this.run(tenantId, async (pool) => {
         const result = await pool.query<VersionRecord>(
           `UPDATE shared_schema.document_versions SET size_bytes = $2
-            WHERE id = $1
+            WHERE id = $1 AND size_bytes IS NULL
             RETURNING id, document_id, version_no, file_name, content_type, size_bytes,
                       change_note, uploaded_by, created_at`,
           [versionId, sizeBytes],

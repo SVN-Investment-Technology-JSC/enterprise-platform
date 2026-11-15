@@ -291,7 +291,11 @@ export const runMaintenanceNow = (assetCode: string, frequency?: MaintenanceFreq
 export const loadOccurrenceAttachments = (occurrenceId: string) =>
   request<OccurrenceAttachment[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/attachments`);
 
-/** Tải tệp lên: xin Presigned URL rồi PUT thẳng lên S3/MinIO */
+/**
+ * Tải tệp lên: xin Presigned URL, PUT thẳng lên S3/MinIO, rồi báo server "đã
+ * tải xong". Chưa báo xong thì đính kèm không hiện trong danh sách. Server trả
+ * 409 (chưa thấy tệp, đã xác nhận rồi) thì lỗi mang câu tiếng Việt server gửi.
+ */
 export async function uploadOccurrenceAttachment(
   occurrenceId: string,
   file: File,
@@ -312,12 +316,19 @@ export async function uploadOccurrenceAttachment(
 
   const uploaded = await fetch(created.uploadUrl, {
     method: 'PUT',
-    headers: { 'content-type': file.type || 'application/octet-stream' },
+    // URL ký theo loại tệp server quyết (theo đuôi), không phải loại trình duyệt đoán.
+    headers: { 'content-type': created.attachment.contentType },
     body: file,
   });
   if (!uploaded.ok) throw new Error('Không tải được tệp lên kho lưu trữ.');
-  return created.attachment;
+  return completeOccurrenceAttachment(occurrenceId, created.attachment.id);
 }
+
+export const completeOccurrenceAttachment = (occurrenceId: string, attachmentId: string) =>
+  request<OccurrenceAttachment>(
+    `/occurrences/${encodeURIComponent(occurrenceId)}/attachments/${encodeURIComponent(attachmentId)}/complete`,
+    { method: 'POST' },
+  );
 
 export const occurrenceAttachmentDownloadUrl = (occurrenceId: string, attachmentId: string) =>
   request<{ url: string }>(

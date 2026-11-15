@@ -444,7 +444,8 @@ export interface FileStore {
     documentId: string,
     input: Omit<SharedFilingVersionRequest, 'module'>,
   ): Promise<SharedFilingVersionResponse>;
-  complete(tenantId: string, documentId: string, versionId: string, sizeBytes: number): Promise<void>;
+  /** Báo tải xong; trả dung lượng thật Hệ dùng chung đọc từ kho (không phải số client gửi). */
+  complete(tenantId: string, documentId: string, versionId: string): Promise<number>;
   download(tenantId: string, documentId: string, userId: string, mode: AttachmentDownloadMode): Promise<AttachmentDownloadTicket>;
   trash(tenantId: string, documentId: string, userId: string): Promise<void>;
   updateFolder(tenantId: string, folderId: string, input: Omit<SharedFilingFolderUpdateRequest, 'module'>): Promise<void>;
