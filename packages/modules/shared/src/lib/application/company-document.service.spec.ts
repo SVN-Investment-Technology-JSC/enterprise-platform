@@ -2,6 +2,7 @@ import type {
   ObjectStorageCopy,
   ObjectStorageDownloadOptions,
   ObjectStorageManagementPort,
+  ObjectStorageMetadataPort,
 } from '@enterprise-platform/adapter-storage';
 import type {
   SharedDocument,
@@ -405,7 +406,8 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
       },
       completeVersion: async (_tenant, versionId, sizeBytes) => {
         const version = versions.get(versionId);
-        if (!version) return undefined;
+        // Như Postgres: chỉ ghi khi dung lượng còn rỗng.
+        if (!version || version.sizeBytes != null) return undefined;
         const next = { ...version, sizeBytes };
         versions.set(versionId, next);
         const owner = documents.get(version.documentId);
@@ -511,14 +513,27 @@ function fakeOrganization() {
   return { state, reader: { snapshot: async () => ({ ...state }) } };
 }
 
-/** Kho đối tượng giả: ghi lại các lần sao chép, xoá, và gây lỗi theo yêu cầu. */
+/**
+ * Kho đối tượng giả: ghi lại các lần sao chép, xoá, và gây lỗi theo yêu cầu.
+ * Mỗi URL tải lên ký xong coi như trình duyệt đã PUT đúng số byte đã ghim vào
+ * `objects`; `faults.skipUpload` giả lượt PUT không bao giờ tới kho.
+ */
 function fakeStorage() {
   const copies: ObjectStorageCopy[] = [];
   const deleted: string[] = [];
   const downloads: { key: string; options?: ObjectStorageDownloadOptions }[] = [];
-  const faults = { failedKeys: [] as string[], throwOnDelete: false };
-  const port: ObjectStorageManagementPort = {
-    createUploadUrl: async (input) => `https://files.example/upload/${input.key}`,
+  const objects = new Map<string, number>();
+  const faults = { failedKeys: [] as string[], throwOnDelete: false, skipUpload: false };
+  const port: ObjectStorageManagementPort & ObjectStorageMetadataPort = {
+    createUploadUrl: async (input) => {
+      if (!faults.skipUpload) objects.set(input.key, input.sizeBytes ?? 1);
+      return `https://files.example/upload/${input.key}`;
+    },
+    objectMetadata: async (key) => {
+      const sizeBytes = objects.get(key);
+      if (sizeBytes === undefined) throw Object.assign(new Error('not found'), { name: 'NotFound' });
+      return { sizeBytes, contentType: 'application/octet-stream' };
+    },
     createDownloadUrl: async (key, _expiresInSeconds, options) => {
       downloads.push({ key, options });
       return `https://files.example/download/${key}`;
@@ -526,6 +541,8 @@ function fakeStorage() {
     putObject: async () => undefined,
     copyObject: async (input) => {
       copies.push(input);
+      const sizeBytes = objects.get(input.from);
+      if (sizeBytes !== undefined) objects.set(input.to, sizeBytes);
     },
     deleteObjects: async (keys) => {
       if (faults.throwOnDelete) throw new Error('kho không phản hồi');
@@ -533,7 +550,7 @@ function fakeStorage() {
       return { failed: keys.filter((key) => faults.failedKeys.includes(key)) };
     },
   };
-  return { port, copies, deleted, downloads, faults };
+  return { port, copies, deleted, downloads, faults, objects };
 }
 
 function setup(
@@ -675,16 +692,23 @@ describe('CompanyDocumentService – tài liệu', () => {
     );
   });
 
-  it('nhận mọi định dạng; chỉ từ chối kiểu tệp sai cú pháp và hiệu lực ngược', async () => {
+  it('chặn đuôi chạy được hoặc mở như trang web (ISS-BE-017); nhận định dạng khác, từ chối kiểu sai cú pháp và hiệu lực ngược', async () => {
     const { service, folder } = await withFolder();
-    const exe = await service.create(actor(), {
-      folderId: folder.id,
-      name: 'Bộ cài',
-      ...pdf,
-      fileName: 'setup.exe',
-      contentType: 'application/x-msdownload',
-    });
-    expect(exe.version.contentType).toBe('application/x-msdownload');
+    for (const [fileName, contentType] of [
+      ['setup.exe', 'application/x-msdownload'],
+      ['trang.html', 'text/html'],
+      ['TRANG.HTM', 'text/plain'],
+      ['logo.svg', 'image/svg+xml'],
+      ['chay.js', 'text/plain'],
+    ]) {
+      await expect(
+        service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, fileName, contentType }),
+      ).rejects.toThrow('Loại tệp không được phép.');
+    }
+    const head = await service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await expect(
+      service.addVersion(actor(), head.document.id, { fileName: 'setup.exe', contentType: 'application/x-msdownload', sizeBytes: 10, changeNote: 'Bản mới' }),
+    ).rejects.toThrow('Loại tệp không được phép.');
     // Trình duyệt không nhận ra kiểu (.step, .dwg trên Windows): lưu như tệp nhị phân.
     const step = await service.create(actor(), { folderId: folder.id, name: 'Bản vẽ', ...pdf, fileName: 'khung.step', contentType: '' });
     expect(step.version.contentType).toBe('application/octet-stream');
@@ -694,6 +718,15 @@ describe('CompanyDocumentService – tài liệu', () => {
     await expect(
       service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, effectiveFrom: '2026-12-31', effectiveTo: '2026-01-01' }),
     ).rejects.toThrow('Ngày hiệu lực từ');
+  });
+
+  it('dung lượng khai phải là số nguyên dương (ISS-BE-017)', async () => {
+    const { service, folder } = await withFolder();
+    for (const sizeBytes of [0, -1, 1.5, 'abc']) {
+      await expect(
+        service.create(actor(), { folderId: folder.id, name: 'X', ...pdf, sizeBytes: sizeBytes as number }),
+      ).rejects.toThrow('Dung lượng tệp không hợp lệ.');
+    }
   });
 
   it('người khác đang khoá thì không tải được phiên bản mới', async () => {
@@ -749,24 +782,70 @@ describe('CompanyDocumentService – tài liệu', () => {
     });
   });
 
-  it('tải về luôn ký kèm attachment; tệp HTML không xem tại chỗ được', async () => {
+  it('tải về luôn ký kèm attachment; tệp không phải PDF hay ảnh không xem tại chỗ được', async () => {
     const { service, folder, files } = await withFolder();
-    const page = await service.create(actor(), {
+    const sheet = await service.create(actor(), {
       folderId: folder.id,
-      name: 'Trang',
-      fileName: 'trang.html',
-      contentType: 'text/html',
+      name: 'Bảng tính',
+      fileName: 'bang.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       sizeBytes: 1_000,
     });
-    await service.completeUpload(actor(), page.document.id, page.version.id, 1_000);
-    await expect(service.download(actor(), page.document.id, undefined, 'preview')).rejects.toThrow('chưa xem trước được');
-    await service.download(actor(), page.document.id);
-    expect(files.downloads.at(-1)?.options).toEqual({ attachment: true, fileName: 'trang.html' });
+    await service.completeUpload(actor(), sheet.document.id, sheet.version.id, 1_000);
+    await expect(service.download(actor(), sheet.document.id, undefined, 'preview')).rejects.toThrow('chưa xem trước được');
+    await service.download(actor(), sheet.document.id);
+    expect(files.downloads.at(-1)?.options).toEqual({ attachment: true, fileName: 'bang.xlsx' });
 
     const created = await service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
     await service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
     await service.download(actor(), created.document.id, undefined, 'preview');
     expect(files.downloads.at(-1)?.options).toEqual({ inline: true, contentType: 'application/pdf', fileName: pdf.fileName });
+  });
+});
+
+describe('CompanyDocumentService – báo tải lên xong (ISS-BE-016)', () => {
+  async function withUpload() {
+    const context = setup();
+    const folder = await context.service.createFolder(admin, { name: 'Hợp đồng' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    const key = (await context.store.documents.storageKeyOf(TENANT, created.version.id)) as string;
+    return { ...context, created, key };
+  }
+
+  it('URL tải lên ghim đúng dung lượng đã qua hạn mức', async () => {
+    const { files, key } = await withUpload();
+    expect(files.objects.get(key)).toBe(pdf.sizeBytes);
+  });
+
+  it('tệp chưa có trên kho thì 409, phiên bản ở lại chưa tải xong', async () => {
+    // SEC-BE016-01
+    const context = setup();
+    context.files.faults.skipUpload = true;
+    const folder = await context.service.createFolder(admin, { name: 'Hợp đồng' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await expect(
+      context.service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'UPLOAD_NOT_FOUND' });
+    expect((await context.store.documents.findVersion(TENANT, created.version.id))?.sizeBytes ?? null).toBeNull();
+  });
+
+  it('lưu dung lượng thật trên kho, không theo con số client báo', async () => {
+    // SEC-BE016-03
+    const { service, files, created, key, store } = await withUpload();
+    files.objects.set(key, 10_240);
+    const version = await service.completeUpload(actor(), created.document.id, created.version.id, 1);
+    expect(version.sizeBytes).toBe(10_240);
+    expect((await store.documents.findVersion(TENANT, created.version.id))?.sizeBytes).toBe(10_240);
+  });
+
+  it('hoàn tất lại phiên bản đã hoàn tất thì 409, dung lượng không đổi', async () => {
+    // SEC-BE016-02
+    const { service, created, store } = await withUpload();
+    await service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
+    await expect(
+      service.completeUpload(actor(), created.document.id, created.version.id, 50 * GB),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'UPLOAD_ALREADY_COMPLETED' });
+    expect((await store.documents.findVersion(TENANT, created.version.id))?.sizeBytes).toBe(pdf.sizeBytes);
   });
 });
 
@@ -1517,16 +1596,39 @@ describe('FilingService – lưu hồ sơ của phân hệ khác', () => {
     await expect(
       filings.download(TENANT, 'correspondence', created.documentId, 'user-leader', 'download'),
     ).rejects.toBeInstanceOf(SharedValidationError);
-    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId, pdf.sizeBytes);
+    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId);
     const ticket = await filings.download(TENANT, 'correspondence', created.documentId, 'user-leader', 'preview');
     expect(ticket.fileName).toBe(pdf.fileName);
     expect(files.downloads.at(-1)?.options).toMatchObject({ inline: true });
   });
 
+  it('báo xong ghi dung lượng thật trên kho, URL tải lên ghim dung lượng đã khai (ISS-BE-016)', async () => {
+    const { filings, versions } = filingSetup();
+    const created = await filings.createDocument(TENANT, request);
+    const done = await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId);
+    expect(done.sizeBytes).toBe(pdf.sizeBytes);
+    expect(versions.get(created.versionId)?.sizeBytes).toBe(pdf.sizeBytes);
+  });
+
+  it('báo xong khi kho chưa có tệp thì 409 UPLOAD_NOT_FOUND; báo lần hai thì 409 UPLOAD_ALREADY_COMPLETED', async () => {
+    const { filings, files } = filingSetup();
+    files.faults.skipUpload = true;
+    const missing = await filings.createDocument(TENANT, request);
+    await expect(
+      filings.completeUpload(TENANT, 'correspondence', missing.documentId, missing.versionId),
+    ).rejects.toMatchObject({ code: 'UPLOAD_NOT_FOUND', statusCode: 409 });
+    files.faults.skipUpload = false;
+    const created = await filings.createDocument(TENANT, { ...request, name: 'Bản quét khác' });
+    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId);
+    await expect(
+      filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId),
+    ).rejects.toMatchObject({ code: 'UPLOAD_ALREADY_COMPLETED', statusCode: 409 });
+  });
+
   it('phiên bản mới của tài liệu của phân hệ đánh số tiếp', async () => {
     const { filings, versions } = filingSetup();
     const created = await filings.createDocument(TENANT, request);
-    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId, pdf.sizeBytes);
+    await filings.completeUpload(TENANT, 'correspondence', created.documentId, created.versionId);
     const next = await filings.addVersion(TENANT, created.documentId, {
       module: 'correspondence',
       userId: 'user-clerk',

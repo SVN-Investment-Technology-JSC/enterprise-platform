@@ -831,8 +831,9 @@ export function MaintenanceHistory({
                           }
                           onComplete(selected.id, note.trim());
                           setPendingFiles([]);
-                        } catch {
-                          alert('Không tải được một số tệp đính kèm.');
+                        } catch (cause) {
+                          // Giữ câu tiếng Việt server trả (vd. 409 chưa thấy tệp trên kho).
+                          alert(cause instanceof Error && cause.message ? cause.message : 'Không tải được một số tệp đính kèm.');
                         } finally {
                           setUploadingAttachment(false);
                         }

@@ -191,6 +191,10 @@ export interface SharedStore {
     listVersions(tenantId: string, documentId: string): Promise<SharedDocumentVersion[]>;
     findVersion(tenantId: string, versionId: string): Promise<SharedDocumentVersion | undefined>;
     addVersion(tenantId: string, userId: string, input: VersionInsert): Promise<SharedDocumentVersion>;
+    /**
+     * Ghi dung lượng thật khi tệp đã tải lên xong. Chỉ ghi khi cột còn rỗng;
+     * phiên bản đã hoàn tất (hoặc không có) thì trả `undefined`.
+     */
     completeVersion(
       tenantId: string,
       versionId: string,

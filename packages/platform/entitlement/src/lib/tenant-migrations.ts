@@ -687,6 +687,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0015-instance-source-summary',
       path: 'tenant/procedure/0015-instance-source-summary.sql',
     },
+    {
+      version: '0016-attachment-upload-status',
+      path: 'tenant/procedure/0016-attachment-upload-status.sql',
+    },
   ],
   maintenance: [
     {
@@ -732,6 +736,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0011-schedule-assignee',
       path: 'tenant/maintenance/0011-schedule-assignee.sql',
+    },
+    {
+      version: '0012-attachment-upload-status',
+      path: 'tenant/maintenance/0012-attachment-upload-status.sql',
     },
   ],
   workspace: [

@@ -1,4 +1,12 @@
-import { S3ObjectStorage, type ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
+import {
+  S3ObjectStorage,
+  UploadFileRejectedError,
+  isBlockedUploadExtension,
+  parseUploadSize,
+  readObjectSize,
+  type ObjectStorageManagementPort,
+  type ObjectStorageMetadataPort,
+} from '@enterprise-platform/adapter-storage';
 import {
   isSharedContentType,
   SHARED_CONFIDENTIALITY_LEVELS,
@@ -40,6 +48,7 @@ import { randomUUID } from 'node:crypto';
 import {
   SharedDocumentLockedError,
   SharedDocumentNotFoundError,
+  SharedError,
   SharedFolderLockedError,
   SharedFolderNotFoundError,
   SharedFolderUnavailableError,
@@ -63,7 +72,7 @@ import type { StorageQuotaService } from './storage-quota.service.js';
  * kho trong mạng nội bộ, còn URL ký sẵn phải mang host công khai cho trình
  * duyệt mở. Xem `DocumentService` của Workspace.
  */
-export function sharedObjectStorage(): ObjectStorageManagementPort {
+export function sharedObjectStorage(): ObjectStorageManagementPort & ObjectStorageMetadataPort {
   return new S3ObjectStorage({
     internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://minio:9000',
     publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
@@ -98,7 +107,7 @@ export class CompanyDocumentService {
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
     private readonly access: FolderAccessService,
-    private readonly storage: ObjectStorageManagementPort = sharedObjectStorage(),
+    private readonly storage: ObjectStorageManagementPort & ObjectStorageMetadataPort = sharedObjectStorage(),
   ) {}
 
   private readonly logger = new Logger(CompanyDocumentService.name);
@@ -342,6 +351,8 @@ export class CompanyDocumentService {
       uploadUrl: await this.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
+        // Ghim dung lượng đã qua hạn mức: kho từ chối PUT nặng hơn con số này.
+        sizeBytes: file.sizeBytes,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
       }),
       expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -437,6 +448,8 @@ export class CompanyDocumentService {
       uploadUrl: await this.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
+        // Ghim dung lượng đã qua hạn mức: kho từ chối PUT nặng hơn con số này.
+        sizeBytes: file.sizeBytes,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
       }),
       expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -444,14 +457,17 @@ export class CompanyDocumentService {
   }
 
   /**
-   * Chặng 3: trình duyệt báo đã `PUT` xong. Lượt `PUT` hỏng không bao giờ tới
-   * đây, nên phiên bản ở lại "chưa tải lên xong" (`size_bytes` rỗng).
+   * Chặng 3: trình duyệt báo đã `PUT` xong.
+   *
+   * Không tin client: server hỏi kho (`HEAD`) xem object có thật không và lưu
+   * dung lượng thật (hạn mức cộng theo cột này), bỏ qua `sizeBytes` client gửi.
+   * Mỗi phiên bản hoàn tất một lần: lần sau, hoặc khi chưa có tệp, trả 409.
    */
   async completeUpload(
     actor: SharedActor,
     documentId: string,
     versionId: string,
-    sizeBytes: unknown,
+    _sizeBytes?: unknown,
   ): Promise<SharedDocumentVersion> {
     this.requireWrite(actor);
     await this.writableDocument(actor, await this.access.forActor(actor), documentId);
@@ -459,9 +475,12 @@ export class CompanyDocumentService {
     if (!version || version.documentId !== documentId) {
       throw new SharedDocumentNotFoundError(versionId);
     }
-    const size = Number(sizeBytes);
-    if (!Number.isInteger(size) || size < 0) {
-      throw new SharedValidationError('Dung lượng tệp phải là số nguyên không âm.');
+    if (version.sizeBytes != null) throw uploadAlreadyCompleted();
+    const key = await this.store.documents.storageKeyOf(actor.tenantId, versionId);
+    if (!key) throw new SharedDocumentNotFoundError(versionId);
+    const size = await readObjectSize(this.storage, key);
+    if (size === null || size <= 0) {
+      throw new SharedError('UPLOAD_NOT_FOUND', 'Chưa thấy tệp trên kho lưu trữ. Hãy tải lên lại.', 409);
     }
     if (size > SHARED_DOCUMENT_MAX_BYTES) {
       throw new SharedValidationError(
@@ -469,7 +488,8 @@ export class CompanyDocumentService {
       );
     }
     const completed = await this.store.documents.completeVersion(actor.tenantId, versionId, size);
-    if (!completed) throw new SharedDocumentNotFoundError(versionId);
+    // `undefined`: lượt báo xong khác đã ghi trước (store chỉ ghi khi còn rỗng).
+    if (!completed) throw uploadAlreadyCompleted();
     return completed;
   }
 
@@ -1042,27 +1062,39 @@ export function recordMeta(input: SharedRecordMeta | undefined, current?: Shared
   };
 }
 
+export function uploadAlreadyCompleted(): SharedError {
+  return new SharedError('UPLOAD_ALREADY_COMPLETED', 'Tệp của phiên bản này đã được xác nhận tải lên.', 409);
+}
+
 export function validateFile(
   fileName: unknown,
   contentType: unknown,
   sizeBytes: unknown,
 ): { fileName: string; contentType: string; sizeBytes: number } {
   const name = requireText(fileName, 'Tên tệp', 255);
-  // Nhận mọi định dạng; trình duyệt không nhận ra kiểu thì lưu như tệp nhị phân.
+  // Chặn đuôi chạy được hoặc mở như trang web (.exe, .html, .svg, .js...) theo danh sách chung của kho lưu trữ
+  // (ISS-BE-017). Các định dạng khác vẫn nhận; trình duyệt không nhận ra kiểu thì lưu như tệp nhị phân.
+  // Tải về luôn `attachment`, chỉ PDF và ảnh xem tại chỗ.
+  if (isBlockedUploadExtension(name)) {
+    throw new SharedValidationError('Loại tệp không được phép.');
+  }
   const type = String(contentType ?? '').trim() || SHARED_DEFAULT_CONTENT_TYPE;
   if (!isSharedContentType(type)) {
     throw new SharedValidationError(`Kiểu tệp "${type.slice(0, 80)}" không hợp lệ.`);
   }
-  const size = Number(sizeBytes);
-  if (!Number.isFinite(size) || size < 0) {
-    throw new SharedValidationError('Dung lượng tệp không hợp lệ.');
+  let size: number;
+  try {
+    size = parseUploadSize(sizeBytes);
+  } catch (error) {
+    if (error instanceof UploadFileRejectedError) throw new SharedValidationError(error.message);
+    throw error;
   }
   if (size > SHARED_DOCUMENT_MAX_BYTES) {
     throw new SharedValidationError(
       `Tệp không được vượt quá ${Math.round(SHARED_DOCUMENT_MAX_BYTES / 1024 / 1024)} MB.`,
     );
   }
-  return { fileName: name, contentType: type, sizeBytes: Math.round(size) };
+  return { fileName: name, contentType: type, sizeBytes: size };
 }
 
 export function requireText(value: unknown, label: string, maxLength: number): string {

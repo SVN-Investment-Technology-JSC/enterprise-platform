@@ -1,6 +1,12 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry, inTransaction } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
-import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import {
+  S3ObjectStorage,
+  TENANT_UPLOAD_URL_TTL_SECONDS,
+  readObjectSize,
+  type ObjectStorageMetadataPort,
+  type ObjectStoragePort,
+} from '@enterprise-platform/adapter-storage';
 import {
   PROCEDURE_ATTACHMENT_MAX_BYTES,
   PROCEDURE_ATTACHMENT_TYPES,
@@ -27,13 +33,15 @@ import {
 interface AttachmentRow {
   id:string;instance_id:string;step_instance_id:string|null;subtask_id:string|null;object_key:string;
   file_name:string;content_type:string;size_bytes:string|null;uploaded_by:string;created_at:Date;
+  /** `PENDING` tới khi server thấy tệp trên kho (migration procedure/0016). */
+  upload_status?:'PENDING'|'COMPLETED';
 }
 
 export class ProcedureAttachmentService {
   constructor(
     private readonly references: TenantDatabaseRegistry,
     private readonly pools: PostgresPoolRegistry,
-    private readonly storage: ObjectStoragePort = new S3ObjectStorage({
+    private readonly storage: ObjectStoragePort & ObjectStorageMetadataPort = new S3ObjectStorage({
       internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
       publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
       region: process.env.S3_REGION ?? 'us-east-1',
@@ -115,10 +123,12 @@ export class ProcedureAttachmentService {
     const id=randomUUID();
     const safeName=input.fileName.trim().replace(/[^a-zA-Z0-9._-]+/g,'-');
     const objectKey=`tenants/${actor.tenantId}/procedure/${instanceId}/${id}-${safeName}`;
+    // Dòng ở trạng thái PENDING, dung lượng rỗng: chỉ `complete` (sau khi thấy tệp
+    // trên kho) mới làm nó hiện ra và ghi dung lượng thật.
     const result=await pool.query<AttachmentRow>(`INSERT INTO procedure_schema.attachments
-      (id,instance_id,step_instance_id,subtask_id,object_key,file_name,content_type,size_bytes,uploaded_by)
-      SELECT $1,i.id,$3,$9,$4,$5,$6,$7,$8 FROM procedure_schema.instances i WHERE i.id=$2 RETURNING *`,
-      [id,instanceId,stepInstanceId,objectKey,input.fileName.trim(),input.contentType.trim(),input.sizeBytes??null,actor.userId,input.subtaskId??null]);
+      (id,instance_id,step_instance_id,subtask_id,object_key,file_name,content_type,size_bytes,uploaded_by,upload_status)
+      SELECT $1,i.id,$3,$8,$4,$5,$6,NULL,$7,'PENDING' FROM procedure_schema.instances i WHERE i.id=$2 RETURNING *`,
+      [id,instanceId,stepInstanceId,objectKey,input.fileName.trim(),input.contentType.trim(),actor.userId,input.subtaskId??null]);
     const row=result.rows[0];
     if(!row) throw new ProcedureEngineError('not_found','Không tìm thấy phiên quy trình.');
     const expiresInSeconds = TENANT_UPLOAD_URL_TTL_SECONDS;
@@ -185,10 +195,11 @@ export class ProcedureAttachmentService {
   }
 
   /**
-   * Trình duyệt báo đã PUT xong tệp lên kho. Chỉ từ lúc này tệp mới có thật, nên sự kiện sang Workspace
-   * phát ở đây chứ không phát lúc tạo dòng (lúc đó tệp có thể không bao giờ tới).
+   * Trình duyệt báo đã PUT xong tệp lên kho. Server không tin lời báo: hỏi kho (`HEAD`) xem object có thật
+   * không, ghi dung lượng thật và chuyển dòng sang COMPLETED. Chỉ từ lúc này tệp mới hiện trong hồ sơ, tính
+   * là bằng chứng của đầu việc, và sự kiện sang Workspace mới phát.
    *
-   * Gọi lặp an toàn: Workspace chống trùng theo khoá tệp.
+   * Mỗi tệp hoàn tất một lần: chưa có tệp trên kho, hoặc đã hoàn tất rồi, thì 409.
    */
   async complete(actor: ProcedureActor, instanceId: string, attachmentId: string): Promise<ProcedureAttachment> {
     const pool = await this.pools.forTenant(this.references.require(actor.tenantId));
@@ -200,8 +211,27 @@ export class ProcedureAttachmentService {
     if (!row || row.uploaded_by !== actor.userId) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy tệp đính kèm.');
     }
-    await inTransaction(pool, (client) => this.emitAdded(client, actor.tenantId, instance, row));
-    return this.map(row);
+    if (row.upload_status !== 'PENDING') throw uploadAlreadyCompleted();
+    const size = await readObjectSize(this.storage, row.object_key);
+    if (size === null || size <= 0) {
+      throw new ProcedureEngineError('conflict', 'Chưa thấy tệp trên kho lưu trữ. Hãy tải lên lại.');
+    }
+    if (size > PROCEDURE_ATTACHMENT_MAX_BYTES) {
+      throw new ProcedureEngineError('validation', 'File đính kèm không vượt quá 50 MB.');
+    }
+    const completed = await inTransaction(pool, async (client) => {
+      const updated = await client.query<AttachmentRow>(
+        `UPDATE procedure_schema.attachments SET upload_status='COMPLETED', size_bytes=$3
+          WHERE id=$1 AND instance_id=$2 AND upload_status='PENDING' RETURNING *`,
+        [attachmentId, instanceId, size]);
+      const next = updated.rows[0];
+      // Hai lượt báo xong chạy song song: lượt thua không phát sự kiện lần nữa.
+      if (!next) return undefined;
+      await this.emitAdded(client, actor.tenantId, instance, next);
+      return next;
+    });
+    if (!completed) throw uploadAlreadyCompleted();
+    return this.map(completed);
   }
 
   /**
@@ -265,7 +295,9 @@ export class ProcedureAttachmentService {
       throw new ProcedureEngineError('forbidden', 'Bạn không có mặt trong hồ sơ này.');
     }
 
-    const result=await pool.query<AttachmentRow>(`SELECT * FROM procedure_schema.attachments WHERE instance_id=$1 ORDER BY created_at DESC`,[instanceId]);
+    // Tệp chưa tải lên xong (PENDING) không hiện: có thể không bao giờ tới kho.
+    const result=await pool.query<AttachmentRow>(`SELECT * FROM procedure_schema.attachments
+      WHERE instance_id=$1 AND upload_status='COMPLETED' ORDER BY created_at DESC`,[instanceId]);
     return Promise.all(result.rows.map(async(row)=>({...this.map(row),downloadUrl:await this.storage.createDownloadUrl(row.object_key)})));
   }
 
@@ -274,11 +306,15 @@ export class ProcedureAttachmentService {
     const pool=await this.pools.forTenant(this.references.require(tenantId));
     const result=await pool.query<{count:string}>(
       `SELECT count(*)::text AS count FROM procedure_schema.attachments
-        WHERE instance_id=$1 AND subtask_id=$2`,[instanceId,subtaskId]);
+        WHERE instance_id=$1 AND subtask_id=$2 AND upload_status='COMPLETED'`,[instanceId,subtaskId]);
     return Number(result.rows[0]?.count ?? 0);
   }
 
   private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString(),origin:attachmentOrigin(row)}}
+}
+
+function uploadAlreadyCompleted(): ProcedureEngineError {
+  return new ProcedureEngineError('conflict', 'Tệp đính kèm này đã được xác nhận tải lên.');
 }
 
 /** Tệp không gắn bước: do hệ thống sinh (bảng kê) hay người tham gia bổ sung. */

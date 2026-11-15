@@ -45,13 +45,16 @@ export class HttpFileStore implements FileStore {
     });
   }
 
-  async complete(tenantId: string, documentId: string, versionId: string, sizeBytes: number): Promise<void> {
-    await this.call(
+  async complete(tenantId: string, documentId: string, versionId: string): Promise<number> {
+    const version = await this.call<{ sizeBytes?: unknown }>(
       tenantId,
       'POST',
       `/v1/internal/filings/documents/${encodeURIComponent(documentId)}/versions/${encodeURIComponent(versionId)}/complete`,
-      { module: MODULE, sizeBytes },
+      { module: MODULE },
     );
+    const size = Number(version?.sizeBytes);
+    if (!Number.isInteger(size) || size < 0) throw new FileStoreUnavailableError();
+    return size;
   }
 
   download(
