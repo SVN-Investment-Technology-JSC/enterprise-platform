@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ProcedureStartForbiddenError } from '../domain/workspace.error.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './workspace-store.port.js';
 
 /**
@@ -37,6 +38,30 @@ export interface WorkspaceActor {
    * dùng chung hay xoá tài liệu. Vắng thì coi là không có.
    */
   readonly canAdminProjects?: boolean;
+  /**
+   * Được tạo dự án mới (`workspace.project.create`). Vắng thì coi là không có; quản trị tenant luôn có.
+   */
+  readonly canCreateProject?: boolean;
+  /**
+   * Giữ `procedure.instance.create` của module Quy trình: được mở hồ sơ từ công việc "Theo quy trình". Vắng thì
+   * coi là không có; quản trị tenant luôn có.
+   */
+  readonly canStartProcedures?: boolean;
+}
+
+/** Người này được tạo dự án mới: quản trị tenant hoặc được cấp `workspace.project.create`. */
+export function canCreateProject(actor: WorkspaceActor): boolean {
+  return actor.isTenantAdmin || actor.canCreateProject === true;
+}
+
+/** Người này được mở hồ sơ Quy trình từ Workspace: quản trị tenant hoặc giữ `procedure.instance.create`. */
+export function canStartProcedures(actor: WorkspaceActor): boolean {
+  return actor.isTenantAdmin || actor.canStartProcedures === true;
+}
+
+/** Như `canStartProcedures` nhưng ném 403 thay vì trả về boolean. */
+export function requireProcedureStart(actor: WorkspaceActor): void {
+  if (!canStartProcedures(actor)) throw new ProcedureStartForbiddenError();
 }
 
 /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -59,6 +84,8 @@ export interface WorkspaceStatus {
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
     readonly canAdminProjects: boolean;
+    /** Được tạo dự án mới: giao diện ẩn nút "Tạo dự án" khi không có. */
+    readonly canCreateProject: boolean;
     /**
      * Tenant bật Bán hàng (D1): khách hàng do Bán hàng quản lý, màn khách hàng
      * Workspace chỉ đọc và form dự án tra khách ở Bán hàng.
@@ -95,6 +122,7 @@ export class WorkspaceApplication {
         canWriteDocuments: actor.canWriteDocuments,
         canDeleteDocuments: actor.canDeleteDocuments,
         canAdminProjects: actor.canAdminProjects === true,
+        canCreateProject: canCreateProject(actor),
         customersManagedByCrm: (await this.crmSource?.enabled(actor.tenantId)) === true,
       },
     };

@@ -395,3 +395,53 @@ describe('workspace.project.admin — xem và thao tác mọi dự án', () => {
     expect(saved).toHaveLength(1);
   });
 });
+
+describe('ProjectService.create — quyền workspace.project.create (ISS-BE-014)', () => {
+  /** Store và quy tắc mã giả: ghi lại lần cấp số mã và lần tạo dự án để kiểm không tiêu số khi bị từ chối. */
+  function creationFakes() {
+    const calls = { partsFor: 0, create: 0 };
+    const store = {
+      // Chưa cấu hình cách tính tiến độ mặc định: dùng mặc định của hệ thống.
+      settings: { get: async () => undefined },
+      project: {
+        create: async (_tenant: string, _user: string, input: { name: string }) => {
+          calls.create += 1;
+          return { id: 'p-new', code: 'DA-001', name: input.name };
+        },
+      },
+    } as unknown as WorkspaceStore;
+    const codes = {
+      partsFor: async () => {
+        calls.partsFor += 1;
+        return { prefix: 'DA' };
+      },
+    } as unknown as ConstructorParameters<typeof ProjectService>[4];
+    return { service: new ProjectService(store, undefined, undefined, undefined, codes), calls };
+  }
+
+  it('người không có quyền bị từ chối 403 và không được cấp số mã dự án (SEC-BE014-02)', async () => {
+    const { service, calls } = creationFakes();
+    await expect(service.create(owner, { name: 'Dự án mới' })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PROJECT_CREATE_FORBIDDEN',
+      message: 'Bạn không có quyền tạo dự án mới.',
+    });
+    expect(calls).toEqual({ partsFor: 0, create: 0 });
+  });
+
+  it('đường nội bộ thay mặt người yêu cầu cũng bị chặn: cờ ghi công việc không thay được quyền tạo dự án', async () => {
+    const { service, calls } = creationFakes();
+    const viaService: WorkspaceActor = { ...owner, canWriteTasks: true, canManage: true, canAdminProjects: true };
+    await expect(service.create(viaService, { name: 'Dự án mới' })).rejects.toMatchObject({ statusCode: 403 });
+    expect(calls.create).toBe(0);
+  });
+
+  it('người được cấp quyền và quản trị tenant tạo được dự án', async () => {
+    const { service, calls } = creationFakes();
+    await expect(
+      service.create({ ...owner, canCreateProject: true }, { name: 'Dự án mới' }),
+    ).resolves.toMatchObject({ code: 'DA-001' });
+    await expect(service.create({ ...owner, isTenantAdmin: true }, { name: 'Dự án khác' })).resolves.toBeDefined();
+    expect(calls).toEqual({ partsFor: 2, create: 2 });
+  });
+});

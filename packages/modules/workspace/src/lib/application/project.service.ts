@@ -36,6 +36,7 @@ import {
 import {
   ProjectArchivedError,
   ProjectCodeConflictError,
+  ProjectCreateForbiddenError,
   ProjectForbiddenError,
   ProjectHasOpenWorkItemsError,
   ProjectNotFoundError,
@@ -55,7 +56,7 @@ import {
 import type { ProjectCodeService } from './project-code.service.js';
 import type { ProjectGroupService } from './project-group.service.js';
 import type { ProjectRoleService } from './project-role.service.js';
-import type { WorkspaceActor } from './workspace.application.js';
+import { canCreateProject, type WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
 const DEFAULT_PAGE_SIZE = 30;
@@ -300,6 +301,9 @@ export class ProjectService {
   }
 
   async create(actor: WorkspaceActor, input: CreateProjectRequest): Promise<Project> {
+    // Kiểm ở đây chứ không chỉ ở guard: mọi đường gọi (kể cả đường nội bộ thay mặt người dùng) đều qua hàm này.
+    // Kiểm trước mọi bước khác để không cấp số mã dự án cho request bị từ chối.
+    if (!canCreateProject(actor)) throw new ProjectCreateForbiddenError();
     const name = requireText(input.name, 'Tên dự án', 180);
     assertDateOrder(input.startDate, input.endDate);
     const projectType = (await this.resolveGroup(actor, input.projectType)) ?? undefined;

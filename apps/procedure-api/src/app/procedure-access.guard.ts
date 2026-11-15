@@ -1,5 +1,6 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { buildProcedureOrgUnits as buildOrgUnits, type ProcedureActor } from '@enterprise-platform/module-procedure-engine';
+import { isTenantAdmin } from '@enterprise-platform/contracts-identity';
 import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
@@ -59,6 +60,8 @@ export class ProcedureAccessGuard implements CanActivate {
       canPublish: decision.principal.permissions.includes('procedure.definition.publish'),
       canCreateInstances: decision.principal.permissions.includes('procedure.instance.create'),
       isOverride: decision.principal.permissions.includes('procedure.instance.override'),
+      // Cờ quản trị tenant gửi sang Workspace phải là vai trò thật, không suy từ quyền can thiệp hồ sơ.
+      isTenantAdmin: isTenantAdmin(decision.principal.roles),
       organizationUnitIds: subjects.organizationUnitIds,
       positionIds: subjects.positionIds,
       // Lets authorization escalate a step assigned to a headless unit up to the

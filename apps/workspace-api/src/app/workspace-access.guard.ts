@@ -25,6 +25,9 @@ function requiredWorkspacePermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
   const path = request.path;
+  // Tạo dự án mới là quyền riêng do quản trị tenant cấp, không đi theo quyền ghi công việc: ghi công
+  // việc thì nhân viên nào cũng có, còn mở dự án là việc của người được giao.
+  if (request.method === 'POST' && /\/v1\/projects\/?$/.test(path)) return 'workspace.project.create';
   // Xoá tài liệu là thao tác không có đường lùi, nên nó có quyền riêng chứ
   // không đi chung với quyền ghi. Ngoại lệ:
   // - gỡ liên kết hay tham chiếu thư mục: tài liệu vẫn còn nguyên;
@@ -95,7 +98,9 @@ export class WorkspaceAccessGuard implements CanActivate {
             ? 'Bạn không có quyền ghi tài liệu.'
             : required === 'workspace.manage'
               ? 'Bạn không có quyền quản trị danh mục dùng chung.'
-              : 'Bạn không có quyền ghi dự án và công việc.',
+              : required === 'workspace.project.create'
+                ? 'Bạn không có quyền tạo dự án mới.'
+                : 'Bạn không có quyền ghi dự án và công việc.',
       });
     }
 
@@ -112,6 +117,10 @@ export class WorkspaceAccessGuard implements CanActivate {
       canWriteDocuments: tenantActionHeld(held, 'workspace.document.write'),
       canDeleteDocuments,
       canAdminProjects: tenantActionHeld(held, 'workspace.project.admin'),
+      canCreateProject: tenantActionHeld(held, 'workspace.project.create'),
+      // Danh sách quyền của Platform gồm cả action của module khác: mở hồ sơ Quy trình từ công việc
+      // "Theo quy trình" cần đúng quyền khởi tạo hồ sơ của Quy trình.
+      canStartProcedures: tenantActionHeld(held, 'procedure.instance.create'),
     };
     return true;
   }
@@ -135,6 +144,8 @@ export class WorkspaceAccessGuard implements CanActivate {
       canWriteTasks: true,
       canWriteDocuments: false,
       canDeleteDocuments: false,
+      canCreateProject: false,
+      canStartProcedures: false,
     };
     return true;
   }

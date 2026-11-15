@@ -165,6 +165,8 @@ export interface WorkspaceStatus {
     readonly canWriteTasks: boolean;
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
+    /** Được tạo dự án mới (`workspace.project.create`). Vắng (server cũ) thì coi là có. */
+    readonly canCreateProject?: boolean;
     /** Tenant bật Bán hàng: khách hàng do Bán hàng quản lý (D1). Vắng (server cũ) là không. */
     readonly customersManagedByCrm?: boolean;
   };

@@ -56,20 +56,37 @@ export const WORKSPACE_PROCEDURE_EVENT_TYPES = [
 ] as const;
 
 /**
- * Người thay mặt khi Quy trình đã quyết định thay người dùng (đưa tệp vào dự án, xoá / đổi công việc gắn
- * hồ sơ): quyền đã được Quy trình kiểm, Workspace chỉ ghi dữ liệu của mình.
+ * Người yêu cầu do Quy trình gửi sang (mở hồ sơ gắn dự án, đổi công việc liên kết). Mang đúng cờ quản trị
+ * tenant thật mà Quy trình gửi, không tự nâng quyền: luật vai trò dự án (thành viên mới tạo được việc, giao
+ * việc người khác cần quản lý, thêm thành viên cần quyền quản lý thành viên) áp như khi họ tự thao tác.
  */
-function systemActor(tenantId: string, userId: string): WorkspaceActor {
+function requesterActor(tenantId: string, userId: string, isTenantAdmin: boolean): WorkspaceActor {
   return {
     tenantId,
     userId,
     displayName: userId,
-    isTenantAdmin: true,
+    isTenantAdmin,
     canManage: false,
     canWriteTasks: true,
     canWriteDocuments: true,
     canDeleteDocuments: false,
   };
+}
+
+/**
+ * Người thay mặt khi đưa tệp của hồ sơ vào thư mục công việc đã gắn hồ sơ: người tải tệp là người xử lý hồ sơ,
+ * có thể không thuộc dự án. Công việc đã gắn sau khi người yêu cầu qua kiểm vai trò dự án, nên chỉ bỏ hàng rào
+ * thành viên trong phạm vi dự án (`canAdminProjects`), KHÔNG mang tư cách quản trị tenant.
+ */
+function attachmentActor(tenantId: string, userId: string): WorkspaceActor {
+  return { ...requesterActor(tenantId, userId, false), canAdminProjects: true };
+}
+
+/** Lỗi nghiệp vụ trả lại Quy trình khi người yêu cầu không có vai trò trong dự án. */
+function notProjectMember(projectCode: string, action: string): WorkspaceValidationError {
+  return new WorkspaceValidationError(
+    `Người yêu cầu không có vai trò trong dự án ${projectCode} nên không ${action} được; hãy nhờ chủ nhiệm dự án thêm vào dự án trước.`,
+  );
 }
 
 /** "Bản vẽ.pdf" → "Bản vẽ (HS-001).pdf": giữ đuôi tệp khi thêm hậu tố. */
@@ -242,17 +259,19 @@ export class WorkspaceProcedureEvents {
     }
 
     const actor: WorkspaceActor = {
-      tenantId,
-      userId: request.requestedBy,
-      displayName: request.requestedBy,
-      isTenantAdmin: request.requestedByIsTenantAdmin === true,
-      canManage: false,
-      canWriteTasks: true,
+      ...requesterActor(tenantId, request.requestedBy, request.requestedByIsTenantAdmin === true),
       canWriteDocuments: false,
-      canDeleteDocuments: false,
     };
     const draft = request.workItem ?? {};
     try {
+      // Kiểm vai trò trước để hồ sơ nhận lý do rõ ràng; luật chi tiết (giao việc, thêm thành viên) do service kiểm.
+      if (!actor.isTenantAdmin) {
+        const role = await this.store.member.roleOf(tenantId, request.projectId, request.requestedBy);
+        if (!role) {
+          const project = await this.store.project.findById(tenantId, request.projectId);
+          throw notProjectMember(project?.code ?? request.projectId, 'tạo công việc cho hồ sơ');
+        }
+      }
       await this.addSubmitterToProject(actor, request);
       const item = await this.workItems.create(
         actor,
@@ -339,7 +358,7 @@ export class WorkspaceProcedureEvents {
     }
     if (await this.store.document.findByStorageKey(tenantId, file.objectKey)) return;
 
-    const actor = systemActor(tenantId, file.uploadedBy);
+    const actor = attachmentActor(tenantId, file.uploadedBy);
     const folder = await this.documents
       .ensurePath(actor, {
         projectId: reference.projectId,
@@ -392,6 +411,13 @@ export class WorkspaceProcedureEvents {
     );
     const workItemId = reference?.entityType === 'work_item' ? reference.entityId : deleted.workItemId;
     if (!workItemId) return;
+    // Người xoá hồ sơ (vai A của đơn, hay người có quyền can thiệp) chưa chắc thuộc dự án. Không có vai trò trong
+    // dự án và không phải quản trị tenant thì giữ công việc: xoá công việc là việc của thành viên dự án.
+    if (deleted.deletedByIsTenantAdmin !== true) {
+      const item = await this.store.workItem.findById(tenantId, workItemId);
+      if (!item) return;
+      if (!(await this.store.member.roleOf(tenantId, item.projectId, deleted.deletedBy))) return;
+    }
     await this.deletion.removeForProcedure(tenantId, workItemId, {
       instanceId: deleted.instanceId,
       removedBy: deleted.deletedBy,
@@ -454,6 +480,7 @@ export class WorkspaceProcedureEvents {
     if (project.status === 'completed' || project.status === 'cancelled' || project.archivedAt) {
       throw new WorkspaceValidationError(`Dự án ${project.code} đã đóng hoặc đã lưu trữ, không thêm công việc được.`);
     }
+    const old = await this.store.workItem.findById(tenantId, request.replacesWorkItemId);
     if (!request.requestedByIsTenantAdmin) {
       const role = await this.store.member.roleOf(tenantId, project.id, request.requestedBy);
       if (!role) {
@@ -461,8 +488,16 @@ export class WorkspaceProcedureEvents {
           `Người yêu cầu không phải thành viên dự án ${project.code}; hãy nhờ chủ nhiệm thêm vào dự án trước.`,
         );
       }
+      // Đổi liên kết xoá công việc cũ: người không có vai trò ở dự án cũ thì từ chối cả yêu cầu, công việc cũ và
+      // liên kết cũ giữ nguyên.
+      if (old && old.projectId !== project.id) {
+        const oldRole = await this.store.member.roleOf(tenantId, old.projectId, request.requestedBy);
+        if (!oldRole) {
+          const oldProject = await this.store.project.findById(tenantId, old.projectId);
+          throw notProjectMember(oldProject?.code ?? old.projectId, 'chuyển công việc liên kết ra khỏi dự án');
+        }
+      }
     }
-    const old = await this.store.workItem.findById(tenantId, request.replacesWorkItemId);
     const parentId = request.workItem?.parentId;
     if (old && parentId && old.projectId === project.id) {
       // Không đặt công việc mới dưới chính công việc cũ hay nhánh con của nó (nhánh đó sẽ bị xoá).
@@ -488,7 +523,7 @@ export class WorkspaceProcedureEvents {
     );
     const keep = (userId?: string | null) => (userId && members.has(userId) ? userId : undefined);
     const item = await this.workItems.create(
-      systemActor(tenantId, request.requestedBy),
+      requesterActor(tenantId, request.requestedBy, request.requestedByIsTenantAdmin === true),
       {
         projectId: project.id,
         parentId,
@@ -524,7 +559,7 @@ export class WorkspaceProcedureEvents {
     const created = await this.store.workItem.findById(tenantId, createdId);
     const project = created ? await this.store.project.findById(tenantId, created.projectId) : undefined;
     if (!created || !project) return;
-    const actor = systemActor(tenantId, request.requestedBy);
+    const actor = requesterActor(tenantId, request.requestedBy, request.requestedByIsTenantAdmin === true);
 
     const old = await this.store.workItem.findById(tenantId, request.replacesWorkItemId);
     if (old) {

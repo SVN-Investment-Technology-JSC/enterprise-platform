@@ -1142,6 +1142,8 @@ export class ProcedureEngineApplication {
         deletedAt: now,
         deletedBy: actor.userId,
         deletedByName: actor.displayName,
+        // Workspace chỉ xoá công việc gắn hồ sơ khi người xoá có vai trò trong dự án hoặc là quản trị tenant thật.
+        ...(actor.isTenantAdmin ? { deletedByIsTenantAdmin: true } : {}),
         reason,
       };
       instance.activity.unshift({
@@ -1243,7 +1245,8 @@ export class ProcedureEngineApplication {
         baseTitle: target.workspaceLink?.baseTitle ?? target.title,
         workItem: { ...(target.workspaceLink?.workItem ?? {}), parentId },
         requestedBy: actor.userId,
-        requestedByIsTenantAdmin: actor.isOverride,
+        // Quản trị tenant thật; quyền can thiệp hồ sơ (`isOverride`) không cho bỏ qua kiểm thành viên dự án.
+        requestedByIsTenantAdmin: actor.isTenantAdmin === true,
         requestedAt: now,
         replacesWorkItemId: oldWorkItemId,
         ...(previous ? { previous } : {}),
@@ -2010,7 +2013,8 @@ export class ProcedureEngineApplication {
           workItem: workspaceLink.workItem ?? {},
           // Người chọn dự án (người tạo, kể cả khi tạo hộ) là người Workspace kiểm quyền thành viên.
           requestedBy: onBehalfOf ? actor.userId : initiatedBy,
-          requestedByIsTenantAdmin: actor.isOverride,
+          // Quản trị tenant thật; quyền can thiệp hồ sơ (`isOverride`) không cho bỏ qua kiểm thành viên dự án.
+          requestedByIsTenantAdmin: actor.isTenantAdmin === true,
           requestedAt: now,
         };
       }
@@ -3809,6 +3813,8 @@ export class ProcedureEngineApplication {
    *
    * Tra tổ chức của người yêu cầu để kiểm vai S như khi họ tự bấm mở hồ sơ.
    * Quản trị tenant (Workspace đã xác thực) được bỏ qua vai S như ở giao diện.
+   * Người yêu cầu phải giữ `procedure.instance.create` thật như khi mở hồ sơ ở
+   * giao diện Quy trình; không có thì từ chối, không tự cấp cờ khởi tạo.
    * Lỗi nghiệp vụ trả về lý do để báo lại Workspace; lỗi hạ tầng ném ra để sự
    * kiện được xử lý lại.
    */
@@ -3818,6 +3824,7 @@ export class ProcedureEngineApplication {
       readonly requestedBy: string;
       readonly requestedByName?: string;
       readonly requestedByIsTenantAdmin: boolean;
+      readonly requestedByCanCreateInstances?: boolean;
     },
     start: {
       readonly definitionId: string;
@@ -3827,6 +3834,15 @@ export class ProcedureEngineApplication {
       readonly sourceId: string;
     },
   ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
+    // Sự kiện cũ chưa mang cờ quyền: chỉ quản trị tenant (luôn có mọi quyền) được coi là có.
+    const canCreateInstances =
+      requester.requestedByCanCreateInstances ?? requester.requestedByIsTenantAdmin === true;
+    if (!canCreateInstances) {
+      return {
+        ok: false,
+        reason: 'Người tạo công việc không có quyền khởi tạo hồ sơ quy trình.',
+      };
+    }
     const resolved = await this.initiatorActors?.resolve(
       tenantId,
       requester.requestedBy,
@@ -3849,7 +3865,7 @@ export class ProcedureEngineApplication {
         organizationUnitIds: [],
         positionIds: [],
       }),
-      canCreateInstances: true,
+      canCreateInstances,
       isOverride: requester.requestedByIsTenantAdmin,
     } as ProcedureActor;
     try {
