@@ -52,6 +52,7 @@
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
+    "@enterprise-platform/platform-module-access": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "jose": "^6.2.9"

@@ -37,6 +37,9 @@
       "path": "../../packages/platform/profile/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/platform/module-access/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/platform/identity/tsconfig.lib.json"
     },
     {

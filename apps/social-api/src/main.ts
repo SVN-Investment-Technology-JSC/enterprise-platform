@@ -1,11 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { configureHttpSecurity } from '@enterprise-platform/platform-module-access';
 import cookieParser from 'cookie-parser';
 import { SocialApiModule } from './app/social-api.module';
 
 async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
   const app = await NestFactory.create(SocialApiModule);
+  configureHttpSecurity(app);
   app.use(cookieParser());
   app.enableShutdownHooks();
   const globalPrefix = 'api/social';

@@ -240,6 +240,9 @@ importers:
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../packages/platform/identity
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../../packages/platform/module-access
       '@enterprise-platform/platform-profile':
         specifier: workspace:*
         version: link:../../packages/platform/profile
@@ -2295,6 +2298,9 @@ importers:
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../platform/identity
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../../platform/module-access
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -2618,6 +2624,9 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../entitlement
+      '@enterprise-platform/platform-module-access':
+        specifier: workspace:*
+        version: link:../module-access
       '@enterprise-platform/platform-tenancy':
         specifier: workspace:*
         version: link:../tenancy

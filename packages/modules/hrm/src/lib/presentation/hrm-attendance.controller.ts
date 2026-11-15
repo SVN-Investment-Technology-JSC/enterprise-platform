@@ -361,7 +361,7 @@ export class HrmAttendanceController {
   }
 
   @RequirePermission('hrm.attendance.import')
-  @Post('internal/attendance/ingest')
+  @Post('attendance/ingest')
   async ingestAttendance(
     @Req() req: Request,
     @Body() body: IngestAttendanceRequest,

@@ -74,6 +74,16 @@ describe('HRM: mọi route khai báo quyền (SEC-BE019-01)', () => {
     expect(publicRoutes.every((r) => r.startsWith('GET v1/internal/') || r === 'GET v1/capabilities')).toBe(true);
   });
 
+  it('route /v1/internal/ chỉ dành cho service token, không dùng phiên người dùng (ISS-BE-039)', () => {
+    const userRoutesUnderInternal = routes
+      .filter((r) => / v1\/internal\//.test(r.route) && !r.isPublic)
+      .map((r) => `${r.handler} (${r.route})`);
+    expect(userRoutesUnderInternal).toEqual([]);
+    const ingest = routes.find((r) => r.handler === 'HrmAttendanceController.ingestAttendance');
+    expect(ingest?.route).toBe('POST v1/attendance/ingest');
+    expect(ingest?.permission).toBe('hrm.attendance.import');
+  });
+
   it('khai báo khớp điều kiện thật của handler (SEC-BE019-03)', () => {
     // Hủy quyết định: người lập hoặc người duyệt, handler đòi hrm.appointment.read rồi kiểm tiếp.
     expect(byHandler.get('HrmPersonnelDecisionController.cancel')?.permission).toBe('hrm.appointment.read');

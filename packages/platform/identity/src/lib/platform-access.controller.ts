@@ -13,6 +13,7 @@ import type {
   SetTenantEntitlementRequest,
   UpdateTenantRequest,
 } from '@enterprise-platform/contracts-tenancy';
+import { verifyServiceToken } from '@enterprise-platform/platform-module-access';
 import {
   Body,
   ConflictException,
@@ -638,10 +639,7 @@ export class PlatformAccessController {
   }
 
   private requireService(request: Request): void {
-    if (
-      !process.env.INTERNAL_SERVICE_TOKEN ||
-      request.headers['x-service-token'] !== process.env.INTERNAL_SERVICE_TOKEN
-    ) {
+    if (!verifyServiceToken(request.headers['x-service-token'])) {
       throw new UnauthorizedException('Service identity không hợp lệ.');
     }
   }
