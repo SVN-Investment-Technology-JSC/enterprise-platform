@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  abbreviate,
   APPROVE_MODE_LABELS,
   APPROVER_RULE_LABELS,
   CATALOG_KINDS,
@@ -9,6 +10,9 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   MAX_WORKFLOW_STEPS,
+  NUMBER_TOKENS,
+  numberFormatError,
+  formatLetterNumber,
   PROCESS_MODE_LABELS,
   RETURN_TARGETS,
   STEP_TYPES,
@@ -21,6 +25,7 @@ import {
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
   type LetterDirection,
+  type Register,
   type ReturnTarget,
   type StepType,
   type Workflow,
@@ -29,7 +34,7 @@ import {
 import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { ArrowDown, ArrowRight, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { deleteCatalogItem, deleteWorkflow, errorMessage, saveCatalogItem, saveWorkflow } from '../correspondence-api';
+import { deleteCatalogItem, deleteRegister, deleteWorkflow, errorMessage, saveCatalogItem, saveRegister, saveWorkflow } from '../correspondence-api';
 import { flowLabels } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
@@ -76,7 +81,10 @@ export function ConfigView({
         ))}
       </div>
       {tab === 'register' ? (
-        <SettingsView settings={config.settings} directory={directory} onSaved={() => onChanged()} />
+        <>
+          <SettingsView settings={config.settings} directory={directory} onSaved={() => onChanged()} />
+          <RegisterManager config={config} onChanged={onChanged} />
+        </>
       ) : tab === 'catalog' ? (
         <CatalogManager config={config} directory={directory} onChanged={onChanged} />
       ) : tab === 'workflows' ? (
@@ -85,6 +93,218 @@ export function ConfigView({
         <OrganizationView directory={directory} />
       )}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- sổ đăng ký */
+
+/** Mẫu số: ô nhập, nút chèn từng phần, ví dụ số sẽ cấp. */
+function NumberFormatField({
+  label,
+  value,
+  optional = false,
+  sample,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly optional?: boolean;
+  readonly sample?: { readonly type?: string; readonly org?: string };
+  readonly onChange: (value: string) => void;
+}) {
+  const error = value.trim() || !optional ? numberFormatError(value) : undefined;
+  const example = value.trim() && !error
+    ? formatLetterNumber(value, { seq: 5, year: new Date().getFullYear(), type: sample?.type || 'QĐ', org: sample?.org || 'SVN', unit: 'KD' })
+    : undefined;
+  return (
+    <Field label={label} required={!optional}>
+      <input value={value} maxLength={80} placeholder={optional ? 'Theo mẫu của sổ' : '{so}/{loai}-{coquan}'} onChange={(event) => onChange(event.target.value)} />
+      <div className={styles.tokenList}>
+        {NUMBER_TOKENS.map((item) => (
+          <button key={item.token} type="button" className={styles.chip} title={item.label} onClick={() => onChange(`${value}${item.token}`)}>
+            {item.token}
+          </button>
+        ))}
+      </div>
+      <span className={error ? styles.notice : styles.hint}>{error ?? (example ? `Ví dụ: ${example}` : 'Bấm để chèn từng phần; trống là theo mẫu của sổ.')}</span>
+    </Field>
+  );
+}
+
+/**
+ * Sổ đăng ký văn bản đến / đi: mỗi sổ cấp số riêng theo năm, theo mẫu số của sổ. Văn bản có độ mật vào
+ * sổ mật; sổ ghi loại văn bản thì chỉ nhận loại đó; không sổ nào hợp thì vào sổ mặc định.
+ */
+function RegisterManager({ config, onChanged }: { readonly config: CorrespondenceConfig; readonly onChanged: () => void }) {
+  const [editing, setEditing] = useState<{ direction: LetterDirection; register?: Register }>();
+  const typeName = new Map(config.catalog.filter((item) => item.kind === 'letter_type').map((item) => [item.code, item.name]));
+  const remove = async (register: Register) => {
+    try {
+      await deleteRegister(register.id);
+      toast.success(`Đã xoá ${register.name}.`);
+      onChanged();
+    } catch (cause) {
+      toast.error(errorMessage(cause, 'Không xoá được.'));
+    }
+  };
+  return (
+    <>
+      {LETTER_DIRECTIONS.map((direction) => (
+        <section key={direction} className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2>Sổ đăng ký {direction === 'incoming' ? 'công văn đến' : 'công văn đi'}</h2>
+            <button type="button" className={styles.buttonSmall} onClick={() => setEditing({ direction })}>
+              <Plus size={13} /> Thêm sổ
+            </button>
+          </div>
+          <p className={styles.sectionNote}>
+            Mỗi sổ cấp số riêng, đếm lại từ 1 mỗi năm. Văn bản có độ mật vào sổ mật (cấp số riêng theo Nghị định 30); sổ ghi loại văn
+            bản thì chỉ nhận loại đó; còn lại vào sổ mặc định.{direction === 'incoming' ? ' Văn thư chọn được sổ khác lúc tiếp nhận.' : ' Văn thư chọn được sổ khác lúc ban hành.'}
+          </p>
+          <div className={styles.list}>
+            {config.registers
+              .filter((register) => register.direction === direction)
+              .map((register) => (
+                <div key={register.id} className={styles.listRow}>
+                  <div className={styles.listMain}>
+                    <b>{register.name}</b>{' '}
+                    {register.isDefault ? <span className={`${styles.tag} ${styles['tone-info']}`}>Mặc định</span> : null}{' '}
+                    {register.confidential ? <span className={`${styles.tag} ${styles['tone-warning']}`}>Sổ mật</span> : null}{' '}
+                    {!register.isActive ? <span className={`${styles.tag} ${styles['tone-muted']}`}>Ngừng dùng</span> : null}
+                    <p>
+                      Mẫu số {register.numberFormat}, ví dụ{' '}
+                      {formatLetterNumber(register.numberFormat, {
+                        seq: register.issuedThisYear + 1,
+                        year: new Date().getFullYear(),
+                        type: 'QĐ',
+                        org: config.settings.orgCode || undefined,
+                        unit: 'KD',
+                      })}
+                      {' · '}Đã cấp năm nay: {register.issuedThisYear}
+                      {register.letterTypes.length > 0 ? ` · Loại văn bản: ${register.letterTypes.map((code) => typeName.get(code) ?? code).join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <div className={styles.listActions}>
+                    <button type="button" className={styles.buttonSmall} onClick={() => setEditing({ direction, register })}>
+                      <Pencil size={13} /> Sửa
+                    </button>
+                    {!register.isDefault && !register.inUse ? (
+                      <Popconfirm
+                        title={`Xoá "${register.name}"?`}
+                        description="Chỉ xoá được sổ chưa có công văn nào."
+                        okText="Xoá"
+                        okType="danger"
+                        placement="left"
+                        onConfirm={() => remove(register)}
+                      >
+                        <button type="button" className={styles.buttonSmall} aria-label={`Xoá ${register.name}`}>
+                          <Trash2 size={13} />
+                        </button>
+                      </Popconfirm>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      ))}
+      {editing ? (
+        <RegisterDialog
+          direction={editing.direction}
+          register={editing.register}
+          config={config}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => {
+            setEditing(undefined);
+            onChanged();
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function RegisterDialog({
+  direction,
+  register,
+  config,
+  onClose,
+  onSaved,
+}: {
+  readonly direction: LetterDirection;
+  readonly register?: Register;
+  readonly config: CorrespondenceConfig;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const initial = useMemo(
+    () => ({
+      name: register?.name ?? '',
+      numberFormat: register?.numberFormat ?? (direction === 'incoming' ? '{so}/CVĐ' : '{so}/{loai}-{coquan}'),
+      confidential: register?.confidential ?? false,
+      letterTypes: register?.letterTypes ?? ([] as readonly string[]),
+      isDefault: register?.isDefault ?? false,
+      isActive: register?.isActive ?? true,
+    }),
+    [register, direction],
+  );
+  const [form, setForm] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await saveRegister(register?.id, { direction, ...form, sortOrder: register?.sortOrder });
+      toast.success('Đã lưu sổ đăng ký.');
+      onSaved();
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog
+      open
+      title={`${register ? 'Sửa' : 'Thêm'} sổ đăng ký ${direction === 'incoming' ? 'công văn đến' : 'công văn đi'}`}
+      subtitle={register?.inUse ? 'Sổ đã có công văn: đổi mẫu số chỉ áp dụng cho số cấp sau khi lưu.' : undefined}
+      submitLabel="Lưu"
+      submitting={busy}
+      submitDisabled={!dirty || !form.name.trim() || Boolean(numberFormatError(form.numberFormat))}
+      dirty={dirty}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <Field label="Tên sổ" required>
+        <input value={form.name} maxLength={160} placeholder="Ví dụ: Sổ văn bản mật đến" onChange={(event) => set('name', event.target.value)} />
+      </Field>
+      <NumberFormatField label="Mẫu số" value={form.numberFormat} sample={{ org: config.settings.orgCode }} onChange={(value) => set('numberFormat', value)} />
+      <MultiPick
+        label="Chỉ nhận các loại văn bản (trống là mọi loại)"
+        required={false}
+        options={config.catalog.filter((item) => item.kind === 'letter_type' && item.isActive).map((item) => ({ value: item.code, label: item.name }))}
+        values={form.letterTypes}
+        onChange={(values) => set('letterTypes', values)}
+      />
+      <CheckGroup label="Tuỳ chọn">
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.confidential} disabled={form.isDefault} onChange={(event) => set('confidential', event.target.checked)} />
+          Sổ văn bản mật: văn bản có độ mật vào sổ này, cấp số riêng
+        </label>
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.isDefault} disabled={form.confidential || Boolean(register?.isDefault)} onChange={(event) => set('isDefault', event.target.checked)} />
+          Sổ mặc định của {direction === 'incoming' ? 'công văn đến' : 'công văn đi'} (văn bản không hợp sổ nào khác)
+        </label>
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.isActive} disabled={form.isDefault} onChange={(event) => set('isActive', event.target.checked)} />
+          Đang dùng
+        </label>
+      </CheckGroup>
+    </FormDialog>
   );
 }
 
@@ -227,6 +447,8 @@ function CatalogDialog({
       defaultUnitIds: item?.defaultUnitIds ?? ([] as readonly string[]),
       highlight: item?.highlight ?? false,
       restricted: item?.restricted ?? false,
+      abbreviation: item?.abbreviation ?? '',
+      numberFormat: item?.numberFormat ?? '',
     }),
     [item],
   );
@@ -256,6 +478,8 @@ function CatalogDialog({
         defaultUnitIds: form.defaultUnitIds,
         highlight: form.highlight,
         restricted: form.restricted,
+        abbreviation: form.abbreviation.trim() || null,
+        numberFormat: form.numberFormat.trim() || null,
       });
       toast.success('Đã lưu danh mục.');
       onSaved();
@@ -305,6 +529,24 @@ function CatalogDialog({
               onChange={(event) => set('defaultDueDays', event.target.value)}
             />
           </Field>
+          <div className={styles.formRow}>
+            <Field label="Ký hiệu viết tắt">
+              <input
+                value={form.abbreviation}
+                maxLength={20}
+                placeholder={abbreviate(form.name) || 'QĐ'}
+                onChange={(event) => set('abbreviation', event.target.value)}
+              />
+              <span className={styles.hint}>Phần {'{loai}'} trong số văn bản; trống là chữ cái đầu của tên.</span>
+            </Field>
+            <NumberFormatField
+              label="Mẫu số riêng khi ban hành"
+              value={form.numberFormat}
+              optional
+              sample={{ type: form.abbreviation || abbreviate(form.name) }}
+              onChange={(value) => set('numberFormat', value)}
+            />
+          </div>
           <div className={styles.formRow}>
             <SelectField label="Quy trình duyệt công văn đến">
               <SearchableSelect

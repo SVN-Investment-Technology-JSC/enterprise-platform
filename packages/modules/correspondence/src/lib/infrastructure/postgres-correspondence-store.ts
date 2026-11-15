@@ -15,6 +15,7 @@ import {
   type DeliveryStatus,
   type LetterHistoryAction,
   type LetterStage,
+  type Register,
   type ReturnTarget,
   type Workflow,
   type WorkflowStep,
@@ -35,10 +36,12 @@ import type {
   LetterInsert,
   LetterListFilter,
   LetterListRow,
+  LetterNumbering,
   LetterPatch,
   LetterRecord,
   LetterTransaction,
   OutboxEvent,
+  RegisterUpsert,
   StepRecord,
   StepUpdate,
   WorkflowUpsert,
@@ -62,7 +65,8 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.cancel_reason, l.revoke_kind, l.revoke_reason, l.revoke_requested_by, l.revoke_requested_at,
   l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
   l.envelope_status, l.sealed, l.page_count, l.copy_count, l.addressed_to, l.addressed_user_id, l.directive,
-  l.closer_ids::text[] AS closer_ids,
+  l.closer_ids::text[] AS closer_ids, l.register_id, l.signer_user_id, l.signer_name, l.signer_title,
+  (SELECT r.name FROM correspondence_schema.registers r WHERE r.id = l.register_id) AS register_name,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
 const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.mode, s.reject_to, s.due_days, s.status, s.chosen_user_id,
@@ -79,11 +83,17 @@ const COMMENT_COLUMNS = `m.id, m.stage, m.step_name, m.body, m.mentioned_user_id
   m.author_id, m.created_at`;
 
 const CATALOG_COLUMNS = `c.id, c.kind, c.code, c.name, c.sort_order, c.is_active, c.default_due_days, c.workflow_id,
-  c.outgoing_workflow_id, c.default_unit_ids::text[] AS default_unit_ids, c.highlight, c.restricted,
+  c.outgoing_workflow_id, c.default_unit_ids::text[] AS default_unit_ids, c.highlight, c.restricted, c.abbreviation, c.number_format,
   EXISTS (SELECT 1 FROM correspondence_schema.letters u
            WHERE (c.kind = 'letter_type' AND u.kind = c.code)
               OR (c.kind = 'urgency' AND u.urgency = c.code)
               OR (c.kind = 'confidentiality' AND u.confidentiality = c.code)) AS in_use`;
+
+const REGISTER_COLUMNS = `r.id, r.direction, r.name, r.number_format, r.confidential, r.letter_types, r.is_default, r.is_active,
+  r.sort_order,
+  COALESCE((SELECT rc.value FROM correspondence_schema.register_counters rc
+             WHERE rc.register_id = r.id AND rc.year = EXTRACT(YEAR FROM now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::int), 0) AS issued,
+  EXISTS (SELECT 1 FROM correspondence_schema.letters u WHERE u.register_id = r.id) AS in_use`;
 
 const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, start_name, end_name, auto_start, end_actor,
   auto_end, end_archive, steps, updated_at`;
@@ -133,6 +143,10 @@ const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
   addressedUserId: 'addressed_user_id',
   directive: 'directive',
   closerIds: 'closer_ids',
+  registerId: 'register_id',
+  signerUserId: 'signer_user_id',
+  signerName: 'signer_name',
+  signerTitle: 'signer_title',
   sharedFolderId: 'shared_folder_id',
 };
 
@@ -217,6 +231,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
         input.highlight,
         input.restricted,
         userId,
+        input.abbreviation,
+        input.numberFormat,
       ];
       try {
         const result = id
@@ -224,16 +240,16 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
               `UPDATE correspondence_schema.catalog_items AS c
                   SET kind = $1, code = $2, name = $3, sort_order = $4, is_active = $5, default_due_days = $6,
                       workflow_id = $7, outgoing_workflow_id = $8, default_unit_ids = $9::uuid[], highlight = $10,
-                      restricted = $11, updated_by = $12, updated_at = now()
-                WHERE c.id = $13
+                      restricted = $11, updated_by = $12, abbreviation = $13, number_format = $14, updated_at = now()
+                WHERE c.id = $15
                 RETURNING ${CATALOG_COLUMNS}`,
               [...params, id],
             )
           : await pool.query<Row>(
               `INSERT INTO correspondence_schema.catalog_items AS c
                       (kind, code, name, sort_order, is_active, default_due_days, workflow_id, outgoing_workflow_id,
-                       default_unit_ids, highlight, restricted, updated_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::uuid[], $10, $11, $12)
+                       default_unit_ids, highlight, restricted, updated_by, abbreviation, number_format)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::uuid[], $10, $11, $12, $13, $14)
                RETURNING ${CATALOG_COLUMNS}`,
               params,
             );
@@ -341,31 +357,107 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
     });
   }
 
+  /* -------------------------------------------------------------- sổ đăng ký */
+
+  registers(tenantId: string): Promise<Register[]> {
+    return this.run(tenantId, async (pool) => {
+      const result = await pool.query<Row>(
+        `SELECT ${REGISTER_COLUMNS} FROM correspondence_schema.registers r ORDER BY r.direction, r.sort_order, r.name`,
+      );
+      return result.rows.map(mapRegister);
+    });
+  }
+
+  saveRegister(tenantId: string, userId: string, id: string | undefined, input: RegisterUpsert): Promise<Register> {
+    return this.run(tenantId, (pool) =>
+      inTransaction(pool, async (client) => {
+        if (input.isDefault) {
+          await client.query(
+            `UPDATE correspondence_schema.registers SET is_default = false, updated_at = now()
+              WHERE direction = $1 AND is_default AND ($2::uuid IS NULL OR id <> $2::uuid)`,
+            [input.direction, id ?? null],
+          );
+        }
+        const params = [
+          input.direction,
+          input.name,
+          input.numberFormat,
+          input.confidential,
+          input.letterTypes,
+          input.isDefault,
+          input.isActive,
+          input.sortOrder,
+          userId,
+        ];
+        const written = id
+          ? await client.query<{ id: string }>(
+              `UPDATE correspondence_schema.registers
+                  SET direction = $1, name = $2, number_format = $3, confidential = $4, letter_types = $5::text[],
+                      is_default = $6, is_active = $7, sort_order = $8, updated_by = $9, updated_at = now()
+                WHERE id = $10
+                RETURNING id`,
+              [...params, id],
+            )
+          : await client.query<{ id: string }>(
+              `INSERT INTO correspondence_schema.registers
+                      (direction, name, number_format, confidential, letter_types, is_default, is_active, sort_order, updated_by)
+               VALUES ($1, $2, $3, $4, $5::text[], $6, $7, $8, $9)
+               RETURNING id`,
+              params,
+            );
+        const savedId = written.rows[0]?.id;
+        if (!savedId) throw new CorrespondenceValidationError('Không tìm thấy sổ đăng ký.');
+        const result = await client.query<Row>(`SELECT ${REGISTER_COLUMNS} FROM correspondence_schema.registers r WHERE r.id = $1`, [savedId]);
+        return mapRegister(first(result.rows));
+      }),
+    ).catch((error: unknown) => {
+      if ((error as { code?: string } | null)?.code === '22P02') throw new CorrespondenceValidationError('Không tìm thấy sổ đăng ký.');
+      throw error;
+    });
+  }
+
+  deleteRegister(tenantId: string, id: string): Promise<boolean> {
+    return this.run(tenantId, async (pool) => {
+      const result = await pool.query(
+        `DELETE FROM correspondence_schema.registers r
+          WHERE r.id = $1 AND NOT r.is_default
+            AND NOT EXISTS (SELECT 1 FROM correspondence_schema.letters l WHERE l.register_id = r.id)`,
+        [id],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }).catch((error: unknown) => {
+      if ((error as { code?: string } | null)?.code === '22P02') return false;
+      throw error;
+    });
+  }
+
   /* -------------------------------------------------------------- công văn */
 
   createLetter(
     tenantId: string,
     input: LetterInsert,
-    numbering: { readonly counter: 'incoming' | 'draft'; readonly suffix: string },
+    numbering: LetterNumbering,
     after: (tx: LetterTransaction) => Promise<void>,
   ): Promise<LetterRecord> {
     return this.run(tenantId, (pool) =>
       inTransaction(pool, async (client) => {
         const year = Number(input.receivedOn.slice(0, 4));
-        const seq = await nextCounter(client, numbering.counter, year);
+        const register = 'registerId' in numbering ? numbering.registerId : null;
+        const seq = register ? await nextRegisterCounter(client, register, year) : await nextCounter(client, 'draft', year);
+        const number = 'registerId' in numbering ? numbering.format(seq) : formatSequenceNo(seq, numbering.suffix);
         const result = await client.query<Row>(
           `INSERT INTO correspondence_schema.letters AS l
                   (direction, stage, year, seq, incoming_no, received_on, sender_org, sender_ref, sender_date, subject,
                    kind, urgency, confidentiality, due_on, author_user_id, author_unit_id, author_unit_name,
-                   related_letter_id, recipient, received_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                   related_letter_id, recipient, received_by, register_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            RETURNING ${LETTER_COLUMNS}`,
           [
             input.direction,
             input.stage,
             year,
             seq,
-            formatSequenceNo(seq, numbering.suffix),
+            number,
             input.receivedOn,
             input.senderOrg,
             input.senderRef ?? null,
@@ -381,6 +473,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
             input.relatedLetterId ?? null,
             input.recipient ?? null,
             input.receivedBy,
+            register,
           ],
         );
         const letter = mapLetter(first(result.rows));
@@ -430,6 +523,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
       if (filter.direction) where.push(`l.direction = ${param(filter.direction)}`);
       if (filter.stages?.length) where.push(`l.stage = ANY(${param(filter.stages)}::text[])`);
       if (filter.year) where.push(`l.year = ${param(filter.year)}`);
+      if (filter.registerId) where.push(`l.register_id = ${param(filter.registerId)}::uuid`);
       if (filter.search) {
         const pattern = param(`%${escapeLike(filter.search)}%`);
         where.push(`(l.incoming_no ILIKE ${pattern} OR l.subject ILIKE ${pattern} OR l.sender_org ILIKE ${pattern}
@@ -677,6 +771,12 @@ class PostgresLetterTransaction implements LetterTransaction {
     return seq;
   }
 
+  async nextRegisterNumber(registerId: string, year: number): Promise<number> {
+    const seq = await nextRegisterCounter(this.client, registerId, year);
+    this.issued.set('outgoing', { year, seq });
+    return seq;
+  }
+
   async replaceSteps(steps: readonly WorkflowStep[]): Promise<void> {
     await this.client.query(`DELETE FROM correspondence_schema.letter_steps WHERE letter_id = $1`, [this.letter.id]);
     for (const [index, step] of steps.entries()) {
@@ -899,6 +999,16 @@ async function loadComments(db: Queryable, letterId: string): Promise<CommentRec
   return result.rows.map(mapComment);
 }
 
+async function nextRegisterCounter(client: Queryable, registerId: string, year: number): Promise<number> {
+  const result = await client.query<{ value: number }>(
+    `INSERT INTO correspondence_schema.register_counters (register_id, year, value) VALUES ($1, $2, 1)
+     ON CONFLICT (register_id, year) DO UPDATE SET value = correspondence_schema.register_counters.value + 1
+     RETURNING value`,
+    [registerId, year],
+  );
+  return Number(first(result.rows).value);
+}
+
 async function nextCounter(client: Queryable, kind: 'incoming' | 'draft' | 'outgoing' | 'archive', year: number): Promise<number> {
   const result = await client.query<{ value: number }>(
     `INSERT INTO correspondence_schema.counters (kind, year, value) VALUES ($1, $2, 1)
@@ -975,6 +1085,22 @@ function emptyOnBadId(error: unknown): never[] {
   throw error;
 }
 
+function mapRegister(row: Row): Register {
+  return {
+    id: String(row['id']),
+    direction: row['direction'] === 'outgoing' ? 'outgoing' : 'incoming',
+    name: String(row['name']),
+    numberFormat: String(row['number_format']),
+    confidential: row['confidential'] === true,
+    letterTypes: Array.isArray(row['letter_types']) ? (row['letter_types'] as unknown[]).map(String) : [],
+    isDefault: row['is_default'] === true,
+    isActive: row['is_active'] === true,
+    sortOrder: Number(row['sort_order'] ?? 0),
+    issuedThisYear: Number(row['issued'] ?? 0),
+    inUse: row['in_use'] === true,
+  };
+}
+
 function mapCatalog(row: Row): CatalogItem {
   const kind = String(row['kind']) as CatalogKind;
   return {
@@ -990,6 +1116,8 @@ function mapCatalog(row: Row): CatalogItem {
           workflowId: optional(row['workflow_id']),
           outgoingWorkflowId: optional(row['outgoing_workflow_id']),
           defaultUnitIds: Array.isArray(row['default_unit_ids']) ? (row['default_unit_ids'] as unknown[]).map(String) : [],
+          abbreviation: optional(row['abbreviation']),
+          numberFormat: optional(row['number_format']),
         }
       : {}),
     ...(kind === 'urgency' ? { highlight: Boolean(row['highlight']) } : {}),
@@ -1117,6 +1245,11 @@ function mapLetter(row: Row): LetterRecord {
     addressedUserId: optional(row['addressed_user_id']),
     directive: row['directive'] && typeof row['directive'] === 'object' ? (row['directive'] as LetterRecord['directive']) : undefined,
     closerIds: Array.isArray(row['closer_ids']) ? (row['closer_ids'] as unknown[]).map(String) : [],
+    registerId: optional(row['register_id']),
+    registerName: optional(row['register_name']),
+    signerUserId: optional(row['signer_user_id']),
+    signerName: optional(row['signer_name']),
+    signerTitle: optional(row['signer_title']),
     sharedFolderId: optional(row['shared_folder_id']),
     receivedBy: String(row['received_by']),
     createdAt: iso(row['created_at']),

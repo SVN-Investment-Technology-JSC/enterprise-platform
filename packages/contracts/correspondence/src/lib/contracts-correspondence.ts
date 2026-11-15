@@ -136,6 +136,10 @@ export interface CatalogItem {
   readonly highlight?: boolean;
   /** Độ mật: chỉ người liên quan và người có quyền xem công văn mật thấy. */
   readonly restricted?: boolean;
+  /** Loại văn bản: ký hiệu viết tắt trong số văn bản (QĐ, TB, CV…); trống là chữ cái đầu của tên. */
+  readonly abbreviation?: string;
+  /** Loại văn bản: mẫu số riêng khi ban hành (ví dụ công văn "{so}/{coquan}-{donvi}"); trống là mẫu của sổ. */
+  readonly numberFormat?: string;
   readonly inUse?: boolean;
 }
 
@@ -151,6 +155,115 @@ export interface SaveCatalogItemRequest {
   readonly defaultUnitIds?: readonly string[];
   readonly highlight?: boolean;
   readonly restricted?: boolean;
+  readonly abbreviation?: string | null;
+  readonly numberFormat?: string | null;
+}
+
+/* ------------------------------------------------------------- sổ đăng ký, số văn bản */
+
+/**
+ * Sổ đăng ký văn bản đến / đi: mỗi sổ cấp số riêng theo năm. Văn bản vào sổ theo độ mật (sổ mật
+ * cho văn bản có độ mật) và loại văn bản; không sổ nào hợp thì vào sổ mặc định của luồng.
+ */
+export interface Register {
+  readonly id: string;
+  readonly direction: LetterDirection;
+  readonly name: string;
+  /** Mẫu số, xem `NUMBER_TOKENS`; bắt buộc có `{so}`. */
+  readonly numberFormat: string;
+  /** Sổ văn bản mật: văn bản có độ mật vào sổ này, cấp số riêng. */
+  readonly confidential: boolean;
+  /** Chỉ văn bản thuộc các loại này (mã loại văn bản); trống là mọi loại. */
+  readonly letterTypes: readonly string[];
+  readonly isDefault: boolean;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+  /** Số đã cấp trong năm hiện tại. */
+  readonly issuedThisYear: number;
+  readonly inUse: boolean;
+}
+
+export interface SaveRegisterRequest {
+  readonly direction: LetterDirection;
+  readonly name: string;
+  readonly numberFormat: string;
+  readonly confidential?: boolean;
+  readonly letterTypes?: readonly string[];
+  readonly isDefault?: boolean;
+  readonly isActive?: boolean;
+  readonly sortOrder?: number;
+}
+
+/**
+ * Sổ tự chọn cho một văn bản: sổ đang dùng cùng luồng hợp độ mật (văn bản có độ mật vào sổ mật, văn bản
+ * thường không vào sổ mật) và loại văn bản, sổ ghi đúng loại văn bản trước, rồi sổ mặc định; không sổ
+ * nào hợp thì sổ mặc định của luồng.
+ */
+export function suggestRegister(
+  registers: readonly Register[],
+  direction: LetterDirection,
+  letter: { readonly kind: string; readonly restricted: boolean },
+): Register | undefined {
+  const usable = registers.filter((item) => item.isActive && item.direction === direction);
+  const fits = usable.filter(
+    (item) => item.confidential === letter.restricted && (item.letterTypes.length === 0 || item.letterTypes.includes(letter.kind)),
+  );
+  return (
+    fits.find((item) => item.letterTypes.includes(letter.kind)) ??
+    fits.find((item) => item.isDefault) ??
+    fits[0] ??
+    usable.find((item) => item.isDefault) ??
+    usable[0]
+  );
+}
+
+/** Phần ghép được trong mẫu số văn bản. */
+export const NUMBER_TOKENS: readonly { readonly token: string; readonly label: string }[] = [
+  { token: '{so}', label: 'Số thứ tự trong sổ (dưới 10 thêm số 0)' },
+  { token: '{nam}', label: 'Năm' },
+  { token: '{loai}', label: 'Ký hiệu loại văn bản (QĐ, TB, CV…)' },
+  { token: '{coquan}', label: 'Ký hiệu cơ quan' },
+  { token: '{donvi}', label: 'Ký hiệu đơn vị soạn thảo' },
+];
+
+/** Chữ cái đầu viết hoa của các từ: "Quyết định" → "QĐ"; tên đơn vị bỏ chữ "Phòng", "Ban" ở đầu: "Phòng Kinh doanh" → "KD". */
+export function abbreviate(name: string, stripUnitPrefix = false): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const body = stripUnitPrefix && words.length > 1 && /^(phòng|ban)$/i.test(words[0]) ? words.slice(1) : words;
+  return body.map((word) => word.charAt(0).toUpperCase()).join('');
+}
+
+/**
+ * Số văn bản theo mẫu: "{so}/{loai}-{coquan}" → "05/QĐ-SVN". Số dưới 10 thêm 0 (Nghị định 30). Phần
+ * nào trống thì bỏ luôn dấu nối thừa ("05/QĐ" khi chưa có ký hiệu cơ quan).
+ */
+export function formatLetterNumber(
+  format: string,
+  parts: { readonly seq: number; readonly year: number; readonly type?: string; readonly org?: string; readonly unit?: string },
+): string {
+  const values: Record<string, string> = {
+    '{so}': parts.seq < 10 ? `0${parts.seq}` : String(parts.seq),
+    '{nam}': String(parts.year),
+    '{loai}': parts.type ?? '',
+    '{coquan}': parts.org ?? '',
+    '{donvi}': parts.unit ?? '',
+  };
+  const filled = format.replace(/\{(so|nam|loai|coquan|donvi)\}/g, (token) => values[token] ?? '');
+  return filled
+    .replace(/([-/.])[-/.]+/g, '$1')
+    .replace(/^[-/.]+|[-/.]+$/g, '')
+    .trim();
+}
+
+/** Mẫu số hợp lệ: có `{so}`, chỉ dùng các phần trong `NUMBER_TOKENS`, tối đa 80 ký tự. */
+export function numberFormatError(format: string): string | undefined {
+  const value = format.trim();
+  if (!value) return 'Nhập mẫu số.';
+  if (value.length > 80) return 'Mẫu số tối đa 80 ký tự.';
+  if (!value.includes('{so}')) return 'Mẫu số phải có {so} (số thứ tự).';
+  const unknown = (value.match(/\{[^}]*\}/g) ?? []).filter((token) => !NUMBER_TOKENS.some((item) => item.token === token));
+  if (unknown.length > 0) return `Mẫu số có phần không hiểu: ${unknown.join(', ')}.`;
+  return undefined;
 }
 
 /** Thêm nhanh một mục danh mục ngay lúc nhập công văn: chỉ cần tên, mã tự sinh. */
@@ -585,6 +698,14 @@ export interface LetterSummary {
   readonly unitNames: readonly string[];
   /** Có công văn đi trả lời công văn đến này. */
   readonly replied?: boolean;
+  /** Sổ đăng ký (công văn đến: lúc vào sổ; công văn đi: lúc ban hành). */
+  readonly registerId?: string;
+  readonly registerName?: string;
+  /** Công văn đi: người ký, chức vụ người ký. */
+  readonly signerName?: string;
+  readonly signerTitle?: string;
+  /** Số bản (đến: lúc tiếp nhận; đi: số bản phát hành). */
+  readonly copyCount?: number;
 }
 
 export interface LetterDetail extends LetterSummary {
@@ -681,15 +802,16 @@ export interface StepChoice {
 /* -------------------------------------------------------------- yêu cầu */
 
 /** Phân loại sơ bộ lúc tiếp nhận: bì, niêm phong, số tờ, số bản, văn bản gửi đích danh. */
+/** Phân loại sơ bộ lúc tiếp nhận; khi sửa, `null` là xoá giá trị đã ghi. */
 export interface IntakeCheck {
-  readonly envelopeStatus?: EnvelopeStatus;
+  readonly envelopeStatus?: EnvelopeStatus | null;
   /** Văn bản mật: dấu niêm phong còn nguyên. */
   readonly sealed?: boolean;
-  readonly pageCount?: number;
-  readonly copyCount?: number;
+  readonly pageCount?: number | null;
+  readonly copyCount?: number | null;
   /** Gửi đích danh cá nhân hay tổ chức đoàn thể (ghi tên); `addressedUserId` khi là người trong hệ thống. */
-  readonly addressedTo?: string;
-  readonly addressedUserId?: string;
+  readonly addressedTo?: string | null;
+  readonly addressedUserId?: string | null;
 }
 
 export interface CreateLetterRequest extends IntakeCheck {
@@ -702,6 +824,8 @@ export interface CreateLetterRequest extends IntakeCheck {
   readonly kind?: string;
   readonly urgency?: string;
   readonly confidentiality?: string;
+  /** Sổ đăng ký; trống là sổ theo độ mật và loại văn bản. */
+  readonly registerId?: string;
 }
 
 /** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
@@ -830,6 +954,15 @@ export interface PublishLetterRequest {
   readonly publishedOn?: string;
   readonly deliveryMethod?: string;
   readonly note?: string;
+  /** Sổ cấp số đi; trống là sổ theo độ mật và loại văn bản. */
+  readonly registerId?: string;
+  /** Người ký (mặc định người duyệt bước cuối), chức vụ người ký, số bản phát hành. */
+  readonly signerUserId?: string;
+  readonly signerName?: string;
+  readonly signerTitle?: string;
+  readonly copyCount?: number;
+  /** Phòng ban trong công ty nhận văn bản (phát hành nội bộ): được xem, được báo. */
+  readonly internalUnitIds?: readonly string[];
 }
 
 export interface UpdateDeliveryRequest {
@@ -886,6 +1019,8 @@ export interface LetterQuery {
   readonly box?: LetterBox;
   readonly stage?: LetterStage;
   readonly search?: string;
+  /** Chỉ công văn của một sổ đăng ký. */
+  readonly registerId?: string;
 }
 
 /* ------------------------------------------------------------ tổng quan, báo cáo */
@@ -1029,6 +1164,10 @@ export interface CorrespondenceSettings {
    * duyệt, bút phê giao cho người ủy quyền.
    */
   readonly delegations: readonly Delegation[];
+  /** Ký hiệu cơ quan trong số văn bản (`{coquan}`), ví dụ "SVN". */
+  readonly orgCode?: string;
+  /** Ký hiệu đơn vị trong số văn bản (`{donvi}`); đơn vị chưa đặt thì lấy chữ cái đầu của tên. */
+  readonly unitCodes?: readonly { readonly unitId: string; readonly code: string }[];
 }
 
 export interface Delegation {
@@ -1056,11 +1195,14 @@ export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   dispatchMode: 'all',
   clerkUserIds: [],
   delegations: [],
+  orgCode: '',
+  unitCodes: [],
 };
 
 export interface CorrespondenceConfig {
   readonly settings: CorrespondenceSettings;
   readonly catalog: readonly CatalogItem[];
+  readonly registers: readonly Register[];
   readonly workflows: readonly Workflow[];
 }
 

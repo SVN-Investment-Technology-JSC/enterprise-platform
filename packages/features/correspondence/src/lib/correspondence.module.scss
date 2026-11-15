@@ -1493,6 +1493,29 @@ $fs-meta: 12px;
   }
 }
 
+// Lọc danh sách theo sổ đăng ký, cạnh ô tìm kiếm.
+.registerFilter {
+  width: 220px;
+  max-width: 100%;
+}
+
+// Ký hiệu đơn vị: đơn vị, ký hiệu, nút bỏ trên một hàng.
+.unitCodeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+// Mẫu số: các phần ghép được, bấm để chèn.
+.tokenList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 // Bút phê của lãnh đạo: viền trái màu nhấn để nổi giữa các khối.
 .directive {
   border-left: 4px solid #2563eb;

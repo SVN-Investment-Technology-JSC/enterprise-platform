@@ -16,6 +16,7 @@ import type {
   LetterStage,
   LetterStepDecision,
   LetterStepStatus,
+  Register,
   ReturnTarget,
   RevokeKind,
   StepMode,
@@ -105,6 +106,13 @@ export interface LetterRecord {
   readonly directive?: Omit<LetterDirective, 'byName'>;
   /** Người làm ô cuối theo cấu hình quy trình (trống là văn thư). */
   readonly closerIds?: readonly string[];
+  /** Sổ đăng ký (đến: lúc vào sổ; đi: lúc ban hành); tên sổ chỉ đọc. */
+  readonly registerId?: string;
+  readonly registerName?: string;
+  /** Công văn đi: người ký, chức vụ người ký. */
+  readonly signerUserId?: string;
+  readonly signerName?: string;
+  readonly signerTitle?: string;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -217,13 +225,14 @@ export interface LetterListFilter {
   readonly stages?: readonly LetterStage[];
   readonly year?: number;
   readonly search?: string;
+  readonly registerId?: string;
   readonly limit: number;
 }
 
 /* ---------------------------------------------------------------- ghi */
 
 export type LetterPatch = Partial<
-  Omit<LetterRecord, 'id' | 'direction' | 'year' | 'seq' | 'incomingNo' | 'receivedBy' | 'createdAt' | 'updatedAt'>
+  Omit<LetterRecord, 'id' | 'direction' | 'year' | 'seq' | 'incomingNo' | 'registerName' | 'receivedBy' | 'createdAt' | 'updatedAt'>
 >;
 
 export interface LetterInsert {
@@ -281,6 +290,8 @@ export interface LetterTransaction {
   readonly mentionedUserIds: readonly string[];
   update(patch: LetterPatch): Promise<LetterRecord>;
   nextNumber(kind: 'outgoing' | 'archive', year: number): Promise<number>;
+  /** Số đi của một sổ đăng ký; ghi `registerId` cùng số đi ở lần `update` có `outgoingNo`. */
+  nextRegisterNumber(registerId: string, year: number): Promise<number>;
   /** Thay toàn bộ bước của công văn bằng các bước chép từ quy trình. */
   replaceSteps(steps: readonly WorkflowStep[]): Promise<void>;
   updateStep(stepId: string, update: StepUpdate): Promise<void>;
@@ -325,7 +336,28 @@ export interface CatalogUpsert {
   readonly defaultUnitIds: readonly string[];
   readonly highlight: boolean;
   readonly restricted: boolean;
+  readonly abbreviation: string | null;
+  readonly numberFormat: string | null;
 }
+
+export interface RegisterUpsert {
+  readonly direction: LetterDirection;
+  readonly name: string;
+  readonly numberFormat: string;
+  readonly confidential: boolean;
+  readonly letterTypes: readonly string[];
+  readonly isDefault: boolean;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+}
+
+/**
+ * Cấp số khi vào sổ: số dự thảo của công văn đi (bộ đếm chung, hậu tố), hay số của một sổ đăng ký
+ * (bộ đếm của sổ, `format` dựng số hiển thị từ số thứ tự).
+ */
+export type LetterNumbering =
+  | { readonly counter: 'draft'; readonly suffix: string }
+  | { readonly registerId: string; readonly format: (seq: number) => string };
 
 export interface WorkflowUpsert {
   readonly name: string;
@@ -357,6 +389,12 @@ export interface CorrespondenceStore {
   saveWorkflow(tenantId: string, userId: string, id: string | undefined, input: WorkflowUpsert): Promise<Workflow>;
   deleteWorkflow(tenantId: string, id: string): Promise<boolean>;
 
+  registers(tenantId: string): Promise<Register[]>;
+  /** Đặt `isDefault` thì bỏ cờ mặc định ở sổ khác cùng luồng, cùng transaction. */
+  saveRegister(tenantId: string, userId: string, id: string | undefined, input: RegisterUpsert): Promise<Register>;
+  /** Chỉ xoá được sổ chưa có công văn nào. */
+  deleteRegister(tenantId: string, id: string): Promise<boolean>;
+
   /**
    * Vào sổ một công văn: cấp số theo bộ đếm của luồng (`incoming`: số đến, `draft`: số dự
    * thảo công văn đi) rồi ghi dòng, một transaction.
@@ -364,7 +402,7 @@ export interface CorrespondenceStore {
   createLetter(
     tenantId: string,
     input: LetterInsert,
-    numbering: { readonly counter: 'incoming' | 'draft'; readonly suffix: string },
+    numbering: LetterNumbering,
     after: (tx: LetterTransaction) => Promise<void>,
   ): Promise<LetterRecord>;
 

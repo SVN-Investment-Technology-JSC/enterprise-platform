@@ -3,6 +3,7 @@ import {
   DEFAULT_CORRESPONDENCE_SETTINGS,
   type CatalogItem,
   type CorrespondenceSettings,
+  type Register,
   type Workflow,
   type WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
@@ -137,6 +138,25 @@ function fakeStore() {
     { id: 'wf-out-none', name: 'Ban hành ngay', direction: 'outgoing', isActive: true, isDefault: false, steps: [OUTGOING_STEPS[0]], updatedAt: TODAY },
   ];
   let settings: CorrespondenceSettings = DEFAULT_CORRESPONDENCE_SETTINGS;
+  const register = (id: string, direction: Register['direction'], name: string, numberFormat: string, extra: Partial<Register> = {}): Register => ({
+    id,
+    direction,
+    name,
+    numberFormat,
+    confidential: false,
+    letterTypes: [],
+    isDefault: true,
+    isActive: true,
+    sortOrder: 0,
+    issuedThisYear: 0,
+    inUse: false,
+    ...extra,
+  });
+  const registers: Register[] = [
+    register('reg-in', 'incoming', 'Sổ công văn đến', '{so}/CVĐ'),
+    register('reg-out', 'outgoing', 'Sổ công văn đi', '{so}/CV'),
+  ];
+  const registerName = (registerId?: string) => registers.find((item) => item.id === registerId)?.name;
   let sequence = 0;
   const id = (prefix: string) => `${prefix}-${++sequence}`;
   const next = (kind: string, year: number) => {
@@ -167,11 +187,13 @@ function fakeStore() {
       return mentionsOf(letterId);
     },
     update: async (patch) => {
-      const updated = { ...(letters.get(letterId) as LetterRecord), ...patch };
+      const merged = { ...(letters.get(letterId) as LetterRecord), ...patch };
+      const updated = { ...merged, registerName: registerName(merged.registerId) };
       letters.set(letterId, updated);
       return updated;
     },
     nextNumber: async (kind, year) => next(kind, year),
+    nextRegisterNumber: async (registerId, year) => next(`register:${registerId}`, year),
     replaceSteps: async (definitions) => {
       for (let index = steps.length - 1; index >= 0; index -= 1) if (steps[index].letterId === letterId) steps.splice(index, 1);
       definitions.forEach((step, index) =>
@@ -288,6 +310,8 @@ function fakeStore() {
         defaultUnitIds: input.defaultUnitIds,
         highlight: input.highlight,
         restricted: input.restricted,
+        abbreviation: input.abbreviation ?? undefined,
+        numberFormat: input.numberFormat ?? undefined,
       };
       catalog = [...catalog.filter((item) => item.id !== saved.id), saved];
       return saved;
@@ -315,15 +339,30 @@ function fakeStore() {
       return saved;
     },
     deleteWorkflow: async () => false,
+    registers: async () => registers,
+    saveRegister: async (_tenant, _user, registerId, input) => {
+      if (input.isDefault) registers.forEach((item, index) => {
+        if (item.direction === input.direction && item.id !== registerId) registers[index] = { ...item, isDefault: false };
+      });
+      const saved = register(registerId ?? id('register'), input.direction, input.name, input.numberFormat, { ...input });
+      const index = registers.findIndex((item) => item.id === saved.id);
+      if (index >= 0) registers[index] = saved;
+      else registers.push(saved);
+      return saved;
+    },
+    deleteRegister: async () => false,
     createLetter: async (_tenant, input, numbering, after) => {
       const year = Number(input.receivedOn.slice(0, 4));
-      const seq = next(numbering.counter, year);
+      const inRegister = 'registerId' in numbering ? numbering.registerId : undefined;
+      const seq = inRegister ? next(`register:${inRegister}`, year) : next('draft', year);
       const letter: LetterRecord = {
         ...input,
         id: id('letter'),
         year,
         seq,
-        incomingNo: formatSequenceNo(seq, numbering.suffix),
+        incomingNo: 'registerId' in numbering ? numbering.format(seq) : formatSequenceNo(seq, numbering.suffix),
+        registerId: inRegister,
+        registerName: registerName(inRegister),
         createdAt: TODAY,
         updatedAt: TODAY,
       };
@@ -362,6 +401,7 @@ function fakeStore() {
         .filter((letter) => !filter.direction || letter.direction === filter.direction)
         .filter((letter) => !filter.stages || filter.stages.includes(letter.stage))
         .filter((letter) => !filter.year || letter.year === filter.year)
+        .filter((letter) => !filter.registerId || letter.registerId === filter.registerId)
         .map((letter) => ({ ...letter, steps: stepsOf(letter.id), assignments: assignmentsOf(letter.id), mentionedUserIds: mentionsOf(letter.id) })),
     countArchived: async () =>
       [...letters.values()].filter((letter) => !letter.deletedAt && (letter.stage === 'archived' || letter.stage === 'revoking')).length,
@@ -496,7 +536,7 @@ describe('Công văn đến – tiếp nhận, giao phòng ban', () => {
   it('cấp số đến, hạn theo loại văn bản; thanh tiến trình vẽ theo quy trình sẽ áp dụng', async () => {
     const { service } = setup();
     const letter = await service.create(clerk, intake);
-    expect(letter).toMatchObject({ direction: 'incoming', incomingNo: '1/CVĐ', displayNo: '1/CVĐ', stage: 'received', dueOn: '2026-11-17' });
+    expect(letter).toMatchObject({ direction: 'incoming', incomingNo: '01/CVĐ', displayNo: '01/CVĐ', stage: 'received', dueOn: '2026-11-17' });
     expect(letter.workflowName).toBe('Xem xét công văn đến');
     expect(letter.flow.map((node) => [node.label, node.state, node.approval])).toEqual([
       ['Văn thư tiếp nhận', 'current', false],
@@ -770,8 +810,8 @@ describe('Công văn đi', () => {
     const published = await service.publish(clerk, checking.id, { recipient: 'Sở Tài chính', deliveryMethod: 'Bưu điện' });
     expect(published).toMatchObject({
       stage: 'archived',
-      outgoingNo: '1/CV',
-      displayNo: '1/CV',
+      outgoingNo: '01/CV',
+      displayNo: '01/CV',
       deliveryStatus: 'sent',
       deliveryMethod: 'Bưu điện',
       archiveCode: 'HS-2026-0001',
@@ -793,7 +833,7 @@ describe('Công văn đi', () => {
     const { service } = setup();
     const incoming = await dispatched(service);
     const reply = await service.createOutgoing(accountant, { subject: 'Trả lời', recipient: 'Sở Tài chính', relatedLetterId: incoming.id });
-    expect(reply).toMatchObject({ relatedLetterId: incoming.id, relatedLetterNo: '1/CVĐ' });
+    expect(reply).toMatchObject({ relatedLetterId: incoming.id, relatedLetterNo: '01/CVĐ' });
     const other = await service.create(clerk, intake);
     await expect(service.createOutgoing(accountant, { subject: 'x', recipient: 'y', relatedLetterId: other.id })).rejects.toThrow(
       'không còn hay bạn không xem được',
@@ -1373,6 +1413,63 @@ describe('Quy trình động: người làm bước, cách xong bước, để b
   });
 });
 
+describe('Sổ đăng ký, số và ký hiệu văn bản, người ký, phát hành nội bộ', () => {
+  it('số đi theo mẫu của loại văn bản: ký hiệu loại, cơ quan, đơn vị; người ký, số bản, phòng nhận nội bộ', async () => {
+    const { service, outbox } = setup();
+    await service.saveSettings(configurer, { ...DEFAULT_CORRESPONDENCE_SETTINGS, orgCode: 'SVN', unitCodes: [{ unitId: 'unit-finance', code: 'TCKT' }] });
+    const { catalog } = await service.config(configurer);
+    const typeOf = (code: string) => catalog.find((item) => item.kind === 'letter_type' && item.code === code) as CatalogItem;
+    await expect(service.saveCatalogItem(configurer, typeOf('quick').id, { ...typeOf('quick'), numberFormat: 'TB-SVN' })).rejects.toThrow('phải có {so}');
+    await service.saveCatalogItem(configurer, typeOf('quick').id, { ...typeOf('quick'), abbreviation: 'TB', numberFormat: '{so}/{loai}-{coquan}' });
+    // Công văn: số, ký hiệu cơ quan, đơn vị soạn thảo.
+    await service.saveCatalogItem(configurer, typeOf('finance').id, { ...typeOf('finance'), numberFormat: '{so}/{coquan}-{donvi}' });
+
+    const notice = await service.createOutgoing(accountant, { subject: 'Thông báo nghỉ lễ', recipient: 'Toàn công ty', kind: 'quick' });
+    await service.sendToClerk(accountant, notice.id, {});
+    await service.submit(clerk, notice.id, {});
+    expect(await service.publish(clerk, notice.id, { recipient: 'Toàn công ty' })).toMatchObject({ outgoingNo: '01/TB-SVN', registerName: 'Sổ công văn đi' });
+
+    const checking = await outgoingChecking(service);
+    await service.submit(clerk, checking.id, {});
+    await service.approve(financeHead, checking.id, {});
+    await service.approve(leader, checking.id, {});
+    await expect(service.publish(clerk, checking.id, { recipient: 'Sở', copyCount: 0 })).rejects.toThrow('Số bản');
+    await expect(service.publish(clerk, checking.id, { recipient: 'Sở', internalUnitIds: ['unit-none'] })).rejects.toThrow('không có trong sơ đồ tổ chức');
+    const published = await service.publish(clerk, checking.id, {
+      recipient: 'Sở Tài chính',
+      signerTitle: 'Tổng giám đốc',
+      copyCount: 3,
+      internalUnitIds: ['unit-legal'],
+    });
+    // Người ký mặc định là người duyệt bước cuối.
+    expect(published).toMatchObject({ outgoingNo: '02/SVN-TCKT', signerName: 'Nguyễn Văn An', signerTitle: 'Tổng giám đốc', copyCount: 3 });
+    expect(published.assignments.map((item) => [item.unitName, item.role])).toEqual([['Phòng Pháp chế', 'info']]);
+    expect(published.history.at(-1)?.summary).toContain('nội bộ: Phòng Pháp chế');
+    expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-legal-head', 'u-lawyer']));
+    expect((await service.list(lawyer, { box: 'outgoing' })).map((item) => item.id)).toContain(checking.id);
+  });
+
+  it('sổ mật: văn bản có độ mật vào sổ mật, cấp số riêng; văn thư chọn được sổ; lọc theo sổ', async () => {
+    const { service } = setup();
+    const base = { direction: 'incoming' as const, name: 'Sổ thử', numberFormat: '{so}/M' };
+    await expect(service.saveRegister(configurer, undefined, { ...base, numberFormat: 'M/CVĐ' })).rejects.toThrow('phải có {so}');
+    await expect(service.saveRegister(configurer, undefined, { ...base, numberFormat: '{so}/{xyz}' })).rejects.toThrow('phần không hiểu');
+    await expect(service.saveRegister(configurer, undefined, { ...base, isDefault: true, confidential: true })).rejects.toThrow('không là sổ mật');
+    await expect(service.saveRegister(configurer, undefined, { ...base, letterTypes: ['nope'] })).rejects.toThrow('không còn trong danh mục');
+    await expect(service.saveRegister(clerk, undefined, base)).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    const secret = await service.saveRegister(configurer, undefined, { ...base, name: 'Sổ văn bản mật đến', confidential: true });
+    const normal = await service.create(clerk, intake);
+    const confidential = await service.create(clerk, { ...intake, confidentiality: 'confidential' });
+    expect([normal.incomingNo, normal.registerName]).toEqual(['01/CVĐ', 'Sổ công văn đến']);
+    expect([confidential.incomingNo, confidential.registerName]).toEqual(['01/M', 'Sổ văn bản mật đến']);
+    expect(confidential.history[0]?.summary).toBe('Tiếp nhận, vào Sổ văn bản mật đến số 01/M');
+    const chosen = await service.create(clerk, { ...intake, registerId: secret.id });
+    expect(chosen.incomingNo).toBe('02/M');
+    expect((await service.list(clerk, { box: 'incoming', registerId: secret.id })).map((item) => item.id).sort()).toEqual([confidential.id, chosen.id].sort());
+    await expect(service.create(clerk, { ...intake, registerId: 'reg-out' })).rejects.toThrow('không còn dùng');
+  });
+});
+
 describe('Ô đầu, ô cuối cấu hình được', () => {
   it('tự chuyển bước đầu khi vào sổ: giao phòng ban gợi ý của loại văn bản', async () => {
     const { service, outbox } = setup();
@@ -1457,7 +1554,7 @@ describe('Ô đầu, ô cuối cấu hình được', () => {
     const draft = await service.createOutgoing(accountant, { subject: 'Thông báo', recipient: 'Toàn công ty', kind: 'finance' });
     await service.sendToClerk(accountant, draft.id, {});
     const issued = await service.approve(leader, draft.id, {});
-    expect(issued).toMatchObject({ stage: 'archived', outgoingNo: '1/CV', recipient: 'Toàn công ty', deliveryStatus: 'sent' });
+    expect(issued).toMatchObject({ stage: 'archived', outgoingNo: '01/CV', recipient: 'Toàn công ty', deliveryStatus: 'sent' });
   });
 });
 
@@ -1476,7 +1573,7 @@ describe('Tệp kèm: lưu ở Hệ dùng chung, có phiên bản', () => {
     expect(created[0].path?.map((segment) => segment.name)).toEqual([
       '2026',
       'Công văn đến',
-      '1/CVĐ - Yêu cầu giải trình số liệu quyết toán thuế TNDN năm 2025',
+      '01/CVĐ - Yêu cầu giải trình số liệu quyết toán thuế TNDN năm 2025',
     ]);
     await service.createAttachment(clerk, letter.id, { kind: 'reference', fileName: 'b.pdf', contentType: 'application/pdf', sizeBytes: 1 });
     expect(created[1]).toMatchObject({ folderId: 'folder-1' });
@@ -1550,7 +1647,7 @@ describe('Cây lưu trữ', () => {
     expect(tree.rootName).toBe(CORRESPONDENCE_FILING_ROOT);
     expect(tree.years.map((year) => year.year)).toEqual([2026]);
     expect(tree.years[0].groups.map((group) => [group.label, group.dossiers.map((dossier) => dossier.folderName)])).toEqual([
-      ['Công văn đến', ['1/CVĐ - Yêu cầu giải trình số liệu quyết toán thuế TNDN năm 2025']],
+      ['Công văn đến', ['01/CVĐ - Yêu cầu giải trình số liệu quyết toán thuế TNDN năm 2025']],
       ['Công văn đi', ['1/DT - Giải trình']],
     ]);
     expect(tree.years[0].groups[0].dossiers[0].files.map((file) => [file.fileName, file.unitName])).toEqual([

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  abbreviate,
   DISPATCH_MODES,
   DISPATCH_MODE_LABELS,
   MAX_CLERKS,
@@ -41,6 +42,8 @@ export function SettingsView({
     form.outgoingSuffix !== settings.outgoingSuffix ||
     form.archivePrefix !== settings.archivePrefix ||
     form.defaultDueDays !== String(settings.defaultDueDays) ||
+    (form.orgCode ?? '') !== (settings.orgCode ?? '') ||
+    JSON.stringify(form.unitCodes ?? []) !== JSON.stringify(settings.unitCodes ?? []) ||
     form.dispatchMode !== settings.dispatchMode ||
     form.clerkUserIds.join() !== settings.clerkUserIds.join() ||
     JSON.stringify(form.delegations ?? []) !== JSON.stringify(settings.delegations ?? []);
@@ -62,6 +65,8 @@ export function SettingsView({
         dispatchMode: form.dispatchMode,
         clerkUserIds: form.clerkUserIds,
         delegations: form.delegations ?? [],
+        orgCode: (form.orgCode ?? '').trim(),
+        unitCodes: (form.unitCodes ?? []).filter((item) => item.unitId && item.code.trim()).map((item) => ({ ...item, code: item.code.trim() })),
       });
       onSaved(next);
       toast.success('Đã lưu cấu hình sổ văn thư.');
@@ -76,7 +81,8 @@ export function SettingsView({
     <section className={`${styles.card} ${styles.settings}`}>
       <h2>Cấu hình sổ văn thư</h2>
       <p className={styles.sectionNote}>
-        Số thứ tự đếm lại từ 1 mỗi năm. Đổi ký hiệu chỉ áp dụng cho số cấp sau khi lưu.
+        Số đến, số đi cấp theo mẫu số của từng sổ (mục Sổ đăng ký bên dưới), đếm lại từ 1 mỗi năm. Đổi ký hiệu chỉ áp dụng cho số
+        cấp sau khi lưu.
       </p>
       <form
         className={styles.form}
@@ -111,16 +117,15 @@ export function SettingsView({
             ở các bước của văn thư. Bỏ trống là mọi người có quyền văn thư trong Phân quyền.
           </span>
         </SelectField>
-        <div className={styles.formRow}>
-          <Field label="Ký hiệu số đến" required>
-            <input value={form.incomingSuffix} maxLength={30} onChange={(event) => set('incomingSuffix', event.target.value)} />
-            <span className={styles.hint}>Ví dụ: 41/{form.incomingSuffix || 'CVĐ'}</span>
-          </Field>
-          <Field label="Ký hiệu số đi" required>
-            <input value={form.outgoingSuffix} maxLength={30} onChange={(event) => set('outgoingSuffix', event.target.value)} />
-            <span className={styles.hint}>Ví dụ: 198/{form.outgoingSuffix || 'CV'}</span>
-          </Field>
-        </div>
+        <Field label="Ký hiệu cơ quan">
+          <input value={form.orgCode ?? ''} maxLength={20} placeholder="Ví dụ: SVN" onChange={(event) => set('orgCode', event.target.value)} />
+          <span className={styles.hint}>Phần {'{coquan}'} trong mẫu số, ví dụ 05/QĐ-{form.orgCode || 'SVN'}.</span>
+        </Field>
+        <UnitCodesField
+          codes={form.unitCodes ?? []}
+          units={directory?.units ?? []}
+          onChange={(unitCodes) => set('unitCodes', unitCodes)}
+        />
         <div className={styles.formRow}>
           <Field label="Tiền tố số hồ sơ lưu trữ" required>
             <input value={form.archivePrefix} maxLength={20} onChange={(event) => set('archivePrefix', event.target.value)} />
@@ -170,6 +175,55 @@ export function SettingsView({
         </div>
       </form>
     </section>
+  );
+}
+
+/** Ký hiệu đơn vị ({donvi} trong mẫu số): đơn vị chưa đặt thì lấy chữ cái đầu của tên. */
+function UnitCodesField({
+  codes,
+  units,
+  onChange,
+}: {
+  readonly codes: readonly { readonly unitId: string; readonly code: string }[];
+  readonly units: readonly { readonly id: string; readonly name: string }[];
+  readonly onChange: (codes: { unitId: string; code: string }[]) => void;
+}) {
+  const update = (index: number, patch: Partial<{ unitId: string; code: string }>) =>
+    onChange(codes.map((item, at) => (at === index ? { ...item, ...patch } : item)));
+  return (
+    <div className={styles.field} role="group" aria-label="Ký hiệu đơn vị">
+      <span className={styles.fieldLabel}>Ký hiệu đơn vị</span>
+      <span className={styles.hint}>
+        Phần {'{donvi}'} trong mẫu số (đơn vị soạn thảo). Đơn vị chưa đặt thì lấy chữ cái đầu của tên, ví dụ Phòng Kinh doanh là KD.
+      </span>
+      {codes.map((item, index) => (
+        <div key={index} className={styles.unitCodeRow}>
+          <SearchableSelect
+            options={units
+              .filter((unit) => unit.id === item.unitId || !codes.some((other) => other.unitId === unit.id))
+              .map((unit) => ({ value: unit.id, label: unit.name }))}
+            value={item.unitId}
+            placeholder="Chọn đơn vị"
+            onChange={(value) => update(index, { unitId: value ?? '' })}
+          />
+          <input
+            aria-label={`Ký hiệu đơn vị ${index + 1}`}
+            value={item.code}
+            maxLength={20}
+            placeholder={abbreviate(units.find((unit) => unit.id === item.unitId)?.name ?? '', true) || 'KD'}
+            onChange={(event) => update(index, { code: event.target.value })}
+          />
+          <button type="button" className={styles.iconButton} aria-label={`Bỏ ký hiệu đơn vị ${index + 1}`} onClick={() => onChange(codes.filter((_, at) => at !== index))}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <div>
+        <button type="button" className={styles.buttonGhost} onClick={() => onChange([...codes, { unitId: '', code: '' }])}>
+          <Plus size={14} /> Thêm ký hiệu đơn vị
+        </button>
+      </div>
+    </div>
   );
 }
 

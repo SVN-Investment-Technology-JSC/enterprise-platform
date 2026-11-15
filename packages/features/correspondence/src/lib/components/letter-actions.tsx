@@ -6,6 +6,7 @@ import {
   ASSIGNMENT_ROLE_LABELS,
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
+  suggestRegister,
   returnTargetLabel,
   type CatalogItem,
   type CorrespondenceConfig,
@@ -17,7 +18,7 @@ import {
   type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
 import { Popconfirm, SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
-import { Ban, CheckCircle2, ShieldX, Trash2, Undo2 } from 'lucide-react';
+import { Ban, CheckCircle2, ShieldX, Trash2, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
@@ -754,17 +755,38 @@ function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: Action
   );
 }
 
-function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
+function PublishForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
   const [recipient, setRecipient] = useState(letter.recipient ?? '');
   const [publishedOn, setPublishedOn] = useState(localToday());
   const [deliveryMethod, setDeliveryMethod] = useState('');
   const [note, setNote] = useState('');
+  // Người ký mặc định là người duyệt bước duyệt cuối; chức vụ theo sơ đồ tổ chức.
+  const lastApprover = [...letter.steps].reverse().find((step) => step.type === 'approve' && step.status === 'done' && step.actedBy)?.actedBy ?? '';
+  const titleOf = (userId: string) =>
+    directory?.units.flatMap((unit) => unit.members).find((member) => member.userId === userId && member.positionName)?.positionName ?? '';
+  const [signerUserId, setSignerUserId] = useState(lastApprover);
+  const [signerTitle, setSignerTitle] = useState(titleOf(lastApprover));
+  const [copyCount, setCopyCount] = useState('');
+  const [registerId, setRegisterId] = useState('');
+  const [internalUnitIds, setInternalUnitIds] = useState<string[]>([]);
   const { busy, error, run } = useRunner(onDone);
   useEffect(
-    () => onDirtyChange(recipient !== (letter.recipient ?? '') || deliveryMethod.trim() !== '' || note.trim() !== ''),
-    [recipient, deliveryMethod, note, letter, onDirtyChange],
+    () =>
+      onDirtyChange(
+        recipient !== (letter.recipient ?? '') ||
+          deliveryMethod.trim() !== '' ||
+          note.trim() !== '' ||
+          copyCount !== '' ||
+          internalUnitIds.length > 0 ||
+          signerUserId !== lastApprover,
+      ),
+    [recipient, deliveryMethod, note, copyCount, internalUnitIds, signerUserId, lastApprover, letter, onDirtyChange],
   );
   const signed = letter.attachments.some((item) => item.kind === 'outgoing');
+  const restricted = letter.restricted;
+  const registers = config.registers.filter((item) => item.isActive && item.direction === 'outgoing');
+  const autoRegister = suggestRegister(config.registers, 'outgoing', { kind: letter.kind, restricted });
+  const units = directory?.units ?? [];
   return (
     <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư ban hành, lưu trữ'}>
       <div className={styles.form}>
@@ -785,6 +807,58 @@ function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
             <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
           </Field>
         </div>
+        <div className={styles.formRow3}>
+          <SelectField label="Người ký">
+            <SearchableSelect
+              options={(directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }))}
+              value={signerUserId}
+              placeholder="Chọn người ký"
+              clearable
+              onChange={(value) => {
+                setSignerUserId(value ?? '');
+                if (value) setSignerTitle(titleOf(value) || signerTitle);
+              }}
+            />
+          </SelectField>
+          <Field label="Chức vụ người ký">
+            <input value={signerTitle} maxLength={160} placeholder="Tổng giám đốc" onChange={(event) => setSignerTitle(event.target.value)} />
+          </Field>
+          <Field label="Số bản">
+            <input type="number" min={1} max={1000} value={copyCount} onChange={(event) => setCopyCount(event.target.value)} />
+          </Field>
+        </div>
+        {registers.length > 1 ? (
+          <SelectField label="Sổ đăng ký (cấp số đi)">
+            <SearchableSelect
+              options={registers.map((item) => ({ value: item.id, label: item.name, description: item.confidential ? 'Sổ văn bản mật' : undefined }))}
+              value={registerId}
+              placeholder={autoRegister ? `Tự chọn: ${autoRegister.name}` : 'Tự chọn theo độ mật, loại văn bản'}
+              clearable
+              onChange={(value) => setRegisterId(value ?? '')}
+            />
+          </SelectField>
+        ) : null}
+        <SelectField label="Phòng ban nhận nội bộ">
+          <SearchableSelect
+            options={units.filter((unit) => !internalUnitIds.includes(unit.id)).map((unit) => ({ value: unit.id, label: unit.name, description: unit.path || undefined }))}
+            value=""
+            placeholder="Tìm và thêm phòng ban trong công ty nhận văn bản"
+            onChange={(value) => value && setInternalUnitIds((current) => [...current, value])}
+          />
+          {internalUnitIds.length > 0 ? (
+            <div className={styles.unitChips}>
+              {internalUnitIds.map((unitId) => (
+                <span key={unitId} className={styles.unitChip}>
+                  {units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban'}
+                  <button type="button" aria-label="Bỏ" onClick={() => setInternalUnitIds((current) => current.filter((id) => id !== unitId))}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <span className={styles.hint}>Phòng được chọn xem được văn bản đã ban hành và nhận thông báo.</span>
+        </SelectField>
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <ReturnControl letter={letter} onDone={onDone} />
@@ -794,7 +868,18 @@ function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
             disabled={busy || !recipient.trim()}
             onClick={() =>
               run(
-                () => publishLetter(letter.id, { recipient, publishedOn: publishedOn || undefined, deliveryMethod: deliveryMethod || undefined, note: note || undefined }),
+                () =>
+                  publishLetter(letter.id, {
+                    recipient,
+                    publishedOn: publishedOn || undefined,
+                    deliveryMethod: deliveryMethod || undefined,
+                    note: note || undefined,
+                    registerId: registerId || undefined,
+                    signerUserId: signerUserId || undefined,
+                    signerTitle: signerTitle.trim() || undefined,
+                    copyCount: copyCount === '' ? undefined : Number(copyCount),
+                    internalUnitIds,
+                  }),
                 archivesAtEnd(letter, config) ? 'Đã đánh số, ban hành và lưu trữ.' : 'Đã đánh số, ban hành.',
               )
             }

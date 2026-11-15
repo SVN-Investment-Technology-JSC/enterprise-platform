@@ -6,8 +6,9 @@ import {
   type LetterBox,
   type LetterStage,
   type LetterSummary,
+  type Register,
 } from '@enterprise-platform/contracts-correspondence';
-import { toast } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { FileSpreadsheet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, listLetters } from '../correspondence-api';
@@ -34,10 +35,13 @@ export function LetterListView({
   today,
   refreshKey,
   activeId,
+  registers = [],
   onStageChange,
   onOpen,
 }: {
   readonly box: LetterBox;
+  /** Sổ đăng ký, để lọc danh sách theo sổ. */
+  readonly registers?: readonly Register[];
   readonly stage?: LetterStage;
   readonly today: string;
   /** Đổi giá trị để tải lại sau khi một công văn vừa đổi bước. */
@@ -49,14 +53,16 @@ export function LetterListView({
   const [letters, setLetters] = useState<LetterSummary[]>();
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState('');
+  const [registerId, setRegisterId] = useState('');
   const direction = box === 'incoming' || box === 'outgoing' ? box : undefined;
+  const boxRegisters = direction ? registers.filter((item) => item.direction === direction) : [];
   const filters = direction ? ([...DIRECTION_STAGES[direction], 'archived', 'revoking', 'cancelled'] as LetterStage[]) : [];
   const activeStage = stage && filters.includes(stage) ? stage : undefined;
 
   useEffect(() => {
     let active = true;
     setLetters(undefined);
-    listLetters({ box, stage: activeStage })
+    listLetters({ box, stage: activeStage, registerId: direction && registerId ? registerId : undefined })
       .then((items) => {
         if (!active) return;
         setLetters(items);
@@ -66,7 +72,7 @@ export function LetterListView({
     return () => {
       active = false;
     };
-  }, [box, activeStage, refreshKey]);
+  }, [box, activeStage, registerId, direction, refreshKey]);
 
   const visible = useMemo(() => (letters ?? []).filter((letter) => matchesSearch(letter, search)), [letters, search]);
   const mode: LetterTableMode = box === 'incoming' ? 'incoming' : box === 'outgoing' ? 'outgoing' : box === 'archive' ? 'archive' : 'mixed';
@@ -90,6 +96,17 @@ export function LetterListView({
               );
             })
           : null}
+        {boxRegisters.length > 1 ? (
+          <div className={styles.registerFilter}>
+            <SearchableSelect
+              options={boxRegisters.map((item) => ({ value: item.id, label: item.name }))}
+              value={registerId}
+              placeholder="Tất cả sổ"
+              clearable
+              onChange={(value) => setRegisterId(value ?? '')}
+            />
+          </div>
+        ) : null}
         <input
           className={styles.search}
           type="search"

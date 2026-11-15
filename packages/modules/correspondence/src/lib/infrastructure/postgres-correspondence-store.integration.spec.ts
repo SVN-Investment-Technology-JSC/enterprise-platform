@@ -19,11 +19,21 @@ const MIGRATIONS = [
   '0004-dynamic-workflow-steps.sql',
   '0005-directive-intake-tracking.sql',
   '0006-step-modes-info-role.sql',
+  '0007-registers-numbering-signer.sql',
 ].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
 
 /** Migrator chạy mỗi file một lần, trong một transaction (SET LOCAL cần transaction). */
+/** Vào sổ mặc định của công văn đến (migration 0007 tạo sẵn), số dạng "1/CVĐ". */
+async function incomingRegister(store: PostgresCorrespondenceStore, confidential = false) {
+  const register = (await store.registers(TENANT)).find(
+    (item) => item.direction === 'incoming' && (confidential ? item.confidential : item.isDefault),
+  );
+  if (!register) throw new Error('Chưa có sổ đăng ký công văn đến');
+  return { registerId: register.id, format: (seq: number) => `${seq}/${confidential ? 'M' : 'CVĐ'}` };
+}
+
 async function migrate(pool: Pool, files: readonly string[] = MIGRATIONS): Promise<void> {
   for (const file of files) {
     await pool.query(`BEGIN; ${await readFile(file, 'utf8')}; COMMIT;`);
@@ -109,10 +119,13 @@ integration('Sổ công văn (PostgreSQL)', () => {
       confidentiality: 'confidential',
       receivedBy: clerk,
     };
-    const first = await store.createLetter(TENANT, { ...base, direction: 'incoming', stage: 'received' }, { counter: 'incoming', suffix: 'CVĐ' }, async (tx) =>
+    const first = await store.createLetter(TENANT, { ...base, direction: 'incoming', stage: 'received' }, await incomingRegister(store), async (tx) =>
       tx.history({ action: 'receive', summary: 'Vào sổ' }),
     );
-    const second = await store.createLetter(TENANT, { ...base, direction: 'incoming', stage: 'received' }, { counter: 'incoming', suffix: 'CVĐ' }, async () => undefined);
+    const second = await store.createLetter(TENANT, { ...base, direction: 'incoming', stage: 'received' }, await incomingRegister(store), async () => undefined);
+    // Sổ mật cấp số riêng: cùng năm, cùng số 1 với sổ thường mà không trùng.
+    const secret = await store.createLetter(TENANT, { ...base, direction: 'incoming', stage: 'received' }, await incomingRegister(store, true), async () => undefined);
+    expect(secret).toMatchObject({ incomingNo: '1/M', seq: 1, registerName: 'Sổ văn bản mật đến' });
     const authorUnit = randomUUID();
     const draft = await store.createLetter(
       TENANT,
@@ -155,13 +168,39 @@ integration('Sổ công văn (PostgreSQL)', () => {
     expect((await store.listLetters(TENANT, { visibleTo: colleague, limit: 10 })).map((item) => item.id)).toEqual([draft.id]);
     expect(await store.listLetters(TENANT, { year: 2025, limit: 10 })).toEqual([]);
 
-    // Ban hành: số đi, số hồ sơ, tình trạng gửi.
+    // Ban hành: số đi theo sổ đi mặc định, người ký, số hồ sơ, tình trạng gửi.
+    const outgoingRegister = (await store.registers(TENANT)).find((item) => item.direction === 'outgoing' && item.isDefault);
     await store.withLetter(TENANT, draft.id, async (tx) => {
-      const no = await tx.nextNumber('outgoing', 2026);
+      const no = await tx.nextRegisterNumber(outgoingRegister?.id ?? '', 2026);
       const archive = await tx.nextNumber('archive', 2026);
-      await tx.update({ stage: 'archived', outgoingNo: `${no}/CV`, archiveCode: `HS-2026-${archive}`, deliveryStatus: 'sent', deliveryMethod: 'Bưu điện', publishedOn: '2026-11-12' });
+      await tx.update({
+        stage: 'archived',
+        outgoingNo: `${no}/CV`,
+        registerId: outgoingRegister?.id,
+        signerUserId: author,
+        signerName: 'Nguyễn Văn An',
+        signerTitle: 'Tổng giám đốc',
+        archiveCode: `HS-2026-${archive}`,
+        deliveryStatus: 'sent',
+        deliveryMethod: 'Bưu điện',
+        publishedOn: '2026-11-12',
+      });
     });
-    expect(await store.findLetter(TENANT, draft.id)).toMatchObject({ outgoingNo: '1/CV', deliveryStatus: 'sent', deliveryMethod: 'Bưu điện' });
+    expect(await store.findLetter(TENANT, draft.id)).toMatchObject({
+      outgoingNo: '1/CV',
+      registerName: 'Sổ công văn đi',
+      signerName: 'Nguyễn Văn An',
+      signerTitle: 'Tổng giám đốc',
+      deliveryStatus: 'sent',
+      deliveryMethod: 'Bưu điện',
+    });
+    expect((await store.listLetters(TENANT, { registerId: outgoingRegister?.id, limit: 10 })).map((item) => item.id)).toEqual([draft.id]);
+    expect((await store.registers(TENANT)).map((item) => [item.direction, item.name, item.numberFormat, item.isDefault, item.isActive, item.issuedThisYear > 0])).toEqual([
+      ['incoming', 'Sổ công văn đến', '{so}/CVĐ', true, true, true],
+      ['incoming', 'Sổ văn bản mật đến', '{so}/M-ĐẾN', false, false, true],
+      ['outgoing', 'Sổ công văn đi', '{so}/CV', true, true, true],
+      ['outgoing', 'Sổ văn bản mật đi', '{so}/M-ĐI', false, false, false],
+    ]);
 
     // Phòng ban: giao lại không người xử lý, đổi người xử lý, bỏ phòng.
     await store.withLetter(TENANT, second.id, async (tx) => {
@@ -225,7 +264,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const letter = await store.createLetter(
       TENANT,
       { direction: 'incoming', stage: 'received', receivedOn: '2026-11-14', senderOrg: 'Sở', subject: 'Đích danh', kind: 'finance', urgency: 'top_urgent', confidentiality: 'secret', receivedBy: clerk },
-      { counter: 'incoming', suffix: 'CVĐ' },
+      await incomingRegister(store),
       async () => undefined,
     );
     const addressee = randomUUID();
@@ -311,7 +350,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const letter = await store.createLetter(
       TENANT,
       { direction: 'incoming', stage: 'received', receivedOn: '2026-11-12', senderOrg: 'A', subject: 'B', kind: 'finance', urgency: 'normal', confidentiality: 'normal', receivedBy: clerk },
-      { counter: 'incoming', suffix: 'CVĐ' },
+      await incomingRegister(store),
       async () => undefined,
     );
     const [documentId, versionId, nextVersion] = [randomUUID(), randomUUID(), randomUUID()];
@@ -344,11 +383,23 @@ integration('Sổ công văn (PostgreSQL)', () => {
       defaultUnitIds: [randomUUID()],
       highlight: false,
       restricted: false,
+      abbreviation: 'HĐ',
+      numberFormat: '{so}/{loai}-{coquan}',
     });
-    expect(created).toMatchObject({ code: 'contract', outgoingWorkflowId: 'c0000000-0000-4000-8000-000000000002', inUse: false });
+    expect(created).toMatchObject({ code: 'contract', abbreviation: 'HĐ', numberFormat: '{so}/{loai}-{coquan}', outgoingWorkflowId: 'c0000000-0000-4000-8000-000000000002', inUse: false });
     expect(created.defaultUnitIds).toHaveLength(1);
     await expect(
-      store.saveCatalogItem(TENANT, clerk, undefined, { ...created, defaultDueDays: null, workflowId: null, outgoingWorkflowId: null, defaultUnitIds: [], highlight: false, restricted: false }),
+      store.saveCatalogItem(TENANT, clerk, undefined, {
+        ...created,
+        defaultDueDays: null,
+        workflowId: null,
+        outgoingWorkflowId: null,
+        defaultUnitIds: [],
+        highlight: false,
+        restricted: false,
+        abbreviation: null,
+        numberFormat: null,
+      }),
     ).rejects.toThrow('đã có');
     // Quy trình đi đang gắn với loại văn bản: không xoá được.
     expect(await store.deleteWorkflow(TENANT, 'c0000000-0000-4000-8000-000000000002')).toBe(false);

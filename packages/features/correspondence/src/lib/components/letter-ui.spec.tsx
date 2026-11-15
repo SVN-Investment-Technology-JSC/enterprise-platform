@@ -12,7 +12,24 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { decideRevoke, quickAddCatalogItem, remindLetter, removeLetter, requestRevoke, saveWorkflow, submitLetter, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import {
+  approveLetter,
+  cancelLetter,
+  commentLetter,
+  decideRevoke,
+  loadStepChoice,
+  publishLetter,
+  quickAddCatalogItem,
+  remindLetter,
+  removeLetter,
+  requestRevoke,
+  returnLetter,
+  saveRegister,
+  saveWorkflow,
+  submitLetter,
+  updateLetter,
+} from '../correspondence-api';
+import { EditLetterDialog } from './edit-letter-dialog';
 import { CommentsSection } from './comments-section';
 import { ConfigView } from './config-view';
 import { FlowStepper } from './flow-stepper';
@@ -38,6 +55,9 @@ jest.mock('../correspondence-api', () => ({
   submitLetter: jest.fn(),
   remindLetter: jest.fn(),
   saveWorkflow: jest.fn(),
+  saveRegister: jest.fn(),
+  publishLetter: jest.fn(),
+  updateLetter: jest.fn(),
 }));
 
 const mocked = {
@@ -53,6 +73,9 @@ const mocked = {
   submit: submitLetter as jest.MockedFunction<typeof submitLetter>,
   remind: remindLetter as jest.MockedFunction<typeof remindLetter>,
   saveWorkflow: saveWorkflow as jest.MockedFunction<typeof saveWorkflow>,
+  saveRegister: saveRegister as jest.MockedFunction<typeof saveRegister>,
+  publish: publishLetter as jest.MockedFunction<typeof publishLetter>,
+  update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -120,6 +143,7 @@ const config: CorrespondenceConfig = {
   settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all', clerkUserIds: [], delegations: [] },
   catalog: [],
   workflows: [],
+  registers: [],
 };
 
 const directory: CorrespondenceDirectory = {
@@ -950,5 +974,101 @@ describe('Cấu hình quy trình: cách xong bước, người làm bước ki�
       ['check', undefined, { type: 'users', userIds: ['u-me'] }],
       ['approve', 'all', { type: 'users', userIds: ['u-an', 'u-ha'] }],
     ]);
+  });
+});
+
+describe('Sổ đăng ký, ban hành, sửa phân loại sơ bộ', () => {
+  const registers = [
+    { id: 'reg-in', direction: 'incoming' as const, name: 'Sổ công văn đến', numberFormat: '{so}/CVĐ', confidential: false, letterTypes: [], isDefault: true, isActive: true, sortOrder: 0, issuedThisYear: 4, inUse: true },
+    { id: 'reg-out', direction: 'outgoing' as const, name: 'Sổ công văn đi', numberFormat: '{so}/{loai}-{coquan}', confidential: false, letterTypes: [], isDefault: true, isActive: true, sortOrder: 0, issuedThisYear: 0, inUse: false },
+    { id: 'reg-out-secret', direction: 'outgoing' as const, name: 'Sổ văn bản mật đi', numberFormat: '{so}/M', confidential: true, letterTypes: [], isDefault: false, isActive: true, sortOrder: 10, issuedThisYear: 0, inUse: false },
+  ];
+  const withRegisters: CorrespondenceConfig = { ...config, settings: { ...config.settings, orgCode: 'SVN' }, registers };
+
+  it('cấu hình sổ: danh sách ghi mẫu số và ví dụ; thêm sổ mật, mẫu số sai báo ngay', async () => {
+    mocked.saveRegister.mockResolvedValue(registers[2]);
+    render(<ConfigView config={withRegisters} directory={directory} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Sổ và đánh số' }));
+    expect(screen.getByText(/Mẫu số \{so\}\/CVĐ, ví dụ 05\/CVĐ/)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /Thêm sổ/ })[1]);
+    const dialog = screen.getByRole('dialog', { name: 'Thêm sổ đăng ký công văn đi' });
+    fireEvent.change(within(dialog).getByLabelText(/Tên sổ/), { target: { value: 'Sổ văn bản mật đi' } });
+    const format = within(dialog).getByLabelText(/Mẫu số/);
+    fireEvent.change(format, { target: { value: 'M-ĐI' } });
+    expect(within(dialog).getByText('Mẫu số phải có {so} (số thứ tự).')).toBeTruthy();
+    fireEvent.change(format, { target: { value: '{so}/M' } });
+    expect(within(dialog).getByText('Ví dụ: 05/M')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Sổ văn bản mật/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu' }));
+    await waitFor(() => expect(mocked.saveRegister).toHaveBeenCalled());
+    expect(mocked.saveRegister).toHaveBeenCalledWith(undefined, {
+      direction: 'outgoing',
+      name: 'Sổ văn bản mật đi',
+      numberFormat: '{so}/M',
+      confidential: true,
+      letterTypes: [],
+      isDefault: false,
+      isActive: true,
+      sortOrder: undefined,
+    });
+  });
+
+  it('ban hành: người ký mặc định là người duyệt cuối, ghi số bản, phòng nhận nội bộ, chọn sổ', async () => {
+    const onDone = jest.fn();
+    const org = {
+      ...directory,
+      units: [
+        { id: 'unit-ceo', name: 'Ban Tổng giám đốc', path: 'Công ty', members: [{ userId: 'u-an', name: 'Nguyễn Văn An', positionName: 'Tổng giám đốc', isHead: true }] },
+        { id: 'unit-legal', name: 'Phòng Pháp chế', path: 'Công ty', members: [{ userId: 'u-ha', name: 'Lê Thu Hà', isHead: true }] },
+      ],
+    } as unknown as CorrespondenceDirectory;
+    const publishing = letter(
+      {
+        direction: 'outgoing',
+        stage: 'publishing',
+        stageLabel: 'Chờ ban hành',
+        recipient: 'Sở Tài chính',
+        steps: [{ id: 's1', seq: 1, name: 'Tổng giám đốc ký', type: 'approve', status: 'done', actedBy: 'u-an', assignees: [] }],
+        flow: [
+          { key: 'start', label: 'Phòng ban soạn thảo', kind: 'start', state: 'done', approval: false },
+          { key: 'step-1', label: 'Tổng giám đốc ký', kind: 'approve', state: 'done', approval: true },
+          { key: 'end', label: 'Văn thư ban hành, lưu trữ', kind: 'end', state: 'current', approval: false },
+        ],
+      },
+      { publish: true },
+    );
+    mocked.publish.mockResolvedValue(publishing);
+    render(<LetterActionPanel letter={publishing} config={withRegisters} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
+    expect((screen.getByLabelText('Chức vụ người ký') as HTMLInputElement).value).toBe('Tổng giám đốc');
+    expect(within(screen.getByRole('group', { name: 'Người ký' })).getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Sổ đăng ký (cấp số đi)' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Số bản'), { target: { value: '3' } });
+    const internal = screen.getByRole('group', { name: 'Phòng ban nhận nội bộ' });
+    fireEvent.click(within(internal).getByRole('textbox'));
+    fireEvent.click(within(internal).getByRole('option', { name: /Phòng Pháp chế/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Đánh số, ban hành' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.publish).toHaveBeenCalledWith('letter-1', expect.objectContaining({
+      recipient: 'Sở Tài chính',
+      signerUserId: 'u-an',
+      signerTitle: 'Tổng giám đốc',
+      copyCount: 3,
+      internalUnitIds: ['unit-legal'],
+      registerId: undefined,
+    }));
+  });
+
+  it('sửa thông tin công văn đến: sửa được phân loại sơ bộ, ô trống là xoá giá trị', async () => {
+    const onSaved = jest.fn();
+    const incoming = letter({ envelopeStatus: 'intact', pageCount: 12, copyCount: 2, stage: 'received' });
+    mocked.update.mockResolvedValue(incoming);
+    render(<EditLetterDialog open letter={incoming} directory={directory} onClose={jest.fn()} onSaved={onSaved} />);
+    const pages = screen.getByLabelText('Số tờ') as HTMLInputElement;
+    expect(pages.value).toBe('12');
+    fireEvent.change(pages, { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText(/Gửi đích danh/), { target: { value: 'Công đoàn' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mocked.update).toHaveBeenCalledWith('letter-1', expect.objectContaining({ pageCount: null, copyCount: 2, addressedTo: 'Công đoàn', envelopeStatus: 'intact' }));
   });
 });

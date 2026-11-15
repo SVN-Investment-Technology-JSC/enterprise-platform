@@ -35,6 +35,7 @@ import type {
   RespondAssignmentRequest,
   ReturnLetterRequest,
   SaveCatalogItemRequest,
+  SaveRegisterRequest,
   SaveWorkflowRequest,
   SubmitLetterRequest,
   UpdateDeliveryRequest,
@@ -131,6 +132,23 @@ export class CorrespondenceController {
     await this.execute(() => this.service.deleteWorkflow(this.actor(request), id));
   }
 
+  /** Sổ đăng ký văn bản đến / đi: mẫu số, sổ mật, loại văn bản. */
+  @Post('registers')
+  createRegister(@Req() request: CorrespondenceRequest, @Body() body: SaveRegisterRequest) {
+    return this.execute(() => this.service.saveRegister(this.actor(request), undefined, body));
+  }
+
+  @Put('registers/:id')
+  updateRegister(@Req() request: CorrespondenceRequest, @Param('id') id: string, @Body() body: SaveRegisterRequest) {
+    return this.execute(() => this.service.saveRegister(this.actor(request), id, body));
+  }
+
+  @Delete('registers/:id')
+  @HttpCode(204)
+  async deleteRegister(@Req() request: CorrespondenceRequest, @Param('id') id: string): Promise<void> {
+    await this.execute(() => this.service.deleteRegister(this.actor(request), id));
+  }
+
   /* ----------------------------------------------------------- công văn */
 
   @Get('letters')
@@ -139,12 +157,14 @@ export class CorrespondenceController {
     @Query('box') box?: string,
     @Query('stage') stage?: string,
     @Query('search') search?: string,
+    @Query('registerId') registerId?: string,
   ) {
     return this.execute(async () => ({
       items: await this.service.list(this.actor(request), {
         box: (box || undefined) as LetterBox | undefined,
         stage: (stage || undefined) as LetterStage | undefined,
         search,
+        registerId: registerId || undefined,
       }),
     }));
   }
