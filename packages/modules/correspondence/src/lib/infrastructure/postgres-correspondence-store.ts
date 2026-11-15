@@ -4,6 +4,7 @@ import {
   inTransaction,
 } from '@enterprise-platform/adapter-database';
 import {
+  stepModeOf,
   stepTypeOf,
   DEFAULT_CORRESPONDENCE_SETTINGS,
   RETURN_TARGETS,
@@ -64,8 +65,9 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.closer_ids::text[] AS closer_ids,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
-const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.reject_to, s.due_days, s.status, s.chosen_user_id,
-  s.assignee_user_ids::text[] AS assignee_user_ids, s.activated_at, s.acted_by, s.acted_at, s.decision, s.note`;
+const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.mode, s.reject_to, s.due_days, s.status, s.chosen_user_id,
+  s.assignee_user_ids::text[] AS assignee_user_ids, s.required_user_ids::text[] AS required_user_ids,
+  s.approved_by::text[] AS approved_by, s.activated_at, s.acted_by, s.acted_at, s.decision, s.note`;
 
 const ASSIGNMENT_COLUMNS = `a.id, a.letter_id, a.unit_id, a.unit_name, a.role, a.round, a.status, a.handler_user_id,
   a.response_note, a.submitted_by, a.submitted_at, a.revision_reason`;
@@ -442,7 +444,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
                                  ORDER BY a.created_at, a.unit_name)
                    FROM correspondence_schema.assignments a WHERE a.letter_id = l.id) AS assignments,
                 (SELECT json_agg(json_build_object('seq', s.seq, 'name', s.name, 'kind', s.kind, 'status', s.status, 'rejectTo', s.reject_to,
-                                                   'assigneeUserIds', s.assignee_user_ids, 'actedBy', s.acted_by)
+                                                   'assigneeUserIds', s.assignee_user_ids, 'actedBy', s.acted_by,
+                                                   'ownActors', s.kind = 'check' AND s.approver IS NOT NULL, 'approvedBy', s.approved_by)
                                  ORDER BY s.seq)
                    FROM correspondence_schema.letter_steps s WHERE s.letter_id = l.id) AS steps,
                 (SELECT array_agg(DISTINCT mentioned)::text[]
@@ -461,7 +464,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
         assignments: (row.assignments ?? []).map((item) => ({
           unitId: String(item['unitId']),
           unitName: String(item['unitName']),
-          role: item['role'] === 'support' ? ('support' as const) : ('lead' as const),
+          role: item['role'] === 'support' || item['role'] === 'info' ? (item['role'] as AssignmentRole) : ('lead' as const),
           status: item['status'] === 'submitted' ? ('submitted' as const) : ('pending' as const),
           submittedBy: optional(item['submittedBy']),
           submittedAt: optional(item['submittedAt']),
@@ -475,6 +478,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           rejectTo: returnTarget(item['rejectTo']),
           assigneeUserIds: Array.isArray(item['assigneeUserIds']) ? (item['assigneeUserIds'] as unknown[]).map(String) : [],
           actedBy: optional(item['actedBy']),
+          ownActors: item['ownActors'] === true,
+          approvedBy: Array.isArray(item['approvedBy']) ? (item['approvedBy'] as unknown[]).map(String) : [],
         })),
         mentionedUserIds: (row.mentioned ?? []).map(String),
         replied: Boolean(row.replied),
@@ -677,17 +682,18 @@ class PostgresLetterTransaction implements LetterTransaction {
     for (const [index, step] of steps.entries()) {
       const kind = stepTypeOf(step);
       await this.client.query(
-        `INSERT INTO correspondence_schema.letter_steps (letter_id, seq, name, kind, approver, reject_to, due_days, directs)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+        `INSERT INTO correspondence_schema.letter_steps (letter_id, seq, name, kind, approver, reject_to, due_days, directs, mode)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
         [
           this.letter.id,
           index + 1,
           step.name,
           kind,
-          kind === 'approve' && step.approver ? JSON.stringify(step.approver) : null,
+          kind !== 'process' && step.approver ? JSON.stringify(step.approver) : null,
           step.rejectTo ?? null,
           step.dueDays ?? null,
           kind === 'approve' && step.directs === true,
+          kind === 'check' ? null : stepModeOf(step),
         ],
       );
     }
@@ -704,6 +710,8 @@ class PostgresLetterTransaction implements LetterTransaction {
     if (update.status !== undefined) set('status', update.status);
     if (update.chosenUserId !== undefined) set('chosen_user_id', update.chosenUserId);
     if (update.assigneeUserIds !== undefined) set('assignee_user_ids', update.assigneeUserIds, '::uuid[]');
+    if (update.requiredUserIds !== undefined) set('required_user_ids', update.requiredUserIds, '::uuid[]');
+    if (update.approvedBy !== undefined) set('approved_by', update.approvedBy, '::uuid[]');
     if (update.activate) sets.push('activated_at = now()');
     if (update.actedBy !== undefined) {
       set('acted_by', update.actedBy);
@@ -1004,8 +1012,9 @@ function mapWorkflowStep(raw: Row, index: number): WorkflowStep {
     key: String(raw['key'] ?? `step-${index + 1}`),
     name: String(raw['name'] ?? `Bước ${index + 1}`),
     type,
-    ...(type === 'approve' && raw['approver'] ? { approver: raw['approver'] as ApproverRule } : {}),
+    ...(type !== 'process' && raw['approver'] ? { approver: raw['approver'] as ApproverRule } : {}),
     ...(type === 'approve' && raw['directs'] === true ? { directs: true } : {}),
+    ...(raw['mode'] === 'all' || raw['mode'] === 'lead' ? { mode: raw['mode'] } : {}),
     ...(rejectTo ? { rejectTo } : {}),
     ...(dueDays !== undefined && Number.isFinite(dueDays) ? { dueDays } : {}),
   };
@@ -1038,6 +1047,9 @@ function mapStep(row: Row): StepRecord {
     kind: stepKind(row['kind']),
     approver: row['approver'] ? (row['approver'] as ApproverRule) : undefined,
     directs: row['directs'] === true,
+    mode: row['mode'] === 'all' || row['mode'] === 'lead' || row['mode'] === 'any' ? row['mode'] : undefined,
+    requiredUserIds: Array.isArray(row['required_user_ids']) ? (row['required_user_ids'] as unknown[]).map(String) : [],
+    approvedBy: Array.isArray(row['approved_by']) ? (row['approved_by'] as unknown[]).map(String) : [],
     rejectTo: returnTarget(row['reject_to']),
     dueDays: row['due_days'] === null || row['due_days'] === undefined ? undefined : Number(row['due_days']),
     status: String(row['status']) as StepRecord['status'],
@@ -1118,7 +1130,7 @@ function mapAssignment(row: Row): AssignmentRecord {
     letterId: String(row['letter_id']),
     unitId: String(row['unit_id']),
     unitName: String(row['unit_name']),
-    role: row['role'] === 'support' ? 'support' : 'lead',
+    role: row['role'] === 'support' || row['role'] === 'info' ? row['role'] : 'lead',
     round: Number(row['round']),
     status: row['status'] === 'submitted' ? 'submitted' : 'pending',
     handlerUserId: optional(row['handler_user_id']),

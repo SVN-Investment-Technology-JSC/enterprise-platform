@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  APPROVE_MODE_LABELS,
   APPROVER_RULE_LABELS,
   CATALOG_KINDS,
   CATALOG_KIND_LABELS,
@@ -8,6 +9,7 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   MAX_WORKFLOW_STEPS,
+  PROCESS_MODE_LABELS,
   RETURN_TARGETS,
   STEP_TYPES,
   STEP_TYPE_LABELS,
@@ -369,7 +371,7 @@ const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
 
 const STEP_TYPE_HELP: Readonly<Record<StepType, string>> = {
   process: 'Người làm bước liền trước chọn phòng ban; phòng ban gửi đủ kết quả là sang bước sau.',
-  check: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư kiểm tra, đạt thì chuyển tiếp.',
+  check: 'Kiểm tra, rà soát rồi chuyển tiếp. Mặc định là người làm văn thư; chọn được người riêng (thư ký, phòng hành chính…).',
   approve:
     'Lãnh đạo xem xét rồi chuyển tiếp. Bước liền sau là Phòng ban xử lý thì chính lãnh đạo chọn phòng ban (phân công). Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
 };
@@ -777,6 +779,19 @@ function WorkflowDialog({
                 peopleOptions={peopleOptions}
                 onChange={(approver) => setStep(index, { approver })}
               />
+              <SelectField label="Cách duyệt">
+                <SearchableSelect
+                  options={(['any', 'all'] as const).map((value) => ({
+                    value,
+                    label: APPROVE_MODE_LABELS[value],
+                    description: value === 'all' ? 'Mỗi người duyệt một lần; người cuối duyệt thì sang bước sau' : undefined,
+                  }))}
+                  value={step.mode === 'all' ? 'all' : 'any'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) => setStep(index, { mode: value === 'all' ? 'all' : undefined })}
+                />
+              </SelectField>
               <CheckGroup label="Phân công">
                 {assignNextRow(index)}
                 <label className={styles.checkRow}>
@@ -797,13 +812,58 @@ function WorkflowDialog({
               ) : null}
             </>
           ) : type === 'process' ? (
-            <p className={styles.sectionNote}>
-              Phòng ban là các phòng do &quot;{preview[index]}&quot; chọn khi chuyển sang bước này, không cố định trong quy trình. Các phòng
-              gửi đủ kết quả thì sang bước sau.
-            </p>
+            <>
+              <p className={styles.sectionNote}>
+                Phòng ban là các phòng do &quot;{preview[index]}&quot; chọn khi chuyển sang bước này, không cố định trong quy trình. Phòng
+                nhận để biết chỉ xem, không phải gửi kết quả.
+              </p>
+              <SelectField label="Bước xong khi">
+                <SearchableSelect
+                  options={(['all', 'lead'] as const).map((value) => ({
+                    value,
+                    label: PROCESS_MODE_LABELS[value],
+                    description: value === 'lead' ? 'Phòng phối hợp chưa gửi thì bước vẫn sang bước sau' : undefined,
+                  }))}
+                  value={step.mode === 'lead' ? 'lead' : 'all'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) => setStep(index, { mode: value === 'lead' ? 'lead' : undefined })}
+                />
+              </SelectField>
+            </>
           ) : (
             <>
-              <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+              <SelectField label="Người làm bước">
+                <SearchableSelect
+                  options={[
+                    { value: 'clerk', label: 'Người làm văn thư (Cấu hình sổ)' },
+                    ...RULE_TYPES.map((value) => ({ value, label: APPROVER_RULE_LABELS[value] })),
+                  ]}
+                  value={step.approver?.type ?? 'clerk'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) =>
+                    setStep(index, {
+                      approver:
+                        !value || value === 'clerk'
+                          ? undefined
+                          : ruleFor(value as ApproverRuleType, step.approver ?? { type: 'handling_unit_heads' }),
+                    })
+                  }
+                />
+              </SelectField>
+              {step.approver ? (
+                <RuleDetail
+                  rule={step.approver}
+                  direction={direction}
+                  unitOptions={unitOptions}
+                  positionOptions={positionOptions}
+                  peopleOptions={peopleOptions}
+                  onChange={(approver) => setStep(index, { approver })}
+                />
+              ) : (
+                <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+              )}
               <CheckGroup label="Phân công">
                 {assignNextRow(index)}
               </CheckGroup>

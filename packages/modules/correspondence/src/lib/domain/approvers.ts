@@ -4,6 +4,7 @@ import {
   STEP_TYPES,
   STEP_TYPE_LABELS,
   type ApproverRule,
+  type StepMode,
   type StepType,
   type ReturnTarget,
   type WorkflowStep,
@@ -124,12 +125,21 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
   if (rejectTo !== undefined && rejectTo !== null && rejectTo !== '' && !(RETURN_TARGETS as readonly unknown[]).includes(rejectTo)) {
     throw new CorrespondenceValidationError(`Bước "${name}": nơi trả về khi không đạt không hợp lệ.`);
   }
+  const mode = value['mode'];
+  const modes: readonly unknown[] = type === 'approve' ? ['any', 'all'] : type === 'process' ? ['all', 'lead'] : [];
+  if (mode !== undefined && mode !== null && mode !== '' && !modes.includes(mode)) {
+    throw new CorrespondenceValidationError(`Bước "${name}": cách xong bước không hợp lệ.`);
+  }
   return {
     key,
     name,
     type,
-    // Chỉ bước duyệt có luật người duyệt; phòng ban do người làm bước trước chọn, văn thư theo cấu hình người làm văn thư.
+    // Bước duyệt có luật người duyệt; phòng ban do người làm bước trước chọn.
     ...(type === 'approve' ? { approver: normalizeRule(value['approver'], name) } : {}),
+    // Bước văn thư kiểm tra giao người riêng (thư ký, phòng hành chính…); trống là người làm văn thư.
+    ...(type === 'check' && value['approver'] ? { approver: normalizeRule(value['approver'], name) } : {}),
+    // Cách xong khác mặc định: tất cả cùng duyệt; phòng chủ trì gửi là xong.
+    ...((type === 'approve' && mode === 'all') || (type === 'process' && mode === 'lead') ? { mode: mode as StepMode } : {}),
     // Bước chỉ đạo (bút phê): người duyệt chọn đơn vị chủ trì, phối hợp, thời hạn.
     ...(type === 'approve' && value['directs'] === true ? { directs: true } : {}),
     ...(rejectTo && type !== 'process' ? { rejectTo: rejectTo as ReturnTarget } : {}),

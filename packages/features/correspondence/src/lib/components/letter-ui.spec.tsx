@@ -839,3 +839,116 @@ describe('Cấu hình quy trình: giao phòng ban tự sinh bước phòng ban x
     ]);
   });
 });
+
+describe('Quy trình động trên màn thao tác: tất cả cùng duyệt, trả về bước bất kỳ', () => {
+  const flow: FlowNode[] = [
+    { key: 'received', label: 'Văn thư tiếp nhận', kind: 'start', state: 'done', approval: false },
+    { key: 'step-1', label: 'Kế toán trưởng duyệt', kind: 'approve', state: 'done', approval: true },
+    { key: 'step-2', label: 'Phó giám đốc duyệt', kind: 'approve', state: 'done', approval: true },
+    { key: 'step-3', label: 'Ban giám đốc duyệt', kind: 'approve', state: 'current', approval: true },
+    { key: 'step-4', label: 'Phòng ban xử lý', kind: 'process', state: 'todo', approval: false },
+    { key: 'closing', label: 'Văn thư hoàn tất, lưu trữ', kind: 'end', state: 'todo', approval: false },
+  ];
+  const board = letter(
+    {
+      stage: 'reviewing',
+      currentStepName: 'Ban giám đốc duyệt',
+      flow,
+      steps: [
+        { id: 's1', seq: 1, name: 'Kế toán trưởng duyệt', type: 'approve', status: 'done', assignees: [] },
+        { id: 's2', seq: 2, name: 'Phó giám đốc duyệt', type: 'approve', status: 'done', assignees: [] },
+        {
+          id: 's3',
+          seq: 3,
+          name: 'Ban giám đốc duyệt',
+          type: 'approve',
+          mode: 'all',
+          requiredCount: 3,
+          approvedBy: [{ userId: 'u-ha', name: 'Lê Thu Hà' }],
+          status: 'active',
+          assignees: [],
+        },
+        { id: 's4', seq: 4, name: 'Phòng ban xử lý', type: 'process', status: 'waiting', assignees: [] },
+      ],
+    },
+    {
+      approve: true,
+      returnTargets: ['previous-step', 'clerk'],
+      returnSteps: [
+        { seq: 1, name: 'Kế toán trưởng duyệt' },
+        { seq: 2, name: 'Phó giám đốc duyệt' },
+      ],
+    },
+  );
+
+  it('chưa phải người duyệt cuối: nút ghi số người, không phải chọn phòng ban, chỉ ghi nhận ý kiến', async () => {
+    const onDone = jest.fn();
+    mocked.approve.mockResolvedValue(board);
+    render(<LetterActionPanel letter={board} config={config} directory={directory} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const send = await screen.findByRole('button', { name: 'Duyệt (2/3)' });
+    expect(screen.getByText(/Bước này cần cả 3 người duyệt/).textContent).toContain('Đã duyệt: Lê Thu Hà');
+    expect(screen.queryByRole('group', { name: /Phòng ban cho bước/ })).toBeNull();
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    expect(await screen.findByText('Ghi nhận bạn đã duyệt; còn 1 người chưa duyệt.')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.approve).toHaveBeenCalledWith('letter-1', { note: undefined });
+  });
+
+  it('trả về đúng một bước đã qua: chọn "Về bước", gửi số thứ tự bước', async () => {
+    const onDone = jest.fn();
+    mocked.ret.mockResolvedValue(board);
+    render(<LetterActionPanel letter={board} config={config} directory={directory} onDone={onDone} onDirtyChange={jest.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Không đạt' }));
+    const dialog = screen.getByRole('dialog', { name: 'Không đạt, trả lại' });
+    const group = within(dialog).getByRole('group', { name: 'Trả về' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    // Bước liền trước đã nằm ở "Bước trước", không lặp lại.
+    expect(within(group).queryByRole('option', { name: /Về bước: Phó giám đốc duyệt/ })).toBeNull();
+    fireEvent.click(within(group).getByRole('option', { name: /Về bước: Kế toán trưởng duyệt/ }));
+    fireEvent.change(within(dialog).getByLabelText(/Lý do/), { target: { value: 'Số liệu chưa khớp' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận trả lại' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(board, 'Đã trả về bước "Kế toán trưởng duyệt".'));
+    expect(mocked.ret).toHaveBeenCalledWith('letter-1', { target: 'step', stepSeq: 1, reason: 'Số liệu chưa khớp', assignmentIds: undefined });
+  });
+});
+
+describe('Cấu hình quy trình: cách xong bước, người làm bước kiểm tra', () => {
+  it('chọn phòng chủ trì gửi là xong, tất cả cùng duyệt, thư ký làm bước rà soát; lưu đúng cấu hình', async () => {
+    const workflow = {
+      id: 'wf-in',
+      name: 'Quy trình đến',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: true,
+      steps: [
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process' as const },
+        { key: 'c', name: 'Thư ký rà soát', type: 'check' as const },
+        { key: 'a', name: 'Ban giám đốc', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-an', 'u-ha'] } },
+      ],
+      updatedAt: '2026-11-14T00:00:00.000Z',
+    };
+    mocked.saveWorkflow.mockResolvedValue(workflow);
+    render(<ConfigView config={{ ...config, workflows: [workflow] }} directory={directory} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Sửa/ })[0]);
+    const choose = (label: string, option: RegExp, at = 0) => {
+      const group = screen.getAllByRole('group', { name: label })[at];
+      fireEvent.click(within(group).getByRole('textbox'));
+      fireEvent.click(within(group).getByRole('option', { name: option }));
+    };
+    choose('Bước xong khi', /Phòng chủ trì gửi kết quả là xong/);
+    choose('Cách duyệt', /Tất cả người trong nhóm đều phải duyệt/);
+    choose('Người làm bước', /Người được chỉ định/);
+    // Bước rà soát (đứng trước bước Ban giám đốc) có ô chọn người riêng.
+    choose('Người được chỉ định', /Hồ Thọ/);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu quy trình' }));
+    await waitFor(() => expect(mocked.saveWorkflow).toHaveBeenCalled());
+    const [, saved] = mocked.saveWorkflow.mock.calls[0];
+    expect(saved.steps.map((step) => [step.type, step.mode, step.approver])).toEqual([
+      ['process', 'lead', undefined],
+      ['check', undefined, { type: 'users', userIds: ['u-me'] }],
+      ['approve', 'all', { type: 'users', userIds: ['u-an', 'u-ha'] }],
+    ]);
+  });
+});

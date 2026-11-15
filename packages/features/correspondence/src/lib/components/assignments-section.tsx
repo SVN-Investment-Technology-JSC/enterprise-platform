@@ -1,6 +1,6 @@
 'use client';
 
-import type { CorrespondenceDirectory, LetterAssignment, LetterDetail } from '@enterprise-platform/contracts-correspondence';
+import { ASSIGNMENT_ROLE_LABELS, type CorrespondenceDirectory, type LetterAssignment, type LetterDetail } from '@enterprise-platform/contracts-correspondence';
 import { formatDateTime, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { UserCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -64,13 +64,15 @@ export function AssignmentsSection({
     }
   };
 
-  const done = letter.assignments.filter((item) => item.status === 'submitted').length;
+  // Phòng nhận để biết không gửi kết quả: không tính vào số phòng phải xử lý.
+  const handling = letter.assignments.filter((item) => item.role !== 'info');
+  const done = handling.filter((item) => item.status === 'submitted').length;
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Phòng ban xử lý</h2>
         <span className={styles.muted}>
-          Đã gửi kết quả {done}/{letter.assignments.length}
+          Đã gửi kết quả {done}/{handling.length}
         </span>
       </div>
       {letter.instruction ? (
@@ -89,7 +91,7 @@ export function AssignmentsSection({
                   <b>
                     {assignment.unitName}{' '}
                     <span className={`${styles.tag} ${styles[assignment.role === 'lead' ? 'tone-info' : 'tone-neutral']}`}>
-                      {assignment.role === 'lead' ? 'Chủ trì' : 'Phối hợp'}
+                      {ASSIGNMENT_ROLE_LABELS[assignment.role]}
                     </span>
                   </b>
                   <span className={styles.hint}>
@@ -104,9 +106,13 @@ export function AssignmentsSection({
                   </span>
                   {assignment.round > 1 ? <span className={styles.hint}>Lượt xử lý thứ {assignment.round}</span> : null}
                 </div>
-                <span className={`${styles.tag} ${styles[assignment.status === 'submitted' ? 'tone-success' : 'tone-warning']}`}>
-                  {assignment.status === 'submitted' ? 'Đã gửi kết quả' : 'Đang xử lý'}
-                </span>
+                {assignment.role === 'info' ? (
+                  <span className={`${styles.tag} ${styles['tone-muted']}`}>Nhận để biết</span>
+                ) : (
+                  <span className={`${styles.tag} ${styles[assignment.status === 'submitted' ? 'tone-success' : 'tone-warning']}`}>
+                    {assignment.status === 'submitted' ? 'Đã gửi kết quả' : 'Đang xử lý'}
+                  </span>
+                )}
               </div>
               {assignment.revisionReason && assignment.status === 'pending' ? (
                 <p className={styles.notice}>Không đạt, cần xử lý lại: {assignment.revisionReason}</p>

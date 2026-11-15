@@ -18,6 +18,7 @@ import type {
   LetterStepStatus,
   ReturnTarget,
   RevokeKind,
+  StepMode,
   StepType,
   Workflow,
   WorkflowStep,
@@ -126,8 +127,13 @@ export interface StepRecord {
   readonly rejectTo?: ReturnTarget;
   readonly dueDays?: number;
   readonly status: LetterStepStatus;
+  /** Khi nào bước xong; trống là mặc định của loại bước. */
+  readonly mode?: StepMode;
   readonly chosenUserId?: string;
   readonly assigneeUserIds: readonly string[];
+  /** Bước "tất cả cùng duyệt": người phải duyệt (không tính người được ủy quyền), người đã duyệt. */
+  readonly requiredUserIds?: readonly string[];
+  readonly approvedBy?: readonly string[];
   readonly activatedAt?: string;
   readonly actedBy?: string;
   readonly actedAt?: string;
@@ -186,7 +192,10 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
+  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy'> & {
+    /** Bước văn thư kiểm tra giao người riêng (không phải người làm văn thư). */
+    readonly ownActors?: boolean;
+  })[];
   readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'role' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
   /** Có công văn đi (chưa huỷ) trả lời công văn này. */
   readonly replied?: boolean;
@@ -253,6 +262,8 @@ export interface StepUpdate {
   readonly status?: LetterStepStatus;
   readonly chosenUserId?: string | null;
   readonly assigneeUserIds?: readonly string[];
+  readonly requiredUserIds?: readonly string[];
+  readonly approvedBy?: readonly string[];
   readonly activate?: boolean;
   readonly actedBy?: string | null;
   readonly decision?: LetterStepDecision | null;

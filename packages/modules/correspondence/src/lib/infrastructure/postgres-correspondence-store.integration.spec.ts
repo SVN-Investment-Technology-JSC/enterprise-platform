@@ -18,6 +18,7 @@ const MIGRATIONS = [
   '0003-revoke-and-delete.sql',
   '0004-dynamic-workflow-steps.sql',
   '0005-directive-intake-tracking.sql',
+  '0006-step-modes-info-role.sql',
 ].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
@@ -275,6 +276,32 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const [row] = await store.listLetters(TENANT, { visibleTo: { ...outsider, userId: addressee }, limit: 50 });
     expect(row).toMatchObject({ id: letter.id, replied: false, assignments: [{ role: 'lead' }, { role: 'support' }] });
     await expect(store.withLetter(TENANT, letter.id, (tx) => tx.update({ envelopeStatus: 'lost' as never }))).rejects.toMatchObject({ code: '23514' });
+    // Cách xong bước, người phải duyệt / đã duyệt, phòng nhận để biết, bước kiểm tra giao người riêng.
+    await store.withLetter(TENANT, letter.id, async (tx) => {
+      await tx.replaceSteps([
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process', mode: 'lead' },
+        { key: 'c', name: 'Thư ký rà soát', type: 'check', approver: { type: 'users', userIds: [author] } },
+        { key: 'a', name: 'Ban giám đốc', type: 'approve', mode: 'all', approver: { type: 'users', userIds: [author, addressee] } },
+      ]);
+      await tx.updateStep(tx.steps[2].id, { status: 'active', requiredUserIds: [author, addressee], approvedBy: [author] });
+      await tx.assign([{ unitId: randomUUID(), unitName: 'Phòng Hành chính', role: 'info' }]);
+    });
+    await store.withLetter(TENANT, letter.id, async (tx) => {
+      expect(tx.steps.map((step) => [step.kind, step.mode, step.approver?.type])).toEqual([
+        ['process', 'lead', undefined],
+        ['check', undefined, 'users'],
+        ['approve', 'all', 'users'],
+      ]);
+      expect(tx.steps[2]).toMatchObject({ requiredUserIds: [author, addressee], approvedBy: [author] });
+      expect(tx.assignments.map((item) => item.role)).toEqual(['lead', 'support', 'info']);
+    });
+    const [withSteps] = await store.listLetters(TENANT, { visibleTo: { ...outsider, userId: addressee }, limit: 50 });
+    expect(withSteps.steps.map((step) => [step.ownActors, step.approvedBy])).toEqual([
+      [false, []],
+      [true, []],
+      [false, [author]],
+    ]);
+    expect(withSteps.assignments.map((item) => item.role)).toEqual(['lead', 'support', 'info']);
     const catalog = await store.catalog(TENANT);
     expect(catalog.filter((item) => item.kind === 'urgency').map((item) => item.name)).toEqual(['Thường', 'Khẩn', 'Thượng khẩn', 'Hỏa tốc']);
     expect(catalog.filter((item) => item.kind === 'confidentiality').map((item) => item.name)).toEqual(['Thường', 'Mật', 'Tối mật', 'Tuyệt mật']);

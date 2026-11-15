@@ -219,6 +219,29 @@ export const STEP_TYPE_LABELS: Readonly<Record<StepType, string>> = {
   approve: 'Lãnh đạo duyệt / chỉ đạo',
 };
 
+/**
+ * Khi nào một bước coi là xong:
+ * - bước duyệt: `any` một người trong nhóm duyệt là đủ (mặc định), `all` mọi người trong nhóm đều phải duyệt;
+ * - bước phòng ban xử lý: `all` mọi phòng chủ trì, phối hợp gửi kết quả (mặc định), `lead` phòng chủ trì gửi là xong.
+ */
+export const STEP_MODES = ['any', 'all', 'lead'] as const;
+export type StepMode = (typeof STEP_MODES)[number];
+export const APPROVE_MODE_LABELS: Readonly<Record<'any' | 'all', string>> = {
+  any: 'Một người trong nhóm duyệt là đủ',
+  all: 'Tất cả người trong nhóm đều phải duyệt',
+};
+export const PROCESS_MODE_LABELS: Readonly<Record<'all' | 'lead', string>> = {
+  all: 'Mọi phòng chủ trì, phối hợp gửi kết quả',
+  lead: 'Phòng chủ trì gửi kết quả là xong',
+};
+/** Cách xong mặc định của loại bước (bước văn thư kiểm tra: một người làm là xong). */
+export function stepModeOf(step: { readonly type?: StepType; readonly mode?: StepMode }): StepMode {
+  const type = step.type ?? 'approve';
+  if (type === 'process') return step.mode === 'lead' ? 'lead' : 'all';
+  if (type === 'approve') return step.mode === 'all' ? 'all' : 'any';
+  return 'any';
+}
+
 /** Tên mặc định của ô đầu (nơi công văn được tạo) và ô cuối (đánh số, lưu trữ) theo luồng. */
 export const FLOW_START_NAMES: Readonly<Record<LetterDirection, string>> = {
   incoming: 'Văn thư tiếp nhận',
@@ -240,8 +263,13 @@ export interface WorkflowStep {
   readonly name: string;
   /** Trống là bước duyệt (dữ liệu trước khi có loại bước). */
   readonly type?: StepType;
-  /** Luật người duyệt; chỉ bước duyệt có. */
+  /**
+   * Ai làm bước: bước duyệt bắt buộc có; bước văn thư kiểm tra có thì giao đúng những người này (thư ký,
+   * phòng hành chính…), trống là người làm văn thư; bước phòng ban xử lý không có.
+   */
   readonly approver?: ApproverRule;
+  /** Khi nào bước xong (xem `STEP_MODES`); trống là mặc định của loại bước. */
+  readonly mode?: StepMode;
   /**
    * Bước duyệt là bước chỉ đạo (bút phê): người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân
    * chủ trì, phối hợp và thời hạn; bước phòng ban xử lý sau đó giao theo bút phê.
@@ -313,6 +341,10 @@ export interface LetterStep {
   readonly approver?: ApproverRule;
   /** Bước chỉ đạo (bút phê). */
   readonly directs?: boolean;
+  readonly mode?: StepMode;
+  /** Bước duyệt "tất cả cùng duyệt": ai đã duyệt, và tổng số người phải duyệt. */
+  readonly approvedBy?: readonly { readonly userId: string; readonly name?: string }[];
+  readonly requiredCount?: number;
   readonly status: LetterStepStatus;
   readonly assignees: readonly { readonly userId: string; readonly name?: string }[];
   readonly actedBy?: string;
@@ -382,10 +414,13 @@ export interface LetterAttachment {
 export const ASSIGNMENT_STATUSES = ['pending', 'submitted'] as const;
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
-/** Vai trò của đơn vị được giao: chủ trì (chịu trách nhiệm kết quả) hay phối hợp. */
-export const ASSIGNMENT_ROLES = ['lead', 'support'] as const;
+/**
+ * Vai trò của đơn vị được giao: chủ trì (chịu trách nhiệm kết quả), phối hợp, hay nhận để biết (được
+ * xem, được báo, không phải gửi kết quả, không chặn bước).
+ */
+export const ASSIGNMENT_ROLES = ['lead', 'support', 'info'] as const;
 export type AssignmentRole = (typeof ASSIGNMENT_ROLES)[number];
-export const ASSIGNMENT_ROLE_LABELS: Readonly<Record<AssignmentRole, string>> = { lead: 'Chủ trì', support: 'Phối hợp' };
+export const ASSIGNMENT_ROLE_LABELS: Readonly<Record<AssignmentRole, string>> = { lead: 'Chủ trì', support: 'Phối hợp', info: 'Để biết' };
 
 /** Bút phê của bước chỉ đạo: ý kiến chỉ đạo, đơn vị / cá nhân chủ trì, phối hợp, thời hạn. */
 export interface LetterDirective {
@@ -627,6 +662,8 @@ export interface LetterActions {
   readonly remind: boolean;
   /** Người xem trả lại được về đâu ở bước hiện tại ("Không đạt"). */
   readonly returnTargets: readonly ReturnTarget[];
+  /** Ngoài các nơi trên: trả về đúng một bước đã xong bất kỳ trước bước hiện tại. */
+  readonly returnSteps?: readonly { readonly seq: number; readonly name: string }[];
   /** Nơi trả về mặc định của bước hiện tại (cấu hình của bước duyệt). */
   readonly defaultReturnTarget?: ReturnTarget;
   readonly comment: boolean;
@@ -757,7 +794,9 @@ export interface ApproveStepRequest extends NextStepInput {
 }
 
 export interface ReturnLetterRequest {
-  readonly target: ReturnTarget;
+  /** `step`: về đúng bước đã xong `stepSeq` (bất kỳ bước nào trước bước hiện tại). */
+  readonly target: ReturnTarget | 'step';
+  readonly stepSeq?: number;
   readonly reason: string;
   /** Khi trả phòng ban: phòng ban phải làm lại; trống là mọi phòng. */
   readonly assignmentIds?: readonly string[];

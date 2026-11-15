@@ -32,6 +32,7 @@ import {
   returnTargetLabel,
   type ApproveStepRequest,
   type ApproverRule,
+  type AssignmentRole,
   type AssignHandlerRequest,
   type AttachmentDownloadMode,
   type AttachmentDownloadTicket,
@@ -357,7 +358,7 @@ export class CorrespondenceService {
     const names = await this.store.userNames(actor.tenantId, [
       letter.receivedBy,
       ...(letter.authorUserId ? [letter.authorUserId] : []),
-      ...steps.flatMap((step) => [...step.assigneeUserIds, ...(step.actedBy ? [step.actedBy] : [])]),
+      ...steps.flatMap((step) => [...step.assigneeUserIds, ...(step.approvedBy ?? []), ...(step.actedBy ? [step.actedBy] : [])]),
       ...[...expected.values()].flat(),
       ...assignments.flatMap((item) => [item.submittedBy, item.handlerUserId].filter((id): id is string => Boolean(id))),
       ...attachments.map((item) => item.uploadedBy),
@@ -422,6 +423,13 @@ export class CorrespondenceService {
         type: step.kind,
         approver: step.approver,
         directs: step.directs,
+        mode: step.mode,
+        ...(step.mode === 'all'
+          ? {
+              approvedBy: (step.approvedBy ?? []).map((userId) => ({ userId, name: names.get(userId) })),
+              requiredCount: (step.requiredUserIds?.length ? step.requiredUserIds : step.assigneeUserIds).length,
+            }
+          : {}),
         status: step.status,
         assignees: step.assigneeUserIds.map((userId) => ({ userId, name: names.get(userId) })),
         actedBy: step.actedBy,
@@ -774,8 +782,8 @@ export class CorrespondenceService {
       }
       await tx.submitAssignment(assignment.id, { note, userId: actor.userId });
       await tx.history({ action: 'respond', summary: `${assignment.unitName} gửi kết quả xử lý`, note, actorUserId: actor.userId });
-      if (!tx.assignments.some((item) => item.status === 'pending')) {
-        const step = tx.steps.find((item) => item.status === 'active' && item.kind === 'process');
+      const step = tx.steps.find((item) => item.status === 'active' && item.kind === 'process');
+      if (!blockingAssignments(tx.assignments, step).some((item) => item.status === 'pending')) {
         if (step) await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: null });
         await this.advance(actor, tx, step?.seq ?? 0, {});
       }
@@ -970,6 +978,25 @@ export class CorrespondenceService {
           : [];
       const onBehalf = delegated && !own.includes(actor.userId) ? delegated : undefined;
       const behalfName = onBehalf ? (await this.store.userNames(actor.tenantId, [onBehalf.fromUserId])).get(onBehalf.fromUserId) : undefined;
+      if (step.mode === 'all') {
+        // Tất cả cùng duyệt: ghi người đã duyệt (duyệt thay thì ghi người ủy quyền); còn người chưa duyệt thì bước chờ tiếp.
+        const required = step.requiredUserIds && step.requiredUserIds.length > 0 ? step.requiredUserIds : step.assigneeUserIds;
+        const principal = onBehalf?.fromUserId ?? actor.userId;
+        const approvedBy = [...new Set([...(step.approvedBy ?? []), principal])];
+        const missing = required.filter((id) => !approvedBy.includes(id));
+        if (required.includes(principal) && missing.length > 0) {
+          await tx.updateStep(step.id, { approvedBy });
+          const done = required.length - missing.length;
+          await tx.history({
+            action: 'approve',
+            summary: `${step.name}: đạt (${done}/${required.length} người)${behalfName ? ` (ủy quyền của ${behalfName})` : ''}`,
+            note,
+            actorUserId: actor.userId,
+          });
+          return;
+        }
+        await tx.updateStep(step.id, { approvedBy });
+      }
       await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: note ?? null });
       let directive: LetterRecord['directive'];
       if (step.directs) {
@@ -1006,21 +1033,25 @@ export class CorrespondenceService {
    * kiểm tra gần nhất). Các bước giữa nơi về và bước hiện tại chạy lại từ đầu.
    */
   async returnLetter(actor: CorrespondenceActor, letterId: string, input: ReturnLetterRequest): Promise<LetterDetail> {
-    const target = requireEnum(input?.target, RETURN_TARGETS, 'Nơi trả về');
+    const target = requireEnum(input?.target, [...RETURN_TARGETS, 'step'] as const, 'Nơi trả về');
     const reason = requireText(input?.reason, 'Lý do', 4000);
     const viewer = await this.viewer(actor);
     const clerks = await this.clerkTargets(actor.tenantId, ROUTE_PERMISSIONS.register);
     await this.inLetter(actor, letterId, async (tx, letterFacts) => {
       const allowed = returnTargets(viewer, letterFacts);
-      if (!allowed.includes(target)) {
+      if (target === 'step' ? allowed.length === 0 : !allowed.includes(target)) {
         if (allowed.length === 0) throw new LetterStageConflictError();
         throw new CorrespondenceValidationError('Không trả về được nơi này ở bước hiện tại.');
       }
       const direction = tx.letter.direction;
       const active = tx.steps.find((item) => item.status === 'active');
       const fromLabel = active?.name ?? LETTER_STAGE_LABELS[tx.letter.stage];
-      const landing =
-        target === 'previous-step'
+      const picked =
+        target === 'step' ? letterActions(viewer, letterFacts).returnSteps?.find((item) => item.seq === Number(input?.stepSeq)) : undefined;
+      if (target === 'step' && !picked) throw new CorrespondenceValidationError('Chọn một bước đã xong trước bước hiện tại để trả về.');
+      const landing = picked
+        ? tx.steps.find((item) => item.seq === picked.seq)
+        : target === 'previous-step'
           ? lastDoneBefore(tx, active?.seq)
           : target === 'handlers' && direction === 'incoming'
             ? lastDoneBefore(tx, active?.seq, 'process')
@@ -1038,7 +1069,7 @@ export class CorrespondenceService {
         if (landing.kind === 'process') {
           // Về phòng ban xử lý: phòng được chọn làm lại (trống là mọi phòng), bước sau chạy lại khi gửi đủ kết quả.
           const wanted = Array.isArray(input?.assignmentIds) && input.assignmentIds.length > 0 ? new Set(input.assignmentIds.map(String)) : undefined;
-          const targets = tx.assignments.filter((item) => !wanted || wanted.has(item.id));
+          const targets = tx.assignments.filter((item) => item.role !== 'info' && (!wanted || wanted.has(item.id)));
           if (targets.length === 0 || (wanted && targets.length !== wanted.size)) {
             throw new CorrespondenceValidationError('Chọn phòng ban phải làm lại trong số phòng ban đã giao.');
           }
@@ -1226,7 +1257,7 @@ export class CorrespondenceService {
       let recipients: string[] = [];
       let notifyPermissions: string[] = [];
       if (tx.letter.stage === 'processing') {
-        recipients = tx.assignments
+        recipients = blockingAssignments(tx.assignments, active)
           .filter((item) => item.status === 'pending')
           .flatMap((item) => (item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)]));
       } else if (tx.letter.stage === 'reviewing') {
@@ -1891,7 +1922,8 @@ export class CorrespondenceService {
     options: { readonly notify?: boolean } = {},
   ): Promise<void> {
     if (step.kind === 'process') return this.activateProcess(actor, tx, step, input, options);
-    if (step.kind === 'check') {
+    // Bước kiểm tra không giao người riêng: người làm văn thư.
+    if (step.kind === 'check' && !step.approver) {
       const settings = await this.settingsOrDefault(actor.tenantId);
       await tx.updateStep(step.id, {
         status: 'active',
@@ -1930,12 +1962,15 @@ export class CorrespondenceService {
       status: 'active',
       activate: true,
       assigneeUserIds: assignees,
+      // Tất cả cùng duyệt: những người theo luật của bước (người được ủy quyền duyệt thay họ).
+      requiredUserIds: step.mode === 'all' ? resolveAssignees(rule, context) : [],
+      approvedBy: [],
       chosenUserId: pick ?? null,
       actedBy: null,
       decision: null,
       note: null,
     });
-    const letter = await tx.update({ stage: 'reviewing' });
+    const letter = await tx.update({ stage: step.kind === 'check' ? 'checking' : 'reviewing' });
     if (options.notify === false) return;
     await tx.outbox(
       this.event(CORRESPONDENCE_EVENTS.stepAssigned, letter, actor, assignees, {
@@ -1960,6 +1995,9 @@ export class CorrespondenceService {
     }
     const [settings, snapshot] = await Promise.all([this.store.settings(actor.tenantId), this.organization.snapshot(actor.tenantId)]);
     const units = this.dispatchUnits(snapshot, settings, chosenUnits);
+    if (!units.some((unit) => unit.role !== 'info')) {
+      throw new CorrespondenceValidationError(`Bước "${step.name}": chọn ít nhất một phòng chủ trì hoặc phối hợp, không chỉ phòng nhận để biết.`);
+    }
     const dueOn = optionalDate(input.dueOn, 'Thời hạn hoàn thành') ?? (input.units ? undefined : tx.letter.directive?.dueOn);
     if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Thời hạn hoàn thành không được trước ngày đến.');
     await this.preselect(actor.tenantId, tx, step.seq, input.chosen, units.map((unit) => unit.unitId));
@@ -2014,8 +2052,10 @@ export class CorrespondenceService {
 
   /** Các bước sau `afterSeq` (không có thì mọi bước) về chưa tới, giữ người đã chọn, để chạy lại. */
   private async resetSteps(tx: LetterTransaction, afterSeq = 0): Promise<void> {
-    for (const step of tx.steps.filter((item) => item.seq > afterSeq && (item.status !== 'waiting' || item.assigneeUserIds.length > 0))) {
-      await tx.updateStep(step.id, { status: 'waiting', assigneeUserIds: [] });
+    for (const step of tx.steps.filter(
+      (item) => item.seq > afterSeq && (item.status !== 'waiting' || item.assigneeUserIds.length > 0 || (item.approvedBy?.length ?? 0) > 0),
+    )) {
+      await tx.updateStep(step.id, { status: 'waiting', assigneeUserIds: [], approvedBy: [] });
     }
   }
 
@@ -2107,7 +2147,7 @@ export class CorrespondenceService {
       return {
         unitId,
         unitName: node.name,
-        role: entry.role === 'support' ? ('support' as const) : ('lead' as const),
+        role: entry.role === 'support' || entry.role === 'info' ? (entry.role as AssignmentRole) : ('lead' as const),
         handlerUserId: handler?.userId,
         handlerName: handler?.name,
         recipients: handler ? [handler.userId] : members.map((member) => member.userId),
@@ -2299,6 +2339,16 @@ interface FlowStep {
   readonly actedAt?: string;
 }
 
+/**
+ * Phòng phải gửi kết quả thì bước phòng ban xử lý mới xong: phòng nhận để biết không tính; bước "phòng
+ * chủ trì gửi là xong" chỉ tính phòng chủ trì (không có phòng chủ trì thì tính mọi phòng).
+ */
+function blockingAssignments<T extends Pick<AssignmentRecord, 'role'>>(assignments: readonly T[], step?: Pick<StepRecord, 'mode'>): T[] {
+  const handling = assignments.filter((item) => item.role !== 'info');
+  const leads = handling.filter((item) => item.role === 'lead');
+  return step?.mode === 'lead' && leads.length > 0 ? leads : handling;
+}
+
 function txRow(tx: LetterTransaction): Row {
   return { ...tx.letter, steps: tx.steps, assignments: tx.assignments, mentionedUserIds: tx.mentionedUserIds };
 }
@@ -2311,7 +2361,10 @@ function facts(row: Row, catalog: Catalog): LetterFacts {
     authorUserId: row.authorUserId,
     authorUnitId: row.authorUnitId,
     restricted: Boolean(catalog.get('confidentiality')?.get(row.confidentiality)?.restricted),
-    steps: row.steps,
+    steps: row.steps.map((step) => ({
+      ...step,
+      ownActors: 'ownActors' in step ? step.ownActors : step.kind === 'check' && Boolean((step as StepRecord).approver),
+    })),
     assignments: row.assignments,
     mentionedUserIds: row.mentionedUserIds,
     revokeRequestedBy: row.revokeRequestedBy,
@@ -2478,8 +2531,8 @@ function stepPeople(
     );
   }
   if (step.status === 'done' && step.actedBy) return nameOf(step.actedBy);
-  if (step.kind === 'check') return context.clerkUserIds.map(nameOf).join(', ') || undefined;
-  if (step.status === 'active') return step.assigneeUserIds.map(nameOf).join(', ') || undefined;
+  if (step.status === 'active' && (step.kind !== 'check' || step.approver)) return step.assigneeUserIds.map(nameOf).join(', ') || undefined;
+  if (step.kind === 'check' && !step.approver) return context.clerkUserIds.map(nameOf).join(', ') || undefined;
   return step.approver ? peopleLabel(context.expected, nameOf, step.approver, context.direction) : undefined;
 }
 
@@ -2626,8 +2679,8 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
         : (LETTER_STAGE_LABELS[row.stage] ?? row.stage),
     currentStepName: active?.name,
     currentAssigneeNames: (active?.assigneeUserIds ?? []).map((userId) => names.get(userId) ?? 'Người dùng'),
-    assignmentsDone: row.assignments.filter((assignment) => assignment.status === 'submitted').length,
-    assignmentsTotal: row.assignments.length,
+    assignmentsDone: row.assignments.filter((assignment) => assignment.role !== 'info' && assignment.status === 'submitted').length,
+    assignmentsTotal: row.assignments.filter((assignment) => assignment.role !== 'info').length,
     authorUserId: row.authorUserId,
     authorName: row.authorUserId ? names.get(row.authorUserId) : undefined,
     authorUnitName: row.authorUnitName,
