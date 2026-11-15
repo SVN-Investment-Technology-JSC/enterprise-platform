@@ -15,6 +15,7 @@ import {
 } from '../infrastructure/hrm-lifecycle.js';
 import type { Pool, PoolClient } from 'pg';
 import { listCareerEvents, loadDirectManager } from '../infrastructure/hrm-personnel-decisions.js';
+import { loadCareerHistory } from '../infrastructure/hrm-career-history.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { ensureCoreEmployeeLink, refreshCoreEmployeeIdentity } from '../infrastructure/hrm-core-link.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
@@ -57,6 +58,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   canSeeSalaryFields,
@@ -71,6 +73,7 @@ export class HrmEmployeeController {
 
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.read')
   @Get('employee-options')
   async employeeOptions(
     @Req() req: Request,
@@ -97,6 +100,7 @@ export class HrmEmployeeController {
   // Employee Profile APIs (P2_S3_HRM_API.md § 7)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.employee.read')
   @Get('employees')
   async listEmployees(
     @Req() req: Request,
@@ -144,6 +148,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.link-account')
   @Get('employees/accounts')
   async listUnlinkedAccounts(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -170,6 +175,7 @@ export class HrmEmployeeController {
    * Người đã khai báo ở Core (nhân sự hoặc tài khoản) nhưng chưa có hồ sơ HRM. Đây là nguồn duy nhất của thao tác
    * "Khởi tạo hồ sơ HRM": HRM không tự tạo người mới.
    */
+  @RequirePermission('hrm.employee.manage')
   @Get('employees/core-people')
   async listCorePeople(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.employee.manage');
@@ -200,6 +206,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.self.read')
   @Get('my-profile')
   async getMyProfile(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -291,6 +298,7 @@ export class HrmEmployeeController {
   }
 
   /** Lịch sử bổ nhiệm và công tác của chính mình: quyết định đã ghi nhận và mốc hợp đồng. */
+  @RequirePermission('hrm.self.read')
   @Get('my-profile/career-events')
   async getMyCareerEvents(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
@@ -305,6 +313,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/career-events')
   async getCareerEvents(@Req() req: Request, @Param('employeeId') employeeId: string) {
     requireUuid(employeeId, 'employeeId');
@@ -320,76 +329,24 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.self.read')
   @Get('my-profile/career-history')
   async getMyCareerHistory(@Req() req: Request) {
-    try {
-      const { pool, tenantId, principal } = await this.ctx.getContext(
-        req,
-        'hrm.self.read',
-      );
-      const empRes = await pool.query(
-        `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-        [tenantId, principal.userId],
-      );
-      const employeeId = empRes.rows[0]?.id;
-      if (!employeeId) {
-        return { data: [] as HrmCareerHistoryItem[] };
-      }
-
-      const userRes = await pool.query(
-        `SELECT user_id FROM core_schema.employees WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [employeeId, tenantId],
-      );
-      const linkedUserId = userRes.rows[0]?.user_id || null;
-
-      const query = `
-        SELECT 
-          a.id AS assignment_id,
-          a.node_id AS position_node_id,
-          pos.name  AS position_name,
-          pos.code  AS position_code,
-          unit.id   AS unit_node_id,
-          unit.name AS unit_name,
-          a.is_primary,
-          a.start_date,
-          a.end_date,
-          a.status,
-          a.note,
-          a.created_at
-        FROM core_schema.organization_node_assignments a
-        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL
-          AND (
-            a.employee_id = $1 
-            OR ($2::uuid IS NOT NULL AND a.user_id = $2::uuid)
-          )
-        ORDER BY a.start_date DESC NULLS LAST, a.created_at DESC;
-      `;
-      const result = await pool.query(query, [employeeId, linkedUserId]);
-      return {
-        data: result.rows.map(
-          (row): HrmCareerHistoryItem => ({
-            assignmentId: row.assignment_id,
-            positionNodeId: row.position_node_id,
-            positionName: row.position_name,
-            positionCode: row.position_code || '',
-            unitNodeId: row.unit_node_id,
-            unitName: row.unit_name || 'Hội đồng / Trực thuộc doanh nghiệp',
-            isPrimary: Boolean(row.is_primary),
-            startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
-            endDate: row.end_date ? String(row.end_date).slice(0, 10) : null,
-            status: row.status,
-            note: row.note,
-          }),
-        ),
-      };
-    } catch (err) {
-      this.logger.warn(`Failed to retrieve career history for my-profile: ${err instanceof Error ? err.message : String(err)}`);
-      return { data: [] as HrmCareerHistoryItem[] };
-    }
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const empRes = await pool.query(
+      `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [tenantId, principal.userId],
+    );
+    const employeeId = empRes.rows[0]?.id as string | undefined;
+    // Tài khoản chưa liên kết nhân viên thì chưa có lịch sử; lỗi DB để ném ra (500), không trả rỗng.
+    const data = employeeId ? await loadCareerHistory(pool, tenantId, employeeId) : null;
+    return { data: data ?? ([] as HrmCareerHistoryItem[]) };
   }
 
+  @RequirePermission('hrm.employee.link-account')
   @Post('employees/:employeeId/link-account')
   async linkAccount(
     @Req() req: Request,
@@ -448,6 +405,7 @@ export class HrmEmployeeController {
    * `POST /employees`; sai một dòng thì không tạo dòng nào. Mã nhân viên không được trùng nhau trong cùng lô.
    */
   /** Đồng bộ họ tên, email công việc của nhân sự có tài khoản theo tài khoản Core hiện tại (Core đổi thì HRM theo). */
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/refresh-from-core')
   async refreshFromCore(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.employee.manage');
@@ -462,6 +420,7 @@ export class HrmEmployeeController {
     return { data: { updated: updated.length } };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/initialize-bulk')
   async initializeEmployeesBulk(@Req() req: Request, @Body() body: InitializeHrmEmployeesRequest) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.employee.manage');
@@ -524,6 +483,7 @@ export class HrmEmployeeController {
     }
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees')
   async createEmployee(
     @Req() req: Request,
@@ -573,6 +533,7 @@ export class HrmEmployeeController {
   }
 
 
+  @RequirePermission('hrm.self.profile.write')
   @Patch('my-profile')
   async updateMyProfile(
     @Req() req: Request,
@@ -694,6 +655,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/profile')
   async getEmployeeProfile(
     @Req() req: Request,
@@ -753,82 +715,30 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/career-history')
   async getCareerHistory(
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    try {
-      requireUuid(employeeId, 'employeeId');
-
-      const { pool, tenantId } = await this.ctx.getRequestContext(
-        req,
-        employeeId,
-        'hrm.employee.read',
-        'hrm.self.read',
-      );
-
-      // 1. Tìm user_id của nhân viên để truy vấn cả trường hợp bổ nhiệm theo user_id hoặc employee_id
-      const userRes = await pool.query(
-        `SELECT user_id FROM core_schema.employees WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [employeeId, tenantId],
-      );
-      const linkedUserId = userRes.rows[0]?.user_id || null;
-
-      // 2. Truy vấn an toàn: Hỗ trợ cả trường hợp DB có view core_schema.employee_career_history hoặc truy vấn bảng gốc
-      const query = `
-        SELECT 
-          a.id AS assignment_id,
-          a.node_id AS position_node_id,
-          pos.name  AS position_name,
-          pos.code  AS position_code,
-          unit.id   AS unit_node_id,
-          unit.name AS unit_name,
-          a.is_primary,
-          a.start_date,
-          a.end_date,
-          a.status,
-          a.note,
-          a.created_at
-        FROM core_schema.organization_node_assignments a
-        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL
-          AND (
-            a.employee_id = $1 
-            OR ($2::uuid IS NOT NULL AND a.user_id = $2::uuid)
-          )
-        ORDER BY a.start_date DESC NULLS LAST, a.created_at DESC;
-      `;
-
-      const result = await pool.query(query, [employeeId, linkedUserId]);
-
-      return {
-        data: result.rows.map(
-          (row): HrmCareerHistoryItem => ({
-            assignmentId: row.assignment_id,
-            positionNodeId: row.position_node_id,
-            positionName: row.position_name,
-            positionCode: row.position_code || '',
-            unitNodeId: row.unit_node_id,
-            unitName: row.unit_name || 'Hội đồng / Trực thuộc doanh nghiệp',
-            isPrimary: Boolean(row.is_primary),
-            startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
-            endDate: row.end_date ? String(row.end_date).slice(0, 10) : null,
-            status: row.status,
-            note: row.note,
-          }),
-        ),
-      };
-    } catch (err) {
-      this.logger.warn(
-        `Failed to retrieve career history for employee ${employeeId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      // Fallback gracefully để không crash UI Profile của nhân viên
-      return { data: [] as HrmCareerHistoryItem[] };
-    }
+    requireUuid(employeeId, 'employeeId');
+    // Không có quyền: 403 từ getRequestContext. Không bọc try/catch để lỗi DB không thành danh sách rỗng.
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
+    const data = await loadCareerHistory(pool, tenantId, employeeId);
+    if (!data)
+      throw new NotFoundException({
+        code: 'HRM_EMPLOYEE_NOT_FOUND',
+        message: 'Không tìm thấy nhân viên',
+      });
+    return { data };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/:employeeId/profile')
   async createEmployeeProfile(
     @Req() req: Request,
@@ -942,6 +852,7 @@ export class HrmEmployeeController {
     return res.rows[0];
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Patch('employees/:employeeId/profile')
   async updateEmployeeProfile(
     @Req() req: Request,
@@ -1129,6 +1040,7 @@ export class HrmEmployeeController {
     return { data: this.mapProfile(row) };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/:employeeId/deactivate')
   async deactivateEmployee(
     @Req() req: Request,
@@ -1192,6 +1104,7 @@ export class HrmEmployeeController {
   // Position Profile APIs (P2_S3_HRM_API.md § 8)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.employee.read')
   @Get('positions/:positionId/profile')
   async getPositionProfile(
     @Req() req: Request,
@@ -1217,6 +1130,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('positions/:positionId/profile')
   async createPositionProfile(
     @Req() req: Request,
@@ -1280,6 +1194,7 @@ export class HrmEmployeeController {
     return { data: this.mapPosition(row) };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Patch('positions/:positionId/profile')
   async updatePositionProfile(
     @Req() req: Request,
@@ -1372,6 +1287,7 @@ export class HrmEmployeeController {
         throw new BadRequestException('Nội dung JD phải là danh sách');
   }
 
+  @RequirePermission('hrm.employee.read')
   @Get('positions')
   async listPositions(
     @Req() req: Request,
@@ -1494,6 +1410,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Delete('positions/:positionId/profile')
   async deletePositionProfile(
     @Req() req: Request,
@@ -1541,6 +1458,7 @@ export class HrmEmployeeController {
   // Dependents APIs (Người phụ thuộc - Giảm trừ gia cảnh PIT)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.self.read')
   @Get('my-dependents')
   async getMyDependents(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -1564,6 +1482,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.self.profile.write')
   @Post('my-dependents')
   async createMyDependent(
     @Req() req: Request,
@@ -1585,6 +1504,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.self.profile.write')
   @Patch('my-dependents/:id')
   async updateMyDependent(
     @Req() req: Request,
@@ -1614,6 +1534,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.self.profile.write')
   @Delete('my-dependents/:id')
   async deleteMyDependent(
     @Req() req: Request,
@@ -1640,6 +1561,7 @@ export class HrmEmployeeController {
     return { data: { deleted: true } };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/dependents')
   async getEmployeeDependents(
     @Req() req: Request,
@@ -1664,6 +1586,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/:employeeId/dependents')
   async createEmployeeDependent(
     @Req() req: Request,
@@ -1681,6 +1604,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Patch('employees/:employeeId/dependents/:id')
   async updateEmployeeDependent(
     @Req() req: Request,
@@ -1705,6 +1629,7 @@ export class HrmEmployeeController {
       ),
     };
   }
+  @RequirePermission('hrm.employee.manage')
   @Delete('employees/:employeeId/dependents/:id')
   async deleteEmployeeDependent(
     @Req() req: Request,
@@ -1731,6 +1656,7 @@ export class HrmEmployeeController {
   // Employment Contracts APIs (Hợp đồng lao động)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/contracts')
   async getEmployeeContracts(
     @Req() req: Request,
@@ -1767,6 +1693,7 @@ export class HrmEmployeeController {
     };
   }
 
+  @RequirePermission('hrm.employee.manage')
   @Post('employees/:employeeId/contracts')
   async createEmployeeContract(
     @Req() req: Request,

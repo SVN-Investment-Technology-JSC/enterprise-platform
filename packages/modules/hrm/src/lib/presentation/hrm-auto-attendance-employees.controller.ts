@@ -12,6 +12,7 @@ import {
 import type { Request } from 'express';
 import { parseAutoAttendanceEmployeeInput } from '../domain/auto-attendance-settings.js';
 import { autoAttendanceEmployeesReady, generateAutoAttendance } from '../infrastructure/hrm-auto-attendance.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { lifecycleAudit } from '../infrastructure/hrm-lifecycle.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -71,6 +72,7 @@ const NOT_READY =
 export class HrmAutoAttendanceEmployeesController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission(PERMISSION)
   @Get()
   async list(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, PERMISSION);
@@ -89,6 +91,7 @@ export class HrmAutoAttendanceEmployeesController {
   }
 
   /** Thêm hoặc sửa cấu hình của một nhân viên (mỗi nhân viên chỉ có một cấu hình đang áp dụng). */
+  @RequirePermission(PERMISSION)
   @Put()
   async save(@Req() req: Request, @Body() body: unknown) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, PERMISSION);
@@ -150,6 +153,7 @@ export class HrmAutoAttendanceEmployeesController {
   }
 
   /** Gỡ nhân viên: chốt ngày kết thúc là hôm qua và giữ dòng làm lịch sử; giờ công đã sinh được giữ nguyên. */
+  @RequirePermission(PERMISSION)
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, PERMISSION);

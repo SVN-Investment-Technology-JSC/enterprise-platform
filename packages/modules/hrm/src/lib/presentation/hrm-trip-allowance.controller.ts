@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import {
@@ -19,12 +20,14 @@ import { requireUuid } from '../infrastructure/hrm-validation.js';
 export class HrmTripAllowanceController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.payroll.configure')
   @Get('trip-allowance-rates')
   async list(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.payroll.configure');
     return { data: await listTripAllowanceRates(pool, tenantId) };
   }
 
+  @RequirePermission('hrm.payroll.configure')
   @Post('trip-allowance-rates')
   async create(
     @Req() req: Request,
@@ -34,6 +37,7 @@ export class HrmTripAllowanceController {
     return { data: await hrmTransaction(pool, (db) => createTripAllowanceRate(db, tenantId, principal.userId, body ?? {})) };
   }
 
+  @RequirePermission('hrm.payroll.configure')
   @Delete('trip-allowance-rates/:id')
   async cancel(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.payroll.configure');

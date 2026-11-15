@@ -28,6 +28,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee } from '../infrastructure/hrm-time.js';
@@ -40,6 +41,7 @@ export class HrmProfileCorrectionController {
     private readonly bridge: HrmProcedureBridgeService,
     private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
+  @RequirePermission('hrm.read')
   @Get()
   async list(
     @Req() req: Request,
@@ -104,6 +106,7 @@ export class HrmProfileCorrectionController {
       ),
     };
   }
+  @RequirePermission('hrm.self.request')
   @Post()
   async create(
     @Req() req: Request,
@@ -215,6 +218,7 @@ export class HrmProfileCorrectionController {
       },
     };
   }
+  @RequirePermission('hrm.read')
   @Post(':id/approve')
   async approve(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -233,6 +237,7 @@ export class HrmProfileCorrectionController {
       approveProfileCorrection(db, tenantId, principal.userId, id),
     );
   }
+  @RequirePermission('hrm.read')
   @Post(':id/reject')
   async reject(
     @Req() req: Request,

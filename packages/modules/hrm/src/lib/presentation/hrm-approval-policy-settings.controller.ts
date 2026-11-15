@@ -14,6 +14,7 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 export class HrmApprovalPolicySettingsController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.integration.manage')
   @Get()
   async get(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -23,6 +24,7 @@ export class HrmApprovalPolicySettingsController {
     return { data: await loadApprovalPolicySettings(pool, tenantId) };
   }
 
+  @RequirePermission('hrm.integration.manage')
   @Put()
   async put(@Req() req: Request, @Body() body: unknown) {
     const { pool, tenantId, principal } = await this.ctx.getContext(

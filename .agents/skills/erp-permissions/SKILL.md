@@ -32,7 +32,9 @@ Mỗi `apps/<phân hệ>-api` có một `APP_GUARD` dựa trên `ModuleAccess` (
    kiểm cờ theo đúng thao tác.
 
 HRM theo cách khác: mỗi route khai `@RequirePermission('hrm....')` hoặc `@HrmPublicRoute()`. `HRM_ACCESS_GUARD_MODE` mặc
-định là `audit`: route quên khai báo chỉ bị ghi WARN chứ không bị chặn. Vì vậy mọi route HRM mới phải có decorator.
+định là `enforce`: route quên khai báo bị 403, và spec `hrm-route-permissions.spec.ts` đỏ. Quyền khai báo là điều kiện tối
+thiểu mà handler đang kiểm (lần `getContext` đầu tiên; `scoped`, `getRequestContext`, `approverContext` là `hrm.read`).
+Đặt `HRM_ACCESS_GUARD_MODE=audit` chỉ khi cần tạm ghi WARN thay vì chặn.
 
 ## Luật cứng
 

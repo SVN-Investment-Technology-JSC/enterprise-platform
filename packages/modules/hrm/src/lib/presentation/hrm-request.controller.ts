@@ -95,6 +95,7 @@ export class HrmRequestController {
   // Overtime (OT) Requests (P2_S3_HRM_API.md § 16)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Get('procedure-definitions/binding')
   async getBindingDefinition(
     @Req() req: Request,
@@ -114,6 +115,7 @@ export class HrmRequestController {
     return { data: def };
   }
 
+  @RequirePermission('hrm.read')
   @Post('ot-requests')
   async createOtRequest(
     @Req() req: Request,
@@ -193,6 +195,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('ot-requests')
   async listOtRequests(
     @Req() req: Request,
@@ -265,6 +268,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('ot-requests/:id/approve')
   async approveOtRequest(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -289,6 +293,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('ot-requests/:id/reject')
   async rejectOtRequest(
     @Req() req: Request,
@@ -337,12 +342,14 @@ export class HrmRequestController {
   // Business Trip Requests (P2_S3_HRM_API.md § 17)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.self.request')
   @Get('work-references')
   async workItems(@Req() req: Request) {
     const { tenantId } = await this.ctx.getContext(req, 'hrm.self.request');
     return { data: await workReferences(req, tenantId) };
   }
 
+  @RequirePermission('hrm.read')
   @Post('business-trip-requests')
   async createBusinessTripRequest(
     @Req() req: Request,
@@ -582,6 +589,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('business-trip-requests')
   async listBusinessTripRequests(
     @Req() req: Request,
@@ -653,6 +661,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('business-trip-requests/:id/approve')
   async approveBusinessTrip(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -676,6 +685,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('business-trip-requests/:id/reject')
   async rejectBusinessTrip(
     @Req() req: Request,
@@ -723,6 +733,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('business-trip-requests/:id/cancel')
   async cancelBusinessTrip(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -768,6 +779,7 @@ export class HrmRequestController {
   // Shift Change Requests (P2_S3_HRM_API.md § 18)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('shift-change-requests')
   async createShiftChangeRequest(
     @Req() req: Request,
@@ -891,6 +903,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.self.request')
   @Post('shift-change-requests/:id/peer-confirm')
   async peerConfirmShiftChange(
     @Req() req: Request,
@@ -977,6 +990,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('shift-change-requests')
   async listShiftChanges(
     @Req() req: Request,
@@ -1033,6 +1047,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('shift-change-requests/:id/approve')
   async approveShiftChange(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -1057,6 +1072,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('shift-change-requests/:id/reject')
   async rejectShiftChange(
     @Req() req: Request,
@@ -1141,6 +1157,7 @@ export class HrmRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('procedure-progress/:procedureInstanceId')
   async getProcedureProgress(
     @Req() req: Request,

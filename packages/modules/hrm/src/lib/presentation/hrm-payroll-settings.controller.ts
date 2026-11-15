@@ -26,7 +26,9 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { maskPayrollTotalBank } from '../infrastructure/hrm-profile-visibility.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { assertOpenRange, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
@@ -130,6 +132,7 @@ function validateOvertime(
 @Controller('v1')
 export class HrmPayrollSettingsController {
   constructor(private readonly ctx: HrmContextService) {}
+  @RequirePermission('hrm.read')
   @Get('payroll-period-options')
   async periodOptions(@Req() req: Request) {
     const context = await this.ctx.getContext(req, 'hrm.read');
@@ -148,6 +151,7 @@ export class HrmPayrollSettingsController {
       ).rows,
     };
   }
+  @RequirePermission('hrm.payroll.configure')
   @Get('payroll-configuration')
   async get(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -181,6 +185,7 @@ export class HrmPayrollSettingsController {
       );
     return context;
   }
+  @RequirePermission('hrm.payroll.configure')
   @Get('payroll-dry-run/runs')
   async dryRunRuns(@Req() req: Request) {
     const { pool, tenantId } = await this.dryRunContext(req);
@@ -193,6 +198,7 @@ export class HrmPayrollSettingsController {
       ).rows,
     };
   }
+  @RequirePermission('hrm.payroll.configure')
   @Get('payroll-dry-run/runs/:id/employees')
   async dryRunEmployees(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.dryRunContext(req);
@@ -206,6 +212,7 @@ export class HrmPayrollSettingsController {
     };
   }
   /** Tính thử: dùng biến hệ thống đã chốt trong kỳ đã tính, KHÔNG ghi dữ liệu. */
+  @RequirePermission('hrm.payroll.configure')
   @Post('payroll-dry-run')
   async dryRun(
     @Req() req: Request,
@@ -288,6 +295,7 @@ export class HrmPayrollSettingsController {
     }
     return { data: results };
   }
+  @RequirePermission('hrm.payroll.configure')
   @Post('payroll-configuration')
   async save(
     @Req() req: Request,
@@ -310,6 +318,7 @@ export class HrmPayrollSettingsController {
     const { reason, effectiveFrom, ...config } = body;
     return this.savePolicy(req, 'PAYROLL', effectiveFrom, config, reason);
   }
+  @RequirePermission('hrm.payroll.configure')
   @Post('ot-configuration')
   async overtime(
     @Req() req: Request,
@@ -446,6 +455,7 @@ export class HrmPayrollSettingsController {
         row.effective_to ? isoDate(row.effective_to) : null,
       );
   }
+  @RequirePermission('hrm.payroll.configure')
   @Patch('payroll-configuration/:id')
   async updateConfiguration(
     @Req() req: Request,
@@ -498,6 +508,7 @@ export class HrmPayrollSettingsController {
     });
     return { data: { ...row, updated_at: timestamp(row.updated_at) } };
   }
+  @RequirePermission('hrm.payroll.configure')
   @Delete('payroll-configuration/:id')
   async deleteConfiguration(
     @Req() req: Request,
@@ -545,6 +556,7 @@ export class HrmPayrollSettingsController {
       data: { id, deleted: true, reopenedVersionId: reopened?.id ?? null },
     }));
   }
+  @RequirePermission('hrm.payroll.configure')
   @Post('payroll-configuration/:id/deactivate')
   async deactivateConfiguration(
     @Req() req: Request,
@@ -594,6 +606,7 @@ export class HrmPayrollSettingsController {
     });
     return { data: { ...row, updated_at: timestamp(row.updated_at) } };
   }
+  @RequirePermission('hrm.payroll.configure')
   @Get('employees/:employeeId/payroll-inputs')
   async listInputs(
     @Req() req: Request,
@@ -677,6 +690,7 @@ export class HrmPayrollSettingsController {
       };
     });
   }
+  @RequirePermission('hrm.payroll.configure')
   @Patch('employees/:employeeId/payroll-inputs/:date')
   updateInputs(
     @Req() req: Request,
@@ -691,6 +705,7 @@ export class HrmPayrollSettingsController {
   ) {
     return this.changeInputs(req, employeeId, date, body, false);
   }
+  @RequirePermission('hrm.payroll.configure')
   @Delete('employees/:employeeId/payroll-inputs/:date')
   deleteInputs(
     @Req() req: Request,
@@ -701,6 +716,7 @@ export class HrmPayrollSettingsController {
     return this.changeInputs(req, employeeId, date, body, true);
   }
 
+  @RequirePermission('hrm.payroll.configure')
   @Post('employees/:employeeId/payroll-inputs')
   async inputs(
     @Req() req: Request,
@@ -756,6 +772,7 @@ export class HrmPayrollSettingsController {
       },
     };
   }
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-periods/:id/runs')
   async runs(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -771,21 +788,22 @@ export class HrmPayrollSettingsController {
       ).rows,
     };
   }
+  @RequirePermission('hrm.payroll.read')
   @Get('payroll-runs/:id/totals')
   async totals(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.payroll.read',
-    );
-    return {
-      data: (
-        await pool.query(
-          `SELECT t.*,e.full_name,e.employee_code FROM hrm_schema.payroll_employee_totals t JOIN hrm_schema.employee_directory e ON e.employee_id=t.employee_id AND e.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND t.payroll_run_id=$2 ORDER BY e.full_name`,
-          [tenantId, requireUuid(id, 'id')],
-        )
-      ).rows,
-    };
+    const context = await this.ctx.getContext(req, 'hrm.payroll.read');
+    const { pool, tenantId } = context;
+    // Số tài khoản người thụ hưởng là dữ liệu nhạy cảm: người chỉ có quyền xem lương thấy dạng ****1234.
+    const seesSensitive = this.ctx.has(context, 'hrm.employee.sensitive');
+    const rows = (
+      await pool.query(
+        `SELECT t.*,e.full_name,e.employee_code FROM hrm_schema.payroll_employee_totals t JOIN hrm_schema.employee_directory e ON e.employee_id=t.employee_id AND e.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND t.payroll_run_id=$2 ORDER BY e.full_name`,
+        [tenantId, requireUuid(id, 'id')],
+      )
+    ).rows;
+    return { data: seesSensitive ? rows : rows.map(maskPayrollTotalBank) };
   }
+  @RequirePermission('hrm.payroll.pay')
   @Post('payroll-totals/:id/record-payment')
   async payment(
     @Req() req: Request,

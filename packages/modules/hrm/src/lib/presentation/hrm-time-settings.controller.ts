@@ -32,6 +32,7 @@ import {
   selectHolidaysToSave,
 } from '../domain/holiday-calendar.js';
 import { HOLIDAY_TEMPLATE_LABEL } from '../domain/holiday-templates.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { assertOpenDate } from '../infrastructure/hrm-time.js';
@@ -45,6 +46,7 @@ import {
 export class HrmTimeSettingsController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission('hrm.time.configure')
   @Get()
   async get(@Req() req: Request) {
     await this.ctx.getContext(req, 'hrm.read');
@@ -143,6 +145,7 @@ export class HrmTimeSettingsController {
     };
   }
 
+  @RequirePermission('hrm.time.configure')
   @Post('policy')
   async policy(
     @Req() req: Request,
@@ -248,6 +251,7 @@ export class HrmTimeSettingsController {
     return year;
   }
 
+  @RequirePermission('hrm.time.configure')
   @Get('calendar/holiday-draft')
   async holidayDraft(
     @Req() req: Request,
@@ -284,6 +288,7 @@ export class HrmTimeSettingsController {
     };
   }
 
+  @RequirePermission('hrm.time.configure')
   @Post('calendar/holiday-draft/confirm')
   async confirmHolidayDraft(
     @Req() req: Request,
@@ -336,6 +341,7 @@ export class HrmTimeSettingsController {
     });
   }
 
+  @RequirePermission('hrm.time.configure')
   @Post('calendar')
   async calendar(
     @Req() req: Request,
@@ -410,6 +416,7 @@ export class HrmTimeSettingsController {
     });
   }
 
+  @RequirePermission('hrm.time.configure')
   @Post('sites')
   async site(
     @Req() req: Request,
@@ -453,6 +460,7 @@ export class HrmTimeSettingsController {
     return { data: result.rows[0] };
   }
 
+  @RequirePermission('hrm.time.configure')
   @Delete('calendar/:id')
   async deleteCalendar(
     @Req() req: Request,
@@ -500,6 +508,7 @@ export class HrmTimeSettingsController {
       return { data: { id, deleted: true } };
     });
   }
+  @RequirePermission('hrm.time.configure')
   @Patch('sites/:id')
   async updateSite(
     @Req() req: Request,
@@ -517,6 +526,7 @@ export class HrmTimeSettingsController {
   ) {
     return this.mutateSite(req, id, body, false);
   }
+  @RequirePermission('hrm.time.configure')
   @Post('sites/:id/deactivate')
   async deactivateSite(
     @Req() req: Request,
@@ -594,6 +604,7 @@ export class HrmTimeSettingsController {
    * Cài đặt kiểm tra vị trí khi chấm công của tenant (thay cho cờ requireGps/requireIp trong phiên bản chính sách):
    * bật thì chấm công phải nằm trong bán kính của một địa điểm được gán (và đúng IP của địa điểm đó nếu có khai báo).
    */
+  @RequirePermission('hrm.time.configure')
   @Put('location')
   async updateLocation(
     @Req() req: Request,
@@ -637,6 +648,7 @@ export class HrmTimeSettingsController {
     });
   }
 
+  @RequirePermission('hrm.time.configure')
   @Put('sites/:id/assignments')
   async updateSiteAssignments(
     @Req() req: Request,

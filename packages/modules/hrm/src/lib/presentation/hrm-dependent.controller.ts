@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { PoolClient } from 'pg';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import {
@@ -80,6 +81,7 @@ export class HrmDependentController {
     assertLifecycleVersion(row, version);
     return row;
   }
+  @RequirePermission('hrm.dependent.manage')
   @Patch('dependents/:id')
   async update(
     @Req() req: Request,
@@ -174,6 +176,7 @@ export class HrmDependentController {
       return { data: this.map(result.rows[0]) };
     });
   }
+  @RequirePermission('hrm.dependent.read')
   @Get('dependents')
   async list(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -195,6 +198,7 @@ export class HrmDependentController {
       })),
     };
   }
+  @RequirePermission('hrm.dependent.manage')
   @Post('dependents')
   async create(
     @Req() req: Request,
@@ -286,6 +290,7 @@ export class HrmDependentController {
       return { data: result.rows[0] };
     });
   }
+  @RequirePermission('hrm.dependent.manage')
   @Post('dependents/:id/end')
   async end(
     @Req() req: Request,

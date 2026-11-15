@@ -27,6 +27,7 @@ import {
   versionEmployeeIds,
 } from '../infrastructure/hrm-policy-versions.js';
 import { requireDate } from '../infrastructure/hrm-validation.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
 @Controller('v1/policies')
@@ -37,6 +38,7 @@ export class HrmPolicyController {
   // Policy Master APIs (P2_S3_HRM_API.md § 9.1)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.manage')
   @Get()
   async listPolicies(
     @Req() req: Request,
@@ -61,6 +63,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Post()
   async createPolicy(@Req() req: Request, @Body() body: CreatePolicyRequest) {
     this.assertGenericPolicy(body.policyType);
@@ -89,6 +92,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Get(':policyId')
   async getPolicy(@Req() req: Request, @Param('policyId') policyId: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
@@ -108,6 +112,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Patch(':policyId')
   async updatePolicy(
     @Req() req: Request,
@@ -159,6 +164,7 @@ export class HrmPolicyController {
   // Policy Versions APIs (P2_S3_HRM_API.md § 9.2)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.manage')
   @Get(':policyId/versions')
   async listVersions(@Req() req: Request, @Param('policyId') policyId: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
@@ -178,6 +184,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Post(':policyId/versions')
   async createVersion(
     @Req() req: Request,
@@ -220,6 +227,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Post(':policyId/versions/:versionId/activate')
   async activateVersion(
     @Req() req: Request,
@@ -276,6 +284,7 @@ export class HrmPolicyController {
     };
   }
 
+  @RequirePermission('hrm.manage')
   @Post(':policyId/versions/:versionId/deactivate')
   async deactivateVersion(
     @Req() req: Request,
