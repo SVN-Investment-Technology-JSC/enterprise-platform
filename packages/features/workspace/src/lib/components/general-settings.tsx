@@ -2,13 +2,16 @@
 
 import {
   DEFAULT_PROJECT_TASK_TITLES,
+  DEFAULT_PROJECT_PROGRESS_METHOD,
   type ChatOnArchivedPolicy,
+  type ProjectProgressMethod,
   type ProjectArchiveSettings as Settings,
   type ReopenProjectPolicy,
   type SaveProjectArchiveSettingsRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { TaskTitleListEditor } from './task-title-list-editor';
@@ -149,6 +152,7 @@ const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = 
 interface Draft {
   readonly defaultTasksEnabled: boolean;
   readonly defaultTaskTitles: readonly string[];
+  readonly defaultProgressMethod: ProjectProgressMethod;
   readonly autoArchive: boolean;
   readonly reopenProject: ReopenProjectPolicy;
   readonly chatOnArchived: ChatOnArchivedPolicy;
@@ -157,6 +161,7 @@ interface Draft {
 const draftOf = (settings: Settings): Draft => ({
   defaultTasksEnabled: settings.defaultTasksEnabled,
   defaultTaskTitles: [...settings.defaultTaskTitles],
+  defaultProgressMethod: settings.defaultProgressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD,
   autoArchive: settings.autoArchive,
   reopenProject: settings.reopenProject,
   chatOnArchived: settings.chatOnArchived,
@@ -196,6 +201,9 @@ export function GeneralSettings() {
     if (draft.defaultTasksEnabled !== settings.defaultTasksEnabled) changes.defaultTasksEnabled = draft.defaultTasksEnabled;
     if (JSON.stringify(cleanTitles(draft.defaultTaskTitles)) !== JSON.stringify(settings.defaultTaskTitles)) {
       changes.defaultTaskTitles = cleanTitles(draft.defaultTaskTitles);
+    }
+    if (draft.defaultProgressMethod !== (settings.defaultProgressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD)) {
+      changes.defaultProgressMethod = draft.defaultProgressMethod;
     }
     if (draft.autoArchive !== settings.autoArchive) changes.autoArchive = draft.autoArchive;
     if (draft.reopenProject !== settings.reopenProject) changes.reopenProject = draft.reopenProject;
@@ -239,6 +247,22 @@ export function GeneralSettings() {
         title="Tạo dự án"
         description="Công việc được tạo sẵn khi tạo dự án mới. Người tạo vẫn thêm hoặc bớt được cho từng dự án."
       >
+        <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+          <div className={styles.gsRowText}>
+            <strong>Cách tính tiến độ dự án mặc định</strong>
+            <span>
+              Áp cho dự án mới; người tạo vẫn chọn lại được ở form tạo dự án. Tiến độ dự án luôn tự tính từ các công việc
+              cấp gốc, không nhập tay.
+            </span>
+          </div>
+          <RadioChoices
+            name="default-progress-method"
+            value={draft.defaultProgressMethod}
+            options={PROGRESS_METHOD_ORDER.map((method) => ({ value: method, ...PROGRESS_METHOD_INFO[method] }))}
+            disabled={locked}
+            onChange={(defaultProgressMethod) => update({ defaultProgressMethod })}
+          />
+        </div>
         <SettingRow
           label="Tự tạo sẵn công việc khi tạo dự án"
           hint="Bật thì form tạo dự án điền sẵn danh sách mẫu bên dưới và tạo chúng cùng dự án. Tắt thì dự án mới trống."

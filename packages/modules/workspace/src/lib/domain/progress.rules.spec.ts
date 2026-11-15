@@ -1,5 +1,6 @@
 import {
   autoCompleteParents,
+  expectedProgress,
   isClosed,
   isOverdue,
   projectProgress,
@@ -254,5 +255,125 @@ describe('tiến độ nhập tay', () => {
       { id: 'b', parentId: 'p', status: 'todo', progressPercent: 0 },
     ];
     expect(rollUpProgress(nodes).get('p')).toBe(30);
+  });
+});
+
+describe('projectProgress theo cách tính của dự án', () => {
+  /** Hai công việc gốc, giống ví dụ ở form tạo dự án của 1Office. */
+  const roots = (a: Partial<ProgressNode>, b: Partial<ProgressNode>): ProgressNode[] => [
+    { id: 'a', parentId: null, status: 'in_progress', progressPercent: 40, ...a },
+    { id: 'b', parentId: null, status: 'in_progress', progressPercent: 60, ...b },
+  ];
+
+  it('avg_tasks: bình quân % các công việc gốc, bất kể giờ ước lượng', () => {
+    // (40 + 60) / 2 = 50. Giờ ước lượng chênh nhau nhiều vẫn không ảnh hưởng.
+    const nodes = roots({ estimateHours: 100 }, { estimateHours: 1 });
+    expect(projectProgress(nodes, 'avg_tasks')).toBe(50);
+    // Công thức cũ thì bị việc 100 giờ kéo gần về 40.
+    expect(projectProgress(nodes, 'weighted_hours')).toBe(40);
+  });
+
+  it('avg_tasks: nhánh gốc có việc con thì tính một lần, không nhân theo số việc con', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 0 },
+      { id: 'p1', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'p2', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'p3', parentId: 'p', status: 'done', progressPercent: 100 },
+      { id: 'q', parentId: null, status: 'todo', progressPercent: 0 },
+    ];
+    // p = 100, q = 0 → 50. Tính theo lá thì ra 75.
+    expect(projectProgress(nodes, 'avg_tasks')).toBe(50);
+    expect(projectProgress(nodes, 'weighted_hours')).toBe(75);
+  });
+
+  it('avg_tasks: việc gốc đã huỷ bị loại khỏi phép tính', () => {
+    const nodes = roots({ progressPercent: 100 }, { status: 'cancelled', progressPercent: 0 });
+    expect(projectProgress(nodes, 'avg_tasks')).toBe(100);
+  });
+
+  it('weighted_days: ví dụ của 1Office, 4 ngày 40% và 6 ngày 50% ra 46%', () => {
+    const nodes = roots(
+      { progressPercent: 40, plannedStart: '2026-11-02', plannedEnd: '2026-11-05' },
+      { progressPercent: 50, plannedStart: '2026-11-02', plannedEnd: '2026-11-07' },
+    );
+    // (4*40 + 6*50) / 10 = 46.
+    expect(projectProgress(nodes, 'weighted_days')).toBe(46);
+  });
+
+  it('weighted_days: việc thiếu ngày nặng bằng trung bình các việc có ngày', () => {
+    const nodes = roots(
+      { progressPercent: 100, plannedStart: '2026-11-02', plannedEnd: '2026-11-05' },
+      { progressPercent: 0 },
+    );
+    // Việc b nặng bằng 4 (trung bình của mỗi mình a): (100*4 + 0*4) / 8 = 50.
+    expect(projectProgress(nodes, 'weighted_days')).toBe(50);
+  });
+
+  it('weighted_days: không việc nào có ngày thì chia đều', () => {
+    expect(projectProgress(roots({}, {}), 'weighted_days')).toBe(50);
+  });
+
+  it('weighted_weight: ví dụ của 1Office, tỷ trọng 40 ở 50% và 30 ở 40% ra 46%', () => {
+    const nodes = roots({ progressPercent: 50, weight: 40 }, { progressPercent: 40, weight: 30 });
+    // [(40*50) + (30*40)] / (40+30) = 45,71 → 46.
+    expect(projectProgress(nodes, 'weighted_weight')).toBe(46);
+  });
+
+  it('weighted_weight: việc chưa đặt tỷ trọng nặng bằng trung bình các việc đã đặt', () => {
+    const nodes = roots({ progressPercent: 100, weight: 30 }, { progressPercent: 0, weight: null });
+    expect(projectProgress(nodes, 'weighted_weight')).toBe(50);
+  });
+
+  it('weighted_weight: tỷ trọng 0 không đóng góp; mọi tỷ trọng 0 thì quay về bình quân thường', () => {
+    const one = roots({ progressPercent: 100, weight: 0 }, { progressPercent: 20, weight: 10 });
+    expect(projectProgress(one, 'weighted_weight')).toBe(20);
+    const all = roots({ progressPercent: 100, weight: 0 }, { progressPercent: 20, weight: 0 });
+    expect(projectProgress(all, 'weighted_weight')).toBe(60);
+  });
+
+  it('weighted_weight: chỉ công việc gốc được tính tỷ trọng, việc con bỏ qua tỷ trọng của chính nó', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'a', parentId: null, status: 'in_progress', progressPercent: 0, weight: 1 },
+      { id: 'a1', parentId: 'a', status: 'done', progressPercent: 100, weight: 99 },
+      { id: 'a2', parentId: 'a', status: 'todo', progressPercent: 0, weight: 1 },
+      { id: 'b', parentId: null, status: 'todo', progressPercent: 0, weight: 1 },
+    ];
+    // a = bình quân hai việc con = 50 (không theo tỷ trọng con); (50*1 + 0*1)/2 = 25.
+    expect(projectProgress(nodes, 'weighted_weight')).toBe(25);
+  });
+
+  it('mặc định giữ công thức cũ (weighted_hours) để dự án có sẵn không đổi số liệu', () => {
+    const nodes = roots({ estimateHours: 30 }, { estimateHours: 10 });
+    expect(projectProgress(nodes)).toBe(projectProgress(nodes, 'weighted_hours'));
+    // (40*30 + 60*10) / 40 = 45.
+    expect(projectProgress(nodes)).toBe(45);
+  });
+});
+
+describe('expectedProgress (tiến độ dự kiến theo thời gian)', () => {
+  it('khớp 1Office: 20/10/2026 – 31/01/2027 vào ngày 15/11/2026 là 25%', () => {
+    expect(expectedProgress('2026-10-20', '2027-01-31', '2026-11-15')).toBe(25);
+  });
+
+  it('trước ngày bắt đầu là 0%, sau ngày kết thúc là 100%', () => {
+    expect(expectedProgress('2026-11-10', '2026-11-20', '2026-11-01')).toBe(0);
+    expect(expectedProgress('2026-11-10', '2026-11-20', '2026-11-21')).toBe(100);
+  });
+
+  it('đúng ngày bắt đầu là 0%, đúng ngày kết thúc chưa tới 100% (còn tính cả ngày đó)', () => {
+    expect(expectedProgress('2026-11-10', '2026-11-19', '2026-11-10')).toBe(0);
+    expect(expectedProgress('2026-11-10', '2026-11-19', '2026-11-19')).toBe(90);
+  });
+
+  it('khoảng một ngày: trong ngày đó là 0%, sang hôm sau là 100%', () => {
+    expect(expectedProgress('2026-10-23', '2026-10-23', '2026-10-23')).toBe(0);
+    expect(expectedProgress('2026-10-23', '2026-10-23', '2026-10-24')).toBe(100);
+  });
+
+  it('thiếu ngày hoặc ngày kết thúc trước ngày bắt đầu thì không xác định', () => {
+    expect(expectedProgress(undefined, '2026-11-20', '2026-11-15')).toBeUndefined();
+    expect(expectedProgress('2026-11-10', null, '2026-11-15')).toBeUndefined();
+    expect(expectedProgress('2026-11-20', '2026-11-10', '2026-11-15')).toBeUndefined();
+    expect(expectedProgress('không phải ngày', '2026-11-10', '2026-11-15')).toBeUndefined();
   });
 });

@@ -140,6 +140,11 @@ export interface WorkItemProgressRow {
   /** Tiến độ nhập tay; `null` khi dùng giá trị tự tính. */
   readonly manualPercent?: number | null;
   readonly estimateHours: number | null;
+  /** Tỷ trọng người dùng đặt (dự án tính theo `weighted_weight`). */
+  readonly weight?: number | null;
+  /** Ngày dự kiến `YYYY-MM-DD` (dự án tính theo `weighted_days`). */
+  readonly plannedStart?: string | null;
+  readonly plannedEnd?: string | null;
   /** Có điều kiện hoàn thành bắt buộc: không được tự hoàn thành khi việc con xong. */
   readonly requiresConfirmation?: boolean;
 }

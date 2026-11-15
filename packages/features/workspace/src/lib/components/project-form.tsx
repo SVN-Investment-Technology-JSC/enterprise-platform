@@ -5,7 +5,9 @@ import {
   type CreateProjectRequest,
   type CrmCustomerOption,
   type CustomerSummary,
+  DEFAULT_PROJECT_PROGRESS_METHOD,
   type Project,
+  type ProjectProgressMethod,
   type ProjectRole,
   type ProjectSummary,
   type ProjectTypeOption,
@@ -29,6 +31,7 @@ import {
   searchCrmCustomers,
 } from '../workspace-api';
 import { createProjectGroupNamed } from '../project-group-create';
+import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -77,6 +80,8 @@ interface FormState {
   customerId: string;
   projectType: string;
   tagIds: string[];
+  /** Cách tính tiến độ dự án (xem `ProjectProgressMethod`). */
+  progressMethod: ProjectProgressMethod;
   startDate: string;
   endDate: string;
   /** Chuỗi người dùng gõ, có dấu chấm ngăn nghìn; đọc bằng `parseVndInput`. */
@@ -107,6 +112,7 @@ const emptyForm = (): FormState => ({
   customerId: '',
   projectType: '',
   tagIds: [],
+  progressMethod: DEFAULT_PROJECT_PROGRESS_METHOD,
   startDate: today(),
   endDate: today(),
   contractValue: '',
@@ -155,6 +161,7 @@ export function ProjectForm({
   const [templateLoaded, setTemplateLoaded] = useState(false);
   /** Người dùng đã tự sửa danh sách: mẫu tải về chậm không được ghi đè. */
   const tasksTouched = useRef(false);
+  const methodTouched = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -174,12 +181,15 @@ export function ProjectForm({
     if (!open || project) return;
     let alive = true;
     tasksTouched.current = false;
+    methodTouched.current = false;
     setInitialTasks([]);
     setTemplateLoaded(false);
     loadProjectArchiveSettings()
       .then((settings) => {
         if (!alive) return;
         if (!tasksTouched.current) setInitialTasks(settings.defaultTasksEnabled ? [...settings.defaultTaskTitles] : []);
+        // Dự án mới theo cách tính mặc định của tenant, trừ khi người tạo đã tự chọn trong lúc chờ tải.
+        if (!methodTouched.current) setForm((current) => ({ ...current, progressMethod: settings.defaultProgressMethod }));
         setTemplateLoaded(true);
       })
       // Không đọc được cấu hình: coi như không có mẫu để danh sách thấy trên màn và danh sách gửi đi là một.
@@ -246,6 +256,7 @@ export function ProjectForm({
             customerId: project.customerId ?? '',
             projectType: project.projectType ?? '',
             tagIds: [...(project.tagIds ?? [])],
+            progressMethod: project.progressMethod,
             startDate: project.startDate ?? '',
             endDate: project.endDate ?? '',
             contractValue: toVndInput(project.finance?.contractValue),
@@ -374,6 +385,8 @@ export function ProjectForm({
           projectType: form.projectType || null,
           orgUnitId: form.orgUnitId || null,
           tagIds: form.tagIds,
+          // Chỉ gửi khi đổi: dự án cũ giữ cách tính cũ nếu người dùng không đụng tới.
+          progressMethod: form.progressMethod !== project.progressMethod ? form.progressMethod : undefined,
           // `null` xoá ngày đã đặt; `undefined` sẽ bị hiểu là "không đụng tới".
           startDate: form.startDate || null,
           endDate: form.endDate || null,
@@ -387,6 +400,7 @@ export function ProjectForm({
           customerId: form.customerId || undefined,
           projectType: form.projectType || undefined,
           tagIds: form.tagIds,
+          progressMethod: form.progressMethod,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
           // Biết mẫu của tenant hoặc người dùng đã sửa thì gửi danh sách rõ ràng (rỗng là không tạo); chưa biết thì để
@@ -524,6 +538,32 @@ export function ProjectForm({
         </Field>
       </div>
 
+      <Field
+        label="Cách tính tiến độ"
+        hint="Tiến độ dự án tự tính từ các công việc cấp gốc theo cách này, không nhập tay. Đổi lúc nào cũng được, tiến độ tính lại ngay."
+      >
+        <Choice
+          label="Cách tính tiến độ"
+          value={form.progressMethod}
+          selectOnly
+          options={[
+            ...PROGRESS_METHOD_ORDER,
+            // Dự án có từ trước vẫn đang dùng cách cũ: hiện đúng để không bị đổi ngầm khi lưu.
+            ...(form.progressMethod === 'weighted_hours' ? (['weighted_hours'] as const) : []),
+          ].map((method) => ({ value: method, label: PROGRESS_METHOD_INFO[method].label }))}
+          renderOption={(option) => (
+            <span>
+              <b>{option.label}</b>
+              <br />
+              <small>{PROGRESS_METHOD_INFO[option.value as ProjectProgressMethod].description}</small>
+            </span>
+          )}
+          onChange={(value) => {
+            methodTouched.current = true;
+            set({ progressMethod: value as ProjectProgressMethod });
+          }}
+        />
+      </Field>
 
       <Field label="Nhãn" hint="Gắn nhiều nhãn để lọc dự án trên trang Dự án.">
         <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />

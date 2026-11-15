@@ -48,6 +48,7 @@ import type {
   ParticipantResponse,
   PerformanceRow,
   Project,
+  ProjectProgressMethod,
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
@@ -89,6 +90,8 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import {
   CLOSED_WORK_ITEM_STATUSES,
+  DEFAULT_PROJECT_PROGRESS_METHOD,
+  LEGACY_PROJECT_PROGRESS_METHOD,
   formatProjectCode,
   CHAT_TIMELINE_PROJECT_NODE,
   nextProjectCodeNumber,
@@ -101,6 +104,8 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 /** Pool hay client trong transaction: hai thứ cùng có `query`. */
 type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import { expectedProgress } from '../domain/progress.rules.js';
+import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { standaloneTaskChanges, workItemChanges } from '../domain/work-item-changes.js';
 import {
   PROCEDURE_LAUNCH_URL,
@@ -233,9 +238,9 @@ function mapProjectRequest(row: Row): ProjectRequest {
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
        customer_ref, customer_id, project_type, start_date, end_date, progress_percent, metadata,
-       created_by, created_at, updated_at, archived_at, manual_progress_percent`;
+       created_by, created_at, updated_at, archived_at, progress_method`;
 
-/** Tiến độ hiển thị (nhập tay nếu có, không thì tự tính) kèm giá trị tự tính, cho dự án và công việc. */
+/** Tiến độ hiển thị (nhập tay nếu có, không thì tự tính) kèm giá trị tự tính, cho công việc. */
 function progressFields(row: Row) {
   const auto = num(row.progress_percent);
   const manual = row.manual_progress_percent == null ? undefined : num(row.manual_progress_percent);
@@ -261,7 +266,13 @@ function mapProject(row: Row): Project {
     archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
     startDate: day(row.start_date),
     endDate: day(row.end_date),
-    ...progressFields(row),
+    progressPercent: num(row.progress_percent),
+    progressMethod: (row.progress_method ?? LEGACY_PROJECT_PROGRESS_METHOD) as ProjectProgressMethod,
+    expectedProgressPercent: expectedProgress(
+      day(row.start_date),
+      day(row.end_date),
+      todayKey(timezoneOf('')),
+    ),
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
@@ -317,7 +328,7 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
        reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at,
-       manual_progress_percent, reopen_policy, blocked_reason`;
+       manual_progress_percent, reopen_policy, blocked_reason, weight`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -353,6 +364,7 @@ function mapWorkItem(row: Row): WorkItem {
     actualStart: day(row.actual_start),
     actualEnd: day(row.actual_end),
     estimateHours: optNum(row.estimate_hours),
+    weight: optNum(row.weight),
     ...progressFields(row),
     sortOrder: num(row.sort_order),
     depth: num(row.depth),
@@ -848,8 +860,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             client.query<Row>(
               `INSERT INTO workspace_schema.projects
                  (code, name, description, org_unit_id, customer_ref, customer_id,
-                  start_date, end_date, owner_user_id, created_by, project_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
+                  start_date, end_date, owner_user_id, created_by, project_type, progress_method)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
                RETURNING ${PROJECT_COLUMNS}`,
               [
                 code,
@@ -862,6 +874,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 input.endDate ?? null,
                 actorUserId,
                 input.projectType ?? null,
+                input.progressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD,
               ],
             ),
           () => new ProjectCodeConflictError(code),
@@ -918,7 +931,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           projectType: 'project_type',
           startDate: 'start_date',
           endDate: 'end_date',
-          manualProgressPercent: 'manual_progress_percent',
+          progressMethod: 'progress_method',
         },
         1,
       );
@@ -1357,6 +1370,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `SELECT id, parent_id, status, progress_percent, manual_progress_percent, estimate_hours,
+                weight, planned_start, planned_end,
                 (completion_rule <> 'none' AND EXISTS (
                    SELECT 1 FROM workspace_schema.work_item_completion_conditions c
                     WHERE c.work_item_id = work_items.id)) AS requires_confirmation
@@ -1371,6 +1385,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         progressPercent: num(row.progress_percent),
         manualPercent: row.manual_progress_percent == null ? null : num(row.manual_progress_percent),
         estimateHours: row.estimate_hours == null ? null : Number(row.estimate_hours),
+        weight: row.weight == null ? null : Number(row.weight),
+        plannedStart: day(row.planned_start) ?? null,
+        plannedEnd: day(row.planned_end) ?? null,
       }));
     },
 
@@ -1440,8 +1457,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           `INSERT INTO workspace_schema.work_items
              (project_id, parent_id, code, title, description, item_type, execution_type,
               priority, assignee_user_id, planned_start, planned_end, estimate_hours,
-              sort_order, depth, created_by, adjustment_of_id, reopen_policy)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+              sort_order, depth, created_by, adjustment_of_id, reopen_policy, weight)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
            RETURNING ${WORK_ITEM_COLUMNS}`,
           [
             input.projectId,
@@ -1461,6 +1478,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             actorUserId,
             input.adjustmentOfId ?? null,
             input.reopenPolicy ?? 'assignee',
+            input.weight ?? null,
           ],
         );
         const item = mapWorkItem(created.rows[0] as Row);
@@ -1539,6 +1557,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           plannedStart: 'planned_start',
           plannedEnd: 'planned_end',
           estimateHours: 'estimate_hours',
+          weight: 'weight',
           progressPercent: 'progress_percent',
           manualProgressPercent: 'manual_progress_percent',
           reopenPolicy: 'reopen_policy',
@@ -3681,7 +3700,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // `idx_work_items_project_status` cho cả ba con số.
       const result = await pool.query<Row>(
         `SELECT p.id, p.code, p.name, p.status,
-                COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
+                p.progress_percent AS progress_percent,
                 p.start_date, p.end_date,
                 COUNT(w.id)::text AS total_items,
                 COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled'))::text AS closed_items,
@@ -4007,7 +4026,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // dự án nhiều việc kéo lệch.
       const perProject = `
         SELECT p.id, COALESCE(trim(p.project_type), '') AS grp,
-               COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
+               p.progress_percent AS progress_percent,
                COUNT(w.id) AS total,
                COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled')) AS closed,
                COUNT(w.id) FILTER (WHERE w.status NOT IN ('done','cancelled')) AS open,

@@ -29,7 +29,8 @@ import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
-import { ChipButton, ChipSelect, GroupCounts, ProgressCell } from './inline-cells';
+import { ChipButton, ChipSelect, GroupCounts } from './inline-cells';
+import { ProjectProgressBar } from './project-progress-bar';
 import { Dialog, Field } from './dialog';
 import { ProjectForm } from './project-form';
 import { ContextMenu } from './project-tree';
@@ -50,7 +51,6 @@ function savedProjectText(patch: UpdateProjectRequest, code?: string): string {
   if (patch.status !== undefined) return `Đã đổi trạng thái${subject} sang "${PROJECT_STATUS_LABELS[patch.status]}".`;
   if (patch.projectType !== undefined) return `Đã đổi nhóm${subject}.`;
   if (patch.customerId !== undefined) return `Đã cập nhật khách hàng${subject}.`;
-  if (patch.manualProgressPercent !== undefined) return `Đã lưu tiến độ${subject}.`;
   return `Đã lưu thay đổi${subject}.`;
 }
 
@@ -1117,16 +1117,7 @@ function GroupRows({
               )}
             </td>
             <td>
-              <ProgressCell
-                label={`Tiến độ của ${project.code}`}
-                value={project.progressPercent}
-                manual={Boolean(project.progressManual)}
-                auto={project.autoProgressPercent}
-                disabled={!canEdit || busy}
-                onCommit={(next) =>
-                  onPatch(project.id, { manualProgressPercent: next }, 'Không lưu được tiến độ.')
-                }
-              />
+              <ProjectProgressBar project={project} />
             </td>
             <td>
               <button

@@ -309,6 +309,7 @@ const FIELD_LABELS: Record<FieldChange['field'], string> = {
   plannedEnd: 'Hạn',
   dueDate: 'Hạn',
   estimateHours: 'Giờ ước lượng',
+  weight: 'Tỷ trọng',
   progressPercent: 'Tiến độ',
   manualProgressPercent: 'Tiến độ nhập tay',
 };

@@ -1,6 +1,8 @@
 import {
   DEFAULT_WORK_ITEM_REOPEN_POLICY,
   DEPENDENCY_TYPES,
+  LEGACY_PROJECT_PROGRESS_METHOD,
+  MAX_WORK_ITEM_WEIGHT,
   WORK_ITEM_EXECUTION_TYPES,
   WORK_ITEM_REOPEN_POLICIES,
   WORK_ITEM_STATUSES,
@@ -155,6 +157,7 @@ export class WorkItemService {
     const executionType = pick(input.executionType, WORK_ITEM_EXECUTION_TYPES, 'manual');
     const priority = await this.labels.requirePriority(actor.tenantId, input.priority);
     assertDateOrder(input.plannedStart, input.plannedEnd);
+    assertWeight(input.weight);
     if (input.estimateHours != null && !(Number(input.estimateHours) > 0)) {
       throw new WorkspaceValidationError('Giờ ước lượng phải lớn hơn 0.');
     }
@@ -352,6 +355,7 @@ export class WorkItemService {
     if (input.manualProgressPercent !== undefined) {
       Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
+    assertWeight(input.weight);
     assertDateOrder(
       input.plannedStart === undefined ? item.plannedStart : input.plannedStart,
       input.plannedEnd === undefined ? item.plannedEnd : input.plannedEnd,
@@ -905,6 +909,9 @@ export class WorkItemService {
    */
   private async recalculate(actor: WorkspaceActor, projectId: string): Promise<void> {
     const rows = await this.store.workItem.progressRows(actor.tenantId, projectId);
+    const method =
+      (await this.store.project.findById(actor.tenantId, projectId))?.progressMethod ??
+      LEGACY_PROJECT_PROGRESS_METHOD;
     const nodes: ProgressNode[] = rows.map((row) => ({
       id: row.id,
       parentId: row.parentId,
@@ -912,6 +919,9 @@ export class WorkItemService {
       progressPercent: row.progressPercent,
       manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
+      weight: row.weight,
+      plannedStart: row.plannedStart,
+      plannedEnd: row.plannedEnd,
       requiresConfirmation: row.requiresConfirmation,
     }));
 
@@ -947,7 +957,11 @@ export class WorkItemService {
         ? 100
         : (changed.get(node.id) ?? node.progressPercent),
     }));
-    await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
+    await this.store.project.updateProgress(
+      actor.tenantId,
+      projectId,
+      projectProgress(updated, method),
+    );
     // Mọi việc đã xong hoặc đã huỷ: tự đóng hồ sơ nếu tenant bật tuỳ chọn ở Cài đặt.
     await this.projects.autoArchiveIfDone(
       actor.tenantId,
@@ -1048,6 +1062,15 @@ function requireText(value: unknown, label: string, maxLength: number): string {
     throw new WorkspaceValidationError(`${label} không được dài quá ${maxLength} ký tự.`);
   }
   return text;
+}
+
+/** Tỷ trọng: số không âm, tối đa `MAX_WORK_ITEM_WEIGHT`; `null`/vắng nghĩa là chưa đặt. */
+function assertWeight(weight: number | null | undefined): void {
+  if (weight === null || weight === undefined) return;
+  const value = Number(weight);
+  if (!Number.isFinite(value) || value < 0 || value > MAX_WORK_ITEM_WEIGHT) {
+    throw new WorkspaceValidationError(`Tỷ trọng phải là số từ 0 đến ${MAX_WORK_ITEM_WEIGHT}.`);
+  }
 }
 
 function assertDateOrder(start?: string | null, end?: string | null): void {

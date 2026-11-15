@@ -832,6 +832,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     },
     { version: '0035-blocked-reason', path: 'tenant/workspace/0035-blocked-reason.sql' },
     { version: '0036-project-request-details', path: 'tenant/workspace/0036-project-request-details.sql' },
+    { version: '0037-project-progress-method', path: 'tenant/workspace/0037-project-progress-method.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

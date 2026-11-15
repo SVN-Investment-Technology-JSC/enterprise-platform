@@ -286,6 +286,39 @@ export interface Paged<TItem> {
    DỰ ÁN
    ========================================================================= */
 
+/**
+ * Cách tính tiến độ dự án, chọn lúc tạo dự án (bám 1Office). Tiến độ dự án luôn TỰ TÍNH từ các công việc gốc, không
+ * nhập tay.
+ *  · `avg_tasks`       bình quân % tiến độ các công việc gốc.
+ *  · `weighted_days`   bình quân theo số ngày thực hiện dự kiến của từng công việc gốc.
+ *  · `weighted_weight` bình quân theo tỷ trọng (`weight`) người dùng đặt cho từng công việc gốc.
+ *  · `weighted_hours`  công thức cũ (trọng số là giờ ước lượng của các việc lá): chỉ còn cho dự án có sẵn từ trước,
+ *                      không chọn được khi tạo dự án mới.
+ */
+export const PROJECT_PROGRESS_METHODS = [
+  'avg_tasks',
+  'weighted_days',
+  'weighted_weight',
+  'weighted_hours',
+] as const;
+export type ProjectProgressMethod = (typeof PROJECT_PROGRESS_METHODS)[number];
+
+/** Các cách chọn được cho dự án mới (và để đổi). `weighted_hours` chỉ hiện khi dự án đang dùng nó. */
+export const SELECTABLE_PROJECT_PROGRESS_METHODS = [
+  'avg_tasks',
+  'weighted_days',
+  'weighted_weight',
+] as const satisfies readonly ProjectProgressMethod[];
+
+/** Mặc định của dự án mới khi tenant chưa chọn ở Cài đặt chung. */
+export const DEFAULT_PROJECT_PROGRESS_METHOD: ProjectProgressMethod = 'avg_tasks';
+
+/** Dự án có từ trước khi có lựa chọn này giữ công thức cũ, để số liệu không đổi. */
+export const LEGACY_PROJECT_PROGRESS_METHOD: ProjectProgressMethod = 'weighted_hours';
+
+/** Trần của `weight` (tỷ trọng) công việc; khớp cột NUMERIC(8,2). */
+export const MAX_WORK_ITEM_WEIGHT = 100000;
+
 export interface Project {
   readonly id: string;
   readonly code: string;
@@ -312,12 +345,15 @@ export interface Project {
   readonly archivedAt?: string;
   readonly startDate?: string;
   readonly endDate?: string;
-  /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì tính từ các công việc lá. */
+  /** Tiến độ thực tế: tự tính từ các công việc gốc theo `progressMethod`, không nhập tay được. */
   readonly progressPercent: number;
-  /** Tiến độ tự tính từ công việc, kể cả khi đang có giá trị nhập tay. */
-  readonly autoProgressPercent?: number;
-  /** `true` khi `progressPercent` là giá trị người dùng nhập tay. */
-  readonly progressManual?: boolean;
+  /** Cách tính tiến độ của dự án. */
+  readonly progressMethod: ProjectProgressMethod;
+  /**
+   * Tiến độ dự kiến theo tiến trình thời gian của dự án: tăng đều từ ngày bắt đầu đến ngày kết thúc dự án. Vắng khi
+   * dự án chưa đủ hai ngày.
+   */
+  readonly expectedProgressPercent?: number;
   readonly metadata: Record<string, unknown>;
   readonly createdBy: string;
   readonly createdAt: string;
@@ -372,6 +408,8 @@ export interface CreateProjectRequest {
   readonly tagIds?: readonly string[];
   readonly startDate?: string;
   readonly endDate?: string;
+  /** Cách tính tiến độ dự án; bỏ trống thì theo cài đặt chung của tenant. */
+  readonly progressMethod?: ProjectProgressMethod;
   /**
    * Tên các công việc tạo sẵn cùng dự án, theo thứ tự (mỗi tên là một công việc cấp gốc, chưa giao ai).
    * Vắng: theo cấu hình chung của tenant (bật thì tạo theo danh sách mẫu, tắt thì không tạo). `[]`: không tạo.
@@ -416,7 +454,12 @@ export interface UpdateProjectRequest {
   readonly tagIds?: readonly string[];
   readonly startDate?: string | null;
   readonly endDate?: string | null;
-  /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
+  /** Đổi cách tính tiến độ; tiến độ dự án được tính lại ngay. */
+  readonly progressMethod?: ProjectProgressMethod;
+  /**
+   * @deprecated Tiến độ dự án không còn nhập tay: server bỏ qua trường này (giữ để bản giao diện cũ gửi lên không
+   * lỗi).
+   */
   readonly manualProgressPercent?: number | null;
 }
 
@@ -461,6 +504,8 @@ export interface ProjectArchiveSettings {
   readonly defaultTasksEnabled: boolean;
   /** Danh sách công việc mẫu theo thứ tự; người tạo dự án thêm hoặc bớt được cho từng dự án. */
   readonly defaultTaskTitles: readonly string[];
+  /** Cách tính tiến độ mặc định cho dự án mới (người tạo vẫn đổi được cho từng dự án). */
+  readonly defaultProgressMethod: ProjectProgressMethod;
   readonly canEdit: boolean;
 }
 
@@ -470,6 +515,7 @@ export interface SaveProjectArchiveSettingsRequest {
   readonly chatOnArchived?: ChatOnArchivedPolicy;
   readonly defaultTasksEnabled?: boolean;
   readonly defaultTaskTitles?: readonly string[];
+  readonly defaultProgressMethod?: ProjectProgressMethod;
 }
 
 /** Dự án đã lưu trữ chỉ xem; riêng trao đổi do tenant chọn: `block` chặn nhắn, `allow` vẫn cho nhắn. Mặc định `block`. */
@@ -641,6 +687,11 @@ export interface WorkItem {
   readonly actualStart?: string;
   readonly actualEnd?: string;
   readonly estimateHours?: number;
+  /**
+   * Tỷ trọng của công việc khi dự án tính tiến độ theo tỷ trọng công việc (`weighted_weight`). Chỉ công việc gốc có
+   * tác dụng; vắng nghĩa là chưa đặt.
+   */
+  readonly weight?: number;
   /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì giá trị tự tính. */
   readonly progressPercent: number;
   /** Tiến độ tự tính (việc cha: từ việc con; việc lá: theo trạng thái và lần nhập cũ). */
@@ -731,6 +782,8 @@ export interface CreateWorkItemRequest {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
+  /** Tỷ trọng (xem `WorkItem.weight`); bỏ trống là chưa đặt. */
+  readonly weight?: number | null;
   /**
    * Quy trình sẽ mở cho công việc "Theo quy trình". Workspace chỉ ghi yêu cầu
    * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
@@ -763,6 +816,8 @@ export interface UpdateWorkItemRequest {
   readonly plannedStart?: string | null;
   readonly plannedEnd?: string | null;
   readonly estimateHours?: number | null;
+  /** Tỷ trọng (xem `WorkItem.weight`); `null` bỏ tỷ trọng. */
+  readonly weight?: number | null;
   readonly progressPercent?: number;
   /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
   readonly manualProgressPercent?: number | null;
@@ -884,6 +939,7 @@ export const WORK_ITEM_LOGGED_FIELDS = [
   'plannedStart',
   'plannedEnd',
   'estimateHours',
+  'weight',
   'progressPercent',
   'manualProgressPercent',
 ] as const;

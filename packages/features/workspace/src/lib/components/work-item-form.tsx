@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  MAX_WORK_ITEM_WEIGHT,
   type CreateWorkItemRequest,
   type DirectoryPerson,
   type ProjectMember,
@@ -111,6 +112,8 @@ interface FormState {
   plannedStart: string;
   plannedEnd: string;
   estimateHours: string;
+  /** Tỷ trọng của công việc gốc; rỗng là chưa đặt. */
+  weight: string;
   procedureDefinitionId: string;
   completion: CompletionDraft;
   reopenPolicy: WorkItemReopenPolicy;
@@ -131,6 +134,7 @@ const EMPTY: FormState = {
   plannedStart: '',
   plannedEnd: '',
   estimateHours: '',
+  weight: '',
   procedureDefinitionId: '',
   completion: emptyCompletion(),
   reopenPolicy: 'assignee',
@@ -197,6 +201,7 @@ export function WorkItemForm({
             plannedStart: item.plannedStart ?? '',
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
+            weight: item.weight == null ? '' : String(item.weight),
             procedureDefinitionId: '',
             completion: completionDraftOf(item.completion),
             reopenPolicy: reopenPolicyOf(item.reopenPolicy),
@@ -497,6 +502,8 @@ export function WorkItemForm({
           plannedStart: form.plannedStart || null,
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
+          // Chỉ công việc gốc có tỷ trọng; việc con không gửi để khỏi ghi đè.
+          weight: item?.parentId ? undefined : form.weight.trim() ? Number(form.weight) : null,
           transport: transportBlock,
           // Chỉ gửi khi thật sự đổi và được phép sửa: người nhận việc lưu các trường khác không bị chặn nhầm.
           completion:
@@ -671,6 +678,7 @@ export function WorkItemForm({
           form={form}
           set={set}
           isPhase={isPhase}
+          isRoot={!item?.parentId}
           titleHistory={titleHistory}
           assigneeChoices={assigneeChoices}
           renderAssignee={renderAssignee}
@@ -809,6 +817,7 @@ function EditFields({
   form,
   set,
   isPhase,
+  isRoot,
   titleHistory,
   assigneeChoices,
   renderAssignee,
@@ -823,6 +832,8 @@ function EditFields({
   readonly form: FormState;
   readonly set: (patch: Partial<FormState>) => void;
   readonly isPhase: boolean;
+  /** Công việc cấp gốc: chỉ loại này có tỷ trọng. */
+  readonly isRoot: boolean;
   readonly titleHistory: readonly string[];
   readonly assigneeChoices: AssigneeChoices;
   readonly renderAssignee: (option: SearchableSelectOption) => ReactNode;
@@ -882,6 +893,22 @@ function EditFields({
           </Field>
         </div>
       )}
+
+      {isRoot ? (
+        <Field
+          label="Tỷ trọng"
+          hint="Dùng khi dự án tính tiến độ theo tỷ trọng công việc. Để trống là chưa đặt: công việc tính bằng mức trung bình của các việc đã đặt."
+        >
+          <input
+            type="number"
+            min={0}
+            max={MAX_WORK_ITEM_WEIGHT}
+            step="any"
+            value={form.weight}
+            onChange={(event) => set({ weight: event.target.value })}
+          />
+        </Field>
+      ) : null}
 
       {isPhase ? null : (
         <Field label="Người thực hiện cùng">
