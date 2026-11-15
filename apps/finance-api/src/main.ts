@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { configureHttpSecurity } from '@enterprise-platform/platform-module-access';
 import cookieParser from 'cookie-parser';
 import { assertProductionEnvironment } from './app/assert-production-env';
 import { FinanceApiModule } from './app/finance-api.module';
@@ -8,6 +9,7 @@ async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
   assertProductionEnvironment();
   const app = await NestFactory.create(FinanceApiModule);
+  configureHttpSecurity(app);
   app.use(cookieParser());
   app.enableShutdownHooks();
   const globalPrefix = 'api/finance';

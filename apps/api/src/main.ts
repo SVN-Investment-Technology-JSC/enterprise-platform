@@ -5,6 +5,7 @@
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { configureHttpSecurity } from '@enterprise-platform/platform-module-access';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { trustProxyFromEnv } from '@enterprise-platform/platform-identity';
@@ -13,6 +14,7 @@ import { AppModule } from './app/app.module';
 async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  configureHttpSecurity(app);
   // Sau gateway, IP thật của client nằm trong X-Forwarded-For; giới hạn đăng nhập sai đếm theo IP này (ISS-BE-010).
   // Không đặt TRUST_PROXY thì giữ mặc định không tin header (chạy trực tiếp không có proxy).
   const trustProxy = trustProxyFromEnv();

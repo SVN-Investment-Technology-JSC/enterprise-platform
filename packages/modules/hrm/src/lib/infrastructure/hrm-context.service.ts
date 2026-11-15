@@ -16,7 +16,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { verifyServiceToken } from '@enterprise-platform/platform-module-access';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Pool } from 'pg';
 import { isProcedureReachable } from './hrm-procedure-api.js';
@@ -185,15 +185,7 @@ export class HrmContextService {
    * khi chưa cấu hình `INTERNAL_SERVICE_TOKEN`.
    */
   async serviceContext(request: Request): Promise<{ tenantId: string; pool: Pool }> {
-    const expected = process.env.INTERNAL_SERVICE_TOKEN;
-    const header = request.headers['x-service-token'];
-    const presented = Array.isArray(header) ? header[0] : header;
-    if (
-      !expected ||
-      !presented ||
-      presented.length !== expected.length ||
-      !timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
-    )
+    if (!verifyServiceToken(request.headers['x-service-token']))
       throw new UnauthorizedException({
         code: 'SERVICE_IDENTITY_INVALID',
         message: 'Service identity không hợp lệ.',

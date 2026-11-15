@@ -12,6 +12,28 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+/**
+ * So token dịch vụ nội bộ (`x-service-token`) với `INTERNAL_SERVICE_TOKEN` theo thời
+ * gian hằng định. Mọi chỗ xác thực lời gọi service-to-service phải dùng hàm này,
+ * không so bằng `===`/`!==` (lộ token qua chênh lệch thời gian phản hồi).
+ *
+ * Băm SHA-256 hai bên trước khi so để hai buffer luôn cùng độ dài, nên độ dài token
+ * cũng không bị lộ. Thiếu biến môi trường, token rỗng hay header không phải chuỗi
+ * thì trả `false` (fail closed); không bao giờ ném lỗi.
+ */
+export function verifyServiceToken(
+  provided: unknown,
+  expected: string | undefined = process.env.INTERNAL_SERVICE_TOKEN,
+): boolean {
+  const presented = Array.isArray(provided) ? provided[0] : provided;
+  if (typeof presented !== 'string' || !presented) return false;
+  if (typeof expected !== 'string' || !expected) return false;
+  const a = createHash('sha256').update(presented, 'utf8').digest();
+  const b = createHash('sha256').update(expected, 'utf8').digest();
+  return timingSafeEqual(a, b);
+}
 
 /** Tenant và database đã phân giải cho một lời gọi service-to-service. */
 export interface ServiceCaller {
@@ -170,9 +192,7 @@ export class ModuleAccess {
    */
   async authorizeService(request: Request): Promise<ServiceCaller> {
     const expected = process.env.INTERNAL_SERVICE_TOKEN;
-    const presented = request.headers['x-service-token'];
-    const token = Array.isArray(presented) ? presented[0] : presented;
-    if (!expected || token !== expected) {
+    if (!expected || !verifyServiceToken(request.headers['x-service-token'], expected)) {
       throw new UnauthorizedException({
         code: 'SERVICE_IDENTITY_INVALID',
         message: 'Service identity không hợp lệ.',

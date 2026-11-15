@@ -15,6 +15,9 @@ module.exports = {
   transform: {
     '^.+\\.[tj]s$': ['@swc/jest', swcJestConfig],
   },
+  // `verifyServiceToken` lấy từ platform-module-access, gói này nạp `jose` 6 (chỉ
+  // phát hành ESM), nên phải chừa `jose` ra để Jest biến đổi (đường dẫn pnpm có `.pnpm/`).
+  transformIgnorePatterns: ['node_modules/(?!\\.pnpm|jose)'],
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: 'test-output/jest/coverage',
 };
