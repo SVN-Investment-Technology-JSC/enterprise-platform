@@ -507,8 +507,15 @@ export async function listVouchers(
 }
 
 const PROJECT_LIST_LIMIT = 200;
-/** Chỉ phiếu đang có hiệu lực tiền: chờ duyệt và đã ghi sổ. Nháp, bị từ chối, đã huỷ (kể cả đã đảo) không phải tiền của dự án. */
+/** Phiếu đang có hiệu lực tiền: chờ duyệt và đã ghi sổ. Bị từ chối, đã huỷ (kể cả đã đảo) không phải tiền của dự án. */
 const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
+/**
+ * Phiếu dựng từ hồ sơ Quy trình đã được duyệt ở quy trình nhưng nằm nháp tới khi kế toán ghi sổ (`approval_mode = INHERITED`).
+ * Với người xem dự án đó là khoản chi/thu đã được duyệt đang chờ ghi sổ, nên phải hiện ở mục chờ thay vì biến mất tới lúc ghi sổ.
+ * Phiếu nháp tự lập (DIRECT) thì chưa phải tiền của ai: vẫn không tính.
+ */
+const PROJECT_SCOPE_SQL = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT')
+  AND (v.status = ANY($3::text[]) OR (v.status = 'DRAFT' AND v.approval_mode = 'INHERITED'))`;
 
 /**
  * Phiếu thu/chi gắn với một dự án, cho trang dự án bên Workspace.
@@ -519,7 +526,7 @@ const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
  */
 export async function listProjectVouchers(db: Db, tenantId: string, projectId: string): Promise<FinanceProjectVoucherList> {
   const params: unknown[] = [tenantId, projectId, PROJECT_STATUSES];
-  const scope = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT') AND v.status = ANY($3::text[])`;
+  const scope = PROJECT_SCOPE_SQL;
 
   const totalsRows = (
     await db.query(

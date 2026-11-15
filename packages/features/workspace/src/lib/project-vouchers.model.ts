@@ -8,7 +8,7 @@
 import type { WorkItemCost } from '@enterprise-platform/contracts-workspace';
 
 export type ProjectVoucherKind = 'RECEIPT' | 'PAYMENT';
-export type ProjectVoucherStatus = 'PENDING' | 'APPROVED';
+export type ProjectVoucherStatus = 'DRAFT' | 'PENDING' | 'APPROVED';
 export type ProjectVoucherLink = 'ALLOCATION' | 'RELATED';
 
 export interface ProjectVoucher {
@@ -57,11 +57,14 @@ export const PROJECT_VOUCHER_KIND_LABELS: Readonly<Record<ProjectVoucherKind, st
 };
 
 export const PROJECT_VOUCHER_STATUS_LABELS: Readonly<Record<ProjectVoucherStatus, string>> = {
+  // DRAFT ở đây là phiếu từ hồ sơ Quy trình đã duyệt, đang chờ kế toán ghi sổ.
+  DRAFT: 'Chờ ghi sổ',
   PENDING: 'Chờ duyệt',
   APPROVED: 'Đã duyệt',
 };
 
 export const PROJECT_VOUCHER_STATUS_TONE: Readonly<Record<ProjectVoucherStatus, { bg: string; fg: string }>> = {
+  DRAFT: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
   PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
   APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
 };

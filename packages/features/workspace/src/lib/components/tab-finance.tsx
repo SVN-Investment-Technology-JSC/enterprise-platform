@@ -183,9 +183,9 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
             ) : (
               <span className={styles.finFootLabel}>Nhập giá trị hợp đồng để theo dõi tiến độ thu tiền.</span>
             )}
-            <Tooltip content="Phiếu chờ duyệt chưa ghi sổ nên chưa tính vào số liệu trên">
+            <Tooltip content="Gồm phiếu chờ duyệt và phiếu từ hồ sơ Quy trình đã duyệt đang chờ kế toán ghi sổ. Chưa ghi sổ nên chưa tính vào số liệu trên">
               <span className={styles.finPending}>
-                Chờ duyệt: thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
+                Chờ duyệt/ghi sổ: thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
               </span>
             </Tooltip>
           </div>
@@ -293,6 +293,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                           { value: 'all', label: 'Mọi trạng thái' },
                           { value: 'APPROVED', label: PROJECT_VOUCHER_STATUS_LABELS.APPROVED },
                           { value: 'PENDING', label: PROJECT_VOUCHER_STATUS_LABELS.PENDING },
+                          { value: 'DRAFT', label: PROJECT_VOUCHER_STATUS_LABELS.DRAFT },
                         ]}
                         onChange={(value) => setFilter((current) => ({ ...current, status: value as ProjectVoucherFilter['status'] }))}
                       />
