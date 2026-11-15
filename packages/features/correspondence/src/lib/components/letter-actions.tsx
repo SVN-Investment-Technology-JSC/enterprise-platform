@@ -1110,6 +1110,9 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
   useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
   const ready = !busy && !next.blocked;
   const after = nextStepLabel(letter);
+  // Bước liền sau là phòng ban xử lý, hay bước chỉ đạo (bút phê): lãnh đạo phân công phòng ban chứ không chỉ "duyệt".
+  const assigns = next.upcoming?.type === 'process';
+  const verb = assigns ? 'Giao phòng ban xử lý' : next.directs ? 'Gửi bút phê' : 'Duyệt';
   return (
     <Panel title={letter.currentStepName ?? 'Duyệt'}>
       <div className={styles.form}>
@@ -1119,16 +1122,28 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
           </p>
         ) : null}
         <Field label={next.directs ? 'Ý kiến chỉ đạo (bút phê)' : next.needsUnits ? 'Ý kiến, chỉ đạo cho phòng ban (nếu có)' : 'Ý kiến (nếu có)'}>
-          <textarea value={note} maxLength={4000} rows={3} placeholder="Ý kiến kèm theo khi duyệt" onChange={(event) => setNote(event.target.value)} />
+          <textarea
+            value={note}
+            maxLength={4000}
+            rows={3}
+            placeholder={next.needsUnits ? 'Ví dụ: Phòng Kinh doanh chủ trì, Kế toán phối hợp, trả lời trước hạn' : 'Ý kiến kèm theo khi duyệt'}
+            onChange={(event) => setNote(event.target.value)}
+          />
         </Field>
         <NextStepFields next={next} letter={letter} config={config} directory={directory} />
         <ErrorLine error={error} />
         <div className={styles.formActions}>
-          <ReturnControl letter={letter} onDone={onDone} label="Không đạt" dialogTitle="Không đạt, trả lại" warning />
+          <ReturnControl
+            letter={letter}
+            onDone={onDone}
+            label={next.needsUnits ? 'Trả lại' : 'Không đạt'}
+            dialogTitle={next.needsUnits ? 'Trả lại công văn' : 'Không đạt, trả lại'}
+            warning
+          />
           <Popconfirm
-            title="Duyệt công văn này?"
+            title={assigns ? 'Giao công văn cho phòng ban đã chọn?' : next.directs ? 'Gửi bút phê?' : 'Duyệt công văn này?'}
             description={after ? `Công văn chuyển sang bước "${after}".` : 'Công văn chuyển sang bước tiếp theo.'}
-            okText="Duyệt"
+            okText={assigns ? 'Giao' : next.directs ? 'Gửi' : 'Duyệt'}
             cancelText="Xem lại"
             okType="primary"
             placement="top-end"
@@ -1142,12 +1157,12 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
                     units: next.payload.units,
                     dueOn: next.payload.dueOn,
                   }),
-                'Đã duyệt, chuyển bước tiếp theo.',
+                assigns ? 'Đã giao phòng ban xử lý.' : next.directs ? 'Đã gửi bút phê, chuyển bước tiếp theo.' : 'Đã duyệt, chuyển bước tiếp theo.',
               )
             }
           >
             <button type="button" className={styles.buttonPrimary} disabled={!ready}>
-              <CheckCircle2 size={15} /> Duyệt
+              <CheckCircle2 size={15} /> {verb}
             </button>
           </Popconfirm>
         </div>

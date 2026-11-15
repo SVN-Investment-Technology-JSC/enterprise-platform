@@ -215,7 +215,8 @@ export type StepType = (typeof STEP_TYPES)[number];
 export const STEP_TYPE_LABELS: Readonly<Record<StepType, string>> = {
   process: 'Phòng ban xử lý',
   check: 'Văn thư kiểm tra',
-  approve: 'Duyệt',
+  // Lãnh đạo xem xét: duyệt rồi chuyển tiếp, hay chỉ đạo, phân công phòng ban khi bước liền sau là phòng ban xử lý.
+  approve: 'Lãnh đạo duyệt / chỉ đạo',
 };
 
 /** Tên mặc định của ô đầu (nơi công văn được tạo) và ô cuối (đánh số, lưu trữ) theo luồng. */

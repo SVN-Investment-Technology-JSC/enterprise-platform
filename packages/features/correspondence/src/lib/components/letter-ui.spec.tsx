@@ -586,11 +586,13 @@ describe('Quy trình động trên khối thao tác', () => {
     { approve: true, returnTargets: ['clerk'] },
   );
 
-  it('bước sau là phòng ban xử lý: người duyệt chọn phòng ban rồi mới duyệt được', async () => {
+  it('bước sau là phòng ban xử lý: lãnh đạo chọn phòng ban rồi giao, nút ghi đúng việc là giao phòng ban', async () => {
     const onDone = jest.fn();
     mocked.approve.mockResolvedValue(directing);
     render(<LetterActionPanel letter={directing} config={config} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
-    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    const send = await screen.findByRole('button', { name: 'Giao phòng ban xử lý' });
+    expect(screen.queryByRole('button', { name: 'Duyệt' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Trả lại' })).toBeTruthy();
     await waitFor(() => expect(mocked.choice).toHaveBeenCalled());
     expect((send as HTMLButtonElement).disabled).toBe(true);
     const group = screen.getByRole('group', { name: 'Phòng ban cho bước "Phòng ban xử lý"' });
@@ -600,8 +602,9 @@ describe('Quy trình động trên khối thao tác', () => {
     await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText(/Ý kiến, chỉ đạo cho phòng ban/), { target: { value: 'Kinh doanh xử lý.' } });
     fireEvent.click(send);
-    expect(await screen.findByText('Công văn chuyển sang bước "Phòng ban xử lý".')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    expect(await screen.findByText('Giao công văn cho phòng ban đã chọn?')).toBeTruthy();
+    expect(screen.getByText('Công văn chuyển sang bước "Phòng ban xử lý".')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Giao' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.approve).toHaveBeenCalledWith('letter-1', {
       note: 'Kinh doanh xử lý.',
@@ -681,7 +684,7 @@ describe('Bút phê, đôn đốc', () => {
     const onDone = jest.fn();
     mocked.approve.mockResolvedValue(directing);
     render(<LetterActionPanel letter={directing} config={config} directory={org} onDone={onDone} onDirtyChange={jest.fn()} />);
-    const send = await screen.findByRole('button', { name: 'Duyệt' });
+    const send = await screen.findByRole('button', { name: 'Gửi bút phê' });
     await waitFor(() => expect(mocked.choice).toHaveBeenCalled());
     // Còn bước phòng ban xử lý phía sau: bút phê phải có đơn vị.
     expect((send as HTMLButtonElement).disabled).toBe(true);
@@ -693,7 +696,8 @@ describe('Bút phê, đôn đốc', () => {
     fireEvent.change(screen.getByLabelText(/Ý kiến chỉ đạo \(bút phê\)/), { target: { value: 'Kinh doanh chủ trì.' } });
     await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(send);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Duyệt' }).find((button) => button !== send) as HTMLElement);
+    expect(await screen.findByText('Gửi bút phê?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.approve).toHaveBeenCalledWith('letter-1', {
       note: 'Kinh doanh chủ trì.',

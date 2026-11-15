@@ -370,7 +370,8 @@ const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
 const STEP_TYPE_HELP: Readonly<Record<StepType, string>> = {
   process: 'Người làm bước liền trước chọn phòng ban; phòng ban gửi đủ kết quả là sang bước sau.',
   check: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư kiểm tra, đạt thì chuyển tiếp.',
-  approve: 'Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
+  approve:
+    'Lãnh đạo xem xét rồi chuyển tiếp. Bước liền sau là Phòng ban xử lý thì chính lãnh đạo chọn phòng ban (phân công). Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
 };
 
 function WorkflowManager({
