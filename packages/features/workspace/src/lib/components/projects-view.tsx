@@ -87,6 +87,7 @@ import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
+import { useWorkspacePermissions } from '../workspace-permissions';
 
 /**
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
@@ -753,7 +754,10 @@ export function ProjectsView({
   // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
   // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
   const archived = Boolean(detail?.project.archivedAt);
+  // Không có `workspace.task.write` thì server chặn mọi thao tác ghi dù vai trong dự án cho phép: coi như chỉ xem.
+  const { canWriteTasks } = useWorkspacePermissions();
   const grantedPermissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+    if (!canWriteTasks) return new Set<ProjectPermission>();
     const given =
       detail?.project.myPermissions ??
       (role
@@ -762,7 +766,7 @@ export function ProjectsView({
             | undefined) ?? [])
         : PROJECT_PERMISSIONS);
     return new Set(given);
-  }, [detail?.project.myPermissions, role]);
+  }, [detail?.project.myPermissions, role, canWriteTasks]);
   // Dự án đã lưu trữ chỉ xem: không còn quyền ghi nào, nên mọi nút chức năng bên dưới tự ẩn. Việc duy nhất còn lại là
   // "Mở lưu trữ", dành cho người có quyền đổi trạng thái dự án.
   const permissions = useMemo<ReadonlySet<ProjectPermission>>(

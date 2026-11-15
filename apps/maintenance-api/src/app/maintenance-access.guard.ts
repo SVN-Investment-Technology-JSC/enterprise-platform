@@ -49,7 +49,7 @@ export class MaintenanceAccessGuard implements CanActivate {
     // Phân giải database bằng quyền đọc, rồi kiểm quyền chi tiết trên danh sách
     // trả về — nhờ đó `maintenance.manage` bao hàm quyền hẹp, không cần cấp thêm.
     const decision = await this.access.decision(principal, 'maintenance.read');
-    if (!decision.allowed || !decision.database || !decision.principal) throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Maintenance.' });
+    if (!decision.allowed || !decision.database || !decision.principal) throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Bảo trì.' });
 
     const held = decision.principal.permissions;
     const required = requiredMaintenancePermission(request);

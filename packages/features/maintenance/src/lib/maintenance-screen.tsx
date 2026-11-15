@@ -21,9 +21,11 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import {
+  AccessDeniedNotice,
   MinimalPopupForm,
   SearchableSelect,
   formatDateTime as formatSharedDateTime,
+  isAccessDeniedError,
   toast,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
@@ -225,6 +227,8 @@ export function MaintenanceScreen() {
   const [matrix, setMatrix] = useState<MaintenanceMatrix>();
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
+  /** Server trả 403 khi tải dữ liệu chính: người dùng chưa có quyền `maintenance.read`. */
+  const [accessDenied, setAccessDenied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -266,7 +270,13 @@ export function MaintenanceScreen() {
       ]);
       setWorkspace(nextWorkspace);
       setMatrix(nextMatrix);
+      setAccessDenied(false);
     } catch (cause) {
+      // Chưa được cấp quyền: hiện khối thông báo tiếng Việt thay cho toast lỗi và màn "đang tải" mãi.
+      if (isAccessDeniedError(cause)) {
+        setAccessDenied(true);
+        return;
+      }
       notifyError(cause, 'Không tải được dữ liệu bảo trì.', LOAD_ERROR_DURATION_MS);
     }
   }, []);
@@ -833,7 +843,9 @@ export function MaintenanceScreen() {
         />
       ) : null}
 
-      {!workspace ? (
+      {accessDenied && !workspace ? (
+        <AccessDeniedNotice moduleLabel="Bảo trì" />
+      ) : !workspace ? (
         <p className={styles.empty}>Đang tải dữ liệu bảo trì…</p>
       ) : (
         <>

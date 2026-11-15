@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { AccessDeniedNotice } from '@enterprise-platform/shared-ui';
 import { FinanceCrumbsProvider } from './finance-crumbs';
 import { financeNavigation, getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
 import { FinancePermissionsProvider, useFinancePermissions } from './finance-permissions';
@@ -73,7 +74,7 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
     [router],
   );
 
-  const blocked = !permissions.loading && !permissions.error && !permissions.canOpenPage(currentPath === '' ? '/' : topSegment(currentPath));
+  const blocked = !permissions.loading && !permissions.error && !permissions.denied && !permissions.canOpenPath(currentPath === '' ? '/' : currentPath);
 
   return (
     <FinanceCrumbsProvider value={setCrumbs}>
@@ -96,6 +97,8 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
               <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-accent-strong border-t-transparent" />
               Đang tải quyền Tài chính…
             </div>
+          ) : permissions.denied ? (
+            <AccessDeniedNotice moduleLabel="Tài chính" />
           ) : permissions.error ? (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
               <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>
@@ -115,10 +118,4 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
       </ModuleShell>
     </FinanceCrumbsProvider>
   );
-}
-
-/** `/receipts/abc` → `/receipts`: quyền kiểm theo trang gốc. */
-function topSegment(path: string): string {
-  const first = path.split('/').filter(Boolean)[0];
-  return first ? `/${first}` : '/';
 }

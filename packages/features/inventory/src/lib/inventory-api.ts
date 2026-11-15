@@ -55,7 +55,7 @@ import type {
   StockReport,
   StockReportQuery,
 } from '@enterprise-platform/contracts-inventory';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 const API = '/api/inventory/v1';
 
@@ -75,8 +75,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? 'Không thể hoàn tất yêu cầu kho.');
+    // Giữ mã HTTP để màn hình nhận ra 403 (chưa được cấp quyền) và câu tiếng Việt server trả.
+    throw await readApiRequestError(response, 'Không thể hoàn tất yêu cầu kho.');
   }
   /**
    * 204 và mọi phản hồi rỗng: KHÔNG gọi `response.json()`.
@@ -212,8 +212,7 @@ export async function openMovementWorkOrder(input: {
     }),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? 'Không mở được work order cho lệnh kho.');
+    throw await readApiRequestError(response, 'Không mở được work order cho lệnh kho.');
   }
   return (await response.json()) as { id: string; code: string };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 export async function authorizationRequest<T>(
   path: string,
@@ -22,15 +22,8 @@ export async function authorizationRequest<T>(
     headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      Array.isArray(error.message)
-        ? error.message.join(' ')
-        : (error.message ??
-          `Không thể thực hiện thao tác (${response.status}).`),
-    );
-  }
+  // Giữ câu tiếng Việt server trả; 403 không kèm câu thì dùng câu "chưa được cấp quyền" thay cho mã HTTP.
+  if (!response.ok) throw await readApiRequestError(response, 'Không thể thực hiện thao tác.');
   return (await response.json()) as T;
 }
 export const searchText = (text: string) =>

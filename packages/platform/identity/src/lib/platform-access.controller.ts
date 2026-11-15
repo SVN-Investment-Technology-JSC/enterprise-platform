@@ -161,7 +161,7 @@ export class PlatformAccessController {
   @Get('v1/overview')
   async overview(@Req() request: Request) {
     const principal = await this.principal(request);
-    if (principal.kind !== 'platform-admin') throw new ForbiddenException();
+    if (principal.kind !== 'platform-admin') throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     return this.identity.platformOverview();
   }
 
@@ -183,7 +183,7 @@ export class PlatformAccessController {
   @Get('v1/modules')
   async modules(@Req() request: Request) {
     const principal = await this.principal(request);
-    if (principal.kind !== 'tenant-user') throw new ForbiddenException();
+    if (principal.kind !== 'tenant-user') throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     const modules = await this.identity.tenantModules(principal.tenantId);
     return modules.filter(module => principal.moduleKeys?.includes('*') || principal.moduleKeys?.includes((module as { key: string }).key));
   }
@@ -275,7 +275,7 @@ export class PlatformAccessController {
       principal.kind !== 'tenant-user' ||
       !principal.permissions.includes('tenant.manage')
     )
-      throw new ForbiddenException();
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     return this.identity.tenantMembers(principal.tenantId);
   }
 
@@ -467,7 +467,7 @@ export class PlatformAccessController {
     input: { action?: string; id?: string; data?: Record<string, unknown> },
   ) {
     const verb = input.action === 'assign-user' ? 'create' : input.action?.split('-')[0];
-    if (!['create', 'update', 'delete'].includes(verb ?? '')) throw new ForbiddenException();
+    if (!['create', 'update', 'delete'].includes(verb ?? '')) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     const principal = await this.tenantAction(request, `core.organization.${verb}`);
     this.requireCsrf(request);
     return this.identity.mutateCoreOrganization(principal.tenantId, input);
@@ -614,13 +614,13 @@ export class PlatformAccessController {
     request: Request,
   ): Promise<PlatformAdminPrincipal> {
     const principal = await this.principal(request);
-    if (principal.kind !== 'platform-admin') throw new ForbiddenException();
+    if (principal.kind !== 'platform-admin') throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     return principal;
   }
 
   private async tenantUser(request: Request): Promise<TenantUserPrincipal> {
     const principal = await this.principal(request);
-    if (principal.kind !== 'tenant-user') throw new ForbiddenException();
+    if (principal.kind !== 'tenant-user') throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     return principal;
   }
 
@@ -633,7 +633,7 @@ export class PlatformAccessController {
   private async tenantManager(request: Request): Promise<TenantUserPrincipal> {
     const principal = await this.tenantUser(request);
     if (!isTenantAdmin(principal.roles)) {
-      throw new ForbiddenException();
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bạn không có quyền thực hiện thao tác này.' });
     }
     return principal;
   }

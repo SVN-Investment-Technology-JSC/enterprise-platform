@@ -22,7 +22,7 @@ import type {
   CreateOccurrenceAttachmentResponse,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 const API = '/api/maintenance/v1';
 
@@ -42,8 +42,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { message?: string };
-    throw new Error(body.message ?? 'Không thể hoàn tất yêu cầu bảo trì.');
+    // Giữ mã HTTP để màn hình nhận ra 403 (chưa được cấp quyền) và hiện câu tiếng Việt server trả.
+    throw await readApiRequestError(response, 'Không thể hoàn tất yêu cầu bảo trì.');
   }
   /**
    * 204 và mọi phản hồi rỗng: KHÔNG gọi `response.json()`.

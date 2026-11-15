@@ -64,7 +64,7 @@ export class InventoryAccessGuard implements CanActivate {
     if (!decision.allowed || !decision.database || !decision.principal) {
       throw new ForbiddenException({
         code: decision.code ?? 'ACCESS_DENIED',
-        message: 'Không được phép truy cập Inventory.',
+        message: 'Không được phép truy cập Kho.',
       });
     }
 

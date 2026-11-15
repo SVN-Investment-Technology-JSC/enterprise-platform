@@ -33,5 +33,23 @@ describe('Inventory capability-driven controls', () => {
     fireEvent.click(warehouseTab);
     expect(Boolean(screen.queryByRole('button', { name: /Nhập kho/ }))).toBe(canWriteTransactions);
     expect(Boolean(screen.queryByRole('button', { name: /Xuất kho/ }))).toBe(canWriteTransactions);
+    // Tạo đợt kiểm kê cần quyền quản lý kho (ISS-UI-022).
+    expect(Boolean(screen.queryByRole('button', { name: /Tạo đợt kiểm kê/ }))).toBe(canManage);
+  });
+
+  it('người chưa được cấp quyền Kho thấy thông báo tiếng Việt thay cho lỗi kỹ thuật', async () => {
+    window.history.replaceState(null, '', '/#stock');
+    global.fetch = jest.fn(async (url) => {
+      const path = String(url);
+      if (path.includes('/api/inventory/')) {
+        return { ok: false, status: 403, json: async () => ({ statusCode: 403, message: 'Forbidden resource' }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => (path.includes('/procedure/') ? { instances: [], definitions: [] } : []) } as Response;
+    });
+    render(<Page />);
+    const notice = await screen.findByText(/Bạn chưa được cấp quyền dùng phân hệ Kho/);
+    expect(notice).toBeTruthy();
+    expect(screen.queryByText(/Forbidden/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Nhập kho/ })).toBeNull();
   });
 });

@@ -2,11 +2,14 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FinanceCapabilities, FinanceVoucherKind } from '@enterprise-platform/contracts-finance';
+import { isAccessDeniedError } from '@enterprise-platform/shared-ui';
 import { FINANCE_PERMISSIONS_INVALIDATED_EVENT, financeFetch } from './finance-api';
 
 export interface FinancePermissionState {
   loading: boolean;
   error: string | null;
+  /** `GET /capabilities` trả 403: người dùng chưa có quyền `finance.*` nào, không phải lỗi hệ thống. */
+  denied?: boolean;
   capabilities: FinanceCapabilities | null;
 }
 
@@ -22,7 +25,9 @@ export function FinancePermissionsProvider({ children }: { children: ReactNode }
         const capabilities = await financeFetch<FinanceCapabilities>('/capabilities');
         if (active) setState({ loading: false, error: null, capabilities });
       } catch (error) {
-        if (active) setState({ loading: false, error: error instanceof Error ? error.message : 'Không tải được quyền Tài chính', capabilities: null });
+        if (!active) return;
+        if (isAccessDeniedError(error)) setState({ loading: false, error: null, denied: true, capabilities: null });
+        else setState({ loading: false, error: error instanceof Error ? error.message : 'Không tải được quyền Tài chính', capabilities: null });
       }
     }
     let lastAt = Date.now();
@@ -94,12 +99,27 @@ export function canOpenPage(c: FinanceCapabilities | null, path: string): boolea
   }
 }
 
+const KIND_BY_SEGMENT: Readonly<Record<string, FinanceVoucherKind>> = { receipts: 'RECEIPT', payments: 'PAYMENT', transfers: 'TRANSFER' };
+
+/**
+ * Quyền mở một đường dẫn đầy đủ: kiểm trang gốc như `canOpenPage`, thêm màn lập phiếu (`/<loại>/new`) cần quyền lập
+ * loại phiếu đó; người chỉ duyệt mở link lập phiếu thì thấy thông báo chưa được cấp quyền thay vì nhập xong mới nhận 403.
+ */
+export function canOpenPath(c: FinanceCapabilities | null, path: string): boolean {
+  const segments = path.split('/').filter(Boolean);
+  if (!canOpenPage(c, segments[0] ? `/${segments[0]}` : '/')) return false;
+  const kind = segments[0] ? KIND_BY_SEGMENT[segments[0]] : undefined;
+  if (kind && segments[1] === 'new') return Boolean(c?.[KIND_KEY[kind]].create);
+  return true;
+}
+
 export function useFinancePermissions() {
   const state = useContext(FinancePermissionsContext);
   return useMemo(
     () => ({
       ...state,
       canOpenPage: (path: string) => canOpenPage(state.capabilities, path),
+      canOpenPath: (path: string) => canOpenPath(state.capabilities, path),
     }),
     [state],
   );

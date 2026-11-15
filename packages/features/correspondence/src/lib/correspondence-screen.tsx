@@ -9,6 +9,7 @@ import type {
   CorrespondenceStatus,
   LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
+import { AccessDeniedNotice, isAccessDeniedError } from '@enterprise-platform/shared-ui';
 import { Archive, BarChart3, BellRing, FilePen, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ArchiveView } from './components/archive-view';
@@ -42,6 +43,8 @@ export function CorrespondenceScreen() {
   const [config, setConfig] = useState<CorrespondenceConfig>();
   const [overview, setOverview] = useState<CorrespondenceOverview>();
   const [error, setError] = useState<string>();
+  /** Server trả 403 khi tải trạng thái: người dùng chưa có quyền `correspondence.read`. */
+  const [accessDenied, setAccessDenied] = useState(false);
   const [stageFilter, setStageFilter] = useState<LetterStage>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [intakeOpen, setIntakeOpen] = useState(false);
@@ -57,8 +60,13 @@ export function CorrespondenceScreen() {
       .then((next) => {
         setStatus(next);
         setError(undefined);
+        setAccessDenied(false);
       })
-      .catch((cause) => setError(errorMessage(cause, 'Không tải được trạng thái Văn thư.')));
+      .catch((cause) => {
+        // Chưa được cấp quyền: hiện khối thông báo thay cho dòng lỗi.
+        if (isAccessDeniedError(cause)) setAccessDenied(true);
+        else setError(errorMessage(cause, 'Không tải được trạng thái Văn thư.'));
+      });
     loadDirectory()
       .then(setDirectory)
       .catch(() => undefined);
@@ -182,7 +190,9 @@ export function CorrespondenceScreen() {
         </>
       }
     >
-      {!status || provisioning || !config ? null : shown === 'settings' && canConfigure ? (
+      {accessDenied && !status ? (
+        <AccessDeniedNotice moduleLabel="Văn thư" />
+      ) : !status || provisioning || !config ? null : shown === 'settings' && canConfigure ? (
         <ConfigView config={config} directory={directory} onChanged={reloadConfig} />
       ) : shown === 'overview' ? (
         overview ? (

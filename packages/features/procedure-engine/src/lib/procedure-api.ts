@@ -26,7 +26,7 @@ import type {
   StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 const API_ROOT = '/api/procedure/v1';
 
@@ -75,18 +75,8 @@ async function request<TValue>(
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
-    const payload = (await response.json().catch(() => undefined)) as
-      | { message?: string | string[] }
-      | undefined;
-    const message =
-      payload && typeof payload === 'object' && 'message' in payload
-        ? payload.message
-        : undefined;
-    throw new Error(
-      Array.isArray(message)
-        ? message.join(', ')
-        : message || `Procedure API trả về HTTP ${response.status}.`,
-    );
+    // Giữ mã HTTP và câu tiếng Việt server trả: 403 hiện đúng lý do (thiếu quyền), không phải lỗi kỹ thuật.
+    throw await readApiRequestError(response, 'Không thể hoàn tất yêu cầu quy trình.');
   }
   // 204 không có body: gọi `json()` sẽ ném lỗi phân tích cú pháp, làm một thao
   // tác đã thành công trông như thất bại.

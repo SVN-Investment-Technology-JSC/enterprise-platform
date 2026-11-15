@@ -101,6 +101,7 @@ import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-r
 import { progressCellMode } from '../progress-cell-rules';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
+import { useWorkspacePermissions } from '../workspace-permissions';
 
 const INVITATION_RESPONSES: readonly {
   value: ParticipantResponse;
@@ -284,6 +285,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
   const [projectFormOpen, setProjectFormOpen] = useState(false);
+  const { canCreateProject, canWriteTasks } = useWorkspacePermissions();
   const [itemFormOpen, setItemFormOpen] = useState(false);
   /** Mọi dự án người dùng thấy, dùng cho ô chọn "Dự án" trong form Công việc mới. */
   const [projectList, setProjectList] = useState<readonly ProjectSummary[]>([]);
@@ -602,10 +604,13 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
               <RefreshCw size={15} />
             </button>
           </Tooltip>
-          <CreateMenu
-            onNewProject={() => setProjectFormOpen(true)}
-            onNewWorkItem={openNewWorkItem}
-          />
+          {/* Mục nào không có quyền thì ẩn; không còn mục nào thì ẩn cả nút. */}
+          {canCreateProject || canWriteTasks ? (
+            <CreateMenu
+              onNewProject={canCreateProject ? () => setProjectFormOpen(true) : undefined}
+              onNewWorkItem={canWriteTasks ? openNewWorkItem : undefined}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -1590,8 +1595,10 @@ function CreateMenu({
   onNewProject,
   onNewWorkItem,
 }: {
-  onNewProject: () => void;
-  onNewWorkItem: () => void;
+  /** Vắng khi người dùng không có quyền tạo dự án. */
+  onNewProject?: () => void;
+  /** Vắng khi người dùng không có quyền ghi công việc. */
+  onNewWorkItem?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1631,28 +1638,32 @@ function CreateMenu({
       </button>
       {open ? (
         <div className={styles.createMenuList} role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.createMenuItem}
-            onClick={() => {
-              setOpen(false);
-              onNewProject();
-            }}
-          >
-            Dự án mới
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.createMenuItem}
-            onClick={() => {
-              setOpen(false);
-              onNewWorkItem();
-            }}
-          >
-            Công việc mới
-          </button>
+          {onNewProject ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.createMenuItem}
+              onClick={() => {
+                setOpen(false);
+                onNewProject();
+              }}
+            >
+              Dự án mới
+            </button>
+          ) : null}
+          {onNewWorkItem ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.createMenuItem}
+              onClick={() => {
+                setOpen(false);
+                onNewWorkItem();
+              }}
+            >
+              Công việc mới
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

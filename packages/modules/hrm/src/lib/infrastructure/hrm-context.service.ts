@@ -393,7 +393,7 @@ export class HrmContextService {
     if (!decision.allowed || !decision.database) {
       throw new ForbiddenException({
         code: decision.code ?? 'PERMISSION_DENIED',
-        message: 'You do not have required permissions or entitlement for HRM',
+        message: 'Bạn không có quyền dùng chức năng này của phân hệ Nhân sự.',
       });
     }
 

@@ -60,7 +60,7 @@ describe('HRM authentication and tenant boundary', () => {
         { method: 'GET', headers: { authorization: 'Bearer test' } } as Request,
         'hrm.manage',
       ),
-    ).rejects.toThrow('permissions');
+    ).rejects.toThrow('Bạn không có quyền');
     expect(pools.forTenant).not.toHaveBeenCalled();
     expect(identity.decide).toHaveBeenCalledWith({
       ...{ sessionId: 'session-a', userId: 'user-a', tenantId: 'tenant-a' },
