@@ -1,10 +1,11 @@
 'use client';
 
-import type { LetterDetail } from '@enterprise-platform/contracts-correspondence';
+import type { CorrespondenceDirectory, LetterDetail } from '@enterprise-platform/contracts-correspondence';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, updateLetter } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
 import { Field, FormDialog } from './form-dialog';
+import { IntakeCheckFields, intakeCheckOf, intakeCheckPayload, type IntakeCheckValue } from './intake-check-fields';
 
 interface EditForm {
   senderOrg: string;
@@ -14,10 +15,12 @@ interface EditForm {
   receivedOn: string;
   dueOn: string;
   recipient: string;
+  check: IntakeCheckValue;
 }
 
 function formOf(letter: LetterDetail): EditForm {
   return {
+    check: intakeCheckOf(letter),
     senderOrg: letter.senderOrg,
     senderRef: letter.senderRef ?? '',
     senderDate: letter.senderDate ?? '',
@@ -32,11 +35,14 @@ function formOf(letter: LetterDetail): EditForm {
 export function EditLetterDialog({
   open,
   letter,
+  directory,
   onClose,
   onSaved,
 }: {
   readonly open: boolean;
   readonly letter: LetterDetail;
+  /** Người trong tenant, để chọn người nhận đích danh. */
+  readonly directory?: CorrespondenceDirectory;
   readonly onClose: () => void;
   readonly onSaved: (next: LetterDetail) => void;
 }) {
@@ -52,8 +58,8 @@ export function EditLetterDialog({
   }, [open, initial]);
 
   const incoming = letter.direction === 'incoming';
-  const dirty = (Object.keys(initial) as (keyof EditForm)[]).some((key) => form[key] !== initial[key]);
-  const set = (key: keyof EditForm, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const set = (key: Exclude<keyof EditForm, 'check'>, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   const submit = async () => {
     setSubmitting(true);
@@ -70,6 +76,7 @@ export function EditLetterDialog({
                 subject: form.subject,
                 receivedOn: form.receivedOn,
                 dueOn: form.dueOn,
+                ...intakeCheckPayload(form.check, letter.restricted),
               }
             : { subject: form.subject, recipient: form.recipient, dueOn: form.dueOn },
         ),
@@ -121,6 +128,14 @@ export function EditLetterDialog({
             <input type="date" value={form.dueOn} onChange={(event) => set('dueOn', event.target.value)} />
           </Field>
         </div>
+      ) : null}
+      {incoming ? (
+        <IntakeCheckFields
+          value={form.check}
+          restricted={letter.restricted}
+          directory={directory}
+          onChange={(patch) => setForm((current) => ({ ...current, check: { ...current.check, ...patch } }))}
+        />
       ) : (
         <div className={styles.formRow}>
           <Field label="Nơi nhận" required>

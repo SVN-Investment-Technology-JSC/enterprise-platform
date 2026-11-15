@@ -1,8 +1,7 @@
 'use client';
 
 import {
-  ENVELOPE_STATUSES,
-  ENVELOPE_STATUS_LABELS,
+  suggestRegister,
   type CatalogItem,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
@@ -11,10 +10,11 @@ import {
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
+import { appliedFlowLabels, catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { CheckGroup, Field, FilePickField, FormDialog, SelectField } from './form-dialog';
+import { IntakeCheckFields, intakeCheckPayload } from './intake-check-fields';
 
 interface IntakeForm {
   senderOrg: string;
@@ -32,6 +32,10 @@ interface IntakeForm {
   copyCount: string;
   addressedTo: string;
   addressedUserId: string;
+  /** Trống là sổ tự chọn theo độ mật, loại văn bản. */
+  registerId: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
+  personal: boolean;
 }
 
 /** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
@@ -64,6 +68,8 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
     copyCount: '',
     addressedTo: '',
     addressedUserId: '',
+    registerId: '',
+    personal: false,
   };
 }
 
@@ -105,9 +111,12 @@ export function IntakeDialog({
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof IntakeForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const workflow = plannedWorkflow(config, 'incoming', form.kind);
+  const facts = { kind: form.kind, urgency: form.urgency, confidentiality: form.confidentiality };
+  const workflow = plannedWorkflow(config, 'incoming', form.kind, facts);
 
   const restricted = Boolean(config.catalog.find((item) => item.kind === 'confidentiality' && item.code === form.confidentiality)?.restricted);
+  const registers = config.registers.filter((item) => item.isActive && item.direction === 'incoming');
+  const autoRegister = suggestRegister(config.registers, 'incoming', { kind: form.kind, restricted });
 
   const submit = async () => {
     if (!form.senderOrg.trim() || !form.subject.trim()) {
@@ -131,12 +140,9 @@ export function IntakeDialog({
         kind: form.kind,
         urgency: form.urgency,
         confidentiality: form.confidentiality,
-        envelopeStatus: form.envelopeStatus,
-        sealed: restricted ? form.sealed : undefined,
-        pageCount: form.pageCount === '' ? undefined : Number(form.pageCount),
-        copyCount: form.copyCount === '' ? undefined : Number(form.copyCount),
-        addressedTo: form.addressedTo.trim() || undefined,
-        addressedUserId: form.addressedUserId || undefined,
+        ...intakeCheckPayload(form, restricted),
+        registerId: form.registerId || undefined,
+        personal: form.personal && Boolean(form.addressedUserId) ? true : undefined,
       });
       let failed = 0;
       for (const file of files) {
@@ -150,7 +156,9 @@ export function IntakeDialog({
       toast.success(
         failed > 0
           ? `Đã vào sổ công văn đến số ${letter.incomingNo}; ${failed} tệp chưa tải lên được, tải lại trong hồ sơ.`
-          : `Đã vào sổ công văn đến số ${letter.incomingNo}.`,
+          : letter.personal
+            ? `Đã vào sổ số ${letter.incomingNo}, chuyển thẳng người nhận.`
+            : `Đã vào sổ công văn đến số ${letter.incomingNo}.`,
       );
       onCreated(letter.id);
     } catch (cause) {
@@ -241,54 +249,27 @@ export function IntakeDialog({
           onChange={(value) => set('confidentiality', value)}
         />
       </div>
-      <fieldset className={styles.fieldset}>
-        <legend>Phân loại sơ bộ</legend>
-        <div className={styles.formRow3}>
-          <SelectField label="Tình trạng bì">
-            <SearchableSelect
-              options={ENVELOPE_STATUSES.map((value) => ({ value, label: ENVELOPE_STATUS_LABELS[value] }))}
-              value={form.envelopeStatus}
-              searchInDropdown
-              hideDropdownSearch
-              onChange={(value) => value && set('envelopeStatus', value as EnvelopeStatus)}
-            />
-          </SelectField>
-          <Field label="Số tờ">
-            <input type="number" min={0} max={10000} value={form.pageCount} onChange={(event) => set('pageCount', event.target.value)} />
-          </Field>
-          <Field label="Số bản">
-            <input type="number" min={0} max={1000} value={form.copyCount} onChange={(event) => set('copyCount', event.target.value)} />
-          </Field>
-        </div>
-        {restricted ? (
-          <CheckGroup label="Văn bản mật">
-            <label className={styles.checkRow}>
-              <input type="checkbox" checked={form.sealed} onChange={(event) => set('sealed', event.target.checked)} />
-              Dấu niêm phong còn nguyên
-            </label>
-          </CheckGroup>
-        ) : null}
-        <div className={styles.formRow}>
-          <Field label="Gửi đích danh (cá nhân, tổ chức đoàn thể)">
-            <input
-              value={form.addressedTo}
-              maxLength={255}
-              placeholder="Để trống nếu gửi cơ quan"
-              onChange={(event) => set('addressedTo', event.target.value)}
-            />
-          </Field>
-          <SelectField label="Người nhận đích danh trong hệ thống">
-            <SearchableSelect
-              options={(directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }))}
-              value={form.addressedUserId}
-              placeholder="Chọn nếu người nhận có tài khoản"
-              clearable
-              onChange={(value) => set('addressedUserId', value ?? '')}
-            />
-            <span className={styles.hint}>Người này nhận thông báo và xem được công văn.</span>
-          </SelectField>
-        </div>
-      </fieldset>
+      <IntakeCheckFields value={form} restricted={restricted} directory={directory} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+      {form.addressedUserId ? (
+        <CheckGroup label="Thư gửi đích danh">
+          <label className={styles.checkRow}>
+            <input type="checkbox" checked={form.personal} onChange={(event) => set('personal', event.target.checked)} />
+            Thư riêng: không bóc bì, chuyển thẳng người nhận, không vào quy trình xử lý (người nhận trả văn thư được nếu là việc chung)
+          </label>
+        </CheckGroup>
+      ) : null}
+      {registers.length > 1 ? (
+        <SelectField label="Sổ đăng ký">
+          <SearchableSelect
+            options={registers.map((item) => ({ value: item.id, label: item.name, description: item.confidential ? 'Sổ văn bản mật' : undefined }))}
+            value={form.registerId}
+            placeholder={autoRegister ? `Tự chọn: ${autoRegister.name}` : 'Tự chọn theo độ mật, loại văn bản'}
+            clearable
+            onChange={(value) => set('registerId', value ?? '')}
+          />
+          <span className={styles.hint}>Văn bản có độ mật tự vào sổ mật (cấp số riêng); chọn sổ khác nếu cần.</span>
+        </SelectField>
+      ) : null}
       <div className={styles.formRow}>
         <Field label="Hạn xử lý">
           <input type="date" value={form.dueOn} min={form.receivedOn} onChange={(event) => set('dueOn', event.target.value)} />
@@ -297,7 +278,7 @@ export function IntakeDialog({
       </div>
       <p className={styles.plan}>
         <span>Quy trình (theo cấu hình):</span>{' '}
-        {workflow ? flowLabels(workflow, 'incoming').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
+        {workflow ? appliedFlowLabels(workflow, 'incoming', facts).join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );

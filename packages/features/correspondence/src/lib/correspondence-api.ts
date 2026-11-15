@@ -28,12 +28,14 @@ import {
   type PublishLetterRequest,
   type ReturnLetterRequest,
   type SaveCatalogItemRequest,
+  type SaveRegisterRequest,
   type SaveWorkflowRequest,
   type StepChoice,
   type SendLetterRequest,
   type SubmitLetterRequest,
   type UpdateDeliveryRequest,
   type UpdateLetterRequest,
+  type Register,
   type Workflow,
 } from '@enterprise-platform/contracts-correspondence';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -99,6 +101,12 @@ export const saveWorkflow = (id: string | undefined, body: SaveWorkflowRequest) 
     ? request<Workflow>(`/workflows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
     : post<Workflow>('/workflows', body);
 export const deleteWorkflow = (id: string) => request<void>(`/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const saveRegister = (id: string | undefined, body: SaveRegisterRequest) =>
+  id
+    ? request<Register>(`/registers/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
+    : post<Register>('/registers', body);
+export const deleteRegister = (id: string) => request<void>(`/registers/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /**
  * Ứng viên cho bước duyệt sắp bắt đầu khi bước đó để người thao tác chọn người duyệt; `null` là không cần chọn.

@@ -5,6 +5,7 @@ import {
   type LetterDirection,
   type LetterStage,
   type LetterStepStatus,
+  type AssignmentRole,
   type ReturnTarget,
   type StepType,
 } from '@enterprise-platform/contracts-correspondence';
@@ -35,16 +36,23 @@ export interface LetterViewer {
 
 export interface StepFacts {
   readonly seq: number;
+  readonly name?: string;
   /** Phòng ban xử lý, văn thư kiểm tra hay duyệt; trống là duyệt. */
   readonly kind?: StepType;
   readonly status: LetterStepStatus;
   readonly assigneeUserIds: readonly string[];
   readonly actedBy?: string;
   readonly rejectTo?: ReturnTarget;
+  /** Bước văn thư kiểm tra giao người riêng: chỉ những người đó làm (không phải mọi người làm văn thư). */
+  readonly ownActors?: boolean;
+  /** Bước "tất cả cùng duyệt": người đã duyệt thì không duyệt lại. */
+  readonly approvedBy?: readonly string[];
 }
 
 export interface AssignmentFacts {
   readonly unitId: string;
+  /** Chủ trì, phối hợp hay nhận để biết (không phải gửi kết quả); trống là chủ trì. */
+  readonly role?: AssignmentRole;
   readonly status: 'pending' | 'submitted';
   readonly submittedBy?: string;
   readonly handlerUserId?: string;
@@ -68,6 +76,8 @@ export interface LetterFacts {
   readonly addressedUserId?: string;
   /** Người làm ô cuối theo cấu hình quy trình; trống là văn thư. */
   readonly closerIds?: readonly string[];
+  /** Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung. */
+  readonly personal?: boolean;
 }
 
 /** Người xem làm được ô cuối (hoàn tất / ban hành): người được cấu hình, không cấu hình thì văn thư có quyền. */
@@ -81,10 +91,27 @@ export function activeStep(letter: Pick<LetterFacts, 'steps'>): StepFacts | unde
   return letter.steps.find((step) => step.status === 'active');
 }
 
-/** Người xem được giao bước duyệt đang chạy; quản trị tenant làm thay được khi người duyệt vắng. */
+/**
+ * Người xem được giao bước duyệt đang chạy (bước "tất cả cùng duyệt": chưa duyệt); quản trị tenant làm
+ * thay được khi người duyệt vắng.
+ */
 export function actsOnActiveStep(viewer: LetterViewer, letter: Pick<LetterFacts, 'steps'>): boolean {
   const step = activeStep(letter);
-  return Boolean(step && (step.assigneeUserIds.includes(viewer.userId) || viewer.isTenantAdmin));
+  if (!step || step.approvedBy?.includes(viewer.userId)) return false;
+  return step.assigneeUserIds.includes(viewer.userId) || viewer.isTenantAdmin;
+}
+
+/** Làm bước văn thư kiểm tra đang chạy: người riêng của bước nếu cấu hình có, không thì người có quyền văn thư. */
+export function actsOnCheck(viewer: LetterViewer, letter: Pick<LetterFacts, 'steps' | 'stage'>): boolean {
+  if (letter.stage !== 'checking') return false;
+  const step = activeStep(letter);
+  if (step?.ownActors) return step.assigneeUserIds.includes(viewer.userId) || viewer.isTenantAdmin;
+  return viewer.canRegister;
+}
+
+/** Phòng nhận để biết: không gửi kết quả, không chặn bước. */
+export function handles(assignment: Pick<AssignmentFacts, 'role'>): boolean {
+  return assignment.role !== 'info';
 }
 
 export function memberOf(viewer: LetterViewer, unitId: string | undefined): boolean {
@@ -127,14 +154,14 @@ export function canViewLetter(viewer: LetterViewer, letter: LetterFacts): boolea
  * đó, chưa có thì mọi nhân sự của phòng.
  */
 export function canRespondFor(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
-  if (letter.stage !== 'processing' || assignment.status !== 'pending') return false;
+  if (letter.stage !== 'processing' || assignment.status !== 'pending' || !handles(assignment)) return false;
   if (viewer.canRegister || viewer.headUnitIds.has(assignment.unitId)) return true;
   return assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId);
 }
 
 /** Phân công người xử lý cho phòng: văn thư, trưởng phòng; phòng chưa có người xử lý thì nhân sự của phòng nhận việc. */
 export function canAssignHandler(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
-  if (letter.stage !== 'processing' || assignment.status !== 'pending') return false;
+  if (letter.stage !== 'processing' || assignment.status !== 'pending' || !handles(assignment)) return false;
   if (viewer.canRegister || viewer.headUnitIds.has(assignment.unitId)) return true;
   return !assignment.handlerUserId && memberOf(viewer, assignment.unitId);
 }
@@ -143,16 +170,22 @@ export function canAssignHandler(viewer: LetterViewer, letter: Pick<LetterFacts,
 export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean {
   switch (letter.stage) {
     case 'received':
-    case 'checking':
       return viewer.canRegister && viewer.clerkOnDuty;
+    case 'checking':
+      return activeStep(letter)?.ownActors
+        ? Boolean(activeStep(letter)?.assigneeUserIds.includes(viewer.userId))
+        : viewer.canRegister && viewer.clerkOnDuty;
     case 'drafting':
       return letter.authorUserId === viewer.userId;
-    case 'reviewing':
-      return Boolean(activeStep(letter)?.assigneeUserIds.includes(viewer.userId));
+    case 'reviewing': {
+      const step = activeStep(letter);
+      return Boolean(step?.assigneeUserIds.includes(viewer.userId) && !step.approvedBy?.includes(viewer.userId));
+    }
     case 'processing':
       return letter.assignments.some(
         (assignment) =>
           assignment.status === 'pending' &&
+          handles(assignment) &&
           (assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId)),
       );
     case 'closing':
@@ -202,7 +235,7 @@ export function returnTargets(viewer: LetterViewer, letter: LetterFacts): Return
     case 'reviewing':
       return actsOnActiveStep(viewer, letter) ? available : [];
     case 'checking': {
-      if (!viewer.canRegister) return [];
+      if (!actsOnCheck(viewer, letter)) return [];
       const back = available.filter((target) => target !== 'clerk');
       return back.length > 0 ? back : incoming ? ['clerk'] : [];
     }
@@ -213,7 +246,8 @@ export function returnTargets(viewer: LetterViewer, letter: LetterFacts): Return
       return doneBefore(letter) ? ['previous-step', start] : [start];
     }
     case 'closing':
-      // Người hoàn tất thường là văn thư: không trả về chính văn thư tiếp nhận.
+      // Thư riêng: người nhận trả văn thư (việc chung). Người hoàn tất thường là văn thư: không trả về chính văn thư tiếp nhận.
+      if (letter.personal) return closesLetter(viewer, letter) ? ['clerk'] : [];
       return closesLetter(viewer, letter) ? available.filter((target) => target !== 'clerk') : [];
     case 'publishing':
       return closesLetter(viewer, letter) ? available : [];
@@ -234,7 +268,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
   const attachKinds = new Set<AttachmentKind>();
   if (incoming && viewer.canRegister && open) ['incoming', 'reference'].forEach((kind) => attachKinds.add(kind as AttachmentKind));
   if (respondsSomewhere) attachKinds.add('draft');
-  if (!incoming && ((stage === 'drafting' && (authorSide || viewer.canRegister)) || (stage === 'checking' && viewer.canRegister))) {
+  if (!incoming && ((stage === 'drafting' && (authorSide || viewer.canRegister)) || actsOnCheck(viewer, letter))) {
     attachKinds.add('draft');
     attachKinds.add('reference');
   }
@@ -246,11 +280,19 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
 
   const targets = returnTargets(viewer, letter);
   const active = activeStep(letter);
+  // Ngoài các nơi mặc định: về đúng một bước đã xong bất kỳ trước bước hiện tại (phòng ban chỉ trả về người giao).
+  const returnSteps =
+    stage !== 'processing' && targets.length > 0
+      ? [...letter.steps]
+          .filter((step) => step.status === 'done' && (!active || step.seq < active.seq))
+          .sort((left, right) => left.seq - right.seq)
+          .map((step) => ({ seq: step.seq, name: step.name ?? `Bước ${step.seq}` }))
+      : [];
   return {
     edit: open && (viewer.canRegister || (stage === 'drafting' && authorSide)),
     dispatch: incoming && stage === 'received' && viewer.canRegister,
     sendToClerk: !incoming && stage === 'drafting' && (authorSide || viewer.canRegister),
-    submit: stage === 'checking' && viewer.canRegister,
+    submit: actsOnCheck(viewer, letter),
     approve: onStep,
     complete: incoming && stage === 'closing' && closesLetter(viewer, letter),
     publish: !incoming && stage === 'publishing' && closesLetter(viewer, letter),
@@ -263,6 +305,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     remind: open && stage !== 'received' && Boolean(viewer.canTrack || viewer.isTenantAdmin),
     remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
+    returnSteps,
     defaultReturnTarget:
       active?.rejectTo && targets.includes(active.rejectTo) ? active.rejectTo : targets.includes('previous-step') ? 'previous-step' : targets[0],
     comment: letter.stage !== 'cancelled',

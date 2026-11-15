@@ -12,12 +12,15 @@ import type {
   EnvelopeStatus,
   LetterDirection,
   LetterDirective,
+  LetterCondition,
   LetterHistoryAction,
   LetterStage,
   LetterStepDecision,
   LetterStepStatus,
+  Register,
   ReturnTarget,
   RevokeKind,
+  StepMode,
   StepType,
   Workflow,
   WorkflowStep,
@@ -104,6 +107,15 @@ export interface LetterRecord {
   readonly directive?: Omit<LetterDirective, 'byName'>;
   /** Người làm ô cuối theo cấu hình quy trình (trống là văn thư). */
   readonly closerIds?: readonly string[];
+  /** Sổ đăng ký (đến: lúc vào sổ; đi: lúc ban hành); tên sổ chỉ đọc. */
+  readonly registerId?: string;
+  readonly registerName?: string;
+  /** Công văn đi: người ký, chức vụ người ký. */
+  readonly signerUserId?: string;
+  readonly signerName?: string;
+  readonly signerTitle?: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
+  readonly personal?: boolean;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -126,8 +138,16 @@ export interface StepRecord {
   readonly rejectTo?: ReturnTarget;
   readonly dueDays?: number;
   readonly status: LetterStepStatus;
+  /** Khi nào bước xong; trống là mặc định của loại bước. */
+  readonly mode?: StepMode;
   readonly chosenUserId?: string;
   readonly assigneeUserIds: readonly string[];
+  /** Bước "tất cả cùng duyệt": người phải duyệt (không tính người được ủy quyền), người đã duyệt. */
+  readonly requiredUserIds?: readonly string[];
+  readonly approvedBy?: readonly string[];
+  /** Bước phòng ban xử lý: phòng ban cố định, khoá chọn lại. */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
   readonly activatedAt?: string;
   readonly actedBy?: string;
   readonly actedAt?: string;
@@ -186,7 +206,10 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo'>[];
+  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy'> & {
+    /** Bước văn thư kiểm tra giao người riêng (không phải người làm văn thư). */
+    readonly ownActors?: boolean;
+  })[];
   readonly assignments: readonly Pick<AssignmentRecord, 'unitId' | 'unitName' | 'role' | 'status' | 'submittedBy' | 'handlerUserId' | 'submittedAt'>[];
   /** Có công văn đi (chưa huỷ) trả lời công văn này. */
   readonly replied?: boolean;
@@ -208,13 +231,14 @@ export interface LetterListFilter {
   readonly stages?: readonly LetterStage[];
   readonly year?: number;
   readonly search?: string;
+  readonly registerId?: string;
   readonly limit: number;
 }
 
 /* ---------------------------------------------------------------- ghi */
 
 export type LetterPatch = Partial<
-  Omit<LetterRecord, 'id' | 'direction' | 'year' | 'seq' | 'incomingNo' | 'receivedBy' | 'createdAt' | 'updatedAt'>
+  Omit<LetterRecord, 'id' | 'direction' | 'year' | 'seq' | 'incomingNo' | 'registerName' | 'receivedBy' | 'createdAt' | 'updatedAt'>
 >;
 
 export interface LetterInsert {
@@ -253,6 +277,8 @@ export interface StepUpdate {
   readonly status?: LetterStepStatus;
   readonly chosenUserId?: string | null;
   readonly assigneeUserIds?: readonly string[];
+  readonly requiredUserIds?: readonly string[];
+  readonly approvedBy?: readonly string[];
   readonly activate?: boolean;
   readonly actedBy?: string | null;
   readonly decision?: LetterStepDecision | null;
@@ -270,6 +296,8 @@ export interface LetterTransaction {
   readonly mentionedUserIds: readonly string[];
   update(patch: LetterPatch): Promise<LetterRecord>;
   nextNumber(kind: 'outgoing' | 'archive', year: number): Promise<number>;
+  /** Số đi của một sổ đăng ký; ghi `registerId` cùng số đi ở lần `update` có `outgoingNo`. */
+  nextRegisterNumber(registerId: string, year: number): Promise<number>;
   /** Thay toàn bộ bước của công văn bằng các bước chép từ quy trình. */
   replaceSteps(steps: readonly WorkflowStep[]): Promise<void>;
   updateStep(stepId: string, update: StepUpdate): Promise<void>;
@@ -314,7 +342,28 @@ export interface CatalogUpsert {
   readonly defaultUnitIds: readonly string[];
   readonly highlight: boolean;
   readonly restricted: boolean;
+  readonly abbreviation: string | null;
+  readonly numberFormat: string | null;
 }
+
+export interface RegisterUpsert {
+  readonly direction: LetterDirection;
+  readonly name: string;
+  readonly numberFormat: string;
+  readonly confidential: boolean;
+  readonly letterTypes: readonly string[];
+  readonly isDefault: boolean;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+}
+
+/**
+ * Cấp số khi vào sổ: số dự thảo của công văn đi (bộ đếm chung, hậu tố), hay số của một sổ đăng ký
+ * (bộ đếm của sổ, `format` dựng số hiển thị từ số thứ tự).
+ */
+export type LetterNumbering =
+  | { readonly counter: 'draft'; readonly suffix: string }
+  | { readonly registerId: string; readonly format: (seq: number) => string };
 
 export interface WorkflowUpsert {
   readonly name: string;
@@ -329,6 +378,7 @@ export interface WorkflowUpsert {
   readonly autoEnd: boolean;
   readonly archive: boolean;
   readonly steps: readonly WorkflowStep[];
+  readonly conditions: LetterCondition | null;
 }
 
 export interface CorrespondenceStore {
@@ -346,6 +396,12 @@ export interface CorrespondenceStore {
   saveWorkflow(tenantId: string, userId: string, id: string | undefined, input: WorkflowUpsert): Promise<Workflow>;
   deleteWorkflow(tenantId: string, id: string): Promise<boolean>;
 
+  registers(tenantId: string): Promise<Register[]>;
+  /** Đặt `isDefault` thì bỏ cờ mặc định ở sổ khác cùng luồng, cùng transaction. */
+  saveRegister(tenantId: string, userId: string, id: string | undefined, input: RegisterUpsert): Promise<Register>;
+  /** Chỉ xoá được sổ chưa có công văn nào. */
+  deleteRegister(tenantId: string, id: string): Promise<boolean>;
+
   /**
    * Vào sổ một công văn: cấp số theo bộ đếm của luồng (`incoming`: số đến, `draft`: số dự
    * thảo công văn đi) rồi ghi dòng, một transaction.
@@ -353,7 +409,7 @@ export interface CorrespondenceStore {
   createLetter(
     tenantId: string,
     input: LetterInsert,
-    numbering: { readonly counter: 'incoming' | 'draft'; readonly suffix: string },
+    numbering: LetterNumbering,
     after: (tx: LetterTransaction) => Promise<void>,
   ): Promise<LetterRecord>;
 

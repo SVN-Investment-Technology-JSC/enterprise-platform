@@ -294,6 +294,23 @@ export function LetterDrawer({
                   {letter.deliveryMethod ? ` · ${letter.deliveryMethod}` : ''}
                 </div>
               ) : null}
+              {letter.registerName ? (
+                <div>
+                  <span>Sổ đăng ký</span>
+                  {letter.registerName}
+                </div>
+              ) : null}
+              {!incoming && (letter.signerName || letter.copyCount !== undefined) ? (
+                <div>
+                  <span>Người ký · Số bản</span>
+                  {[
+                    [letter.signerName, letter.signerTitle].filter(Boolean).join(', ') || undefined,
+                    letter.copyCount !== undefined ? `${letter.copyCount} bản` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              ) : null}
               {letter.deliveryStatus ? (
                 <div>
                   <span>Tình trạng gửi</span>
@@ -369,6 +386,7 @@ export function LetterDrawer({
             <EditLetterDialog
               open={editing}
               letter={letter}
+              directory={directory}
               onClose={() => setEditing(false)}
               onSaved={(next) => {
                 setEditing(false);

@@ -136,6 +136,10 @@ export interface CatalogItem {
   readonly highlight?: boolean;
   /** Độ mật: chỉ người liên quan và người có quyền xem công văn mật thấy. */
   readonly restricted?: boolean;
+  /** Loại văn bản: ký hiệu viết tắt trong số văn bản (QĐ, TB, CV…); trống là chữ cái đầu của tên. */
+  readonly abbreviation?: string;
+  /** Loại văn bản: mẫu số riêng khi ban hành (ví dụ công văn "{so}/{coquan}-{donvi}"); trống là mẫu của sổ. */
+  readonly numberFormat?: string;
   readonly inUse?: boolean;
 }
 
@@ -151,6 +155,115 @@ export interface SaveCatalogItemRequest {
   readonly defaultUnitIds?: readonly string[];
   readonly highlight?: boolean;
   readonly restricted?: boolean;
+  readonly abbreviation?: string | null;
+  readonly numberFormat?: string | null;
+}
+
+/* ------------------------------------------------------------- sổ đăng ký, số văn bản */
+
+/**
+ * Sổ đăng ký văn bản đến / đi: mỗi sổ cấp số riêng theo năm. Văn bản vào sổ theo độ mật (sổ mật
+ * cho văn bản có độ mật) và loại văn bản; không sổ nào hợp thì vào sổ mặc định của luồng.
+ */
+export interface Register {
+  readonly id: string;
+  readonly direction: LetterDirection;
+  readonly name: string;
+  /** Mẫu số, xem `NUMBER_TOKENS`; bắt buộc có `{so}`. */
+  readonly numberFormat: string;
+  /** Sổ văn bản mật: văn bản có độ mật vào sổ này, cấp số riêng. */
+  readonly confidential: boolean;
+  /** Chỉ văn bản thuộc các loại này (mã loại văn bản); trống là mọi loại. */
+  readonly letterTypes: readonly string[];
+  readonly isDefault: boolean;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+  /** Số đã cấp trong năm hiện tại. */
+  readonly issuedThisYear: number;
+  readonly inUse: boolean;
+}
+
+export interface SaveRegisterRequest {
+  readonly direction: LetterDirection;
+  readonly name: string;
+  readonly numberFormat: string;
+  readonly confidential?: boolean;
+  readonly letterTypes?: readonly string[];
+  readonly isDefault?: boolean;
+  readonly isActive?: boolean;
+  readonly sortOrder?: number;
+}
+
+/**
+ * Sổ tự chọn cho một văn bản: sổ đang dùng cùng luồng hợp độ mật (văn bản có độ mật vào sổ mật, văn bản
+ * thường không vào sổ mật) và loại văn bản, sổ ghi đúng loại văn bản trước, rồi sổ mặc định; không sổ
+ * nào hợp thì sổ mặc định của luồng.
+ */
+export function suggestRegister(
+  registers: readonly Register[],
+  direction: LetterDirection,
+  letter: { readonly kind: string; readonly restricted: boolean },
+): Register | undefined {
+  const usable = registers.filter((item) => item.isActive && item.direction === direction);
+  const fits = usable.filter(
+    (item) => item.confidential === letter.restricted && (item.letterTypes.length === 0 || item.letterTypes.includes(letter.kind)),
+  );
+  return (
+    fits.find((item) => item.letterTypes.includes(letter.kind)) ??
+    fits.find((item) => item.isDefault) ??
+    fits[0] ??
+    usable.find((item) => item.isDefault) ??
+    usable[0]
+  );
+}
+
+/** Phần ghép được trong mẫu số văn bản. */
+export const NUMBER_TOKENS: readonly { readonly token: string; readonly label: string }[] = [
+  { token: '{so}', label: 'Số thứ tự trong sổ (dưới 10 thêm số 0)' },
+  { token: '{nam}', label: 'Năm' },
+  { token: '{loai}', label: 'Ký hiệu loại văn bản (QĐ, TB, CV…)' },
+  { token: '{coquan}', label: 'Ký hiệu cơ quan' },
+  { token: '{donvi}', label: 'Ký hiệu đơn vị soạn thảo' },
+];
+
+/** Chữ cái đầu viết hoa của các từ: "Quyết định" → "QĐ"; tên đơn vị bỏ chữ "Phòng", "Ban" ở đầu: "Phòng Kinh doanh" → "KD". */
+export function abbreviate(name: string, stripUnitPrefix = false): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const body = stripUnitPrefix && words.length > 1 && /^(phòng|ban)$/i.test(words[0]) ? words.slice(1) : words;
+  return body.map((word) => word.charAt(0).toUpperCase()).join('');
+}
+
+/**
+ * Số văn bản theo mẫu: "{so}/{loai}-{coquan}" → "05/QĐ-SVN". Số dưới 10 thêm 0 (Nghị định 30). Phần
+ * nào trống thì bỏ luôn dấu nối thừa ("05/QĐ" khi chưa có ký hiệu cơ quan).
+ */
+export function formatLetterNumber(
+  format: string,
+  parts: { readonly seq: number; readonly year: number; readonly type?: string; readonly org?: string; readonly unit?: string },
+): string {
+  const values: Record<string, string> = {
+    '{so}': parts.seq < 10 ? `0${parts.seq}` : String(parts.seq),
+    '{nam}': String(parts.year),
+    '{loai}': parts.type ?? '',
+    '{coquan}': parts.org ?? '',
+    '{donvi}': parts.unit ?? '',
+  };
+  const filled = format.replace(/\{(so|nam|loai|coquan|donvi)\}/g, (token) => values[token] ?? '');
+  return filled
+    .replace(/([-/.])[-/.]+/g, '$1')
+    .replace(/^[-/.]+|[-/.]+$/g, '')
+    .trim();
+}
+
+/** Mẫu số hợp lệ: có `{so}`, chỉ dùng các phần trong `NUMBER_TOKENS`, tối đa 80 ký tự. */
+export function numberFormatError(format: string): string | undefined {
+  const value = format.trim();
+  if (!value) return 'Nhập mẫu số.';
+  if (value.length > 80) return 'Mẫu số tối đa 80 ký tự.';
+  if (!value.includes('{so}')) return 'Mẫu số phải có {so} (số thứ tự).';
+  const unknown = (value.match(/\{[^}]*\}/g) ?? []).filter((token) => !NUMBER_TOKENS.some((item) => item.token === token));
+  if (unknown.length > 0) return `Mẫu số có phần không hiểu: ${unknown.join(', ')}.`;
+  return undefined;
 }
 
 /** Thêm nhanh một mục danh mục ngay lúc nhập công văn: chỉ cần tên, mã tự sinh. */
@@ -215,8 +328,71 @@ export type StepType = (typeof STEP_TYPES)[number];
 export const STEP_TYPE_LABELS: Readonly<Record<StepType, string>> = {
   process: 'Phòng ban xử lý',
   check: 'Văn thư kiểm tra',
-  approve: 'Duyệt',
+  // Lãnh đạo xem xét: duyệt rồi chuyển tiếp, hay chỉ đạo, phân công phòng ban khi bước liền sau là phòng ban xử lý.
+  approve: 'Lãnh đạo duyệt / chỉ đạo',
 };
+
+/**
+ * Điều kiện theo phân loại công văn: mỗi mục có giá trị thì công văn phải thuộc một trong các giá trị đó
+ * (các mục cùng lúc là "và"). Dùng chọn quy trình và bật / tắt một bước.
+ */
+export interface LetterCondition {
+  readonly kinds?: readonly string[];
+  readonly urgency?: readonly string[];
+  readonly confidentiality?: readonly string[];
+}
+
+/** Bước có điều kiện: `skip` là bỏ qua khi khớp, không thì chỉ chạy khi khớp. */
+export interface StepCondition extends LetterCondition {
+  readonly skip?: boolean;
+}
+
+export function conditionSet(condition: LetterCondition | undefined): boolean {
+  return Boolean(condition && ((condition.kinds?.length ?? 0) > 0 || (condition.urgency?.length ?? 0) > 0 || (condition.confidentiality?.length ?? 0) > 0));
+}
+
+/** Công văn khớp điều kiện; điều kiện trống là khớp. */
+export function matchesCondition(
+  condition: LetterCondition | undefined,
+  letter: { readonly kind: string; readonly urgency: string; readonly confidentiality: string },
+): boolean {
+  if (!condition) return true;
+  const fits = (values: readonly string[] | undefined, value: string) => !values || values.length === 0 || values.includes(value);
+  return fits(condition.kinds, letter.kind) && fits(condition.urgency, letter.urgency) && fits(condition.confidentiality, letter.confidentiality);
+}
+
+/** Bước áp dụng cho công văn: không có điều kiện, chỉ chạy khi khớp, hay bỏ qua khi khớp. */
+export function stepApplies(
+  step: { readonly condition?: StepCondition },
+  letter: { readonly kind: string; readonly urgency: string; readonly confidentiality: string },
+): boolean {
+  if (!conditionSet(step.condition)) return true;
+  const matched = matchesCondition(step.condition, letter);
+  return step.condition?.skip ? !matched : matched;
+}
+
+/**
+ * Khi nào một bước coi là xong:
+ * - bước duyệt: `any` một người trong nhóm duyệt là đủ (mặc định), `all` mọi người trong nhóm đều phải duyệt;
+ * - bước phòng ban xử lý: `all` mọi phòng chủ trì, phối hợp gửi kết quả (mặc định), `lead` phòng chủ trì gửi là xong.
+ */
+export const STEP_MODES = ['any', 'all', 'lead'] as const;
+export type StepMode = (typeof STEP_MODES)[number];
+export const APPROVE_MODE_LABELS: Readonly<Record<'any' | 'all', string>> = {
+  any: 'Một người trong nhóm duyệt là đủ',
+  all: 'Tất cả người trong nhóm đều phải duyệt',
+};
+export const PROCESS_MODE_LABELS: Readonly<Record<'all' | 'lead', string>> = {
+  all: 'Mọi phòng chủ trì, phối hợp gửi kết quả',
+  lead: 'Phòng chủ trì gửi kết quả là xong',
+};
+/** Cách xong mặc định của loại bước (bước văn thư kiểm tra: một người làm là xong). */
+export function stepModeOf(step: { readonly type?: StepType; readonly mode?: StepMode }): StepMode {
+  const type = step.type ?? 'approve';
+  if (type === 'process') return step.mode === 'lead' ? 'lead' : 'all';
+  if (type === 'approve') return step.mode === 'all' ? 'all' : 'any';
+  return 'any';
+}
 
 /** Tên mặc định của ô đầu (nơi công văn được tạo) và ô cuối (đánh số, lưu trữ) theo luồng. */
 export const FLOW_START_NAMES: Readonly<Record<LetterDirection, string>> = {
@@ -239,8 +415,21 @@ export interface WorkflowStep {
   readonly name: string;
   /** Trống là bước duyệt (dữ liệu trước khi có loại bước). */
   readonly type?: StepType;
-  /** Luật người duyệt; chỉ bước duyệt có. */
+  /**
+   * Ai làm bước: bước duyệt bắt buộc có; bước văn thư kiểm tra có thì giao đúng những người này (thư ký,
+   * phòng hành chính…), trống là người làm văn thư; bước phòng ban xử lý không có.
+   */
   readonly approver?: ApproverRule;
+  /** Khi nào bước xong (xem `STEP_MODES`); trống là mặc định của loại bước. */
+  readonly mode?: StepMode;
+  /**
+   * Bước phòng ban xử lý: phòng ban cố định của bước. Người làm bước trước không chọn thì giao các phòng
+   * này; `lockUnits` thì luôn giao đúng các phòng này, không ai chọn lại.
+   */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
+  /** Bước chỉ chạy khi (hay bỏ qua khi) công văn khớp điều kiện; trống là luôn chạy. */
+  readonly condition?: StepCondition;
   /**
    * Bước duyệt là bước chỉ đạo (bút phê): người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân
    * chủ trì, phối hợp và thời hạn; bước phòng ban xử lý sau đó giao theo bút phê.
@@ -276,6 +465,11 @@ export interface Workflow {
   readonly archive?: boolean;
   /** Các bước ở giữa theo thứ tự; rỗng là đi thẳng từ ô đầu tới ô cuối. */
   readonly steps: readonly WorkflowStep[];
+  /**
+   * Áp dụng cho công văn khớp điều kiện (loại văn bản, độ khẩn, độ mật): quy trình có điều kiện khớp
+   * được chọn trước quy trình gắn với loại văn bản và quy trình mặc định.
+   */
+  readonly conditions?: LetterCondition;
   readonly updatedAt: string;
 }
 
@@ -292,6 +486,7 @@ export interface SaveWorkflowRequest {
   readonly autoEnd?: boolean;
   readonly archive?: boolean;
   readonly steps: readonly WorkflowStep[];
+  readonly conditions?: LetterCondition | null;
 }
 
 export const MAX_WORKFLOW_STEPS = 30;
@@ -312,6 +507,13 @@ export interface LetterStep {
   readonly approver?: ApproverRule;
   /** Bước chỉ đạo (bút phê). */
   readonly directs?: boolean;
+  readonly mode?: StepMode;
+  /** Bước duyệt "tất cả cùng duyệt": ai đã duyệt, và tổng số người phải duyệt. */
+  readonly approvedBy?: readonly { readonly userId: string; readonly name?: string }[];
+  readonly requiredCount?: number;
+  /** Bước phòng ban xử lý: phòng ban cố định, có khoá chọn lại hay không. */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
   readonly status: LetterStepStatus;
   readonly assignees: readonly { readonly userId: string; readonly name?: string }[];
   readonly actedBy?: string;
@@ -381,10 +583,13 @@ export interface LetterAttachment {
 export const ASSIGNMENT_STATUSES = ['pending', 'submitted'] as const;
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
-/** Vai trò của đơn vị được giao: chủ trì (chịu trách nhiệm kết quả) hay phối hợp. */
-export const ASSIGNMENT_ROLES = ['lead', 'support'] as const;
+/**
+ * Vai trò của đơn vị được giao: chủ trì (chịu trách nhiệm kết quả), phối hợp, hay nhận để biết (được
+ * xem, được báo, không phải gửi kết quả, không chặn bước).
+ */
+export const ASSIGNMENT_ROLES = ['lead', 'support', 'info'] as const;
 export type AssignmentRole = (typeof ASSIGNMENT_ROLES)[number];
-export const ASSIGNMENT_ROLE_LABELS: Readonly<Record<AssignmentRole, string>> = { lead: 'Chủ trì', support: 'Phối hợp' };
+export const ASSIGNMENT_ROLE_LABELS: Readonly<Record<AssignmentRole, string>> = { lead: 'Chủ trì', support: 'Phối hợp', info: 'Để biết' };
 
 /** Bút phê của bước chỉ đạo: ý kiến chỉ đạo, đơn vị / cá nhân chủ trì, phối hợp, thời hạn. */
 export interface LetterDirective {
@@ -549,6 +754,14 @@ export interface LetterSummary {
   readonly unitNames: readonly string[];
   /** Có công văn đi trả lời công văn đến này. */
   readonly replied?: boolean;
+  /** Sổ đăng ký (công văn đến: lúc vào sổ; công văn đi: lúc ban hành). */
+  readonly registerId?: string;
+  readonly registerName?: string;
+  /** Công văn đi: người ký, chức vụ người ký. */
+  readonly signerName?: string;
+  readonly signerTitle?: string;
+  /** Số bản (đến: lúc tiếp nhận; đi: số bản phát hành). */
+  readonly copyCount?: number;
 }
 
 export interface LetterDetail extends LetterSummary {
@@ -567,6 +780,8 @@ export interface LetterDetail extends LetterSummary {
   readonly addressedTo?: string;
   readonly addressedUserId?: string;
   readonly addressedUserName?: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình xử lý. */
+  readonly personal?: boolean;
   /** Bút phê của bước chỉ đạo gần nhất. */
   readonly directive?: LetterDirective;
   /** Đề nghị huỷ công văn đã ban hành / hoàn tất: đang chờ xác nhận (giai đoạn `revoking`) hay đã được đồng ý. */
@@ -626,6 +841,8 @@ export interface LetterActions {
   readonly remind: boolean;
   /** Người xem trả lại được về đâu ở bước hiện tại ("Không đạt"). */
   readonly returnTargets: readonly ReturnTarget[];
+  /** Ngoài các nơi trên: trả về đúng một bước đã xong bất kỳ trước bước hiện tại. */
+  readonly returnSteps?: readonly { readonly seq: number; readonly name: string }[];
   /** Nơi trả về mặc định của bước hiện tại (cấu hình của bước duyệt). */
   readonly defaultReturnTarget?: ReturnTarget;
   readonly comment: boolean;
@@ -643,15 +860,16 @@ export interface StepChoice {
 /* -------------------------------------------------------------- yêu cầu */
 
 /** Phân loại sơ bộ lúc tiếp nhận: bì, niêm phong, số tờ, số bản, văn bản gửi đích danh. */
+/** Phân loại sơ bộ lúc tiếp nhận; khi sửa, `null` là xoá giá trị đã ghi. */
 export interface IntakeCheck {
-  readonly envelopeStatus?: EnvelopeStatus;
+  readonly envelopeStatus?: EnvelopeStatus | null;
   /** Văn bản mật: dấu niêm phong còn nguyên. */
   readonly sealed?: boolean;
-  readonly pageCount?: number;
-  readonly copyCount?: number;
+  readonly pageCount?: number | null;
+  readonly copyCount?: number | null;
   /** Gửi đích danh cá nhân hay tổ chức đoàn thể (ghi tên); `addressedUserId` khi là người trong hệ thống. */
-  readonly addressedTo?: string;
-  readonly addressedUserId?: string;
+  readonly addressedTo?: string | null;
+  readonly addressedUserId?: string | null;
 }
 
 export interface CreateLetterRequest extends IntakeCheck {
@@ -664,6 +882,13 @@ export interface CreateLetterRequest extends IntakeCheck {
   readonly kind?: string;
   readonly urgency?: string;
   readonly confidentiality?: string;
+  /** Sổ đăng ký; trống là sổ theo độ mật và loại văn bản. */
+  readonly registerId?: string;
+  /**
+   * Thư riêng gửi đích danh (`addressedUserId`): không bóc bì, chuyển thẳng người nhận, không vào quy trình
+   * xử lý; người nhận trả văn thư được nếu là việc chung.
+   */
+  readonly personal?: boolean;
 }
 
 /** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
@@ -756,7 +981,9 @@ export interface ApproveStepRequest extends NextStepInput {
 }
 
 export interface ReturnLetterRequest {
-  readonly target: ReturnTarget;
+  /** `step`: về đúng bước đã xong `stepSeq` (bất kỳ bước nào trước bước hiện tại). */
+  readonly target: ReturnTarget | 'step';
+  readonly stepSeq?: number;
   readonly reason: string;
   /** Khi trả phòng ban: phòng ban phải làm lại; trống là mọi phòng. */
   readonly assignmentIds?: readonly string[];
@@ -790,6 +1017,15 @@ export interface PublishLetterRequest {
   readonly publishedOn?: string;
   readonly deliveryMethod?: string;
   readonly note?: string;
+  /** Sổ cấp số đi; trống là sổ theo độ mật và loại văn bản. */
+  readonly registerId?: string;
+  /** Người ký (mặc định người duyệt bước cuối), chức vụ người ký, số bản phát hành. */
+  readonly signerUserId?: string;
+  readonly signerName?: string;
+  readonly signerTitle?: string;
+  readonly copyCount?: number;
+  /** Phòng ban trong công ty nhận văn bản (phát hành nội bộ): được xem, được báo. */
+  readonly internalUnitIds?: readonly string[];
 }
 
 export interface UpdateDeliveryRequest {
@@ -846,6 +1082,8 @@ export interface LetterQuery {
   readonly box?: LetterBox;
   readonly stage?: LetterStage;
   readonly search?: string;
+  /** Chỉ công văn của một sổ đăng ký. */
+  readonly registerId?: string;
 }
 
 /* ------------------------------------------------------------ tổng quan, báo cáo */
@@ -989,6 +1227,10 @@ export interface CorrespondenceSettings {
    * duyệt, bút phê giao cho người ủy quyền.
    */
   readonly delegations: readonly Delegation[];
+  /** Ký hiệu cơ quan trong số văn bản (`{coquan}`), ví dụ "SVN". */
+  readonly orgCode?: string;
+  /** Ký hiệu đơn vị trong số văn bản (`{donvi}`); đơn vị chưa đặt thì lấy chữ cái đầu của tên. */
+  readonly unitCodes?: readonly { readonly unitId: string; readonly code: string }[];
 }
 
 export interface Delegation {
@@ -1016,11 +1258,14 @@ export const DEFAULT_CORRESPONDENCE_SETTINGS: CorrespondenceSettings = {
   dispatchMode: 'all',
   clerkUserIds: [],
   delegations: [],
+  orgCode: '',
+  unitCodes: [],
 };
 
 export interface CorrespondenceConfig {
   readonly settings: CorrespondenceSettings;
   readonly catalog: readonly CatalogItem[];
+  readonly registers: readonly Register[];
   readonly workflows: readonly Workflow[];
 }
 

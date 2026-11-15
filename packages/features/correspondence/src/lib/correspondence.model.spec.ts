@@ -110,6 +110,7 @@ describe('correspondence.model', () => {
       settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [], delegations: [] },
       catalog: [{ id: 't', kind: 'letter_type' as const, code: 'hd', name: 'Hợp đồng', sortOrder: 0, isActive: true, outgoingWorkflowId: 'out-hd' }],
       workflows: [workflow('in', 'incoming', true), workflow('out', 'outgoing', true), workflow('out-hd', 'outgoing')],
+      registers: [],
     };
     expect(plannedWorkflow(config, 'incoming', 'hd')?.id).toBe('in');
     expect(plannedWorkflow(config, 'outgoing', 'hd')?.id).toBe('out-hd');
@@ -127,6 +128,7 @@ describe('correspondence.model', () => {
       settings: { incomingSuffix: 'CVĐ', outgoingSuffix: 'CV', archivePrefix: 'HS', defaultDueDays: 7, dispatchMode: 'all' as const, clerkUserIds: [], delegations: [] },
       catalog: [],
       workflows: [{ id: 'w', name: 'W', direction: 'incoming' as const, isActive: true, isDefault: true, steps, updatedAt: '' }],
+      registers: [],
     };
     // Còn ở ô đầu: bước kế tiếp là bước đầu của quy trình sẽ áp dụng.
     expect(upcomingStep({ stage: 'received', direction: 'incoming', kind: 'x', flow: [] }, config)).toEqual({ type: 'approve', name: 'Lãnh đạo chỉ đạo' });

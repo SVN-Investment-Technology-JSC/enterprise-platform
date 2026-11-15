@@ -13,6 +13,8 @@ const TODO_HINTS: Partial<Record<FlowNode['kind'], string>> = {
   process: 'Phòng ban xử lý',
   check: 'Văn thư kiểm tra',
 };
+/** Bước duyệt có phòng ban xử lý liền sau: lãnh đạo là người phân công. */
+const ASSIGN_HINT = 'Chỉ đạo, giao phòng ban';
 
 /**
  * Thanh tiến trình của công văn, dựng đúng theo quy trình cấu hình: ô đầu, các bước ở giữa theo
@@ -82,7 +84,7 @@ export function FlowStepper({
                       : formatDay(node.at)
                     : state === 'done'
                       ? 'Đã xong'
-                      : (TODO_HINTS[node.kind] ?? ' ')}
+                      : ((node.kind === 'approve' && nodes[index + 1]?.kind === 'process' ? ASSIGN_HINT : TODO_HINTS[node.kind]) ?? ' ')}
               </span>
             </li>
           );

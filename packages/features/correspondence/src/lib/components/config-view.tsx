@@ -1,6 +1,9 @@
 'use client';
 
 import {
+  abbreviate,
+  conditionSet,
+  APPROVE_MODE_LABELS,
   APPROVER_RULE_LABELS,
   CATALOG_KINDS,
   CATALOG_KIND_LABELS,
@@ -8,6 +11,10 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   MAX_WORKFLOW_STEPS,
+  NUMBER_TOKENS,
+  numberFormatError,
+  formatLetterNumber,
+  PROCESS_MODE_LABELS,
   RETURN_TARGETS,
   STEP_TYPES,
   STEP_TYPE_LABELS,
@@ -18,8 +25,11 @@ import {
   type CatalogKind,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
+  type LetterCondition,
   type LetterDirection,
+  type Register,
   type ReturnTarget,
+  type StepCondition,
   type StepType,
   type Workflow,
   type WorkflowStep,
@@ -27,7 +37,7 @@ import {
 import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { ArrowDown, ArrowRight, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { deleteCatalogItem, deleteWorkflow, errorMessage, saveCatalogItem, saveWorkflow } from '../correspondence-api';
+import { deleteCatalogItem, deleteRegister, deleteWorkflow, errorMessage, saveCatalogItem, saveRegister, saveWorkflow } from '../correspondence-api';
 import { flowLabels } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
@@ -74,7 +84,10 @@ export function ConfigView({
         ))}
       </div>
       {tab === 'register' ? (
-        <SettingsView settings={config.settings} directory={directory} onSaved={() => onChanged()} />
+        <>
+          <SettingsView settings={config.settings} directory={directory} onSaved={() => onChanged()} />
+          <RegisterManager config={config} onChanged={onChanged} />
+        </>
       ) : tab === 'catalog' ? (
         <CatalogManager config={config} directory={directory} onChanged={onChanged} />
       ) : tab === 'workflows' ? (
@@ -83,6 +96,305 @@ export function ConfigView({
         <OrganizationView directory={directory} />
       )}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- điều kiện */
+
+const CONDITION_FIELDS: readonly { readonly field: keyof LetterCondition; readonly kind: CatalogKind; readonly label: string }[] = [
+  { field: 'kinds', kind: 'letter_type', label: 'Loại văn bản' },
+  { field: 'urgency', kind: 'urgency', label: 'Độ khẩn' },
+  { field: 'confidentiality', kind: 'confidentiality', label: 'Độ mật' },
+];
+
+/** "Độ khẩn: Hoả tốc; Độ mật: Mật, Tối mật". */
+function conditionText(condition: LetterCondition | undefined, catalog: readonly CatalogItem[]): string {
+  return CONDITION_FIELDS.filter(({ field }) => (condition?.[field]?.length ?? 0) > 0)
+    .map(({ field, kind, label }) => {
+      const names = (condition?.[field] ?? []).map((code) => catalog.find((item) => item.kind === kind && item.code === code)?.name ?? code);
+      return `${label}: ${names.join(', ')}`;
+    })
+    .join('; ');
+}
+
+/** Điều kiện theo phân loại công văn: mỗi mục chọn nhiều giá trị, các mục cùng lúc là "và". */
+function ConditionFields({
+  value,
+  catalog,
+  prefix,
+  onChange,
+}: {
+  readonly value: LetterCondition | undefined;
+  readonly catalog: readonly CatalogItem[];
+  readonly prefix: string;
+  readonly onChange: (next: LetterCondition) => void;
+}) {
+  return (
+    <div className={styles.formRow3}>
+      {CONDITION_FIELDS.map(({ field, kind, label }) => (
+        <MultiPick
+          key={field}
+          label={`${prefix}: ${label.toLowerCase()}`}
+          required={false}
+          options={catalog.filter((item) => item.kind === kind && item.isActive).map((item) => ({ value: item.code, label: item.name }))}
+          values={value?.[field] ?? []}
+          onChange={(values) => onChange({ ...value, [field]: values.length > 0 ? values : undefined })}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Bước luôn chạy, chỉ chạy khi, hay bỏ qua khi công văn khớp điều kiện. */
+function StepConditionFields({
+  condition,
+  catalog,
+  onChange,
+}: {
+  readonly condition: StepCondition | undefined;
+  readonly catalog: readonly CatalogItem[];
+  readonly onChange: (next: StepCondition | undefined) => void;
+}) {
+  const mode = condition ? (condition.skip ? 'skip' : 'only') : 'always';
+  return (
+    <>
+      <SelectField label="Bước này chạy">
+        <SearchableSelect
+          options={[
+            { value: 'always', label: 'Luôn chạy' },
+            { value: 'only', label: 'Chỉ khi công văn khớp điều kiện' },
+            { value: 'skip', label: 'Bỏ qua khi công văn khớp điều kiện', description: 'Ví dụ văn bản Hoả tốc bỏ qua bước Phó giám đốc' },
+          ]}
+          value={mode}
+          searchInDropdown
+          hideDropdownSearch
+          onChange={(value) => {
+            if (!value || value === 'always') onChange(undefined);
+            else onChange({ ...(condition ?? {}), skip: value === 'skip' ? true : undefined });
+          }}
+        />
+      </SelectField>
+      {condition ? (
+        <ConditionFields
+          value={condition}
+          catalog={catalog}
+          prefix={condition.skip ? 'Bỏ qua khi' : 'Chỉ khi'}
+          onChange={(next) => onChange({ ...next, skip: condition.skip })}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- sổ đăng ký */
+
+/** Mẫu số: ô nhập, nút chèn từng phần, ví dụ số sẽ cấp. */
+function NumberFormatField({
+  label,
+  value,
+  optional = false,
+  sample,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly optional?: boolean;
+  readonly sample?: { readonly type?: string; readonly org?: string };
+  readonly onChange: (value: string) => void;
+}) {
+  const error = value.trim() || !optional ? numberFormatError(value) : undefined;
+  const example = value.trim() && !error
+    ? formatLetterNumber(value, { seq: 5, year: new Date().getFullYear(), type: sample?.type || 'QĐ', org: sample?.org || 'SVN', unit: 'KD' })
+    : undefined;
+  return (
+    <Field label={label} required={!optional}>
+      <input value={value} maxLength={80} placeholder={optional ? 'Theo mẫu của sổ' : '{so}/{loai}-{coquan}'} onChange={(event) => onChange(event.target.value)} />
+      <div className={styles.tokenList}>
+        {NUMBER_TOKENS.map((item) => (
+          <button key={item.token} type="button" className={styles.chip} title={item.label} onClick={() => onChange(`${value}${item.token}`)}>
+            {item.token}
+          </button>
+        ))}
+      </div>
+      <span className={error ? styles.notice : styles.hint}>{error ?? (example ? `Ví dụ: ${example}` : 'Bấm để chèn từng phần; trống là theo mẫu của sổ.')}</span>
+    </Field>
+  );
+}
+
+/**
+ * Sổ đăng ký văn bản đến / đi: mỗi sổ cấp số riêng theo năm, theo mẫu số của sổ. Văn bản có độ mật vào
+ * sổ mật; sổ ghi loại văn bản thì chỉ nhận loại đó; không sổ nào hợp thì vào sổ mặc định.
+ */
+function RegisterManager({ config, onChanged }: { readonly config: CorrespondenceConfig; readonly onChanged: () => void }) {
+  const [editing, setEditing] = useState<{ direction: LetterDirection; register?: Register }>();
+  const typeName = new Map(config.catalog.filter((item) => item.kind === 'letter_type').map((item) => [item.code, item.name]));
+  const remove = async (register: Register) => {
+    try {
+      await deleteRegister(register.id);
+      toast.success(`Đã xoá ${register.name}.`);
+      onChanged();
+    } catch (cause) {
+      toast.error(errorMessage(cause, 'Không xoá được.'));
+    }
+  };
+  return (
+    <>
+      {LETTER_DIRECTIONS.map((direction) => (
+        <section key={direction} className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2>Sổ đăng ký {direction === 'incoming' ? 'công văn đến' : 'công văn đi'}</h2>
+            <button type="button" className={styles.buttonSmall} onClick={() => setEditing({ direction })}>
+              <Plus size={13} /> Thêm sổ
+            </button>
+          </div>
+          <p className={styles.sectionNote}>
+            Mỗi sổ cấp số riêng, đếm lại từ 1 mỗi năm. Văn bản có độ mật vào sổ mật (cấp số riêng theo Nghị định 30); sổ ghi loại văn
+            bản thì chỉ nhận loại đó; còn lại vào sổ mặc định.{direction === 'incoming' ? ' Văn thư chọn được sổ khác lúc tiếp nhận.' : ' Văn thư chọn được sổ khác lúc ban hành.'}
+          </p>
+          <div className={styles.list}>
+            {config.registers
+              .filter((register) => register.direction === direction)
+              .map((register) => (
+                <div key={register.id} className={styles.listRow}>
+                  <div className={styles.listMain}>
+                    <b>{register.name}</b>{' '}
+                    {register.isDefault ? <span className={`${styles.tag} ${styles['tone-info']}`}>Mặc định</span> : null}{' '}
+                    {register.confidential ? <span className={`${styles.tag} ${styles['tone-warning']}`}>Sổ mật</span> : null}{' '}
+                    {!register.isActive ? <span className={`${styles.tag} ${styles['tone-muted']}`}>Ngừng dùng</span> : null}
+                    <p>
+                      Mẫu số {register.numberFormat}, ví dụ{' '}
+                      {formatLetterNumber(register.numberFormat, {
+                        seq: register.issuedThisYear + 1,
+                        year: new Date().getFullYear(),
+                        type: 'QĐ',
+                        org: config.settings.orgCode || undefined,
+                        unit: 'KD',
+                      })}
+                      {' · '}Đã cấp năm nay: {register.issuedThisYear}
+                      {register.letterTypes.length > 0 ? ` · Loại văn bản: ${register.letterTypes.map((code) => typeName.get(code) ?? code).join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <div className={styles.listActions}>
+                    <button type="button" className={styles.buttonSmall} onClick={() => setEditing({ direction, register })}>
+                      <Pencil size={13} /> Sửa
+                    </button>
+                    {!register.isDefault && !register.inUse ? (
+                      <Popconfirm
+                        title={`Xoá "${register.name}"?`}
+                        description="Chỉ xoá được sổ chưa có công văn nào."
+                        okText="Xoá"
+                        okType="danger"
+                        placement="left"
+                        onConfirm={() => remove(register)}
+                      >
+                        <button type="button" className={styles.buttonSmall} aria-label={`Xoá ${register.name}`}>
+                          <Trash2 size={13} />
+                        </button>
+                      </Popconfirm>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      ))}
+      {editing ? (
+        <RegisterDialog
+          direction={editing.direction}
+          register={editing.register}
+          config={config}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => {
+            setEditing(undefined);
+            onChanged();
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function RegisterDialog({
+  direction,
+  register,
+  config,
+  onClose,
+  onSaved,
+}: {
+  readonly direction: LetterDirection;
+  readonly register?: Register;
+  readonly config: CorrespondenceConfig;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const initial = useMemo(
+    () => ({
+      name: register?.name ?? '',
+      numberFormat: register?.numberFormat ?? (direction === 'incoming' ? '{so}/CVĐ' : '{so}/{loai}-{coquan}'),
+      confidential: register?.confidential ?? false,
+      letterTypes: register?.letterTypes ?? ([] as readonly string[]),
+      isDefault: register?.isDefault ?? false,
+      isActive: register?.isActive ?? true,
+    }),
+    [register, direction],
+  );
+  const [form, setForm] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await saveRegister(register?.id, { direction, ...form, sortOrder: register?.sortOrder });
+      toast.success('Đã lưu sổ đăng ký.');
+      onSaved();
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog
+      open
+      title={`${register ? 'Sửa' : 'Thêm'} sổ đăng ký ${direction === 'incoming' ? 'công văn đến' : 'công văn đi'}`}
+      subtitle={register?.inUse ? 'Sổ đã có công văn: đổi mẫu số chỉ áp dụng cho số cấp sau khi lưu.' : undefined}
+      submitLabel="Lưu"
+      submitting={busy}
+      submitDisabled={!dirty || !form.name.trim() || Boolean(numberFormatError(form.numberFormat))}
+      dirty={dirty}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <Field label="Tên sổ" required>
+        <input value={form.name} maxLength={160} placeholder="Ví dụ: Sổ văn bản mật đến" onChange={(event) => set('name', event.target.value)} />
+      </Field>
+      <NumberFormatField label="Mẫu số" value={form.numberFormat} sample={{ org: config.settings.orgCode }} onChange={(value) => set('numberFormat', value)} />
+      <MultiPick
+        label="Chỉ nhận các loại văn bản (trống là mọi loại)"
+        required={false}
+        options={config.catalog.filter((item) => item.kind === 'letter_type' && item.isActive).map((item) => ({ value: item.code, label: item.name }))}
+        values={form.letterTypes}
+        onChange={(values) => set('letterTypes', values)}
+      />
+      <CheckGroup label="Tuỳ chọn">
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.confidential} disabled={form.isDefault} onChange={(event) => set('confidential', event.target.checked)} />
+          Sổ văn bản mật: văn bản có độ mật vào sổ này, cấp số riêng
+        </label>
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.isDefault} disabled={form.confidential || Boolean(register?.isDefault)} onChange={(event) => set('isDefault', event.target.checked)} />
+          Sổ mặc định của {direction === 'incoming' ? 'công văn đến' : 'công văn đi'} (văn bản không hợp sổ nào khác)
+        </label>
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={form.isActive} disabled={form.isDefault} onChange={(event) => set('isActive', event.target.checked)} />
+          Đang dùng
+        </label>
+      </CheckGroup>
+    </FormDialog>
   );
 }
 
@@ -225,6 +537,8 @@ function CatalogDialog({
       defaultUnitIds: item?.defaultUnitIds ?? ([] as readonly string[]),
       highlight: item?.highlight ?? false,
       restricted: item?.restricted ?? false,
+      abbreviation: item?.abbreviation ?? '',
+      numberFormat: item?.numberFormat ?? '',
     }),
     [item],
   );
@@ -254,6 +568,8 @@ function CatalogDialog({
         defaultUnitIds: form.defaultUnitIds,
         highlight: form.highlight,
         restricted: form.restricted,
+        abbreviation: form.abbreviation.trim() || null,
+        numberFormat: form.numberFormat.trim() || null,
       });
       toast.success('Đã lưu danh mục.');
       onSaved();
@@ -303,6 +619,24 @@ function CatalogDialog({
               onChange={(event) => set('defaultDueDays', event.target.value)}
             />
           </Field>
+          <div className={styles.formRow}>
+            <Field label="Ký hiệu viết tắt">
+              <input
+                value={form.abbreviation}
+                maxLength={20}
+                placeholder={abbreviate(form.name) || 'QĐ'}
+                onChange={(event) => set('abbreviation', event.target.value)}
+              />
+              <span className={styles.hint}>Phần {'{loai}'} trong số văn bản; trống là chữ cái đầu của tên.</span>
+            </Field>
+            <NumberFormatField
+              label="Mẫu số riêng khi ban hành"
+              value={form.numberFormat}
+              optional
+              sample={{ type: form.abbreviation || abbreviate(form.name) }}
+              onChange={(value) => set('numberFormat', value)}
+            />
+          </div>
           <div className={styles.formRow}>
             <SelectField label="Quy trình duyệt công văn đến">
               <SearchableSelect
@@ -369,8 +703,9 @@ const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
 
 const STEP_TYPE_HELP: Readonly<Record<StepType, string>> = {
   process: 'Người làm bước liền trước chọn phòng ban; phòng ban gửi đủ kết quả là sang bước sau.',
-  check: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư kiểm tra, đạt thì chuyển tiếp.',
-  approve: 'Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
+  check: 'Kiểm tra, rà soát rồi chuyển tiếp. Mặc định là người làm văn thư; chọn được người riêng (thư ký, phòng hành chính…).',
+  approve:
+    'Lãnh đạo xem xét rồi chuyển tiếp. Bước liền sau là Phòng ban xử lý thì chính lãnh đạo chọn phòng ban (phân công). Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
 };
 
 function WorkflowManager({
@@ -423,6 +758,7 @@ function WorkflowManager({
                         </span>
                       ))}
                     </div>
+                    {conditionSet(workflow.conditions) ? <p>Áp dụng khi: {conditionText(workflow.conditions, config.catalog)}</p> : null}
                     {workflow.description ? <p>{workflow.description}</p> : null}
                   </div>
                   <div className={styles.listActions}>
@@ -455,6 +791,7 @@ function WorkflowManager({
           direction={editing.direction}
           workflow={editing.workflow}
           directory={directory}
+          catalog={config.catalog}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
             setEditing(undefined);
@@ -511,12 +848,15 @@ function WorkflowDialog({
   direction,
   workflow,
   directory,
+  catalog = [],
   onClose,
   onSaved,
 }: {
   readonly direction: LetterDirection;
   readonly workflow?: Workflow;
   readonly directory?: CorrespondenceDirectory;
+  /** Danh mục, để đặt điều kiện theo loại văn bản, độ khẩn, độ mật. */
+  readonly catalog?: readonly CatalogItem[];
   readonly onClose: () => void;
   readonly onSaved: () => void;
 }) {
@@ -532,6 +872,7 @@ function WorkflowDialog({
       endActor: workflow?.endActor ?? null,
       autoEnd: workflow?.autoEnd ?? false,
       archive: workflow?.archive ?? true,
+      conditions: workflow?.conditions ?? ({} as LetterCondition),
       steps: workflow?.steps ?? starterSteps(direction),
     }),
     [workflow, direction],
@@ -570,6 +911,7 @@ function WorkflowDialog({
         autoEnd: form.autoEnd,
         archive: form.archive,
         steps: form.steps,
+        conditions: conditionSet(form.conditions) ? form.conditions : null,
       });
       toast.success('Đã lưu quy trình.');
       onSaved();
@@ -601,6 +943,29 @@ function WorkflowDialog({
       }),
     }));
   const preview = flowLabels({ startName: form.startName, endName: form.endName, steps: form.steps }, direction);
+  // Ô có bước phòng ban xử lý liền sau (ô đầu là -1): người làm ô đó chọn phòng ban. Tick là tự chèn bước đó, bỏ tick là bỏ.
+  const assignsNext = (index: number) => form.steps[index + 1]?.type === 'process';
+  const setAssignsNext = (index: number, on: boolean) =>
+    setForm((current) => {
+      const steps = [...current.steps];
+      const next = steps[index + 1];
+      if (on && next?.type !== 'process' && steps.length < MAX_WORKFLOW_STEPS) steps.splice(index + 1, 0, blankStep('process', index + 1));
+      else if (!on && next?.type === 'process') steps.splice(index + 1, 1);
+      else return current;
+      return { ...current, steps };
+    });
+  const assignNextRow = (index: number) => (
+    <label className={styles.checkRow}>
+      <input
+        type="checkbox"
+        checked={assignsNext(index)}
+        disabled={!assignsNext(index) && form.steps.length >= MAX_WORKFLOW_STEPS}
+        onChange={(event) => setAssignsNext(index, event.target.checked)}
+      />
+      Giao phòng ban xử lý: {index < 0 ? 'văn thư' : 'người làm bước này'} chọn phòng ban, bước Phòng ban xử lý tự thêm ngay sau để
+      chính các phòng đó xử lý xong mới sang bước tiếp
+    </label>
+  );
 
   return (
     <FormDialog
@@ -647,6 +1012,19 @@ function WorkflowDialog({
           onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
         />
       </Field>
+      <fieldset className={styles.fieldset}>
+        <legend>Áp dụng khi (trống là theo loại văn bản / quy trình mặc định)</legend>
+        <ConditionFields
+          value={form.conditions}
+          catalog={catalog}
+          prefix="Áp dụng khi"
+          onChange={(conditions) => setForm((current) => ({ ...current, conditions }))}
+        />
+        <span className={styles.hint}>
+          Công văn khớp điều kiện dùng quy trình này trước quy trình gắn với loại văn bản và quy trình mặc định (ví dụ văn bản Mật
+          đi quy trình riêng).
+        </span>
+      </fieldset>
       <div className={styles.flowPreview} aria-label="Luồng xử lý">
         {preview.map((label, index, all) => (
           <span key={`${index}-${label}`} className={index > 0 && index < all.length - 1 ? styles.flowPreviewStep : undefined}>
@@ -679,6 +1057,7 @@ function WorkflowDialog({
                 />
                 Vào sổ xong tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì giao phòng ban gợi ý của loại văn bản)
               </label>
+              {assignNextRow(-1)}
             </CheckGroup>
           ) : (
             <p className={styles.sectionNote}>Người soạn gửi đi là sang bước đầu của quy trình.</p>
@@ -752,21 +1131,133 @@ function WorkflowDialog({
                 peopleOptions={peopleOptions}
                 onChange={(approver) => setStep(index, { approver })}
               />
-              <CheckGroup label="Bước chỉ đạo">
+              <SelectField label="Cách duyệt">
+                <SearchableSelect
+                  options={(['any', 'all'] as const).map((value) => ({
+                    value,
+                    label: APPROVE_MODE_LABELS[value],
+                    description: value === 'all' ? 'Mỗi người duyệt một lần; người cuối duyệt thì sang bước sau' : undefined,
+                  }))}
+                  value={step.mode === 'all' ? 'all' : 'any'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) => setStep(index, { mode: value === 'all' ? 'all' : undefined })}
+                />
+              </SelectField>
+              <CheckGroup label="Phân công">
+                {assignNextRow(index)}
                 <label className={styles.checkRow}>
                   <input
                     type="checkbox"
                     checked={step.directs === true}
                     onChange={(event) => setStep(index, { directs: event.target.checked || undefined })}
                   />
-                  Bút phê: người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân chủ trì, phối hợp và thời hạn; bước phòng ban xử lý
-                  sau đó giao theo bút phê (văn thư phân phối)
+                  Bút phê: ý kiến chỉ đạo, phòng chủ trì, phối hợp và hạn lưu thành bút phê trên công văn và sổ đăng ký. Cần khi giữa
+                  bước này và bước phòng ban còn bước khác (ví dụ văn thư phân phối theo bút phê).
                 </label>
               </CheckGroup>
+              {step.directs && !form.steps.slice(index + 1).some((later) => (later.type ?? 'approve') === 'process') ? (
+                <p className={styles.notice}>
+                  Sau bước này chưa có bước Phòng ban xử lý: phòng ban được giao sẽ không phải xử lý gì. Tick "Giao phòng ban xử lý"
+                  hoặc bỏ tick bút phê.
+                </p>
+              ) : null}
+            </>
+          ) : type === 'process' ? (
+            <>
+              <p className={styles.sectionNote}>
+                {step.lockUnits && step.units?.length
+                  ? 'Luôn giao đúng các phòng cố định dưới đây, không ai chọn lại.'
+                  : `Phòng ban do "${preview[index]}" chọn khi chuyển sang bước này${step.units?.length ? ', gợi ý sẵn các phòng cố định dưới đây' : ''}.`}{' '}
+                Phòng nhận để biết chỉ xem, không phải gửi kết quả.
+              </p>
+              <MultiPick
+                label="Phòng ban cố định (trống là không cố định)"
+                required={false}
+                options={unitOptions}
+                values={(step.units ?? []).map((unit) => unit.unitId)}
+                onChange={(ids) =>
+                  setStep(index, {
+                    units:
+                      ids.length > 0
+                        ? ids.map((unitId, at) => ({
+                            unitId,
+                            role: step.units?.find((unit) => unit.unitId === unitId)?.role ?? (at === 0 ? 'lead' : 'support'),
+                          }))
+                        : undefined,
+                    lockUnits: ids.length > 0 ? step.lockUnits : undefined,
+                  })
+                }
+              />
+              {step.units?.length ? (
+                <CheckGroup label="Phòng ban cố định">
+                  <label className={styles.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={step.lockUnits === true}
+                      onChange={(event) => setStep(index, { lockUnits: event.target.checked || undefined })}
+                    />
+                    Khoá: luôn giao đúng các phòng này, không ai chọn lại (phòng đầu chủ trì, các phòng sau phối hợp)
+                  </label>
+                </CheckGroup>
+              ) : null}
+              <SelectField label="Bước xong khi">
+                <SearchableSelect
+                  options={(['all', 'lead'] as const).map((value) => ({
+                    value,
+                    label: PROCESS_MODE_LABELS[value],
+                    description: value === 'lead' ? 'Phòng phối hợp chưa gửi thì bước vẫn sang bước sau' : undefined,
+                  }))}
+                  value={step.mode === 'lead' ? 'lead' : 'all'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) => setStep(index, { mode: value === 'lead' ? 'lead' : undefined })}
+                />
+              </SelectField>
             </>
           ) : (
-            <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+            <>
+              <SelectField label="Người làm bước">
+                <SearchableSelect
+                  options={[
+                    { value: 'clerk', label: 'Người làm văn thư (Cấu hình sổ)' },
+                    ...RULE_TYPES.map((value) => ({ value, label: APPROVER_RULE_LABELS[value] })),
+                  ]}
+                  value={step.approver?.type ?? 'clerk'}
+                  searchInDropdown
+                  hideDropdownSearch
+                  onChange={(value) =>
+                    setStep(index, {
+                      approver:
+                        !value || value === 'clerk'
+                          ? undefined
+                          : ruleFor(value as ApproverRuleType, step.approver ?? { type: 'handling_unit_heads' }),
+                    })
+                  }
+                />
+              </SelectField>
+              {step.approver ? (
+                <RuleDetail
+                  rule={step.approver}
+                  direction={direction}
+                  unitOptions={unitOptions}
+                  positionOptions={positionOptions}
+                  peopleOptions={peopleOptions}
+                  onChange={(approver) => setStep(index, { approver })}
+                />
+              ) : (
+                <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+              )}
+              <CheckGroup label="Phân công">
+                {assignNextRow(index)}
+              </CheckGroup>
+            </>
           )}
+          <StepConditionFields
+            condition={step.condition}
+            catalog={catalog}
+            onChange={(condition) => setStep(index, { condition })}
+          />
           <div className={styles.formRow}>
             {type === 'process' ? (
               <p className={styles.sectionNote}>Phòng ban trả lại khi không thuộc phạm vi: về bước liền trước.</p>

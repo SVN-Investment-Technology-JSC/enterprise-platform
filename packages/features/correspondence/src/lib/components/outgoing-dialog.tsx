@@ -4,7 +4,7 @@ import type { CatalogItem, CorrespondenceConfig, CorrespondenceDirectory } from 
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
+import { appliedFlowLabels, catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
@@ -92,7 +92,8 @@ export function OutgoingDialog({
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof OutgoingForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof OutgoingForm>(key: K, value: OutgoingForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const workflow = plannedWorkflow(config, 'outgoing', form.kind);
+  const facts = { kind: form.kind, urgency: form.urgency, confidentiality: form.confidentiality };
+  const workflow = plannedWorkflow(config, 'outgoing', form.kind, facts);
 
   const submit = async () => {
     if (!form.subject.trim() || !form.recipient.trim()) {
@@ -216,7 +217,7 @@ export function OutgoingDialog({
       </div>
       <p className={styles.plan}>
         <span>Quy trình (theo cấu hình):</span>{' '}
-        {workflow ? flowLabels(workflow, 'outgoing').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
+        {workflow ? appliedFlowLabels(workflow, 'outgoing', facts).join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );

@@ -144,22 +144,26 @@ export function Popconfirm({
 
     if (portalContainer && portalContainer !== document.body) {
       // Modal focus/inert boundaries must include the confirmation controls.
-      const bounds = portalContainer.getBoundingClientRect();
-      const scaleX = bounds.width / portalContainer.offsetWidth || 1;
-      const scaleY = bounds.height / portalContainer.offsetHeight || 1;
+      // Toạ độ tuyệt đối tính theo khối chứa thật của ô xác nhận (phần tử định vị gần nhất), không
+      // phải hộp thoại: hộp thoại không `position` thì ô xác nhận lệch theo khối chứa bên ngoài.
+      const frame =
+        (popupRef.current.offsetParent as HTMLElement | null) ?? portalContainer;
+      const bounds = frame.getBoundingClientRect();
+      const scaleX = bounds.width / frame.offsetWidth || 1;
+      const scaleY = bounds.height / frame.offsetHeight || 1;
       setCoords({
         top: Math.max(
           padding,
           Math.min(
-            (top - bounds.top) / scaleY + portalContainer.scrollTop,
-            portalContainer.clientHeight - popupRect.height / scaleY - padding,
+            (top - bounds.top) / scaleY + frame.scrollTop,
+            frame.scrollTop + frame.clientHeight - popupRect.height / scaleY - padding,
           ),
         ),
         left: Math.max(
           padding,
           Math.min(
-            (left - bounds.left) / scaleX + portalContainer.scrollLeft,
-            portalContainer.clientWidth - popupRect.width / scaleX - padding,
+            (left - bounds.left) / scaleX + frame.scrollLeft,
+            frame.scrollLeft + frame.clientWidth - popupRect.width / scaleX - padding,
           ),
         ),
       });

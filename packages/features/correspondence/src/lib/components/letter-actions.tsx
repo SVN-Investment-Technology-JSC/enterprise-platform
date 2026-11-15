@@ -6,6 +6,8 @@ import {
   ASSIGNMENT_ROLE_LABELS,
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
+  stepApplies,
+  suggestRegister,
   returnTargetLabel,
   type CatalogItem,
   type CorrespondenceConfig,
@@ -17,7 +19,7 @@ import {
   type StepChoice,
 } from '@enterprise-platform/contracts-correspondence';
 import { Popconfirm, SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
-import { Ban, CheckCircle2, ShieldX, Trash2, Undo2 } from 'lucide-react';
+import { Ban, CheckCircle2, ShieldX, Trash2, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   approveLetter,
@@ -132,14 +134,29 @@ function ErrorLine({ error }: { readonly error?: string }) {
 }
 
 /** Quy trình sẽ áp dụng, đọc theo cấu hình (theo loại văn bản đang chọn); người dùng không chọn quy trình. */
-function PlannedSteps({ config, letter, kind }: { readonly config: CorrespondenceConfig; readonly letter: LetterDetail; readonly kind: string }) {
-  const workflow = plannedWorkflow(config, letter.direction, kind);
+function PlannedSteps({
+  config,
+  letter,
+  kind,
+  urgency = letter.urgency,
+  confidentiality = letter.confidentiality,
+}: {
+  readonly config: CorrespondenceConfig;
+  readonly letter: LetterDetail;
+  readonly kind: string;
+  readonly urgency?: string;
+  readonly confidentiality?: string;
+}) {
+  const facts = { kind, urgency, confidentiality };
+  const workflow = plannedWorkflow(config, letter.direction, kind, facts);
   if (!workflow) {
     return <p className={styles.notice}>Chưa có quy trình đang dùng cho luồng này. Nhờ người quản trị vào Cấu hình đặt quy trình mặc định.</p>;
   }
+  // Bước có điều kiện không khớp phân loại đang chọn thì không có trong luồng của công văn này.
+  const steps = workflow.steps.filter((step) => stepApplies(step, facts));
   return (
     <p className={styles.plan}>
-      <span>Quy trình (theo cấu hình):</span> {flowLabels(workflow, letter.direction).join(' → ')}
+      <span>Quy trình {workflow.name}:</span> {flowLabels({ ...workflow, steps }, letter.direction).join(' → ')}
     </p>
   );
 }
@@ -148,25 +165,37 @@ function PlannedSteps({ config, letter, kind }: { readonly config: Correspondenc
  * Phần chọn cho bước kế tiếp: bước đó là phòng ban xử lý thì chọn phòng ban; bước duyệt (ngay
  * sau, hay sau bước phòng ban) để người trình chọn người thì chọn người.
  */
-function useNextStep(letter: LetterDetail, config: CorrespondenceConfig, kind?: string) {
-  const upcoming = upcomingStep(letter, config, kind);
+function useNextStep(
+  letter: LetterDetail,
+  config: CorrespondenceConfig,
+  kind?: string,
+  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+) {
+  const upcoming = upcomingStep(letter, config, kind, classified);
+  // Bước phòng ban có phòng cố định: giao sẵn (chọn lại được), khoá thì luôn giao đúng các phòng đó.
+  const fixed = upcoming?.type === 'process' && upcoming.units?.length ? upcoming.units : undefined;
+  const locked = Boolean(fixed && upcoming?.lockUnits);
   const active = letter.steps.find((step) => step.status === 'active');
   // Bước chỉ đạo (bút phê): chọn đơn vị chủ trì, phối hợp và thời hạn dù bước kế tiếp là gì.
   const directs = letter.stage === 'reviewing' && active?.type === 'approve' && active.directs === true;
   const current = letter.flow.findIndex((node) => node.state === 'current');
   const laterProcess = current >= 0 && letter.flow.slice(current + 1).some((node) => node.kind === 'process');
-  const initialUnits = useMemo(
-    () => suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive),
-    [config, kind, letter, directs],
-  );
+  const fixedKey = JSON.stringify(fixed ?? []);
+  const initialUnits = useMemo(() => {
+    // Phòng cố định (so theo chuỗi để không tính lại mỗi lần vẽ); bút phê của bước trước vẫn ưu tiên hơn.
+    const fixedUnits = JSON.parse(fixedKey) as { unitId: string; role: UnitPick['role'] }[];
+    return fixedUnits.length > 0 && !(letter.directive?.units.length && !directs)
+      ? fixedUnits.map((unit): UnitPick => ({ unitId: unit.unitId, handlerUserId: '', role: unit.role }))
+      : suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive);
+  }, [config, kind, letter, directs, fixedKey]);
   const initialDue = (directs ? undefined : letter.directive?.dueOn) ?? letter.dueOn ?? '';
   const [units, setUnits] = useState<UnitPick[]>(initialUnits);
   const [dueOn, setDueOn] = useState(initialDue);
   const [assignee, setAssignee] = useState('');
   const choice = useStepChoice(letter.id, kind);
   useEffect(() => setAssignee(''), [kind]);
-  const needsUnits = upcoming?.type === 'process' || directs;
-  const unitsRequired = upcoming?.type === 'process' || (directs && laterProcess);
+  const needsUnits = (upcoming?.type === 'process' && !locked) || directs;
+  const unitsRequired = (upcoming?.type === 'process' && !fixed) || (directs && laterProcess);
   const blocked =
     choice === undefined ||
     (Boolean(choice) && !assignee) ||
@@ -176,6 +205,8 @@ function useNextStep(letter: LetterDetail, config: CorrespondenceConfig, kind?: 
   return {
     upcoming,
     directs,
+    fixed,
+    locked,
     units,
     setUnits,
     dueOn,
@@ -209,8 +240,15 @@ function NextStepFields({
   readonly showDue?: boolean;
 }) {
   const directive = letter.directive;
+  const unitName = (unitId: string) => directory?.units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban';
   return (
     <>
+      {next.locked && next.fixed ? (
+        <p className={styles.plan}>
+          <span>Giao cố định theo quy trình:</span>{' '}
+          {next.fixed.map((unit) => `${unitName(unit.unitId)} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}.
+        </p>
+      ) : null}
       {!next.directs && next.needsUnits && directive && directive.units.length > 0 ? (
         <p className={styles.plan}>
           <span>Theo bút phê{directive.byName ? ` của ${directive.byName}` : ''}:</span>{' '}
@@ -364,11 +402,15 @@ function ReturnControl({
         tone="warning"
         withTarget
         onClose={() => setOpen(false)}
-        onSubmit={async ({ reason, target, assignmentIds }) => {
+        onSubmit={async ({ reason, target, stepSeq, assignmentIds }) => {
           if (!target) return;
-          const next = await returnLetter(letter.id, { target, reason, assignmentIds });
+          const next = await returnLetter(letter.id, { target, stepSeq, reason, assignmentIds });
           setOpen(false);
-          onDone(next, `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`);
+          const stepName = letter.actions.returnSteps?.find((item) => item.seq === stepSeq)?.name;
+          onDone(
+            next,
+            target === 'step' ? `Đã trả về bước "${stepName ?? ''}".` : `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`,
+          );
         }}
       />
     </>
@@ -402,12 +444,13 @@ function ReasonDialog({
   readonly tone: 'danger' | 'warning';
   readonly withTarget?: boolean;
   readonly onClose: () => void;
-  readonly onSubmit: (input: { reason: string; target?: ReturnTarget; assignmentIds?: string[] }) => Promise<void>;
+  readonly onSubmit: (input: { reason: string; target?: ReturnTarget | 'step'; stepSeq?: number; assignmentIds?: string[] }) => Promise<void>;
 }) {
   const targets = letter.actions.returnTargets;
   const initialTarget = letter.actions.defaultReturnTarget ?? targets[0] ?? '';
   const [reason, setReason] = useState('');
-  const [target, setTarget] = useState<ReturnTarget | ''>(initialTarget);
+  // Nơi trả về: một nơi mặc định, hay "step:<seq>" là đúng một bước đã xong bất kỳ.
+  const [target, setTarget] = useState<string>(initialTarget);
   const [units, setUnits] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -420,11 +463,26 @@ function ReasonDialog({
   }, [open, initialTarget]);
 
   const previous = previousNode(letter);
+  const pickedSeq = target.startsWith('step:') ? Number(target.slice(5)) : undefined;
+  // Bước đã qua để trả về đúng bước đó; bước liền trước đã có ở "Bước trước".
+  const lastDone = letter.actions.returnSteps?.at(-1)?.seq;
+  const stepTargets = (letter.actions.returnSteps ?? []).filter((item) => !(targets.includes('previous-step') && item.seq === lastDone));
   const landsOnUnits =
-    (target === 'handlers' && letter.direction === 'incoming') || (target === 'previous-step' && previous?.kind === 'process');
-  const toUnits = withTarget && landsOnUnits && letter.assignments.length > 1;
+    (target === 'handlers' && letter.direction === 'incoming') ||
+    (target === 'previous-step' && previous?.kind === 'process') ||
+    (pickedSeq !== undefined && letter.steps.find((step) => step.seq === pickedSeq)?.type === 'process');
+  const handlingUnits = letter.assignments.filter((item) => item.role !== 'info');
+  const toUnits = withTarget && landsOnUnits && handlingUnits.length > 1;
   const targetLabel = (value: ReturnTarget) =>
     value === 'previous-step' && previous ? `Bước trước: ${previous.label}` : returnTargetLabel(value, letter.direction);
+  const targetOptions = [
+    ...targets.map((value) => ({
+      value: value as string,
+      label: targetLabel(value),
+      description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
+    })),
+    ...stepTargets.map((item) => ({ value: `step:${item.seq}`, label: `Về bước: ${item.name}`, description: 'Các bước sau bước này chạy lại' })),
+  ];
   const submit = async () => {
     if (!reason.trim()) {
       setError(`Nhập ${reasonLabel.toLowerCase()}.`);
@@ -435,7 +493,8 @@ function ReasonDialog({
     try {
       await onSubmit({
         reason,
-        target: withTarget && target ? target : undefined,
+        target: withTarget && target ? (pickedSeq !== undefined ? 'step' : (target as ReturnTarget)) : undefined,
+        stepSeq: withTarget ? pickedSeq : undefined,
         assignmentIds: toUnits && units.length > 0 ? units : undefined,
       });
     } catch (cause) {
@@ -460,29 +519,25 @@ function ReasonDialog({
       onSubmit={() => void submit()}
     >
       {withTarget ? (
-        targets.length > 1 ? (
+        targetOptions.length > 1 ? (
           <SelectField label="Trả về" required>
             <SearchableSelect
-              options={targets.map((value) => ({
-                value,
-                label: targetLabel(value),
-                description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
-              }))}
+              options={targetOptions}
               value={target}
               searchInDropdown
               hideDropdownSearch
-              onChange={(value) => setTarget(value as ReturnTarget)}
+              onChange={(value) => setTarget(value ?? '')}
             />
           </SelectField>
         ) : (
           <p className={styles.plan}>
-            <span>Trả về:</span> {targets[0] ? targetLabel(targets[0]) : ''}
+            <span>Trả về:</span> {targetOptions[0]?.label ?? ''}
           </p>
         )
       ) : null}
       {toUnits ? (
         <CheckGroup label="Phòng ban phải làm lại (bỏ trống là mọi phòng)">
-          {letter.assignments.map((item) => (
+          {handlingUnits.map((item) => (
             <label key={item.id} className={styles.checkRow}>
               <input
                 type="checkbox"
@@ -513,7 +568,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
   const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
   const [note, setNote] = useState('');
-  const next = useNextStep(letter, config, kind);
+  const next = useNextStep(letter, config, kind, { urgency, confidentiality });
   const { busy, error, run } = useRunner(onDone);
   useEffect(
     () => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged),
@@ -525,7 +580,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
     // Chưa chọn phòng nào thì gợi ý phòng ban của loại văn bản.
     if (units.length === 0) setUnits(suggestedUnits(config, value));
   };
-  const workflow = plannedWorkflow(config, 'incoming', kind);
+  const workflow = plannedWorkflow(config, 'incoming', kind, { urgency, confidentiality });
   const end = workflow ? (flowLabels(workflow, 'incoming').at(-1) ?? '') : '';
 
   return (
@@ -565,7 +620,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
             onChange={setConfidentiality}
           />
         </div>
-        <PlannedSteps config={config} letter={letter} kind={kind} />
+        <PlannedSteps config={config} letter={letter} kind={kind} urgency={urgency} confidentiality={confidentiality} />
         <NextStepFields next={next} letter={letter} config={config} directory={directory} showDue={false} />
         <div className={styles.formRow}>
           <Field label="Hạn xử lý">
@@ -616,6 +671,26 @@ function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  if (letter.personal) {
+    // Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung của cơ quan.
+    return (
+      <Panel title="Thư riêng gửi bạn">
+        <div className={styles.form}>
+          <p className={styles.sectionNote}>
+            Văn thư chuyển nguyên bì, không bóc. Nhận thư rồi bấm Đã nhận. Nếu là việc chung của cơ quan, trả văn thư để vào sổ xử lý
+            theo quy trình.
+          </p>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <ReturnControl letter={letter} onDone={onDone} label="Trả văn thư (việc chung)" dialogTitle="Trả văn thư xử lý như công văn" />
+            <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => completeLetter(letter.id, undefined), 'Đã xác nhận nhận thư.')}>
+              <CheckCircle2 size={15} /> Đã nhận
+            </button>
+          </div>
+        </div>
+      </Panel>
+    );
+  }
   return (
     <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư hoàn tất, lưu trữ'}>
       <div className={styles.form}>
@@ -654,7 +729,7 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
   const drafts = letter.attachments.filter((item) => item.kind === 'draft').length;
-  const workflow = plannedWorkflow(config, 'outgoing', letter.kind);
+  const workflow = plannedWorkflow(config, 'outgoing', letter.kind, letter);
   const end = workflow ? (flowLabels(workflow, 'outgoing').at(-1) ?? '') : '';
   const target = next.upcoming?.name ?? end;
   return (
@@ -737,17 +812,38 @@ function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: Action
   );
 }
 
-function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
+function PublishForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
   const [recipient, setRecipient] = useState(letter.recipient ?? '');
   const [publishedOn, setPublishedOn] = useState(localToday());
   const [deliveryMethod, setDeliveryMethod] = useState('');
   const [note, setNote] = useState('');
+  // Người ký mặc định là người duyệt bước duyệt cuối; chức vụ theo sơ đồ tổ chức.
+  const lastApprover = [...letter.steps].reverse().find((step) => step.type === 'approve' && step.status === 'done' && step.actedBy)?.actedBy ?? '';
+  const titleOf = (userId: string) =>
+    directory?.units.flatMap((unit) => unit.members).find((member) => member.userId === userId && member.positionName)?.positionName ?? '';
+  const [signerUserId, setSignerUserId] = useState(lastApprover);
+  const [signerTitle, setSignerTitle] = useState(titleOf(lastApprover));
+  const [copyCount, setCopyCount] = useState('');
+  const [registerId, setRegisterId] = useState('');
+  const [internalUnitIds, setInternalUnitIds] = useState<string[]>([]);
   const { busy, error, run } = useRunner(onDone);
   useEffect(
-    () => onDirtyChange(recipient !== (letter.recipient ?? '') || deliveryMethod.trim() !== '' || note.trim() !== ''),
-    [recipient, deliveryMethod, note, letter, onDirtyChange],
+    () =>
+      onDirtyChange(
+        recipient !== (letter.recipient ?? '') ||
+          deliveryMethod.trim() !== '' ||
+          note.trim() !== '' ||
+          copyCount !== '' ||
+          internalUnitIds.length > 0 ||
+          signerUserId !== lastApprover,
+      ),
+    [recipient, deliveryMethod, note, copyCount, internalUnitIds, signerUserId, lastApprover, letter, onDirtyChange],
   );
   const signed = letter.attachments.some((item) => item.kind === 'outgoing');
+  const restricted = letter.restricted;
+  const registers = config.registers.filter((item) => item.isActive && item.direction === 'outgoing');
+  const autoRegister = suggestRegister(config.registers, 'outgoing', { kind: letter.kind, restricted });
+  const units = directory?.units ?? [];
   return (
     <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư ban hành, lưu trữ'}>
       <div className={styles.form}>
@@ -768,6 +864,58 @@ function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
             <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
           </Field>
         </div>
+        <div className={styles.formRow3}>
+          <SelectField label="Người ký">
+            <SearchableSelect
+              options={(directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }))}
+              value={signerUserId}
+              placeholder="Chọn người ký"
+              clearable
+              onChange={(value) => {
+                setSignerUserId(value ?? '');
+                if (value) setSignerTitle(titleOf(value) || signerTitle);
+              }}
+            />
+          </SelectField>
+          <Field label="Chức vụ người ký">
+            <input value={signerTitle} maxLength={160} placeholder="Tổng giám đốc" onChange={(event) => setSignerTitle(event.target.value)} />
+          </Field>
+          <Field label="Số bản">
+            <input type="number" min={1} max={1000} value={copyCount} onChange={(event) => setCopyCount(event.target.value)} />
+          </Field>
+        </div>
+        {registers.length > 1 ? (
+          <SelectField label="Sổ đăng ký (cấp số đi)">
+            <SearchableSelect
+              options={registers.map((item) => ({ value: item.id, label: item.name, description: item.confidential ? 'Sổ văn bản mật' : undefined }))}
+              value={registerId}
+              placeholder={autoRegister ? `Tự chọn: ${autoRegister.name}` : 'Tự chọn theo độ mật, loại văn bản'}
+              clearable
+              onChange={(value) => setRegisterId(value ?? '')}
+            />
+          </SelectField>
+        ) : null}
+        <SelectField label="Phòng ban nhận nội bộ">
+          <SearchableSelect
+            options={units.filter((unit) => !internalUnitIds.includes(unit.id)).map((unit) => ({ value: unit.id, label: unit.name, description: unit.path || undefined }))}
+            value=""
+            placeholder="Tìm và thêm phòng ban trong công ty nhận văn bản"
+            onChange={(value) => value && setInternalUnitIds((current) => [...current, value])}
+          />
+          {internalUnitIds.length > 0 ? (
+            <div className={styles.unitChips}>
+              {internalUnitIds.map((unitId) => (
+                <span key={unitId} className={styles.unitChip}>
+                  {units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban'}
+                  <button type="button" aria-label="Bỏ" onClick={() => setInternalUnitIds((current) => current.filter((id) => id !== unitId))}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <span className={styles.hint}>Phòng được chọn xem được văn bản đã ban hành và nhận thông báo.</span>
+        </SelectField>
         <ErrorLine error={error} />
         <div className={styles.formActions}>
           <ReturnControl letter={letter} onDone={onDone} />
@@ -777,7 +925,18 @@ function PublishForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
             disabled={busy || !recipient.trim()}
             onClick={() =>
               run(
-                () => publishLetter(letter.id, { recipient, publishedOn: publishedOn || undefined, deliveryMethod: deliveryMethod || undefined, note: note || undefined }),
+                () =>
+                  publishLetter(letter.id, {
+                    recipient,
+                    publishedOn: publishedOn || undefined,
+                    deliveryMethod: deliveryMethod || undefined,
+                    note: note || undefined,
+                    registerId: registerId || undefined,
+                    signerUserId: signerUserId || undefined,
+                    signerTitle: signerTitle.trim() || undefined,
+                    copyCount: copyCount === '' ? undefined : Number(copyCount),
+                    internalUnitIds,
+                  }),
                 archivesAtEnd(letter, config) ? 'Đã đánh số, ban hành và lưu trữ.' : 'Đã đánh số, ban hành.',
               )
             }
@@ -1108,8 +1267,16 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
   const next = useNextStep(letter, config);
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
-  const ready = !busy && !next.blocked;
+  // Bước "tất cả cùng duyệt": chưa phải người duyệt cuối thì chỉ ghi nhận, người cuối mới chuyển bước (chọn phòng ban…).
+  const active = letter.steps.find((step) => step.status === 'active');
+  const approvedCount = active?.mode === 'all' ? (active.approvedBy?.length ?? 0) : 0;
+  const required = active?.mode === 'all' ? (active.requiredCount ?? 0) : 0;
+  const partial = required > 0 && approvedCount + 1 < required;
+  const ready = !busy && (partial || !next.blocked);
   const after = nextStepLabel(letter);
+  // Bước liền sau là phòng ban xử lý, hay bước chỉ đạo (bút phê): lãnh đạo phân công phòng ban chứ không chỉ "duyệt".
+  const assigns = !partial && next.upcoming?.type === 'process';
+  const verb = partial ? `Duyệt (${approvedCount + 1}/${required})` : assigns ? 'Giao phòng ban xử lý' : next.directs ? 'Gửi bút phê' : 'Duyệt';
   return (
     <Panel title={letter.currentStepName ?? 'Duyệt'}>
       <div className={styles.form}>
@@ -1118,17 +1285,42 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
             Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
           </p>
         ) : null}
+        {required > 0 ? (
+          <p className={styles.sectionNote}>
+            Bước này cần cả {required} người duyệt.{' '}
+            {approvedCount > 0 ? `Đã duyệt: ${(active?.approvedBy ?? []).map((item) => item.name ?? 'Người dùng').join(', ')}. ` : ''}
+            {partial ? 'Ý kiến của bạn được ghi lại, bước chờ người còn lại.' : 'Bạn là người duyệt cuối, duyệt xong là chuyển bước.'}
+          </p>
+        ) : null}
         <Field label={next.directs ? 'Ý kiến chỉ đạo (bút phê)' : next.needsUnits ? 'Ý kiến, chỉ đạo cho phòng ban (nếu có)' : 'Ý kiến (nếu có)'}>
-          <textarea value={note} maxLength={4000} rows={3} placeholder="Ý kiến kèm theo khi duyệt" onChange={(event) => setNote(event.target.value)} />
+          <textarea
+            value={note}
+            maxLength={4000}
+            rows={3}
+            placeholder={next.needsUnits ? 'Ví dụ: Phòng Kinh doanh chủ trì, Kế toán phối hợp, trả lời trước hạn' : 'Ý kiến kèm theo khi duyệt'}
+            onChange={(event) => setNote(event.target.value)}
+          />
         </Field>
-        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
+        {partial ? null : <NextStepFields next={next} letter={letter} config={config} directory={directory} />}
         <ErrorLine error={error} />
         <div className={styles.formActions}>
-          <ReturnControl letter={letter} onDone={onDone} label="Không đạt" dialogTitle="Không đạt, trả lại" warning />
+          <ReturnControl
+            letter={letter}
+            onDone={onDone}
+            label={!partial && next.needsUnits ? 'Trả lại' : 'Không đạt'}
+            dialogTitle={!partial && next.needsUnits ? 'Trả lại công văn' : 'Không đạt, trả lại'}
+            warning
+          />
           <Popconfirm
-            title="Duyệt công văn này?"
-            description={after ? `Công văn chuyển sang bước "${after}".` : 'Công văn chuyển sang bước tiếp theo.'}
-            okText="Duyệt"
+            title={assigns ? 'Giao công văn cho phòng ban đã chọn?' : !partial && next.directs ? 'Gửi bút phê?' : 'Duyệt công văn này?'}
+            description={
+              partial
+                ? `Ghi nhận bạn đã duyệt; còn ${required - approvedCount - 1} người chưa duyệt.`
+                : after
+                  ? `Công văn chuyển sang bước "${after}".`
+                  : 'Công văn chuyển sang bước tiếp theo.'
+            }
+            okText={assigns ? 'Giao' : !partial && next.directs ? 'Gửi' : 'Duyệt'}
             cancelText="Xem lại"
             okType="primary"
             placement="top-end"
@@ -1136,18 +1328,24 @@ function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: Actio
             onConfirm={() =>
               run(
                 () =>
-                  approveLetter(letter.id, {
-                    note: note || undefined,
-                    nextAssigneeUserId: next.payload.assignee,
-                    units: next.payload.units,
-                    dueOn: next.payload.dueOn,
-                  }),
-                'Đã duyệt, chuyển bước tiếp theo.',
+                  approveLetter(
+                    letter.id,
+                    partial
+                      ? { note: note || undefined }
+                      : { note: note || undefined, nextAssigneeUserId: next.payload.assignee, units: next.payload.units, dueOn: next.payload.dueOn },
+                  ),
+                partial
+                  ? 'Đã duyệt, chờ người còn lại.'
+                  : assigns
+                    ? 'Đã giao phòng ban xử lý.'
+                    : next.directs
+                      ? 'Đã gửi bút phê, chuyển bước tiếp theo.'
+                      : 'Đã duyệt, chuyển bước tiếp theo.',
               )
             }
           >
             <button type="button" className={styles.buttonPrimary} disabled={!ready}>
-              <CheckCircle2 size={15} /> Duyệt
+              <CheckCircle2 size={15} /> {verb}
             </button>
           </Popconfirm>
         </div>

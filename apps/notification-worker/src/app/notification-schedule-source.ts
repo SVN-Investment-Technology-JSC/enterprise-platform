@@ -237,9 +237,9 @@ export class PostgresNotificationScheduleSource {
                 -- không thì theo hạn của công văn.
                 COALESCE(step.due_at, (l.due_on + 1)::timestamp AT TIME ZONE $2) AS due_at,
                 ARRAY(SELECT a.unit_id::text FROM correspondence_schema.assignments a
-                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.handler_user_id IS NULL) AS pending_unit_ids,
+                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.role <> 'info' AND a.handler_user_id IS NULL) AS pending_unit_ids,
                 ARRAY(SELECT a.handler_user_id::text FROM correspondence_schema.assignments a
-                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.handler_user_id IS NOT NULL) AS pending_handler_ids
+                       WHERE a.letter_id = l.id AND a.status = 'pending' AND a.role <> 'info' AND a.handler_user_id IS NOT NULL) AS pending_handler_ids
            FROM correspondence_schema.letters l
            LEFT JOIN LATERAL (
                 SELECT s.activated_at + make_interval(days => s.due_days) AS due_at
