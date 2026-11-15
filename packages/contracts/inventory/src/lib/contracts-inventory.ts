@@ -827,7 +827,7 @@ export interface MaterialInventory {
   /** Phần tồn không Đạt (lô, serial Cách ly, Lỗi, Chờ kiểm định). */
   readonly quantityBlocked: number;
   readonly available: number; // quantity - quantityReserved - quantityBlocked (generated)
-  /** Giá vốn bình quân gia quyền của dòng tồn (kho, vật tư), 4 chữ số thập phân. */
+  /** Giá vốn bình quân gia quyền của dòng tồn (kho, vật tư), 4 chữ số thập phân. Vắng khi người gọi không có `inventory.cost.read`. */
   readonly avgCost?: number;
   readonly updatedAt: string;
 }
@@ -869,7 +869,8 @@ export interface InventoryTransaction {
   readonly serialNumber?: string;
   readonly type: TransactionType;
   readonly quantity: number; // + or -
-  readonly unitCost: number;
+  /** Giá vốn đơn vị. Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly unitCost?: number;
   readonly referenceType?: string;
   readonly referenceId?: string;
   readonly workflowStatus: WorkflowStatus;
@@ -898,7 +899,10 @@ export interface Reservation {
   readonly expiresAt?: string;
   readonly createdBy: string;
   readonly createdAt: string;
-  /** Chứng từ nguồn (đơn bán, hợp đồng...). Giữ hàng tạo trước migration 0012 không có. */
+  /**
+   * Chứng từ nguồn (đơn bán, hợp đồng...). Giữ hàng tạo trước migration 0012 không có.
+   * `referenceId`, `sourceId`, `idempotencyKey` vắng khi người gọi không có `inventory.cost.read`.
+   */
   readonly sourceType?: string;
   readonly sourceId?: string;
   readonly idempotencyKey?: string;
@@ -1472,7 +1476,9 @@ export interface StockDocumentLine {
   readonly unit?: string;
   readonly quantity: number;
   readonly direction: StockDocumentLineDirection;
-  readonly unitCost: number;
+  /** Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly unitCost?: number;
+  /** Vắng khi người gọi không có `inventory.cost.read`. */
   readonly costAmount?: number;
   readonly reservationId?: string;
   readonly lotId?: string;
@@ -1862,10 +1868,10 @@ export interface StockReportWarehouseRow extends StockQuantities, StockReportMat
   readonly warehouseId: string;
   readonly warehouseCode: string;
   readonly warehouseName: string;
-  /** Giá vốn bình quân hiện tại tại kho. */
-  readonly avgCost: number;
-  /** Giá trị tồn = tồn thực tế × giá bình quân, làm tròn 2 chữ số. */
-  readonly stockValue: number;
+  /** Giá vốn bình quân hiện tại tại kho. Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly avgCost?: number;
+  /** Giá trị tồn = tồn thực tế × giá bình quân, làm tròn 2 chữ số. Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly stockValue?: number;
 }
 
 /** Một lô tại một kho. */
@@ -1897,7 +1903,7 @@ export interface StockReportSerialRow extends StockReportMaterialColumns {
 
 /** Tổng của cả tập đã lọc (không chỉ trang đang xem). */
 export interface StockReportTotals extends StockQuantities {
-  /** Chỉ báo cáo theo kho có giá trị tồn. */
+  /** Chỉ báo cáo theo kho có giá trị tồn. Vắng khi người gọi không có `inventory.cost.read`. */
   readonly stockValue?: number;
 }
 
@@ -1971,8 +1977,10 @@ export interface StockMovementReportQuery {
 export interface StockMovementAmounts {
   readonly quantityIn: number;
   readonly quantityOut: number;
-  readonly valueIn: number;
-  readonly valueOut: number;
+  /** Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly valueIn?: number;
+  /** Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly valueOut?: number;
   /** Số bút toán sổ kho. */
   readonly entries: number;
 }
@@ -2006,9 +2014,10 @@ export interface StockMovementLine {
   readonly materialName: string;
   readonly unit?: string;
   readonly quantity: number;
-  readonly unitCost: number;
-  /** |số lượng| × đơn giá, làm tròn 2 chữ số. */
-  readonly value: number;
+  /** Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly unitCost?: number;
+  /** |số lượng| × đơn giá, làm tròn 2 chữ số. Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly value?: number;
   readonly createdBy: string;
   readonly note?: string;
 }
@@ -2065,8 +2074,8 @@ export interface StockApprovalReportRow {
   readonly lineCount: number;
   readonly quantityIn: number;
   readonly quantityOut: number;
-  /** Tổng giá vốn các dòng sau ghi sổ; chứng từ chưa ghi sổ là 0. */
-  readonly value: number;
+  /** Tổng giá vốn các dòng sau ghi sổ; chứng từ chưa ghi sổ là 0. Vắng khi người gọi không có `inventory.cost.read`. */
+  readonly value?: number;
 }
 
 export interface StockApprovalReport {

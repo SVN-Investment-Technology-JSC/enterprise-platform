@@ -28,6 +28,7 @@ import {
 import { requiresApproval } from '../domain/stock-document-policy.js';
 import { todayInVietnam } from '../domain/traceability-policy.js';
 import type { InventoryActor } from './inventory.application.js';
+import { visibleApprovalReport, visibleMovementReport, visibleStockReport } from './cost-visibility.js';
 import {
   INVENTORY_REPORT_STORE,
   type InventoryReportStore,
@@ -57,7 +58,8 @@ function oneOf<T extends string>(
 
 /**
  * Báo cáo kho (RPT-04, RPT-05; T7-06, T7-07). Chỉ đọc: ai có `inventory.read`
- * (guard của inventory-api) đều xem được, như màn tồn kho.
+ * (guard của inventory-api) đều xem được, như màn tồn kho; giá vốn và giá trị chỉ
+ * trả cho người có `inventory.cost.read` (xem `cost-visibility`).
  */
 @Injectable()
 export class InventoryReportService {
@@ -109,7 +111,7 @@ export class InventoryReportService {
       return { groupBy, ...base, rows: page.rows, total: page.total, totals: page.totals };
     }
     const page = await this.store.stockByWarehouse(actor.tenantId, filter, paging);
-    return { groupBy, ...base, rows: page.rows, total: page.total, totals: page.totals };
+    return visibleStockReport(actor, { groupBy, ...base, rows: page.rows, total: page.total, totals: page.totals });
   }
 
   /**
@@ -137,7 +139,7 @@ export class InventoryReportService {
     const folded = foldMovementGroups(
       category ? groups.filter((group) => classifyMovement(group) === category) : groups,
     );
-    return {
+    return visibleMovementReport(actor, {
       ...period,
       ...folded,
       lines: lines.rows.map(({ isReversal, ...line }) => ({
@@ -146,7 +148,7 @@ export class InventoryReportService {
       })),
       total: lines.total,
       ...paging,
-    };
+    });
   }
 
   /** Lịch sử chứng từ phải duyệt (điều chỉnh, nhập khác, xuất khác): ai lập, ai duyệt, lúc nào, lý do. */
@@ -164,6 +166,6 @@ export class InventoryReportService {
       },
       paging,
     );
-    return { ...period, rows: page.rows, total: page.total, ...paging };
+    return visibleApprovalReport(actor, { ...period, rows: page.rows, total: page.total, ...paging });
   }
 }

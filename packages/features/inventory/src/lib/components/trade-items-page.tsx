@@ -25,6 +25,7 @@ import {
   updateMaterial,
 } from '../inventory-api';
 import styles from '../inventory.module.scss';
+import { useInventoryPermissions } from '../inventory-permissions';
 import {
   EMPTY_FILTER,
   TRADE_STATUS_LABEL,
@@ -84,6 +85,8 @@ export function TradeItemsPage({
   /** Gọi sau khi nhập Excel thêm mục vào danh mục Cài đặt, để màn hình tải lại danh mục. */
   onCatalogChanged?: () => void;
 }) {
+  // Giá bán theo quyền xem giá (`inventory.cost.read`); thiếu quyền thì API không trả, nên bỏ cột thay vì hiện "—".
+  const { canReadCost } = useInventoryPermissions();
   const [items, setItems] = useState<readonly Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
@@ -281,7 +284,7 @@ export function TradeItemsPage({
             className={styles.btnSecondary}
             style={{ whiteSpace: 'nowrap' }}
             disabled={filtered.length === 0}
-            onClick={() => exportTradeItems(filtered)}
+            onClick={() => exportTradeItems(filtered, canReadCost)}
           >
             <Download size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
             Xuất Excel
@@ -312,7 +315,7 @@ export function TradeItemsPage({
                 <th className={styles.left}>Phân loại</th>
                 <th className={styles.left}>Đơn vị</th>
                 <th className={styles.left}>Sử dụng</th>
-                <th className={styles.right}>Giá</th>
+                {canReadCost ? <th className={styles.right}>Giá</th> : null}
                 <th className={styles.left}>Trạng thái</th>
               </tr>
             </thead>
@@ -336,7 +339,7 @@ export function TradeItemsPage({
                   <td>{item.tradeCategory || '—'}</td>
                   <td>{item.unit}</td>
                   <td>{usageLabel(item.tradeMode) || '—'}</td>
-                  <td className={styles.right}>{formatSalePrice(item.salePrice)}</td>
+                  {canReadCost ? <td className={styles.right}>{formatSalePrice(item.salePrice)}</td> : null}
                   <td>
                     <TradeStatusBadge active={item.isActive} />
                   </td>

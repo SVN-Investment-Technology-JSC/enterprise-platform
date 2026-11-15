@@ -26,6 +26,7 @@ import { Table, type TableColumnsType } from 'antd';
 import { FileSpreadsheet, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadApprovalReport, loadMovementReport, loadStockReport } from '../inventory-api';
+import { useInventoryPermissions } from '../inventory-permissions';
 import { QUALITY_STATUS_LABEL, formatDateTime, formatNumber } from '../inventory-labels';
 import {
   MAX_EXPORT_ROWS,
@@ -159,6 +160,13 @@ const quantityColumn = <TRow extends object>(
   render: (value: number) => <span className={styles.numeric}>{formatNumber(value)}</span>,
 });
 
+/** Cột giá vốn, giá trị: API không trả cho người thiếu `inventory.cost.read`, nên ẩn hẳn cột. */
+const COST_COLUMN_KEYS = new Set(['avgCost', 'stockValue', 'valueIn', 'valueOut', 'unitCost', 'value']);
+
+function costAware<TRow>(columns: TableColumnsType<TRow>, showCost: boolean): TableColumnsType<TRow> {
+  return showCost ? columns : columns.filter((column) => !COST_COLUMN_KEYS.has(String(column.key)));
+}
+
 /**
  * Báo cáo kho (T7-09): tồn theo kho, lô, serial với bốn loại tồn; nhập xuất theo
  * kỳ; lịch sử chứng từ phải duyệt. Mỗi bảng xuất được Excel toàn bộ tập đã lọc.
@@ -252,6 +260,7 @@ function StockReportView({
   warehouses: readonly Warehouse[];
   catalog?: InventoryTradeCatalog;
 }) {
+  const { canReadCost } = useInventoryPermissions();
   const categoryOptions = useMemo(() => categoryFilterOptions(catalog), [catalog]);
   const [filters, setFilters] = useState<StockFilters>(INITIAL_STOCK_FILTERS);
   const [page, setPage] = useState(1);
@@ -319,7 +328,7 @@ function StockReportView({
       ];
       downloadReportSheets(
         `bao-cao-ton-${groupBy.toLowerCase()}-${todayInVietnam()}.xlsx`,
-        [stockReportSheet(last, all.rows as StockReport['rows'], intro)],
+        [stockReportSheet(last, all.rows as StockReport['rows'], intro, canReadCost)],
       );
     } catch (cause) {
       toast.error(errorMessage(cause, 'Không xuất được Excel.'));
@@ -423,7 +432,7 @@ function StockReportView({
           rowKey={(row) => `${row.warehouseId}:${row.materialId}`}
           size="small"
           loading={loading}
-          columns={WAREHOUSE_COLUMNS}
+          columns={costAware(WAREHOUSE_COLUMNS, canReadCost)}
           dataSource={report?.groupBy === 'WAREHOUSE' ? [...report.rows] : []}
           pagination={pagination}
           scroll={{ x: 'max-content' }}
@@ -719,6 +728,7 @@ const LINE_COLUMNS: TableColumnsType<StockMovementLine> = [
 ];
 
 function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }) {
+  const { canReadCost } = useInventoryPermissions();
   const [period, setPeriod] = useState<PeriodFilters>(initialPeriod);
   const [category, setCategory] = useState('');
   const [docType, setDocType] = useState('');
@@ -781,7 +791,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         `Báo cáo nhập xuất từ ${formatDate(last.fromDate)} đến ${formatDate(last.toDate)}${query.warehouseCode ? `, kho ${query.warehouseCode}` : ''}`,
         ...(all.truncated ? [`Chỉ xuất ${MAX_EXPORT_ROWS} bút toán đầu trên tổng ${all.total}.`] : []),
       ];
-      downloadReportSheets(`bao-cao-nhap-xuat-${last.fromDate}-${last.toDate}.xlsx`, movementReportSheets(last, all.rows, intro));
+      downloadReportSheets(`bao-cao-nhap-xuat-${last.fromDate}-${last.toDate}.xlsx`, movementReportSheets(last, all.rows, intro, canReadCost));
     } catch (cause) {
       toast.error(errorMessage(cause, 'Không xuất được Excel.'));
     } finally {
@@ -818,8 +828,12 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         <div className={styles.statStrip}>
           <span>SL nhập <strong>{formatNumber(totals.quantityIn)}</strong></span>
           <span>SL xuất <strong>{formatNumber(totals.quantityOut)}</strong></span>
-          <span>Giá trị nhập <strong>{formatNumber(totals.valueIn)}</strong></span>
-          <span>Giá trị xuất <strong>{formatNumber(totals.valueOut)}</strong></span>
+          {totals.valueIn !== undefined ? (
+            <span>Giá trị nhập <strong>{formatNumber(totals.valueIn)}</strong></span>
+          ) : null}
+          {totals.valueOut !== undefined ? (
+            <span>Giá trị xuất <strong>{formatNumber(totals.valueOut)}</strong></span>
+          ) : null}
           <span>Bút toán <strong>{formatNumber(totals.entries)}</strong></span>
         </div>
       ) : null}
@@ -828,7 +842,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         rowKey="category"
         size="small"
         loading={loading}
-        columns={SUMMARY_COLUMNS}
+        columns={costAware(SUMMARY_COLUMNS, canReadCost)}
         dataSource={report ? [...report.summary] : []}
         pagination={false}
         scroll={{ x: 'max-content' }}
@@ -838,7 +852,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         rowKey={(row) => `${row.category}:${row.docType ?? ''}:${row.warehouseCode}`}
         size="small"
         loading={loading}
-        columns={BREAKDOWN_COLUMNS}
+        columns={costAware(BREAKDOWN_COLUMNS, canReadCost)}
         dataSource={report ? [...report.breakdown] : []}
         pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 'max-content' }}
@@ -849,7 +863,7 @@ function MovementReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         rowKey="transactionId"
         size="small"
         loading={loading}
-        columns={LINE_COLUMNS}
+        columns={costAware(LINE_COLUMNS, canReadCost)}
         dataSource={report ? [...report.lines] : []}
         pagination={{
           current: page,
@@ -918,6 +932,7 @@ const APPROVAL_COLUMNS: TableColumnsType<StockApprovalReportRow> = [
 ];
 
 function ApprovalReportView({ warehouses }: { warehouses: readonly Warehouse[] }) {
+  const { canReadCost } = useInventoryPermissions();
   const [period, setPeriod] = useState<PeriodFilters>(initialPeriod);
   const [docType, setDocType] = useState('');
   const [status, setStatus] = useState('');
@@ -979,7 +994,7 @@ function ApprovalReportView({ warehouses }: { warehouses: readonly Warehouse[] }
       ];
       downloadReportSheets(
         `lich-su-duyet-kho-${query.fromDate ?? ''}-${query.toDate ?? ''}.xlsx`,
-        [approvalReportSheet(all.rows, intro)],
+        [approvalReportSheet(all.rows, intro, canReadCost)],
       );
     } catch (cause) {
       toast.error(errorMessage(cause, 'Không xuất được Excel.'));
@@ -1012,7 +1027,7 @@ function ApprovalReportView({ warehouses }: { warehouses: readonly Warehouse[] }
         rowKey="documentId"
         size="small"
         loading={loading}
-        columns={APPROVAL_COLUMNS}
+        columns={costAware(APPROVAL_COLUMNS, canReadCost)}
         dataSource={report ? [...report.rows] : []}
         pagination={{
           current: page,

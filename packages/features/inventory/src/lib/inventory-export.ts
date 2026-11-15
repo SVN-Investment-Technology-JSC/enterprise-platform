@@ -101,6 +101,8 @@ export function exportCatalogToExcel(params: {
   installed?: readonly InstalledMaterial[];
   warehouses?: readonly Warehouse[];
   warehouseFilter?: string;
+  /** Có `inventory.cost.read`: không có thì bỏ hẳn hai cột giá vốn, không ghi 0 thay giá thật. */
+  showCost: boolean;
 }): void {
   const {
     items,
@@ -109,6 +111,7 @@ export function exportCatalogToExcel(params: {
     installed = [],
     warehouses = [],
     warehouseFilter = 'all',
+    showCost,
   } = params;
 
   // Xây dựng bản đồ tra cứu thông tin kho
@@ -132,6 +135,10 @@ export function exportCatalogToExcel(params: {
       .reduce((sum, line) => sum + line.quantity, 0);
 
     const costPrice = mat?.purchasePrice ?? 0;
+    const costColumns = (stockQuantity: number): Record<string, number> =>
+      showCost
+        ? { 'Đơn giá vốn (VNĐ)': costPrice, 'Tổng giá trị tồn kho (VNĐ)': costPrice * stockQuantity }
+        : {};
     // Mã vạch sinh 1-1 chuẩn hóa từ mã SKU (hoặc mat.barcode nếu có khai báo riêng)
     const barcode =
       mat?.barcode && mat.barcode.trim()
@@ -202,8 +209,7 @@ export function exportCatalogToExcel(params: {
             'Tồn khả dụng (Available)': available,
             'Đang sử dụng / Lắp ráp': inUseQty,
             'Tổng sở hữu': qty + inUseQty,
-            'Đơn giá vốn (VNĐ)': costPrice,
-            'Tổng giá trị tồn kho (VNĐ)': costPrice * qty,
+            ...costColumns(qty),
             'Định mức tồn tối thiểu (Min)': minStock,
             'Định mức tồn tối đa (Max)': maxStock,
             'Cảnh báo tồn': stockAlert,
@@ -232,8 +238,7 @@ export function exportCatalogToExcel(params: {
           'Tồn khả dụng (Available)': 0,
           'Đang sử dụng / Lắp ráp': inUseQty,
           'Tổng sở hữu': inUseQty,
-          'Đơn giá vốn (VNĐ)': costPrice,
-          'Tổng giá trị tồn kho (VNĐ)': 0,
+          ...costColumns(0),
           'Định mức tồn tối thiểu (Min)': minStock,
           'Định mức tồn tối đa (Max)': maxStock,
           'Cảnh báo tồn': stockAlert,
@@ -291,8 +296,7 @@ export function exportCatalogToExcel(params: {
             'Tồn khả dụng (Available)': available,
             'Đang sử dụng / Lắp ráp': inUseQty,
             'Tổng sở hữu': qty + inUseQty,
-            'Đơn giá vốn (VNĐ)': costPrice,
-            'Tổng giá trị tồn kho (VNĐ)': costPrice * qty,
+            ...costColumns(qty),
             'Định mức tồn tối thiểu (Min)': minStock,
             'Định mức tồn tối đa (Max)': maxStock,
             'Cảnh báo tồn': stockAlert,
@@ -330,8 +334,7 @@ export function exportCatalogToExcel(params: {
           'Tồn khả dụng (Available)': 0,
           'Đang sử dụng / Lắp ráp': inUseQty,
           'Tổng sở hữu': inUseQty,
-          'Đơn giá vốn (VNĐ)': costPrice,
-          'Tổng giá trị tồn kho (VNĐ)': 0,
+          ...costColumns(0),
           'Định mức tồn tối thiểu (Min)': minStock,
           'Định mức tồn tối đa (Max)': maxStock,
           'Cảnh báo tồn': stockAlert,
@@ -370,6 +373,8 @@ export function exportLedgerToExcel(params: {
   warehouseById: ReadonlyMap<string, string>;
 }): void {
   const { rows, materialById, warehouseById } = params;
+  // API bỏ `unitCost` với người không có `inventory.cost.read`: khi đó không xuất cột giá.
+  const showCost = rows.some((entry) => entry.unitCost !== undefined);
 
   const exportData = rows.map((entry, idx) => {
     const mat = entry.materialId ? materialById.get(entry.materialId) : undefined;
@@ -386,8 +391,7 @@ export function exportLedgerToExcel(params: {
       'Đơn vị tính': mat?.unit ?? '',
       Kho: warehouseCode,
       'Số lượng': entry.quantity,
-      'Đơn giá (VNĐ)': entry.unitCost,
-      'Thành tiền (VNĐ)': totalCost,
+      ...(showCost ? { 'Đơn giá (VNĐ)': entry.unitCost, 'Thành tiền (VNĐ)': totalCost } : {}),
       'Số sê-ri': entry.serialNumber ?? '',
       'Chứng từ tham chiếu': entry.referenceId ? `${entry.referenceType ?? ''} ${entry.referenceId}`.trim() : '',
       'Người thực hiện': entry.createdBy,

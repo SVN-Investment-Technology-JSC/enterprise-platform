@@ -7,6 +7,8 @@ export const InventoryPermissionsContext = createContext({
   canWriteTransactions: false,
   canWriteQuality: false,
   canApproveDocuments: false,
+  /** Xem giá vốn, giá trị tồn (`inventory.cost.read`); không có thì API cũng không trả các trường đó. */
+  canReadCost: false,
 });
 
 /** UI capabilities only; every mutation is independently authorized by the API. */

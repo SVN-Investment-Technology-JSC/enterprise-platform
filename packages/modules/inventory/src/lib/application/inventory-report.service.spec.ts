@@ -8,6 +8,8 @@ const actor: InventoryActor = {
   displayName: 'Người xem',
   canManage: false,
   canWriteTransactions: false,
+  // Bài này kiểm cả giá trị, nguồn giữ hàng; ẩn khi thiếu quyền kiểm ở cost-visibility.spec.
+  canReadCost: true,
 };
 
 function fakeStore(): jest.Mocked<InventoryReportStore> {

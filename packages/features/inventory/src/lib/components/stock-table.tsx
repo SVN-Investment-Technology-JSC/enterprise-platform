@@ -16,11 +16,14 @@ import {
 } from '../inventory-labels';
 import { loadMaterialHistory } from '../inventory-api';
 import { exportStockToExcel } from '../inventory-export';
+import { useInventoryPermissions } from '../inventory-permissions';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Ban, Download } from 'lucide-react';
 import styles from '../inventory.module.scss';
+
+const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, 100].map((size) => ({ value: String(size), label: `${size} / trang` }));
 
 /**
  * Tab Tồn kho gộp ba tab cũ: Tồn kho, Vật tư và Kho & vị trí. Một dòng tồn vốn đã
@@ -57,6 +60,8 @@ export function StockTable({
     fromWarehouseCode: string;
   }) => void;
 }) {
+  // Không có `inventory.cost.read` thì API không trả giá nhập: bỏ cột thay vì hiện "—" như mã chưa khai giá.
+  const { canReadCost } = useInventoryPermissions();
   const [warehouseCode, setWarehouseCode] = useState('all');
   const [query, setQuery] = useState(initialQuery ?? '');
 
@@ -187,7 +192,7 @@ export function StockTable({
               <th className={styles.center}>Tồn thực</th>
               <th className={styles.center}>Đã giữ</th>
               <th className={styles.center}>Khả dụng</th>
-              <th className={styles.center}>Đơn giá</th>
+              {canReadCost ? <th className={styles.center}>Đơn giá</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -239,13 +244,15 @@ export function StockTable({
                         <span className={styles.sub}>dưới mức tối thiểu {formatNumber(material.minStock)}</span>
                       ) : null}
                     </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
-                      {formatMaterialPrice(material?.purchasePrice, material?.currency)}
-                    </td>
+                    {canReadCost ? (
+                      <td className={`${styles.numeric} ${styles.center}`}>
+                        {formatMaterialPrice(material?.purchasePrice, material?.currency)}
+                      </td>
+                    ) : null}
                   </tr>
                   {open ? (
                     <tr className={styles.detailRow}>
-                      <td colSpan={6}>
+                      <td colSpan={canReadCost ? 6 : 5}>
                         <div className={styles.detailGrid}>
                           <div>
                             <span>Phân loại</span>
@@ -410,25 +417,19 @@ export function StockTable({
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>Hiển thị:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
+                <SearchableSelect
+                  options={PAGE_SIZE_OPTIONS}
+                  value={String(pageSize)}
+                  onChange={(value) => {
+                    setPageSize(Number(value) || 15);
                     setCurrentPage(1);
                   }}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '13px',
-                  }}
-                >
-                  <option value={15}>15 / trang</option>
-                  <option value={30}>30 / trang</option>
-                  <option value={45}>45 / trang</option>
-                  <option value={60}>60 / trang</option>
-                  <option value={100}>100 / trang</option>
-                </select>
+                  clearable={false}
+                  searchInDropdown
+                  hideDropdownSearch
+                  height={28}
+                  style={{ width: '120px' }}
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

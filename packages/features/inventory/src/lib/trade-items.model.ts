@@ -170,7 +170,11 @@ const EXPORT_HEADERS = {
   price: 'Giá bán',
 } as const;
 
-export function toExportRows(items: readonly Material[]): Record<string, string | number>[] {
+/**
+ * Dòng xuất Excel. `showPrice=false` (không có `inventory.cost.read`) bỏ hẳn cột giá: API không trả giá cho người
+ * đó, ghi ô trống sẽ trông như mặt hàng chưa khai giá.
+ */
+export function toExportRows(items: readonly Material[], showPrice = true): Record<string, string | number>[] {
   return items.map((item) => ({
     [EXPORT_HEADERS.code]: item.code,
     [EXPORT_HEADERS.name]: item.name,
@@ -179,13 +183,14 @@ export function toExportRows(items: readonly Material[]): Record<string, string 
     [EXPORT_HEADERS.category]: item.tradeCategory ?? '',
     [EXPORT_HEADERS.unit]: item.unit,
     [EXPORT_HEADERS.usage]: usageLabel(item.tradeMode),
-    [EXPORT_HEADERS.price]: item.salePrice ?? '',
+    ...(showPrice ? { [EXPORT_HEADERS.price]: item.salePrice ?? '' } : {}),
   }));
 }
 
-export function exportTradeItems(items: readonly Material[]): void {
-  const ws = XLSX.utils.json_to_sheet(toExportRows(items));
-  ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }];
+export function exportTradeItems(items: readonly Material[], showPrice = true): void {
+  const ws = XLSX.utils.json_to_sheet(toExportRows(items, showPrice));
+  const widths = [{ wch: 16 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }];
+  ws['!cols'] = showPrice ? widths : widths.slice(0, -1);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'HangHoa');
   const d = new Date();

@@ -25,6 +25,7 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
+import { canReadCost } from '../application/cost-visibility.js';
 import { toInventoryError } from '../domain/inventory.error.js';
 
 interface InventoryRequest {
@@ -51,6 +52,7 @@ export class InventoryController {
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
       canWriteQuality: actor.canWriteQuality ?? actor.canManage,
       canApproveDocuments: actor.canApproveDocuments ?? actor.canManage,
+      canReadCost: canReadCost(actor),
     };
   }
 
@@ -448,11 +450,8 @@ export class InventoryController {
   }
 
   /**
-   * Tài liệu đính kèm của thiết bị.
-   *
-   * Đường dẫn dùng `documents`, tránh mọi chuỗi mà InventoryAccessGuard đang dò
-   * (`receipts`/`issues`/`transfers`/`reservations`), nên quyền ghi rơi đúng vào
-   * nhánh mặc định `inventory.manage`.
+   * Tài liệu đính kèm của thiết bị. Quyền từng route khai trong bảng
+   * `INVENTORY_ROUTE_RULES` của inventory-api; route mới phải thêm dòng ở đó.
    */
   @Get('assets/:code/documents')
   listDocuments(@Req() request: InventoryRequest, @Param('code') code: string) {
@@ -489,7 +488,7 @@ export class InventoryController {
     return this.execute(() => this.documents.remove(this.actor(request), code, documentId));
   }
 
-  /** Phụ tùng tiêu chuẩn của thiết bị; đường dẫn rơi vào quyền `inventory.manage` khi ghi. */
+  /** Phụ tùng tiêu chuẩn của thiết bị; ghi cần `inventory.manage`. */
   @Get('assets/:code/spare-parts')
   listSpareParts(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(() => this.app.listAssetBom(this.actor(request), code));
@@ -514,15 +513,7 @@ export class InventoryController {
     return this.execute(() => this.app.removeAssetBom(this.actor(request), code, bomId));
   }
 
-  /**
-   * Cấu hình module.
-   *
-   * Đường dẫn cố ý không chứa `receipts`/`issues`/`transfers`/`reservations`:
-   * InventoryAccessGuard suy quyền bằng `path.includes(...)`, trúng một trong
-   * các chuỗi đó thì quyền ghi bị hạ xuống `inventory.transaction.write` thay
-   * vì `inventory.manage`. Với đường dẫn hiện tại, GET rơi vào quyền đọc sẵn có
-   * và PUT rơi vào nhánh mặc định `inventory.manage` — không phải sửa guard.
-   */
+  /** Cấu hình module: GET cần quyền đọc, PUT cần `inventory.manage`. */
   @Get('settings')
   getSettings(@Req() request: InventoryRequest) {
     return this.execute(() => this.app.getSettings(this.actor(request)));

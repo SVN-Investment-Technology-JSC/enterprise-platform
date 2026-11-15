@@ -10,6 +10,8 @@ const actor: InventoryActor = {
   displayName: 'Bán hàng',
   canManage: false,
   canWriteTransactions: true,
+  // Bài này kiểm cả giá trị, nguồn giữ hàng; ẩn khi thiếu quyền kiểm ở cost-visibility.spec.
+  canReadCost: true,
 };
 
 const request: CreateStockReservationRequest = {

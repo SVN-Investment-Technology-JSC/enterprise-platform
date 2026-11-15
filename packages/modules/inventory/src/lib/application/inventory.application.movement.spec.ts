@@ -145,7 +145,19 @@ describe('InventoryApplication phiếu nhập/xuất nhiều dòng', () => {
 
     await expect(
       app.recordMovementLines({ ...actor, canWriteTransactions: false }, { kind: 'receipt', lines: [line] }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      code: 'ACCESS_DENIED',
+      statusCode: 403,
+      message: 'Bạn không có quyền ghi phát sinh tồn kho.',
+    });
     expect(documents.createAndPost).not.toHaveBeenCalled();
+  });
+
+  it('thiếu quyền sửa danh mục trả 403, không phải 400', async () => {
+    const { app } = setup();
+
+    await expect(
+      app.createWarehouse({ ...actor, canManage: false }, { code: 'K1', name: 'Kho 1' } as never),
+    ).rejects.toMatchObject({ code: 'ACCESS_DENIED', statusCode: 403, message: 'Bạn không có quyền sửa danh mục kho.' });
   });
 });
