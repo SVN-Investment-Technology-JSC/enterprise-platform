@@ -20,6 +20,7 @@ const MIGRATIONS = [
   '0005-directive-intake-tracking.sql',
   '0006-step-modes-info-role.sql',
   '0007-registers-numbering-signer.sql',
+  '0008-conditions-fixed-units-personal.sql',
 ].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );
@@ -318,12 +319,13 @@ integration('Sổ công văn (PostgreSQL)', () => {
     // Cách xong bước, người phải duyệt / đã duyệt, phòng nhận để biết, bước kiểm tra giao người riêng.
     await store.withLetter(TENANT, letter.id, async (tx) => {
       await tx.replaceSteps([
-        { key: 'p', name: 'Phòng ban xử lý', type: 'process', mode: 'lead' },
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process', mode: 'lead', units: [{ unitId: lead, role: 'lead' }], lockUnits: true },
         { key: 'c', name: 'Thư ký rà soát', type: 'check', approver: { type: 'users', userIds: [author] } },
         { key: 'a', name: 'Ban giám đốc', type: 'approve', mode: 'all', approver: { type: 'users', userIds: [author, addressee] } },
       ]);
       await tx.updateStep(tx.steps[2].id, { status: 'active', requiredUserIds: [author, addressee], approvedBy: [author] });
       await tx.assign([{ unitId: randomUUID(), unitName: 'Phòng Hành chính', role: 'info' }]);
+      await tx.update({ personal: true });
     });
     await store.withLetter(TENANT, letter.id, async (tx) => {
       expect(tx.steps.map((step) => [step.kind, step.mode, step.approver?.type])).toEqual([
@@ -332,6 +334,8 @@ integration('Sổ công văn (PostgreSQL)', () => {
         ['approve', 'all', 'users'],
       ]);
       expect(tx.steps[2]).toMatchObject({ requiredUserIds: [author, addressee], approvedBy: [author] });
+      expect(tx.steps[0]).toMatchObject({ units: [{ unitId: lead, role: 'lead' }], lockUnits: true });
+      expect(tx.letter.personal).toBe(true);
       expect(tx.assignments.map((item) => item.role)).toEqual(['lead', 'support', 'info']);
     });
     const [withSteps] = await store.listLetters(TENANT, { visibleTo: { ...outsider, userId: addressee }, limit: 50 });
@@ -411,6 +415,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
     const outgoing = await store.saveWorkflow(TENANT, clerk, undefined, {
       name: 'Đi nhanh',
       description: null,
+      conditions: { urgency: ['urgent'], confidentiality: ['secret'] },
       startName: null,
       endName: 'Ban hành ngay',
       autoStart: false,
@@ -420,7 +425,10 @@ integration('Sổ công văn (PostgreSQL)', () => {
       direction: 'outgoing',
       isActive: true,
       isDefault: true,
-      steps: [{ key: 'a', name: 'TGĐ', approver: { type: 'users', userIds: [leader] }, rejectTo: 'clerk' }],
+      steps: [
+        { key: 'a', name: 'TGĐ', approver: { type: 'users', userIds: [leader] }, rejectTo: 'clerk', condition: { urgency: ['urgent'], skip: true } },
+        { key: 'p', name: 'Phòng ban', type: 'process', units: [{ unitId: leader, role: 'lead' }], lockUnits: true },
+      ],
     });
     const defaults = (await store.workflows(TENANT)).filter((item) => item.isDefault);
     expect(defaults.map((item) => [item.direction, item.id])).toEqual([
@@ -428,7 +436,9 @@ integration('Sổ công văn (PostgreSQL)', () => {
       ['outgoing', outgoing.id],
     ]);
     expect(outgoing).toMatchObject({ startName: undefined, endName: 'Ban hành ngay', autoStart: false, endActor: { type: 'users', userIds: [clerk] }, autoEnd: true, archive: false });
-    expect(outgoing.steps[0]).toMatchObject({ type: 'approve', rejectTo: 'clerk' });
+    expect(outgoing.steps[0]).toMatchObject({ type: 'approve', rejectTo: 'clerk', condition: { urgency: ['urgent'], skip: true } });
+    expect(outgoing.steps[1]).toMatchObject({ type: 'process', units: [{ unitId: leader, role: 'lead' }], lockUnits: true });
+    expect(outgoing.conditions).toEqual({ urgency: ['urgent'], confidentiality: ['secret'] });
   });
 });
 

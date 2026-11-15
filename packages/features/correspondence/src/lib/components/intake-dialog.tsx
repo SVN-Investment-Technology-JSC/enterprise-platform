@@ -10,10 +10,10 @@ import {
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { catalogOptions, flowLabels, localToday, plannedWorkflow } from '../correspondence.model';
+import { appliedFlowLabels, catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
-import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
+import { CheckGroup, Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 import { IntakeCheckFields, intakeCheckPayload } from './intake-check-fields';
 
 interface IntakeForm {
@@ -34,6 +34,8 @@ interface IntakeForm {
   addressedUserId: string;
   /** Trống là sổ tự chọn theo độ mật, loại văn bản. */
   registerId: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
+  personal: boolean;
 }
 
 /** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
@@ -67,6 +69,7 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
     addressedTo: '',
     addressedUserId: '',
     registerId: '',
+    personal: false,
   };
 }
 
@@ -108,7 +111,8 @@ export function IntakeDialog({
 
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof IntakeForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const workflow = plannedWorkflow(config, 'incoming', form.kind);
+  const facts = { kind: form.kind, urgency: form.urgency, confidentiality: form.confidentiality };
+  const workflow = plannedWorkflow(config, 'incoming', form.kind, facts);
 
   const restricted = Boolean(config.catalog.find((item) => item.kind === 'confidentiality' && item.code === form.confidentiality)?.restricted);
   const registers = config.registers.filter((item) => item.isActive && item.direction === 'incoming');
@@ -138,6 +142,7 @@ export function IntakeDialog({
         confidentiality: form.confidentiality,
         ...intakeCheckPayload(form, restricted),
         registerId: form.registerId || undefined,
+        personal: form.personal && Boolean(form.addressedUserId) ? true : undefined,
       });
       let failed = 0;
       for (const file of files) {
@@ -151,7 +156,9 @@ export function IntakeDialog({
       toast.success(
         failed > 0
           ? `Đã vào sổ công văn đến số ${letter.incomingNo}; ${failed} tệp chưa tải lên được, tải lại trong hồ sơ.`
-          : `Đã vào sổ công văn đến số ${letter.incomingNo}.`,
+          : letter.personal
+            ? `Đã vào sổ số ${letter.incomingNo}, chuyển thẳng người nhận.`
+            : `Đã vào sổ công văn đến số ${letter.incomingNo}.`,
       );
       onCreated(letter.id);
     } catch (cause) {
@@ -243,6 +250,14 @@ export function IntakeDialog({
         />
       </div>
       <IntakeCheckFields value={form} restricted={restricted} directory={directory} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+      {form.addressedUserId ? (
+        <CheckGroup label="Thư gửi đích danh">
+          <label className={styles.checkRow}>
+            <input type="checkbox" checked={form.personal} onChange={(event) => set('personal', event.target.checked)} />
+            Thư riêng: không bóc bì, chuyển thẳng người nhận, không vào quy trình xử lý (người nhận trả văn thư được nếu là việc chung)
+          </label>
+        </CheckGroup>
+      ) : null}
       {registers.length > 1 ? (
         <SelectField label="Sổ đăng ký">
           <SearchableSelect
@@ -263,7 +278,7 @@ export function IntakeDialog({
       </div>
       <p className={styles.plan}>
         <span>Quy trình (theo cấu hình):</span>{' '}
-        {workflow ? flowLabels(workflow, 'incoming').join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
+        {workflow ? appliedFlowLabels(workflow, 'incoming', facts).join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
       </p>
     </FormDialog>
   );

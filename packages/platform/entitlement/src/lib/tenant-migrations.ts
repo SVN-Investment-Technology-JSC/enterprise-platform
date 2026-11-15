@@ -125,6 +125,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-directive-intake-tracking', path: 'tenant/correspondence/0005-directive-intake-tracking.sql' },
     { version: '0006-step-modes-info-role', path: 'tenant/correspondence/0006-step-modes-info-role.sql' },
     { version: '0007-registers-numbering-signer', path: 'tenant/correspondence/0007-registers-numbering-signer.sql' },
+    { version: '0008-conditions-fixed-units-personal', path: 'tenant/correspondence/0008-conditions-fixed-units-personal.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [

@@ -1,9 +1,13 @@
 import {
+  ASSIGNMENT_ROLES,
+  conditionSet,
   MAX_WORKFLOW_STEPS,
   RETURN_TARGETS,
   STEP_TYPES,
   STEP_TYPE_LABELS,
   type ApproverRule,
+  type AssignmentRole,
+  type LetterCondition,
   type StepMode,
   type StepType,
   type ReturnTarget,
@@ -96,6 +100,15 @@ export function normalizeSteps(input: unknown): WorkflowStep[] {
       `Bước "${steps[doubled - 1].name}" và "${steps[doubled].name}" đều là phòng ban xử lý, đứng liền nhau. Gộp thành một bước hoặc đặt một bước khác ở giữa.`,
     );
   }
+  // Bước có điều kiện nằm giữa hai bước phòng ban: bị bỏ qua thì hai bước phòng ban liền nhau, không ai chọn phòng.
+  const squeezed = steps.findIndex(
+    (step, index) => conditionSet(step.condition) && steps[index - 1]?.type === 'process' && steps[index + 1]?.type === 'process',
+  );
+  if (squeezed >= 0) {
+    throw new CorrespondenceValidationError(
+      `Bước "${steps[squeezed].name}" có điều kiện mà nằm giữa hai bước phòng ban xử lý: khi bị bỏ qua thì không ai chọn phòng cho bước sau. Bỏ điều kiện hoặc đổi thứ tự.`,
+    );
+  }
   // Bút phê chọn phòng ban cho bước "phòng ban xử lý" phía sau; không có bước đó thì phòng được giao không phải làm gì.
   const idle = steps.findIndex((step, index) => step.directs && !steps.slice(index + 1).some((later) => later.type === 'process'));
   if (idle >= 0) {
@@ -125,6 +138,8 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
   if (rejectTo !== undefined && rejectTo !== null && rejectTo !== '' && !(RETURN_TARGETS as readonly unknown[]).includes(rejectTo)) {
     throw new CorrespondenceValidationError(`Bước "${name}": nơi trả về khi không đạt không hợp lệ.`);
   }
+  const condition = normalizeCondition(value['condition']);
+  const skip = ((value['condition'] ?? {}) as Record<string, unknown>)['skip'] === true;
   const mode = value['mode'];
   const modes: readonly unknown[] = type === 'approve' ? ['any', 'all'] : type === 'process' ? ['all', 'lead'] : [];
   if (mode !== undefined && mode !== null && mode !== '' && !modes.includes(mode)) {
@@ -140,11 +155,50 @@ function normalizeStep(raw: unknown, index: number): WorkflowStep {
     ...(type === 'check' && value['approver'] ? { approver: normalizeRule(value['approver'], name) } : {}),
     // Cách xong khác mặc định: tất cả cùng duyệt; phòng chủ trì gửi là xong.
     ...((type === 'approve' && mode === 'all') || (type === 'process' && mode === 'lead') ? { mode: mode as StepMode } : {}),
+    // Phòng ban cố định của bước phòng ban xử lý (khoá thì không ai chọn lại).
+    ...(type === 'process' ? fixedUnits(value['units'], value['lockUnits'], name) : {}),
+    // Bước chỉ chạy khi / bỏ qua khi công văn khớp điều kiện.
+    ...(conditionSet(condition) ? { condition: { ...condition, ...(skip ? { skip: true } : {}) } } : {}),
     // Bước chỉ đạo (bút phê): người duyệt chọn đơn vị chủ trì, phối hợp, thời hạn.
     ...(type === 'approve' && value['directs'] === true ? { directs: true } : {}),
     ...(rejectTo && type !== 'process' ? { rejectTo: rejectTo as ReturnTarget } : {}),
     ...(dueDays !== undefined ? { dueDays } : {}),
   };
+}
+
+/** Điều kiện theo phân loại công văn: danh sách mã (không trùng, tối đa 50 mỗi mục), mục trống bỏ đi. */
+export function normalizeCondition(raw: unknown): LetterCondition {
+  const value = (raw ?? {}) as Record<string, unknown>;
+  const codes = (field: string) => {
+    const list = Array.isArray(value[field]) ? [...new Set((value[field] as unknown[]).map((item) => String(item ?? '').trim()).filter(Boolean))] : [];
+    if (list.length > 50) throw new CorrespondenceValidationError('Điều kiện tối đa 50 giá trị mỗi mục.');
+    return list;
+  };
+  const kinds = codes('kinds');
+  const urgency = codes('urgency');
+  const confidentiality = codes('confidentiality');
+  return {
+    ...(kinds.length > 0 ? { kinds } : {}),
+    ...(urgency.length > 0 ? { urgency } : {}),
+    ...(confidentiality.length > 0 ? { confidentiality } : {}),
+  };
+}
+
+function fixedUnits(raw: unknown, lock: unknown, stepName: string): Pick<WorkflowStep, 'units' | 'lockUnits'> {
+  const seen = new Set<string>();
+  const units = (Array.isArray(raw) ? raw : [])
+    .map((entry) => (entry ?? {}) as Record<string, unknown>)
+    .map((entry) => ({
+      unitId: String(entry['unitId'] ?? '').trim(),
+      role: (ASSIGNMENT_ROLES as readonly unknown[]).includes(entry['role']) ? (entry['role'] as AssignmentRole) : ('lead' as const),
+    }))
+    .filter((entry) => entry.unitId && !seen.has(entry.unitId) && seen.add(entry.unitId));
+  if (units.length > 50) throw new CorrespondenceValidationError(`Bước "${stepName}": tối đa 50 phòng ban cố định.`);
+  if (units.length > 0 && !units.some((unit) => unit.role !== 'info')) {
+    throw new CorrespondenceValidationError(`Bước "${stepName}": phòng ban cố định cần ít nhất một phòng chủ trì hoặc phối hợp.`);
+  }
+  if (lock === true && units.length === 0) throw new CorrespondenceValidationError(`Bước "${stepName}": khoá phòng ban thì phải chọn phòng ban cố định.`);
+  return units.length > 0 ? { units, ...(lock === true ? { lockUnits: true } : {}) } : {};
 }
 
 function ids(value: unknown, label: string, stepName: string): string[] {

@@ -5,6 +5,9 @@ import {
   isOpenStage,
   LETTER_STAGE_LABELS,
   STEP_TYPE_LABELS,
+  conditionSet,
+  matchesCondition,
+  stepApplies,
   stepTypeOf,
   type CatalogItem,
   type CatalogKind,
@@ -16,6 +19,7 @@ import {
   type LetterSummary,
   type StepType,
   type Workflow,
+  type WorkflowStep,
 } from '@enterprise-platform/contracts-correspondence';
 
 /** Màn hình của phân hệ; `letters` là liên kết mở thẳng một công văn (`#letters/<id>`). */
@@ -62,11 +66,23 @@ export function catalogOptions(catalog: readonly CatalogItem[], kind: CatalogKin
  * Quy trình sẽ áp dụng theo cấu hình: quy trình gắn với loại văn bản cho luồng đó, không có thì
  * quy trình mặc định của luồng. Người dùng không chọn quy trình khi trình.
  */
-export function plannedWorkflow(config: CorrespondenceConfig, direction: LetterDirection, kind: string): Workflow | undefined {
+export function plannedWorkflow(
+  config: CorrespondenceConfig,
+  direction: LetterDirection,
+  kind: string,
+  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+): Workflow | undefined {
   const type = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind);
   const wanted = direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
   const usable = config.workflows.filter((workflow) => workflow.isActive && workflow.direction === direction);
-  return usable.find((workflow) => workflow.id === wanted) ?? usable.find((workflow) => workflow.isDefault);
+  // Như máy chủ: quy trình có điều kiện khớp chọn trước (đặt nhiều điều kiện hơn thì trước), rồi theo loại văn bản, rồi mặc định.
+  const facts = { kind, urgency: classified?.urgency ?? '', confidentiality: classified?.confidentiality ?? '' };
+  const weight = (workflow: Workflow) =>
+    [workflow.conditions?.kinds, workflow.conditions?.urgency, workflow.conditions?.confidentiality].filter((values) => (values?.length ?? 0) > 0).length;
+  const conditional = usable
+    .filter((workflow) => conditionSet(workflow.conditions) && matchesCondition(workflow.conditions, facts))
+    .sort((left, right) => weight(right) - weight(left))[0];
+  return conditional ?? usable.find((workflow) => workflow.id === wanted) ?? usable.find((workflow) => workflow.isDefault);
 }
 
 /** Nhãn các ô của quy trình: ô đầu, các bước ở giữa, ô cuối (tên đổi được theo quy trình). */
@@ -81,9 +97,21 @@ export function flowLabels(
   ];
 }
 
+/** Nhãn luồng của một công văn theo phân loại: bỏ bước có điều kiện không khớp. */
+export function appliedFlowLabels(
+  workflow: Workflow,
+  direction: LetterDirection,
+  facts: { readonly kind: string; readonly urgency: string; readonly confidentiality: string },
+): string[] {
+  return flowLabels({ ...workflow, steps: workflow.steps.filter((step) => stepApplies(step, facts)) }, direction);
+}
+
 export interface UpcomingStep {
   readonly type: StepType;
   readonly name: string;
+  /** Bước phòng ban xử lý: phòng ban cố định, khoá chọn lại. */
+  readonly units?: WorkflowStep['units'];
+  readonly lockUnits?: boolean;
 }
 
 /**
@@ -92,18 +120,27 @@ export interface UpcomingStep {
  * bước (sang ô cuối) thì `undefined`.
  */
 export function upcomingStep(
-  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'>,
+  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'> & Partial<Pick<LetterDetail, 'urgency' | 'confidentiality' | 'steps'>>,
   config: CorrespondenceConfig,
   kind?: string,
+  classified?: { readonly urgency?: string; readonly confidentiality?: string },
 ): UpcomingStep | undefined {
   if (letter.stage === 'received' || letter.stage === 'drafting') {
-    const first = plannedWorkflow(config, letter.direction, kind ?? letter.kind)?.steps[0];
-    return first ? { type: stepTypeOf(first), name: first.name } : undefined;
+    // Quy trình sẽ áp dụng theo phân loại đang chọn; bước có điều kiện không khớp thì bỏ.
+    const facts = {
+      kind: kind ?? letter.kind,
+      urgency: classified?.urgency ?? letter.urgency ?? '',
+      confidentiality: classified?.confidentiality ?? letter.confidentiality ?? '',
+    };
+    const first = plannedWorkflow(config, letter.direction, facts.kind, facts)?.steps.find((step) => stepApplies(step, facts));
+    return first ? { type: stepTypeOf(first), name: first.name, units: first.units, lockUnits: first.lockUnits } : undefined;
   }
   const at = letter.flow.findIndex((node) => node.state === 'current');
   const next = at >= 0 ? letter.flow[at + 1] : undefined;
   if (!next || next.kind === 'start' || next.kind === 'end' || next.kind === 'revoke') return undefined;
-  return { type: next.kind, name: next.label };
+  const active = letter.steps?.find((step) => step.status === 'active');
+  const following = active ? [...(letter.steps ?? [])].sort((left, right) => left.seq - right.seq).find((step) => step.seq > active.seq) : undefined;
+  return { type: next.kind, name: next.label, units: following?.units, lockUnits: following?.lockUnits };
 }
 
 /** Ô liền trước ô đang làm trên thanh tiến trình (nơi "Bước trước" trả về). */

@@ -12,6 +12,7 @@ import type {
   EnvelopeStatus,
   LetterDirection,
   LetterDirective,
+  LetterCondition,
   LetterHistoryAction,
   LetterStage,
   LetterStepDecision,
@@ -113,6 +114,8 @@ export interface LetterRecord {
   readonly signerUserId?: string;
   readonly signerName?: string;
   readonly signerTitle?: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
+  readonly personal?: boolean;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -142,6 +145,9 @@ export interface StepRecord {
   /** Bước "tất cả cùng duyệt": người phải duyệt (không tính người được ủy quyền), người đã duyệt. */
   readonly requiredUserIds?: readonly string[];
   readonly approvedBy?: readonly string[];
+  /** Bước phòng ban xử lý: phòng ban cố định, khoá chọn lại. */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
   readonly activatedAt?: string;
   readonly actedBy?: string;
   readonly actedAt?: string;
@@ -372,6 +378,7 @@ export interface WorkflowUpsert {
   readonly autoEnd: boolean;
   readonly archive: boolean;
   readonly steps: readonly WorkflowStep[];
+  readonly conditions: LetterCondition | null;
 }
 
 export interface CorrespondenceStore {

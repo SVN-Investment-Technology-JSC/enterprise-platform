@@ -76,6 +76,8 @@ export interface LetterFacts {
   readonly addressedUserId?: string;
   /** Người làm ô cuối theo cấu hình quy trình; trống là văn thư. */
   readonly closerIds?: readonly string[];
+  /** Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung. */
+  readonly personal?: boolean;
 }
 
 /** Người xem làm được ô cuối (hoàn tất / ban hành): người được cấu hình, không cấu hình thì văn thư có quyền. */
@@ -244,7 +246,8 @@ export function returnTargets(viewer: LetterViewer, letter: LetterFacts): Return
       return doneBefore(letter) ? ['previous-step', start] : [start];
     }
     case 'closing':
-      // Người hoàn tất thường là văn thư: không trả về chính văn thư tiếp nhận.
+      // Thư riêng: người nhận trả văn thư (việc chung). Người hoàn tất thường là văn thư: không trả về chính văn thư tiếp nhận.
+      if (letter.personal) return closesLetter(viewer, letter) ? ['clerk'] : [];
       return closesLetter(viewer, letter) ? available.filter((target) => target !== 'clerk') : [];
     case 'publishing':
       return closesLetter(viewer, letter) ? available : [];

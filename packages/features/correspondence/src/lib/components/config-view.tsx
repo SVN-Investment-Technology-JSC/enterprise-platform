@@ -2,6 +2,7 @@
 
 import {
   abbreviate,
+  conditionSet,
   APPROVE_MODE_LABELS,
   APPROVER_RULE_LABELS,
   CATALOG_KINDS,
@@ -24,9 +25,11 @@ import {
   type CatalogKind,
   type CorrespondenceConfig,
   type CorrespondenceDirectory,
+  type LetterCondition,
   type LetterDirection,
   type Register,
   type ReturnTarget,
+  type StepCondition,
   type StepType,
   type Workflow,
   type WorkflowStep,
@@ -93,6 +96,93 @@ export function ConfigView({
         <OrganizationView directory={directory} />
       )}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- điều kiện */
+
+const CONDITION_FIELDS: readonly { readonly field: keyof LetterCondition; readonly kind: CatalogKind; readonly label: string }[] = [
+  { field: 'kinds', kind: 'letter_type', label: 'Loại văn bản' },
+  { field: 'urgency', kind: 'urgency', label: 'Độ khẩn' },
+  { field: 'confidentiality', kind: 'confidentiality', label: 'Độ mật' },
+];
+
+/** "Độ khẩn: Hoả tốc; Độ mật: Mật, Tối mật". */
+function conditionText(condition: LetterCondition | undefined, catalog: readonly CatalogItem[]): string {
+  return CONDITION_FIELDS.filter(({ field }) => (condition?.[field]?.length ?? 0) > 0)
+    .map(({ field, kind, label }) => {
+      const names = (condition?.[field] ?? []).map((code) => catalog.find((item) => item.kind === kind && item.code === code)?.name ?? code);
+      return `${label}: ${names.join(', ')}`;
+    })
+    .join('; ');
+}
+
+/** Điều kiện theo phân loại công văn: mỗi mục chọn nhiều giá trị, các mục cùng lúc là "và". */
+function ConditionFields({
+  value,
+  catalog,
+  prefix,
+  onChange,
+}: {
+  readonly value: LetterCondition | undefined;
+  readonly catalog: readonly CatalogItem[];
+  readonly prefix: string;
+  readonly onChange: (next: LetterCondition) => void;
+}) {
+  return (
+    <div className={styles.formRow3}>
+      {CONDITION_FIELDS.map(({ field, kind, label }) => (
+        <MultiPick
+          key={field}
+          label={`${prefix}: ${label.toLowerCase()}`}
+          required={false}
+          options={catalog.filter((item) => item.kind === kind && item.isActive).map((item) => ({ value: item.code, label: item.name }))}
+          values={value?.[field] ?? []}
+          onChange={(values) => onChange({ ...value, [field]: values.length > 0 ? values : undefined })}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Bước luôn chạy, chỉ chạy khi, hay bỏ qua khi công văn khớp điều kiện. */
+function StepConditionFields({
+  condition,
+  catalog,
+  onChange,
+}: {
+  readonly condition: StepCondition | undefined;
+  readonly catalog: readonly CatalogItem[];
+  readonly onChange: (next: StepCondition | undefined) => void;
+}) {
+  const mode = condition ? (condition.skip ? 'skip' : 'only') : 'always';
+  return (
+    <>
+      <SelectField label="Bước này chạy">
+        <SearchableSelect
+          options={[
+            { value: 'always', label: 'Luôn chạy' },
+            { value: 'only', label: 'Chỉ khi công văn khớp điều kiện' },
+            { value: 'skip', label: 'Bỏ qua khi công văn khớp điều kiện', description: 'Ví dụ văn bản Hoả tốc bỏ qua bước Phó giám đốc' },
+          ]}
+          value={mode}
+          searchInDropdown
+          hideDropdownSearch
+          onChange={(value) => {
+            if (!value || value === 'always') onChange(undefined);
+            else onChange({ ...(condition ?? {}), skip: value === 'skip' ? true : undefined });
+          }}
+        />
+      </SelectField>
+      {condition ? (
+        <ConditionFields
+          value={condition}
+          catalog={catalog}
+          prefix={condition.skip ? 'Bỏ qua khi' : 'Chỉ khi'}
+          onChange={(next) => onChange({ ...next, skip: condition.skip })}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -668,6 +758,7 @@ function WorkflowManager({
                         </span>
                       ))}
                     </div>
+                    {conditionSet(workflow.conditions) ? <p>Áp dụng khi: {conditionText(workflow.conditions, config.catalog)}</p> : null}
                     {workflow.description ? <p>{workflow.description}</p> : null}
                   </div>
                   <div className={styles.listActions}>
@@ -700,6 +791,7 @@ function WorkflowManager({
           direction={editing.direction}
           workflow={editing.workflow}
           directory={directory}
+          catalog={config.catalog}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
             setEditing(undefined);
@@ -756,12 +848,15 @@ function WorkflowDialog({
   direction,
   workflow,
   directory,
+  catalog = [],
   onClose,
   onSaved,
 }: {
   readonly direction: LetterDirection;
   readonly workflow?: Workflow;
   readonly directory?: CorrespondenceDirectory;
+  /** Danh mục, để đặt điều kiện theo loại văn bản, độ khẩn, độ mật. */
+  readonly catalog?: readonly CatalogItem[];
   readonly onClose: () => void;
   readonly onSaved: () => void;
 }) {
@@ -777,6 +872,7 @@ function WorkflowDialog({
       endActor: workflow?.endActor ?? null,
       autoEnd: workflow?.autoEnd ?? false,
       archive: workflow?.archive ?? true,
+      conditions: workflow?.conditions ?? ({} as LetterCondition),
       steps: workflow?.steps ?? starterSteps(direction),
     }),
     [workflow, direction],
@@ -815,6 +911,7 @@ function WorkflowDialog({
         autoEnd: form.autoEnd,
         archive: form.archive,
         steps: form.steps,
+        conditions: conditionSet(form.conditions) ? form.conditions : null,
       });
       toast.success('Đã lưu quy trình.');
       onSaved();
@@ -915,6 +1012,19 @@ function WorkflowDialog({
           onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
         />
       </Field>
+      <fieldset className={styles.fieldset}>
+        <legend>Áp dụng khi (trống là theo loại văn bản / quy trình mặc định)</legend>
+        <ConditionFields
+          value={form.conditions}
+          catalog={catalog}
+          prefix="Áp dụng khi"
+          onChange={(conditions) => setForm((current) => ({ ...current, conditions }))}
+        />
+        <span className={styles.hint}>
+          Công văn khớp điều kiện dùng quy trình này trước quy trình gắn với loại văn bản và quy trình mặc định (ví dụ văn bản Mật
+          đi quy trình riêng).
+        </span>
+      </fieldset>
       <div className={styles.flowPreview} aria-label="Luồng xử lý">
         {preview.map((label, index, all) => (
           <span key={`${index}-${label}`} className={index > 0 && index < all.length - 1 ? styles.flowPreviewStep : undefined}>
@@ -1056,9 +1166,41 @@ function WorkflowDialog({
           ) : type === 'process' ? (
             <>
               <p className={styles.sectionNote}>
-                Phòng ban là các phòng do &quot;{preview[index]}&quot; chọn khi chuyển sang bước này, không cố định trong quy trình. Phòng
-                nhận để biết chỉ xem, không phải gửi kết quả.
+                {step.lockUnits && step.units?.length
+                  ? 'Luôn giao đúng các phòng cố định dưới đây, không ai chọn lại.'
+                  : `Phòng ban do "${preview[index]}" chọn khi chuyển sang bước này${step.units?.length ? ', gợi ý sẵn các phòng cố định dưới đây' : ''}.`}{' '}
+                Phòng nhận để biết chỉ xem, không phải gửi kết quả.
               </p>
+              <MultiPick
+                label="Phòng ban cố định (trống là không cố định)"
+                required={false}
+                options={unitOptions}
+                values={(step.units ?? []).map((unit) => unit.unitId)}
+                onChange={(ids) =>
+                  setStep(index, {
+                    units:
+                      ids.length > 0
+                        ? ids.map((unitId, at) => ({
+                            unitId,
+                            role: step.units?.find((unit) => unit.unitId === unitId)?.role ?? (at === 0 ? 'lead' : 'support'),
+                          }))
+                        : undefined,
+                    lockUnits: ids.length > 0 ? step.lockUnits : undefined,
+                  })
+                }
+              />
+              {step.units?.length ? (
+                <CheckGroup label="Phòng ban cố định">
+                  <label className={styles.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={step.lockUnits === true}
+                      onChange={(event) => setStep(index, { lockUnits: event.target.checked || undefined })}
+                    />
+                    Khoá: luôn giao đúng các phòng này, không ai chọn lại (phòng đầu chủ trì, các phòng sau phối hợp)
+                  </label>
+                </CheckGroup>
+              ) : null}
               <SelectField label="Bước xong khi">
                 <SearchableSelect
                   options={(['all', 'lead'] as const).map((value) => ({
@@ -1111,6 +1253,11 @@ function WorkflowDialog({
               </CheckGroup>
             </>
           )}
+          <StepConditionFields
+            condition={step.condition}
+            catalog={catalog}
+            onChange={(condition) => setStep(index, { condition })}
+          />
           <div className={styles.formRow}>
             {type === 'process' ? (
               <p className={styles.sectionNote}>Phòng ban trả lại khi không thuộc phạm vi: về bước liền trước.</p>

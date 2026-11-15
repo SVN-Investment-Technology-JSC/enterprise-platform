@@ -333,6 +333,45 @@ export const STEP_TYPE_LABELS: Readonly<Record<StepType, string>> = {
 };
 
 /**
+ * Điều kiện theo phân loại công văn: mỗi mục có giá trị thì công văn phải thuộc một trong các giá trị đó
+ * (các mục cùng lúc là "và"). Dùng chọn quy trình và bật / tắt một bước.
+ */
+export interface LetterCondition {
+  readonly kinds?: readonly string[];
+  readonly urgency?: readonly string[];
+  readonly confidentiality?: readonly string[];
+}
+
+/** Bước có điều kiện: `skip` là bỏ qua khi khớp, không thì chỉ chạy khi khớp. */
+export interface StepCondition extends LetterCondition {
+  readonly skip?: boolean;
+}
+
+export function conditionSet(condition: LetterCondition | undefined): boolean {
+  return Boolean(condition && ((condition.kinds?.length ?? 0) > 0 || (condition.urgency?.length ?? 0) > 0 || (condition.confidentiality?.length ?? 0) > 0));
+}
+
+/** Công văn khớp điều kiện; điều kiện trống là khớp. */
+export function matchesCondition(
+  condition: LetterCondition | undefined,
+  letter: { readonly kind: string; readonly urgency: string; readonly confidentiality: string },
+): boolean {
+  if (!condition) return true;
+  const fits = (values: readonly string[] | undefined, value: string) => !values || values.length === 0 || values.includes(value);
+  return fits(condition.kinds, letter.kind) && fits(condition.urgency, letter.urgency) && fits(condition.confidentiality, letter.confidentiality);
+}
+
+/** Bước áp dụng cho công văn: không có điều kiện, chỉ chạy khi khớp, hay bỏ qua khi khớp. */
+export function stepApplies(
+  step: { readonly condition?: StepCondition },
+  letter: { readonly kind: string; readonly urgency: string; readonly confidentiality: string },
+): boolean {
+  if (!conditionSet(step.condition)) return true;
+  const matched = matchesCondition(step.condition, letter);
+  return step.condition?.skip ? !matched : matched;
+}
+
+/**
  * Khi nào một bước coi là xong:
  * - bước duyệt: `any` một người trong nhóm duyệt là đủ (mặc định), `all` mọi người trong nhóm đều phải duyệt;
  * - bước phòng ban xử lý: `all` mọi phòng chủ trì, phối hợp gửi kết quả (mặc định), `lead` phòng chủ trì gửi là xong.
@@ -384,6 +423,14 @@ export interface WorkflowStep {
   /** Khi nào bước xong (xem `STEP_MODES`); trống là mặc định của loại bước. */
   readonly mode?: StepMode;
   /**
+   * Bước phòng ban xử lý: phòng ban cố định của bước. Người làm bước trước không chọn thì giao các phòng
+   * này; `lockUnits` thì luôn giao đúng các phòng này, không ai chọn lại.
+   */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
+  /** Bước chỉ chạy khi (hay bỏ qua khi) công văn khớp điều kiện; trống là luôn chạy. */
+  readonly condition?: StepCondition;
+  /**
    * Bước duyệt là bước chỉ đạo (bút phê): người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân
    * chủ trì, phối hợp và thời hạn; bước phòng ban xử lý sau đó giao theo bút phê.
    */
@@ -418,6 +465,11 @@ export interface Workflow {
   readonly archive?: boolean;
   /** Các bước ở giữa theo thứ tự; rỗng là đi thẳng từ ô đầu tới ô cuối. */
   readonly steps: readonly WorkflowStep[];
+  /**
+   * Áp dụng cho công văn khớp điều kiện (loại văn bản, độ khẩn, độ mật): quy trình có điều kiện khớp
+   * được chọn trước quy trình gắn với loại văn bản và quy trình mặc định.
+   */
+  readonly conditions?: LetterCondition;
   readonly updatedAt: string;
 }
 
@@ -434,6 +486,7 @@ export interface SaveWorkflowRequest {
   readonly autoEnd?: boolean;
   readonly archive?: boolean;
   readonly steps: readonly WorkflowStep[];
+  readonly conditions?: LetterCondition | null;
 }
 
 export const MAX_WORKFLOW_STEPS = 30;
@@ -458,6 +511,9 @@ export interface LetterStep {
   /** Bước duyệt "tất cả cùng duyệt": ai đã duyệt, và tổng số người phải duyệt. */
   readonly approvedBy?: readonly { readonly userId: string; readonly name?: string }[];
   readonly requiredCount?: number;
+  /** Bước phòng ban xử lý: phòng ban cố định, có khoá chọn lại hay không. */
+  readonly units?: readonly { readonly unitId: string; readonly role: AssignmentRole }[];
+  readonly lockUnits?: boolean;
   readonly status: LetterStepStatus;
   readonly assignees: readonly { readonly userId: string; readonly name?: string }[];
   readonly actedBy?: string;
@@ -724,6 +780,8 @@ export interface LetterDetail extends LetterSummary {
   readonly addressedTo?: string;
   readonly addressedUserId?: string;
   readonly addressedUserName?: string;
+  /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình xử lý. */
+  readonly personal?: boolean;
   /** Bút phê của bước chỉ đạo gần nhất. */
   readonly directive?: LetterDirective;
   /** Đề nghị huỷ công văn đã ban hành / hoàn tất: đang chờ xác nhận (giai đoạn `revoking`) hay đã được đồng ý. */
@@ -826,6 +884,11 @@ export interface CreateLetterRequest extends IntakeCheck {
   readonly confidentiality?: string;
   /** Sổ đăng ký; trống là sổ theo độ mật và loại văn bản. */
   readonly registerId?: string;
+  /**
+   * Thư riêng gửi đích danh (`addressedUserId`): không bóc bì, chuyển thẳng người nhận, không vào quy trình
+   * xử lý; người nhận trả văn thư được nếu là việc chung.
+   */
+  readonly personal?: boolean;
 }
 
 /** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */

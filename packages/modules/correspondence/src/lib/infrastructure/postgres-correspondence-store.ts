@@ -15,8 +15,10 @@ import {
   type DeliveryStatus,
   type LetterHistoryAction,
   type LetterStage,
+  type LetterCondition,
   type Register,
   type ReturnTarget,
+  type StepCondition,
   type Workflow,
   type WorkflowStep,
   type StepType,
@@ -66,10 +68,10 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
   l.envelope_status, l.sealed, l.page_count, l.copy_count, l.addressed_to, l.addressed_user_id, l.directive,
   l.closer_ids::text[] AS closer_ids, l.register_id, l.signer_user_id, l.signer_name, l.signer_title,
-  (SELECT r.name FROM correspondence_schema.registers r WHERE r.id = l.register_id) AS register_name,
+  (SELECT r.name FROM correspondence_schema.registers r WHERE r.id = l.register_id) AS register_name, l.personal,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
-const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.mode, s.reject_to, s.due_days, s.status, s.chosen_user_id,
+const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.mode, s.units, s.lock_units, s.reject_to, s.due_days, s.status, s.chosen_user_id,
   s.assignee_user_ids::text[] AS assignee_user_ids, s.required_user_ids::text[] AS required_user_ids,
   s.approved_by::text[] AS approved_by, s.activated_at, s.acted_by, s.acted_at, s.decision, s.note`;
 
@@ -96,7 +98,7 @@ const REGISTER_COLUMNS = `r.id, r.direction, r.name, r.number_format, r.confiden
   EXISTS (SELECT 1 FROM correspondence_schema.letters u WHERE u.register_id = r.id) AS in_use`;
 
 const WORKFLOW_COLUMNS = `id, name, description, direction, is_active, is_default, start_name, end_name, auto_start, end_actor,
-  auto_end, end_archive, steps, updated_at`;
+  auto_end, end_archive, steps, conditions, updated_at`;
 
 /** Cột được phép ghi qua `update`, theo tên trường của `LetterPatch`. */
 const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
@@ -147,6 +149,7 @@ const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
   signerUserId: 'signer_user_id',
   signerName: 'signer_name',
   signerTitle: 'signer_title',
+  personal: 'personal',
   sharedFolderId: 'shared_folder_id',
 };
 
@@ -316,22 +319,23 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           input.endActor ? JSON.stringify(input.endActor) : null,
           input.autoEnd,
           input.archive,
+          input.conditions ? JSON.stringify(input.conditions) : null,
         ];
         const result = id
           ? await client.query<Row>(
               `UPDATE correspondence_schema.workflows
                   SET name = $1, description = $2, is_active = $3, is_default = $4, steps = $5::jsonb,
                       updated_by = $6, direction = $7, start_name = $8, end_name = $9, auto_start = $10,
-                      end_actor = $11::jsonb, auto_end = $12, end_archive = $13, updated_at = now()
-                WHERE id = $14
+                      end_actor = $11::jsonb, auto_end = $12, end_archive = $13, conditions = $14::jsonb, updated_at = now()
+                WHERE id = $15
                 RETURNING ${WORKFLOW_COLUMNS}`,
               [...params, id],
             )
           : await client.query<Row>(
               `INSERT INTO correspondence_schema.workflows
                       (name, description, is_active, is_default, steps, updated_by, direction, start_name, end_name,
-                       auto_start, end_actor, auto_end, end_archive)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+                       auto_start, end_actor, auto_end, end_archive, conditions)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14::jsonb)
                RETURNING ${WORKFLOW_COLUMNS}`,
               params,
             );
@@ -782,8 +786,9 @@ class PostgresLetterTransaction implements LetterTransaction {
     for (const [index, step] of steps.entries()) {
       const kind = stepTypeOf(step);
       await this.client.query(
-        `INSERT INTO correspondence_schema.letter_steps (letter_id, seq, name, kind, approver, reject_to, due_days, directs, mode)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
+        `INSERT INTO correspondence_schema.letter_steps
+                (letter_id, seq, name, kind, approver, reject_to, due_days, directs, mode, units, lock_units)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb, $11)`,
         [
           this.letter.id,
           index + 1,
@@ -794,6 +799,8 @@ class PostgresLetterTransaction implements LetterTransaction {
           step.dueDays ?? null,
           kind === 'approve' && step.directs === true,
           kind === 'check' ? null : stepModeOf(step),
+          kind === 'process' && step.units?.length ? JSON.stringify(step.units) : null,
+          kind === 'process' && step.lockUnits === true,
         ],
       );
     }
@@ -1143,6 +1150,9 @@ function mapWorkflowStep(raw: Row, index: number): WorkflowStep {
     ...(type !== 'process' && raw['approver'] ? { approver: raw['approver'] as ApproverRule } : {}),
     ...(type === 'approve' && raw['directs'] === true ? { directs: true } : {}),
     ...(raw['mode'] === 'all' || raw['mode'] === 'lead' ? { mode: raw['mode'] } : {}),
+    ...(type === 'process' && Array.isArray(raw['units']) && raw['units'].length > 0 ? { units: raw['units'] as WorkflowStep['units'] } : {}),
+    ...(type === 'process' && raw['lockUnits'] === true ? { lockUnits: true } : {}),
+    ...(raw['condition'] ? { condition: raw['condition'] as StepCondition } : {}),
     ...(rejectTo ? { rejectTo } : {}),
     ...(dueDays !== undefined && Number.isFinite(dueDays) ? { dueDays } : {}),
   };
@@ -1163,6 +1173,7 @@ function mapWorkflow(row: Row): Workflow {
     autoEnd: row['auto_end'] === true,
     archive: row['end_archive'] !== false,
     steps: Array.isArray(row['steps']) ? (row['steps'] as Row[]).map(mapWorkflowStep) : [],
+    ...(row['conditions'] ? { conditions: row['conditions'] as LetterCondition } : {}),
     updatedAt: iso(row['updated_at']),
   };
 }
@@ -1176,6 +1187,8 @@ function mapStep(row: Row): StepRecord {
     approver: row['approver'] ? (row['approver'] as ApproverRule) : undefined,
     directs: row['directs'] === true,
     mode: row['mode'] === 'all' || row['mode'] === 'lead' || row['mode'] === 'any' ? row['mode'] : undefined,
+    units: Array.isArray(row['units']) && row['units'].length > 0 ? (row['units'] as StepRecord['units']) : undefined,
+    lockUnits: row['lock_units'] === true,
     requiredUserIds: Array.isArray(row['required_user_ids']) ? (row['required_user_ids'] as unknown[]).map(String) : [],
     approvedBy: Array.isArray(row['approved_by']) ? (row['approved_by'] as unknown[]).map(String) : [],
     rejectTo: returnTarget(row['reject_to']),
@@ -1250,6 +1263,7 @@ function mapLetter(row: Row): LetterRecord {
     signerUserId: optional(row['signer_user_id']),
     signerName: optional(row['signer_name']),
     signerTitle: optional(row['signer_title']),
+    personal: row['personal'] === true,
     sharedFolderId: optional(row['shared_folder_id']),
     receivedBy: String(row['received_by']),
     createdAt: iso(row['created_at']),

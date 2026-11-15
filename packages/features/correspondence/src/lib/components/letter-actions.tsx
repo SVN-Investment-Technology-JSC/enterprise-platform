@@ -6,6 +6,7 @@ import {
   ASSIGNMENT_ROLE_LABELS,
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
+  stepApplies,
   suggestRegister,
   returnTargetLabel,
   type CatalogItem,
@@ -133,14 +134,29 @@ function ErrorLine({ error }: { readonly error?: string }) {
 }
 
 /** Quy trình sẽ áp dụng, đọc theo cấu hình (theo loại văn bản đang chọn); người dùng không chọn quy trình. */
-function PlannedSteps({ config, letter, kind }: { readonly config: CorrespondenceConfig; readonly letter: LetterDetail; readonly kind: string }) {
-  const workflow = plannedWorkflow(config, letter.direction, kind);
+function PlannedSteps({
+  config,
+  letter,
+  kind,
+  urgency = letter.urgency,
+  confidentiality = letter.confidentiality,
+}: {
+  readonly config: CorrespondenceConfig;
+  readonly letter: LetterDetail;
+  readonly kind: string;
+  readonly urgency?: string;
+  readonly confidentiality?: string;
+}) {
+  const facts = { kind, urgency, confidentiality };
+  const workflow = plannedWorkflow(config, letter.direction, kind, facts);
   if (!workflow) {
     return <p className={styles.notice}>Chưa có quy trình đang dùng cho luồng này. Nhờ người quản trị vào Cấu hình đặt quy trình mặc định.</p>;
   }
+  // Bước có điều kiện không khớp phân loại đang chọn thì không có trong luồng của công văn này.
+  const steps = workflow.steps.filter((step) => stepApplies(step, facts));
   return (
     <p className={styles.plan}>
-      <span>Quy trình (theo cấu hình):</span> {flowLabels(workflow, letter.direction).join(' → ')}
+      <span>Quy trình {workflow.name}:</span> {flowLabels({ ...workflow, steps }, letter.direction).join(' → ')}
     </p>
   );
 }
@@ -149,25 +165,37 @@ function PlannedSteps({ config, letter, kind }: { readonly config: Correspondenc
  * Phần chọn cho bước kế tiếp: bước đó là phòng ban xử lý thì chọn phòng ban; bước duyệt (ngay
  * sau, hay sau bước phòng ban) để người trình chọn người thì chọn người.
  */
-function useNextStep(letter: LetterDetail, config: CorrespondenceConfig, kind?: string) {
-  const upcoming = upcomingStep(letter, config, kind);
+function useNextStep(
+  letter: LetterDetail,
+  config: CorrespondenceConfig,
+  kind?: string,
+  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+) {
+  const upcoming = upcomingStep(letter, config, kind, classified);
+  // Bước phòng ban có phòng cố định: giao sẵn (chọn lại được), khoá thì luôn giao đúng các phòng đó.
+  const fixed = upcoming?.type === 'process' && upcoming.units?.length ? upcoming.units : undefined;
+  const locked = Boolean(fixed && upcoming?.lockUnits);
   const active = letter.steps.find((step) => step.status === 'active');
   // Bước chỉ đạo (bút phê): chọn đơn vị chủ trì, phối hợp và thời hạn dù bước kế tiếp là gì.
   const directs = letter.stage === 'reviewing' && active?.type === 'approve' && active.directs === true;
   const current = letter.flow.findIndex((node) => node.state === 'current');
   const laterProcess = current >= 0 && letter.flow.slice(current + 1).some((node) => node.kind === 'process');
-  const initialUnits = useMemo(
-    () => suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive),
-    [config, kind, letter, directs],
-  );
+  const fixedKey = JSON.stringify(fixed ?? []);
+  const initialUnits = useMemo(() => {
+    // Phòng cố định (so theo chuỗi để không tính lại mỗi lần vẽ); bút phê của bước trước vẫn ưu tiên hơn.
+    const fixedUnits = JSON.parse(fixedKey) as { unitId: string; role: UnitPick['role'] }[];
+    return fixedUnits.length > 0 && !(letter.directive?.units.length && !directs)
+      ? fixedUnits.map((unit): UnitPick => ({ unitId: unit.unitId, handlerUserId: '', role: unit.role }))
+      : suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive);
+  }, [config, kind, letter, directs, fixedKey]);
   const initialDue = (directs ? undefined : letter.directive?.dueOn) ?? letter.dueOn ?? '';
   const [units, setUnits] = useState<UnitPick[]>(initialUnits);
   const [dueOn, setDueOn] = useState(initialDue);
   const [assignee, setAssignee] = useState('');
   const choice = useStepChoice(letter.id, kind);
   useEffect(() => setAssignee(''), [kind]);
-  const needsUnits = upcoming?.type === 'process' || directs;
-  const unitsRequired = upcoming?.type === 'process' || (directs && laterProcess);
+  const needsUnits = (upcoming?.type === 'process' && !locked) || directs;
+  const unitsRequired = (upcoming?.type === 'process' && !fixed) || (directs && laterProcess);
   const blocked =
     choice === undefined ||
     (Boolean(choice) && !assignee) ||
@@ -177,6 +205,8 @@ function useNextStep(letter: LetterDetail, config: CorrespondenceConfig, kind?: 
   return {
     upcoming,
     directs,
+    fixed,
+    locked,
     units,
     setUnits,
     dueOn,
@@ -210,8 +240,15 @@ function NextStepFields({
   readonly showDue?: boolean;
 }) {
   const directive = letter.directive;
+  const unitName = (unitId: string) => directory?.units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban';
   return (
     <>
+      {next.locked && next.fixed ? (
+        <p className={styles.plan}>
+          <span>Giao cố định theo quy trình:</span>{' '}
+          {next.fixed.map((unit) => `${unitName(unit.unitId)} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}.
+        </p>
+      ) : null}
       {!next.directs && next.needsUnits && directive && directive.units.length > 0 ? (
         <p className={styles.plan}>
           <span>Theo bút phê{directive.byName ? ` của ${directive.byName}` : ''}:</span>{' '}
@@ -531,7 +568,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
   const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
   const [note, setNote] = useState('');
-  const next = useNextStep(letter, config, kind);
+  const next = useNextStep(letter, config, kind, { urgency, confidentiality });
   const { busy, error, run } = useRunner(onDone);
   useEffect(
     () => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged),
@@ -543,7 +580,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
     // Chưa chọn phòng nào thì gợi ý phòng ban của loại văn bản.
     if (units.length === 0) setUnits(suggestedUnits(config, value));
   };
-  const workflow = plannedWorkflow(config, 'incoming', kind);
+  const workflow = plannedWorkflow(config, 'incoming', kind, { urgency, confidentiality });
   const end = workflow ? (flowLabels(workflow, 'incoming').at(-1) ?? '') : '';
 
   return (
@@ -583,7 +620,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
             onChange={setConfidentiality}
           />
         </div>
-        <PlannedSteps config={config} letter={letter} kind={kind} />
+        <PlannedSteps config={config} letter={letter} kind={kind} urgency={urgency} confidentiality={confidentiality} />
         <NextStepFields next={next} letter={letter} config={config} directory={directory} showDue={false} />
         <div className={styles.formRow}>
           <Field label="Hạn xử lý">
@@ -634,6 +671,26 @@ function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   const [note, setNote] = useState('');
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  if (letter.personal) {
+    // Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung của cơ quan.
+    return (
+      <Panel title="Thư riêng gửi bạn">
+        <div className={styles.form}>
+          <p className={styles.sectionNote}>
+            Văn thư chuyển nguyên bì, không bóc. Nhận thư rồi bấm Đã nhận. Nếu là việc chung của cơ quan, trả văn thư để vào sổ xử lý
+            theo quy trình.
+          </p>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <ReturnControl letter={letter} onDone={onDone} label="Trả văn thư (việc chung)" dialogTitle="Trả văn thư xử lý như công văn" />
+            <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => completeLetter(letter.id, undefined), 'Đã xác nhận nhận thư.')}>
+              <CheckCircle2 size={15} /> Đã nhận
+            </button>
+          </div>
+        </div>
+      </Panel>
+    );
+  }
   return (
     <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư hoàn tất, lưu trữ'}>
       <div className={styles.form}>
@@ -672,7 +729,7 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
   const drafts = letter.attachments.filter((item) => item.kind === 'draft').length;
-  const workflow = plannedWorkflow(config, 'outgoing', letter.kind);
+  const workflow = plannedWorkflow(config, 'outgoing', letter.kind, letter);
   const end = workflow ? (flowLabels(workflow, 'outgoing').at(-1) ?? '') : '';
   const target = next.upcoming?.name ?? end;
   return (
