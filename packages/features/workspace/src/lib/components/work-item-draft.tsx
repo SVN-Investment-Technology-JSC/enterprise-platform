@@ -24,6 +24,11 @@ import { Choice } from './choice';
 import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ReopenPolicyField } from './reopen-policy-field';
 import { Input, Label, Textarea } from './form-controls';
+import {
+  EMPTY_PROGRESS_METHOD,
+  ProgressMethodFields,
+  type ProgressMethodDraft,
+} from './progress-method-fields';
 import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
 import { TitleInput } from './title-input';
@@ -48,6 +53,8 @@ export interface DraftRow {
   plannedStart: string;
   plannedEnd: string;
   estimateHours: string;
+  /** Cách tính tiến độ và các trường đi kèm. */
+  progress: ProgressMethodDraft;
   procedureDefinitionId: string;
   completion: CompletionDraft;
   /** Ai được hoàn tác việc này sau khi hoàn thành. */
@@ -71,6 +78,7 @@ const BLANK: DraftFields = {
   plannedStart: '',
   plannedEnd: '',
   estimateHours: '',
+  progress: EMPTY_PROGRESS_METHOD,
   procedureDefinitionId: '',
   completion: emptyCompletion(),
   reopenPolicy: 'assignee',
@@ -90,6 +98,7 @@ export function draftRow(from: Partial<DraftFields> = {}): DraftRow {
     ...from,
     participantUserIds: [...(from.participantUserIds ?? [])],
     tagIds: [...(from.tagIds ?? [])],
+    progress: { ...(from.progress ?? BLANK.progress) },
     completion: cloneCompletion(from.completion ?? BLANK.completion),
     key: lastKey,
   };
@@ -343,7 +352,17 @@ export function WorkItemDraftEditor({
             value={row.itemType}
             height={FIELD_HEIGHT}
             options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
-            onChange={(value) => onChange({ itemType: value as WorkItemType })}
+            onChange={(value) =>
+              onChange({
+                itemType: value as WorkItemType,
+                // Nhóm công việc không có khối lượng hay đầu việc: bỏ cách tính đã chọn khi còn là Công việc.
+                ...(value === 'phase' &&
+                row.progress.progressMethod !== 'manual' &&
+                row.progress.progressMethod !== 'child_weight'
+                  ? { progress: EMPTY_PROGRESS_METHOD }
+                  : {}),
+              })
+            }
           />
         </div>
         <div className={styles.draftField}>
@@ -390,6 +409,15 @@ export function WorkItemDraftEditor({
               onChange={(event) => onChange({ estimateHours: event.target.value })}
             />
           )}
+        </div>
+        <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+          <ProgressMethodFields
+            idPrefix={`draft-${row.key}`}
+            creating
+            methods={isPhase ? ['manual', 'child_weight'] : ['manual', 'quantity', 'checklist', 'child_weight']}
+            value={row.progress}
+            onChange={(patch) => onChange({ progress: { ...row.progress, ...patch } })}
+          />
         </div>
         {!isPhase && row.executionType === 'procedure' ? (
           <div className={`${styles.draftField} ${styles.draftSpanAll}`}>

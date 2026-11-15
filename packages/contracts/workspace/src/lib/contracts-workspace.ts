@@ -701,6 +701,17 @@ export interface WorkItem {
    * tác dụng; vắng nghĩa là chưa đặt.
    */
   readonly weight?: number;
+  /** Cách tính tiến độ của công việc; server luôn trả, vắng được hiểu là `manual`. */
+  readonly progressMethod?: WorkItemProgressMethod;
+  /** Khối lượng cần làm và đơn vị (cách `quantity`). */
+  readonly quantityTarget?: number;
+  readonly quantityUnit?: string;
+  /** Khối lượng đã làm (0 khi chưa báo); server luôn trả. */
+  readonly quantityDone?: number;
+  /** Cách `child_weight`: chia đều tỷ trọng cho các việc con, bỏ qua `weight` của con. */
+  readonly equalChildWeight?: boolean;
+  /** Tiến độ dự kiến theo tiến trình thời gian (từ ngày bắt đầu đến hạn dự kiến); vắng khi thiếu ngày. */
+  readonly expectedProgressPercent?: number;
   /** Tiến độ hiển thị: giá trị nhập tay nếu có, không thì giá trị tự tính. */
   readonly progressPercent: number;
   /** Tiến độ tự tính (việc cha: từ việc con; việc lá: theo trạng thái và lần nhập cũ). */
@@ -793,6 +804,14 @@ export interface CreateWorkItemRequest {
   readonly estimateHours?: number;
   /** Tỷ trọng (xem `WorkItem.weight`); bỏ trống là chưa đặt. */
   readonly weight?: number | null;
+  /** Cách tính tiến độ; bỏ trống là `manual`. */
+  readonly progressMethod?: WorkItemProgressMethod;
+  /** Bắt buộc và lớn hơn 0 khi `progressMethod` là `quantity`. */
+  readonly quantityTarget?: number;
+  readonly quantityUnit?: string;
+  readonly equalChildWeight?: boolean;
+  /** Đầu việc tạo sẵn (cách `checklist`), theo thứ tự. */
+  readonly checklistTitles?: readonly string[];
   /**
    * Quy trình sẽ mở cho công việc "Theo quy trình". Workspace chỉ ghi yêu cầu
    * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
@@ -827,6 +846,11 @@ export interface UpdateWorkItemRequest {
   readonly estimateHours?: number | null;
   /** Tỷ trọng (xem `WorkItem.weight`); `null` bỏ tỷ trọng. */
   readonly weight?: number | null;
+  /** Đổi cách tính tiến độ; tiến độ được tính lại theo cách mới. */
+  readonly progressMethod?: WorkItemProgressMethod;
+  readonly quantityTarget?: number | null;
+  readonly quantityUnit?: string | null;
+  readonly equalChildWeight?: boolean;
   readonly progressPercent?: number;
   /** Tiến độ nhập tay, được dùng thay giá trị tự tính; `null` quay về tự tính. */
   readonly manualProgressPercent?: number | null;
@@ -840,6 +864,34 @@ export interface UpdateWorkItemRequest {
 
 /** Độ dài tối đa của lý do vướng mắc. */
 export const BLOCKED_REASON_MAX_LENGTH = 1000;
+
+/**
+ * Cách tính tiến độ của công việc (bám 1Office).
+ *  · `manual`       theo % người làm tự báo (mặc định).
+ *  · `quantity`     theo khối lượng đã làm trên khối lượng cần làm.
+ *  · `checklist`    theo tỷ lệ đầu việc đã tích.
+ *  · `child_weight` việc cha tính theo tỷ trọng của các việc con (hoặc chia đều).
+ */
+export const WORK_ITEM_PROGRESS_METHODS = ['manual', 'quantity', 'checklist', 'child_weight'] as const;
+export type WorkItemProgressMethod = (typeof WORK_ITEM_PROGRESS_METHODS)[number];
+export const DEFAULT_WORK_ITEM_PROGRESS_METHOD: WorkItemProgressMethod = 'manual';
+
+/** Giới hạn khối lượng (khớp NUMERIC(14,2)), đơn vị, và đầu việc của một công việc. */
+export const MAX_WORK_ITEM_QUANTITY = 999_999_999_999;
+export const QUANTITY_UNIT_MAX_LENGTH = 30;
+export const MAX_CHECKLIST_ITEMS = 50;
+export const CHECKLIST_TITLE_MAX_LENGTH = 200;
+
+/** Một đầu việc trong danh sách đầu việc của công việc. */
+export interface WorkItemChecklistItem {
+  readonly id: string;
+  readonly workItemId: string;
+  readonly title: string;
+  readonly done: boolean;
+  readonly doneAt?: string;
+  readonly doneBy?: string;
+  readonly sortOrder: number;
+}
 
 /** Độ dài tối đa của mô tả trong một báo cáo tiến độ. */
 export const PROGRESS_REPORT_DESCRIPTION_MAX_LENGTH = 2000;
@@ -857,13 +909,30 @@ export interface WorkItemProgressReport {
   readonly reportedOn: string;
   readonly reportedBy: string;
   readonly percent: number;
+  /** Khối lượng đã làm tại lúc báo (cách `quantity`). */
+  readonly quantityDone?: number;
+  readonly description?: string;
+  readonly createdAt: string;
+}
+
+/** Một lần báo cáo tiến độ của Công việc khác (việc ngoài dự án). */
+export interface StandaloneTaskProgressReport {
+  readonly id: string;
+  readonly taskId: string;
+  readonly reportedOn: string;
+  readonly reportedBy: string;
+  readonly percent: number;
   readonly description?: string;
   readonly createdAt: string;
 }
 
 export interface ReportWorkItemProgressRequest {
-  /** Số nguyên 0–100. */
-  readonly percent: number;
+  /**
+   * Số nguyên 0–100. Với việc tính theo khối lượng thì bỏ trống: server tính từ `quantityDone`.
+   */
+  readonly percent?: number;
+  /** Khối lượng đã làm (tổng cộng, không phải phần thêm); chỉ cho việc tính theo khối lượng. */
+  readonly quantityDone?: number;
   readonly description?: string;
   /** Ngày báo cáo `YYYY-MM-DD`, không sau hôm nay; bỏ trống là hôm nay. */
   readonly reportedOn?: string;
@@ -977,6 +1046,10 @@ export const WORK_ITEM_LOGGED_FIELDS = [
   'plannedEnd',
   'estimateHours',
   'weight',
+  'progressMethod',
+  'quantityTarget',
+  'quantityUnit',
+  'equalChildWeight',
   'progressPercent',
   'manualProgressPercent',
 ] as const;

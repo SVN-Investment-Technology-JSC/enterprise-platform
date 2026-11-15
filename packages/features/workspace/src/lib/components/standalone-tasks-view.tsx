@@ -56,6 +56,8 @@ import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
+import { ProgressHistoryPanel } from './progress-history-panel';
+import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
 import { FieldChangeList } from './tab-activity';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
@@ -590,6 +592,8 @@ function TaskDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const blockedPrompt = useBlockedReasonPrompt();
+  /** Tiến độ của việc lá đi qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo, server đổi trạng thái theo số. */
+  const progress = useProgressReport<StandaloneTaskDetail>((next) => onChanged(next), STANDALONE_PROGRESS_ADAPTER);
 
   useEffect(() => {
     setError(undefined);
@@ -785,6 +789,7 @@ function TaskDetail({
         />
       ) : null}
       {blockedPrompt.dialog}
+      {progress.dialog}
 
       {task.reversal ? (
         <div className={styles.alert}>
@@ -892,9 +897,15 @@ function TaskDetail({
               value={task.progressPercent}
               manual={Boolean(task.progressManual)}
               auto={task.autoProgressPercent}
-              disabled={busy}
+              disabled={busy || task.status === 'done' || task.status === 'cancelled'}
+              lockedReason={
+                task.status === 'done' ? 'Công việc đã hoàn thành; mở lại để đổi tiến độ.' : undefined
+              }
               onCommit={(next) =>
-                run(() => api.updateStandaloneTask(task.id, { manualProgressPercent: next }))
+                // Việc có việc con vẫn nhập tay được để ưu tiên hơn số tự tính; việc lá đi qua luồng báo cáo.
+                next === null || task.childCount > 0
+                  ? run(() => api.updateStandaloneTask(task.id, { manualProgressPercent: next }))
+                  : progress.setProgress(task, next)
               }
             />
           ) : (
@@ -913,6 +924,11 @@ function TaskDetail({
       {task.executionType === 'procedure' && task.procedure ? (
         <ProcedurePanel procedure={task.procedure} isChild={Boolean(task.parentId)} />
       ) : null}
+
+      <ProgressHistoryPanel
+        item={{ id: task.id, progressPercent: task.progressPercent, status: task.status, updatedAt: task.updatedAt }}
+        load={api.listStandaloneTaskProgressReports}
+      />
 
       {task.childCount > 0 ? (
         <p className={styles.muted}>

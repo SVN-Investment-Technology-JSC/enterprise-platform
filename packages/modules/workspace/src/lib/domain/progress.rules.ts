@@ -1,6 +1,7 @@
 import {
   CLOSED_WORK_ITEM_STATUSES,
   type ProjectProgressMethod,
+  type WorkItemProgressMethod,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceValidationError } from './workspace.error.js';
@@ -26,6 +27,35 @@ export interface ProgressNode {
   /** Ngày dự kiến `YYYY-MM-DD`; chỉ dùng khi dự án tính theo `weighted_days`. */
   readonly plannedStart?: string | null;
   readonly plannedEnd?: string | null;
+  /** Cách tính tiến độ của công việc; `child_weight` làm việc cha tính theo tỷ trọng của các việc con. */
+  readonly method?: WorkItemProgressMethod;
+  /** Cách `child_weight`: chia đều cho các việc con, bỏ qua tỷ trọng của con. Mặc định chia đều. */
+  readonly equalChildWeight?: boolean;
+}
+
+/**
+ * Trọng số của từng việc con khi cha tính theo `child_weight`: chia đều thì mọi con nặng 1; không thì lấy `weight` của
+ * con. Con chưa đặt tỷ trọng nặng bằng **trung bình** các con đã đặt (cùng tinh thần với trọng số giờ ước lượng); không
+ * con nào đặt thì chia đều.
+ */
+function childWeights(parent: ProgressNode, children: readonly ProgressNode[]): Map<string, number> {
+  const result = new Map<string, number>();
+  if (parent.equalChildWeight !== false) {
+    for (const child of children) result.set(child.id, 1);
+    return result;
+  }
+  const defined = children
+    .map((child) => child.weight)
+    .filter((weight): weight is number => weight !== null && weight !== undefined && Number.isFinite(weight) && weight >= 0);
+  const fallback = defined.length === 0 ? 1 : defined.reduce((sum, weight) => sum + weight, 0) / defined.length;
+  for (const child of children) {
+    const weight = child.weight;
+    result.set(
+      child.id,
+      weight !== null && weight !== undefined && Number.isFinite(weight) && weight >= 0 ? weight : fallback,
+    );
+  }
+  return result;
 }
 
 /**
@@ -108,14 +138,23 @@ function evaluate(nodes: readonly ProgressNode[]) {
 
     let weighted = 0;
     let total = 0;
+    let plain = 0;
+    // Trọng số của cả nhánh khi cuộn lên cha/dự án luôn là tổng trọng số lá (giờ ước lượng) bên dưới, kể cả khi nhánh này
+    // tự tính theo tỷ trọng việc con: tỷ trọng con chỉ dùng để lấy bình quân bên trong nhánh, không được trộn thang với giờ.
+    let leafWeight = 0;
+    const own = node.method === 'child_weight' ? childWeights(node, children) : undefined;
     for (const child of children) {
       const result = visit(child);
-      weighted += result.progress * result.weight;
-      total += result.weight;
+      const weight = own ? (own.get(child.id) ?? 0) : result.weight;
+      weighted += result.progress * weight;
+      total += weight;
+      leafWeight += result.weight;
+      plain += result.progress;
     }
 
-    const auto = total === 0 ? 0 : weighted / total;
-    const result = { progress: manual ?? auto, weight: total };
+    // Tổng trọng số 0 (vd mọi tỷ trọng đặt 0): quay về bình quân thường để cha không kẹt ở 0% khi con đã xong.
+    const auto = total === 0 ? (own ? plain / children.length : 0) : weighted / total;
+    const result = { progress: manual ?? auto, weight: leafWeight };
     computed.set(node.id, result);
     if (Math.round(auto) !== node.progressPercent) changed.set(node.id, Math.round(auto));
     return result;

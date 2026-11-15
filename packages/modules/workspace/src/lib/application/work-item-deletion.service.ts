@@ -113,6 +113,8 @@ export class WorkItemDeletionService {
       weight: row.weight,
       plannedStart: row.plannedStart,
       plannedEnd: row.plannedEnd,
+      method: row.method,
+      equalChildWeight: row.equalChildWeight,
     }));
 
     const changed = rollUpProgress(nodes);

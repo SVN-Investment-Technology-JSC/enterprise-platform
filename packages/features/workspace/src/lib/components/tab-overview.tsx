@@ -25,7 +25,9 @@ import { useProjectRoles } from './use-project-roles';
 import { useTransportSummary, type TransportSummary } from './use-transport-summary';
 import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
+import { ChecklistPanel } from './checklist-panel';
 import { ProgressHistoryPanel } from './progress-history-panel';
+import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
 
 export interface TabOverviewProps {
   readonly project: ProjectSummary;
@@ -55,6 +57,12 @@ export interface TabOverviewProps {
   /** Thành viên trở lên: gỡ con trỏ sang hồ sơ module khác (không đụng hồ sơ gốc). */
   readonly canUnlinkRefs?: boolean;
   readonly onUnlinkRef?: (workItemId: string, referenceId: string) => Promise<void>;
+  /** Được sửa tiến độ của việc đang chọn (đầu việc, khối lượng): người làm hoặc quản lý, dự án chưa lưu trữ. */
+  readonly canEditProgress?: boolean;
+  /** Đầu việc đổi: nơi gọi nạp lại công việc để tiến độ và trạng thái trên màn khớp. */
+  readonly onProgressChanged?: () => void | Promise<void>;
+  /** Mở hộp báo khối lượng (việc tính tiến độ theo khối lượng). */
+  readonly onReportQuantity?: (item: WorkItem) => void;
 }
 
 /**
@@ -80,6 +88,9 @@ export function TabOverview({
   onRemoveDependency,
   canUnlinkRefs = false,
   onUnlinkRef,
+  canEditProgress = false,
+  onProgressChanged,
+  onReportQuantity,
 }: TabOverviewProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -106,6 +117,17 @@ export function TabOverview({
                 value={selected.estimateHours == null ? '—' : `${selected.estimateHours} giờ`}
               />
               <Definition
+                label="Cách tính tiến độ"
+                value={WORK_ITEM_PROGRESS_METHOD_INFO[selected.progressMethod ?? 'manual'].label}
+              />
+              {selected.progressMethod === 'quantity' ? (
+                <Definition
+                  label="Khối lượng"
+                  value={`${selected.quantityDone ?? 0} / ${selected.quantityTarget ?? 0} ${selected.quantityUnit ?? ''}`.trim()}
+                />
+              ) : null}
+              {selected.weight != null ? <Definition label="Tỷ trọng" value={String(selected.weight)} /> : null}
+              <Definition
                 label="Thực tế"
                 value={dateRange(selected.actualStart, selected.actualEnd)}
               />
@@ -122,6 +144,23 @@ export function TabOverview({
           <p className={styles.description}>{selected?.description ?? project.description}</p>
         ) : null}
       </section>
+
+      {selected?.progressMethod === 'checklist' ? (
+        <ChecklistPanel item={selected} canEdit={canEditProgress} onChanged={onProgressChanged} />
+      ) : null}
+
+      {selected?.progressMethod === 'quantity' && canEditProgress && onReportQuantity &&
+      selected.status !== 'done' && selected.status !== 'cancelled' ? (
+        <section className={styles.panel}>
+          <h3>Khối lượng hoàn thành</h3>
+          <p>
+            Đã hoàn thành <b>{selected.quantityDone ?? 0}</b> / {selected.quantityTarget ?? 0} {selected.quantityUnit}.
+          </p>
+          <button type="button" className={styles.buttonSmall} onClick={() => onReportQuantity(selected)}>
+            Báo khối lượng
+          </button>
+        </section>
+      ) : null}
 
       {selected ? <ProgressHistoryPanel item={selected} /> : null}
 

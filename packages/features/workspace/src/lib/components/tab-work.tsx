@@ -36,6 +36,7 @@ import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
 import { ProgressCell } from './inline-cells';
+import { progressCellMode } from '../progress-cell-rules';
 import { Tooltip } from './tooltip';
 import { useFillViewportHeight } from './use-fill-viewport';
 import type { PendingProcedure } from '../procedure-pending';
@@ -184,6 +185,8 @@ export interface TabWorkProps {
   readonly onChangeStatus: (item: WorkItem, next: WorkItemStatus) => Promise<void>;
   /** Đặt tiến độ nhập tay cho một việc (`null`: về tự động). Vắng thì cột tiến độ chỉ xem. */
   readonly onSetProgress?: (item: WorkItem, next: number | null) => Promise<void>;
+  /** Báo khối lượng đã làm cho việc tính tiến độ theo khối lượng (mở hộp báo cáo). */
+  readonly onReportQuantity?: (item: WorkItem) => void;
 }
 
 /**
@@ -207,6 +210,7 @@ function TabWorkImpl({
   onMenu,
   onChangeStatus,
   onSetProgress,
+  onReportQuantity,
 }: TabWorkProps) {
   const directory = useDirectory();
   const tags = useTags();
@@ -864,31 +868,23 @@ function TabWorkImpl({
                               —
                             </span>
                           </Tooltip>
-                        ) : onSetProgress && canWrite && !row.hasChildren && item.status !== 'done' && item.status !== 'cancelled' ? (
-                          <ProgressCell
-                            label={`Tiến độ của ${item.code}`}
-                            value={item.progressPercent}
-                            manual={Boolean(item.progressManual)}
-                            auto={item.autoProgressPercent}
-                            onCommit={(next) => onSetProgress(item, next)}
-                          />
                         ) : (
-                          <span className={styles.progressCell}>
-                            <span
-                              className={styles.progressTrack}
-                              aria-label={`${item.progressPercent}%`}
-                            >
-                              <span
-                                className={
-                                  item.progressPercent >= 100
-                                    ? styles.progressFillDone
-                                    : styles.progressFill
-                                }
-                                style={{ width: `${item.progressPercent}%` }}
+                          (() => {
+                            const mode = progressCellMode(item, { hasChildren: row.hasChildren, canWrite: Boolean(onSetProgress) && canWrite });
+                            return (
+                              <ProgressCell
+                                label={`Tiến độ của ${item.code}`}
+                                value={item.progressPercent}
+                                manual={Boolean(item.progressManual)}
+                                auto={item.autoProgressPercent}
+                                expected={item.expectedProgressPercent}
+                                disabled={!mode.editable}
+                                lockedReason={mode.reason}
+                                onOpen={mode.quantity && onReportQuantity ? () => onReportQuantity(item) : undefined}
+                                onCommit={(next) => onSetProgress?.(item, next)}
                               />
-                            </span>
-                            {item.progressPercent}%
-                          </span>
+                            );
+                          })()
                         )}
                       </td>
 ) : null}

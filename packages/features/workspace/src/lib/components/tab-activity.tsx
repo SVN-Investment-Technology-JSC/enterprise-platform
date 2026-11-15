@@ -8,6 +8,7 @@ import type {
   WorkItemStatusHistoryEntry,
 } from '@enterprise-platform/contracts-workspace';
 import { branchOf } from '../project-tree.model';
+import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
 import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
@@ -310,9 +311,17 @@ const FIELD_LABELS: Record<FieldChange['field'], string> = {
   dueDate: 'Hạn',
   estimateHours: 'Giờ ước lượng',
   weight: 'Tỷ trọng',
+  progressMethod: 'Cách tính tiến độ',
+  quantityTarget: 'Khối lượng cần hoàn thành',
+  quantityUnit: 'Đơn vị khối lượng',
+  equalChildWeight: 'Chia đều tỷ trọng việc con',
   progressPercent: 'Tiến độ',
   manualProgressPercent: 'Tiến độ nhập tay',
 };
+
+/** Tên cách tính tiến độ của công việc để hiện trong nhật ký; giá trị lạ (bản cũ) giữ nguyên. */
+const progressMethodName = (method: string) =>
+  WORK_ITEM_PROGRESS_METHOD_INFO[method as keyof typeof WORK_ITEM_PROGRESS_METHOD_INFO]?.label ?? method;
 
 const asList = (value: FieldChange['from']): readonly string[] => (Array.isArray(value) ? value : []);
 
@@ -365,6 +374,13 @@ export function FieldChangeList({ changes }: { changes: readonly FieldChange[] }
           from: formatDate(from as string | null) || 'Chưa đặt',
           to: formatDate(to as string | null) || 'Chưa đặt',
         };
+      case 'progressMethod':
+        return {
+          from: from ? progressMethodName(String(from)) : '—',
+          to: to ? progressMethodName(String(to)) : '—',
+        };
+      case 'equalChildWeight':
+        return { from: from ? 'Có' : 'Không', to: to ? 'Có' : 'Không' };
       case 'estimateHours':
         return { from: from == null ? '—' : `${from} giờ`, to: to == null ? '—' : `${to} giờ` };
       case 'progressPercent':

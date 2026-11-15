@@ -834,6 +834,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0036-project-request-details', path: 'tenant/workspace/0036-project-request-details.sql' },
     { version: '0037-project-progress-method', path: 'tenant/workspace/0037-project-progress-method.sql' },
     { version: '0038-work-item-progress-reports', path: 'tenant/workspace/0038-work-item-progress-reports.sql' },
+    { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
+    { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

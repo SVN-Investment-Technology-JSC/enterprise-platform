@@ -397,7 +397,10 @@ export function ProgressCell({
   value,
   manual,
   auto,
+  expected,
   disabled,
+  lockedReason,
+  onOpen,
   onCommit,
 }: {
   label: string;
@@ -405,8 +408,13 @@ export function ProgressCell({
   manual: boolean;
   /** Tiến độ tự tính, hiện trong bảng chọn và menu chuột phải. */
   auto?: number;
+  /** Tiến độ dự kiến theo thời gian: vẽ thành lớp sáng phía sau thanh thực tế. */
+  expected?: number;
   disabled?: boolean;
-  /** `null`: quay về tự tính. */
+  /** Vì sao ô không sửa được (hiện ở tooltip khi `disabled`), vd tiến độ tự tính từ việc con. */
+  lockedReason?: string;
+  /** Có thì bấm vào ô mở hộp riêng (vd báo khối lượng) thay vì bảng chọn nhanh. */
+  onOpen?: () => void;
   onCommit: (next: number | null) => Promise<void> | void;
 }) {
   const [picker, setPicker] = useState<DOMRect>();
@@ -414,14 +422,20 @@ export function ProgressCell({
   const anchorRef = useRef<HTMLSpanElement>(null);
 
   const open = () => {
+    if (onOpen) {
+      onOpen();
+      return;
+    }
     const box = anchorRef.current?.getBoundingClientRect();
     if (box) setPicker(box);
   };
 
   const percent = Math.min(100, Math.max(0, value));
   const tip = disabled
-    ? undefined
-    : manual
+    ? lockedReason
+    : onOpen
+      ? 'Bấm để báo khối lượng đã hoàn thành.'
+      : manual
       ? `Tiến độ nhập tay. Bấm để đổi, chuột phải để về tiến độ tự động${auto === undefined ? '' : ` (${auto}%)`}.`
       : 'Tiến độ tự động. Bấm để chọn hoặc nhập tay.';
   const cell = (
@@ -448,6 +462,7 @@ export function ProgressCell({
         onClick={open}
       >
         <span className={styles.progressBar} aria-hidden>
+          {expected === undefined ? null : <span className={styles.progressExpected} style={{ width: `${expected}%` }} />}
           <span
             style={{ width: `${percent}%`, background: percent >= 100 ? 'var(--ep-success, #16a34a)' : undefined }}
           />

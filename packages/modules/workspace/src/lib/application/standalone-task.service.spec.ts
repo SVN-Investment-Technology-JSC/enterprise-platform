@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BLOCKED_REASON_MAX_LENGTH,
   type StandaloneTask,
+  type StandaloneTaskProgressReport,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import type { DirectoryService } from './directory.service.js';
@@ -37,6 +38,7 @@ function makeStore() {
   const created: StandaloneTaskCreateModel[] = [];
   const reasonUpdates: { id: string; reason: string }[] = [];
   const reversals: { id: string; notifyProcedure: boolean; adjustmentRequested: boolean }[] = [];
+  const reports: StandaloneTaskProgressReport[] = [];
   let removed: string | undefined;
 
   const withCounts = (task: StandaloneTask | undefined): StandaloneTask | undefined => {
@@ -63,7 +65,14 @@ function makeStore() {
   ];
 
   const store = {
+    settings: { get: async () => undefined },
     standaloneTask: {
+      listProgressReports: async () => [...reports].reverse(),
+      addProgressReport: async (_tenant: string, input: Record<string, unknown>) => {
+        const report = { id: `r${reports.length + 1}`, createdAt: '2026-11-15T00:00:00.000Z', ...input } as StandaloneTaskProgressReport;
+        reports.push(report);
+        return report;
+      },
       findById: async (_tenant: string, id: string) => withCounts(tasks.get(id)),
       adjustments: async (_tenant: string, id: string) =>
         [...tasks.values()]
@@ -124,10 +133,18 @@ function makeStore() {
         _tenant: string,
         id: string,
         _actor: string,
-        input: Partial<StandaloneTaskWriteModel> & { progressPercent?: number },
+        input: Partial<StandaloneTaskWriteModel> & { progressPercent?: number; manualProgressPercent?: number | null },
       ) => {
         const current = tasks.get(id) as StandaloneTask;
-        const next = { ...current, ...input } as StandaloneTask;
+        const { manualProgressPercent, ...rest } = input;
+        const next = {
+          ...current,
+          ...rest,
+          ...(manualProgressPercent === undefined ? {} : { manualProgressPercent }),
+          ...(manualProgressPercent === undefined
+            ? {}
+            : { progressManual: manualProgressPercent !== null, progressPercent: manualProgressPercent ?? current.progressPercent }),
+        } as StandaloneTask;
         tasks.set(id, next);
         return withCounts(next);
       },
@@ -143,10 +160,14 @@ function makeStore() {
         const current = tasks.get(id) as StandaloneTask;
         if (current.status !== from) return undefined;
         // Như store thật: lý do vướng mắc chỉ giữ khi vào/ở `blocked`.
+        // Cùng luật tiến độ với SQL của store: done/review 100%, về todo hoặc rời done/review là 0%.
+        const leaving = (from === 'done' || from === 'review') && next !== 'cancelled';
         const updated = {
           ...current,
           status: next,
           blockedReason: next === 'blocked' ? note : undefined,
+          progressPercent:
+            next === 'done' || next === 'review' ? 100 : next === 'todo' || leaving ? 0 : current.progressPercent,
         };
         tasks.set(id, updated);
         return withCounts(updated);
@@ -193,6 +214,7 @@ function makeStore() {
     reasonUpdates,
     created,
     reversals,
+    reports,
     removed: () => removed,
   };
 }
@@ -704,5 +726,90 @@ describe('StandaloneTaskService công việc điều chỉnh', () => {
     await expect(
       service.create(actor(BOSS), { title: 'X', assigneeUserId: DOER, adjustmentOfId: id, parentId: id }),
     ).rejects.toThrow();
+  });
+});
+
+describe('StandaloneTaskService.reportProgress', () => {
+  it('người thực hiện báo 40% việc Chưa làm: tự sang Đang làm, ghi số và một dòng lịch sử', async () => {
+    const { service, id, tasks, reports, statusCalls } = await seeded();
+    await service.reportProgress(actor(DOER), id, { percent: 40, description: 'nửa đường' });
+    expect(statusCalls.map((call) => call.next)).toEqual(['in_progress']);
+    expect(tasks.get(id)).toMatchObject({ progressPercent: 40, progressManual: true });
+    expect(reports).toEqual([expect.objectContaining({ taskId: id, percent: 40, reportedBy: DOER })]);
+  });
+
+  it('người thực hiện báo 100%: dừng ở Chờ duyệt (không tự Hoàn thành việc người khác giao)', async () => {
+    const { service, id, tasks, statusCalls } = await seeded();
+    const detail = await service.reportProgress(actor(DOER), id, { percent: 100, description: 'xong' });
+    expect(statusCalls.map((call) => call.next)).toEqual(['in_progress', 'review']);
+    expect(tasks.get(id)).toMatchObject({ status: 'review', progressPercent: 100 });
+    expect(detail.task.status).toBe('review');
+  });
+
+  it('người giao tự làm việc của mình: báo 100% được Hoàn thành', async () => {
+    const fixture = makeStore();
+    const service = new StandaloneTaskService(fixture.store, makeDirectory());
+    const created = await service.create(actor(BOSS), { title: 'Tự làm', assigneeUserId: BOSS });
+    await service.reportProgress(actor(BOSS), created.task.id, { percent: 100 });
+    expect(fixture.tasks.get(created.task.id)).toMatchObject({ status: 'done', progressPercent: 100 });
+  });
+
+  it('chặn người theo dõi, việc đã đóng, số không hợp lệ, ngày tương lai', async () => {
+    const { service, id } = await seeded();
+    await expect(service.reportProgress(actor(WATCHER), id, { percent: 10 })).rejects.toBeDefined();
+    await expect(service.reportProgress(actor(DOER), id, { percent: 101 })).rejects.toBeDefined();
+    await expect(service.reportProgress(actor(DOER), id, { percent: 10, reportedOn: '2999-01-01' })).rejects.toBeDefined();
+    const closed = await seeded('done');
+    await expect(closed.service.reportProgress(actor(DOER), closed.id, { percent: 10 })).rejects.toThrow(/mở lại/);
+  });
+
+  it('việc có việc con không báo trực tiếp', async () => {
+    const { service, id } = await seeded('in_progress');
+    await service.create(actor(BOSS), { title: 'Con', assigneeUserId: DOER, parentId: id });
+    await expect(service.reportProgress(actor(DOER), id, { percent: 10 })).rejects.toThrow(/việc con/);
+  });
+
+  it('mở lại từ Chờ duyệt: khôi phục số của báo cáo gần nhất chưa tới 100%', async () => {
+    const { service, id, tasks } = await seeded();
+    await service.reportProgress(actor(DOER), id, { percent: 60 });
+    await service.reportProgress(actor(DOER), id, { percent: 100 });
+    expect(tasks.get(id)).toMatchObject({ status: 'review', progressPercent: 100 });
+    await service.changeStatus(actor(BOSS), id, { status: 'in_progress', note: 'làm lại phần cuối' });
+    expect(tasks.get(id)).toMatchObject({ status: 'in_progress', progressPercent: 60 });
+  });
+
+  it('số đặt tay chưa có báo cáo được ghi lại trước khi vào Chờ duyệt, nên mở lại không mất', async () => {
+    const { service, id, tasks, reports } = await seeded('in_progress');
+    tasks.set(id, { ...(tasks.get(id) as StandaloneTask), progressPercent: 70 });
+    await service.changeStatus(actor(DOER), id, { status: 'review' });
+    expect(reports).toEqual([expect.objectContaining({ percent: 70 })]);
+    await service.changeStatus(actor(BOSS), id, { status: 'in_progress', note: 'làm lại' });
+    expect(tasks.get(id)).toMatchObject({ progressPercent: 70 });
+  });
+});
+
+describe('StandaloneTaskService.reportProgress — ca biên sau rà soát', () => {
+  it('người giao báo dưới 100% cho việc đang Chờ duyệt: việc về Đang làm kèm ghi chú mặc định, không lỗi thiếu lý do', async () => {
+    const fixture = makeStore();
+    const service = new StandaloneTaskService(fixture.store, makeDirectory());
+    const created = await service.create(actor(BOSS), { title: 'Cần duyệt', assigneeUserId: DOER });
+    await service.reportProgress(actor(DOER), created.task.id, { percent: 100 });
+    expect(fixture.tasks.get(created.task.id)).toMatchObject({ status: 'review' });
+    await service.reportProgress(actor(BOSS), created.task.id, { percent: 60 });
+    expect(fixture.tasks.get(created.task.id)).toMatchObject({ status: 'in_progress', progressPercent: 60 });
+    expect(fixture.statusCalls.at(-1)?.note).toMatch(/báo cáo tiến độ/);
+  });
+
+  it('mô tả báo cáo dài 1500 ký tự không làm hỏng bước đổi trạng thái (ghi chú bị cắt, mô tả đủ ở báo cáo)', async () => {
+    const { service, id, reports, statusCalls } = await seeded();
+    const long = 'x'.repeat(1500);
+    await service.reportProgress(actor(DOER), id, { percent: 100, description: long });
+    expect(statusCalls.at(-1)?.note).toHaveLength(1000);
+    expect(reports[0]?.description).toHaveLength(1500);
+  });
+
+  it('không nhập tay số % cho việc đang Chờ duyệt', async () => {
+    const { service, id } = await seeded('review');
+    await expect(service.update(actor(DOER), id, { manualProgressPercent: 40 })).rejects.toThrow(/Chờ duyệt/);
   });
 });

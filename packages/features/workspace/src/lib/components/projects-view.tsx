@@ -1119,7 +1119,11 @@ export function ProjectsView({
   const reloadAfterProgress = useCallback(async () => {
     if (openProjectId) await refreshDetail(openProjectId);
   }, [openProjectId, refreshDetail]);
-  const { setProgress: setItemProgress, dialog: progressDialog } = useProgressReport(reloadAfterProgress);
+  const {
+    setProgress: setItemProgress,
+    reportQuantity,
+    dialog: progressDialog,
+  } = useProgressReport(reloadAfterProgress);
   const changeItemStatus = useCallback(
     async (item: WorkItem, next: WorkItemStatus) => {
       // Vướng mắc phải kèm lý do — hỏi trước, kể cả khi kéo thẻ Kanban sang cột Vướng mắc.
@@ -1338,6 +1342,7 @@ export function ProjectsView({
                   onMenu={openItemMenu}
                   onChangeStatus={changeItemStatus}
                   onSetProgress={setItemProgress}
+                  onReportQuantity={reportQuantity}
                 />
               ) : null}
               {tab === 'calendar' ? (
@@ -1447,6 +1452,7 @@ export function ProjectsView({
             canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onEdit={() => onAction('edit-item', selected)}
             onSetProgress={(next) => setItemProgress(selectedItem, next)}
+            onReportQuantity={() => reportQuantity(selectedItem)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
             onOpenChat={() => setChatOpen(true)}
@@ -1492,6 +1498,9 @@ export function ProjectsView({
             procedurePending={pendingProcedure.get(selectedItem.id)}
             canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
+            canEditProgress={canWrite && !selectedItem.reversal}
+            onProgressChanged={reloadAfterProgress}
+            onReportQuantity={reportQuantity}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
             canEditDependencies={canManage && !selectedItem.reversal}
@@ -1599,6 +1608,9 @@ export function ProjectsView({
         open={itemForm.open}
         item={itemForm.edit}
         parent={itemForm.parent}
+        parentItem={
+          itemForm.edit?.parentId ? (detail?.items ?? []).find((candidate) => candidate.id === itemForm.edit?.parentId) : undefined
+        }
         parentOptions={parentCandidateOptions(detail?.items ?? [])}
         defaultParentId={itemForm.parent?.id}
         members={detail?.members ?? []}

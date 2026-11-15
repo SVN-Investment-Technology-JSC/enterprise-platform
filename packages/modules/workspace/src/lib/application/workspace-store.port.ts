@@ -78,6 +78,9 @@ import type {
   WorkItemCost,
   WorkItemDependency,
   WorkItemStatus,
+  StandaloneTaskProgressReport,
+  WorkItemChecklistItem,
+  WorkItemProgressMethod,
   WorkItemProgressReport,
   WorkItemStatusHistoryEntry,
   WorkloadRow,
@@ -146,6 +149,9 @@ export interface WorkItemProgressRow {
   /** Ngày dự kiến `YYYY-MM-DD` (dự án tính theo `weighted_days`). */
   readonly plannedStart?: string | null;
   readonly plannedEnd?: string | null;
+  /** Cách tính tiến độ của công việc và cờ chia đều tỷ trọng việc con (cách `child_weight`). */
+  readonly method?: WorkItemProgressMethod;
+  readonly equalChildWeight?: boolean;
   /** Có điều kiện hoàn thành bắt buộc: không được tự hoàn thành khi việc con xong. */
   readonly requiresConfirmation?: boolean;
 }
@@ -455,7 +461,10 @@ export interface WorkspaceStore {
     update(
       tenantId: string,
       workItemId: string,
-      input: UpdateWorkItemRequest,
+      input: UpdateWorkItemRequest & {
+        /** Khối lượng đã làm: chỉ tầng ứng dụng ghi (qua báo cáo tiến độ), không nhận từ client. */
+        readonly quantityDone?: number;
+      },
       actorUserId?: string,
     ): Promise<WorkItem>;
     /** Ghi một dòng lịch sử báo cáo tiến độ. Không đổi tiến độ của công việc: việc đó do tầng ứng dụng làm. */
@@ -467,9 +476,28 @@ export interface WorkspaceStore {
         readonly reportedBy: string;
         readonly reportedOn: string;
         readonly percent: number;
+        readonly quantityDone?: number;
         readonly description?: string;
       },
     ): Promise<WorkItemProgressReport>;
+    /** Đầu việc của công việc theo thứ tự. */
+    listChecklist(tenantId: string, workItemId: string): Promise<readonly WorkItemChecklistItem[]>;
+    /** Thêm đầu việc vào cuối danh sách. */
+    addChecklistItems(
+      tenantId: string,
+      workItemId: string,
+      titles: readonly string[],
+    ): Promise<readonly WorkItemChecklistItem[]>;
+    /** Sửa tên hoặc tích/bỏ tích một đầu việc; `undefined` khi đầu việc không thuộc công việc này. */
+    updateChecklistItem(
+      tenantId: string,
+      workItemId: string,
+      itemId: string,
+      patch: { readonly title?: string; readonly done?: boolean },
+      actorUserId: string,
+    ): Promise<WorkItemChecklistItem | undefined>;
+    /** Xoá một đầu việc; `false` khi đầu việc không thuộc công việc này. */
+    removeChecklistItem(tenantId: string, workItemId: string, itemId: string): Promise<boolean>;
     /** Lịch sử báo cáo tiến độ, mới nhất trước. */
     listProgressReports(tenantId: string, workItemId: string): Promise<readonly WorkItemProgressReport[]>;
     /** Đổi trạng thái, ghi mốc thực tế và nhật ký trong cùng một transaction. */
@@ -1372,6 +1400,19 @@ export interface WorkspaceStore {
       note: string | undefined,
       today: string,
     ): Promise<StandaloneTask | undefined>;
+    /** Ghi một dòng lịch sử báo cáo tiến độ (không đổi tiến độ của việc: tầng ứng dụng làm). */
+    addProgressReport(
+      tenantId: string,
+      input: {
+        readonly taskId: string;
+        readonly reportedBy: string;
+        readonly reportedOn: string;
+        readonly percent: number;
+        readonly description?: string;
+      },
+    ): Promise<StandaloneTaskProgressReport>;
+    /** Lịch sử báo cáo tiến độ, mới nhất trước. */
+    listProgressReports(tenantId: string, taskId: string): Promise<readonly StandaloneTaskProgressReport[]>;
     /** Như `workItem.updateBlockedReason`: `undefined` khi việc không còn ở `blocked`. */
     updateBlockedReason(
       tenantId: string,

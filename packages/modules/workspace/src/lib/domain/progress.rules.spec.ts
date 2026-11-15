@@ -377,3 +377,56 @@ describe('expectedProgress (tiến độ dự kiến theo thời gian)', () => {
     expect(expectedProgress('không phải ngày', '2026-11-10', '2026-11-15')).toBeUndefined();
   });
 });
+
+describe('rollUpProgress theo tỷ trọng việc con (child_weight)', () => {
+  const tree = (parent: Partial<ProgressNode>, a: Partial<ProgressNode>, b: Partial<ProgressNode>): ProgressNode[] => [
+    { id: 'p', parentId: null, status: 'in_progress', progressPercent: 0, method: 'child_weight', ...parent },
+    { id: 'a', parentId: 'p', status: 'in_progress', progressPercent: 100, ...a },
+    { id: 'b', parentId: 'p', status: 'in_progress', progressPercent: 0, ...b },
+  ];
+
+  it('mặc định chia đều, bỏ qua tỷ trọng và giờ ước lượng của con', () => {
+    const nodes = tree({}, { weight: 90, estimateHours: 100 }, { weight: 10, estimateHours: 1 });
+    expect(rollUpProgress(nodes).get('p')).toBe(50);
+  });
+
+  it('không chia đều: theo tỷ trọng của con', () => {
+    const nodes = tree({ equalChildWeight: false }, { weight: 30 }, { weight: 10 });
+    // (100*30 + 0*10) / 40 = 75
+    expect(rollUpProgress(nodes).get('p')).toBe(75);
+  });
+
+  it('con chưa đặt tỷ trọng nặng bằng trung bình các con đã đặt', () => {
+    const nodes = tree({ equalChildWeight: false }, { weight: 30 }, { weight: null });
+    // b nặng 30: (100*30 + 0*30) / 60 = 50
+    expect(rollUpProgress(nodes).get('p')).toBe(50);
+  });
+
+  it('mọi tỷ trọng bằng 0: quay về bình quân thường, không kẹt ở 0%', () => {
+    const nodes = tree({ equalChildWeight: false }, { weight: 0 }, { weight: 0 });
+    expect(rollUpProgress(nodes).get('p')).toBe(50);
+  });
+
+  it('việc con đã huỷ bị loại', () => {
+    const nodes = tree({}, { progressPercent: 100 }, { status: 'cancelled' });
+    expect(rollUpProgress(nodes).get('p')).toBe(100);
+  });
+
+  it('cha không đặt cách này vẫn tính theo giờ ước lượng như cũ', () => {
+    const nodes = tree({ method: 'manual' }, { estimateHours: 30 }, { estimateHours: 10 });
+    expect(rollUpProgress(nodes).get('p')).toBe(75);
+  });
+});
+
+describe('trọng số của nhánh tính theo tỷ trọng việc con khi cuộn lên dự án', () => {
+  it('giữ thang giờ ước lượng: nhánh child_weight không bị tính nhẹ đi so với việc cùng cấp', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'p', parentId: null, status: 'in_progress', progressPercent: 0, method: 'child_weight' },
+      { id: 'a', parentId: 'p', status: 'in_progress', progressPercent: 50, estimateHours: 40 },
+      { id: 'b', parentId: 'p', status: 'in_progress', progressPercent: 50, estimateHours: 40 },
+      { id: 'q', parentId: null, status: 'todo', progressPercent: 0, estimateHours: 40 },
+    ];
+    // Nhánh p nặng 80 giờ (không phải 2 theo số con): (50*80 + 0*40) / 120 = 33.
+    expect(projectProgress(nodes, 'weighted_hours')).toBe(33);
+  });
+});

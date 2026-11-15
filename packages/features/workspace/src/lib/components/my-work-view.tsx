@@ -16,6 +16,7 @@ import {
   type ProjectMember,
   type ProjectRole,
   type ProjectSummary,
+  type StandaloneTaskDetail,
   type UpdateStandaloneTaskRequest,
   type UpdateWorkItemRequest,
   type WorkItemPriority,
@@ -96,7 +97,8 @@ import { Pager } from './pager';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
-import { useProgressReport } from './use-progress-report';
+import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
+import { progressCellMode } from '../progress-cell-rules';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -426,7 +428,11 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   };
 
   /** Tiến độ của việc trong dự án đi qua luồng báo cáo tiến độ (đổi trạng thái theo con số, hộp báo cáo khi 100%). */
-  const { setProgress: reportItemProgress, dialog: progressDialog } = useProgressReport(() => {
+  const {
+    setProgress: reportItemProgress,
+    reportQuantity,
+    dialog: progressDialog,
+  } = useProgressReport(() => {
     invalidateMyWork();
   });
 
@@ -479,8 +485,18 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           () => toastStatusChanged(entry.task.status, next, entry.task.code),
         );
 
-  const onTaskPatch = (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) =>
+  /** Tiến độ của việc lá ngoài dự án đi qua luồng báo cáo tiến độ (đổi trạng thái theo số, hộp báo cáo khi 100%). */
+  const taskProgress = useProgressReport<StandaloneTaskDetail>(() => {
+    invalidateMyWork();
+  }, STANDALONE_PROGRESS_ADAPTER);
+
+  const onTaskPatch = (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) => {
+    if (typeof patch.manualProgressPercent === 'number' && entry.task.childCount === 0) {
+      void taskProgress.setProgress(entry.task, patch.manualProgressPercent);
+      return;
+    }
     void runTask(entry.task.id, () => api.updateStandaloneTask(entry.task.id, patch), fallback);
+  };
 
   const events = overview?.todayEvents ?? [];
   const invitations = overview?.pendingInvitations ?? [];
@@ -762,6 +778,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
                   savingItem={savingItem}
                   onStatus={onItemStatus}
                   onPatch={(entry, patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
+                  onQuantity={(entry) => reportQuantity(entry.item)}
                   onPage={(page) => setPage(group.projectId, page)}
                   onPageSize={setPageSize}
                 />
@@ -974,6 +991,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
       {/* Vướng mắc luôn qua hộp ghi lý do (việc dự án lẫn việc giao lẻ). */}
       {blockedPrompt.dialog}
       {progressDialog}
+      {taskProgress.dialog}
 
       {/* Hoàn thành luôn qua hộp xác nhận, kèm điều kiện hoàn thành nếu việc có đặt. */}
       <CompleteWorkItemDialog
@@ -1068,6 +1086,7 @@ function ProjectGroupBody({
   savingItem,
   onStatus,
   onPatch,
+  onQuantity,
   onPage,
   onPageSize,
 }: {
@@ -1080,6 +1099,7 @@ function ProjectGroupBody({
   savingItem?: string;
   onStatus: (entry: MyWorkItem, next: WorkItemStatus) => void;
   onPatch: (entry: MyWorkItem, patch: UpdateWorkItemRequest, fallback: string) => void;
+  onQuantity: (entry: MyWorkItem) => void;
   onPage: (page: number) => void;
   onPageSize: (size: number) => void;
 }) {
@@ -1192,6 +1212,7 @@ function ProjectGroupBody({
               onOpen={onOpen}
               onStatus={(next) => onStatus(entry, next)}
               onPatch={(patch, fallback) => onPatch(entry, patch, fallback)}
+              onQuantity={() => onQuantity(entry)}
             />
           ))
         : null}
@@ -1306,6 +1327,7 @@ function MyWorkRow({
   onOpen,
   onStatus,
   onPatch,
+  onQuantity,
 }: {
   entry: MyWorkItem;
   busy: boolean;
@@ -1313,6 +1335,8 @@ function MyWorkRow({
   onOpen?: MyWorkViewProps['onOpen'];
   onStatus: (next: WorkItemStatus) => void;
   onPatch: (patch: UpdateWorkItemRequest, fallback: string) => void;
+  /** Báo khối lượng đã làm (việc tính tiến độ theo khối lượng). */
+  onQuantity: () => void;
 }) {
   const { item } = entry;
   const locked = busy || Boolean(item.reversal);
@@ -1399,16 +1423,23 @@ function MyWorkRow({
         />
       </td>
       <td>
-        <ProgressCell
-          label={`Tiến độ của ${item.code}`}
-          value={item.progressPercent}
-          manual={Boolean(item.progressManual)}
-          auto={item.autoProgressPercent}
-          disabled={locked}
-          onCommit={(next) =>
-            onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')
-          }
-        />
+        {(() => {
+          // Việc có việc con không có trong bảng này theo cách riêng, nên chỉ xét cách tính của chính nó.
+          const mode = progressCellMode(item, { hasChildren: false, canWrite: !locked });
+          return (
+            <ProgressCell
+              label={`Tiến độ của ${item.code}`}
+              value={item.progressPercent}
+              manual={Boolean(item.progressManual)}
+              auto={item.autoProgressPercent}
+              expected={item.expectedProgressPercent}
+              disabled={!mode.editable}
+              lockedReason={mode.reason}
+              onOpen={mode.quantity ? onQuantity : undefined}
+              onCommit={(next) => onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')}
+            />
+          );
+        })()}
       </td>
     </tr>
   );

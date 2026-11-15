@@ -12,10 +12,8 @@ import {
   CHAT_ON_ARCHIVED_POLICIES,
   REOPEN_PROJECT_POLICIES,
   SELECTABLE_PROJECT_PROGRESS_METHODS,
-  DEFAULT_PROGRESS_REPORT_COMPLETE_STATUS,
   DEFAULT_PROJECT_PROGRESS_METHOD,
   PROGRESS_REPORT_COMPLETE_STATUSES,
-  type ProgressReportCompleteStatus,
   type ProjectProgressMethod,
   type ChatOnArchivedPolicy,
   type CreateProjectRequest,
@@ -49,6 +47,11 @@ import { projectProgress } from '../domain/progress.rules.js';
 import { cleanTaskTitles } from '../domain/project-template.rules.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import type { DirectoryService } from './directory.service.js';
+import {
+  PROGRESS_REPORT_KEY,
+  loadProgressReportSettings,
+  type ProgressReportSettings,
+} from './progress-report-settings.js';
 import type { ProjectCodeService } from './project-code.service.js';
 import type { ProjectGroupService } from './project-group.service.js';
 import type { ProjectRoleService } from './project-role.service.js';
@@ -67,7 +70,6 @@ const CHAT_ARCHIVED_KEY = 'project_chat_on_archived';
 /** Khoá mẫu công việc tạo sẵn khi tạo dự án: `{ enabled, titles }`. Mặc định tắt, kèm mẫu gợi ý. */
 const DEFAULT_TASKS_KEY = 'project_default_tasks';
 const DEFAULT_PROGRESS_METHOD_KEY = 'project_default_progress_method';
-const PROGRESS_REPORT_KEY = 'progress_report';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -425,19 +427,8 @@ export class ProjectService {
   }
 
   /** Cài đặt báo cáo tiến độ công việc; chưa cấu hình hay giá trị hỏng thì dùng mặc định. */
-  async progressReportSettings(tenantId: string): Promise<ProgressReportSettings> {
-    const value = (await this.store.settings.get(tenantId, PROGRESS_REPORT_KEY)) as
-      | { completeStatus?: unknown; requireDescription?: unknown; startsWork?: unknown }
-      | undefined;
-    const status = String(value?.completeStatus ?? '');
-    return {
-      completeStatus: (PROGRESS_REPORT_COMPLETE_STATUSES as readonly string[]).includes(status)
-        ? (status as ProgressReportCompleteStatus)
-        : DEFAULT_PROGRESS_REPORT_COMPLETE_STATUS,
-      requireDescription: value?.requireDescription === true,
-      // Mặc định bật: báo tiến độ nghĩa là đã bắt đầu làm.
-      startsWork: value?.startsWork !== false,
-    };
+  progressReportSettings(tenantId: string): Promise<ProgressReportSettings> {
+    return loadProgressReportSettings(this.store, tenantId);
   }
 
   /** Cách tính tiến độ mặc định của tenant; chưa cấu hình hay giá trị hỏng thì dùng mặc định của hệ thống. */
@@ -865,13 +856,6 @@ function cleanType(value: unknown): string | null {
     throw new WorkspaceValidationError('Nhóm dự án không được dài quá 80 ký tự.');
   }
   return text;
-}
-
-/** Cài đặt báo cáo tiến độ công việc của tenant. */
-export interface ProgressReportSettings {
-  readonly completeStatus: ProgressReportCompleteStatus;
-  readonly requireDescription: boolean;
-  readonly startsWork: boolean;
 }
 
 function progressReportSettingsView(settings: ProgressReportSettings) {

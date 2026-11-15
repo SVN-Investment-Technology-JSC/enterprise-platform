@@ -1,7 +1,7 @@
 'use client';
 
-import type { WorkItem, WorkItemProgressReport } from '@enterprise-platform/contracts-workspace';
-import { useEffect, useState } from 'react';
+import type { StandaloneTaskProgressReport, WorkItem, WorkItemProgressReport } from '@enterprise-platform/contracts-workspace';
+import { useEffect, useRef, useState } from 'react';
 import * as api from '../workspace-api';
 import { formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -11,16 +11,25 @@ import { useDirectory } from './use-directory';
  * Lịch sử báo cáo tiến độ của một công việc: ngày, người báo, phần trăm và mô tả, mới nhất trước.
  * Nạp lại khi tiến độ hay trạng thái của việc đổi (vừa có báo cáo mới hoặc việc được mở lại).
  */
-export function ProgressHistoryPanel({ item }: { item: WorkItem }) {
+export function ProgressHistoryPanel({
+  item,
+  load = (id) => api.listWorkItemProgressReports(id),
+}: {
+  item: Pick<WorkItem, 'id' | 'progressPercent' | 'status' | 'updatedAt'>;
+  /** Cách nạp lịch sử; mặc định là việc trong dự án, Công việc khác truyền hàm riêng. */
+  load?: (id: string) => Promise<{ items: (WorkItemProgressReport | StandaloneTaskProgressReport)[] }>;
+}) {
   const directory = useDirectory();
-  const [reports, setReports] = useState<readonly WorkItemProgressReport[]>();
+  const [reports, setReports] = useState<readonly (WorkItemProgressReport | StandaloneTaskProgressReport)[]>();
   const [failed, setFailed] = useState(false);
+  // Hàm nạp có thể là hàm tạo mới mỗi lần vẽ: giữ bản mới nhất mà không chạy lại effect chỉ vì nó đổi.
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   useEffect(() => {
     let alive = true;
     setFailed(false);
-    api
-      .listWorkItemProgressReports(item.id)
+    loadRef.current(item.id)
       .then((result) => alive && setReports(result.items))
       .catch(() => alive && setFailed(true));
     return () => {

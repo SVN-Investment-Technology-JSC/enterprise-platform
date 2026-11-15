@@ -11740,3 +11740,47 @@ button.kpiCard {
     color: var(--ep-text-sub);
   }
 }
+
+/* Lớp tiến độ dự kiến trong thanh của ProgressCell (nằm dưới lớp thực tế vì vẽ trước). */
+.progressBar > .progressExpected {
+  background: #bfdbfe;
+}
+
+/* Đầu việc của công việc tính tiến độ theo đầu việc. */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+}
+
+.checklistDone {
+  color: var(--ep-text-sub);
+  text-decoration: line-through;
+}
+
+.checklistAdd {
+  display: flex;
+  gap: 8px;
+
+  input {
+    flex: 1;
+  }
+}
