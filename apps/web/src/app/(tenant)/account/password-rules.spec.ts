@@ -20,16 +20,20 @@ describe('password rules', () => {
     expect(canSubmitPasswordChange(value)).toBe(false);
   });
 
-  it('accepts a 6-character password', () => {
-    expect(canSubmitPasswordChange({ ...draft, newPassword: 'abcdef', confirmation: 'abcdef' })).toBe(true);
+  it.each([
+    ['a 6-character password', 'abc123'],
+    ['letters only', 'allowercaseletters'],
+    ['digits only', '1234567890'],
+    ['a common password', 'password1'],
+  ])('SEC-BE052-07: blocks %s (shared password policy)', (_, value) => {
+    expect(canSubmitPasswordChange({ ...draft, newPassword: value, confirmation: value })).toBe(false);
   });
 
   it('does not require the advisory character classes', () => {
-    const plain = { ...draft, newPassword: 'allowercaseletters', confirmation: 'allowercaseletters' };
+    const plain = { ...draft, newPassword: 'lowercase2026', confirmation: 'lowercase2026' };
     expect(canSubmitPasswordChange(plain)).toBe(true);
     expect(passwordRules(plain).filter((rule) => !rule.passed).map((rule) => rule.id)).toEqual([
       'case',
-      'digit',
       'symbol',
     ]);
   });

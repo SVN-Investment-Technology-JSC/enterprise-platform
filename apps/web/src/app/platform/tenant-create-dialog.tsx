@@ -3,6 +3,7 @@
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { defineStepper } from '@stepperize/react';
 import type { CreateTenantRequest, CreateTenantResponse, TenantSummary } from '@enterprise-platform/contracts-tenancy';
+import { PASSWORD_POLICY_HINT, passwordPolicyViolation } from '@enterprise-platform/contracts-identity';
 import { ArrowLeft, ArrowRight, Building2, Database, ShieldCheck } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
@@ -53,7 +54,8 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
     if (stepper.is('administrator')) {
       if (!formData.adminDisplayName.trim()) return 'Vui lòng nhập tên hiển thị của quản trị viên.';
       if (!/^[^\s@]+$/.test(formData.adminEmailLocal)) return 'Tên email quản trị viên không hợp lệ và không được chứa ký tự @.';
-      if (formData.initialPassword.length < 6) return 'Mật khẩu phải có ít nhất 6 ký tự.';
+      const passwordViolation = passwordPolicyViolation(formData.initialPassword);
+      if (passwordViolation) return passwordViolation;
       if (formData.initialPassword !== formData.confirmation) return 'Xác nhận mật khẩu chưa khớp.';
     }
     if (stepper.is('database')) {
@@ -119,7 +121,7 @@ function OrganizationFields({ formData, update, updateSlug }: { formData: Tenant
 }
 
 function AdministratorFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {
-  return <FormSection description="Tài khoản này được gán role tenant-admin sau khi provisioning hoàn tất." icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><InputGroup><InputGroupInput aria-label="Tên email công việc" autoComplete="username" onChange={(event) => update({ adminEmailLocal: sanitizeEmailLocal(event.currentTarget.value) })} placeholder="admin" value={formData.adminEmailLocal} /><InputGroupAddon align="inline-end"><InputGroupText>@{formData.slug}.com</InputGroupText></InputGroupAddon></InputGroup></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
+  return <FormSection description="Tài khoản này được gán role tenant-admin sau khi provisioning hoàn tất." icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><InputGroup><InputGroupInput aria-label="Tên email công việc" autoComplete="username" onChange={(event) => update({ adminEmailLocal: sanitizeEmailLocal(event.currentTarget.value) })} placeholder="admin" value={formData.adminEmailLocal} /><InputGroupAddon align="inline-end"><InputGroupText>@{formData.slug}.com</InputGroupText></InputGroupAddon></InputGroup></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /><span className="text-xs font-normal text-muted-foreground">{PASSWORD_POLICY_HINT}</span></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
 }
 
 function DatabaseFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {

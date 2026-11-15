@@ -177,3 +177,55 @@ describe('PlatformIdentityController change password', () => {
     await expect(controller.logout(cookieReqMissingCsrf, response)).rejects.toMatchObject({ status: 401 });
   });
 });
+
+describe('PlatformIdentityController rate limiting per email + IP (ISS-BE-010)', () => {
+  const limiterOptions = {
+    enabled: true,
+    emailRule: { max: 10, windowMs: 60_000 },
+    ipRule: { max: 50, windowMs: 60_000 },
+    maxKeys: 1000,
+  };
+
+  it('SEC-BE010-02: failures from IP A do not block the same email from IP B, and 429 carries Retry-After', async () => {
+    const { UnauthorizedException } = await import('@nestjs/common');
+    const { AuthRateLimiter } = await import('./auth-rate-limiter.js');
+    const limiter = new AuthRateLimiter(limiterOptions);
+    const login = jest.fn().mockRejectedValue(new UnauthorizedException());
+    const controller = new PlatformIdentityController({ login } as unknown as PlatformIdentityService, limiter);
+    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
+    const input = { email: 'victim@savina.com', password: 'bad', portal: 'tenant' } as LoginRequest;
+    for (let i = 0; i < 10; i++)
+      await expect(controller.login(input, response, { ip: '::ffff:10.0.0.1' } as never)).rejects.toMatchObject({ status: 401 });
+    await expect(controller.login(input, response, { ip: '10.0.0.1' } as never)).rejects.toMatchObject({ status: 429 });
+    expect(response.setHeader).toHaveBeenCalledWith('Retry-After', expect.stringMatching(/^\d+$/));
+
+    login.mockResolvedValue({ principal: { kind: 'tenant-user' }, accessToken: 'a', refreshToken: 'r', csrfToken: 'c' });
+    await expect(controller.login(input, response, { ip: '10.0.0.2' } as never)).resolves.toMatchObject({ redirectTo: '/dashboard' });
+  });
+
+  it('SEC-BE010-04: refreshing with a naturally expired token or without cookies is not counted', async () => {
+    const { UnauthorizedException } = await import('@nestjs/common');
+    const { AuthRateLimiter } = await import('./auth-rate-limiter.js');
+    const { RefreshSessionExpiredException } = await import('./session-errors.js');
+    const limiter = new AuthRateLimiter({ ...limiterOptions, ipRule: { max: 2, windowMs: 60_000 } });
+    const refresh = jest.fn().mockRejectedValue(new RefreshSessionExpiredException());
+    const controller = new PlatformIdentityController({ refresh } as unknown as PlatformIdentityService, limiter);
+    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
+    const withCookies = { ip: '10.0.0.5', headers: { 'x-csrf-token': 'c' }, cookies: { ep_refresh: 'r', ep_csrf: 'c' } } as never;
+    const withoutCookies = { ip: '10.0.0.5', headers: {}, cookies: {} } as never;
+    for (let i = 0; i < 5; i++) {
+      await expect(controller.refresh(withCookies, response)).rejects.toMatchObject({ status: 401 });
+      await expect(controller.refresh(withoutCookies, response)).rejects.toMatchObject({ status: 401 });
+    }
+    // Phiên bị thu hồi vì bỏ không quá thời gian chờ cũng không đếm.
+    const { RefreshSessionIdleExpiredException } = await import('./session-errors.js');
+    refresh.mockRejectedValue(new RefreshSessionIdleExpiredException());
+    for (let i = 0; i < 5; i++)
+      await expect(controller.refresh(withCookies, response)).rejects.toMatchObject({ status: 401 });
+    // Token lạ thì có đếm: 2 lần là chạm ngưỡng của test.
+    refresh.mockRejectedValue(new UnauthorizedException());
+    await expect(controller.refresh(withCookies, response)).rejects.toMatchObject({ status: 401 });
+    await expect(controller.refresh(withCookies, response)).rejects.toMatchObject({ status: 401 });
+    await expect(controller.refresh(withCookies, response)).rejects.toMatchObject({ status: 429 });
+  });
+});

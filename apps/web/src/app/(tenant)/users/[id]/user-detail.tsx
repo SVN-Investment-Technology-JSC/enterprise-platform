@@ -428,6 +428,7 @@ function DetailContent({
                 user={user}
                 tenantSlug={tenantSlug}
                 canEdit={canUpdate}
+                canChangeCredentials={isAdmin}
                 canReadOrganization={hasTenantAction(
                   permissions,
                   'core.organization.read',

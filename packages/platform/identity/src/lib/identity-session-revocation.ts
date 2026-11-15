@@ -6,7 +6,10 @@ export type SessionRevocationReason =
   | 'user-deleted'
   | 'user-disabled'
   | 'password-reset'
-  | 'password-changed';
+  | 'password-changed'
+  | 'email-changed'
+  | 'refresh-token-reused'
+  | 'idle-timeout';
 
 interface Queryable {
   query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;

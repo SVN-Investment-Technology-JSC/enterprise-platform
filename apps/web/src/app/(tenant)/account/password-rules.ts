@@ -1,6 +1,11 @@
-/** Giới hạn khớp với `changeOwnPassword` ở Platform Identity. */
-export const PASSWORD_MIN_LENGTH = 6;
-export const PASSWORD_MAX_LENGTH = 128;
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  passwordPolicyViolation,
+} from '@enterprise-platform/contracts-identity';
+
+/** Giới hạn và chính sách dùng chung với `changeOwnPassword` ở Platform Identity (ISS-BE-052). */
+export { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH };
 
 export interface PasswordRule {
   readonly id: string;
@@ -26,6 +31,18 @@ export function passwordRules(draft: PasswordDraft): PasswordRule[] {
       passed: next.length >= PASSWORD_MIN_LENGTH && next.length <= PASSWORD_MAX_LENGTH,
     },
     {
+      id: 'letter-digit',
+      label: 'Có cả chữ cái và chữ số',
+      required: true,
+      passed: /\p{L}/u.test(next) && /\d/.test(next),
+    },
+    {
+      id: 'common',
+      label: 'Không phải mật khẩu phổ biến dễ đoán',
+      required: true,
+      passed: next.length > 0 && !passwordPolicyViolation(next)?.includes('phổ biến'),
+    },
+    {
       id: 'different',
       label: 'Khác mật khẩu hiện tại',
       required: true,
@@ -44,12 +61,6 @@ export function passwordRules(draft: PasswordDraft): PasswordRule[] {
       passed: /[a-z]/.test(next) && /[A-Z]/.test(next),
     },
     {
-      id: 'digit',
-      label: 'Có ít nhất một chữ số',
-      required: false,
-      passed: /\d/.test(next),
-    },
-    {
       id: 'symbol',
       label: 'Có ít nhất một ký tự đặc biệt',
       required: false,
@@ -62,7 +73,7 @@ export type PasswordStrength = 'empty' | 'weak' | 'fair' | 'strong';
 
 /**
  * Độ mạnh dựa trên độ dài và số nhóm ký tự khuyến nghị đã đạt. Ngưỡng độ dài
- * tách khỏi mức tối thiểu: mật khẩu 6 ký tự hợp lệ nhưng vẫn được đánh giá là yếu.
+ * tách khỏi mức tối thiểu: mật khẩu vừa đủ điều kiện vẫn có thể được đánh giá là yếu.
  */
 export function passwordStrength(password: string): PasswordStrength {
   if (!password) return 'empty';
@@ -78,6 +89,7 @@ export function passwordStrength(password: string): PasswordStrength {
 export function canSubmitPasswordChange(draft: PasswordDraft): boolean {
   return (
     draft.currentPassword.length > 0 &&
-    passwordRules(draft).every((rule) => !rule.required || rule.passed)
+    passwordRules(draft).every((rule) => !rule.required || rule.passed) &&
+    !passwordPolicyViolation(draft.newPassword)
   );
 }
