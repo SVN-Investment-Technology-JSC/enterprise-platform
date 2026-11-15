@@ -572,14 +572,22 @@ export async function listProjectVouchers(db: Db, tenantId: string, projectId: s
 
   const rows = (
     await db.query(
-      `SELECT v.id, v.kind, v.code, v.voucher_date, v.content, v.status, v.total_amount, v.created_by_name,
-              v.alloc_work_item_id, v.alloc_work_item_code, v.alloc_work_item_title, r.name AS reason_name,
-              (v.alloc_project_id = $2::uuid) AS is_allocation
-         FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
-        WHERE ${scope}
-          AND (v.alloc_project_id = $2::uuid
-               OR EXISTS (SELECT 1 FROM finance_schema.voucher_related rel WHERE rel.voucher_id = v.id AND rel.kind = 'PROJECT' AND rel.project_id = $2::uuid))
-        ORDER BY v.voucher_date DESC, v.created_at DESC, v.id DESC LIMIT ${PROJECT_LIST_LIMIT + 1}`,
+      `SELECT * FROM (
+         SELECT v.id, v.kind, v.code, v.voucher_date, v.posting_date, v.created_at, v.content, v.status, v.total_amount, v.created_by_name,
+                v.alloc_work_item_id, v.alloc_work_item_code, v.alloc_work_item_title, r.name AS reason_name,
+                (v.alloc_project_id = $2::uuid) AS is_allocation,
+                -- Dòng tiền luỹ kế: chỉ phiếu ĐÃ GHI SỔ hạch toán cho dự án; cộng dồn theo thứ tự ghi sổ trên TOÀN BỘ phiếu của dự án
+                -- (cửa sổ tính trước LIMIT) nên không lệch khi danh sách bị cắt. Phiếu chờ/chỉ liên quan không có số.
+                CASE WHEN v.status = 'APPROVED' AND v.alloc_project_id = $2::uuid
+                     THEN SUM(CASE WHEN v.status = 'APPROVED' AND v.alloc_project_id = $2::uuid
+                                   THEN CASE WHEN v.kind = 'RECEIPT' THEN v.total_amount ELSE -v.total_amount END ELSE 0 END)
+                          OVER (ORDER BY v.posting_date, v.created_at, v.id) END AS balance
+           FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
+          WHERE ${scope}
+            AND (v.alloc_project_id = $2::uuid
+                 OR EXISTS (SELECT 1 FROM finance_schema.voucher_related rel WHERE rel.voucher_id = v.id AND rel.kind = 'PROJECT' AND rel.project_id = $2::uuid))
+       ) ledger
+       ORDER BY posting_date DESC, created_at DESC, id DESC LIMIT ${PROJECT_LIST_LIMIT + 1}`,
       params,
     )
   ).rows as Row[];
@@ -598,6 +606,9 @@ export async function listProjectVouchers(db: Db, tenantId: string, projectId: s
         ? { id: String(row.alloc_work_item_id), code: String(row.alloc_work_item_code ?? ''), title: String(row.alloc_work_item_title ?? '') }
         : null,
     createdByName: optStr(row.created_by_name),
+    postingDate: dateOnly(row.posting_date),
+    createdAt: iso(row.created_at),
+    balance: row.balance === null || row.balance === undefined ? null : num(row.balance),
   }));
   return { items, totals, projectLevel, workItems, truncated: rows.length > PROJECT_LIST_LIMIT };
 }

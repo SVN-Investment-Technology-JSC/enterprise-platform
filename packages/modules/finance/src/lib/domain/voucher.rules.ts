@@ -205,6 +205,8 @@ export interface SubmitReferences {
   dest: { name: string; isActive: boolean; openingDate: string } | null;
   reason: { kind: string; isActive: boolean } | null;
   counterpartyGroup: { isActive: boolean } | null;
+  /** Cài đặt "Bắt buộc hạch toán dự án" của tenant; vắng là không bắt buộc. */
+  requireAllocation?: boolean;
 }
 
 /** Điều kiện để gửi duyệt: trả danh sách lỗi (rỗng nghĩa là hợp lệ). */
@@ -224,6 +226,9 @@ export function validateForSubmit(voucher: NormalizedVoucher, refs: SubmitRefere
     if (!voucher.counterpartyGroupId) errors.push(voucher.kind === 'RECEIPT' ? 'Chọn đối tượng thu.' : 'Chọn đối tượng chi.');
     else if (!refs.counterpartyGroup) errors.push('Đối tượng không tồn tại.');
     else if (!refs.counterpartyGroup.isActive) errors.push('Đối tượng đã ngừng sử dụng.');
+  }
+  if (!isTransfer && refs.requireAllocation && !voucher.allocation) {
+    errors.push('Chọn hạch toán nội bộ cho dự án hoặc công việc (tenant đang bắt buộc hạch toán dự án).');
   }
   const accountLabel = isTransfer ? 'tài khoản nguồn' : voucher.kind === 'RECEIPT' ? 'tài khoản thu' : 'tài khoản chi';
   if (!voucher.accountId) errors.push(`Chọn ${accountLabel}.`);

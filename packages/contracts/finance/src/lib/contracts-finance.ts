@@ -660,10 +660,16 @@ export interface FinanceSettings {
   booksLockedUntil: string | null;
   /** Cho phép người lập tự duyệt phiếu của mình (mặc định tắt: tách người lập và người duyệt). */
   allowSelfApproval: boolean;
+  /**
+   * Bắt buộc hạch toán dự án: phiếu thu/chi phải chọn dự án (hoặc công việc) mới gửi duyệt hay ghi sổ được. Mặc định tắt.
+   * Bật thì mọi khoản thu chi đều có chỗ ở một dự án, nên sổ chứng từ của dự án không bỏ sót khoản nào.
+   */
+  requireAllocation: boolean;
 }
 export interface SaveFinanceSettingsRequest {
   booksLockedUntil?: string | null;
   allowSelfApproval?: boolean;
+  requireAllocation?: boolean;
 }
 
 export interface FinanceCapabilities {
@@ -750,6 +756,16 @@ export interface FinanceProjectVoucher {
   link: 'ALLOCATION' | 'RELATED';
   workItem: { id: string; code: string; title: string } | null;
   createdByName: string | null;
+  /** Ngày hạch toán `YYYY-MM-DD` (sổ chứng từ xếp theo ngày này). */
+  postingDate: string;
+  /** Lúc lập phiếu. */
+  createdAt: string;
+  /**
+   * Dòng tiền luỹ kế của dự án sau phiếu này (thu trừ chi, cộng dồn theo ngày hạch toán rồi giờ lập), chỉ có ở phiếu ĐÃ GHI SỔ
+   * hạch toán cho dự án. Phiếu chờ duyệt/chờ ghi sổ hay chỉ liên quan thì `null`: chưa phải tiền thật của dự án.
+   * Tính trên toàn bộ phiếu của dự án nên vẫn đúng khi danh sách bị cắt ở trần.
+   */
+  balance: number | null;
 }
 
 /** Tổng thu/chi của một nhóm phiếu hạch toán: đã duyệt là đã ghi sổ, chờ duyệt chưa ghi sổ. */

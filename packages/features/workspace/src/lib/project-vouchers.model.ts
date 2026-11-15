@@ -24,6 +24,12 @@ export interface ProjectVoucher {
   readonly link: ProjectVoucherLink;
   readonly workItem: { readonly id: string; readonly code: string; readonly title: string } | null;
   readonly createdByName: string | null;
+  /** Ngày hạch toán `YYYY-MM-DD`. */
+  readonly postingDate: string;
+  /** Lúc lập phiếu (ISO). */
+  readonly createdAt: string;
+  /** Dòng tiền luỹ kế sau phiếu (chỉ phiếu đã ghi sổ hạch toán cho dự án); `null` với phiếu chờ hay chỉ liên quan. */
+  readonly balance: number | null;
 }
 
 export interface ProjectVoucherTotals {
@@ -172,7 +178,15 @@ const ZERO_TOTALS: ProjectVoucherTotals = { received: 0, paid: 0, pendingReceive
 /** Bản Tài chính cũ chưa trả phần chung và phần theo công việc: coi như chưa có, để màn hình không vỡ. */
 export function normalizeProjectVoucherList(raw: Partial<ProjectVoucherList>): ProjectVoucherList {
   return {
-    items: Array.isArray(raw.items) ? raw.items : [],
+    // Bản Tài chính cũ chưa trả ngày hạch toán, ngày lập và dòng tiền: lấy ngày phiếu, không có dòng tiền.
+    items: Array.isArray(raw.items)
+      ? raw.items.map((item) => ({
+          ...item,
+          postingDate: item.postingDate ?? item.voucherDate,
+          createdAt: item.createdAt ?? `${item.voucherDate}T00:00:00.000Z`,
+          balance: item.balance ?? null,
+        }))
+      : [],
     totals: raw.totals ?? ZERO_TOTALS,
     projectLevel: raw.projectLevel ?? ZERO_TOTALS,
     workItems: Array.isArray(raw.workItems) ? raw.workItems : [],

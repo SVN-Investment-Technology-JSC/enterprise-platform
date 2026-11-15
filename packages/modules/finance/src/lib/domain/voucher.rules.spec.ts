@@ -180,6 +180,25 @@ describe('validateForSubmit', () => {
     expect(validateForSubmit(normalizeVoucherInput(receipt()), refs())).toEqual([]);
   });
 
+  it('bắt buộc hạch toán dự án (cài đặt): thiếu hạch toán thì lỗi, có dự án hoặc công việc thì hợp lệ', () => {
+    const required = refs({ requireAllocation: true });
+    const P1 = '11111111-1111-4111-8111-111111111111';
+    const P2 = '22222222-2222-4222-8222-222222222222';
+    const W1 = '33333333-3333-4333-8333-333333333333';
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), required)).toEqual([
+      expect.stringContaining('hạch toán nội bộ'),
+    ]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } })), required)).toEqual([]);
+    expect(
+      validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2, workItemId: W1 } })), required),
+    ).toEqual([]);
+  });
+
+  it('không bắt buộc hạch toán khi cài đặt tắt hoặc vắng', () => {
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), refs({ requireAllocation: false }))).toEqual([]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), refs())).toEqual([]);
+  });
+
   it('thiếu lý do, đối tượng, tài khoản, dòng chi tiết thì báo từng lỗi', () => {
     const errors = validateForSubmit(
       normalizeVoucherInput(receipt({ reasonId: null, counterpartyGroupId: null, accountId: null, lines: [] })),

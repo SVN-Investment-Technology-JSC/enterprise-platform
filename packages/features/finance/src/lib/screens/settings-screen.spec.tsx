@@ -28,7 +28,7 @@ beforeEach(() => {
   bindings = [binding('RECEIPT'), binding('PAYMENT', { mode: 'PROCEDURE', procedureDefinitionId: 'd1', procedureDefinitionName: 'Duyệt phiếu chi' }), binding('TRANSFER')];
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/catalogs')) return { reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }, { id: 'r2', kind: 'PAYMENT', code: 'VPP', name: 'Văn phòng phẩm', isActive: false, note: null }], counterpartyGroups: [] } as never;
-    if (path === '/settings') return { booksLockedUntil: '2026-09-30', allowSelfApproval: false } as never;
+    if (path === '/settings') return { booksLockedUntil: '2026-09-30', allowSelfApproval: false, requireAllocation: false } as never;
     if (path === '/approval-bindings') return bindings as never;
     if (path === '/approval-bindings/procedure-definitions') return [{ id: 'd1', code: 'DUYET-CHI', name: 'Duyệt phiếu chi' }, { id: 'd2', code: 'DUYET-LON', name: 'Duyệt chi lớn' }] as never;
     throw new Error(`route lạ ${path}`);
@@ -49,14 +49,14 @@ describe('Tùy chỉnh', () => {
   });
 
   it('khoá sổ và tự duyệt: lưu đúng giá trị', async () => {
-    putMock.mockResolvedValue({ booksLockedUntil: '2026-09-30', allowSelfApproval: true } as never);
+    putMock.mockResolvedValue({ booksLockedUntil: '2026-09-30', allowSelfApproval: true, requireAllocation: false } as never);
     render(<SettingsScreen />);
     await screen.findByText('Thu tiền hàng');
     fireEvent.click(screen.getByRole('tab', { name: 'Khoá sổ và duyệt' }));
     expect(screen.getByText(/Hiện đang khoá đến 30\/09\/2026/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Cho phép người lập tự duyệt/));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
-    await waitFor(() => expect(putMock).toHaveBeenCalledWith('/settings', { booksLockedUntil: '2026-09-30', allowSelfApproval: true }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith('/settings', { booksLockedUntil: '2026-09-30', allowSelfApproval: true, requireAllocation: false }));
   });
 });
 

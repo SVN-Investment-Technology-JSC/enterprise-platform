@@ -1,5 +1,6 @@
 import { invalidMany } from '../domain/finance.error.js';
 import { validateForSubmit, type NormalizedVoucher, type SubmitReferences } from '../domain/voucher.rules.js';
+import { loadSettings } from './catalogs.store.js';
 import { dateOnly, type Db } from './finance.database.js';
 import type { QueryResultRow } from 'pg';
 
@@ -30,6 +31,7 @@ export async function buildSubmitReferences(db: Db, tenantId: string, voucher: N
     dest: await accountRef(db, tenantId, voucher.destAccountId),
     reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active) } : null,
     counterpartyGroup: group ? { isActive: Boolean(group.is_active) } : null,
+    requireAllocation: (await loadSettings(db, tenantId)).requireAllocation,
   };
 }
 

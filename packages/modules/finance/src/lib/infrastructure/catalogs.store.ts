@@ -145,12 +145,13 @@ export async function saveCounterpartyGroup(
 }
 
 export async function loadSettings(db: Db, tenantId: string): Promise<FinanceSettings> {
-  const row = (await db.query(`SELECT books_locked_until, allow_self_approval FROM finance_schema.settings WHERE tenant_id=$1`, [tenantId])).rows[0] as
+  const row = (await db.query(`SELECT books_locked_until, allow_self_approval, require_allocation FROM finance_schema.settings WHERE tenant_id=$1`, [tenantId])).rows[0] as
     | Row
     | undefined;
   return {
     booksLockedUntil: row?.books_locked_until ? dateOnly(row.books_locked_until) : null,
     allowSelfApproval: row ? Boolean(row.allow_self_approval) : false,
+    requireAllocation: row ? Boolean(row.require_allocation) : false,
   };
 }
 
@@ -161,12 +162,13 @@ export async function saveSettings(db: Db, tenantId: string, actorId: string, in
   const lock = input.booksLockedUntil === undefined ? current.booksLockedUntil : input.booksLockedUntil;
   // Mở lại sổ (lùi hoặc bỏ ngày khoá) là thao tác nhạy cảm nhưng hợp lệ: kế toán trưởng có thể sửa sai kỳ.
   const self = input.allowSelfApproval ?? current.allowSelfApproval;
+  const requireAllocation = input.requireAllocation ?? current.requireAllocation;
   await db.query(
-    `INSERT INTO finance_schema.settings (tenant_id, books_locked_until, allow_self_approval, updated_by, updated_at)
-     VALUES ($1,$2,$3,$4,now())
+    `INSERT INTO finance_schema.settings (tenant_id, books_locked_until, allow_self_approval, require_allocation, updated_by, updated_at)
+     VALUES ($1,$2,$3,$4,$5,now())
      ON CONFLICT (tenant_id) DO UPDATE SET books_locked_until=EXCLUDED.books_locked_until, allow_self_approval=EXCLUDED.allow_self_approval,
-       updated_by=EXCLUDED.updated_by, updated_at=now()`,
-    [tenantId, lock, self, actorId],
+       require_allocation=EXCLUDED.require_allocation, updated_by=EXCLUDED.updated_by, updated_at=now()`,
+    [tenantId, lock, self, requireAllocation, actorId],
   );
-  return { booksLockedUntil: lock, allowSelfApproval: self };
+  return { booksLockedUntil: lock, allowSelfApproval: self, requireAllocation };
 }

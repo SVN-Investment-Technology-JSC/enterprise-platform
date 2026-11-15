@@ -283,6 +283,7 @@ function ApprovalPanel() {
 function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved: (next: FinanceSettings) => void }) {
   const [lock, setLock] = useState(settings.booksLockedUntil ?? '');
   const [selfApproval, setSelfApproval] = useState(settings.allowSelfApproval);
+  const [requireAllocation, setRequireAllocation] = useState(Boolean(settings.requireAllocation));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -290,7 +291,7 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
     setSaving(true);
     setError(null);
     try {
-      const next = await financePut<FinanceSettings>('/settings', { booksLockedUntil: lock || null, allowSelfApproval: selfApproval });
+      const next = await financePut<FinanceSettings>('/settings', { booksLockedUntil: lock || null, allowSelfApproval: selfApproval, requireAllocation });
       onSaved(next);
       toast.success('Đã lưu cấu hình');
     } catch (e) {
@@ -322,6 +323,13 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
         <span>
           Cho phép người lập tự duyệt phiếu của mình
           <span className="block text-xs text-slate-500">Mặc định tắt để tách người lập và người duyệt. Chỉ bật cho doanh nghiệp nhỏ chỉ có một kế toán.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={requireAllocation} onChange={(e) => setRequireAllocation(e.target.checked)} className="mt-0.5 size-4 rounded border-slate-300" />
+        <span>
+          Bắt buộc hạch toán dự án cho phiếu thu/chi
+          <span className="block text-xs text-slate-500">Bật thì phiếu phải chọn dự án (hoặc công việc) mới gửi duyệt và ghi sổ được, kể cả phiếu từ hồ sơ Quy trình. Mọi khoản thu chi đều hiện ở sổ chứng từ của một dự án, không bị bỏ sót. Mặc định tắt.</span>
         </span>
       </label>
       <Button type="button" disabled={saving} onClick={() => void save()}>Lưu cấu hình</Button>

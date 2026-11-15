@@ -37,6 +37,11 @@ export interface TabFinanceProps {
   readonly onChanged: () => void;
 }
 
+/** Dòng tiền của nhóm phiếu đã ghi sổ: thu trừ chi. */
+function ledgerBalance(totals: { received: number; paid: number }): number {
+  return totals.received - totals.paid;
+}
+
 /** `2026-10-09` → `09/10/2026`; đọc thẳng chuỗi, không qua Date (lệch múi giờ). */
 function formatDay(value: string): string {
   const [year, month, day] = value.slice(0, 10).split('-');
@@ -358,36 +363,71 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               <table className={`${styles.table} ${styles.ledgerTable}`}>
                 <thead>
                   <tr>
-                    <th>Phiếu</th>
-                    <th>Loại phiếu</th>
-                    <th>Ngày</th>
+                    <th>STT</th>
                     <th>Nội dung</th>
+                    <th>Mã chứng từ</th>
                     <th>Hạch toán</th>
-                    <th className={styles.numeric}>Tiền thu</th>
-                    <th className={styles.numeric}>Tiền chi</th>
+                    <th>Người tạo</th>
+                    <th>Ngày tạo</th>
+                    <th>Ngày hạch toán</th>
+                    <th className={styles.numeric}>Phát sinh thu</th>
+                    <th className={styles.numeric}>Phát sinh chi</th>
+                    <th className={styles.numeric}>Dòng tiền</th>
                     <th>Trạng thái</th>
-                    <th>Người lập</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {data.items.length > 0 ? (
+                    // Dòng tổng ở đầu như sổ chứng từ: chỉ phiếu đã ghi sổ hạch toán cho dự án; dòng tiền = thu trừ chi.
+                    <tr className={styles.ledgerTotal}>
+                      <td />
+                      <td>
+                        <strong>Tổng</strong>
+                      </td>
+                      <td colSpan={5} />
+                      <td className={styles.numeric}>
+                        <strong>{formatVnd(data.totals.received)}</strong>
+                      </td>
+                      <td className={styles.numeric}>
+                        <strong>{formatVnd(data.totals.paid)}</strong>
+                      </td>
+                      <td className={`${styles.numeric} ${ledgerBalance(data.totals) < 0 ? styles.finNegative : ''}`}>
+                        <strong>{formatVnd(ledgerBalance(data.totals))}</strong>
+                      </td>
+                      <td />
+                    </tr>
+                  ) : null}
                   {data.items.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className={styles.muted}>
+                      <td colSpan={11} className={styles.muted}>
                         Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
                       </td>
                     </tr>
                   ) : visibleVouchers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className={styles.muted}>
+                      <td colSpan={11} className={styles.muted}>
                         Không có phiếu nào khớp bộ lọc.
                       </td>
                     </tr>
                   ) : null}
-                  {visibleVouchers.map((item) => {
+                  {visibleVouchers.map((item, index) => {
                     const tone = PROJECT_VOUCHER_STATUS_TONE[item.status];
-                    const amount = item.link === 'RELATED' ? <span className={styles.muted}>{formatVnd(item.totalAmount)}</span> : formatVnd(item.totalAmount);
+                    // Phiếu chờ/chỉ liên quan chưa phải tiền của dự án: số mờ đi và không có dòng tiền.
+                    const settled = item.link === 'ALLOCATION' && item.status === 'APPROVED';
+                    const amount = settled ? formatVnd(item.totalAmount) : <span className={styles.muted}>{formatVnd(item.totalAmount)}</span>;
                     return (
                       <tr key={item.id}>
+                        <td>{index + 1}</td>
+                        <td>
+                          <Tooltip content={item.content}>
+                            <span className={styles.treeTitle}>{item.content}</span>
+                          </Tooltip>
+                          {item.reasonName ? (
+                            <span className={styles.muted} style={{ display: 'block' }}>
+                              {item.reasonName}
+                            </span>
+                          ) : null}
+                        </td>
                         <td>
                           <Tooltip content="Mở phiếu ở module Tài chính">
                             <a className={styles.wbsProcedure} href={projectVoucherHref(item)}>
@@ -395,20 +435,9 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                               {item.code}
                             </a>
                           </Tooltip>
-                        </td>
-                        <td>{PROJECT_VOUCHER_KIND_LABELS[item.kind]}</td>
-                        <td>{formatDay(item.voucherDate)}</td>
-                        <td>
-                          <Tooltip content={item.content}>
-                            <span className={styles.treeTitle}>
-                              {item.content}
-                            </span>
-                          </Tooltip>
-                          {item.reasonName ? (
-                            <span className={styles.muted} style={{ display: 'block' }}>
-                              {item.reasonName}
-                            </span>
-                          ) : null}
+                          <span className={styles.muted} style={{ display: 'block' }}>
+                            {PROJECT_VOUCHER_KIND_LABELS[item.kind]}
+                          </span>
                         </td>
                         <td>
                           {item.link === 'RELATED' ? (
@@ -423,14 +452,19 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                             'Cả dự án'
                           )}
                         </td>
-                        <td className={styles.numeric}>{item.kind === 'RECEIPT' ? amount : '—'}</td>
-                        <td className={styles.numeric}>{item.kind === 'PAYMENT' ? amount : '—'}</td>
+                        <td>{item.createdByName ?? '—'}</td>
+                        <td>{formatDay(item.createdAt.slice(0, 10))}</td>
+                        <td>{formatDay(item.postingDate)}</td>
+                        <td className={styles.numeric}>{item.kind === 'RECEIPT' ? amount : '--'}</td>
+                        <td className={styles.numeric}>{item.kind === 'PAYMENT' ? amount : '--'}</td>
+                        <td className={`${styles.numeric} ${item.balance !== null && item.balance < 0 ? styles.finNegative : ''}`}>
+                          {item.balance === null ? '--' : formatVnd(item.balance)}
+                        </td>
                         <td>
                           <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
                             {PROJECT_VOUCHER_STATUS_LABELS[item.status]}
                           </span>
                         </td>
-                        <td>{item.createdByName ?? '—'}</td>
                       </tr>
                     );
                   })}
@@ -444,7 +478,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               ? 'Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.'
               : data.truncated
                 ? 'Chỉ hiển thị 200 phiếu gần nhất; tổng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.'
-                : 'Phiếu có dự án này ở mục "Đối tượng liên quan" chỉ để tra cứu, không cộng vào tổng.'}
+                : 'Dòng tiền luỹ kế chỉ tính phiếu đã ghi sổ hạch toán cho dự án, theo ngày hạch toán. Phiếu chờ duyệt/ghi sổ và phiếu chỉ liên quan (mục "Đối tượng liên quan") hiện mờ để tra cứu, không cộng vào tổng.'}
           </footer>
         </section>
       ) : null}

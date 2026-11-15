@@ -11784,3 +11784,8 @@ button.kpiCard {
     flex: 1;
   }
 }
+
+/* Dòng tổng ở đầu sổ chứng từ của dự án. */
+.ledgerTotal td {
+  background: var(--ep-surface-2, rgb(0 0 0 / 4%));
+}
