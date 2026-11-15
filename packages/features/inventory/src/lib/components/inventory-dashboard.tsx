@@ -3,7 +3,7 @@ import {
   resolveDashboardCards,
   type DashboardCardSize,
 } from '@enterprise-platform/feature-module-shell';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
@@ -11,8 +11,10 @@ import type {
 } from '../inventory-api';
 import {
   INVENTORY_DASHBOARD_CARDS,
+  visibleDashboardCards,
   type InventoryDashboardData,
 } from '../inventory-dashboard.cards';
+import { useInventoryPermissions } from '../inventory-permissions';
 import { formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
@@ -35,6 +37,8 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   ADJUST: 'Điều chỉnh',
 };
 
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 30].map((size) => ({ value: String(size), label: `${size} / trang` }));
+
 function formatDateTime(value: string): string {
   if (!value) return '—';
   return formatSharedDateTime(value, '—');
@@ -55,6 +59,7 @@ export function InventoryDashboard({
   onNavigate: (tab: 'stock' | 'assets' | 'transactions' | 'settings') => void;
   onOpenMovement?: (kind?: 'receipt' | 'issue' | 'transfer') => void;
 }) {
+  const { canReadCost } = useInventoryPermissions();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
 
@@ -79,13 +84,16 @@ export function InventoryDashboard({
     if (cardSelection !== undefined) {
       // Khi người dùng đã có cấu hình rõ ràng (kể cả mảng rỗng [] nếu bỏ tick hết)
       const byId = new Map(INVENTORY_DASHBOARD_CARDS.map((card) => [card.id, card]));
-      return cardSelection
-        .map((id) => byId.get(id))
-        .filter((card): card is (typeof INVENTORY_DASHBOARD_CARDS)[number] => card !== undefined);
+      return visibleDashboardCards(
+        cardSelection
+          .map((id) => byId.get(id))
+          .filter((card): card is (typeof INVENTORY_DASHBOARD_CARDS)[number] => card !== undefined),
+        canReadCost,
+      );
     }
     // Mặc định ban đầu nếu chưa tải settings
-    return resolveDashboardCards(INVENTORY_DASHBOARD_CARDS, []);
-  }, [cardSelection]);
+    return visibleDashboardCards(resolveDashboardCards(INVENTORY_DASHBOARD_CARDS, []), canReadCost);
+  }, [cardSelection, canReadCost]);
 
   const materialById = useMemo(
     () => new Map(workspace.materials.map((m) => [m.id, m])),
@@ -343,28 +351,19 @@ export function InventoryDashboard({
                 </span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => {
-                      setPageSize(Number(event.target.value) || 5);
+                  <SearchableSelect
+                    options={PAGE_SIZE_OPTIONS}
+                    value={String(pageSize)}
+                    onChange={(value) => {
+                      setPageSize(Number(value) || 5);
                       setCurrentPage(1);
                     }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={5}>5 / trang</option>
-                    <option value={10}>10 / trang</option>
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                  </select>
+                    clearable={false}
+                    searchInDropdown
+                    hideDropdownSearch
+                    height={28}
+                    style={{ width: '120px' }}
+                  />
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

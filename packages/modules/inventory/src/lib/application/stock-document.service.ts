@@ -33,6 +33,7 @@ import {
   resolveLineDirection,
 } from '../domain/stock-document-policy.js';
 import type { InventoryActor } from './inventory.application.js';
+import { visibleDocument, visibleDocumentPage, visiblePosted } from './cost-visibility.js';
 import { INVENTORY_STORE, type InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_SETTINGS_DEFAULTS, normalizeInventorySetting } from './inventory-settings.js';
 import {
@@ -76,17 +77,18 @@ export class StockDocumentService {
     if (query.fromDate && query.toDate && query.fromDate > query.toDate) {
       throw new InventoryError('VALIDATION', 'Từ ngày phải trước hoặc bằng đến ngày.');
     }
-    return this.documents.list(actor.tenantId, {
+    const page = await this.documents.list(actor.tenantId, {
       ...query,
       docTypes: query.docTypes?.length ? query.docTypes : undefined,
       sourceType: query.sourceType?.trim() || undefined,
     });
+    return visibleDocumentPage(actor, page);
   }
 
   async get(actor: InventoryActor, key: string): Promise<StockDocument> {
     const document = await this.documents.get(actor.tenantId, key);
     if (!document) throw new StockDocumentNotFoundError(key);
-    return document;
+    return visibleDocument(actor, document);
   }
 
   async create(actor: InventoryActor, input: CreateStockDocumentRequest): Promise<StockDocument> {
@@ -102,7 +104,7 @@ export class StockDocumentService {
     if (sourceId && !UUID_PATTERN.test(sourceId)) {
       throw new InventoryError('VALIDATION', 'Mã chứng từ nguồn không hợp lệ.');
     }
-    return this.documents.create(actor.tenantId, {
+    const created = await this.documents.create(actor.tenantId, {
       docType,
       warehouseCode,
       targetWarehouseCode,
@@ -114,6 +116,7 @@ export class StockDocumentService {
       createdBy: actor.userId,
       lines: normalizeLines(docType, input.lines),
     });
+    return visibleDocument(actor, created);
   }
 
   async update(
@@ -147,7 +150,7 @@ export class StockDocumentService {
         },
       };
     });
-    return result.document;
+    return visibleDocument(actor, result.document);
   }
 
   async submit(actor: InventoryActor, key: string): Promise<StockDocument> {
@@ -156,7 +159,7 @@ export class StockDocumentService {
       assertTransition(current, 'PENDING');
       return { kind: 'transition', to: 'PENDING', actorId: actor.userId };
     });
-    return result.document;
+    return visibleDocument(actor, result.document);
   }
 
   async approve(actor: InventoryActor, key: string): Promise<StockDocument> {
@@ -167,7 +170,7 @@ export class StockDocumentService {
       assertNotSelfApproval(current, actor.userId, allowSelfApproval);
       return { kind: 'transition', to: 'APPROVED', actorId: actor.userId };
     });
-    return result.document;
+    return visibleDocument(actor, result.document);
   }
 
   async reject(
@@ -182,15 +185,16 @@ export class StockDocumentService {
       assertTransition(current, 'REJECTED');
       return { kind: 'transition', to: 'REJECTED', actorId: actor.userId, reason };
     });
-    return result.document;
+    return visibleDocument(actor, result.document);
   }
 
   async post(actor: InventoryActor, key: string): Promise<PostedStockDocument> {
     requireStockWriter(actor);
-    return this.documents.change(actor.tenantId, key, (current) => {
+    const posted = await this.documents.change(actor.tenantId, key, (current) => {
       assertTransition(current, 'POSTED');
       return { kind: 'post', actorId: actor.userId };
     });
+    return visiblePosted(actor, posted);
   }
 
   async cancel(actor: InventoryActor, key: string): Promise<StockDocument> {
@@ -199,13 +203,16 @@ export class StockDocumentService {
       assertTransition(current, 'CANCELLED');
       return { kind: 'transition', to: 'CANCELLED', actorId: actor.userId };
     });
-    return result.document;
+    return visibleDocument(actor, result.document);
   }
 
   /** Sửa sai chứng từ đã ghi sổ: chứng từ đảo tham chiếu gốc, ghi sổ ngay; gốc giữ nguyên. */
   async reverse(actor: InventoryActor, key: string): Promise<PostedStockDocument> {
     requireStockWriter(actor);
-    return this.documents.reverse(actor.tenantId, key, actor.userId, assertReversible);
+    return visiblePosted(
+      actor,
+      await this.documents.reverse(actor.tenantId, key, actor.userId, assertReversible),
+    );
   }
 
   /**

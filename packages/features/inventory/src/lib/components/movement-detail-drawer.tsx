@@ -25,6 +25,7 @@ import {
   formatNumber,
   referenceLabel,
 } from '../inventory-labels';
+import { useInventoryPermissions } from '../inventory-permissions';
 import styles from '../inventory.module.scss';
 import { useUserLabel } from '../user-names';
 
@@ -68,6 +69,7 @@ export function MovementDetailDrawer({
 }: MovementDetailDrawerProps) {
   const [copied, setCopied] = useState(false);
   const userName = useUserLabel();
+  const { canReadCost } = useInventoryPermissions();
 
   // Đóng drawer khi nhấn ESC
   useEffect(() => {
@@ -155,6 +157,8 @@ export function MovementDetailDrawer({
       ? 'Nơi nhập — nhận hàng từ'
       : 'Nơi xuất — hàng đi đến';
 
+  // Không có `inventory.cost.read` thì API bỏ `unitCost`: ẩn hai ô giá thay vì báo "Chưa ghi nhận".
+  const showCost = canReadCost && transaction.unitCost !== undefined;
   const unitCost = Number(transaction.unitCost) || 0;
   const quantity = transaction.quantity;
   const totalValue = unitCost > 0 ? Math.abs(quantity) * unitCost : 0;
@@ -349,19 +353,23 @@ export function MovementDetailDrawer({
 
             {/* Chi tiết giá trị và kho */}
             <div className={styles.movementHeroGrid}>
-              <div className={styles.movementHeroStat}>
-                <span className={styles.movementHeroStatLabel}>Đơn giá ghi sổ</span>
-                <span className={styles.movementHeroStatValue}>
-                  {unitCost > 0 ? `${formatNumber(unitCost)} ₫` : 'Chưa ghi nhận'}
-                </span>
-              </div>
+              {showCost ? (
+                <>
+                  <div className={styles.movementHeroStat}>
+                    <span className={styles.movementHeroStatLabel}>Đơn giá ghi sổ</span>
+                    <span className={styles.movementHeroStatValue}>
+                      {unitCost > 0 ? `${formatNumber(unitCost)} ₫` : 'Chưa ghi nhận'}
+                    </span>
+                  </div>
 
-              <div className={styles.movementHeroStat}>
-                <span className={styles.movementHeroStatLabel}>Tổng giá trị</span>
-                <span className={styles.movementHeroStatValue}>
-                  {totalValue > 0 ? `${formatNumber(totalValue)} ₫` : '—'}
-                </span>
-              </div>
+                  <div className={styles.movementHeroStat}>
+                    <span className={styles.movementHeroStatLabel}>Tổng giá trị</span>
+                    <span className={styles.movementHeroStatValue}>
+                      {totalValue > 0 ? `${formatNumber(totalValue)} ₫` : '—'}
+                    </span>
+                  </div>
+                </>
+              ) : null}
 
               <div className={styles.movementHeroStat}>
                 <span className={styles.movementHeroStatLabel}>Kho ghi nhận</span>

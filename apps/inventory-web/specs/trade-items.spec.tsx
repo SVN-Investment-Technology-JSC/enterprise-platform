@@ -1,8 +1,9 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as renderBase, screen, waitFor, within } from '@testing-library/react';
 import { toast } from '@enterprise-platform/shared-ui';
 import {
   EMPTY_FILTER,
+  InventoryPermissionsContext,
   TradeItemsPage,
   categoryChoices,
   filterTradeItems,
@@ -63,6 +64,21 @@ jest.mock('@enterprise-platform/shared-ui', () => ({
     </select>
   ),
 }));
+
+const PERMISSIONS = {
+  canManage: true,
+  canWriteTransactions: true,
+  canWriteQuality: true,
+  canApproveDocuments: true,
+  canReadCost: true,
+};
+
+/** Mặc định người xem có quyền xem giá; `canReadCost: false` là người chỉ có `inventory.read`. */
+function render(ui: React.ReactElement, permissions: Partial<typeof PERMISSIONS> = {}) {
+  return renderBase(
+    <InventoryPermissionsContext.Provider value={{ ...PERMISSIONS, ...permissions }}>{ui}</InventoryPermissionsContext.Provider>,
+  );
+}
 
 const item = (patch: Record<string, unknown>) => ({
   id: String(patch.code),
@@ -157,6 +173,11 @@ describe('trade-items.model', () => {
     expect(row['Phân loại']).toBe('Dây dẫn');
   });
 
+  it('xuất khi không có quyền xem giá: bỏ hẳn cột Giá bán', () => {
+    const [row] = toExportRows([ITEMS[0]] as never, false);
+    expect(Object.keys(row)).toEqual(['Mã', 'Tên', 'Barcode', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng']);
+  });
+
   it('nhập: đọc đúng dòng hợp lệ và báo từng dòng sai kèm lý do', () => {
     const rows = parseImportRows(
       [
@@ -246,6 +267,22 @@ describe('TradeItemsPage', () => {
     // Mã cũ SALE_ONLY hiển thị bằng nhãn; barcode không còn là cột.
     expect(screen.queryByText('SALE_ONLY')).toBeNull();
     expect(screen.queryByText('893001')).toBeNull();
+  });
+
+  it('không có quyền xem giá (ISS-BE-013): không có cột Giá, drawer không có Giá bán', async () => {
+    // API bỏ salePrice với người chỉ có inventory.read.
+    mockLoadItems.mockResolvedValue(ITEMS.map((row) => ({ ...row, salePrice: undefined })));
+    render(<TradeItemsPage canManage={false} warehouses={warehouses} stock={stock} catalog={CATALOG} />, {
+      canManage: false,
+      canReadCost: false,
+    });
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers).toEqual(['Mã', 'Tên', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Trạng thái']);
+    fireEvent.click(screen.getByText('Cáp điện', { selector: 'td' }));
+    const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    expect(within(drawer).queryByText('Giá bán')).toBeNull();
+    expect(within(drawer).getByText('Sử dụng')).toBeTruthy();
   });
 
   it('không có quyền quản lý: chỉ xuất, không nhập hay tạo', async () => {

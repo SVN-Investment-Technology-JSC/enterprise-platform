@@ -91,6 +91,10 @@ const DOCUMENT_SELECT = `
     JOIN inventory_schema.warehouses w ON w.id = d.warehouse_id
     LEFT JOIN inventory_schema.warehouses tw ON tw.id = d.target_warehouse_id`;
 
+/**
+ * Dòng đọc từ DB luôn có `unitCost` (cột NOT NULL); trường chỉ vắng ở bản trả cho người
+ * không có `inventory.cost.read`, nên chỗ ghi sổ dưới đây đọc `line.unitCost ?? 0`.
+ */
 function mapLine(row: Row): StockDocumentLine {
   return {
     id: str(row.id),
@@ -403,7 +407,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
             materialCode: line.materialCode,
             quantity: line.quantity,
             direction: isTransfer ? line.direction : line.direction === 'IN' ? 'OUT' : 'IN',
-            unitCost: line.unitCost,
+            unitCost: line.unitCost ?? 0,
             serials: line.serials,
             lot: line.lotNo ? { lotNo: line.lotNo } : undefined,
             note: line.note,
@@ -797,7 +801,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           materialCode: line.materialCode,
           delta: -line.quantity,
           type: 'EXPORT',
-          unitCost: line.unitCost,
+          unitCost: line.unitCost ?? 0,
           note: note ? `${note} (Xuất chuyển đến kho ${to})` : `Xuất chuyển đến kho ${to}`,
           lineNo: line.lineNo,
           lineId: line.id,
@@ -812,7 +816,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           materialCode: line.materialCode,
           delta: line.quantity,
           type: 'IMPORT',
-          unitCost: line.unitCost,
+          unitCost: line.unitCost ?? 0,
           note,
           transferInOf: outIndex,
           transferFromCode: document.warehouseCode,
@@ -832,7 +836,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
         materialCode: line.materialCode,
         delta: inbound ? line.quantity : -line.quantity,
         type: document.docType === 'ADJUSTMENT' ? 'ADJUST' : inbound ? 'IMPORT' : 'EXPORT',
-        unitCost: line.unitCost,
+        unitCost: line.unitCost ?? 0,
         note,
         reservationId: inbound ? undefined : line.reservationId,
         lineNo: line.lineNo,

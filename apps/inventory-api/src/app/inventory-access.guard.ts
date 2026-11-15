@@ -4,6 +4,7 @@ import { tenantActionHeld } from '@enterprise-platform/contracts-identity';
 import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
+import { resolveInventoryRoute } from './inventory-route-permissions';
 
 /** Id của bên gọi dịch vụ; các cột `created_by` là uuid nên không nhận chuỗi tự do. */
 const INVENTORY_SYSTEM_ACTOR_ID = '00000000-0000-4000-8000-000000000002';
@@ -12,41 +13,20 @@ interface InventoryRequest extends Request {
   inventoryActor?: InventoryActor;
 }
 
-/**
- * Quyền cần cho một request, tách theo *loại thao tác* chứ không theo HTTP method.
- *
- * Ghi một dòng xuất kho và xoá một mã vật tư đều là POST/DELETE, nhưng hậu quả
- * khác hẳn nhau: thủ kho phải làm được cái đầu mà không được đụng cái sau. Gộp
- * cả hai vào `inventory.manage` buộc phải cấp quyền quản lý cho mọi thủ kho.
- */
-function requiredInventoryPermission(request: Request): string | undefined {
-  if (request.method === 'GET') return undefined;
+const DENIED_MESSAGES: Readonly<Record<string, string>> = {
+  'inventory.transaction.write': 'Bạn không có quyền ghi phát sinh tồn kho.',
+  'inventory.document.approve': 'Bạn không có quyền duyệt chứng từ kho.',
+  'inventory.quality.write': 'Bạn không có quyền đổi trạng thái chất lượng hàng.',
+  'inventory.manage': 'Bạn không có quyền sửa danh mục kho.',
+};
 
-  const path = request.path;
-  // Đổi trạng thái chất lượng lô, serial (Cách ly, Lỗi, Chờ kiểm định): quyền
-  // riêng của người kiểm định, không đi theo quyền ghi phát sinh tồn kho.
-  if (/\/(lots|serials)\/[^/]+\/quality\/?$/.test(path)) {
-    return 'inventory.quality.write';
-  }
-
-  // Duyệt, từ chối chứng từ kho: quyền riêng, người duyệt không nhất thiết là thủ kho.
-  if (/\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
-    return 'inventory.document.approve';
-  }
-
-  // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư, chứng từ kho.
-  if (
-    path.includes('/stock-documents') ||
-    path.includes('/receipts') ||
-    path.includes('/issues') ||
-    path.includes('/transfers') ||
-    path.includes('/reservations')
-  ) {
-    return 'inventory.transaction.write';
-  }
-
-  // Còn lại là sửa danh mục (vật tư, thiết bị) — vẫn đòi quyền quản lý.
-  return 'inventory.manage';
+/** Route chưa khai trong `INVENTORY_ROUTE_RULES`: từ chối thay vì đoán quyền. */
+function undeclaredRoute(): ForbiddenException {
+  return new ForbiddenException({
+    statusCode: 403,
+    code: 'ROUTE_NOT_DECLARED',
+    message: 'Thao tác này chưa được khai báo quyền trong phân hệ Kho.',
+  });
 }
 
 /**
@@ -62,12 +42,19 @@ export class InventoryAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<InventoryRequest>();
     if (this.access.isHealthCheck(request)) return true;
+    // Quyền tra theo bảng route khớp đúng method và đường dẫn; không có dòng thì từ chối.
+    const route = resolveInventoryRoute(request.method, request.path);
     // Service-to-service routes (Procedure resolving a Role E task template) carry
     // no browser session, so CSRF and the user access-decision do not apply.
-    if (this.access.isInternal(request)) return this.authorizeService(request);
+    if (this.access.isInternal(request)) {
+      const allowed = await this.authorizeService(request);
+      if (route?.permission !== 'service') throw undeclaredRoute();
+      return allowed;
+    }
 
     this.access.requireCsrfForMutation(request);
     const principal = await this.access.tenantUser(request);
+    if (!route || route.permission === 'service') throw undeclaredRoute();
 
     // Phân giải database bằng quyền đọc — ai dùng được module cũng phải có nó.
     // Quyền chi tiết cho từng loại thao tác kiểm ở dưới, trên danh sách quyền mà
@@ -82,18 +69,12 @@ export class InventoryAccessGuard implements CanActivate {
     }
 
     const held = decision.principal.permissions;
-    const required = requiredInventoryPermission(request);
-    if (required && !tenantActionHeld(held, required)) {
+    const required = route.permission;
+    if (required !== 'inventory.read' && !tenantActionHeld(held, required)) {
       throw new ForbiddenException({
+        statusCode: 403,
         code: 'ACCESS_DENIED',
-        message:
-          required === 'inventory.transaction.write'
-            ? 'Bạn không có quyền ghi phát sinh tồn kho.'
-            : required === 'inventory.document.approve'
-              ? 'Bạn không có quyền duyệt chứng từ kho.'
-              : required === 'inventory.quality.write'
-                ? 'Bạn không có quyền đổi trạng thái chất lượng hàng.'
-                : 'Bạn không có quyền sửa danh mục kho.',
+        message: DENIED_MESSAGES[required] ?? 'Bạn không có quyền thực hiện thao tác này trong phân hệ Kho.',
       });
     }
 
@@ -106,6 +87,8 @@ export class InventoryAccessGuard implements CanActivate {
       canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
       canApproveDocuments: tenantActionHeld(held, 'inventory.document.approve'),
       canWriteQuality: tenantActionHeld(held, 'inventory.quality.write'),
+      // Giá vốn, giá trị tồn, nguồn giữ hàng: `inventory.manage` bao hàm, `inventory.read` thì không.
+      canReadCost: tenantActionHeld(held, 'inventory.cost.read'),
     };
     return true;
   }
@@ -129,6 +112,8 @@ export class InventoryAccessGuard implements CanActivate {
       canApproveDocuments: false,
       // Đổi chất lượng cần người kiểm định thật, có lý do và người chịu trách nhiệm.
       canWriteQuality: false,
+      // Bán hàng báo giá theo giá vốn bình quân từ danh mục nội bộ.
+      canReadCost: true,
     };
     return true;
   }

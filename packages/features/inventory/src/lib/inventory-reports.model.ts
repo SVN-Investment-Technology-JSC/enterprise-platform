@@ -88,11 +88,15 @@ export function downloadReportSheets(fileName: string, sheets: readonly ReportSh
 /** Phân loại khai trong Cài đặt; hàng chưa phân loại để trống. */
 const categoryLabel = (category?: string) => category ?? '';
 
-/** Trang tính của báo cáo tồn theo kiểu đang xem, kèm dòng tổng. */
+/**
+ * Trang tính của báo cáo tồn theo kiểu đang xem, kèm dòng tổng. `showCost` sai (người
+ * không có `inventory.cost.read`, API không trả giá) thì bỏ hẳn cột giá.
+ */
 export function stockReportSheet(
   report: StockReport,
   rows: StockReport['rows'],
   intro: readonly string[],
+  showCost = true,
 ): ReportSheet {
   if (report.groupBy === 'SERIAL') {
     const totals = report.totals;
@@ -150,7 +154,16 @@ export function stockReportSheet(
   return {
     name: 'Tồn theo kho',
     intro,
-    headers: ['Kho', 'Tên kho', 'Mã vật tư', 'Tên vật tư', 'Phân loại', 'Đơn vị', ...quantityHeaders, 'Giá bình quân', 'Giá trị tồn'],
+    headers: [
+      'Kho',
+      'Tên kho',
+      'Mã vật tư',
+      'Tên vật tư',
+      'Phân loại',
+      'Đơn vị',
+      ...quantityHeaders,
+      ...(showCost ? ['Giá bình quân', 'Giá trị tồn'] : []),
+    ],
     rows: [
       ...(rows as Extract<StockReport, { groupBy: 'WAREHOUSE' }>['rows']).map((row) => [
         row.warehouseCode,
@@ -163,27 +176,25 @@ export function stockReportSheet(
         row.reserved,
         row.blocked,
         row.available,
-        row.avgCost,
-        row.stockValue,
+        ...(showCost ? [row.avgCost ?? '', row.stockValue ?? ''] : []),
       ]),
-      ['Tổng cộng', '', '', '', '', '', ...totalCells, '', totals.stockValue ?? 0],
+      ['Tổng cộng', '', '', '', '', '', ...totalCells, ...(showCost ? ['', totals.stockValue ?? 0] : [])],
     ],
   };
 }
-
-const AMOUNT_HEADERS = ['SL nhập', 'SL xuất', 'Giá trị nhập', 'Giá trị xuất', 'Số bút toán'];
 
 /** Ba trang tính của báo cáo nhập xuất: tổng theo nhóm, theo loại chứng từ và kho, bút toán. */
 export function movementReportSheets(
   report: StockMovementReport,
   lines: readonly StockMovementLine[],
   intro: readonly string[],
+  showCost = true,
 ): ReportSheet[] {
+  const AMOUNT_HEADERS = ['SL nhập', 'SL xuất', ...(showCost ? ['Giá trị nhập', 'Giá trị xuất'] : []), 'Số bút toán'];
   const amounts = (row: StockMovementReport['totals']): Cell[] => [
     row.quantityIn,
     row.quantityOut,
-    row.valueIn,
-    row.valueOut,
+    ...(showCost ? [row.valueIn ?? '', row.valueOut ?? ''] : []),
     row.entries,
   ];
   return [
@@ -223,8 +234,7 @@ export function movementReportSheets(
         'Tên vật tư',
         'Đơn vị',
         'Số lượng',
-        'Đơn giá',
-        'Giá trị',
+        ...(showCost ? ['Đơn giá', 'Giá trị'] : []),
         'Ghi chú',
       ],
       rows: lines.map((line) => [
@@ -239,8 +249,7 @@ export function movementReportSheets(
         line.materialName,
         line.unit ?? '',
         line.quantity,
-        line.unitCost,
-        line.value,
+        ...(showCost ? [line.unitCost ?? '', line.value ?? ''] : []),
         line.note ?? '',
       ]),
     },
@@ -248,7 +257,11 @@ export function movementReportSheets(
 }
 
 /** Trang tính lịch sử duyệt; người thực hiện là id người dùng. */
-export function approvalReportSheet(rows: readonly StockApprovalReportRow[], intro: readonly string[]): ReportSheet {
+export function approvalReportSheet(
+  rows: readonly StockApprovalReportRow[],
+  intro: readonly string[],
+  showCost = true,
+): ReportSheet {
   return {
     name: 'Lịch sử duyệt',
     intro,
@@ -269,7 +282,7 @@ export function approvalReportSheet(rows: readonly StockApprovalReportRow[], int
       'Ghi sổ lúc',
       'SL tăng',
       'SL giảm',
-      'Giá trị',
+      ...(showCost ? ['Giá trị'] : []),
     ],
     rows: rows.map((row) => [
       row.documentCode,
@@ -288,7 +301,7 @@ export function approvalReportSheet(rows: readonly StockApprovalReportRow[], int
       row.postedAt ? formatDateTime(row.postedAt) : '',
       row.quantityIn,
       row.quantityOut,
-      row.value,
+      ...(showCost ? [row.value ?? ''] : []),
     ]),
   };
 }

@@ -106,6 +106,7 @@ export interface InventoryWorkspace {
     canWriteTransactions: boolean;
     canWriteQuality?: boolean;
     canApproveDocuments?: boolean;
+    canReadCost?: boolean;
   };
   readonly warehouses: Warehouse[];
   readonly materials: Material[];

@@ -116,6 +116,11 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0021-assignment-employee-link',
     path: 'tenant/core/0021-assignment-employee-link.sql',
   },
+  // Kho tách quyền xem giá vốn: gán sẵn cho vai trò ghi phát sinh kho (ISS-BE-013).
+  {
+    version: '0020-inventory-cost-read-default',
+    path: 'tenant/core/0020-inventory-cost-read-default.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
