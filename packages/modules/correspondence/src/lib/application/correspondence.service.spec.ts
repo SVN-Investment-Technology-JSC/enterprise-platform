@@ -1180,6 +1180,56 @@ describe('Quy trình chuẩn văn bản đến: dựng bằng cấu hình', () =
     // Bộ phận tổng hợp (xem báo cáo) cũng đôn đốc được.
     await expect(service.remind(actor('u-outsider', { canReadReports: true, canReadAll: true }), soon.id, {})).resolves.toBeDefined();
   });
+
+  it('văn thư → TGĐ chỉ đạo → phòng ban xử lý → TGĐ duyệt kết quả → văn thư hoàn tất; TGĐ không đạt thì phòng ban làm lại', async () => {
+    const { service } = setup();
+    await service.saveWorkflow(configurer, undefined, {
+      name: 'Qua TGĐ trước và sau phòng ban',
+      direction: 'incoming',
+      isDefault: true,
+      steps: [
+        { key: 'direct', name: 'TGĐ chỉ đạo', type: 'approve', directs: true, approver: { type: 'users', userIds: ['u-leader'] } },
+        { key: 'process', name: 'Phòng ban xử lý', type: 'process' },
+        { key: 'sign', name: 'TGĐ duyệt kết quả', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } },
+      ],
+    });
+    const letter = await service.create(clerk, intake);
+    expect(letter.flow.map((node) => [node.kind, node.label])).toEqual([
+      ['start', 'Văn thư tiếp nhận'],
+      ['approve', 'TGĐ chỉ đạo'],
+      ['process', 'Phòng ban xử lý'],
+      ['approve', 'TGĐ duyệt kết quả'],
+      ['end', 'Văn thư hoàn tất, lưu trữ'],
+    ]);
+    // Văn thư trình TGĐ, không chọn phòng ban.
+    const directing = await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal' });
+    expect(directing).toMatchObject({ stage: 'reviewing', currentStepName: 'TGĐ chỉ đạo', currentAssigneeNames: ['Nguyễn Văn An'] });
+    // TGĐ bút phê: phòng chủ trì, phối hợp, hạn.
+    const processing = await service.approve(leader, letter.id, {
+      note: 'Kế toán chủ trì, Pháp chế phối hợp.',
+      dueOn: '2026-11-25',
+      units: [{ unitId: 'unit-finance', role: 'lead' }, { unitId: 'unit-legal', role: 'support', handlerUserId: 'u-lawyer' }],
+    });
+    expect(processing).toMatchObject({ stage: 'processing', dueOn: '2026-11-25', instruction: 'Kế toán chủ trì, Pháp chế phối hợp.' });
+    const [finance, legal] = processing.assignments;
+    await service.respond(accountant, letter.id, finance.id, { note: 'Đã lập báo cáo.' });
+    const signing = await service.respond(lawyer, letter.id, legal.id, { note: 'Đã rà soát.' });
+    // Cùng TGĐ ở bước sau vẫn phải duyệt kết quả, không tự bỏ qua.
+    expect(signing).toMatchObject({ stage: 'reviewing', currentStepName: 'TGĐ duyệt kết quả', currentAssigneeNames: ['Nguyễn Văn An'] });
+    expect((await service.detail(leader, letter.id)).actions).toMatchObject({ approve: true, defaultReturnTarget: 'previous-step' });
+    // TGĐ không đạt: trả phòng ban, chỉ phòng được chọn làm lại; gửi lại thì về TGĐ.
+    const back = await service.returnLetter(leader, letter.id, { target: 'previous-step', reason: 'Bổ sung số liệu quý 3.', assignmentIds: [finance.id] });
+    expect(back.stage).toBe('processing');
+    expect(back.assignments.map((item) => item.status)).toEqual(['pending', 'submitted']);
+    const again = await service.respond(accountant, letter.id, finance.id, { note: 'Đã bổ sung.' });
+    expect(again).toMatchObject({ stage: 'reviewing', currentStepName: 'TGĐ duyệt kết quả' });
+    // TGĐ đạt: về văn thư chốt.
+    const closing = await service.approve(leader, letter.id, { note: 'Đồng ý.' });
+    expect(closing.stage).toBe('closing');
+    const archived = await service.complete(clerk, letter.id, {});
+    expect(archived.stage).toBe('archived');
+    expect(archived.flow.every((node) => node.state === 'done')).toBe(true);
+  });
 });
 
 describe('Ô đầu, ô cuối cấu hình được', () => {
