@@ -82,6 +82,7 @@ import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
+import { useProgressReport } from './use-progress-report';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm } from './work-item-form';
@@ -1111,6 +1112,14 @@ export function ProjectsView({
     },
     [askBlockedReason, openProjectId, refreshDetail],
   );
+  /**
+   * Cập nhật tiến độ một việc (`null`: về tự động) qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo,
+   * server đổi trạng thái theo con số. Nạp lại chi tiết dự án sau đó để số và trạng thái trên màn khớp.
+   */
+  const reloadAfterProgress = useCallback(async () => {
+    if (openProjectId) await refreshDetail(openProjectId);
+  }, [openProjectId, refreshDetail]);
+  const { setProgress: setItemProgress, dialog: progressDialog } = useProgressReport(reloadAfterProgress);
   const changeItemStatus = useCallback(
     async (item: WorkItem, next: WorkItemStatus) => {
       // Vướng mắc phải kèm lý do — hỏi trước, kể cả khi kéo thẻ Kanban sang cột Vướng mắc.
@@ -1328,6 +1337,7 @@ export function ProjectsView({
                   onAddRoot={openItemForm}
                   onMenu={openItemMenu}
                   onChangeStatus={changeItemStatus}
+                  onSetProgress={setItemProgress}
                 />
               ) : null}
               {tab === 'calendar' ? (
@@ -1436,6 +1446,7 @@ export function ProjectsView({
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
             canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onEdit={() => onAction('edit-item', selected)}
+            onSetProgress={(next) => setItemProgress(selectedItem, next)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
             onOpenChat={() => setChatOpen(true)}
@@ -1725,6 +1736,7 @@ export function ProjectsView({
       />
 
       {blockedPrompt.dialog}
+      {progressDialog}
 
       <CancelWorkItemDialog
         item={cancellingItem}

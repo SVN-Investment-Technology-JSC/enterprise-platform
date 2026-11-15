@@ -284,9 +284,113 @@ export function DateChip({
   );
 }
 
+const PROGRESS_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
+
 /**
- * Ô tiến độ: thanh và số phần trăm. Bấm vào số để gõ tiến độ nhập tay (Enter hay rời ô để lưu, Esc để thôi).
- * Chuột phải vào ô để quay về tiến độ tự động. Số màu xanh là đang dùng tiến độ nhập tay.
+ * Bảng chọn nhanh tiến độ (bám 1Office): hàng nút 0, 10 … 100, ô gõ số bất kỳ, và nút quay về tiến độ tự động khi đang
+ * nhập tay. Nổi ngay dưới ô tiến độ, đóng khi bấm ra ngoài hoặc nhấn Esc.
+ */
+function ProgressPicker({
+  anchor,
+  value,
+  manual,
+  auto,
+  onPick,
+  onClose,
+}: {
+  anchor: DOMRect;
+  value: number;
+  manual: boolean;
+  auto?: number;
+  onPick: (next: number | null) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(String(value));
+  const [position, setPosition] = useState({ left: anchor.left, top: anchor.bottom + 6 });
+
+  useLayoutEffect(() => {
+    const box = ref.current?.getBoundingClientRect();
+    if (!box) return;
+    const fitsBelow = anchor.bottom + 6 + box.height <= window.innerHeight - 8;
+    setPosition({
+      left: Math.max(8, Math.min(anchor.left, window.innerWidth - box.width - 8)),
+      top: fitsBelow ? anchor.bottom + 6 : Math.max(8, anchor.top - box.height - 6),
+    });
+  }, [anchor]);
+
+  useEffect(() => {
+    const dismiss = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', dismiss, true);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onClose);
+    // Cuộn bảng hay trang làm dòng chứa ô dời đi còn bảng chọn đứng yên: đóng để khỏi chọn nhầm sang dòng khác.
+    window.addEventListener('scroll', onClose, true);
+    return () => {
+      document.removeEventListener('mousedown', dismiss, true);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onClose);
+      window.removeEventListener('scroll', onClose, true);
+    };
+  }, [onClose]);
+
+  const submitText = () => {
+    const next = Number(text.trim());
+    if (!text.trim() || !Number.isInteger(next) || next < 0 || next > 100) {
+      setText(String(value));
+      return;
+    }
+    onPick(next);
+  };
+
+  return (
+    <div ref={ref} role="dialog" aria-label="Chọn tiến độ" className={styles.progressPicker} style={position}>
+      <div className={styles.progressPickerSteps}>
+        {PROGRESS_STEPS.map((step) => (
+          <button
+            key={step}
+            type="button"
+            className={step === value ? styles.progressPickerStepActive : styles.progressPickerStep}
+            aria-pressed={step === value}
+            onClick={() => onPick(step)}
+          >
+            {step}
+          </button>
+        ))}
+      </div>
+      <div className={styles.progressPickerRow}>
+        <input
+          className={styles.progressInput}
+          value={text}
+          inputMode="numeric"
+          aria-label="Nhập tiến độ (%)"
+          onChange={(event) => setText(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') submitText();
+          }}
+        />
+        <span>%</span>
+        <button type="button" className={styles.buttonSmall} onClick={submitText}>
+          Lưu
+        </button>
+        {manual ? (
+          <button type="button" className={styles.buttonSmall} onClick={() => onPick(null)}>
+            Về tự động{auto === undefined ? '' : ` (${auto}%)`}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Ô tiến độ: thanh và số phần trăm. Bấm vào thanh hoặc số để mở bảng chọn nhanh 0–100 (hoặc gõ số bất kỳ). Chuột phải
+ * để quay về tiến độ tự động. Số màu xanh là đang dùng tiến độ nhập tay.
  */
 export function ProgressCell({
   label,
@@ -299,36 +403,30 @@ export function ProgressCell({
   label: string;
   value: number;
   manual: boolean;
-  /** Tiến độ tự tính, hiện trong menu chuột phải. */
+  /** Tiến độ tự tính, hiện trong bảng chọn và menu chuột phải. */
   auto?: number;
   disabled?: boolean;
   /** `null`: quay về tự tính. */
   onCommit: (next: number | null) => Promise<void> | void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(String(value));
+  const [picker, setPicker] = useState<DOMRect>();
   const [menu, setMenu] = useState<{ x: number; y: number }>();
-  useEffect(() => setText(String(value)), [value]);
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
-  const commit = () => {
-    setEditing(false);
-    const trimmed = text.trim();
-    const next = Number(trimmed);
-    if (!trimmed || !Number.isInteger(next) || next < 0 || next > 100 || (next === value && manual)) {
-      setText(String(value));
-      return;
-    }
-    void onCommit(next);
+  const open = () => {
+    const box = anchorRef.current?.getBoundingClientRect();
+    if (box) setPicker(box);
   };
 
   const percent = Math.min(100, Math.max(0, value));
   const tip = disabled
     ? undefined
     : manual
-      ? `Tiến độ nhập tay. Chuột phải để về tiến độ tự động${auto === undefined ? '' : ` (${auto}%)`}.`
-      : 'Tiến độ tự động. Bấm vào số để nhập tay.';
+      ? `Tiến độ nhập tay. Bấm để đổi, chuột phải để về tiến độ tự động${auto === undefined ? '' : ` (${auto}%)`}.`
+      : 'Tiến độ tự động. Bấm để chọn hoặc nhập tay.';
   const cell = (
     <span
+      ref={anchorRef}
       className={styles.progressEdit}
       onContextMenu={(event) => {
         if (disabled) return;
@@ -337,46 +435,53 @@ export function ProgressCell({
         event.stopPropagation();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
+      onClick={(event) => {
+        // Bấm vào ô không được kéo theo thao tác "mở dòng" của bảng chứa nó.
+        event.stopPropagation();
+      }}
     >
-      <span className={styles.progressBar} aria-hidden>
-        <span
-          style={{ width: `${percent}%`, background: percent >= 100 ? 'var(--ep-success, #16a34a)' : undefined }}
-        />
-      </span>
-      {editing ? (
-        <input
-          className={styles.progressInput}
-          value={text}
-          inputMode="numeric"
-          aria-label={label}
-          autoFocus
-          onChange={(event) => setText(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur();
-            if (event.key === 'Escape') {
-              setText(String(value));
-              setEditing(false);
-            }
+      <button
+        type="button"
+        className={styles.progressBarButton}
+        aria-label={`${label}: ${value}%${manual ? ', nhập tay' : ''}`}
+        disabled={disabled}
+        onClick={open}
+      >
+        <span className={styles.progressBar} aria-hidden>
+          <span
+            style={{ width: `${percent}%`, background: percent >= 100 ? 'var(--ep-success, #16a34a)' : undefined }}
+          />
+        </span>
+      </button>
+      <button
+        type="button"
+        className={manual ? styles.progressValueManual : styles.progressValue}
+        aria-label={`${label}: ${value}%${manual ? ', nhập tay' : ''}`}
+        disabled={disabled}
+        onClick={open}
+      >
+        {value}%
+      </button>
+      {picker ? (
+        <ProgressPicker
+          anchor={picker}
+          value={value}
+          manual={manual}
+          auto={auto}
+          onClose={() => setPicker(undefined)}
+          onPick={(next) => {
+            setPicker(undefined);
+            if (next === value && manual) return;
+            void onCommit(next);
           }}
         />
-      ) : (
-        <button
-          type="button"
-          className={manual ? styles.progressValueManual : styles.progressValue}
-          aria-label={`${label}: ${value}%${manual ? ', nhập tay' : ''}`}
-          disabled={disabled}
-          onClick={() => setEditing(true)}
-        >
-          {value}%
-        </button>
-      )}
+      ) : null}
       {menu ? (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           actions={[
-            { id: 'edit', label: 'Nhập tiến độ…' },
+            { id: 'edit', label: 'Chọn tiến độ…' },
             ...(manual
               ? [
                   {
@@ -389,7 +494,7 @@ export function ProgressCell({
           onClose={() => setMenu(undefined)}
           onPick={(actionId) => {
             setMenu(undefined);
-            if (actionId === 'edit') setEditing(true);
+            if (actionId === 'edit') open();
             if (actionId === 'auto') void onCommit(null);
           }}
         />

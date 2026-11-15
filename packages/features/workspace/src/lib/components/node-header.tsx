@@ -16,6 +16,7 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ProgressCell } from './inline-cells';
 import { Tooltip } from './tooltip';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
@@ -32,6 +33,8 @@ export interface NodeHeaderProps {
   readonly canEdit: boolean;
   readonly canWrite: boolean;
   readonly onEdit: () => void;
+  /** Đặt tiến độ nhập tay cho công việc đang chọn (`null`: về tự động). Vắng thì chỉ xem. */
+  readonly onSetProgress?: (next: number | null) => Promise<void>;
   readonly onAddChild: () => void;
   /** Số tin chưa đọc của node đang đứng, đã cộng dồn nhánh con. */
   readonly unread: number;
@@ -67,6 +70,7 @@ export function NodeHeader({
   canEdit,
   canWrite,
   onEdit,
+  onSetProgress,
   onAddChild,
   unread,
   onOpenChat,
@@ -306,6 +310,19 @@ export function NodeHeader({
         {selected?.reversal ? (
           // Việc huỷ hiệu lực không còn tính tiến độ; hiện 100% sẽ gây hiểu nhầm.
           <span className={styles.muted}>Không tính vào tiến độ</span>
+        ) : selected &&
+        onSetProgress &&
+        canEdit &&
+        !items.some((item) => item.parentId === selected.id) &&
+        selected.status !== 'done' &&
+        selected.status !== 'cancelled' ? (
+          <ProgressCell
+            label={`Tiến độ của ${selected.code}`}
+            value={selected.progressPercent}
+            manual={Boolean(selected.progressManual)}
+            auto={selected.autoProgressPercent}
+            onCommit={onSetProgress}
+          />
         ) : (
           <span className={styles.nodeProgress}>
             <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>

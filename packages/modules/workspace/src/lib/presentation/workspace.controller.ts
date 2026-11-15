@@ -41,6 +41,7 @@ import type {
   CreateWorkItemRequest,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  ReportWorkItemProgressRequest,
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
@@ -436,6 +437,23 @@ export class WorkspaceController {
         body ?? ({} as ChangeWorkItemStatusRequest),
       ),
     );
+  }
+
+  /** Báo cáo tiến độ công việc: ghi lịch sử, đưa tiến độ và trạng thái về khớp con số báo. */
+  @Post('work-items/:id/progress-reports')
+  reportWorkItemProgress(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReportWorkItemProgressRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.reportProgress(this.actor(request), id, body ?? ({} as ReportWorkItemProgressRequest)),
+    );
+  }
+
+  @Get('work-items/:id/progress-reports')
+  listWorkItemProgressReports(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ items: await this.workItems.progressReports(this.actor(request), id) }));
   }
 
   @Post('work-items/:id/move')

@@ -35,6 +35,7 @@ import { GanttChart } from './gantt-chart';
 import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
+import { ProgressCell } from './inline-cells';
 import { Tooltip } from './tooltip';
 import { useFillViewportHeight } from './use-fill-viewport';
 import type { PendingProcedure } from '../procedure-pending';
@@ -181,6 +182,8 @@ export interface TabWorkProps {
   /** Chuột phải trên một dòng: cùng menu lệnh với cây công việc trước đây. */
   readonly onMenu: (item: WorkItem, at: { x: number; y: number }) => void;
   readonly onChangeStatus: (item: WorkItem, next: WorkItemStatus) => Promise<void>;
+  /** Đặt tiến độ nhập tay cho một việc (`null`: về tự động). Vắng thì cột tiến độ chỉ xem. */
+  readonly onSetProgress?: (item: WorkItem, next: number | null) => Promise<void>;
 }
 
 /**
@@ -203,6 +206,7 @@ function TabWorkImpl({
   onAddRoot,
   onMenu,
   onChangeStatus,
+  onSetProgress,
 }: TabWorkProps) {
   const directory = useDirectory();
   const tags = useTags();
@@ -860,6 +864,14 @@ function TabWorkImpl({
                               —
                             </span>
                           </Tooltip>
+                        ) : onSetProgress && canWrite && !row.hasChildren && item.status !== 'done' && item.status !== 'cancelled' ? (
+                          <ProgressCell
+                            label={`Tiến độ của ${item.code}`}
+                            value={item.progressPercent}
+                            manual={Boolean(item.progressManual)}
+                            auto={item.autoProgressPercent}
+                            onCommit={(next) => onSetProgress(item, next)}
+                          />
                         ) : (
                           <span className={styles.progressCell}>
                             <span

@@ -11617,3 +11617,126 @@ button.kpiCard {
 .progressLate {
   color: #b45309;
 }
+
+/* Bảng chọn nhanh tiến độ (ProgressCell). */
+.progressBarButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.progressPicker {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: var(--ep-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.progressPickerSteps {
+  display: flex;
+  gap: 4px;
+}
+
+.progressPickerStep,
+.progressPickerStepActive {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: #dbeafe;
+  color: #2563eb;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: #bfdbfe;
+  }
+}
+
+.progressPickerStepActive {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+
+  &:hover {
+    background: #1d4ed8;
+  }
+}
+
+.progressPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* Cột Tiến độ của bảng WBS hẹp: thu thanh lại để số phần trăm không đè sang cột bên. */
+.wbsColProgress .progressEdit {
+  gap: 4px;
+}
+
+.wbsColProgress .progressBar {
+  width: 44px;
+}
+
+.wbsColProgress .progressValue,
+.wbsColProgress .progressValueManual {
+  min-width: 0;
+}
+
+/* Lịch sử báo cáo tiến độ trong tab Tổng quan. */
+.progressHistory {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--ep-line);
+  }
+
+  li:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    white-space: pre-wrap;
+  }
+}
+
+.progressHistoryHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+
+  b {
+    min-width: 42px;
+    color: #2563eb;
+  }
+
+  span {
+    color: var(--ep-text-sub);
+  }
+}

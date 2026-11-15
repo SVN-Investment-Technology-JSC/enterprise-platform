@@ -80,6 +80,7 @@ import type {
   WorkItemStatus,
   WorkItemFieldChange,
   StandaloneTaskFieldChange,
+  WorkItemProgressReport,
   WorkItemStatusHistoryEntry,
   WorkItemCompletionEvidence,
   WorkItemCompletionInput,
@@ -277,6 +278,21 @@ function mapProject(row: Row): Project {
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+const PROGRESS_REPORT_COLUMNS = `id, work_item_id, to_char(reported_on, 'YYYY-MM-DD') AS reported_on, reported_by,
+       percent, description, created_at`;
+
+function mapProgressReport(row: Row): WorkItemProgressReport {
+  return {
+    id: str(row.id),
+    workItemId: str(row.work_item_id),
+    reportedOn: str(row.reported_on),
+    reportedBy: str(row.reported_by),
+    percent: num(row.percent),
+    description: opt(row.description),
+    createdAt: iso(row.created_at),
   };
 }
 
@@ -1391,6 +1407,40 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       }));
     },
 
+    addProgressReport: async (
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly projectId: string;
+        readonly reportedBy: string;
+        readonly reportedOn: string;
+        readonly percent: number;
+        readonly description?: string;
+      },
+    ): Promise<WorkItemProgressReport> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.work_item_progress_reports
+           (work_item_id, project_id, reported_on, reported_by, percent, description)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING ${PROGRESS_REPORT_COLUMNS}`,
+        [input.workItemId, input.projectId, input.reportedOn, input.reportedBy, input.percent, input.description ?? null],
+      );
+      return mapProgressReport(result.rows[0] as Row);
+    },
+
+    listProgressReports: async (tenantId: string, workItemId: string): Promise<WorkItemProgressReport[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROGRESS_REPORT_COLUMNS}
+           FROM workspace_schema.work_item_progress_reports
+          WHERE work_item_id = $1
+          ORDER BY created_at DESC, id DESC`,
+        [workItemId],
+      );
+      return result.rows.map(mapProgressReport);
+    },
+
     openChildCount: async (tenantId: string, workItemId: string) => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<{ open_children: string }>(
@@ -1652,12 +1702,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   actual_end   = CASE WHEN $2::varchar IN ('done','cancelled') THEN $3::date ELSE NULL END,
                   -- Hoàn thành là 100%; về Chưa làm là 0%; hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ
                   -- 100% của lần hoàn thành. Việc có con được tính lại từ con ở bước cuộn tiến độ sau đó.
-                  progress_percent = CASE WHEN $2::varchar = 'done' THEN 100
+                  -- Chờ duyệt cũng là 100% (người làm đã xong, chờ xác nhận) và rời Chờ duyệt về Đang làm thì về 0% như hoàn
+                  -- tác; tầng ứng dụng khôi phục lại số của báo cáo gần nhất nếu có (xem restoreProgress).
+                  progress_percent = CASE WHEN $2::varchar IN ('done', 'review') THEN 100
                                           WHEN $2::varchar = 'todo' THEN 0
-                                          WHEN $4::varchar = 'done' THEN 0
+                                          WHEN $4::varchar IN ('done', 'review') AND $2::varchar <> 'cancelled' THEN 0
                                           ELSE progress_percent END,
-                  -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
-                  manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
+                  -- Hoàn thành, Chờ duyệt, về Chưa làm hoặc mở lại: bỏ tiến độ nhập tay để không còn hiện con số cũ.
+                  manual_progress_percent = CASE WHEN $2::varchar IN ('done', 'review', 'todo') THEN NULL
+                                                 WHEN $4::varchar IN ('done', 'review') AND $2::varchar <> 'cancelled' THEN NULL
                                                  ELSE manual_progress_percent END,
                   -- Lý do vướng mắc chỉ sống cùng trạng thái Vướng mắc: vào thì ghi, rời đi thì xoá.
                   blocked_reason = CASE WHEN $2::varchar = 'blocked' THEN $5::text ELSE NULL END,

@@ -13,9 +13,11 @@ import {
   type CreateWorkItemRequest,
   type DependencyType,
   type MoveWorkItemRequest,
+  type ReportWorkItemProgressRequest,
   type ReverseWorkItemRequest,
   type UpdateWorkItemRequest,
   type WorkItem,
+  type WorkItemProgressReport,
   type WorkItemDependency,
   type WorkItemStatus,
   type WorkItemStatusHistoryEntry,
@@ -24,6 +26,12 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { evaluateCompletion, parseCompletionInput } from '../domain/completion.rules.js';
+import {
+  parseReportDate,
+  parseReportDescription,
+  parseReportPercent,
+  progressToRestore,
+} from '../domain/progress-report.rules.js';
 import {
   autoCompleteParents,
   isClosed,
@@ -453,6 +461,8 @@ export class WorkItemService {
     actor: WorkspaceActor,
     workItemId: string,
     input: ChangeWorkItemStatusRequest,
+    /** `keepProgress`: nơi gọi tự đặt tiến độ ngay sau đó (báo cáo tiến độ), nên khỏi khôi phục số của báo cáo cũ. */
+    options: { readonly keepProgress?: boolean } = {},
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
     assertProjectWritable(access.project);
@@ -547,7 +557,12 @@ export class WorkItemService {
         : undefined;
 
     // 5 và 6 — mốc thực tế và nhật ký ghi trong cùng một transaction ở store.
-    const updated = await this.store.workItem.changeStatus(
+    // Vào Hoàn thành / Chờ duyệt thì store đặt 100% và bỏ số nhập tay: ghi lại số hiện có thành một báo cáo để mở lại
+    // sau này còn khôi phục được (xem `restoreProgress`).
+    if (!options.keepProgress && (next === 'done' || next === 'review') && item.status !== 'done' && item.status !== 'review') {
+      await this.snapshotProgress(actor, item);
+    }
+    let updated = await this.store.workItem.changeStatus(
       actor.tenantId,
       workItemId,
       actor.userId,
@@ -556,6 +571,16 @@ export class WorkItemService {
       todayKey(timezoneOf(actor.tenantId)),
       completionEvidence,
     );
+    // Rời Hoàn thành / Chờ duyệt về Đang làm: store đưa tiến độ về 0%; có báo cáo trước đó thì trả về số của báo cáo
+    // gần nhất thay vì mất hết (việc có con thì tiến độ tính lại từ con, không khôi phục).
+    if (
+      !options.keepProgress &&
+      next === 'in_progress' &&
+      (item.status === 'done' || item.status === 'review')
+    ) {
+      const restored = await this.restoreProgress(actor, item);
+      if (restored) updated = restored;
+    }
     if (reopening) {
       // Việc con được hoàn tác thì các cha đã xong phía trên không còn đúng là đã xong: mở lại luôn (từ ngoài vào trong).
       // Đây là hệ quả của việc hoàn tác, không phải thao tác riêng nên không kiểm quyền hoàn tác của từng cha.
@@ -579,6 +604,138 @@ export class WorkItemService {
     // Công việc bị huỷ thì trả xe đã giữ.
     if (next === 'cancelled') await this.fleet?.release(actor.tenantId, 'WORK_ITEM', workItemId);
     return updated;
+  }
+
+  /**
+   * Lưu số tiến độ hiện có thành một báo cáo trước khi Hoàn thành / Chờ duyệt ghi đè nó, nếu số đó chưa nằm sẵn trong
+   * lịch sử (tiến độ đặt bằng cách sửa trực tiếp, hoặc đã đổi sau báo cáo cuối vì về Chưa làm). Bỏ qua việc có việc con
+   * (tiến độ tính từ con), số 0% hoặc 100%.
+   */
+  private async snapshotProgress(actor: WorkspaceActor, item: WorkItem): Promise<void> {
+    if (item.progressPercent <= 0 || item.progressPercent >= 100) return;
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) return;
+    const [latest] = await this.store.workItem.listProgressReports(actor.tenantId, item.id);
+    if (latest?.percent === item.progressPercent) return;
+    await this.store.workItem.addProgressReport(actor.tenantId, {
+      workItemId: item.id,
+      projectId: item.projectId,
+      reportedBy: actor.userId,
+      reportedOn: todayKey(timezoneOf(actor.tenantId)),
+      percent: item.progressPercent,
+      description: 'Tiến độ trước khi chuyển trạng thái.',
+    });
+  }
+
+  /** Khôi phục tiến độ theo báo cáo gần nhất chưa tới 100%; `undefined` khi không có gì để khôi phục. */
+  private async restoreProgress(actor: WorkspaceActor, item: WorkItem): Promise<WorkItem | undefined> {
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) return undefined;
+    const percent = progressToRestore(await this.store.workItem.listProgressReports(actor.tenantId, item.id));
+    if (percent === undefined) return undefined;
+    return this.store.workItem.update(actor.tenantId, item.id, { manualProgressPercent: percent }, actor.userId);
+  }
+
+  /** Lịch sử báo cáo tiến độ của công việc (mới nhất trước); ai xem được công việc thì xem được. */
+  async progressReports(actor: WorkspaceActor, workItemId: string): Promise<readonly WorkItemProgressReport[]> {
+    await this.load(actor, workItemId);
+    return this.store.workItem.listProgressReports(actor.tenantId, workItemId);
+  }
+
+  /**
+   * Báo cáo tiến độ (bám 1Office): ghi một dòng lịch sử và đưa tiến độ + trạng thái của công việc về khớp với con số.
+   *
+   *  · 100%  → chuyển sang trạng thái tenant chọn (Hoàn thành hoặc Chờ duyệt); việc đang Chưa làm hay Vướng mắc đi qua
+   *            Đang làm trước vì bảng chuyển trạng thái không cho nhảy thẳng.
+   *  · 1–99% → việc đang Chưa làm tự sang Đang làm (nếu tenant bật); việc đang Chờ duyệt quay về Đang làm.
+   *  · 0%    → chỉ đặt số, không đổi trạng thái.
+   * Việc có việc con không báo cáo trực tiếp (tiến độ tính từ con); việc đã đóng phải mở lại trước.
+   * Trạng thái đổi trước, tiến độ và dòng lịch sử ghi sau. Những gì chặn được Hoàn thành (điều kiện hoàn thành, tiền
+   * nhiệm FS chưa xong) được kiểm trước khi đổi bất cứ gì, nên bị chặn thì không có gì được ghi; các lỗi bất ngờ giữa
+   * chừng (mất kết nối…) không nằm chung một transaction, có thể để lại trạng thái đã đổi mà chưa có dòng lịch sử.
+   */
+  async reportProgress(
+    actor: WorkspaceActor,
+    workItemId: string,
+    input: ReportWorkItemProgressRequest,
+  ): Promise<WorkItem> {
+    const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
+      throw new WorkItemAssigneeOnlyError();
+    }
+    requireProjectRole(access, 'member');
+    if (item.reversal) {
+      throw new WorkspaceValidationError(
+        'Công việc đã huỷ hiệu lực, không báo cáo tiến độ được; hãy lập công việc điều chỉnh.',
+      );
+    }
+    const percent = parseReportPercent(input?.percent);
+    const description = parseReportDescription(input?.description);
+    const today = todayKey(timezoneOf(actor.tenantId));
+    const reportedOn = parseReportDate(input?.reportedOn, today);
+    if (item.status === 'done' || item.status === 'cancelled') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${item.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi báo cáo tiến độ.`,
+      );
+    }
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) {
+      throw new WorkspaceValidationError(
+        'Công việc có việc con nên tiến độ tự tính từ các việc con; hãy báo cáo ở từng việc con.',
+      );
+    }
+
+    const settings = await this.projects.progressReportSettings(actor.tenantId);
+    const completing = percent === 100;
+    if (completing && settings.requireDescription && !description) {
+      throw new WorkspaceValidationError('Hãy ghi mô tả khi báo hoàn thành công việc.');
+    }
+    const target = completing ? settings.completeStatus : undefined;
+    if (target === 'done' && (item.completion?.conditions.length ?? 0) > 0) {
+      throw new WorkspaceValidationError(
+        'Công việc có điều kiện hoàn thành; hãy bấm "Hoàn thành" để xác nhận từng điều kiện.',
+      );
+    }
+
+    // Kiểm trước những gì có thể chặn bước Hoàn thành, để không có chuyện đã sang Đang làm rồi mới bị từ chối.
+    if (target === 'done') {
+      const edges = await this.store.dependency.listBySuccessor(actor.tenantId, workItemId);
+      for (const edge of edges.filter((candidate) => candidate.dependencyType === 'FS')) {
+        const predecessor = await this.store.workItem.findById(actor.tenantId, edge.predecessorId);
+        if (predecessor && predecessor.status !== 'done') throw new DependencyBlockedError(predecessor.code);
+      }
+    }
+
+    let status: WorkItemStatus = item.status;
+    const move = async (to: WorkItemStatus, note?: string) => {
+      await this.changeStatus(actor, workItemId, { status: to, note }, { keepProgress: true });
+      status = to;
+    };
+    if (completing) {
+      if (status === 'todo' || status === 'blocked') await move('in_progress');
+      if (target && status !== target) await move(target, description);
+    } else {
+      if (status === 'review') await move('in_progress');
+      else if (status === 'todo' && percent > 0 && settings.startsWork) await move('in_progress');
+      // Hoàn thành / Chờ duyệt đã tự đặt 100% ở store; còn lại ghi số nhập tay (nhật ký công việc ghi từ → đến).
+      await this.store.workItem.update(
+        actor.tenantId,
+        workItemId,
+        { manualProgressPercent: percent },
+        actor.userId,
+      );
+    }
+    await this.store.workItem.addProgressReport(actor.tenantId, {
+      workItemId,
+      projectId: item.projectId,
+      reportedBy: actor.userId,
+      reportedOn,
+      percent,
+      description,
+    });
+    await this.recalculate(actor, item.projectId);
+    return (await this.store.workItem.findById(actor.tenantId, workItemId)) ?? item;
   }
 
   /**

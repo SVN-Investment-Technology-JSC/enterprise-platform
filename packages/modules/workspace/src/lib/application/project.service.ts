@@ -12,7 +12,10 @@ import {
   CHAT_ON_ARCHIVED_POLICIES,
   REOPEN_PROJECT_POLICIES,
   SELECTABLE_PROJECT_PROGRESS_METHODS,
+  DEFAULT_PROGRESS_REPORT_COMPLETE_STATUS,
   DEFAULT_PROJECT_PROGRESS_METHOD,
+  PROGRESS_REPORT_COMPLETE_STATUSES,
+  type ProgressReportCompleteStatus,
   type ProjectProgressMethod,
   type ChatOnArchivedPolicy,
   type CreateProjectRequest,
@@ -64,6 +67,7 @@ const CHAT_ARCHIVED_KEY = 'project_chat_on_archived';
 /** Khoá mẫu công việc tạo sẵn khi tạo dự án: `{ enabled, titles }`. Mặc định tắt, kèm mẫu gợi ý. */
 const DEFAULT_TASKS_KEY = 'project_default_tasks';
 const DEFAULT_PROGRESS_METHOD_KEY = 'project_default_progress_method';
+const PROGRESS_REPORT_KEY = 'progress_report';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -420,6 +424,22 @@ export class ProjectService {
     return requested as ProjectProgressMethod;
   }
 
+  /** Cài đặt báo cáo tiến độ công việc; chưa cấu hình hay giá trị hỏng thì dùng mặc định. */
+  async progressReportSettings(tenantId: string): Promise<ProgressReportSettings> {
+    const value = (await this.store.settings.get(tenantId, PROGRESS_REPORT_KEY)) as
+      | { completeStatus?: unknown; requireDescription?: unknown; startsWork?: unknown }
+      | undefined;
+    const status = String(value?.completeStatus ?? '');
+    return {
+      completeStatus: (PROGRESS_REPORT_COMPLETE_STATUSES as readonly string[]).includes(status)
+        ? (status as ProgressReportCompleteStatus)
+        : DEFAULT_PROGRESS_REPORT_COMPLETE_STATUS,
+      requireDescription: value?.requireDescription === true,
+      // Mặc định bật: báo tiến độ nghĩa là đã bắt đầu làm.
+      startsWork: value?.startsWork !== false,
+    };
+  }
+
   /** Cách tính tiến độ mặc định của tenant; chưa cấu hình hay giá trị hỏng thì dùng mặc định của hệ thống. */
   async defaultProgressMethod(tenantId: string): Promise<ProjectProgressMethod> {
     const value = (await this.store.settings.get(tenantId, DEFAULT_PROGRESS_METHOD_KEY)) as
@@ -494,6 +514,7 @@ export class ProjectService {
       chatOnArchived: await this.chatOnArchivedPolicy(actor.tenantId),
       ...(await this.defaultTaskSettings(actor.tenantId)),
       defaultProgressMethod: await this.defaultProgressMethod(actor.tenantId),
+      ...progressReportSettingsView(await this.progressReportSettings(actor.tenantId)),
       canEdit: actor.canManage || actor.isTenantAdmin,
     };
   }
@@ -510,7 +531,10 @@ export class ProjectService {
       input?.chatOnArchived === undefined &&
       input?.defaultTasksEnabled === undefined &&
       input?.defaultTaskTitles === undefined &&
-      input?.defaultProgressMethod === undefined
+      input?.defaultProgressMethod === undefined &&
+      input?.progressReportCompleteStatus === undefined &&
+      input?.progressReportRequireDescription === undefined &&
+      input?.progressReportStartsWork === undefined
     ) {
       throw new WorkspaceValidationError('Không có cài đặt nào để lưu.');
     }
@@ -544,6 +568,37 @@ export class ProjectService {
         actor.tenantId,
         CHAT_ARCHIVED_KEY,
         { policy: input.chatOnArchived },
+        actor.userId,
+      );
+    }
+    if (
+      input.progressReportCompleteStatus !== undefined ||
+      input.progressReportRequireDescription !== undefined ||
+      input.progressReportStartsWork !== undefined
+    ) {
+      if (
+        input.progressReportCompleteStatus !== undefined &&
+        !(PROGRESS_REPORT_COMPLETE_STATUSES as readonly string[]).includes(input.progressReportCompleteStatus)
+      ) {
+        throw new WorkspaceValidationError('Chọn trạng thái công việc chuyển sang khi báo hoàn thành.');
+      }
+      for (const [flag, label] of [
+        [input.progressReportRequireDescription, 'Bắt buộc mô tả khi báo hoàn thành'],
+        [input.progressReportStartsWork, 'Tự chuyển sang Đang làm khi báo tiến độ'],
+      ] as const) {
+        if (flag !== undefined && typeof flag !== 'boolean') {
+          throw new WorkspaceValidationError(`Chọn Bật hoặc Tắt cho "${label}".`);
+        }
+      }
+      const current = await this.progressReportSettings(actor.tenantId);
+      await this.store.settings.set(
+        actor.tenantId,
+        PROGRESS_REPORT_KEY,
+        {
+          completeStatus: input.progressReportCompleteStatus ?? current.completeStatus,
+          requireDescription: input.progressReportRequireDescription ?? current.requireDescription,
+          startsWork: input.progressReportStartsWork ?? current.startsWork,
+        },
         actor.userId,
       );
     }
@@ -810,4 +865,19 @@ function cleanType(value: unknown): string | null {
     throw new WorkspaceValidationError('Nhóm dự án không được dài quá 80 ký tự.');
   }
   return text;
+}
+
+/** Cài đặt báo cáo tiến độ công việc của tenant. */
+export interface ProgressReportSettings {
+  readonly completeStatus: ProgressReportCompleteStatus;
+  readonly requireDescription: boolean;
+  readonly startsWork: boolean;
+}
+
+function progressReportSettingsView(settings: ProgressReportSettings) {
+  return {
+    progressReportCompleteStatus: settings.completeStatus,
+    progressReportRequireDescription: settings.requireDescription,
+    progressReportStartsWork: settings.startsWork,
+  };
 }

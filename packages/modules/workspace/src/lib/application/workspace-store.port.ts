@@ -78,6 +78,7 @@ import type {
   WorkItemCost,
   WorkItemDependency,
   WorkItemStatus,
+  WorkItemProgressReport,
   WorkItemStatusHistoryEntry,
   WorkloadRow,
   WorkspaceDocument,
@@ -457,6 +458,20 @@ export interface WorkspaceStore {
       input: UpdateWorkItemRequest,
       actorUserId?: string,
     ): Promise<WorkItem>;
+    /** Ghi một dòng lịch sử báo cáo tiến độ. Không đổi tiến độ của công việc: việc đó do tầng ứng dụng làm. */
+    addProgressReport(
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly projectId: string;
+        readonly reportedBy: string;
+        readonly reportedOn: string;
+        readonly percent: number;
+        readonly description?: string;
+      },
+    ): Promise<WorkItemProgressReport>;
+    /** Lịch sử báo cáo tiến độ, mới nhất trước. */
+    listProgressReports(tenantId: string, workItemId: string): Promise<readonly WorkItemProgressReport[]>;
     /** Đổi trạng thái, ghi mốc thực tế và nhật ký trong cùng một transaction. */
     changeStatus(
       tenantId: string,

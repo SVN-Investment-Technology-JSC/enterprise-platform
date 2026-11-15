@@ -96,6 +96,7 @@ import { Pager } from './pager';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
+import { useProgressReport } from './use-progress-report';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -424,7 +425,25 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
     }
   };
 
+  /** Tiến độ của việc trong dự án đi qua luồng báo cáo tiến độ (đổi trạng thái theo con số, hộp báo cáo khi 100%). */
+  const { setProgress: reportItemProgress, dialog: progressDialog } = useProgressReport(() => {
+    invalidateMyWork();
+  });
+
   const patchItem = async (itemId: string, patch: UpdateWorkItemRequest, fallback: string) => {
+    // Chỉ khi có số mới (không phải "về tự động"): các lần sửa khác vẫn là cập nhật thẳng.
+    if (typeof patch.manualProgressPercent === 'number') {
+      setSavingItem(itemId);
+      try {
+        // Bản mới nhất của việc: hộp báo cáo và toast cần mã, tên và trạng thái hiện tại.
+        await reportItemProgress(await api.getWorkItem(itemId), patch.manualProgressPercent);
+      } catch (cause) {
+        setError(messageOf(cause, fallback));
+      } finally {
+        setSavingItem(undefined);
+      }
+      return;
+    }
     setError(undefined);
     setSavingItem(itemId);
     try {
@@ -954,6 +973,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
 
       {/* Vướng mắc luôn qua hộp ghi lý do (việc dự án lẫn việc giao lẻ). */}
       {blockedPrompt.dialog}
+      {progressDialog}
 
       {/* Hoàn thành luôn qua hộp xác nhận, kèm điều kiện hoàn thành nếu việc có đặt. */}
       <CompleteWorkItemDialog

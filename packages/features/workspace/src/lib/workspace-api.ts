@@ -4,6 +4,8 @@ import type {
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ReportWorkItemProgressRequest,
+  WorkItemProgressReport,
   ChangeStandaloneTaskStatusRequest,
   CreateStandaloneTaskRequest,
   ReverseStandaloneTaskRequest,
@@ -319,6 +321,13 @@ export const getWorkItem = (id: string) =>
 
 export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Báo cáo tiến độ: server ghi lịch sử và đưa tiến độ, trạng thái của việc về khớp con số báo. */
+export const reportWorkItemProgress = (id: string, body: ReportWorkItemProgressRequest) =>
+  request<WorkItem>(`/work-items/${id}/progress-reports`, { method: 'POST', body: JSON.stringify(body) });
+
+export const listWorkItemProgressReports = (id: string) =>
+  request<{ items: WorkItemProgressReport[] }>(`/work-items/${id}/progress-reports`, { cache: 'no-store' });
 
 export const changeWorkItemStatus = (id: string, body: ChangeWorkItemStatusRequest) =>
   request<WorkItem>(`/work-items/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) });

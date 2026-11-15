@@ -4,6 +4,7 @@ import {
   DEFAULT_PROJECT_TASK_TITLES,
   DEFAULT_PROJECT_PROGRESS_METHOD,
   type ChatOnArchivedPolicy,
+  type ProgressReportCompleteStatus,
   type ProjectProgressMethod,
   type ProjectArchiveSettings as Settings,
   type ReopenProjectPolicy,
@@ -135,6 +136,19 @@ const REOPEN_PROJECT_OPTIONS: readonly ChoiceOption<ReopenProjectPolicy>[] = [
   },
 ];
 
+const REPORT_COMPLETE_STATUS_OPTIONS: readonly ChoiceOption<ProgressReportCompleteStatus>[] = [
+  {
+    value: 'done',
+    label: 'Hoàn thành',
+    description: 'Công việc đóng ngay, tính vào tiến độ dự án và báo cáo là đã xong.',
+  },
+  {
+    value: 'review',
+    label: 'Chờ duyệt',
+    description: 'Công việc dừng ở 100% chờ người có quyền xác nhận Hoàn thành.',
+  },
+];
+
 const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = [
   {
     value: 'block',
@@ -153,6 +167,9 @@ interface Draft {
   readonly defaultTasksEnabled: boolean;
   readonly defaultTaskTitles: readonly string[];
   readonly defaultProgressMethod: ProjectProgressMethod;
+  readonly progressReportCompleteStatus: ProgressReportCompleteStatus;
+  readonly progressReportRequireDescription: boolean;
+  readonly progressReportStartsWork: boolean;
   readonly autoArchive: boolean;
   readonly reopenProject: ReopenProjectPolicy;
   readonly chatOnArchived: ChatOnArchivedPolicy;
@@ -162,6 +179,9 @@ const draftOf = (settings: Settings): Draft => ({
   defaultTasksEnabled: settings.defaultTasksEnabled,
   defaultTaskTitles: [...settings.defaultTaskTitles],
   defaultProgressMethod: settings.defaultProgressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD,
+  progressReportCompleteStatus: settings.progressReportCompleteStatus ?? 'done',
+  progressReportRequireDescription: settings.progressReportRequireDescription ?? false,
+  progressReportStartsWork: settings.progressReportStartsWork ?? true,
   autoArchive: settings.autoArchive,
   reopenProject: settings.reopenProject,
   chatOnArchived: settings.chatOnArchived,
@@ -204,6 +224,16 @@ export function GeneralSettings() {
     }
     if (draft.defaultProgressMethod !== (settings.defaultProgressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD)) {
       changes.defaultProgressMethod = draft.defaultProgressMethod;
+    }
+    const saved = draftOf(settings);
+    if (draft.progressReportCompleteStatus !== saved.progressReportCompleteStatus) {
+      changes.progressReportCompleteStatus = draft.progressReportCompleteStatus;
+    }
+    if (draft.progressReportRequireDescription !== saved.progressReportRequireDescription) {
+      changes.progressReportRequireDescription = draft.progressReportRequireDescription;
+    }
+    if (draft.progressReportStartsWork !== saved.progressReportStartsWork) {
+      changes.progressReportStartsWork = draft.progressReportStartsWork;
     }
     if (draft.autoArchive !== settings.autoArchive) changes.autoArchive = draft.autoArchive;
     if (draft.reopenProject !== settings.reopenProject) changes.reopenProject = draft.reopenProject;
@@ -297,6 +327,49 @@ export function GeneralSettings() {
             }
           />
         </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Báo cáo tiến độ công việc"
+        description="Người làm báo tiến độ ở thanh tiến độ của công việc. Các lựa chọn dưới đây quyết định con số báo kéo theo trạng thái thế nào."
+      >
+        <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+          <div className={styles.gsRowText}>
+            <strong>Khi báo tiến độ 100%</strong>
+            <span>Công việc chuyển sang trạng thái nào. Công việc có điều kiện hoàn thành vẫn phải bấm Hoàn thành để xác nhận điều kiện.</span>
+          </div>
+          <RadioChoices
+            name="report-complete-status"
+            value={draft.progressReportCompleteStatus}
+            options={REPORT_COMPLETE_STATUS_OPTIONS}
+            disabled={locked}
+            onChange={(progressReportCompleteStatus) => update({ progressReportCompleteStatus })}
+          />
+        </div>
+        <SettingRow
+          label="Bắt buộc ghi mô tả khi báo hoàn thành"
+          hint="Bật thì báo 100% phải có mô tả kết quả. Báo dưới 100% không bắt buộc."
+          control={
+            <Switch
+              label="Bắt buộc mô tả khi báo hoàn thành"
+              checked={draft.progressReportRequireDescription}
+              disabled={locked}
+              onChange={(progressReportRequireDescription) => update({ progressReportRequireDescription })}
+            />
+          }
+        />
+        <SettingRow
+          label="Tự chuyển sang Đang làm khi báo tiến độ"
+          hint="Bật thì công việc đang Chưa làm được báo trên 0% sẽ tự sang Đang làm. Tắt thì giữ Chưa làm đến khi có người bấm Bắt đầu."
+          control={
+            <Switch
+              label="Tự chuyển sang Đang làm khi báo tiến độ"
+              checked={draft.progressReportStartsWork}
+              disabled={locked}
+              onChange={(progressReportStartsWork) => update({ progressReportStartsWork })}
+            />
+          }
+        />
       </SettingsCard>
 
       <SettingsCard

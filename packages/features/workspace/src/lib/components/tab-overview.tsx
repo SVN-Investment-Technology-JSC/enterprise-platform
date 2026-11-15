@@ -25,6 +25,7 @@ import { useProjectRoles } from './use-project-roles';
 import { useTransportSummary, type TransportSummary } from './use-transport-summary';
 import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
+import { ProgressHistoryPanel } from './progress-history-panel';
 
 export interface TabOverviewProps {
   readonly project: ProjectSummary;
@@ -121,6 +122,8 @@ export function TabOverview({
           <p className={styles.description}>{selected?.description ?? project.description}</p>
         ) : null}
       </section>
+
+      {selected ? <ProgressHistoryPanel item={selected} /> : null}
 
       {selected ? (
         <DependencyPanel

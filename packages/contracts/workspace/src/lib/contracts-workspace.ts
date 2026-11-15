@@ -506,6 +506,12 @@ export interface ProjectArchiveSettings {
   readonly defaultTaskTitles: readonly string[];
   /** Cách tính tiến độ mặc định cho dự án mới (người tạo vẫn đổi được cho từng dự án). */
   readonly defaultProgressMethod: ProjectProgressMethod;
+  /** Báo cáo tiến độ 100% thì công việc chuyển sang trạng thái này. */
+  readonly progressReportCompleteStatus: ProgressReportCompleteStatus;
+  /** Báo 100% bắt buộc ghi mô tả. */
+  readonly progressReportRequireDescription: boolean;
+  /** Báo tiến độ trên 0% cho việc đang Chưa làm thì tự chuyển sang Đang làm. */
+  readonly progressReportStartsWork: boolean;
   readonly canEdit: boolean;
 }
 
@@ -516,6 +522,9 @@ export interface SaveProjectArchiveSettingsRequest {
   readonly defaultTasksEnabled?: boolean;
   readonly defaultTaskTitles?: readonly string[];
   readonly defaultProgressMethod?: ProjectProgressMethod;
+  readonly progressReportCompleteStatus?: ProgressReportCompleteStatus;
+  readonly progressReportRequireDescription?: boolean;
+  readonly progressReportStartsWork?: boolean;
 }
 
 /** Dự án đã lưu trữ chỉ xem; riêng trao đổi do tenant chọn: `block` chặn nhắn, `allow` vẫn cho nhắn. Mặc định `block`. */
@@ -831,6 +840,34 @@ export interface UpdateWorkItemRequest {
 
 /** Độ dài tối đa của lý do vướng mắc. */
 export const BLOCKED_REASON_MAX_LENGTH = 1000;
+
+/** Độ dài tối đa của mô tả trong một báo cáo tiến độ. */
+export const PROGRESS_REPORT_DESCRIPTION_MAX_LENGTH = 2000;
+
+/** Trạng thái công việc chuyển sang khi báo 100% (cài đặt chung). `review` là Chờ duyệt, người khác xác nhận hoàn thành. */
+export const PROGRESS_REPORT_COMPLETE_STATUSES = ['done', 'review'] as const;
+export type ProgressReportCompleteStatus = (typeof PROGRESS_REPORT_COMPLETE_STATUSES)[number];
+export const DEFAULT_PROGRESS_REPORT_COMPLETE_STATUS: ProgressReportCompleteStatus = 'done';
+
+/** Một lần báo cáo tiến độ của công việc; lịch sử, không phải nguồn tính tiến độ. */
+export interface WorkItemProgressReport {
+  readonly id: string;
+  readonly workItemId: string;
+  /** Ngày báo cáo `YYYY-MM-DD`. */
+  readonly reportedOn: string;
+  readonly reportedBy: string;
+  readonly percent: number;
+  readonly description?: string;
+  readonly createdAt: string;
+}
+
+export interface ReportWorkItemProgressRequest {
+  /** Số nguyên 0–100. */
+  readonly percent: number;
+  readonly description?: string;
+  /** Ngày báo cáo `YYYY-MM-DD`, không sau hôm nay; bỏ trống là hôm nay. */
+  readonly reportedOn?: string;
+}
 
 export interface ChangeWorkItemStatusRequest {
   readonly status: WorkItemStatus;
