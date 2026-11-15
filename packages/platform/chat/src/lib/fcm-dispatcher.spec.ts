@@ -119,6 +119,7 @@ describe('FcmPushDispatcher', () => {
           sourceType: 'hrm_request',
           targetId: 'req-123',
           deepLink: '/modules/hrm#requests/req-123',
+          webLink: '/modules/hrm#requests/req-123',
         },
       },
     );
@@ -186,7 +187,11 @@ describe('FcmPushDispatcher', () => {
       ['token_recipient_2_bbbb'],
       expect.objectContaining({
         notification: { title: 'Trần Bình · Ban dự án nhắc đến bạn', body: 'Xem giúp mình tiến độ nhé' },
-        data: expect.objectContaining({ module: 'chat', targetId: chatPayload.conversationId }),
+        data: expect.objectContaining({
+          module: 'chat',
+          targetId: chatPayload.conversationId,
+          webLink: `/dashboard#chat/${chatPayload.conversationId}`,
+        }),
       }),
     );
   });

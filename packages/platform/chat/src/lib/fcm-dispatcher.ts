@@ -1,5 +1,6 @@
 import { chatNotificationLink } from '@enterprise-platform/contracts-chat';
 import {
+  notificationDeepLink,
   parseRealtimeEventEnvelope,
   type NotificationRecord,
 } from '@enterprise-platform/contracts-realtime';
@@ -21,10 +22,17 @@ import { parseMessagePayload, pushMessageFor, type DispatchOutcome } from './pus
 const FCM_APP_NAME = 'enterprise-platform-fcm';
 /** Giới hạn tối đa mỗi lần gọi `sendEachForMulticast` của Firebase Admin SDK. */
 const FCM_MULTICAST_LIMIT = 500;
+/** Kênh thông báo Android do ứng dụng di động tạo sẵn; phải trùng tên với bên mobile. */
+const FCM_ANDROID_CHANNEL_ID = 'svn_erp_high_importance_channel';
 /** Giới hạn độ dài tiêu đề, nội dung và đường dẫn để gói tin APNs/FCM luôn dưới ngưỡng 4 KB. */
 const MAX_PUSH_TITLE_LENGTH = 160;
 const MAX_PUSH_BODY_LENGTH = 500;
 const MAX_PUSH_DEEPLINK_LENGTH = 1024;
+
+/** Đường dẫn web đã dịch từ `deepLink` logic (cùng bảng dịch với trung tâm thông báo web); rỗng nếu không nhận ra. */
+function webLinkOf(deepLink: string): string {
+  return (notificationDeepLink(deepLink) ?? '').slice(0, MAX_PUSH_DEEPLINK_LENGTH);
+}
 
 function truncatePushText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -96,11 +104,31 @@ export function firebaseAdminSender(env: NodeJS.ProcessEnv = process.env): FcmMu
           data: { ...message.data },
           android: {
             priority: 'high',
-            notification: { sound: 'default' },
+            notification: {
+              sound: 'default',
+              channelId: FCM_ANDROID_CHANNEL_ID,
+              priority: 'max',
+              visibility: 'public',
+              defaultSound: true,
+              defaultVibrateTimings: true,
+            },
           },
           apns: {
-            headers: { 'apns-priority': '10' },
-            payload: { aps: { sound: 'default' } },
+            headers: {
+              'apns-priority': '10',
+              'apns-push-type': 'alert',
+            },
+            payload: {
+              aps: {
+                alert: {
+                  title: message.notification.title,
+                  body: message.notification.body,
+                },
+                sound: 'default',
+                badge: 1,
+                contentAvailable: true,
+              },
+            },
           },
         });
         for (const item of batch.responses) {
@@ -185,6 +213,7 @@ export class FcmPushDispatcher {
               conversationId: payload.conversationId,
               messageId: payload.messageId,
               deepLink,
+              webLink: webLinkOf(deepLink),
             },
           },
           records: [device],
@@ -240,6 +269,7 @@ export class FcmPushDispatcher {
         sourceType: notification.sourceType,
         targetId: notification.sourceId,
         deepLink: (notification.deepLink ?? '').slice(0, MAX_PUSH_DEEPLINK_LENGTH),
+        webLink: webLinkOf(notification.deepLink ?? ''),
       },
     };
 
