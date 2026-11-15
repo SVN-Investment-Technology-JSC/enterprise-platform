@@ -1,5 +1,5 @@
 import type { FinanceCapabilities } from '@enterprise-platform/contracts-finance';
-import { canOpenKind, canOpenPage, canSeeBalances } from './finance-permissions';
+import { canOpenKind, canOpenPage, canOpenPath, canSeeBalances } from './finance-permissions';
 import { financeNavigation } from './finance-navigation';
 
 const caps = (over: Partial<FinanceCapabilities> = {}): FinanceCapabilities => ({
@@ -43,5 +43,22 @@ describe('quyền hiện từng trang', () => {
 
   it('menu có đủ bảy mục theo thiết kế, đúng thứ tự', () => {
     expect(financeNavigation.map((item) => item.label)).toEqual(['Dashboard', 'Phiếu thu', 'Phiếu chi', 'Chuyển tiền', 'Tài khoản', 'Báo cáo', 'Tùy chỉnh']);
+  });
+});
+
+describe('quyền mở đường dẫn đầy đủ (ISS-UI-022)', () => {
+  it('màn lập phiếu cần quyền lập đúng loại; người chỉ duyệt vẫn mở được danh sách và phiếu', () => {
+    const approver = caps({ receipt: { create: false, approve: true } });
+    expect(canOpenPath(approver, '/receipts')).toBe(true);
+    expect(canOpenPath(approver, '/receipts/abc')).toBe(true);
+    expect(canOpenPath(approver, '/receipts/new')).toBe(false);
+    expect(canOpenPath(caps({ receipt: { create: true, approve: false } }), '/receipts/new')).toBe(true);
+    expect(canOpenPath(caps({ canReadAll: true }), '/payments/new')).toBe(false);
+  });
+
+  it('trang gốc không mở được thì trang con cũng không', () => {
+    expect(canOpenPath(caps(), '/settings')).toBe(false);
+    expect(canOpenPath(caps(), '/')).toBe(true);
+    expect(canOpenPath(null, '/')).toBe(false);
   });
 });

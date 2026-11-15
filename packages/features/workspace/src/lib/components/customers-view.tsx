@@ -60,6 +60,11 @@ export interface CustomersViewProps {
    * (không thêm, sửa, xoá khách). Hợp đồng vẫn quản lý ở Workspace như cũ.
    */
   readonly customersReadOnly?: boolean;
+  /**
+   * Người dùng có `workspace.task.write` (ghi khách hàng, hợp đồng). Không có thì ẩn mọi nút thêm, sửa, xoá; server
+   * vẫn chặn. Vắng prop: coi là có.
+   */
+  readonly canWrite?: boolean;
 }
 
 /** Trang Bán hàng, nơi tạo và sửa khách hàng khi tenant bật phân hệ này. */
@@ -81,7 +86,10 @@ export function CustomersView({
   scopeProjectId,
   onOpenProject,
   customersReadOnly = false,
+  canWrite = true,
 }: CustomersViewProps = {}) {
+  /** Được thêm, sửa, xoá khách hàng ngay ở đây. */
+  const customersEditable = canWrite && !customersReadOnly;
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const [search, setSearch] = useState('');
@@ -277,7 +285,7 @@ export function CustomersView({
       <section className={styles.taskListPane} aria-label="Danh sách khách hàng">
         {customersReadOnly ? <CrmManagedNotice /> : null}
         <div className={styles.taskListHead}>
-          {customersReadOnly ? null : (
+          {customersEditable ? (
           <button
             type="button"
             className={styles.buttonPrimary}
@@ -285,7 +293,7 @@ export function CustomersView({
           >
             <Plus size={15} /> Thêm khách hàng
           </button>
-          )}
+          ) : null}
           <Tooltip content="Tải lại">
             <button
               type="button"
@@ -380,7 +388,7 @@ export function CustomersView({
                   {selectedSummary?.projectCount ?? 0} dự án
                 </p>
               </div>
-              {customersReadOnly ? null : (
+              {customersEditable ? (
               <div className={styles.rowActions}>
                 <button
                   type="button"
@@ -401,7 +409,7 @@ export function CustomersView({
                   </button>
                 </Confirm>
               </div>
-              )}
+              ) : null}
             </header>
             {customersReadOnly && scoped ? <CrmManagedNotice /> : null}
 
@@ -411,13 +419,15 @@ export function CustomersView({
 
             <div className={styles.panelHeadRow}>
               <h3 className={styles.subHeading}>Hợp đồng</h3>
-              <button
-                type="button"
-                className={styles.buttonSmall}
-                onClick={() => setContractForm({ open: true })}
-              >
-                <Plus size={14} /> Thêm hợp đồng
-              </button>
+              {canWrite ? (
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  onClick={() => setContractForm({ open: true })}
+                >
+                  <Plus size={14} /> Thêm hợp đồng
+                </button>
+              ) : null}
             </div>
 
             {detail.contracts.length === 0 ? (
@@ -465,6 +475,7 @@ export function CustomersView({
                             {contract.signedDate ? formatDate(contract.signedDate) : '—'}
                           </td>
                           <td>
+                            {canWrite ? (
                             <div className={styles.rowActions}>
                               <Tooltip content="Sửa">
                                 <button
@@ -492,6 +503,7 @@ export function CustomersView({
                                 </span>
                               </Confirm>
                             </div>
+                            ) : null}
                           </td>
                         </tr>
                       ))}

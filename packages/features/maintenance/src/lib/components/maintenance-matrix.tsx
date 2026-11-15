@@ -1271,7 +1271,9 @@ export function MaintenanceMatrixBoard({
               </PopoverContent>
             </Popover>
 
-            {/* 1.4. Thao tác hàng loạt: nằm cùng hàng nhưng dạt sang phải; chỉ dùng được khi đã tick thiết bị */}
+            {/* 1.4. Thao tác hàng loạt: nằm cùng hàng nhưng dạt sang phải; chỉ dùng được khi đã tick thiết bị.
+                Người không có quyền cấu hình bảo trì không thấy hẳn khối này (server vẫn kiểm quyền). */}
+            {canManage ? (
             <div className="ml-auto flex items-center gap-2">
               <Tip
                 content={
@@ -1312,6 +1314,7 @@ export function MaintenanceMatrixBoard({
                 </span>
               </Tip>
             </div>
+            ) : null}
           </div>
         </div>
 

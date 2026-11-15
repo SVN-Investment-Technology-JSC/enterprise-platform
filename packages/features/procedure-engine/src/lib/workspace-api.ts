@@ -1,4 +1,4 @@
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 /**
  * **Đọc** dữ liệu Workspace từ trình duyệt, bằng chính phiên người dùng.
@@ -108,8 +108,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     // Workspace trả thông điệp tiếng Việt kèm mã lỗi; chuyển nguyên.
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? `Workspace trả về HTTP ${response.status}.`);
+    throw await readApiRequestError(response, 'Không thể hoàn tất yêu cầu tới Workspace.');
   }
   return (await response.json()) as T;
 }

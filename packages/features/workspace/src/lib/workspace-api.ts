@@ -123,7 +123,7 @@ import type {
   SourceTransport,
   TransportSourceType,
 } from '@enterprise-platform/contracts-workspace';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { ACTION_DENIED_MESSAGE, ApiRequestError, authFetch } from '@enterprise-platform/shared-ui';
 
 const API = '/api/workspace/v1';
 
@@ -147,11 +147,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 204 không có body; gọi .json() sẽ ném lỗi parse.
   if (response.status === 204) return undefined as T;
 
-  const body = await response.json();
-  // Thân lỗi đã có `code` và `message` tiếng Việt, ném nguyên để màn hình
-  // hiển thị thẳng, không cần dịch lại.
-  if (!response.ok) throw body;
-  return body as T;
+  if (!response.ok) throw await workspaceRequestError(response);
+  return (await response.json()) as T;
+}
+
+/**
+ * Lỗi của một lời gọi Workspace. Thân lỗi đã có `code` và `message` tiếng Việt: ném nguyên (thêm `statusCode` nếu
+ * thiếu) để màn hình hiển thị thẳng và đọc được các trường riêng. Thân không phải JSON, hoặc 403 không có câu tiếng
+ * Việt ("Forbidden"), thì dựng lỗi có câu tiếng Việt thay vì lộ lỗi kỹ thuật.
+ */
+async function workspaceRequestError(response: Response): Promise<unknown> {
+  const body: unknown = await response.json().catch(() => undefined);
+  const message = (body as { message?: unknown } | undefined)?.message;
+  const forbiddenWithoutReason =
+    response.status === 403 && (typeof message !== 'string' || !message.trim() || /^Forbidden/.test(message));
+  if (body && typeof body === 'object' && message !== undefined && !forbiddenWithoutReason) {
+    const statusCode = (body as { statusCode?: unknown }).statusCode;
+    return typeof statusCode === 'number' ? body : { ...body, statusCode: response.status };
+  }
+  const code = (body as { code?: unknown } | undefined)?.code;
+  return new ApiRequestError(
+    response.status,
+    response.status === 403 ? ACTION_DENIED_MESSAGE : 'Không thể hoàn tất yêu cầu Workspace.',
+    typeof code === 'string' ? code : undefined,
+  );
 }
 
 export interface WorkspaceStatus {

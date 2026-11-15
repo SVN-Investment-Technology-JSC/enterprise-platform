@@ -10,6 +10,7 @@ import {
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import {
   HRM_PERMISSIONS_INVALIDATED_EVENT,
+  HrmApiError,
   hrmFetch,
 } from './hrm-api';
 import { hubPagePermissions } from './hrm-hub-tabs';
@@ -18,6 +19,8 @@ const HrmPermissionsContext = createContext<{
   actions: readonly string[];
   loading: boolean;
   error: string;
+  /** Server trả 403 khi tải quyền: người dùng chưa được cấp quyền dùng phân hệ Nhân sự. */
+  denied?: boolean;
   displayName: string;
 }>({ actions: [], loading: true, error: '', displayName: '' });
 export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
@@ -25,6 +28,7 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
     actions: [] as string[],
     loading: true,
     error: '',
+    denied: false,
     displayName: '',
   });
   useEffect(() => {
@@ -48,6 +52,7 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
                   displayName: result.data.displayName || '',
                   loading: false,
                   error: '',
+                  denied: false,
                 },
           );
       } catch (error) {
@@ -56,6 +61,7 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
             actions: [],
             displayName: '',
             loading: false,
+            denied: error instanceof HrmApiError && error.status === 403,
             error:
               error instanceof Error
                 ? error.message

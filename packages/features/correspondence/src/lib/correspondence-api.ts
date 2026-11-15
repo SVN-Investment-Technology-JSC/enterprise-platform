@@ -44,6 +44,8 @@ import { authFetch } from '@enterprise-platform/shared-ui';
 export interface CorrespondenceApiError {
   readonly code?: string;
   readonly message?: string;
+  /** Mã HTTP, để màn hình nhận ra 403 (chưa được cấp quyền) mà hiện khối thông báo riêng. */
+  readonly status?: number;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,7 +60,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw body as CorrespondenceApiError;
+  if (!response.ok) throw { ...(body as CorrespondenceApiError), status: response.status } satisfies CorrespondenceApiError;
   return body as T;
 }
 

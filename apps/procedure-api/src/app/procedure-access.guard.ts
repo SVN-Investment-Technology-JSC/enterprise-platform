@@ -42,7 +42,7 @@ export class ProcedureAccessGuard implements CanActivate {
     // role assignments. Procedure owns all per-instance RACI decisions.
     const decision = await this.access.decision(principal, 'module.access');
     if (!decision.allowed || !decision.database || !decision.principal) {
-      throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
+      throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Quy trình.' });
     }
     this.databases.register(decision.database);
     const organization = await this.organizationContexts.load(decision.principal.tenantId);

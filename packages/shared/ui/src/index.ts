@@ -15,3 +15,4 @@ export * from './lib/return-to';
 export * from './lib/currency-format';
 export * from './lib/vn-number-input';
 export * from './lib/close-guard';
+export * from './lib/access-denied';

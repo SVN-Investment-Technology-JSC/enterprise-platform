@@ -4,7 +4,7 @@ import type {
   OrganizationManagerChain,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
-import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TenantCoreUser } from './user-types';
 import { CARD_CLASS } from './user-ui';
@@ -54,9 +54,7 @@ export function EmployeeProfileContent({
         { cache: 'no-store' },
       );
       if (!response.ok)
-        throw new Error(
-          `Không tải được sơ đồ tổ chức (HTTP ${response.status}).`,
-        );
+        throw await readApiRequestError(response, 'Không tải được sơ đồ tổ chức.');
       const data = (await response.json()) as Snapshot;
       setSnapshot(data);
       const held = data.members.filter(

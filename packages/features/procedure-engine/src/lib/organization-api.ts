@@ -5,7 +5,7 @@ import type {
   TenantOrganizationContext,
   UpdateOrganizationUnitRequest,
 } from '@enterprise-platform/contracts-organization';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 
 const ROOT = '/api/procedure/v1';
 
@@ -19,8 +19,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? `Platform Organization trả về HTTP ${response.status}.`);
+    throw await readApiRequestError(response, 'Không thể hoàn tất yêu cầu về cơ cấu tổ chức.');
   }
   return response.json() as Promise<T>;
 }

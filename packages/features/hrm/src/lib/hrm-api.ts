@@ -88,8 +88,13 @@ export async function hrmFetch<T>(
     ) {
       window.dispatchEvent(new Event(HRM_PERMISSIONS_INVALIDATED_EVENT));
     }
+    // 403 kèm câu tiếng Việt của server thì giữ nguyên; câu mặc định của framework ("Forbidden...") thì thay bằng câu tiếng Việt.
+    const serverMessage =
+      typeof body.message === 'string' && body.message.trim() && !/^Forbidden\b/.test(body.message)
+        ? body.message
+        : undefined;
     throw new HrmApiError(
-      body.message ??
+      serverMessage ??
         (response.status === 403
           ? 'Bạn không còn quyền thực hiện thao tác này.'
           : `Yêu cầu thất bại (${response.status})`),

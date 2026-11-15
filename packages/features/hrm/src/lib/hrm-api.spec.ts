@@ -64,4 +64,28 @@ describe('hrmFetch', () => {
 
     window.removeEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, listener);
   });
+
+  it('403 giữ câu tiếng Việt server trả; câu "Forbidden" mặc định thì đổi sang tiếng Việt', async () => {
+    const fetchMock = jest.fn() as jest.MockedFunction<typeof fetch>;
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ code: 'ACCESS_DENIED', message: 'Bạn không có quyền sửa hồ sơ nhân viên.' }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ message: 'Forbidden resource' }),
+    } as Response);
+    globalThis.fetch = fetchMock;
+
+    await expect(hrmFetch('/employees/e1', { method: 'PATCH' })).rejects.toMatchObject({
+      status: 403,
+      message: 'Bạn không có quyền sửa hồ sơ nhân viên.',
+    });
+    await expect(hrmFetch('/employees/e1', { method: 'PATCH' })).rejects.toMatchObject({
+      status: 403,
+      message: 'Bạn không còn quyền thực hiện thao tác này.',
+    });
+  });
 });

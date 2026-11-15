@@ -59,6 +59,7 @@ import { ProgressCell } from './inline-cells';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
 import { FieldChangeList } from './tab-activity';
+import { useWorkspacePermissions } from '../workspace-permissions';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
 
@@ -573,21 +574,15 @@ function TaskDetail({
   onDeleted: () => void;
   onShowHistory: () => void;
 }) {
-  const {
-    task,
-    myRole,
-    allowedStatuses,
-    history,
-    ancestors,
-    children,
-    canAddChild,
-    canReverse,
-    canCreateAdjustment,
-    adjustmentOf,
-    adjustments,
-  } = detail;
-  const isAssigner = myRole === 'assigner';
-  const isExecutor = myRole === 'assignee' || myRole === 'participant';
+  const { task, myRole, history, ancestors, children, adjustmentOf, adjustments } = detail;
+  // Không có `workspace.task.write` thì server chặn mọi thao tác ghi dù vai trong việc cho phép: chỉ xem.
+  const { canWriteTasks } = useWorkspacePermissions();
+  const allowedStatuses = canWriteTasks ? detail.allowedStatuses : [];
+  const canAddChild = canWriteTasks && detail.canAddChild;
+  const canReverse = canWriteTasks && detail.canReverse;
+  const canCreateAdjustment = canWriteTasks && detail.canCreateAdjustment;
+  const isAssigner = canWriteTasks && myRole === 'assigner';
+  const isExecutor = canWriteTasks && (myRole === 'assignee' || myRole === 'participant');
   const open = !CLOSED.includes(task.status);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();

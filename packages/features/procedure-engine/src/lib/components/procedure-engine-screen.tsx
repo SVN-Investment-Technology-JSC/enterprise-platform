@@ -23,8 +23,10 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import {
+  AccessDeniedNotice,
   formatDate,
   initialReturnTarget,
+  isAccessDeniedError,
   returnPathFor,
   type ReturnTarget,
 } from '@enterprise-platform/shared-ui';
@@ -100,6 +102,8 @@ export function ProcedureEngineScreen() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [organization, setOrganization] = useState<TenantOrganizationContext>();
   const [error, setError] = useState<string>();
+  /** Người dùng chưa có quyền vào phân hệ (tải workspace trả 403): thay màn tải bằng thông báo tiếng Việt. */
+  const [accessDenied, setAccessDenied] = useState(false);
   /** Thông báo việc đã xong, ví dụ mã hồ sơ vừa mở. Lỗi vẫn đi đường `error`. */
   const [notice, setNotice] = useState<string>();
   const [busy, setBusy] = useState<string>();
@@ -154,6 +158,10 @@ export function ProcedureEngineScreen() {
       );
       setAttachments(files.flat());
     } catch (cause) {
+      if (isAccessDeniedError(cause)) {
+        setAccessDenied(true);
+        return;
+      }
       setError(
         cause instanceof Error
           ? cause.message
@@ -536,7 +544,9 @@ export function ProcedureEngineScreen() {
         </>
       }
     >
-      {!workspace ? (
+      {accessDenied && !workspace ? (
+        <AccessDeniedNotice moduleLabel="Quy trình" />
+      ) : !workspace ? (
         <section className={styles.loading} aria-live="polite">
           <span />
           <p>Đang nạp module Quy trình…</p>
