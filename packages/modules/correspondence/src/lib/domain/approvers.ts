@@ -95,6 +95,13 @@ export function normalizeSteps(input: unknown): WorkflowStep[] {
       `Bước "${steps[doubled - 1].name}" và "${steps[doubled].name}" đều là phòng ban xử lý, đứng liền nhau. Gộp thành một bước hoặc đặt một bước khác ở giữa.`,
     );
   }
+  // Bút phê chọn phòng ban cho bước "phòng ban xử lý" phía sau; không có bước đó thì phòng được giao không phải làm gì.
+  const idle = steps.findIndex((step, index) => step.directs && !steps.slice(index + 1).some((later) => later.type === 'process'));
+  if (idle >= 0) {
+    throw new CorrespondenceValidationError(
+      `Bước "${steps[idle].name}" có bút phê nhưng phía sau không có bước Phòng ban xử lý, phòng ban được giao sẽ không phải xử lý gì. Thêm bước "Phòng ban xử lý" sau bước này, hoặc bỏ bút phê.`,
+    );
+  }
   return steps;
 }
 

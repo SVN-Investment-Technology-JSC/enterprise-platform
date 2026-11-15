@@ -1042,6 +1042,17 @@ describe('Quy trình động: các bước giữa cấu hình tự do', () => {
         ],
       }),
     ).rejects.toThrow('đều là phòng ban xử lý, đứng liền nhau');
+    // Bút phê giao phòng ban mà phía sau không có bước phòng ban xử lý: phòng được giao không có việc.
+    await expect(
+      service.saveWorkflow(configurer, undefined, {
+        name: 'Thiếu bước phòng ban',
+        direction: 'incoming',
+        steps: [
+          { key: 'direct', name: 'Giao phòng ban', type: 'approve', directs: true, approver: { type: 'users', userIds: ['u-leader'] } },
+          { key: 'sign', name: 'Lãnh đạo duyệt và ký', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } },
+        ],
+      }),
+    ).rejects.toThrow('Bước "Giao phòng ban" có bút phê nhưng phía sau không có bước Phòng ban xử lý');
     await expect(
       service.saveWorkflow(configurer, undefined, { name: 'Thiếu', direction: 'incoming', steps: [{ key: 'a', name: 'Duyệt', type: 'approve' }] }),
     ).rejects.toThrow('chưa chọn cách xác định người duyệt');

@@ -760,10 +760,17 @@ function WorkflowDialog({
                     checked={step.directs === true}
                     onChange={(event) => setStep(index, { directs: event.target.checked || undefined })}
                   />
-                  Bút phê: người duyệt ghi ý kiến chỉ đạo, chọn đơn vị / cá nhân chủ trì, phối hợp và thời hạn; bước phòng ban xử lý
-                  sau đó giao theo bút phê (văn thư phân phối)
+                  Bút phê: lãnh đạo ghi ý kiến chỉ đạo, chọn phòng chủ trì, phối hợp và hạn, lưu thành bút phê trên công văn và sổ đăng
+                  ký. Phòng ban làm việc ở bước Phòng ban xử lý phía sau. Bước liền sau đã là Phòng ban xử lý thì không cần tick, lãnh
+                  đạo vẫn chọn phòng ban.
                 </label>
               </CheckGroup>
+              {step.directs && !form.steps.slice(index + 1).some((later) => (later.type ?? 'approve') === 'process') ? (
+                <p className={styles.notice}>
+                  Sau bước này chưa có bước Phòng ban xử lý: phòng ban được giao sẽ không phải xử lý gì. Thêm bước Phòng ban xử lý phía
+                  sau, hoặc bỏ tick bút phê.
+                </p>
+              ) : null}
             </>
           ) : (
             <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
