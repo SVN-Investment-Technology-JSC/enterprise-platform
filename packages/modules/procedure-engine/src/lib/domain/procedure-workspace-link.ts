@@ -77,6 +77,11 @@ export interface StandaloneTaskProcedureRequestedPayload {
   readonly requestedBy: string;
   readonly requestedByName?: string;
   readonly requestedByIsTenantAdmin: boolean;
+  /**
+   * Người yêu cầu giữ `procedure.instance.create`, do Workspace đọc từ quyết định quyền của Platform lúc nhận
+   * request. Vắng (sự kiện phát trước bản sửa) thì chỉ quản trị tenant được coi là có.
+   */
+  readonly requestedByCanCreateInstances?: boolean;
 }
 
 export interface StartedForStandaloneTaskPayload {
@@ -154,6 +159,8 @@ export interface InstanceDeletedPayload {
   readonly reason: string;
   readonly deletedBy: string;
   readonly deletedByName?: string;
+  /** Người xoá là quản trị tenant thật; vắng là không. */
+  readonly deletedByIsTenantAdmin?: boolean;
 }
 
 export interface AttachmentAddedPayload {
@@ -181,6 +188,11 @@ export interface WorkItemProcedureRequestedPayload {
   readonly requestedBy: string;
   readonly requestedByName?: string;
   readonly requestedByIsTenantAdmin: boolean;
+  /**
+   * Người yêu cầu giữ `procedure.instance.create`, do Workspace đọc từ quyết định quyền của Platform lúc nhận
+   * request. Vắng (sự kiện phát trước bản sửa) thì chỉ quản trị tenant được coi là có.
+   */
+  readonly requestedByCanCreateInstances?: boolean;
 }
 
 export interface WorkItemProcedureLinkedPayload {
@@ -269,6 +281,7 @@ export function workspaceLinkEvents(
           reason: instance.deletion.reason,
           deletedBy: instance.deletion.deletedBy,
           ...(instance.deletion.deletedByName ? { deletedByName: instance.deletion.deletedByName } : {}),
+          ...(instance.deletion.deletedByIsTenantAdmin ? { deletedByIsTenantAdmin: true } : {}),
         },
       });
     }

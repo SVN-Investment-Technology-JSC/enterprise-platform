@@ -243,6 +243,8 @@ export interface ProcedureInstanceDeletion {
   deletedAt: string;
   deletedBy: string;
   deletedByName?: string;
+  /** Người xoá là quản trị tenant thật lúc xoá; vắng là không. */
+  deletedByIsTenantAdmin?: boolean;
   reason: string;
 }
 

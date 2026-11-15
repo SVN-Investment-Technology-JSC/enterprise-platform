@@ -49,7 +49,7 @@ describe('workspace module capabilities', () => {
   }
 
   it('workspace.manage bao hàm ghi công việc và tài liệu nhưng không bao hàm xóa tài liệu', async () => {
-    const write = setup(['workspace.read', 'workspace.manage'], '/projects');
+    const write = setup(['workspace.read', 'workspace.manage'], '/work-items');
     await expect(write.guard.canActivate(write.context)).resolves.toBe(true);
     expect(write.request.workspaceActor).toMatchObject({
       canManage: true,
@@ -62,7 +62,7 @@ describe('workspace module capabilities', () => {
   });
 
   it('workspace.project.admin ghi được công việc nhưng không thành quản trị danh mục hay xóa tài liệu', async () => {
-    const write = setup(['workspace.project.admin'], '/projects');
+    const write = setup(['workspace.project.admin'], '/work-items');
     await expect(write.guard.canActivate(write.context)).resolves.toBe(true);
     expect(write.request.workspaceActor).toMatchObject({
       canAdminProjects: true,
@@ -87,12 +87,62 @@ describe('workspace module capabilities', () => {
   });
 
   it('người chỉ đọc không ghi được và không bị nâng quyền bởi JWT cũ', async () => {
-    const { guard, context } = setup(['workspace.read'], '/projects');
+    const { guard, context } = setup(['workspace.read'], '/work-items');
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
   });
 
   it('ai vào được Workspace cũng đọc được danh mục thao tác Trợ lý', async () => {
     const { guard, context } = setup(['workspace.read'], '/assistant/actions', 'GET');
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  describe('tạo dự án cần workspace.project.create (ISS-BE-014)', () => {
+    it('có quyền thì POST /projects được qua và actor mang cờ canCreateProject (SEC-BE014-01)', async () => {
+      const { guard, request, context } = setup(
+        ['workspace.read', 'workspace.task.write', 'workspace.project.create'],
+        '/projects',
+      );
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request.workspaceActor).toMatchObject({ canCreateProject: true });
+    });
+
+    it('chỉ có quyền ghi công việc (NV Basic) thì POST /projects bị 403 tiếng Việt (SEC-BE014-01)', async () => {
+      const { guard, context } = setup(['workspace.read', 'workspace.task.write'], '/projects');
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'ACCESS_DENIED', message: 'Bạn không có quyền tạo dự án mới.' },
+      });
+    });
+
+    it('workspace.manage và workspace.project.admin không kéo theo quyền tạo dự án', async () => {
+      for (const held of [['workspace.manage'], ['workspace.project.admin']]) {
+        const { guard, context } = setup(held, '/projects');
+        await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+      }
+    });
+
+    it('quản trị tenant tạo được dự án', async () => {
+      const all = ['workspace.read', 'workspace.task.write', 'workspace.project.create'];
+      const { guard, request, context } = setup(all, '/projects', 'POST', ['tenant-admin']);
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request.workspaceActor).toMatchObject({ isTenantAdmin: true, canCreateProject: true });
+    });
+
+    it('thao tác ghi khác trên dự án có sẵn vẫn chỉ cần quyền ghi công việc; GET trả cờ false', async () => {
+      const update = setup(['workspace.read', 'workspace.task.write'], '/projects/p1/members', 'PUT');
+      await expect(update.guard.canActivate(update.context)).resolves.toBe(true);
+      const read = setup(['workspace.read'], '/projects', 'GET');
+      await expect(read.guard.canActivate(read.context)).resolves.toBe(true);
+      expect(read.request.workspaceActor).toMatchObject({ canCreateProject: false });
+    });
+  });
+
+  it('cờ mở hồ sơ Quy trình lấy từ procedure.instance.create thật của người dùng (ISS-BE-061)', async () => {
+    const plain = setup(['workspace.read', 'workspace.task.write', 'procedure.instance.override'], '/work-items');
+    await plain.guard.canActivate(plain.context);
+    expect(plain.request.workspaceActor).toMatchObject({ canStartProcedures: false });
+    const granted = setup(['workspace.read', 'workspace.task.write', 'procedure.instance.create'], '/work-items');
+    await granted.guard.canActivate(granted.context);
+    expect(granted.request.workspaceActor).toMatchObject({ canStartProcedures: true });
   });
 });

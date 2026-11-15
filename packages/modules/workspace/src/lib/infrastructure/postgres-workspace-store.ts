@@ -5194,6 +5194,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               requestedBy: actorUserId,
               requestedByName: input.requester.displayName,
               requestedByIsTenantAdmin: input.requester.isTenantAdmin,
+              requestedByCanCreateInstances: input.requester.canCreateInstances,
             },
           });
         }
@@ -5850,6 +5851,7 @@ async function writeProcedureRequest(
       requestedBy: actorUserId,
       requestedByName: input.requestedByName,
       requestedByIsTenantAdmin: input.requestedByIsTenantAdmin,
+      requestedByCanCreateInstances: input.requestedByCanCreateInstances,
     },
   });
   return mapProcedureRequest(result.rows[0] as Row);

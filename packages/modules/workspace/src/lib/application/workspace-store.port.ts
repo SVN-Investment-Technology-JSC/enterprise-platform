@@ -317,6 +317,8 @@ export interface StandaloneTaskCreateModel extends StandaloneTaskWriteModel {
   readonly requester: {
     readonly displayName: string;
     readonly isTenantAdmin: boolean;
+    /** Giữ `procedure.instance.create`; Quy trình từ chối mở hồ sơ khi không có. */
+    readonly canCreateInstances: boolean;
   };
 }
 

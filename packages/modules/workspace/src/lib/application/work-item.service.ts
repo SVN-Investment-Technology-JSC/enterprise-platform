@@ -84,7 +84,7 @@ import {
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
-import type { WorkspaceActor } from './workspace.application.js';
+import { canStartProcedures, requireProcedureStart, type WorkspaceActor } from './workspace.application.js';
 import { WorkspaceLabelService } from './workspace-label.service.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
@@ -242,6 +242,7 @@ export class WorkItemService {
       !linkedInstance && executionType === 'procedure' && itemType !== 'phase'
         ? requireUuid(input.procedureDefinitionId, 'Quy trình')
         : undefined;
+    if (procedureDefinitionId) requireProcedureStart(actor);
 
     const adjustmentOfId = await this.requireAdjustmentTarget(
       actor,
@@ -278,6 +279,7 @@ export class WorkItemService {
             projectCode: access.project.code,
             requestedByName: actor.displayName,
             requestedByIsTenantAdmin: actor.isTenantAdmin,
+            requestedByCanCreateInstances: canStartProcedures(actor),
           }
         : undefined,
       linkedInstance: linkedInstance
@@ -336,6 +338,7 @@ export class WorkItemService {
     if (refs.some((ref) => ref.moduleKey === 'procedure-engine')) {
       throw new WorkspaceValidationError('Công việc đã có hồ sơ quy trình.');
     }
+    requireProcedureStart(actor);
     return this.store.procedureRequest.request(actor.tenantId, actor.userId, {
       workItemId: item.id,
       workItemCode: item.code,
@@ -345,6 +348,7 @@ export class WorkItemService {
       projectCode: access.project.code,
       requestedByName: actor.displayName,
       requestedByIsTenantAdmin: actor.isTenantAdmin,
+      requestedByCanCreateInstances: canStartProcedures(actor),
     });
   }
 

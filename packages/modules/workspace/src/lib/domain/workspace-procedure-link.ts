@@ -92,6 +92,8 @@ export interface ProcedureInstanceDeletedPayload {
   readonly reason: string;
   readonly deletedBy: string;
   readonly deletedByName?: string;
+  /** Người xoá là quản trị tenant thật; vắng là không. */
+  readonly deletedByIsTenantAdmin?: boolean;
 }
 
 /** Quy trình → Workspace: hồ sơ gắn dự án có tệp mới tải lên xong; đưa vào thư mục công việc. */
@@ -130,6 +132,8 @@ export interface WorkItemProcedureRequestDraft {
   readonly projectCode: string;
   readonly requestedByName?: string;
   readonly requestedByIsTenantAdmin: boolean;
+  /** Người yêu cầu giữ `procedure.instance.create` (Platform đã quyết định lúc nhận request). */
+  readonly requestedByCanCreateInstances: boolean;
 }
 
 /** Hồ sơ đã mở sẵn bên Quy trình, công việc tạo ra để gắn vào nó. */

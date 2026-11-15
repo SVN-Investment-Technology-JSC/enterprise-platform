@@ -351,6 +351,11 @@ export function WorkspaceScreen() {
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
+  /**
+   * Nút "Tạo dự án" chỉ hiện cho người được cấp quyền tạo dự án; server vẫn chặn. Server cũ chưa trả cờ thì giữ
+   * nguyên như trước.
+   */
+  const canCreateProject = status?.capabilities?.canCreateProject !== false;
   /** Tenant bật Bán hàng: màn khách hàng chỉ đọc (D1); server cũng chặn ghi. */
   const customersManagedByCrm = Boolean(status?.capabilities?.customersManagedByCrm);
 
@@ -505,13 +510,18 @@ export function WorkspaceScreen() {
               }
               canDelete={canDelete}
               canWriteDocuments={canSeeDocuments}
+              canCreateProject={canCreateProject}
               notificationTarget={sub}
               onOpenProjectChange={onOpenProjectChange}
               onOpenProject={openProject}
               actionsSlot={actionsSlot}
             />
           ) : view === 'projects' ? (
-            <ProjectsListView onOpenProject={openProject} actionsSlot={listActionsSlot} />
+            <ProjectsListView
+              onOpenProject={openProject}
+              actionsSlot={listActionsSlot}
+              canCreateProject={canCreateProject}
+            />
           ) : (
             <CustomersView onOpenProject={openProject} customersReadOnly={customersManagedByCrm} />
           )}

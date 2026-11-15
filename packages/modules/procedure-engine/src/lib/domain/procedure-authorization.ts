@@ -24,6 +24,11 @@ export interface ProcedureActor {
    * assignments would never constrain anyone.
    */
   isOverride: boolean;
+  /**
+   * Quản trị tenant thật (vai trò `tenant-admin`), khác `isOverride`: quyền can thiệp hồ sơ chỉ có nghĩa trong
+   * Quy trình, không được gửi sang module khác như tư cách quản trị tenant. Vắng thì coi là không phải.
+   */
+  isTenantAdmin?: boolean;
   organizationUnitIds: readonly string[];
   positionIds: readonly string[];
   /**

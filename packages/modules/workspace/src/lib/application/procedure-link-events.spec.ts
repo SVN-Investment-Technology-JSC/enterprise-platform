@@ -12,6 +12,7 @@ import type { ProjectService } from './project.service.js';
 import { WorkspaceProcedureEvents } from './procedure-link-events.js';
 import type { WorkItemDeletionService } from './work-item-deletion.service.js';
 import type { WorkItemService } from './work-item.service.js';
+import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
 const T = 'tenant-a';
@@ -85,8 +86,11 @@ function harness(options: {
   } as unknown as WorkspaceStore;
 
   const createdItems: Record<string, unknown>[] = [];
+  /** Người thay mặt mà Workspace dùng ở từng thao tác, để kiểm không tự nâng quyền. */
+  const actors: { action: string; actor: WorkspaceActor }[] = [];
   const workItems = {
-    create: async (_actor: unknown, input: Record<string, unknown>, linked: { instanceId: string }) => {
+    create: async (actor: WorkspaceActor, input: Record<string, unknown>, linked: { instanceId: string }) => {
+      actors.push({ action: 'create-item', actor });
       createdItems.push(input);
       const item = { id: 'wi-new', projectId: String(input.projectId), code: 'CV009', title: String(input.title) };
       items[item.id] = item;
@@ -109,14 +113,20 @@ function harness(options: {
     },
   } as unknown as WorkItemDeletionService;
   const documents = {
-    ensurePath: async (_actor: unknown, input: { projectId: string; workItemId: string }) => ({
-      id: `folder-${input.workItemId}`,
-    }),
+    ensurePath: async (actor: WorkspaceActor, input: { projectId: string; workItemId: string }) => {
+      actors.push({ action: 'ensure-path', actor });
+      return { id: `folder-${input.workItemId}` };
+    },
   } as unknown as DocumentService;
 
   const memberChanges: { userId: string; role: string }[][] = [];
   const projects = {
-    setMembers: async (_actor: unknown, _projectId: string, input: { members: { userId: string; role: string }[] }) => {
+    setMembers: async (
+      actor: WorkspaceActor,
+      _projectId: string,
+      input: { members: { userId: string; role: string }[] },
+    ) => {
+      actors.push({ action: 'set-members', actor });
       memberChanges.push(input.members);
       return input.members;
     },
@@ -129,7 +139,7 @@ function harness(options: {
     deletion,
     projects,
   );
-  return { events, emitted, created, links, moves, removed, createdItems, memberChanges };
+  return { events, emitted, created, links, moves, removed, createdItems, memberChanges, actors };
 }
 
 const linkedRef: Ref = {
@@ -171,6 +181,17 @@ describe('Tệp của hồ sơ → tài liệu dự án', () => {
     ]);
   });
 
+  it('người thay mặt đưa tệp vào dự án không mang tư cách quản trị tenant (ISS-BE-024)', async () => {
+    const { events, actors } = harness({ refs: [linkedRef] });
+    await events.handle(T, PROCEDURE_ATTACHMENT_ADDED, file);
+    expect(actors).toEqual([
+      {
+        action: 'ensure-path',
+        actor: expect.objectContaining({ userId: 'user-1', isTenantAdmin: false, canAdminProjects: true, canManage: false }),
+      },
+    ]);
+  });
+
   it('trùng tên thì thêm mã hồ sơ; đã có tài liệu cho tệp này thì bỏ qua', async () => {
     const clash = harness({ refs: [linkedRef], clashNames: ['Báo giá.pdf'] });
     await clash.events.handle(T, PROCEDURE_ATTACHMENT_ADDED, file);
@@ -188,15 +209,33 @@ describe('Tệp của hồ sơ → tài liệu dự án', () => {
 });
 
 describe('Xoá hồ sơ', () => {
-  it('xoá công việc đang gắn hồ sơ', async () => {
-    const { events, removed } = harness({ refs: [linkedRef] });
-    await events.handle(T, PROCEDURE_INSTANCE_DELETED, {
-      instanceId: INSTANCE,
-      instanceCode: 'HS-001',
-      reason: 'Nhập nhầm',
-      deletedBy: 'user-a',
+  const deleted = { instanceId: INSTANCE, instanceCode: 'HS-001', reason: 'Nhập nhầm', deletedBy: 'user-a' };
+  const oldItem = { id: 'wi-old', projectId: 'p-old', code: 'CV001', title: 'Mua cáp' };
+
+  it('người xoá có vai trò trong dự án: xoá công việc đang gắn hồ sơ', async () => {
+    const { events, removed } = harness({
+      refs: [linkedRef],
+      items: { 'wi-old': oldItem },
+      members: { 'p-old': ['user-a'] },
     });
+    await events.handle(T, PROCEDURE_INSTANCE_DELETED, deleted);
     expect(removed).toEqual([{ workItemId: 'wi-old', note: expect.stringContaining('HS-001') }]);
+  });
+
+  it('người xoá không có vai trò trong dự án (vd chỉ có quyền can thiệp hồ sơ): giữ công việc (SEC-BE024-02)', async () => {
+    const { events, removed } = harness({
+      refs: [linkedRef],
+      items: { 'wi-old': oldItem },
+      members: { 'p-old': ['someone-else'] },
+    });
+    await events.handle(T, PROCEDURE_INSTANCE_DELETED, deleted);
+    expect(removed).toEqual([]);
+  });
+
+  it('quản trị tenant thật xoá được dù không thuộc dự án', async () => {
+    const { events, removed } = harness({ refs: [linkedRef], items: { 'wi-old': oldItem } });
+    await events.handle(T, PROCEDURE_INSTANCE_DELETED, { ...deleted, deletedByIsTenantAdmin: true });
+    expect(removed.map((entry) => entry.workItemId)).toEqual(['wi-old']);
   });
 });
 
@@ -235,11 +274,29 @@ describe('Đổi công việc liên kết', () => {
     ]);
   });
 
+  it('người không có vai trò ở dự án cũ: từ chối, không tạo việc mới và không xoá việc cũ (SEC-BE024-04)', async () => {
+    const { events, emitted, createdItems, removed, moves } = harness({
+      refs: [linkedRef],
+      items: { 'wi-old': oldItem },
+      members: { 'p-new': ['user-a'], 'p-old': ['someone-else'] },
+    });
+    await events.handle(T, PROCEDURE_WORKSPACE_RELINK_REQUESTED, request);
+    expect(createdItems).toEqual([]);
+    expect(removed).toEqual([]);
+    expect(moves).toEqual([]);
+    expect(emitted).toEqual([
+      expect.objectContaining({
+        type: WORK_ITEM_PROCEDURE_LINK_REJECTED,
+        payload: expect.objectContaining({ reason: expect.stringContaining('không có vai trò trong dự án EVN') }),
+      }),
+    ]);
+  });
+
   it('tạo công việc mới, chuyển tài liệu, xoá công việc cũ rồi báo mã mới', async () => {
     const h = harness({
       refs: [linkedRef],
       items: { 'wi-old': oldItem },
-      members: { 'p-new': ['user-a', 'user-in'] },
+      members: { 'p-new': ['user-a', 'user-in'], 'p-old': ['user-a'] },
     });
     await h.events.handle(T, PROCEDURE_WORKSPACE_RELINK_REQUESTED, request);
     // Chỉ giữ người là thành viên dự án mới.
@@ -260,6 +317,8 @@ describe('Đổi công việc liên kết', () => {
       }),
     ]);
     expect(h.removed.map((entry) => entry.workItemId)).toEqual(['wi-old']);
+    // Việc mới và thư mục được tạo dưới danh nghĩa người yêu cầu, không phải quản trị tenant.
+    expect(h.actors.map((entry) => entry.actor.isTenantAdmin)).toEqual([false, false]);
     expect(h.emitted).toEqual([
       expect.objectContaining({
         type: WORK_ITEM_PROCEDURE_LINKED,
@@ -296,6 +355,40 @@ describe('Đơn tạo hộ gắn dự án', () => {
       ],
     ]);
     expect(h.createdItems).toHaveLength(1);
+  });
+
+  it('người yêu cầu không có vai trò trong dự án: từ chối với lý do tiếng Việt, không thêm thành viên, không tạo việc (SEC-BE024-02/03)', async () => {
+    const h = harness({ members: { 'p-new': ['someone-else'] } });
+    await h.events.handle(T, 'procedure.instance.workspace_link_requested', { ...link, submitterUserId: 'user-out' });
+    expect(h.memberChanges).toEqual([]);
+    expect(h.createdItems).toEqual([]);
+    expect(h.emitted).toEqual([
+      expect.objectContaining({
+        type: WORK_ITEM_PROCEDURE_LINK_REJECTED,
+        payload: {
+          instanceId: INSTANCE,
+          reason:
+            'Người yêu cầu không có vai trò trong dự án HN nên không tạo công việc cho hồ sơ được; hãy nhờ chủ nhiệm dự án thêm vào dự án trước.',
+        },
+      }),
+    ]);
+  });
+
+  it('thêm thành viên và tạo việc dưới danh nghĩa người yêu cầu, cờ quản trị tenant đúng như Quy trình gửi', async () => {
+    const h = harness({ members: { 'p-new': ['user-a'] } });
+    await h.events.handle(T, 'procedure.instance.workspace_link_requested', { ...link, submitterUserId: 'user-out' });
+    expect(h.actors.map((entry) => [entry.action, entry.actor.userId, entry.actor.isTenantAdmin])).toEqual([
+      ['set-members', 'user-a', false],
+      ['create-item', 'user-a', false],
+    ]);
+
+    // Quản trị tenant thật: bỏ qua kiểm thành viên như ở giao diện.
+    const admin = harness({ members: { 'p-new': [] } });
+    await admin.events.handle(T, 'procedure.instance.workspace_link_requested', {
+      ...link,
+      requestedByIsTenantAdmin: true,
+    });
+    expect(admin.createdItems).toHaveLength(1);
   });
 
   it('người submit đã trong dự án thì không đổi danh sách thành viên', async () => {

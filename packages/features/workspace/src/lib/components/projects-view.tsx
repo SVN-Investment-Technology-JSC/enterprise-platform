@@ -205,11 +205,14 @@ export interface ProjectsViewProps {
   readonly createProjectRequest?: number;
   /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
   readonly onCreateProjectHandled?: () => void;
+  /** Người dùng được tạo dự án mới; không thì ẩn nút "Tạo dự án mới" (server vẫn chặn). */
+  readonly canCreateProject?: boolean;
 }
 
 export function ProjectsView({
   canDelete = false,
   canWriteDocuments = true,
+  canCreateProject = true,
   notificationTarget,
   onOpenProjectChange,
   createProjectRequest = 0,
@@ -397,9 +400,9 @@ export function ProjectsView({
   // Báo lại ngay để quay lại trang này sau đó không tự mở hộp lần nữa.
   useEffect(() => {
     if (createProjectRequest <= 0) return;
-    setProjectForm({ open: true });
+    if (canCreateProject) setProjectForm({ open: true });
     onCreateProjectHandled?.();
-  }, [createProjectRequest, onCreateProjectHandled]);
+  }, [createProjectRequest, onCreateProjectHandled, canCreateProject]);
 
   /**
    * Đích của đường dẫn đã được áp dụng chưa.
@@ -1227,13 +1230,15 @@ export function ProjectsView({
       {listLoaded && !openId ? (
         <div className={styles.emptyState}>
           <p>Chưa có dự án nào trong phạm vi của bạn.</p>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            onClick={() => setProjectForm({ open: true })}
-          >
-            <Plus size={14} /> Tạo dự án mới
-          </button>
+          {canCreateProject ? (
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              onClick={() => setProjectForm({ open: true })}
+            >
+              <Plus size={14} /> Tạo dự án mới
+            </button>
+          ) : null}
         </div>
       ) : null}
 
