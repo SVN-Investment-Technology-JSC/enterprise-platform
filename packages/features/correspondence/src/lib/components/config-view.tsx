@@ -602,6 +602,29 @@ function WorkflowDialog({
       }),
     }));
   const preview = flowLabels({ startName: form.startName, endName: form.endName, steps: form.steps }, direction);
+  // Ô có bước phòng ban xử lý liền sau (ô đầu là -1): người làm ô đó chọn phòng ban. Tick là tự chèn bước đó, bỏ tick là bỏ.
+  const assignsNext = (index: number) => form.steps[index + 1]?.type === 'process';
+  const setAssignsNext = (index: number, on: boolean) =>
+    setForm((current) => {
+      const steps = [...current.steps];
+      const next = steps[index + 1];
+      if (on && next?.type !== 'process' && steps.length < MAX_WORKFLOW_STEPS) steps.splice(index + 1, 0, blankStep('process', index + 1));
+      else if (!on && next?.type === 'process') steps.splice(index + 1, 1);
+      else return current;
+      return { ...current, steps };
+    });
+  const assignNextRow = (index: number) => (
+    <label className={styles.checkRow}>
+      <input
+        type="checkbox"
+        checked={assignsNext(index)}
+        disabled={!assignsNext(index) && form.steps.length >= MAX_WORKFLOW_STEPS}
+        onChange={(event) => setAssignsNext(index, event.target.checked)}
+      />
+      Giao phòng ban xử lý: {index < 0 ? 'văn thư' : 'người làm bước này'} chọn phòng ban, bước Phòng ban xử lý tự thêm ngay sau để
+      chính các phòng đó xử lý xong mới sang bước tiếp
+    </label>
+  );
 
   return (
     <FormDialog
@@ -680,6 +703,7 @@ function WorkflowDialog({
                 />
                 Vào sổ xong tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì giao phòng ban gợi ý của loại văn bản)
               </label>
+              {assignNextRow(-1)}
             </CheckGroup>
           ) : (
             <p className={styles.sectionNote}>Người soạn gửi đi là sang bước đầu của quy trình.</p>
@@ -753,27 +777,37 @@ function WorkflowDialog({
                 peopleOptions={peopleOptions}
                 onChange={(approver) => setStep(index, { approver })}
               />
-              <CheckGroup label="Bước chỉ đạo">
+              <CheckGroup label="Phân công">
+                {assignNextRow(index)}
                 <label className={styles.checkRow}>
                   <input
                     type="checkbox"
                     checked={step.directs === true}
                     onChange={(event) => setStep(index, { directs: event.target.checked || undefined })}
                   />
-                  Bút phê: lãnh đạo ghi ý kiến chỉ đạo, chọn phòng chủ trì, phối hợp và hạn, lưu thành bút phê trên công văn và sổ đăng
-                  ký. Phòng ban làm việc ở bước Phòng ban xử lý phía sau. Bước liền sau đã là Phòng ban xử lý thì không cần tick, lãnh
-                  đạo vẫn chọn phòng ban.
+                  Bút phê: ý kiến chỉ đạo, phòng chủ trì, phối hợp và hạn lưu thành bút phê trên công văn và sổ đăng ký. Cần khi giữa
+                  bước này và bước phòng ban còn bước khác (ví dụ văn thư phân phối theo bút phê).
                 </label>
               </CheckGroup>
               {step.directs && !form.steps.slice(index + 1).some((later) => (later.type ?? 'approve') === 'process') ? (
                 <p className={styles.notice}>
-                  Sau bước này chưa có bước Phòng ban xử lý: phòng ban được giao sẽ không phải xử lý gì. Thêm bước Phòng ban xử lý phía
-                  sau, hoặc bỏ tick bút phê.
+                  Sau bước này chưa có bước Phòng ban xử lý: phòng ban được giao sẽ không phải xử lý gì. Tick "Giao phòng ban xử lý"
+                  hoặc bỏ tick bút phê.
                 </p>
               ) : null}
             </>
+          ) : type === 'process' ? (
+            <p className={styles.sectionNote}>
+              Phòng ban là các phòng do &quot;{preview[index]}&quot; chọn khi chuyển sang bước này, không cố định trong quy trình. Các phòng
+              gửi đủ kết quả thì sang bước sau.
+            </p>
           ) : (
-            <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+            <>
+              <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
+              <CheckGroup label="Phân công">
+                {assignNextRow(index)}
+              </CheckGroup>
+            </>
           )}
           <div className={styles.formRow}>
             {type === 'process' ? (

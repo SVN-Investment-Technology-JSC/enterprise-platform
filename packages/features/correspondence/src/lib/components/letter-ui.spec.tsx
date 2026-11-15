@@ -12,8 +12,9 @@ import type {
 } from '@enterprise-platform/contracts-correspondence';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { localToday } from '../correspondence.model';
-import { decideRevoke, quickAddCatalogItem, remindLetter, removeLetter, requestRevoke, submitLetter, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
+import { decideRevoke, quickAddCatalogItem, remindLetter, removeLetter, requestRevoke, saveWorkflow, submitLetter, approveLetter, cancelLetter, commentLetter, loadStepChoice, returnLetter } from '../correspondence-api';
 import { CommentsSection } from './comments-section';
+import { ConfigView } from './config-view';
 import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
@@ -36,6 +37,7 @@ jest.mock('../correspondence-api', () => ({
   quickAddCatalogItem: jest.fn(),
   submitLetter: jest.fn(),
   remindLetter: jest.fn(),
+  saveWorkflow: jest.fn(),
 }));
 
 const mocked = {
@@ -50,6 +52,7 @@ const mocked = {
   quickAdd: quickAddCatalogItem as jest.MockedFunction<typeof quickAddCatalogItem>,
   submit: submitLetter as jest.MockedFunction<typeof submitLetter>,
   remind: remindLetter as jest.MockedFunction<typeof remindLetter>,
+  saveWorkflow: saveWorkflow as jest.MockedFunction<typeof saveWorkflow>,
 };
 
 const NO_ACTIONS: LetterActions = {
@@ -784,5 +787,55 @@ describe('Ô cuối theo cấu hình', () => {
     expect(screen.getByRole('heading', { name: 'Pháp chế hoàn tất' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeTruthy();
     expect(screen.getByText(/hoàn tất để đóng công văn/)).toBeTruthy();
+  });
+});
+
+describe('Cấu hình quy trình: giao phòng ban tự sinh bước phòng ban xử lý', () => {
+  const tgd = { type: 'positions' as const, positionIds: ['pos-ceo'] };
+  const workflowConfig: CorrespondenceConfig = {
+    ...config,
+    workflows: [
+      {
+        id: 'wf-in',
+        name: 'Quy trình duyệt công văn đến',
+        direction: 'incoming',
+        isActive: true,
+        isDefault: true,
+        steps: [
+          { key: 'give', name: 'Giao phòng ban', type: 'approve', directs: true, approver: tgd },
+          { key: 'sign', name: 'Lãnh đạo duyệt và ký', type: 'approve', approver: tgd },
+        ],
+        updatedAt: '2026-11-14T00:00:00.000Z',
+      },
+    ],
+  };
+
+  it('tick "Giao phòng ban xử lý" ở bước TGĐ: bước phòng ban chèn ngay sau, bỏ tick thì bỏ; lưu đúng thứ tự', async () => {
+    mocked.saveWorkflow.mockResolvedValue(workflowConfig.workflows[0]);
+    render(<ConfigView config={workflowConfig} directory={directory} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Sửa/ })[0]);
+    const flow = () => screen.getByLabelText('Luồng xử lý').textContent;
+    expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
+    // Bút phê mà chưa có bước phòng ban: cảnh báo ngay.
+    expect(screen.getByText(/Sau bước này chưa có bước Phòng ban xử lý/)).toBeTruthy();
+    const give = () => screen.getAllByRole('checkbox', { name: /Giao phòng ban xử lý: người làm bước này/ })[0] as HTMLInputElement;
+    expect(give().checked).toBe(false);
+    fireEvent.click(give());
+    expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banPhòng ban xử lýLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
+    expect(give().checked).toBe(true);
+    expect(screen.queryByText(/Sau bước này chưa có bước Phòng ban xử lý/)).toBeNull();
+    expect(screen.getByText(/Phòng ban là các phòng do "Giao phòng ban" chọn/)).toBeTruthy();
+    // Bỏ tick: bỏ bước vừa thêm; tick lại để lưu.
+    fireEvent.click(give());
+    expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
+    fireEvent.click(give());
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu quy trình' }));
+    await waitFor(() => expect(mocked.saveWorkflow).toHaveBeenCalled());
+    const [, saved] = mocked.saveWorkflow.mock.calls[0];
+    expect(saved.steps.map((step) => [step.type, step.name])).toEqual([
+      ['approve', 'Giao phòng ban'],
+      ['process', 'Phòng ban xử lý'],
+      ['approve', 'Lãnh đạo duyệt và ký'],
+    ]);
   });
 });
