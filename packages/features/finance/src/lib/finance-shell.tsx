@@ -4,9 +4,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import { FinanceCrumbsProvider } from './finance-crumbs';
 import { financeNavigation, getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
 import { FinancePermissionsProvider, useFinancePermissions } from './finance-permissions';
+
+const FINANCE_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
+  dashboard: 'nav.dashboard',
+  reports: 'nav.reports',
+  settings: 'nav.settings',
+};
 
 const COLLAPSED_KEY = 'finance_sidebar_collapsed';
 
@@ -60,7 +67,16 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
         .filter((item) => permissions.canOpenPage(item.href))
         .map((item) => {
           const Icon = item.icon;
-          return { id: item.id, label: item.label, icon: <Icon className={`size-[18px] ${item.tone}`} aria-hidden /> };
+          const slot = FINANCE_NAV_SLOT[item.id];
+          return {
+            id: item.id,
+            label: item.label,
+            icon: slot ? (
+              <AppIcon slot={slot} fallback={Icon} className={`size-4 ${item.tone}`} />
+            ) : (
+              <Icon className={`size-[18px] ${item.tone}`} aria-hidden />
+            ),
+          };
         }),
     [permissions],
   );

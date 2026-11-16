@@ -7,7 +7,7 @@ import {
   type ModuleNavItem,
   type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { AppIcon, authFetch } from '@enterprise-platform/shared-ui';
 import {
   GitBranch,
   LayoutDashboard,
@@ -128,15 +128,12 @@ export function TenantShell({
     PAGES.find((page) => page.id !== 'dashboard' && pathname.startsWith(page.href))?.id ??
     'dashboard';
 
-  const nav: ModuleNavItem<TenantView>[] = pages.map((page) => {
-    const Icon = page.icon;
-    return {
-      id: page.id,
-      label: page.label,
-      group: page.group,
-      icon: <Icon size={16} aria-hidden />,
-    };
-  });
+  const nav: ModuleNavItem<TenantView>[] = pages.map((page) => ({
+    id: page.id,
+    label: page.label,
+    group: page.group,
+    icon: <AppIcon slot={`nav.${page.id}`} fallback={page.icon} className="size-4" />,
+  }));
 
   const openModule = (module: CatalogModule) => window.location.assign(module.launchUrl);
 

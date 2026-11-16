@@ -16,7 +16,8 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { toast } from '@enterprise-platform/shared-ui';
+import { AppIcon, toast } from '@enterprise-platform/shared-ui';
+import { BarChart3, LayoutDashboard, Settings } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
@@ -103,15 +104,15 @@ const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
 ];
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} className="size-4" /> },
   { id: 'stock', label: 'Kho hàng', group: 'Vận hành' },
   { id: 'documents', label: 'Chứng từ kho', group: 'Chứng từ' },
   { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
   { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
   { id: 'custody', label: 'Tài sản', group: 'Vận hành' },
-  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
+  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo', icon: <AppIcon slot="nav.reports" fallback={BarChart3} className="size-4" /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" /> },
 ];
 
 const TAB_IDS = NAV.map((item) => item.id);

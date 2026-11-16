@@ -24,7 +24,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import { initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
+import { AppIcon, initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   getProject,
@@ -74,11 +74,11 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
   },
   { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
-  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
+  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <AppIcon slot="nav.reports" fallback={BarChart3} className="size-4" /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
-  { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <Users size={16} />, hidden: true },
+  { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <AppIcon slot="nav.users" fallback={Users} className="size-4" />, hidden: true },
   // Mở bằng nút bánh răng ở góc dưới thanh bên, không có dòng riêng.
-  { id: 'settings', label: 'Cài đặt', icon: <Settings size={16} />, hidden: true },
+  { id: 'settings', label: 'Cài đặt', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" />, hidden: true },
 ];
 
 const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
