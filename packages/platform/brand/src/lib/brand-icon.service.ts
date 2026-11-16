@@ -1,13 +1,17 @@
 import { Logger } from '@nestjs/common';
 import {
   BRAND_SPEC_MAX_BYTES,
+  buildIconModel,
   checkCompliance,
   DEFAULT_PALETTE,
   DEFAULT_RULES,
+  getIconSlotMeta,
+  isIconSlotId,
   LIMITS,
   normalizeDocument,
   normalizePalette,
   normalizeRules,
+  slotSymbolId,
   slugify,
   type BrandIconDetail,
   type BrandIconListResponse,
@@ -15,10 +19,15 @@ import {
   type BrandIconStatus,
   type BrandIconSummary,
   type BrandIconVersion,
+  type BrandSlotAssignment,
+  type BrandSlotListResponse,
+  type BrandSlotManifestItem,
+  type BrandSlotManifestResponse,
   type BrandStandardsPayload,
   type BrandStandardsResponse,
   type BrandSvgMode,
   type IconDocument,
+  type IconSlotId,
   type SaveBrandIconResponse,
   type SaveBrandStandardsResponse,
 } from '@enterprise-platform/shared-brand-icon';
@@ -41,6 +50,7 @@ import {
 } from './brand-codec.js';
 import {
   assertIconId,
+  assertSlotId,
   cleanNote,
   parseDocument,
   parseStandards,
@@ -51,6 +61,8 @@ import type {
   BrandStore,
   BrandTransaction,
   IconRow,
+  PublishedSlotEntry,
+  SlotRow,
   VersionRow,
 } from './brand-store.js';
 
@@ -87,6 +99,19 @@ export type SvgResult =
       readonly filename: string;
     };
 
+export type SlotManifestResult =
+  | {
+      readonly notModified: true;
+      readonly etag: string;
+      readonly cacheControl: string;
+    }
+  | {
+      readonly notModified: false;
+      readonly etag: string;
+      readonly cacheControl: string;
+      readonly manifest: BrandSlotManifestResponse;
+    };
+
 const JSON_TYPE = 'application/json; charset=utf-8';
 const SVG_TYPE = 'image/svg+xml; charset=utf-8';
 /** Dư địa cho object đọc lại: spec đã được giới hạn lúc ghi, SVG dựng ra có thể lớn hơn spec. */
@@ -121,6 +146,18 @@ const toVersion = (row: VersionRow): BrandIconVersion => ({
   note: row.note,
   createdBy: row.createdBy,
   createdAt: row.createdAt,
+});
+
+const toSlotAssignment = (row: SlotRow): BrandSlotAssignment => ({
+  slot: row.slot as IconSlotId,
+  iconId: row.iconId,
+  iconName: row.iconName,
+  iconSlug: row.iconSlug,
+  iconStatus: row.iconStatus,
+  publishedVersion: row.publishedVersion,
+  currentVersion: row.currentVersion,
+  updatedBy: row.updatedBy,
+  updatedAt: row.updatedAt,
 });
 
 /** Bản phát hành công khai: icon đang `published` và phiên bản không vượt `publishedVersion`. */
@@ -246,11 +283,6 @@ export class BrandIconService {
       const row = await this.store.findVersion(id, version);
       if (!row) throw brandErrors.versionNotFound();
 
-      // Cùng spec, cùng bảng màu và cùng chế độ thì SVG giống hệt, nên không cần đọc kho để trả 304.
-      const etag =
-        query.mode === 'mono'
-          ? `"${row.specSha256}-mono"`
-          : `"${row.specSha256}-brand-s${row.standardsVersion}"`;
       const scope = isPublic ? 'public' : 'private';
       const cacheControl =
         query.version !== null
@@ -258,20 +290,167 @@ export class BrandIconService {
           : isPublic
             ? 'public, max-age=300'
             : 'private, no-cache';
-      if (etagMatches(ifNoneMatch, etag))
-        return { notModified: true, etag, cacheControl };
-
-      const body = await this.readObject(
-        query.mode === 'mono' ? row.monoSvgKey : row.svgKey,
-        OBJECT_READ_LIMIT,
+      return this.serveSvgVersion(
+        row,
+        query.mode,
+        cacheControl,
+        `${icon.slug}${query.mode === 'mono' ? '.mono' : ''}.svg`,
+        ifNoneMatch,
       );
+    });
+  }
+
+  /* --------------------------------------------------------------- vị trí */
+
+  listSlots(): Promise<BrandSlotListResponse> {
+    return this.guard(async () => ({
+      slots: (await this.store.listSlots())
+        .filter((row) => isIconSlotId(row.slot))
+        .map(toSlotAssignment),
+    }));
+  }
+
+  assignSlot(
+    actor: BrandActor,
+    slot: string,
+    input: { readonly iconId?: unknown },
+  ): Promise<BrandSlotAssignment> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      assertIconId(input.iconId);
+      const iconId = input.iconId;
+      const now = this.now().toISOString();
+      return this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(iconId);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'published' || icon.publishedVersion === null) {
+          throw brandErrors.slotIconNotPublished();
+        }
+        const row = await tx.upsertSlot(slot, iconId, actor.userId, now);
+        await tx.audit('platform.brand-slot.assigned', actor.userId, {
+          slot,
+          iconId,
+          publishedVersion: icon.publishedVersion,
+        });
+        return toSlotAssignment(row);
+      });
+    });
+  }
+
+  clearSlot(
+    actor: BrandActor,
+    slot: string,
+  ): Promise<{ readonly slot: IconSlotId; readonly cleared: boolean }> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      return this.store.transaction(async (tx) => {
+        const cleared = await tx.deleteSlot(slot);
+        if (cleared) {
+          await tx.audit('platform.brand-slot.cleared', actor.userId, { slot });
+        }
+        return { slot, cleared };
+      });
+    });
+  }
+
+  slotManifest(
+    viewer: () => Promise<SvgViewer>,
+    ifNoneMatch?: string,
+  ): Promise<SlotManifestResult> {
+    return this.guard(async () => {
+      const publicRead = this.options.publicRead?.() ?? true;
+      if (!publicRead) {
+        const reader = await viewer();
+        if (reader === 'anonymous') throw brandErrors.unauthorized();
+      }
+      const cacheControl = publicRead
+        ? 'public, max-age=60, must-revalidate'
+        : 'private, no-cache';
+
+      const entries = (await this.store.listPublishedSlotEntries()).filter(
+        (entry): entry is PublishedSlotEntry & { readonly slot: IconSlotId } =>
+          isIconSlotId(entry.slot),
+      );
+      const signature = entries.map((entry) => {
+        const meta = getIconSlotMeta(entry.slot)!;
+        return `${entry.slot}:${entry.iconId}:${entry.publishedVersion}:${entry.specSha256}:${entry.standardsVersion}:${meta.colorMode}`;
+      });
+      const hash = sha256Hex(JSON.stringify(signature));
+      const etag = `"${hash}"`;
+      if (etagMatches(ifNoneMatch, etag)) {
+        return { notModified: true, etag, cacheControl };
+      }
+
+      const needsBrandPalette = entries.some(
+        (entry) => getIconSlotMeta(entry.slot)?.colorMode !== 'mono',
+      );
+      const palette = needsBrandPalette
+        ? (await this.currentStandards()).palette
+        : DEFAULT_PALETTE;
+
+      const slots: Record<string, BrandSlotManifestItem> = {};
+      for (const entry of entries) {
+        const meta = getIconSlotMeta(entry.slot)!;
+        const doc = await this.readSpecDocument({ specKey: entry.specKey });
+        const model = buildIconModel(doc, {
+          colorMode: meta.colorMode === 'mono' ? 'currentColor' : 'brand',
+          palette,
+          idPrefix: slotSymbolId(entry.slot),
+        });
+        slots[entry.slot] = {
+          slot: entry.slot,
+          iconId: entry.iconId,
+          version: entry.publishedVersion,
+          colorMode: meta.colorMode,
+          model,
+        };
+      }
       return {
         notModified: false,
         etag,
         cacheControl,
-        body,
-        filename: `${icon.slug}${query.mode === 'mono' ? '.mono' : ''}.svg`,
+        manifest: { hash, slots },
       };
+    });
+  }
+
+  readSlotSvg(
+    slot: string,
+    viewer: () => Promise<SvgViewer>,
+    ifNoneMatch?: string,
+  ): Promise<SvgResult> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      const publicRead = this.options.publicRead?.() ?? true;
+      if (!publicRead) {
+        const reader = await viewer();
+        if (reader === 'anonymous') throw brandErrors.unauthorized();
+      }
+      const slotRow = await this.store.findSlot(slot);
+      if (
+        !slotRow ||
+        slotRow.iconStatus !== 'published' ||
+        slotRow.publishedVersion === null
+      ) {
+        throw brandErrors.slotNotFound();
+      }
+      const version = await this.store.findVersion(
+        slotRow.iconId,
+        slotRow.publishedVersion,
+      );
+      if (!version) throw brandErrors.versionNotFound();
+
+      const meta = getIconSlotMeta(slot)!;
+      const cacheControl = publicRead
+        ? 'public, max-age=60, must-revalidate'
+        : 'private, no-cache';
+      return this.serveSvgVersion(
+        version,
+        meta.colorMode,
+        cacheControl,
+        `${slot}${meta.colorMode === 'mono' ? '.mono' : ''}.svg`,
+        ifNoneMatch,
+      );
     });
   }
 
@@ -694,7 +873,40 @@ export class BrandIconService {
       throw brandErrors.payloadTooLarge();
   }
 
-  private async readSpecDocument(row: VersionRow): Promise<IconDocument> {
+  private async serveSvgVersion(
+    row: Pick<
+      VersionRow,
+      'specSha256' | 'standardsVersion' | 'svgKey' | 'monoSvgKey'
+    >,
+    mode: BrandSvgMode,
+    cacheControl: string,
+    filename: string,
+    ifNoneMatch?: string,
+  ): Promise<SvgResult> {
+    // Cùng spec, cùng bảng màu và cùng chế độ thì SVG giống hệt, nên không cần đọc kho để trả 304.
+    const etag =
+      mode === 'mono'
+        ? `"${row.specSha256}-mono"`
+        : `"${row.specSha256}-brand-s${row.standardsVersion}"`;
+    if (etagMatches(ifNoneMatch, etag))
+      return { notModified: true, etag, cacheControl };
+
+    const body = await this.readObject(
+      mode === 'mono' ? row.monoSvgKey : row.svgKey,
+      OBJECT_READ_LIMIT,
+    );
+    return {
+      notModified: false,
+      etag,
+      cacheControl,
+      body,
+      filename,
+    };
+  }
+
+  private async readSpecDocument(
+    row: Pick<VersionRow, 'specKey'>,
+  ): Promise<IconDocument> {
     const text = await this.readObject(row.specKey, OBJECT_READ_LIMIT, false);
     try {
       const document = normalizeDocument(JSON.parse(text));

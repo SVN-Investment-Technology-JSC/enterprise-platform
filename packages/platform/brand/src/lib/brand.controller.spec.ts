@@ -515,3 +515,118 @@ describe('GET icons/:id/svg', () => {
     expect(objects.gets.some((key) => key.includes('tenants'))).toBe(false);
   });
 });
+
+describe('BrandController – vị trí sử dụng icon (slots)', () => {
+  beforeEach(async () => {
+    publicRead = true;
+    await call('POST', '/icons', {
+      headers: asAdmin,
+      body: { document: sampleDocument({ id: 'slot-icon', name: 'Slot Icon' }) },
+    });
+    await call('POST', '/icons/slot-icon/publish', { headers: asAdmin });
+  });
+
+  it('chặn GET/PUT/DELETE slots nếu không phải platform-admin hoặc thiếu CSRF', async () => {
+    expect((await call('GET', '/slots')).status).toBe(401);
+    expect(
+      (
+        await call('GET', '/slots', {
+          headers: { cookie: 'ep_access=user-token' },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call('PUT', '/slots/brand.logo', {
+          headers: { cookie: 'ep_access=admin-token' },
+          body: { iconId: 'slot-icon' },
+        })
+      ).json.code,
+    ).toBe('CSRF_INVALID');
+    expect(
+      (
+        await call('DELETE', '/slots/brand.logo', {
+          headers: { cookie: 'ep_access=admin-token' },
+        })
+      ).json.code,
+    ).toBe('CSRF_INVALID');
+  });
+
+  it('PUT, GET, DELETE slots và phát hành manifest + svg công khai kèm ETag 304', async () => {
+    const put = await call('PUT', '/slots/brand.logo', {
+      headers: asAdmin,
+      body: { iconId: 'slot-icon' },
+    });
+    expect(put.status).toBe(200);
+    expect(put.json).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'slot-icon',
+      iconStatus: 'published',
+      publishedVersion: 1,
+    });
+
+    const list = await call('GET', '/slots', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(list.status).toBe(200);
+    expect((list.json.slots as unknown[]).length).toBeGreaterThanOrEqual(1);
+
+    // Manifest công khai (không cần cookie) và không bị nhầm với :slot
+    const manifest = await call('GET', '/slots/manifest');
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get('cache-control')).toBe(
+      'public, max-age=60, must-revalidate',
+    );
+    expect(
+      (manifest.json.slots as Record<string, unknown>)['brand.logo'],
+    ).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'slot-icon',
+      version: 1,
+      colorMode: 'brand',
+    });
+
+    const etag = manifest.headers.get('etag') ?? '';
+    const notModified = await call('GET', '/slots/manifest', {
+      headers: { 'if-none-match': etag },
+    });
+    expect(notModified.status).toBe(304);
+
+    // SVG của slot
+    const svg = await call('GET', '/slots/brand.logo/svg');
+    expect(svg.status).toBe(200);
+    expect(svg.headers.get('content-type')).toContain('image/svg+xml');
+    expect(svg.headers.get('content-security-policy')).toContain(
+      "default-src 'none'",
+    );
+    expect(svg.headers.get('x-content-type-options')).toBe('nosniff');
+
+    const svg304 = await call('GET', '/slots/brand.logo/svg', {
+      headers: { 'if-none-match': svg.headers.get('etag') ?? '' },
+    });
+    expect(svg304.status).toBe(304);
+
+    // Xoá slot
+    const del = await call('DELETE', '/slots/brand.logo', {
+      headers: asAdmin,
+    });
+    expect(del.status).toBe(200);
+    expect(del.json).toEqual({ slot: 'brand.logo', cleared: true });
+    expect((await call('GET', '/slots/brand.logo/svg')).status).toBe(404);
+  });
+
+  it('tắt đọc công khai: manifest và slot svg trả 401 cho khách, 200 cho user', async () => {
+    await call('PUT', '/slots/nav.dashboard', {
+      headers: asAdmin,
+      body: { iconId: 'slot-icon' },
+    });
+    publicRead = false;
+    expect((await call('GET', '/slots/manifest')).status).toBe(401);
+    expect((await call('GET', '/slots/nav.dashboard/svg')).status).toBe(401);
+    const userManifest = await call('GET', '/slots/manifest', {
+      headers: { cookie: 'ep_access=user-token' },
+    });
+    expect(userManifest.status).toBe(200);
+    expect(userManifest.headers.get('cache-control')).toBe('private, no-cache');
+  });
+});

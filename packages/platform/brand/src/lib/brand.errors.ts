@@ -96,6 +96,14 @@ export const brandErrors = {
       `Icon chưa đạt điều kiện phát hành: ${reasons.join(' ')}`,
       { reasons },
     ),
+  slotNotFound: () =>
+    new BrandError(404, E.slotNotFound, 'Không tìm thấy vị trí icon.'),
+  slotIconNotPublished: () =>
+    new BrandError(
+      422,
+      E.slotIconNotPublished,
+      'Chỉ có thể gán icon đang ở trạng thái đã phát hành.',
+    ),
   versionConflict: (currentVersion: number) =>
     new BrandError(
       409,

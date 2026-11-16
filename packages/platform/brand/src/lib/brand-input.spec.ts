@@ -6,6 +6,7 @@ import {
 import { BrandError } from './brand.errors.js';
 import {
   assertIconId,
+  assertSlotId,
   cleanNote,
   parseDocument,
   parseOptionalVersion,
@@ -43,6 +44,16 @@ describe('assertIconId', () => {
       7,
     ]) {
       expect(codeOf(() => assertIconId(id))).toBe('BRAND_REQUEST_INVALID');
+    }
+  });
+});
+
+describe('assertSlotId', () => {
+  it('nhận slot hợp lệ và từ chối slot không nằm trong danh sách ICON_SLOTS', () => {
+    expect(codeOf(() => assertSlotId('brand.logo'))).toBeUndefined();
+    expect(codeOf(() => assertSlotId('nav.dashboard'))).toBeUndefined();
+    for (const bad of ['', 'unknown.slot', 'brand/logo', '../x', 123, null]) {
+      expect(codeOf(() => assertSlotId(bad))).toBe('BRAND_SLOT_NOT_FOUND');
     }
   });
 });

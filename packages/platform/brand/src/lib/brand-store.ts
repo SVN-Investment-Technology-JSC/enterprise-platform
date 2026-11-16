@@ -43,6 +43,32 @@ export interface StandardsRow {
   readonly updatedAt: string | null;
 }
 
+/** Một dòng `brand_schema.icon_slots` kết hợp thông tin từ `brand_schema.icons`. */
+export interface SlotRow {
+  readonly slot: string;
+  readonly iconId: string;
+  readonly iconName: string;
+  readonly iconSlug: string;
+  readonly iconStatus: BrandIconStatus;
+  readonly publishedVersion: number | null;
+  readonly currentVersion: number;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
+/** Vị trí đang gán icon đã phát hành (`status = 'published'`), kèm thông tin phiên bản đang công khai. */
+export interface PublishedSlotEntry {
+  readonly slot: string;
+  readonly iconId: string;
+  readonly iconSlug: string;
+  readonly publishedVersion: number;
+  readonly specKey: string;
+  readonly svgKey: string;
+  readonly monoSvgKey: string;
+  readonly specSha256: string;
+  readonly standardsVersion: number;
+}
+
 export interface NewIconInput {
   readonly id: string;
   readonly slug: string;
@@ -106,6 +132,14 @@ export interface BrandTransaction {
   /** Khoá dòng quy chuẩn (tạo nếu chưa có) tới hết giao dịch. */
   lockStandards(): Promise<StandardsRow>;
   updateStandards(input: StandardsUpdateInput): Promise<StandardsRow>;
+  upsertSlot(
+    slot: string,
+    iconId: string,
+    actorId: string,
+    now: string,
+  ): Promise<SlotRow>;
+  /** Trả true nếu có dòng bị xoá, false nếu vị trí vốn chưa được gán. */
+  deleteSlot(slot: string): Promise<boolean>;
   audit(
     action: string,
     actorId: string,
@@ -121,6 +155,9 @@ export interface BrandStore {
   listVersions(iconId: string): Promise<readonly VersionRow[]>;
   findVersion(iconId: string, version: number): Promise<VersionRow | null>;
   getStandards(): Promise<StandardsRow>;
+  listSlots(): Promise<readonly SlotRow[]>;
+  findSlot(slot: string): Promise<SlotRow | null>;
+  listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]>;
   /**
    * Chạy `work` trong một giao dịch: hoàn tất thì chốt, ném lỗi thì huỷ. Có thể ném `BrandStoreBusyError`
    * khi không lấy được khoá hàng trong thời hạn.

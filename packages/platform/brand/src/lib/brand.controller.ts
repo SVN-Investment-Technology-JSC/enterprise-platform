@@ -17,7 +17,11 @@ import {
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import type { Request, Response } from 'express';
 import { BrandError, brandErrors } from './brand.errors.js';
-import { BrandIconService, type SvgViewer } from './brand-icon.service.js';
+import {
+  BrandIconService,
+  type SvgResult,
+  type SvgViewer,
+} from './brand-icon.service.js';
 import {
   parseOptionalVersion,
   parseStatuses,
@@ -151,6 +155,95 @@ export class BrandController {
         request.get('if-none-match'),
       ),
     );
+    this.sendSvgResponse(response, result);
+  }
+
+  @Get('slots')
+  listSlots(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlots();
+    });
+  }
+
+  /** Đặt trước `slots/:slot/svg` để NestJS không bắt nhầm `manifest` là `:slot`. */
+  @Get('slots/manifest')
+  async slotManifest(
+    @Req() request: Request,
+    @Res() response: Response,
+  ): Promise<void> {
+    const result = await this.run(async () =>
+      this.brand.slotManifest(
+        () => this.viewer(request),
+        request.get('if-none-match'),
+      ),
+    );
+    response.setHeader('ETag', result.etag);
+    response.setHeader('Cache-Control', result.cacheControl);
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (result.notModified) {
+      response.status(304).end();
+      return;
+    }
+    response.status(200).json(result.manifest);
+  }
+
+  @Get('slots/:slot/svg')
+  async slotSvg(
+    @Req() request: Request,
+    @Res() response: Response,
+    @Param('slot') slot: string,
+  ): Promise<void> {
+    const result = await this.run(async () =>
+      this.brand.readSlotSvg(
+        slot,
+        () => this.viewer(request),
+        request.get('if-none-match'),
+      ),
+    );
+    this.sendSvgResponse(response, result);
+  }
+
+  @Put('slots/:slot')
+  assignSlot(
+    @Req() request: Request,
+    @Param('slot') slot: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.assignSlot(admin, slot, this.record(body));
+    });
+  }
+
+  @Delete('slots/:slot')
+  clearSlot(@Req() request: Request, @Param('slot') slot: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.clearSlot(admin, slot);
+    });
+  }
+
+  @Get('standards')
+  standards(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.standards();
+    });
+  }
+
+  @Put('standards')
+  saveStandards(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.saveStandards(admin, this.record(body));
+    });
+  }
+
+  private sendSvgResponse(response: Response, result: SvgResult): void {
     response.setHeader('ETag', result.etag);
     response.setHeader('Cache-Control', result.cacheControl);
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -169,23 +262,6 @@ export class BrandController {
       `inline; filename="${result.filename}"`,
     );
     response.send(result.body);
-  }
-
-  @Get('standards')
-  standards(@Req() request: Request) {
-    return this.run(async () => {
-      await this.admin(request);
-      return this.brand.standards();
-    });
-  }
-
-  @Put('standards')
-  saveStandards(@Req() request: Request, @Body() body: unknown) {
-    return this.run(async () => {
-      const admin = await this.admin(request);
-      this.requireCsrf(request);
-      return this.brand.saveStandards(admin, this.record(body));
-    });
   }
 
   private record(body: unknown): Record<string, unknown> {

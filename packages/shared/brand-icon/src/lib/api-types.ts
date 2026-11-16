@@ -5,6 +5,8 @@
 import type { BrandRules } from './compliance';
 import type { IconCategory, IconDocument } from './model';
 import type { BrandPalette } from './palette';
+import type { IconSvgModel } from './render';
+import type { IconSlotId } from './slots';
 
 /** Đường dẫn gốc của API; đã gồm tiền tố `api` của Platform API. */
 export const BRAND_API_BASE = '/api/platform/v1/brand';
@@ -127,6 +129,8 @@ export const BRAND_ERROR_CODES = {
   iconBusy: 'BRAND_ICON_BUSY',
   iconLimitReached: 'BRAND_ICON_LIMIT_REACHED',
   iconNotPublishable: 'BRAND_ICON_NOT_PUBLISHABLE',
+  slotNotFound: 'BRAND_SLOT_NOT_FOUND',
+  slotIconNotPublished: 'BRAND_SLOT_ICON_NOT_PUBLISHED',
   versionNotFound: 'BRAND_ICON_VERSION_NOT_FOUND',
   versionConflict: 'BRAND_ICON_VERSION_CONFLICT',
   standardsInvalid: 'BRAND_STANDARDS_INVALID',
@@ -148,4 +152,37 @@ export interface BrandApiError {
   readonly message: string;
   /** Có khi lỗi là xung đột phiên bản: phiên bản hiện hành của máy chủ. */
   readonly currentVersion?: number;
+}
+
+export interface BrandSlotAssignment {
+  readonly slot: IconSlotId;
+  readonly iconId: string;
+  readonly iconName: string;
+  readonly iconSlug: string;
+  readonly iconStatus: BrandIconStatus;
+  readonly publishedVersion: number | null;
+  readonly currentVersion: number;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
+export interface BrandSlotListResponse {
+  readonly slots: readonly BrandSlotAssignment[];
+}
+
+export interface AssignBrandSlotRequest {
+  readonly iconId: string;
+}
+
+export interface BrandSlotManifestItem {
+  readonly slot: IconSlotId;
+  readonly iconId: string;
+  readonly version: number;
+  readonly colorMode: BrandSvgMode;
+  readonly model: IconSvgModel;
+}
+
+export interface BrandSlotManifestResponse {
+  readonly hash: string;
+  readonly slots: Readonly<Record<string, BrandSlotManifestItem>>;
 }

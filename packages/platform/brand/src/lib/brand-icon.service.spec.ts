@@ -1147,3 +1147,212 @@ describe('BrandIconService – bảng màu và quy chuẩn', () => {
     expect((await service.publish(ADMIN, 'icon-a')).status).toBe('published');
   });
 });
+
+describe('BrandIconService – quản lý & phát hành vị trí icon (slots)', () => {
+  it('gán icon đã phát hành vào slot, ghi audit và trả danh sách slot', async () => {
+    const { service, store } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+
+    const assigned = await service.assignSlot(ADMIN, 'brand.logo', {
+      iconId: 'icon-a',
+    });
+    expect(assigned).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'icon-a',
+      iconName: 'Biểu tượng A',
+      iconSlug: 'bieu-tuong-a',
+      iconStatus: 'published',
+      publishedVersion: 1,
+      currentVersion: 1,
+      updatedBy: ADMIN.userId,
+    });
+
+    const list = await service.listSlots();
+    expect(list.slots).toHaveLength(1);
+    expect(list.slots[0]).toEqual(assigned);
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-slot.assigned',
+      actorId: ADMIN.userId,
+      metadata: { slot: 'brand.logo', iconId: 'icon-a', publishedVersion: 1 },
+    });
+  });
+
+  it('từ chối gán slot khi slot không hợp lệ, icon không tồn tại hoặc chưa phát hành', async () => {
+    const { service } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+
+    const badSlot = await rejection(
+      service.assignSlot(ADMIN, 'invalid.slot', { iconId: 'icon-a' }),
+    );
+    expect([badSlot.status, badSlot.code]).toEqual([
+      404,
+      'BRAND_SLOT_NOT_FOUND',
+    ]);
+
+    const badIconId = await rejection(
+      service.assignSlot(ADMIN, 'brand.logo', { iconId: '../bad' }),
+    );
+    expect([badIconId.status, badIconId.code]).toEqual([
+      400,
+      'BRAND_REQUEST_INVALID',
+    ]);
+
+    const missingIcon = await rejection(
+      service.assignSlot(ADMIN, 'brand.logo', { iconId: 'missing' }),
+    );
+    expect([missingIcon.status, missingIcon.code]).toEqual([
+      404,
+      'BRAND_ICON_NOT_FOUND',
+    ]);
+
+    const draftIcon = await rejection(
+      service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' }),
+    );
+    expect([draftIcon.status, draftIcon.code]).toEqual([
+      422,
+      'BRAND_SLOT_ICON_NOT_PUBLISHED',
+    ]);
+  });
+
+  it('xoá gán slot idempotent và chỉ ghi audit khi thực sự có xoá', async () => {
+    const { service, store } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    const auditCountBefore = store.audits.length;
+
+    const first = await service.clearSlot(ADMIN, 'brand.logo');
+    expect(first).toEqual({ slot: 'brand.logo', cleared: true });
+    expect(store.audits).toHaveLength(auditCountBefore + 1);
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-slot.cleared',
+      actorId: ADMIN.userId,
+      metadata: { slot: 'brand.logo' },
+    });
+
+    const second = await service.clearSlot(ADMIN, 'brand.logo');
+    expect(second).toEqual({ slot: 'brand.logo', cleared: false });
+    expect(store.audits).toHaveLength(auditCountBefore + 1);
+  });
+
+  it('hoàn tác gán/xoá slot khi giao dịch DB lỗi ở bước audit', async () => {
+    const { service, store } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+
+    store.failAt = 'audit';
+    await rejection(
+      service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' }),
+    );
+    expect(store.slots).toHaveLength(0);
+
+    store.failAt = null;
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    store.failAt = 'audit';
+    await rejection(service.clearSlot(ADMIN, 'brand.logo'));
+    expect(store.slots).toHaveLength(1);
+  });
+
+  it('slotManifest dựng model đúng colorMode & idPrefix, hỗ trợ If-None-Match 304 và bỏ qua icon đã ngừng phát hành', async () => {
+    const { service, flags, objects } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+    await service.create(ADMIN, {
+      document: sampleDocument({ id: 'icon-b', name: 'B' }),
+    });
+    await service.publish(ADMIN, 'icon-b');
+
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    await service.assignSlot(ADMIN, 'nav.dashboard', { iconId: 'icon-b' });
+
+    const viewer = viewerOf('anonymous');
+    const res = await service.slotManifest(viewer);
+    expect(viewer).not.toHaveBeenCalled();
+    expect(res.notModified).toBe(false);
+    if (res.notModified) throw new Error('expected manifest');
+    expect(res.cacheControl).toBe('public, max-age=60, must-revalidate');
+    expect(Object.keys(res.manifest.slots)).toEqual([
+      'brand.logo',
+      'nav.dashboard',
+    ]);
+    expect(res.manifest.slots['brand.logo']).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'icon-a',
+      version: 1,
+      colorMode: 'brand',
+    });
+    expect(res.manifest.slots['nav.dashboard']).toMatchObject({
+      slot: 'nav.dashboard',
+      iconId: 'icon-b',
+      version: 1,
+      colorMode: 'mono',
+    });
+
+    // If-None-Match khớp -> 304 mà không đọc lại object
+    const getsBefore = objects.gets.length;
+    const cached = await service.slotManifest(viewer, res.etag);
+    expect(cached).toEqual({
+      notModified: true,
+      etag: res.etag,
+      cacheControl: 'public, max-age=60, must-revalidate',
+    });
+    expect(objects.gets).toHaveLength(getsBefore);
+
+    // Ngừng phát hành icon-b -> biến mất khỏi manifest và đổi etag
+    await service.unpublish(ADMIN, 'icon-b');
+    const afterUnpublish = await service.slotManifest(viewer);
+    expect(afterUnpublish.notModified).toBe(false);
+    if (afterUnpublish.notModified) throw new Error('expected manifest');
+    expect(Object.keys(afterUnpublish.manifest.slots)).toEqual(['brand.logo']);
+    expect(afterUnpublish.etag).not.toBe(res.etag);
+
+    // Khi publicRead = false: anonymous bị 401, user đã đăng nhập đọc được với private cache
+    flags.publicRead = false;
+    const unauth = await rejection(
+      service.slotManifest(viewerOf('anonymous')),
+    );
+    expect([unauth.status, unauth.code]).toEqual([401, 'UNAUTHORIZED']);
+    const authed = await service.slotManifest(viewerOf('user'));
+    expect(authed.cacheControl).toBe('private, no-cache');
+  });
+
+  it('readSlotSvg trả SVG theo đúng colorMode của slot và hỗ trợ 304', async () => {
+    const { service } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    await service.assignSlot(ADMIN, 'nav.dashboard', { iconId: 'icon-a' });
+
+    const brandSvg = await service.readSlotSvg(
+      'brand.logo',
+      viewerOf('anonymous'),
+    );
+    expect(brandSvg.notModified).toBe(false);
+    if (brandSvg.notModified) throw new Error('expected body');
+    expect(brandSvg.body).toContain('#2563eb');
+    expect(brandSvg.filename).toBe('brand.logo.svg');
+
+    const monoSvg = await service.readSlotSvg(
+      'nav.dashboard',
+      viewerOf('anonymous'),
+    );
+    expect(monoSvg.notModified).toBe(false);
+    if (monoSvg.notModified) throw new Error('expected body');
+    expect(monoSvg.body).toContain('currentColor');
+    expect(monoSvg.filename).toBe('nav.dashboard.mono.svg');
+
+    const cached = await service.readSlotSvg(
+      'nav.dashboard',
+      viewerOf('anonymous'),
+      monoSvg.etag,
+    );
+    expect(cached.notModified).toBe(true);
+
+    // Slot chưa gán -> 404
+    const empty = await rejection(
+      service.readSlotSvg('brand.favicon', viewerOf('anonymous')),
+    );
+    expect([empty.status, empty.code]).toEqual([404, 'BRAND_SLOT_NOT_FOUND']);
+  });
+});

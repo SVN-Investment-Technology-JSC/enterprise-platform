@@ -19,7 +19,9 @@ import type {
   IconStateInput,
   NewIconInput,
   NewVersionInput,
+  PublishedSlotEntry,
   SavedHeadInput,
+  SlotRow,
   StandardsRow,
   StandardsUpdateInput,
   VersionRow,
@@ -64,12 +66,40 @@ interface StandardsDbRow {
   updated_at: Date;
 }
 
+interface SlotDbRow {
+  slot: string;
+  icon_id: string;
+  icon_name: string;
+  icon_slug: string;
+  icon_status: BrandIconStatus;
+  published_version: number | null;
+  current_version: number;
+  updated_by: string | null;
+  updated_at: Date;
+}
+
+interface PublishedSlotDbRow {
+  slot: string;
+  icon_id: string;
+  icon_slug: string;
+  published_version: number;
+  spec_key: string;
+  svg_key: string;
+  mono_svg_key: string;
+  spec_sha256: string;
+  standards_version: number;
+}
+
 const ICON_COLUMNS =
   'id, slug, name, category, status, tags, current_version, published_version, created_by, created_at, updated_at';
 const VERSION_COLUMNS =
   'icon_id, version, spec_key, svg_key, mono_svg_key, spec_sha256, size_bytes, standards_version, note, created_by, created_at';
 const STANDARDS_COLUMNS =
   'current_version, spec_key, spec_sha256, size_bytes, updated_by, updated_at';
+const SLOT_SELECT = `SELECT s.slot, s.icon_id, i.name AS icon_name, i.slug AS icon_slug,
+         i.status AS icon_status, i.published_version, i.current_version, s.updated_by, s.updated_at
+    FROM brand_schema.icon_slots s
+    JOIN brand_schema.icons i ON i.id = s.icon_id`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -109,6 +139,30 @@ const toStandards = (row: StandardsDbRow): StandardsRow => ({
   sizeBytes: row.size_bytes,
   updatedBy: row.updated_by,
   updatedAt: iso(row.updated_at),
+});
+
+const toSlot = (row: SlotDbRow): SlotRow => ({
+  slot: row.slot,
+  iconId: row.icon_id,
+  iconName: row.icon_name,
+  iconSlug: row.icon_slug,
+  iconStatus: row.icon_status,
+  publishedVersion: row.published_version,
+  currentVersion: row.current_version,
+  updatedBy: row.updated_by,
+  updatedAt: iso(row.updated_at),
+});
+
+const toPublishedSlot = (row: PublishedSlotDbRow): PublishedSlotEntry => ({
+  slot: row.slot,
+  iconId: row.icon_id,
+  iconSlug: row.icon_slug,
+  publishedVersion: row.published_version,
+  specKey: row.spec_key,
+  svgKey: row.svg_key,
+  monoSvgKey: row.mono_svg_key,
+  specSha256: row.spec_sha256,
+  standardsVersion: row.standards_version,
 });
 
 const NO_STANDARDS: StandardsRow = {
@@ -304,6 +358,39 @@ class PgBrandTransaction implements BrandTransaction {
     return toStandards(result.rows[0]);
   }
 
+  async upsertSlot(
+    slot: string,
+    iconId: string,
+    actorId: string,
+    now: string,
+  ): Promise<SlotRow> {
+    const result = await this.client.query<SlotDbRow>(
+      `WITH upserted AS (
+         INSERT INTO brand_schema.icon_slots (slot, icon_id, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (slot) DO UPDATE
+           SET icon_id = EXCLUDED.icon_id,
+               updated_by = EXCLUDED.updated_by,
+               updated_at = EXCLUDED.updated_at
+         RETURNING slot, icon_id, updated_by, updated_at
+       )
+       SELECT u.slot, u.icon_id, i.name AS icon_name, i.slug AS icon_slug,
+              i.status AS icon_status, i.published_version, i.current_version, u.updated_by, u.updated_at
+         FROM upserted u
+         JOIN brand_schema.icons i ON i.id = u.icon_id`,
+      [slot, iconId, actorId, now],
+    );
+    return toSlot(result.rows[0]);
+  }
+
+  async deleteSlot(slot: string): Promise<boolean> {
+    const result = await this.client.query(
+      'DELETE FROM brand_schema.icon_slots WHERE slot = $1',
+      [slot],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async audit(
     action: string,
     actorId: string,
@@ -365,6 +452,35 @@ export class PgBrandStore implements BrandStore {
       `SELECT ${STANDARDS_COLUMNS} FROM brand_schema.standards WHERE id = 1`,
     );
     return result.rows[0] ? toStandards(result.rows[0]) : NO_STANDARDS;
+  }
+
+  async listSlots(): Promise<readonly SlotRow[]> {
+    const result = await this.pool.query<SlotDbRow>(
+      `${SLOT_SELECT} ORDER BY s.slot`,
+    );
+    return result.rows.map(toSlot);
+  }
+
+  async findSlot(slot: string): Promise<SlotRow | null> {
+    const result = await this.pool.query<SlotDbRow>(
+      `${SLOT_SELECT} WHERE s.slot = $1`,
+      [slot],
+    );
+    return result.rows[0] ? toSlot(result.rows[0]) : null;
+  }
+
+  async listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]> {
+    const result = await this.pool.query<PublishedSlotDbRow>(
+      `SELECT s.slot, s.icon_id, i.slug AS icon_slug, i.published_version,
+              v.spec_key, v.svg_key, v.mono_svg_key, v.spec_sha256, v.standards_version
+         FROM brand_schema.icon_slots s
+         JOIN brand_schema.icons i ON i.id = s.icon_id
+         JOIN brand_schema.icon_versions v
+           ON v.icon_id = i.id AND v.version = i.published_version
+        WHERE i.status = 'published' AND i.published_version IS NOT NULL
+        ORDER BY s.slot`,
+    );
+    return result.rows.map(toPublishedSlot);
   }
 
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {

@@ -3,6 +3,7 @@ import {
   BRAND_ICON_STATUSES,
   BRAND_NOTE_MAX_LENGTH,
   BRAND_SVG_MODES,
+  isIconSlotId,
   normalizeDocument,
   normalizePalette,
   normalizeRules,
@@ -10,6 +11,7 @@ import {
   type BrandStandardsPayload,
   type BrandSvgMode,
   type IconDocument,
+  type IconSlotId,
 } from '@enterprise-platform/shared-brand-icon';
 import { brandErrors } from './brand.errors.js';
 
@@ -26,6 +28,12 @@ export function assertIconId(id: unknown): asserts id is string {
     throw brandErrors.requestInvalid(
       'Mã icon không hợp lệ (chữ, số, gạch ngang hoặc gạch dưới, tối đa 64 ký tự).',
     );
+  }
+}
+
+export function assertSlotId(slot: unknown): asserts slot is IconSlotId {
+  if (typeof slot !== 'string' || !isIconSlotId(slot)) {
+    throw brandErrors.slotNotFound();
   }
 }
 

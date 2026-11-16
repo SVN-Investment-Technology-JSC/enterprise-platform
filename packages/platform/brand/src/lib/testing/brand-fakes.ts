@@ -15,7 +15,9 @@ import type {
   IconStateInput,
   NewIconInput,
   NewVersionInput,
+  PublishedSlotEntry,
   SavedHeadInput,
+  SlotRow,
   StandardsRow,
   StandardsUpdateInput,
   VersionRow,
@@ -36,10 +38,18 @@ const EMPTY_STANDARDS: StandardsRow = {
   updatedAt: null,
 };
 
+interface StoredSlot {
+  readonly slot: string;
+  readonly iconId: string;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
 interface State {
   icons: Map<string, IconRow>;
   versions: VersionRow[];
   standards: StandardsRow;
+  slots: Map<string, StoredSlot>;
   audits: AuditEntry[];
 }
 
@@ -49,6 +59,8 @@ export type FailPoint =
   | 'saveHead'
   | 'setState'
   | 'updateStandards'
+  | 'upsertSlot'
+  | 'deleteSlot'
   | 'audit';
 
 export class FakeBrandStore implements BrandStore {
@@ -56,6 +68,7 @@ export class FakeBrandStore implements BrandStore {
     icons: new Map(),
     versions: [],
     standards: EMPTY_STANDARDS,
+    slots: new Map(),
     audits: [],
   };
   private tail: Promise<unknown> = Promise.resolve();
@@ -80,6 +93,9 @@ export class FakeBrandStore implements BrandStore {
   }
   get standardsRow(): StandardsRow {
     return this.state.standards;
+  }
+  get slots(): readonly StoredSlot[] {
+    return [...this.state.slots.values()];
   }
 
   async listIcons(
@@ -126,6 +142,51 @@ export class FakeBrandStore implements BrandStore {
     return this.state.standards;
   }
 
+  async listSlots(): Promise<readonly SlotRow[]> {
+    this.maybeFailRead();
+    const rows: SlotRow[] = [];
+    for (const stored of this.state.slots.values()) {
+      const icon = this.state.icons.get(stored.iconId);
+      if (!icon) continue;
+      rows.push(toFakeSlotRow(stored, icon));
+    }
+    return rows.sort((a, b) => a.slot.localeCompare(b.slot));
+  }
+
+  async findSlot(slot: string): Promise<SlotRow | null> {
+    this.maybeFailRead();
+    const stored = this.state.slots.get(slot);
+    if (!stored) return null;
+    const icon = this.state.icons.get(stored.iconId);
+    return icon ? toFakeSlotRow(stored, icon) : null;
+  }
+
+  async listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]> {
+    this.maybeFailRead();
+    const entries: PublishedSlotEntry[] = [];
+    for (const stored of this.state.slots.values()) {
+      const icon = this.state.icons.get(stored.iconId);
+      if (!icon || icon.status !== 'published' || icon.publishedVersion === null)
+        continue;
+      const version = this.state.versions.find(
+        (v) => v.iconId === icon.id && v.version === icon.publishedVersion,
+      );
+      if (!version) continue;
+      entries.push({
+        slot: stored.slot,
+        iconId: icon.id,
+        iconSlug: icon.slug,
+        publishedVersion: icon.publishedVersion,
+        specKey: version.specKey,
+        svgKey: version.svgKey,
+        monoSvgKey: version.monoSvgKey,
+        specSha256: version.specSha256,
+        standardsVersion: version.standardsVersion,
+      });
+    }
+    return entries.sort((a, b) => a.slot.localeCompare(b.slot));
+  }
+
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
       this.transactions += 1;
@@ -133,6 +194,7 @@ export class FakeBrandStore implements BrandStore {
         icons: new Map(this.state.icons),
         versions: [...this.state.versions],
         standards: this.state.standards,
+        slots: new Map(this.state.slots),
         audits: [...this.state.audits],
       };
       try {
@@ -301,6 +363,39 @@ class FakeTransaction implements BrandTransaction {
     return row;
   }
 
+  async upsertSlot(
+    slot: string,
+    iconId: string,
+    actorId: string,
+    now: string,
+  ): Promise<SlotRow> {
+    this.fail('upsertSlot');
+    const state = this.read();
+    const icon = state.icons.get(iconId);
+    if (!icon) throw new Error('No such icon');
+    const stored: StoredSlot = {
+      slot,
+      iconId,
+      updatedBy: actorId,
+      updatedAt: now,
+    };
+    this.write({
+      ...state,
+      slots: new Map(state.slots).set(slot, stored),
+    });
+    return toFakeSlotRow(stored, icon);
+  }
+
+  async deleteSlot(slot: string): Promise<boolean> {
+    this.fail('deleteSlot');
+    const state = this.read();
+    if (!state.slots.has(slot)) return false;
+    const next = new Map(state.slots);
+    next.delete(slot);
+    this.write({ ...state, slots: next });
+    return true;
+  }
+
   async audit(
     action: string,
     actorId: string,
@@ -322,6 +417,20 @@ class FakeTransaction implements BrandTransaction {
     this.write({ ...state, icons: new Map(state.icons).set(id, row) });
     return row;
   }
+}
+
+function toFakeSlotRow(stored: StoredSlot, icon: IconRow): SlotRow {
+  return {
+    slot: stored.slot,
+    iconId: icon.id,
+    iconName: icon.name,
+    iconSlug: icon.slug,
+    iconStatus: icon.status,
+    publishedVersion: icon.publishedVersion,
+    currentVersion: icon.currentVersion,
+    updatedBy: stored.updatedBy,
+    updatedAt: stored.updatedAt,
+  };
 }
 
 export class FakeObjectStore implements BrandObjectStore {
