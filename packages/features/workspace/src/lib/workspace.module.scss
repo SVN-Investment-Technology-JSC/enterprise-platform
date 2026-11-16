@@ -3424,6 +3424,13 @@
   gap: 14px;
 }
 
+/* Ba ô lặp lại (tần suất, mỗi, số lần) luôn trên một hàng. */
+.fieldRowThree {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
 /* Khối tạo nhanh (vd khách hàng mới) lồng trong một trường của form. */
 .inlineCreate {
   display: flex;
@@ -3486,9 +3493,14 @@
   align-items: center;
   gap: 8px;
 
-  input {
+  > * {
     flex: 1 1 0;
     min-width: 0;
+  }
+
+  /* Dấu gạch giữa hai giờ chỉ rộng bằng chính nó. */
+  > span {
+    flex: 0 0 auto;
   }
 }
 
@@ -11788,4 +11800,33 @@ button.kpiCard {
 /* Dòng tổng ở đầu sổ chứng từ của dự án. */
 .ledgerTotal td {
   background: var(--ep-surface-2, rgb(0 0 0 / 4%));
+}
+
+.weekdayRow {
+  display: flex;
+  gap: 6px;
+}
+
+.weekdayBtn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--ep-border, #d6dae1);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-accent-soft);
+  }
+}
+
+.weekdayBtnOn {
+  border-color: rgb(217 171 0 / 70%);
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-weight: 600;
 }
