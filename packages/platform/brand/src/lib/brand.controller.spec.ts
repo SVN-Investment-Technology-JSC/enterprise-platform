@@ -179,6 +179,7 @@ describe('xác thực và phân quyền', () => {
     ['POST', '/icons/icon-a/publish'],
     ['POST', '/icons/icon-a/unpublish'],
     ['DELETE', '/icons/icon-a'],
+    ['DELETE', '/icons/icon-a/permanent'],
     ['POST', '/icons/icon-a/restore'],
     ['PUT', '/standards'],
   ])(
@@ -330,6 +331,21 @@ describe('luồng quản trị qua HTTP', () => {
     expect(
       (await call('POST', '/icons/icon-a/restore', { headers: asAdmin })).json,
     ).toMatchObject({ status: 'draft' });
+    expect(
+      (
+        await call('DELETE', '/icons/icon-a/permanent', {
+          headers: asAdmin,
+        })
+      ).status,
+    ).toBe(400);
+    await call('DELETE', '/icons/icon-a', { headers: asAdmin });
+    const purged = await call('DELETE', '/icons/icon-a/permanent', {
+      headers: asAdmin,
+    });
+    expect(purged.status).toBe(204);
+    expect(
+      (await call('GET', '/icons/icon-a', { headers: asAdmin })).status,
+    ).toBe(404);
     expect(
       (await call('GET', '/icons/khong-co', { headers: asAdmin })).status,
     ).toBe(404);

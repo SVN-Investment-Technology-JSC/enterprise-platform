@@ -58,6 +58,7 @@ export type FailPoint =
   | 'insertVersion'
   | 'saveHead'
   | 'setState'
+  | 'deleteIcon'
   | 'updateStandards'
   | 'upsertSlot'
   | 'deleteSlot'
@@ -249,7 +250,11 @@ class FakeTransaction implements BrandTransaction {
   }
 
   async countIcons(): Promise<number> {
-    return this.read().icons.size;
+    let count = 0;
+    for (const icon of this.read().icons.values()) {
+      if (icon.status !== 'archived') count += 1;
+    }
+    return count;
   }
 
   async freeSlug(base: string): Promise<string> {
@@ -342,6 +347,21 @@ class FakeTransaction implements BrandTransaction {
       publishedVersion: input.publishedVersion,
       updatedAt: input.now,
     });
+  }
+
+  async deleteIcon(id: string): Promise<void> {
+    this.fail('deleteIcon');
+    const state = this.read();
+    const icons = new Map(state.icons);
+    icons.delete(id);
+    const versions = state.versions.filter((row) => row.iconId !== id);
+    const slots = new Map(state.slots);
+    for (const [slot, stored] of slots.entries()) {
+      if (stored.iconId === id) {
+        slots.delete(slot);
+      }
+    }
+    this.write({ ...state, icons, versions, slots });
   }
 
   async lockStandards(): Promise<StandardsRow> {

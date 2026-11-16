@@ -129,6 +129,7 @@ export interface BrandTransaction {
   insertVersion(input: NewVersionInput): Promise<VersionRow>;
   saveHead(id: string, input: SavedHeadInput): Promise<IconRow>;
   setState(id: string, input: IconStateInput): Promise<IconRow>;
+  deleteIcon(id: string): Promise<void>;
   /** Khoá dòng quy chuẩn (tạo nếu chưa có) tới hết giao dịch. */
   lockStandards(): Promise<StandardsRow>;
   updateStandards(input: StandardsUpdateInput): Promise<StandardsRow>;

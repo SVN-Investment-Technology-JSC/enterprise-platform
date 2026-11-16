@@ -250,6 +250,31 @@ describe('BrandIconService – tạo icon', () => {
       'BRAND_ICON_LIMIT_REACHED',
     ]);
   });
+
+  it('icon đã lưu trữ không tính vào giới hạn số icon tối đa khi tạo mới', async () => {
+    const { service, store } = setup();
+    await store.transaction(async (tx) => {
+      for (let index = 0; index < LIMITS.maxIcons; index += 1) {
+        await tx.insertIcon({
+          id: `seed-${index}`,
+          slug: `seed-${index}`,
+          name: 'Seed',
+          category: 'custom',
+          tags: [],
+          createdBy: ADMIN.userId,
+          now: '2026-01-01T00:00:00.000Z',
+        });
+      }
+      await tx.setState('seed-0', {
+        status: 'archived',
+        publishedVersion: null,
+        now: '2026-01-02T00:00:00.000Z',
+      });
+    });
+
+    const created = await service.create(ADMIN, { document: sampleDocument() });
+    expect(created.icon.id).toBe('icon-a');
+  });
 });
 
 describe('BrandIconService – lưu phiên bản mới', () => {
@@ -630,6 +655,68 @@ describe('BrandIconService – trạng thái', () => {
     });
   });
 
+  it('chặn khôi phục icon đã lưu trữ khi số icon đang hoạt động đã đạt tối đa', async () => {
+    const { service, store } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.archive(ADMIN, 'icon-a');
+
+    await store.transaction(async (tx) => {
+      for (let index = 0; index < LIMITS.maxIcons; index += 1) {
+        await tx.insertIcon({
+          id: `seed-${index}`,
+          slug: `seed-${index}`,
+          name: 'Seed',
+          category: 'custom',
+          tags: [],
+          createdBy: ADMIN.userId,
+          now: '2026-01-01T00:00:00.000Z',
+        });
+      }
+    });
+
+    const error = await rejection(service.restore(ADMIN, 'icon-a'));
+    expect([error.status, error.code]).toEqual([
+      409,
+      'BRAND_ICON_LIMIT_REACHED',
+    ]);
+    expect((await service.detail('icon-a')).status).toBe('archived');
+  });
+
+  it('purge xoá vĩnh viễn icon đã lưu trữ, dọn kho object và ghi kiểm toán; từ chối nếu chưa lưu trữ', async () => {
+    const { service, store, objects } = await published();
+    await service.update(ADMIN, 'icon-a', {
+      document: { ...sampleDocument(), name: 'Bản hai' },
+      baseVersion: 1,
+    });
+
+    // Từ chối khi đang published hoặc draft
+    const errPublished = await rejection(service.purge(ADMIN, 'icon-a'));
+    expect([errPublished.status, errPublished.code]).toEqual([
+      400,
+      'BRAND_REQUEST_INVALID',
+    ]);
+    await service.unpublish(ADMIN, 'icon-a');
+    const errDraft = await rejection(service.purge(ADMIN, 'icon-a'));
+    expect([errDraft.status, errDraft.code]).toEqual([
+      400,
+      'BRAND_REQUEST_INVALID',
+    ]);
+
+    // Lưu trữ rồi xoá vĩnh viễn
+    await service.archive(ADMIN, 'icon-a');
+    await service.purge(ADMIN, 'icon-a');
+
+    expect(store.icons).toHaveLength(0);
+    expect(store.versions).toHaveLength(0);
+    expect(objects.keys()).toEqual([]);
+    expect(objects.removed.sort()).toEqual([...KEYS_V1, ...KEYS_V2].sort());
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-icon.purged',
+      actorId: ADMIN.userId,
+      metadata: { iconId: 'icon-a', name: 'Bản hai' },
+    });
+  });
+
   it('báo 404 khi đổi trạng thái icon không có', async () => {
     const { service } = setup();
     for (const action of [
@@ -637,6 +724,7 @@ describe('BrandIconService – trạng thái', () => {
       'unpublish',
       'archive',
       'restore',
+      'purge',
     ] as const) {
       expect((await rejection(service[action](ADMIN, 'khong-co'))).code).toBe(
         'BRAND_ICON_NOT_FOUND',

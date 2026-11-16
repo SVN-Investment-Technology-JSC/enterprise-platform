@@ -114,6 +114,17 @@ export class BrandController {
     });
   }
 
+  /** Xoá vĩnh viễn icon đã lưu trữ (đặt trước `icons/:id`). */
+  @Delete('icons/:id/permanent')
+  @HttpCode(204)
+  purge(@Req() request: Request, @Param('id') id: string): Promise<void> {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      await this.brand.purge(admin, id);
+    });
+  }
+
   /** Lưu trữ icon (không xoá dữ liệu). */
   @Delete('icons/:id')
   archive(@Req() request: Request, @Param('id') id: string) {

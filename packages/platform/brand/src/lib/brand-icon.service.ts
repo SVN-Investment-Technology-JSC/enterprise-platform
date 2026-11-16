@@ -634,15 +634,59 @@ export class BrandIconService {
 
   /** Khôi phục icon đã lưu trữ về nháp (không tự phát hành lại). */
   restore(actor: BrandActor, id: string): Promise<BrandIconSummary> {
-    return this.changeState(
-      actor,
-      id,
-      'platform.brand-icon.restored',
-      (icon) =>
-        icon.status === 'archived'
-          ? { status: 'draft', publishedVersion: null }
-          : null,
-    );
+    return this.guard(async () => {
+      assertIconId(id);
+      const now = this.now().toISOString();
+      return this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(id);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'archived') return toSummary(icon);
+        if ((await tx.countIcons()) >= LIMITS.maxIcons)
+          throw brandErrors.iconLimitReached();
+        const updated = await tx.setState(id, {
+          status: 'draft',
+          publishedVersion: null,
+          now,
+        });
+        await tx.audit('platform.brand-icon.restored', actor.userId, {
+          iconId: id,
+          status: 'draft',
+        });
+        return toSummary(updated);
+      });
+    });
+  }
+
+  /** Xoá vĩnh viễn icon đang ở trạng thái đã lưu trữ cùng toàn bộ phiên bản và object trong kho. */
+  purge(actor: BrandActor, id: string): Promise<void> {
+    return this.guard(async () => {
+      assertIconId(id);
+      const keys = await this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(id);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'archived') {
+          throw brandErrors.requestInvalid(
+            'Chỉ xoá vĩnh viễn được icon đang ở trạng thái Đã lưu trữ.',
+          );
+        }
+        const versions = await this.store.listVersions(id);
+        const objectKeys = versions.flatMap((v) => [
+          v.specKey,
+          v.svgKey,
+          v.monoSvgKey,
+        ]);
+        await tx.deleteIcon(id);
+        await tx.audit('platform.brand-icon.purged', actor.userId, {
+          iconId: id,
+          name: icon.name,
+        });
+        return objectKeys;
+      });
+      for (const key of keys) {
+        this.objectCache.delete(key);
+      }
+      await this.discard(keys);
+    });
   }
 
   /** Lưu bảng màu và quy chuẩn thành phiên bản mới. `baseVersion` là bản người dùng đã mở (0 khi chưa lưu lần nào). */

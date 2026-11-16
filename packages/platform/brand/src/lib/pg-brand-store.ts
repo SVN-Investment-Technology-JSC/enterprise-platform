@@ -225,7 +225,7 @@ class PgBrandTransaction implements BrandTransaction {
 
   async countIcons(): Promise<number> {
     const result = await this.client.query<{ total: number }>(
-      'SELECT count(*)::int AS total FROM brand_schema.icons',
+      "SELECT count(*)::int AS total FROM brand_schema.icons WHERE status <> 'archived'",
     );
     return result.rows[0]?.total ?? 0;
   }
@@ -328,6 +328,12 @@ class PgBrandTransaction implements BrandTransaction {
       [id, input.status, input.publishedVersion, input.now],
     );
     return toIcon(result.rows[0]);
+  }
+
+  async deleteIcon(id: string): Promise<void> {
+    await this.client.query('DELETE FROM brand_schema.icons WHERE id = $1', [
+      id,
+    ]);
   }
 
   async lockStandards(): Promise<StandardsRow> {
