@@ -33,6 +33,9 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
     canManage: false,
     canWriteTransactions: true,
     canApproveDocuments: false,
+    // Vai trò ghi phát sinh kho được gán sẵn `inventory.cost.read` (migration core 0020); ca cần người
+    // không thấy giá thì truyền `canReadCost: false`.
+    canReadCost: true,
     ...rights,
   });
   const admin = actor('Quản trị kho', { canManage: true, canApproveDocuments: true });
