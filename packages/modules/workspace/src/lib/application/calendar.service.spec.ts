@@ -1,5 +1,9 @@
-import type { CalendarEvent, EventParticipant } from '@enterprise-platform/contracts-workspace';
-import { CalendarService } from './calendar.service.js';
+import type {
+  CalendarEvent,
+  EventParticipant,
+  ProjectRequest,
+} from '@enterprise-platform/contracts-workspace';
+import { CalendarService, buildBusinessTripOccurrences } from './calendar.service.js';
 import { DirectoryService } from './directory.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -322,5 +326,103 @@ describe('CalendarService — sửa "từ buổi này trở đi"', () => {
       recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1',
       recurrenceCount: 8,
     });
+  });
+});
+
+describe('Lịch công tác từ đơn công tác gắn dự án', () => {
+  const request = (patch: Partial<ProjectRequest>): ProjectRequest => ({
+    id: 'r1',
+    projectId: 'p1',
+    code: 'DT001',
+    sourceModule: 'hrm',
+    sourceKind: 'business_trip',
+    sourceId: 's1',
+    requestTypeLabel: 'Đơn công tác',
+    requesterUserId: 'u1',
+    requesterName: 'Nguyễn An',
+    fromDate: '2026-11-10',
+    toDate: '2026-11-12',
+    status: 'APPROVED',
+    launchUrl: '/modules/hrm/requests?request=s1',
+    details: [{ label: 'Địa điểm công tác', value: 'Kon Tum' }],
+    submittedAt: '2026-11-01T00:00:00.000Z',
+    ...patch,
+  });
+  const from = new Date('2026-11-01T00:00:00+07:00');
+  const to = new Date('2026-11-30T23:59:59+07:00');
+
+  it('đơn đã duyệt hiện thành mục cả ngày, kèm đường mở đơn gốc', () => {
+    const [trip] = buildBusinessTripOccurrences([request({})], from, to);
+    expect(trip).toMatchObject({
+      eventId: 'trip:r1',
+      title: 'Nguyễn An · công tác',
+      allDay: true,
+      startAt: '2026-11-09T17:00:00.000Z',
+      businessTrip: {
+        code: 'DT001',
+        status: 'APPROVED',
+        requestTypeLabel: 'Đơn công tác',
+        fromDate: '2026-11-10',
+        toDate: '2026-11-12',
+        // Chi tiết HRM gửi kèm đi thẳng vào mục lịch để hộp chi tiết mở không phải gọi thêm.
+        details: [{ label: 'Địa điểm công tác', value: 'Kon Tum' }],
+      },
+    });
+    // Hết ngày 12/11 giờ Việt Nam: chạm tới ngày cuối của đơn.
+    expect(new Date(trip?.endAt ?? '').getTime()).toBe(new Date('2026-11-12T23:59:59+07:00').getTime());
+  });
+
+  it('đơn chờ duyệt vẫn hiện nhưng ghi rõ "chờ duyệt"', () => {
+    const [trip] = buildBusinessTripOccurrences([request({ status: 'PENDING' })], from, to);
+    expect(trip?.title).toBe('Nguyễn An · công tác (chờ duyệt)');
+    expect(trip?.businessTrip?.status).toBe('PENDING');
+  });
+
+  it.each(['REJECTED', 'CANCELLED', 'REVERSED'] as const)('đơn %s không hiện', (status) => {
+    expect(buildBusinessTripOccurrences([request({ status })], from, to)).toHaveLength(0);
+  });
+
+  it('chỉ lấy đơn công tác: nghỉ phép tự gắn theo thời gian công tác không hiện', () => {
+    const leave = request({ id: 'r2', sourceKind: 'leave', linkedViaKind: 'business_trip' });
+    expect(buildBusinessTripOccurrences([leave], from, to)).toHaveLength(0);
+  });
+
+  it('đơn nằm ngoài khoảng đang xem thì bỏ; chạm biên thì giữ', () => {
+    const before = request({ id: 'a', fromDate: '2026-10-20', toDate: '2026-10-25' });
+    const edge = request({ id: 'b', fromDate: '2026-10-28', toDate: '2026-11-01' });
+    const after = request({ id: 'c', fromDate: '2026-12-02', toDate: '2026-12-03' });
+    const ids = buildBusinessTripOccurrences([before, edge, after], from, to).map((o) => o.eventId);
+    expect(ids).toEqual(['trip:b']);
+  });
+
+  it('đơn một ngày (không có ngày kết thúc) hiện đúng ngày đó', () => {
+    const [trip] = buildBusinessTripOccurrences([request({ toDate: undefined })], from, to);
+    expect(trip?.endAt).toBe(new Date('2026-11-10T23:59:59+07:00').toISOString());
+  });
+
+  it('range của dự án gộp lịch công tác với sự kiện, xếp theo thời gian; không có projectId thì không có công tác', async () => {
+    const meeting = {
+      id: 'e1',
+      title: 'Họp',
+      eventType: 'meeting',
+      startAt: '2026-11-11T02:00:00.000Z',
+      endAt: '2026-11-11T03:00:00.000Z',
+      allDay: false,
+      timezone: 'Asia/Ho_Chi_Minh',
+      organizerUserId: 'u1',
+    } as CalendarEvent;
+    const store = {
+      calendar: { listCandidates: async () => [meeting], listExceptions: async () => [] },
+      projectRequest: { listByProject: async () => [request({})] },
+    } as unknown as WorkspaceStore;
+    const projects = { access: async () => ({}) } as unknown as ProjectService;
+    const service = new CalendarService(store, projects);
+    const query = { from: from.toISOString(), to: to.toISOString() };
+
+    const inProject = await service.range(actorOf('u1'), { ...query, projectId: 'p1' });
+    expect(inProject.occurrences.map((o) => o.eventId)).toEqual(['trip:r1', 'e1']);
+
+    const personal = await service.range(actorOf('u1'), query);
+    expect(personal.occurrences.map((o) => o.eventId)).toEqual(['e1']);
   });
 });

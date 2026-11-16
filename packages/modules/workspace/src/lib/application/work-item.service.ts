@@ -1,6 +1,10 @@
 import {
   DEFAULT_WORK_ITEM_REOPEN_POLICY,
+  DEFAULT_WORK_ITEM_PROGRESS_METHOD,
   DEPENDENCY_TYPES,
+  LEGACY_PROJECT_PROGRESS_METHOD,
+  MAX_CHECKLIST_ITEMS,
+  MAX_WORK_ITEM_WEIGHT,
   WORK_ITEM_EXECUTION_TYPES,
   WORK_ITEM_REOPEN_POLICIES,
   WORK_ITEM_STATUSES,
@@ -11,9 +15,12 @@ import {
   type CreateWorkItemRequest,
   type DependencyType,
   type MoveWorkItemRequest,
+  type ReportWorkItemProgressRequest,
   type ReverseWorkItemRequest,
   type UpdateWorkItemRequest,
   type WorkItem,
+  type WorkItemChecklistItem,
+  type WorkItemProgressReport,
   type WorkItemDependency,
   type WorkItemStatus,
   type WorkItemStatusHistoryEntry,
@@ -22,6 +29,22 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { evaluateCompletion, parseCompletionInput } from '../domain/completion.rules.js';
+import {
+  checklistPercent,
+  parseChecklistTitle,
+  parseChecklistTitles,
+  parseProgressMethod,
+  parseQuantityDone,
+  parseQuantityTarget,
+  parseQuantityUnit,
+  quantityPercent,
+} from '../domain/progress-method.rules.js';
+import {
+  parseReportDate,
+  parseReportDescription,
+  parseReportPercent,
+  progressToRestore,
+} from '../domain/progress-report.rules.js';
 import {
   autoCompleteParents,
   isClosed,
@@ -155,6 +178,14 @@ export class WorkItemService {
     const executionType = pick(input.executionType, WORK_ITEM_EXECUTION_TYPES, 'manual');
     const priority = await this.labels.requirePriority(actor.tenantId, input.priority);
     assertDateOrder(input.plannedStart, input.plannedEnd);
+    assertWeight(input.weight);
+    const progressMethod =
+      input.progressMethod === undefined ? DEFAULT_WORK_ITEM_PROGRESS_METHOD : parseProgressMethod(input.progressMethod);
+    const quantity =
+      progressMethod === 'quantity'
+        ? { quantityTarget: parseQuantityTarget(input.quantityTarget), quantityUnit: parseQuantityUnit(input.quantityUnit) }
+        : { quantityTarget: undefined, quantityUnit: undefined };
+    const checklistTitles = progressMethod === 'checklist' ? parseChecklistTitles(input.checklistTitles) : [];
     if (input.estimateHours != null && !(Number(input.estimateHours) > 0)) {
       throw new WorkspaceValidationError('Giờ ước lượng phải lớn hơn 0.');
     }
@@ -224,6 +255,10 @@ export class WorkItemService {
 
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
       ...itemInput,
+      progressMethod,
+      ...quantity,
+      checklistTitles,
+      equalChildWeight: input.equalChildWeight !== false,
       completion,
       reopenPolicy,
       adjustmentOfId,
@@ -352,6 +387,49 @@ export class WorkItemService {
     if (input.manualProgressPercent !== undefined) {
       Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
+    assertWeight(input.weight);
+    const currentMethod = item.progressMethod ?? DEFAULT_WORK_ITEM_PROGRESS_METHOD;
+    const nextMethod = input.progressMethod === undefined ? currentMethod : parseProgressMethod(input.progressMethod);
+    const touchesQuantity =
+      input.progressMethod !== undefined || input.quantityTarget !== undefined || input.quantityUnit !== undefined;
+    if (touchesQuantity && (nextMethod === 'quantity' || nextMethod === 'checklist')) {
+      const nodes = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+      if (nodes.some((node) => node.parentId === item.id && node.status !== 'cancelled')) {
+        throw new WorkspaceValidationError(
+          'Công việc có việc con nên tiến độ tự tính từ các việc con; không đổi sang tính theo khối lượng hay đầu việc được.',
+        );
+      }
+    }
+    if (typeof input.manualProgressPercent === 'number' && item.status === 'review') {
+      throw new WorkspaceValidationError(
+        'Công việc đang Chờ duyệt (100%); hãy báo cáo tiến độ mới để đưa việc về Đang làm.',
+      );
+    }
+    if (touchesQuantity && (item.status === 'done' || item.status === 'cancelled') && nextMethod !== 'manual') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${item.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi đổi cách tính tiến độ hay khối lượng.`,
+      );
+    }
+    if (nextMethod === 'quantity' && touchesQuantity) {
+      const target = input.quantityTarget === undefined ? item.quantityTarget : input.quantityTarget;
+      const unit = input.quantityUnit === undefined ? item.quantityUnit : input.quantityUnit;
+      Object.assign(patch, { quantityTarget: parseQuantityTarget(target), quantityUnit: parseQuantityUnit(unit) });
+    } else if (nextMethod !== 'quantity') {
+      // Khối lượng chỉ có nghĩa với cách `quantity`: gửi lên khi cách khác thì bỏ, không lưu rác.
+      delete (patch as { quantityTarget?: unknown }).quantityTarget;
+      delete (patch as { quantityUnit?: unknown }).quantityUnit;
+    }
+    if (input.progressMethod !== undefined) Object.assign(patch, { progressMethod: nextMethod });
+    if (
+      (nextMethod === 'quantity' || nextMethod === 'checklist') &&
+      ((typeof input.manualProgressPercent === 'number') || input.progressPercent !== undefined)
+    ) {
+      throw new WorkspaceValidationError(
+        nextMethod === 'quantity'
+          ? 'Tiến độ của công việc này tính theo khối lượng; hãy báo khối lượng đã làm.'
+          : 'Tiến độ của công việc này tính theo đầu việc; hãy tích đầu việc.',
+      );
+    }
     assertDateOrder(
       input.plannedStart === undefined ? item.plannedStart : input.plannedStart,
       input.plannedEnd === undefined ? item.plannedEnd : input.plannedEnd,
@@ -424,12 +502,21 @@ export class WorkItemService {
       Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
     }
 
-    const updated = await this.store.workItem.update(
+    let updated = await this.store.workItem.update(
       actor.tenantId,
       workItemId,
       patch,
       actor.userId,
     );
+    // Đổi sang (hoặc sửa mục tiêu của) cách tự tính thì tiến độ phải tính lại ngay theo dữ liệu hiện có.
+    if (touchesQuantity && (nextMethod === 'quantity' || nextMethod === 'checklist')) {
+      updated = (await this.writeComputedProgress(actor, updated)) ?? updated;
+      // Việc đang Chờ duyệt (100%) mà số tính lại xuống dưới 100% thì không còn là "đã xong chờ duyệt": về Đang làm.
+      if (updated.status === 'review' && updated.progressPercent < 100) {
+        await this.changeStatus(actor, workItemId, { status: 'in_progress' }, { keepProgress: true });
+        updated = (await this.store.workItem.findById(actor.tenantId, workItemId)) ?? updated;
+      }
+    }
     await this.recalculate(actor, item.projectId);
     await this.fleet?.apply(
       actor,
@@ -449,6 +536,8 @@ export class WorkItemService {
     actor: WorkspaceActor,
     workItemId: string,
     input: ChangeWorkItemStatusRequest,
+    /** `keepProgress`: nơi gọi tự đặt tiến độ ngay sau đó (báo cáo tiến độ), nên khỏi khôi phục số của báo cáo cũ. */
+    options: { readonly keepProgress?: boolean } = {},
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
     assertProjectWritable(access.project);
@@ -543,7 +632,12 @@ export class WorkItemService {
         : undefined;
 
     // 5 và 6 — mốc thực tế và nhật ký ghi trong cùng một transaction ở store.
-    const updated = await this.store.workItem.changeStatus(
+    // Vào Hoàn thành / Chờ duyệt thì store đặt 100% và bỏ số nhập tay: ghi lại số hiện có thành một báo cáo để mở lại
+    // sau này còn khôi phục được (xem `restoreProgress`).
+    if (!options.keepProgress && (next === 'done' || next === 'review') && item.status !== 'done' && item.status !== 'review') {
+      await this.snapshotProgress(actor, item);
+    }
+    let updated = await this.store.workItem.changeStatus(
       actor.tenantId,
       workItemId,
       actor.userId,
@@ -552,6 +646,21 @@ export class WorkItemService {
       todayKey(timezoneOf(actor.tenantId)),
       completionEvidence,
     );
+    // Rời Hoàn thành / Chờ duyệt về Đang làm: store đưa tiến độ về 0%; có báo cáo trước đó thì trả về số của báo cáo
+    // gần nhất thay vì mất hết (việc có con thì tiến độ tính lại từ con, không khôi phục).
+    const selfComputing = (item.progressMethod ?? 'manual') === 'quantity' || item.progressMethod === 'checklist';
+    if (!options.keepProgress && selfComputing && (next === 'todo' || next === 'in_progress')) {
+      // Khối lượng và đầu việc vẫn còn nguyên dữ liệu: tiến độ lấy lại từ đó, không cần lịch sử báo cáo.
+      const recomputed = await this.writeComputedProgress(actor, updated);
+      if (recomputed) updated = recomputed;
+    } else if (
+      !options.keepProgress &&
+      next === 'in_progress' &&
+      (item.status === 'done' || item.status === 'review')
+    ) {
+      const restored = await this.restoreProgress(actor, item);
+      if (restored) updated = restored;
+    }
     if (reopening) {
       // Việc con được hoàn tác thì các cha đã xong phía trên không còn đúng là đã xong: mở lại luôn (từ ngoài vào trong).
       // Đây là hệ quả của việc hoàn tác, không phải thao tác riêng nên không kiểm quyền hoàn tác của từng cha.
@@ -575,6 +684,324 @@ export class WorkItemService {
     // Công việc bị huỷ thì trả xe đã giữ.
     if (next === 'cancelled') await this.fleet?.release(actor.tenantId, 'WORK_ITEM', workItemId);
     return updated;
+  }
+
+  /**
+   * Lưu số tiến độ hiện có thành một báo cáo trước khi Hoàn thành / Chờ duyệt ghi đè nó, nếu số đó chưa nằm sẵn trong
+   * lịch sử (tiến độ đặt bằng cách sửa trực tiếp, hoặc đã đổi sau báo cáo cuối vì về Chưa làm). Bỏ qua việc có việc con
+   * (tiến độ tính từ con), số 0% hoặc 100%.
+   */
+  private async snapshotProgress(actor: WorkspaceActor, item: WorkItem): Promise<void> {
+    if ((item.progressMethod ?? 'manual') === 'quantity' || item.progressMethod === 'checklist') return;
+    if (item.progressPercent <= 0 || item.progressPercent >= 100) return;
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) return;
+    const [latest] = await this.store.workItem.listProgressReports(actor.tenantId, item.id);
+    if (latest?.percent === item.progressPercent) return;
+    await this.store.workItem.addProgressReport(actor.tenantId, {
+      workItemId: item.id,
+      projectId: item.projectId,
+      reportedBy: actor.userId,
+      reportedOn: todayKey(timezoneOf(actor.tenantId)),
+      percent: item.progressPercent,
+      description: 'Tiến độ trước khi chuyển trạng thái.',
+    });
+  }
+
+  /** Khôi phục tiến độ theo báo cáo gần nhất chưa tới 100%; `undefined` khi không có gì để khôi phục. */
+  private async restoreProgress(actor: WorkspaceActor, item: WorkItem): Promise<WorkItem | undefined> {
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) return undefined;
+    const percent = progressToRestore(await this.store.workItem.listProgressReports(actor.tenantId, item.id));
+    if (percent === undefined) return undefined;
+    return this.store.workItem.update(actor.tenantId, item.id, { manualProgressPercent: percent }, actor.userId);
+  }
+
+  /** Lịch sử báo cáo tiến độ của công việc (mới nhất trước); ai xem được công việc thì xem được. */
+  async progressReports(actor: WorkspaceActor, workItemId: string): Promise<readonly WorkItemProgressReport[]> {
+    await this.load(actor, workItemId);
+    return this.store.workItem.listProgressReports(actor.tenantId, workItemId);
+  }
+
+  /**
+   * Báo cáo tiến độ (bám 1Office): ghi một dòng lịch sử và đưa tiến độ + trạng thái của công việc về khớp với con số.
+   *
+   *  · 100%  → chuyển sang trạng thái tenant chọn (Hoàn thành hoặc Chờ duyệt); việc đang Chưa làm hay Vướng mắc đi qua
+   *            Đang làm trước vì bảng chuyển trạng thái không cho nhảy thẳng.
+   *  · 1–99% → việc đang Chưa làm tự sang Đang làm (nếu tenant bật); việc đang Chờ duyệt quay về Đang làm.
+   *  · 0%    → chỉ đặt số, không đổi trạng thái.
+   * Việc có việc con không báo cáo trực tiếp (tiến độ tự tính từ con); việc đã đóng phải mở lại trước.
+   *
+   * Cách tính tiến độ của việc quyết định ai đặt con số:
+   *  · `manual` (và `child_weight` ở việc lá): người báo gửi `percent`;
+   *  · `quantity`: người báo gửi `quantityDone`, server tính % = đã làm / cần làm;
+   *  · `checklist`: không báo trực tiếp, tiến độ theo đầu việc đã tích (`origin: 'computed'` do chính server gọi sau
+   *    mỗi lần tích đầu việc, và khi đó con số tự ghi vào cột tự tính chứ không phải số nhập tay).
+   *
+   * Trạng thái đổi trước, tiến độ và dòng lịch sử ghi sau. Những gì chặn được Hoàn thành (điều kiện hoàn thành, tiền
+   * nhiệm FS chưa xong) được kiểm trước khi đổi bất cứ gì, nên bị chặn thì không có gì được ghi; các lỗi bất ngờ giữa
+   * chừng (mất kết nối…) không nằm chung một transaction, có thể để lại trạng thái đã đổi mà chưa có dòng lịch sử.
+   */
+  async reportProgress(
+    actor: WorkspaceActor,
+    workItemId: string,
+    input: ReportWorkItemProgressRequest,
+    origin: 'user' | 'computed' = 'user',
+  ): Promise<WorkItem> {
+    const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
+      throw new WorkItemAssigneeOnlyError();
+    }
+    requireProjectRole(access, 'member');
+    if (item.reversal) {
+      throw new WorkspaceValidationError(
+        'Công việc đã huỷ hiệu lực, không báo cáo tiến độ được; hãy lập công việc điều chỉnh.',
+      );
+    }
+    const method = item.progressMethod ?? 'manual';
+    const computedMethod = method === 'quantity' || method === 'checklist';
+    let percent: number;
+    let quantityDone: number | undefined;
+    if (origin === 'computed') {
+      percent = parseReportPercent(input?.percent);
+    } else if (method === 'checklist') {
+      throw new WorkspaceValidationError(
+        'Tiến độ của công việc này tự tính theo đầu việc; hãy tích đầu việc thay vì báo phần trăm.',
+      );
+    } else if (method === 'quantity') {
+      quantityDone = parseQuantityDone(input?.quantityDone);
+      percent = quantityPercent(quantityDone, item.quantityTarget);
+    } else {
+      if (input?.quantityDone !== undefined) {
+        throw new WorkspaceValidationError('Công việc này không tính tiến độ theo khối lượng.');
+      }
+      percent = parseReportPercent(input?.percent);
+    }
+    const description = parseReportDescription(input?.description);
+    const today = todayKey(timezoneOf(actor.tenantId));
+    const reportedOn = parseReportDate(input?.reportedOn, today);
+    if (item.status === 'done' || item.status === 'cancelled') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${item.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi báo cáo tiến độ.`,
+      );
+    }
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) {
+      throw new WorkspaceValidationError(
+        'Công việc có việc con nên tiến độ tự tính từ các việc con; hãy báo cáo ở từng việc con.',
+      );
+    }
+
+    const settings = await this.projects.progressReportSettings(actor.tenantId);
+    const completing = percent === 100;
+    // Tích đầu việc là thao tác máy: không đòi mô tả như một lần người báo hoàn thành.
+    if (completing && origin === 'user' && settings.requireDescription && !description) {
+      throw new WorkspaceValidationError('Hãy ghi mô tả khi báo hoàn thành công việc.');
+    }
+    let target = completing ? settings.completeStatus : undefined;
+    if (target === 'done' && (item.completion?.conditions.length ?? 0) > 0) {
+      // Người báo thì dừng lại để họ xác nhận điều kiện; tích đầu việc thì chỉ đặt 100%, việc vẫn chờ người bấm Hoàn thành.
+      if (origin === 'user') {
+        throw new WorkspaceValidationError(
+          'Công việc có điều kiện hoàn thành; hãy bấm "Hoàn thành" để xác nhận từng điều kiện.',
+        );
+      }
+      target = undefined;
+    }
+
+    // Kiểm trước những gì có thể chặn bước Hoàn thành, để không có chuyện đã sang Đang làm rồi mới bị từ chối.
+    if (target === 'done') {
+      const edges = await this.store.dependency.listBySuccessor(actor.tenantId, workItemId);
+      for (const edge of edges.filter((candidate) => candidate.dependencyType === 'FS')) {
+        const predecessor = await this.store.workItem.findById(actor.tenantId, edge.predecessorId);
+        if (predecessor && predecessor.status !== 'done') {
+          // Tích đầu việc đã được lưu rồi: không thể từ chối nữa, nên chỉ đặt 100% và việc chờ tiền nhiệm xong mới bấm
+          // Hoàn thành được. Người báo trực tiếp thì bị từ chối như thường.
+          if (origin === 'computed') {
+            target = undefined;
+            break;
+          }
+          throw new DependencyBlockedError(predecessor.code);
+        }
+      }
+    }
+
+    let status: WorkItemStatus = item.status;
+    const move = async (to: WorkItemStatus, note?: string) => {
+      await this.changeStatus(actor, workItemId, { status: to, note }, { keepProgress: true });
+      status = to;
+    };
+    if (target) {
+      if (status === 'todo' || status === 'blocked') await move('in_progress');
+      if (status !== target) await move(target, description);
+      // Hoàn thành / Chờ duyệt đã tự đặt 100% ở store; khối lượng đã làm vẫn phải lưu lại.
+      if (quantityDone !== undefined) {
+        await this.store.workItem.update(actor.tenantId, workItemId, { quantityDone }, actor.userId);
+      }
+    } else {
+      if (status === 'review' && !completing) await move('in_progress');
+      else if (status === 'todo' && percent > 0 && settings.startsWork) await move('in_progress');
+      // Việc tính theo khối lượng / đầu việc: số là số tự tính (nhật ký ghi như một lần đổi tiến độ), không phải số nhập tay.
+      await this.store.workItem.update(
+        actor.tenantId,
+        workItemId,
+        computedMethod
+          ? { progressPercent: percent, manualProgressPercent: null, ...(quantityDone === undefined ? {} : { quantityDone }) }
+          : { manualProgressPercent: percent },
+        actor.userId,
+      );
+    }
+    await this.store.workItem.addProgressReport(actor.tenantId, {
+      workItemId,
+      projectId: item.projectId,
+      reportedBy: actor.userId,
+      reportedOn,
+      percent,
+      quantityDone,
+      description,
+    });
+    await this.recalculate(actor, item.projectId);
+    return (await this.store.workItem.findById(actor.tenantId, workItemId)) ?? item;
+  }
+
+  /** Danh sách đầu việc của công việc; ai xem được công việc thì xem được. */
+  async checklist(actor: WorkspaceActor, workItemId: string): Promise<readonly WorkItemChecklistItem[]> {
+    await this.load(actor, workItemId);
+    return this.store.workItem.listChecklist(actor.tenantId, workItemId);
+  }
+
+  /** Quyền và điều kiện để sửa đầu việc: cùng luật với báo cáo tiến độ, và công việc phải tính tiến độ theo đầu việc. */
+  private async editableChecklistItem(actor: WorkspaceActor, workItemId: string): Promise<WorkItem> {
+    const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
+      throw new WorkItemAssigneeOnlyError();
+    }
+    requireProjectRole(access, 'member');
+    if (item.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không sửa được đầu việc.');
+    }
+    if ((item.progressMethod ?? 'manual') !== 'checklist') {
+      throw new WorkspaceValidationError(
+        'Công việc này không tính tiến độ theo đầu việc; hãy đổi cách tính tiến độ trước.',
+      );
+    }
+    if (item.status === 'done' || item.status === 'cancelled') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${item.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi sửa đầu việc.`,
+      );
+    }
+    const siblings = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (siblings.some((node) => node.parentId === item.id && node.status !== 'cancelled')) {
+      throw new WorkspaceValidationError('Công việc có việc con nên tiến độ tự tính từ các việc con, không theo đầu việc.');
+    }
+    return item;
+  }
+
+  /** Đưa tiến độ của việc về khớp với tỷ lệ đầu việc đã tích (chỉ ghi khi số đổi hoặc việc cần sang trạng thái mới). */
+  private async syncChecklistProgress(actor: WorkspaceActor, workItemId: string): Promise<void> {
+    const items = await this.store.workItem.listChecklist(actor.tenantId, workItemId);
+    const done = items.filter((entry) => entry.done).length;
+    const percent = checklistPercent(done, items.length);
+    const fresh = await this.store.workItem.findById(actor.tenantId, workItemId);
+    if (!fresh) return;
+    const settled = fresh.status === 'done' || fresh.status === 'review';
+    if (percent === fresh.progressPercent && !(percent === 100 && !settled)) return;
+    await this.reportProgress(
+      actor,
+      workItemId,
+      { percent, description: `Đầu việc đã xong: ${done}/${items.length}.` },
+      'computed',
+    );
+  }
+
+  async addChecklistItems(
+    actor: WorkspaceActor,
+    workItemId: string,
+    titles: readonly string[],
+  ): Promise<readonly WorkItemChecklistItem[]> {
+    await this.editableChecklistItem(actor, workItemId);
+    const parsed = parseChecklistTitles(titles);
+    if (parsed.length === 0) throw new WorkspaceValidationError('Nhập tên ít nhất một đầu việc.');
+    const existing = await this.store.workItem.listChecklist(actor.tenantId, workItemId);
+    if (existing.length + parsed.length > MAX_CHECKLIST_ITEMS) {
+      throw new WorkspaceValidationError(`Một công việc có tối đa ${MAX_CHECKLIST_ITEMS} đầu việc.`);
+    }
+    await this.store.workItem.addChecklistItems(actor.tenantId, workItemId, parsed);
+    // Thêm đầu việc chưa tích làm tỷ lệ giảm đi: tính lại.
+    await this.syncChecklistProgress(actor, workItemId);
+    await this.recalculate(actor, (await this.load(actor, workItemId)).item.projectId);
+    return this.store.workItem.listChecklist(actor.tenantId, workItemId);
+  }
+
+  async updateChecklistItem(
+    actor: WorkspaceActor,
+    workItemId: string,
+    itemId: string,
+    patch: { readonly title?: string; readonly done?: boolean },
+  ): Promise<readonly WorkItemChecklistItem[]> {
+    const item = await this.editableChecklistItem(actor, workItemId);
+    if (patch?.done !== undefined && typeof patch.done !== 'boolean') {
+      throw new WorkspaceValidationError('Trạng thái đầu việc không hợp lệ.');
+    }
+    const title = patch?.title === undefined ? undefined : parseChecklistTitle(patch.title);
+    if (title === undefined && patch?.done === undefined) {
+      throw new WorkspaceValidationError('Không có gì để cập nhật.');
+    }
+    const updated = await this.store.workItem.updateChecklistItem(
+      actor.tenantId,
+      workItemId,
+      itemId,
+      { title, done: patch.done },
+      actor.userId,
+    );
+    if (!updated) throw new WorkspaceValidationError('Không tìm thấy đầu việc này trong công việc.');
+    if (patch.done !== undefined) {
+      await this.syncChecklistProgress(actor, workItemId);
+      await this.recalculate(actor, item.projectId);
+    }
+    return this.store.workItem.listChecklist(actor.tenantId, workItemId);
+  }
+
+  async removeChecklistItem(
+    actor: WorkspaceActor,
+    workItemId: string,
+    itemId: string,
+  ): Promise<readonly WorkItemChecklistItem[]> {
+    const item = await this.editableChecklistItem(actor, workItemId);
+    if (!(await this.store.workItem.removeChecklistItem(actor.tenantId, workItemId, itemId))) {
+      throw new WorkspaceValidationError('Không tìm thấy đầu việc này trong công việc.');
+    }
+    await this.syncChecklistProgress(actor, workItemId);
+    await this.recalculate(actor, item.projectId);
+    return this.store.workItem.listChecklist(actor.tenantId, workItemId);
+  }
+
+  /**
+   * Tiến độ tính từ dữ liệu của cách `quantity` / `checklist`; `undefined` với các cách còn lại (người báo tự đặt hoặc
+   * tính từ việc con).
+   */
+  private async computedPercent(actor: WorkspaceActor, item: WorkItem): Promise<number | undefined> {
+    const method = item.progressMethod ?? 'manual';
+    if (method === 'quantity') return quantityPercent(item.quantityDone ?? 0, item.quantityTarget);
+    if (method === 'checklist') {
+      const items = await this.store.workItem.listChecklist(actor.tenantId, item.id);
+      return checklistPercent(items.filter((entry) => entry.done).length, items.length);
+    }
+    return undefined;
+  }
+
+  /** Ghi lại tiến độ tự tính vào cột tự tính (bỏ số nhập tay); trả bản mới, hoặc `undefined` nếu cách tính không tự tính. */
+  private async writeComputedProgress(actor: WorkspaceActor, item: WorkItem): Promise<WorkItem | undefined> {
+    const percent = await this.computedPercent(actor, item);
+    if (percent === undefined) return undefined;
+    return this.store.workItem.update(
+      actor.tenantId,
+      item.id,
+      { progressPercent: percent, manualProgressPercent: null },
+      actor.userId,
+    );
   }
 
   /**
@@ -905,6 +1332,9 @@ export class WorkItemService {
    */
   private async recalculate(actor: WorkspaceActor, projectId: string): Promise<void> {
     const rows = await this.store.workItem.progressRows(actor.tenantId, projectId);
+    const method =
+      (await this.store.project.findById(actor.tenantId, projectId))?.progressMethod ??
+      LEGACY_PROJECT_PROGRESS_METHOD;
     const nodes: ProgressNode[] = rows.map((row) => ({
       id: row.id,
       parentId: row.parentId,
@@ -912,6 +1342,11 @@ export class WorkItemService {
       progressPercent: row.progressPercent,
       manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
+      weight: row.weight,
+      plannedStart: row.plannedStart,
+      plannedEnd: row.plannedEnd,
+      method: row.method,
+      equalChildWeight: row.equalChildWeight,
       requiresConfirmation: row.requiresConfirmation,
     }));
 
@@ -947,7 +1382,11 @@ export class WorkItemService {
         ? 100
         : (changed.get(node.id) ?? node.progressPercent),
     }));
-    await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
+    await this.store.project.updateProgress(
+      actor.tenantId,
+      projectId,
+      projectProgress(updated, method),
+    );
     // Mọi việc đã xong hoặc đã huỷ: tự đóng hồ sơ nếu tenant bật tuỳ chọn ở Cài đặt.
     await this.projects.autoArchiveIfDone(
       actor.tenantId,
@@ -1048,6 +1487,15 @@ function requireText(value: unknown, label: string, maxLength: number): string {
     throw new WorkspaceValidationError(`${label} không được dài quá ${maxLength} ký tự.`);
   }
   return text;
+}
+
+/** Tỷ trọng: số không âm, tối đa `MAX_WORK_ITEM_WEIGHT`; `null`/vắng nghĩa là chưa đặt. */
+function assertWeight(weight: number | null | undefined): void {
+  if (weight === null || weight === undefined) return;
+  const value = Number(weight);
+  if (!Number.isFinite(value) || value < 0 || value > MAX_WORK_ITEM_WEIGHT) {
+    throw new WorkspaceValidationError(`Tỷ trọng phải là số từ 0 đến ${MAX_WORK_ITEM_WEIGHT}.`);
+  }
 }
 
 function assertDateOrder(start?: string | null, end?: string | null): void {

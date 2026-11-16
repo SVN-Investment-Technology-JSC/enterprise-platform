@@ -235,3 +235,48 @@ describe('overlaps', () => {
     ).toBe(false);
   });
 });
+
+describe('lặp theo thứ (BYDAY)', () => {
+  const tz = 'Asia/Ho_Chi_Minh';
+  // Thứ Sáu 2026-11-20 08:00–09:00 giờ Việt Nam.
+  const startAt = new Date('2026-11-20T01:00:00Z');
+  const endAt = new Date('2026-11-20T02:00:00Z');
+  const wide = [new Date('2026-11-01T00:00:00Z'), new Date('2027-03-01T00:00:00Z')] as const;
+
+  it('đọc BYDAY, bỏ trùng và sắp theo tuần bắt đầu thứ Hai', () => {
+    expect(parseRecurrenceRule('FREQ=WEEKLY;BYDAY=FR,MO,FR;COUNT=4')?.byDay).toEqual([0, 4]);
+  });
+
+  it('từ chối BYDAY sai thứ hoặc khác WEEKLY', () => {
+    expect(() => parseRecurrenceRule('FREQ=WEEKLY;BYDAY=XX;COUNT=2')).toThrow(WorkspaceValidationError);
+    expect(() => parseRecurrenceRule('FREQ=DAILY;BYDAY=MO;COUNT=2')).toThrow(WorkspaceValidationError);
+  });
+
+  it('thứ Sáu hằng tuần 8h–9h, 3 lần', () => {
+    const rule = parseRecurrenceRule('FREQ=WEEKLY;BYDAY=FR;COUNT=3');
+    const out = expandOccurrences({ startAt, endAt, timezone: tz, rule }, ...wide);
+    expect(out.map((o) => o.occurrenceDate)).toEqual(['2026-11-20', '2026-11-27', '2026-12-04']);
+    expect(localTime(out[1].startAt, tz)).toBe('08:00');
+    expect(out[1].endAt.getTime() - out[1].startAt.getTime()).toBe(3600000);
+  });
+
+  it('nhiều thứ trong tuần; buổi đầu bỏ các thứ trước ngày bắt đầu', () => {
+    const rule = parseRecurrenceRule('FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=5');
+    const out = expandOccurrences({ startAt, endAt, timezone: tz, rule }, ...wide);
+    expect(out.map((o) => o.occurrenceDate)).toEqual([
+      '2026-11-20', '2026-11-23', '2026-11-25', '2026-11-27', '2026-11-30',
+    ]);
+  });
+
+  it('INTERVAL=2 cách tuần', () => {
+    const rule = parseRecurrenceRule('FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;COUNT=3');
+    const out = expandOccurrences({ startAt, endAt, timezone: tz, rule }, ...wide);
+    expect(out.map((o) => o.occurrenceDate)).toEqual(['2026-11-20', '2026-12-04', '2026-12-18']);
+  });
+
+  it('dừng ở UNTIL', () => {
+    const rule = parseRecurrenceRule('FREQ=WEEKLY;BYDAY=FR;UNTIL=20261204T235959Z');
+    const out = expandOccurrences({ startAt, endAt, timezone: tz, rule }, ...wide);
+    expect(out).toHaveLength(3);
+  });
+});

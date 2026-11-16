@@ -425,7 +425,16 @@ export function buildFinanceVoucherRequestedPayload(
   const voucher = step.financeVoucher;
   const assignees = rAssignees(step);
   const start = [...instance.activity].reverse().find((entry) => entry.action === 'start');
-  const workItemId = instance.sourceType === 'workspace_work_item' ? instance.sourceId : undefined;
+  // Hồ sơ sinh từ một công việc Workspace thì phiếu hạch toán cho công việc đó. Hồ sơ mở thủ công kèm dự án thì Workspace tự
+  // tạo công việc rồi báo về: khi đã liên kết xong, phiếu cũng hạch toán cho công việc ấy (chi phí thực tế của công việc), không
+  // chỉ dừng ở dự án. Chưa liên kết xong thì chỉ có dự án.
+  const link = instance.workspaceLink;
+  const workItemId =
+    instance.sourceType === 'workspace_work_item'
+      ? instance.sourceId
+      : link?.status === 'linked' && link.workItemId
+        ? link.workItemId
+        : undefined;
   return {
     instanceId: instance.id,
     instanceCode: instance.code,

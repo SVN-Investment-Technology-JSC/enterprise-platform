@@ -79,6 +79,67 @@ const SOURCE_STATUS_TEXT: Record<FinanceVoucherSource['status'], string> = {
 /** Nhãn phân hệ nguồn không phải Quy trình. */
 const SOURCE_MODULE_TEXT: Record<string, string> = { crm: 'CRM' };
 
+const WORK_ITEM_STATUS_TEXT: Record<string, string> = {
+  todo: 'Chưa làm',
+  in_progress: 'Đang làm',
+  blocked: 'Vướng mắc',
+  review: 'Chờ duyệt',
+  done: 'Hoàn thành',
+  cancelled: 'Đã huỷ',
+};
+
+/** Đường dẫn mở dự án trong Workspace (cùng dạng với liên kết từ nơi khác trong hệ thống). */
+const projectHref = (projectId: string) => `/modules/workspace?project=${encodeURIComponent(projectId)}#projects/project/${encodeURIComponent(projectId)}`;
+
+/**
+ * Khối "Liên quan" (như phiếu của 1Office): những gì phiếu gắn với nhau — dự án hạch toán, hồ sơ Quy trình đã tạo hay duyệt phiếu,
+ * công việc Workspace của hồ sơ đó — mỗi dòng mở được sang module gốc. Hạch toán chỉ ở cấp dự án; công việc ở đây chỉ để tra cứu.
+ */
+function RelatedPanel({ voucher }: { voucher: FinanceVoucher }) {
+  const procedure = voucher.source?.instanceId
+    ? { id: voucher.source.instanceId, code: voucher.source.instanceCode, title: voucher.source.instanceTitle, detail: voucher.source.definitionName }
+    : voucher.procedure?.instanceId
+      ? { id: voucher.procedure.instanceId, code: voucher.procedure.instanceCode ?? voucher.procedure.instanceId, title: null, detail: voucher.procedure.currentStepName }
+      : null;
+  const item = voucher.linkedWorkItem;
+  if (!voucher.allocation && !procedure && !item) return null;
+  return (
+    <section aria-label="Liên quan" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-2 text-sm font-semibold text-slate-900">Liên quan</h2>
+      <ul className="space-y-2 text-sm text-slate-700">
+        {voucher.allocation ? (
+          <li>
+            <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">Dự án</span>
+            <a className="font-medium text-link hover:underline" href={projectHref(voucher.allocation.projectId)}>
+              {financeAllocationLabel(voucher.allocation)}
+            </a>
+            <span className="ml-1 text-xs text-slate-500">hạch toán</span>
+          </li>
+        ) : null}
+        {procedure ? (
+          <li>
+            <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">Hồ sơ</span>
+            <a className="font-medium text-link hover:underline" href={`/modules/procedure#workspace/${encodeURIComponent(procedure.id)}`}>
+              {procedure.code}
+            </a>
+            {procedure.title ? <span className="ml-1">{procedure.title}</span> : null}
+            {procedure.detail ? <span className="ml-1 text-xs text-slate-500">({procedure.detail})</span> : null}
+          </li>
+        ) : null}
+        {item ? (
+          <li>
+            <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">Công việc</span>
+            <a className="font-medium text-link hover:underline" href={`${projectHref(item.projectId)}`}>
+              {item.code} - {item.title}
+            </a>
+            <span className="ml-1 text-xs text-slate-500">{WORK_ITEM_STATUS_TEXT[item.status] ?? item.status}</span>
+          </li>
+        ) : null}
+      </ul>
+    </section>
+  );
+}
+
 /** Khối "Nguồn": hồ sơ quy trình đã tạo ra phiếu, giá trị nhận từ hồ sơ, ai phụ trách và ai đang xử lý. */
 function SourcePanel({ source }: { source: FinanceVoucherSource }) {
   const values = source.values;
@@ -353,9 +414,6 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                     <Info label={lockedLabel('Hạch toán nội bộ', source, 'allocation')}>
                       {voucher.allocation ? `${FINANCE_ALLOCATION_LABELS[voucher.allocation.type]}: ${financeAllocationLabel(voucher.allocation)}` : null}
                     </Info>
-                    {voucher.allocation?.workItemId ? (
-                      <Info label="Dự án của công việc">{`${voucher.allocation.projectCode} - ${voucher.allocation.projectName}`}</Info>
-                    ) : null}
                   </>
                 )}
                 <Info label="Người tạo">{voucher.createdByName}</Info>
@@ -449,6 +507,8 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
                 </ul>
               </section>
             ) : null}
+
+            <RelatedPanel voucher={voucher} />
 
             {voucher.note || voucher.relatedProjects.length ? (
               <section aria-label="Ghi chú và đối tượng liên quan" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

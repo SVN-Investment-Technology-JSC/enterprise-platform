@@ -49,13 +49,13 @@ function voucher(over: Partial<FinanceVoucher> = {}): FinanceVoucher {
     counterpartyAccountNo: '0011 2233',
     counterpartyBank: 'Vietcombank',
     allocation: {
-      type: 'WORK_ITEM',
+      type: 'PROJECT',
       projectId: 'p1',
       projectCode: 'DA001',
       projectName: 'Trạm biến áp Đà Nẵng',
-      workItemId: 'w1',
-      workItemCode: 'CV-12',
-      workItemTitle: 'Lắp đặt tủ điện',
+      workItemId: null,
+      workItemCode: null,
+      workItemTitle: null,
     },
     taxIncluded: true,
     taxRate: 10,
@@ -121,9 +121,9 @@ describe('Chi tiết phiếu', () => {
     expect(within(lines).getByText(/Đã gồm thuế 10%/)).toBeTruthy();
     expect(within(lines).getByText('HD001', { exact: false })).toBeTruthy();
     expect(screen.getByText('DA002 - Đường dây 110kV')).toBeTruthy();
-    // Hạch toán cho công việc: hiện công việc kèm dự án chứa nó.
-    expect(screen.getByText('Hạch toán cho công việc: CV-12 - Lắp đặt tủ điện (DA001)')).toBeTruthy();
-    expect(screen.getByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
+    // Hạch toán chỉ ở cấp dự án; khối "Liên quan" cũng liệt kê dự án hạch toán (liên kết sang Workspace).
+    expect(screen.getByText('Hạch toán cho dự án: DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Liên quan' })).getByRole('link', { name: 'DA001 - Trạm biến áp Đà Nẵng' })).toBeTruthy();
     const history = screen.getByRole('complementary', { name: 'Lịch sử xử lý' });
     expect(within(history).getByText('Tạo phiếu')).toBeTruthy();
     expect(within(history).getByText('Gửi duyệt')).toBeTruthy();

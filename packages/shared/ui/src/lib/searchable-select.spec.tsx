@@ -313,3 +313,24 @@ describe('SearchableSelect footerAction', () => {
     expect(screen.getByRole('button', { name: 'Tạo mới' })).toBeTruthy();
   });
 });
+
+describe('SearchableSelect nút xoá', () => {
+  const withEmpty = [{ value: '', label: 'Chưa giao' }, ...options];
+
+  it('chọn mục rỗng ("Chưa giao") thì không có gì để xoá nên không hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="" />);
+    expect(screen.getByDisplayValue('Chưa giao')).not.toBeNull();
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).toBeNull();
+  });
+
+  it('đã chọn một giá trị thì hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="a" />);
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).not.toBeNull();
+  });
+
+  it('đang gõ dở chữ khác nhãn đang chọn thì hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Alp' } });
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).not.toBeNull();
+  });
+});

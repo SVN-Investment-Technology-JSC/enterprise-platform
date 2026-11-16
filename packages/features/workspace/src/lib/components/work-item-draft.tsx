@@ -13,17 +13,22 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Copy, Info, Trash2, Truck } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Info, Trash2, Truck } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
 import { cloneCompletion, emptyCompletion, type CompletionDraft } from '../completion-draft';
-import { ITEM_TYPE_LABELS, priorityKeys, priorityLabel } from '../workspace-labels';
+import { ITEM_TYPE_LABELS, formatDate, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ReopenPolicyField } from './reopen-policy-field';
 import { Input, Label, Textarea } from './form-controls';
+import {
+  EMPTY_PROGRESS_METHOD,
+  ProgressMethodFields,
+  type ProgressMethodDraft,
+} from './progress-method-fields';
 import { ProjectPeoplePicker } from './project-people-picker';
 import { TagPicker } from './tag-picker';
 import { TitleInput } from './title-input';
@@ -48,6 +53,8 @@ export interface DraftRow {
   plannedStart: string;
   plannedEnd: string;
   estimateHours: string;
+  /** Cách tính tiến độ và các trường đi kèm. */
+  progress: ProgressMethodDraft;
   procedureDefinitionId: string;
   completion: CompletionDraft;
   /** Ai được hoàn tác việc này sau khi hoàn thành. */
@@ -71,6 +78,7 @@ const BLANK: DraftFields = {
   plannedStart: '',
   plannedEnd: '',
   estimateHours: '',
+  progress: EMPTY_PROGRESS_METHOD,
   procedureDefinitionId: '',
   completion: emptyCompletion(),
   reopenPolicy: 'assignee',
@@ -90,6 +98,7 @@ export function draftRow(from: Partial<DraftFields> = {}): DraftRow {
     ...from,
     participantUserIds: [...(from.participantUserIds ?? [])],
     tagIds: [...(from.tagIds ?? [])],
+    progress: { ...(from.progress ?? BLANK.progress) },
     completion: cloneCompletion(from.completion ?? BLANK.completion),
     key: lastKey,
   };
@@ -100,6 +109,9 @@ export interface WorkItemDraftEditorProps {
   readonly index: number;
   readonly row: DraftRow;
   readonly removable: boolean;
+  /** Chỉ có nghĩa khi có từ hai việc trở lên: việc đang thu gọn chỉ còn thanh tiêu đề. */
+  readonly collapsed?: boolean;
+  readonly onToggleCollapsed?: () => void;
   readonly onChange: (patch: Partial<DraftFields>) => void;
   readonly onRemove: () => void;
   readonly onDuplicate: () => void;
@@ -137,6 +149,8 @@ export function WorkItemDraftEditor({
   index,
   row,
   removable,
+  collapsed: collapsedProp = false,
+  onToggleCollapsed,
   onChange,
   onRemove,
   onDuplicate,
@@ -176,11 +190,97 @@ export function WorkItemDraftEditor({
 
   const hasTransport = Boolean(transport.value.mode);
 
+  // Từ hai việc trở lên mỗi việc là một thẻ riêng có thanh tiêu đề (số thứ tự, tên, các nút) và thu gọn được.
+  const multi = removable;
+  const collapsed = multi && collapsedProp;
+
+  const actions = (
+    <div className={styles.draftActions}>
+      {isPhase ? null : (
+        <Tooltip content="Phương tiện đi lại">
+          <span className={styles.tooltipAnchor}>
+            <button
+              type="button"
+              className={
+                showTransport || hasTransport
+                  ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
+                  : `${styles.draftIconButton} ${styles.draftIconTruck}`
+              }
+              aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
+              aria-pressed={showTransport || hasTransport}
+              disabled={hasTransport}
+              onClick={() => setShowTransport((current) => !current)}
+            >
+              <Truck size={16} />
+            </button>
+          </span>
+        </Tooltip>
+      )}
+      <Tooltip content="Nhân bản (chép mọi trường trừ tên)">
+        <button
+          type="button"
+          className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
+          aria-label={`Nhân bản công việc ${index + 1}`}
+          onClick={onDuplicate}
+        >
+          <Copy size={16} />
+        </button>
+      </Tooltip>
+      <Tooltip content="Bỏ công việc này">
+        <span className={styles.tooltipAnchor}>
+          <button
+            type="button"
+            className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
+            aria-label={`Bỏ công việc ${index + 1}`}
+            disabled={!removable}
+            onClick={onRemove}
+          >
+            <Trash2 size={16} />
+          </button>
+        </span>
+      </Tooltip>
+    </div>
+  );
+
   return (
-    <section className={styles.draftItem} aria-label={`Công việc ${index + 1}`}>
-      <div className={styles.draftGrid}>
+    <section
+      className={multi ? `${styles.draftItem} ${styles.draftItemCard}` : styles.draftItem}
+      aria-label={`Công việc ${index + 1}`}
+    >
+      {multi ? (
+        <header className={styles.draftCardHead}>
+          <button
+            type="button"
+            className={styles.draftCardToggle}
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? 'Mở rộng' : 'Thu gọn'} công việc ${index + 1}`}
+            onClick={onToggleCollapsed}
+          >
+            {collapsed ? <ChevronRight size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
+            <span className={styles.draftCardNumber}>{index + 1}</span>
+          </button>
+          <span className={styles.draftCardSummary}>
+            <span className={row.title.trim() ? styles.draftCardTitle : styles.draftCardTitleEmpty}>
+              {row.title.trim() || 'Chưa đặt tên'}
+            </span>
+            {collapsed ? (
+              <span className={styles.draftCardMeta}>
+                {[
+                  row.assigneeUserId ? nameOf(row.assigneeUserId) : 'Chưa giao',
+                  row.plannedEnd ? `Hạn ${formatDate(row.plannedEnd)}` : undefined,
+                  priorityLabel(row.priority),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            ) : null}
+          </span>
+          {actions}
+        </header>
+      ) : null}
+      <div className={collapsed ? `${styles.draftGrid} ${styles.draftGridCollapsed}` : styles.draftGrid}>
         <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
-          <Label>{removable ? `Công việc ${index + 1}` : 'Tên công việc'}</Label>
+          <Label>Tên công việc</Label>
           <div className={styles.draftTitleRow}>
             <div className={styles.draftTitleInput}>
               <TitleInput
@@ -192,51 +292,7 @@ export function WorkItemDraftEditor({
                 onPasteLines={onPasteLines}
               />
             </div>
-            <div className={styles.draftActions}>
-              {isPhase ? null : (
-                <Tooltip content="Phương tiện đi lại">
-                  <span className={styles.tooltipAnchor}>
-                    <button
-                      type="button"
-                      className={
-                        showTransport || hasTransport
-                          ? `${styles.draftIconButton} ${styles.draftIconTruck} ${styles.draftIconButtonActive}`
-                          : `${styles.draftIconButton} ${styles.draftIconTruck}`
-                      }
-                      aria-label={`Phương tiện đi lại cho công việc ${index + 1}`}
-                      aria-pressed={showTransport || hasTransport}
-                      disabled={hasTransport}
-                      onClick={() => setShowTransport((current) => !current)}
-                    >
-                      <Truck size={16} />
-                    </button>
-                  </span>
-                </Tooltip>
-              )}
-              <Tooltip content="Nhân bản (chép mọi trường trừ tên)">
-                <button
-                  type="button"
-                  className={`${styles.draftIconButton} ${styles.draftIconCopy}`}
-                  aria-label={`Nhân bản công việc ${index + 1}`}
-                  onClick={onDuplicate}
-                >
-                  <Copy size={16} />
-                </button>
-              </Tooltip>
-              <Tooltip content="Bỏ công việc này">
-                <span className={styles.tooltipAnchor}>
-                  <button
-                    type="button"
-                    className={`${styles.draftIconButton} ${styles.draftIconRemove}`}
-                    aria-label={`Bỏ công việc ${index + 1}`}
-                    disabled={!removable}
-                    onClick={onRemove}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </span>
-              </Tooltip>
-            </div>
+            {multi ? null : actions}
           </div>
         </div>
 
@@ -277,6 +333,7 @@ export function WorkItemDraftEditor({
           <Label>Ưu tiên</Label>
           <Choice
             label={`Độ ưu tiên ${index + 1}`}
+            selectOnly
             value={row.priority}
             height={FIELD_HEIGHT}
             options={priorityKeys().map((priority) => ({
@@ -291,10 +348,21 @@ export function WorkItemDraftEditor({
           <Label>Loại</Label>
           <Choice
             label={`Loại ${index + 1}`}
+            selectOnly
             value={row.itemType}
             height={FIELD_HEIGHT}
             options={WORK_ITEM_TYPES.map((type) => ({ value: type, label: ITEM_TYPE_LABELS[type] }))}
-            onChange={(value) => onChange({ itemType: value as WorkItemType })}
+            onChange={(value) =>
+              onChange({
+                itemType: value as WorkItemType,
+                // Nhóm công việc không có khối lượng hay đầu việc: bỏ cách tính đã chọn khi còn là Công việc.
+                ...(value === 'phase' &&
+                row.progress.progressMethod !== 'manual' &&
+                row.progress.progressMethod !== 'child_weight'
+                  ? { progress: EMPTY_PROGRESS_METHOD }
+                  : {}),
+              })
+            }
           />
         </div>
         <div className={styles.draftField}>
@@ -314,6 +382,7 @@ export function WorkItemDraftEditor({
           ) : (
             <Choice
               label={`Cách thực hiện ${index + 1}`}
+              selectOnly
               value={row.executionType}
               height={FIELD_HEIGHT}
               options={[
@@ -340,6 +409,15 @@ export function WorkItemDraftEditor({
               onChange={(event) => onChange({ estimateHours: event.target.value })}
             />
           )}
+        </div>
+        <div className={`${styles.draftField} ${styles.draftSpanAll}`}>
+          <ProgressMethodFields
+            idPrefix={`draft-${row.key}`}
+            creating
+            methods={isPhase ? ['manual', 'child_weight'] : ['manual', 'quantity', 'checklist', 'child_weight']}
+            value={row.progress}
+            onChange={(patch) => onChange({ progress: { ...row.progress, ...patch } })}
+          />
         </div>
         {!isPhase && row.executionType === 'procedure' ? (
           <div className={`${styles.draftField} ${styles.draftSpanAll}`}>

@@ -73,6 +73,7 @@ function makeStore(options: {
       progressRows: async () => [],
       applyProgress: async () => undefined,
       openChildCount: async () => 0,
+      listProgressReports: async () => [],
       changeStatus: async (_t: string, id: string, _a: string, next: WorkItemStatus, note?: string) => {
         statusChanges.push({ id, next, note });
         return { ...(options.items.find((entry) => entry.id === id) as WorkItem), status: next };

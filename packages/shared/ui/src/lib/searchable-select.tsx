@@ -561,7 +561,11 @@ export function SearchableSelect({
     </li>
   ) : null;
 
-  const hasClear = Boolean(clearable && (query || value) && !disabled);
+  // Nút xoá chỉ khi có gì để xoá: đã chọn một giá trị, hoặc đang gõ dở chữ khác với nhãn đang chọn. Mục rỗng
+  // ("Chưa giao", "Tất cả"…) cũng hiện nhãn trong ô nhập nhưng không phải giá trị, nên không có nút xoá.
+  const hasClear = Boolean(
+    clearable && !disabled && (value || (query && query !== (selectedOption ? selectedOption.label : ''))),
+  );
 
   return (
     <div

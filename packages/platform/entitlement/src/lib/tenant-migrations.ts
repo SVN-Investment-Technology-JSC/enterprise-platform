@@ -179,6 +179,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
     { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
     { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
+    { version: '0011-require-allocation', path: 'tenant/finance/0011-require-allocation.sql' },
+    { version: '0012-reason-require-project', path: 'tenant/finance/0012-reason-require-project.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -831,6 +833,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/workspace/0034-chat-multiple-attachments.sql',
     },
     { version: '0035-blocked-reason', path: 'tenant/workspace/0035-blocked-reason.sql' },
+    { version: '0036-project-request-details', path: 'tenant/workspace/0036-project-request-details.sql' },
+    { version: '0037-project-progress-method', path: 'tenant/workspace/0037-project-progress-method.sql' },
+    { version: '0038-work-item-progress-reports', path: 'tenant/workspace/0038-work-item-progress-reports.sql' },
+    { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
+    { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

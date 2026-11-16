@@ -151,7 +151,7 @@ describe('Danh sách phiếu thu', () => {
     expect(screen.queryByText('Lý do chi')).toBeNull();
   });
 
-  it('cột Hạch toán hiện dự án hoặc công việc; lọc theo dự án gửi projectId lên máy chủ', async () => {
+  it('cột Hạch toán hiện dự án; lọc theo dự án gửi projectId lên máy chủ', async () => {
     fetchMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/accounts')) return [] as never;
       if (path.startsWith('/catalogs')) return { reasons: [], counterpartyGroups: [] } as never;
@@ -159,11 +159,6 @@ describe('Danh sách phiếu thu', () => {
       return list(
         [
           summary({ allocation: { type: 'PROJECT', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: null, workItemCode: null, workItemTitle: null } }),
-          summary({
-            id: 'v2',
-            code: 'NHAP_PT_2610_0002',
-            allocation: { type: 'WORK_ITEM', projectId: 'p1', projectCode: 'DA001', projectName: 'Trạm biến áp Đà Nẵng', workItemId: 'w1', workItemCode: 'CV-12', workItemTitle: 'Lắp đặt tủ điện' },
-          }),
           summary({ id: 'v3', code: 'PT-2610-0003', allocation: null }),
         ],
         { APPROVED: 3 },
@@ -171,7 +166,6 @@ describe('Danh sách phiếu thu', () => {
     });
     render(<VoucherListScreen kind="RECEIPT" />);
     expect(await screen.findByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
-    expect(screen.getByText('CV-12 - Lắp đặt tủ điện (DA001)')).toBeTruthy();
     fireEvent.click(await screen.findByPlaceholderText('Mọi dự án'));
     fireEvent.click(await screen.findByRole('option', { name: /DA001/ }));
     await waitFor(() => expect(paths().some((p) => p.includes('projectId=p1'))).toBe(true));

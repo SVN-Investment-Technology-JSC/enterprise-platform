@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  MAX_WORK_ITEM_WEIGHT,
   type CreateWorkItemRequest,
   type DirectoryPerson,
   type ProjectMember,
@@ -28,6 +29,13 @@ import { priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 import { Choice } from './choice';
+import {
+  EMPTY_PROGRESS_METHOD,
+  ProgressMethodFields,
+  progressMethodPayload,
+  progressMethodProblem,
+  type ProgressMethodDraft,
+} from './progress-method-fields';
 import { ReopenPolicyField, reopenPolicyOf } from './reopen-policy-field';
 import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ConfirmBox } from './confirm-box';
@@ -59,6 +67,8 @@ export interface WorkItemFormProps {
    * server.
    */
   readonly canAssignOthers: boolean;
+  /** Công việc cha của việc đang sửa (nếu có): cho biết có hiện ô Tỷ trọng cho việc con hay không. */
+  readonly parentItem?: WorkItem;
   readonly onClose: () => void;
   /**
    * `procedureDefinitionId` chỉ có khi chọn "Theo quy trình". Nơi gọi chịu
@@ -111,10 +121,20 @@ interface FormState {
   plannedStart: string;
   plannedEnd: string;
   estimateHours: string;
+  /** Tỷ trọng của công việc gốc; rỗng là chưa đặt. */
+  weight: string;
+  /** Cách tính tiến độ và các trường đi kèm. */
+  progress: ProgressMethodDraft;
   procedureDefinitionId: string;
   completion: CompletionDraft;
   reopenPolicy: WorkItemReopenPolicy;
   reopenParent: boolean;
+}
+
+/** Cách tính tiến độ của dòng nháp sẽ gửi đi: dòng nhóm công việc chỉ nhận `manual` / `child_weight`. */
+function progressOf(row: { itemType: WorkItemType; progress: ProgressMethodDraft }): ProgressMethodDraft {
+  const allowed = row.itemType !== 'phase' || row.progress.progressMethod === 'manual' || row.progress.progressMethod === 'child_weight';
+  return allowed ? row.progress : EMPTY_PROGRESS_METHOD;
 }
 
 const EMPTY: FormState = {
@@ -131,6 +151,8 @@ const EMPTY: FormState = {
   plannedStart: '',
   plannedEnd: '',
   estimateHours: '',
+  weight: '',
+  progress: EMPTY_PROGRESS_METHOD,
   procedureDefinitionId: '',
   completion: emptyCompletion(),
   reopenPolicy: 'assignee',
@@ -141,6 +163,7 @@ export function WorkItemForm({
   open,
   item,
   parent,
+  parentItem,
   members,
   currentUserId,
   canAssignOthers,
@@ -163,6 +186,8 @@ export function WorkItemForm({
   const [confirmOutside, setConfirmOutside] = useState(false);
   /** Các việc sẽ tạo, mỗi việc đủ trường riêng (chỉ dùng khi tạo mới); sửa việc thì dùng `form`. */
   const [rows, setRows] = useState<DraftRow[]>(() => [draftRow()]);
+  /** Các việc đang thu gọn (chỉ dùng khi tạo từ hai việc trở lên). */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   /** Tên công việc đã dùng, gợi ý khi gõ tên. */
   const titleHistory = useRecentTitles(open);
 
@@ -195,6 +220,14 @@ export function WorkItemForm({
             plannedStart: item.plannedStart ?? '',
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
+            weight: item.weight == null ? '' : String(item.weight),
+            progress: {
+              progressMethod: item.progressMethod ?? 'manual',
+              quantityTarget: item.quantityTarget == null ? '' : String(item.quantityTarget),
+              quantityUnit: item.quantityUnit ?? '',
+              equalChildWeight: item.equalChildWeight !== false,
+              checklistText: '',
+            },
             procedureDefinitionId: '',
             completion: completionDraftOf(item.completion),
             reopenPolicy: reopenPolicyOf(item.reopenPolicy),
@@ -222,6 +255,7 @@ export function WorkItemForm({
           : { ...EMPTY, parentId: defaultParentId ?? parent?.id ?? '' };
     setForm(initial);
     setRows([draftRow(initial)]);
+    setCollapsed(new Set());
     setError(undefined);
     setSubmitting(false);
     setConfirmOutside(false);
@@ -255,6 +289,25 @@ export function WorkItemForm({
   const copyOf = (row: DraftRow, title = ''): DraftRow => draftRow({ ...row, title });
 
   /** Thêm việc mới: chép công việc cha, loại, ưu tiên, người phụ trách và ngày của việc cuối cho đỡ chọn lại. */
+  const toggleCollapsed = (key: number) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  /** Báo lỗi của một việc: mở rộng việc đó ra để người dùng thấy ngay chỗ cần sửa. */
+  const failRow = (key: number, message: string) => {
+    setCollapsed((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+    setError(message);
+  };
+
   const addRow = () =>
     setRows((current) => {
       const last = current[current.length - 1];
@@ -458,6 +511,14 @@ export function WorkItemForm({
     setError(undefined);
     const transportBlock = isPhase ? undefined : transport.payload();
     const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
+    const progressChanged =
+      form.progress.progressMethod !== (item?.progressMethod ?? 'manual') ||
+      (form.progress.progressMethod === 'quantity' &&
+        (Number(form.progress.quantityTarget) !== (item?.quantityTarget ?? Number.NaN) ||
+          form.progress.quantityUnit.trim() !== (item?.quantityUnit ?? ''))) ||
+      (form.progress.progressMethod === 'child_weight' && form.progress.equalChildWeight !== (item?.equalChildWeight !== false));
+    const weightApplies =
+      !item?.parentId || (parentItem?.progressMethod === 'child_weight' && parentItem.equalChildWeight === false);
     // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
     const participants = form.participantUserIds.filter(
       (userId) => userId !== form.assigneeUserId,
@@ -475,6 +536,10 @@ export function WorkItemForm({
           plannedStart: form.plannedStart || null,
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
+          // Tỷ trọng chỉ có nghĩa với việc gốc, hoặc việc con của cha tính theo tỷ trọng; việc khác không gửi để khỏi ghi đè.
+          weight: weightApplies ? (form.weight.trim() ? Number(form.weight) : null) : undefined,
+          // Chỉ gửi khi người dùng đổi: sửa tên một việc đã xong không bị chặn vì cách tính tiến độ.
+          ...(progressChanged ? { ...progressMethodPayload(form.progress, { withChecklist: false }), quantityTarget: form.progress.progressMethod === 'quantity' ? Number(form.progress.quantityTarget) : undefined } : {}),
           transport: transportBlock,
           // Chỉ gửi khi thật sự đổi và được phép sửa: người nhận việc lưu các trường khác không bị chặn nhầm.
           completion:
@@ -508,6 +573,11 @@ export function WorkItemForm({
         setError(conditionProblem);
         return;
       }
+      const progressProblem = progressMethodProblem(form.progress);
+      if (progressProblem) {
+        setError(progressProblem);
+        return;
+      }
       // Người phụ trách mới chưa thuộc dự án: hỏi xác nhận trước khi thêm họ vào dự án.
       if (outsidePeople.length > 0 && !confirmOutside) {
         setConfirmOutside(true);
@@ -529,21 +599,27 @@ export function WorkItemForm({
     for (const row of filled) {
       const label = filled.length > 1 ? `Công việc ${rows.indexOf(row) + 1}: ` : '';
       if (row.itemType !== 'phase' && row.executionType === 'procedure' && !row.procedureDefinitionId) {
-        setError(`${label}hãy chọn quy trình sẽ mở cho công việc này.`);
+        failRow(row.key, `${label}hãy chọn quy trình sẽ mở cho công việc này.`);
         return;
       }
       const rowTransport = transports.current.get(row.key);
       if (row.itemType !== 'phase' && rowTransport?.value.mode && rowTransport.problem) {
-        setError(`${label}${rowTransport.problem}`);
+        failRow(row.key, `${label}${rowTransport.problem}`);
         return;
       }
       const conditionProblem = row.itemType === 'phase' ? undefined : completionProblem(row.completion);
       if (conditionProblem) {
-        setError(`${label}${conditionProblem}`);
+        failRow(row.key, `${label}${conditionProblem}`);
+        return;
+      }
+      // Nhóm công việc chỉ có hai cách: giá trị còn sót từ lúc dòng còn là Công việc (khối lượng, đầu việc) không tính.
+      const progressProblem = progressMethodProblem(progressOf(row));
+      if (progressProblem) {
+        failRow(row.key, `${label}${progressProblem}`);
         return;
       }
       if (!row.reopenParent && (parentOptions ?? []).some((option) => option.id === row.parentId && option.done)) {
-        setError(`${label}công việc cha đã hoàn thành. Hãy chọn mở lại công việc cha, hoặc chọn công việc cha khác.`);
+        failRow(row.key, `${label}công việc cha đã hoàn thành. Hãy chọn mở lại công việc cha, hoặc chọn công việc cha khác.`);
         return;
       }
     }
@@ -577,6 +653,7 @@ export function WorkItemForm({
         const procedure = !phase && row.executionType === 'procedure';
         await onCreate(
           {
+            ...progressMethodPayload(progressOf(row), { withChecklist: true }),
             parentId: row.parentId || undefined,
             title: row.title.trim(),
             description: row.description || undefined,
@@ -649,6 +726,8 @@ export function WorkItemForm({
           form={form}
           set={set}
           isPhase={isPhase}
+          isRoot={!item?.parentId}
+          showWeight={!item?.parentId || (parentItem?.progressMethod === 'child_weight' && parentItem.equalChildWeight === false)}
           titleHistory={titleHistory}
           assigneeChoices={assigneeChoices}
           renderAssignee={renderAssignee}
@@ -680,6 +759,30 @@ export function WorkItemForm({
             </Field>
           ) : null}
 
+          {rows.length > 1 ? (
+            <div className={styles.draftToolbar}>
+              <span className={styles.draftToolbarCount}>{rows.length} công việc</span>
+              <span className={styles.draftToolbarActions}>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={rows.every((row) => collapsed.has(row.key))}
+                  onClick={() => setCollapsed(new Set(rows.map((row) => row.key)))}
+                >
+                  Thu gọn tất cả
+                </button>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={rows.every((row) => !collapsed.has(row.key))}
+                  onClick={() => setCollapsed(new Set())}
+                >
+                  Mở rộng tất cả
+                </button>
+              </span>
+            </div>
+          ) : null}
+
           <div className={styles.draftList}>
             {rows.map((row, index) => (
               <WorkItemDraftEditor
@@ -688,6 +791,8 @@ export function WorkItemForm({
                 index={index}
                 row={row}
                 removable={rows.length > 1}
+                collapsed={collapsed.has(row.key)}
+                onToggleCollapsed={() => toggleCollapsed(row.key)}
                 onChange={(patch) => setRow(row.key, patch)}
                 onRemove={() =>
                   setRows((current) => current.filter((entry) => entry.key !== row.key))
@@ -761,6 +866,8 @@ function EditFields({
   form,
   set,
   isPhase,
+  isRoot,
+  showWeight,
   titleHistory,
   assigneeChoices,
   renderAssignee,
@@ -775,6 +882,10 @@ function EditFields({
   readonly form: FormState;
   readonly set: (patch: Partial<FormState>) => void;
   readonly isPhase: boolean;
+  /** Công việc cấp gốc: chỉ loại này có tỷ trọng. */
+  readonly isRoot: boolean;
+  /** Hiện ô Tỷ trọng: việc gốc, hoặc việc con của cha tính theo tỷ trọng không chia đều. */
+  readonly showWeight: boolean;
   readonly titleHistory: readonly string[];
   readonly assigneeChoices: AssigneeChoices;
   readonly renderAssignee: (option: SearchableSelectOption) => ReactNode;
@@ -834,6 +945,34 @@ function EditFields({
           </Field>
         </div>
       )}
+
+      <ProgressMethodFields
+        idPrefix="edit"
+        creating={false}
+        methods={isPhase ? ['manual', 'child_weight'] : ['manual', 'quantity', 'checklist', 'child_weight']}
+        value={form.progress}
+        onChange={(patch) => set({ progress: { ...form.progress, ...patch } })}
+      />
+
+      {showWeight ? (
+        <Field
+          label="Tỷ trọng"
+          hint={
+            isRoot
+              ? 'Dùng khi dự án tính tiến độ theo tỷ trọng công việc. Để trống là chưa đặt: công việc tính bằng mức trung bình của các việc đã đặt.'
+              : 'Dùng khi công việc cha tính tiến độ theo tỷ trọng các việc con. Để trống là chưa đặt: tính bằng mức trung bình của các việc con đã đặt.'
+          }
+        >
+          <input
+            type="number"
+            min={0}
+            max={MAX_WORK_ITEM_WEIGHT}
+            step="any"
+            value={form.weight}
+            onChange={(event) => set({ weight: event.target.value })}
+          />
+        </Field>
+      ) : null}
 
       {isPhase ? null : (
         <Field label="Người thực hiện cùng">

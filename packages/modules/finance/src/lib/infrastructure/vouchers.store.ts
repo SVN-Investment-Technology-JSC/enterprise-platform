@@ -43,14 +43,16 @@ export const VOUCHER_SELECT = `
 /** Hạch toán lưu trên dòng phiếu; null khi chưa hạch toán. */
 export function mapAllocation(row: Row): FinanceAllocation | null {
   if (!row.alloc_type) return null;
+  // Hạch toán chỉ ở cấp dự án. Phiếu cũ hạch toán cho công việc vẫn giữ cột công việc trong CSDL, nhưng đọc ra như hạch toán cho dự án
+  // chứa công việc đó: màn hình và tổng của dự án không còn phân theo công việc.
   return {
-    type: row.alloc_type as FinanceAllocation['type'],
+    type: 'PROJECT',
     projectId: String(row.alloc_project_id),
     projectCode: String(row.alloc_project_code ?? ''),
     projectName: String(row.alloc_project_name ?? ''),
-    workItemId: optStr(row.alloc_work_item_id),
-    workItemCode: optStr(row.alloc_work_item_code),
-    workItemTitle: optStr(row.alloc_work_item_title),
+    workItemId: null,
+    workItemCode: null,
+    workItemTitle: null,
   };
 }
 
@@ -507,8 +509,15 @@ export async function listVouchers(
 }
 
 const PROJECT_LIST_LIMIT = 200;
-/** Chỉ phiếu đang có hiệu lực tiền: chờ duyệt và đã ghi sổ. Nháp, bị từ chối, đã huỷ (kể cả đã đảo) không phải tiền của dự án. */
+/** Phiếu đang có hiệu lực tiền: chờ duyệt và đã ghi sổ. Bị từ chối, đã huỷ (kể cả đã đảo) không phải tiền của dự án. */
 const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
+/**
+ * Phiếu dựng từ hồ sơ Quy trình đã được duyệt ở quy trình nhưng nằm nháp tới khi kế toán ghi sổ (`approval_mode = INHERITED`).
+ * Với người xem dự án đó là khoản chi/thu đã được duyệt đang chờ ghi sổ, nên phải hiện ở mục chờ thay vì biến mất tới lúc ghi sổ.
+ * Phiếu nháp tự lập (DIRECT) thì chưa phải tiền của ai: vẫn không tính.
+ */
+const PROJECT_SCOPE_SQL = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT')
+  AND (v.status = ANY($3::text[]) OR (v.status = 'DRAFT' AND v.approval_mode = 'INHERITED'))`;
 
 /**
  * Phiếu thu/chi gắn với một dự án, cho trang dự án bên Workspace.
@@ -519,7 +528,7 @@ const PROJECT_STATUSES = ['PENDING', 'APPROVED'];
  */
 export async function listProjectVouchers(db: Db, tenantId: string, projectId: string): Promise<FinanceProjectVoucherList> {
   const params: unknown[] = [tenantId, projectId, PROJECT_STATUSES];
-  const scope = `v.tenant_id = $1 AND v.kind IN ('RECEIPT','PAYMENT') AND v.status = ANY($3::text[])`;
+  const scope = PROJECT_SCOPE_SQL;
 
   const totalsRows = (
     await db.query(
@@ -565,14 +574,22 @@ export async function listProjectVouchers(db: Db, tenantId: string, projectId: s
 
   const rows = (
     await db.query(
-      `SELECT v.id, v.kind, v.code, v.voucher_date, v.content, v.status, v.total_amount, v.created_by_name,
-              v.alloc_work_item_id, v.alloc_work_item_code, v.alloc_work_item_title, r.name AS reason_name,
-              (v.alloc_project_id = $2::uuid) AS is_allocation
-         FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
-        WHERE ${scope}
-          AND (v.alloc_project_id = $2::uuid
-               OR EXISTS (SELECT 1 FROM finance_schema.voucher_related rel WHERE rel.voucher_id = v.id AND rel.kind = 'PROJECT' AND rel.project_id = $2::uuid))
-        ORDER BY v.voucher_date DESC, v.created_at DESC, v.id DESC LIMIT ${PROJECT_LIST_LIMIT + 1}`,
+      `SELECT * FROM (
+         SELECT v.id, v.kind, v.code, v.voucher_date, v.posting_date, v.created_at, v.content, v.status, v.total_amount, v.created_by_name,
+                v.alloc_work_item_id, v.alloc_work_item_code, v.alloc_work_item_title, r.name AS reason_name,
+                (v.alloc_project_id = $2::uuid) AS is_allocation,
+                -- Dòng tiền luỹ kế: chỉ phiếu ĐÃ GHI SỔ hạch toán cho dự án; cộng dồn theo thứ tự ghi sổ trên TOÀN BỘ phiếu của dự án
+                -- (cửa sổ tính trước LIMIT) nên không lệch khi danh sách bị cắt. Phiếu chờ/chỉ liên quan không có số.
+                CASE WHEN v.status = 'APPROVED' AND v.alloc_project_id = $2::uuid
+                     THEN SUM(CASE WHEN v.status = 'APPROVED' AND v.alloc_project_id = $2::uuid
+                                   THEN CASE WHEN v.kind = 'RECEIPT' THEN v.total_amount ELSE -v.total_amount END ELSE 0 END)
+                          OVER (ORDER BY v.posting_date, v.created_at, v.id) END AS balance
+           FROM finance_schema.vouchers v LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
+          WHERE ${scope}
+            AND (v.alloc_project_id = $2::uuid
+                 OR EXISTS (SELECT 1 FROM finance_schema.voucher_related rel WHERE rel.voucher_id = v.id AND rel.kind = 'PROJECT' AND rel.project_id = $2::uuid))
+       ) ledger
+       ORDER BY posting_date DESC, created_at DESC, id DESC LIMIT ${PROJECT_LIST_LIMIT + 1}`,
       params,
     )
   ).rows as Row[];
@@ -591,6 +608,9 @@ export async function listProjectVouchers(db: Db, tenantId: string, projectId: s
         ? { id: String(row.alloc_work_item_id), code: String(row.alloc_work_item_code ?? ''), title: String(row.alloc_work_item_title ?? '') }
         : null,
     createdByName: optStr(row.created_by_name),
+    postingDate: dateOnly(row.posting_date),
+    createdAt: iso(row.created_at),
+    balance: row.balance === null || row.balance === undefined ? null : num(row.balance),
   }));
   return { items, totals, projectLevel, workItems, truncated: rows.length > PROJECT_LIST_LIMIT };
 }

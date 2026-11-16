@@ -35,6 +35,7 @@ import {
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog } from './dialog';
+import { RequestDetailList } from './request-detail-list';
 import { ReverseProjectRequestDialog } from './reverse-project-request-dialog';
 import { initials } from './project-header';
 import { useDirectory } from './use-directory';
@@ -713,6 +714,12 @@ export function TabRequests({
                 </>
               ) : null}
             </dl>
+            {selected.details && selected.details.length > 0 ? (
+              <>
+                <h4 className={styles.tripSectionTitle}>Chi tiết đơn</h4>
+                <RequestDetailList details={selected.details} />
+              </>
+            ) : null}
             {selected.reversalRequest && selected.status === 'APPROVED' ? (
               <p
                 style={{

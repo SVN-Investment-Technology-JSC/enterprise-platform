@@ -41,6 +41,7 @@ import type {
   CreateWorkItemRequest,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  ReportWorkItemProgressRequest,
   ReverseWorkItemRequest,
   ReverseProjectRequestRequest,
   RespondToEventRequest,
@@ -436,6 +437,63 @@ export class WorkspaceController {
         body ?? ({} as ChangeWorkItemStatusRequest),
       ),
     );
+  }
+
+  /** Báo cáo tiến độ công việc: ghi lịch sử, đưa tiến độ và trạng thái về khớp con số báo. */
+  @Post('work-items/:id/progress-reports')
+  reportWorkItemProgress(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReportWorkItemProgressRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.reportProgress(this.actor(request), id, body ?? ({} as ReportWorkItemProgressRequest)),
+    );
+  }
+
+  @Get('work-items/:id/progress-reports')
+  listWorkItemProgressReports(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ items: await this.workItems.progressReports(this.actor(request), id) }));
+  }
+
+  /** Đầu việc của công việc tính tiến độ theo đầu việc. */
+  @Get('work-items/:id/checklist')
+  listWorkItemChecklist(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ items: await this.workItems.checklist(this.actor(request), id) }));
+  }
+
+  @Post('work-items/:id/checklist')
+  addWorkItemChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: { titles?: readonly string[] },
+  ) {
+    return this.execute(async () => ({
+      items: await this.workItems.addChecklistItems(this.actor(request), id, body?.titles ?? []),
+    }));
+  }
+
+  @Patch('work-items/:id/checklist/:itemId')
+  updateWorkItemChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { title?: string; done?: boolean },
+  ) {
+    return this.execute(async () => ({
+      items: await this.workItems.updateChecklistItem(this.actor(request), id, itemId, body ?? {}),
+    }));
+  }
+
+  @Delete('work-items/:id/checklist/:itemId')
+  removeWorkItemChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.execute(async () => ({
+      items: await this.workItems.removeChecklistItem(this.actor(request), id, itemId),
+    }));
   }
 
   @Post('work-items/:id/move')
@@ -1097,6 +1155,23 @@ export class WorkspaceController {
         body ?? ({} as ChangeStandaloneTaskStatusRequest),
       ),
     );
+  }
+
+  /** Báo cáo tiến độ Công việc khác: ghi lịch sử, đưa tiến độ và trạng thái về khớp con số báo. */
+  @Post('standalone-tasks/:id/progress-reports')
+  reportStandaloneTaskProgress(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReportWorkItemProgressRequest,
+  ) {
+    return this.execute(() =>
+      this.standaloneTasks.reportProgress(this.actor(request), id, body ?? ({} as ReportWorkItemProgressRequest)),
+    );
+  }
+
+  @Get('standalone-tasks/:id/progress-reports')
+  listStandaloneTaskProgressReports(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ items: await this.standaloneTasks.progressReports(this.actor(request), id) }));
   }
 
   /** Huỷ hiệu lực việc đã hoàn thành (người giao). */

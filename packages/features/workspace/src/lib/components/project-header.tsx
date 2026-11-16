@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProjectAvatar } from './project-avatar';
+import { ProjectProgressBar } from './project-progress-bar';
 import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
@@ -94,15 +95,7 @@ export function ProjectHeader({
       </div>
 
       <div className={styles.projectHeaderAside}>
-        <span className={styles.progressCell}>
-          <span
-            className={`${styles.progressTrack} ${styles.progressTrackWide}`}
-            aria-label={`Tiến độ ${project.progressPercent}%`}
-          >
-            <span className={styles.progressFill} style={{ width: `${project.progressPercent}%` }} />
-          </span>
-          <b>{project.progressPercent}%</b>
-        </span>
+        <ProjectProgressBar project={project} wide />
         <span className={styles.avatarStack} aria-label={`${members.length} thành viên`}>
           {members.slice(0, AVATARS_SHOWN).map((member) => (
             <Tooltip key={member.id} content={directory.nameOf(member.userId)}>

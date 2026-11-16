@@ -65,6 +65,7 @@ import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
 import { MembersDialog } from './members-dialog';
+import { BusinessTripDialog } from './business-trip-dialog';
 import { MoveDialog } from './move-dialog';
 import { NodeHeader } from './node-header';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
@@ -81,6 +82,7 @@ import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
+import { useProgressReport } from './use-progress-report';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm } from './work-item-form';
@@ -279,6 +281,8 @@ export function ProjectsView({
   const [deletingItem, setDeletingItem] = useState<WorkItem>();
   const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
+  /** Mục công tác đang xem chi tiết (từ tab Lịch). */
+  const [tripView, setTripView] = useState<CalendarOccurrence>();
   const [moving, setMoving] = useState<WorkItem>();
   /**
    * Menu lệnh đang mở: của dự án (nút "⋯" đầu trang), hay của một công việc
@@ -1108,6 +1112,18 @@ export function ProjectsView({
     },
     [askBlockedReason, openProjectId, refreshDetail],
   );
+  /**
+   * Cập nhật tiến độ một việc (`null`: về tự động) qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo,
+   * server đổi trạng thái theo con số. Nạp lại chi tiết dự án sau đó để số và trạng thái trên màn khớp.
+   */
+  const reloadAfterProgress = useCallback(async () => {
+    if (openProjectId) await refreshDetail(openProjectId);
+  }, [openProjectId, refreshDetail]);
+  const {
+    setProgress: setItemProgress,
+    reportQuantity,
+    dialog: progressDialog,
+  } = useProgressReport(reloadAfterProgress);
   const changeItemStatus = useCallback(
     async (item: WorkItem, next: WorkItemStatus) => {
       // Vướng mắc phải kèm lý do — hỏi trước, kể cả khi kéo thẻ Kanban sang cột Vướng mắc.
@@ -1325,6 +1341,8 @@ export function ProjectsView({
                   onAddRoot={openItemForm}
                   onMenu={openItemMenu}
                   onChangeStatus={changeItemStatus}
+                  onSetProgress={setItemProgress}
+                  onReportQuantity={reportQuantity}
                 />
               ) : null}
               {tab === 'calendar' ? (
@@ -1334,7 +1352,14 @@ export function ProjectsView({
                   canWrite={canWrite}
                   reloadToken={calendarToken}
                   onCreate={(date) => setEventForm({ open: true, date })}
-                  onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
+                  onOpenEvent={(occurrence) => {
+                    // Lịch công tác dựng từ đơn ở HRM: chỉ xem, bấm vào mở hộp chi tiết đơn thay vì hộp sửa sự kiện.
+                    if (occurrence.businessTrip) {
+                      setTripView(occurrence);
+                      return;
+                    }
+                    setEventForm({ open: true, occurrence });
+                  }}
                   onOpenWorkItem={goToItem}
                 />
               ) : null}
@@ -1426,6 +1451,8 @@ export function ProjectsView({
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
             canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onEdit={() => onAction('edit-item', selected)}
+            onSetProgress={(next) => setItemProgress(selectedItem, next)}
+            onReportQuantity={() => reportQuantity(selectedItem)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
             onOpenChat={() => setChatOpen(true)}
@@ -1471,6 +1498,9 @@ export function ProjectsView({
             procedurePending={pendingProcedure.get(selectedItem.id)}
             canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
+            canEditProgress={canWrite && !selectedItem.reversal}
+            onProgressChanged={reloadAfterProgress}
+            onReportQuantity={reportQuantity}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
             canEditDependencies={canManage && !selectedItem.reversal}
@@ -1578,6 +1608,9 @@ export function ProjectsView({
         open={itemForm.open}
         item={itemForm.edit}
         parent={itemForm.parent}
+        parentItem={
+          itemForm.edit?.parentId ? (detail?.items ?? []).find((candidate) => candidate.id === itemForm.edit?.parentId) : undefined
+        }
         parentOptions={parentCandidateOptions(detail?.items ?? [])}
         defaultParentId={itemForm.parent?.id}
         members={detail?.members ?? []}
@@ -1680,6 +1713,8 @@ export function ProjectsView({
         }}
       />
 
+      <BusinessTripDialog occurrence={tripView} onClose={() => setTripView(undefined)} />
+
       <MembersDialog
         open={membersOpen && Boolean(detail)}
         members={detail?.members ?? []}
@@ -1713,6 +1748,7 @@ export function ProjectsView({
       />
 
       {blockedPrompt.dialog}
+      {progressDialog}
 
       <CancelWorkItemDialog
         item={cancellingItem}

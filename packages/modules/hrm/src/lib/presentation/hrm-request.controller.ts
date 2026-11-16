@@ -77,6 +77,7 @@ import {
   rejectionNote,
 } from '../infrastructure/hrm-validation.js';
 import { markOnBehalf, onBehalfView } from '../infrastructure/hrm-request-proxy.js';
+import { businessTripDetails } from '../infrastructure/hrm-trip-details.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
@@ -446,8 +447,17 @@ export class HrmRequestController {
         initiatedBy: principal.userId,
         title: 'Đơn công tác',
         attributes: body.attributes,
+        // Ngày đã tính ở trên (`tripFrom`/`tripTo`), không phải `body.fromDate/toDate`: đơn gửi theo "từ ngày giờ đến
+        // ngày giờ" không có hai trường này, và thiếu ngày thì Workspace không dựng được lịch công tác của dự án,
+        // cũng không kéo được các đơn nghỉ/OT trùng thời gian vào dự án.
         project: project
-          ? { ...project, fromDate: body.fromDate, toDate: body.toDate }
+          ? {
+              ...project,
+              fromDate: tripFrom,
+              toDate: tripTo,
+              // Chi tiết để Workspace hiện đầy đủ đơn công tác trong lịch dự án (không đọc bảng của HRM).
+              details: (tripRow) => businessTripDetails(tripRow, body.attributes),
+            }
           : undefined,
       },
       async (db) => {

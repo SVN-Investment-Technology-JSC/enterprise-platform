@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  User,
   Workflow,
   X,
 } from 'lucide-react';
@@ -55,6 +56,8 @@ import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
+import { ProgressHistoryPanel } from './progress-history-panel';
+import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
 import { FieldChangeList } from './tab-activity';
 
 const CLOSED: readonly WorkItemStatus[] = ['done', 'cancelled'];
@@ -300,6 +303,7 @@ export function StandaloneTasksView({
           </label>
           <Choice
             label="Trạng thái"
+            selectOnly
             value={statusFilter}
             emptyOption="Mọi trạng thái"
             options={STATUS_FILTERS}
@@ -307,6 +311,7 @@ export function StandaloneTasksView({
           />
           <Choice
             label="Sắp xếp"
+            selectOnly
             value={sortKey}
             options={SORT_OPTIONS}
             onChange={(value) => setSortKey((value || 'updated') as TaskSort)}
@@ -476,11 +481,10 @@ function TaskRow({
   onSelect: () => void;
 }) {
   const priority = PRIORITY_TONE[task.priority];
-  // "Tôi giao" cần biết ai đang làm; hai ngăn còn lại cần biết ai giao.
-  const person =
-    scope === 'assigned_by_me'
-      ? `Phụ trách: ${directory.nameOf(task.assigneeUserId)}`
-      : `Người giao: ${directory.nameOf(task.createdBy)}`;
+  // "Tôi giao" cần biết ai đang làm; hai ngăn còn lại cần biết ai giao. Vai của người này nằm ở tooltip, không lặp
+  // chữ "Phụ trách:" / "Người giao:" ở mọi dòng.
+  const assignedByMe = scope === 'assigned_by_me';
+  const person = directory.nameOf(assignedByMe ? task.assigneeUserId : task.createdBy);
   return (
     <li>
       <button
@@ -489,10 +493,10 @@ function TaskRow({
         aria-current={active ? 'true' : undefined}
         onClick={onSelect}
       >
-        <span className={styles.taskRowTitle}>
-          <span className={styles.treeCode}>{task.code}</span>
-          {task.title}
-        </span>
+        <span className={styles.treeCode}>{task.code}</span>
+        <Tooltip content={task.title} side="top" align="start">
+          <span className={styles.taskRowTitle}>{task.title}</span>
+        </Tooltip>
         <span className={styles.taskRowMeta}>
           <StatusPill task={task} />
           <span className={styles.pill} style={{ background: priority.bg, color: priority.fg }}>
@@ -519,10 +523,13 @@ function TaskRow({
             </Tooltip>
           ) : null}
         </span>
-        <span className={styles.taskRowPerson}>
-          {parent ? `Thuộc ${parent.code} · ` : ''}
-          {person}
-        </span>
+        <Tooltip content={assignedByMe ? 'Người phụ trách' : 'Người giao'} side="bottom" align="start">
+          <span className={styles.taskRowPerson}>
+            <User size={12} aria-hidden />
+            {parent ? `Thuộc ${parent.code} · ` : ''}
+            {person}
+          </span>
+        </Tooltip>
       </button>
     </li>
   );
@@ -585,6 +592,8 @@ function TaskDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const blockedPrompt = useBlockedReasonPrompt();
+  /** Tiến độ của việc lá đi qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo, server đổi trạng thái theo số. */
+  const progress = useProgressReport<StandaloneTaskDetail>((next) => onChanged(next), STANDALONE_PROGRESS_ADAPTER);
 
   useEffect(() => {
     setError(undefined);
@@ -780,6 +789,7 @@ function TaskDetail({
         />
       ) : null}
       {blockedPrompt.dialog}
+      {progress.dialog}
 
       {task.reversal ? (
         <div className={styles.alert}>
@@ -887,9 +897,15 @@ function TaskDetail({
               value={task.progressPercent}
               manual={Boolean(task.progressManual)}
               auto={task.autoProgressPercent}
-              disabled={busy}
+              disabled={busy || task.status === 'done' || task.status === 'cancelled'}
+              lockedReason={
+                task.status === 'done' ? 'Công việc đã hoàn thành; mở lại để đổi tiến độ.' : undefined
+              }
               onCommit={(next) =>
-                run(() => api.updateStandaloneTask(task.id, { manualProgressPercent: next }))
+                // Việc có việc con vẫn nhập tay được để ưu tiên hơn số tự tính; việc lá đi qua luồng báo cáo.
+                next === null || task.childCount > 0
+                  ? run(() => api.updateStandaloneTask(task.id, { manualProgressPercent: next }))
+                  : progress.setProgress(task, next)
               }
             />
           ) : (
@@ -908,6 +924,11 @@ function TaskDetail({
       {task.executionType === 'procedure' && task.procedure ? (
         <ProcedurePanel procedure={task.procedure} isChild={Boolean(task.parentId)} />
       ) : null}
+
+      <ProgressHistoryPanel
+        item={{ id: task.id, progressPercent: task.progressPercent, status: task.status, updatedAt: task.updatedAt }}
+        load={api.listStandaloneTaskProgressReports}
+      />
 
       {task.childCount > 0 ? (
         <p className={styles.muted}>
@@ -951,7 +972,7 @@ function TaskDetail({
               <li key={child.id}>
                 <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask(child.id)}>
                   <span className={styles.treeCode}>{child.code}</span>
-                  {child.title}
+                  <span className={styles.workTitle}>{child.title}</span>
                 </button>
                 <span className={styles.taskChildMeta}>
                   <StatusPill task={child} />

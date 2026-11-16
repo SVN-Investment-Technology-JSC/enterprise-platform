@@ -1,4 +1,7 @@
-import { PROJECT_PERMISSION_LABELS } from '@enterprise-platform/contracts-workspace';
+import {
+  LEGACY_PROJECT_PROGRESS_METHOD,
+  PROJECT_PERMISSION_LABELS,
+} from '@enterprise-platform/contracts-workspace';
 import { projectProgress, rollUpProgress, type ProgressNode } from '../domain/progress.rules.js';
 import {
   ProjectPermissionForbiddenError,
@@ -97,6 +100,9 @@ export class WorkItemDeletionService {
 
   private async recalculate(tenantId: string, projectId: string): Promise<void> {
     const rows = await this.store.workItem.progressRows(tenantId, projectId);
+    const method =
+      (await this.store.project.findById(tenantId, projectId))?.progressMethod ??
+      LEGACY_PROJECT_PROGRESS_METHOD;
     const nodes: ProgressNode[] = rows.map((row) => ({
       id: row.id,
       parentId: row.parentId,
@@ -104,6 +110,11 @@ export class WorkItemDeletionService {
       progressPercent: row.progressPercent,
       manualPercent: row.manualPercent,
       estimateHours: row.estimateHours,
+      weight: row.weight,
+      plannedStart: row.plannedStart,
+      plannedEnd: row.plannedEnd,
+      method: row.method,
+      equalChildWeight: row.equalChildWeight,
     }));
 
     const changed = rollUpProgress(nodes);
@@ -113,7 +124,7 @@ export class WorkItemDeletionService {
       ...node,
       progressPercent: changed.get(node.id) ?? node.progressPercent,
     }));
-    await this.store.project.updateProgress(tenantId, projectId, projectProgress(updated));
+    await this.store.project.updateProgress(tenantId, projectId, projectProgress(updated, method));
     // Xoá việc cuối còn mở cũng làm mọi việc còn lại đã xong: tự đóng hồ sơ nếu tenant bật tuỳ chọn.
     await this.projects.autoArchiveIfDone(
       tenantId,
