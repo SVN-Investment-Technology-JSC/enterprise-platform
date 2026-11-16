@@ -5,9 +5,13 @@ import {
   duplicateOnServer,
   importToServer,
   publishOnServer,
+  purgeFromServer,
+  purgeManyFromServer,
   removeFromServer,
   removeManyFromServer,
   resetPresetOnServer,
+  restoreManyOnServer,
+  restoreOnServer,
   saveManyToServer,
   saveToServer,
   serverInfoOf,
@@ -318,6 +322,62 @@ describe('xoá = lưu trữ', () => {
     mockServer.failWith(/^DELETE/, httpError(503, 'Máy chủ bận.'));
 
     await expect(removeManyFromServer(['a'])).rejects.toThrow('Máy chủ bận.');
+  });
+});
+
+describe('khôi phục và xoá vĩnh viễn icon đã lưu trữ', () => {
+  it('restoreOnServer đưa icon đã lưu trữ về bản nháp trong thư viện chính', async () => {
+    mockServer.seed(icon('cu', 'Icon cũ'), 'archived');
+    await connect();
+    expect(docOf('cu')).toBeUndefined();
+    expect(remoteStore.getSnapshot().archivedDocs.map((d) => d.id)).toEqual(['cu']);
+
+    const restored = await restoreOnServer('cu');
+
+    expect(writes()).toEqual(['POST icons/cu/restore']);
+    expect(restored?.name).toBe('Icon cũ');
+    expect(restored?.status).toBe('draft');
+    expect(docOf('cu')?.status).toBe('draft');
+    expect(remoteStore.getSnapshot().archivedDocs).toHaveLength(0);
+  });
+
+  it('restoreManyOnServer khôi phục nhiều icon đã lưu trữ và trả số lượng', async () => {
+    mockServer.seed(icon('cu-1', 'Cũ 1'), 'archived');
+    mockServer.seed(icon('cu-2', 'Cũ 2'), 'archived');
+    mockServer.seed(icon('dang-dung', 'Đang dùng'));
+    await connect();
+
+    const count = await restoreManyOnServer(['cu-1', 'cu-2', 'dang-dung', 'khong-co']);
+
+    expect(count).toBe(2);
+    expect(docOf('cu-1')?.status).toBe('draft');
+    expect(docOf('cu-2')?.status).toBe('draft');
+    expect(remoteStore.getSnapshot().archivedDocs).toHaveLength(0);
+  });
+
+  it('purgeFromServer gọi DELETE .../permanent và xoá hẳn khỏi summaries cùng archivedDocs', async () => {
+    mockServer.seed(icon('cu', 'Icon cũ'), 'archived');
+    await connect();
+
+    await purgeFromServer('cu');
+
+    expect(writes()).toEqual(['DELETE icons/cu/permanent']);
+    expect(remoteStore.getSummary('cu')).toBeUndefined();
+    expect(remoteStore.getSnapshot().archivedDocs).toHaveLength(0);
+    expect(mockServer.rows.has('cu')).toBe(false);
+  });
+
+  it('purgeManyFromServer xoá vĩnh viễn nhiều icon đã lưu trữ và hoàn lại nếu lỗi', async () => {
+    mockServer.seed(icon('cu-1', 'Cũ 1'), 'archived');
+    mockServer.seed(icon('cu-2', 'Cũ 2'), 'archived');
+    await connect();
+    mockServer.failWith('DELETE icons/cu-2/permanent', httpError(503, 'Máy chủ bận.'));
+
+    await expect(purgeManyFromServer(['cu-1', 'cu-2'])).rejects.toThrow('Đã xoá vĩnh viễn 1/2 icon. Máy chủ bận.');
+
+    expect(remoteStore.getSummary('cu-1')).toBeUndefined();
+    expect(remoteStore.getSummary('cu-2')?.status).toBe('archived');
+    expect(remoteStore.getSnapshot().archivedDocs.map((d) => d.id)).toEqual(['cu-2']);
   });
 });
 

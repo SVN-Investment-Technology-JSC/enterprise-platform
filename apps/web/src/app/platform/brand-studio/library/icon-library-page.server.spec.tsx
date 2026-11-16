@@ -167,6 +167,53 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Máy chủ bận.'));
     expect(screen.getByRole('button', { name: /Nhập tệp/ })).toBeTruthy();
   });
+
+  it('mục lọc "Đã lưu trữ" hiển thị icon đã lưu trữ, cho phép Khôi phục và Xoá vĩnh viễn', async () => {
+    mockServer.seed(custom('cu-1', 'Icon lưu trữ 1'), 'archived');
+    mockServer.seed(custom('cu-2', 'Icon lưu trữ 2'), 'archived');
+    await showLibrary();
+
+    expect(screen.queryByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeNull();
+    const archiveBtn = screen.getByRole('button', { name: 'Đã lưu trữ' });
+    expect(archiveBtn.textContent).toContain('2');
+
+    fireEvent.click(archiveBtn);
+    expect(tiles()).toHaveLength(2);
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 2' })).toBeTruthy();
+
+    await chooseTileAction(tileOf('Icon lưu trữ 1'), 'Khôi phục');
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã khôi phục "Icon lưu trữ 1" về bản nháp.'));
+    expect(screen.queryByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeNull();
+    expect(mockServer.rows.get('cu-1')?.summary.status).toBe('draft');
+
+    await chooseTileAction(tileOf('Icon lưu trữ 2'), 'Xoá vĩnh viễn');
+    await confirmDialog('Xoá vĩnh viễn');
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã xoá vĩnh viễn "Icon lưu trữ 2".'));
+    expect(mockServer.rows.has('cu-2')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đã lưu trữ' }));
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeTruthy();
+  });
+
+  it('thao tác hàng loạt trong mục "Đã lưu trữ" hỗ trợ Khôi phục và Xoá vĩnh viễn', async () => {
+    mockServer.seed(custom('cu-1', 'Lưu trữ A'), 'archived');
+    mockServer.seed(custom('cu-2', 'Lưu trữ B'), 'archived');
+    await showLibrary();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đã lưu trữ' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Lưu trữ A' }));
+    fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Khôi phục' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã khôi phục 1 icon về bản nháp.'));
+    expect(mockServer.rows.get('cu-1')?.summary.status).toBe('draft');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Lưu trữ B' }));
+    fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Xoá vĩnh viễn' }));
+    const popup = screen.getByText('Xoá vĩnh viễn 1 icon đã chọn?').closest('[class*="popconfirmPopup"]') as HTMLElement;
+    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá vĩnh viễn' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã xoá vĩnh viễn 1 icon.'));
+    expect(mockServer.rows.has('cu-2')).toBe(false);
+  });
 });
 
 describe('IconLibraryPage: chế độ cục bộ khi chưa có API', () => {

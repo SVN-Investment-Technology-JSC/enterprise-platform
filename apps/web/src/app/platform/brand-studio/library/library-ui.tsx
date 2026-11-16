@@ -40,12 +40,14 @@ const STATUS_STYLE: Record<IconStatus, { chip: string; dot: string }> = {
   published: { chip: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
 };
 
-export function StatusChip({ status }: { status: IconStatus }) {
-  const style = STATUS_STYLE[status];
+const ARCHIVED_STYLE = { chip: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' };
+
+export function StatusChip({ status, archived = false }: { status: IconStatus; archived?: boolean }) {
+  const style = archived ? ARCHIVED_STYLE : STATUS_STYLE[status];
   return (
     <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium leading-4', style.chip)}>
       <span aria-hidden className={cn('size-1.5 rounded-full', style.dot)} />
-      {STATUS_LABELS[status]}
+      {archived ? 'Đã lưu trữ' : STATUS_LABELS[status]}
     </span>
   );
 }

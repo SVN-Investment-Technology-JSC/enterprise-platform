@@ -202,6 +202,11 @@ export function restoreIcon(id: string): Promise<BrandIconSummary> {
   return request<BrandIconSummary>(`${iconPath(id)}/restore`, { method: 'POST' });
 }
 
+/** Xoá vĩnh viễn icon đã lưu trữ và mọi phiên bản của nó khỏi máy chủ. */
+export function purgeIcon(id: string): Promise<void> {
+  return request<void>(`${iconPath(id)}/permanent`, { method: 'DELETE' });
+}
+
 export function getStandards(options: { readonly timeoutMs?: number } = {}): Promise<BrandStandardsResponse> {
   return request<BrandStandardsResponse>('/standards', { timeoutMs: options.timeoutMs });
 }

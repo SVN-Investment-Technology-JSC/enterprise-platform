@@ -2,7 +2,7 @@
 
 import { CATEGORY_LABELS } from '@enterprise-platform/shared-brand-icon';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { ChevronDown, LayoutGrid, List, ListFilter, Search, X } from 'lucide-react';
+import { Archive, ChevronDown, LayoutGrid, List, ListFilter, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,7 +22,7 @@ import {
   CATEGORY_FILTERS,
   SORT_LABELS,
   STATUSES,
-  STATUS_LABELS,
+  STATUS_FILTER_LABELS,
   type CategoryFilter,
   type FacetCounts,
   type LibraryView,
@@ -33,10 +33,10 @@ import {
 import { Hint } from '../components/hint';
 
 const SORT_OPTIONS = (Object.keys(SORT_LABELS) as SortKey[]).map((value) => ({ value, label: SORT_LABELS[value] }));
-const STATUS_FILTERS: readonly StatusFilter[] = ['all', ...STATUSES];
+const STATUS_FILTERS: readonly StatusFilter[] = ['all', ...STATUSES, 'archived'];
 
 const categoryName = (category: CategoryFilter) => (category === 'all' ? 'Tất cả danh mục' : CATEGORY_LABELS[category]);
-const statusName = (status: StatusFilter) => (status === 'all' ? 'Mọi trạng thái' : STATUS_LABELS[status]);
+const statusName = (status: StatusFilter) => STATUS_FILTER_LABELS[status];
 
 /** Chip một bộ lọc đang bật, bấm để bỏ riêng bộ lọc đó. */
 function ActiveChip({ label, onRemove }: { label: string; onRemove: () => void }) {
@@ -146,6 +146,32 @@ export function LibraryToolbar({
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Button
+        aria-label="Đã lưu trữ"
+        aria-pressed={view.status === 'archived'}
+        className={cn(
+          RAISED,
+          'gap-1.5 px-2.5',
+          view.status === 'archived' && 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100/70',
+        )}
+        onClick={() => onChange({ status: view.status === 'archived' ? 'all' : 'archived' })}
+        variant="outline"
+      >
+        <Archive aria-hidden className={cn('size-4', view.status === 'archived' ? 'text-blue-600' : 'text-slate-500')} />
+        Đã lưu trữ
+        {counts.status.archived > 0 ? (
+          <span
+            aria-hidden
+            className={cn(
+              'grid min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold leading-4 tabular-nums',
+              view.status === 'archived' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700',
+            )}
+          >
+            {counts.status.archived}
+          </span>
+        ) : null}
+      </Button>
 
       {view.category !== 'all' ? <ActiveChip label={categoryName(view.category)} onRemove={() => onChange({ category: 'all' })} /> : null}
       {view.status !== 'all' ? <ActiveChip label={statusName(view.status)} onRemove={() => onChange({ status: 'all' })} /> : null}
