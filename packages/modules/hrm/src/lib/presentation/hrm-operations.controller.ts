@@ -24,6 +24,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   requireDate,
@@ -84,6 +85,7 @@ export class HrmOperationsController {
       : this.ctx.getRequestContext(req, employeeId);
   }
 
+  @RequirePermission('hrm.read')
   @Get('request-drafts')
   async listDrafts(
     @Req() req: Request,
@@ -96,6 +98,7 @@ export class HrmOperationsController {
     );
     return { data: result.rows.map(mapDraft) };
   }
+  @RequirePermission('hrm.read')
   @Post('request-drafts/:kind')
   async createDraft(
     @Req() req: Request,
@@ -130,6 +133,7 @@ export class HrmOperationsController {
       return { data: mapDraft(row) };
     });
   }
+  @RequirePermission('hrm.read')
   @Patch('request-drafts/:kind/:id')
   async updateDraft(
     @Req() req: Request,
@@ -139,6 +143,7 @@ export class HrmOperationsController {
   ) {
     return this.mutateDraft(req, kind, id, body, false);
   }
+  @RequirePermission('hrm.read')
   @Delete('request-drafts/:kind/:id')
   async deleteDraft(
     @Req() req: Request,
@@ -207,6 +212,7 @@ export class HrmOperationsController {
       return { data: mapDraft(row) };
     });
   }
+  @RequirePermission('hrm.read')
   @Post('requests/:kind/:id/withdraw')
   async withdraw(
     @Req() req: Request,
@@ -309,6 +315,7 @@ export class HrmOperationsController {
     }
     return outcome;
   }
+  @RequirePermission('hrm.request.approve')
   @Post('requests/:kind/:id/reverse')
   async reverseRequest(
     @Req() req: Request,
@@ -355,6 +362,7 @@ export class HrmOperationsController {
    * Các đơn đã bị huỷ hiệu lực (khác đơn rút/huỷ khi đang chờ): màn duyệt hiện
    * nhãn "Đã hủy hiệu lực" kèm lý do thay vì gộp chung "Đã rút / hủy".
    */
+  @RequirePermission('hrm.read')
   @Get('request-reversals')
   async requestReversals(@Req() req: Request) {
     const context = await this.ctx.getContext(req, 'hrm.read');
@@ -382,6 +390,7 @@ export class HrmOperationsController {
       })),
     };
   }
+  @RequirePermission('hrm.read')
   @Get('request-workflows')
   async requestWorkflows(
     @Req() req: Request,
@@ -428,6 +437,7 @@ export class HrmOperationsController {
    * Người duyệt của các đơn đang chờ duyệt trực tiếp (không qua Procedure Engine). Đơn qua quy trình đã có người xử lý
    * ở `request-workflows`; đơn trực tiếp không có liên kết nên màn hình cần tên người duyệt từ đây để không hiện nhãn chung.
    */
+  @RequirePermission('hrm.read')
   @Get('request-direct-approvers')
   async requestDirectApprovers(@Req() req: Request) {
     const context = await this.ctx.getContext(req, 'hrm.read'),
@@ -454,6 +464,7 @@ export class HrmOperationsController {
     );
     return { data: lists.flat() };
   }
+  @RequirePermission('hrm.audit.read')
   @Get('operations/audit')
   async audit(
     @Req() req: Request,
@@ -484,6 +495,7 @@ export class HrmOperationsController {
       meta: { total: result.total, actions: result.actions },
     };
   }
+  @RequirePermission('hrm.read')
   @Get('operations')
   async get(
     @Req() req: Request,
@@ -555,6 +567,7 @@ export class HrmOperationsController {
       },
     };
   }
+  @RequirePermission('hrm.automation.manage')
   @Post('operations/automation')
   async configure(
     @Req() req: Request,
@@ -605,6 +618,7 @@ export class HrmOperationsController {
     );
     return { data: result.rows[0] };
   }
+  @RequirePermission('hrm.automation.manage')
   @Post('operations/automation/run')
   async run(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -613,6 +627,7 @@ export class HrmOperationsController {
     );
     return { data: await runHrmAutomation(pool, tenantId, true) };
   }
+  @RequirePermission('hrm.automation.manage')
   @Get('operations/leave-year-end-checklist')
   async leaveYearEndChecklist(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -637,6 +652,7 @@ export class HrmOperationsController {
       ),
     };
   }
+  @RequirePermission('hrm.integration.manage')
   @Get('operations/subtype-catalog')
   async subtypeCatalog(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -646,6 +662,7 @@ export class HrmOperationsController {
     return { data: await loadSubtypeCatalog(pool, tenantId) };
   }
   /** Danh mục trường HRM có thể ánh xạ vào thuộc tính Procedure (lọc theo loại đơn nếu có). */
+  @RequirePermission('hrm.integration.manage')
   @Get('operations/field-catalog')
   async fieldCatalog(
     @Req() req: Request,
@@ -659,6 +676,7 @@ export class HrmOperationsController {
     };
   }
   /** Thuộc tính cấp quy trình và bước S của định nghĩa đã công bố (đọc qua API Procedure). */
+  @RequirePermission('hrm.integration.manage')
   @Get('operations/procedure-definitions/:definitionId/attributes')
   async definitionAttributes(
     @Req() req: Request,
@@ -686,6 +704,7 @@ export class HrmOperationsController {
       })),
     };
   }
+  @RequirePermission('hrm.integration.manage')
   @Get('operations/workflow-rules/:bindingId/field-mappings')
   async fieldMappings(
     @Req() req: Request,
@@ -723,6 +742,7 @@ export class HrmOperationsController {
       },
     };
   }
+  @RequirePermission('hrm.integration.manage')
   @Put('operations/workflow-rules/:bindingId/field-mappings')
   async saveFieldMappings(
     @Req() req: Request,
@@ -744,6 +764,7 @@ export class HrmOperationsController {
     );
     return { data: { saved: true, mappings: saved.mappings } };
   }
+  @RequirePermission('hrm.integration.manage')
   @Get('operations/procedure-definitions')
   async definitions(@Req() req: Request) {
     const { tenantId } = await this.ctx.getContext(
@@ -752,6 +773,7 @@ export class HrmOperationsController {
     );
     return { data: await procedureDefinitions(req, tenantId) };
   }
+  @RequirePermission('hrm.integration.manage')
   @Post('operations/workflow-rules')
   async workflowRule(
     @Req() req: Request,
@@ -798,6 +820,7 @@ export class HrmOperationsController {
     };
     return { data: { saved: true, binding, warnings } };
   }
+  @RequirePermission('hrm.integration.manage')
   @Post('operations/workflows/:id/retry')
   async retry(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -890,6 +913,7 @@ export class HrmOperationsController {
       },
     };
   }
+  @RequirePermission('hrm.self.read')
   @Get('my-notifications')
   async notifications(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -910,6 +934,7 @@ export class HrmOperationsController {
       ).rows,
     };
   }
+  @RequirePermission('hrm.self.read')
   @Post('my-notifications/:id/read')
   async readNotification(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -929,6 +954,7 @@ export class HrmOperationsController {
       throw new NotFoundException('Không tìm thấy thông báo');
     return { data: { read: true } };
   }
+  @RequirePermission('hrm.self.read')
   @Get('my-calendar')
   async calendar(
     @Req() req: Request,

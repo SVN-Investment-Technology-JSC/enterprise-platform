@@ -162,6 +162,20 @@ export class MaintenanceController {
     return this.execute(() => this.attachments.create(this.actor(request), id, body));
   }
 
+  /**
+   * Trình duyệt báo đã PUT xong tệp lên kho. Quyền như route tạo đính kèm:
+   * POST dưới `/occurrences` cần `maintenance.occurrence.manage` ở guard.
+   */
+  @Post('occurrences/:id/attachments/:attachmentId/complete')
+  @HttpCode(200)
+  completeAttachment(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.execute(() => this.attachments.complete(this.actor(request), id, attachmentId));
+  }
+
   @Get('occurrences/:id/attachments/:attachmentId/download')
   downloadAttachment(
     @Req() request: MaintenanceRequest,
@@ -285,7 +299,7 @@ export class MaintenanceController {
     catch (error) {
       if (!(error instanceof MaintenanceError)) throw error;
       const status = { validation: 400, forbidden: 403, not_found: 404, conflict: 409, unavailable: 503 }[error.code];
-      throw new HttpException({ statusCode: status, code: error.code.toUpperCase(), message: error.message }, status);
+      throw new HttpException({ statusCode: status, code: error.responseCode ?? error.code.toUpperCase(), message: error.message }, status);
     }
   }
 }

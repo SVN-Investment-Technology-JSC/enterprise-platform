@@ -7,8 +7,9 @@ import type {
 } from '@enterprise-platform/contracts-finance';
 import { FINANCE_MAX_AMOUNT, roundMoney } from '@enterprise-platform/contracts-finance';
 import type { QueryResultRow } from 'pg';
-import { conflict, invalid, notFound } from '../domain/finance.error.js';
+import { conflict, FinanceError, invalid, notFound } from '../domain/finance.error.js';
 import { isValidDate } from '../domain/voucher.rules.js';
+import { auditReason, diffFields, writeConfigAudit, type ConfigAuditActor } from './config-audit.store.js';
 import { dateOnly, iso, num, optStr, type Db } from './finance.database.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
@@ -104,14 +105,38 @@ function text(value: unknown, max: number, label: string): string | null {
   return trimmed;
 }
 
-/** Tạo (id = null) hoặc sửa tài khoản. Số dư đầu kỳ chỉ đổi được khi tài khoản chưa có bút toán nào. */
+/** Trường của tài khoản được ghi lịch sử khi sửa (tên theo API). */
+const ACCOUNT_AUDIT_FIELDS = [
+  'code',
+  'name',
+  'accountType',
+  'bankName',
+  'accountNumber',
+  'accountHolder',
+  'branch',
+  'openingBalance',
+  'openingDate',
+  'allowNegative',
+  'isActive',
+  'note',
+] as const;
+
+const OPENING_BALANCE_REASON_REQUIRED =
+  'Phải nhập lý do khi sửa số dư đầu kỳ của tài khoản đã có bút toán.';
+
+/**
+ * Tạo (id = null) hoặc sửa tài khoản. Sửa thì mỗi trường đổi giá trị ghi một dòng `finance_schema.config_audit`
+ * cùng giao dịch; đổi số dư đầu kỳ của tài khoản đã có bút toán phải kèm lý do (thiếu: 400).
+ */
 export async function saveAccount(
   db: Db,
   tenantId: string,
-  actorId: string,
+  actor: ConfigAuditActor,
   id: string | null,
   input: SaveFinanceAccountRequest,
 ): Promise<string> {
+  const actorId = actor.id;
+  const reason = auditReason(input.reason);
   const code = text(input.code, 50, 'Mã tài khoản');
   if (!code || !CODE.test(code)) throw invalid('Mã tài khoản chỉ gồm chữ, số, dấu chấm, gạch ngang, gạch dưới (tối đa 50 ký tự).');
   const name = text(input.name, 255, 'Tên tài khoản');
@@ -168,6 +193,8 @@ export async function saveAccount(
         throw conflict('FINANCE_ACCOUNT_HAS_LEDGER', 'Tài khoản đã có bút toán nên không đổi được ngày bắt đầu sử dụng.');
       if (input.accountType !== current.account_type)
         throw conflict('FINANCE_ACCOUNT_HAS_LEDGER', 'Tài khoản đã có bút toán nên không đổi được loại tài khoản.');
+      if (openingBalance !== undefined && openingBalance !== roundMoney(num(current.opening_balance)) && !reason)
+        throw new FinanceError('FINANCE_REASON_REQUIRED', OPENING_BALANCE_REASON_REQUIRED, 400);
     }
     if (input.isActive === false && current.is_active) {
       const pending = (
@@ -191,12 +218,40 @@ export async function saveAccount(
         input.allowNegative === undefined ? null : input.allowNegative, input.isActive === undefined ? null : input.isActive, values.note,
       ],
     );
+    const before = accountAuditValues(current);
+    const after = {
+      ...values,
+      accountType: values.type,
+      openingBalance: openingBalance ?? before.openingBalance,
+      openingDate: input.openingDate ?? before.openingDate,
+      allowNegative: input.allowNegative ?? before.allowNegative,
+      isActive: input.isActive ?? before.isActive,
+    };
+    await writeConfigAudit(db, tenantId, 'ACCOUNT', id, diffFields(before, after, ACCOUNT_AUDIT_FIELDS), actor, reason);
     // Cho phép số âm bị tắt trong khi số dư đã âm: không chặn việc tắt, nhưng phiếu chi sau đó sẽ không qua.
     return id;
   } catch (error) {
     if ((error as { code?: string }).code === '23505') throw conflict('FINANCE_CODE_EXISTS', `Mã tài khoản ${code} đã tồn tại.`);
     throw error;
   }
+}
+
+/** Giá trị hiện tại của tài khoản theo tên trường API, để so với giá trị mới khi ghi lịch sử. */
+function accountAuditValues(row: Row): Record<(typeof ACCOUNT_AUDIT_FIELDS)[number], unknown> {
+  return {
+    code: row.code,
+    name: row.name,
+    accountType: row.account_type,
+    bankName: row.bank_name,
+    accountNumber: row.account_number,
+    accountHolder: row.account_holder,
+    branch: row.branch,
+    openingBalance: roundMoney(num(row.opening_balance)),
+    openingDate: row.opening_date ? dateOnly(row.opening_date) : null,
+    allowNegative: Boolean(row.allow_negative),
+    isActive: Boolean(row.is_active),
+    note: row.note,
+  };
 }
 
 export interface LedgerQuery {

@@ -51,7 +51,9 @@ export async function financeFetch<T>(path: string, init?: RequestInit): Promise
     const body = (await response.json().catch(() => ({}))) as { message?: string | string[]; code?: string; details?: string[] };
     if (response.status === 403 && path !== '/capabilities' && typeof window !== 'undefined')
       window.dispatchEvent(new Event(FINANCE_PERMISSIONS_INVALIDATED_EVENT));
-    const message = Array.isArray(body.message) ? body.message.join(' ') : body.message;
+    const raw = Array.isArray(body.message) ? body.message.join(' ') : body.message;
+    // 403 mặc định của framework ("Forbidden resource") không phải câu cho người dùng: thay bằng câu tiếng Việt.
+    const message = response.status === 403 && (!raw || /^Forbidden/.test(raw)) ? undefined : raw;
     throw new FinanceApiError(
       message ?? (response.status === 403 ? 'Bạn không còn quyền thực hiện thao tác này.' : `Yêu cầu thất bại (${response.status})`),
       response.status,

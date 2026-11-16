@@ -26,3 +26,4 @@ export * from './lib/components/reports-view';
 export * from './lib/report-export';
 export * from './lib/procedure-api';
 export * from './lib/money';
+export * from './lib/workspace-permissions';

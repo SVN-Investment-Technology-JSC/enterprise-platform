@@ -6,7 +6,7 @@ import type {
   OrganizationUnit,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
-import { SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, authFetch, readApiRequestError } from '@enterprise-platform/shared-ui';
 import { Briefcase, Network, Search, Sparkles, Star } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -76,7 +76,7 @@ export function OrganizationPositionTable() {
         credentials: 'same-origin',
         cache: 'no-store',
       });
-      if (!response.ok) throw new Error(`Không tải được danh sách chức danh (HTTP ${response.status}).`);
+      if (!response.ok) throw await readApiRequestError(response, 'Không tải được danh sách chức danh.');
       setOrganization((await response.json()) as TenantOrganizationSnapshot);
       setLoadError(undefined);
     } catch (cause) {

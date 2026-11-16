@@ -734,6 +734,7 @@ function ModuleAction({
       )}
       disabled={!canRequestActivation || isRequesting || isRequested}
       onClick={onRequest}
+      title={canRequestActivation ? undefined : 'Chỉ quản trị tenant được gửi yêu cầu kích hoạt ứng dụng.'}
       type="button"
     >
       {isRequesting ? (

@@ -11,6 +11,7 @@ import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platfor
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { currencyLabel } from '../inventory-labels';
+import { useInventoryPermissions } from '../inventory-permissions';
 import { categoriesOf, withCurrent } from '../trade-items.model';
 import { FormError, useFormSubmit } from './form-error';
 import styles from '../inventory.module.scss';
@@ -66,6 +67,11 @@ export function MaterialForm({
     editing?.warrantyMonths === undefined ? '' : String(editing.warrantyMonths),
   );
   const isService = kind === 'SERVICE';
+  /**
+   * Không có quyền xem giá thì API không trả `purchasePrice`: ẩn ô giá và không gửi trường này. Kho giữ nguyên
+   * giá đã khai khi trường vắng, nên lưu form không xoá giá người khác đã khai.
+   */
+  const { canReadCost } = useInventoryPermissions();
   // Chuỗi rỗng là chưa khai báo giá, khác hẳn với 0.
   const [purchasePrice, setPurchasePrice] = useState(
     editing?.purchasePrice === undefined ? '' : String(editing.purchasePrice),
@@ -123,7 +129,7 @@ export function MaterialForm({
       unit: cleanUnit,
       minStock: isService ? 0 : Number(minStock) || 0,
       maxStock: isService ? 0 : Number(maxStock) || 0,
-      purchasePrice: price,
+      purchasePrice: canReadCost ? price : undefined,
       isSerialized,
       kind,
       // Ô trống khi sửa là xoá số tháng đã khai.
@@ -309,17 +315,19 @@ export function MaterialForm({
                   </label>
                 </>
               ) : null}
-              <label>
-                Đơn giá ({currencyLabel(editing?.currency)})
-                <VnNumberInput
-                  placeholder="Chưa khai báo"
-                  value={purchasePrice}
-                  onChange={setPurchasePrice}
-                />
-                {editing?.purchasePrice !== undefined ? (
-                  <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
-                ) : null}
-              </label>
+              {canReadCost ? (
+                <label>
+                  Đơn giá ({currencyLabel(editing?.currency)})
+                  <VnNumberInput
+                    placeholder="Chưa khai báo"
+                    value={purchasePrice}
+                    onChange={setPurchasePrice}
+                  />
+                  {editing?.purchasePrice !== undefined ? (
+                    <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
+                  ) : null}
+                </label>
+              ) : null}
             </div>
 
             {/* 2. CHỌN DUY NHẤT 1 PHƯƠNG THỨC QUẢN LÝ (MUTUALLY EXCLUSIVE) */}

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { configureHttpSecurity } from '@enterprise-platform/platform-module-access';
 import type { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
 import type { Pool } from 'pg';
 import type { RedisClientType } from 'redis';
@@ -26,6 +27,7 @@ let shutdown: (() => Promise<void>) | undefined;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  configureHttpSecurity(app);
   const redis = app.get<RedisClientType>(REALTIME_REDIS_CLIENT);
   const platform = app.get<Pool>(REALTIME_PLATFORM_POOL);
   const tenantPools = app.get<PostgresPoolRegistry>(REALTIME_TENANT_POOLS);

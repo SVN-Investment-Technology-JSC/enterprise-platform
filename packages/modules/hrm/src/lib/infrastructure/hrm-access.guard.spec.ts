@@ -62,16 +62,38 @@ describe('HrmAccessGuard', () => {
     return { guard, getContext, warn };
   };
 
-  it('defaults to audit mode', () => {
+  it('defaults to enforce mode (SEC-BE019-02)', () => {
     delete process.env.HRM_ACCESS_GUARD_MODE;
-    expect(hrmAccessGuardMode()).toBe('audit');
+    expect(hrmAccessGuardMode()).toBe('enforce');
     expect(hrmAccessGuardMode({ HRM_ACCESS_GUARD_MODE: 'bogus' })).toBe(
+      'enforce',
+    );
+    expect(hrmAccessGuardMode({ HRM_ACCESS_GUARD_MODE: '' })).toBe('enforce');
+    expect(hrmAccessGuardMode({ HRM_ACCESS_GUARD_MODE: ' Audit ' })).toBe(
       'audit',
     );
   });
 
-  it('audit: warns once for undeclared routes and never blocks', async () => {
+  it('default mode blocks undeclared routes and checks declared ones', async () => {
     delete process.env.HRM_ACCESS_GUARD_MODE;
+    const { guard, getContext } = make();
+    await expect(
+      guard.canActivate(
+        ctxFor(HrmDemoController, HrmDemoController.prototype.undeclared),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'HRM_PERMISSION_NOT_DECLARED' },
+    });
+    await expect(
+      guard.canActivate(
+        ctxFor(HrmDemoController, HrmDemoController.prototype.declared),
+      ),
+    ).resolves.toBe(true);
+    expect(getContext).toHaveBeenCalledWith({}, 'hrm.payroll.read');
+  });
+
+  it('audit: warns once for undeclared routes and never blocks', async () => {
+    process.env.HRM_ACCESS_GUARD_MODE = 'audit';
     const { guard, warn, getContext } = make();
     const c = ctxFor(HrmDemoController, HrmDemoController.prototype.undeclared);
     await expect(guard.canActivate(c)).resolves.toBe(true);

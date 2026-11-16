@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { AccessDeniedNotice } from '@enterprise-platform/shared-ui';
 import {
   filterHrmNavigation,
   getActiveHrmNavId,
@@ -152,6 +153,9 @@ function HrmShellContent({ children }: { children: ReactNode }) {
               <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
               Đang tải quyền HRM…
             </div>
+          ) : permissions.denied ? (
+            // Chưa có quyền phân hệ: báo bằng câu tiếng Việt thay cho lỗi tải quyền kiểu kỹ thuật.
+            <AccessDeniedNotice moduleLabel="Nhân sự" />
           ) : permissions.error ? (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
               <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>

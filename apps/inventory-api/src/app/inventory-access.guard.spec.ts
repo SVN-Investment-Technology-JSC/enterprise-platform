@@ -1,5 +1,10 @@
 import type { ExecutionContext } from '@nestjs/common';
 import type { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
+import {
+  TENANT_ACTION_IMPLIES,
+  TENANT_PERMISSION_ACTIONS,
+  tenantActionHeld,
+} from '@enterprise-platform/contracts-identity';
 import { InventoryAccessGuard } from './inventory-access.guard';
 
 jest.mock('jose', () => ({
@@ -33,6 +38,7 @@ describe('inventory module capabilities', () => {
             canWriteTransactions: boolean;
             canApproveDocuments?: boolean;
             canWriteQuality?: boolean;
+            canReadCost?: boolean;
           },
     };
     const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
@@ -89,5 +95,53 @@ describe('inventory module capabilities', () => {
     const reader = setup(['inventory.read'], '/serials/SN001/history', 'GET');
     await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
     expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
+  });
+  // SEC-BE046-02, SEC-BE046-03: phiếu nhiều dòng của thủ kho cần quyền ghi phát sinh, không cần quản lý.
+  it('/movements/batch cho thủ kho có inventory.transaction.write', async () => {
+    const keeper = setup(['inventory.read', 'inventory.transaction.write'], '/movements/batch');
+    await expect(keeper.guard.canActivate(keeper.context)).resolves.toBe(true);
+    const reader = setup(['inventory.read'], '/movements/batch');
+    await expect(reader.guard.canActivate(reader.context)).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ACCESS_DENIED', message: 'Bạn không có quyền ghi phát sinh tồn kho.' },
+    });
+  });
+
+  it('đường dẫn chứa chuỗi con của route ghi phát sinh vẫn lấy quyền của chính nó', async () => {
+    const keeper = setup(['inventory.read', 'inventory.transaction.write'], '/assets/issues/documents');
+    await expect(keeper.guard.canActivate(keeper.context)).rejects.toMatchObject({ status: 403 });
+  });
+
+  // SEC-BE046-01: route không khai báo bị từ chối, kể cả với quyền quản lý.
+  it('route không khai báo bị từ chối', async () => {
+    for (const [path, method] of [['/new-feature', 'POST'], ['/receipts', 'DELETE'], ['/materials/x/y/z', 'GET']]) {
+      const { guard, context, register } = setup(['inventory.manage'], path, method);
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'ROUTE_NOT_DECLARED' },
+      });
+      expect(register).not.toHaveBeenCalled();
+    }
+  });
+  // SEC-BE013-01: action mới nằm trong danh mục quyền, `inventory.manage` bao hàm.
+  it('inventory.cost.read có trong danh mục và được inventory.manage bao hàm', () => {
+    expect(TENANT_PERMISSION_ACTIONS.some((action) => action.key === 'inventory.cost.read')).toBe(true);
+    expect(TENANT_ACTION_IMPLIES['inventory.manage']).toContain('inventory.cost.read');
+    expect(tenantActionHeld(['inventory.manage'], 'inventory.cost.read')).toBe(true);
+    expect(tenantActionHeld(['inventory.read'], 'inventory.cost.read')).toBe(false);
+  });
+
+  it('cờ canReadCost: chỉ inventory.read thì không; cost.read hoặc manage thì có', async () => {
+    const cases: [string[], boolean][] = [
+      [['inventory.read'], false],
+      [['inventory.read', 'inventory.transaction.write'], false],
+      [['inventory.read', 'inventory.cost.read'], true],
+      [['inventory.manage'], true],
+    ];
+    for (const [permissions, expected] of cases) {
+      const { guard, context, request } = setup(permissions, '/warehouses/KHO-A/stock', 'GET');
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request.inventoryActor?.canReadCost).toBe(expected);
+    }
   });
 });

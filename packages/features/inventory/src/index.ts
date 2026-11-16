@@ -10,6 +10,9 @@ export { FormError, useFormSubmit } from './lib/components/form-error';
 export { MaterialForm } from './lib/components/material-form';
 export { MaterialHistorySection } from './lib/components/material-drawer-sections';
 export { loadUserNames, resetUserNamesForTest, userLabel } from './lib/user-names';
+export { InventoryPermissionsContext } from './lib/inventory-permissions';
+export { INVENTORY_DASHBOARD_CARDS, visibleDashboardCards } from './lib/inventory-dashboard.cards';
+export { exportCatalogToExcel } from './lib/inventory-export';
 export {
   EMPTY_FILTER,
   categoryChoices,

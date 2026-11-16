@@ -147,6 +147,19 @@ export class FinanceController {
   saveSettings(@Req() request: FinanceRequest, @Body() body: SaveFinanceSettingsRequest) {
     return this.run(() => this.app.saveSettings(this.actor(request), body));
   }
+  /** Lịch sử đổi cấu hình (`entityType` = SETTINGS | ACCOUNT, `entityId` = id tài khoản). */
+  @Get('settings/audit')
+  configAudit(
+    @Req() request: FinanceRequest,
+    @Query('entityType') entityType?: string,
+    @Query('entityId') entityId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.run(() =>
+      this.app.configAudit(this.actor(request), { entityType, entityId, page: int(page), pageSize: int(pageSize) }),
+    );
+  }
 
   /* Phiếu */
   @Get('vouchers')
@@ -406,7 +419,10 @@ export class FinanceController {
       return await work();
     } catch (error) {
       if (error instanceof FinanceError)
-        throw new HttpException({ code: error.code, message: error.message, details: error.details }, error.status);
+        throw new HttpException(
+          { statusCode: error.status, code: error.code, message: error.message, details: error.details },
+          error.status,
+        );
       throw error;
     }
   }

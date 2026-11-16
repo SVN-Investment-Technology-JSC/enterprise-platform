@@ -40,6 +40,7 @@ function fakeStore(): jest.Mocked<ReceivableStore> {
     cancelAdjustment: jest.fn(),
     settings: jest.fn().mockResolvedValue({ recognitionMode: 'ON_DELIVERY', creditLimitMode: 'APPROVAL', alertUserIds: [] }),
     saveSettings: jest.fn(),
+    contractValidity: jest.fn().mockResolvedValue({ validFrom: '2026-10-01' }),
     triggerPaymentTerm: jest.fn(),
   };
 }
@@ -105,6 +106,55 @@ describe('ReceivableService', () => {
     expect(store.applyCredit).not.toHaveBeenCalled();
     await service.applyCredit(actor(), credit, { allocations: [{ entryId: ENTRY, amount: 1_000 }] });
     expect(store.applyCredit).toHaveBeenCalledWith(TENANT, credit, [{ entryId: ENTRY, amount: 1_000 }], 'kt-1', '2026-10-27');
+  });
+
+  describe('ghi nhận đợt thanh toán bằng tay (ISS-BE-028)', () => {
+    const CONTRACT = '77777777-7777-4777-8777-777777777777';
+    const TERM = '88888888-8888-4888-8888-888888888888';
+    const ownScope = { kind: 'users' as const, userIds: ['kd-1'], selfUserId: 'kd-1' };
+    const ownScopes = { resolve: async () => ownScope };
+    // 2026-10-27 10:00 giờ Việt Nam.
+    const now = () => new Date('2026-10-27T03:00:00Z');
+
+    it('SEC-BE028-01: hợp đồng ngoài phạm vi người gọi thì 404, không ghi', async () => {
+      const store = fakeStore();
+      store.contractValidity.mockResolvedValueOnce(undefined);
+      const service = new ReceivableService(store, ownScopes, { dispatch: jest.fn() }, now);
+      await expect(service.triggerPaymentTerm(actor({ userId: 'kd-1' }), CONTRACT, TERM, '2026-10-20')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+      expect(store.contractValidity).toHaveBeenCalledWith(TENANT, ownScope, CONTRACT);
+      expect(store.triggerPaymentTerm).not.toHaveBeenCalled();
+    });
+
+    it('SEC-BE028-02: ngày trước hiệu lực 400, sau hôm nay 400, trong khoảng thì ghi kèm phạm vi', async () => {
+      const store = fakeStore();
+      const service = new ReceivableService(store, ownScopes, { dispatch: jest.fn() }, now);
+      const kd = actor({ userId: 'kd-1' });
+      await expect(service.triggerPaymentTerm(kd, CONTRACT, TERM, '2026-09-30')).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'DATE_BEFORE_CONTRACT',
+      });
+      await expect(service.triggerPaymentTerm(kd, CONTRACT, TERM, '2026-10-28')).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'DATE_IN_FUTURE',
+      });
+      expect(store.triggerPaymentTerm).not.toHaveBeenCalled();
+      await service.triggerPaymentTerm(kd, CONTRACT, TERM, '2026-10-01');
+      await service.triggerPaymentTerm(kd, CONTRACT, TERM, '2026-10-27');
+      expect(store.triggerPaymentTerm).toHaveBeenLastCalledWith(TENANT, ownScope, CONTRACT, TERM, '2026-10-27', 'kd-1');
+      await service.triggerPaymentTerm(kd, CONTRACT, TERM, undefined);
+      expect(store.triggerPaymentTerm).toHaveBeenLastCalledWith(TENANT, ownScope, CONTRACT, TERM, '2026-10-27', 'kd-1');
+    });
+
+    it('không có quyền hợp đồng hay công nợ thì 403 trước khi đọc hợp đồng', async () => {
+      const store = fakeStore();
+      const service = new ReceivableService(store, ownScopes, { dispatch: jest.fn() }, now);
+      await expect(
+        service.triggerPaymentTerm(actor({ canWriteReceivable: false }), CONTRACT, TERM, '2026-10-20'),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(store.contractValidity).not.toHaveBeenCalled();
+    });
   });
 
   it('cấu hình chỉ quản trị bán hàng được lưu; người nhận phải là id hợp lệ', async () => {

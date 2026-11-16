@@ -16,7 +16,7 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { toast } from '@enterprise-platform/shared-ui';
+import { AccessDeniedNotice, isAccessDeniedError, toast } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
@@ -160,9 +160,10 @@ export function InventoryScreen() {
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
   const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
   const canApproveDocuments = workspace?.permissions?.canApproveDocuments ?? false;
+  const canReadCost = workspace?.permissions?.canReadCost ?? false;
   const uiPermissions = useMemo(
-    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments }),
-    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments],
+    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments, canReadCost }),
+    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments, canReadCost],
   );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -245,6 +246,8 @@ export function InventoryScreen() {
 
   /** Nạp lại thất bại một phần: hiện nút "Tải lại" cạnh thông báo lỗi. */
   const [loadFailed, setLoadFailed] = useState(false);
+  /** API trả 403 khi nạp dữ liệu chính: người dùng chưa được cấp quyền Kho, hiện thông báo thay cho lỗi kỹ thuật. */
+  const [accessDenied, setAccessDenied] = useState(false);
 
   /**
    * Đưa các giao dịch server vừa trả về lên đầu sổ cái ngay, không chờ nạp lại.
@@ -283,6 +286,12 @@ export function InventoryScreen() {
       firstCause ??= result.reason;
     };
 
+    if (workspaceResult.status === 'rejected' && isAccessDeniedError(workspaceResult.reason)) {
+      setAccessDenied(true);
+      setLoadFailed(false);
+      return undefined;
+    }
+    setAccessDenied(false);
     if (workspaceResult.status === 'fulfilled') {
       setWorkspace(workspaceResult.value);
       setSelectedAssetId((current) => current ?? workspaceResult.value.assets[0]?.id);
@@ -820,7 +829,9 @@ export function InventoryScreen() {
       }
     >
 
-      {!workspace ? (
+      {accessDenied ? (
+        <AccessDeniedNotice moduleLabel="Kho" />
+      ) : !workspace ? (
         <p className={styles.empty}>Đang tải dữ liệu kho…</p>
       ) : (
         <>
@@ -981,7 +992,7 @@ export function InventoryScreen() {
             />
           ) : null}
 
-          {showStocktakeDialog && workspace ? (
+          {showStocktakeDialog && workspace && canManage ? (
             <CreateStocktakeDialog
               workspace={workspace}
               busy={busy}
@@ -1287,10 +1298,14 @@ export function InventoryScreen() {
                   warehouses={workspace.warehouses}
                   stock={workspace.stock}
                   onOpenBulkImport={canWriteTransactions ? () => setShowBulkImport(true) : undefined}
-                  onOpenStocktake={(init) => {
-                    setStocktakeInit(init);
-                    setShowStocktakeDialog(true);
-                  }}
+                  onOpenStocktake={
+                    canManage
+                      ? (init) => {
+                          setStocktakeInit(init);
+                          setShowStocktakeDialog(true);
+                        }
+                      : undefined
+                  }
                   onOpenMovement={
                     canWriteTransactions
                       ? (init) => {

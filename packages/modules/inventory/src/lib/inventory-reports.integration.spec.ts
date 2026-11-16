@@ -55,6 +55,9 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     canWriteTransactions: true,
     canApproveDocuments: false,
     canWriteQuality: false,
+    // Vai trò ghi phát sinh kho được gán sẵn `inventory.cost.read` (migration core 0020); ca cần người
+    // không thấy giá thì truyền `canReadCost: false`.
+    canReadCost: true,
     ...rights,
   });
   const admin = actor('Quản trị kho', { canManage: true, canApproveDocuments: true });

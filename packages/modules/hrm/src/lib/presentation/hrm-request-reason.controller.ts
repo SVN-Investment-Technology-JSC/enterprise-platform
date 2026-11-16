@@ -20,6 +20,7 @@ import {
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import type { PoolClient } from 'pg';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   DEFAULT_REQUEST_REASONS,
@@ -244,6 +245,7 @@ export class HrmRequestReasonController {
   constructor(private readonly ctx: HrmContextService) {}
 
   /** Danh sách lý do (người làm đơn gọi với `kind` và `active=true` để chọn). */
+  @RequirePermission('hrm.read')
   @Get('request-reasons')
   async list(
     @Req() req: Request,
@@ -273,6 +275,7 @@ export class HrmRequestReasonController {
   }
 
   /** Tạo lý do mặc định cho loại đơn nào chưa có lý do nào (nút "Tạo lý do mặc định"); gọi lại không tạo trùng. */
+  @RequirePermission(MANAGE_PERMISSION)
   @Post('request-reasons/defaults')
   async createDefaults(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);
@@ -325,6 +328,7 @@ export class HrmRequestReasonController {
     };
   }
 
+  @RequirePermission(MANAGE_PERMISSION)
   @Post('request-reasons')
   async create(@Req() req: Request, @Body() body: SaveRequestReasonRequest) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);
@@ -406,6 +410,7 @@ export class HrmRequestReasonController {
   }
 
   /** Sửa tên, diễn giải, có lương, bắt buộc mô tả, đang dùng, thứ tự. Không đổi loại đơn và mã. */
+  @RequirePermission(MANAGE_PERMISSION)
   @Patch('request-reasons/:id')
   async update(
     @Req() req: Request,
@@ -497,6 +502,7 @@ export class HrmRequestReasonController {
    * Xóa mềm lý do. Lý do đã có đơn dùng thì KHÔNG xóa: chỉ chuyển sang ngừng sử dụng (active=false) để đơn cũ
    * vẫn hiện đúng tên lý do; kết quả cho biết `deleted: false` kèm thông báo tiếng Việt.
    */
+  @RequirePermission(MANAGE_PERMISSION)
   @Delete('request-reasons/:id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);

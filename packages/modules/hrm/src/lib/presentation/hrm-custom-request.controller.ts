@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   HrmApprovalPolicyService,
@@ -50,6 +51,7 @@ export class HrmCustomRequestController {
     private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
 
+  @RequirePermission('hrm.read')
   @Post('custom-requests')
   async create(
     @Req() req: Request,
@@ -116,6 +118,7 @@ export class HrmCustomRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('custom-requests')
   async list(
     @Req() req: Request,
@@ -180,6 +183,7 @@ export class HrmCustomRequestController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('custom-requests/:id/approve')
   async approve(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.request.approve', 'custom', id);
@@ -191,6 +195,7 @@ export class HrmCustomRequestController {
     return { data: mapCustomRequest(row), meta: { requestId: req.headers['x-request-id'] as string } };
   }
 
+  @RequirePermission('hrm.read')
   @Post('custom-requests/:id/reject')
   async reject(@Req() req: Request, @Param('id') id: string, @Body('reason') reason: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(req, 'hrm.request.approve', 'custom', id);

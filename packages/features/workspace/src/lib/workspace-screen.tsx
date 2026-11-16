@@ -24,7 +24,12 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import { initialReturnTarget, type ReturnTarget } from '@enterprise-platform/shared-ui';
+import {
+  AccessDeniedNotice,
+  initialReturnTarget,
+  isAccessDeniedError,
+  type ReturnTarget,
+} from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   getProject,
@@ -50,6 +55,11 @@ import { ProjectsView } from './components/projects-view';
 import { ProjectsListView } from './components/projects-list-view';
 import { CustomersView } from './components/customers-view';
 import { StandaloneTasksView } from './components/standalone-tasks-view';
+import {
+  WORKSPACE_READ_ONLY_HINT,
+  WorkspacePermissionsProvider,
+  workspacePermissionsFrom,
+} from './workspace-permissions';
 import styles from './workspace.module.scss';
 
 /**
@@ -215,6 +225,8 @@ export function WorkspaceScreen() {
     [navigate, openProjectList],
   );
   const [error, setError] = useState<string>();
+  /** `GET /v1/status` trả 403: người dùng chưa được cấp quyền Workspace, hiện thông báo thay cho lỗi kỹ thuật. */
+  const [accessDenied, setAccessDenied] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
   const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
@@ -324,6 +336,10 @@ export function WorkspaceScreen() {
         setError(undefined);
       })
       .catch((cause: { message?: string }) => {
+        if (isAccessDeniedError(cause)) {
+          setAccessDenied(true);
+          return;
+        }
         setError(cause?.message ?? 'Không tải được trạng thái Workspace.');
       });
   }, []);
@@ -351,6 +367,12 @@ export function WorkspaceScreen() {
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
+  /**
+   * Nút "Tạo dự án" chỉ hiện cho người được cấp quyền tạo dự án; server vẫn chặn. Server cũ chưa trả cờ thì giữ
+   * nguyên như trước.
+   */
+  const permissions = workspacePermissionsFrom(status);
+  const { canCreateProject, canWriteTasks } = permissions;
   /** Tenant bật Bán hàng: màn khách hàng chỉ đọc (D1); server cũng chặn ghi. */
   const customersManagedByCrm = Boolean(status?.capabilities?.customersManagedByCrm);
 
@@ -407,10 +429,10 @@ export function WorkspaceScreen() {
           : undefined
       }
       actions={
-        (view === 'projects' || (view === 'customers' && urlProjectId)) && !provisioning ? (
+        accessDenied ? undefined : (view === 'projects' || (view === 'customers' && urlProjectId)) && !provisioning ? (
           // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
           <div ref={setActionsSlot} className={styles.headActions} />
-        ) : view === 'tasks' && !provisioning ? (
+        ) : view === 'tasks' && !provisioning && canWriteTasks ? (
           <button
             type="button"
             className={styles.buttonPrimary}
@@ -450,6 +472,11 @@ export function WorkspaceScreen() {
               {error}
             </p>
           ) : null}
+          {status && !canWriteTasks ? (
+            <p className={styles.notice} role="status">
+              {WORKSPACE_READ_ONLY_HINT}
+            </p>
+          ) : null}
           {provisioning ? (
             <p className={styles.notice}>
               Dữ liệu Workspace của tenant đang được khởi tạo. Màn hình sẽ có dữ liệu sau khi
@@ -459,7 +486,10 @@ export function WorkspaceScreen() {
         </>
       }
     >
-      {!labelsReady ? (
+      <WorkspacePermissionsProvider value={permissions}>
+      {accessDenied ? (
+        <AccessDeniedNotice moduleLabel="Không gian làm việc" />
+      ) : !labelsReady ? (
         <p className={styles.muted}>Đang tải…</p>
       ) : view === 'my-work' && !provisioning ? (
         <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
@@ -500,20 +530,30 @@ export function WorkspaceScreen() {
                     scopeProjectId={urlProjectId}
                     onOpenProject={openProject}
                     customersReadOnly={customersManagedByCrm}
+                    canWrite={canWriteTasks}
                   />
                 ) : undefined
               }
               canDelete={canDelete}
               canWriteDocuments={canSeeDocuments}
+              canCreateProject={canCreateProject}
               notificationTarget={sub}
               onOpenProjectChange={onOpenProjectChange}
               onOpenProject={openProject}
               actionsSlot={actionsSlot}
             />
           ) : view === 'projects' ? (
-            <ProjectsListView onOpenProject={openProject} actionsSlot={listActionsSlot} />
+            <ProjectsListView
+              onOpenProject={openProject}
+              actionsSlot={listActionsSlot}
+              canCreateProject={canCreateProject}
+            />
           ) : (
-            <CustomersView onOpenProject={openProject} customersReadOnly={customersManagedByCrm} />
+            <CustomersView
+              onOpenProject={openProject}
+              customersReadOnly={customersManagedByCrm}
+              canWrite={canWriteTasks}
+            />
           )}
         </>
       ) : view === 'reports' && !provisioning ? (
@@ -540,6 +580,7 @@ export function WorkspaceScreen() {
           <p>{TITLES[view].subtitle}</p>
         </section>
       )}
+      </WorkspacePermissionsProvider>
       <QuickSearch open={quickOpen} onClose={() => setQuickOpen(false)} onPick={onQuickPick} />
     </ModuleShell>
   );

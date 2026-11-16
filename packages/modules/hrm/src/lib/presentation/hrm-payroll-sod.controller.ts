@@ -13,7 +13,8 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 export class HrmPayrollSodController {
   constructor(private readonly ctx: HrmContextService) {}
 
-  @RequirePermission('hrm.payroll.read')
+  // Người xem lương hoặc người cấu hình lương: không quyền nào bao hàm quyền kia nên guard chỉ đòi hrm.read.
+  @RequirePermission('hrm.read')
   @Get('payroll-sod-settings')
   async get(@Req() req: Request) {
     // Người xem lương hoặc người cấu hình lương đều đọc được cấu hình này (cấu hình lương không kéo theo xem lương).

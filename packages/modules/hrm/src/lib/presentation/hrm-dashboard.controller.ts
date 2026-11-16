@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { resolveShiftRow } from '../infrastructure/hrm-shift-resolution.js';
 import { dayKindOf } from '../infrastructure/hrm-time.js';
@@ -27,6 +28,7 @@ export class HrmDashboardController {
   // Employee Personal Overview (P2_S3_HRM_API.md § 28)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/overview')
   async getEmployeeOverview(
     @Req() req: Request,
@@ -141,6 +143,7 @@ export class HrmDashboardController {
   // HR Department Overview (P2_S3_HRM_API.md § 28)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.dashboard.read')
   @Get('dashboard/overview')
   async getDashboardOverview(
     @Req() req: Request,

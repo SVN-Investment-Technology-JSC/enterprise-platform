@@ -1,4 +1,4 @@
-import type { ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import type { ObjectStorageMetadataPort, ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import type {
   DocumentFolder,
   DocumentFolderRef,
@@ -18,6 +18,9 @@ import type { WorkspaceStore } from './workspace-store.port.js';
 function makeStore(roles: Record<string, ProjectRole> = { p1: 'member', p2: 'member' }) {
   const added: { entityType: string; entityId: string }[] = [];
   const completed: { id: string; sizeBytes: number }[] = [];
+  const versions: Record<string, { id: string; documentId: string; sizeBytes?: number }> = {
+    v1: { id: 'v1', documentId: 'doc1' },
+  };
   const documents: Record<string, Partial<WorkspaceDocument>> = {
     doc1: { id: 'doc1', projectId: 'p1', folderId: 'f1' },
     shared: { id: 'shared', projectId: undefined, folderId: 'f0' },
@@ -40,11 +43,15 @@ function makeStore(roles: Record<string, ProjectRole> = { p1: 'member', p2: 'mem
     },
     document: {
       findById: async (_tenant: string, id: string) => documents[id] as WorkspaceDocument,
-      findVersion: async (_tenant: string, id: string) =>
-        id === 'v1' ? { id: 'v1', documentId: 'doc1' } : undefined,
+      findVersion: async (_tenant: string, id: string) => (versions[id] ? { ...versions[id] } : undefined),
+      storageKeyOf: async (_tenant: string, id: string) => (versions[id] ? `key/${id}` : undefined),
+      // Như Postgres: chỉ ghi khi dung lượng còn rỗng.
       completeVersion: async (_tenant: string, id: string, sizeBytes: number) => {
+        const version = versions[id];
+        if (!version || version.sizeBytes != null) return undefined;
+        version.sizeBytes = sizeBytes;
         completed.push({ id, sizeBytes });
-        return { id, documentId: 'doc1', sizeBytes };
+        return { ...version };
       },
       addLink: async (_tenant: string, _actor: string, input: { entityType: string; entityId: string }) => {
         added.push({ entityType: input.entityType, entityId: input.entityId });
@@ -52,7 +59,7 @@ function makeStore(roles: Record<string, ProjectRole> = { p1: 'member', p2: 'mem
       },
     },
   };
-  return { store: store as unknown as WorkspaceStore, added, completed };
+  return { store: store as unknown as WorkspaceStore, added, completed, versions };
 }
 
 const me: WorkspaceActor = {
@@ -66,8 +73,18 @@ const me: WorkspaceActor = {
   canDeleteDocuments: true,
 };
 
-function serviceFor(store: WorkspaceStore) {
-  return new DocumentService(store, new ProjectService(store), {} as ObjectStoragePort);
+/** Kho lưu trữ giả: `objects` là các khoá đã có tệp và dung lượng thật. */
+function fakeStorage(objects: Record<string, number> = {}) {
+  return {
+    objectMetadata: async (key: string) => {
+      if (!(key in objects)) throw Object.assign(new Error('not found'), { name: 'NotFound' });
+      return { sizeBytes: objects[key], contentType: 'application/pdf' };
+    },
+  } as unknown as ObjectStoragePort & ObjectStorageMetadataPort;
+}
+
+function serviceFor(store: WorkspaceStore, objects: Record<string, number> = {}) {
+  return new DocumentService(store, new ProjectService(store), fakeStorage(objects));
 }
 
 describe('DocumentService — gắn tài liệu', () => {
@@ -120,11 +137,46 @@ describe('DocumentService — gắn tài liệu', () => {
   });
 });
 
-describe('DocumentService — báo tải lên xong', () => {
-  it('ghi dung lượng của đúng phiên bản', async () => {
+describe('DocumentService — báo tải lên xong (ISS-BE-016)', () => {
+  it('lưu dung lượng thật đọc từ kho, không theo con số client khai', async () => {
+    // SEC-BE016-03
     const { store, completed } = makeStore();
-    await serviceFor(store).completeUpload(me, 'doc1', 'v1', 2048);
+    await serviceFor(store, { 'key/v1': 10_240 }).completeUpload(me, 'doc1', 'v1', 1);
+    expect(completed).toEqual([{ id: 'v1', sizeBytes: 10_240 }]);
+  });
+
+  it('tệp chưa có trên kho thì 409, không hoàn tất', async () => {
+    // SEC-BE016-01
+    const { store, completed } = makeStore();
+    await expect(serviceFor(store).completeUpload(me, 'doc1', 'v1', 2048)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'UPLOAD_NOT_FOUND',
+    });
+    expect(completed).toHaveLength(0);
+  });
+
+  it('báo xong lần hai thì 409, giữ nguyên dung lượng đã ghi', async () => {
+    // SEC-BE016-02
+    const { store, completed } = makeStore();
+    const service = serviceFor(store, { 'key/v1': 2048 });
+    await service.completeUpload(me, 'doc1', 'v1', 2048);
+    await expect(service.completeUpload(me, 'doc1', 'v1', 99)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'UPLOAD_ALREADY_COMPLETED',
+    });
     expect(completed).toEqual([{ id: 'v1', sizeBytes: 2048 }]);
+  });
+
+  it('lỗi kho khác "không có tệp" thì ném tiếp, không coi là chưa tải lên', async () => {
+    const { store, completed } = makeStore();
+    const storage = {
+      objectMetadata: async () => {
+        throw new Error('kho không phản hồi');
+      },
+    } as unknown as ObjectStoragePort & ObjectStorageMetadataPort;
+    const service = new DocumentService(store, new ProjectService(store), storage);
+    await expect(service.completeUpload(me, 'doc1', 'v1')).rejects.toThrow('kho không phản hồi');
+    expect(completed).toHaveLength(0);
   });
 
   it('phiên bản không thuộc tài liệu thì 404', async () => {
@@ -135,18 +187,17 @@ describe('DocumentService — báo tải lên xong', () => {
     expect(completed).toHaveLength(0);
   });
 
-  it('dung lượng âm, lẻ hoặc vượt 50 MB bị từ chối', async () => {
-    const { store } = makeStore();
-    for (const bad of [-1, 1.5, 'abc', 51 * 1024 * 1024]) {
-      await expect(serviceFor(store).completeUpload(me, 'doc1', 'v1', bad)).rejects.toMatchObject({
-        code: 'VALIDATION',
-      });
-    }
+  it('tệp thật vượt 50 MB bị từ chối', async () => {
+    const { store, completed } = makeStore();
+    await expect(
+      serviceFor(store, { 'key/v1': 51 * 1024 * 1024 }).completeUpload(me, 'doc1', 'v1', 10),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(completed).toHaveLength(0);
   });
 
   it('viewer không báo được', async () => {
     const { store } = makeStore({ p1: 'viewer', p2: 'member' });
-    await expect(serviceFor(store).completeUpload(me, 'doc1', 'v1', 10)).rejects.toMatchObject({
+    await expect(serviceFor(store, { 'key/v1': 10 }).completeUpload(me, 'doc1', 'v1', 10)).rejects.toMatchObject({
       code: 'PROJECT_ROLE_FORBIDDEN',
     });
   });
@@ -344,16 +395,21 @@ describe('DocumentService — tải xuống và xem trước', () => {
         signed.push({ key, options });
         return `https://s3.test/${key}`;
       },
-    } as unknown as ObjectStoragePort;
+    } as unknown as ObjectStoragePort & ObjectStorageMetadataPort;
     const service = new DocumentService(store, new ProjectService(store), storage);
     return { service, logged, signed };
   }
 
-  it('tải xuống giữ nguyên cách cũ và ghi nhật ký "download"', async () => {
+  it('tải xuống ép attachment, loại do server quyết, và ghi nhật ký "download"', async () => {
     const { service, logged, signed } = setup();
     const ticket = await service.download(me, 'doc1');
     expect(ticket).toMatchObject({ fileName: 'Bien-ban.pdf', contentType: 'application/pdf' });
-    expect(signed).toEqual([{ key: 'key/vpdf', options: undefined }]);
+    expect(signed).toEqual([
+      {
+        key: 'key/vpdf',
+        options: { attachment: true, contentType: 'application/pdf', fileName: 'Bien-ban.pdf' },
+      },
+    ]);
     expect(logged).toEqual(['download']);
   });
 
@@ -458,8 +514,69 @@ describe('DocumentService — cột "Gắn với" trên danh sách', () => {
       },
       document: { list: async () => [summary] },
     } as unknown as WorkspaceStore;
-    const service = new DocumentService(store, new ProjectService(store), {} as ObjectStoragePort);
+    const service = new DocumentService(store, new ProjectService(store), fakeStorage());
     const [item] = await service.list(me, {});
     expect(item.linkedWorkItems?.map((link) => link.code)).toEqual(['TA-3.1']);
+  });
+});
+
+describe('DocumentService — kiểm loại tệp khi tải lên (ISS-BE-017)', () => {
+  function setup() {
+    const created: { contentType: string }[] = [];
+    const uploads: { contentType: string }[] = [];
+    const store = {
+      project: { findById: async () => ({ id: 'p1' }) },
+      member: { roleOf: async () => 'member' },
+      document: {
+        findFolder: async () => ({ id: 'f1', projectId: 'p1' }),
+        create: async (_tenant: string, _actor: string, input: { contentType: string }) => {
+          created.push(input);
+          return { document: { id: 'doc-new' }, version: { id: 'v-new' } };
+        },
+        log: async () => undefined,
+      },
+    } as unknown as WorkspaceStore;
+    const storage = {
+      createUploadUrl: async (input: { contentType: string }) => {
+        uploads.push(input);
+        return 'https://s3.test/put';
+      },
+    } as unknown as ObjectStoragePort & ObjectStorageMetadataPort;
+    return { service: new DocumentService(store, new ProjectService(store), storage), created, uploads };
+  }
+
+  const request = (fileName: string, contentType: string, sizeBytes: unknown = 100) =>
+    ({ folderId: 'f1', name: 'Tài liệu', fileName, contentType, sizeBytes }) as never;
+
+  // SEC-BE017-04
+  it.each([
+    ['virus.exe', 'text/plain'],
+    ['trang.html', 'text/plain'],
+    ['hinh.svg', 'text/plain'],
+    ['bao-cao.pdf', 'text/plain'],
+  ])('%s khai %s bị từ chối 400, không tạo tài liệu', async (fileName, contentType) => {
+    const { service, created, uploads } = setup();
+    await expect(service.create(me, request(fileName, contentType))).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'FILE_TYPE_NOT_ALLOWED',
+      message: 'Loại tệp không được phép.',
+    });
+    expect(created).toHaveLength(0);
+    expect(uploads).toHaveLength(0);
+  });
+
+  it.each([[0], [-1], ['abc']])('sizeBytes %p bị từ chối', async (sizeBytes) => {
+    const { service, created } = setup();
+    await expect(service.create(me, request('a.pdf', 'application/pdf', sizeBytes))).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(created).toHaveLength(0);
+  });
+
+  it('PDF đúng loại thì ký URL bằng loại đã kiểm', async () => {
+    const { service, created, uploads } = setup();
+    await service.create(me, request('Bien-ban.pdf', 'application/pdf'));
+    expect(created[0]?.contentType).toBe('application/pdf');
+    expect(uploads[0]?.contentType).toBe('application/pdf');
   });
 });

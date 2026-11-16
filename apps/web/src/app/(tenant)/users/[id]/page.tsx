@@ -5,6 +5,7 @@ import {
 } from '@enterprise-platform/contracts-identity';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { AccessDeniedNotice } from '@enterprise-platform/shared-ui';
 import { UserDetail } from './user-detail';
 
 /**
@@ -28,9 +29,7 @@ export default async function TenantUserDetailPage({
   if (principal.kind === 'platform-admin') redirect('/platform');
   if (!hasTenantAction(principal.permissions, 'core.users.read')) {
     return (
-      <p role="alert" className="p-6">
-        Bạn không có quyền xem người dùng.
-      </p>
+      <AccessDeniedNotice message="Bạn chưa được cấp quyền xem danh sách người dùng. Liên hệ quản trị để được cấp quyền." />
     );
   }
   return (

@@ -100,8 +100,9 @@ function addAmounts(left: StockMovementAmounts, right: StockMovementAmounts): St
   return {
     quantityIn: round3(left.quantityIn + right.quantityIn),
     quantityOut: round3(left.quantityOut + right.quantityOut),
-    valueIn: round2(left.valueIn + right.valueIn),
-    valueOut: round2(left.valueOut + right.valueOut),
+    // Nhóm từ DB luôn có giá trị; chỉ bản trả cho người không có `inventory.cost.read` mới bỏ.
+    valueIn: round2((left.valueIn ?? 0) + (right.valueIn ?? 0)),
+    valueOut: round2((left.valueOut ?? 0) + (right.valueOut ?? 0)),
     entries: left.entries + right.entries,
   };
 }

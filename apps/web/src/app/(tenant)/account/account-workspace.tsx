@@ -317,7 +317,7 @@ function ChangePasswordForm() {
         const message = Array.isArray(payload.message) ? payload.message[0] : payload.message;
         if (response.status === 401) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
         if (message === 'Mật khẩu hiện tại không đúng.') setCurrentInvalid(true);
-        throw new Error(message ?? `Không thể đổi mật khẩu (HTTP ${response.status}).`);
+        throw new Error(message ?? 'Không thể đổi mật khẩu. Vui lòng thử lại.');
       }
       const revoked = payload.revokedSessions ?? 0;
       const detail =

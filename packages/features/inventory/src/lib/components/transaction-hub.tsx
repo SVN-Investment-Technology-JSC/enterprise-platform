@@ -1,5 +1,5 @@
 'use client';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 import { formatNoteDates, formatNumber } from '../inventory-labels';
 
@@ -34,6 +34,14 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   RETURN: 'Nhập kho',
   ADJUST: 'Điều chỉnh',
 };
+
+const LEDGER_TYPE_OPTIONS = [
+  { value: 'all', label: 'Tất cả loại' },
+  { value: 'IMPORT', label: 'Nhập kho' },
+  { value: 'EXPORT', label: 'Xuất kho' },
+];
+
+const LEDGER_PAGE_SIZE_OPTIONS = [15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }));
 
 function formatDateTime(value?: string): string {
   if (!value) return '—';
@@ -304,35 +312,36 @@ export function TransactionHub({
           <div className={styles.filterRow} style={{ marginTop: '12px', marginBottom: '12px' }}>
             <label>
               Loại giao dịch
-              <select
+              <SearchableSelect
+                options={LEDGER_TYPE_OPTIONS}
                 value={ledgerTypeFilter}
-                onChange={(e) => {
-                  setLedgerTypeFilter(e.target.value);
+                onChange={(value) => {
+                  setLedgerTypeFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả loại</option>
-                <option value="IMPORT">Nhập kho</option>
-                <option value="EXPORT">Xuất kho</option>
-              </select>
+                clearable={false}
+                searchInDropdown
+                hideDropdownSearch
+              />
             </label>
 
             <label>
               Kho hàng
-              <select
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả kho' },
+                  ...workspace.warehouses.map((w) => ({
+                    value: w.id,
+                    label: w.name ? `${w.code} — ${w.name}` : w.code,
+                  })),
+                ]}
                 value={ledgerWarehouseFilter}
-                onChange={(e) => {
-                  setLedgerWarehouseFilter(e.target.value);
+                onChange={(value) => {
+                  setLedgerWarehouseFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả kho</option>
-                {workspace.warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} {w.name ? `— ${w.name}` : ''}
-                  </option>
-                ))}
-              </select>
+                clearable={false}
+              />
             </label>
 
             <label>
@@ -539,28 +548,19 @@ export function TransactionHub({
                 </span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
-                    value={ledgerPageSize}
-                    onChange={(event) => {
-                      setLedgerPageSize(Number(event.target.value) || 15);
+                  <SearchableSelect
+                    options={LEDGER_PAGE_SIZE_OPTIONS}
+                    value={String(ledgerPageSize)}
+                    onChange={(value) => {
+                      setLedgerPageSize(Number(value) || 15);
                       setLedgerPage(1);
                     }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
+                    clearable={false}
+                    searchInDropdown
+                    hideDropdownSearch
+                    height={28}
+                    style={{ width: '120px' }}
+                  />
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

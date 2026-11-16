@@ -699,16 +699,43 @@ describe('WorkItemService.requestProcedure', () => {
     return { store, requested };
   }
 
+  /** Thành viên dự án giữ `procedure.instance.create`. */
+  const starter = (userId: string): WorkspaceActor => ({ ...actorOf(userId), canStartProcedures: true });
+
   it('việc tạo ở dạng thủ công vẫn mở được quy trình từ nút "Quy trình"', async () => {
     const { store, requested } = storeFor([item({ id: 'w1', executionType: 'manual' })]);
-    await serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION);
+    await serviceFor(store).requestProcedure(starter('u1'), 'w1', DEFINITION);
     expect(requested).toEqual([{ workItemId: 'w1', definitionId: DEFINITION }]);
   });
 
   it('việc đã hoàn thành vẫn mở được quy trình (ví dụ đề nghị thanh toán)', async () => {
     const { store, requested } = storeFor([item({ id: 'w1', status: 'done' })]);
-    await serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION);
+    await serviceFor(store).requestProcedure(starter('u1'), 'w1', DEFINITION);
     expect(requested).toHaveLength(1);
+  });
+
+  it('người không giữ procedure.instance.create bị 403 tiếng Việt, không ghi yêu cầu (ISS-BE-061)', async () => {
+    const { store, requested } = storeFor([item({ id: 'w1', executionType: 'manual' })]);
+    await expect(
+      serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PROCEDURE_START_FORBIDDEN',
+      message: 'Bạn không có quyền khởi tạo hồ sơ quy trình nên không chọn "Theo quy trình" được.',
+    });
+    expect(requested).toEqual([]);
+  });
+
+  it('tạo công việc "Theo quy trình" cũng cần quyền khởi tạo hồ sơ (ISS-BE-061)', async () => {
+    const { store } = storeFor([]);
+    await expect(
+      serviceFor(store).create(actorOf('u1'), {
+        projectId: 'p1',
+        title: 'Mua vật tư',
+        executionType: 'procedure',
+        procedureDefinitionId: DEFINITION,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: 'PROCEDURE_START_FORBIDDEN' });
   });
 
   it('nhóm công việc không chạy theo quy trình', async () => {

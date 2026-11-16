@@ -34,6 +34,24 @@ describe('Procedure capability mapping', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.procedureActor).toMatchObject({ canDesign, canPublish, canCreateInstances, isOverride });
   });
+
+  it.each([
+    [['procedure.instance.override'], [], false],
+    [['procedure.instance.override'], ['tenant-admin'], true],
+  ])('isTenantAdmin lấy từ vai trò thật, không từ quyền can thiệp (ISS-BE-024): %j %j', async (permissions, roles, isTenantAdmin) => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({
+      allowed: true, database: { tenantId: 'tenant' },
+      principal: { tenantId: 'tenant', userId: 'user', membershipId: 'user', permissions, roles },
+    }) });
+    const guard = new ProcedureAccessGuard(
+      { register: jest.fn() } as unknown as TenantDatabaseRegistry,
+      { load: jest.fn(async () => ({ membershipSubjects: {}, units: [], members: [] })) } as unknown as TenantOrganizationContextClient,
+    );
+    const request = { method: 'GET', path: '/api/procedure/v1/workspace', headers: { authorization: 'Bearer token' }, procedureActor: undefined as ProcedureActor | undefined };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
+    await guard.canActivate(context);
+    expect(request.procedureActor).toMatchObject({ isOverride: true, isTenantAdmin });
+  });
 });
 
 describe('Route nội bộ của Quy trình', () => {

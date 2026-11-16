@@ -1500,18 +1500,16 @@ export class CorrespondenceService {
     original: CorrespondenceActor,
     letterId: string,
     attachmentId: string,
-    sizeBytes: unknown,
+    /** Số client gửi lên; giữ tham số cho API cũ nhưng không dùng (ISS-BE-016). */
+    _sizeBytes?: unknown,
   ): Promise<LetterAttachment> {
     const actor = await this.effective(original);
     const attachment = await this.visibleAttachment(actor, letterId, attachmentId);
     if (attachment.uploadedBy !== actor.userId && !actor.canRegister && !actor.isTenantAdmin) {
       throw new CorrespondenceForbiddenError('Chỉ người tải tệp lên mới báo xong được.');
     }
-    const size = Number(sizeBytes);
-    if (!Number.isInteger(size) || size < 0 || size > CORRESPONDENCE_ATTACHMENT_MAX_BYTES) {
-      throw new CorrespondenceValidationError('Dung lượng tệp không hợp lệ.');
-    }
-    await this.files.complete(actor.tenantId, attachment.sharedDocumentId, attachment.sharedVersionId, size);
+    // Dung lượng thật do Hệ dùng chung đọc từ kho; URL tải lên đã ghim dung lượng khai lúc tạo.
+    const size = await this.files.complete(actor.tenantId, attachment.sharedDocumentId, attachment.sharedVersionId);
     await this.store.completeAttachment(actor.tenantId, attachmentId, size);
     const names = await this.store.userNames(actor.tenantId, [attachment.uploadedBy]);
     return attachmentView({ ...attachment, sizeBytes: size }, names, { canDelete: true, canVersion: true });

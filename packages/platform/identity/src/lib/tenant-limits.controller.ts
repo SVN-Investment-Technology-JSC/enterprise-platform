@@ -7,6 +7,7 @@ import {
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
+import { verifyServiceToken } from '@enterprise-platform/platform-module-access';
 import type { Request } from 'express';
 import { TenantLimitsService } from './tenant-limits.js';
 
@@ -17,10 +18,7 @@ export class TenantLimitsController {
 
   @Get('internal/v1/tenant-limits/:tenantId')
   async tenantLimits(@Req() request: Request, @Param('tenantId') tenantId: string) {
-    if (
-      !process.env.INTERNAL_SERVICE_TOKEN ||
-      request.headers['x-service-token'] !== process.env.INTERNAL_SERVICE_TOKEN
-    ) {
+    if (!verifyServiceToken(request.headers['x-service-token'])) {
       throw new UnauthorizedException('Service identity không hợp lệ.');
     }
     const limits = await this.limits.limits(tenantId);

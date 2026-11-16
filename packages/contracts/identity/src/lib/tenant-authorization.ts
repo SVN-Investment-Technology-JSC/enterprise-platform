@@ -425,6 +425,11 @@ export const TENANT_PERMISSION_ACTIONS = [
     label: 'Đổi trạng thái chất lượng của lô và serial',
   },
   {
+    key: 'inventory.cost.read',
+    group: 'Inventory',
+    label: 'Xem giá vốn, giá trị tồn kho và nguồn giữ hàng',
+  },
+  {
     key: 'maintenance.read',
     group: 'Maintenance',
     label: 'Xem lịch và hồ sơ bảo trì',
@@ -630,6 +635,7 @@ export const TENANT_ACTION_IMPLIES: Readonly<Record<string, readonly string[]>> 
     'inventory.stocktake.approve',
     'inventory.document.approve',
     'inventory.quality.write',
+    'inventory.cost.read',
   ],
   'maintenance.manage': ['maintenance.read', 'maintenance.occurrence.manage'],
   'workspace.manage': [

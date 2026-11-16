@@ -95,6 +95,18 @@ import {
 } from '../domain/traceability-policy.js';
 import type { TraceabilityStore } from './traceability-store.port.js';
 import { filterWarehouseCatalog } from '../domain/inventory-report.js';
+import {
+  visibleAsset,
+  visibleAssets,
+  visibleMaterial,
+  visibleMaterials,
+  visibleReservation,
+  visibleReservations,
+  visibleStockRow,
+  visibleStockRows,
+  visibleTransaction,
+  visibleTransactions,
+} from './cost-visibility.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -121,6 +133,12 @@ export interface InventoryActor {
    * trống = suy theo `canManage`.
    */
   readonly canWriteQuality?: boolean;
+  /**
+   * Xem giá vốn, giá trị tồn và nguồn giữ hàng (`inventory.cost.read`). Không có
+   * thì các API bỏ `avgCost`, `unitCost`, giá trị và mã chứng từ nguồn của giữ
+   * hàng. Bỏ trống = suy theo `canManage`.
+   */
+  readonly canReadCost?: boolean;
 }
 
 @Injectable()
@@ -212,11 +230,11 @@ export class InventoryApplication {
   async getMaterial(actor: InventoryActor, code: string): Promise<Material> {
     const material = await this.store.material.findByCode(actor.tenantId, code);
     if (!material) throw new MaterialNotFoundError(code);
-    return material;
+    return visibleMaterial(actor, material);
   }
 
-  listMaterials(actor: InventoryActor, includeInactive = false): Promise<Material[]> {
-    return this.store.material.list(actor.tenantId, includeInactive);
+  async listMaterials(actor: InventoryActor, includeInactive = false): Promise<Material[]> {
+    return visibleMaterials(actor, await this.store.material.list(actor.tenantId, includeInactive));
   }
 
   /**
@@ -277,7 +295,10 @@ export class InventoryApplication {
     limit = 50,
   ): Promise<InventoryTransaction[]> {
     await this.getMaterial(actor, code);
-    return this.store.transaction.listByMaterial(actor.tenantId, code, Math.min(limit, 200));
+    return visibleTransactions(
+      actor,
+      await this.store.transaction.listByMaterial(actor.tenantId, code, Math.min(limit, 200)),
+    );
   }
 
   /**
@@ -434,7 +455,7 @@ export class InventoryApplication {
   async getItemProfile(actor: InventoryActor, code: string): Promise<Asset> {
     const item = await this.store.item.findProfile(actor.tenantId, code);
     if (!item) throw new AssetNotFoundError(code);
-    return item;
+    return visibleAsset(actor, item);
   }
 
   /** Sửa hồ sơ của một mã bất kể loại. */
@@ -701,7 +722,7 @@ export class InventoryApplication {
   async getAsset(actor: InventoryActor, code: string): Promise<Asset> {
     const asset = await this.store.asset.findByCode(actor.tenantId, code);
     if (!asset) throw new AssetNotFoundError(code);
-    return asset;
+    return visibleAsset(actor, asset);
   }
 
   /** Sửa hồ sơ kỹ thuật của thiết bị: thông số và danh sách đầu việc mặc định. */
@@ -762,8 +783,8 @@ export class InventoryApplication {
     return updated;
   }
 
-  listAssets(actor: InventoryActor): Promise<Asset[]> {
-    return this.store.asset.list(actor.tenantId);
+  async listAssets(actor: InventoryActor): Promise<Asset[]> {
+    return visibleAssets(actor, await this.store.asset.list(actor.tenantId));
   }
 
   /** Feeds Role E task decomposition in the Procedure module. */
@@ -775,28 +796,32 @@ export class InventoryApplication {
     return this.store.taskTemplate.resolveAssetTaskTemplate(actor.tenantId, assetCode);
   }
 
-  getStockLevel(
+  async getStockLevel(
     actor: InventoryActor,
     materialCode: string,
     warehouseCode: string,
   ): Promise<MaterialInventory | null> {
-    return this.store.inventory.findByMaterialAndWarehouse(
+    const row = await this.store.inventory.findByMaterialAndWarehouse(
       actor.tenantId,
       materialCode,
       warehouseCode,
     );
+    return visibleStockRow(actor, row);
   }
 
-  listStockByWarehouse(actor: InventoryActor, warehouseCode: string): Promise<MaterialInventory[]> {
-    return this.store.inventory.listByWarehouse(actor.tenantId, warehouseCode);
+  async listStockByWarehouse(actor: InventoryActor, warehouseCode: string): Promise<MaterialInventory[]> {
+    return visibleStockRows(actor, await this.store.inventory.listByWarehouse(actor.tenantId, warehouseCode));
   }
 
-  listRecentTransactions(actor: InventoryActor, limit = 50): Promise<InventoryTransaction[]> {
-    return this.store.transaction.listRecent(actor.tenantId, Math.min(Math.max(limit, 1), 200));
+  async listRecentTransactions(actor: InventoryActor, limit = 50): Promise<InventoryTransaction[]> {
+    return visibleTransactions(
+      actor,
+      await this.store.transaction.listRecent(actor.tenantId, Math.min(Math.max(limit, 1), 200)),
+    );
   }
 
-  listReservations(actor: InventoryActor): Promise<Reservation[]> {
-    return this.store.reservation.list(actor.tenantId);
+  async listReservations(actor: InventoryActor): Promise<Reservation[]> {
+    return visibleReservations(actor, await this.store.reservation.list(actor.tenantId));
   }
 
   listSerials(actor: InventoryActor, materialCode?: string): Promise<SerialTracking[]> {
@@ -928,7 +953,7 @@ export class InventoryApplication {
         },
       ],
     }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    return visibleTransaction(actor, posted[0]);
   }
 
   /**
@@ -970,7 +995,7 @@ export class InventoryApplication {
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
     }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    return visibleTransaction(actor, posted[0]);
   }
 
   /**
@@ -1009,7 +1034,7 @@ export class InventoryApplication {
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
     });
-    return { out, in: inbound };
+    return { out: visibleTransaction(actor, out), in: visibleTransaction(actor, inbound) };
   }
 
   /**
@@ -1051,7 +1076,7 @@ export class InventoryApplication {
     const receipt = input.kind === 'receipt';
     // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
     const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
-    return this.postLegacyDocument(
+    const posted = await this.postLegacyDocument(
       actor,
       {
         docType: receipt ? 'RECEIPT_OTHER' : 'ISSUE_OTHER',
@@ -1067,6 +1092,7 @@ export class InventoryApplication {
       },
       { counterparty },
     );
+    return visibleTransactions(actor, posted);
   }
 
   /**
@@ -1153,12 +1179,12 @@ export class InventoryApplication {
         if (existing.requestHash !== requestHash) {
           throw new IdempotencyKeyConflictError(normalized.idempotencyKey);
         }
-        return existing.reservation;
+        return visibleReservation(actor, existing.reservation);
       }
     }
     assertExpiryInFuture(normalized.expiresAt, new Date());
 
-    return this.store.reservation.create(actor.tenantId, {
+    const created = await this.store.reservation.create(actor.tenantId, {
       referenceType: normalized.referenceType,
       referenceId: normalized.referenceId,
       sourceType: normalized.sourceType,
@@ -1173,6 +1199,7 @@ export class InventoryApplication {
         quantityReserved: line.quantity,
       })),
     });
+    return visibleReservation(actor, created);
   }
 
   /**
@@ -1186,7 +1213,7 @@ export class InventoryApplication {
     if (!released) {
       throw new InvalidReservationError(`Không tìm thấy phiếu giữ vật tư ${code}.`);
     }
-    return released;
+    return visibleReservation(actor, released);
   }
 
   async getReservation(actor: InventoryActor, code: string): Promise<Reservation> {
@@ -1194,7 +1221,7 @@ export class InventoryApplication {
     if (!reservation) {
       throw new InvalidReservationError(`Không tìm thấy phiếu giữ vật tư ${code}.`);
     }
-    return reservation;
+    return visibleReservation(actor, reservation);
   }
 
   findReservationsByReference(
@@ -1620,15 +1647,15 @@ export class InventoryApplication {
 
   // --- Trang thiết bị nhân sự (HRM Custody) ---
   async listEmployeeCustody(actor: InventoryActor, employeeId: string): Promise<Material[]> {
-    return this.store.custody.listByEmployee(actor.tenantId, employeeId);
+    return visibleMaterials(actor, await this.store.custody.listByEmployee(actor.tenantId, employeeId));
   }
 
   async listCustodyAssets(actor: InventoryActor): Promise<Material[]> {
-    return this.store.custody.listAll(actor.tenantId);
+    return visibleMaterials(actor, await this.store.custody.listAll(actor.tenantId));
   }
 
   async listAssignedCustody(actor: InventoryActor): Promise<Material[]> {
-    return this.store.custody.listAssigned(actor.tenantId);
+    return visibleMaterials(actor, await this.store.custody.listAssigned(actor.tenantId));
   }
 
   async assignCustody(
@@ -1691,7 +1718,7 @@ export class InventoryApplication {
 
   private requireManager(actor: InventoryActor): void {
     if (!actor.canManage) {
-      throw new InvalidReservationError('Bạn không có quyền sửa danh mục kho.');
+      throw new InventoryError('ACCESS_DENIED', 'Bạn không có quyền sửa danh mục kho.', 403);
     }
   }
 
@@ -1713,7 +1740,7 @@ export class InventoryApplication {
   /** Cổng cho nhập/xuất/chuyển kho và giữ chỗ — rộng hơn quyền sửa danh mục. */
   private requireStockWriter(actor: InventoryActor): void {
     if (!(actor.canWriteTransactions ?? actor.canManage)) {
-      throw new InvalidReservationError('Bạn không có quyền ghi phát sinh tồn kho.');
+      throw new InventoryError('ACCESS_DENIED', 'Bạn không có quyền ghi phát sinh tồn kho.', 403);
     }
   }
 

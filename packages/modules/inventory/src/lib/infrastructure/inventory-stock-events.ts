@@ -32,7 +32,7 @@ export interface StockDocumentPostedEventInput {
 export function stockDocumentPostedEvent(input: StockDocumentPostedEventInput): InventoryNotificationEvent {
   const { document } = input;
   const lines: InventoryStockEventLine[] = document.lines.map((line) => {
-    const cost = input.lineCosts.get(line.id) ?? { unitCost: line.unitCost, costAmount: line.costAmount ?? 0 };
+    const cost = input.lineCosts.get(line.id) ?? { unitCost: line.unitCost ?? 0, costAmount: line.costAmount ?? 0 };
     return {
       lineId: line.id,
       lineNo: line.lineNo,

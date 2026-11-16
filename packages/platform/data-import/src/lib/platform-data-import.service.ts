@@ -190,7 +190,8 @@ export class PlatformDataImportService {
     if (tenant.database) {
       try {
         const [usersRaw, organizationRaw] = await Promise.all([
-          this.identity.coreUsers(tenantId),
+          // Gồm cả người đã xoá mềm: email của họ không tạo lại được (ISS-BE-035).
+          this.identity.coreUsers(tenantId, { includeDeleted: true }),
           this.identity.coreOrganizationSnapshot(tenantId),
         ]);
         const users = usersRaw as CoreUser[];
@@ -258,7 +259,7 @@ export class PlatformDataImportService {
       );
     }
 
-    issues.push(...validateImportDataset(dataset, existing));
+    issues.push(...validateImportDataset(dataset, existing, { tenantSlug: tenant.slug }));
 
     const overview = await this.identity.tenantEntitlementOverview(tenantId);
     for (const moduleKey of ['inventory', 'procedure-engine', 'maintenance'] as const) {

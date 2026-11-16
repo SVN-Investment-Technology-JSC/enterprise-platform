@@ -5,12 +5,14 @@
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { configureHttpSecurity } from '@enterprise-platform/platform-module-access';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
   const app = await NestFactory.create(AppModule);
+  configureHttpSecurity(app);
   app.use(cookieParser());
   app.enableShutdownHooks();
   const globalPrefix = 'api/procedure';

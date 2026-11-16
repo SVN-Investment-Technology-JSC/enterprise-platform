@@ -87,6 +87,7 @@ import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
+import { useWorkspacePermissions } from '../workspace-permissions';
 
 /**
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
@@ -205,11 +206,14 @@ export interface ProjectsViewProps {
   readonly createProjectRequest?: number;
   /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
   readonly onCreateProjectHandled?: () => void;
+  /** Người dùng được tạo dự án mới; không thì ẩn nút "Tạo dự án mới" (server vẫn chặn). */
+  readonly canCreateProject?: boolean;
 }
 
 export function ProjectsView({
   canDelete = false,
   canWriteDocuments = true,
+  canCreateProject = true,
   notificationTarget,
   onOpenProjectChange,
   createProjectRequest = 0,
@@ -397,9 +401,9 @@ export function ProjectsView({
   // Báo lại ngay để quay lại trang này sau đó không tự mở hộp lần nữa.
   useEffect(() => {
     if (createProjectRequest <= 0) return;
-    setProjectForm({ open: true });
+    if (canCreateProject) setProjectForm({ open: true });
     onCreateProjectHandled?.();
-  }, [createProjectRequest, onCreateProjectHandled]);
+  }, [createProjectRequest, onCreateProjectHandled, canCreateProject]);
 
   /**
    * Đích của đường dẫn đã được áp dụng chưa.
@@ -750,7 +754,10 @@ export function ProjectsView({
   // Quyền theo vai trò do tenant cấu hình. Server bản cũ chưa trả
   // `myPermissions` thì dùng quyền mặc định của vai hệ thống.
   const archived = Boolean(detail?.project.archivedAt);
+  // Không có `workspace.task.write` thì server chặn mọi thao tác ghi dù vai trong dự án cho phép: coi như chỉ xem.
+  const { canWriteTasks } = useWorkspacePermissions();
   const grantedPermissions = useMemo<ReadonlySet<ProjectPermission>>(() => {
+    if (!canWriteTasks) return new Set<ProjectPermission>();
     const given =
       detail?.project.myPermissions ??
       (role
@@ -759,7 +766,7 @@ export function ProjectsView({
             | undefined) ?? [])
         : PROJECT_PERMISSIONS);
     return new Set(given);
-  }, [detail?.project.myPermissions, role]);
+  }, [detail?.project.myPermissions, role, canWriteTasks]);
   // Dự án đã lưu trữ chỉ xem: không còn quyền ghi nào, nên mọi nút chức năng bên dưới tự ẩn. Việc duy nhất còn lại là
   // "Mở lưu trữ", dành cho người có quyền đổi trạng thái dự án.
   const permissions = useMemo<ReadonlySet<ProjectPermission>>(
@@ -1227,13 +1234,15 @@ export function ProjectsView({
       {listLoaded && !openId ? (
         <div className={styles.emptyState}>
           <p>Chưa có dự án nào trong phạm vi của bạn.</p>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            onClick={() => setProjectForm({ open: true })}
-          >
-            <Plus size={14} /> Tạo dự án mới
-          </button>
+          {canCreateProject ? (
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              onClick={() => setProjectForm({ open: true })}
+            >
+              <Plus size={14} /> Tạo dự án mới
+            </button>
+          ) : null}
         </div>
       ) : null}
 

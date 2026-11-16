@@ -9,19 +9,21 @@ import {
   type FinanceApprovalBinding,
   type FinanceBindingMode,
   type FinanceCatalogs,
+  type FinanceConfigAuditEntry,
+  type FinancePage,
   type FinanceSettings,
   type FinanceVoucherKind,
   type SaveFinanceApprovalBindingResponse,
 } from '@enterprise-platform/contracts-finance';
-import { financeErrorMessage, financeFetch, financePost, financePut } from '../finance-api';
-import { dateVn } from '../finance-format';
+import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
+import { dateTimeVn, dateVn, money } from '../finance-format';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { EmptyState, ErrorBanner, Field } from '../ui/form-parts';
 import { cn } from '../utils';
 
-type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'approval' | 'books';
+type TabId = 'receipt-reasons' | 'payment-reasons' | 'groups' | 'approval' | 'books' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'receipt-reasons', label: 'Lý do thu' },
@@ -29,6 +31,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'groups', label: 'Đối tượng thu chi' },
   { id: 'approval', label: 'Quy trình duyệt' },
   { id: 'books', label: 'Khoá sổ và duyệt' },
+  { id: 'history', label: 'Lịch sử thay đổi' },
 ];
 
 interface CatalogRow {
@@ -306,6 +309,7 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
   const [lock, setLock] = useState(settings.booksLockedUntil ?? '');
   const [selfApproval, setSelfApproval] = useState(settings.allowSelfApproval);
   const [requireAllocation, setRequireAllocation] = useState(Boolean(settings.requireAllocation));
+  const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -313,7 +317,13 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
     setSaving(true);
     setError(null);
     try {
-      const next = await financePut<FinanceSettings>('/settings', { booksLockedUntil: lock || null, allowSelfApproval: selfApproval, requireAllocation });
+      const next = await financePut<FinanceSettings>('/settings', {
+        booksLockedUntil: lock || null,
+        allowSelfApproval: selfApproval,
+        requireAllocation,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      });
+      setReason('');
       onSaved(next);
       toast.success('Đã lưu cấu hình');
     } catch (e) {
@@ -354,7 +364,131 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
           <span className="block text-xs text-slate-500">Bật thì mọi phiếu thu/chi phải chọn dự án mới gửi duyệt và ghi sổ được, kể cả phiếu từ hồ sơ Quy trình. Muốn chỉ bắt buộc với một số khoản, để tắt ở đây và bật "Bắt buộc chọn dự án" ở từng lý do thu/chi (mục Lý do thu, Lý do chi). Mặc định tắt.</span>
         </span>
       </label>
+      <Field label="Lý do thay đổi" hint="Không bắt buộc; ghi vào lịch sử thay đổi cấu hình.">
+        {(id) => <Input id={id} value={reason} maxLength={1000} onChange={(e) => setReason(e.target.value)} />}
+      </Field>
       <Button type="button" disabled={saving} onClick={() => void save()}>Lưu cấu hình</Button>
+    </section>
+  );
+}
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  allowSelfApproval: 'Cho phép tự duyệt',
+  booksLockedUntil: 'Khoá sổ đến ngày',
+  requireAllocation: 'Bắt buộc hạch toán dự án',
+  code: 'Mã tài khoản',
+  name: 'Tên tài khoản',
+  accountType: 'Loại tài khoản',
+  bankName: 'Ngân hàng',
+  accountNumber: 'Số tài khoản',
+  accountHolder: 'Chủ tài khoản',
+  branch: 'Chi nhánh',
+  openingBalance: 'Số dư đầu kỳ',
+  openingDate: 'Ngày bắt đầu sử dụng',
+  allowNegative: 'Cho phép số dư âm',
+  isActive: 'Đang hoạt động',
+  note: 'Ghi chú',
+};
+
+const AUDIT_FILTER_OPTIONS = [
+  { value: 'ALL', label: 'Tất cả' },
+  { value: 'SETTINGS', label: 'Cấu hình chung' },
+  { value: 'ACCOUNT', label: 'Tài khoản' },
+];
+
+/** Giá trị lịch sử (chữ) về dạng đọc được theo trường. */
+function auditValueText(field: string, value: string | null): string {
+  if (value === null) return '(trống)';
+  if (value === 'true') return 'Có';
+  if (value === 'false') return 'Không';
+  if (field === 'openingBalance') return money(Number(value));
+  if (field === 'booksLockedUntil' || field === 'openingDate') return dateVn(value);
+  return value;
+}
+
+const AUDIT_PAGE_SIZE = 50;
+
+/** Lịch sử đổi cấu hình chung và tài khoản (chỉ người có `finance.settings.manage` mở được trang Tùy chỉnh). */
+function HistoryPanel() {
+  const [filter, setFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<FinancePage<FinanceConfigAuditEntry> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    financeFetch<FinancePage<FinanceConfigAuditEntry>>(
+      `/settings/audit${toQuery({ entityType: filter === 'ALL' ? undefined : filter, page, pageSize: AUDIT_PAGE_SIZE })}`,
+    )
+      .then((next) => {
+        if (!alive) return;
+        setData(next);
+        setError(null);
+      })
+      .catch((e: unknown) => alive && setError(financeErrorMessage(e, 'Không tải được lịch sử thay đổi.')));
+    return () => {
+      alive = false;
+    };
+  }, [filter, page]);
+
+  const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  return (
+    <section aria-label="Lịch sử thay đổi" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-slate-600">Đối tượng</span>
+        <div className="w-48">
+          <SearchableSelect
+            name="audit-filter"
+            options={AUDIT_FILTER_OPTIONS}
+            value={filter}
+            onChange={(v) => {
+              setFilter(v || 'ALL');
+              setPage(1);
+            }}
+            height={32}
+          />
+        </div>
+        {data ? <span className="ml-auto text-sm text-slate-500">{data.total} thay đổi</span> : null}
+      </div>
+      <ErrorBanner message={error} />
+      {data && !data.items.length ? <EmptyState>Chưa có thay đổi nào được ghi lại.</EmptyState> : null}
+      {data && data.items.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500">
+                <th className="px-2 py-2">Thời điểm</th>
+                <th className="px-2 py-2">Người sửa</th>
+                <th className="px-2 py-2">Đối tượng</th>
+                <th className="px-2 py-2">Trường</th>
+                <th className="px-2 py-2">Giá trị cũ</th>
+                <th className="px-2 py-2">Giá trị mới</th>
+                <th className="px-2 py-2">Lý do</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((row) => (
+                <tr key={row.id} className="border-b border-slate-100 align-top">
+                  <td className="whitespace-nowrap px-2 py-2 tabular-nums">{dateTimeVn(row.createdAt)}</td>
+                  <td className="px-2 py-2">{row.actorName ?? '--'}</td>
+                  <td className="px-2 py-2">{row.entityType === 'SETTINGS' ? 'Cấu hình chung' : `Tài khoản ${row.entityLabel ?? ''}`.trim()}</td>
+                  <td className="px-2 py-2">{AUDIT_FIELD_LABELS[row.field] ?? row.field}</td>
+                  <td className="px-2 py-2 text-slate-600">{auditValueText(row.field, row.oldValue)}</td>
+                  <td className="px-2 py-2 font-medium text-slate-900">{auditValueText(row.field, row.newValue)}</td>
+                  <td className="px-2 py-2 text-slate-600">{row.reason ?? '--'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {data && pages > 1 ? (
+        <div className="flex items-center justify-end gap-2 text-sm">
+          <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Trang trước</Button>
+          <span className="text-slate-600">Trang {page}/{pages}</span>
+          <Button type="button" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>Trang sau</Button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -412,6 +546,7 @@ export default function SettingsScreen() {
             {tab === 'groups' ? <CatalogPanel title="Đối tượng thu chi" rows={catalogs.counterpartyGroups} basePath="/catalogs/counterparty-groups" onChanged={() => void load()} /> : null}
             {tab === 'approval' ? <ApprovalPanel /> : null}
             {tab === 'books' ? <BooksPanel settings={settings} onSaved={setSettings} /> : null}
+            {tab === 'history' ? <HistoryPanel /> : null}
           </>
         ) : !error ? (
           <div role="status" className="p-6 text-sm text-slate-500">Đang tải cấu hình…</div>

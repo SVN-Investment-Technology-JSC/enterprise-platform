@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Put, Req } from '@nestjs/co
 import type { Request } from 'express';
 import { parseAutoAttendanceInput } from '../domain/auto-attendance-settings.js';
 import { autoAttendanceSettingsReady, loadAutoAttendanceSettings } from '../infrastructure/hrm-auto-attendance.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { lifecycleAudit } from '../infrastructure/hrm-lifecycle.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -31,6 +32,7 @@ function present(
 export class HrmAutoAttendanceSettingsController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @RequirePermission(PERMISSION)
   @Get()
   async get(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, PERMISSION);
@@ -39,6 +41,7 @@ export class HrmAutoAttendanceSettingsController {
     return { data: present(settings, ready) };
   }
 
+  @RequirePermission(PERMISSION)
   @Put()
   async save(@Req() req: Request, @Body() body: { enabled?: unknown; weekdays?: unknown }) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, PERMISSION);

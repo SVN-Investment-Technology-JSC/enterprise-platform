@@ -85,6 +85,7 @@ import {
   areSimilarLeaveNames,
   rethrowDuplicateLeaveCode,
 } from '../infrastructure/hrm-leave-merge.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
   employeeEntitlement,
@@ -127,6 +128,7 @@ export class HrmLeaveController {
   // Leave Types APIs (P2_S3_HRM_API.md § 13.1)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-carryovers/run')
   async carryover(@Req() req: Request, @Body('year') year: number) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -139,6 +141,7 @@ export class HrmLeaveController {
       ),
     };
   }
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-carryovers/expire')
   async expire(@Req() req: Request, @Body('date') date: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -152,6 +155,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-accruals/run')
   async runAccrual(@Req() req: Request, @Body('month') month: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -165,6 +169,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-types/merge')
   async mergeLeaveType(
     @Req() req: Request,
@@ -191,6 +196,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-types/similar-names')
   async similarLeaveTypes(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
@@ -201,6 +207,7 @@ export class HrmLeaveController {
     return { data: findSimilarLeaveTypes(res.rows) };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-balances/reconcile')
   async reconcileBalances(@Req() req: Request, @Query('year') year?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
@@ -209,6 +216,7 @@ export class HrmLeaveController {
     return { data: await reconcileLeaveBalances(pool, tenantId, y) };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('employees/:employeeId/leave-balance-at-date')
   async employeeLeaveAtDate(
     @Req() req: Request,
@@ -224,6 +232,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('leave-types')
   async listLeaveTypes(@Req() req: Request, @Query('active') active?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -253,6 +262,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-types')
   async createLeaveType(
     @Req() req: Request,
@@ -316,6 +326,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Patch('leave-types/:id')
   async updateLeaveType(
     @Req() req: Request,
@@ -438,6 +449,7 @@ export class HrmLeaveController {
       return { data: this.mapLeaveType(row) };
     });
   }
+  @RequirePermission('hrm.leave.manage')
   @Delete('leave-types/:id')
   async deleteLeaveType(
     @Req() req: Request,
@@ -579,6 +591,7 @@ export class HrmLeaveController {
   // Accrual Schedule APIs (P2_S3_HRM_API.md § 13.2)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-types/:leaveTypeId/accrual-schedules')
   async listAccrualSchedules(
     @Req() req: Request,
@@ -600,6 +613,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-types/:leaveTypeId/accrual-schedules')
   async createAccrualSchedule(
     @Req() req: Request,
@@ -630,6 +644,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Patch('leave-types/:leaveTypeId/accrual-schedules/:id')
   async updateAccrualSchedule(
     @Req() req: Request,
@@ -639,6 +654,7 @@ export class HrmLeaveController {
   ) {
     return this.changeAccrualSchedule(req, typeId, id, body, 'edit');
   }
+  @RequirePermission('hrm.leave.manage')
   @Delete('leave-types/:leaveTypeId/accrual-schedules/:id')
   async deleteAccrualSchedule(
     @Req() req: Request,
@@ -648,6 +664,7 @@ export class HrmLeaveController {
   ) {
     return this.changeAccrualSchedule(req, typeId, id, body, 'delete');
   }
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-types/:leaveTypeId/accrual-schedules/:id/version')
   async versionAccrualSchedule(
     @Req() req: Request,
@@ -657,6 +674,7 @@ export class HrmLeaveController {
   ) {
     return this.changeAccrualSchedule(req, typeId, id, body, 'version');
   }
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-types/:leaveTypeId/accrual-schedules/:id/deactivate')
   async deactivateAccrualSchedule(
     @Req() req: Request,
@@ -708,6 +726,7 @@ export class HrmLeaveController {
    * dòng mặc định toàn 0 với `hasBalance=false`); tenant chưa có phép năm thì mảng rỗng.
    * Mặc định giữ hành vi cũ (mọi dòng quỹ đã có, mọi lý do).
    */
+  @RequirePermission('hrm.leave.read')
   @Get('leave-balances')
   async listAllLeaveBalances(
     @Req() req: Request,
@@ -841,6 +860,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-transactions')
   async listAllLeaveTransactions(
     @Req() req: Request,
@@ -903,6 +923,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-adjustments')
   async adjustLeaveBalance(
     @Req() req: Request,
@@ -1030,6 +1051,7 @@ export class HrmLeaveController {
     return { data: this.mapTransaction(row) };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-transactions/:id/reverse')
   async reverseLeaveAdjustment(
     @Req() req: Request,
@@ -1138,6 +1160,7 @@ export class HrmLeaveController {
   // Annual leave entitlement & termination settlement
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-entitlements/preview')
   async previewEntitlements(
     @Req() req: Request,
@@ -1245,6 +1268,7 @@ export class HrmLeaveController {
     return { data, meta: { total: data.length } };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('employees/:employeeId/leave-settlement-preview')
   async previewSettlement(
     @Req() req: Request,
@@ -1261,6 +1285,7 @@ export class HrmLeaveController {
     return { data };
   }
 
+  @RequirePermission('hrm.leave.read')
   @Get('leave-settlements')
   async listSettlements(
     @Req() req: Request,
@@ -1285,6 +1310,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-settlements/:id/schedule')
   async scheduleLeaveSettlement(
     @Req() req: Request,
@@ -1306,6 +1332,7 @@ export class HrmLeaveController {
     return { data: mapSettlement(row) };
   }
 
+  @RequirePermission('hrm.leave.manage')
   @Post('leave-settlements/:id/waive')
   async waiveLeaveSettlement(
     @Req() req: Request,
@@ -1322,6 +1349,7 @@ export class HrmLeaveController {
     return { data: mapSettlement(row) };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/leave-balances')
   async getEmployeeLeaveBalances(
     @Req() req: Request,
@@ -1350,6 +1378,7 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/leave-transactions')
   async getEmployeeLeaveTransactions(
     @Req() req: Request,
@@ -1381,6 +1410,7 @@ export class HrmLeaveController {
   // Leave Request APIs (P2_S3_HRM_API.md § 15)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('leave-requests')
   async createLeaveRequest(
     @Req() req: Request,
@@ -1491,6 +1521,7 @@ export class HrmLeaveController {
   }
 
   /** Từng ngày trong khoảng nghỉ với ca thực tế của nhân viên (giao diện dùng để tính số ngày nghỉ). */
+  @RequirePermission('hrm.read')
   @Get('employees/:employeeId/leave-day-preview')
   async leaveDayPreview(
     @Req() req: Request,
@@ -1517,6 +1548,7 @@ export class HrmLeaveController {
     return { data };
   }
 
+  @RequirePermission('hrm.read')
   @Get('leave-requests')
   async listLeaveRequests(
     @Req() req: Request,
@@ -1592,10 +1624,12 @@ export class HrmLeaveController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Post('leave-requests/:id/approve')
   async approveLeaveRequest(@Req() req: Request, @Param('id') id: string) {
     return this.transition(req, id, 'APPROVED');
   }
+  @RequirePermission('hrm.read')
   @Post('leave-requests/:id/reject')
   async rejectLeaveRequest(
     @Req() req: Request,
@@ -1609,6 +1643,7 @@ export class HrmLeaveController {
       rejectionNote(reason) ?? undefined,
     );
   }
+  @RequirePermission('hrm.read')
   @Post('leave-requests/:id/cancel')
   async cancelLeaveRequest(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -1674,6 +1709,7 @@ export class HrmLeaveController {
     );
     return { data: this.mapLeaveRequest(row) };
   }
+  @RequirePermission('hrm.read')
   @Post('leave-requests/:id/amend')
   async amendLeaveRequest(
     @Req() req: Request,

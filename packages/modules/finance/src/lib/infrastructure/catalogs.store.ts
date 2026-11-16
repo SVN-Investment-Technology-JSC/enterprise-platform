@@ -10,6 +10,7 @@ import type {
 import type { QueryResultRow } from 'pg';
 import { conflict, invalid, notFound } from '../domain/finance.error.js';
 import { isValidDate } from '../domain/voucher.rules.js';
+import { auditReason, diffFields, writeConfigAudit, type ConfigAuditActor } from './config-audit.store.js';
 import { dateOnly, optStr, type Db } from './finance.database.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
@@ -157,10 +158,20 @@ export async function loadSettings(db: Db, tenantId: string): Promise<FinanceSet
   };
 }
 
-export async function saveSettings(db: Db, tenantId: string, actorId: string, input: SaveFinanceSettingsRequest): Promise<FinanceSettings> {
+/**
+ * Lưu cấu hình chung. Mỗi trường đổi giá trị (tự duyệt, bắt buộc hạch toán dự án, ngày khoá sổ: khoá, lùi hay bỏ khoá) ghi một dòng vào
+ * `finance_schema.config_audit`; gọi trong giao dịch nên lịch sử và thay đổi cùng thành công hoặc cùng huỷ.
+ */
+export async function saveSettings(
+  db: Db,
+  tenantId: string,
+  actor: ConfigAuditActor,
+  input: SaveFinanceSettingsRequest,
+): Promise<FinanceSettings> {
   if (input.booksLockedUntil !== undefined && input.booksLockedUntil !== null && !isValidDate(input.booksLockedUntil))
     throw invalid('Ngày khoá sổ không hợp lệ.');
-  const current = await loadSettings(db, tenantId);
+  const reason = auditReason(input.reason);
+  const current = await loadSettingsForUpdate(db, tenantId);
   const lock = input.booksLockedUntil === undefined ? current.booksLockedUntil : input.booksLockedUntil;
   // Mở lại sổ (lùi hoặc bỏ ngày khoá) là thao tác nhạy cảm nhưng hợp lệ: kế toán trưởng có thể sửa sai kỳ.
   const self = input.allowSelfApproval ?? current.allowSelfApproval;
@@ -170,7 +181,16 @@ export async function saveSettings(db: Db, tenantId: string, actorId: string, in
      VALUES ($1,$2,$3,$4,$5,now())
      ON CONFLICT (tenant_id) DO UPDATE SET books_locked_until=EXCLUDED.books_locked_until, allow_self_approval=EXCLUDED.allow_self_approval,
        require_allocation=EXCLUDED.require_allocation, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-    [tenantId, lock, self, requireAllocation, actorId],
+    [tenantId, lock, self, requireAllocation, actor.id],
   );
-  return { booksLockedUntil: lock, allowSelfApproval: self, requireAllocation };
+  const next: FinanceSettings = { booksLockedUntil: lock, allowSelfApproval: self, requireAllocation };
+  const changes = diffFields(current, next, ['allowSelfApproval', 'booksLockedUntil', 'requireAllocation']);
+  await writeConfigAudit(db, tenantId, 'SETTINGS', null, changes, actor, reason);
+  return next;
+}
+
+/** Như `loadSettings` nhưng khoá dòng cấu hình để hai lần lưu đồng thời không ghi lịch sử sai giá trị cũ. */
+async function loadSettingsForUpdate(db: Db, tenantId: string): Promise<FinanceSettings> {
+  await db.query(`SELECT 1 FROM finance_schema.settings WHERE tenant_id=$1 FOR UPDATE`, [tenantId]);
+  return loadSettings(db, tenantId);
 }

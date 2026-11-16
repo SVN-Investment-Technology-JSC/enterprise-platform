@@ -92,6 +92,8 @@ export interface ProjectsListViewProps {
   readonly onProjectsChanged?: () => void;
   /** Chỗ ở dòng tiêu đề khu vực Dự án để đặt nút Tải lại, Chuyển nhóm, Tạo dự án. */
   readonly actionsSlot?: HTMLElement | null;
+  /** Người dùng được tạo dự án mới; không thì ẩn nút "Tạo dự án" (server vẫn chặn). */
+  readonly canCreateProject?: boolean;
 }
 
 /**
@@ -110,6 +112,7 @@ export function ProjectsListView({
   onCreateProjectHandled,
   onProjectsChanged,
   actionsSlot,
+  canCreateProject = true,
 }: ProjectsListViewProps) {
   // Trang này bị gỡ khỏi cây giao diện khi mở một dự án: lấy lại nhóm đang mở, tab, bộ lọc, cách sắp xếp của lần trước
   // và dự án vừa mở (để đánh dấu khi quay lại). Xem project-list-memory.
@@ -226,9 +229,9 @@ export function ProjectsListView({
   // quay lại trang này sau đó không tự mở hộp lần nữa.
   useEffect(() => {
     if (createProjectRequest <= 0) return;
-    setCreateOpen(true);
+    if (canCreateProject) setCreateOpen(true);
     onCreateProjectHandled?.();
-  }, [createProjectRequest, onCreateProjectHandled]);
+  }, [createProjectRequest, onCreateProjectHandled, canCreateProject]);
 
   /** Khách hàng theo id, để cột Khách hàng khỏi gọi thêm API từng dòng. */
   const customerOf = useMemo(() => {
@@ -506,9 +509,11 @@ export function ProjectsListView({
                 </button>
               </span>
             </Tooltip>
-            <button type="button" className={styles.buttonPrimary} onClick={() => setCreateOpen(true)}>
-              <Plus size={15} /> Tạo dự án
-            </button>
+            {canCreateProject ? (
+              <button type="button" className={styles.buttonPrimary} onClick={() => setCreateOpen(true)}>
+                <Plus size={15} /> Tạo dự án
+              </button>
+            ) : null}
           </>
         );
         return actionsSlot ? (

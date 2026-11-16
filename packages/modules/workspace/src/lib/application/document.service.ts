@@ -1,4 +1,12 @@
-import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import {
+  S3ObjectStorage,
+  UploadFileRejectedError,
+  checkUploadFile,
+  downloadContentTypeFor,
+  readObjectSize,
+  type ObjectStorageMetadataPort,
+  type ObjectStoragePort,
+} from '@enterprise-platform/adapter-storage';
 import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
   DOCUMENT_AUDIENCES,
@@ -37,6 +45,7 @@ import {
   FolderNotFoundError,
   ProjectForbiddenError,
   WorkItemNotFoundError,
+  WorkspaceError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import {
@@ -61,7 +70,7 @@ export class DocumentService {
   constructor(
     private readonly store: WorkspaceStore,
     private readonly projects: ProjectService,
-    private readonly storage: ObjectStoragePort = new S3ObjectStorage({
+    private readonly storage: ObjectStoragePort & ObjectStorageMetadataPort = new S3ObjectStorage({
       /*
        * Hai đầu nối khác nhau, như Kho, Bảo trì và Quy trình đang làm:
        *
@@ -488,25 +497,29 @@ export class DocumentService {
   /**
    * Chặng 3: trình duyệt báo đã `PUT` xong.
    *
-   * Server không kiểm được tệp có thật trên kho hay không — adapter không có
-   * lệnh `HEAD`. Chặng này chỉ bảo đảm một điều: lượt `PUT` **hỏng** thì
-   * không bao giờ tới đây, nên phiên bản ở lại "chưa tải lên xong".
+   * Không tin client: server hỏi kho (`HEAD`) xem object có thật không và lưu
+   * dung lượng thật, bỏ qua `sizeBytes` client gửi (giữ tham số cho giao diện
+   * cũ). Chưa có tệp, hoặc phiên bản đã hoàn tất, thì 409. Sự kiện
+   * `workspace.document.published` chỉ phát ở đây, khi tệp đã có thật.
    */
   async completeUpload(
     actor: WorkspaceActor,
     documentId: string,
     versionId: string,
-    sizeBytes: unknown,
+    _sizeBytes?: unknown,
   ): Promise<DocumentVersion> {
     const document = await this.loadVisible(actor, documentId);
     await this.requireWriteAccess(actor, document.projectId);
 
     const version = await this.store.document.findVersion(actor.tenantId, versionId);
     if (!version || version.documentId !== documentId) throw new DocumentNotFoundError(versionId);
+    if (version.sizeBytes != null) throw uploadAlreadyCompleted();
 
-    const size = Number(sizeBytes);
-    if (!Number.isInteger(size) || size < 0) {
-      throw new WorkspaceValidationError('Dung lượng tệp phải là số nguyên không âm.');
+    const key = await this.store.document.storageKeyOf(actor.tenantId, versionId);
+    if (!key) throw new DocumentNotFoundError(versionId);
+    const size = await readObjectSize(this.storage, key);
+    if (size === null || size <= 0) {
+      throw new WorkspaceError('UPLOAD_NOT_FOUND', 'Chưa thấy tệp trên kho lưu trữ. Hãy tải lên lại.', 409);
     }
     if (size > DOCUMENT_MAX_BYTES) {
       throw new WorkspaceValidationError(
@@ -515,7 +528,8 @@ export class DocumentService {
     }
 
     const completed = await this.store.document.completeVersion(actor.tenantId, versionId, size);
-    if (!completed) throw new DocumentNotFoundError(versionId);
+    // Hai lượt báo xong chạy song song: lượt thua không phát sự kiện lần nữa.
+    if (!completed) throw uploadAlreadyCompleted();
     return completed;
   }
 
@@ -567,9 +581,11 @@ export class DocumentService {
       downloadUrl: await this.storage.createDownloadUrl(
         key,
         PRESIGNED_URL_TTL_SECONDS,
+        // Tải về luôn là `attachment` với loại do server quyết theo đuôi tệp:
+        // tệp cũ lỡ khai sai loại cũng không mở thành trang trên tên miền kho.
         preview
           ? { inline: true, contentType: version.contentType, fileName: version.fileName }
-          : undefined,
+          : { attachment: true, contentType: downloadContentTypeFor(version.fileName), fileName: version.fileName },
       ),
       expiresInSeconds: PRESIGNED_URL_TTL_SECONDS,
       fileName: version.fileName,
@@ -885,27 +901,40 @@ export class DocumentService {
   /**
    * Kiểm tra tệp trước khi ký URL.
    *
-   * `sizeBytes` do client khai và **không kiểm chứng được**: URL ký trước chỉ
-   * ghim bucket, khoá và content-type, không ghim độ dài. Kiểm ở đây là để
-   * chặn nhầm lẫn, không phải để chống gian lận.
+   * Đuôi tệp phải khớp `contentType` theo danh sách cho phép (hàm chung của
+   * `adapter-storage`), nên không còn khai `text/plain` để lọt `.exe`, `.html`.
+   * `sizeBytes` là số nguyên dương do client khai; con số lưu lại là dung lượng
+   * thật đọc từ kho ở `completeUpload`.
    */
   private validateFile(
     fileName: unknown,
     contentType: unknown,
-    sizeBytes: number | undefined,
+    sizeBytes: unknown,
   ): { fileName: string; contentType: string } {
     const name = requireText(fileName, 'Tên tệp', 255);
-    const type = String(contentType ?? '').trim();
-    if (!ALLOWED_DOCUMENT_CONTENT_TYPES.includes(type)) {
-      throw new WorkspaceValidationError(`Không hỗ trợ loại tệp "${type || '(trống)'}".`);
+    let checked: { contentType: string; sizeBytes?: number };
+    try {
+      checked = checkUploadFile(
+        { fileName: name, contentType, sizeBytes },
+        { allowedContentTypes: ALLOWED_DOCUMENT_CONTENT_TYPES },
+      );
+    } catch (error) {
+      if (error instanceof UploadFileRejectedError) {
+        throw new WorkspaceError(error.code, error.message, 400);
+      }
+      throw error;
     }
-    if (sizeBytes != null && sizeBytes > DOCUMENT_MAX_BYTES) {
+    if ((checked.sizeBytes ?? 0) > DOCUMENT_MAX_BYTES) {
       throw new WorkspaceValidationError(
         `Tệp không được vượt quá ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB.`,
       );
     }
-    return { fileName: name, contentType: type };
+    return { fileName: name, contentType: checked.contentType };
   }
+}
+
+function uploadAlreadyCompleted(): WorkspaceError {
+  return new WorkspaceError('UPLOAD_ALREADY_COMPLETED', 'Tệp của phiên bản này đã được xác nhận tải lên.', 409);
 }
 
 function parseStatus(value: unknown): DocumentStatus | undefined {

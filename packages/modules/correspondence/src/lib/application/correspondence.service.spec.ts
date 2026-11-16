@@ -459,6 +459,8 @@ function fakeFiles() {
   const trashed: string[] = [];
   const folderUpdates: { folderId: string; docNumber?: string }[] = [];
   const state = { missingFolder: false };
+  /** Dung lượng object trên kho giả theo versionId: đúng số khai lúc xin URL (URL đã ghim dung lượng). */
+  const storedSizes = new Map<string, number>();
   const files: FileStore = {
     create: async (_tenant, input) => {
       if (input.folderId && state.missingFolder) {
@@ -466,6 +468,7 @@ function fakeFiles() {
         throw new FileStoreMissingError();
       }
       created.push(input);
+      storedSizes.set(`version-${created.length}`, input.sizeBytes);
       return {
         folderId: input.folderId ?? `folder-${created.length}`,
         documentId: `doc-${created.length}`,
@@ -476,9 +479,10 @@ function fakeFiles() {
     },
     addVersion: async (_tenant, documentId, input) => {
       versions.push({ documentId, fileName: input.fileName });
+      storedSizes.set(`${documentId}-v${versions.length + 1}`, input.sizeBytes);
       return { versionId: `${documentId}-v${versions.length + 1}`, versionNo: versions.length + 1, uploadUrl: 'https://files.example/v', expiresInSeconds: 300 };
     },
-    complete: async () => undefined,
+    complete: async (_tenant, _documentId, versionId) => storedSizes.get(versionId) ?? 0,
     download: async (_tenant, documentId) => ({
       downloadUrl: `https://files.example/download/${documentId}`,
       expiresInSeconds: 300,
@@ -1740,6 +1744,16 @@ describe('Tệp kèm: lưu ở Hệ dùng chung, có phiên bản', () => {
     await service.completeAttachment(clerk, letter.id, ticket.attachment.id, 1);
     await expect(service.download(clerk, letter.id, ticket.attachment.id, 'preview')).resolves.toMatchObject({ contentType: 'application/pdf' });
     await expect(service.download(outsider, letter.id, ticket.attachment.id, 'preview')).rejects.toBeInstanceOf(LetterNotFoundError);
+  });
+
+  it('báo xong ghi dung lượng thật từ kho, bỏ qua số client gửi (ISS-BE-016)', async () => {
+    const { service } = setup();
+    const letter = await service.create(clerk, intake);
+    const ticket = await service.createAttachment(clerk, letter.id, { kind: 'incoming', fileName: 'scan.pdf', contentType: 'application/pdf', sizeBytes: 2048 });
+    const done = await service.completeAttachment(clerk, letter.id, ticket.attachment.id, 1);
+    expect(done.sizeBytes).toBe(2048);
+    const detail = await service.detail(clerk, letter.id);
+    expect(detail.attachments[0]).toMatchObject({ sizeBytes: 2048 });
   });
 });
 

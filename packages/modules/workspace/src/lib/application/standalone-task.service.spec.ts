@@ -595,13 +595,39 @@ describe('StandaloneTaskService theo quy trình', () => {
       procedureDefinitionId: '66666666-6666-4666-8666-666666666666',
     });
     expect(detail.task.executionType).toBe('procedure');
-    expect(created.at(-1)?.requester).toEqual({ displayName: BOSS, isTenantAdmin: true });
+    expect(created.at(-1)?.requester).toEqual({
+      displayName: BOSS,
+      isTenantAdmin: true,
+      canCreateInstances: true,
+    });
+  });
+
+  it('người không giữ procedure.instance.create không tạo được việc "Theo quy trình" (ISS-BE-061)', async () => {
+    const { store, created } = makeStore();
+    const service = new StandaloneTaskService(store, makeDirectory());
+    const before = created.length;
+    await expect(
+      service.create(actor(BOSS), {
+        title: 'Mua vật tư',
+        assigneeUserId: DOER,
+        executionType: 'procedure',
+        procedureDefinitionId: '66666666-6666-4666-8666-666666666666',
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: 'PROCEDURE_START_FORBIDDEN' });
+    expect(created).toHaveLength(before);
+    await service.create({ ...actor(BOSS), canStartProcedures: true }, {
+      title: 'Mua vật tư',
+      assigneeUserId: DOER,
+      executionType: 'procedure',
+      procedureDefinitionId: '66666666-6666-4666-8666-666666666666',
+    });
+    expect(created.at(-1)?.requester).toMatchObject({ isTenantAdmin: false, canCreateInstances: true });
   });
 
   it('hồ sơ còn chạy: người thực hiện không gửi duyệt bằng tay', async () => {
     const { store } = makeStore();
     const service = new StandaloneTaskService(store, makeDirectory());
-    const detail = await service.create(actor(BOSS), {
+    const detail = await service.create({ ...actor(BOSS), canStartProcedures: true }, {
       title: 'Mua vật tư',
       assigneeUserId: DOER,
       executionType: 'procedure',

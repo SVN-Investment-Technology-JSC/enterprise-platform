@@ -46,6 +46,24 @@ export class ProjectForbiddenError extends WorkspaceError {
   }
 }
 
+/** Người gọi không có quyền `procedure.instance.create` nên không mở được hồ sơ quy trình từ công việc. */
+export class ProcedureStartForbiddenError extends WorkspaceError {
+  constructor() {
+    super(
+      'PROCEDURE_START_FORBIDDEN',
+      'Bạn không có quyền khởi tạo hồ sơ quy trình nên không chọn "Theo quy trình" được.',
+      403,
+    );
+  }
+}
+
+/** Người gọi không có quyền `workspace.project.create` (Tạo dự án mới). */
+export class ProjectCreateForbiddenError extends WorkspaceError {
+  constructor() {
+    super('PROJECT_CREATE_FORBIDDEN', 'Bạn không có quyền tạo dự án mới.', 403);
+  }
+}
+
 /** Thiếu trường bắt buộc, sai định dạng, hoặc vượt giới hạn độ dài. */
 export class WorkspaceValidationError extends WorkspaceError {
   constructor(message: string) {

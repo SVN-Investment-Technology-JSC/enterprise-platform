@@ -90,6 +90,11 @@ import {
   firebaseAdminSender,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
+import {
+  IDENTITY_INTEGRATION_BINDINGS,
+  IDENTITY_INTEGRATION_QUEUE,
+  receiveEmployeeOffboarded,
+} from '@enterprise-platform/platform-identity/offboarding';
 import type { Pool } from 'pg';
 
 try {
@@ -195,6 +200,11 @@ const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
   { queue: 'procedure.integrations.v1', bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES, ...PROCEDURE_FINANCE_EVENT_TYPES] },
+);
+// Core nhận sự kiện nghỉ việc của HRM: vô hiệu tài khoản, đóng bổ nhiệm, thu hồi phiên (ISS-BE-020). HRM không ghi core_schema.
+const identityConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: IDENTITY_INTEGRATION_QUEUE, bindings: [...IDENTITY_INTEGRATION_BINDINGS] },
 );
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
@@ -353,6 +363,30 @@ void procedureConsumer
   .catch((error) =>
     console.error(
       'Procedure consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+
+void identityConsumer
+  .start(async (event) => {
+    const database = await activeTenantDatabase(event.tenantId);
+    if (!database) return;
+    // Tài khoản là của Core nên không kiểm phân hệ; inbox (consumer = tên hàng đợi) chống xử lý trùng.
+    const outcome = await withActiveTenant(
+      platformPool,
+      event.tenantId,
+      async () => {
+        const tenantPool = await tenantPools.forTenant(database);
+        await receiveEmployeeOffboarded({ tenantPool, platformPool, logger: console }, event);
+      },
+      { mode: 'shared' },
+    );
+    if (!outcome.executed && outcome.reason === 'busy')
+      throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+  })
+  .catch((error) =>
+    console.error(
+      'Identity consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -901,6 +935,7 @@ async function shutdown() {
     chatPushConsumer.close(),
     fcmPushConsumer.close(),
     procedureConsumer.close(),
+    identityConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),
   ]);

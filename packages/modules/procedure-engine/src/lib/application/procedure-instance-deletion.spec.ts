@@ -2,6 +2,7 @@ import type { CreateProcedureDefinitionRequest } from '@enterprise-platform/cont
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import {
   INSTANCE_DELETED_EVENT,
+  WORKSPACE_LINK_REQUESTED_EVENT,
   WORKSPACE_RELINK_REQUESTED_EVENT,
   workspaceLinkEvents,
 } from '../domain/procedure-workspace-link.js';
@@ -237,5 +238,76 @@ describe('Người submit xoá đơn', () => {
     await application.applyAction(initiator, instanceId, { action: 'complete', idempotencyKey: 's1' });
     await application.deleteInstance(initiator, instanceId, { reason: 'Nhập nhầm' });
     await expect(application.getInstance(initiator, instanceId)).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+describe('Cờ quản trị tenant gửi sang Workspace là vai trò thật, không phải quyền can thiệp hồ sơ (ISS-BE-024)', () => {
+  /** Ban lãnh đạo: có `procedure.instance.override` nhưng không phải quản trị tenant. */
+  const overrideOnly: ProcedureActor = { ...person('bld'), isOverride: true, isTenantAdmin: false };
+  const tenantAdmin: ProcedureActor = { ...person('qtv'), isOverride: true, isTenantAdmin: true };
+
+  async function linkedFor(starter: ProcedureActor) {
+    const store = new InMemoryProcedureStore();
+    let id = 0;
+    const application = new ProcedureEngineApplication(
+      store,
+      { now: () => new Date('2026-11-15T08:00:00.000Z') },
+      { next: () => `id-${(id += 1).toString().padStart(4, '0')}` },
+    );
+    const draft = await application.createDefinition(admin, definitionInput());
+    const published = await application.publishDefinition(admin, draft.id);
+    const before = (await store.read('tenant-a')).instances;
+    const started = await application.startInstance(starter, {
+      definitionId: published.id,
+      title: 'Đề nghị mua cáp',
+      idempotencyKey: `start-${starter.userId}`,
+      workspaceLink: { projectId: PROJECT_A, projectCode: 'EVN', workItem: {} },
+    });
+    const after = (await store.read('tenant-a')).instances;
+    return { application, store, started, events: workspaceLinkEvents(before, after) };
+  }
+
+  it('người chỉ có quyền can thiệp hồ sơ mở hồ sơ gắn dự án: gửi requestedByIsTenantAdmin=false (SEC-BE024-01)', async () => {
+    const { started, events } = await linkedFor(overrideOnly);
+    expect(started.workspaceLink?.requestedByIsTenantAdmin).toBe(false);
+    expect(events.find((event) => event.type === WORKSPACE_LINK_REQUESTED_EVENT)?.payload).toMatchObject({
+      requestedBy: 'bld',
+      requestedByIsTenantAdmin: false,
+    });
+  });
+
+  it('quản trị tenant thật gửi true', async () => {
+    const { started } = await linkedFor(tenantAdmin);
+    expect(started.workspaceLink?.requestedByIsTenantAdmin).toBe(true);
+  });
+
+  it('đổi công việc liên kết và xoá hồ sơ bởi người chỉ có quyền can thiệp: không mang cờ quản trị tenant', async () => {
+    const { application, store, started } = await linkedFor(overrideOnly);
+    await application.applyWorkspaceLinkResult('tenant-a', {
+      instanceId: started.id,
+      linked: { workItemId: 'wi-old', workItemCode: 'CV001', projectCode: 'EVN' },
+    });
+    let before = (await store.read('tenant-a')).instances;
+    await application.relinkWorkspace(overrideOnly, started.id, { projectId: PROJECT_B, projectCode: 'HN' });
+    let after = (await store.read('tenant-a')).instances;
+    const relink = workspaceLinkEvents(before, after).find((event) => event.type === WORKSPACE_RELINK_REQUESTED_EVENT);
+    expect(relink?.payload).toMatchObject({ requestedByIsTenantAdmin: false });
+
+    await application.applyWorkspaceLinkResult('tenant-a', { instanceId: started.id, rejected: 'Từ chối' });
+    before = (await store.read('tenant-a')).instances;
+    await application.deleteInstance(overrideOnly, started.id, { reason: 'Sai dự án' });
+    after = (await store.read('tenant-a')).instances;
+    const deleted = workspaceLinkEvents(before, after).find((event) => event.type === INSTANCE_DELETED_EVENT);
+    expect(deleted?.payload).toMatchObject({ deletedBy: 'bld' });
+    expect(deleted?.payload).not.toHaveProperty('deletedByIsTenantAdmin');
+  });
+
+  it('quản trị tenant thật xoá hồ sơ: sự kiện mang deletedByIsTenantAdmin', async () => {
+    const { application, store, started } = await linkedFor(tenantAdmin);
+    const before = (await store.read('tenant-a')).instances;
+    await application.deleteInstance(tenantAdmin, started.id, { reason: 'Sai dự án' });
+    const after = (await store.read('tenant-a')).instances;
+    const deleted = workspaceLinkEvents(before, after).find((event) => event.type === INSTANCE_DELETED_EVENT);
+    expect(deleted?.payload).toMatchObject({ deletedBy: 'qtv', deletedByIsTenantAdmin: true });
   });
 });

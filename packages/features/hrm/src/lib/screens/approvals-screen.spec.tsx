@@ -428,6 +428,21 @@ describe('ApprovalsScreen: ý kiến khi duyệt và từ chối', () => {
     await screen.findByText(/Không có đơn nào khớp bộ lọc/);
     expect(screen.queryByRole('button', { name: /Từ chối/ })).toBeNull();
   });
+
+  // SEC-UI022-02: chỉ có quyền xem đơn thì không thấy nút duyệt hàng loạt; có quyền duyệt thì thấy.
+  it('chỉ có quyền xem đơn thì ẩn nút "Duyệt đã chọn"; có quyền duyệt thì hiện', async () => {
+    mockActions = ['hrm.request.read'];
+    setup({ lists: {} });
+    const { unmount } = render(<ApprovalsScreen />);
+    await screen.findByText(/Không có đơn nào khớp bộ lọc/);
+    expect(screen.queryByRole('button', { name: /Duyệt đã chọn/ })).toBeNull();
+    unmount();
+
+    mockActions = ['hrm.request.approve'];
+    setup({ lists: {} });
+    render(<ApprovalsScreen />);
+    expect(await screen.findByRole('button', { name: /Duyệt đã chọn/ })).toBeTruthy();
+  });
 });
 
 describe('ApprovalsScreen: trao đổi trên đơn', () => {

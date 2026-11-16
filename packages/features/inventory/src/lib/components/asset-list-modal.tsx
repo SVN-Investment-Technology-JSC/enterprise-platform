@@ -3,6 +3,7 @@
 import type { Asset, AssetCriticality, AssetStatus, AssetType, InstalledMaterial, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { useMemo, useState, useEffect } from 'react';
 import { Search, X, Check, Trash2 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   ASSET_TYPE_LABEL,
   ASSET_STATUS_LABEL,
@@ -10,6 +11,8 @@ import {
 } from '../inventory-labels';
 import { BulkReturnToStockDialog, type BulkReturnItemEntry } from './bulk-return-dialog';
 import styles from '../inventory.module.scss';
+
+const PAGE_SIZE_OPTIONS = [15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }));
 
 export interface AssetListModalProps {
   assets: readonly Asset[];
@@ -294,79 +297,62 @@ export function AssetListModal({
           {/* Bộ lọc dropdowns */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Loại thiết bị */}
-            <select
-              value={typeFilter}
-              onChange={(e) => {
-                setTypeFilter(e.target.value);
-                setPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả phân loại</option>
-              {(Object.keys(ASSET_TYPE_LABEL) as AssetType[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_TYPE_LABEL[k]}
-                </option>
-              ))}
-            </select>
+            <div style={{ width: '180px' }}>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả phân loại' },
+                  ...(Object.keys(ASSET_TYPE_LABEL) as AssetType[]).map((k) => ({ value: k, label: ASSET_TYPE_LABEL[k] })),
+                ]}
+                value={typeFilter}
+                onChange={(value) => {
+                  setTypeFilter(value || 'all');
+                  setPage(1);
+                }}
+                clearable={false}
+                searchInDropdown
+                height={32}
+              />
+            </div>
 
             {/* Tình trạng vận hành */}
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả tình trạng</option>
-              {(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_STATUS_LABEL[k]}
-                </option>
-              ))}
-            </select>
+            <div style={{ width: '180px' }}>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả tình trạng' },
+                  ...(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).map((k) => ({ value: k, label: ASSET_STATUS_LABEL[k] })),
+                ]}
+                value={statusFilter}
+                onChange={(value) => {
+                  setStatusFilter(value || 'all');
+                  setPage(1);
+                }}
+                clearable={false}
+                searchInDropdown
+                height={32}
+              />
+            </div>
 
             {/* Mức độ quan trọng */}
-            <select
-              value={criticalityFilter}
-              onChange={(e) => {
-                setCriticalityFilter(e.target.value);
-                setPage(1);
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả mức độ</option>
-              {(Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_CRITICALITY_LABEL[k]}
-                </option>
-              ))}
-            </select>
+            <div style={{ width: '160px' }}>
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'Tất cả mức độ' },
+                  ...(Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((k) => ({
+                    value: k,
+                    label: ASSET_CRITICALITY_LABEL[k],
+                  })),
+                ]}
+                value={criticalityFilter}
+                onChange={(value) => {
+                  setCriticalityFilter(value || 'all');
+                  setPage(1);
+                }}
+                clearable={false}
+                searchInDropdown
+                hideDropdownSearch
+                height={32}
+              />
+            </div>
 
             {isFiltered ? (
               <button
@@ -834,28 +820,19 @@ export function AssetListModal({
 
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
               <span>Hiển thị:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value) || 15);
+              <SearchableSelect
+                options={PAGE_SIZE_OPTIONS}
+                value={String(pageSize)}
+                onChange={(value) => {
+                  setPageSize(Number(value) || 15);
                   setPage(1);
                 }}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  color: '#0f172a',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
+                clearable={false}
+                searchInDropdown
+                hideDropdownSearch
+                height={28}
+                style={{ width: '120px' }}
+              />
             </label>
           </div>
 

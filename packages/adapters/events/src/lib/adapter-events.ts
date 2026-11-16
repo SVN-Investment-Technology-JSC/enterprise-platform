@@ -1,6 +1,6 @@
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import amqp, { type Channel, type ConfirmChannel, type ChannelModel, type ConsumeMessage } from 'amqplib';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 const EXCHANGE = 'enterprise.events';
 const DEAD_LETTER_EXCHANGE = 'enterprise.events.dlx';
@@ -135,10 +135,11 @@ export const OUTBOX_MAX_ATTEMPTS = 10;
 /**
  * Sự kiện do consumer nội bộ đọc thẳng từ outbox của tenant (org-hrm-bridge) và tự đánh dấu đã xử lý;
  * relay không được phát/đánh dấu chúng để tránh tranh chấp làm mất đồng bộ.
+ * `hrm.employee.offboarded` không còn ở đây (ISS-BE-020): relay phát lên RabbitMQ, Core nhận ở
+ * hàng đợi `identity.integrations.v1`. `core.org.assignment.created` cũng không còn ở đây: Core tự gắn `employee_id`
+ * cho bổ nhiệm bằng trigger (tenant/core/0021), org-hrm-bridge không cần đọc nó nữa.
  */
 export const OUTBOX_INTERNALLY_CONSUMED_TYPES: readonly string[] = [
-  'hrm.employee.offboarded',
-  'core.org.assignment.created',
   'core.org.assignment.ended',
   'core.org.position.deleted',
 ];
@@ -227,7 +228,11 @@ export class TransactionalOutboxRelay {
 export class IdempotentInbox {
   constructor(private readonly pool: Pool, private readonly consumer: string) {}
 
-  async process(event: IntegrationEventEnvelope, handler: () => Promise<void>): Promise<boolean> {
+  /**
+   * Ghi `event.id` vào inbox rồi chạy handler trong CÙNG transaction. Handler nhận client của transaction đó: ghi qua
+   * client thì thay đổi dữ liệu và dòng inbox cùng thành công hoặc cùng huỷ. Nhận trùng thì trả false, không chạy.
+   */
+  async process(event: IntegrationEventEnvelope, handler: (client: PoolClient) => Promise<void>): Promise<boolean> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -237,7 +242,7 @@ export class IdempotentInbox {
         [this.consumer, event.id],
       );
       if (inserted.rowCount === 0) { await client.query('ROLLBACK'); return false; }
-      await handler();
+      await handler(client);
       await client.query('COMMIT');
       return true;
     } catch (error) {

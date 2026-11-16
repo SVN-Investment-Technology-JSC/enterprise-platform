@@ -10,6 +10,7 @@ import { CloseGuard, Popconfirm, SearchableSelect, VnNumberInput } from '@enterp
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
+import { useInventoryPermissions } from '../inventory-permissions';
 import styles from '../inventory.module.scss';
 import { useUserLabel } from '../user-names';
 import {
@@ -129,6 +130,8 @@ export function TradeItemDrawer({
   onClose: () => void;
 }) {
   const userName = useUserLabel();
+  // Không có quyền xem giá thì API không trả giá bán: ẩn ô thay vì hiện "chưa khai".
+  const { canReadCost } = useInventoryPermissions();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => draftOf(item));
@@ -379,7 +382,7 @@ export function TradeItemDrawer({
                 ) : (
                   <DrawerField label="Sử dụng">{usageLabel(item.tradeMode)}</DrawerField>
                 )}
-                {editing ? (
+                {!canReadCost ? null : editing ? (
                   <EditField label="Giá bán (VND)" htmlFor="trade-edit-price">
                     <VnNumberInput
                       id="trade-edit-price"

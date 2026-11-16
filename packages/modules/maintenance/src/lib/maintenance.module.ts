@@ -85,7 +85,12 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
         new MaintenanceApplication(store, new HttpAssetDirectory(), new FleetTransportService(store, reader)),
       inject: [MAINTENANCE_STORE, FLEET_AVAILABILITY_READER],
     },
-    OccurrenceAttachmentService,
+    {
+      provide: OccurrenceAttachmentService,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new OccurrenceAttachmentService(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
     MaintenanceScheduler,
   ],
   exports: [MaintenanceApplication, OccurrenceAttachmentService, TenantDatabaseRegistry, PostgresPoolRegistry],

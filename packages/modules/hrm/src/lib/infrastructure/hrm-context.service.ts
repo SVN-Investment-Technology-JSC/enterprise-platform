@@ -1,7 +1,9 @@
 import { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
-import type {
-  AuthenticatedPrincipal,
-  HrmAction,
+import {
+  type AuthenticatedPrincipal,
+  type HrmAction,
+  expandTenantActions,
+  tenantActionHeld,
 } from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
@@ -14,7 +16,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { verifyServiceToken } from '@enterprise-platform/platform-module-access';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Pool } from 'pg';
 import { isProcedureReachable } from './hrm-procedure-api.js';
@@ -29,6 +31,16 @@ export class HrmContextService {
   );
 
   private proxyService?: HrmRequestProxyService;
+
+  /**
+   * Quyết định đã được Platform cho phép trong request hiện tại (guard và handler dùng chung một request).
+   * Lần kiểm sau cùng phiên với quyền mà principal đã có thì trả ngay, không hỏi Platform lần nữa; quyền chưa có
+   * thì vẫn hỏi Platform (nguồn quyết định duy nhất cho mọi lần từ chối).
+   */
+  private readonly decisions = new WeakMap<
+    Request,
+    { token: string; principal: AuthenticatedPrincipal; tenantId: string; pool: Pool }
+  >();
 
   constructor(
     private readonly identity: PlatformIdentityService,
@@ -173,15 +185,7 @@ export class HrmContextService {
    * khi chưa cấu hình `INTERNAL_SERVICE_TOKEN`.
    */
   async serviceContext(request: Request): Promise<{ tenantId: string; pool: Pool }> {
-    const expected = process.env.INTERNAL_SERVICE_TOKEN;
-    const header = request.headers['x-service-token'];
-    const presented = Array.isArray(header) ? header[0] : header;
-    if (
-      !expected ||
-      !presented ||
-      presented.length !== expected.length ||
-      !timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
-    )
+    if (!verifyServiceToken(request.headers['x-service-token']))
       throw new UnauthorizedException({
         code: 'SERVICE_IDENTITY_INVALID',
         message: 'Service identity không hợp lệ.',
@@ -232,12 +236,10 @@ export class HrmContextService {
     return value;
   }
 
+  /** Có quyền `permission` không, kể cả quyền được bao hàm (`hrm.manage`, `*.manage` kéo theo `*.read`...). */
   has(context: { principal: AuthenticatedPrincipal }, permission: HrmAction) {
-    return (
-      context.principal.permissions?.includes(permission) ||
-      context.principal.permissions?.includes('tenant.manage') ||
-      context.principal.permissions?.includes('hrm.manage')
-    );
+    const held = expandTenantActions(context.principal.permissions ?? []);
+    return held.includes('tenant.manage') || tenantActionHeld(held, permission);
   }
 
   /**
@@ -349,6 +351,15 @@ export class HrmContextService {
       });
     }
 
+    const cached = this.decisions.get(request);
+    if (
+      cached &&
+      cached.token === token &&
+      (requiredPermission === 'module.access' ||
+        cached.principal.permissions?.includes(requiredPermission))
+    )
+      return { principal: cached.principal, tenantId: cached.tenantId, pool: cached.pool };
+
     let principal: AuthenticatedPrincipal;
     try {
       const { payload } = await jwtVerify(token, this.jwks, {
@@ -382,18 +393,22 @@ export class HrmContextService {
     if (!decision.allowed || !decision.database) {
       throw new ForbiddenException({
         code: decision.code ?? 'PERMISSION_DENIED',
-        message: 'You do not have required permissions or entitlement for HRM',
+        message: 'Bạn không có quyền dùng chức năng này của phân hệ Nhân sự.',
       });
     }
 
     const pool = (await this.pools.forTenant(
       decision.database,
     )) as unknown as Pool;
-    return {
+    const result = {
       principal: decision.principal ?? principal,
       tenantId: principal.tenantId,
       pool,
     };
+    // Chỉ giữ khi Platform trả principal kèm quyền hiệu lực; không có thì lần sau vẫn hỏi lại.
+    if (decision.principal?.permissions)
+      this.decisions.set(request, { token, ...result });
+    return result;
   }
 
   async getPoolForTenant(tenantId: string): Promise<Pool> {

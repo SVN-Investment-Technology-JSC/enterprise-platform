@@ -40,7 +40,7 @@ import {
 import { loadProgressReportSettings } from './progress-report-settings.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
-import type { WorkspaceActor } from './workspace.application.js';
+import { canStartProcedures, requireProcedureStart, type WorkspaceActor } from './workspace.application.js';
 import { WorkspaceLabelService } from './workspace-label.service.js';
 import type {
   StandaloneTaskCreateModel,
@@ -177,6 +177,7 @@ export class StandaloneTaskService {
       executionType === 'procedure'
         ? requireUuid(input.procedureDefinitionId, 'Quy trình')
         : null;
+    if (procedureDefinitionId) requireProcedureStart(actor);
 
     const model: StandaloneTaskCreateModel = {
       title: requireText(input.title, 'Tên công việc', 200),
@@ -191,7 +192,11 @@ export class StandaloneTaskService {
       executionType,
       procedureDefinitionId,
       adjustmentOfId,
-      requester: { displayName: actor.displayName, isTenantAdmin: actor.isTenantAdmin },
+      requester: {
+        displayName: actor.displayName,
+        isTenantAdmin: actor.isTenantAdmin,
+        canCreateInstances: canStartProcedures(actor),
+      },
     };
     await this.requireKnownPeople(actor, [assigneeUserId, ...participantUserIds, ...followerUserIds]);
 

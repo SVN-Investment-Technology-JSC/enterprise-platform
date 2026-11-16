@@ -303,6 +303,7 @@ function ApprovalsContent() {
   const detail = useMemo(() => rows.find((r) => r.key === detailKey) ?? null, [rows, detailKey]);
 
   const hasProcedure = (r: Row) => Boolean(r.link) || Boolean(procedureFieldsOf(r).syncStatus || procedureFieldsOf(r).instanceId);
+  const canApproveAny = availableSources.some((s) => permissions.can(s.permission));
   const eligible = (r: Row) => permissions.can(r.source.permission) && isPendingStatus(r.status) && !hasProcedure(r);
   const procedureActionable = (r: Row) =>
     permissions.can(r.source.permission) &&
@@ -567,12 +568,15 @@ function ApprovalsContent() {
                 </button>
               )}
             </div>
-            <Popconfirm title={`Duyệt ${selected.length} đơn đã chọn?`} description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng." onConfirm={batch}>
-              <Button disabled={busy || !selected.length} className="h-8 gap-1.5 border-0 bg-emerald-600 text-xs text-white hover:bg-emerald-700">
-                <CheckCircle2 className="size-3.5" />
-                Duyệt đã chọn ({selected.length})
-              </Button>
-            </Popconfirm>
+            {/* Chỉ có quyền xem đơn (không có quyền duyệt loại nào) thì ẩn nút duyệt hàng loạt. */}
+            {canApproveAny && (
+              <Popconfirm title={`Duyệt ${selected.length} đơn đã chọn?`} description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng." onConfirm={batch}>
+                <Button disabled={busy || !selected.length} className="h-8 gap-1.5 border-0 bg-emerald-600 text-xs text-white hover:bg-emerald-700">
+                  <CheckCircle2 className="size-3.5" />
+                  Duyệt đã chọn ({selected.length})
+                </Button>
+              </Popconfirm>
+            )}
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">

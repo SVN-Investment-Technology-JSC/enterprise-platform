@@ -279,7 +279,9 @@ integration('Workspace: điều kiện hoàn thành công việc (PostgreSQL)', 
   });
 
   it('tạo dự án kèm công việc tạo sẵn: đúng thứ tự, mã tăng dần, cấp gốc, chưa giao ai', async () => {
-    const result = await createProjectWithInitialTasks(new ProjectService(store), service, actor, {
+    // Tạo dự án cần quyền workspace.project.create (ISS-BE-014).
+    const creator: WorkspaceActor = { ...actor, canCreateProject: true };
+    const result = await createProjectWithInitialTasks(new ProjectService(store), service, creator, {
       code: 'QA-MAU',
       name: 'Dự án có mẫu',
       initialTasks: ['Hợp đồng', 'Triển khai', 'Chi phí thực hiện', 'Nghiệm thu hoàn thành'],
@@ -296,7 +298,7 @@ integration('Workspace: điều kiện hoàn thành công việc (PostgreSQL)', 
     expect(items.every((entry) => !entry.parentId && !entry.assigneeUserId && entry.status === 'todo')).toBe(true);
     expect(items.map((entry) => entry.sortOrder)).toEqual([...items.map((entry) => entry.sortOrder)].sort((a, b) => a - b));
 
-    const empty = await createProjectWithInitialTasks(new ProjectService(store), service, actor, {
+    const empty = await createProjectWithInitialTasks(new ProjectService(store), service, creator, {
       code: 'QA-TRONG',
       name: 'Dự án trống',
       initialTasks: [],

@@ -29,7 +29,11 @@ export default async function EnterpriseApplicationsPage() {
       return (
         <EnterpriseApplications
           canRequestActivation={canRequestActivation}
-          initialError={`Không thể tải danh sách ứng dụng (HTTP ${catalogResponse.status}).`}
+          initialError={
+            catalogResponse.status === 403
+              ? 'Bạn chưa được cấp quyền xem danh sách ứng dụng. Liên hệ quản trị để được cấp quyền.'
+              : 'Không thể tải danh sách ứng dụng. Vui lòng thử tải lại trang.'
+          }
           initialModules={[]}
         />
       );

@@ -7,6 +7,15 @@
  */
 
 let inFlightRefresh: Promise<boolean> | undefined;
+let refreshSuspended = false;
+
+/**
+ * Tab bị bỏ không quá thời gian chờ: ngừng mọi lần làm mới phiên ngầm, kể cả khi request nền (thông báo, realtime)
+ * gặp 401. Không có chặn này thì các request nền giữ phiên sống mãi. Xem `startSessionKeepAlive`.
+ */
+export function setSessionRefreshSuspended(suspended: boolean): void {
+  refreshSuspended = suspended;
+}
 
 /** Cookie (không httpOnly) do máy chủ ghi cùng access token: thời điểm hết hạn, tính bằng epoch ms. */
 const ACCESS_EXPIRY_COOKIE = 'ep_access_exp';
@@ -47,6 +56,7 @@ export function getCsrfToken(): string | undefined {
  * Concurrent callers share the same in-flight promise to avoid multiple simultaneous refresh requests.
  */
 export function refreshSession(): Promise<boolean> {
+  if (refreshSuspended) return Promise.resolve(false);
   if (inFlightRefresh) return inFlightRefresh;
 
   inFlightRefresh = withRefreshLock(async () => {

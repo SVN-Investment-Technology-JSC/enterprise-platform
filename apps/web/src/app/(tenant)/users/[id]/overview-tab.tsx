@@ -1,6 +1,12 @@
 'use client';
 
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT,
+  passwordPolicyViolation,
+} from '@enterprise-platform/contracts-identity';
 import { toast } from '@/components/ui/sonner';
 import { useUpdateUserMutation } from '@/store/tenant-api';
 import { errorMessage } from '../../authorization/user-permission-grants-dialog';
@@ -22,19 +28,19 @@ const BTN_PRIMARY = `${BTN} bg-[#ffc90a] font-bold text-[#18181b] hover:bg-[#ffd
 const BTN_SECONDARY = `${BTN} border border-[#e5e7eb] bg-white text-slate-700 hover:bg-[#f4f6f9]`;
 const TITLE = 'm-0 text-[15px] font-bold text-[#18181b]';
 
-const MIN_PASSWORD = 6;
-const MAX_PASSWORD = 128;
-
 /** Tab "Tổng quan": thông tin tài khoản sửa tại chỗ, đặt lại mật khẩu và thông tin phụ. */
 export function OverviewTab({
   user,
   tenantSlug,
   canEdit,
+  canChangeCredentials,
   canReadOrganization,
 }: {
   readonly user: TenantCoreUser;
   readonly tenantSlug: string;
   readonly canEdit: boolean;
+  /** Chỉ quản trị tenant được đổi mật khẩu, email của người dùng (ISS-BE-002); máy chủ vẫn kiểm lại. */
+  readonly canChangeCredentials: boolean;
   readonly canReadOrganization: boolean;
 }) {
   const [updateUser, { isLoading: saving }] = useUpdateUserMutation();
@@ -48,11 +54,13 @@ export function OverviewTab({
   const fullName = draft.fullName ?? user.fullName;
   const emailLocal = draft.email ?? savedLocal;
   const nameChanged = fullName.trim() !== user.fullName;
-  const emailChanged = emailLocal !== savedLocal;
+  const canEditEmail = canEdit && canChangeCredentials;
+  const emailChanged = canEditEmail && emailLocal !== savedLocal;
   const dirty = nameChanged || emailChanged;
   const valid = fullName.trim().length > 0 && emailLocal.length > 0;
-  const passwordValid =
-    password.length >= MIN_PASSWORD && password.length <= MAX_PASSWORD;
+  // Cùng chính sách với server (ISS-BE-052); server vẫn kiểm lại.
+  const passwordViolation = password ? passwordPolicyViolation(password) : undefined;
+  const passwordValid = password.length > 0 && !passwordViolation;
 
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
@@ -121,7 +129,7 @@ export function OverviewTab({
                     id={emailId}
                     required
                     autoComplete="username"
-                    readOnly={!canEdit}
+                    readOnly={!canEditEmail}
                     className="h-9 min-w-0 flex-1 bg-white px-2.5 text-[14px] outline-none read-only:bg-[#f6f7f9] read-only:text-slate-600"
                     value={emailLocal}
                     onChange={(e) =>
@@ -135,6 +143,11 @@ export function OverviewTab({
                     @{tenantSlug}.com
                   </span>
                 </span>
+                {canEdit && !canChangeCredentials ? (
+                  <span className="text-[12px] text-slate-500">
+                    Chỉ quản trị tenant được đổi email.
+                  </span>
+                ) : null}
               </div>
               <div className="flex flex-col gap-1">
                 <span className={LABEL}>Trạng thái</span>
@@ -200,7 +213,7 @@ export function OverviewTab({
             </Row>
           </dl>
         </UserCard>
-        {canEdit ? (
+        {canEdit && canChangeCredentials ? (
           <UserCard aria-label="Đặt lại mật khẩu" className="p-4 sm:p-5">
             <h2 className={`${TITLE} mb-1`}>Đặt lại mật khẩu</h2>
             <p className="m-0 mb-3.5 text-[13px] text-slate-500">
@@ -215,8 +228,9 @@ export function OverviewTab({
                   id={passwordId}
                   type="password"
                   autoComplete="new-password"
-                  minLength={MIN_PASSWORD}
-                  maxLength={MAX_PASSWORD}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  aria-invalid={passwordViolation ? true : undefined}
                   className={`${FIELD} min-w-0 flex-[1_1_220px]`}
                   value={password}
                   disabled={saving}
@@ -231,8 +245,10 @@ export function OverviewTab({
                   Đặt lại
                 </button>
               </div>
-              <span className="text-[12px] text-slate-500">
-                Từ {MIN_PASSWORD} đến {MAX_PASSWORD} ký tự.
+              <span
+                className={`text-[12px] ${passwordViolation ? 'text-red-700' : 'text-slate-500'}`}
+              >
+                {passwordViolation ?? PASSWORD_POLICY_HINT}
               </span>
             </form>
           </UserCard>

@@ -19,6 +19,7 @@ import {
 } from '../inventory-api';
 import { MaterialHistory } from './material-history';
 import { exportCatalogToExcel } from '../inventory-export';
+import { useInventoryPermissions } from '../inventory-permissions';
 import type { MovementLineItem } from './movement-form';
 import {
   Search,
@@ -146,6 +147,7 @@ export function ItemCatalog({
     },
   ) => void;
 }) {
+  const { canReadCost } = useInventoryPermissions();
   /** Mã đang mở chi tiết. Một mã một lúc: mở hết thì bảng dài vô tận. */
   const [openCode, setOpenCode] = useState<string>();
   /** Lịch sử nạp theo yêu cầu: kéo hết mọi mã là hàng chục nghìn dòng cho một
@@ -475,6 +477,7 @@ export function ItemCatalog({
       installed,
       warehouses,
       warehouseFilter,
+      showCost: canReadCost,
     });
   };
 

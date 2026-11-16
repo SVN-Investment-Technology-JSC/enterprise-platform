@@ -187,8 +187,14 @@ export class ReceivableService {
       throw new CrmForbiddenError('Bạn không có quyền ghi nhận đợt thanh toán của hợp đồng.');
     }
     if (!isUuid(contractId) || !isUuid(termId)) throw new CrmNotFoundError('Không tìm thấy đợt thanh toán.');
-    const date = optionalDate(rawDate, 'ngày nghiệm thu') ?? this.today();
-    await this.store.triggerPaymentTerm(actor.tenantId, contractId, termId, date, actor.userId);
+    // Hợp đồng ngoài phạm vi dữ liệu của người gọi: như không có (ISS-BE-028).
+    const scope = await this.scopes.resolve(actor);
+    const contract = await this.store.contractValidity(actor.tenantId, scope, contractId.toLowerCase());
+    if (!contract) throw new CrmNotFoundError('Không tìm thấy hợp đồng.');
+    const today = this.today();
+    const date = optionalDate(rawDate, 'ngày nghiệm thu') ?? today;
+    assertTermRecognitionDate(date, contract.validFrom, today);
+    await this.store.triggerPaymentTerm(actor.tenantId, scope, contractId.toLowerCase(), termId.toLowerCase(), date, actor.userId);
   }
 
   async settings(actor: CrmActor): Promise<ReceivableSettings> {
@@ -219,6 +225,22 @@ export class ReceivableService {
       actor.userId,
     );
     return this.store.settings(actor.tenantId);
+  }
+}
+
+/**
+ * Ngày ghi nhận đợt thanh toán bằng tay phải nằm trong [ngày hiệu lực hợp đồng, hôm nay theo giờ Việt Nam]
+ * (chuỗi `YYYY-MM-DD` so sánh được theo thứ tự từ điển).
+ */
+export function assertTermRecognitionDate(date: string, validFrom: string, today: string): void {
+  if (date > today) {
+    throw new CrmValidationError('DATE_IN_FUTURE', 'Ngày ghi nhận đợt thanh toán không được sau ngày hôm nay.');
+  }
+  if (date < validFrom) {
+    throw new CrmValidationError(
+      'DATE_BEFORE_CONTRACT',
+      'Ngày ghi nhận đợt thanh toán không được trước ngày hiệu lực của hợp đồng.',
+    );
   }
 }
 

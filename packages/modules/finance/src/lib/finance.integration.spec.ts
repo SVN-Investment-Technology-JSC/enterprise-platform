@@ -386,11 +386,12 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       bankName: 'Vietcombank (VCB)',
       accountNumber: '0011000123456',
       openingBalance: before.openingBalance + 500_000,
+      reason: 'Đồng bộ số đầu kỳ từ MISA',
     });
     expect(changed.openingBalance).toBe(before.openingBalance + 500_000);
     expect(await balance(accountA)).toBe((before.balance as number) + 500_000);
     // Trả lại đúng số cũ để không ảnh hưởng các kiểm tra khác dùng accountA về sau.
-    await app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingBalance: before.openingBalance });
+    await app.saveAccount(admin2, accountA, { code: 'VCB-01', name: 'Vietcombank chính', accountType: 'BANK', bankName: 'Vietcombank (VCB)', accountNumber: '0011000123456', openingBalance: before.openingBalance, reason: 'Trả lại số cũ' });
     expect(await balance(accountA)).toBe(before.balance);
 
     await rejects(

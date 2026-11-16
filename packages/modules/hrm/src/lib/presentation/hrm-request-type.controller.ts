@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { PoolClient } from 'pg';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { assertLifecycleVersion } from '../infrastructure/hrm-lifecycle.js';
 import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
@@ -148,6 +149,7 @@ export class HrmRequestTypeController {
    * Loại đơn đang bật, theo thứ tự hiển thị: danh mục để người làm đơn chọn loại. `engine` lọc theo engine, ví dụ
    * `GENERIC` là các loại công ty tự tạo (Trợ lý liệt kê loại đơn của thao tác "Tạo đơn theo loại đơn của công ty").
    */
+  @RequirePermission('hrm.read')
   @Get('request-types')
   async list(@Req() req: Request, @Query('engine') engine?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -169,6 +171,7 @@ export class HrmRequestTypeController {
   }
 
   /** Quản trị: đủ loại (kể cả đã ngừng) kèm số đơn đã dùng. */
+  @RequirePermission(MANAGE_PERMISSION)
   @Get('request-types/manage')
   async listForManage(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, MANAGE_PERMISSION);
@@ -184,6 +187,7 @@ export class HrmRequestTypeController {
   }
 
   /** Tạo loại đơn mới (luôn engine GENERIC). */
+  @RequirePermission(MANAGE_PERMISSION)
   @Post('request-types')
   async create(@Req() req: Request, @Body() body: SaveRequestTypeRequest) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);
@@ -258,6 +262,7 @@ export class HrmRequestTypeController {
    * Sửa loại đơn. Loại hệ thống chỉ đổi tên, mô tả, thứ tự, biểu tượng, bật/tắt (loại Nghỉ phép luôn bật).
    * Loại tự tạo đổi thêm cách nhập thời gian, chứng từ, trường động. Không đổi mã và engine.
    */
+  @RequirePermission(MANAGE_PERMISSION)
   @Patch('request-types/:id')
   async update(@Req() req: Request, @Param('id') id: string, @Body() body: SaveRequestTypeRequest) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);
@@ -346,6 +351,7 @@ export class HrmRequestTypeController {
    * gỡ liên kết quy trình duyệt của loại; đơn đã tạo và engine xử lý giữ nguyên nên đơn cũ vẫn xem được. Còn hồ sơ
    * quy trình đang chạy của loại thì chưa xoá được. Loại hệ thống bị xoá không được tự tạo lại.
    */
+  @RequirePermission(MANAGE_PERMISSION)
   @Delete('request-types/:id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);

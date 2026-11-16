@@ -120,18 +120,36 @@ describe('Danh sách tài khoản', () => {
     expect(body).toMatchObject({ code: 'ACB-01', name: 'ACB chính', accountType: 'BANK', accountNumber: '123456', openingBalance: 5_000_000, allowNegative: true, isActive: true }); // mặc định cho phép âm
   });
 
-  it('tài khoản đã có bút toán: khoá số dư đầu kỳ và ngày bắt đầu, không gửi hai trường đó', async () => {
+  it('tài khoản đã có bút toán: không đổi số dư đầu kỳ thì không gửi số dư, ngày bắt đầu, không hỏi lý do', async () => {
     const { financePut } = jest.requireMock('../finance-api') as { financePut: jest.Mock };
     financePut.mockResolvedValue({});
     render(<AccountsScreen />);
     fireEvent.click(await screen.findByRole('button', { name: 'Sửa SAVINA - VCB' }));
     const dialog = await screen.findByRole('dialog');
-    expect((within(dialog).getByLabelText(/Số dư đầu kỳ/) as HTMLInputElement).disabled).toBe(true);
+    expect(within(dialog).queryByLabelText(/Lý do sửa số dư đầu kỳ/)).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật' }));
     await waitFor(() => expect(financePut).toHaveBeenCalledTimes(1));
     const [path, body] = financePut.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe('/accounts/a1');
     expect(body).not.toHaveProperty('openingBalance');
+    expect(body).not.toHaveProperty('openingDate');
+  });
+
+  it('tài khoản đã có bút toán: đổi số dư đầu kỳ phải nhập lý do, gửi kèm lý do (ISS-BE-034)', async () => {
+    const { financePut } = jest.requireMock('../finance-api') as { financePut: jest.Mock };
+    financePut.mockResolvedValue({});
+    render(<AccountsScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sửa SAVINA - VCB' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Số dư đầu kỳ/), { target: { value: '15000000' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật' }));
+    expect(await within(dialog).findByText(/Phải nhập lý do khi sửa số dư đầu kỳ/)).toBeTruthy();
+    expect(financePut).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText(/Lý do sửa số dư đầu kỳ/), { target: { value: 'Đối chiếu MISA' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật' }));
+    await waitFor(() => expect(financePut).toHaveBeenCalledTimes(1));
+    const [, body] = financePut.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body).toMatchObject({ openingBalance: 15_000_000, reason: 'Đối chiếu MISA' });
     expect(body).not.toHaveProperty('openingDate');
   });
 });

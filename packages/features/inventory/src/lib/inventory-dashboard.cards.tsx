@@ -40,6 +40,20 @@ function lowStockRows(data: InventoryDashboardData) {
 }
 
 /**
+ * Thẻ tính từ giá nhập của danh mục: chỉ hiện cho người có `inventory.cost.read`. Thiếu quyền thì API không trả
+ * `purchasePrice`, thẻ sẽ ra 0 trông như thật, nên ẩn hẳn thay vì hiện số sai.
+ */
+export const INVENTORY_COST_CARD_IDS: ReadonlySet<string> = new Set(['metric.stockValue']);
+
+/** Bỏ thẻ giá trị khi người xem không có quyền xem giá. */
+export function visibleDashboardCards<TCard extends { readonly id: string }>(
+  cards: readonly TCard[],
+  canReadCost: boolean,
+): TCard[] {
+  return canReadCost ? [...cards] : cards.filter((card) => !INVENTORY_COST_CARD_IDS.has(card.id));
+}
+
+/**
  * Mười thẻ dựng sẵn; admin bật một tập con trong mục Cài đặt.
  *
  * `id` được lưu vào cấu hình của tenant nên không bao giờ đổi tên — chỉ ngừng

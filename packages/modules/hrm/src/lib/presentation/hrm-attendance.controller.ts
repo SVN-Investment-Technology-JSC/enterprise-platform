@@ -51,6 +51,7 @@ import {
   isoDate,
   isoTime,
 } from '../infrastructure/hrm-time.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { markOnBehalf } from '../infrastructure/hrm-request-proxy.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
@@ -68,11 +69,13 @@ export class HrmAttendanceController {
   // Attendance Tracking APIs (P2_S3_HRM_API.md § 11)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.self.attendance')
   @Post('attendance/check-in')
   async checkIn(@Req() req: Request, @Body() body: CheckInRequest) {
     return this.punch(req, body, 'IN');
   }
 
+  @RequirePermission('hrm.self.attendance')
   @Post('attendance/check-out')
   async checkOut(@Req() req: Request, @Body() body: CheckOutRequest) {
     return this.punch(req, body, 'OUT');
@@ -114,6 +117,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.self.read')
   @Get('my-attendance-context')
   async myTimeContext(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -142,6 +146,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.self.read')
   @Get('my-attendance')
   async myAttendance(@Req() req: Request) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -160,6 +165,7 @@ export class HrmAttendanceController {
     return { data: result.rows.map(this.mapAttendance) };
   }
 
+  @RequirePermission('hrm.read')
   @Get('attendance')
   async listAttendance(
     @Req() req: Request,
@@ -198,6 +204,7 @@ export class HrmAttendanceController {
    * Dữ liệu chấm công theo ngày của nhiều nhân viên (màn Dữ liệu chấm công). Cần quyền xem chấm công toàn tenant.
    * Khác `attendance` ở chỗ có mã/tên nhân viên, đi muộn/về sớm/phút ca, lọc và phân trang.
    */
+  @RequirePermission('hrm.attendance.read')
   @Get('attendance-data')
   async attendanceData(
     @Req() req: Request,
@@ -275,6 +282,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('attendance-events')
   async listEvents(
     @Req() req: Request,
@@ -326,6 +334,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.attendance.read')
   @Get('attendance/:attendanceId')
   async getAttendance(
     @Req() req: Request,
@@ -351,7 +360,8 @@ export class HrmAttendanceController {
     };
   }
 
-  @Post('internal/attendance/ingest')
+  @RequirePermission('hrm.attendance.import')
+  @Post('attendance/ingest')
   async ingestAttendance(
     @Req() req: Request,
     @Body() body: IngestAttendanceRequest,
@@ -377,6 +387,7 @@ export class HrmAttendanceController {
   // Attendance Correction APIs (P2_S3_HRM_API.md § 12)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.read')
   @Post('attendance-corrections')
   async createCorrection(
     @Req() req: Request,
@@ -541,6 +552,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.read')
   @Get('attendance-corrections')
   async listCorrections(
     @Req() req: Request,
@@ -607,29 +619,7 @@ export class HrmAttendanceController {
     };
   }
 
-  @Post('attendance-corrections/:id/submit')
-  async submitCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.request.approve',
-    );
-    const res = await pool.query(
-      `UPDATE hrm_schema.attendance_corrections SET status = 'PENDING', updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 AND status='PENDING' RETURNING *`,
-      [tenantId, id],
-    );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
-        code: 'HRM_CORRECTION_NOT_FOUND',
-        message: 'Correction request not found',
-      });
-    }
-    return {
-      data: this.mapCorrection(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
-  }
-
+  @RequirePermission('hrm.read')
   @Post('attendance-corrections/:id/approve')
   async approveCorrection(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.approverContext(
@@ -651,6 +641,7 @@ export class HrmAttendanceController {
     return { data: this.mapCorrection(row) };
   }
 
+  @RequirePermission('hrm.read')
   @Post('attendance-corrections/:id/reject')
   async rejectCorrection(
     @Req() req: Request,
@@ -695,6 +686,7 @@ export class HrmAttendanceController {
     };
   }
 
+  @RequirePermission('hrm.request.approve')
   @Post('attendance-corrections/:id/cancel')
   async cancelCorrection(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(

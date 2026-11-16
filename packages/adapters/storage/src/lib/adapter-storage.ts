@@ -113,6 +113,33 @@ export class ObjectTooLargeError extends Error {
   }
 }
 
+/** Đọc siêu dữ liệu object (lệnh `HEAD`) phía máy chủ: tệp có thật không, nặng bao nhiêu. */
+export interface ObjectStorageMetadataPort {
+  /** Ném lỗi kho khi khoá không có; nhận ra bằng `isMissingObjectError`. */
+  objectMetadata(key: string): Promise<{ sizeBytes: number; contentType: string }>;
+}
+
+/** Lỗi kho nghĩa là khoá không có (`HEAD` trả 404 không body nên SDK đặt tên `NotFound`). */
+export function isMissingObjectError(error: unknown): boolean {
+  if (error instanceof ObjectNotFoundError) return true;
+  const name = (error as { name?: string } | null)?.name;
+  const status = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
+  return name === 'NotFound' || name === 'NoSuchKey' || status === 404;
+}
+
+/**
+ * Dung lượng thật của object, `null` khi khoá chưa có trong kho. Lỗi khác của
+ * kho (mất kết nối, sai quyền) ném tiếp để nơi gọi không lầm là "chưa tải lên".
+ */
+export async function readObjectSize(storage: ObjectStorageMetadataPort, key: string): Promise<number | null> {
+  try {
+    return (await storage.objectMetadata(key)).sizeBytes;
+  } catch (error) {
+    if (isMissingObjectError(error)) return null;
+    throw error;
+  }
+}
+
 /**
  * Đọc nội dung object phía máy chủ qua địa chỉ nội bộ. Tách khỏi các cổng khác
  * để module chỉ cần ghi hay chỉ cần ký URL không phải khai thêm hàm này.

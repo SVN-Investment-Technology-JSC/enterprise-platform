@@ -13,6 +13,7 @@ import {
   submitStockDocument,
 } from '../inventory-api';
 import { formatDateTime, formatNumber } from '../inventory-labels';
+import { useInventoryPermissions } from '../inventory-permissions';
 import {
   STOCK_DOCUMENT_ACTION_LABEL,
   STOCK_DOCUMENT_TYPE_LABEL,
@@ -203,7 +204,26 @@ export function StockDocumentDetail({
   onClose: () => void;
 }) {
   const userName = useUserLabel();
+  // Không có `inventory.cost.read` thì API không trả đơn giá, giá vốn: ẩn hẳn hai cột.
+  const { canReadCost } = useInventoryPermissions();
   const posted = document.status === 'POSTED';
+  const costColumns: TableColumnsType<StockDocumentLine> = [
+    {
+      title: 'Đơn giá',
+      key: 'unitCost',
+      width: 120,
+      align: 'right',
+      render: (_value, line) => (line.unitCost ? formatNumber(line.unitCost) : '—'),
+    },
+    {
+      title: 'Giá vốn dòng',
+      key: 'costAmount',
+      width: 130,
+      align: 'right',
+      render: (_value, line) =>
+        posted && line.costAmount !== undefined ? formatNumber(line.costAmount) : <span className={styles.docHint}>Sau ghi sổ</span>,
+    },
+  ];
   const columns: TableColumnsType<StockDocumentLine> = [
     { title: '#', dataIndex: 'lineNo', key: 'lineNo', width: 44 },
     {
@@ -230,21 +250,7 @@ export function StockDocumentDetail({
       align: 'right',
       render: (_value, line) => `${formatNumber(line.quantity)} ${line.unit ?? ''}`,
     },
-    {
-      title: 'Đơn giá',
-      key: 'unitCost',
-      width: 120,
-      align: 'right',
-      render: (_value, line) => (line.unitCost ? formatNumber(line.unitCost) : '—'),
-    },
-    {
-      title: 'Giá vốn dòng',
-      key: 'costAmount',
-      width: 130,
-      align: 'right',
-      render: (_value, line) =>
-        posted && line.costAmount !== undefined ? formatNumber(line.costAmount) : <span className={styles.docHint}>Sau ghi sổ</span>,
-    },
+    ...(canReadCost ? costColumns : []),
     {
       title: 'Lô / hạn dùng',
       key: 'lot',

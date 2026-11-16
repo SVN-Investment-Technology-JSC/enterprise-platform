@@ -109,6 +109,23 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0017-fcm-device-tokens',
     path: 'tenant/core/0017-fcm-device-tokens.sql',
   },
+  // Xoá mềm người dùng (ISS-BE-035).
+  { version: '0018-user-soft-delete', path: 'tenant/core/0018-user-soft-delete.sql' },
+  // Mạng nội bộ thực thi social.read/social.post.write: gán sẵn cho vai trò mặc định và người chưa có quyền.
+  {
+    version: '0019-social-default-permissions',
+    path: 'tenant/core/0019-social-default-permissions.sql',
+  },
+  // Kho tách quyền xem giá vốn: gán sẵn cho vai trò ghi phát sinh kho (ISS-BE-013).
+  {
+    version: '0020-inventory-cost-read-default',
+    path: 'tenant/core/0020-inventory-cost-read-default.sql',
+  },
+  // Core tự gắn employee_id cho bổ nhiệm theo user_id; HRM không còn ghi core_schema (E-01).
+  {
+    version: '0021-assignment-employee-link',
+    path: 'tenant/core/0021-assignment-employee-link.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -181,6 +198,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
     { version: '0011-require-allocation', path: 'tenant/finance/0011-require-allocation.sql' },
     { version: '0012-reason-require-project', path: 'tenant/finance/0012-reason-require-project.sql' },
+    { version: '0013-config-audit', path: 'tenant/finance/0013-config-audit.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -544,6 +562,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0082-hrm-leave-request-groups',
       path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
     },
+    // hrm.employee.offboarded gửi ngày nghỉ việc thật (inactive_from) thay vì CURRENT_DATE.
+    {
+      version: '0083-hrm-offboarding-effective-date',
+      path: 'tenant/hrm/0083-hrm-offboarding-effective-date.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
@@ -675,6 +698,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0015-instance-source-summary',
       path: 'tenant/procedure/0015-instance-source-summary.sql',
     },
+    {
+      version: '0016-attachment-upload-status',
+      path: 'tenant/procedure/0016-attachment-upload-status.sql',
+    },
   ],
   maintenance: [
     {
@@ -720,6 +747,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0011-schedule-assignee',
       path: 'tenant/maintenance/0011-schedule-assignee.sql',
+    },
+    {
+      version: '0012-attachment-upload-status',
+      path: 'tenant/maintenance/0012-attachment-upload-status.sql',
     },
   ],
   workspace: [
