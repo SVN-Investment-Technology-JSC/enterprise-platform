@@ -1,7 +1,7 @@
 import './global.css';
 import { Be_Vietnam_Pro } from 'next/font/google';
 import { HrmShell, Toaster } from '@enterprise-platform/feature-hrm';
-import { Toaster as RealtimeToaster } from '@enterprise-platform/shared-ui';
+import { BrandSlotProvider, Toaster as RealtimeToaster } from '@enterprise-platform/shared-ui';
 
 /**
  * Font chung của hệ thống: Be Vietnam Pro (thiết kế riêng cho tiếng Việt, dấu thoáng và rõ ở cỡ nhỏ). Tải cùng ứng dụng
@@ -18,6 +18,12 @@ const fontSans = Be_Vietnam_Pro({
 export const metadata = {
   title: 'HRM & Chấm công · Enterprise Platform',
   description: 'Quản lý nhân sự, chấm công, ca làm việc và đơn từ phê duyệt.',
+  icons: {
+    icon: [
+      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -28,9 +34,11 @@ export default function RootLayout({
   return (
     <html lang="vi" className={fontSans.variable}>
       <body>
-        <Toaster>
-          <HrmShell>{children}</HrmShell>
-        </Toaster>
+        <BrandSlotProvider>
+          <Toaster>
+            <HrmShell>{children}</HrmShell>
+          </Toaster>
+        </BrandSlotProvider>
         <RealtimeToaster duration={5000} />
       </body>
     </html>

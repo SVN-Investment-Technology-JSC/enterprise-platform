@@ -2728,6 +2728,9 @@ importers:
       '@enterprise-platform/contracts-realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
+      '@enterprise-platform/shared-brand-icon':
+        specifier: workspace:*
+        version: link:../brand-icon
       antd:
         specifier: ^6.6.4
         version: 6.6.4(date-fns@4.4.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

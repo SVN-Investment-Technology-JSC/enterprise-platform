@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChatLauncher, UserAvatar } from '@enterprise-platform/feature-chat';
 import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import { AssistantLauncher } from './assistant-launcher';
+import { BrandLogo } from './brand-logo';
 import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import { initialsOfName, useShellSession } from './use-shell-session';
@@ -100,8 +101,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
         aria-label={`Điều hướng ${props.title}`}
       >
         <div className={styles.brand}>
-          <img
-            src="/brand-logo.jpg"
+          <BrandLogo
             alt="SVN DTS Logo"
             className={styles.brandLogo}
           />

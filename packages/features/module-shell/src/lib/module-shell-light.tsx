@@ -18,6 +18,7 @@ import type {
   ModuleSidebarSection,
 } from './module-shell.types';
 import { AssistantLauncher } from './assistant-launcher';
+import { BrandLogo } from './brand-logo';
 import { ModuleSwitcher } from './module-switcher';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
@@ -168,7 +169,7 @@ export function ModuleShellLight<TViewId extends string = string>(
           aria-label={`Điều hướng ${props.title}`}
         >
           <div className={styles.brand}>
-            <img src="/brand-logo.jpg" alt="" className={styles.brandLogo} />
+            <BrandLogo className={styles.brandLogo} />
             {collapsed ? null : (
               <div className={styles.brandText}>
                 <span className={styles.brandOrg}>SVN DTS</span>
