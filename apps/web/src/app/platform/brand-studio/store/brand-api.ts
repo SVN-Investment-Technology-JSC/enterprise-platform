@@ -1,12 +1,15 @@
 import {
   BRAND_API_BASE,
   BRAND_ERROR_CODES,
+  type AssignBrandSlotRequest,
   type BrandErrorCode,
   type BrandIconDetail,
   type BrandIconListResponse,
   type BrandIconSpecResponse,
   type BrandIconStatus,
   type BrandIconSummary,
+  type BrandSlotAssignment,
+  type BrandSlotListResponse,
   type BrandStandardsResponse,
   type BrandSvgMode,
   type CreateBrandIconRequest,
@@ -146,8 +149,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     clearTimeout(timer);
   }
 
-  const payload = parseJson(text);
+  const payload = response.status === 204 ? undefined : parseJson(text);
   if (!response.ok) throw toApiError(response.status, payload);
+  if (response.status === 204) return undefined as T;
   if (payload === undefined) {
     throw new BrandApiError({ statusCode: response.status, code: 'BAD_RESPONSE', message: 'Máy chủ trả dữ liệu không đúng định dạng.' });
   }
@@ -204,6 +208,24 @@ export function getStandards(options: { readonly timeoutMs?: number } = {}): Pro
 
 export function saveStandards(input: SaveBrandStandardsRequest): Promise<SaveBrandStandardsResponse> {
   return request<SaveBrandStandardsResponse>('/standards', { method: 'PUT', body: input });
+}
+
+const slotPath = (slot: string) => `/slots/${encodeURIComponent(slot)}`;
+
+/** Danh sách các vị trí sử dụng icon đang được gán trên máy chủ. */
+export function listSlots(options: { readonly timeoutMs?: number } = {}): Promise<BrandSlotListResponse> {
+  return request<BrandSlotListResponse>('/slots', { timeoutMs: options.timeoutMs });
+}
+
+/** Gán một icon đã phát hành vào vị trí sử dụng. */
+export function assignSlot(slot: string, iconId: string): Promise<BrandSlotAssignment> {
+  const body: AssignBrandSlotRequest = { iconId };
+  return request<BrandSlotAssignment>(slotPath(slot), { method: 'PUT', body });
+}
+
+/** Bỏ gán icon ở vị trí sử dụng, đưa về icon mặc định của hệ thống. */
+export function clearSlot(slot: string): Promise<void> {
+  return request<void>(slotPath(slot), { method: 'DELETE' });
 }
 
 /** Đường dẫn ảnh SVG dựng sẵn của một phiên bản; bản đã phát hành đọc công khai, bản khác cần đăng nhập quản trị. */
