@@ -180,6 +180,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
     { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
     { version: '0011-require-allocation', path: 'tenant/finance/0011-require-allocation.sql' },
+    { version: '0012-reason-require-project', path: 'tenant/finance/0012-reason-require-project.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },

@@ -133,8 +133,9 @@ export function requestedAmount(amount: number | null): number {
 }
 
 /**
- * Dựng phiếu nháp từ payload. Hạch toán lấy theo thứ tự công việc > dự án > để trống; `resolveAllocation` hỏi Workspace (gọi
- * NGOÀI giao dịch). Không xác nhận được thì để trống, không khoá, và ghi chú để kế toán tự chọn.
+ * Dựng phiếu nháp từ payload. Hạch toán luôn ở cấp dự án: lấy dự án của hồ sơ, hoặc (hồ sơ sinh từ công việc) dự án chứa công việc
+ * đó; `resolveAllocation` hỏi Workspace (gọi NGOÀI giao dịch). Không xác nhận được thì để trống, không khoá, và ghi chú để kế toán
+ * tự chọn. Công việc của hồ sơ chỉ để tra dự án và hiện ở mục "Liên quan" của phiếu, không phải đích hạch toán.
  */
 export async function planRequestedVoucher(
   payload: FinanceStepVoucherRequestedPayload,
@@ -154,18 +155,18 @@ export async function planRequestedVoucher(
   let links: ResolvedWorkspaceLinks = { allocation: null, relatedProjects: [] };
   let allocationNote: string | null = null;
   if (payload.workItemId || payload.projectId) {
-    // Thứ tự thử: công việc, rồi dự án. Công việc không xác nhận được (đã huỷ, đã xoá, Workspace chập chờn) thì vẫn giữ
-    // được dự án thay vì mất cả hạch toán: số chi vẫn hiện ở dự án, chỉ thiếu dòng công việc.
+    // Dự án của hồ sơ thử trước; không có thì lấy dự án chứa công việc nguồn. Tra công việc lỗi (đã xoá, Workspace chập chờn) thì
+    // vẫn còn dự án của hồ sơ để thử, thay vì mất cả hạch toán.
     const attempts: NormalizedVoucher['allocation'][] = [];
+    if (payload.projectId) attempts.push({ type: 'PROJECT', projectId: payload.projectId, workItemId: null });
     if (payload.workItemId) {
       try {
         const projectId = await findWorkItemProject(payload.workItemId);
-        if (projectId) attempts.push({ type: 'WORK_ITEM', projectId, workItemId: payload.workItemId });
+        if (projectId && projectId !== payload.projectId) attempts.push({ type: 'PROJECT', projectId, workItemId: null });
       } catch {
-        // Không tra được công việc: thử tiếp bằng dự án nếu có.
+        // Không tra được công việc: chỉ còn dự án của hồ sơ (nếu có).
       }
     }
-    if (payload.projectId) attempts.push({ type: 'PROJECT', projectId: payload.projectId, workItemId: null });
     let failure: unknown = payload.workItemId ? invalid('Công việc của hồ sơ không còn tồn tại.') : undefined;
     for (const allocation of attempts) {
       try {

@@ -11,10 +11,8 @@ import {
   PROJECT_VOUCHER_LINK_LABELS,
   PROJECT_VOUCHER_STATUS_LABELS,
   PROJECT_VOUCHER_STATUS_TONE,
-  buildWorkItemMoneyRows,
   classifyProjectVoucherResponse,
   filterProjectVouchers,
-  projectLevelMoneyRow,
   projectVoucherHref,
   actualProfit,
   type ProjectVoucherFilter,
@@ -22,7 +20,6 @@ import {
   type ProjectVoucherResult,
 } from '../project-vouchers.model';
 import * as api from '../workspace-api';
-import { WORK_ITEM_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
@@ -55,15 +52,15 @@ function formatDay(value: string): string {
  * tab bị gỡ khỏi thanh tab và server không gửi số liệu xuống. Số thu chi thuộc module Tài chính nên cần thêm quyền xem phiếu
  * ở đó; thiếu quyền hay Tài chính chưa bật thì tab vẫn dựng được phần hợp đồng và nói rõ vì sao chưa có số thu chi.
  *
- * Chi phí thực tế = chi ĐÃ DUYỆT hạch toán cho dự án hoặc cho công việc; phiếu chờ duyệt chưa ghi sổ nên hiện riêng. Không còn
- * ngân sách, dự toán hay chi phí dự kiến: chỉ có tiền đã thu và đã chi thật.
+ * Chi phí thực tế = chi ĐÃ DUYỆT hạch toán cho dự án; phiếu chờ duyệt/ghi sổ chưa là tiền thật nên hiện riêng. Hạch toán chỉ ở
+ * cấp dự án (không xuống công việc), nên tab là sổ chứng từ của dự án như 1Office: thu, chi và dòng tiền luỹ kế. Không còn ngân
+ * sách, dự toán hay chi phí dự kiến: chỉ có tiền đã thu và đã chi thật.
  */
 export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const [finance, setFinance] = useState<ProjectFinance>(initial);
   const [editing, setEditing] = useState(false);
   const [result, setResult] = useState<ProjectVoucherResult>();
   const [filter, setFilter] = useState<ProjectVoucherFilter>(NO_VOUCHER_FILTER);
-  const [view, setView] = useState<'items' | 'vouchers'>('items');
   const ledger = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelBox = useRef<HTMLDivElement>(null);
@@ -104,20 +101,16 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const paid = data?.totals.paid ?? 0;
   const { profit, margin } = actualProfit(received, paid);
 
-  const projectRow = useMemo(() => (data ? projectLevelMoneyRow(data) : undefined), [data]);
-  const itemRows = useMemo(() => (data ? buildWorkItemMoneyRows(finance.items, data) : []), [data, finance.items]);
   const visibleVouchers = useMemo(() => (data ? filterProjectVouchers(data.items, filter) : []), [data, filter]);
   const filtering = filter.kind !== 'all' || filter.link !== 'all' || filter.status !== 'all';
   const facets = [filter.kind, filter.link, filter.status].filter((value) => value !== 'all').length;
   // Sổ chi tiết chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm.
-  useFillViewportHeight(ledger, undefined, `${view}:${data ? 'ok' : 'wait'}`);
+  useFillViewportHeight(ledger, undefined, data ? 'ok' : 'wait');
   const contractPositive = contract != null && contract > 0;
   const percentOfContract = (amount: number) =>
     contractPositive ? formatPercent((amount / (contract as number)) * 100) : undefined;
   const collected = contractPositive ? Math.min(100, Math.max(0, (received / (contract as number)) * 100)) : 0;
 
-  const pendingText = (receive: number, pay: number) =>
-    receive || pay ? `${formatVnd(receive)} / ${formatVnd(pay)}` : '—';
 
   return (
     <div className={styles.tabBody}>
@@ -212,30 +205,15 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
         </section>
       ) : null}
 
-      {data && projectRow ? (
+      {data ? (
         <section ref={ledger} className={styles.ledgerCard}>
           <header className={styles.ledgerHead}>
             <div className={styles.finSwitch} role="tablist" aria-label="Sổ thu chi">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'items'}
-                className={view === 'items' ? styles.finSwitchActive : undefined}
-                onClick={() => setView('items')}
-              >
-                Theo công việc <span className={styles.finSwitchCount}>{itemRows.length + 1}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'vouchers'}
-                className={view === 'vouchers' ? styles.finSwitchActive : undefined}
-                onClick={() => setView('vouchers')}
-              >
-                Phiếu thu chi <span className={styles.finSwitchCount}>{data.items.length}</span>
+              <button type="button" role="tab" aria-selected className={styles.finSwitchActive}>
+                Sổ chứng từ <span className={styles.finSwitchCount}>{data.items.length}</span>
               </button>
             </div>
-            {view === 'vouchers' ? (
+            {(
               <div ref={panelBox} className={styles.timelinePanelBox}>
                 <button
                   type="button"
@@ -314,59 +292,16 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   </div>
                 ) : null}
               </div>
-            ) : null}
+            )}
           </header>
 
           <div className={styles.ledgerScroll}>
-            {view === 'items' ? (
-              <table className={`${styles.table} ${styles.ledgerTable}`}>
-                <thead>
-                  <tr>
-                    <th>Mã</th>
-                    <th>Công việc</th>
-                    <th>Trạng thái</th>
-                    <th className={styles.numeric}>Đã thu</th>
-                    <th className={styles.numeric}>Đã chi (thực tế)</th>
-                    <th className={styles.numeric}>Chờ duyệt (thu / chi)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[projectRow, ...itemRows].map((row) => (
-                    <tr key={row.workItemId ?? 'project'}>
-                      <td className={styles.treeCode}>{row.code}</td>
-                      <td>{row.title}</td>
-                      <td>{row.status ? WORK_ITEM_STATUS_LABELS[row.status] : ''}</td>
-                      <td className={styles.numeric}>{formatVnd(row.received)}</td>
-                      <td className={styles.numeric}>{formatVnd(row.paid)}</td>
-                      <td className={styles.numeric}>{pendingText(row.pendingReceived, row.pendingPaid)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td />
-                    <td>
-                      <strong>Tổng dự án</strong>
-                    </td>
-                    <td />
-                    <td className={styles.numeric}>
-                      <strong>{formatVnd(data.totals.received)}</strong>
-                    </td>
-                    <td className={styles.numeric}>
-                      <strong>{formatVnd(data.totals.paid)}</strong>
-                    </td>
-                    <td className={styles.numeric}>{pendingText(data.totals.pendingReceived, data.totals.pendingPaid)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            ) : (
               <table className={`${styles.table} ${styles.ledgerTable}`}>
                 <thead>
                   <tr>
                     <th>STT</th>
                     <th>Nội dung</th>
                     <th>Mã chứng từ</th>
-                    <th>Hạch toán</th>
                     <th>Người tạo</th>
                     <th>Ngày tạo</th>
                     <th>Ngày hạch toán</th>
@@ -384,7 +319,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                       <td>
                         <strong>Tổng</strong>
                       </td>
-                      <td colSpan={5} />
+                      <td colSpan={4} />
                       <td className={styles.numeric}>
                         <strong>{formatVnd(data.totals.received)}</strong>
                       </td>
@@ -399,13 +334,13 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   ) : null}
                   {data.items.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className={styles.muted}>
+                      <td colSpan={10} className={styles.muted}>
                         Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
                       </td>
                     </tr>
                   ) : visibleVouchers.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className={styles.muted}>
+                      <td colSpan={10} className={styles.muted}>
                         Không có phiếu nào khớp bộ lọc.
                       </td>
                     </tr>
@@ -422,9 +357,9 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                           <Tooltip content={item.content}>
                             <span className={styles.treeTitle}>{item.content}</span>
                           </Tooltip>
-                          {item.reasonName ? (
+                          {item.reasonName || item.link === 'RELATED' ? (
                             <span className={styles.muted} style={{ display: 'block' }}>
-                              {item.reasonName}
+                              {[item.reasonName, item.link === 'RELATED' ? 'Chỉ liên quan' : null].filter(Boolean).join(' · ')}
                             </span>
                           ) : null}
                         </td>
@@ -438,19 +373,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                           <span className={styles.muted} style={{ display: 'block' }}>
                             {PROJECT_VOUCHER_KIND_LABELS[item.kind]}
                           </span>
-                        </td>
-                        <td>
-                          {item.link === 'RELATED' ? (
-                            <span className={styles.muted}>Chỉ liên quan</span>
-                          ) : item.workItem ? (
-                            <Tooltip content={item.workItem.title}>
-                              <span>
-                                <span className={styles.treeCode}>{item.workItem.code}</span> {item.workItem.title}
-                              </span>
-                            </Tooltip>
-                          ) : (
-                            'Cả dự án'
-                          )}
                         </td>
                         <td>{item.createdByName ?? '—'}</td>
                         <td>{formatDay(item.createdAt.slice(0, 10))}</td>
@@ -470,15 +392,12 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   })}
                 </tbody>
               </table>
-            )}
           </div>
 
           <footer className={styles.ledgerFoot}>
-            {view === 'items'
-              ? 'Chi đã duyệt hạch toán cho công việc là chi phí thực tế của công việc đó. Lập và duyệt phiếu ở module Tài chính.'
-              : data.truncated
-                ? 'Chỉ hiển thị 200 phiếu gần nhất; tổng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.'
-                : 'Dòng tiền luỹ kế chỉ tính phiếu đã ghi sổ hạch toán cho dự án, theo ngày hạch toán. Phiếu chờ duyệt/ghi sổ và phiếu chỉ liên quan (mục "Đối tượng liên quan") hiện mờ để tra cứu, không cộng vào tổng.'}
+            {data.truncated
+              ? 'Chỉ hiển thị 200 phiếu gần nhất; tổng tiền và dòng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.'
+              : 'Dòng tiền luỹ kế chỉ tính phiếu đã ghi sổ hạch toán cho dự án, theo ngày hạch toán. Phiếu chờ duyệt/ghi sổ và phiếu chỉ liên quan (mục "Đối tượng liên quan") hiện mờ để tra cứu, không cộng vào tổng.'}
           </footer>
         </section>
       ) : null}

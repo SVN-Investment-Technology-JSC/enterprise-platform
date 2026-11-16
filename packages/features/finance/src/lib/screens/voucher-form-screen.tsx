@@ -6,13 +6,13 @@ import { Lock, Plus, Trash2, X } from 'lucide-react';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
-  FINANCE_ALLOCATION_LABELS,
   financeIncludedTax,
   financeLineTotal,
   financeLinesTotal,
   type FinanceAccount,
   type FinanceAllocationType,
   type FinanceCatalogs,
+  type FinanceSettings,
   type FinanceSourceLockedField,
   type FinanceVoucher,
   type FinanceVoucherSource,
@@ -25,16 +25,7 @@ import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } f
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
-import {
-  PROJECT_STATUS_LABELS,
-  WORK_ITEM_STATUS_LABELS,
-  loadWorkspaceProjects,
-  loadWorkspaceWorkItems,
-  projectLabel,
-  workItemLabel,
-  type WorkspaceProjectOption,
-  type WorkspaceWorkItemOption,
-} from '../workspace-links';
+import { PROJECT_STATUS_LABELS, loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { AttachmentsField } from '../ui/attachments-field';
@@ -65,10 +56,9 @@ interface FormState {
   counterpartyName: string;
   counterpartyAccountNo: string;
   counterpartyBank: string;
-  /** Hình thức hạch toán nội bộ; rỗng: không hạch toán. */
+  /** Hạch toán nội bộ chỉ ở cấp dự án; rỗng: không hạch toán. */
   allocType: '' | FinanceAllocationType;
   allocProjectId: string;
-  allocWorkItemId: string;
   taxIncluded: boolean;
   taxRate: number;
   note: string;
@@ -98,7 +88,6 @@ function emptyState(): FormState {
     counterpartyBank: '',
     allocType: '',
     allocProjectId: '',
-    allocWorkItemId: '',
     taxIncluded: false,
     taxRate: 0,
     note: '',
@@ -123,7 +112,6 @@ function fromVoucher(voucher: FinanceVoucher): FormState {
     counterpartyBank: voucher.counterpartyBank ?? '',
     allocType: voucher.allocation?.type ?? '',
     allocProjectId: voucher.allocation?.projectId ?? '',
-    allocWorkItemId: voucher.allocation?.workItemId ?? '',
     taxIncluded: voucher.taxIncluded,
     taxRate: voucher.taxRate,
     note: voucher.note ?? '',
@@ -142,11 +130,10 @@ function fromVoucher(voucher: FinanceVoucher): FormState {
   };
 }
 
-/** Lỗi hạch toán chưa đủ thông tin (chọn hình thức mà thiếu dự án hoặc công việc); null khi hợp lệ. */
-export function allocationProblem(form: Pick<FormState, 'allocType' | 'allocProjectId' | 'allocWorkItemId'>): string | null {
+/** Lỗi hạch toán chưa đủ thông tin (đã chọn hạch toán mà thiếu dự án); null khi hợp lệ. */
+export function allocationProblem(form: Pick<FormState, 'allocType' | 'allocProjectId'>): string | null {
   if (!form.allocType) return null;
   if (!form.allocProjectId) return 'Chọn dự án để hạch toán.';
-  if (form.allocType === 'WORK_ITEM' && !form.allocWorkItemId) return 'Chọn công việc để hạch toán.';
   return null;
 }
 
@@ -170,10 +157,7 @@ export function buildRequest(kind: FinanceVoucherKind, form: FormState, revision
     counterpartyName: form.counterpartyName.trim() || null,
     counterpartyAccountNo: form.counterpartyAccountNo.trim() || null,
     counterpartyBank: form.counterpartyBank.trim() || null,
-    allocation:
-      form.allocType && form.allocProjectId
-        ? { type: form.allocType, projectId: form.allocProjectId, workItemId: form.allocType === 'WORK_ITEM' ? form.allocWorkItemId || null : null }
-        : null,
+    allocation: form.allocType && form.allocProjectId ? { type: 'PROJECT', projectId: form.allocProjectId } : null,
     taxIncluded: form.taxIncluded,
     taxRate: form.taxIncluded ? form.taxRate : 0,
     lines: form.lines.map((line) => ({
@@ -211,11 +195,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   const [projects, setProjects] = useState<WorkspaceProjectOption[]>([]);
   const [projectsTruncated, setProjectsTruncated] = useState(false);
   const [workspaceProblem, setWorkspaceProblem] = useState<string | null>(null);
-  const [workItems, setWorkItems] = useState<WorkspaceWorkItemOption[]>([]);
-  const [workItemsLoading, setWorkItemsLoading] = useState(false);
-  /** Nhãn đã lưu trên phiếu, để phiếu cũ vẫn hiện dự án/công việc dù Workspace không trả về nữa (huỷ, tạm tắt). */
+  /** Cài đặt Tài chính: có bắt buộc hạch toán dự án cho mọi phiếu không. Đọc không được thì coi như không bắt buộc. */
+  const [settings, setSettings] = useState<FinanceSettings | null>(null);
+  /** Nhãn đã lưu trên phiếu, để phiếu cũ vẫn hiện dự án dù Workspace không trả về nữa (huỷ, tạm tắt). */
   const [storedProjects, setStoredProjects] = useState<WorkspaceProjectOption[]>([]);
-  const [storedWorkItem, setStoredWorkItem] = useState<WorkspaceWorkItemOption | null>(null);
 
   useFinanceCrumbs([config.singular.replace(/^./, (c) => c.toUpperCase()), id ? 'Sửa phiếu' : 'Tạo mới']);
 
@@ -236,8 +219,6 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           if (voucher.allocation)
             stored.set(voucher.allocation.projectId, { id: voucher.allocation.projectId, code: voucher.allocation.projectCode, name: voucher.allocation.projectName, status: '' });
           setStoredProjects([...stored.values()]);
-          if (voucher.allocation?.workItemId)
-            setStoredWorkItem({ id: voucher.allocation.workItemId, code: voucher.allocation.workItemCode ?? '', title: voucher.allocation.workItemTitle ?? '', status: '', depth: 0 });
         };
         if (id) {
           const voucher = await financeFetch<FinanceVoucher>(`/vouchers/${id}`);
@@ -288,31 +269,15 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     };
   }, []);
 
-  const allocProjectId = form.allocProjectId;
-  const needsWorkItems = form.allocType === 'WORK_ITEM' && Boolean(allocProjectId);
   useEffect(() => {
-    if (!needsWorkItems) {
-      setWorkItems([]);
-      return;
-    }
     let active = true;
-    setWorkItemsLoading(true);
-    loadWorkspaceWorkItems(allocProjectId)
-      .then((items) => {
-        if (active) setWorkItems(items);
-      })
-      .catch((e) => {
-        if (!active) return;
-        setWorkItems([]);
-        setWorkspaceProblem(financeErrorMessage(e, 'Chưa kết nối được Workspace.'));
-      })
-      .finally(() => {
-        if (active) setWorkItemsLoading(false);
-      });
+    financeFetch<FinanceSettings>('/settings')
+      .then((loaded) => active && setSettings(loaded))
+      .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [needsWorkItems, allocProjectId]);
+  }, []);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   /** Trường lấy từ hồ sơ quy trình (chỉ với phiếu có nguồn). Nội dung và dòng chi tiết luôn thuộc hồ sơ. */
@@ -325,10 +290,6 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     [catalogs, kind],
   );
   const groupOptions = useMemo(() => (catalogs?.counterpartyGroups ?? []).filter((g) => g.isActive).map((g) => ({ value: g.id, label: g.name })), [catalogs]);
-  const allocationTypeOptions = useMemo(
-    () => (['PROJECT', 'WORK_ITEM'] as const).map((type) => ({ value: type, label: FINANCE_ALLOCATION_LABELS[type] })),
-    [],
-  );
   /** Dự án để chọn: danh sách Workspace cộng dự án đã lưu trên phiếu (nếu Workspace không còn trả về). */
   const projectOptions = useMemo(() => {
     const byId = new Map(projects.map((project) => [project.id, project]));
@@ -337,14 +298,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       .sort((a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }))
       .map((project) => ({ value: project.id, label: projectLabel(project), description: PROJECT_STATUS_LABELS[project.status] ?? undefined }));
   }, [projects, storedProjects]);
-  const workItemOptions = useMemo(() => {
-    const items = storedWorkItem && form.allocWorkItemId === storedWorkItem.id && !workItems.some((item) => item.id === storedWorkItem.id) ? [...workItems, storedWorkItem] : workItems;
-    return items.map((item) => ({
-      value: item.id,
-      label: workItemLabel(item),
-      description: WORK_ITEM_STATUS_LABELS[item.status] ?? undefined,
-    }));
-  }, [workItems, storedWorkItem, form.allocWorkItemId]);
+  /** Phiếu bắt buộc chọn dự án: cài đặt chung bật, hoặc lý do đã chọn bắt buộc (như "Chi theo dự án"). */
+  const projectRequired = Boolean(settings?.requireAllocation || catalogs?.reasons.find((r) => r.id === form.reasonId)?.requireProject);
   const relatedChoices = useMemo(
     () => projectOptions.filter((option) => !form.relatedProjectIds.includes(option.value) && option.value !== form.allocProjectId),
     [projectOptions, form.relatedProjectIds, form.allocProjectId],
@@ -520,67 +475,31 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                     )}
                   </Field>
                   <Field
-                    label="Hạch toán nội bộ"
+                    label="Hạch toán nội bộ (dự án)"
+                    required={projectRequired}
                     locked={fromSource('allocation')}
-                    hint={form.allocType ? undefined : 'Gắn khoản thu chi vào dự án hoặc công việc của dự án (không bắt buộc).'}
+                    hint={
+                      workspaceHint ??
+                      (projectRequired
+                        ? 'Bắt buộc chọn dự án: khoản thu chi hiện ở sổ chứng từ của dự án.'
+                        : 'Gắn khoản thu chi vào một dự án để hiện ở sổ chứng từ của dự án (không bắt buộc).')
+                    }
                   >
                     {(fieldId) => (
                       <SearchableSelect
                         disabled={fromSource('allocation')}
                         name={fieldId}
-                        options={allocationTypeOptions}
-                        value={form.allocType}
-                        onChange={(v) =>
-                          setForm((current) => ({
-                            ...current,
-                            allocType: v === 'PROJECT' || v === 'WORK_ITEM' ? v : '',
-                            // Bỏ hạch toán thì bỏ luôn dự án/công việc đã chọn; đổi sang "cho dự án" thì bỏ công việc.
-                            allocProjectId: v ? current.allocProjectId : '',
-                            allocWorkItemId: v === 'WORK_ITEM' ? current.allocWorkItemId : '',
-                          }))
-                        }
-                        placeholder="Không hạch toán"
+                        options={projectOptions}
+                        value={form.allocProjectId}
+                        onChange={(v) => setForm((current) => ({ ...current, allocProjectId: v, allocType: v ? 'PROJECT' : '' }))}
+                        placeholder={projectRequired ? 'Chọn dự án' : 'Không hạch toán'}
+                        searchPlaceholder="Gõ mã hoặc tên dự án"
+                        emptyText={workspaceProblem ?? 'Không có dự án nào'}
                         clearable
                         height={32}
                       />
                     )}
                   </Field>
-                  {form.allocType ? (
-                    <Field label="Dự án" required hint={workspaceHint} locked={fromSource('allocation')}>
-                      {(fieldId) => (
-                        <SearchableSelect
-                          disabled={fromSource('allocation')}
-                          name={fieldId}
-                          options={projectOptions}
-                          value={form.allocProjectId}
-                          onChange={(v) => setForm((current) => ({ ...current, allocProjectId: v, allocWorkItemId: '' }))}
-                          placeholder="Chọn dự án"
-                          searchPlaceholder="Gõ mã hoặc tên dự án"
-                          emptyText={workspaceProblem ?? 'Không có dự án nào'}
-                          clearable
-                          height={32}
-                        />
-                      )}
-                    </Field>
-                  ) : null}
-                  {form.allocType === 'WORK_ITEM' ? (
-                    <Field label="Công việc" required className="sm:col-span-2" locked={fromSource('allocation')}>
-                      {(fieldId) => (
-                        <SearchableSelect
-                          name={fieldId}
-                          options={workItemOptions}
-                          value={form.allocWorkItemId}
-                          onChange={(v) => set('allocWorkItemId', v)}
-                          disabled={!form.allocProjectId || fromSource('allocation')}
-                          placeholder={!form.allocProjectId ? 'Chọn dự án trước' : workItemsLoading ? 'Đang tải công việc…' : 'Chọn công việc'}
-                          searchPlaceholder="Gõ mã hoặc tên công việc"
-                          emptyText="Dự án chưa có công việc nào"
-                          clearable
-                          height={32}
-                        />
-                      )}
-                    </Field>
-                  ) : null}
                 </>
               ) : (
                 <>

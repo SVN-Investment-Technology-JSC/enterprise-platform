@@ -43,14 +43,16 @@ export const VOUCHER_SELECT = `
 /** Hạch toán lưu trên dòng phiếu; null khi chưa hạch toán. */
 export function mapAllocation(row: Row): FinanceAllocation | null {
   if (!row.alloc_type) return null;
+  // Hạch toán chỉ ở cấp dự án. Phiếu cũ hạch toán cho công việc vẫn giữ cột công việc trong CSDL, nhưng đọc ra như hạch toán cho dự án
+  // chứa công việc đó: màn hình và tổng của dự án không còn phân theo công việc.
   return {
-    type: row.alloc_type as FinanceAllocation['type'],
+    type: 'PROJECT',
     projectId: String(row.alloc_project_id),
     projectCode: String(row.alloc_project_code ?? ''),
     projectName: String(row.alloc_project_name ?? ''),
-    workItemId: optStr(row.alloc_work_item_id),
-    workItemCode: optStr(row.alloc_work_item_code),
-    workItemTitle: optStr(row.alloc_work_item_title),
+    workItemId: null,
+    workItemCode: null,
+    workItemTitle: null,
   };
 }
 

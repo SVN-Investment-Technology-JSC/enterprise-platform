@@ -36,59 +36,54 @@ const payload = (over: Partial<FinanceStepVoucherRequestedPayload> = {}): Financ
 const linksOf = (allocation: NormalizedVoucher['allocation']): ResolvedWorkspaceLinks => ({
   allocation: allocation
     ? {
-        type: allocation.type,
+        type: 'PROJECT',
         projectId: allocation.projectId,
         projectCode: 'DA-1',
         projectName: 'Dự án',
-        workItemId: allocation.workItemId ?? null,
-        workItemCode: allocation.workItemId ? 'CV001' : null,
-        workItemTitle: allocation.workItemId ? 'Mua vật tư' : null,
+        workItemId: null,
+        workItemCode: null,
+        workItemTitle: null,
       }
     : null,
   relatedProjects: [],
 });
 
-describe('planRequestedVoucher — hạch toán từ hồ sơ Quy trình', () => {
-  it('có công việc: hạch toán cho công việc và khoá trường hạch toán', async () => {
-    const plan = await planRequestedVoucher(
-      payload({ projectId: PROJECT, workItemId: ITEM }),
-      async (allocation) => linksOf(allocation),
-      async () => PROJECT,
-    );
-    expect(plan.voucher.allocation).toMatchObject({ type: 'WORK_ITEM', projectId: PROJECT, workItemId: ITEM });
-    expect(plan.lockedFields).toContain('allocation');
-    expect(plan.allocationNote).toBeNull();
-  });
-
-  it('chỉ có dự án: hạch toán cho dự án', async () => {
+describe('planRequestedVoucher — hạch toán từ hồ sơ Quy trình (chỉ cấp dự án)', () => {
+  it('hồ sơ có dự án: hạch toán cho dự án và khoá trường hạch toán', async () => {
     const plan = await planRequestedVoucher(payload({ projectId: PROJECT }), async (a) => linksOf(a), async () => null);
-    expect(plan.voucher.allocation).toMatchObject({ type: 'PROJECT', projectId: PROJECT });
-  });
-
-  it('công việc không xác nhận được (đã huỷ) mà còn dự án: lùi về dự án thay vì mất cả hạch toán', async () => {
-    const plan = await planRequestedVoucher(
-      payload({ projectId: PROJECT, workItemId: ITEM }),
-      async (allocation) => {
-        if (allocation?.type === 'WORK_ITEM') throw invalid('Công việc CV001 đã huỷ, không thể hạch toán.');
-        return linksOf(allocation);
-      },
-      async () => PROJECT,
-    );
     expect(plan.voucher.allocation).toMatchObject({ type: 'PROJECT', projectId: PROJECT, workItemId: null });
     expect(plan.lockedFields).toContain('allocation');
     expect(plan.allocationNote).toBeNull();
   });
 
-  it('công việc đã xoá (không tìm thấy dự án chứa nó) mà còn dự án: lùi về dự án', async () => {
+  it('hồ sơ có cả dự án lẫn công việc: vẫn hạch toán cho dự án, không xuống công việc', async () => {
     const plan = await planRequestedVoucher(
       payload({ projectId: PROJECT, workItemId: ITEM }),
       async (allocation) => linksOf(allocation),
-      async () => null,
+      async () => PROJECT,
     );
+    expect(plan.voucher.allocation).toEqual({ type: 'PROJECT', projectId: PROJECT, workItemId: null });
+  });
+
+  it('hồ sơ sinh từ công việc (không có dự án trong payload): lấy dự án chứa công việc đó', async () => {
+    const plan = await planRequestedVoucher(payload({ workItemId: ITEM }), async (a) => linksOf(a), async () => PROJECT);
     expect(plan.voucher.allocation).toMatchObject({ type: 'PROJECT', projectId: PROJECT });
   });
 
-  it('tra công việc lỗi mạng mà còn dự án: vẫn thử bằng dự án', async () => {
+  it('dự án của hồ sơ không xác nhận được (đã huỷ) mà công việc nằm ở dự án khác còn hiệu lực: dùng dự án của công việc', async () => {
+    const OTHER = 'aaaaaaaa-5e4f-4a3b-9c2d-1e0f9a8b7c6d';
+    const plan = await planRequestedVoucher(
+      payload({ projectId: PROJECT, workItemId: ITEM }),
+      async (allocation) => {
+        if (allocation?.projectId === PROJECT) throw invalid('Dự án DA-1 đã huỷ, không thể gắn vào phiếu.');
+        return linksOf(allocation);
+      },
+      async () => OTHER,
+    );
+    expect(plan.voucher.allocation).toMatchObject({ type: 'PROJECT', projectId: OTHER });
+  });
+
+  it('tra công việc lỗi mạng mà hồ sơ có dự án: vẫn hạch toán cho dự án của hồ sơ', async () => {
     const plan = await planRequestedVoucher(
       payload({ projectId: PROJECT, workItemId: ITEM }),
       async (allocation) => linksOf(allocation),

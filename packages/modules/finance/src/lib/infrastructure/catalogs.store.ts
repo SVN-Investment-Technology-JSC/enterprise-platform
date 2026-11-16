@@ -49,6 +49,7 @@ const mapReason = (row: Row): FinanceReason => ({
   name: String(row.name),
   isActive: Boolean(row.is_active),
   note: optStr(row.note),
+  requireProject: Boolean(row.require_project),
 });
 const mapGroup = (row: Row): FinanceCounterpartyGroup => ({
   id: String(row.id),
@@ -94,8 +95,8 @@ export async function saveReason(db: Db, tenantId: string, id: string | null, in
     if (!id) {
       const row = (
         await db.query(
-          `INSERT INTO finance_schema.reasons (tenant_id, kind, code, name, is_active, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-          [tenantId, input.kind, code, name, input.isActive !== false, note],
+          `INSERT INTO finance_schema.reasons (tenant_id, kind, code, name, is_active, note, require_project) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+          [tenantId, input.kind, code, name, input.isActive !== false, note, input.requireProject === true],
         )
       ).rows[0] as Row;
       return mapReason(row);
@@ -110,9 +111,10 @@ export async function saveReason(db: Db, tenantId: string, id: string | null, in
     }
     const row = (
       await db.query(
-        `UPDATE finance_schema.reasons SET kind=$3, code=$4, name=$5, is_active=COALESCE($6, is_active), note=$7, updated_at=now()
+        `UPDATE finance_schema.reasons SET kind=$3, code=$4, name=$5, is_active=COALESCE($6, is_active), note=$7,
+                require_project=COALESCE($8, require_project), updated_at=now()
           WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-        [tenantId, id, input.kind, code, name, input.isActive ?? null, note],
+        [tenantId, id, input.kind, code, name, input.isActive ?? null, note, input.requireProject ?? null],
       )
     ).rows[0] as Row;
     return mapReason(row);

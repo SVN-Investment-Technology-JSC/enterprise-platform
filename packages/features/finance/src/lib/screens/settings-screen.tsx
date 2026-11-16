@@ -36,12 +36,15 @@ interface CatalogRow {
   code: string;
   name: string;
   isActive: boolean;
+  /** Chỉ lý do thu/chi: bắt buộc chọn dự án khi dùng lý do này. */
+  requireProject?: boolean;
 }
 
 interface CatalogForm {
   code: string;
   name: string;
   isActive: boolean;
+  requireProject: boolean;
 }
 
 /** Danh mục dùng chung một giao diện: mã, tên, trạng thái; tạo mới và sửa trong hộp thoại, ngừng dùng thay cho xoá. */
@@ -50,22 +53,29 @@ function CatalogPanel({
   rows,
   basePath,
   extra,
+  supportsProject,
   onChanged,
 }: {
   title: string;
   rows: CatalogRow[];
   basePath: string;
+  /** Danh mục lý do: có ô "Bắt buộc chọn dự án". */
+  supportsProject?: boolean;
   /** Trường cố định thêm vào mỗi lần lưu (ví dụ loại lý do). */
   extra?: Record<string, unknown>;
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState<CatalogRow | 'new' | null>(null);
-  const [form, setForm] = useState<CatalogForm>({ code: '', name: '', isActive: true });
+  const [form, setForm] = useState<CatalogForm>({ code: '', name: '', isActive: true, requireProject: false });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function open(row: CatalogRow | 'new') {
-    setForm(row === 'new' ? { code: '', name: '', isActive: true } : { code: row.code, name: row.name, isActive: row.isActive });
+    setForm(
+      row === 'new'
+        ? { code: '', name: '', isActive: true, requireProject: false }
+        : { code: row.code, name: row.name, isActive: row.isActive, requireProject: Boolean(row.requireProject) },
+    );
     setError(null);
     setEditing(row);
   }
@@ -73,7 +83,8 @@ function CatalogPanel({
   async function save() {
     setSaving(true);
     setError(null);
-    const body = { ...form, ...extra };
+    const { requireProject, ...rest } = form;
+    const body = { ...rest, ...(supportsProject ? { requireProject } : {}), ...extra };
     try {
       if (editing && editing !== 'new') await financePut(`${basePath}/${editing.id}`, body);
       else await financePost(basePath, body);
@@ -99,6 +110,7 @@ function CatalogPanel({
             <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
               <th className="py-1.5 font-medium">Mã</th>
               <th className="font-medium">Tên</th>
+              {supportsProject ? <th className="font-medium">Dự án</th> : null}
               <th className="font-medium">Trạng thái</th>
               <th className="w-10" />
             </tr>
@@ -108,6 +120,7 @@ function CatalogPanel({
               <tr key={row.id} className="border-b border-slate-50">
                 <td className="py-1.5 font-mono text-xs">{row.code}</td>
                 <td>{row.name}</td>
+                {supportsProject ? <td className="text-xs text-slate-600">{row.requireProject ? 'Bắt buộc chọn' : '—'}</td> : null}
                 <td>
                   <span className={cn('inline-flex h-5 items-center rounded px-2 text-xs font-medium', row.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
                     {row.isActive ? 'Đang dùng' : 'Ngừng dùng'}
@@ -140,6 +153,15 @@ function CatalogPanel({
                 <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="size-4 rounded border-slate-300" />
                 Đang dùng
               </label>
+              {supportsProject ? (
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={form.requireProject} onChange={(e) => setForm({ ...form, requireProject: e.target.checked })} className="mt-0.5 size-4 rounded border-slate-300" />
+                  <span>
+                    Bắt buộc chọn dự án
+                    <span className="block text-xs text-slate-500">Phiếu dùng lý do này phải hạch toán cho một dự án mới gửi duyệt và ghi sổ được (ví dụ lý do "Chi theo dự án").</span>
+                  </span>
+                </label>
+              ) : null}
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
               <Button type="button" variant="outline" onClick={() => setEditing(null)}>Hủy bỏ</Button>
@@ -328,8 +350,8 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
       <label className="flex items-start gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={requireAllocation} onChange={(e) => setRequireAllocation(e.target.checked)} className="mt-0.5 size-4 rounded border-slate-300" />
         <span>
-          Bắt buộc hạch toán dự án cho phiếu thu/chi
-          <span className="block text-xs text-slate-500">Bật thì phiếu phải chọn dự án (hoặc công việc) mới gửi duyệt và ghi sổ được, kể cả phiếu từ hồ sơ Quy trình. Mọi khoản thu chi đều hiện ở sổ chứng từ của một dự án, không bị bỏ sót. Mặc định tắt.</span>
+          Bắt buộc hạch toán dự án cho mọi phiếu thu/chi
+          <span className="block text-xs text-slate-500">Bật thì mọi phiếu thu/chi phải chọn dự án mới gửi duyệt và ghi sổ được, kể cả phiếu từ hồ sơ Quy trình. Muốn chỉ bắt buộc với một số khoản, để tắt ở đây và bật "Bắt buộc chọn dự án" ở từng lý do thu/chi (mục Lý do thu, Lý do chi). Mặc định tắt.</span>
         </span>
       </label>
       <Button type="button" disabled={saving} onClick={() => void save()}>Lưu cấu hình</Button>
@@ -382,10 +404,10 @@ export default function SettingsScreen() {
         {catalogs && settings ? (
           <>
             {tab === 'receipt-reasons' ? (
-              <CatalogPanel title="Lý do thu" rows={catalogs.reasons.filter((r) => r.kind === 'RECEIPT')} basePath="/catalogs/reasons" extra={{ kind: 'RECEIPT' }} onChanged={() => void load()} />
+              <CatalogPanel title="Lý do thu" rows={catalogs.reasons.filter((r) => r.kind === 'RECEIPT')} basePath="/catalogs/reasons" supportsProject extra={{ kind: 'RECEIPT' }} onChanged={() => void load()} />
             ) : null}
             {tab === 'payment-reasons' ? (
-              <CatalogPanel title="Lý do chi" rows={catalogs.reasons.filter((r) => r.kind === 'PAYMENT')} basePath="/catalogs/reasons" extra={{ kind: 'PAYMENT' }} onChanged={() => void load()} />
+              <CatalogPanel title="Lý do chi" rows={catalogs.reasons.filter((r) => r.kind === 'PAYMENT')} basePath="/catalogs/reasons" supportsProject extra={{ kind: 'PAYMENT' }} onChanged={() => void load()} />
             ) : null}
             {tab === 'groups' ? <CatalogPanel title="Đối tượng thu chi" rows={catalogs.counterpartyGroups} basePath="/catalogs/counterparty-groups" onChanged={() => void load()} /> : null}
             {tab === 'approval' ? <ApprovalPanel /> : null}

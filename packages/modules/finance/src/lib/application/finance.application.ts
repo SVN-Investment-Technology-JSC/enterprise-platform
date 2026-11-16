@@ -106,7 +106,7 @@ import {
 } from '../infrastructure/procedure-links.store.js';
 import { financeDashboard, financeLedgerReport, financeReport } from '../infrastructure/reports.store.js';
 import { loadListColumns, saveListColumns } from '../infrastructure/user-preferences.store.js';
-import { listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
+import { fetchWorkspaceWorkItem, listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
 import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
   approveVoucher,
@@ -425,8 +425,23 @@ export class FinanceApplication {
       posted: Boolean(row.posted_at),
       procedure,
       source,
+      linkedWorkItem: await this.linkedWorkItem(actor.tenantId, source?.requestedWorkItemId ?? null),
       permissions,
     };
+  }
+
+  /**
+   * Công việc Workspace của hồ sơ nguồn, cho khối "Liên quan". Chỉ để hiển thị nên lỗi (Workspace tắt, chậm, công việc đã xoá) bị bỏ
+   * qua: đọc phiếu không phụ thuộc Workspace đang chạy.
+   */
+  private async linkedWorkItem(tenantId: string, workItemId: string | null): Promise<FinanceVoucher['linkedWorkItem']> {
+    if (!workItemId) return null;
+    try {
+      const item = await fetchWorkspaceWorkItem(tenantId, workItemId);
+      return item ? { id: item.id, code: item.code, title: item.title, status: item.status, projectId: item.project.id } : null;
+    } catch {
+      return null;
+    }
   }
 
   async createVoucher(actor: FinanceActor, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
