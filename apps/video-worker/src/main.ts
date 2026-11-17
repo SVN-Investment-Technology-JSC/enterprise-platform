@@ -10,6 +10,7 @@ import { S3ObjectStorage } from '@enterprise-platform/adapter-storage';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import { SOCIAL_VIDEO_EVENT_TYPES, SOCIAL_VIDEO_QUEUES } from '@enterprise-platform/contracts-social';
 import { PostgresSocialVideoStore, SocialVideoProcessingService } from '@enterprise-platform/module-social';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access/runtime';
 import { readConfig } from './config.js';
 import { FfmpegTranscoder } from './ffmpeg-transcoder.js';
 import { startHeartbeat } from './heartbeat.js';
@@ -21,6 +22,7 @@ try {
 } catch {
   /* environment can be injected by the runtime */
 }
+assertServiceEnvironment('video-worker');
 
 const STALE_WORK_DIR_MS = 60 * 60 * 1000;
 const SHUTDOWN_WAIT_MS = 20_000;

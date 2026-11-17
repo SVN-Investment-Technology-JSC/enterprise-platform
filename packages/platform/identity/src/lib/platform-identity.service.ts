@@ -44,14 +44,15 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
-  exportJWK,
-  generateKeyPair,
-  importPKCS8,
-  importSPKI,
   jwtVerify,
   SignJWT,
   type JWK,
 } from 'jose';
+import {
+  loadPlatformIdentityKeys,
+  PLATFORM_IDENTITY_KEY_ID as KEY_ID,
+  type PlatformIdentityKeys,
+} from './platform-identity-keys.js';
 import { retryOnConnectionError } from './retry-on-connection-error.js';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
@@ -97,14 +98,7 @@ interface TenantResetRow {
   database_name: string;
 }
 
-const KEY_ID = 'platform-core-rs256-v1';
 const derivePassword = promisify(scrypt);
-
-type PlatformIdentityKeys = {
-  privateKey: Awaited<ReturnType<typeof importPKCS8>>;
-  publicKey: Awaited<ReturnType<typeof importSPKI>>;
-  jwk: JWK;
-};
 
 @Injectable()
 export class PlatformIdentityService implements OnModuleDestroy {
@@ -2739,21 +2733,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.keys;
   }
 
-  private async loadKeys(): Promise<PlatformIdentityKeys> {
-    const privatePem = process.env.AUTH_PRIVATE_KEY?.replaceAll('\\n', '\n');
-    const publicPem = process.env.AUTH_PUBLIC_KEY?.replaceAll('\\n', '\n');
-    const pair =
-      privatePem && publicPem
-        ? {
-            privateKey: await importPKCS8(privatePem, 'RS256'),
-            publicKey: await importSPKI(publicPem, 'RS256'),
-          }
-        : await generateKeyPair('RS256', { modulusLength: 2048 });
-    const jwk = await exportJWK(pair.publicKey);
-    jwk.kid = KEY_ID;
-    jwk.alg = 'RS256';
-    jwk.use = 'sig';
-    return { ...pair, jwk };
+  /** Production thiếu khoá thì lỗi, không tự sinh khoá tạm (ISS-OPS-015); xem `loadPlatformIdentityKeys`. */
+  private loadKeys(): Promise<PlatformIdentityKeys> {
+    return loadPlatformIdentityKeys();
   }
 
   private hash(value: string): string {

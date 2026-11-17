@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import type { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access';
 import type { Pool } from 'pg';
 import type { RedisClientType } from 'redis';
 import { AppModule } from './app/app.module';
@@ -21,6 +22,7 @@ try {
 } catch {
   // Runtime environments may inject configuration directly.
 }
+assertServiceEnvironment('realtime-api');
 
 let shutdown: (() => Promise<void>) | undefined;
 

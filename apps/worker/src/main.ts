@@ -90,6 +90,7 @@ import {
   firebaseAdminSender,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access/runtime';
 import type { Pool } from 'pg';
 
 try {
@@ -97,6 +98,7 @@ try {
 } catch {
   /* environment can be injected by the runtime */
 }
+assertServiceEnvironment('worker');
 
 const publisher = new RabbitMqPublisher(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',

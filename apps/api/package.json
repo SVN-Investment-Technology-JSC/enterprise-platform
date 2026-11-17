@@ -112,6 +112,7 @@
     "@enterprise-platform/platform-data-import": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
+    "@enterprise-platform/platform-module-access": "workspace:*",
     "@enterprise-platform/platform-profile": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",

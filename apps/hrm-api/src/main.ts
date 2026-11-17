@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
-import { assertProductionEnvironment } from './app/assert-production-env.js';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access';
 import { HrmApiModule } from './app/hrm-api.module.js';
 
 async function bootstrap() {
@@ -11,7 +11,7 @@ async function bootstrap() {
     /* environment can be injected by runtime */
   }
 
-  assertProductionEnvironment();
+  assertServiceEnvironment('hrm-api');
   const app = await NestFactory.create(HrmApiModule);
   app.use(cookieParser());
   app.enableShutdownHooks();

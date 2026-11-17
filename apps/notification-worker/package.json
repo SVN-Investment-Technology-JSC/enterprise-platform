@@ -106,6 +106,7 @@
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-notifications": "workspace:*",
     "@enterprise-platform/module-workspace": "workspace:*",
+    "@enterprise-platform/platform-module-access": "workspace:*",
     "@nestjs/common": "^11.2.10",
     "@nestjs/core": "^11.2.10",
     "@nestjs/platform-express": "^11.2.10",

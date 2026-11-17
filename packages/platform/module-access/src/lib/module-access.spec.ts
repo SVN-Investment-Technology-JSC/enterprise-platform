@@ -146,6 +146,58 @@ describe('ModuleAccess', () => {
       expect(fetcher).toHaveBeenCalledTimes(2);
     });
 
+    describe('INTERNAL_SERVICE_TOKEN (OPS015-06)', () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      afterEach(() => {
+        process.env.NODE_ENV = originalNodeEnv;
+      });
+      const make = () => {
+        const fetcher = jest.fn(async () => jsonResponse({ allowed: true }));
+        const access = new ModuleAccess({
+          moduleKey: 'inventory',
+          fetcher: fetcher as unknown as typeof fetch,
+          verifyToken: async () => tenantUser,
+        });
+        return { fetcher, access };
+      };
+
+      it('production thiếu token thì báo lỗi rõ, không gửi chuỗi rỗng lên Platform', async () => {
+        process.env.NODE_ENV = 'production';
+        delete process.env.INTERNAL_SERVICE_TOKEN;
+        const { fetcher, access } = make();
+        await expect(access.decision(tenantUser, 'inventory.read')).rejects.toMatchObject({
+          status: 503,
+          response: { code: 'INTERNAL_SERVICE_TOKEN_MISSING' },
+        });
+        expect(fetcher).not.toHaveBeenCalled();
+      });
+
+      it('production token chỉ có khoảng trắng cũng coi như thiếu', async () => {
+        process.env.NODE_ENV = 'production';
+        process.env.INTERNAL_SERVICE_TOKEN = '   ';
+        const { fetcher, access } = make();
+        await expect(access.decision(tenantUser, 'inventory.read')).rejects.toMatchObject({ status: 503 });
+        expect(fetcher).not.toHaveBeenCalled();
+      });
+
+      it('production có token thì gửi đúng token', async () => {
+        process.env.NODE_ENV = 'production';
+        process.env.INTERNAL_SERVICE_TOKEN = 'service-secret';
+        const { fetcher, access } = make();
+        await access.decision(tenantUser, 'inventory.read');
+        const init = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
+        expect((init.headers as Record<string, string>)['x-service-token']).toBe('service-secret');
+      });
+
+      it('dev thiếu token vẫn gọi như cũ', async () => {
+        process.env.NODE_ENV = 'development';
+        delete process.env.INTERNAL_SERVICE_TOKEN;
+        const { fetcher, access } = make();
+        await expect(access.decision(tenantUser, 'inventory.read')).resolves.toEqual({ allowed: true });
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('lỗi 4xx của Platform không thử lại', async () => {
       const fetcher = jest.fn(async () => jsonResponse({}, 401));
       const access = new ModuleAccess({

@@ -130,6 +130,7 @@
     "@enterprise-platform/contracts-social": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-social": "workspace:*",
+    "@enterprise-platform/platform-module-access": "workspace:*",
     "@nestjs/common": "^11.2.10",
     "amqplib": "^2.0.1",
     "pg": "^8.23.0",

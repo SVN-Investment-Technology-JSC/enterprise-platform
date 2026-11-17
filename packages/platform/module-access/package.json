@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "import": "./src/runtime.ts",
+      "default": "./src/runtime.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {
