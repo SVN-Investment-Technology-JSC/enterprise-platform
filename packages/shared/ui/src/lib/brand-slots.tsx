@@ -13,7 +13,6 @@ import {
 } from 'react';
 import {
   BRAND_API_BASE,
-  slotSymbolId,
   toCamelAttr,
   type BrandSlotManifestItem,
   type BrandSlotManifestResponse,
@@ -99,57 +98,6 @@ function renderSvgNode(node: SvgNode, key: string): ReactElement {
   return createElement(node.tag, props, ...(children ?? []));
 }
 
-function BrandSlotSprite({
-  manifest,
-}: {
-  manifest: BrandSlotManifestResponse | null;
-}) {
-  if (!manifest) return null;
-  const entries = Object.entries(manifest.slots);
-  if (entries.length === 0) return null;
-
-  const seenDefIds = new Set<string>();
-  const uniqueDefs: SvgNode[] = [];
-  for (const [, item] of entries) {
-    for (const def of item.model.defs) {
-      const defId = def.attrs?.id;
-      if (defId) {
-        if (seenDefIds.has(defId)) continue;
-        seenDefIds.add(defId);
-      }
-      uniqueDefs.push(def);
-    }
-  }
-
-  return (
-    <svg aria-hidden="true" style={{ display: 'none' }}>
-      {uniqueDefs.length > 0 ? (
-        <defs>
-          {uniqueDefs.map((def, index) =>
-            renderSvgNode(def, `def-${def.attrs?.id ?? index}`),
-          )}
-        </defs>
-      ) : null}
-      {entries.map(([slotKey, item]) => {
-        const slotId = item.slot ?? (slotKey as IconSlotId);
-        const symbolId = slotSymbolId(slotId);
-        return (
-          <symbol
-            key={symbolId}
-            id={symbolId}
-            viewBox={item.model.viewBox}
-            {...toReactSvgAttrs(item.model.rootAttrs)}
-          >
-            {item.model.children.map((child, index) =>
-              renderSvgNode(child, `${symbolId}-${index}`),
-            )}
-          </symbol>
-        );
-      })}
-    </svg>
-  );
-}
-
 export function BrandSlotProvider({
   children,
   endpoint = DEFAULT_MANIFEST_ENDPOINT,
@@ -229,7 +177,6 @@ export function BrandSlotProvider({
 
   return (
     <BrandSlotContext.Provider value={value}>
-      <BrandSlotSprite manifest={manifest} />
       {children}
     </BrandSlotContext.Provider>
   );
@@ -277,15 +224,30 @@ export function AppIcon({
   const ariaHidden = ariaLabel ? undefined : true;
 
   if (item) {
+    const { model } = item;
+    const rootAttrs = toReactSvgAttrs(model.rootAttrs);
+    const mergedClassName = [className, rootAttrs.className].filter(Boolean).join(' ') || undefined;
+
     return (
       <svg
         aria-hidden={ariaHidden}
         aria-label={ariaLabel}
-        width={size}
         height={size}
-        className={className}
+        viewBox={model.viewBox}
+        width={size}
+        {...rootAttrs}
+        className={mergedClassName}
       >
-        <use href={`#${slotSymbolId(slot)}`} />
+        {model.defs.length > 0 ? (
+          <defs>
+            {model.defs.map((def, index) =>
+              renderSvgNode(def, `${slot}-def-${def.attrs?.id ?? index}`),
+            )}
+          </defs>
+        ) : null}
+        {model.children.map((child, index) =>
+          renderSvgNode(child, `${slot}-child-${index}`),
+        )}
       </svg>
     );
   }

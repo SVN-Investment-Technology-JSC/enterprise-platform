@@ -170,7 +170,7 @@ describe('brand-slots', () => {
     expect(fallback.getAttribute('aria-hidden')).toBeNull();
   });
 
-  it('dựng <symbol>, gom <defs> không trùng id và render <use href="#ep-slot-...">', async () => {
+  it('render SVG độc lập với <defs> và children trực tiếp từ manifest để bảo toàn mask và gradient', async () => {
     const manifest = createManifest();
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -201,25 +201,17 @@ describe('brand-slots', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
 
-    const symbol = container.querySelector('symbol#ep-slot-brand-logo');
-    expect(symbol).toBeTruthy();
-    expect(symbol?.getAttribute('viewBox')).toBe('0 0 32 32');
-    expect(symbol?.getAttribute('stroke-width')).toBe('2');
-    expect(symbol?.getAttribute('class')).toBe('brand-root');
-    expect(symbol?.querySelector('g[fill-opacity="0.9"] path')).toBeTruthy();
-
-    // Chỉ có 1 linearGradient#grad-1 trong <defs> dù 2 slot cùng khai báo id này.
-    const gradients = container.querySelectorAll('defs linearGradient#grad-1');
-    expect(gradients.length).toBe(1);
-    expect(gradients[0]?.querySelectorAll('stop').length).toBe(2);
-
-    const useEl = container.querySelector('svg.logo-icon use');
-    expect(useEl).toBeTruthy();
-    expect(useEl?.getAttribute('href')).toBe('#ep-slot-brand-logo');
-    expect(useEl?.parentElement?.getAttribute('width')).toBe('32');
-    expect(useEl?.parentElement?.getAttribute('height')).toBe('32');
-    expect(useEl?.parentElement?.getAttribute('aria-label')).toBe('Logo');
-    expect(useEl?.parentElement?.getAttribute('aria-hidden')).toBeNull();
+    const svgEl = container.querySelector('svg.logo-icon');
+    expect(svgEl).toBeTruthy();
+    expect(svgEl?.getAttribute('viewBox')).toBe('0 0 32 32');
+    expect(svgEl?.getAttribute('width')).toBe('32');
+    expect(svgEl?.getAttribute('height')).toBe('32');
+    expect(svgEl?.getAttribute('stroke-width')).toBe('2');
+    expect(svgEl?.getAttribute('class')).toContain('logo-icon');
+    expect(svgEl?.getAttribute('aria-label')).toBe('Logo');
+    expect(svgEl?.getAttribute('aria-hidden')).toBeNull();
+    expect(svgEl?.querySelector('defs linearGradient#grad-1')).toBeTruthy();
+    expect(svgEl?.querySelector('g[fill-opacity="0.9"] path')).toBeTruthy();
   });
 
   it('đọc cache từ localStorage ngay lập tức và cập nhật ngầm khi hash mới', async () => {
@@ -254,8 +246,8 @@ describe('brand-slots', () => {
     );
 
     // Render ngay từ cache trước khi fetch xong.
-    expect(container.querySelector('use')?.getAttribute('href')).toBe(
-      '#ep-slot-brand-logo',
+    expect(container.querySelector('svg.brand-root')?.getAttribute('viewBox')).toBe(
+      '0 0 32 32',
     );
     expect(screen.getByTestId('slot-probe').getAttribute('data-icon-id')).toBe(
       'logo-main',
