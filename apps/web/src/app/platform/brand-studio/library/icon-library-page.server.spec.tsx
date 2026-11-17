@@ -51,15 +51,15 @@ afterEach(() => {
 });
 
 describe('IconLibraryPage: chế độ máy chủ', () => {
-  it('lúc kiểm tra kết nối chỉ có khung chờ, rồi hiện icon trên máy chủ cùng dải "Đã kết nối máy chủ"', async () => {
+  it('lúc kiểm tra kết nối chỉ có khung chờ, rồi hiện icon trên máy chủ, không hiện dải trạng thái', async () => {
     mockServer.seed(custom('a', 'Đồng hồ'));
     render(<IconLibraryPage />);
 
     expect(screen.getByLabelText('Đang tải thư viện')).toBeTruthy();
     expect(tiles()).toHaveLength(0);
 
-    await waitFor(() => expect(screen.getByText('Đã kết nối máy chủ')).toBeTruthy());
     await waitFor(() => expect(tiles()).toHaveLength(1 + presetCount));
+    expect(screen.queryByTestId('sync-banner')).toBeNull();
     expect(screen.getByRole('link', { name: 'Mở Đồng hồ' })).toBeTruthy();
   });
 
@@ -242,7 +242,7 @@ describe('IconLibraryPage: chế độ cục bộ khi chưa có API', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
 
-    await waitFor(() => expect(screen.getByText('Đã kết nối máy chủ')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText('Đang lưu tạm trong trình duyệt')).toBeNull());
     await waitFor(() => expect(screen.getByRole('link', { name: 'Mở Trên máy chủ' })).toBeTruthy());
   });
 });

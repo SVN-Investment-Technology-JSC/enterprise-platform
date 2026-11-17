@@ -464,6 +464,17 @@ export function IconLibraryPage() {
       </div>
     ) : null;
 
+  const libraryToolbar = (
+    <LibraryToolbar
+      counts={counts}
+      mode={mode}
+      onChange={patchView}
+      onMode={changeMode}
+      onSort={changeSort}
+      view={view}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -558,17 +569,9 @@ export function IconLibraryPage() {
         </p>
       ) : null}
 
-      <LibraryToolbar
-        counts={counts}
-        mode={mode}
-        onChange={patchView}
-        onMode={changeMode}
-        onSort={changeSort}
-        view={view}
-      />
-
       <Panel
         toolbar={bulkToolbar}
+        controls={libraryToolbar}
         actions={
           library.ready && visible.length > 0 ? (
             <>

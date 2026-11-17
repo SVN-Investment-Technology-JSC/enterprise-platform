@@ -28,6 +28,8 @@ export function SyncBanner({ library }: { readonly library: IconLibrary }) {
 
   if (library.mode === 'checking') return null;
   const server = library.mode === 'server';
+  // Bình thường (máy chủ dùng được, không còn gì cần đồng bộ) thì không hiện dải: chỉ báo khi có việc cần chú ý.
+  if (server && !busy && !outcome && !library.loading && library.localOnlyCount === 0) return null;
 
   const sync = async () => {
     setBusy(true);
