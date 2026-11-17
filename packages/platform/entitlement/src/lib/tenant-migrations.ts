@@ -545,6 +545,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0082-hrm-leave-request-groups',
       path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
     },
+    {
+      version: '0083-hrm-request-replacements',
+      path: 'tenant/hrm/0083-hrm-request-replacements.sql',
+    },
+    {
+      version: '0084-hrm-ot-request-groups',
+      path: 'tenant/hrm/0084-hrm-ot-request-groups.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

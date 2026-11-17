@@ -1,10 +1,7 @@
 /**
  * Cấu hình làm thêm và nghỉ bù của một tenant, lưu trong `config_json.overtimeComp` của phiên bản chính sách OT
- * (`hrm_schema.policy_versions`, policy_type = 'OT'), cùng chỗ với khung giờ đêm sẵn có (`nightStartMinute`,
- * `nightEndMinute`). Không có bảng cấu hình thứ hai. Hàm thuần: đọc có mặc định, kiểm tra chặt dữ liệu người dùng gửi.
+ * (`hrm_schema.policy_versions`, policy_type = 'OT'). Không có bảng cấu hình thứ hai. Hàm thuần: đọc có mặc định, kiểm tra chặt dữ liệu người dùng gửi.
  */
-import type { ClockWindowConfig, NightRestConfig, OvertimeRuleSet } from './overtime-classification.js';
-import { OVERTIME_RULE_SETS } from './overtime-classification.js';
 import type { MonthlyCapConfig, RoundingMethod } from './overtime-monthly-cap.js';
 
 export interface OvertimeCompPolicy {
@@ -12,17 +9,9 @@ export interface OvertimeCompPolicy {
   readonly enabled: boolean;
   /** Bật quản lý quỹ nghỉ bù (giữ chỗ, trừ quỹ đơn Nghỉ bù). Tách khỏi `enabled` để dùng được khi chưa bật tính OT tự động. */
   readonly fundEnabled: boolean;
-  readonly ruleSet: OvertimeRuleSet;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
   readonly yearlyCapHours: number | null;
-  readonly nightCapped: boolean;
-  readonly nightStartMinute: number;
-  readonly nightEndMinute: number;
-  readonly nightRestHoursPerDay: number;
-  readonly allowHalfDay: boolean;
-  /** Đơn công tác khai giờ theo ngày: tách giờ đêm trong phần làm thêm theo khung giờ đêm (true) hay gộp chung (false). */
-  readonly declaredNightWindow: boolean;
   readonly compFactor: number;
   /** Số giờ quy đổi một ngày nghỉ; null là bằng giờ chuẩn một ngày. */
   readonly dayBasisHours: number | null;
@@ -40,16 +29,9 @@ export interface OvertimeCompPolicy {
 export const DEFAULT_OVERTIME_COMP_POLICY: OvertimeCompPolicy = {
   enabled: false,
   fundEnabled: false,
-  ruleSet: 'CLOCK_WINDOW',
   normalHoursPerDay: 8,
   monthlyCapHours: 40,
   yearlyCapHours: 200,
-  nightCapped: false,
-  nightStartMinute: 1320,
-  nightEndMinute: 360,
-  nightRestHoursPerDay: 8,
-  allowHalfDay: true,
-  declaredNightWindow: false,
   compFactor: 1.5,
   dayBasisHours: null,
   decimals: 1,
@@ -83,23 +65,15 @@ function numOrNull(v: unknown, fallback: number | null): number | null {
 export function parseOvertimeCompPolicy(config: Record<string, unknown> | null | undefined): OvertimeCompPolicy {
   const d = DEFAULT_OVERTIME_COMP_POLICY;
   const raw = isObject(config?.overtimeComp) ? config.overtimeComp : {};
-  const ruleSet = OVERTIME_RULE_SETS.find((r) => r === raw.ruleSet) ?? d.ruleSet;
   const rounding = ROUNDINGS.find((r) => r === raw.rounding) ?? d.rounding;
   const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : d.enabled;
   const fundEnabled = typeof raw.fundEnabled === 'boolean' ? raw.fundEnabled : enabled;
   return {
     enabled,
     fundEnabled,
-    ruleSet,
     normalHoursPerDay: num(raw.normalHoursPerDay, d.normalHoursPerDay),
     monthlyCapHours: num(raw.monthlyCapHours, d.monthlyCapHours),
     yearlyCapHours: numOrNull(raw.yearlyCapHours, d.yearlyCapHours),
-    nightCapped: typeof raw.nightCapped === 'boolean' ? raw.nightCapped : d.nightCapped,
-    nightStartMinute: num(raw.nightStartMinute ?? config?.nightStartMinute, d.nightStartMinute),
-    nightEndMinute: num(raw.nightEndMinute ?? config?.nightEndMinute, d.nightEndMinute),
-    nightRestHoursPerDay: num(raw.nightRestHoursPerDay, d.nightRestHoursPerDay),
-    allowHalfDay: typeof raw.allowHalfDay === 'boolean' ? raw.allowHalfDay : d.allowHalfDay,
-    declaredNightWindow: typeof raw.declaredNightWindow === 'boolean' ? raw.declaredNightWindow : d.declaredNightWindow,
     compFactor: num(raw.compFactor, d.compFactor),
     dayBasisHours: numOrNull(raw.dayBasisHours, d.dayBasisHours),
     decimals: num(raw.decimals, d.decimals),
@@ -111,24 +85,13 @@ export function parseOvertimeCompPolicy(config: Record<string, unknown> | null |
   };
 }
 
-/** Cấu hình cho `classifyBlock`. */
-export function classificationConfigOf(policy: OvertimeCompPolicy): {
-  nightRest: NightRestConfig;
-  clockWindow: ClockWindowConfig;
-} {
-  return {
-    nightRest: { nightRestHoursPerDay: policy.nightRestHoursPerDay, allowHalfDay: policy.allowHalfDay },
-    clockWindow: { nightStartMinute: policy.nightStartMinute, nightEndMinute: policy.nightEndMinute },
-  };
-}
-
 /** Cấu hình cho `summarizeOvertimeMonth`. */
 export function monthlyCapConfigOf(policy: OvertimeCompPolicy): MonthlyCapConfig {
   return {
     capApplies: policy.enabled,
     monthlyCapHours: policy.monthlyCapHours,
     yearlyCapHours: policy.yearlyCapHours,
-    nightCapped: policy.nightCapped,
+    nightCapped: false,
     compFactor: policy.compFactor,
     dayBasisHours: policy.dayBasisHours ?? policy.normalHoursPerDay,
     decimals: policy.decimals,
@@ -147,19 +110,12 @@ export function validateOvertimeCompPolicy(input: unknown): string | null {
   };
   if (has('enabled') && typeof input.enabled !== 'boolean') return 'Ô áp dụng quy tắc phải là đúng hoặc sai';
   if (has('fundEnabled') && typeof input.fundEnabled !== 'boolean') return 'Ô bật quản lý quỹ nghỉ bù phải là đúng hoặc sai';
-  if (has('ruleSet') && !OVERTIME_RULE_SETS.includes(input.ruleSet as OvertimeRuleSet))
-    return 'Chế độ phân loại phải là NIGHT_REST hoặc CLOCK_WINDOW';
   if (has('rounding') && !ROUNDINGS.includes(input.rounding as RoundingMethod))
     return 'Phương pháp làm tròn phải là HALF_UP, DOWN hoặc UP';
-  for (const k of ['allowHalfDay', 'nightCapped', 'declaredNightWindow'])
-    if (has(k) && typeof input[k] !== 'boolean') return `Giá trị ${k} phải là đúng hoặc sai`;
   const errors = [
     check('normalHoursPerDay', (n) => n > 0 && n <= 24, 'Số giờ chuẩn một ngày phải lớn hơn 0 và không quá 24'),
     check('monthlyCapHours', (n) => n > 0 && n <= 744, 'Trần làm thêm theo tháng phải lớn hơn 0 và không quá 744 giờ'),
     check('yearlyCapHours', (n) => n > 0 && n <= 8784, 'Trần làm thêm theo năm phải lớn hơn 0'),
-    check('nightStartMinute', (n) => Number.isInteger(n) && n >= 720 && n <= 1439, 'Giờ bắt đầu khung đêm phải sau 12:00'),
-    check('nightEndMinute', (n) => Number.isInteger(n) && n >= 0 && n <= 719, 'Giờ kết thúc khung đêm phải trước 12:00'),
-    check('nightRestHoursPerDay', (n) => n > 0 && n <= 24, 'Số giờ ca đêm bù mỗi ngày nghỉ phải lớn hơn 0 và không quá 24'),
     check('compFactor', (n) => n > 0 && n <= 10, 'Hệ số quy đổi nghỉ bù phải lớn hơn 0 và không quá 10'),
     check('dayBasisHours', (n) => n > 0 && n <= 24, 'Số giờ quy đổi một ngày nghỉ phải lớn hơn 0 và không quá 24'),
     check('decimals', (n) => Number.isInteger(n) && n >= 0 && n <= 3, 'Số chữ số thập phân phải từ 0 đến 3'),
@@ -168,13 +124,7 @@ export function validateOvertimeCompPolicy(input: unknown): string | null {
     check('expiryMonths', (n) => Number.isInteger(n) && n >= 0 && n <= 120, 'Hạn dùng phải từ 0 đến 120 tháng'),
     check('accumulationCapDays', (n) => n > 0 && n <= 1000, 'Trần tích lũy nghỉ bù phải lớn hơn 0'),
   ];
-  const first = errors.find((e): e is string => e !== null);
-  if (first) return first;
-  const start = input.nightStartMinute;
-  const end = input.nightEndMinute;
-  if (typeof start === 'number' && typeof end === 'number' && !(start > end))
-    return 'Khung giờ đêm phải bắt đầu sau 12:00 và kết thúc trước 12:00';
-  return null;
+  return errors.find((e): e is string => e !== null) ?? null;
 }
 
 /**

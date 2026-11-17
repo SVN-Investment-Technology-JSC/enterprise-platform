@@ -3,6 +3,7 @@ import { hrmTransaction } from './hrm-transaction.js';
 import { accrueMonth } from './hrm-leave-accrual.js';
 import { carryoverYear, expireCarryovers } from './hrm-leave-carryover.js';
 import { isoDate } from './hrm-time.js';
+import { autoAccrueCompOff } from './hrm-comp-off.js';
 
 /** The common ERP worker calls this; row locks and ledger keys also fence replicas. */
 export async function runHrmAutomation(
@@ -139,7 +140,15 @@ export async function runHrmAutomation(
         missingContract: missingContract.length,
         blocked: blocked.length,
       };
+      // Cuối tháng: cộng quỹ nghỉ bù của tháng trước từ số liệu làm thêm (chỉ khi bật công thức tự động; chạy lại không cộng trùng).
+      const prevMonth = (() => {
+        const d = new Date(`${date.slice(0, 7)}-01T00:00:00Z`);
+        d.setUTCMonth(d.getUTCMonth() - 1);
+        return d.toISOString().slice(0, 7);
+      })();
+      const compOff = await autoAccrueCompOff(db, tenantId, null, prevMonth, date);
       const result = {
+        compOff,
         months,
         carryovers,
         expiry,

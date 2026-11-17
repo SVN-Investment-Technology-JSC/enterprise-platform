@@ -14,7 +14,13 @@ import {
   previewCompOffConversion,
   reverseCompOffAdjustment,
 } from './hrm-comp-off.js';
-import { approveOvertime, createOvertime } from './hrm-overtime.js';
+import {
+  approveOvertime,
+  approveOvertimeGroup,
+  cascadeOvertimeGroupStatus,
+  createOvertime,
+  createOvertimeGroup,
+} from './hrm-overtime.js';
 import { createLeave, createLeaveGroup, transitionLeave } from './hrm-leave-operations.js';
 import {
   listOvertimeBlocks,
@@ -143,14 +149,14 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
   });
 
   it('cấu hình: ngày hiệu lực phải là mùng 1, cần lý do; lưu thì tạo phiên bản mới và loại nghỉ "Nghỉ bù"', async () => {
-    const config = { enabled: true, ruleSet: 'NIGHT_REST' as const, monthlyCapHours: 10, yearlyCapHours: 200, accrualMonthOffset: 1 as const };
+    const config = { enabled: true, monthlyCapHours: 10, yearlyCapHours: 200, accrualMonthOffset: 1 as const };
     await expect(tx((db) => saveOvertimeCompSettings(db, tenantId, actor, { effectiveFrom: '2026-09-15', config, reason: 'x' }))).rejects.toThrow('mùng 1');
     await expect(tx((db) => saveOvertimeCompSettings(db, tenantId, actor, { effectiveFrom: '2026-09-01', config, reason: ' ' }))).rejects.toThrow('lý do');
     await expect(
       tx((db) => saveOvertimeCompSettings(db, tenantId, actor, { effectiveFrom: '2026-09-01', config: { monthlyCapHours: -1 }, reason: 'x' })),
     ).rejects.toThrow('Trần làm thêm theo tháng');
     const saved = await tx((db) => saveOvertimeCompSettings(db, tenantId, actor, { effectiveFrom: '2026-09-01', config, reason: 'Bật quy tắc cho Savina' }));
-    expect(saved.current?.config).toMatchObject({ enabled: true, ruleSet: 'NIGHT_REST', monthlyCapHours: 10, compFactor: 1.5 });
+    expect(saved.current?.config).toMatchObject({ enabled: true, monthlyCapHours: 10, compFactor: 1.5 });
     expect(saved.versions.length).toBeGreaterThanOrEqual(2);
     const type = await pool.query(`SELECT id,paid,deduct_balance,comp_off FROM hrm_schema.leave_types WHERE tenant_id=$1 AND comp_off`, [tenantId]);
     expect(type.rows).toHaveLength(1);
@@ -186,7 +192,7 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     await ot(e1, '2026-10-07', '18:00', '23:00', 300);
     await ot(e1, '2026-10-08', '18:00', '23:00', 300);
     await ot(e1, '2026-10-09', '18:00', '23:00', 300);
-    await ot(e2, '2026-10-13', '18:00', '04:00', 600, 'HALF');
+    await ot(e2, '2026-10-13', '18:00', '04:00', 600, 'FULL');
     await ot(e2, '2026-10-31', '20:00', '02:00', 360);
 
     const octE1 = await listOvertimeBlocks(pool, tenantId, '2026-10', e1);
@@ -210,7 +216,7 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     );
     expect(rests.rows).toEqual([
       { employee_id: e1, d: '2026-10-06', f: 1 },
-      { employee_id: e2, d: '2026-10-14', f: 0.5 },
+      { employee_id: e2, d: '2026-10-14', f: 1 },
     ]);
   });
 
@@ -219,9 +225,9 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     await expect(tx((db) => overrideOvertimeBlock(db, tenantId, actor, first!.id, { otHours: 3 }))).rejects.toThrow('lý do');
     await expect(tx((db) => overrideOvertimeBlock(db, tenantId, actor, first!.id, { otHours: 99, reason: 'x' }))).rejects.toThrow('số giờ của ca');
     const edited = await tx((db) => overrideOvertimeBlock(db, tenantId, actor, first!.id, { otHours: 6, reason: 'Nhập sai ngày nghỉ' }));
-    expect(edited).toMatchObject({ otHoursFinal: 6, nightHoursFinal: 4, source: 'MANUAL', overrideReason: 'Nhập sai ngày nghỉ', otHoursSuggested: 6 });
+    expect(edited).toMatchObject({ otHoursFinal: 6, nightHoursFinal: 4, source: 'MANUAL', overrideReason: 'Nhập sai ngày nghỉ', otHoursSuggested: 2 });
     const reverted = await tx((db) => overrideOvertimeBlock(db, tenantId, actor, first!.id, { revert: true }));
-    expect(reverted).toMatchObject({ source: 'RULE', overrideReason: null, otHoursFinal: 6 });
+    expect(reverted).toMatchObject({ source: 'RULE', overrideReason: null, otHoursFinal: 2 });
     const audit = await pool.query(`SELECT action FROM hrm_schema.audit_log WHERE tenant_id=$1 AND entity_id=$2 ORDER BY created_at`, [tenantId, first!.id]);
     expect(audit.rows.map((r) => r.action)).toEqual(['OVERTIME_BLOCK_OVERRIDDEN', 'OVERTIME_BLOCK_REVERTED']);
   });
@@ -491,6 +497,48 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     expect(await available()).toBe(1);
     await tx((db) => transitionLeave(db, tenantId, actor, rejected.id as string, 'REJECTED', 'Không bố trí được'));
     expect(await available()).toBe(3);
+  });
+
+  it('đơn làm thêm nhiều khoảng: tạo cùng giao dịch, một khoảng lỗi thì không khoảng nào được tạo; duyệt, từ chối cả nhóm', async () => {
+    const status = async (ids: string[]) =>
+      (await pool.query(`SELECT id,status,group_id FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [tenantId, ids])).rows;
+    // Khoảng 2 trùng khoảng 1 (cùng ngày giờ): cả giao dịch bị hủy.
+    await expect(
+      tx((db) =>
+        createOvertimeGroup(db, tenantId, actor, { employeeId: e1, fromAt: '2026-12-02T18:00', toAt: '2026-12-02T21:00' }, undefined, [
+          { fromAt: '2026-12-02T19:00', toAt: '2026-12-02T22:00' },
+        ], { requestTypeLabel: 'Đơn làm thêm giờ' }),
+      ),
+    ).rejects.toThrow(/Khoảng làm thêm 2/);
+    expect(
+      (await pool.query(`SELECT count(*)::int AS n FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND employee_id=$2 AND work_date='2026-12-02'`, [tenantId, e1])).rows[0].n,
+    ).toBe(0);
+    // Nhóm hợp lệ: khoảng chính có group_id = id, khoảng bổ sung dùng chung group_id; mỗi khoảng giữ nextDayRest riêng.
+    const leader = await tx((db) =>
+      createOvertimeGroup(db, tenantId, actor, { employeeId: e1, fromAt: '2026-12-03T18:00', toAt: '2026-12-03T21:00' }, undefined, [
+        { fromAt: '2026-12-04T18:00', toAt: '2026-12-05T04:00', nextDayRest: 'HALF' },
+      ], { requestTypeLabel: 'Đơn làm thêm giờ' }),
+    );
+    const rows = (await pool.query(`SELECT id,status,group_id,next_day_rest FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND group_id=$2 ORDER BY work_date`, [tenantId, leader.id])).rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ id: leader.id, group_id: leader.id });
+    expect(rows.map((r) => r.next_day_rest)).toEqual(['NONE', 'HALF']);
+    const ids = rows.map((r) => r.id as string);
+    // Duyệt khoảng chính là duyệt cả nhóm.
+    await tx((db) => approveOvertimeGroup(db, tenantId, actor, leader.id));
+    expect((await status(ids)).map((r) => r.status)).toEqual(['APPROVED', 'APPROVED']);
+    // Nhóm khác: từ chối khoảng chính kéo theo khoảng còn chờ duyệt.
+    const second = await tx((db) =>
+      createOvertimeGroup(db, tenantId, actor, { employeeId: e2, fromAt: '2026-12-03T18:00', toAt: '2026-12-03T21:00' }, undefined, [
+        { fromAt: '2026-12-04T18:00', toAt: '2026-12-04T21:00' },
+      ], { requestTypeLabel: 'Đơn làm thêm giờ' }),
+    );
+    await tx(async (db) => {
+      await db.query(`UPDATE hrm_schema.ot_requests SET status='REJECTED' WHERE tenant_id=$1 AND id=$2`, [tenantId, second.id]);
+      await cascadeOvertimeGroupStatus(db, tenantId, actor, second.id as string, 'REJECTED');
+    });
+    const rejected = (await pool.query(`SELECT status FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND group_id=$2`, [tenantId, second.id])).rows;
+    expect(rejected.map((r) => r.status)).toEqual(['REJECTED', 'REJECTED']);
   });
 
   it('đảo đơn làm thêm xóa ca phân loại; mở lại kỳ xóa ảnh chụp', async () => {

@@ -108,7 +108,6 @@ export async function saveOvertimeCompSettings(
     reason,
     effectiveFrom,
     enabled: next.enabled,
-    ruleSet: next.ruleSet,
     onConflict,
     closed: published.closed,
     replaced: published.replaced,

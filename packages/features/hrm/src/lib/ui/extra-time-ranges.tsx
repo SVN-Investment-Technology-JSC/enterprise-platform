@@ -59,7 +59,70 @@ export function ExtraTimeRanges({
 
   return (
     <div data-testid={`extra-ranges-${kind}`} className="space-y-2">
-      {ranges.map((range, index) => (
+      {ranges.map((range, index) => kind === 'ot' ? (
+        <div key={range.id} data-testid={`extra-range-${index + 2}`}>
+          <OvertimeTimeRange
+            compact
+            employeeId={employeeId}
+            idPrefix={`extra-ot-${index + 2}`}
+            fromAt={range.fromAt}
+            toAt={range.toAt}
+            disabled={disabled}
+            morningWorked={range.morningWorked}
+            onMorningWorkedChange={(value) => patch(range.id, { morningWorked: value, ...(value ? { morningHalf: false } : {}) })}
+            morningHalf={range.morningHalf}
+            onMorningHalfChange={(value) => patch(range.id, { morningHalf: value })}
+            onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
+            onPreview={(preview) => patch(range.id, { preview })}
+            trailing={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Xoá ${rangeLabel(index + 1, kind).toLowerCase()}`}
+                className="h-9 w-full gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                disabled={disabled}
+                onClick={() => onChange(ranges.filter((r) => r.id !== range.id))}
+              >
+                <Trash2 className="size-3.5" />
+                Xoá
+              </Button>
+            }
+          />
+        </div>
+      ) : (
+        kind === 'leave' ? (
+          <div key={range.id} data-testid={`extra-range-${index + 2}`}>
+            <RequestTimeRange
+              compact
+              employeeId={employeeId}
+              kind={kind}
+              leaveTypeId={leaveTypeId}
+              showSummary={showSummary}
+              fromAt={range.fromAt}
+              toAt={range.toAt}
+              fromLabel={`Từ ngày giờ ${noun}`}
+              toLabel={`Đến ngày giờ ${noun}`}
+              disabled={disabled}
+              onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
+              onPreview={(preview) => patch(range.id, { preview })}
+              trailing={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Xoá ${rangeLabel(index + 1, kind).toLowerCase()}`}
+                  className="h-9 w-full gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  disabled={disabled}
+                  onClick={() => onChange(ranges.filter((r) => r.id !== range.id))}
+                >
+                  <Trash2 className="size-3.5" />
+                  Xoá
+                </Button>
+              }
+            />
+          </div>
+        ) : (
         <div
           key={range.id}
           data-testid={`extra-range-${index + 2}`}
@@ -80,17 +143,6 @@ export function ExtraTimeRanges({
               Xoá
             </Button>
           </div>
-          {kind === 'ot' ? (
-            <OvertimeTimeRange
-              employeeId={employeeId}
-              idPrefix={`extra-ot-${index + 2}`}
-              fromAt={range.fromAt}
-              toAt={range.toAt}
-              disabled={disabled}
-              onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
-              onPreview={(preview) => patch(range.id, { preview })}
-            />
-          ) : (
           <RequestTimeRange
             employeeId={employeeId}
             kind={kind}
@@ -104,9 +156,9 @@ export function ExtraTimeRanges({
             onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
             onPreview={(preview) => patch(range.id, { preview })}
           />
-          )}
         </div>
-      ))}
+        ))
+      )}
       <div className="flex items-center justify-between">
         <Button
           type="button"
@@ -123,7 +175,9 @@ export function ExtraTimeRanges({
           <span className="text-[12px] text-slate-500">
             {kind === 'leave'
               ? `Gửi thành một đơn ${total} khoản, cùng lý do, mô tả và chứng từ; các khoản được duyệt hoặc từ chối cùng lúc.`
-              : `Gửi thành ${total} đơn ${noun}, cùng lý do, mô tả và chứng từ.`}
+              : kind === 'ot'
+                ? `Gửi thành một đơn ${total} khoảng, cùng lý do, mô tả và chứng từ; các khoảng được duyệt hoặc từ chối cùng lúc.`
+                : `Gửi thành ${total} đơn ${noun}, cùng lý do, mô tả và chứng từ.`}
           </span>
         )}
       </div>

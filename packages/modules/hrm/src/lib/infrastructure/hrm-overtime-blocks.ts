@@ -8,15 +8,16 @@ import type {
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
+  blockHours,
   classifyBlock,
   crossesMidnight,
   formatLocalMinutes,
   localMinutes,
   splitBlockByMonth,
+  weekdayOf,
   type OvertimeBlock,
 } from '../domain/overtime-classification.js';
 import {
-  classificationConfigOf,
   parseOvertimeCompPolicy,
   type OvertimeCompPolicy,
 } from '../domain/overtime-comp-policy.js';
@@ -50,7 +51,10 @@ export async function snapshotColumnReady(db: Db): Promise<boolean> {
   );
   return res.rows[0]?.ok === true;
 }
-const REST_FRACTION: Record<HrmNextDayRest, 0 | 0.5 | 1> = { NONE: 0, HALF: 0.5, FULL: 1 };
+/** Cột `rule_set` của `overtime_blocks` (CHECK còn ràng buộc): quy tắc công ty giống "ca đêm theo ngày nghỉ sáng hôm sau". */
+const RULE_SET = 'NIGHT_REST';
+/** Đơn đánh dấu sáng hôm sau KHÔNG đi làm (`next_day_rest` khác NONE); NONE (mặc định) là có đi làm. */
+const morningWorked = (nextDayRest: HrmNextDayRest) => nextDayRest === 'NONE';
 
 export interface LoadedOvertimeCompPolicy {
   readonly policy: OvertimeCompPolicy;
@@ -130,7 +134,8 @@ export interface ClassifiedPart {
 }
 
 /**
- * Phân loại các phần (theo tháng) của một ca làm thêm. Phần nghỉ sau ca chỉ áp cho phần xuyên đêm đầu tiên của ca.
+ * Phân loại một khoảng làm thêm theo quy tắc công ty (xem `overtime-classification.ts`) rồi chia theo tháng. Số giờ ca đêm
+ * tính một lần cho cả khoảng (tối đa 8 giờ) và được xếp vào các phần theo thứ tự thời gian, nên tổng không vượt 8 giờ.
  * Mỗi phần dùng chính sách của tháng của nó.
  */
 export async function classifyRequestParts(
@@ -141,33 +146,37 @@ export async function classifyRequestParts(
   nextDayRest: HrmNextDayRest,
 ): Promise<ClassifiedPart[]> {
   const policies = new Map<string, LoadedOvertimeCompPolicy>();
-  const out: ClassifiedPart[] = [];
-  let restUsed = false;
-  for (const part of splitBlockByMonth(block)) {
-    let loaded = policies.get(part.periodMonth);
+  const split = splitBlockByMonth(block);
+  const load = async (month: string) => {
+    let loaded = policies.get(month);
     if (!loaded) {
-      loaded = await loadOvertimeCompPolicy(db, tenant, part.periodMonth, employeeId);
-      policies.set(part.periodMonth, loaded);
+      loaded = await loadOvertimeCompPolicy(db, tenant, month, employeeId);
+      policies.set(month, loaded);
     }
-    const crosses = crossesMidnight(part.block);
-    const restFraction = crosses && !restUsed ? REST_FRACTION[nextDayRest] : 0;
-    if (crosses) restUsed = true;
-    const result = classifyBlock({
-      ruleSet: loaded.policy.ruleSet,
-      block: part.block,
-      restFraction,
-      ...classificationConfigOf(loaded.policy),
-    });
-    const hours = Math.round((result.otHours + result.nightHours) * 100) / 100;
+    return loaded;
+  };
+  const first = await load(split[0]!.periodMonth);
+  const whole = classifyBlock(block, {
+    nextMorningWorked: morningWorked(nextDayRest),
+    nextMorningHalf: nextDayRest === 'HALF',
+    nightMaxHours: first.policy.normalHoursPerDay,
+  });
+  let nightLeft = whole.nightHours;
+  const out: ClassifiedPart[] = [];
+  for (const part of split) {
+    const loaded = await load(part.periodMonth);
+    const hours = blockHours(part.block);
+    const night = Math.round(Math.min(nightLeft, hours) * 100) / 100;
+    nightLeft = Math.round((nightLeft - night) * 100) / 100;
     out.push({
       periodMonth: part.periodMonth,
       block: part.block,
       hours,
-      crossesMidnight: crosses,
-      restFraction,
-      otHours: result.otHours,
-      nightHours: result.nightHours,
-      warnings: result.warnings,
+      crossesMidnight: crossesMidnight(part.block),
+      restFraction: night > 0 ? (nextDayRest === 'HALF' ? 0.5 : 1) : 0,
+      otHours: Math.round((hours - night) * 100) / 100,
+      nightHours: night,
+      warnings: [],
       policy: loaded,
     });
   }
@@ -236,7 +245,7 @@ export async function syncOvertimeBlocks(
         part.block.end,
         part.hours,
         part.crossesMidnight,
-        part.policy.policy.ruleSet,
+        RULE_SET,
         part.policy.policyVersionId,
         part.restFraction,
         part.otHours,
@@ -244,7 +253,7 @@ export async function syncOvertimeBlocks(
       ],
     );
     written++;
-    if (part.policy.policy.ruleSet === 'NIGHT_REST' && part.restFraction > 0 && restDate === null) {
+    if (part.nightHours > 0 && restDate === null) {
       restDate = await nextWorkingDate(db, tenant, ot.employee_id, part.block.end);
       restFraction = part.restFraction;
     }
@@ -304,10 +313,9 @@ export async function previewOvertimeClassification(
     start_time: schedule.startTime,
     planned_minutes: schedule.plannedMinutes,
   }), nextDayRest);
-  const first = parts[0];
   return {
     enabled: parts.some((p) => p.policy.policy.enabled),
-    ruleSet: first?.policy.policy.ruleSet ?? 'CLOCK_WINDOW',
+    ruleSet: RULE_SET,
     parts: parts.map((p) => ({
       periodMonth: p.periodMonth,
       start: p.block.start,
@@ -320,8 +328,8 @@ export async function previewOvertimeClassification(
     })),
     otHours: Math.round(parts.reduce((n, p) => n + p.otHours, 0) * 100) / 100,
     nightHours: Math.round(parts.reduce((n, p) => n + p.nightHours, 0) * 100) / 100,
-    askNextDayRest:
-      parts.some((p) => p.crossesMidnight) && parts.some((p) => p.policy.policy.ruleSet === 'NIGHT_REST'),
+    // Chỉ hỏi sáng hôm sau với khoảng qua đêm không bắt đầu vào thứ Bảy (thứ Bảy luôn là làm thêm).
+    askNextDayRest: parts.some((p) => p.crossesMidnight) && weekdayOf(parts[0]!.block) !== 6,
   };
 }
 

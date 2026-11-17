@@ -18,6 +18,10 @@ export interface ExtraRange extends TimeRangeInput {
   id: string;
   /** Kết quả tính của máy chủ cho khoảng này; null khi chưa đủ dữ liệu hoặc đang tính. */
   preview: HrmRequestTimePreview | null;
+  /** Đơn làm thêm qua đêm: sáng hôm sau có đi làm không (mặc định có). */
+  morningWorked?: boolean;
+  /** Chỉ nghỉ nửa ngày hôm sau (khi `morningWorked` là false). */
+  morningHalf?: boolean;
 }
 
 const MS_DAY = 86_400_000;

@@ -95,9 +95,8 @@ import {
   useRequestReasonCatalog,
 } from './request-reason-fields';
 import type { RequestFormPatch } from '../assistant-request-draft';
-import type { HrmNextDayRest } from '@enterprise-platform/contracts-hrm';
 import { compOffUsageProblem, formatCompNumber } from '../comp-off-model';
-import { CompOffAvailabilityHint, OvertimeClassifyHint, useCompOffAvailability } from './comp-off/comp-off-hints';
+import { CompOffAvailabilityHint, useCompOffAvailability } from './comp-off/comp-off-hints';
 import { compOffApi } from '../hrm-comp-off-api';
 import {
   TripDayPlanFields,
@@ -378,6 +377,8 @@ export interface RequestFormData {
 
 /** Giá trị điền sẵn lúc mở form; ô vắng mặt lấy giá trị mặc định. */
 export type RequestFormInitial = RequestFormPatch & {
+  /** Tệp đính kèm sẵn có của đơn đang sửa; không chọn tệp mới thì giữ tệp này. */
+  attachmentFileId?: string;
   leaveDuration?: string;
   requestedAmount?: string;
   numberOfInstallments?: string;
@@ -408,6 +409,8 @@ export interface CreateRequestFormProps {
   readonly initial?: RequestFormInitial;
   /** Sửa tiếp khi form đang mở (Trợ lý gửi thêm bản nháp): chỉ đổi các ô có trong bản vá. */
   readonly update?: RequestFormUpdate;
+  /** Sửa đơn chưa duyệt: đơn này bị thay bằng nội dung vừa nhập (máy chủ kiểm tra lại như khi tạo mới). */
+  readonly replaces?: { readonly id: string; readonly expectedUpdatedAt?: string };
   readonly onCancel: () => void;
   /** Đơn đã gửi xong. */
   readonly onSubmitted: (result: RequestFormResult) => void | Promise<void>;
@@ -430,6 +433,7 @@ export function CreateRequestForm({
   data,
   initial,
   update,
+  replaces,
   onCancel,
   onSubmitted,
   onAbandoned,
@@ -450,6 +454,9 @@ export function CreateRequestForm({
   const [customTransportRange, setCustomTransportRange] = useState({ startAt: '', endAt: '' });
   // Các khoảng thời gian bổ sung của đơn nghỉ, làm thêm giờ, công tác (mỗi khoảng gửi thành một đơn).
   const [extraRanges, setExtraRanges] = useState<ExtraRange[]>([]);
+  // Đơn làm thêm qua đêm: sáng hôm sau có đi làm không (khoảng chính; các khoảng thêm giữ riêng trong `extraRanges`).
+  const [otMorningWorked, setOtMorningWorked] = useState(true);
+  const [otMorningHalf, setOtMorningHalf] = useState(false);
   const [tripDayPlans, setTripDayPlans] = useState<TripDayPlans>({});
   // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
   const [timePreview, setTimePreview] = useState<HrmRequestTimePreview | null>(
@@ -485,7 +492,7 @@ export function CreateRequestForm({
   const leaveTimesTouched = useRef(kind === 'leave' && Boolean(start.startTime || start.endTime));
   const [leaveDuration, setLeaveDuration] = useState(start.leaveDuration ?? '1.0');
   const [leaveFile, setLeaveFile] = useState<File | null>(null);
-  const [leaveAttachmentId, setLeaveAttachmentId] = useState('');
+  const [leaveAttachmentId, setLeaveAttachmentId] = useState(start.attachmentFileId ?? '');
 
   // Chính sách xử lý & kiểm định tính hợp lệ của lý do nghỉ phép
   const selectedLeaveType = useMemo(
@@ -844,7 +851,6 @@ export function CreateRequestForm({
     return '';
   }, [showLeaveFund, loading, leaveDisplay]);
   // Nghỉ bù: số dư lấy từ quỹ nghỉ bù (sổ riêng), chặn vượt số dư và số ngày không là bội số của bước tối thiểu.
-  const [nextDayRest, setNextDayRest] = useState<HrmNextDayRest>('NONE');
   const compOffAvailability = useCompOffAvailability(employeeId, fromDate, selectedCatalogId === 'leave' && Boolean(selectedLeaveTypeId));
   // Chỉ coi là nghỉ bù có quỹ hệ thống khi quy tắc đang bật; tắt thì như một lý do nghỉ có lương thường (quỹ quản lý ngoài hệ thống).
   const isCompOffLeave = Boolean(
@@ -1260,7 +1266,11 @@ export function CreateRequestForm({
         init: RequestInit,
         fresh = false,
       ): Promise<Response> => {
-        const payload = JSON.parse(String(init.body));
+        const payload = {
+          ...JSON.parse(String(init.body)),
+          // Chỉ đơn đầu của lần gửi thay đơn đang sửa; khoảng thêm vào là đơn mới.
+          ...(replaces && !fresh ? { replaces } : {}),
+        };
         const draft = fresh ? null : editingDraft;
         const saved = await fetch(
           hrmApiUrl(
@@ -1298,12 +1308,15 @@ export function CreateRequestForm({
         url: string,
         mainRange: SubmitRange,
         build: (range: SubmitRange) => Record<string, unknown>,
+        /** Đơn làm thêm nhiều khoảng: phần riêng của từng khoảng bổ sung (nghỉ sáng hôm sau). */
+        extraOf?: (range: { fromAt: string; toAt: string }) => Record<string, unknown>,
       ): Promise<Response> => {
-        // Đơn nghỉ nhiều khoản: một yêu cầu duy nhất kèm các khoản bổ sung. Máy chủ tạo cả nhóm trong một giao dịch nên
-        // một khoản không hợp lệ thì không khoản nào được gửi; cả nhóm được duyệt hoặc từ chối cùng lúc.
-        if (kind === 'leave' && !saveAsDraft && extraRanges.length) {
+        // Đơn nghỉ hoặc làm thêm nhiều khoản: một yêu cầu duy nhất kèm các khoản bổ sung. Máy chủ tạo cả nhóm trong một
+        // giao dịch nên một khoản không hợp lệ thì không khoản nào được gửi; cả nhóm được duyệt hoặc từ chối cùng lúc.
+        if ((kind === 'leave' || kind === 'ot') && !saveAsDraft && extraRanges.length) {
           const extras = extraRanges.map((r) => {
             const x = rangeOf(r.fromAt, r.toAt, r.preview?.totalDays ?? 0);
+            if (kind === 'ot') return { fromAt: x.fromAt, toAt: x.toAt, ...(extraOf?.(x) ?? {}) };
             return { fromAt: x.fromAt, toAt: x.toAt, fromDate: x.fromDate, toDate: x.toDate, duration: x.duration };
           });
           groupAttempt = true;
@@ -1442,6 +1455,14 @@ export function CreateRequestForm({
         }
 
         const selectedShift = shifts.find((s) => s.id === otShiftId);
+        // Sáng hôm sau không đi làm: gửi `nextDayRest: FULL` để máy chủ tính 8 giờ đầu của khoảng qua đêm là ca đêm.
+        const morningOf = new Map<string, 'NONE' | 'HALF' | 'FULL'>([
+          [`${otFromAt}|${otToAt}`, otMorningWorked ? 'NONE' : otMorningHalf ? 'HALF' : 'FULL'],
+          ...extraRanges.map((r): [string, 'NONE' | 'HALF' | 'FULL'] => [
+            `${r.fromAt}|${r.toAt}`,
+            r.morningWorked !== false ? 'NONE' : r.morningHalf ? 'HALF' : 'FULL',
+          ]),
+        ]);
 
         // Loại OT (ngày thường, đêm, cuối tuần, lễ) do máy chủ suy ra theo chính sách OT nên không gửi otType.
         res = await sendRanges(
@@ -1458,7 +1479,7 @@ export function CreateRequestForm({
             plannedMinutes: Math.round(
               (new Date(range.toAt).getTime() - new Date(range.fromAt).getTime()) / 60000,
             ),
-            nextDayRest,
+            nextDayRest: morningOf.get(`${range.fromAt}|${range.toAt}`) ?? 'NONE',
             ...reasonPayload('ot', reasonId, description),
             attributes: {
               ...dynamicValues,
@@ -1472,6 +1493,7 @@ export function CreateRequestForm({
               attachmentFileId: attachmentFileId || undefined,
             },
           }),
+          (range) => ({ nextDayRest: morningOf.get(`${range.fromAt}|${range.toAt}`) ?? 'NONE' }),
         );
       } else if (selectedCatalogId === 'business_trip') {
         if (!fromDate || !toDate) {
@@ -1868,7 +1890,7 @@ export function CreateRequestForm({
             title: saveAsDraft
               ? 'Đã lưu bản nháp'
               : groupSize > 1
-                ? `Đã gửi đơn nghỉ (${groupSize} khoản)`
+                ? (selectedCatalogId === 'ot' ? `Đã gửi đơn làm thêm (${groupSize} khoảng)` : `Đã gửi đơn nghỉ (${groupSize} khoản)`)
                 : submittedCount > 1
                   ? `Đã gửi ${submittedCount} đơn`
                   : 'Đã gửi đơn',
@@ -1885,7 +1907,7 @@ export function CreateRequestForm({
           label: [
             selectedTypeTitle,
             selectedCatalogId === 'custom' ? '' : period,
-            groupSize > 1 ? `(${groupSize} khoản)` : submittedCount > 1 ? `(${submittedCount} đơn)` : '',
+            groupSize > 1 ? `(${groupSize} ${selectedCatalogId === 'ot' ? 'khoảng' : 'khoản'})` : submittedCount > 1 ? `(${submittedCount} đơn)` : '',
           ]
             .filter((part) => part && part !== '----')
             .join(' '),
@@ -1920,11 +1942,11 @@ export function CreateRequestForm({
             unavailable
               ? 'Procedure Engine không khả dụng'
               : groupAttempt
-                ? 'Đơn nhiều khoản chưa gửi được'
+                ? (selectedCatalogId === 'ot' ? 'Đơn nhiều khoảng chưa gửi được' : 'Đơn nhiều khoản chưa gửi được')
                 : failure
                   ? `${rangeLabel(failure.index, failure.kind)} gửi không thành công`
                   : 'Tạo đơn thất bại',
-            groupAttempt && !unavailable ? `${errMsg} Chưa có khoản nào được gửi.` : errMsg,
+            groupAttempt && !unavailable ? `${errMsg} Chưa có ${selectedCatalogId === 'ot' ? 'khoảng' : 'khoản'} nào được gửi.` : errMsg,
           );
         }
       }
@@ -2140,6 +2162,7 @@ export function CreateRequestForm({
               leaveTypeId={selectedLeaveTypeId || undefined}
               // Đơn nghỉ đã có thẻ quỹ/số ngày và bảng chi tiết từng ngày nên bỏ thẻ tổng giờ và cảnh báo ngày nghỉ.
               showSummary={false}
+              reserveTrailing={extraRanges.length > 0}
               onChange={applyTimeRange(
                 setLeaveStartTime,
                 setLeaveEndTime,
@@ -2661,6 +2684,13 @@ export function CreateRequestForm({
               onChange={applyTimeRange(setStartTime, setEndTime)}
               onPreview={handleTimePreview}
               disabled={isSubmitting}
+              morningWorked={otMorningWorked}
+              onMorningWorkedChange={(value) => {
+                setOtMorningWorked(value);
+                if (value) setOtMorningHalf(false);
+              }}
+              morningHalf={otMorningHalf}
+              onMorningHalfChange={setOtMorningHalf}
             />
             <ExtraTimeRanges
               kind="ot"
@@ -2725,16 +2755,6 @@ export function CreateRequestForm({
                 )}
               </div>
             )}
-
-            <OvertimeClassifyHint
-              employeeId={employeeId}
-              fromAt={otFromAt}
-              toAt={otToAt}
-              value={nextDayRest}
-              onChange={setNextDayRest}
-              disabled={isSubmitting}
-            />
-
             {/* Hàng 4: Lý do (Tăng ca, Thí nghiệm) + Dự án liên quan (Workspace) */}
 
 
@@ -3575,7 +3595,7 @@ export function CreateRequestForm({
           ) : (
             <Send className="size-3.5" />
           )}
-          <span>{isSubmitting ? 'Đang gửi...' : 'Gửi duyệt đơn'}</span>
+          <span>{isSubmitting ? 'Đang gửi...' : replaces ? 'Lưu chỉnh sửa' : 'Gửi duyệt đơn'}</span>
         </Button>
       </div>
     </>
