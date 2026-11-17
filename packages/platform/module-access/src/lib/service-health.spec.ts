@@ -1,5 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { healthController, ServiceHealth, type ServiceHealthDependencies } from './service-health';
+import { healthController, healthFailureReason, ServiceHealth, type ServiceHealthDependencies } from './service-health';
 
 const healthyDatabase = () => ({ query: jest.fn(async () => ({ rows: [{ '?column?': 1 }] })) });
 const brokenDatabase = () => ({ query: jest.fn(async () => Promise.reject(new Error('connect ECONNREFUSED'))) });
@@ -67,5 +67,20 @@ describe('healthController', () => {
     expect(controller.live()).toEqual({ status: 'live', service: 'crm-api' });
     await expect(controller.ready()).rejects.toMatchObject({ status: 503 });
     await expect(controller.onModuleDestroy()).resolves.toBeUndefined();
+  });
+});
+
+describe('healthFailureReason', () => {
+  it('lỗi có message thì giữ message', () => {
+    expect(healthFailureReason(new Error('connect ECONNREFUSED'))).toBe('connect ECONNREFUSED');
+  });
+
+  it('AggregateError của pg (message rỗng) thì nêu mã lỗi', () => {
+    const error = Object.assign(new AggregateError([], ''), { code: 'ECONNREFUSED' });
+    expect(healthFailureReason(error)).toBe('Không kết nối được phụ thuộc (ECONNREFUSED).');
+  });
+
+  it('không có gì để đọc thì dùng câu mặc định', () => {
+    expect(healthFailureReason(undefined)).toBe('Kiểm tra phụ thuộc thất bại.');
   });
 });

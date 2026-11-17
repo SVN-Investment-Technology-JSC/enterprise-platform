@@ -69,7 +69,7 @@ export class ServiceHealth {
       throw new ServiceUnavailableException({
         status: 'not-ready',
         service: this.service,
-        reason: error instanceof Error ? error.message : 'Kiểm tra phụ thuộc thất bại.',
+        reason: healthFailureReason(error),
       });
     }
   }
@@ -154,3 +154,15 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
     if (timer) clearTimeout(timer);
   }
 }
+
+/**
+ * Lý do không sẵn sàng đọc được cho người vận hành. Lỗi mất kết nối của `pg` là AggregateError có message rỗng,
+ * nên lấy mã lỗi (ECONNREFUSED...) khi không có message.
+ */
+export function healthFailureReason(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code) return `Không kết nối được phụ thuộc (${code}).`;
+  return 'Kiểm tra phụ thuộc thất bại.';
+}
+
