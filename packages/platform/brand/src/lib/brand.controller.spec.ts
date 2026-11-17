@@ -657,7 +657,7 @@ describe('BrandController – vị trí sử dụng icon (slots)', () => {
     });
     expect(defsRes.status).toBe(200);
     expect(
-      (defsRes.json as Array<{ id: string }>).some(
+      (defsRes.json as unknown as Array<{ id: string }>).some(
         (d) => d.id === 'custom.report-chart',
       ),
     ).toBe(true);

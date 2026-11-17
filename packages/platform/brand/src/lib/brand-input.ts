@@ -233,13 +233,13 @@ export function parseCustomSlotInput(
   };
 }
 
-export function parseCustomSlotPatch(
-  value: unknown,
-): Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>> {
+type CustomSlotPatch = Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>;
+
+export function parseCustomSlotPatch(value: unknown): CustomSlotPatch {
   if (!isRecord(value)) {
     throw brandErrors.requestInvalid('Thiếu dữ liệu cập nhật vị trí icon.');
   }
-  const patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>> = {};
+  const patch: { -readonly [K in keyof CustomSlotPatch]: CustomSlotPatch[K] } = {};
   if (value.label !== undefined) {
     if (typeof value.label !== 'string' || !value.label.trim()) {
       throw brandErrors.requestInvalid('Tên vị trí icon không được để trống.');

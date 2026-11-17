@@ -1,5 +1,6 @@
 import type {
   BrandIconStatus,
+  BrandSvgMode,
   IconCategory,
 } from '@enterprise-platform/shared-brand-icon';
 

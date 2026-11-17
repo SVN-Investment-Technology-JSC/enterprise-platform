@@ -207,7 +207,7 @@ export class FakeBrandStore implements BrandStore {
   async createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow> {
     this.maybeFailRead();
     if (this.state.customSlots.has(input.id)) {
-      throw new BrandStoreConflictError(`Custom slot '${input.id}' already exists`);
+      throw new BrandStoreConflictError('id');
     }
     const now = new Date().toISOString();
     const row: CustomSlotRow = {
