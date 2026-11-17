@@ -23,14 +23,6 @@ export const ICON_SLOTS = [
     colorMode: 'brand',
     recommendedSize: 32,
   },
-  {
-    id: 'brand.favicon',
-    group: 'brand',
-    label: 'Favicon tab trình duyệt',
-    description: 'Biểu tượng hiển thị trên tab trình duyệt của các ứng dụng web.',
-    colorMode: 'brand',
-    recommendedSize: 16,
-  },
 
   // Biểu tượng phân hệ
   {

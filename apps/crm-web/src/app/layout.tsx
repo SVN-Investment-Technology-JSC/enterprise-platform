@@ -18,10 +18,7 @@ export const metadata = {
   title: 'CRM · Enterprise Platform',
   description: 'Khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ và bảo hành.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

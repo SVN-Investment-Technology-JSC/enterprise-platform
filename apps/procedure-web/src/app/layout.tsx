@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Quy trình · Enterprise Platform',
   description: 'Thiết kế và vận hành quy trình cho từng tenant.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

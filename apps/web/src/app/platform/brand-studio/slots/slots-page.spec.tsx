@@ -135,7 +135,7 @@ beforeEach(() => {
   setupStores();
   mockListSlots.mockResolvedValue({ slots: [ASSIGNED_LOGO, ASSIGNED_MONO_DRAFT] });
   mockAssignSlot.mockResolvedValue({
-    slot: 'brand.favicon',
+    slot: 'module.inventory',
     iconId: PUBLISHED_ICON_2.id,
     iconName: PUBLISHED_ICON_2.name,
     iconSlug: PUBLISHED_ICON_2.id,
@@ -178,9 +178,9 @@ describe('SlotsPage', () => {
     expect(monoPreview.querySelectorAll('svg')).toHaveLength(2);
 
     // Vị trí chưa gán hiện mặc định và không có nút Về mặc định
-    const faviconRow = screen.getByTestId('slot-row-brand.favicon');
-    expect(within(faviconRow).getByTestId('slot-preview-default-brand.favicon')).toBeTruthy();
-    expect(within(faviconRow).queryByRole('button', { name: 'Về mặc định' })).toBeNull();
+    const inventoryRow = screen.getByTestId('slot-row-module.inventory');
+    expect(within(inventoryRow).getByTestId('slot-preview-default-module.inventory')).toBeTruthy();
+    expect(within(inventoryRow).queryByRole('button', { name: 'Về mặc định' })).toBeNull();
   });
 
   it('hiện cảnh báo rõ ràng khi icon đang gán bị gỡ phát hành hoặc lưu trữ', async () => {
@@ -199,11 +199,11 @@ describe('SlotsPage', () => {
     render(<SlotsPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('slot-row-brand.favicon')).toBeTruthy();
+      expect(screen.getByTestId('slot-row-module.inventory')).toBeTruthy();
     });
 
-    const faviconRow = screen.getByTestId('slot-row-brand.favicon');
-    const selectInput = within(faviconRow).getByPlaceholderText('Chọn icon đã phát hành...');
+    const inventoryRow = screen.getByTestId('slot-row-module.inventory');
+    const selectInput = within(inventoryRow).getByPlaceholderText('Chọn icon đã phát hành...');
     fireEvent.focus(selectInput);
     fireEvent.click(selectInput);
 
@@ -214,7 +214,7 @@ describe('SlotsPage', () => {
     fireEvent.click(screen.getByText(PUBLISHED_ICON_2.name));
 
     await waitFor(() => {
-      expect(mockAssignSlot).toHaveBeenCalledWith('brand.favicon', PUBLISHED_ICON_2.id);
+      expect(mockAssignSlot).toHaveBeenCalledWith('module.inventory', PUBLISHED_ICON_2.id);
     });
     expect(screen.getByRole('status').textContent).toContain('Đã gán icon');
   });
@@ -246,8 +246,8 @@ describe('SlotsPage', () => {
 
     // Tìm theo mã vị trí
     const searchInput = screen.getByLabelText('Tìm theo tên hoặc mã vị trí');
-    fireEvent.change(searchInput, { target: { value: 'brand.favicon' } });
-    expect(screen.getByTestId('slot-row-brand.favicon')).toBeTruthy();
+    fireEvent.change(searchInput, { target: { value: 'module.inventory' } });
+    expect(screen.getByTestId('slot-row-module.inventory')).toBeTruthy();
     expect(screen.queryByTestId('slot-row-brand.logo')).toBeNull();
 
     // Xoá bộ lọc
@@ -259,7 +259,7 @@ describe('SlotsPage', () => {
     fireEvent.click(await screen.findByText('Đã gán'));
     expect(screen.getByTestId('slot-row-brand.logo')).toBeTruthy();
     expect(screen.getByTestId('slot-row-nav.reports')).toBeTruthy();
-    expect(screen.queryByTestId('slot-row-brand.favicon')).toBeNull();
+    expect(screen.queryByTestId('slot-row-module.inventory')).toBeNull();
 
     // Lọc theo nhóm "Thương hiệu"
     const groupInput = screen.getByDisplayValue('Tất cả nhóm');

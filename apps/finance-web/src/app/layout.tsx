@@ -19,10 +19,7 @@ export const metadata = {
   title: 'Tài chính · Enterprise Platform',
   description: 'Phiếu thu, phiếu chi, chuyển tiền, tài khoản và báo cáo thu chi.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

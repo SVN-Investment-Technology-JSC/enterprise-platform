@@ -1439,7 +1439,7 @@ describe('BrandIconService – quản lý & phát hành vị trí icon (slots)',
 
     // Slot chưa gán -> 404
     const empty = await rejection(
-      service.readSlotSvg('brand.favicon', viewerOf('anonymous')),
+      service.readSlotSvg('module.finance', viewerOf('anonymous')),
     );
     expect([empty.status, empty.code]).toEqual([404, 'BRAND_SLOT_NOT_FOUND']);
   });

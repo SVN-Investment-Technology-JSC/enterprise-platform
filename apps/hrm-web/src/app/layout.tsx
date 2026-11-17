@@ -19,10 +19,7 @@ export const metadata = {
   title: 'HRM & Chấm công · Enterprise Platform',
   description: 'Quản lý nhân sự, chấm công, ca làm việc và đơn từ phê duyệt.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

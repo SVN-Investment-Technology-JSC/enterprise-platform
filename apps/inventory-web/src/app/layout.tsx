@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Kho & Vật tư · Enterprise Platform',
   description: 'Quản lý tài sản, vật tư và tồn kho theo tenant.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Văn thư · Enterprise Platform',
   description: 'Công văn đến, chỉ đạo, phòng ban xử lý, phát hành và lưu trữ hồ sơ.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

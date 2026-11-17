@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Mạng nội bộ · Enterprise Platform',
   description: 'Bảng tin, bài viết và trao đổi nội bộ của công ty.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

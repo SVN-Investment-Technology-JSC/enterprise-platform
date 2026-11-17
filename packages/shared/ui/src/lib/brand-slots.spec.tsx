@@ -300,18 +300,16 @@ describe('brand-slots', () => {
     ).toBe('false');
   });
 
-  it('cập nhật động thẻ <link rel="icon"> trong document.head khi gán hoặc gỡ brand.favicon qua notifyBrandSlotsChanged', async () => {
+  it('nạp lại manifest mới nhất khi nhận sự kiện notifyBrandSlotsChanged', async () => {
     const baseManifest = createManifest('hash-v1');
-    const withFavicon: BrandSlotManifestResponse = {
-      hash: 'hash-fav-1',
+    const updatedManifest: BrandSlotManifestResponse = {
+      hash: 'hash-v2',
       slots: {
         ...baseManifest.slots,
-        'brand.favicon': {
-          slot: 'brand.favicon',
-          iconId: 'svndts-favicon',
-          version: 2,
-          colorMode: 'brand',
-          model: baseManifest.slots['brand.logo'].model,
+        'brand.logo': {
+          ...baseManifest.slots['brand.logo'],
+          iconId: 'logo-updated',
+          version: 3,
         },
       },
     };
@@ -324,11 +322,7 @@ describe('brand-slots', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => withFavicon,
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => baseManifest,
+        json: async () => updatedManifest,
       } as Response);
     global.fetch = fetchMock;
 
@@ -340,26 +334,13 @@ describe('brand-slots', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('slot-probe').getAttribute('data-loaded')).toBe('true');
+      expect(screen.getByTestId('slot-probe').getAttribute('data-icon-id')).toBe('logo-main');
     });
 
     notifyBrandSlotsChanged();
 
     await waitFor(() => {
-      const link = document.head.querySelector<HTMLLinkElement>(
-        'link[data-ep-brand-favicon="active"]',
-      );
-      expect(link?.getAttribute('href')).toBe(
-        '/api/platform/v1/brand/slots/brand.favicon/svg?icon=svndts-favicon&v=2',
-      );
-    });
-
-    notifyBrandSlotsChanged();
-
-    await waitFor(() => {
-      const fallback = document.head.querySelector<HTMLLinkElement>(
-        'link[data-ep-brand-favicon="fallback"]',
-      );
-      expect(fallback?.getAttribute('href')).toBe('/favicon.ico');
+      expect(screen.getByTestId('slot-probe').getAttribute('data-icon-id')).toBe('logo-updated');
     });
   });
 });

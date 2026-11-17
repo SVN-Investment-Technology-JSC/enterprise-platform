@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Maintenance · Enterprise Platform',
   description: 'Quản lý thiết bị và bảo trì theo tenant.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

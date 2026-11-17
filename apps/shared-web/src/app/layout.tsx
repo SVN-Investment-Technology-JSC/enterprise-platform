@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Hệ dùng chung · Enterprise Platform',
   description: 'Tài liệu công ty và dịch vụ dùng chung giữa các phân hệ.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

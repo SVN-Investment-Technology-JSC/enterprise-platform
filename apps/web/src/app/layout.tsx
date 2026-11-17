@@ -21,10 +21,7 @@ export const metadata = {
   title: 'Enterprise Platform',
   description: 'Multi-tenant modular SaaS platform',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 

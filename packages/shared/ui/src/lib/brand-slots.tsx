@@ -222,55 +222,6 @@ export function BrandSlotProvider({
     };
   }, [endpoint, initialManifest]);
 
-  const faviconItem = manifest?.slots['brand.favicon'];
-  useEffect(() => {
-    if (typeof document === 'undefined' || !document.head) return;
-    if (faviconItem) {
-      const href = `${BRAND_API_BASE}/slots/brand.favicon/svg?icon=${encodeURIComponent(faviconItem.iconId)}&v=${faviconItem.version}`;
-      const currentActive = document.head.querySelector<HTMLLinkElement>(
-        'link[data-ep-brand-favicon="active"]',
-      );
-      if (currentActive && currentActive.getAttribute('href') === href) {
-        return;
-      }
-      // Xoá các thẻ icon cũ để ép Chromium/WebKit kích hoạt lại quá trình nạp biểu tượng tab
-      document.head
-        .querySelectorAll<HTMLLinkElement>(
-          'link[rel="icon"], link[rel="shortcut icon"]',
-        )
-        .forEach((node) => node.remove());
-
-      const activeLink = document.createElement('link');
-      activeLink.rel = 'icon';
-      activeLink.type = 'image/svg+xml';
-      activeLink.setAttribute('data-ep-brand-favicon', 'active');
-      activeLink.setAttribute('href', href);
-      document.head.appendChild(activeLink);
-      return;
-    }
-
-    if (loaded) {
-      const hasActive = document.head.querySelector<HTMLLinkElement>(
-        'link[data-ep-brand-favicon="active"]',
-      );
-      if (hasActive) {
-        // Khi gỡ icon thương hiệu về mặc định: tạo lại thẻ mới trỏ về /favicon.ico để browser tab cập nhật tức thì
-        document.head
-          .querySelectorAll<HTMLLinkElement>(
-            'link[rel="icon"], link[rel="shortcut icon"]',
-          )
-          .forEach((node) => node.remove());
-
-        const fallbackLink = document.createElement('link');
-        fallbackLink.rel = 'icon';
-        fallbackLink.setAttribute('data-ep-brand-favicon', 'fallback');
-        fallbackLink.setAttribute('sizes', 'any');
-        fallbackLink.setAttribute('href', '/favicon.ico');
-        document.head.appendChild(fallbackLink);
-      }
-    }
-  }, [faviconItem, loaded]);
-
   const value = useMemo<BrandSlotContextValue>(
     () => ({ manifest, loaded }),
     [manifest, loaded],

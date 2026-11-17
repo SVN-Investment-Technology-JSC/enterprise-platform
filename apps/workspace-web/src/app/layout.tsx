@@ -18,10 +18,7 @@ export const metadata = {
   title: 'Workspace · Enterprise Platform',
   description: 'Dự án, công việc, tài liệu và lịch biểu theo tenant.',
   icons: {
-    icon: [
-      { url: '/api/platform/v1/brand/slots/brand.favicon/svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-    ],
+    icon: '/favicon.ico',
   },
 };
 
