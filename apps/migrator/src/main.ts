@@ -6,13 +6,13 @@ import {
   TENANT_CORE_MIGRATIONS,
   tenantModuleMigrations,
 } from '@enterprise-platform/platform-entitlement';
-import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access/runtime';
+import { assertMigratorEnvironment } from './production-environment';
 import { seedPlatform } from './seed-platform';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 
 try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
-assertServiceEnvironment('migrator');
+assertMigratorEnvironment();
 
 const platformUrl = process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform';
 

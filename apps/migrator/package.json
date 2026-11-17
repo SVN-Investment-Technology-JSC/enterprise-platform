@@ -147,7 +147,6 @@
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
-    "@enterprise-platform/platform-module-access": "workspace:*",
     "pg": "^8.23.0"
   }
 }

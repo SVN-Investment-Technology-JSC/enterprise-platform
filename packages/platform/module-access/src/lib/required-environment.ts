@@ -135,8 +135,8 @@ export const PRODUCTION_REQUIRED_ENV = {
     'CRM_API_URL',
   ],
   'video-worker': ['PLATFORM_DATABASE_URL', ...TENANT_DATABASE, 'RABBITMQ_URL', ...S3_REQUIRED_ENV],
-  // SEED_SUPERADMIN_PASSWORD chỉ cần khi tạo mới hoặc đặt lại Super Admin; seed tự báo lỗi nêu tên biến (ISS-OPS-003).
-  migrator: ['PLATFORM_DATABASE_URL', ...TENANT_DATABASE],
+  // migrator kiểm ở apps/migrator/src/production-environment.ts: bản build esbuild (bundle: false) không nạp được
+  // đường phụ `/runtime` của thư viện này lúc chạy.
 } as const satisfies Record<string, readonly string[]>;
 
 export type ProductionService = keyof typeof PRODUCTION_REQUIRED_ENV;

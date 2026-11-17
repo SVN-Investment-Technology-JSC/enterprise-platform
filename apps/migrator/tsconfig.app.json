@@ -20,9 +20,6 @@
   ],
   "references": [
     {
-      "path": "../../packages/platform/module-access/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {

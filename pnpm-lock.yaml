@@ -876,9 +876,6 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
-      '@enterprise-platform/platform-module-access':
-        specifier: workspace:*
-        version: link:../../packages/platform/module-access
       pg:
         specifier: ^8.23.0
         version: 8.23.0
