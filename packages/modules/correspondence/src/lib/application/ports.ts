@@ -232,6 +232,10 @@ export interface LetterListFilter {
   readonly year?: number;
   readonly search?: string;
   readonly registerId?: string;
+  /** Ngày vào sổ từ, đến (tính cả hai đầu). */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly kind?: string;
   readonly limit: number;
 }
 

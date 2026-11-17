@@ -1493,6 +1493,23 @@ $fs-meta: 12px;
   }
 }
 
+// Lọc danh sách theo kỳ (ngày vào sổ), loại văn bản.
+.listFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  > input[type='date'] {
+    width: 150px;
+  }
+}
+
+.filterSelect {
+  width: 200px;
+  max-width: 100%;
+}
+
 // Lọc danh sách theo sổ đăng ký, cạnh ô tìm kiếm.
 .registerFilter {
   width: 220px;

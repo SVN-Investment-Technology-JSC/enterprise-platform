@@ -5,6 +5,7 @@ import {
   LETTER_STAGE_LABELS,
   type LetterBox,
   type LetterStage,
+  type CatalogItem,
   type LetterSummary,
   type Register,
 } from '@enterprise-platform/contracts-correspondence';
@@ -13,7 +14,7 @@ import { FileSpreadsheet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, listLetters } from '../correspondence-api';
 import { downloadRegister } from '../register-export';
-import { matchesSearch } from '../correspondence.model';
+import { LIST_PERIODS, LIST_PERIOD_LABELS, matchesSearch, periodRange, type ListPeriod } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { LetterTable, type LetterTableMode } from './letter-table';
 
@@ -36,12 +37,15 @@ export function LetterListView({
   refreshKey,
   activeId,
   registers = [],
+  catalog = [],
   onStageChange,
   onOpen,
 }: {
   readonly box: LetterBox;
   /** Sổ đăng ký, để lọc danh sách theo sổ. */
   readonly registers?: readonly Register[];
+  /** Danh mục, để lọc theo loại văn bản. */
+  readonly catalog?: readonly CatalogItem[];
   readonly stage?: LetterStage;
   readonly today: string;
   /** Đổi giá trị để tải lại sau khi một công văn vừa đổi bước. */
@@ -54,7 +58,16 @@ export function LetterListView({
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState('');
   const [registerId, setRegisterId] = useState('');
+  // Mặc định công văn vào sổ trong tháng này; đổi kỳ, khoảng ngày hay loại văn bản thì lọc ở máy chủ.
+  const [period, setPeriod] = useState<ListPeriod>('month');
+  const [custom, setCustom] = useState(() => periodRange('month', today));
+  const [kind, setKind] = useState('');
   const direction = box === 'incoming' || box === 'outgoing' ? box : undefined;
+  const range = period === 'custom' ? custom : periodRange(period, today);
+  const kinds = catalog.filter((item) => item.kind === 'letter_type');
+  const fromDate = direction ? range.from : undefined;
+  const toDate = direction ? range.to : undefined;
+  const kindCode = direction && kind ? kind : undefined;
   const boxRegisters = direction ? registers.filter((item) => item.direction === direction) : [];
   const filters = direction ? ([...DIRECTION_STAGES[direction], 'archived', 'revoking', 'cancelled'] as LetterStage[]) : [];
   const activeStage = stage && filters.includes(stage) ? stage : undefined;
@@ -62,7 +75,14 @@ export function LetterListView({
   useEffect(() => {
     let active = true;
     setLetters(undefined);
-    listLetters({ box, stage: activeStage, registerId: direction && registerId ? registerId : undefined })
+    listLetters({
+      box,
+      stage: activeStage,
+      registerId: direction && registerId ? registerId : undefined,
+      fromDate,
+      toDate,
+      kind: kindCode,
+    })
       .then((items) => {
         if (!active) return;
         setLetters(items);
@@ -72,7 +92,7 @@ export function LetterListView({
     return () => {
       active = false;
     };
-  }, [box, activeStage, registerId, direction, refreshKey]);
+  }, [box, activeStage, registerId, direction, fromDate, toDate, kindCode, refreshKey]);
 
   const visible = useMemo(() => (letters ?? []).filter((letter) => matchesSearch(letter, search)), [letters, search]);
   const mode: LetterTableMode = box === 'incoming' ? 'incoming' : box === 'outgoing' ? 'outgoing' : box === 'archive' ? 'archive' : 'mixed';
@@ -96,6 +116,46 @@ export function LetterListView({
               );
             })
           : null}
+        {direction ? (
+          <div className={styles.listFilters}>
+            <div className={styles.filterSelect}>
+              <SearchableSelect
+                options={LIST_PERIODS.map((value) => ({ value, label: LIST_PERIOD_LABELS[value] }))}
+                value={period}
+                searchInDropdown
+                hideDropdownSearch
+                onChange={(value) => value && setPeriod(value as ListPeriod)}
+              />
+            </div>
+            {period === 'custom' ? (
+              <>
+                <input
+                  type="date"
+                  aria-label={direction === 'incoming' ? 'Ngày đến từ' : 'Ngày soạn từ'}
+                  value={custom.from ?? ''}
+                  max={custom.to}
+                  onChange={(event) => setCustom((current) => ({ ...current, from: event.target.value || undefined }))}
+                />
+                <input
+                  type="date"
+                  aria-label={direction === 'incoming' ? 'Ngày đến đến' : 'Ngày soạn đến'}
+                  value={custom.to ?? ''}
+                  min={custom.from}
+                  onChange={(event) => setCustom((current) => ({ ...current, to: event.target.value || undefined }))}
+                />
+              </>
+            ) : null}
+            <div className={styles.filterSelect}>
+              <SearchableSelect
+                options={kinds.map((item) => ({ value: item.code, label: item.name }))}
+                value={kind}
+                placeholder="Tất cả loại văn bản"
+                clearable
+                onChange={(value) => setKind(value ?? '')}
+              />
+            </div>
+          </div>
+        ) : null}
         {boxRegisters.length > 1 ? (
           <div className={styles.registerFilter}>
             <SearchableSelect

@@ -158,6 +158,9 @@ export class CorrespondenceController {
     @Query('stage') stage?: string,
     @Query('search') search?: string,
     @Query('registerId') registerId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('kind') kind?: string,
   ) {
     return this.execute(async () => ({
       items: await this.service.list(this.actor(request), {
@@ -165,6 +168,9 @@ export class CorrespondenceController {
         stage: (stage || undefined) as LetterStage | undefined,
         search,
         registerId: registerId || undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        kind: kind || undefined,
       }),
     }));
   }

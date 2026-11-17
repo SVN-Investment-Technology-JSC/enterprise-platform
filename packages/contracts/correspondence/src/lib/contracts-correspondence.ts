@@ -1086,6 +1086,11 @@ export interface LetterQuery {
   readonly search?: string;
   /** Chỉ công văn của một sổ đăng ký. */
   readonly registerId?: string;
+  /** Ngày vào sổ (đến: ngày đến; đi: ngày soạn) từ, đến (`YYYY-MM-DD`, tính cả hai đầu). */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  /** Mã loại văn bản. */
+  readonly kind?: string;
 }
 
 /* ------------------------------------------------------------ tổng quan, báo cáo */

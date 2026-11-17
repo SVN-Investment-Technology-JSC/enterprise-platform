@@ -214,6 +214,7 @@ export function CorrespondenceScreen() {
           refreshKey={refreshKey}
           activeId={drawerId}
           registers={config?.registers}
+          catalog={config?.catalog}
           onStageChange={setStageFilter}
           onOpen={openLetter}
         />

@@ -280,6 +280,9 @@ export class CorrespondenceService {
         box === 'archive' ? ARCHIVE_STAGES : box === 'mine' ? AWAITING_STAGES : box === 'tracking' ? OPEN_LETTER_STAGES : stage ? [stage] : undefined,
       search: query.search?.trim() || undefined,
       registerId: optionalText(query.registerId, 'Sổ đăng ký', 64),
+      fromDate: optionalDate(query.fromDate, 'Từ ngày'),
+      toDate: optionalDate(query.toDate, 'Đến ngày'),
+      kind: optionalText(query.kind, 'Loại văn bản', 40),
       limit: LIST_LIMIT,
     });
     let visible = rows.filter((row) => canViewLetter(viewer, facts(row, catalog)));

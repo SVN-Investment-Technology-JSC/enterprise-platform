@@ -528,6 +528,9 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
       if (filter.stages?.length) where.push(`l.stage = ANY(${param(filter.stages)}::text[])`);
       if (filter.year) where.push(`l.year = ${param(filter.year)}`);
       if (filter.registerId) where.push(`l.register_id = ${param(filter.registerId)}::uuid`);
+      if (filter.fromDate) where.push(`l.received_on >= ${param(filter.fromDate)}::date`);
+      if (filter.toDate) where.push(`l.received_on <= ${param(filter.toDate)}::date`);
+      if (filter.kind) where.push(`l.kind = ${param(filter.kind)}`);
       if (filter.search) {
         const pattern = param(`%${escapeLike(filter.search)}%`);
         where.push(`(l.incoming_no ILIKE ${pattern} OR l.subject ILIKE ${pattern} OR l.sender_org ILIKE ${pattern}

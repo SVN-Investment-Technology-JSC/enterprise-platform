@@ -405,6 +405,8 @@ function fakeStore() {
         .filter((letter) => !filter.stages || filter.stages.includes(letter.stage))
         .filter((letter) => !filter.year || letter.year === filter.year)
         .filter((letter) => !filter.registerId || letter.registerId === filter.registerId)
+        .filter((letter) => (!filter.fromDate || letter.receivedOn >= filter.fromDate) && (!filter.toDate || letter.receivedOn <= filter.toDate))
+        .filter((letter) => !filter.kind || letter.kind === filter.kind)
         .map((letter) => ({ ...letter, steps: stepsOf(letter.id), assignments: assignmentsOf(letter.id), mentionedUserIds: mentionsOf(letter.id) })),
     countArchived: async () =>
       [...letters.values()].filter((letter) => !letter.deletedAt && (letter.stage === 'archived' || letter.stage === 'revoking')).length,
@@ -1594,6 +1596,20 @@ describe('Định tuyến theo điều kiện: quy trình, bước có điều k
     const back = await service.returnLetter(lawyer, work.id, { target: 'clerk', reason: 'Là việc chung của phòng, nhờ văn thư vào luồng.' });
     expect(back).toMatchObject({ stage: 'received', personal: undefined });
     expect((await service.detail(clerk, work.id)).actions.dispatch).toBe(true);
+  });
+});
+
+describe('Lọc danh sách công văn', () => {
+  it('lọc theo khoảng ngày vào sổ và loại văn bản; ngày sai báo lỗi', async () => {
+    const { service } = setup();
+    const october = await service.create(clerk, { ...intake, receivedOn: '2026-10-20', dueOn: '2026-10-30' });
+    const november = await service.create(clerk, { ...intake, receivedOn: '2026-11-03', dueOn: '2026-11-20' });
+    const notice = await service.create(clerk, { ...intake, kind: 'quick', receivedOn: '2026-11-05', dueOn: '2026-11-20' });
+    const ids = async (query: Parameters<CorrespondenceService['list']>[1]) => (await service.list(clerk, query)).map((item) => item.id).sort();
+    expect(await ids({ box: 'incoming', fromDate: '2026-11-01', toDate: '2026-11-30' })).toEqual([november.id, notice.id].sort());
+    expect(await ids({ box: 'incoming', toDate: '2026-10-31' })).toEqual([october.id]);
+    expect(await ids({ box: 'incoming', fromDate: '2026-11-01', kind: 'finance' })).toEqual([november.id]);
+    await expect(service.list(clerk, { box: 'incoming', fromDate: '01/11/2026' })).rejects.toThrow('Từ ngày');
   });
 });
 

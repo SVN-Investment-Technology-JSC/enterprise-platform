@@ -19,6 +19,7 @@ import {
   completeLetter,
   decideRevoke,
   dispatchLetter,
+  listLetters,
   loadStepChoice,
   publishLetter,
   quickAddCatalogItem,
@@ -39,6 +40,7 @@ import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
+import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
 import { OverviewView } from './overview-view';
@@ -61,6 +63,7 @@ jest.mock('../correspondence-api', () => ({
   saveRegister: jest.fn(),
   publishLetter: jest.fn(),
   dispatchLetter: jest.fn(),
+  listLetters: jest.fn(),
   completeLetter: jest.fn(),
   updateLetter: jest.fn(),
 }));
@@ -81,6 +84,7 @@ const mocked = {
   saveRegister: saveRegister as jest.MockedFunction<typeof saveRegister>,
   publish: publishLetter as jest.MockedFunction<typeof publishLetter>,
   dispatch: dispatchLetter as jest.MockedFunction<typeof dispatchLetter>,
+  list: listLetters as jest.MockedFunction<typeof listLetters>,
   complete: completeLetter as jest.MockedFunction<typeof completeLetter>,
   update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
@@ -1189,5 +1193,29 @@ describe('Phòng chủ trì tổng hợp ý kiến phối hợp', () => {
     expect(screen.getByText(/gửi kết quả sau khi Trung tâm Tư vấn gửi/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Kết quả xử lý của Phòng Kinh doanh/), { target: { value: 'Bản tổng hợp nháp' } });
     expect((screen.getByRole('button', { name: 'Gửi kết quả' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('Lọc danh sách công văn đến, đi', () => {
+  it('mặc định công văn trong tháng này; đổi kỳ, khoảng ngày, loại văn bản thì tải lại theo bộ lọc', async () => {
+    mocked.list.mockResolvedValue([]);
+    const catalog = [{ id: 't', kind: 'letter_type' as const, code: 'report', name: 'Báo cáo', sortOrder: 0, isActive: true }];
+    render(<LetterListView box="incoming" today="2026-11-17" refreshKey={0} catalog={catalog} onOpen={jest.fn()} />);
+    await waitFor(() => expect(mocked.list).toHaveBeenCalled());
+    expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ box: 'incoming', fromDate: '2026-11-01', toDate: '2026-11-30', kind: undefined });
+    const pick = (index: number, option: RegExp) => {
+      const field = screen.getAllByRole('textbox').filter((input) => input.getAttribute('type') !== 'search').at(index) as HTMLElement;
+      fireEvent.click(field);
+      fireEvent.click(screen.getByRole('option', { name: option }));
+    };
+    pick(0, /Tháng trước/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: '2026-10-01', toDate: '2026-10-31' }));
+    pick(1, /Báo cáo/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'report' }));
+    pick(0, /Tất cả/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: undefined, toDate: undefined, kind: 'report' }));
+    pick(0, /Khoảng ngày/);
+    fireEvent.change(await screen.findByLabelText('Ngày đến từ'), { target: { value: '2026-09-15' } });
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: '2026-09-15', toDate: '2026-11-30' }));
   });
 });
