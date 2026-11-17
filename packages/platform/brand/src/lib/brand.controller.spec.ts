@@ -591,7 +591,7 @@ describe('BrandController – vị trí sử dụng icon (slots)', () => {
     const manifest = await call('GET', '/slots/manifest');
     expect(manifest.status).toBe(200);
     expect(manifest.headers.get('cache-control')).toBe(
-      'public, max-age=60, must-revalidate',
+      'public, no-cache, must-revalidate',
     );
     expect(
       (manifest.json.slots as Record<string, unknown>)['brand.logo'],

@@ -1359,7 +1359,7 @@ describe('BrandIconService – quản lý & phát hành vị trí icon (slots)',
     expect(viewer).not.toHaveBeenCalled();
     expect(res.notModified).toBe(false);
     if (res.notModified) throw new Error('expected manifest');
-    expect(res.cacheControl).toBe('public, max-age=60, must-revalidate');
+    expect(res.cacheControl).toBe('public, no-cache, must-revalidate');
     expect(Object.keys(res.manifest.slots)).toEqual([
       'brand.logo',
       'nav.dashboard',
@@ -1383,7 +1383,7 @@ describe('BrandIconService – quản lý & phát hành vị trí icon (slots)',
     expect(cached).toEqual({
       notModified: true,
       etag: res.etag,
-      cacheControl: 'public, max-age=60, must-revalidate',
+      cacheControl: 'public, no-cache, must-revalidate',
     });
     expect(objects.gets).toHaveLength(getsBefore);
 

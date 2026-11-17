@@ -24,10 +24,19 @@ export const BRAND_SLOTS_CACHE_KEY = 'ep_brand_slots_manifest_v1';
 export const BRAND_SLOTS_CHANGED_EVENT = 'ep:brand-slots-changed';
 const DEFAULT_MANIFEST_ENDPOINT = `${BRAND_API_BASE}/slots/manifest`;
 
-/** Phát tín hiệu để mọi `BrandSlotProvider` đang mở nạp lại manifest ngay lập tức (sau khi gán/gỡ vị trí hoặc phát hành icon). */
+/** Phát tín hiệu để mọi `BrandSlotProvider` đang mở (trên cùng tab và xuyên các tab) nạp lại manifest ngay lập tức. */
 export function notifyBrandSlotsChanged(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(BRAND_SLOTS_CHANGED_EVENT));
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(BRAND_SLOTS_CHANGED_EVENT);
+      channel.postMessage({ type: BRAND_SLOTS_CHANGED_EVENT });
+      channel.close();
+    }
+  } catch {
+    // Bỏ qua nếu môi trường không hỗ trợ BroadcastChannel.
+  }
 }
 
 export interface BrandSlotContextValue {
@@ -157,8 +166,19 @@ export function BrandSlotProvider({
     const onSlotsChanged = () => {
       void loadManifest(true);
     };
+    let channel: BroadcastChannel | null = null;
     if (typeof window !== 'undefined') {
       window.addEventListener(BRAND_SLOTS_CHANGED_EVENT, onSlotsChanged);
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          channel = new BroadcastChannel(BRAND_SLOTS_CHANGED_EVENT);
+          channel.onmessage = () => {
+            void loadManifest(true);
+          };
+        }
+      } catch {
+        channel = null;
+      }
     }
 
     return () => {
@@ -167,6 +187,7 @@ export function BrandSlotProvider({
       if (typeof window !== 'undefined') {
         window.removeEventListener(BRAND_SLOTS_CHANGED_EVENT, onSlotsChanged);
       }
+      channel?.close();
     };
   }, [endpoint, initialManifest]);
 

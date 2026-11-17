@@ -364,7 +364,7 @@ export class BrandIconService {
         if (reader === 'anonymous') throw brandErrors.unauthorized();
       }
       const cacheControl = publicRead
-        ? 'public, max-age=60, must-revalidate'
+        ? 'public, no-cache, must-revalidate'
         : 'private, no-cache';
 
       const entries = (await this.store.listPublishedSlotEntries()).filter(
@@ -442,7 +442,7 @@ export class BrandIconService {
 
       const meta = getIconSlotMeta(slot)!;
       const cacheControl = publicRead
-        ? 'public, max-age=60, must-revalidate'
+        ? 'public, no-cache, must-revalidate'
         : 'private, no-cache';
       return this.serveSvgVersion(
         version,
