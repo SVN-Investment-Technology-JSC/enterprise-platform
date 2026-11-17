@@ -2840,102 +2840,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }
   }
 
-  private readonly migratedTenantCores = new Set<string>();
-
-  private async ensureTenantCoreMigrations(
-    pool: ReturnType<typeof createPostgresPool>,
-    tenantId: string,
-  ): Promise<void> {
-    if (this.migratedTenantCores.has(tenantId)) return;
-    try {
-      await pool.query(`
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
-          CHECK (category IN ('unit', 'position'));
-        DO $$
-        BEGIN
-          IF EXISTS (
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_schema = 'core_schema' AND table_name = 'organization_node_types'
-          ) THEN
-            UPDATE core_schema.organization_nodes n
-            SET category = t.category
-            FROM core_schema.organization_node_types t
-            WHERE n.node_type_id = t.id AND (n.category IS NULL OR n.category = 'unit');
-          END IF;
-        END $$;
-        ALTER TABLE core_schema.organization_nodes
-          ALTER COLUMN node_type_id DROP NOT NULL;
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS head_position_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_category_idx
-          ON core_schema.organization_nodes (category)
-          WHERE deleted_at IS NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
-          ON core_schema.organization_nodes (head_position_id)
-          WHERE deleted_at IS NULL;
-        -- 0006-position-reports-to.sql
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS reports_to_position_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_reports_to_idx
-          ON core_schema.organization_nodes (reports_to_position_id)
-          WHERE deleted_at IS NULL;
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-
-        -- 0007-org-hrm-bridge.sql
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS employee_id uuid REFERENCES core_schema.employees(id) ON DELETE RESTRICT;
-
-        UPDATE core_schema.organization_node_assignments a
-        SET employee_id = e.id
-        FROM core_schema.employees e
-        WHERE e.user_id = a.user_id
-          AND a.employee_id IS NULL
-          AND a.deleted_at IS NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_org_assignments_emp_career
-          ON core_schema.organization_node_assignments (employee_id, status, start_date DESC)
-          WHERE deleted_at IS NULL;
-
-        CREATE OR REPLACE VIEW core_schema.employee_career_history AS
-        SELECT
-          a.id AS assignment_id,
-          a.employee_id,
-          a.user_id,
-          a.node_id AS position_node_id,
-          pos.name  AS position_name,
-          pos.code  AS position_code,
-          unit.id   AS unit_node_id,
-          unit.name AS unit_name,
-          a.is_primary,
-          a.start_date,
-          a.end_date,
-          a.status,
-          a.note,
-          a.created_at,
-          a.updated_at
-        FROM core_schema.organization_node_assignments a
-        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL;
-
-        -- 0009-assignment-source-decision.sql
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS source_decision_id uuid;
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_org_assignments_source_decision
-          ON core_schema.organization_node_assignments (source_decision_id)
-          WHERE source_decision_id IS NOT NULL AND deleted_at IS NULL;
-      `);
-      this.migratedTenantCores.add(tenantId);
-    } catch {
-      // Ignore if table does not exist yet (e.g. before initial migration)
-    }
-  }
-
   private readonly tenantAuthorizationPools = new Map<
     string,
     { readonly pool: ReturnType<typeof createPostgresPool>; readonly version: string }
@@ -2997,7 +2901,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
       if (previous) void previous.pool.end().catch(() => undefined);
     }
 
-    await this.ensureTenantCoreMigrations(entry.pool, tenantId);
     return operation(entry.pool);
   }
 
@@ -3025,7 +2928,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
       },
     );
     try {
-      await this.ensureTenantCoreMigrations(pool, tenantId);
       return await operation(pool);
     } finally {
       await pool.end();
