@@ -24,6 +24,8 @@ import type {
   NewVersionInput,
   PublishedSlotEntry,
   SavedHeadInput,
+  SlotGroupInput,
+  SlotGroupRow,
   SlotRow,
   StandardsRow,
   StandardsUpdateInput,
@@ -192,6 +194,24 @@ const toCustomSlot = (row: CustomSlotDbRow): CustomSlotRow => ({
   updatedAt: iso(row.updated_at)!,
 });
 
+interface SlotGroupDbRow {
+  readonly key: string;
+  readonly label: string;
+  readonly created_by: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+const toSlotGroup = (row: SlotGroupDbRow): SlotGroupRow => ({
+  key: row.key,
+  label: row.label,
+  createdBy: row.created_by,
+  createdAt: iso(row.created_at)!,
+  updatedAt: iso(row.updated_at)!,
+});
+
+const SLOT_GROUP_COLUMNS = 'key, label, created_by, created_at, updated_at';
+
 const NO_STANDARDS: StandardsRow = {
   currentVersion: 0,
   specKey: null,
@@ -209,6 +229,8 @@ function translate(error: unknown): unknown {
   };
   if (code === '23505') {
     if (constraint === 'icons_pkey') return new BrandStoreConflictError('id');
+    if (constraint === 'slot_groups_pkey')
+      return new BrandStoreConflictError('key');
     if (constraint === 'icons_slug_key')
       return new BrandStoreConflictError('slug');
     return new BrandStoreConflictError('version');
@@ -583,6 +605,54 @@ export class PgBrandStore implements BrandStore {
         return (result.rowCount ?? 0) > 0;
       }),
     );
+  }
+
+  async listSlotGroups(): Promise<readonly SlotGroupRow[]> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `SELECT ${SLOT_GROUP_COLUMNS} FROM brand_schema.slot_groups ORDER BY label ASC, key ASC`,
+    );
+    return result.rows.map(toSlotGroup);
+  }
+
+  async findSlotGroup(key: string): Promise<SlotGroupRow | null> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `SELECT ${SLOT_GROUP_COLUMNS} FROM brand_schema.slot_groups WHERE key = $1`,
+      [key],
+    );
+    return result.rows[0] ? toSlotGroup(result.rows[0]) : null;
+  }
+
+  async createSlotGroup(input: SlotGroupInput): Promise<SlotGroupRow> {
+    return run(async () => {
+      const result = await this.pool.query<SlotGroupDbRow>(
+        `INSERT INTO brand_schema.slot_groups (key, label, created_by)
+         VALUES ($1, $2, $3)
+         RETURNING ${SLOT_GROUP_COLUMNS}`,
+        [input.key, input.label, input.createdBy ?? null],
+      );
+      return toSlotGroup(result.rows[0]);
+    });
+  }
+
+  async updateSlotGroup(
+    key: string,
+    label: string,
+  ): Promise<SlotGroupRow | null> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `UPDATE brand_schema.slot_groups SET label = $2, updated_at = now()
+        WHERE key = $1
+        RETURNING ${SLOT_GROUP_COLUMNS}`,
+      [key, label],
+    );
+    return result.rows[0] ? toSlotGroup(result.rows[0]) : null;
+  }
+
+  async deleteSlotGroup(key: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brand_schema.slot_groups WHERE key = $1`,
+      [key],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {

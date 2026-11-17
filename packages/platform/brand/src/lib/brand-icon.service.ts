@@ -6,6 +6,7 @@ import {
   DEFAULT_PALETTE,
   DEFAULT_RULES,
   getIconSlotMeta,
+  BUILT_IN_SLOT_GROUPS,
   ICON_SLOTS,
   isBuiltInSlotId,
   isIconSlotId,
@@ -22,6 +23,9 @@ import {
   type BrandIconSummary,
   type BrandIconVersion,
   type BrandSlotAssignment,
+  type BrandSlotGroup,
+  type BrandSlotGroupListResponse,
+  type DeleteBrandSlotGroupResponse,
   type BrandSlotListResponse,
   type BrandSlotManifestItem,
   type BrandSlotManifestResponse,
@@ -57,8 +61,12 @@ import {
   cleanNote,
   parseCustomSlotInput,
   parseCustomSlotPatch,
+  deriveSlotGroupKey,
   parseDocument,
+  parseSlotGroupCreate,
+  parseSlotGroupUpdate,
   parseStandards,
+  uniqueSlotGroupKey,
   parseVersionNumber,
 } from './brand-input.js';
 import type { BrandObjectStore } from './brand-object-store.js';
@@ -68,6 +76,7 @@ import type {
   CustomSlotRow,
   IconRow,
   PublishedSlotEntry,
+  SlotGroupRow,
   SlotRow,
   VersionRow,
 } from './brand-store.js';
@@ -175,6 +184,37 @@ const customSlotToMeta = (row: CustomSlotRow): IconSlotMeta => ({
   recommendedSize: row.recommendedSize,
   isCustom: true,
 });
+
+const BUILT_IN_GROUP_KEYS: ReadonlySet<string> = new Set(
+  BUILT_IN_SLOT_GROUPS.map((group) => group.key),
+);
+
+/** Nhóm có sẵn (đúng thứ tự cố định) rồi nhóm tùy chỉnh (đã sắp theo tên), kèm số vị trí mỗi nhóm. */
+function buildSlotGroups(
+  groupRows: readonly SlotGroupRow[],
+  customSlots: readonly CustomSlotRow[],
+): readonly BrandSlotGroup[] {
+  const counts = new Map<string, number>();
+  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  for (const meta of ICON_SLOTS) bump(meta.group);
+  for (const row of customSlots) bump(row.groupKey);
+  return [
+    ...BUILT_IN_SLOT_GROUPS.map((group) => ({
+      key: group.key,
+      label: group.label,
+      isBuiltIn: true,
+      slotCount: counts.get(group.key) ?? 0,
+    })),
+    ...groupRows
+      .filter((row) => !BUILT_IN_GROUP_KEYS.has(row.key))
+      .map((row) => ({
+        key: row.key,
+        label: row.label,
+        isBuiltIn: false,
+        slotCount: counts.get(row.key) ?? 0,
+      })),
+  ];
+}
 
 /** Bản phát hành công khai: icon đang `published` và phiên bản không vượt `publishedVersion`. */
 function isLive(icon: IconRow, version: number | null): version is number {
@@ -325,11 +365,114 @@ export class BrandIconService {
     });
   }
 
+  listSlotGroups(): Promise<BrandSlotGroupListResponse> {
+    return this.guard(async () => {
+      const [customRows, groupRows] = await Promise.all([
+        this.store.listCustomSlots(),
+        this.store.listSlotGroups(),
+      ]);
+      return { groups: buildSlotGroups(groupRows, customRows) };
+    });
+  }
+
+  createSlotGroup(actor: BrandActor, input: unknown): Promise<BrandSlotGroup> {
+    return this.guard(async () => {
+      const parsed = parseSlotGroupCreate(input);
+      const existing = await this.store.listSlotGroups();
+      const taken = new Set<string>([
+        ...BUILT_IN_GROUP_KEYS,
+        ...existing.map((row) => row.key),
+      ]);
+      let key: string;
+      if (parsed.key !== undefined) {
+        if (taken.has(parsed.key)) throw brandErrors.slotGroupConflict();
+        key = parsed.key;
+      } else {
+        key = uniqueSlotGroupKey(deriveSlotGroupKey(parsed.label), taken);
+      }
+      let row: SlotGroupRow;
+      try {
+        row = await this.store.createSlotGroup({
+          key,
+          label: parsed.label,
+          createdBy: actor.userId,
+        });
+      } catch (error) {
+        if (error instanceof BrandStoreConflictError)
+          throw brandErrors.slotGroupConflict();
+        throw error;
+      }
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.created', actor.userId, {
+          group: row.key,
+          label: row.label,
+        });
+      });
+      return { key: row.key, label: row.label, isBuiltIn: false, slotCount: 0 };
+    });
+  }
+
+  updateSlotGroup(
+    actor: BrandActor,
+    key: string,
+    input: unknown,
+  ): Promise<BrandSlotGroup> {
+    return this.guard(async () => {
+      if (BUILT_IN_GROUP_KEYS.has(key)) {
+        throw brandErrors.slotGroupBuiltInCannotModify();
+      }
+      const { label } = parseSlotGroupUpdate(input);
+      const row = await this.store.updateSlotGroup(key, label);
+      if (!row) throw brandErrors.slotGroupNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.updated', actor.userId, {
+          group: row.key,
+          label: row.label,
+        });
+      });
+      const customRows = await this.store.listCustomSlots();
+      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      return { key: row.key, label: row.label, isBuiltIn: false, slotCount };
+    });
+  }
+
+  deleteSlotGroup(
+    actor: BrandActor,
+    key: string,
+  ): Promise<DeleteBrandSlotGroupResponse> {
+    return this.guard(async () => {
+      if (BUILT_IN_GROUP_KEYS.has(key)) {
+        throw brandErrors.slotGroupBuiltInCannotModify();
+      }
+      const existing = await this.store.findSlotGroup(key);
+      if (!existing) throw brandErrors.slotGroupNotFound();
+      const customRows = await this.store.listCustomSlots();
+      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      if (slotCount > 0) throw brandErrors.slotGroupInUse(slotCount);
+      const deleted = await this.store.deleteSlotGroup(key);
+      if (!deleted) throw brandErrors.slotGroupNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.deleted', actor.userId, {
+          group: key,
+        });
+      });
+      return { key, deleted: true };
+    });
+  }
+
+  /** Nhóm của vị trí phải tồn tại: nhóm có sẵn hoặc nhóm tùy chỉnh đã tạo. */
+  private async assertSlotGroupExists(groupKey: string): Promise<void> {
+    if (BUILT_IN_GROUP_KEYS.has(groupKey)) return;
+    const row = await this.store.findSlotGroup(groupKey);
+    if (!row) throw brandErrors.slotGroupUnknown();
+  }
+
   listSlots(): Promise<BrandSlotListResponse> {
     return this.guard(async () => {
-      const [slotRows, customRows] = await Promise.all([
+      const [slotRows, customRows, groupRows] = await Promise.all([
         this.store.listSlots(),
         this.store.listCustomSlots(),
+        this.store.listSlotGroups(),
       ]);
       const definitions: readonly IconSlotMeta[] = [
         ...ICON_SLOTS,
@@ -340,6 +483,7 @@ export class BrandIconService {
           .filter((row) => isIconSlotId(row.slot))
           .map(toSlotAssignment),
         definitions,
+        groups: buildSlotGroups(groupRows, customRows),
       };
     });
   }
@@ -357,6 +501,7 @@ export class BrandIconService {
       if (existing) {
         throw brandErrors.slotConflict();
       }
+      await this.assertSlotGroupExists(parsed.groupKey);
       const row = await this.store.createCustomSlot(parsed);
       await this.store.transaction(async (tx) => {
         await tx.audit('platform.brand-slot-definition.created', actor.userId, {
@@ -378,6 +523,9 @@ export class BrandIconService {
         throw brandErrors.slotBuiltInCannotModify();
       }
       const patch = parseCustomSlotPatch(input);
+      if (patch.groupKey !== undefined) {
+        await this.assertSlotGroupExists(patch.groupKey);
+      }
       const row = await this.store.updateCustomSlot(id, patch);
       if (!row) throw brandErrors.slotNotFound();
       await this.store.transaction(async (tx) => {

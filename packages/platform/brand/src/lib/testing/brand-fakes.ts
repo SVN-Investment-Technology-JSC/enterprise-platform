@@ -13,6 +13,8 @@ import type {
   BrandTransaction,
   CustomSlotInput,
   CustomSlotRow,
+  SlotGroupInput,
+  SlotGroupRow,
   IconRow,
   IconStateInput,
   NewIconInput,
@@ -53,6 +55,7 @@ interface State {
   standards: StandardsRow;
   slots: Map<string, StoredSlot>;
   customSlots: Map<string, CustomSlotRow>;
+  slotGroups: Map<string, SlotGroupRow>;
   audits: AuditEntry[];
 }
 
@@ -74,6 +77,7 @@ export class FakeBrandStore implements BrandStore {
     standards: EMPTY_STANDARDS,
     slots: new Map(),
     customSlots: new Map(),
+    slotGroups: new Map(),
     audits: [],
   };
   private tail: Promise<unknown> = Promise.resolve();
@@ -255,6 +259,56 @@ export class FakeBrandStore implements BrandStore {
     return true;
   }
 
+  async listSlotGroups(): Promise<readonly SlotGroupRow[]> {
+    this.maybeFailRead();
+    return [...this.state.slotGroups.values()].sort(
+      (a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key),
+    );
+  }
+
+  async findSlotGroup(key: string): Promise<SlotGroupRow | null> {
+    this.maybeFailRead();
+    return this.state.slotGroups.get(key) ?? null;
+  }
+
+  async createSlotGroup(input: SlotGroupInput): Promise<SlotGroupRow> {
+    this.maybeFailRead();
+    if (this.state.slotGroups.has(input.key)) {
+      throw new BrandStoreConflictError('key');
+    }
+    const now = new Date().toISOString();
+    const row: SlotGroupRow = {
+      key: input.key,
+      label: input.label,
+      createdBy: input.createdBy ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.slotGroups.set(row.key, row);
+    return row;
+  }
+
+  async updateSlotGroup(
+    key: string,
+    label: string,
+  ): Promise<SlotGroupRow | null> {
+    this.maybeFailRead();
+    const existing = this.state.slotGroups.get(key);
+    if (!existing) return null;
+    const updated: SlotGroupRow = {
+      ...existing,
+      label,
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.slotGroups.set(key, updated);
+    return updated;
+  }
+
+  async deleteSlotGroup(key: string): Promise<boolean> {
+    this.maybeFailRead();
+    return this.state.slotGroups.delete(key);
+  }
+
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
       this.transactions += 1;
@@ -264,6 +318,7 @@ export class FakeBrandStore implements BrandStore {
         standards: this.state.standards,
         slots: new Map(this.state.slots),
         customSlots: new Map(this.state.customSlots),
+        slotGroups: new Map(this.state.slotGroups),
         audits: [...this.state.audits],
       };
       try {

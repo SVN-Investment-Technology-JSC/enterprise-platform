@@ -21,7 +21,7 @@ export class BrandError extends Error {
 
 /** DB báo trùng khoá duy nhất: `id` (mã icon), `slug` hoặc `version`. */
 export class BrandStoreConflictError extends Error {
-  constructor(readonly kind: 'id' | 'slug' | 'version') {
+  constructor(readonly kind: 'id' | 'slug' | 'version' | 'key') {
     super(`Brand store unique violation on ${kind}`);
     this.name = 'BrandStoreConflictError';
   }
@@ -111,6 +111,34 @@ export const brandErrors = {
       422,
       E.slotIconNotPublished,
       'Chỉ có thể gán icon đang ở trạng thái đã phát hành.',
+    ),
+  slotGroupNotFound: () =>
+    new BrandError(404, E.slotGroupNotFound, 'Không tìm thấy nhóm vị trí.'),
+  /** Vị trí trỏ tới nhóm không tồn tại: lỗi dữ liệu gửi lên (400), khác với thao tác trực tiếp trên nhóm (404). */
+  slotGroupUnknown: () =>
+    new BrandError(
+      400,
+      E.slotGroupNotFound,
+      'Nhóm vị trí không tồn tại. Hãy chọn một nhóm có sẵn hoặc tạo nhóm mới trước.',
+    ),
+  slotGroupConflict: () =>
+    new BrandError(
+      409,
+      E.slotGroupConflict,
+      'Mã nhóm vị trí này đã tồn tại.',
+    ),
+  slotGroupBuiltInCannotModify: () =>
+    new BrandError(
+      409,
+      E.slotGroupBuiltInCannotModify,
+      'Không thể đổi tên hoặc xoá nhóm vị trí có sẵn của hệ thống.',
+    ),
+  slotGroupInUse: (slotCount: number) =>
+    new BrandError(
+      409,
+      E.slotGroupInUse,
+      `Nhóm đang có ${slotCount} vị trí. Hãy chuyển các vị trí sang nhóm khác trước khi xoá nhóm.`,
+      { slotCount },
     ),
   versionConflict: (currentVersion: number) =>
     new BrandError(

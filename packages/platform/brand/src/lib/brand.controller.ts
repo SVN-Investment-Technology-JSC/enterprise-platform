@@ -177,6 +177,47 @@ export class BrandController {
     });
   }
 
+  /** Các route `slots/groups` đặt trước `slots/:slot/...` để NestJS không bắt nhầm `groups` là `:slot`. */
+  @Get('slots/groups')
+  listSlotGroups(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlotGroups();
+    });
+  }
+
+  @Post('slots/groups')
+  @HttpCode(201)
+  createSlotGroup(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.createSlotGroup(admin, this.record(body));
+    });
+  }
+
+  @Put('slots/groups/:key')
+  updateSlotGroup(
+    @Req() request: Request,
+    @Param('key') key: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.updateSlotGroup(admin, key, this.record(body));
+    });
+  }
+
+  @Delete('slots/groups/:key')
+  deleteSlotGroup(@Req() request: Request, @Param('key') key: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.deleteSlotGroup(admin, key);
+    });
+  }
+
   @Get('slots/definitions')
   listSlotDefinitions(@Req() request: Request) {
     return this.run(async () => {

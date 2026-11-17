@@ -8,14 +8,17 @@ import {
   assertIconId,
   assertSlotId,
   cleanNote,
+  deriveSlotGroupKey,
   parseCustomSlotInput,
   parseCustomSlotPatch,
   parseDocument,
   parseOptionalVersion,
+  parseSlotGroupCreate,
   parseStatuses,
   parseStandards,
   parseSvgMode,
   parseVersionNumber,
+  uniqueSlotGroupKey,
 } from './brand-input.js';
 import { sampleDocument } from './testing/sample-documents.js';
 
@@ -256,6 +259,13 @@ describe('parseCustomSlotInput', () => {
     });
   });
 
+  it('nhận nhóm qua trường group (kiểu dùng chung) và groupKey (tương thích)', () => {
+    expect(parseCustomSlotInput({ id: 'custom.a1', label: 'A', group: 'trung-tam-tro-giup' }, 'u').groupKey).toBe('trung-tam-tro-giup');
+    expect(parseCustomSlotInput({ id: 'custom.a1', label: 'A', groupKey: 'cu' }, 'u').groupKey).toBe('cu');
+    expect(parseCustomSlotPatch({ group: 'nhom-moi' }).groupKey).toBe('nhom-moi');
+    expect(parseCustomSlotPatch({ groupKey: 'nhom-cu' }).groupKey).toBe('nhom-cu');
+  });
+
   it('từ chối mã vị trí trùng với vị trí hệ thống cố định', () => {
     expect(
       codeOf(() =>
@@ -295,5 +305,46 @@ describe('parseCustomSlotPatch', () => {
     expect(codeOf(() => parseCustomSlotPatch({ recommendedSize: 2 }))).toBe(
       'BRAND_REQUEST_INVALID',
     );
+  });
+});
+
+describe('deriveSlotGroupKey và parseSlotGroupCreate', () => {
+  it('sinh mã từ tên tiếng Việt', () => {
+    expect(deriveSlotGroupKey('Trung tâm trợ giúp')).toBe('trung-tam-tro-giup');
+    expect(deriveSlotGroupKey('Đồ  dùng -- văn phòng!')).toBe(
+      'do-dung-van-phong',
+    );
+    expect(deriveSlotGroupKey('9 nhóm')).toBe('g-9-nhom');
+    expect(deriveSlotGroupKey('A')).toBe('g-a');
+    expect(deriveSlotGroupKey('!!!')).toBe('g-nhom');
+  });
+
+  it('cắt tối đa 32 ký tự và không kết thúc bằng gạch ngang', () => {
+    const key = deriveSlotGroupKey(`${'a'.repeat(31)} b`);
+    expect(key.length).toBeLessThanOrEqual(32);
+    expect(key.endsWith('-')).toBe(false);
+    expect(/^[a-z][a-z0-9_-]{1,31}$/.test(deriveSlotGroupKey('x'.repeat(80)))).toBe(
+      true,
+    );
+  });
+
+  it('uniqueSlotGroupKey thêm hậu tố mà vẫn tối đa 32 ký tự', () => {
+    const base = 'a'.repeat(32);
+    expect(uniqueSlotGroupKey(base, new Set([base]))).toBe(
+      `${'a'.repeat(30)}-2`,
+    );
+    expect(uniqueSlotGroupKey('abc', new Set(['abc', 'abc-2']))).toBe('abc-3');
+  });
+
+  it('parseSlotGroupCreate cắt khoảng trắng, kiểm mã chỉ định', () => {
+    expect(parseSlotGroupCreate({ label: ' Nhóm ' })).toEqual({
+      label: 'Nhóm',
+    });
+    expect(parseSlotGroupCreate({ label: 'N', key: 'ok-key' })).toEqual({
+      label: 'N',
+      key: 'ok-key',
+    });
+    expect(() => parseSlotGroupCreate({ label: 'N', key: '1abc' })).toThrow();
+    expect(() => parseSlotGroupCreate(null)).toThrow();
   });
 });

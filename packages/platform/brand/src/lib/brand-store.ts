@@ -171,6 +171,21 @@ export interface CustomSlotInput {
   readonly createdBy?: string | null;
 }
 
+/** Một dòng `brand_schema.slot_groups` (chỉ nhóm tùy chỉnh; nhóm có sẵn nằm trong code). */
+export interface SlotGroupRow {
+  readonly key: string;
+  readonly label: string;
+  readonly createdBy: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SlotGroupInput {
+  readonly key: string;
+  readonly label: string;
+  readonly createdBy?: string | null;
+}
+
 /** Cổng dữ liệu của Brand Studio; hiện thực thật là `PgBrandStore`. */
 export interface BrandStore {
   listIcons(statuses?: readonly BrandIconStatus[]): Promise<readonly IconRow[]>;
@@ -190,6 +205,13 @@ export interface BrandStore {
     patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
   ): Promise<CustomSlotRow | null>;
   deleteCustomSlot(id: string): Promise<boolean>;
+  /** Nhóm tùy chỉnh, sắp theo tên hiển thị. */
+  listSlotGroups(): Promise<readonly SlotGroupRow[]>;
+  findSlotGroup(key: string): Promise<SlotGroupRow | null>;
+  /** Ném `BrandStoreConflictError('key')` khi trùng mã nhóm. */
+  createSlotGroup(input: SlotGroupInput): Promise<SlotGroupRow>;
+  updateSlotGroup(key: string, label: string): Promise<SlotGroupRow | null>;
+  deleteSlotGroup(key: string): Promise<boolean>;
   /**
    * Chạy `work` trong một giao dịch: hoàn tất thì chốt, ném lỗi thì huỷ. Có thể ném `BrandStoreBusyError`
    * khi không lấy được khoá hàng trong thời hạn.

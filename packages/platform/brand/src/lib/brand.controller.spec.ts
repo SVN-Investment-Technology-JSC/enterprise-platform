@@ -702,3 +702,132 @@ describe('BrandController – vị trí sử dụng icon (slots)', () => {
     expect(userManifest.headers.get('cache-control')).toBe('private, no-cache');
   });
 });
+
+describe('BrandController – nhóm vị trí (slots/groups)', () => {
+  it('GET /slots/groups không bị bắt nhầm bởi :slot; cần đăng nhập và đúng quyền', async () => {
+    expect((await call('GET', '/slots/groups')).status).toBe(401);
+    const forbidden = await call('GET', '/slots/groups', {
+      headers: { cookie: 'ep_access=user-token' },
+    });
+    expect(forbidden.status).toBe(403);
+    const ok = await call('GET', '/slots/groups', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(ok.status).toBe(200);
+    const groups = (ok.json as unknown as { groups: Array<{ key: string }> })
+      .groups;
+    expect(groups.slice(0, 8).map((g) => g.key)).toContain('custom');
+  });
+
+  it('ghi cần CSRF và quản trị Platform', async () => {
+    const noCsrf = await call('POST', '/slots/groups', {
+      headers: { cookie: 'ep_access=admin-token' },
+      body: { label: 'X' },
+    });
+    expect(noCsrf.status).toBe(403);
+    const tenant = await call('POST', '/slots/groups', {
+      headers: {
+        cookie: `ep_access=user-token; ep_csrf=${CSRF}`,
+        'x-csrf-token': CSRF,
+      },
+      body: { label: 'X' },
+    });
+    expect(tenant.status).toBe(403);
+    expect(
+      (await call('PUT', '/slots/groups/x', { body: { label: 'X' } })).status,
+    ).toBe(401);
+    expect((await call('DELETE', '/slots/groups/x')).status).toBe(401);
+  });
+
+  it('CRUD nhóm qua HTTP và dùng nhóm cho vị trí tùy chỉnh', async () => {
+    const created = await call('POST', '/slots/groups', {
+      headers: asAdmin,
+      body: { label: 'Trung tâm trợ giúp' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.json).toEqual({
+      key: 'trung-tam-tro-giup',
+      label: 'Trung tâm trợ giúp',
+      isBuiltIn: false,
+      slotCount: 0,
+    });
+
+    const dup = await call('POST', '/slots/groups', {
+      headers: asAdmin,
+      body: { label: 'Khác', key: 'trung-tam-tro-giup' },
+    });
+    expect(dup.status).toBe(409);
+    expect(dup.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_CONFLICT' });
+
+    const renamed = await call('PUT', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+      body: { label: 'Trợ giúp' },
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.json).toMatchObject({
+      key: 'trung-tam-tro-giup',
+      label: 'Trợ giúp',
+    });
+
+    const builtIn = await call('PUT', '/slots/groups/brand', {
+      headers: asAdmin,
+      body: { label: 'X' },
+    });
+    expect(builtIn.status).toBe(409);
+    expect(builtIn.json).toMatchObject({
+      code: 'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+    });
+
+    const slot = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: {
+        id: 'custom.help-center',
+        label: 'Trung tâm trợ giúp',
+        groupKey: 'trung-tam-tro-giup',
+      },
+    });
+    expect(slot.status).toBe(201);
+    const badSlot = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: { id: 'custom.other', label: 'Khác', groupKey: 'khong-co' },
+    });
+    expect(badSlot.status).toBe(400);
+    expect(badSlot.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_NOT_FOUND' });
+
+    const list = await call('GET', '/slots', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const listed = (
+      list.json as unknown as {
+        groups: Array<{ key: string; slotCount: number }>;
+      }
+    ).groups.find((g) => g.key === 'trung-tam-tro-giup');
+    expect(listed?.slotCount).toBe(1);
+
+    const inUse = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(inUse.status).toBe(409);
+    expect(inUse.json).toMatchObject({
+      code: 'BRAND_SLOT_GROUP_IN_USE',
+      slotCount: 1,
+    });
+
+    await call('DELETE', '/slots/definitions/custom.help-center', {
+      headers: asAdmin,
+    });
+    const deleted = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(deleted.status).toBe(200);
+    expect(deleted.json).toEqual({
+      key: 'trung-tam-tro-giup',
+      deleted: true,
+    });
+    const gone = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(gone.status).toBe(404);
+    expect(gone.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_NOT_FOUND' });
+  });
+});

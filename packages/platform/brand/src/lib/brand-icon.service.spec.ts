@@ -1542,3 +1542,244 @@ describe('BrandIconService – quản lý & phát hành vị trí icon (slots)',
     });
   });
 });
+
+describe('BrandIconService – nhóm vị trí (slot groups)', () => {
+  const codeOf = (error: BrandError) => [error.status, error.code];
+
+  it('liệt kê 8 nhóm có sẵn đúng thứ tự cùng slotCount của vị trí có sẵn', async () => {
+    const { service } = setup();
+    const { groups } = await service.listSlotGroups();
+    expect(groups.slice(0, 8).map((g) => g.key)).toEqual([
+      'brand',
+      'module',
+      'nav',
+      'header',
+      'shell',
+      'dashboard',
+      'sidebar',
+      'custom',
+    ]);
+    expect(groups.every((g) => g.isBuiltIn)).toBe(true);
+    expect(groups.find((g) => g.key === 'brand')!.slotCount).toBeGreaterThan(0);
+  });
+
+  it('tạo nhóm: sinh mã từ tên có dấu, ghi nhật ký và hiện sau nhóm có sẵn', async () => {
+    const { service, store } = setup();
+    const created = await service.createSlotGroup(ADMIN, {
+      label: '  Trung tâm trợ giúp  ',
+    });
+    expect(created).toEqual({
+      key: 'trung-tam-tro-giup',
+      label: 'Trung tâm trợ giúp',
+      isBuiltIn: false,
+      slotCount: 0,
+    });
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-slot-group.created',
+      actorId: ADMIN.userId,
+      metadata: { group: 'trung-tam-tro-giup', label: 'Trung tâm trợ giúp' },
+    });
+    const { groups } = await service.listSlotGroups();
+    expect(groups).toHaveLength(9);
+    expect(groups[8]).toMatchObject({
+      key: 'trung-tam-tro-giup',
+      isBuiltIn: false,
+    });
+  });
+
+  it('sinh mã: đ thành d, tiền tố g- khi bắt đầu bằng số, hậu tố khi trùng', async () => {
+    const { service } = setup();
+    expect(
+      (await service.createSlotGroup(ADMIN, { label: 'Đường đi' })).key,
+    ).toBe('duong-di');
+    expect(
+      (await service.createSlotGroup(ADMIN, { label: '2024 báo cáo' })).key,
+    ).toBe('g-2024-bao-cao');
+    expect(
+      (await service.createSlotGroup(ADMIN, { label: 'Đường đi' })).key,
+    ).toBe('duong-di-2');
+    expect(
+      (await service.createSlotGroup(ADMIN, { label: 'duong di' })).key,
+    ).toBe('duong-di-3');
+    // Trùng nhóm có sẵn khi sinh tự động thì thêm hậu tố, không báo lỗi.
+    expect(
+      (await service.createSlotGroup(ADMIN, { label: 'Brand' })).key,
+    ).toBe('brand-2');
+  });
+
+  it('mã chỉ định: sai mẫu là 400, trùng nhóm có sẵn hoặc nhóm tùy chỉnh là 409', async () => {
+    const { service } = setup();
+    const bad = await rejection(
+      service.createSlotGroup(ADMIN, { label: 'A', key: 'Sai Mã' }),
+    );
+    expect(codeOf(bad)).toEqual([400, 'BRAND_REQUEST_INVALID']);
+
+    const builtIn = await rejection(
+      service.createSlotGroup(ADMIN, { label: 'A', key: 'nav' }),
+    );
+    expect(codeOf(builtIn)).toEqual([409, 'BRAND_SLOT_GROUP_CONFLICT']);
+
+    await service.createSlotGroup(ADMIN, { label: 'Một', key: 'nhom-mot' });
+    const dup = await rejection(
+      service.createSlotGroup(ADMIN, { label: 'Hai', key: 'nhom-mot' }),
+    );
+    expect(codeOf(dup)).toEqual([409, 'BRAND_SLOT_GROUP_CONFLICT']);
+  });
+
+  it('tên nhóm: bắt buộc và tối đa 60 ký tự', async () => {
+    const { service } = setup();
+    for (const label of ['', '   ', 'x'.repeat(61), 7]) {
+      const error = await rejection(service.createSlotGroup(ADMIN, { label }));
+      expect(codeOf(error)).toEqual([400, 'BRAND_REQUEST_INVALID']);
+    }
+    const ok = await service.createSlotGroup(ADMIN, { label: 'y'.repeat(60) });
+    expect(ok.label).toHaveLength(60);
+    expect(ok.key).toHaveLength(32);
+  });
+
+  it('sửa tên chỉ đổi nhãn, giữ mã; nhóm có sẵn 409, không tồn tại 404', async () => {
+    const { service, store } = setup();
+    await service.createSlotGroup(ADMIN, { label: 'Cũ', key: 'nhom-cu' });
+    const updated = await service.updateSlotGroup(ADMIN, 'nhom-cu', {
+      label: ' Mới ',
+    });
+    expect(updated).toMatchObject({
+      key: 'nhom-cu',
+      label: 'Mới',
+      isBuiltIn: false,
+    });
+    expect(store.audits.at(-1)).toMatchObject({
+      action: 'platform.brand-slot-group.updated',
+      metadata: { group: 'nhom-cu', label: 'Mới' },
+    });
+
+    const builtIn = await rejection(
+      service.updateSlotGroup(ADMIN, 'brand', { label: 'X' }),
+    );
+    expect(codeOf(builtIn)).toEqual([
+      409,
+      'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+    ]);
+    const missing = await rejection(
+      service.updateSlotGroup(ADMIN, 'khong-co', { label: 'X' }),
+    );
+    expect(codeOf(missing)).toEqual([404, 'BRAND_SLOT_GROUP_NOT_FOUND']);
+    const empty = await rejection(
+      service.updateSlotGroup(ADMIN, 'nhom-cu', { label: ' ' }),
+    );
+    expect(codeOf(empty)).toEqual([400, 'BRAND_REQUEST_INVALID']);
+  });
+
+  it('xoá: nhóm có sẵn 409, không tồn tại 404, đang dùng 409 kèm số vị trí, thành công', async () => {
+    const { service, store } = setup();
+    const builtIn = await rejection(service.deleteSlotGroup(ADMIN, 'custom'));
+    expect(codeOf(builtIn)).toEqual([
+      409,
+      'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+    ]);
+    const missing = await rejection(
+      service.deleteSlotGroup(ADMIN, 'khong-co'),
+    );
+    expect(codeOf(missing)).toEqual([404, 'BRAND_SLOT_GROUP_NOT_FOUND']);
+
+    await service.createSlotGroup(ADMIN, {
+      label: 'Trợ giúp',
+      key: 'tro-giup',
+    });
+    await service.createCustomSlot(ADMIN, {
+      id: 'custom.help-icon',
+      label: 'Icon trợ giúp',
+      groupKey: 'tro-giup',
+    });
+    const inUse = await rejection(service.deleteSlotGroup(ADMIN, 'tro-giup'));
+    expect(codeOf(inUse)).toEqual([409, 'BRAND_SLOT_GROUP_IN_USE']);
+    expect(inUse.message).toContain('1 vị trí');
+    expect(inUse.extra).toEqual({ slotCount: 1 });
+
+    await service.deleteCustomSlot(ADMIN, 'custom.help-icon');
+    await expect(service.deleteSlotGroup(ADMIN, 'tro-giup')).resolves.toEqual({
+      key: 'tro-giup',
+      deleted: true,
+    });
+    expect(store.audits.at(-1)).toMatchObject({
+      action: 'platform.brand-slot-group.deleted',
+      metadata: { group: 'tro-giup' },
+    });
+    expect((await service.listSlotGroups()).groups).toHaveLength(8);
+  });
+
+  it('tạo và sửa vị trí với nhóm không tồn tại là 400 BRAND_SLOT_GROUP_NOT_FOUND', async () => {
+    const { service } = setup();
+    const create = await rejection(
+      service.createCustomSlot(ADMIN, {
+        id: 'custom.a-icon',
+        label: 'A',
+        groupKey: 'khong-co',
+      }),
+    );
+    expect(codeOf(create)).toEqual([400, 'BRAND_SLOT_GROUP_NOT_FOUND']);
+
+    // Mặc định là nhóm "custom"; nhóm có sẵn dùng được mà không cần có dòng trong DB.
+    const made = await service.createCustomSlot(ADMIN, {
+      id: 'custom.a-icon',
+      label: 'A',
+    });
+    expect(made.group).toBe('custom');
+    const toBuiltIn = await service.updateCustomSlot(ADMIN, 'custom.a-icon', {
+      groupKey: 'nav',
+    });
+    expect(toBuiltIn.group).toBe('nav');
+
+    const update = await rejection(
+      service.updateCustomSlot(ADMIN, 'custom.a-icon', {
+        groupKey: 'khong-co',
+      }),
+    );
+    expect(codeOf(update)).toEqual([400, 'BRAND_SLOT_GROUP_NOT_FOUND']);
+
+    await service.createSlotGroup(ADMIN, { label: 'Mới', key: 'nhom-moi' });
+    const moved = await service.updateCustomSlot(ADMIN, 'custom.a-icon', {
+      groupKey: 'nhom-moi',
+    });
+    expect(moved.group).toBe('nhom-moi');
+  });
+
+  it('listSlots trả groups với slotCount cộng vị trí có sẵn và vị trí tùy chỉnh', async () => {
+    const { service } = setup();
+    const before = await service.listSlots();
+    const customBefore = before.groups!.find((g) => g.key === 'custom')!
+      .slotCount;
+    const navBefore = before.groups!.find((g) => g.key === 'nav')!.slotCount;
+
+    await service.createSlotGroup(ADMIN, {
+      label: 'Trợ giúp',
+      key: 'tro-giup',
+    });
+    await service.createCustomSlot(ADMIN, {
+      id: 'custom.x1',
+      label: 'X1',
+      groupKey: 'tro-giup',
+    });
+    await service.createCustomSlot(ADMIN, {
+      id: 'custom.x2',
+      label: 'X2',
+      groupKey: 'tro-giup',
+    });
+    await service.createCustomSlot(ADMIN, {
+      id: 'custom.x3',
+      label: 'X3',
+      groupKey: 'nav',
+    });
+    await service.createCustomSlot(ADMIN, { id: 'custom.x4', label: 'X4' });
+
+    const after = await service.listSlots();
+    const byKey = new Map(after.groups!.map((g) => [g.key, g]));
+    expect(byKey.get('tro-giup')).toMatchObject({
+      isBuiltIn: false,
+      slotCount: 2,
+      label: 'Trợ giúp',
+    });
+    expect(byKey.get('nav')!.slotCount).toBe(navBefore + 1);
+    expect(byKey.get('custom')!.slotCount).toBe(customBefore + 1);
+  });
+});
