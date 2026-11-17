@@ -117,6 +117,9 @@ try {
   await page.waitForTimeout(1800);
   await page.locator('tbody tr.ant-table-row', { hasText: prepared.quoteCode }).first().first().click();
   await page.waitForTimeout(3000);
+  // Phase 3 (C4): Khuyến mãi, Tài liệu nằm trong khối thu gọn của màn báo giá 2 cột; mở các khối như trước.
+  const openSections = () => page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+  await openSections();
   const qsec = page.locator('section[aria-label="Khuyến mãi"]');
   await qsec.waitFor({ timeout: 10000 });
   const t0 = await qsec.innerText();
@@ -128,6 +131,7 @@ try {
   await page.waitForTimeout(2500);
   await shot(page, 'j-quote-promo');
   await page.reload(); await page.waitForTimeout(3500);
+  await openSections();
   const afterReload = await page.locator('section[aria-label="Khuyến mãi"]').innerText();
   check('TC-QF-17 (trình duyệt) lưu khuyến mãi cho báo giá, tải lại vẫn còn', afterReload.includes(code), '');
 

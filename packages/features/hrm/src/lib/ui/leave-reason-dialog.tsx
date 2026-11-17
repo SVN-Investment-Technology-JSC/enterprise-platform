@@ -25,6 +25,9 @@ export function LeaveReasonDialog({
 }) {
   const uid = useId();
   const annual = Boolean(row?.isAnnual);
+  const compOff = Boolean(row?.isCompOff);
+  /** Lý do mặc định có xử lý riêng: luôn có lương. */
+  const alwaysPaid = annual || compOff;
   const [code, setCode] = useState('');
   const [name, setName] = useState(row?.name ?? '');
   const [paid, setPaid] = useState(row?.paid ?? true);
@@ -55,7 +58,7 @@ export function LeaveReasonDialog({
           body: JSON.stringify({
             name: name.trim(),
             // Lý do phép năm luôn có lương: không gửi `paid`, server cũng từ chối đổi.
-            ...(annual ? {} : { paid }),
+            ...(alwaysPaid ? {} : { paid }),
             requiresAttachment,
             expectedUpdatedAt: row.updatedAt,
             reason: reason.trim(),
@@ -114,8 +117,24 @@ export function LeaveReasonDialog({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  Đây là lý do Phép năm: luôn có lương, trừ quỹ phép năm và không
-                  thể ngừng. Cách cộng phép cấu hình ở Chính sách phép năm.
+                  Đây là lý do mặc định Phép năm: luôn có lương, trừ quỹ phép năm. Có
+                  thể ngừng sử dụng nhưng không xóa được. Cách cộng phép cấu hình ở
+                  Chính sách phép năm.
+                </span>
+              </p>
+            ) : null}
+            {compOff ? (
+              <p
+                role="note"
+                className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-800"
+              >
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  Đây là lý do mặc định Nghỉ bù: luôn có lương, không trừ phép năm. Có
+                  thể ngừng sử dụng nhưng không xóa được.{' '}
+                  {row?.compOffManaged === false
+                    ? 'Quy tắc nghỉ bù đang tắt: quỹ do doanh nghiệp tự quản lý ngoài hệ thống, hệ thống không tính và không chặn, người duyệt quyết định.'
+                    : 'Quỹ do hệ thống tính (giữ chỗ, trừ khi duyệt); cách tính cấu hình ở Chính sách phép, mục Quỹ nghỉ bù.'}
                 </span>
               </p>
             ) : null}
@@ -163,18 +182,20 @@ export function LeaveReasonDialog({
             <div className="flex items-start gap-3">
               <LeaveSwitch
                 label="Có lương"
-                checked={annual ? true : paid}
-                disabled={busy || annual}
+                checked={alwaysPaid ? true : paid}
+                disabled={busy || alwaysPaid}
                 onChange={setPaid}
               />
               <div>
                 <p className="text-xs font-medium text-slate-700">Có lương</p>
                 <p className="text-[12px] leading-snug text-slate-500">
-                  {annual || paid
+                  {alwaysPaid || paid
                     ? 'Ngày nghỉ được tính là ngày công có lương trong bảng công.'
                     : 'Không lương: ngày nghỉ không được tính công.'}{' '}
-                  {annual
-                    ? 'Phép năm luôn có lương.'
+                  {alwaysPaid
+                    ? annual
+                      ? 'Phép năm luôn có lương.'
+                      : 'Nghỉ bù luôn có lương.'
                     : 'Không đổi được sau khi lý do đã có đơn.'}
                 </p>
               </div>
@@ -198,7 +219,11 @@ export function LeaveReasonDialog({
             <p className="text-[12px] leading-snug text-slate-500">
               {annual
                 ? 'Trừ quỹ phép năm: Có.'
-                : 'Trừ quỹ phép năm: Không. Chỉ lý do Phép năm mới trừ quỹ phép, dù có lương hay không lương.'}
+                : compOff
+                  ? row?.compOffManaged === false
+                    ? 'Trừ quỹ: Không. Quỹ nghỉ bù đang do doanh nghiệp tự quản lý.'
+                    : 'Trừ quỹ phép năm: Không. Lý do này trừ quỹ nghỉ bù.'
+                  : 'Trừ quỹ: Không. Chỉ lý do mặc định Phép năm và Nghỉ bù mới trừ quỹ riêng, dù có lương hay không lương.'}
             </p>
 
             {row ? (

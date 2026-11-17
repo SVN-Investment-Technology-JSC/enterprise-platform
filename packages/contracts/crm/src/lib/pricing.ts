@@ -32,12 +32,6 @@ export const DISCOUNT_POLICY_RULES_MAX = 100;
 // Bảng giá
 // ---------------------------------------------------------------------------
 
-export interface PriceListGroupRef {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-}
-
 export interface PriceListSummary {
   readonly id: string;
   readonly code: string;
@@ -51,8 +45,8 @@ export interface PriceListSummary {
   readonly status: PricingStatus;
   readonly note: string | null;
   readonly itemCount: number;
-  /** Nhóm khách áp bảng giá; bảng chuẩn luôn rỗng. */
-  readonly customerGroups: readonly PriceListGroupRef[];
+  /** Số khách hàng đang chọn bảng giá này (D3-38); bảng chuẩn luôn 0 (áp cho mọi khách chưa chọn bảng giá). */
+  readonly customerCount: number;
   readonly updatedAt: string;
 }
 
@@ -78,12 +72,6 @@ export interface SavePriceListRequest {
   readonly validTo?: string | null;
   readonly status?: PricingStatus;
   readonly note?: string | null;
-  /** Bỏ trống thì giữ nguyên nhóm đang gán (khi sửa). */
-  readonly customerGroupIds?: readonly string[];
-}
-
-export interface AssignPriceListGroupsRequest {
-  readonly customerGroupIds: readonly string[];
 }
 
 /**
@@ -207,7 +195,8 @@ export type PriceSource = (typeof PRICE_SOURCES)[number];
 
 export const PRICE_SOURCE_LABELS: Readonly<Record<PriceSource, string>> = {
   CONTRACT: 'Hợp đồng',
-  GROUP_LIST: 'Bảng giá nhóm',
+  // Giữ mã cũ cho dữ liệu đã lưu; từ D3-38 là bảng giá chọn ở hồ sơ khách.
+  GROUP_LIST: 'Bảng giá của khách',
   STANDARD_LIST: 'Bảng giá chuẩn',
   MANUAL: 'Nhập tay',
 };
@@ -227,10 +216,12 @@ export interface QuotePreviewLine {
 }
 
 export interface QuotePreviewRequest {
-  /** Khách hàng (phải nằm trong phạm vi dữ liệu); nhóm lấy theo hồ sơ khách. */
+  /** Khách hàng (phải nằm trong phạm vi dữ liệu); nhóm và bảng giá lấy theo hồ sơ khách. */
   readonly customerId?: string | null;
   /** Dùng khi chưa chọn khách, để thử chính sách của một nhóm. */
   readonly customerGroupId?: string | null;
+  /** Dùng khi chưa chọn khách, để thử một bảng giá (không chuẩn); rỗng là bảng giá chuẩn. */
+  readonly priceListId?: string | null;
   /** Ngày tính giá `YYYY-MM-DD`; mặc định hôm nay theo giờ Việt Nam. */
   readonly date?: string | null;
   readonly lines: readonly QuotePreviewLine[];

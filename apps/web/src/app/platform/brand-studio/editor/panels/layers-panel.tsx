@@ -5,6 +5,7 @@ import { Copy, Eye, EyeOff, Layers, Lock, LockOpen, Trash2 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { IconButton } from '../../components/controls';
+import { Hint } from '../../components/hint';
 import { IconSvg } from '../../icon-svg';
 import {
   displayOrder,
@@ -163,32 +164,33 @@ export function LayersPanel({ state, dispatch, palette }: EditorPanelProps) {
                 <RenameInput initial={shape.name} onCommit={(name) => rename(shape, name)} onCancel={() => setRenamingId(null)} />
               </div>
             ) : (
-              <div
-                role="button"
-                tabIndex={0}
-                aria-pressed={isSelected}
-                title="Bấm để chọn, nhấp đôi (hoặc F2) để đổi tên, kéo để đổi thứ tự"
-                onClick={(event) => select(shape.id, event)}
-                onDoubleClick={() => startRename(shape.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    select(shape.id, event);
-                  } else if (event.key === 'F2') {
-                    event.preventDefault();
-                    startRename(shape.id);
-                  }
-                }}
-                className={cn(
-                  'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40',
-                  shape.hidden && 'opacity-45',
-                )}
-              >
-                <LayerThumb shape={shape} size={doc.size} palette={palette} />
-                <span className={cn('min-w-0 flex-1 truncate text-xs', isSelected ? 'font-medium text-slate-900' : 'text-slate-700')}>
-                  {shape.name}
-                </span>
-              </div>
+              <Hint label="Bấm để chọn, nhấp đôi (hoặc F2) để đổi tên, kéo để đổi thứ tự">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  onClick={(event) => select(shape.id, event)}
+                  onDoubleClick={() => startRename(shape.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      select(shape.id, event);
+                    } else if (event.key === 'F2') {
+                      event.preventDefault();
+                      startRename(shape.id);
+                    }
+                  }}
+                  className={cn(
+                    'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40',
+                    shape.hidden && 'opacity-45',
+                  )}
+                >
+                  <LayerThumb shape={shape} size={doc.size} palette={palette} />
+                  <span className={cn('min-w-0 flex-1 truncate text-xs', isSelected ? 'font-medium text-slate-900' : 'text-slate-700')}>
+                    {shape.name}
+                  </span>
+                </div>
+              </Hint>
             )}
 
             {isSelected && shape.id === lead ? (

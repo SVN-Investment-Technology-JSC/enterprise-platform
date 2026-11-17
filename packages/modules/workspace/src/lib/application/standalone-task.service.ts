@@ -6,10 +6,12 @@ import {
   allowedStandaloneTaskTransitions,
   type ChangeStandaloneTaskStatusRequest,
   type CreateStandaloneTaskRequest,
+  type ReportWorkItemProgressRequest,
   type ReverseStandaloneTaskRequest,
   type StandaloneTask,
   type StandaloneTaskDetail,
   type StandaloneTaskList,
+  type StandaloneTaskProgressReport,
   type StandaloneTaskRole,
   type StandaloneTaskScope,
   type UpdateStandaloneTaskRequest,
@@ -29,6 +31,13 @@ import {
 } from '../domain/workspace.error.js';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { parseManualPercent } from '../domain/progress.rules.js';
+import {
+  parseReportDate,
+  parseReportDescription,
+  parseReportPercent,
+  progressToRestore,
+} from '../domain/progress-report.rules.js';
+import { loadProgressReportSettings } from './progress-report-settings.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -40,6 +49,8 @@ import type {
 } from './workspace-store.port.js';
 
 const HISTORY_LIMIT = 200;
+/** Độ dài tối đa của ghi chú đi kèm một lần đổi trạng thái. */
+const STATUS_NOTE_MAX = 1000;
 const MAX_MEMBERS = 50;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -224,6 +235,12 @@ export class StandaloneTaskService {
     ) {
       throw new WorkspaceValidationError('Công việc đã đóng, không cập nhật tiến độ được.');
     }
+    // Chờ duyệt là 100%: đổi số tại chỗ sẽ để việc chờ duyệt mà tiến độ lại thấp; báo cáo tiến độ mới thì tự đưa việc về Đang làm.
+    if (typeof manualProgressPercent === 'number' && task.status === 'review') {
+      throw new WorkspaceValidationError(
+        'Công việc đang Chờ duyệt (100%); hãy báo cáo tiến độ mới để đưa việc về Đang làm.',
+      );
+    }
     if (progressPercent !== undefined && task.childCount > 0) {
       throw new WorkspaceValidationError(
         'Tiến độ của việc có việc con được tính tự động từ các việc con.',
@@ -301,6 +318,8 @@ export class StandaloneTaskService {
     actor: WorkspaceActor,
     taskId: string,
     input: ChangeStandaloneTaskStatusRequest,
+    /** `keepProgress`: nơi gọi tự đặt tiến độ ngay sau đó (báo cáo tiến độ), nên khỏi khôi phục số của báo cáo cũ. */
+    options: { readonly keepProgress?: boolean } = {},
   ): Promise<StandaloneTaskDetail> {
     const { task, role } = await this.load(actor, taskId);
     const next = input?.status;
@@ -330,7 +349,11 @@ export class StandaloneTaskService {
     // Chuyển sang Vướng mắc bắt buộc có lý do; lý do đi cùng dòng nhật ký để tab Hoạt động hiện lại được.
     const blockedReason = next === 'blocked' ? parseBlockedReason(note) : undefined;
 
-    const updated = await this.store.standaloneTask.changeStatus(
+    // Vào Hoàn thành / Chờ duyệt thì store đặt 100% và bỏ số nhập tay: ghi lại số hiện có thành một báo cáo để mở lại
+    // sau này còn khôi phục được.
+    const entering = (next === 'done' || next === 'review') && task.status !== 'done' && task.status !== 'review';
+    if (!options.keepProgress && entering) await this.snapshotProgress(actor, task);
+    let updated = await this.store.standaloneTask.changeStatus(
       actor.tenantId,
       task.id,
       actor.userId,
@@ -340,7 +363,126 @@ export class StandaloneTaskService {
       todayKey(timezoneOf(actor.tenantId)),
     );
     if (!updated) throw new StandaloneTaskConflictError();
+    // Rời Hoàn thành / Chờ duyệt về Đang làm: store đưa tiến độ về 0%; có báo cáo trước đó thì trả về số của báo cáo gần
+    // nhất chưa tới 100% (việc có việc con thì tính lại từ con, không khôi phục).
+    if (
+      !options.keepProgress &&
+      next === 'in_progress' &&
+      (task.status === 'done' || task.status === 'review') &&
+      updated.childCount === 0
+    ) {
+      const percent = progressToRestore(await this.store.standaloneTask.listProgressReports(actor.tenantId, task.id));
+      if (percent !== undefined) {
+        updated = await this.store.standaloneTask.update(actor.tenantId, task.id, actor.userId, {
+          manualProgressPercent: percent,
+        });
+      }
+    }
     return this.toDetail(actor, updated, role);
+  }
+
+  /** Lịch sử báo cáo tiến độ của việc (mới nhất trước); ai xem được việc thì xem được. */
+  async progressReports(actor: WorkspaceActor, taskId: string): Promise<readonly StandaloneTaskProgressReport[]> {
+    await this.load(actor, taskId);
+    return this.store.standaloneTask.listProgressReports(actor.tenantId, taskId);
+  }
+
+  /**
+   * Báo cáo tiến độ Công việc khác, cùng chuẩn với công việc trong dự án (`WorkItemService.reportProgress`): ghi lịch sử
+   * và đưa tiến độ + trạng thái của việc về khớp với con số báo.
+   *
+   *  · 100%  → chuyển sang trạng thái tenant chọn (Hoàn thành hoặc Chờ duyệt) nếu vai của người báo được phép; người
+   *            thực hiện không tự bấm Hoàn thành việc do người khác giao, nên với họ việc dừng ở Chờ duyệt. Không bước
+   *            nào được phép (vd hồ sơ quy trình đang chạy) thì chỉ đặt 100%.
+   *  · 1–99% → việc đang Chưa làm tự sang Đang làm (nếu tenant bật); việc đang Chờ duyệt quay về Đang làm.
+   *  · 0%    → chỉ đặt số.
+   * Việc có việc con không báo trực tiếp (tiến độ tự tính từ con); việc đã đóng phải mở lại trước.
+   */
+  async reportProgress(
+    actor: WorkspaceActor,
+    taskId: string,
+    input: ReportWorkItemProgressRequest,
+  ): Promise<StandaloneTaskDetail> {
+    const { task, role } = await this.load(actor, taskId);
+    if (role === 'viewer' || role === 'follower') {
+      throw new StandaloneTaskForbiddenError('Bạn chỉ được xem công việc này.');
+    }
+    if (task.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không báo cáo tiến độ được.');
+    }
+    const percent = parseReportPercent(input?.percent);
+    const description = parseReportDescription(input?.description);
+    const today = todayKey(timezoneOf(actor.tenantId));
+    const reportedOn = parseReportDate(input?.reportedOn, today);
+    if (task.status === 'done' || task.status === 'cancelled') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${task.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi báo cáo tiến độ.`,
+      );
+    }
+    if (task.childCount > 0) {
+      throw new WorkspaceValidationError(
+        'Công việc có việc con nên tiến độ tự tính từ các việc con; hãy báo cáo ở từng việc con.',
+      );
+    }
+
+    const settings = await loadProgressReportSettings(this.store, actor.tenantId);
+    const completing = percent === 100;
+    if (completing && settings.requireDescription && !description) {
+      throw new WorkspaceValidationError('Hãy ghi mô tả khi báo hoàn thành công việc.');
+    }
+
+    // Các bước đổi trạng thái đi theo đúng bảng chuyển của vai người báo, nên mỗi bước đều có thể bị từ chối.
+    let current: StandaloneTask = task;
+    const can = (to: WorkItemStatus) => allowedStandaloneTaskTransitions(current, role).includes(to);
+    const move = async (to: WorkItemStatus, note?: string) => {
+      await this.changeStatus(actor, taskId, { status: to, note }, { keepProgress: true });
+      current = (await this.store.standaloneTask.findById(actor.tenantId, taskId)) ?? current;
+    };
+    let reachedClosing = false;
+    if (completing) {
+      if ((current.status === 'todo' || current.status === 'blocked') && can('in_progress')) await move('in_progress');
+      const target = [settings.completeStatus, 'review' as const].find((status) => status !== current.status && can(status));
+      if (target) {
+        // Ghi chú đổi trạng thái giới hạn 1000 ký tự, mô tả báo cáo tới 2000: cắt ghi chú, mô tả đầy đủ nằm ở báo cáo.
+        await move(target, description?.slice(0, STATUS_NOTE_MAX));
+        reachedClosing = true;
+      }
+    } else {
+      // Người giao trả việc đang Chờ duyệt phải có lý do: lấy mô tả báo cáo, không thì ghi mặc định.
+      if (current.status === 'review' && can('in_progress')) {
+        await move('in_progress', (description ?? 'Tiếp tục làm theo báo cáo tiến độ mới.').slice(0, STATUS_NOTE_MAX));
+      }
+      else if (current.status === 'todo' && percent > 0 && settings.startsWork && can('in_progress')) {
+        await move('in_progress');
+      }
+    }
+    // Hoàn thành / Chờ duyệt đã tự đặt 100% ở store; trường hợp còn lại ghi số nhập tay.
+    if (!reachedClosing) {
+      await this.store.standaloneTask.update(actor.tenantId, taskId, actor.userId, { manualProgressPercent: percent });
+    }
+    await this.store.standaloneTask.addProgressReport(actor.tenantId, {
+      taskId,
+      reportedBy: actor.userId,
+      reportedOn,
+      percent,
+      description,
+    });
+    const fresh = (await this.store.standaloneTask.findById(actor.tenantId, taskId)) ?? current;
+    return this.toDetail(actor, fresh, role);
+  }
+
+  /** Lưu số tiến độ hiện có thành một báo cáo trước khi Hoàn thành / Chờ duyệt ghi đè nó (nếu chưa nằm sẵn trong lịch sử). */
+  private async snapshotProgress(actor: WorkspaceActor, task: StandaloneTask): Promise<void> {
+    if (task.childCount > 0 || task.progressPercent <= 0 || task.progressPercent >= 100) return;
+    const [latest] = await this.store.standaloneTask.listProgressReports(actor.tenantId, task.id);
+    if (latest?.percent === task.progressPercent) return;
+    await this.store.standaloneTask.addProgressReport(actor.tenantId, {
+      taskId: task.id,
+      reportedBy: actor.userId,
+      reportedOn: todayKey(timezoneOf(actor.tenantId)),
+      percent: task.progressPercent,
+      description: 'Tiến độ trước khi chuyển trạng thái.',
+    });
   }
 
   /**

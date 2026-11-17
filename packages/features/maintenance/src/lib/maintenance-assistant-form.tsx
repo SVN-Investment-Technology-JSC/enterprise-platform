@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from 'react';
 import { incidentDraftToFormValues, type IncidentFormValues } from './assistant-incident-draft';
 import { IncidentForm } from './components/incident-form';
+import { selectableProcedures } from './procedure-options';
 import {
   createMaintenanceIncident,
   loadAssistantActionKeys,
@@ -99,7 +100,7 @@ function IncidentAssistantForm() {
     setDrafts([]);
     const options = {
       assetCodes: data.matrix.rows.map((row) => row.asset.code),
-      procedureDefinitionIds: data.matrix.procedureCatalog.map((entry) => entry.definitionId),
+      procedureDefinitionIds: selectableProcedures(data.matrix.procedureCatalog).map((entry) => entry.definitionId),
       memberIds: data.members.map((member) => member.userId),
     };
     const values = drafts.reduce<IncidentFormValues>(

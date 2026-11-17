@@ -49,6 +49,7 @@ const mapReason = (row: Row): FinanceReason => ({
   name: String(row.name),
   isActive: Boolean(row.is_active),
   note: optStr(row.note),
+  requireProject: Boolean(row.require_project),
 });
 const mapGroup = (row: Row): FinanceCounterpartyGroup => ({
   id: String(row.id),
@@ -94,8 +95,8 @@ export async function saveReason(db: Db, tenantId: string, id: string | null, in
     if (!id) {
       const row = (
         await db.query(
-          `INSERT INTO finance_schema.reasons (tenant_id, kind, code, name, is_active, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-          [tenantId, input.kind, code, name, input.isActive !== false, note],
+          `INSERT INTO finance_schema.reasons (tenant_id, kind, code, name, is_active, note, require_project) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+          [tenantId, input.kind, code, name, input.isActive !== false, note, input.requireProject === true],
         )
       ).rows[0] as Row;
       return mapReason(row);
@@ -110,9 +111,10 @@ export async function saveReason(db: Db, tenantId: string, id: string | null, in
     }
     const row = (
       await db.query(
-        `UPDATE finance_schema.reasons SET kind=$3, code=$4, name=$5, is_active=COALESCE($6, is_active), note=$7, updated_at=now()
+        `UPDATE finance_schema.reasons SET kind=$3, code=$4, name=$5, is_active=COALESCE($6, is_active), note=$7,
+                require_project=COALESCE($8, require_project), updated_at=now()
           WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-        [tenantId, id, input.kind, code, name, input.isActive ?? null, note],
+        [tenantId, id, input.kind, code, name, input.isActive ?? null, note, input.requireProject ?? null],
       )
     ).rows[0] as Row;
     return mapReason(row);
@@ -145,12 +147,13 @@ export async function saveCounterpartyGroup(
 }
 
 export async function loadSettings(db: Db, tenantId: string): Promise<FinanceSettings> {
-  const row = (await db.query(`SELECT books_locked_until, allow_self_approval FROM finance_schema.settings WHERE tenant_id=$1`, [tenantId])).rows[0] as
+  const row = (await db.query(`SELECT books_locked_until, allow_self_approval, require_allocation FROM finance_schema.settings WHERE tenant_id=$1`, [tenantId])).rows[0] as
     | Row
     | undefined;
   return {
     booksLockedUntil: row?.books_locked_until ? dateOnly(row.books_locked_until) : null,
     allowSelfApproval: row ? Boolean(row.allow_self_approval) : false,
+    requireAllocation: row ? Boolean(row.require_allocation) : false,
   };
 }
 
@@ -161,12 +164,13 @@ export async function saveSettings(db: Db, tenantId: string, actorId: string, in
   const lock = input.booksLockedUntil === undefined ? current.booksLockedUntil : input.booksLockedUntil;
   // Mở lại sổ (lùi hoặc bỏ ngày khoá) là thao tác nhạy cảm nhưng hợp lệ: kế toán trưởng có thể sửa sai kỳ.
   const self = input.allowSelfApproval ?? current.allowSelfApproval;
+  const requireAllocation = input.requireAllocation ?? current.requireAllocation;
   await db.query(
-    `INSERT INTO finance_schema.settings (tenant_id, books_locked_until, allow_self_approval, updated_by, updated_at)
-     VALUES ($1,$2,$3,$4,now())
+    `INSERT INTO finance_schema.settings (tenant_id, books_locked_until, allow_self_approval, require_allocation, updated_by, updated_at)
+     VALUES ($1,$2,$3,$4,$5,now())
      ON CONFLICT (tenant_id) DO UPDATE SET books_locked_until=EXCLUDED.books_locked_until, allow_self_approval=EXCLUDED.allow_self_approval,
-       updated_by=EXCLUDED.updated_by, updated_at=now()`,
-    [tenantId, lock, self, actorId],
+       require_allocation=EXCLUDED.require_allocation, updated_by=EXCLUDED.updated_by, updated_at=now()`,
+    [tenantId, lock, self, requireAllocation, actorId],
   );
-  return { booksLockedUntil: lock, allowSelfApproval: self };
+  return { booksLockedUntil: lock, allowSelfApproval: self, requireAllocation };
 }

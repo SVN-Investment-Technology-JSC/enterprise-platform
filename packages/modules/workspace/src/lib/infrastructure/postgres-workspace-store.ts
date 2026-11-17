@@ -48,6 +48,7 @@ import type {
   ParticipantResponse,
   PerformanceRow,
   Project,
+  ProjectProgressMethod,
   ProjectMember,
   ProjectProgressRow,
   ProjectRole,
@@ -79,6 +80,10 @@ import type {
   WorkItemStatus,
   WorkItemFieldChange,
   StandaloneTaskFieldChange,
+  StandaloneTaskProgressReport,
+  WorkItemChecklistItem,
+  WorkItemProgressMethod,
+  WorkItemProgressReport,
   WorkItemStatusHistoryEntry,
   WorkItemCompletionEvidence,
   WorkItemCompletionInput,
@@ -89,6 +94,8 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import {
   CLOSED_WORK_ITEM_STATUSES,
+  DEFAULT_PROJECT_PROGRESS_METHOD,
+  LEGACY_PROJECT_PROGRESS_METHOD,
   formatProjectCode,
   CHAT_TIMELINE_PROJECT_NODE,
   nextProjectCodeNumber,
@@ -101,6 +108,8 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 /** Pool hay client trong transaction: hai thứ cùng có `query`. */
 type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import { expectedProgress } from '../domain/progress.rules.js';
+import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { standaloneTaskChanges, workItemChanges } from '../domain/work-item-changes.js';
 import {
   PROCEDURE_LAUNCH_URL,
@@ -181,7 +190,19 @@ const PROJECT_REQUEST_COLUMNS = `r.id, r.project_id, r.code, r.source_module, r.
        r.status, r.procedure_instance_id, r.procedure_instance_code, r.launch_url,
        r.submitted_at, r.status_changed_at, r.linked_via_kind, via.code AS linked_via_code,
        r.status_note, r.reversal_requested_at, r.reversal_requested_by, r.reversal_requested_name,
-       r.reversal_reason, r.adjustment_requested, r.reversal_error`;
+       r.reversal_reason, r.adjustment_requested, r.reversal_error, r.details`;
+
+/** Chi tiết đơn lưu dạng JSONB; bỏ mọi phần tử sai hình dạng thay vì làm hỏng cả danh sách đơn. */
+function mapRequestDetails(value: unknown): ProjectRequest['details'] {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.flatMap((entry) => {
+    const item = (entry ?? {}) as { label?: unknown; value?: unknown };
+    return typeof item.label === 'string' && typeof item.value === 'string' && item.label && item.value
+      ? [{ label: item.label, value: item.value }]
+      : [];
+  });
+  return items.length > 0 ? items : undefined;
+}
 
 function mapProjectRequest(row: Row): ProjectRequest {
   return {
@@ -215,14 +236,15 @@ function mapProjectRequest(row: Row): ProjectRequest {
           error: opt(row.reversal_error),
         }
       : undefined,
+    details: mapRequestDetails(row.details),
   };
 }
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
        customer_ref, customer_id, project_type, start_date, end_date, progress_percent, metadata,
-       created_by, created_at, updated_at, archived_at, manual_progress_percent`;
+       created_by, created_at, updated_at, archived_at, progress_method`;
 
-/** Tiến độ hiển thị (nhập tay nếu có, không thì tự tính) kèm giá trị tự tính, cho dự án và công việc. */
+/** Tiến độ hiển thị (nhập tay nếu có, không thì tự tính) kèm giá trị tự tính, cho công việc. */
 function progressFields(row: Row) {
   const auto = num(row.progress_percent);
   const manual = row.manual_progress_percent == null ? undefined : num(row.manual_progress_percent);
@@ -248,11 +270,62 @@ function mapProject(row: Row): Project {
     archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
     startDate: day(row.start_date),
     endDate: day(row.end_date),
-    ...progressFields(row),
+    progressPercent: num(row.progress_percent),
+    progressMethod: (row.progress_method ?? LEGACY_PROJECT_PROGRESS_METHOD) as ProjectProgressMethod,
+    expectedProgressPercent: expectedProgress(
+      day(row.start_date),
+      day(row.end_date),
+      todayKey(timezoneOf('')),
+    ),
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+const STANDALONE_REPORT_COLUMNS = `id, task_id, to_char(reported_on, 'YYYY-MM-DD') AS reported_on, reported_by,
+       percent, description, created_at`;
+
+function mapStandaloneReport(row: Row): StandaloneTaskProgressReport {
+  return {
+    id: str(row.id),
+    taskId: str(row.task_id),
+    reportedOn: str(row.reported_on),
+    reportedBy: str(row.reported_by),
+    percent: num(row.percent),
+    description: opt(row.description),
+    createdAt: iso(row.created_at),
+  };
+}
+
+const CHECKLIST_COLUMNS = `id, work_item_id, title, done, done_at, done_by, sort_order`;
+
+function mapChecklistItem(row: Row): WorkItemChecklistItem {
+  return {
+    id: str(row.id),
+    workItemId: str(row.work_item_id),
+    title: str(row.title),
+    done: row.done === true,
+    doneAt: row.done_at ? iso(row.done_at) : undefined,
+    doneBy: opt(row.done_by),
+    sortOrder: num(row.sort_order),
+  };
+}
+
+const PROGRESS_REPORT_COLUMNS = `id, work_item_id, to_char(reported_on, 'YYYY-MM-DD') AS reported_on, reported_by,
+       percent, quantity_done, description, created_at`;
+
+function mapProgressReport(row: Row): WorkItemProgressReport {
+  return {
+    id: str(row.id),
+    workItemId: str(row.work_item_id),
+    reportedOn: str(row.reported_on),
+    reportedBy: str(row.reported_by),
+    percent: num(row.percent),
+    quantityDone: optNum(row.quantity_done),
+    description: opt(row.description),
+    createdAt: iso(row.created_at),
   };
 }
 
@@ -304,7 +377,8 @@ const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, 
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
        created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
        reversal_reason, adjustment_requested, adjustment_of_id, status_changed_at,
-       manual_progress_percent, reopen_policy, blocked_reason`;
+       manual_progress_percent, reopen_policy, blocked_reason, weight,
+       progress_method, quantity_target, quantity_unit, quantity_done, equal_child_weight`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -340,6 +414,17 @@ function mapWorkItem(row: Row): WorkItem {
     actualStart: day(row.actual_start),
     actualEnd: day(row.actual_end),
     estimateHours: optNum(row.estimate_hours),
+    weight: optNum(row.weight),
+    progressMethod: (row.progress_method ?? 'manual') as WorkItemProgressMethod,
+    quantityTarget: optNum(row.quantity_target),
+    quantityUnit: opt(row.quantity_unit),
+    quantityDone: num(row.quantity_done),
+    equalChildWeight: row.equal_child_weight !== false,
+    expectedProgressPercent: expectedProgress(
+      day(row.planned_start),
+      day(row.planned_end),
+      todayKey(timezoneOf('')),
+    ),
     ...progressFields(row),
     sortOrder: num(row.sort_order),
     depth: num(row.depth),
@@ -835,8 +920,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             client.query<Row>(
               `INSERT INTO workspace_schema.projects
                  (code, name, description, org_unit_id, customer_ref, customer_id,
-                  start_date, end_date, owner_user_id, created_by, project_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
+                  start_date, end_date, owner_user_id, created_by, project_type, progress_method)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
                RETURNING ${PROJECT_COLUMNS}`,
               [
                 code,
@@ -849,6 +934,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 input.endDate ?? null,
                 actorUserId,
                 input.projectType ?? null,
+                input.progressMethod ?? DEFAULT_PROJECT_PROGRESS_METHOD,
               ],
             ),
           () => new ProjectCodeConflictError(code),
@@ -905,7 +991,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           projectType: 'project_type',
           startDate: 'start_date',
           endDate: 'end_date',
-          manualProgressPercent: 'manual_progress_percent',
+          progressMethod: 'progress_method',
         },
         1,
       );
@@ -1344,6 +1430,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `SELECT id, parent_id, status, progress_percent, manual_progress_percent, estimate_hours,
+                weight, planned_start, planned_end, progress_method, equal_child_weight,
                 (completion_rule <> 'none' AND EXISTS (
                    SELECT 1 FROM workspace_schema.work_item_completion_conditions c
                     WHERE c.work_item_id = work_items.id)) AS requires_confirmation
@@ -1358,7 +1445,123 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         progressPercent: num(row.progress_percent),
         manualPercent: row.manual_progress_percent == null ? null : num(row.manual_progress_percent),
         estimateHours: row.estimate_hours == null ? null : Number(row.estimate_hours),
+        weight: row.weight == null ? null : Number(row.weight),
+        plannedStart: day(row.planned_start) ?? null,
+        plannedEnd: day(row.planned_end) ?? null,
+        method: (row.progress_method ?? 'manual') as WorkItemProgressMethod,
+        equalChildWeight: row.equal_child_weight !== false,
       }));
+    },
+
+    addProgressReport: async (
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly projectId: string;
+        readonly reportedBy: string;
+        readonly reportedOn: string;
+        readonly percent: number;
+        readonly quantityDone?: number;
+        readonly description?: string;
+      },
+    ): Promise<WorkItemProgressReport> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.work_item_progress_reports
+           (work_item_id, project_id, reported_on, reported_by, percent, description, quantity_done)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING ${PROGRESS_REPORT_COLUMNS}`,
+        [
+          input.workItemId,
+          input.projectId,
+          input.reportedOn,
+          input.reportedBy,
+          input.percent,
+          input.description ?? null,
+          input.quantityDone ?? null,
+        ],
+      );
+      return mapProgressReport(result.rows[0] as Row);
+    },
+
+    listChecklist: async (tenantId: string, workItemId: string): Promise<WorkItemChecklistItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${CHECKLIST_COLUMNS} FROM workspace_schema.work_item_checklist_items
+          WHERE work_item_id = $1 ORDER BY sort_order, created_at, id`,
+        [workItemId],
+      );
+      return result.rows.map(mapChecklistItem);
+    },
+
+    addChecklistItems: async (
+      tenantId: string,
+      workItemId: string,
+      titles: readonly string[],
+    ): Promise<WorkItemChecklistItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const next = await client.query<Row>(
+          `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next
+             FROM workspace_schema.work_item_checklist_items WHERE work_item_id = $1`,
+          [workItemId],
+        );
+        const start = num(next.rows[0]?.next);
+        const created: WorkItemChecklistItem[] = [];
+        for (const [index, title] of titles.entries()) {
+          const result = await client.query<Row>(
+            `INSERT INTO workspace_schema.work_item_checklist_items (work_item_id, title, sort_order)
+             VALUES ($1, $2, $3) RETURNING ${CHECKLIST_COLUMNS}`,
+            [workItemId, title, start + index],
+          );
+          created.push(mapChecklistItem(result.rows[0] as Row));
+        }
+        return created;
+      });
+    },
+
+    updateChecklistItem: async (
+      tenantId: string,
+      workItemId: string,
+      itemId: string,
+      patch: { readonly title?: string; readonly done?: boolean },
+      actorUserId: string,
+    ): Promise<WorkItemChecklistItem | undefined> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.work_item_checklist_items
+            SET title   = COALESCE($3, title),
+                done    = COALESCE($4, done),
+                done_at = CASE WHEN $4::boolean IS NULL THEN done_at
+                               WHEN $4::boolean THEN COALESCE(done_at, now()) ELSE NULL END,
+                done_by = CASE WHEN $4::boolean IS NULL THEN done_by
+                               WHEN $4::boolean THEN COALESCE(done_by, $5::uuid) ELSE NULL END
+          WHERE id = $2 AND work_item_id = $1
+          RETURNING ${CHECKLIST_COLUMNS}`,
+        [workItemId, itemId, patch.title ?? null, patch.done ?? null, actorUserId],
+      );
+      return result.rows[0] ? mapChecklistItem(result.rows[0]) : undefined;
+    },
+
+    removeChecklistItem: async (tenantId: string, workItemId: string, itemId: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(
+        `DELETE FROM workspace_schema.work_item_checklist_items WHERE id = $2 AND work_item_id = $1`,
+        [workItemId, itemId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+
+    listProgressReports: async (tenantId: string, workItemId: string): Promise<WorkItemProgressReport[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROGRESS_REPORT_COLUMNS}
+           FROM workspace_schema.work_item_progress_reports
+          WHERE work_item_id = $1
+          ORDER BY created_at DESC, id DESC`,
+        [workItemId],
+      );
+      return result.rows.map(mapProgressReport);
     },
 
     openChildCount: async (tenantId: string, workItemId: string) => {
@@ -1427,8 +1630,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           `INSERT INTO workspace_schema.work_items
              (project_id, parent_id, code, title, description, item_type, execution_type,
               priority, assignee_user_id, planned_start, planned_end, estimate_hours,
-              sort_order, depth, created_by, adjustment_of_id, reopen_policy)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+              sort_order, depth, created_by, adjustment_of_id, reopen_policy, weight,
+              progress_method, quantity_target, quantity_unit, equal_child_weight)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
            RETURNING ${WORK_ITEM_COLUMNS}`,
           [
             input.projectId,
@@ -1448,6 +1652,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             actorUserId,
             input.adjustmentOfId ?? null,
             input.reopenPolicy ?? 'assignee',
+            input.weight ?? null,
+            input.progressMethod ?? 'manual',
+            input.quantityTarget ?? null,
+            input.quantityUnit ?? null,
+            input.equalChildWeight ?? true,
           ],
         );
         const item = mapWorkItem(created.rows[0] as Row);
@@ -1459,6 +1668,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         );
         await replaceTags(client, item.id, input.tagIds ?? [], actorUserId);
         if (input.completion) await writeCompletion(client, item.id, input.completion, actorUserId);
+        for (const [index, title] of (input.checklistTitles ?? []).entries()) {
+          await client.query(
+            `INSERT INTO workspace_schema.work_item_checklist_items (work_item_id, title, sort_order)
+             VALUES ($1, $2, $3)`,
+            [item.id, title, index],
+          );
+        }
         // Dòng nhật ký đầu tiên có from_status rỗng, đánh dấu lúc khởi tạo.
         await client.query(
           `INSERT INTO workspace_schema.work_item_status_history
@@ -1512,13 +1728,18 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     update: async (
       tenantId: string,
       workItemId: string,
-      input: UpdateWorkItemRequest,
+      input: UpdateWorkItemRequest & { readonly quantityDone?: number },
       actorUserId?: string,
     ) => {
       const pool = await this.poolFor(tenantId);
       const { clause, values } = buildSet(
         input as Record<string, unknown>,
         {
+          progressMethod: 'progress_method',
+          quantityTarget: 'quantity_target',
+          quantityUnit: 'quantity_unit',
+          quantityDone: 'quantity_done',
+          equalChildWeight: 'equal_child_weight',
           title: 'title',
           description: 'description',
           priority: 'priority',
@@ -1526,6 +1747,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           plannedStart: 'planned_start',
           plannedEnd: 'planned_end',
           estimateHours: 'estimate_hours',
+          weight: 'weight',
           progressPercent: 'progress_percent',
           manualProgressPercent: 'manual_progress_percent',
           reopenPolicy: 'reopen_policy',
@@ -1620,12 +1842,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   actual_end   = CASE WHEN $2::varchar IN ('done','cancelled') THEN $3::date ELSE NULL END,
                   -- Hoàn thành là 100%; về Chưa làm là 0%; hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ
                   -- 100% của lần hoàn thành. Việc có con được tính lại từ con ở bước cuộn tiến độ sau đó.
-                  progress_percent = CASE WHEN $2::varchar = 'done' THEN 100
+                  -- Chờ duyệt cũng là 100% (người làm đã xong, chờ xác nhận) và rời Chờ duyệt về Đang làm thì về 0% như hoàn
+                  -- tác; tầng ứng dụng khôi phục lại số của báo cáo gần nhất nếu có (xem restoreProgress).
+                  progress_percent = CASE WHEN $2::varchar IN ('done', 'review') THEN 100
                                           WHEN $2::varchar = 'todo' THEN 0
-                                          WHEN $4::varchar = 'done' THEN 0
+                                          WHEN $4::varchar IN ('done', 'review') AND $2::varchar <> 'cancelled' THEN 0
                                           ELSE progress_percent END,
-                  -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
-                  manual_progress_percent = CASE WHEN $2::varchar = 'done' THEN NULL
+                  -- Hoàn thành, Chờ duyệt, về Chưa làm hoặc mở lại: bỏ tiến độ nhập tay để không còn hiện con số cũ.
+                  manual_progress_percent = CASE WHEN $2::varchar IN ('done', 'review', 'todo') THEN NULL
+                                                 WHEN $4::varchar IN ('done', 'review') AND $2::varchar <> 'cancelled' THEN NULL
                                                  ELSE manual_progress_percent END,
                   -- Lý do vướng mắc chỉ sống cùng trạng thái Vướng mắc: vào thì ghi, rời đi thì xoá.
                   blocked_reason = CASE WHEN $2::varchar = 'blocked' THEN $5::text ELSE NULL END,
@@ -3668,7 +3893,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // `idx_work_items_project_status` cho cả ba con số.
       const result = await pool.query<Row>(
         `SELECT p.id, p.code, p.name, p.status,
-                COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
+                p.progress_percent AS progress_percent,
                 p.start_date, p.end_date,
                 COUNT(w.id)::text AS total_items,
                 COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled'))::text AS closed_items,
@@ -3994,7 +4219,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // dự án nhiều việc kéo lệch.
       const perProject = `
         SELECT p.id, COALESCE(trim(p.project_type), '') AS grp,
-               COALESCE(p.manual_progress_percent, p.progress_percent) AS progress_percent,
+               p.progress_percent AS progress_percent,
                COUNT(w.id) AS total,
                COUNT(w.id) FILTER (WHERE w.status IN ('done','cancelled')) AS closed,
                COUNT(w.id) FILTER (WHERE w.status NOT IN ('done','cancelled')) AS open,
@@ -5020,6 +5245,39 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         }
         return task;
       });
+    },
+
+    addProgressReport: async (
+      tenantId: string,
+      input: {
+        readonly taskId: string;
+        readonly reportedBy: string;
+        readonly reportedOn: string;
+        readonly percent: number;
+        readonly description?: string;
+      },
+    ): Promise<StandaloneTaskProgressReport> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.standalone_task_progress_reports
+           (task_id, reported_on, reported_by, percent, description)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING ${STANDALONE_REPORT_COLUMNS}`,
+        [input.taskId, input.reportedOn, input.reportedBy, input.percent, input.description ?? null],
+      );
+      return mapStandaloneReport(result.rows[0] as Row);
+    },
+
+    listProgressReports: async (tenantId: string, taskId: string): Promise<StandaloneTaskProgressReport[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_REPORT_COLUMNS}
+           FROM workspace_schema.standalone_task_progress_reports
+          WHERE task_id = $1
+          ORDER BY created_at DESC, id DESC`,
+        [taskId],
+      );
+      return result.rows.map(mapStandaloneReport);
     },
 
     changeStatus: async (
@@ -6124,12 +6382,15 @@ async function setStandaloneStatus(
                                 THEN $4::date ELSE actual_start END,
             actual_end   = CASE WHEN $3::varchar IN ('done','cancelled') THEN $4::date ELSE NULL END,
             -- Hoàn tác việc đã xong (done -> việc đang mở) thì về 0% chứ không giữ 100% của lần hoàn thành.
-            progress_percent = CASE WHEN $3::varchar = 'done' THEN 100
+            -- Chờ duyệt cũng là 100% (người làm đã xong, chờ xác nhận); rời Chờ duyệt về việc đang mở thì về 0% như hoàn tác,
+            -- tầng ứng dụng khôi phục số của báo cáo gần nhất nếu có.
+            progress_percent = CASE WHEN $3::varchar IN ('done', 'review') THEN 100
                                     WHEN $3::varchar = 'todo' THEN 0
-                                    WHEN $2::varchar = 'done' THEN 0
+                                    WHEN $2::varchar IN ('done', 'review') AND $3::varchar <> 'cancelled' THEN 0
                                     ELSE progress_percent END,
-            -- Hoàn thành là 100%: bỏ tiến độ nhập tay để không còn hiện con số cũ.
-            manual_progress_percent = CASE WHEN $3::varchar = 'done' THEN NULL
+            -- Hoàn thành, Chờ duyệt, về Chưa làm hoặc mở lại: bỏ tiến độ nhập tay để không còn hiện con số cũ.
+            manual_progress_percent = CASE WHEN $3::varchar IN ('done', 'review', 'todo') THEN NULL
+                                           WHEN $2::varchar IN ('done', 'review') AND $3::varchar <> 'cancelled' THEN NULL
                                            ELSE manual_progress_percent END,
             -- Lý do vướng mắc chỉ sống cùng trạng thái Vướng mắc: vào thì ghi, rời đi thì xoá.
             blocked_reason = CASE WHEN $3::varchar = 'blocked' THEN $5::text ELSE NULL END,
@@ -6146,6 +6407,8 @@ async function setStandaloneStatus(
      VALUES ($1, $2, $3, $4, $5)`,
     [taskId, from, next, note ?? null, actorUserId],
   );
+  // Việc có việc con rời Chờ duyệt: SQL trên đã đưa số về 0%, nên tính lại ngay từ con (việc lá không có con thì không đổi).
+  await rollUpStandaloneProgress(client, taskId);
   await rollUpStandaloneProgress(client, updated.rows[0]?.parent_id ?? undefined);
   return readStandaloneTask(client, taskId);
 }

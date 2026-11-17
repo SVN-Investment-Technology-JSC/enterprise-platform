@@ -4,12 +4,14 @@ import {
   CATEGORY_LABELS,
   generateReactComponent,
   generateSvg,
+  isGradientPaint,
   type BrandPalette,
   type ColorMode,
   type ExportFormat,
   type IconDocument,
 } from '@enterprise-platform/shared-brand-icon';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Hint } from '../components/hint';
 import {
   Braces,
   Check,
@@ -114,6 +116,12 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
     setCopied(false);
   }, [open]);
 
+  // Màu chuyển sắc chỉ giữ được ở chế độ "Màu thương hiệu"; ở "Theo ngữ cảnh" nó thành một màu theo chữ.
+  const hasGradient = docs.some((doc) => doc.shapes.some((shape) => !shape.hidden && (isGradientPaint(shape.fill) || isGradientPaint(shape.stroke))));
+  useEffect(() => {
+    if (open && hasGradient) setColorMode('brand');
+  }, [open, hasGradient]);
+
   const faviconId = resolveFaviconDocId(docs, faviconPick);
 
   useEffect(() => {
@@ -198,56 +206,64 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
               const Icon = FORMAT_ICONS[meta.id];
               const on = formats.includes(meta.id);
               return (
-                <button
-                  aria-checked={on}
-                  className={`inline-flex h-9 items-center gap-1.5 rounded border px-3 text-sm font-medium transition-colors ${
-                    on
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-[#d1d5db] bg-white text-[#4b5563] hover:bg-slate-50'
-                  }`}
-                  disabled={busy}
-                  key={meta.id}
-                  onClick={() => setFormats((current) => toggleFormat(current, meta.id))}
-                  role="checkbox"
-                  title={meta.hint}
-                  type="button"
-                >
-                  <Icon aria-hidden size={16} />
-                  {meta.label}
-                  {on ? <Check aria-hidden className="-mr-0.5" size={14} /> : null}
-                </button>
+                <Hint label={meta.hint} key={meta.id}>
+                  <button
+                    aria-checked={on}
+                    className={`inline-flex h-9 items-center gap-1.5 rounded border px-3 text-sm font-medium transition-colors ${
+                      on
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-[#d1d5db] bg-white text-[#4b5563] hover:bg-slate-50'
+                    }`}
+                    disabled={busy}
+                    onClick={() => setFormats((current) => toggleFormat(current, meta.id))}
+                    role="checkbox"
+                    type="button"
+                  >
+                    <Icon aria-hidden size={16} />
+                    {meta.label}
+                    {on ? <Check aria-hidden className="-mr-0.5" size={14} /> : null}
+                  </button>
+                </Hint>
               );
             })}
           </div>
 
           <RowLabel>Màu</RowLabel>
-          <div
-            aria-label="Chế độ màu"
-            className={`inline-flex w-fit rounded border border-[#d1d5db] bg-white p-0.5 ${colorApplies ? '' : 'opacity-50'}`}
-            role="radiogroup"
-            title={colorApplies ? undefined : 'Chỉ áp dụng cho SVG, React TSX và Sprite'}
-          >
-            {COLOR_MODES.map((mode) => {
-              const Icon = mode.icon;
-              const on = colorMode === mode.id;
-              return (
-                <button
-                  aria-checked={on}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-sm px-3 text-[13px] font-medium transition-colors ${
-                    on ? 'bg-blue-600 !text-white' : 'text-[#4b5563] hover:bg-slate-100'
-                  }`}
-                  disabled={busy || !colorApplies}
-                  key={mode.id}
-                  onClick={() => setColorMode(mode.id)}
-                  role="radio"
-                  title={mode.hint}
-                  type="button"
-                >
-                  <Icon aria-hidden size={15} />
-                  {mode.label}
-                </button>
-              );
-            })}
+          <div className="space-y-1.5">
+          <Hint label={colorApplies ? undefined : 'Chỉ áp dụng cho SVG, React TSX và Sprite'}>
+            <div
+              aria-label="Chế độ màu"
+              className={`inline-flex w-fit rounded border border-[#d1d5db] bg-white p-0.5 ${colorApplies ? '' : 'opacity-50'}`}
+              role="radiogroup"
+            >
+              {COLOR_MODES.map((mode) => {
+                const Icon = mode.icon;
+                const on = colorMode === mode.id;
+                return (
+                  <Hint label={colorApplies ? mode.hint : undefined} key={mode.id}>
+                    <button
+                      aria-checked={on}
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-sm px-3 text-[13px] font-medium transition-colors ${
+                        on ? 'bg-blue-600 !text-white' : 'text-[#4b5563] hover:bg-slate-100'
+                      }`}
+                      disabled={busy || !colorApplies}
+                      onClick={() => setColorMode(mode.id)}
+                      role="radio"
+                      type="button"
+                    >
+                      <Icon aria-hidden size={15} />
+                      {mode.label}
+                    </button>
+                  </Hint>
+                );
+              })}
+            </div>
+          </Hint>
+          {hasGradient && colorApplies && colorMode === 'currentColor' ? (
+            <p className="text-[12px] text-amber-700" role="note">
+              Có icon dùng màu chuyển sắc. Ở chế độ Theo ngữ cảnh, phần chuyển sắc thành một màu theo chữ; chọn Màu thương hiệu để giữ nguyên.
+            </p>
+          ) : null}
           </div>
 
           {docs.length > 1 && formats.includes('favicon') ? (
@@ -291,15 +307,16 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
                     </button>
                   ))}
                 </div>
-                <button
-                  className="inline-flex h-7 items-center gap-1.5 rounded border border-[#d1d5db] px-2.5 text-xs font-medium text-[#4b5563] transition-colors hover:bg-slate-100"
-                  onClick={handleCopy}
-                  title={`Sao chép mã ${codeTab === 'svg' ? 'SVG' : 'TSX'}`}
-                  type="button"
-                >
-                  {copied ? <Check aria-hidden className="text-emerald-600" size={14} /> : <Copy aria-hidden size={14} />}
-                  {copied ? 'Đã chép' : 'Sao chép'}
-                </button>
+                <Hint label={`Sao chép mã ${codeTab === 'svg' ? 'SVG' : 'TSX'}`}>
+                  <button
+                    className="inline-flex h-7 items-center gap-1.5 rounded border border-[#d1d5db] px-2.5 text-xs font-medium text-[#4b5563] transition-colors hover:bg-slate-100"
+                    onClick={handleCopy}
+                    type="button"
+                  >
+                    {copied ? <Check aria-hidden className="text-emerald-600" size={14} /> : <Copy aria-hidden size={14} />}
+                    {copied ? 'Đã chép' : 'Sao chép'}
+                  </button>
+                </Hint>
               </div>
               <pre className="max-h-36 overflow-auto rounded border border-slate-200 bg-white p-2 text-[11px] leading-4 text-slate-700">
                 {code[codeTab]}
@@ -315,10 +332,12 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
               {plan && plan.files.length > 0 ? <span className="ml-1.5 font-normal tabular-nums text-slate-500">~{formatBytes(plan.downloadBytes)}</span> : null}
             </span>
             {plan && plan.files.length > 0 ? (
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-slate-500" title="Tên tệp sẽ tải về">
-                {plan.asZip ? <FileArchive aria-hidden className="shrink-0" size={14} /> : <Download aria-hidden className="shrink-0" size={14} />}
-                <span className="truncate font-mono">{plan.downloadName}</span>
-              </span>
+              <Hint label="Tên tệp sẽ tải về">
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
+                  {plan.asZip ? <FileArchive aria-hidden className="shrink-0" size={14} /> : <Download aria-hidden className="shrink-0" size={14} />}
+                  <span className="truncate font-mono">{plan.downloadName}</span>
+                </span>
+              </Hint>
             ) : null}
           </div>
           {plan && plan.files.length > 0 ? (

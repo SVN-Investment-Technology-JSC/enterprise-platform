@@ -247,9 +247,18 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
     header: OrderHeaderRecord,
     lines: readonly OrderLineRecord[] | undefined,
     actorId: string,
+    lineWarehouses?: readonly { readonly lineId: string; readonly warehouseCode: string | null }[],
   ): Promise<void> {
     return this.database.transaction(tenantId, async (client) => {
       await lockOrder(client, id, revision, ['DRAFT']);
+      if (!lines && lineWarehouses?.length) {
+        for (const entry of lineWarehouses) {
+          await client.query(
+            `UPDATE crm_schema.sales_order_lines SET warehouse_code = $3, updated_at = now() WHERE order_id = $1 AND id = $2`,
+            [id, entry.lineId, entry.warehouseCode],
+          );
+        }
+      }
       await client.query(
         `UPDATE crm_schema.sales_orders
             SET expected_delivery_date = $2, warehouse_code = $3, delivery_address = $4, note = $5, price_date = $6,
@@ -662,9 +671,9 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
          (id, order_id, line_no, material_id, material_code, material_name, unit, material_kind, category, quantity,
           list_price, price_source, price_reference_id, price_reference_code, applied_policies, discount_percent,
           overridden, override_unit_price, override_discount_percent, unit_price, gross_amount, discount_amount, vat_rate,
-          line_amount, vat_amount, line_total, est_unit_cost)
+          line_amount, vat_amount, line_total, est_unit_cost, warehouse_code)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, $20, $21, $22,
-               $23, $24, $25, $26, $27)`,
+               $23, $24, $25, $26, $27, $28)`,
       [
         line.id,
         orderId,
@@ -693,6 +702,7 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
         line.vatAmount,
         line.lineTotal,
         line.estUnitCost,
+        line.warehouseCode ?? null,
       ],
     );
   }
@@ -880,6 +890,7 @@ interface LineRow {
   vat_amount: string;
   line_total: string;
   est_unit_cost: string | null;
+  warehouse_code: string | null;
   reserved_quantity: string;
   delivered_quantity: string;
   actual_cost: string;
@@ -971,6 +982,7 @@ function toLine(row: LineRow, plannedQuantity: number): SalesOrderLine {
     vatAmount: num(row.vat_amount),
     lineTotal: num(row.line_total),
     estUnitCost: toNumber(row.est_unit_cost),
+    warehouseCode: row.warehouse_code ?? null,
     reservedQuantity: num(row.reserved_quantity),
     plannedQuantity,
     deliveredQuantity: num(row.delivered_quantity),

@@ -56,6 +56,41 @@ describe('ExportDialog', () => {
     await waitFor(() => expect(downloadButton().disabled).toBe(false));
   });
 
+  describe('icon có màu chuyển sắc', () => {
+    const gradientDoc = createDocument({
+      id: 'g',
+      name: 'Báo cáo',
+      shapes: [
+        createShape(
+          { type: 'rect', x: 0, y: 0, width: 24, height: 24, rx: 5 },
+          { fill: 'linear:45:#4cc3ff@0,#0263c9@1', stroke: 'none' },
+        ),
+      ],
+    });
+    const mode = (name: string) => screen.getByRole('radio', { name });
+
+    it('tự chọn Màu thương hiệu để giữ chuyển sắc; icon thường vẫn mặc định Theo ngữ cảnh', async () => {
+      setup([gradientDoc]);
+      await screen.findByText('1 tệp');
+      expect(mode('Màu thương hiệu').getAttribute('aria-checked')).toBe('true');
+      expect(screen.queryByRole('note')).toBeNull();
+    });
+
+    it('chuyển sang Theo ngữ cảnh thì cảnh báo sẽ mất chuyển sắc', async () => {
+      setup([gradientDoc]);
+      await screen.findByText('1 tệp');
+      fireEvent.click(mode('Theo ngữ cảnh'));
+      expect(screen.getByRole('note').textContent).toContain('chuyển sắc');
+    });
+
+    it('icon không có chuyển sắc: mặc định Theo ngữ cảnh và không có cảnh báo', async () => {
+      setup(one);
+      await screen.findByText('1 tệp');
+      expect(mode('Theo ngữ cảnh').getAttribute('aria-checked')).toBe('true');
+      expect(screen.queryByRole('note')).toBeNull();
+    });
+  });
+
   it('bật thêm định dạng thì danh sách và số tệp đổi theo', async () => {
     setup(one);
     await screen.findByText('1 tệp');

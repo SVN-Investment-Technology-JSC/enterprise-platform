@@ -3,6 +3,7 @@
 import {
   ACTIVITY_STATUS_LABELS,
   ACTIVITY_TYPE_LABELS,
+  CRM_LIST_PAGE_SIZE,
   type Activity,
   type ActivityStatus,
   type ActivityType,
@@ -59,8 +60,8 @@ export function ActivityPanel({
   const [handledFocus, setHandledFocus] = useState<string>();
 
   const key = JSON.stringify({ ...scope, status });
-  const list = usePagedList(key, 20, (page) =>
-    listActivities({ ...scope, status: (status || undefined) as ActivityStatus | undefined, page, limit: 20 }),
+  const list = usePagedList(key, CRM_LIST_PAGE_SIZE, (page) =>
+    listActivities({ ...scope, status: (status || undefined) as ActivityStatus | undefined, page, limit: CRM_LIST_PAGE_SIZE }),
   );
 
   // Mở hoạt động được trỏ tới từ thông báo (một lần cho mỗi id).

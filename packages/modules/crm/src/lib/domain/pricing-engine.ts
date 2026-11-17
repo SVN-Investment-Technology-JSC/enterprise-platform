@@ -44,7 +44,6 @@ export interface PricingPriceList {
   readonly validFrom: string;
   readonly validTo: string | null;
   readonly status: PricingStatus;
-  readonly customerGroupIds: readonly string[];
   readonly items: readonly PricingPriceListItem[];
 }
 
@@ -94,7 +93,10 @@ export interface PricingInput {
   /** Ngày tính giá `YYYY-MM-DD` theo giờ Việt Nam. */
   readonly date: string;
   readonly customerId: string | null;
+  /** Nhóm khách: chỉ dùng cho tiêu chí của chính sách chiết khấu, không chọn bảng giá (D3-38). */
   readonly customerGroupId: string | null;
+  /** Bảng giá khách đã chọn ở hồ sơ (D3-38); rỗng, hết hiệu lực hoặc tắt thì dùng bảng giá chuẩn. */
+  readonly customerPriceListId?: string | null;
   readonly lines: readonly PricingLineInput[];
   readonly priceLists: readonly PricingPriceList[];
   readonly policies: readonly PricingPolicy[];
@@ -220,10 +222,10 @@ function resolvePrice(input: PricingInput, line: PricingLineInput): ResolvedPric
       referenceCode: contract.contractCode,
     };
   }
-  const groupId = input.customerGroupId;
-  const group = groupId
+  const chosenId = input.customerPriceListId;
+  const group = chosenId
     ? findItem(
-        effectiveLists(input, (list) => !list.isStandard && list.customerGroupIds.includes(groupId)),
+        effectiveLists(input, (list) => !list.isStandard && list.id === chosenId),
         line,
       )
     : undefined;

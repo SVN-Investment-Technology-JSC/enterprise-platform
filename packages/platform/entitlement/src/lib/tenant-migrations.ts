@@ -105,6 +105,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0014-hrm-request-approve-merge',
     path: 'tenant/core/0014-hrm-request-approve-merge.sql',
   },
+  {
+    version: '0017-fcm-device-tokens',
+    path: 'tenant/core/0017-fcm-device-tokens.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -112,6 +116,17 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
 > = {
   // Trợ lý (savina-agent) không có bảng trong DB tenant; migration rỗng để bật phân hệ được.
   assistant: [{ version: '0001-assistant', path: 'tenant/assistant/0001-assistant.sql' }],
+  // Văn thư: công văn đến, phòng ban xử lý, phát hành, lưu trữ (tệp nằm ở Hệ dùng chung).
+  correspondence: [
+    { version: '0001-correspondence', path: 'tenant/correspondence/0001-correspondence.sql' },
+    { version: '0002-incoming-outgoing-flows', path: 'tenant/correspondence/0002-incoming-outgoing-flows.sql' },
+    { version: '0003-revoke-and-delete', path: 'tenant/correspondence/0003-revoke-and-delete.sql' },
+    { version: '0004-dynamic-workflow-steps', path: 'tenant/correspondence/0004-dynamic-workflow-steps.sql' },
+    { version: '0005-directive-intake-tracking', path: 'tenant/correspondence/0005-directive-intake-tracking.sql' },
+    { version: '0006-step-modes-info-role', path: 'tenant/correspondence/0006-step-modes-info-role.sql' },
+    { version: '0007-registers-numbering-signer', path: 'tenant/correspondence/0007-registers-numbering-signer.sql' },
+    { version: '0008-conditions-fixed-units-personal', path: 'tenant/correspondence/0008-conditions-fixed-units-personal.sql' },
+  ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [
     { version: '0001-crm-foundation', path: 'tenant/crm/0001-crm-foundation.sql' },
@@ -147,6 +162,11 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0031-promotions', path: 'tenant/crm/0031-promotions.sql' },
     { version: '0032-document-references', path: 'tenant/crm/0032-document-references.sql' },
     { version: '0033-customer-kinds', path: 'tenant/crm/0033-customer-kinds.sql' },
+    { version: '0034-quote-template-layouts', path: 'tenant/crm/0034-quote-template-layouts.sql' },
+    { version: '0035-sales-organizations', path: 'tenant/crm/0035-sales-organizations.sql' },
+    { version: '0036-business-plan-procedure', path: 'tenant/crm/0036-business-plan-procedure.sql' },
+    { version: '0037-line-warehouses', path: 'tenant/crm/0037-line-warehouses.sql' },
+    { version: '0038-customer-price-list', path: 'tenant/crm/0038-customer-price-list.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -159,6 +179,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0008-voucher-attachment-purpose', path: 'tenant/finance/0008-voucher-attachment-purpose.sql' },
     { version: '0009-finance-negative-balance-user-columns', path: 'tenant/finance/0009-finance-negative-balance-user-columns.sql' },
     { version: '0010-external-source', path: 'tenant/finance/0010-external-source.sql' },
+    { version: '0011-require-allocation', path: 'tenant/finance/0011-require-allocation.sql' },
+    { version: '0012-reason-require-project', path: 'tenant/finance/0012-reason-require-project.sql' },
   ],
   hrm: [
     { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
@@ -498,6 +520,38 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0076-hrm-request-time-rules',
       path: 'tenant/hrm/0076-hrm-request-time-rules.sql',
     },
+    {
+      version: '0077-hrm-comp-off-foundation',
+      path: 'tenant/hrm/0077-hrm-comp-off-foundation.sql',
+    },
+    {
+      version: '0078-hrm-comp-off-integration',
+      path: 'tenant/hrm/0078-hrm-comp-off-integration.sql',
+    },
+    {
+      version: '0079-hrm-comp-off-default-leave-type',
+      path: 'tenant/hrm/0079-hrm-comp-off-default-leave-type.sql',
+    },
+    {
+      version: '0080-hrm-trip-day-lines',
+      path: 'tenant/hrm/0080-hrm-trip-day-lines.sql',
+    },
+    {
+      version: '0081-hrm-comp-off-ledger-history',
+      path: 'tenant/hrm/0081-hrm-comp-off-ledger-history.sql',
+    },
+    {
+      version: '0082-hrm-leave-request-groups',
+      path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
+    },
+    {
+      version: '0083-hrm-request-replacements',
+      path: 'tenant/hrm/0083-hrm-request-replacements.sql',
+    },
+    {
+      version: '0084-hrm-ot-request-groups',
+      path: 'tenant/hrm/0084-hrm-ot-request-groups.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
@@ -625,6 +679,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0014-everyone-subject',
       path: 'tenant/procedure/0014-everyone-subject.sql',
     },
+    {
+      version: '0015-instance-source-summary',
+      path: 'tenant/procedure/0015-instance-source-summary.sql',
+    },
   ],
   maintenance: [
     {
@@ -654,6 +712,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0007-maintenance-fleet-transport',
       path: 'tenant/maintenance/0007-maintenance-fleet-transport.sql',
+    },
+    {
+      version: '0008-maintenance-user-preferences',
+      path: 'tenant/maintenance/0008-maintenance-user-preferences.sql',
+    },
+    {
+      version: '0009-occurrence-dispatch-retry',
+      path: 'tenant/maintenance/0009-occurrence-dispatch-retry.sql',
+    },
+    {
+      version: '0010-schedule-archive',
+      path: 'tenant/maintenance/0010-schedule-archive.sql',
+    },
+    {
+      version: '0011-schedule-assignee',
+      path: 'tenant/maintenance/0011-schedule-assignee.sql',
     },
   ],
   workspace: [
@@ -767,12 +841,18 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/workspace/0034-chat-multiple-attachments.sql',
     },
     { version: '0035-blocked-reason', path: 'tenant/workspace/0035-blocked-reason.sql' },
+    { version: '0036-project-request-details', path: 'tenant/workspace/0036-project-request-details.sql' },
+    { version: '0037-project-progress-method', path: 'tenant/workspace/0037-project-progress-method.sql' },
+    { version: '0038-work-item-progress-reports', path: 'tenant/workspace/0038-work-item-progress-reports.sql' },
+    { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
+    { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [
     { version: '0001-shared-documents', path: 'tenant/shared/0001-shared-documents.sql' },
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
+    { version: '0004-shared-system-folders', path: 'tenant/shared/0004-shared-system-folders.sql' },
   ],
   // Mạng nội bộ: bảng tin công ty.
   social: [

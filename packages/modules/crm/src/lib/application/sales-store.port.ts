@@ -72,6 +72,8 @@ export interface CustomerRecord {
   readonly phone: string | null;
   readonly email: string | null;
   readonly groupId: string | null;
+  /** Bảng giá (không chuẩn) áp cho khách (D3-38); rỗng là theo bảng giá chuẩn. */
+  readonly priceListId: string | null;
   readonly kind: CustomerKind;
   readonly creditLimit: number | null;
   readonly paymentTermDays: number | null;

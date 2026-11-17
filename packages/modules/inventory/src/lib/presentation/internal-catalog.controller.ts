@@ -42,6 +42,7 @@ export class InternalCatalogController {
     @Query('kind') kind?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
+    @Query('tradeCategory') tradeCategory?: string,
   ) {
     return this.execute(() =>
       this.app.listMaterialCatalog(this.actor(request), {
@@ -52,10 +53,17 @@ export class InternalCatalogController {
         // Không truyền `kind` thì giữ hành vi cũ: chỉ mặt hàng có tồn. Bán hàng
         // muốn lấy cả dịch vụ thì truyền rõ `kind=STOCK,SERVICE`.
         kinds: (list(kind) ?? DEFAULT_CATALOG_KINDS) as MaterialKind[],
+        tradeCategory,
         limit: limit ? Number(limit) : undefined,
         cursor,
       }),
     );
+  }
+
+  /** Phân loại đang dùng trên mặt hàng: `GET v1/internal/material-trade-categories?kind=` trả `{ categories }`. */
+  @Get('internal/material-trade-categories')
+  listTradeCategories(@Req() request: InventoryRequest, @Query('kind') kind?: string) {
+    return this.execute(() => this.app.listMaterialTradeCategories(this.actor(request), list(kind)));
   }
 
   /**

@@ -1,0 +1,1355 @@
+'use client';
+
+import {
+  DELIVERY_STATUSES,
+  DELIVERY_STATUS_LABELS,
+  ASSIGNMENT_ROLE_LABELS,
+  REVOKE_KINDS,
+  REVOKE_KIND_LABELS,
+  stepApplies,
+  suggestRegister,
+  returnTargetLabel,
+  type CatalogItem,
+  type CorrespondenceConfig,
+  type CorrespondenceDirectory,
+  type DeliveryStatus,
+  type LetterDetail,
+  type ReturnTarget,
+  type RevokeKind,
+  type StepChoice,
+} from '@enterprise-platform/contracts-correspondence';
+import { Popconfirm, SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
+import { Ban, CheckCircle2, ShieldX, Trash2, Undo2, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  approveLetter,
+  cancelLetter,
+  completeLetter,
+  decideRevoke,
+  dispatchLetter,
+  errorMessage,
+  loadStepChoice,
+  publishLetter,
+  removeLetter,
+  requestRevoke,
+  returnLetter,
+  sendToClerk,
+  submitLetter,
+  updateDelivery,
+  withdrawRevoke,
+} from '../correspondence-api';
+import { flowLabels, formatDay, localToday, plannedWorkflow, previousNode, upcomingStep, type UpcomingStep } from '../correspondence.model';
+import styles from '../correspondence.module.scss';
+import { CatalogField } from './catalog-field';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
+import { missingHandler, suggestedUnits, unitsPayload, UnitsPicker, type UnitPick } from './units-picker';
+
+interface ActionProps {
+  readonly letter: LetterDetail;
+  readonly config: CorrespondenceConfig;
+  readonly directory?: CorrespondenceDirectory;
+  readonly onDone: (next: LetterDetail, message: string) => void;
+  readonly onDirtyChange: (dirty: boolean) => void;
+  /** Công văn đã bị xoá khỏi Văn thư: ngăn chi tiết đóng lại. */
+  readonly onRemoved?: (message: string) => void;
+  /** Được thêm nhanh danh mục bằng nút "+"; mục mới báo lên để cấu hình trên màn hình có ngay. */
+  readonly canQuickAdd?: boolean;
+  readonly onCatalogAdded?: (item: CatalogItem) => void;
+}
+
+function useRunner(onDone: ActionProps['onDone']) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const run = async (operation: () => Promise<LetterDetail>, message: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      onDone(await operation(), message);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không thực hiện được thao tác.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run };
+}
+
+/**
+ * Người duyệt của bước sắp bắt đầu khi bước đó để người thao tác chọn (luật "chọn trong
+ * nhóm" của quy trình). Không cần chọn thì `null`; đang tải thì `undefined`.
+ */
+function useStepChoice(letterId: string, kind?: string) {
+  const [choice, setChoice] = useState<StepChoice | null>();
+  useEffect(() => {
+    let active = true;
+    setChoice(undefined);
+    loadStepChoice(letterId, kind)
+      .then((next) => active && setChoice(next))
+      .catch(() => active && setChoice(null));
+    return () => {
+      active = false;
+    };
+  }, [letterId, kind]);
+  return choice;
+}
+
+function ChoiceField({
+  choice,
+  value,
+  onChange,
+}: {
+  readonly choice: StepChoice | null | undefined;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  if (!choice) return null;
+  return (
+    <SelectField label={`Người duyệt bước "${choice.stepName}"`} required>
+      <SearchableSelect
+        options={choice.candidates.map((candidate) => ({ value: candidate.userId, label: candidate.name, description: candidate.detail }))}
+        value={value}
+        placeholder="Chọn người duyệt"
+        emptyText="Nhóm người của bước này đang trống. Kiểm cấu hình quy trình, sơ đồ tổ chức hoặc phân quyền."
+        onChange={onChange}
+      />
+    </SelectField>
+  );
+}
+
+function Panel({ title, tone, children }: { readonly title: string; readonly tone?: 'done' | 'muted'; readonly children: ReactNode }) {
+  return (
+    <section className={`${styles.action} ${tone === 'done' ? styles.actionDone : tone === 'muted' ? styles.actionMuted : ''}`}>
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function ErrorLine({ error }: { readonly error?: string }) {
+  return error ? (
+    <p role="alert" className={styles.alert}>
+      {error}
+    </p>
+  ) : null;
+}
+
+/** Quy trình sẽ áp dụng, đọc theo cấu hình (theo loại văn bản đang chọn); người dùng không chọn quy trình. */
+function PlannedSteps({
+  config,
+  letter,
+  kind,
+  urgency = letter.urgency,
+  confidentiality = letter.confidentiality,
+}: {
+  readonly config: CorrespondenceConfig;
+  readonly letter: LetterDetail;
+  readonly kind: string;
+  readonly urgency?: string;
+  readonly confidentiality?: string;
+}) {
+  const facts = { kind, urgency, confidentiality };
+  const workflow = plannedWorkflow(config, letter.direction, kind, facts);
+  if (!workflow) {
+    return <p className={styles.notice}>Chưa có quy trình đang dùng cho luồng này. Nhờ người quản trị vào Cấu hình đặt quy trình mặc định.</p>;
+  }
+  // Bước có điều kiện không khớp phân loại đang chọn thì không có trong luồng của công văn này.
+  const steps = workflow.steps.filter((step) => stepApplies(step, facts));
+  return (
+    <p className={styles.plan}>
+      <span>Quy trình {workflow.name}:</span> {flowLabels({ ...workflow, steps }, letter.direction).join(' → ')}
+    </p>
+  );
+}
+
+/**
+ * Phần chọn cho bước kế tiếp: bước đó là phòng ban xử lý thì chọn phòng ban; bước duyệt (ngay
+ * sau, hay sau bước phòng ban) để người trình chọn người thì chọn người.
+ */
+function useNextStep(
+  letter: LetterDetail,
+  config: CorrespondenceConfig,
+  kind?: string,
+  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+) {
+  const upcoming = upcomingStep(letter, config, kind, classified);
+  // Bước phòng ban có phòng cố định: giao sẵn (chọn lại được), khoá thì luôn giao đúng các phòng đó.
+  const fixed = upcoming?.type === 'process' && upcoming.units?.length ? upcoming.units : undefined;
+  const locked = Boolean(fixed && upcoming?.lockUnits);
+  const active = letter.steps.find((step) => step.status === 'active');
+  // Bước chỉ đạo (bút phê): chọn đơn vị chủ trì, phối hợp và thời hạn dù bước kế tiếp là gì.
+  const directs = letter.stage === 'reviewing' && active?.type === 'approve' && active.directs === true;
+  const current = letter.flow.findIndex((node) => node.state === 'current');
+  const laterProcess = current >= 0 && letter.flow.slice(current + 1).some((node) => node.kind === 'process');
+  const fixedKey = JSON.stringify(fixed ?? []);
+  const initialUnits = useMemo(() => {
+    // Phòng cố định (so theo chuỗi để không tính lại mỗi lần vẽ); bút phê của bước trước vẫn ưu tiên hơn.
+    const fixedUnits = JSON.parse(fixedKey) as { unitId: string; role: UnitPick['role'] }[];
+    return fixedUnits.length > 0 && !(letter.directive?.units.length && !directs)
+      ? fixedUnits.map((unit): UnitPick => ({ unitId: unit.unitId, handlerUserId: '', role: unit.role }))
+      : suggestedUnits(config, kind ?? letter.kind, letter.assignments, directs ? undefined : letter.directive);
+  }, [config, kind, letter, directs, fixedKey]);
+  const initialDue = (directs ? undefined : letter.directive?.dueOn) ?? letter.dueOn ?? '';
+  const [units, setUnits] = useState<UnitPick[]>(initialUnits);
+  const [dueOn, setDueOn] = useState(initialDue);
+  const [assignee, setAssignee] = useState('');
+  const choice = useStepChoice(letter.id, kind);
+  useEffect(() => setAssignee(''), [kind]);
+  const needsUnits = (upcoming?.type === 'process' && !locked) || directs;
+  const unitsRequired = (upcoming?.type === 'process' && !fixed) || (directs && laterProcess);
+  const blocked =
+    choice === undefined ||
+    (Boolean(choice) && !assignee) ||
+    (unitsRequired && units.length === 0) ||
+    (needsUnits && missingHandler(config, units)) ||
+    (needsUnits && units.length > 0 && !units.some((unit) => unit.role === 'lead'));
+  return {
+    upcoming,
+    directs,
+    fixed,
+    locked,
+    units,
+    setUnits,
+    dueOn,
+    setDueOn,
+    unitsChanged: needsUnits && (JSON.stringify(units) !== JSON.stringify(initialUnits) || dueOn !== initialDue),
+    assignee,
+    setAssignee,
+    choice,
+    needsUnits,
+    blocked,
+    payload: {
+      units: needsUnits && units.length > 0 ? unitsPayload(units) : undefined,
+      dueOn: needsUnits && dueOn ? dueOn : undefined,
+      assignee: assignee || undefined,
+    },
+  };
+}
+
+function NextStepFields({
+  next,
+  letter,
+  config,
+  directory,
+  showDue = true,
+}: {
+  readonly next: ReturnType<typeof useNextStep>;
+  readonly letter: LetterDetail;
+  readonly config: CorrespondenceConfig;
+  readonly directory?: CorrespondenceDirectory;
+  /** Form đã có ô hạn riêng (văn thư tiếp nhận) thì không lặp ô thời hạn. */
+  readonly showDue?: boolean;
+}) {
+  const directive = letter.directive;
+  const unitName = (unitId: string) => directory?.units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban';
+  return (
+    <>
+      {next.locked && next.fixed ? (
+        <p className={styles.plan}>
+          <span>Giao cố định theo quy trình:</span>{' '}
+          {next.fixed.map((unit) => `${unitName(unit.unitId)} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}.
+        </p>
+      ) : null}
+      {!next.directs && next.needsUnits && directive && directive.units.length > 0 ? (
+        <p className={styles.plan}>
+          <span>Theo bút phê{directive.byName ? ` của ${directive.byName}` : ''}:</span>{' '}
+          {directive.units.map((unit) => `${unit.unitName} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}
+          {directive.dueOn ? `; hạn ${formatDay(directive.dueOn)}` : ''}. Phân phối đúng theo bút phê hoặc điều chỉnh bên dưới.
+        </p>
+      ) : null}
+      {next.needsUnits ? (
+        <UnitsPicker
+          label={next.directs ? 'Đơn vị chủ trì, phối hợp (bút phê)' : `Phòng ban cho bước "${next.upcoming?.name ?? ''}"`}
+          config={config}
+          directory={directory}
+          units={next.units}
+          onChange={next.setUnits}
+        />
+      ) : null}
+      {next.needsUnits && next.units.length > 0 && !next.units.some((unit) => unit.role === 'lead') ? (
+        <p className={styles.notice}>Chọn ít nhất một đơn vị chủ trì.</p>
+      ) : null}
+      {next.needsUnits && showDue ? (
+        <Field label="Thời hạn hoàn thành">
+          <input type="date" value={next.dueOn} min={letter.receivedOn} onChange={(event) => next.setDueOn(event.target.value)} />
+        </Field>
+      ) : null}
+      <ChoiceField choice={next.choice} value={next.assignee} onChange={next.setAssignee} />
+    </>
+  );
+}
+
+/** Nhãn nút chuyển bước theo bước kế tiếp. */
+function forwardLabel(upcoming: UpcomingStep | undefined, end: string): string {
+  if (!upcoming) return `Chuyển "${end}"`;
+  if (upcoming.type === 'process') return 'Giao phòng ban xử lý';
+  return `Chuyển "${upcoming.name}"`;
+}
+
+/** Ô thao tác của bước hiện tại, theo đúng quyền người xem có ở bước đó. */
+export function LetterActionPanel(props: ActionProps) {
+  const { letter, onDirtyChange } = props;
+  const actions = letter.actions;
+  useEffect(() => onDirtyChange(false), [letter.stage, letter.currentStepName, onDirtyChange]);
+
+  if (letter.stage === 'archived') return <ArchivedPanel {...props} />;
+  if (letter.stage === 'revoking') return <RevokingPanel {...props} />;
+  if (letter.stage === 'cancelled') return <CancelledPanel {...props} />;
+  if (actions.dispatch) return <DispatchForm {...props} />;
+  if (actions.sendToClerk) return <SendToClerkForm {...props} />;
+  if (actions.submit) return <SubmitForm {...props} />;
+  if (actions.approve) return <ApproveForm {...props} />;
+  if (actions.complete) return <CompleteForm {...props} />;
+  if (actions.publish) return <PublishForm {...props} />;
+  return <WaitingNote {...props} />;
+}
+
+function WaitingNote({ letter, onDone }: ActionProps) {
+  const pending = letter.assignments.filter((item) => item.status === 'pending');
+  const who = letter.currentAssigneeNames.join(', ') || 'người được giao';
+  const text = (() => {
+    switch (letter.stage) {
+      case 'received':
+        return 'Văn thư đang phân loại và giao phòng ban xử lý.';
+      case 'processing':
+        return pending.length > 0
+          ? `Đang chờ ${pending.map((item) => (item.handlerName ? `${item.unitName} (${item.handlerName})` : item.unitName)).join(', ')} gửi kết quả.`
+          : 'Các phòng ban đã gửi đủ kết quả.';
+      case 'drafting':
+        return `${letter.authorName ?? 'Người soạn'} đang soạn thảo.`;
+      case 'checking':
+        return `Bước "${letter.currentStepName ?? 'Văn thư kiểm tra'}" đang chờ văn thư.`;
+      case 'reviewing':
+        return `Bước "${letter.currentStepName ?? ''}" đang chờ ${who}.`;
+      case 'closing':
+        return 'Đã qua đủ các bước, chờ văn thư hoàn tất và lưu trữ.';
+      case 'publishing':
+        return 'Đã qua đủ các bước, chờ văn thư đánh số và ban hành.';
+      default:
+        return '';
+    }
+  })();
+  return (
+    <Panel title="Bước hiện tại" tone="muted">
+      <p className={styles.muted} style={{ margin: 0 }}>
+        {text}
+      </p>
+      {letter.actions.returnTargets.length > 0 || letter.actions.cancel ? (
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <ReturnControl letter={letter} onDone={onDone} label="Trả lại văn thư" />
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>) {
+  const [open, setOpen] = useState(false);
+  if (!letter.actions.cancel) return null;
+  return (
+    <>
+      <button type="button" className={styles.buttonDanger} onClick={() => setOpen(true)}>
+        <Ban size={14} /> Huỷ công văn
+      </button>
+      <ReasonDialog
+        open={open}
+        letter={letter}
+        title="Huỷ công văn"
+        subtitle={`Công văn ${letter.displayNo} dừng xử lý, mọi người liên quan được báo. Số đã cấp vẫn giữ trong sổ.`}
+        reasonLabel="Lý do huỷ"
+        placeholder="Ví dụ: cơ quan gửi đã thu hồi, vào sổ trùng"
+        submitLabel="Huỷ công văn"
+        tone="danger"
+        onClose={() => setOpen(false)}
+        onSubmit={async ({ reason }) => {
+          const next = await cancelLetter(letter.id, reason);
+          setOpen(false);
+          onDone(next, 'Đã huỷ công văn.');
+        }}
+      />
+    </>
+  );
+}
+
+/** "Không đạt / Trả lại": chọn nơi trả về (mặc định theo cấu hình bước) và ghi lý do. */
+function ReturnControl({
+  letter,
+  onDone,
+  label = 'Không đạt, trả lại',
+  dialogTitle,
+  warning = false,
+}: Pick<ActionProps, 'letter' | 'onDone'> & {
+  readonly label?: string;
+  readonly dialogTitle?: string;
+  /** Nút vàng (thao tác chính của bước duyệt) thay vì nút viền. */
+  readonly warning?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (letter.actions.returnTargets.length === 0) return null;
+  return (
+    <>
+      <button type="button" className={warning ? styles.buttonWarning : styles.buttonGhost} onClick={() => setOpen(true)}>
+        <Undo2 size={14} /> {label}
+      </button>
+      <ReasonDialog
+        open={open}
+        letter={letter}
+        title={dialogTitle ?? label}
+        subtitle="Công văn quay về nơi được chọn kèm lý do; người nhận được báo ngay."
+        reasonLabel="Lý do"
+        placeholder="Nêu rõ cần sửa, bổ sung gì"
+        submitLabel="Xác nhận trả lại"
+        tone="warning"
+        withTarget
+        onClose={() => setOpen(false)}
+        onSubmit={async ({ reason, target, stepSeq, assignmentIds }) => {
+          if (!target) return;
+          const next = await returnLetter(letter.id, { target, stepSeq, reason, assignmentIds });
+          setOpen(false);
+          const stepName = letter.actions.returnSteps?.find((item) => item.seq === stepSeq)?.name;
+          onDone(
+            next,
+            target === 'step' ? `Đã trả về bước "${stepName ?? ''}".` : `Đã trả về ${returnTargetLabel(target, letter.direction).toLowerCase()}.`,
+          );
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Hộp thoại nhập lý do dùng chung cho Huỷ và Trả lại: cùng khổ, cùng cách nhập, nút xác nhận
+ * theo màu thao tác (đỏ huỷ, vàng trả lại). Trả lại thì chọn nơi trả về và phòng ban phải làm lại.
+ */
+function ReasonDialog({
+  open,
+  letter,
+  title,
+  subtitle,
+  reasonLabel,
+  placeholder,
+  submitLabel,
+  tone,
+  withTarget = false,
+  onClose,
+  onSubmit,
+}: {
+  readonly open: boolean;
+  readonly letter: LetterDetail;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly reasonLabel: string;
+  readonly placeholder: string;
+  readonly submitLabel: string;
+  readonly tone: 'danger' | 'warning';
+  readonly withTarget?: boolean;
+  readonly onClose: () => void;
+  readonly onSubmit: (input: { reason: string; target?: ReturnTarget | 'step'; stepSeq?: number; assignmentIds?: string[] }) => Promise<void>;
+}) {
+  const targets = letter.actions.returnTargets;
+  const initialTarget = letter.actions.defaultReturnTarget ?? targets[0] ?? '';
+  const [reason, setReason] = useState('');
+  // Nơi trả về: một nơi mặc định, hay "step:<seq>" là đúng một bước đã xong bất kỳ.
+  const [target, setTarget] = useState<string>(initialTarget);
+  const [units, setUnits] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    setReason('');
+    setTarget(initialTarget);
+    setUnits([]);
+    setError(undefined);
+  }, [open, initialTarget]);
+
+  const previous = previousNode(letter);
+  const pickedSeq = target.startsWith('step:') ? Number(target.slice(5)) : undefined;
+  // Bước đã qua để trả về đúng bước đó; bước liền trước đã có ở "Bước trước".
+  const lastDone = letter.actions.returnSteps?.at(-1)?.seq;
+  const stepTargets = (letter.actions.returnSteps ?? []).filter((item) => !(targets.includes('previous-step') && item.seq === lastDone));
+  const landsOnUnits =
+    (target === 'handlers' && letter.direction === 'incoming') ||
+    (target === 'previous-step' && previous?.kind === 'process') ||
+    (pickedSeq !== undefined && letter.steps.find((step) => step.seq === pickedSeq)?.type === 'process');
+  const handlingUnits = letter.assignments.filter((item) => item.role !== 'info');
+  const toUnits = withTarget && landsOnUnits && handlingUnits.length > 1;
+  const targetLabel = (value: ReturnTarget) =>
+    value === 'previous-step' && previous ? `Bước trước: ${previous.label}` : returnTargetLabel(value, letter.direction);
+  const targetOptions = [
+    ...targets.map((value) => ({
+      value: value as string,
+      label: targetLabel(value),
+      description: value === letter.actions.defaultReturnTarget ? 'Mặc định của bước theo cấu hình' : undefined,
+    })),
+    ...stepTargets.map((item) => ({ value: `step:${item.seq}`, label: `Về bước: ${item.name}`, description: 'Các bước sau bước này chạy lại' })),
+  ];
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError(`Nhập ${reasonLabel.toLowerCase()}.`);
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onSubmit({
+        reason,
+        target: withTarget && target ? (pickedSeq !== undefined ? 'step' : (target as ReturnTarget)) : undefined,
+        stepSeq: withTarget ? pickedSeq : undefined,
+        assignmentIds: toUnits && units.length > 0 ? units : undefined,
+      });
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không thực hiện được thao tác.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormDialog
+      open={open}
+      title={title}
+      subtitle={subtitle}
+      submitLabel={submitLabel}
+      submitting={busy}
+      submitDisabled={!reason.trim() || (withTarget && !target)}
+      dirty={reason.trim() !== ''}
+      tone={tone}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      {withTarget ? (
+        targetOptions.length > 1 ? (
+          <SelectField label="Trả về" required>
+            <SearchableSelect
+              options={targetOptions}
+              value={target}
+              searchInDropdown
+              hideDropdownSearch
+              onChange={(value) => setTarget(value ?? '')}
+            />
+          </SelectField>
+        ) : (
+          <p className={styles.plan}>
+            <span>Trả về:</span> {targetOptions[0]?.label ?? ''}
+          </p>
+        )
+      ) : null}
+      {toUnits ? (
+        <CheckGroup label="Phòng ban phải làm lại (bỏ trống là mọi phòng)">
+          {handlingUnits.map((item) => (
+            <label key={item.id} className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={units.includes(item.id)}
+                onChange={(event) => setUnits((current) => (event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id)))}
+              />
+              {item.unitName}
+            </label>
+          ))}
+        </CheckGroup>
+      ) : null}
+      <Field label={reasonLabel} required>
+        <textarea value={reason} maxLength={4000} rows={4} autoFocus placeholder={placeholder} onChange={(event) => setReason(event.target.value)} />
+      </Field>
+    </FormDialog>
+  );
+}
+
+/* ---------------------------------------------------------------- công văn đến */
+
+/**
+ * Văn thư phân loại công văn đến và chuyển bước đầu của quy trình cấu hình cho loại văn bản; bước
+ * đầu là phòng ban xử lý thì chọn phòng ban (cả phòng hay một người xử lý).
+ */
+function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQuickAdd, onCatalogAdded }: ActionProps) {
+  const [kind, setKind] = useState(letter.kind);
+  const [urgency, setUrgency] = useState(letter.urgency);
+  const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
+  const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
+  const [note, setNote] = useState('');
+  const next = useNextStep(letter, config, kind, { urgency, confidentiality });
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(
+    () => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged),
+    [note, next.assignee, next.unitsChanged, onDirtyChange],
+  );
+  const { setUnits, units } = next;
+  const changeKind = (value: string) => {
+    setKind(value);
+    // Chưa chọn phòng nào thì gợi ý phòng ban của loại văn bản.
+    if (units.length === 0) setUnits(suggestedUnits(config, value));
+  };
+  const workflow = plannedWorkflow(config, 'incoming', kind, { urgency, confidentiality });
+  const end = workflow ? (flowLabels(workflow, 'incoming').at(-1) ?? '') : '';
+
+  return (
+    <Panel title={`${letter.flow[0]?.label ?? 'Văn thư tiếp nhận'}: phân loại và chuyển bước`}>
+      <div className={styles.form}>
+        <div className={styles.formRow3}>
+          <CatalogField
+            label="Loại văn bản"
+            kind="letter_type"
+            required
+            catalog={config.catalog}
+            keep={letter.kind}
+            value={kind}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={changeKind}
+          />
+          <CatalogField
+            label="Độ khẩn"
+            kind="urgency"
+            required
+            catalog={config.catalog}
+            keep={letter.urgency}
+            value={urgency}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setUrgency}
+          />
+          <CatalogField
+            label="Độ mật"
+            kind="confidentiality"
+            catalog={config.catalog}
+            keep={letter.confidentiality}
+            value={confidentiality}
+            canAdd={canQuickAdd}
+            onAdded={onCatalogAdded}
+            onChange={setConfidentiality}
+          />
+        </div>
+        <PlannedSteps config={config} letter={letter} kind={kind} urgency={urgency} confidentiality={confidentiality} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} showDue={false} />
+        <div className={styles.formRow}>
+          <Field label="Hạn xử lý">
+            <input type="date" value={dueOn} min={letter.receivedOn} onChange={(event) => setDueOn(event.target.value)} />
+          </Field>
+          <Field label={next.needsUnits ? 'Ghi chú cho phòng ban' : 'Ghi chú'}>
+            <input value={note} maxLength={4000} placeholder="Yêu cầu, lưu ý khi xử lý" onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy || !kind || !urgency || !workflow || next.blocked}
+            title={next.needsUnits && missingHandler(config, units) ? 'Cấu hình yêu cầu chọn một người xử lý cho mỗi phòng' : undefined}
+            onClick={() =>
+              run(
+                () =>
+                  dispatchLetter(letter.id, {
+                    kind,
+                    urgency,
+                    confidentiality,
+                    units: next.payload.units,
+                    dueOn: dueOn || undefined,
+                    note: note || undefined,
+                    assigneeUserId: next.payload.assignee,
+                  }),
+                next.needsUnits ? `Đã giao ${units.length} phòng ban xử lý.` : `Đã chuyển "${next.upcoming?.name ?? end}".`,
+              )
+            }
+          >
+            {forwardLabel(next.upcoming, end)}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** Quy trình của công văn có cấp số hồ sơ, lưu trữ ở ô cuối không (mặc định có). */
+function archivesAtEnd(letter: LetterDetail, config: CorrespondenceConfig): boolean {
+  return config.workflows.find((workflow) => workflow.id === letter.workflowId)?.archive !== false;
+}
+
+function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  if (letter.personal) {
+    // Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung của cơ quan.
+    return (
+      <Panel title="Thư riêng gửi bạn">
+        <div className={styles.form}>
+          <p className={styles.sectionNote}>
+            Văn thư chuyển nguyên bì, không bóc. Nhận thư rồi bấm Đã nhận. Nếu là việc chung của cơ quan, trả văn thư để vào sổ xử lý
+            theo quy trình.
+          </p>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <ReturnControl letter={letter} onDone={onDone} label="Trả văn thư (việc chung)" dialogTitle="Trả văn thư xử lý như công văn" />
+            <button type="button" className={styles.buttonPrimary} disabled={busy} onClick={() => run(() => completeLetter(letter.id, undefined), 'Đã xác nhận nhận thư.')}>
+              <CheckCircle2 size={15} /> Đã nhận
+            </button>
+          </div>
+        </div>
+      </Panel>
+    );
+  }
+  return (
+    <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư hoàn tất, lưu trữ'}>
+      <div className={styles.form}>
+        <p className={styles.sectionNote}>
+          Công văn đã qua đủ các bước của quy trình. Kiểm kết quả ở mục Phòng ban xử lý (nếu có)
+          {archivesAtEnd(letter, config) ? '; hoàn tất để cấp số hồ sơ, ghi lên thư mục hồ sơ trong kho lưu trữ.' : '; hoàn tất để đóng công văn.'}
+        </p>
+        <Field label="Ghi chú hoàn tất">
+          <textarea value={note} maxLength={4000} rows={2} placeholder="Ví dụ: đã gửi văn bản trả lời số …" onChange={(event) => setNote(event.target.value)} />
+        </Field>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <ReturnControl letter={letter} onDone={onDone} />
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy}
+            onClick={() =>
+              run(() => completeLetter(letter.id, note || undefined), archivesAtEnd(letter, config) ? 'Đã hoàn tất, lưu trữ hồ sơ.' : 'Đã hoàn tất.')
+            }
+          >
+            {archivesAtEnd(letter, config) ? 'Hoàn tất, lưu trữ' : 'Hoàn tất'}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- công văn đi */
+
+/** Người soạn gửi công văn đi sang bước đầu của quy trình (thường là văn thư kiểm tra). */
+function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const next = useNextStep(letter, config);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
+  const drafts = letter.attachments.filter((item) => item.kind === 'draft').length;
+  const workflow = plannedWorkflow(config, 'outgoing', letter.kind, letter);
+  const end = workflow ? (flowLabels(workflow, 'outgoing').at(-1) ?? '') : '';
+  const target = next.upcoming?.name ?? end;
+  return (
+    <Panel title={`${letter.flow[0]?.label ?? 'Soạn thảo'}: gửi "${target}"`}>
+      <div className={styles.form}>
+        <p className={styles.sectionNote}>
+          {drafts > 0 ? `Đã có ${drafts} tệp dự thảo.` : 'Tải tệp dự thảo ở mục Tệp của hồ sơ trước khi gửi.'}
+        </p>
+        <PlannedSteps config={config} letter={letter} kind={letter.kind} />
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
+        <Field label="Ghi chú">
+          <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
+        </Field>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy || !workflow || next.blocked}
+            onClick={() =>
+              run(
+                () =>
+                  sendToClerk(letter.id, { note: note || undefined, units: next.payload.units, dueOn: next.payload.dueOn, assigneeUserId: next.payload.assignee }),
+                `Đã gửi "${target}".`,
+              )
+            }
+          >
+            {next.upcoming?.type === 'process' ? 'Gửi phòng ban xử lý' : `Gửi "${target}"`}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** Bước văn thư kiểm tra (vị trí tuỳ quy trình): đạt thì chuyển bước kế tiếp, không đạt thì trả lại. */
+function SubmitForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const next = useNextStep(letter, config);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
+  const end = letter.flow.at(-1)?.label ?? '';
+  return (
+    <Panel title={letter.currentStepName ?? 'Văn thư kiểm tra'}>
+      <div className={styles.form}>
+        <p className={styles.plan}>
+          <span>Bước tiếp theo:</span> {next.upcoming?.name ?? end}
+        </p>
+        <NextStepFields next={next} letter={letter} config={config} directory={directory} />
+        <Field label="Ghi chú">
+          <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
+        </Field>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <CancelButton letter={letter} onDone={onDone} />
+          <ReturnControl letter={letter} onDone={onDone} />
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy || next.blocked}
+            onClick={() =>
+              run(
+                () =>
+                  submitLetter(letter.id, {
+                    assigneeUserId: next.payload.assignee,
+                    units: next.payload.units,
+                    dueOn: next.payload.dueOn,
+                    note: note || undefined,
+                  }),
+                `Đạt, đã chuyển "${next.upcoming?.name ?? end}".`,
+              )
+            }
+          >
+            Đạt, {forwardLabel(next.upcoming, end).replace(/^C/, 'c').replace(/^G/, 'g')}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function PublishForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+  const [recipient, setRecipient] = useState(letter.recipient ?? '');
+  const [publishedOn, setPublishedOn] = useState(localToday());
+  const [deliveryMethod, setDeliveryMethod] = useState('');
+  const [note, setNote] = useState('');
+  // Người ký mặc định là người duyệt bước duyệt cuối; chức vụ theo sơ đồ tổ chức.
+  const lastApprover = [...letter.steps].reverse().find((step) => step.type === 'approve' && step.status === 'done' && step.actedBy)?.actedBy ?? '';
+  const titleOf = (userId: string) =>
+    directory?.units.flatMap((unit) => unit.members).find((member) => member.userId === userId && member.positionName)?.positionName ?? '';
+  const [signerUserId, setSignerUserId] = useState(lastApprover);
+  const [signerTitle, setSignerTitle] = useState(titleOf(lastApprover));
+  const [copyCount, setCopyCount] = useState('');
+  const [registerId, setRegisterId] = useState('');
+  const [internalUnitIds, setInternalUnitIds] = useState<string[]>([]);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(
+    () =>
+      onDirtyChange(
+        recipient !== (letter.recipient ?? '') ||
+          deliveryMethod.trim() !== '' ||
+          note.trim() !== '' ||
+          copyCount !== '' ||
+          internalUnitIds.length > 0 ||
+          signerUserId !== lastApprover,
+      ),
+    [recipient, deliveryMethod, note, copyCount, internalUnitIds, signerUserId, lastApprover, letter, onDirtyChange],
+  );
+  const signed = letter.attachments.some((item) => item.kind === 'outgoing');
+  const restricted = letter.restricted;
+  const registers = config.registers.filter((item) => item.isActive && item.direction === 'outgoing');
+  const autoRegister = suggestRegister(config.registers, 'outgoing', { kind: letter.kind, restricted });
+  const units = directory?.units ?? [];
+  return (
+    <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư ban hành, lưu trữ'}>
+      <div className={styles.form}>
+        {!signed ? <p className={styles.notice}>Chưa có bản ban hành đã ký. Tải ở mục Tệp của hồ sơ (trước hoặc sau khi đánh số).</p> : null}
+        <div className={styles.formRow}>
+          <Field label="Nơi nhận" required>
+            <input value={recipient} maxLength={255} onChange={(event) => setRecipient(event.target.value)} />
+          </Field>
+          <Field label="Ngày ban hành">
+            <input type="date" value={publishedOn} onChange={(event) => setPublishedOn(event.target.value)} />
+          </Field>
+        </div>
+        <div className={styles.formRow}>
+          <Field label="Hình thức gửi">
+            <input value={deliveryMethod} maxLength={120} placeholder="Bưu điện, thư điện tử, trục liên thông…" onChange={(event) => setDeliveryMethod(event.target.value)} />
+          </Field>
+          <Field label="Ghi chú">
+            <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
+        <div className={styles.formRow3}>
+          <SelectField label="Người ký">
+            <SearchableSelect
+              options={(directory?.people ?? []).map((person) => ({ value: person.userId, label: person.name }))}
+              value={signerUserId}
+              placeholder="Chọn người ký"
+              clearable
+              onChange={(value) => {
+                setSignerUserId(value ?? '');
+                if (value) setSignerTitle(titleOf(value) || signerTitle);
+              }}
+            />
+          </SelectField>
+          <Field label="Chức vụ người ký">
+            <input value={signerTitle} maxLength={160} placeholder="Tổng giám đốc" onChange={(event) => setSignerTitle(event.target.value)} />
+          </Field>
+          <Field label="Số bản">
+            <input type="number" min={1} max={1000} value={copyCount} onChange={(event) => setCopyCount(event.target.value)} />
+          </Field>
+        </div>
+        {registers.length > 1 ? (
+          <SelectField label="Sổ đăng ký (cấp số đi)">
+            <SearchableSelect
+              options={registers.map((item) => ({ value: item.id, label: item.name, description: item.confidential ? 'Sổ văn bản mật' : undefined }))}
+              value={registerId}
+              placeholder={autoRegister ? `Tự chọn: ${autoRegister.name}` : 'Tự chọn theo độ mật, loại văn bản'}
+              clearable
+              onChange={(value) => setRegisterId(value ?? '')}
+            />
+          </SelectField>
+        ) : null}
+        <SelectField label="Phòng ban nhận nội bộ">
+          <SearchableSelect
+            options={units.filter((unit) => !internalUnitIds.includes(unit.id)).map((unit) => ({ value: unit.id, label: unit.name, description: unit.path || undefined }))}
+            value=""
+            placeholder="Tìm và thêm phòng ban trong công ty nhận văn bản"
+            onChange={(value) => value && setInternalUnitIds((current) => [...current, value])}
+          />
+          {internalUnitIds.length > 0 ? (
+            <div className={styles.unitChips}>
+              {internalUnitIds.map((unitId) => (
+                <span key={unitId} className={styles.unitChip}>
+                  {units.find((unit) => unit.id === unitId)?.name ?? 'Phòng ban'}
+                  <button type="button" aria-label="Bỏ" onClick={() => setInternalUnitIds((current) => current.filter((id) => id !== unitId))}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <span className={styles.hint}>Phòng được chọn xem được văn bản đã ban hành và nhận thông báo.</span>
+        </SelectField>
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <ReturnControl letter={letter} onDone={onDone} />
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={busy || !recipient.trim()}
+            onClick={() =>
+              run(
+                () =>
+                  publishLetter(letter.id, {
+                    recipient,
+                    publishedOn: publishedOn || undefined,
+                    deliveryMethod: deliveryMethod || undefined,
+                    note: note || undefined,
+                    registerId: registerId || undefined,
+                    signerUserId: signerUserId || undefined,
+                    signerTitle: signerTitle.trim() || undefined,
+                    copyCount: copyCount === '' ? undefined : Number(copyCount),
+                    internalUnitIds,
+                  }),
+                archivesAtEnd(letter, config) ? 'Đã đánh số, ban hành và lưu trữ.' : 'Đã đánh số, ban hành.',
+              )
+            }
+          >
+            Đánh số, ban hành
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function ArchivedPanel({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [status, setStatus] = useState<DeliveryStatus>(letter.deliveryStatus ?? 'sent');
+  // Ô ngày điền sẵn hôm nay; chỉ tính là đã sửa khi khác ngày ban đầu đó.
+  const initialDelivered = letter.deliveredOn ?? localToday();
+  const [deliveredOn, setDeliveredOn] = useState(initialDelivered);
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(
+    () => onDirtyChange(status !== (letter.deliveryStatus ?? 'sent') || deliveredOn !== initialDelivered || note.trim() !== ''),
+    [status, deliveredOn, initialDelivered, note, letter, onDirtyChange],
+  );
+  return (
+    <Panel title="Hồ sơ đã lưu trữ" tone="done">
+      <p className={styles.muted} style={{ margin: 0 }}>
+        Số hồ sơ {letter.archiveCode}, ngày {formatDay(letter.archivedOn)}.
+        {letter.outgoingNo ? ` Ban hành số ${letter.outgoingNo} ngày ${formatDay(letter.publishedOn)} gửi ${letter.recipient}.` : ''}
+        {letter.completionNote ? ` ${letter.completionNote}` : ''} Tệp xem ở mục Tệp của hồ sơ hay Kho lưu trữ.
+      </p>
+      {letter.actions.updateDelivery ? (
+        <div className={styles.form}>
+          <div className={styles.formRow3}>
+            <SelectField label="Tình trạng gửi">
+              <SearchableSelect
+                options={DELIVERY_STATUSES.map((value) => ({ value, label: DELIVERY_STATUS_LABELS[value] }))}
+                value={status}
+                searchInDropdown
+                hideDropdownSearch
+                onChange={(value) => setStatus(value as DeliveryStatus)}
+              />
+            </SelectField>
+            <Field label="Ngày">
+              <input type="date" value={deliveredOn} onChange={(event) => setDeliveredOn(event.target.value)} />
+            </Field>
+            <Field label="Ghi chú">
+              <input value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
+            </Field>
+          </div>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              disabled={busy}
+              onClick={() =>
+                run(() => updateDelivery(letter.id, { status, deliveredOn: deliveredOn || undefined, note: note || undefined }), 'Đã cập nhật tình trạng gửi.')
+              }
+            >
+              Cập nhật tình trạng gửi
+            </button>
+          </div>
+        </div>
+      ) : letter.deliveryStatus ? (
+        <p className={styles.muted} style={{ margin: '6px 0 0' }}>
+          Tình trạng gửi: {DELIVERY_STATUS_LABELS[letter.deliveryStatus]}
+          {letter.deliveredOn ? ` · ${formatDay(letter.deliveredOn)}` : ''}
+        </p>
+      ) : null}
+      {letter.actions.requestRevoke ? (
+        <div className={styles.formActions}>
+          <RevokeRequestButton letter={letter} onDone={onDone} />
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+/**
+ * Văn thư đề nghị huỷ công văn đã ban hành / hoàn tất: chọn thu hồi hay sửa đổi, thay thế và ghi
+ * lý do; người có thẩm quyền ở bước duyệt cuối của quy trình xác nhận.
+ */
+function RevokeRequestButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<RevokeKind>('recall');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    setKind('recall');
+    setReason('');
+    setError(undefined);
+  }, [open]);
+  const approver = [...letter.steps].reverse().find((step) => step.status === 'done');
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError('Nhập lý do.');
+      return;
+    }
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const next = await requestRevoke(letter.id, { kind, reason });
+      setOpen(false);
+      onDone(next, next.stage === 'cancelled' ? 'Đã huỷ công văn.' : 'Đã gửi đề nghị huỷ, chờ người có thẩm quyền xác nhận.');
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không gửi được đề nghị huỷ.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" className={styles.buttonDanger} onClick={() => setOpen(true)}>
+        <ShieldX size={14} /> Đề nghị huỷ công văn
+      </button>
+      <FormDialog
+        open={open}
+        title="Đề nghị huỷ công văn"
+        subtitle={
+          approver
+            ? `Công văn ${letter.displayNo} đã ${letter.direction === 'outgoing' ? 'ban hành' : 'hoàn tất'}. Đề nghị chuyển tới người có thẩm quyền của bước "${approver.name}" xác nhận; chưa xác nhận thì công văn vẫn giữ nguyên.`
+            : `Công văn ${letter.displayNo} không qua bước duyệt nào nên huỷ ngay khi gửi.`
+        }
+        submitLabel={approver ? 'Gửi đề nghị' : 'Huỷ công văn'}
+        tone="danger"
+        submitting={submitting}
+        dirty={reason.trim() !== ''}
+        error={error}
+        onClose={() => setOpen(false)}
+        onSubmit={() => void submit()}
+      >
+        <div className={styles.field} role="radiogroup" aria-label="Hình thức">
+          <span className={styles.fieldLabel}>
+            Hình thức<span className={styles.required}> *</span>
+          </span>
+          <div className={styles.choiceRow}>
+            {REVOKE_KINDS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={kind === value}
+                className={kind === value ? `${styles.choice} ${styles.choiceActive}` : styles.choice}
+                onClick={() => setKind(value)}
+              >
+                <b>{REVOKE_KIND_LABELS[value]}</b>
+                <span>{value === 'recall' ? 'Công văn hết hiệu lực, thu hồi về.' : 'Huỷ để thay bằng văn bản sửa đổi, ban hành lại.'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <Field label="Lý do" required>
+          <textarea
+            value={reason}
+            maxLength={2000}
+            rows={4}
+            autoFocus
+            placeholder="Ví dụ: sai số liệu tại mục 2, cần ban hành văn bản thay thế"
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+      </FormDialog>
+    </>
+  );
+}
+
+function RevokeSummary({ letter }: { readonly letter: LetterDetail }) {
+  const revoke = letter.revoke;
+  if (!revoke) return null;
+  return (
+    <dl className={styles.revokeInfo}>
+      <div>
+        <dt>Hình thức</dt>
+        <dd>{revoke.kindLabel}</dd>
+      </div>
+      <div>
+        <dt>Người đề nghị</dt>
+        <dd>
+          {revoke.requestedByName ?? 'Văn thư'}
+          {revoke.requestedAt ? ` · ${formatDateTime(revoke.requestedAt)}` : ''}
+        </dd>
+      </div>
+      <div className={styles.revokeWide}>
+        <dt>Lý do</dt>
+        <dd>{revoke.reason}</dd>
+      </div>
+      {letter.stage === 'revoking' ? (
+        <div className={styles.revokeWide}>
+          <dt>Người xác nhận</dt>
+          <dd>{revoke.approverNames.join(', ') || 'Người có thẩm quyền của bước duyệt cuối'}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+/** Đề nghị huỷ đang chờ: người có thẩm quyền đồng ý / không; văn thư rút đề nghị. */
+function RevokingPanel({ letter, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner(onDone);
+  const actions = letter.actions;
+  useEffect(() => onDirtyChange(note.trim() !== ''), [note, onDirtyChange]);
+  return (
+    <Panel title="Đề nghị huỷ công văn">
+      <RevokeSummary letter={letter} />
+      {actions.decideRevoke ? (
+        <div className={styles.form}>
+          <Field label="Ý kiến (nếu có)">
+            <textarea value={note} maxLength={2000} rows={2} placeholder="Ý kiến kèm theo quyết định" onChange={(event) => setNote(event.target.value)} />
+          </Field>
+          <ErrorLine error={error} />
+          <div className={styles.formActions}>
+            <Popconfirm
+              title="Giữ nguyên công văn?"
+              description="Đề nghị huỷ bị từ chối, công văn về lại đã lưu trữ."
+              okText="Không huỷ"
+              cancelText="Xem lại"
+              okType="primary"
+              placement="top-end"
+              disabled={busy}
+              onConfirm={() => run(() => decideRevoke(letter.id, { approve: false, note: note || undefined }), 'Đã giữ nguyên công văn.')}
+            >
+              <button type="button" className={styles.buttonGhost} disabled={busy}>
+                Không huỷ
+              </button>
+            </Popconfirm>
+            <Popconfirm
+              title="Đồng ý huỷ công văn này?"
+              description={`Công văn ${letter.displayNo} chuyển sang đã huỷ; mọi người liên quan được báo.`}
+              okText="Đồng ý huỷ"
+              cancelText="Xem lại"
+              okType="danger"
+              placement="top-end"
+              disabled={busy}
+              onConfirm={() => run(() => decideRevoke(letter.id, { approve: true, note: note || undefined }), 'Đã đồng ý huỷ công văn.')}
+            >
+              <button type="button" className={styles.buttonDangerSolid} disabled={busy}>
+                <Ban size={14} /> Đồng ý huỷ
+              </button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className={styles.sectionNote}>Đang chờ người có thẩm quyền xác nhận. Công văn vẫn giữ nguyên cho tới khi được đồng ý huỷ.</p>
+          <ErrorLine error={error} />
+          {actions.withdrawRevoke ? (
+            <div className={styles.formActions}>
+              <Popconfirm
+                title="Rút đề nghị huỷ?"
+                description="Công văn về lại đã lưu trữ; người xác nhận được báo không cần xử lý nữa."
+                okText="Rút đề nghị"
+                cancelText="Xem lại"
+                okType="warning"
+                placement="top-end"
+                disabled={busy}
+                onConfirm={() => run(() => withdrawRevoke(letter.id), 'Đã rút đề nghị huỷ.')}
+              >
+                <button type="button" className={styles.buttonGhost} disabled={busy}>
+                  <Undo2 size={14} /> Rút đề nghị
+                </button>
+              </Popconfirm>
+            </div>
+          ) : null}
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/** Công văn đã huỷ: lý do; văn thư xoá được khỏi Văn thư. */
+function CancelledPanel({ letter, onRemoved }: ActionProps) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const remove = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await removeLetter(letter.id);
+      onRemoved?.(`Đã xoá công văn ${letter.displayNo}.`);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không xoá được công văn.'));
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title="Công văn đã huỷ" tone="muted">
+      {letter.revoke ? <RevokeSummary letter={letter} /> : <p className={styles.sectionNote}>Lý do: {letter.cancelReason}</p>}
+      <ErrorLine error={error} />
+      {letter.actions.remove ? (
+        <div className={styles.formActions}>
+          <Popconfirm
+            title="Xoá công văn khỏi Văn thư?"
+            description="Công văn không còn trong danh sách, kho lưu trữ và báo cáo; tệp chuyển vào Thùng rác của Hệ dùng chung. Số đã cấp không cấp lại."
+            okText="Xoá công văn"
+            cancelText="Giữ lại"
+            okType="danger"
+            placement="top-end"
+            disabled={busy}
+            onConfirm={() => remove()}
+          >
+            <button type="button" className={styles.buttonDanger} disabled={busy}>
+              <Trash2 size={14} /> Xoá công văn
+            </button>
+          </Popconfirm>
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- duyệt */
+
+/** Bước tiếp theo trên thanh tiến trình, để hỏi xác nhận nói rõ công văn sẽ đi đâu. */
+function nextStepLabel(letter: LetterDetail): string | undefined {
+  const at = letter.flow.findIndex((node) => node.state === 'current');
+  return at >= 0 ? letter.flow[at + 1]?.label : undefined;
+}
+
+/**
+ * Bước duyệt: một thao tác. "Duyệt" hỏi xác nhận ngay tại nút (tránh bấm nhầm) rồi chuyển bước;
+ * "Không đạt" mở hộp thoại chọn nơi trả về và bắt nhập lý do.
+ */
+function ApproveForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
+  const [note, setNote] = useState('');
+  const next = useNextStep(letter, config);
+  const { busy, error, run } = useRunner(onDone);
+  useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
+  // Bước "tất cả cùng duyệt": chưa phải người duyệt cuối thì chỉ ghi nhận, người cuối mới chuyển bước (chọn phòng ban…).
+  const active = letter.steps.find((step) => step.status === 'active');
+  const approvedCount = active?.mode === 'all' ? (active.approvedBy?.length ?? 0) : 0;
+  const required = active?.mode === 'all' ? (active.requiredCount ?? 0) : 0;
+  const partial = required > 0 && approvedCount + 1 < required;
+  const ready = !busy && (partial || !next.blocked);
+  const after = nextStepLabel(letter);
+  // Bước liền sau là phòng ban xử lý, hay bước chỉ đạo (bút phê): lãnh đạo phân công phòng ban chứ không chỉ "duyệt".
+  const assigns = !partial && next.upcoming?.type === 'process';
+  const verb = partial ? `Duyệt (${approvedCount + 1}/${required})` : assigns ? 'Giao phòng ban xử lý' : next.directs ? 'Gửi bút phê' : 'Duyệt';
+  return (
+    <Panel title={letter.currentStepName ?? 'Duyệt'}>
+      <div className={styles.form}>
+        {letter.direction === 'incoming' && letter.assignments.length > 0 ? (
+          <p className={styles.sectionNote}>
+            Kết quả của {letter.assignments.map((item) => item.unitName).join(', ')} ở mục Phòng ban xử lý bên dưới.
+          </p>
+        ) : null}
+        {required > 0 ? (
+          <p className={styles.sectionNote}>
+            Bước này cần cả {required} người duyệt.{' '}
+            {approvedCount > 0 ? `Đã duyệt: ${(active?.approvedBy ?? []).map((item) => item.name ?? 'Người dùng').join(', ')}. ` : ''}
+            {partial ? 'Ý kiến của bạn được ghi lại, bước chờ người còn lại.' : 'Bạn là người duyệt cuối, duyệt xong là chuyển bước.'}
+          </p>
+        ) : null}
+        <Field label={next.directs ? 'Ý kiến chỉ đạo (bút phê)' : next.needsUnits ? 'Ý kiến, chỉ đạo cho phòng ban (nếu có)' : 'Ý kiến (nếu có)'}>
+          <textarea
+            value={note}
+            maxLength={4000}
+            rows={3}
+            placeholder={next.needsUnits ? 'Ví dụ: Phòng Kinh doanh chủ trì, Kế toán phối hợp, trả lời trước hạn' : 'Ý kiến kèm theo khi duyệt'}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </Field>
+        {partial ? null : <NextStepFields next={next} letter={letter} config={config} directory={directory} />}
+        <ErrorLine error={error} />
+        <div className={styles.formActions}>
+          <ReturnControl
+            letter={letter}
+            onDone={onDone}
+            label={!partial && next.needsUnits ? 'Trả lại' : 'Không đạt'}
+            dialogTitle={!partial && next.needsUnits ? 'Trả lại công văn' : 'Không đạt, trả lại'}
+            warning
+          />
+          <Popconfirm
+            title={assigns ? 'Giao công văn cho phòng ban đã chọn?' : !partial && next.directs ? 'Gửi bút phê?' : 'Duyệt công văn này?'}
+            description={
+              partial
+                ? `Ghi nhận bạn đã duyệt; còn ${required - approvedCount - 1} người chưa duyệt.`
+                : after
+                  ? `Công văn chuyển sang bước "${after}".`
+                  : 'Công văn chuyển sang bước tiếp theo.'
+            }
+            okText={assigns ? 'Giao' : !partial && next.directs ? 'Gửi' : 'Duyệt'}
+            cancelText="Xem lại"
+            okType="primary"
+            placement="top-end"
+            disabled={!ready}
+            onConfirm={() =>
+              run(
+                () =>
+                  approveLetter(
+                    letter.id,
+                    partial
+                      ? { note: note || undefined }
+                      : { note: note || undefined, nextAssigneeUserId: next.payload.assignee, units: next.payload.units, dueOn: next.payload.dueOn },
+                  ),
+                partial
+                  ? 'Đã duyệt, chờ người còn lại.'
+                  : assigns
+                    ? 'Đã giao phòng ban xử lý.'
+                    : next.directs
+                      ? 'Đã gửi bút phê, chuyển bước tiếp theo.'
+                      : 'Đã duyệt, chuyển bước tiếp theo.',
+              )
+            }
+          >
+            <button type="button" className={styles.buttonPrimary} disabled={!ready}>
+              <CheckCircle2 size={15} /> {verb}
+            </button>
+          </Popconfirm>
+        </div>
+      </div>
+    </Panel>
+  );
+}

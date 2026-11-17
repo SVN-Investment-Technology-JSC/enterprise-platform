@@ -8,7 +8,7 @@
 import type { WorkItemCost } from '@enterprise-platform/contracts-workspace';
 
 export type ProjectVoucherKind = 'RECEIPT' | 'PAYMENT';
-export type ProjectVoucherStatus = 'PENDING' | 'APPROVED';
+export type ProjectVoucherStatus = 'DRAFT' | 'PENDING' | 'APPROVED';
 export type ProjectVoucherLink = 'ALLOCATION' | 'RELATED';
 
 export interface ProjectVoucher {
@@ -24,6 +24,12 @@ export interface ProjectVoucher {
   readonly link: ProjectVoucherLink;
   readonly workItem: { readonly id: string; readonly code: string; readonly title: string } | null;
   readonly createdByName: string | null;
+  /** Ngày hạch toán `YYYY-MM-DD`. */
+  readonly postingDate: string;
+  /** Lúc lập phiếu (ISO). */
+  readonly createdAt: string;
+  /** Dòng tiền luỹ kế sau phiếu (chỉ phiếu đã ghi sổ hạch toán cho dự án); `null` với phiếu chờ hay chỉ liên quan. */
+  readonly balance: number | null;
 }
 
 export interface ProjectVoucherTotals {
@@ -57,11 +63,14 @@ export const PROJECT_VOUCHER_KIND_LABELS: Readonly<Record<ProjectVoucherKind, st
 };
 
 export const PROJECT_VOUCHER_STATUS_LABELS: Readonly<Record<ProjectVoucherStatus, string>> = {
+  // DRAFT ở đây là phiếu từ hồ sơ Quy trình đã duyệt, đang chờ kế toán ghi sổ.
+  DRAFT: 'Chờ ghi sổ',
   PENDING: 'Chờ duyệt',
   APPROVED: 'Đã duyệt',
 };
 
 export const PROJECT_VOUCHER_STATUS_TONE: Readonly<Record<ProjectVoucherStatus, { bg: string; fg: string }>> = {
+  DRAFT: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
   PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
   APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
 };
@@ -169,7 +178,15 @@ const ZERO_TOTALS: ProjectVoucherTotals = { received: 0, paid: 0, pendingReceive
 /** Bản Tài chính cũ chưa trả phần chung và phần theo công việc: coi như chưa có, để màn hình không vỡ. */
 export function normalizeProjectVoucherList(raw: Partial<ProjectVoucherList>): ProjectVoucherList {
   return {
-    items: Array.isArray(raw.items) ? raw.items : [],
+    // Bản Tài chính cũ chưa trả ngày hạch toán, ngày lập và dòng tiền: lấy ngày phiếu, không có dòng tiền.
+    items: Array.isArray(raw.items)
+      ? raw.items.map((item) => ({
+          ...item,
+          postingDate: item.postingDate ?? item.voucherDate,
+          createdAt: item.createdAt ?? `${item.voucherDate}T00:00:00.000Z`,
+          balance: item.balance ?? null,
+        }))
+      : [],
     totals: raw.totals ?? ZERO_TOTALS,
     projectLevel: raw.projectLevel ?? ZERO_TOTALS,
     workItems: Array.isArray(raw.workItems) ? raw.workItems : [],

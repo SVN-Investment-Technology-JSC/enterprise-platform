@@ -133,8 +133,9 @@ export function requestedAmount(amount: number | null): number {
 }
 
 /**
- * Dựng phiếu nháp từ payload. Hạch toán lấy theo thứ tự công việc > dự án > để trống; `resolveAllocation` hỏi Workspace (gọi
- * NGOÀI giao dịch). Không xác nhận được thì để trống, không khoá, và ghi chú để kế toán tự chọn.
+ * Dựng phiếu nháp từ payload. Hạch toán luôn ở cấp dự án: lấy dự án của hồ sơ, hoặc (hồ sơ sinh từ công việc) dự án chứa công việc
+ * đó; `resolveAllocation` hỏi Workspace (gọi NGOÀI giao dịch). Không xác nhận được thì để trống, không khoá, và ghi chú để kế toán
+ * tự chọn. Công việc của hồ sơ chỉ để tra dự án và hiện ở mục "Liên quan" của phiếu, không phải đích hạch toán.
  */
 export async function planRequestedVoucher(
   payload: FinanceStepVoucherRequestedPayload,
@@ -154,20 +155,34 @@ export async function planRequestedVoucher(
   let links: ResolvedWorkspaceLinks = { allocation: null, relatedProjects: [] };
   let allocationNote: string | null = null;
   if (payload.workItemId || payload.projectId) {
-    try {
-      let allocation: NormalizedVoucher['allocation'] = null;
-      if (payload.workItemId) {
+    // Dự án của hồ sơ thử trước; không có thì lấy dự án chứa công việc nguồn. Tra công việc lỗi (đã xoá, Workspace chập chờn) thì
+    // vẫn còn dự án của hồ sơ để thử, thay vì mất cả hạch toán.
+    const attempts: NormalizedVoucher['allocation'][] = [];
+    if (payload.projectId) attempts.push({ type: 'PROJECT', projectId: payload.projectId, workItemId: null });
+    if (payload.workItemId) {
+      try {
         const projectId = await findWorkItemProject(payload.workItemId);
-        if (!projectId) throw invalid('Công việc của hồ sơ không còn tồn tại.');
-        allocation = { type: 'WORK_ITEM', projectId, workItemId: payload.workItemId };
-      } else if (payload.projectId) {
-        allocation = { type: 'PROJECT', projectId: payload.projectId, workItemId: null };
+        if (projectId && projectId !== payload.projectId) attempts.push({ type: 'PROJECT', projectId, workItemId: null });
+      } catch {
+        // Không tra được công việc: chỉ còn dự án của hồ sơ (nếu có).
       }
-      links = await resolveAllocation(allocation);
-      if (links.allocation) lockedFields.push('allocation');
-    } catch (error) {
+    }
+    let failure: unknown = payload.workItemId ? invalid('Công việc của hồ sơ không còn tồn tại.') : undefined;
+    for (const allocation of attempts) {
+      try {
+        links = await resolveAllocation(allocation);
+        if (links.allocation) {
+          lockedFields.push('allocation');
+          failure = undefined;
+          break;
+        }
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (!links.allocation) {
       links = { allocation: null, relatedProjects: [] };
-      const reason = error instanceof Error ? error.message : 'không rõ lý do';
+      const reason = failure instanceof Error ? failure.message : 'không rõ lý do';
       allocationNote = `Chưa xác nhận được dự án/công việc của hồ sơ (${reason}); kế toán chọn hạch toán.`;
     }
   }
@@ -551,6 +566,14 @@ export async function postSourcedVoucher(
   const errors = await submitErrors(db, tenantId, await loadVoucherRecord(db, tenantId, voucherId));
   if (errors.length) throw invalidMany('FINANCE_POST_INVALID', errors);
   const fields = sourceEventFields(source);
+  // Hồ sơ gắn với dự án/công việc mà phiếu chưa hạch toán (Workspace không trả lời lúc tạo phiếu, hoặc kế toán chưa chọn): ghi
+  // sổ lúc này thì khoản chi không bao giờ hiện ở dự án. Bắt chọn hạch toán trước, thay vì để mất số liệu mà không ai biết.
+  const requested = (source.snapshot ?? {}) as { projectId?: string; workItemId?: string };
+  if (procedureSource && (requested.projectId || requested.workItemId) && !row.alloc_project_id) {
+    throw invalid(
+      'Hồ sơ Quy trình này gắn với một dự án nhưng phiếu chưa hạch toán nội bộ cho dự án. Hãy chọn hạch toán cho phiếu rồi ghi sổ, nếu không khoản chi sẽ không hiện ở tab Tài chính của dự án.',
+    );
+  }
   await postApproval(db, tenantId, row, actor, note, procedureSource ? undefined : fields);
   const posted = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, voucherId])).rows[0] as Row;
   await db.query(

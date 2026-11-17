@@ -191,7 +191,7 @@ export class PostgresNotificationStore {
           sequence,
           'notification.updated',
           notification.id,
-          { notification },
+          { notification, toastEnabled: effectivePolicy.toastEnabled },
         );
         return {
           status: 'updated',
@@ -241,7 +241,7 @@ export class PostgresNotificationStore {
         sequence,
         'notification.created',
         notification.id,
-        { notification },
+        { notification, toastEnabled: effectivePolicy.toastEnabled },
       );
       return {
         status: 'created',

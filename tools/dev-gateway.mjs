@@ -21,6 +21,7 @@ export const ROUTES = [
   ['/api/shared/', 3342],
   ['/api/social/', 3343],
   ['/api/crm/', 3344],
+  ['/api/correspondence/', 3345],
   ['/api/auth/', 3333],
   ['/api/platform/', 3333],
   ['/modules/procedure', 3003],
@@ -31,6 +32,7 @@ export const ROUTES = [
   ['/modules/shared', 3010],
   ['/modules/social', 3011],
   ['/modules/crm', 3012],
+  ['/modules/correspondence', 3013],
   ['/modules/workspace', 3006],
 ];
 const DEFAULT_PORT = 3002;

@@ -74,6 +74,7 @@ interface FolderRecord {
   created_by: string;
   created_at: Date;
   updated_at: Date;
+  system_module?: string | null;
 }
 
 interface VersionRecord {
@@ -127,7 +128,7 @@ interface DocumentRecord {
 /** Ngày dạng chuỗi: pg trả `date` thành chuỗi nhờ cast `::text` trong câu truy vấn. */
 const FOLDER_COLUMNS = `f.id, f.parent_id, f.name, f.depth, f.is_active, f.doc_kind, f.doc_number,
   f.partner, f.issued_on::text AS issued_on, f.effective_to::text AS effective_to, f.note,
-  f.created_by, f.created_at, f.updated_at`;
+  f.created_by, f.created_at, f.updated_at, f.system_module`;
 
 const DOCUMENT_COLUMNS = `d.id, d.folder_id, d.name, d.description, d.doc_kind, d.doc_number, d.partner,
   d.issued_on::text AS issued_on, d.effective_from::text AS effective_from,
@@ -291,6 +292,66 @@ export class PostgresSharedStore implements SharedStore {
         } catch (error) {
           throw nameTaken(error, input.name);
         }
+      }),
+
+    systemRoot: (tenantId: string, module: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<FolderRecord>(
+          `SELECT ${FOLDER_COLUMNS}, 0 AS document_count, 0 AS total_document_count, 0 AS total_bytes
+             FROM shared_schema.folders f
+            WHERE f.system_module = $1 AND f.parent_id IS NULL AND f.is_active`,
+          [module],
+        );
+        return result.rows[0] ? mapFolder(result.rows[0]) : undefined;
+      }),
+
+    createSystemRoot: (tenantId: string, userId: string, module: string, name: string) =>
+      this.run(tenantId, async (pool) => {
+        try {
+          const result = await pool.query<FolderRecord>(
+            `INSERT INTO shared_schema.folders AS f (parent_id, name, depth, system_module, created_by)
+             VALUES (NULL, $1, 0, $2, $3)
+             RETURNING ${FOLDER_COLUMNS}, 0 AS document_count, 0 AS total_document_count, 0 AS total_bytes`,
+            [name, module, userId],
+          );
+          return mapFolder(first(result.rows));
+        } catch (error) {
+          throw nameTaken(error, name);
+        }
+      }),
+
+    activeChild: (tenantId: string, parentId: string, name: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<FolderRecord>(
+          `SELECT ${FOLDER_COLUMNS}, 0 AS document_count, 0 AS total_document_count, 0 AS total_bytes
+             FROM shared_schema.folders f
+            WHERE f.parent_id = $1 AND f.is_active AND lower(f.name) = lower($2)`,
+          [parentId, name],
+        );
+        return result.rows[0] ? mapFolder(result.rows[0]) : undefined;
+      }),
+
+    rootOf: (tenantId: string, folderId: string) =>
+      this.run(tenantId, async (pool) => {
+        // Đi ngược lên gốc; `guard` chặn vòng lặp nếu dữ liệu hỏng.
+        const result = await pool.query<{ id: string; system_module: string | null; all_active: boolean }>(
+          `WITH RECURSIVE up AS (
+               SELECT id, parent_id, system_module, is_active, 0 AS guard
+                 FROM shared_schema.folders WHERE id = $1
+               UNION ALL
+               SELECT f.id, f.parent_id, f.system_module, f.is_active, up.guard + 1
+                 FROM shared_schema.folders f JOIN up ON f.id = up.parent_id
+                WHERE up.guard < 10
+             )
+           SELECT (SELECT id FROM up WHERE parent_id IS NULL) AS id,
+                  (SELECT system_module FROM up WHERE parent_id IS NULL) AS system_module,
+                  bool_and(is_active) AS all_active
+             FROM up`,
+          [folderId],
+        );
+        const row = result.rows[0];
+        if (!row?.id) return undefined;
+        return { rootId: row.id, systemModule: row.system_module ?? undefined, active: row.all_active };
       }),
 
     update: (tenantId: string, folderId: string, input: FolderUpdate) =>
@@ -1177,6 +1238,7 @@ function mapFolder(row: FolderRecord): SharedFolder {
     createdBy: row.created_by,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
+    ...(row.system_module ? { systemModule: row.system_module } : {}),
   };
 }
 

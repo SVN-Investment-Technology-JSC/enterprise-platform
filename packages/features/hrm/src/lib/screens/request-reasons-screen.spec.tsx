@@ -762,13 +762,14 @@ describe('RequestReasonsScreen: lý do của Đơn xin nghỉ (loại nghỉ)', 
     });
   });
 
-  it('ngừng và dùng lại lý do nghỉ qua Popconfirm có ghi chú thay đổi bắt buộc; phép năm không ngừng được', async () => {
+  it('ngừng và dùng lại lý do nghỉ qua Popconfirm có ghi chú thay đổi bắt buộc; lý do mặc định không xóa được', async () => {
     render(<RequestReasonsScreen />);
     await screen.findByText('Nghỉ không lương');
-    // Phép năm không có mục Ngừng.
+    // Lý do mặc định (phép năm, nghỉ bù): ngừng được nhưng không có mục Xóa.
     fireEvent.click(screen.getByRole('button', { name: 'Thao tác với lý do nghỉ Phép năm' }));
     expect(await screen.findByRole('menuitem', { name: 'Sửa' })).toBeTruthy();
-    expect(screen.queryByRole('menuitem', { name: 'Ngừng' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Ngừng' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Xóa' })).toBeNull();
     fireEvent.keyDown(window, { key: 'Escape' });
 
     await rowAction('Thao tác với lý do nghỉ Nghỉ không lương', 'Ngừng');

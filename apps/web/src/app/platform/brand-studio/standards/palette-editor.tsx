@@ -7,6 +7,7 @@ import { useMemo, useState, type DragEvent, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconButton } from '../library/library-ui';
 import { CommitField } from './commit-field';
 import {
@@ -104,15 +105,16 @@ export function PaletteEditor({
               }}
               onDrop={(event) => drop(event, index)}
             >
-              <span
-                aria-hidden
-                className="cursor-grab touch-none text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                onMouseDown={() => setArmed(index)}
-                onMouseUp={() => setArmed(null)}
-                title="Kéo để đổi thứ tự"
-              >
-                <GripVertical className="size-4" />
-              </span>
+              <Hint label="Kéo để đổi thứ tự">
+                <span
+                  aria-hidden
+                  className="cursor-grab touch-none text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                  onMouseDown={() => setArmed(index)}
+                  onMouseUp={() => setArmed(null)}
+                >
+                  <GripVertical className="size-4" />
+                </span>
+              </Hint>
 
               <input
                 aria-label={`Màu ${token.label}`}
@@ -132,9 +134,9 @@ export function PaletteEditor({
                 />
                 <p className="mt-0.5 flex items-center gap-1 px-1.5 text-[11px] text-slate-400">
                   {used > 0 ? <Lock aria-hidden className="size-3" /> : null}
-                  <code className="font-mono" title={used > 0 ? 'Khoá không đổi khi màu đang được icon dùng' : 'Khoá tự đổi theo tên khi chưa có icon dùng'}>
-                    {token.key}
-                  </code>
+                  <Hint label={used > 0 ? 'Khoá không đổi khi màu đang được icon dùng' : 'Khoá tự đổi theo tên khi chưa có icon dùng'}>
+                    <code className="font-mono">{token.key}</code>
+                  </Hint>
                   <span aria-hidden>·</span>
                   <span>{used > 0 ? `${used} icon dùng` : 'chưa dùng'}</span>
                 </p>

@@ -3,8 +3,9 @@
 import type { BrandPalette, IconDocument } from '@enterprise-platform/shared-brand-icon';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconSvg } from '../icon-svg';
-import { IconActions, type IconActionHandlers } from './icon-actions';
+import { IconActionsMenu, type IconActionHandlers } from './icon-actions';
 import { SelectBox, StatusChip, categoryLabel } from './library-ui';
 import { asRoute, editorPath } from './routes';
 
@@ -43,9 +44,9 @@ export function IconTile({
           <IconSvg className="size-16" doc={doc} palette={palette} />
         </span>
         <span className="block min-w-0 px-0.5">
-          <span className="block truncate text-sm font-medium text-slate-900" title={doc.name}>
-            {doc.name}
-          </span>
+          <Hint label={doc.name}>
+            <span className="block truncate text-sm font-medium text-slate-900">{doc.name}</span>
+          </Hint>
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <StatusChip status={doc.status} />
             <span className="text-[11px] text-slate-500">{categoryLabel(doc.category)}</span>
@@ -62,9 +63,9 @@ export function IconTile({
         <SelectBox checked={selected} label={`Chọn ${doc.name}`} onChange={onSelect} />
       </span>
 
-      <IconActions
+      <IconActionsMenu
         {...handlers}
-        className="absolute right-3 top-3 rounded-md border border-slate-200 bg-white p-0.5 opacity-0 shadow-sm transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+        className="absolute right-3 top-3 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
         doc={doc}
         preset={preset}
       />

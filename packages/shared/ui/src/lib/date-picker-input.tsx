@@ -19,6 +19,8 @@ export interface DatePickerInputProps {
   'aria-label'?: string;
   /** Chiều cao ô nhập (px). Mặc định 32; dùng 38 để thẳng hàng với SearchableSelect. */
   height?: number;
+  /** Hiện nút xoá ngày (mặc định có). Tắt khi ô luôn phải có giá trị. */
+  allowClear?: boolean;
 }
 
 const DISPLAY_FORMAT = 'DD/MM/YYYY';
@@ -41,6 +43,7 @@ export function DatePickerInput({
   name,
   'aria-label': ariaLabel,
   height = 32,
+  allowClear = true,
 }: DatePickerInputProps) {
   const parsed = value ? dayjs(value) : null;
   const current = parsed && parsed.isValid() ? parsed : null;
@@ -54,7 +57,7 @@ export function DatePickerInput({
       format={DISPLAY_FORMAT}
       placeholder={placeholder}
       disabled={disabled}
-      allowClear
+      allowClear={allowClear}
       needConfirm={false}
       disabledDate={(date) =>
         Boolean(
@@ -93,6 +96,12 @@ export interface MonthPickerInputProps {
   disabled?: boolean;
   id?: string;
   height?: number;
+  /** Tháng sớm nhất được chọn (YYYY-MM); các tháng trước đó bị làm mờ. */
+  min?: string;
+  /** Tháng muộn nhất được chọn (YYYY-MM). */
+  max?: string;
+  /** Cho phép xóa giá trị bằng nút xóa; mặc định có. */
+  allowClear?: boolean;
 }
 
 /** Ô chọn tháng (Ant Design), giá trị vào/ra YYYY-MM, hiển thị mm/yyyy. */
@@ -105,6 +114,9 @@ export function MonthPickerInput({
   disabled,
   id,
   height = 32,
+  min,
+  max,
+  allowClear = true,
 }: MonthPickerInputProps) {
   const parsed = value ? dayjs(`${value}-01`) : null;
   const current = parsed && parsed.isValid() ? parsed : null;
@@ -119,8 +131,12 @@ export function MonthPickerInput({
       format="MM/YYYY"
       placeholder={placeholder}
       disabled={disabled}
-      allowClear
+      allowClear={allowClear}
       needConfirm={false}
+      disabledDate={(date) => {
+        const key = date.format('YYYY-MM');
+        return Boolean((min && key < min) || (max && key > max));
+      }}
       onChange={(date) => onChange?.(date ? date.format('YYYY-MM') : '')}
     />
   );

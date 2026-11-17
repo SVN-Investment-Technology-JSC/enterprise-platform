@@ -8,6 +8,7 @@ import {
   CheckCheck,
   ChevronRight,
   Handshake,
+  Stamp,
   Landmark,
   LoaderCircle,
   Package,
@@ -433,7 +434,12 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     async (notification: NotificationRecord) => {
       if (!notification.readAt) await markRead(notification.id, true);
       const target = safeDeepLink(notification.deepLink);
-      if (target && typeof window !== 'undefined') window.location.assign(target);
+      if (target && typeof window !== 'undefined') {
+        // Liên kết chỉ đổi phần # của trang đang mở (vd. mở một công văn) không tải lại trang:
+        // đóng ngăn thông báo để thấy ngay nội dung vừa mở.
+        setDrawerOpen(false);
+        window.location.assign(target);
+      }
     },
     [markRead],
   );
@@ -1060,6 +1066,7 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   maintenance: Wrench,
   social: Newspaper,
   crm: Handshake,
+  correspondence: Stamp,
   chat: MessagesSquare,
 };
 
@@ -1074,6 +1081,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
     crm: 'CRM',
+    correspondence: 'Văn thư',
     chat: 'Chat nội bộ',
   } as const)[module];
 }
@@ -1134,6 +1142,7 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   assignment: 'Giao việc',
   calendar: 'Lịch',
   'calendar-reminder': 'Nhắc lịch',
+  comment: 'Trao đổi',
   deadline: 'Hạn xử lý',
   dispatch: 'Điều phối',
   document: 'Tài liệu',

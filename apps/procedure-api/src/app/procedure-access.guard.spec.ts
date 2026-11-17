@@ -35,3 +35,29 @@ describe('Procedure capability mapping', () => {
     expect(request.procedureActor).toMatchObject({ canDesign, canPublish, canCreateInstances, isOverride });
   });
 });
+
+describe('Route nội bộ của Quy trình', () => {
+  const originalToken = process.env['INTERNAL_SERVICE_TOKEN'];
+  afterEach(() => {
+    if (originalToken === undefined) delete process.env['INTERNAL_SERVICE_TOKEN'];
+    else process.env['INTERNAL_SERVICE_TOKEN'] = originalToken;
+  });
+
+  it('TC-TSK-03: PUT thông tin nguồn bằng phiên người dùng (không có service token) bị từ chối 401', async () => {
+    process.env['INTERNAL_SERVICE_TOKEN'] = 'service-token';
+    const register = jest.fn();
+    const guard = new ProcedureAccessGuard(
+      { register } as unknown as TenantDatabaseRegistry,
+      { load: jest.fn() } as unknown as TenantOrganizationContextClient,
+    );
+    const request = {
+      method: 'PUT',
+      path: '/api/procedure/v1/internal/instances/i-1/source-summary',
+      headers: { authorization: 'Bearer token', 'x-csrf-token': 'csrf', 'x-tenant-id': 'tenant' },
+      cookies: { ep_csrf: 'csrf' },
+    };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+    expect(register).not.toHaveBeenCalled();
+  });
+});

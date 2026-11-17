@@ -6,6 +6,7 @@ import {
   type CalendarEvent,
   type CalendarOccurrence,
   type CalendarRangeResponse,
+  type ProjectRequest,
   type CreateEventRequest,
   type EventMutationResponse,
   type EventParticipant,
@@ -84,8 +85,20 @@ export class CalendarService {
     ];
     const exceptions = await this.store.calendar.listExceptions(actor.tenantId, seriesIds);
 
+    // Đơn công tác gắn dự án hiện trên lịch của dự án (không phải lịch cá nhân). Dựng lúc đọc từ bảng đơn của dự án
+    // chứ không chép thành sự kiện: đơn đổi ngày, bị từ chối hay huỷ thì lịch tự theo, không có bản thứ hai để đồng bộ.
+    const trips = query.projectId
+      ? buildBusinessTripOccurrences(
+          await this.store.projectRequest.listByProject(actor.tenantId, query.projectId),
+          from,
+          to,
+        )
+      : [];
+
     return {
-      occurrences: buildOccurrences(events, exceptions, from, to),
+      occurrences: [...buildOccurrences(events, exceptions, from, to), ...trips].sort((a, b) =>
+        a.startAt.localeCompare(b.startAt),
+      ),
       from: from.toISOString(),
       to: to.toISOString(),
     };
@@ -651,6 +664,66 @@ export function buildOccurrences(
   }
 
   return result.sort((a, b) => a.startAt.localeCompare(b.startAt));
+}
+
+/** Loại đơn công tác ở bảng đơn của dự án (module nguồn HRM). */
+const BUSINESS_TRIP_KIND = 'business_trip';
+/** Chỉ đơn còn hiệu lực mới hiện: bị từ chối, huỷ hay huỷ hiệu lực thì không còn đi công tác. */
+const VISIBLE_TRIP_STATUSES: readonly string[] = ['PENDING', 'APPROVED'];
+/** Đơn từ ghi ngày không kèm giờ; dựng mốc theo giờ Việt Nam để ô ngày trên lưới không lệch. */
+const TRIP_UTC_OFFSET = '+07:00';
+
+/**
+ * Đơn công tác của dự án rơi vào `[from, to]`, dựng thành lần xuất hiện cả ngày.
+ *
+ * Đơn tự gắn vào dự án nhờ trùng thời gian một đơn công tác khác (nghỉ phép, làm thêm…) không phải công tác nên
+ * không hiện ở đây.
+ */
+export function buildBusinessTripOccurrences(
+  requests: readonly ProjectRequest[],
+  from: Date,
+  to: Date,
+): CalendarOccurrence[] {
+  const result: CalendarOccurrence[] = [];
+  for (const request of requests) {
+    if (request.sourceKind !== BUSINESS_TRIP_KIND || request.linkedViaKind) continue;
+    if (!VISIBLE_TRIP_STATUSES.includes(request.status) || !request.fromDate) continue;
+    const startAt = new Date(`${request.fromDate}T00:00:00${TRIP_UTC_OFFSET}`);
+    const endAt = new Date(`${request.toDate ?? request.fromDate}T23:59:59${TRIP_UTC_OFFSET}`);
+    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) continue;
+    if (startAt.getTime() > to.getTime() || endAt.getTime() < from.getTime()) continue;
+    const who = request.requesterName?.trim();
+    result.push({
+      eventId: `trip:${request.id}`,
+      occurrenceDate: request.fromDate,
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      // Tên người đi lên trước: ô lịch hẹp nên phần đầu tiêu đề là phần đọc được.
+      title: `${who ? `${who} · ` : ''}công tác${request.status === 'PENDING' ? ' (chờ duyệt)' : ''}`,
+      eventType: 'activity',
+      allDay: true,
+      timezone: 'Asia/Ho_Chi_Minh',
+      projectId: request.projectId,
+      organizerUserId: request.requesterUserId,
+      isException: false,
+      isRecurring: false,
+      businessTrip: {
+        requestId: request.id,
+        code: request.code,
+        requesterUserId: request.requesterUserId,
+        requesterName: request.requesterName,
+        status: request.status as 'PENDING' | 'APPROVED',
+        requestTypeLabel: request.requestTypeLabel,
+        fromDate: request.fromDate,
+        toDate: request.toDate,
+        submittedAt: request.submittedAt,
+        statusChangedAt: request.statusChangedAt,
+        procedureInstanceCode: request.procedureInstanceCode,
+        details: request.details,
+      },
+    });
+  }
+  return result;
 }
 
 function toOccurrence(

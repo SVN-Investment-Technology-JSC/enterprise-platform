@@ -1,6 +1,7 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { Module } from '@nestjs/common';
 import { CompanyDocumentService } from './application/company-document.service.js';
+import { FilingService } from './application/filing.service.js';
 import { FolderAccessService } from './application/folder-access.js';
 import { FolderSharingService } from './application/folder-sharing.service.js';
 import { ORGANIZATION_READER, type OrganizationReader } from './application/organization.port.js';
@@ -68,6 +69,12 @@ import { SharedController } from './presentation/shared.controller.js';
       useFactory: (store: SharedStore, quota: StorageQuotaService, access: FolderAccessService) =>
         new CompanyDocumentService(store, quota, access),
       inject: [SHARED_STORE, StorageQuotaService, FolderAccessService],
+    },
+    {
+      // Lưu tệp của phân hệ khác (Văn thư) vào kho, qua route nội bộ.
+      provide: FilingService,
+      useFactory: (store: SharedStore, quota: StorageQuotaService) => new FilingService(store, quota),
+      inject: [SHARED_STORE, StorageQuotaService],
     },
   ],
   exports: [

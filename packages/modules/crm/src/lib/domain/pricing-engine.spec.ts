@@ -27,7 +27,6 @@ const standardList: PricingPriceList = {
   validFrom: '2026-01-01',
   validTo: null,
   status: 'ACTIVE',
-  customerGroupIds: [],
   items: [
     { materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 },
     { materialId: OTHER, unit: 'Cái', price: 500_000, vatRate: 10 },
@@ -108,7 +107,6 @@ describe('engine giá: thứ tự áp giá', () => {
     id: 'list-dl1',
     code: 'BG-DL1',
     isStandard: false,
-    customerGroupIds: [VIP],
     items: [{ materialId: CAP, unit: 'Cái', price: 950_000, vatRate: 10 }],
   };
   const contractPrice = {
@@ -123,42 +121,47 @@ describe('engine giá: thứ tự áp giá', () => {
 
   it('TC-PRC-03: có giá hợp đồng thì dùng giá hợp đồng', () => {
     const [priced] = priceQuote(
-      input({ customerGroupId: VIP, priceLists: [standardList, groupList], contractPrices: [contractPrice] }),
+      input({ customerPriceListId: 'list-dl1', priceLists: [standardList, groupList], contractPrices: [contractPrice] }),
     ).lines;
     expect(priced).toMatchObject({ listPrice: 900_000, priceSource: 'CONTRACT', priceReferenceCode: 'HD-01', vatRate: 10 });
   });
 
-  it('TC-PRC-04: không có giá hợp đồng thì dùng bảng giá nhóm', () => {
-    const [priced] = priceQuote(input({ customerGroupId: VIP, priceLists: [standardList, groupList] })).lines;
+  it('TC-PRC-04: không có giá hợp đồng thì dùng bảng giá khách đã chọn (D3-38)', () => {
+    const [priced] = priceQuote(input({ customerPriceListId: 'list-dl1', priceLists: [standardList, groupList] })).lines;
     expect(priced).toMatchObject({ listPrice: 950_000, priceSource: 'GROUP_LIST', priceReferenceCode: 'BG-DL1' });
   });
 
-  it('TC-PRC-05: khách không thuộc nhóm có bảng giá thì dùng bảng giá chuẩn', () => {
-    const [priced] = priceQuote(input({ customerGroupId: PROJECT, priceLists: [standardList, groupList] })).lines;
+  it('TC-PRC-05: khách chưa chọn bảng giá thì dùng bảng giá chuẩn, dù nhóm khách nào', () => {
+    const [priced] = priceQuote(input({ customerPriceListId: null, priceLists: [standardList, groupList] })).lines;
     expect(priced).toMatchObject({ listPrice: 1_000_000, priceSource: 'STANDARD_LIST', priceReferenceCode: 'BG-CHUAN' });
+  });
+
+  it('D3-38: nhóm khách không còn chọn bảng giá; bảng của khách khác không áp', () => {
+    expect(priceQuote(input({ customerGroupId: VIP, priceLists: [standardList, groupList] })).lines[0].priceSource).toBe('STANDARD_LIST');
+    expect(priceQuote(input({ customerPriceListId: 'list-khac', priceLists: [standardList, groupList] })).lines[0].priceSource).toBe('STANDARD_LIST');
   });
 
   it('TC-PRC-06: giá hợp đồng đã hết hạn hôm qua thì không dùng', () => {
     const expired = { ...contractPrice, validTo: '2026-12-14' };
     const withGroup = priceQuote(
-      input({ customerGroupId: VIP, priceLists: [standardList, groupList], contractPrices: [expired] }),
+      input({ customerPriceListId: 'list-dl1', priceLists: [standardList, groupList], contractPrices: [expired] }),
     ).lines[0];
     expect(withGroup).toMatchObject({ listPrice: 950_000, priceSource: 'GROUP_LIST' });
     const withoutGroup = priceQuote(input({ priceLists: [standardList], contractPrices: [expired] })).lines[0];
     expect(withoutGroup).toMatchObject({ listPrice: 1_000_000, priceSource: 'STANDARD_LIST' });
   });
 
-  it('TC-PRC-01: bảng nhóm 01/12–31/12 áp ngày 31/12, sang 01/01 rơi về bảng chuẩn', () => {
+  it('TC-PRC-01: bảng của khách 01/12–31/12 áp ngày 31/12, sang 01/01 rơi về bảng chuẩn', () => {
     const december = { ...groupList, validFrom: '2026-12-01', validTo: '2026-12-31' };
     const at = (date: string) =>
-      priceQuote(input({ date, customerGroupId: VIP, priceLists: [standardList, december] })).lines[0].priceSource;
+      priceQuote(input({ date, customerPriceListId: 'list-dl1', priceLists: [standardList, december] })).lines[0].priceSource;
     expect(at('2026-12-31')).toBe('GROUP_LIST');
     expect(at('2027-01-01')).toBe('STANDARD_LIST');
   });
 
   it('bảng giá ngừng áp dụng hoặc khác đơn vị tính thì bỏ qua', () => {
     const inactive = { ...groupList, status: 'INACTIVE' as const };
-    expect(priceQuote(input({ customerGroupId: VIP, priceLists: [standardList, inactive] })).lines[0].priceSource).toBe(
+    expect(priceQuote(input({ customerPriceListId: 'list-dl1', priceLists: [standardList, inactive] })).lines[0].priceSource).toBe(
       'STANDARD_LIST',
     );
     expect(() => priceQuote(input({ lines: [{ ...line(1), unit: 'Thùng' }] }))).toThrow(

@@ -52,9 +52,12 @@ export class PricingService {
     const date = optionalDate(request?.date, 'ngày tính giá') ?? vietnamToday(this.now());
     const customerId = optionalId(request?.customerId, 'khách hàng');
     let customerGroupId = optionalId(request?.customerGroupId, 'nhóm khách hàng');
+    // Chưa chọn khách: thử theo bảng giá chọn ở ô "Bảng giá" (rỗng là bảng chuẩn); có khách thì theo hồ sơ khách (D3-38).
+    let customerPriceListId = optionalId(request?.priceListId, 'bảng giá');
     if (customerId) {
       const customer = await this.customers.get(actor, customerId);
       customerGroupId = customer.groupId;
+      customerPriceListId = customer.priceListId ?? null;
     }
     const rawLines: unknown = request?.lines;
     if (!Array.isArray(rawLines) || rawLines.length === 0) {
@@ -67,7 +70,7 @@ export class PricingService {
     const materialIds = [...new Set(lines.map((line) => line.materialId))];
 
     const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
-      this.store.priceListsForPricing(actor.tenantId, date, customerGroupId, materialIds),
+      this.store.priceListsForPricing(actor.tenantId, date, customerPriceListId, materialIds),
       this.store.policiesForPricing(actor.tenantId, date),
       this.store.discountCapPercent(actor.tenantId),
       this.catalog.materials(actor.tenantId, materialIds),
@@ -94,6 +97,7 @@ export class PricingService {
       date,
       customerId,
       customerGroupId,
+      customerPriceListId,
       lines: enriched,
       priceLists,
       policies,

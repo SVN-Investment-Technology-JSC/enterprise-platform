@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import { usePagedList } from '../components/use-paged-list';
+import { WarehouseSelect } from '../components/warehouse-select';
 import { createContract, errorMessage, listContracts, listCustomers, updateContract } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { CONTRACT_STATUS_TONE, formatDay } from '../fulfillment.model';
@@ -246,8 +247,8 @@ export function ContractFormDialog({
         <Field label="Bảo hành (tháng)">
           <input className={styles.input} inputMode="numeric" value={warrantyMonths} onChange={(event) => setWarrantyMonths(event.target.value.replace(/[^\d]/g, ''))} />
         </Field>
-        <Field label="Mã kho giữ hàng" hint="Bắt buộc trước khi xác nhận nếu có dòng hàng tồn kho có số lượng">
-          <input className={styles.input} maxLength={50} value={warehouseCode} onChange={(event) => setWarehouseCode(event.target.value.toUpperCase())} />
+        <Field label="Kho giữ hàng mặc định" hint="Dòng không chọn kho riêng sẽ giữ hàng ở kho này khi xác nhận; chọn kho từng dòng ở bảng dòng hàng">
+          <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
         <Field label="Người phụ trách" hint="Bỏ trống: chính bạn">
           <SearchableSelect options={peopleOptions(people)} value={ownerUserId} placeholder="Chính bạn" clearable onChange={setOwnerUserId} />

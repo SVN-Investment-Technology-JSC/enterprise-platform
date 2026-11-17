@@ -1,6 +1,7 @@
 'use client';
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Hint } from '../components/hint';
 
 const BASE =
   'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-slate-600 transition-colors outline-none ' +
@@ -22,16 +23,17 @@ export function IconButton({ label, shortcut, pressed, size = 'md', className = 
   const dimension = size === 'sm' ? 'size-7' : 'size-8';
   const state = pressed ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-700' : '';
   return (
-    <button
-      type={type}
-      title={shortcut ? `${label} (${shortcut})` : label}
-      aria-label={label}
-      aria-pressed={pressed}
-      className={`${BASE} ${dimension} ${state} ${className}`}
-      {...rest}
-    >
-      {children}
-    </button>
+    <Hint label={shortcut ? `${label} (${shortcut})` : label}>
+      <button
+        type={type}
+        aria-label={label}
+        aria-pressed={pressed}
+        className={`${BASE} ${dimension} ${state} ${className}`}
+        {...rest}
+      >
+        {children}
+      </button>
+    </Hint>
   );
 }
 

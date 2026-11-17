@@ -262,13 +262,7 @@ async function lockBlockers(
     });
   if (!periods.others.length) {
     const problems = await dayProblems(db, tenant, range, periods.exact?.id ?? null, today);
-    if (problems.abnormal.days)
-      out.push({
-        code: 'ABNORMAL_DAYS',
-        message: `Còn ${problems.abnormal.days} ngày công bất thường (${problems.abnormal.employees} nhân viên) cần xử lý`,
-        count: problems.abnormal.days,
-        items: problems.abnormal.items,
-      });
+    // Ngày công bất thường (thiếu chấm công vào/ra...) không chặn chốt: ngày đó tính 0 công, HR xử lý sau bằng điều chỉnh công.
     if (problems.unscheduled.days)
       out.push({
         code: 'UNSCHEDULED_DAYS',
@@ -356,14 +350,6 @@ export async function closeMonth(
     result,
     month: range.month,
   });
-  if (result.abnormal > 0)
-    throw blocked('Chưa thể chốt công', [
-      {
-        code: 'ABNORMAL_DAYS',
-        message: `Sau khi tính, còn ${result.abnormal} dòng công bất thường (kể cả ngày làm việc chưa có ca) cần xử lý`,
-        count: result.abnormal,
-      },
-    ]);
   await lockTimesheetPeriod(db, tenant, period.id, actorId);
   await lifecycleAudit(db, tenant, actorId, 'TIMESHEET_MONTH_CLOSED', period.id, {
     month: range.month,

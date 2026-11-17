@@ -193,6 +193,7 @@ export function DatePickerInput({
 }
 
 export interface MonthPickerInputProps {
+  'aria-label'?: string;
   value?: string; // YYYY-MM
   onChange?: (val: string) => void;
   placeholder?: string;
@@ -200,19 +201,28 @@ export interface MonthPickerInputProps {
   disabled?: boolean;
   id?: string;
   height?: number;
+  min?: string;
+  max?: string;
+  allowClear?: boolean;
 }
 
 export function MonthPickerInput({
+  'aria-label': ariaLabel,
   value,
   onChange,
   placeholder = 'mm/yyyy',
   className,
   disabled,
   id,
+  min,
+  max,
 }: MonthPickerInputProps) {
   return (
     <input
       id={id}
+      aria-label={ariaLabel}
+      min={min}
+      max={max}
       type="month"
       value={value ?? ''}
       placeholder={placeholder}

@@ -24,6 +24,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { asRoute, LIBRARY_PATH } from '../library/routes';
 import type { ServerIconInfo } from '../store';
+import { Hint } from '../components/hint';
 import { IconButton, VerticalRule } from './editor-controls';
 import type { DisplayMode } from './tool';
 
@@ -109,9 +110,9 @@ function StatusChips({ doc, unsaved, info }: { doc: IconDocument; unsaved: boole
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {info ? (
-        <span className={`${CHIP} bg-slate-100 text-slate-600 tabular-nums`} title="Phiên bản đã lưu trên máy chủ">
-          v{info.version}
-        </span>
+        <Hint label="Phiên bản đã lưu trên máy chủ">
+          <span className={`${CHIP} bg-slate-100 text-slate-600 tabular-nums`}>v{info.version}</span>
+        </Hint>
       ) : null}
       <span className={`${CHIP} ${published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
         {label}
@@ -135,9 +136,11 @@ function BackButton({ dirty }: { dirty: boolean }) {
 
   if (!dirty) {
     return (
-      <Link aria-label="Về thư viện" className={className} href={href} title="Về thư viện">
-        <ArrowLeft className="size-4" />
-      </Link>
+      <Hint label="Về thư viện">
+        <Link aria-label="Về thư viện" className={className} href={href}>
+          <ArrowLeft className="size-4" />
+        </Link>
+      </Hint>
     );
   }
   return (
@@ -150,9 +153,11 @@ function BackButton({ dirty }: { dirty: boolean }) {
       placement="bottom-start"
       title="Rời trình thiết kế?"
     >
-      <button aria-label="Về thư viện" className={className} title="Về thư viện" type="button">
-        <ArrowLeft className="size-4" />
-      </button>
+      <Hint label="Về thư viện">
+        <button aria-label="Về thư viện" className={className} type="button">
+          <ArrowLeft className="size-4" />
+        </button>
+      </Hint>
     </Popconfirm>
   );
 }
@@ -227,36 +232,39 @@ export function EditorTopbar(props: EditorTopbarProps) {
           </IconButton>
         ) : null}
         {canPublish ? (
+          <Hint label="Phát hành phiên bản đã lưu mới nhất" wrapperClassName="">
+            <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-emerald-700 transition-colors outline-none hover:bg-emerald-50 focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:pointer-events-none disabled:opacity-50"
+              disabled={props.publishing}
+              onClick={props.onPublish}
+              type="button"
+            >
+              {props.publishing ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              Phát hành
+            </button>
+          </Hint>
+        ) : null}
+        <Hint label="Xuất SVG, TSX, sprite">
           <button
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-emerald-700 transition-colors outline-none hover:bg-emerald-50 focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:pointer-events-none disabled:opacity-50"
-            disabled={props.publishing}
-            onClick={props.onPublish}
-            title="Phát hành phiên bản đã lưu mới nhất"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-slate-700 transition-colors outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            onClick={props.onExport}
             type="button"
           >
-            {props.publishing ? <LoaderCircle className="size-4 animate-spin" /> : null}
-            Phát hành
+            <Download className="size-4" />
+            Xuất
           </button>
-        ) : null}
-        <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-slate-700 transition-colors outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-500/60"
-          onClick={props.onExport}
-          title="Xuất SVG, TSX, sprite"
-          type="button"
-        >
-          <Download className="size-4" />
-          Xuất
-        </button>
-        <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:pointer-events-none disabled:opacity-50"
-          disabled={saving || !unsaved}
-          onClick={props.onSave}
-          title="Lưu (Ctrl+S)"
-          type="button"
-        >
-          {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Lưu
-        </button>
+        </Hint>
+        <Hint label="Lưu (Ctrl+S)" wrapperClassName="">
+          <button
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors outline-none hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:pointer-events-none disabled:opacity-50"
+            disabled={saving || !unsaved}
+            onClick={props.onSave}
+            type="button"
+          >
+            {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
+            Lưu
+          </button>
+        </Hint>
       </div>
     </div>
   );

@@ -55,7 +55,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LINES = 200;
 const MAX_INVOICES = 50;
 const MAX_RELATED = 50;
-const ALLOCATION_TYPES: readonly string[] = ['PROJECT', 'WORK_ITEM'];
 
 /** Ngày dạng YYYY-MM-DD và hợp lệ theo lịch (không nhận 2026-02-30). */
 export function isValidDate(value: unknown): value is string {
@@ -187,24 +186,26 @@ export function normalizeVoucherInput(input: SaveFinanceVoucherRequest): Normali
   };
 }
 
-/** Hạch toán: dự án, hoặc công việc (kèm dự án chứa nó). Lệnh chuyển tiền chuyển giữa hai tài khoản công ty nên không hạch toán. */
+/** Hạch toán nội bộ: chỉ ở cấp dự án. Lệnh chuyển tiền chuyển giữa hai tài khoản công ty nên không hạch toán. */
 function normalizeAllocation(raw: FinanceAllocationInput | null | undefined, isTransfer: boolean): NormalizedVoucher['allocation'] {
   if (raw === undefined || raw === null) return null;
   if (isTransfer) throw invalid('Lệnh chuyển tiền không hạch toán cho dự án hoặc công việc.');
-  if (typeof raw !== 'object' || !ALLOCATION_TYPES.includes(raw.type)) throw invalid('Hình thức hạch toán không hợp lệ.');
+  if (typeof raw !== 'object') throw invalid('Hình thức hạch toán không hợp lệ.');
+  // Công việc không còn là đích hạch toán: báo rõ thay vì lặng lẽ bỏ, để client cũ không tưởng đã hạch toán xuống công việc.
+  if ((raw as { type?: unknown }).type !== 'PROJECT') throw invalid('Hạch toán nội bộ chỉ ở cấp dự án.');
+  if ((raw as { workItemId?: unknown }).workItemId) throw invalid('Hạch toán nội bộ chỉ ở cấp dự án, không kèm công việc.');
   const projectId = uuidOrNull(raw.projectId, 'Dự án hạch toán');
   if (!projectId) throw invalid('Chọn dự án để hạch toán.');
-  const workItemId = uuidOrNull(raw.workItemId, 'Công việc hạch toán');
-  if (raw.type === 'WORK_ITEM' && !workItemId) throw invalid('Chọn công việc để hạch toán.');
-  if (raw.type === 'PROJECT' && workItemId) throw invalid('Hạch toán cho dự án không kèm công việc.');
-  return { type: raw.type, projectId: projectId.toLowerCase(), workItemId: workItemId ? workItemId.toLowerCase() : null };
+  return { type: 'PROJECT', projectId: projectId.toLowerCase(), workItemId: null };
 }
 
 export interface SubmitReferences {
   account: { name: string; isActive: boolean; openingDate: string } | null;
   dest: { name: string; isActive: boolean; openingDate: string } | null;
-  reason: { kind: string; isActive: boolean } | null;
+  reason: { kind: string; isActive: boolean; requireProject?: boolean } | null;
   counterpartyGroup: { isActive: boolean } | null;
+  /** Cài đặt "Bắt buộc hạch toán dự án" của tenant; vắng là không bắt buộc. */
+  requireAllocation?: boolean;
 }
 
 /** Điều kiện để gửi duyệt: trả danh sách lỗi (rỗng nghĩa là hợp lệ). */
@@ -224,6 +225,11 @@ export function validateForSubmit(voucher: NormalizedVoucher, refs: SubmitRefere
     if (!voucher.counterpartyGroupId) errors.push(voucher.kind === 'RECEIPT' ? 'Chọn đối tượng thu.' : 'Chọn đối tượng chi.');
     else if (!refs.counterpartyGroup) errors.push('Đối tượng không tồn tại.');
     else if (!refs.counterpartyGroup.isActive) errors.push('Đối tượng đã ngừng sử dụng.');
+  }
+  // Bắt buộc chọn dự án khi cài đặt chung bật, hoặc khi lý do của phiếu bắt buộc (như "Chi theo dự án").
+  if (!isTransfer && !voucher.allocation) {
+    if (refs.reason?.requireProject) errors.push('Lý do đã chọn bắt buộc hạch toán cho dự án: hãy chọn dự án ở mục Hạch toán nội bộ.');
+    else if (refs.requireAllocation) errors.push('Chọn dự án ở mục Hạch toán nội bộ (tenant đang bắt buộc hạch toán dự án).');
   }
   const accountLabel = isTransfer ? 'tài khoản nguồn' : voucher.kind === 'RECEIPT' ? 'tài khoản thu' : 'tài khoản chi';
   if (!voucher.accountId) errors.push(`Chọn ${accountLabel}.`);

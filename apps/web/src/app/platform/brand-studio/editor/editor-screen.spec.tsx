@@ -136,10 +136,12 @@ describe('EditorScreen', () => {
     expect(screen.getByTestId('preview-panel')).toBeTruthy();
   });
 
-  it('thanh công cụ có chú thích kèm phím tắt và đánh dấu công cụ đang dùng', () => {
+  it('thanh công cụ có chú thích kèm phím tắt và đánh dấu công cụ đang dùng', async () => {
     render(<EditorScreen iconId="icon-1" />);
     const select = screen.getByRole('button', { name: 'Chọn' });
-    expect(select.getAttribute('title')).toBe('Chọn (V)');
+    expect(select.getAttribute('title')).toBeNull();
+    fireEvent.focus(select);
+    expect(await screen.findByText('Chọn (V)')).toBeTruthy();
     expect(select.getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Bút' }));

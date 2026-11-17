@@ -1,3 +1,4 @@
+import type { ProcedureSourceSummary } from './procedure-source-summary.js';
 import type {
   ProcedureAssignmentResolution,
   ProcedureAttributeDefinition,
@@ -453,6 +454,8 @@ export interface ProcedureInstance {
   sourceType?: ProcedureInstanceSourceType;
   /** Id of the originating record, e.g. a maintenance occurrence. */
   sourceId?: string;
+  /** Tóm tắt chứng từ gốc cho người duyệt (nhãn - giá trị, đường dẫn về chứng từ); rỗng khi nguồn không gửi. */
+  sourceSummary?: ProcedureSourceSummary | null;
   /** Liên kết với một công việc trong dự án Workspace, nếu hồ sơ được mở kèm dự án. */
   workspaceLink?: ProcedureWorkspaceLink;
   /** Người tạo đơn hộ cho người khởi tạo (`initiatedBy`); vắng là người khởi tạo tự tạo. */
@@ -610,6 +613,8 @@ export interface StartProcedureInstanceRequest {
   observerNames?: string[];
   /** Giá trị thuộc tính cấp quy trình, nhập ngay lúc mở hồ sơ. Khoá là mã thuộc tính. */
   processAttributeValues?: Record<string, ProcedureAttributeValue>;
+  /** Tóm tắt chứng từ gốc cho người duyệt; kiểm bằng `validateProcedureSourceSummary`. */
+  sourceSummary?: ProcedureSourceSummary | null;
   /** Initial process/current-step values, using canonical process:/step: keys. */
   attributeValues?: Record<string, ProcedureAttributeValue>;
   /** Reject stale queued submissions rather than silently changing their flow. */
@@ -628,7 +633,7 @@ export interface StartProcedureInstanceRequest {
    */
   submitterUserId?: string;
   submitterName?: string;
-  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request' hoặc 'finance_voucher'): xem CreateProcedureInstanceRequest. */
+  /** Chỉ dịch vụ nội bộ (sourceType của HRM, Tài chính hoặc Bán hàng): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
   /**
    * Gắn hồ sơ vào một dự án Workspace: hồ sơ mở ngay, còn công việc tương ứng
@@ -871,7 +876,9 @@ export type ProcedureInstanceSourceType =
   /** Duyệt đơn bán vượt hạn mức công nợ của Bán hàng; sourceId là id lần gửi duyệt. */
   | 'crm_order_credit'
   /** Duyệt phương án chào thầu của Bán hàng; sourceId là id vòng duyệt (`crm_schema.tender_plan_rounds`). */
-  | 'crm_tender_plan';
+  | 'crm_tender_plan'
+  /** Duyệt phương án kinh doanh (PAKD) trình riêng của Bán hàng; sourceId là id lần gửi duyệt (CRM phase 3, D3-30). */
+  | 'crm_business_plan';
 
 /**
  * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.
@@ -938,6 +945,8 @@ export interface CreateProcedureInstanceRequest {
   readonly title?: string;
   readonly sourceType?: ProcedureInstanceSourceType;
   readonly sourceId?: string;
+  /** Tóm tắt chứng từ gốc cho người duyệt; kiểm bằng `validateProcedureSourceSummary`. */
+  readonly sourceSummary?: ProcedureSourceSummary | null;
   /**
    * Thiết bị mà hồ sơ này gắn vào, lấy từ Kho.
    *
@@ -952,7 +961,7 @@ export interface CreateProcedureInstanceRequest {
   readonly initiatedByName?: string;
   /**
    * Tự hoàn thành bước S của người khởi tạo ngay trong giao dịch tạo hồ sơ.
-   * Chỉ nhận khi `sourceType` là 'hrm_request' hoặc 'finance_voucher' và gọi bằng service token. Không đủ
+   * Chỉ nhận khi `sourceType` là 'hrm_request', 'finance_voucher' hoặc nguồn Bán hàng (`crm_*`) và gọi bằng service token. Không đủ
    * điều kiện (bước đầu không chỉ có vai S, người khởi tạo không khớp phân công S)
    * thì bỏ qua, hồ sơ nằm ở bước đầu và kết quả có cảnh báo.
    */

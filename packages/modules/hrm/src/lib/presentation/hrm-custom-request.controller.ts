@@ -35,6 +35,7 @@ import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { rejectionNote, requireUuid } from '../infrastructure/hrm-validation.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 /**
  * Đơn của loại do quản trị tạo (engine GENERIC, kind `custom`). Quyền tạo như các đơn khác (`hrm.self.request`, hoặc
@@ -71,6 +72,7 @@ export class HrmCustomRequestController {
         tenantId,
         kind: 'custom',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: String(type.name),

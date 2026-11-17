@@ -21,7 +21,7 @@ const PRICE_MAX = 1e13;
 
 /**
  * Bảng giá (PRC-01). Ai có `crm.read` cũng đọc được (để lập báo giá); tạo,
- * sửa, xoá, gán nhóm cần `crm.manage`.
+ * sửa, xoá cần `crm.manage`. Bảng giá không chuẩn chọn theo từng khách ở hồ sơ khách (D3-38), không gán nhóm.
  */
 export class PriceListService {
   constructor(
@@ -40,26 +40,15 @@ export class PriceListService {
   async create(actor: CrmActor, request: SavePriceListRequest): Promise<PriceListDetail> {
     requireSalesManager(actor);
     const record = priceListRecord(request);
-    const groups = groupIds(request.customerGroupIds, record.isStandard) ?? [];
-    const id = await this.lists.createPriceList(actor.tenantId, record, groups, actor.userId);
+    const id = await this.lists.createPriceList(actor.tenantId, record, actor.userId);
     return this.require(actor.tenantId, id);
   }
 
   async update(actor: CrmActor, id: string, request: SavePriceListRequest): Promise<PriceListDetail> {
     requireSalesManager(actor);
     const record = priceListRecord(request);
-    const groups = groupIds(request.customerGroupIds, record.isStandard);
-    const updated = isUuid(id) && (await this.lists.updatePriceList(actor.tenantId, id, record, groups, actor.userId));
+    const updated = isUuid(id) && (await this.lists.updatePriceList(actor.tenantId, id, record, actor.userId));
     if (!updated) throw notFound();
-    return this.require(actor.tenantId, id);
-  }
-
-  /** Gán lại nhóm khách; giữ nguyên phần đầu bảng giá. */
-  async assignGroups(actor: CrmActor, id: string, customerGroupIds: unknown): Promise<PriceListDetail> {
-    requireSalesManager(actor);
-    const current = await this.require(actor.tenantId, id);
-    const groups = groupIds(customerGroupIds ?? [], current.isStandard) ?? [];
-    await this.lists.updatePriceList(actor.tenantId, id, recordOf(current), groups, actor.userId);
     return this.require(actor.tenantId, id);
   }
 
@@ -189,30 +178,6 @@ export function priceListRecord(request: SavePriceListRequest): PriceListRecord 
 }
 
 /** Nhóm gán cho bảng giá; bảng chuẩn áp cho mọi khách nên không gán nhóm. */
-function groupIds(value: unknown, isStandard: boolean): string[] | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || value.some((id) => !isUuid(id))) {
-    throw new CrmValidationError('INVALID_REFERENCE', 'Nhóm khách hàng không hợp lệ.');
-  }
-  const ids = [...new Set(value.map((id: string) => id.toLowerCase()))];
-  if (isStandard && ids.length) {
-    throw new CrmValidationError('STANDARD_LIST_GROUPS', 'Bảng giá chuẩn áp cho mọi khách, không gán nhóm khách hàng.');
-  }
-  return ids;
-}
-
-function recordOf(list: PriceListDetail): PriceListRecord {
-  return {
-    code: list.code,
-    name: list.name,
-    isStandard: list.isStandard,
-    validFrom: list.validFrom,
-    validTo: list.validTo,
-    status: list.status,
-    note: list.note,
-  };
-}
-
 /** Số không âm trong khoảng; `label` cho lời báo lỗi. */
 export function boundedNumber(value: unknown, min: number, max: number, label: string, decimals: number): number {
   const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;

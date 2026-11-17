@@ -1025,6 +1025,16 @@ export interface HrmLeaveType {
    * API luôn trả trường này; chỉ lý do phép năm có lịch cộng phép và trừ quỹ phép.
    */
   readonly isAnnual?: boolean;
+  /**
+   * Lý do nghỉ bù (mỗi tenant tối đa một): trừ quỹ nghỉ bù thay cho quỹ phép năm.
+   * Cùng phép năm, đây là lý do mặc định: được ngừng hoặc dùng lại, không được xóa.
+   */
+  readonly isCompOff?: boolean;
+  /**
+   * Chỉ có ở lý do nghỉ bù khi lấy danh sách: true khi quy tắc làm thêm và nghỉ bù đang bật (hệ thống tính quỹ, giữ chỗ,
+   * chặn vượt số dư); false khi tenant tự quản lý quỹ ngoài hệ thống (không tính, không chặn, người duyệt quyết định).
+   */
+  readonly compOffManaged?: boolean;
   readonly deductBalance?: boolean;
   readonly negativeLimit?: number;
   readonly id: string;
@@ -1407,6 +1417,17 @@ export interface HrmRequestOnBehalfView {
   readonly onBehalfByName?: string | null;
 }
 
+/** Một khoản nghỉ trong đơn nhiều khoản (khoản chính và các khoản bổ sung cùng lần gửi). */
+export interface HrmLeaveGroupRange {
+  readonly id: string;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+  readonly duration: number;
+  readonly status: HrmLeaveRequestStatus;
+}
+
 export interface HrmLeaveRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
@@ -1430,6 +1451,13 @@ export interface HrmLeaveRequest extends HrmRequestReasonView, HrmRequestOnBehal
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
   readonly appliedAt?: string | null;
+  /**
+   * Đơn nhiều khoản: id của khoản chính (khoản chính có `groupId` bằng `id`). Khoản bổ sung không có quy trình riêng:
+   * duyệt, từ chối hoặc hủy khoản chính thì cả nhóm đổi cùng lúc.
+   */
+  readonly groupId?: string | null;
+  /** Chỉ có ở khoản chính của đơn nhiều khoản: toàn bộ các khoản, theo thứ tự thời gian. */
+  readonly groupRanges?: readonly HrmLeaveGroupRange[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -1452,6 +1480,17 @@ export interface CreateLeaveRequestPayload extends RequestDescriptionInput {
   readonly duration?: number;
   readonly isNegativeLeave?: boolean;
   readonly attachmentFileId?: string | null;
+  /**
+   * Các khoản nghỉ bổ sung của cùng một đơn (khoản chính là `fromAt`/`toAt` ở trên). Tạo trong một giao dịch: một khoản
+   * không hợp lệ thì không khoản nào được gửi.
+   */
+  readonly extraRanges?: readonly {
+    readonly fromAt?: string;
+    readonly toAt?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly duration?: number;
+  }[];
 }
 
 /** Sửa đơn nghỉ chờ duyệt. Không gửi mô tả (`description` và `reason` cùng bỏ trống) thì giữ mô tả cũ. */
@@ -1469,6 +1508,18 @@ export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
 
 export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+/** Một khoảng làm thêm trong đơn nhiều khoảng (khoảng chính và các khoảng bổ sung cùng lần gửi). */
+export interface HrmOtGroupRange {
+  readonly id: string;
+  readonly workDate: string;
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+  readonly plannedMinutes: number;
+  readonly status: HrmOtStatus;
+}
 
 export interface HrmOtRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly id: string;
@@ -1500,6 +1551,10 @@ export interface HrmOtRequest extends HrmRequestReasonView, HrmRequestOnBehalfVi
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
+  /** Đơn nhiều khoảng: id của khoảng chính (khoảng chính có `groupId` bằng `id`); duyệt hoặc từ chối khoảng chính là cả nhóm. */
+  readonly groupId?: string | null;
+  /** Chỉ có ở khoảng chính của đơn nhiều khoảng: toàn bộ các khoảng, theo thứ tự thời gian. */
+  readonly groupRanges?: readonly HrmOtGroupRange[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -1519,6 +1574,14 @@ export interface CreateOtRequestPayload extends RequestReasonInput {
   readonly plannedMinutes?: number;
   readonly otType?: HrmOtType;
   readonly isNightOt?: boolean;
+  /** Sau ca xuyên đêm có nghỉ ngày làm việc kế tiếp không (chỉ ảnh hưởng phân loại khi chế độ NIGHT_REST). Mặc định không nghỉ. */
+  readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
+  /** Đơn nhiều khoảng: các khoảng bổ sung gửi cùng khoảng chính thành MỘT đơn; mỗi khoảng có nextDayRest riêng. */
+  readonly extraRanges?: readonly {
+    readonly fromAt: string;
+    readonly toAt: string;
+    readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
+  }[];
 }
 
 export type HrmBusinessTripType = 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';

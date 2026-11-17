@@ -18,6 +18,7 @@ jest.mock('../crm-api', () => ({
   createKind: jest.fn(),
   errorMessage: (cause: { message?: string }, fallback: string) => cause?.message || fallback,
   findTaxCodeMatches: jest.fn().mockResolvedValue([]),
+  listPriceLists: jest.fn().mockResolvedValue([]),
   updateCustomer: jest.fn(),
   listGroups: jest.fn(),
   listKinds: jest.fn(),
@@ -148,5 +149,26 @@ describe('Phân loại khách hàng do tenant cấu hình trong form khách', ()
     fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
     expect((await screen.findAllByRole('alert')).some((el) => /đã tồn tại/.test(el.textContent ?? ''))).toBe(true);
     expect(mocked.createKind).not.toHaveBeenCalled();
+  });
+});
+
+describe('Bảng giá chọn ở hồ sơ khách (D3-38)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('ô Bảng giá chỉ có bảng giá riêng đang dùng (không có bảng chuẩn, bảng đã tắt); lưu gửi priceListId', async () => {
+    const list = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ id, code: id.toUpperCase(), name: `Bảng ${id}`, isStandard: false, status: 'ACTIVE', validFrom: '2026-01-01', validTo: null, ...extra }) as never;
+    mocked.listPriceLists.mockResolvedValue([list('chuan', { isStandard: true }), list('dl1'), list('cu', { status: 'INACTIVE' })]);
+    mocked.createCustomer.mockResolvedValue({ id: 'c-new' } as never);
+    renderForm(admin);
+    await waitFor(() => expect(mocked.listPriceLists).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Tên khách hàng/), { target: { value: 'Khách A' } });
+    fireEvent.click(screen.getByPlaceholderText('Bảng giá chuẩn'));
+    expect(await screen.findByText('Bảng dl1')).toBeTruthy();
+    expect(screen.queryByText('Bảng chuan')).toBeNull();
+    expect(screen.queryByText('Bảng cu')).toBeNull();
+    fireEvent.click(screen.getByText('Bảng dl1'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
+    await waitFor(() => expect(mocked.createCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Khách A', priceListId: 'dl1' })));
   });
 });

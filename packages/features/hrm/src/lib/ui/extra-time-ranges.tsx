@@ -10,6 +10,7 @@ import {
   type TimeRangeInput,
 } from '../request-ranges';
 import { Button } from './button';
+import { OvertimeTimeRange } from './overtime-time-range';
 import { RequestTimeRange } from './request-time-range';
 
 /**
@@ -25,6 +26,7 @@ export function ExtraTimeRanges({
   ranges,
   onChange,
   disabled,
+  showSummary = true,
 }: {
   kind: 'leave' | 'ot' | 'trip';
   employeeId: string;
@@ -34,6 +36,8 @@ export function ExtraTimeRanges({
   ranges: readonly ExtraRange[];
   onChange: (ranges: ExtraRange[]) => void;
   disabled?: boolean;
+  /** false: mỗi khoảng không hiện thẻ tổng giờ (xem RequestTimeRange). */
+  showSummary?: boolean;
 }) {
   const noun = kind === 'leave' ? 'nghỉ' : kind === 'ot' ? 'làm thêm' : 'công tác';
   const total = ranges.length + 1;
@@ -49,13 +53,76 @@ export function ExtraTimeRanges({
 
   function add() {
     const last = ranges.length ? ranges[ranges.length - 1] : main;
-    const suggestion = nextRange(last);
+    const suggestion = nextRange(last, kind === 'ot');
     onChange([...ranges, { id: `${Date.now()}-${ranges.length}`, ...suggestion, preview: null }]);
   }
 
   return (
     <div data-testid={`extra-ranges-${kind}`} className="space-y-2">
-      {ranges.map((range, index) => (
+      {ranges.map((range, index) => kind === 'ot' ? (
+        <div key={range.id} data-testid={`extra-range-${index + 2}`}>
+          <OvertimeTimeRange
+            compact
+            employeeId={employeeId}
+            idPrefix={`extra-ot-${index + 2}`}
+            fromAt={range.fromAt}
+            toAt={range.toAt}
+            disabled={disabled}
+            morningWorked={range.morningWorked}
+            onMorningWorkedChange={(value) => patch(range.id, { morningWorked: value, ...(value ? { morningHalf: false } : {}) })}
+            morningHalf={range.morningHalf}
+            onMorningHalfChange={(value) => patch(range.id, { morningHalf: value })}
+            onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
+            onPreview={(preview) => patch(range.id, { preview })}
+            trailing={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Xoá ${rangeLabel(index + 1, kind).toLowerCase()}`}
+                className="h-9 w-full gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                disabled={disabled}
+                onClick={() => onChange(ranges.filter((r) => r.id !== range.id))}
+              >
+                <Trash2 className="size-3.5" />
+                Xoá
+              </Button>
+            }
+          />
+        </div>
+      ) : (
+        kind === 'leave' ? (
+          <div key={range.id} data-testid={`extra-range-${index + 2}`}>
+            <RequestTimeRange
+              compact
+              employeeId={employeeId}
+              kind={kind}
+              leaveTypeId={leaveTypeId}
+              showSummary={showSummary}
+              fromAt={range.fromAt}
+              toAt={range.toAt}
+              fromLabel={`Từ ngày giờ ${noun}`}
+              toLabel={`Đến ngày giờ ${noun}`}
+              disabled={disabled}
+              onChange={(next) => patch(range.id, { fromAt: next.fromAt, toAt: next.toAt })}
+              onPreview={(preview) => patch(range.id, { preview })}
+              trailing={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Xoá ${rangeLabel(index + 1, kind).toLowerCase()}`}
+                  className="h-9 w-full gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  disabled={disabled}
+                  onClick={() => onChange(ranges.filter((r) => r.id !== range.id))}
+                >
+                  <Trash2 className="size-3.5" />
+                  Xoá
+                </Button>
+              }
+            />
+          </div>
+        ) : (
         <div
           key={range.id}
           data-testid={`extra-range-${index + 2}`}
@@ -80,6 +147,7 @@ export function ExtraTimeRanges({
             employeeId={employeeId}
             kind={kind}
             leaveTypeId={leaveTypeId}
+            showSummary={showSummary}
             fromAt={range.fromAt}
             toAt={range.toAt}
             fromLabel={`Từ ngày giờ ${noun}`}
@@ -89,7 +157,8 @@ export function ExtraTimeRanges({
             onPreview={(preview) => patch(range.id, { preview })}
           />
         </div>
-      ))}
+        ))
+      )}
       <div className="flex items-center justify-between">
         <Button
           type="button"
@@ -104,7 +173,11 @@ export function ExtraTimeRanges({
         </Button>
         {ranges.length > 0 && (
           <span className="text-[12px] text-slate-500">
-            Gửi thành {total} đơn {noun}, cùng lý do, mô tả và chứng từ.
+            {kind === 'leave'
+              ? `Gửi thành một đơn ${total} khoản, cùng lý do, mô tả và chứng từ; các khoản được duyệt hoặc từ chối cùng lúc.`
+              : kind === 'ot'
+                ? `Gửi thành một đơn ${total} khoảng, cùng lý do, mô tả và chứng từ; các khoảng được duyệt hoặc từ chối cùng lúc.`
+                : `Gửi thành ${total} đơn ${noun}, cùng lý do, mô tả và chứng từ.`}
           </span>
         )}
       </div>

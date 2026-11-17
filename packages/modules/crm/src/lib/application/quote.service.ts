@@ -3,12 +3,16 @@ import {
   QUOTE_DEFAULT_VALIDITY_DAYS,
   QUOTE_LINES_INVALID_CODE,
   QUOTE_FEES_MAX,
+  QUOTE_LINE_POSITION_INVALID_CODE,
   QUOTE_LINES_MAX,
   QUOTE_STATUS_LABELS,
   QUOTE_STATUSES,
   quoteDeepLink,
+  sellerFromOrganization,
   type CreateQuoteRequest,
-  type CrmCatalogMaterial,
+  CATALOG_MATERIAL_KINDS,
+  type CatalogMaterialKind,
+  type CrmCatalogPage,
   type CrmPage,
   type QuoteApprovalReason,
   type QuoteComparison,
@@ -43,6 +47,7 @@ import { compareQuoteVersions, costLine, quoteTotals } from '../domain/quote-ver
 import { computeNearestSuperiorUserIds } from '../domain/reporting-line.js';
 import { assertOwnerInScope, canViewQuoteCost } from './crm-access.js';
 import type { QuoteBusinessPlans } from './business-plan.service.js';
+import type { AwaitingApprovalReader } from './crm-task.service.js';
 import type { PlanAttachment } from './business-plan-store.port.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
@@ -55,12 +60,15 @@ import type {
   EditableQuote,
   QuoteFormInput,
   QuoteLineRecord,
+  QuoteOrganizationInput,
   QuoteSettingsStore,
   QuoteStore,
   QuoteVersionRef,
   QuoteVersionWrite,
 } from './quote-store.port.js';
 import type { QuoteFormStore } from './quote-form-store.port.js';
+import type { SalesOrganizationReader } from './sales-organization-store.port.js';
+import { pickSalesOrganization, quoteSellerOf } from './sales-organization.service.js';
 import { applyCustomFields } from '../domain/custom-fields.js';
 import type { CustomerStore, OpportunityStore } from './sales-store.port.js';
 
@@ -91,6 +99,11 @@ interface LineDraft {
   readonly previousUnitCost: number | null;
 }
 
+/** Cờ trên query string: `true`, `1` là bật. */
+function flagOf(value: unknown): boolean {
+  return value === true || value === 'true' || value === '1';
+}
+
 export function requireQuoteWriter(actor: CrmActor): void {
   if (!actor.canWriteQuote) throw new CrmForbiddenError('Bạn không có quyền lập báo giá.');
 }
@@ -111,6 +124,13 @@ function revisionOf(value: unknown): number {
     throw new CrmValidationError('VERSION_REQUIRED', 'Thiếu số lần sửa của phiên bản; vui lòng tải lại báo giá.');
   }
   return number;
+}
+
+/** `kind=STOCK,SERVICE` gửi lên: giữ nhóm hợp lệ; rỗng là mọi nhóm. */
+function catalogKindsOf(value: unknown): CatalogMaterialKind[] | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const kinds = CATALOG_MATERIAL_KINDS.filter((kind) => value.split(',').map((part) => part.trim().toUpperCase()).includes(kind));
+  return kinds.length ? kinds : undefined;
 }
 
 function versionNoOf(value: unknown): number {
@@ -154,6 +174,10 @@ export class QuoteService {
     private readonly plans?: QuoteBusinessPlans,
     /** Mẫu, loại, mã báo giá (GĐI); rỗng thì báo giá chạy như phase 1 (theo dòng, không mẫu). */
     private readonly form?: QuoteFormStore,
+    /** Tổ chức báo giá (phase 3, mục 16); rỗng thì báo giá tự lấy tổ chức mặc định ở store, không chọn được tổ chức khác. */
+    private readonly organizations?: SalesOrganizationReader,
+    /** Việc chờ người xem duyệt (plan mục 17.4): bộ lọc "Cần tôi duyệt" và cờ trên màn báo giá. */
+    private readonly approvals?: AwaitingApprovalReader,
   ) {}
 
   private today(): string {
@@ -162,7 +186,11 @@ export class QuoteService {
 
   async list(actor: CrmActor, query: QuoteListQuery): Promise<CrmPage<QuoteSummary>> {
     const scope = await this.scopes.resolve(actor);
+    // "Cần tôi duyệt" (plan mục 17.4): cùng cách tính với trang Việc cần xử lý.
+    const awaiting = flagOf(query?.awaitingMyApproval);
+    const ids = awaiting ? (this.approvals ? await this.approvals.awaitingQuoteIds(actor) : []) : undefined;
     return this.quotes.listQuotes(actor.tenantId, scope, {
+      ...(ids ? { ids } : {}),
       q: normalizeSearch(query.q),
       status: optionalEnum(query.status, QUOTE_STATUSES, 'trạng thái'),
       customerId: optionalId(query.customerId, 'khách hàng') ?? undefined,
@@ -184,7 +212,13 @@ export class QuoteService {
         ? (await this.evaluate(actor, detail.id, version, false)).reasons
         : null;
     const businessPlan = this.plans ? await this.plans.detail(actor, detail.id, version) : null;
-    return { ...detail, version: costVisible ? version : hideCost(version), approvalCheck, businessPlan };
+    // Chỉ phiên bản hiện tại đang chờ (báo giá Chờ duyệt hoặc PAKD trình riêng đang chờ) mới cần hỏi.
+    const pending = version.status === 'PENDING' || businessPlan?.status === 'PENDING';
+    const awaitingMyApproval =
+      this.approvals && pending && version.versionNo === detail.currentVersion
+        ? await this.approvals.awaitingTarget(actor, detail.id)
+        : null;
+    return { ...detail, version: costVisible ? version : hideCost(version), approvalCheck, businessPlan, awaitingMyApproval };
   }
 
   async create(actor: CrmActor, request: CreateQuoteRequest): Promise<QuoteDetail> {
@@ -218,6 +252,7 @@ export class QuoteService {
     // Mẫu và loại bắt buộc: không chọn thì dùng mẫu, loại mặc định; mẫu hoặc loại tắt thì không chọn được.
     const template = await this.pickTemplate(actor.tenantId, request?.templateId);
     const type = await this.pickType(actor.tenantId, request?.quoteTypeId);
+    const organization = await this.organizationOnCreate(actor.tenantId, request);
     const id = await this.quotes.createQuote(
       actor.tenantId,
       {
@@ -231,6 +266,7 @@ export class QuoteService {
         quoteDate: optionalDate(request?.quoteDate, 'ngày báo giá'),
         // Trường tuỳ biến: kiểm kiểu và lựa chọn; bắt buộc chỉ ép khi lưu (báo giá mới chưa có dòng hàng).
         customFields: await this.customFields({}, request?.customFields, false, actor.tenantId),
+        ...(organization ? { organization } : {}),
         form: this.form
           ? {
               templateId: template?.id ?? null,
@@ -243,6 +279,48 @@ export class QuoteService {
       actor.userId,
     );
     return this.get(actor, id);
+  }
+
+  /**
+   * Tổ chức khi lập (plan mục 16.2): không gửi `organizationId` thì tổ chức mặc định đang bật (nếu có); `null` là không
+   * chọn; có id thì phải tồn tại và đang bật. `seller` gửi kèm thì giữ chữ sửa tay; không gửi thì chép từ tổ chức.
+   * Không có kho tổ chức: để store chọn tổ chức mặc định như báo giá tự tạo.
+   */
+  private async organizationOnCreate(tenantId: string, request: CreateQuoteRequest): Promise<QuoteOrganizationInput | undefined> {
+    if (!this.organizations) return undefined;
+    const requested = request?.organizationId;
+    const organization =
+      requested === undefined
+        ? ((await this.organizations.defaultOrganization(tenantId)) ?? null)
+        : requested === null || requested === ''
+          ? null
+          : await pickSalesOrganization(this.organizations, tenantId, requested);
+    const seller =
+      request?.seller !== undefined ? quoteSellerOf(request.seller) : organization ? sellerFromOrganization(organization) : null;
+    return { organizationId: organization?.id ?? null, seller };
+  }
+
+  /**
+   * Tổ chức khi sửa: đổi tổ chức mà không gửi `seller` thì chép thông tin tổ chức mới; `null` là bỏ cả tổ chức và
+   * thông tin; giữ nguyên id cũ thì không kiểm lại (tổ chức đã tắt vẫn giữ được). `seller` gửi thì lưu (`null` là xoá).
+   */
+  private async organizationChange(
+    tenantId: string,
+    current: QuoteOrganizationInput,
+    request: UpdateQuoteVersionRequest,
+  ): Promise<QuoteOrganizationInput> {
+    let { organizationId, seller } = current;
+    const requested = request.organizationId;
+    if (requested === null || requested === '') {
+      organizationId = null;
+      seller = null;
+    } else if (requested !== undefined && (!isUuid(requested) || requested.toLowerCase() !== current.organizationId)) {
+      const organization = await pickSalesOrganization(this.organizations, tenantId, requested);
+      organizationId = organization.id;
+      seller = sellerFromOrganization(organization);
+    }
+    if (request.seller !== undefined) seller = quoteSellerOf(request.seller);
+    return { organizationId, seller };
   }
 
   // -------------------------------------------------------------------------
@@ -342,6 +420,7 @@ export class QuoteService {
         fees: request.fees === undefined ? current.fees : feesOf(request.fees),
         // Lưu báo giá thì trường tuỳ biến bắt buộc phải có giá trị (TC-QF-11); xem thì không bị chặn.
         customFields: await this.customFields(current.customFields, request.customFields, true, actor.tenantId),
+        ...(await this.organizationChange(actor.tenantId, current, request)),
       },
     };
   }
@@ -396,13 +475,19 @@ export class QuoteService {
    * Thêm lô dòng vào báo giá Nháp: kiểm từng dòng, có dòng lỗi thì không thêm dòng nào và
    * trả lỗi theo dòng (400 `LINES_INVALID`). Một lần ghi, một lần tính giá. Báo giá không
    * còn Nháp thì 409 (không tạo phiên bản mới như thêm từng dòng).
+   *
+   * `beforeLineNo` (phase 3, "Chèn"): lô chèn ngay trước dòng có số đó, các dòng sau dời xuống. Mỗi lần lưu, phiên
+   * bản ghi lại toàn bộ dòng với số thứ tự liên tục trong cùng transaction (xoá rồi chèn lại), nên không bao giờ có
+   * hai dòng cùng `line_no`. Số không có trong phiên bản: 400 `LINE_POSITION_INVALID`.
    */
   async addLines(actor: CrmActor, id: string, versionNo: unknown, request: AddQuoteLinesRequest): Promise<QuoteDetail> {
     const inputs = request?.lines;
     if (!Array.isArray(inputs) || inputs.length === 0) {
       throw new CrmValidationError('LINES_REQUIRED', 'Vui lòng chọn ít nhất một mặt hàng.');
     }
-    let existing = 0;
+    const beforeLineNo = beforeLineNoOf(request?.beforeLineNo);
+    /** Số dòng đứng trước lô mới; lô chiếm vị trí `at + 1` đến `at + inputs.length`. */
+    let at = 0;
     try {
       return await this.edit(actor, id, versionNo, request?.revision, async (quote, lines) => {
         if (quote.version.status !== 'DRAFT') {
@@ -411,7 +496,11 @@ export class QuoteService {
             `Báo giá ở trạng thái "${QUOTE_STATUS_LABELS[quote.version.status]}", không sửa được.`,
           );
         }
-        existing = lines.length;
+        at = lines.length;
+        if (beforeLineNo !== null) {
+          at = quote.version.lines.findIndex((line) => line.lineNo === beforeLineNo);
+          if (at < 0) throw linePositionInvalid(beforeLineNo);
+        }
         if (lines.length + inputs.length > QUOTE_LINES_MAX) {
           throw new CrmValidationError('TOO_MANY_LINES', `Mỗi phiên bản báo giá tối đa ${QUOTE_LINES_MAX} dòng.`);
         }
@@ -426,13 +515,19 @@ export class QuoteService {
           }
         }
         if (errors.length) throw linesInvalid(errors);
-        return { ...unchanged(quote), lines: [...lines, ...added] };
+        return { ...unchanged(quote), lines: [...lines.slice(0, at), ...added, ...lines.slice(at)] };
       });
     } catch (error) {
-      // Lỗi tính giá (chưa có giá bán...) mang số dòng trong toàn báo giá; đổi về số dòng của lô.
+      // Lỗi tính giá (chưa có giá bán...) mang số dòng trong toàn báo giá; dòng thuộc lô thì đổi về số dòng của lô.
       const position = error instanceof CrmValidationError ? error.details?.['line'] : undefined;
-      if (error instanceof CrmValidationError && error.code !== 'LINES_INVALID' && typeof position === 'number' && position > existing) {
-        const index = position - existing;
+      if (
+        error instanceof CrmValidationError &&
+        error.code !== 'LINES_INVALID' &&
+        typeof position === 'number' &&
+        position > at &&
+        position <= at + inputs.length
+      ) {
+        const index = position - at;
         throw linesInvalid([lineErrorOf(index, inputs[index - 1], error)]);
       }
       throw error;
@@ -501,23 +596,107 @@ export class QuoteService {
     };
   }
 
-  async catalogMaterials(actor: CrmActor, query: { search?: unknown; limit?: unknown }): Promise<CrmCatalogMaterial[]> {
+  /**
+   * Tìm mặt hàng để thêm dòng, theo trang (xếp theo mã; `cursor` là mã cuối của trang trước). `kind`: lọc nhóm
+   * (STOCK, SERVICE). Có `quoteId`: chỉ mặt hàng có giá bán cho báo giá đó tại ngày tính giá (bảng giá của khách, bảng
+   * giá chuẩn, hợp đồng khung của khách; đúng ĐVT), để không chọn phải mặt hàng sẽ báo "Chưa có giá bán".
+   */
+  async catalogMaterials(
+    actor: CrmActor,
+    query: {
+      search?: unknown;
+      limit?: unknown;
+      cursor?: unknown;
+      kind?: unknown;
+      tradeCategory?: unknown;
+      quoteId?: unknown;
+      versionNo?: unknown;
+    },
+  ): Promise<CrmCatalogPage> {
     const search = normalizeSearch(query.search) ?? '';
     const limit = Math.min(pageLimit(query.limit ?? CATALOG_SEARCH_LIMIT), 100);
-    const materials = await this.catalog.search(actor.tenantId, search, limit);
-    return materials.map((material) => ({
-      id: material.id,
-      code: material.code,
-      name: material.name,
-      unit: material.unit,
-      kind: material.kind ?? null,
-      category: material.category,
-      tradeCategory: material.tradeCategory ?? null,
-      salePrice: material.salePrice ?? null,
-      avgCost: material.avgCost ?? null,
-      totalAvailable: material.totalAvailable ?? null,
-      availableByWarehouse: material.availableByWarehouse ?? null,
-    }));
+    const cursor = typeof query.cursor === 'string' && query.cursor.trim() ? query.cursor.trim().slice(0, 100) : undefined;
+    const kinds = catalogKindsOf(query.kind);
+    const tradeCategory = typeof query.tradeCategory === 'string' && query.tradeCategory.trim() ? query.tradeCategory.trim().slice(0, 100) : undefined;
+    const page =
+      query.quoteId === undefined || query.quoteId === ''
+        ? await this.catalogPage(actor.tenantId, search, limit, cursor, kinds, tradeCategory)
+        : await this.pricedCatalogPage(actor, String(query.quoteId), query.versionNo, { search, limit, cursor, kinds, tradeCategory });
+    return {
+      nextCursor: page.nextCursor,
+      items: page.materials.map((material) => ({
+        id: material.id,
+        code: material.code,
+        name: material.name,
+        unit: material.unit,
+        kind: material.kind ?? null,
+        category: material.category,
+        tradeCategory: material.tradeCategory ?? null,
+        salePrice: material.salePrice ?? null,
+        avgCost: material.avgCost ?? null,
+        totalAvailable: material.totalAvailable ?? null,
+        availableByWarehouse: material.availableByWarehouse ?? null,
+      })),
+    };
+  }
+
+  /** Phân loại đang dùng trên mặt hàng ở Kho, cho ô lọc Phân loại; `kind` thu hẹp theo nhóm. */
+  async catalogTradeCategories(actor: CrmActor, kind: unknown): Promise<string[]> {
+    if (!this.catalog.tradeCategories) return [];
+    return this.catalog.tradeCategories(actor.tenantId, catalogKindsOf(kind) ?? [...CATALOG_MATERIAL_KINDS]);
+  }
+
+  /** Lấy dư một dòng để biết còn trang sau. */
+  private async catalogPage(
+    tenantId: string,
+    search: string,
+    limit: number,
+    cursor: string | undefined,
+    kinds: readonly CatalogMaterialKind[] | undefined,
+    tradeCategory: string | undefined,
+  ): Promise<{ materials: CatalogMaterial[]; nextCursor: string | null }> {
+    const rows = await this.catalog.search(tenantId, search, limit + 1, { cursor, kinds, tradeCategory });
+    const materials = rows.slice(0, limit);
+    return { materials, nextCursor: rows.length > limit ? materials[materials.length - 1].code : null };
+  }
+
+  private async pricedCatalogPage(
+    actor: CrmActor,
+    quoteId: string,
+    versionNo: unknown,
+    query: {
+      search: string;
+      limit: number;
+      cursor: string | undefined;
+      kinds: readonly CatalogMaterialKind[] | undefined;
+      tradeCategory: string | undefined;
+    },
+  ): Promise<{ materials: CatalogMaterial[]; nextCursor: string | null }> {
+    const quote = await this.requireEditable(actor, quoteId, versionNoOf(versionNo));
+    const rows = await this.pricing.pricedMaterials(actor.tenantId, {
+      date: quote.version.priceDate ?? this.today(),
+      customerPriceListId: quote.head.customerPriceListId ?? null,
+      customerId: quote.head.customerId,
+      search: query.search,
+      limit: query.limit + 1,
+      cursor: query.cursor,
+    });
+    const priced = rows.slice(0, query.limit);
+    const nextCursor = rows.length > query.limit ? priced[priced.length - 1].code : null;
+    if (!priced.length) return { materials: [], nextCursor };
+    const known = await this.catalog.materials(
+      actor.tenantId,
+      priced.map((entry) => entry.materialId),
+    );
+    // Dòng mới lấy ĐVT của danh mục Kho; giá phải đúng ĐVT đó thì mới tính được (Kho không có ĐVT thì không thêm được).
+    const materials = priced.flatMap((entry) => {
+      const material = known.get(entry.materialId);
+      const priceable = material?.unit && entry.units.includes(material.unit.trim().toLowerCase());
+      const inKind = !query.kinds || query.kinds.includes((material?.kind ?? 'STOCK') as CatalogMaterialKind);
+      const inCategory = !query.tradeCategory || material?.tradeCategory?.trim().toLowerCase() === query.tradeCategory.toLowerCase();
+      return material && priceable && inKind && inCategory ? [material] : [];
+    });
+    return { materials, nextCursor };
   }
 
   // -------------------------------------------------------------------------
@@ -589,6 +768,40 @@ export class QuoteService {
     // Tạo phiên Quy trình ngay sau khi commit; lỗi đã ghi vào liên kết và worker thử lại.
     if (linkId) await this.links.start(actor.tenantId, linkId).catch(() => undefined);
     return this.get(actor, id);
+  }
+
+  /**
+   * Xoá hẳn báo giá còn Nháp hoặc Chờ duyệt, chỉ có một phiên bản. Người phụ trách báo giá (có quyền lập báo giá) hoặc
+   * quản trị bán hàng (`crm.manage`, không cần quyền lập báo giá). Đang duyệt qua Quy trình thì huỷ hồ sơ bên Quy trình trước (liên kết tạm đóng để kết quả đến
+   * giữa chừng không áp vào); không huỷ được hoặc xoá lỗi thì mở lại liên kết, báo giá giữ nguyên.
+   */
+  async remove(actor: CrmActor, id: string): Promise<void> {
+    const manager = actor.isTenantAdmin || actor.canManage;
+    if (!manager) requireQuoteWriter(actor);
+    const detail = await this.require(actor, id);
+    if (!manager && detail.ownerUserId !== actor.userId) {
+      throw new CrmForbiddenError('Chỉ người phụ trách báo giá hoặc quản trị bán hàng được xoá báo giá.');
+    }
+    const reason = `Báo giá ${detail.code} đã bị xoá bên Bán hàng.`;
+    const plan = await this.quotes.prepareDelete(actor.tenantId, id);
+    try {
+      for (const link of plan.links) {
+        if (!link.instanceId) continue;
+        const result = this.links.cancel
+          ? await this.links.cancel(actor.tenantId, link.instanceId, { reason, actorUserId: actor.userId, actorName: actor.displayName })
+          : 'unsupported';
+        if (result === 'finished') {
+          throw new CrmConflictError('QUOTE_PROCEDURE_FINISHED', 'Hồ sơ duyệt bên Quy trình vừa kết thúc nên không xoá được; tải lại báo giá để xem kết quả.');
+        }
+        if (result === 'unsupported') {
+          throw new CrmConflictError('QUOTE_PROCEDURE_CANCEL_UNAVAILABLE', 'Chưa huỷ được hồ sơ duyệt bên Quy trình; vui lòng thử lại sau.');
+        }
+      }
+      await this.quotes.deleteQuote(actor.tenantId, id, actor.userId, reason);
+    } catch (cause) {
+      await this.quotes.reopenDeletionLinks(actor.tenantId, plan.links).catch(() => undefined);
+      throw cause;
+    }
   }
 
   async approve(actor: CrmActor, id: string, versionNo: unknown, request: QuoteDecisionRequest): Promise<QuoteDetail> {
@@ -746,7 +959,7 @@ export class QuoteService {
     const date = next.priceDate ?? this.today();
     const materialIds = [...new Set(next.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, date, quote.head.customerGroupId, materialIds),
+      this.pricing.priceListsForPricing(tenantId, date, quote.head.customerPriceListId ?? null, materialIds),
       this.pricing.policiesForPricing(tenantId, date),
       this.pricing.discountCapPercent(tenantId),
       materialIds.length ? this.catalog.materials(tenantId, materialIds) : Promise.resolve(new Map<string, CatalogMaterial>()),
@@ -780,6 +993,7 @@ export class QuoteService {
       date,
       customerId: quote.head.customerId,
       customerGroupId: quote.head.customerGroupId,
+      customerPriceListId: quote.head.customerPriceListId ?? null,
       lines: inputs,
       priceLists,
       policies,
@@ -952,6 +1166,22 @@ function hideCost(version: QuoteVersion): QuoteVersion {
   };
 }
 
+/** `beforeLineNo` gửi lên: không có là thêm cuối (`null`); có thì phải là số nguyên dương. */
+function beforeLineNoOf(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) throw linePositionInvalid(value);
+  return value;
+}
+
+function linePositionInvalid(value: unknown): CrmValidationError {
+  return new CrmValidationError(
+    QUOTE_LINE_POSITION_INVALID_CODE,
+    typeof value === 'number' && Number.isInteger(value)
+      ? `Không chèn được: báo giá không có dòng số ${value}. Tải lại báo giá rồi thử lại.`
+      : 'Vị trí chèn phải là số thứ tự của một dòng trong báo giá.',
+  );
+}
+
 function lineErrorOf(line: number, input: unknown, error: CrmValidationError): QuoteLineError {
   const materialId = (input as { materialId?: unknown } | undefined)?.materialId;
   return { line, materialId: typeof materialId === 'string' ? materialId : null, code: error.code, message: error.message };
@@ -991,6 +1221,8 @@ function unchanged(quote: EditableQuote): Omit<QuoteChange, 'lines'> {
       orderTax: input(form.orderTax),
       fees: form.fees,
       customFields: form.customFields,
+      organizationId: form.organizationId,
+      seller: form.seller,
     },
   };
 }

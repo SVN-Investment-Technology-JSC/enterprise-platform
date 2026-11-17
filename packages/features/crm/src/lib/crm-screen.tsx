@@ -1,10 +1,11 @@
 'use client';
 
-import { CRM_NO_CAPABILITIES, type CrmStatus } from '@enterprise-platform/contracts-crm';
+import { CRM_NO_CAPABILITIES, type CrmStatus, type CrmTaskList } from '@enterprise-platform/contracts-crm';
 import { ModuleShell, useHashView, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import {
   CalendarClock,
   ChartColumn,
+  ClipboardCheck,
   FileSignature,
   FileText,
   LayoutDashboard,
@@ -16,8 +17,8 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
-import { errorMessage, loadCrmStatus, loadTenantHomePath } from './crm-api';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { errorMessage, getMyTasks, loadCrmStatus, loadTenantHomePath } from './crm-api';
 import {
   CRM_ACCESS_DENIED_MESSAGE,
   CRM_DEFAULT_VIEW,
@@ -47,7 +48,7 @@ import { CustomerList } from './customers/customer-list';
 import { LeadsPage } from './leads/leads-page';
 import { OpportunitiesPage } from './opportunities/opportunities-page';
 import { QuoteEditor } from './quotes/quote-editor';
-import { QuotesPage } from './quotes/quotes-page';
+import { NewQuoteScreen, QuotesPage } from './quotes/quotes-page';
 import { CrmSettingsPage } from './settings/crm-settings';
 import { ContractDetail } from './contracts/contract-detail';
 import { ContractsPage } from './contracts/contracts-page';
@@ -60,9 +61,12 @@ import { WarrantyPage } from './warranty/warranty-page';
 import { ReportsPage } from './reports/reports-page';
 import salesStyles from './sales.module.scss';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { TasksPage } from './tasks/tasks-page';
+import { parseQuoteSub } from './tasks/tasks.model';
 
 const ICONS: Record<CrmView, ReactNode> = {
   overview: <LayoutDashboard size={16} />,
+  tasks: <ClipboardCheck size={16} />,
   customers: <Users size={16} />,
   leads: <UserPlus size={16} />,
   opportunities: <Target size={16} />,
@@ -94,6 +98,9 @@ export function CrmScreen() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   // Trang dùng chung (Cài đặt) giữ phần mà người dùng đang ở.
   const [lastSection, setLastSection] = useState<CrmSectionId>();
+  /** Số việc "Chờ tôi duyệt" cho số đếm trên mục Việc cần xử lý; rỗng khi chưa tải hoặc lỗi. */
+  const [awaitingCount, setAwaitingCount] = useState<number>();
+  const onTasksLoaded = useCallback((list: CrmTaskList) => setAwaitingCount(list.awaitingMe.length), []);
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -123,12 +130,26 @@ export function CrmScreen() {
     if (ownSection) setLastSection(ownSection);
   }, [ownSection]);
 
+  // Số đếm tải lại mỗi khi đổi trang (duyệt xong một báo giá rồi quay ra thì số giảm); lỗi thì không hiện số.
+  const tablesReady = Boolean(status?.tablesReady);
+  useEffect(() => {
+    if (!tablesReady) return undefined;
+    let alive = true;
+    getMyTasks()
+      .then((list) => alive && setAwaitingCount(list.awaitingMe.length))
+      .catch(() => alive && setAwaitingCount(undefined));
+    return () => {
+      alive = false;
+    };
+  }, [tablesReady, current.id]);
+
   // Menu chỉ hiện khi đã biết quyền, để người không có quyền không thấy menu thoáng qua.
   const nav: readonly ModuleNavItem<CrmView>[] = CRM_PAGES.map((page) => ({
     id: page.id,
     label: page.label,
     group: page.group,
     icon: ICONS[page.id],
+    badge: page.id === 'tasks' && awaitingCount ? awaitingCount : undefined,
     hidden: !status || !pages.includes(page) || !sectionViews.includes(page.id),
   }));
 
@@ -180,7 +201,7 @@ export function CrmScreen() {
       ) : status.tablesReady ? (
         <CrmAntdProvider>
           <CrmDataProvider capabilities={capabilities} currentUserId={status.userId}>
-            <SalesView page={current} sub={sub} navigate={navigate} />
+            <SalesView page={current} sub={sub} navigate={navigate} replace={replaceHash} onTasksLoaded={onTasksLoaded} />
           </CrmDataProvider>
         </CrmAntdProvider>
       ) : (
@@ -190,15 +211,37 @@ export function CrmScreen() {
   );
 }
 
+/**
+ * Chuyển trang thay mục lịch sử hiện tại (nút Back của trình duyệt không quay lại trang cũ), ví dụ `quotes/new` sau khi
+ * lập báo giá (plan 9.5). `location.replace` chỉ đổi hash nên vẫn phát `hashchange` như `navigate`.
+ */
+function replaceHash(view: CrmView, sub?: string) {
+  if (typeof window === 'undefined') return;
+  window.location.replace(`#${sub ? `${view}/${sub}` : view}`);
+}
+
+/** `quotes/new?customerId=…` hoặc `?opportunityId=…`: màn lập báo giá mới; trả rỗng khi `sub` là id báo giá. */
+export function parseNewQuoteSub(sub: string | undefined): { customerId?: string; opportunityId?: string } | undefined {
+  if (!sub) return undefined;
+  const [head, query = ''] = sub.split('?');
+  if (head !== 'new') return undefined;
+  const params = new URLSearchParams(query);
+  return { customerId: params.get('customerId') || undefined, opportunityId: params.get('opportunityId') || undefined };
+}
+
 /** Nội dung từng trang; trang không khớp hiện khung chờ. */
 function SalesView({
   page,
   sub,
   navigate,
+  replace,
+  onTasksLoaded,
 }: {
   page: CrmPage;
   sub: string | undefined;
   navigate: (view: CrmView, sub?: string) => void;
+  replace: (view: CrmView, sub?: string) => void;
+  onTasksLoaded?: (list: CrmTaskList) => void;
 }) {
   const openCustomer = (id: string) => navigate('customers', id);
   const openOpportunity = (id: string) => navigate('opportunities', id);
@@ -233,19 +276,37 @@ function SalesView({
           onOpenContract={openContract}
         />
       );
-    case 'quotes':
-      return sub ? (
+    case 'quotes': {
+      const newQuote = parseNewQuoteSub(sub);
+      if (newQuote) {
+        return (
+          <NewQuoteScreen
+            key={sub}
+            customerId={newQuote.customerId}
+            opportunityId={newQuote.opportunityId}
+            onBack={() => navigate('quotes')}
+            onCreated={(id) => replace('quotes', id)}
+          />
+        );
+      }
+      const opened = sub ? parseQuoteSub(sub) : undefined;
+      return opened ? (
         <QuoteEditor
           key={sub}
-          quoteId={sub}
+          quoteId={opened.quoteId}
+          openPanel={opened.panel}
           onBack={() => navigate('quotes')}
+          onBackToTasks={opened.fromTasks ? () => navigate('tasks') : undefined}
           onOpenCustomer={openCustomer}
           onOpenOpportunity={openOpportunity}
           onOpenOrder={openOrder}
         />
       ) : (
-        <QuotesPage onOpen={openQuote} />
+        <QuotesPage onOpen={openQuote} onCreate={() => navigate('quotes', 'new')} />
       );
+    }
+    case 'tasks':
+      return <TasksPage onOpenQuote={openQuote} onLoaded={onTasksLoaded} />;
     case 'contracts':
       return sub ? (
         <ContractDetail

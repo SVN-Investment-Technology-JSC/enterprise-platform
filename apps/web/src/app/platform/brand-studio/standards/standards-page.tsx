@@ -5,6 +5,7 @@ import { Download, Palette, RotateCcw, Ruler, Sparkles, Upload, X } from 'lucide
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { Panel, RAISED } from '../components/panel';
 import { downloadTextFile, readFileText } from '../library/file-download';
 import { IconButton } from '../library/library-ui';
@@ -57,19 +58,23 @@ export function StandardsPage() {
           {settings.saving ? <span className="text-xs text-slate-500">Đang lưu lên máy chủ</span> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            className={RAISED}
-            onClick={() => fileInput.current?.click()}
-            title="Nhập cài đặt từ tệp JSON"
-            variant="outline"
-          >
-            <Upload aria-hidden className="size-4" />
-            <span className="hidden sm:inline">Nhập</span>
-          </Button>
-          <Button className={RAISED} onClick={exportSettings} title="Xuất cài đặt ra tệp JSON" variant="outline">
-            <Download aria-hidden className="size-4" />
-            <span className="hidden sm:inline">Xuất</span>
-          </Button>
+          <Hint label="Nhập cài đặt từ tệp JSON">
+            <Button
+              aria-label="Nhập"
+              className={RAISED}
+              onClick={() => fileInput.current?.click()}
+              variant="outline"
+            >
+              <Upload aria-hidden className="size-4" />
+              <span className="hidden sm:inline">Nhập</span>
+            </Button>
+          </Hint>
+          <Hint label="Xuất cài đặt ra tệp JSON">
+            <Button aria-label="Xuất" className={RAISED} onClick={exportSettings} variant="outline">
+              <Download aria-hidden className="size-4" />
+              <span className="hidden sm:inline">Xuất</span>
+            </Button>
+          </Hint>
           <Popconfirm
             cancelText="Hủy"
             description="Bảng màu và quy chuẩn trở về mặc định; icon không bị đổi."
@@ -82,10 +87,12 @@ export function StandardsPage() {
             placement="bottom-end"
             title="Đặt lại mặc định?"
           >
-            <Button className={RAISED} title="Đặt lại mặc định" variant="outline">
-              <RotateCcw aria-hidden className="size-4" />
-              <span className="hidden sm:inline">Đặt lại</span>
-            </Button>
+            <Hint label="Đặt lại mặc định">
+              <Button aria-label="Đặt lại" className={RAISED} variant="outline">
+                <RotateCcw aria-hidden className="size-4" />
+                <span className="hidden sm:inline">Đặt lại</span>
+              </Button>
+            </Hint>
           </Popconfirm>
           <input
             accept=".json,application/json"

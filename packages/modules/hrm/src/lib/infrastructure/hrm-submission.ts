@@ -34,6 +34,12 @@ import {
   registerRequestProject,
   type RequestProjectInput,
 } from './hrm-request-project-links.js';
+import type { RequestProjectDetail } from './hrm-trip-details.js';
+import {
+  linkReplacement,
+  supersedeRequest,
+  type RequestReplacement,
+} from './hrm-request-edit.js';
 
 /** Loại đơn có danh mục lý do (đơn nghỉ dùng loại nghỉ làm lý do nên xử lý riêng). */
 const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
@@ -45,11 +51,18 @@ const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
+  /** Sửa đơn chưa duyệt: đơn cũ bị hủy và đơn mới thay chỗ trong cùng giao dịch (xem hrm-request-edit.ts). */
+  replaces?: RequestReplacement;
   /**
    * "Dự án liên kết" của đơn, nếu có. Đơn được gửi sang Workspace để nhận mã
    * DTxxx; hồ sơ quy trình (nếu có) chỉ mở sau khi có mã đó.
    */
-  project?: RequestProjectInput & { fromDate?: string; toDate?: string };
+  project?: RequestProjectInput & {
+    fromDate?: string;
+    toDate?: string;
+    /** Chi tiết đơn gửi kèm sang Workspace; tính SAU khi dòng đơn đã ghi nên đọc được cả lý do, phương tiện… */
+    details?: (row: Record<string, unknown>) => readonly RequestProjectDetail[];
+  };
 };
 type Starter = {
   startOrResume(
@@ -128,7 +141,21 @@ export async function submitHrmRequest(
         'Hồ sơ nhân viên đã ngừng hoạt động; không thể tạo đơn HRM mới.',
       );
     }
+    if (input.replaces)
+      await supersedeRequest(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        employeeId: input.employeeId,
+        actorId: input.initiatedBy,
+      }, input.replaces);
     const row = await create(db);
+    if (input.replaces)
+      await linkReplacement(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        actorId: input.initiatedBy,
+        newRequestId: row.id as string,
+      }, input.replaces);
     if (row.status !== 'DRAFT') assertRequestWithinMonth(input.kind as HrmRequestKind, row);
     if (row.status !== 'DRAFT') await assertQuotaOnCreate(db, input.tenantId, input.kind as HrmRequestKind, row);
     if (row.status !== 'DRAFT') await assertRequestTiming(db, input.tenantId, input.kind as HrmRequestKind, row);
@@ -187,6 +214,7 @@ export async function submitHrmRequest(
         status: String(row.status),
         fromDate: input.project.fromDate,
         toDate: input.project.toDate,
+        details: input.project.details?.(row as Record<string, unknown>),
       });
       // Đơn công tác gắn dự án kéo theo các đơn có ngày đã gửi trong thời gian đó.
       if (input.kind === 'business_trip' && input.project.fromDate && input.project.toDate)

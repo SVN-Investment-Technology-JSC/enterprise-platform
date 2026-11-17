@@ -1616,7 +1616,7 @@ export interface PostedStockDocument {
  * `limit` thì phân trang theo mã, trang sau gọi lại với `cursor = nextCursor`.
  */
 export interface InternalMaterialCatalogQuery {
-  /** Tìm theo mã hoặc tên, không phân biệt hoa thường. */
+  /** Tìm theo mã, tên hoặc phân loại, không phân biệt hoa thường. */
   readonly search?: string;
   readonly ids?: readonly string[];
   readonly codes?: readonly string[];
@@ -1624,6 +1624,8 @@ export interface InternalMaterialCatalogQuery {
   readonly warehouseCode?: string;
   /** Mặc định cả STOCK và SERVICE. */
   readonly kinds?: readonly MaterialKind[];
+  /** Đúng phân loại này (không phân biệt hoa thường). */
+  readonly tradeCategory?: string;
   readonly limit?: number;
   readonly cursor?: string;
 }

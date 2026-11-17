@@ -68,7 +68,8 @@ import type {
   ApprovalBinding,
   ApprovalKind,
   CreateQuoteRequest,
-  CrmCatalogMaterial,
+  CrmCatalogPage,
+  QuoteLinePickerSettings,
   ProcedureDefinitionOption,
   QuoteApprovalSettings,
   QuoteComparison,
@@ -190,6 +191,10 @@ export interface CrmApiError {
   readonly matches?: readonly TaxCodeMatch[];
   /** Điều kiện chuyển giai đoạn còn thiếu (STAGE_REQUIREMENTS_NOT_MET, ACCEPTED_QUOTE_REQUIRED). */
   readonly missing?: readonly { kind: string; ref: string; message: string }[];
+  /** Lỗi từng trường khi lưu bố cục mẫu báo giá (`LAYOUT_*`). */
+  readonly errors?: readonly QuoteLayoutError[];
+  /** Lỗi từng trường khi lưu tổ chức báo giá hoặc thông tin tổ chức trên báo giá (`SALES_ORGANIZATION_INVALID`). */
+  readonly fieldErrors?: readonly SalesOrganizationError[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -372,6 +377,8 @@ export const previewQuote = (body: QuotePreviewRequest) => send<PricingResult>('
 // Báo giá
 const quotePath = (id: string, versionNo?: number) =>
   `/quotes/${encodeURIComponent(id)}${versionNo === undefined ? '' : `/versions/${versionNo}`}`;
+/** Việc cần xử lý của người xem (plan mục 17.4): chờ tôi duyệt và việc của báo giá tôi phụ trách. */
+export const getMyTasks = () => request<CrmTaskList>('/my-tasks', { cache: 'no-store' });
 export const listQuotes = (query: QuoteListQuery) =>
   request<CrmPage<QuoteSummary>>(`/quotes${toQuery(query)}`, { cache: 'no-store' });
 export const getQuote = (id: string, versionNo?: number) =>
@@ -386,6 +393,8 @@ export const addQuoteLines = (id: string, versionNo: number, body: AddQuoteLines
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/lines/batch`, body);
 export const updateQuoteLine = (id: string, versionNo: number, lineId: string, body: SaveQuoteLineRequest) =>
   send<QuoteDetail>('PATCH', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}`, body);
+/** Xoá hẳn báo giá Nháp hoặc Chờ duyệt có một phiên bản; đang duyệt qua Quy trình thì máy chủ huỷ hồ sơ bên đó. */
+export const deleteQuote = (id: string) => send<void>('DELETE', `/quotes/${encodeURIComponent(id)}`);
 export const removeQuoteLine = (id: string, versionNo: number, lineId: string, revision: number) =>
   send<QuoteDetail>('DELETE', `${quotePath(id, versionNo)}/lines/${encodeURIComponent(lineId)}${toQuery({ revision })}`);
 /** `recalculate`, `revise`, `submit`, `approve`, `reject`, `send`, `accept`, `decline`. */
@@ -394,8 +403,31 @@ export const quoteAction = (id: string, versionNo: number, action: QuoteAction, 
   send<QuoteDetail>('POST', `${quotePath(id, versionNo)}/${action}`, body);
 export const compareQuote = (id: string, from: number, to: number) =>
   request<QuoteComparison>(`${quotePath(id)}/compare${toQuery({ from, to })}`, { cache: 'no-store' });
-export const searchCatalog = (search: string) =>
-  request<CrmCatalogMaterial[]>(`/catalog/materials${toQuery({ search, limit: 30 })}`, { cache: 'no-store' });
+export interface CatalogSearchQuery {
+  readonly search: string;
+  /** `nextCursor` của trang trước; rỗng là trang đầu. */
+  readonly cursor?: string | null;
+  /** Lọc nhóm: STOCK (hàng hoá), SERVICE (dịch vụ); rỗng là cả hai. */
+  readonly kind?: string;
+  /** Lọc đúng phân loại; rỗng là mọi phân loại. */
+  readonly tradeCategory?: string;
+  /** Chỉ mặt hàng có giá bán cho phiên bản báo giá này (bảng giá của khách, bảng chuẩn, hợp đồng). */
+  readonly pricedFor?: { readonly quoteId: string; readonly versionNo: number };
+}
+/** Số mặt hàng mỗi trang của hộp chọn mặt hàng. */
+export const CATALOG_PAGE_SIZE = 20;
+/** Tìm mặt hàng theo trang, xếp theo mã. */
+export const searchCatalog = ({ search, cursor, kind, tradeCategory, pricedFor }: CatalogSearchQuery) =>
+  request<CrmCatalogPage>(
+    `/catalog/materials${toQuery({ search, limit: CATALOG_PAGE_SIZE, cursor, kind, tradeCategory, ...(pricedFor ?? {}) })}`,
+    { cache: 'no-store' },
+  );
+/** Phân loại đang dùng trên mặt hàng ở Kho (ô lọc Phân loại); `kind` thu hẹp theo nhóm. */
+export const listCatalogTradeCategories = (kind?: string) =>
+  request<string[]>(`/catalog/trade-categories${toQuery({ kind })}`, { cache: 'no-store' });
+export const loadQuoteLinePickerSettings = () => request<QuoteLinePickerSettings>('/quote-line-picker-settings', { cache: 'no-store' });
+export const saveQuoteLinePickerSettings = (body: QuoteLinePickerSettings) =>
+  send<QuoteLinePickerSettings>('PUT', '/quote-line-picker-settings', body);
 
 // Cách duyệt, ngưỡng duyệt
 export const listApprovalBindings = () => request<ApprovalBinding[]>('/approval-bindings', { cache: 'no-store' });
@@ -602,11 +634,38 @@ import type {
   SaveQuoteTemplateRequest,
   SaveQuoteTypeRequest,
 } from '@enterprise-platform/contracts-crm';
+import type {
+  QuoteLayoutError,
+  QuoteTemplateLayout,
+  CrmTaskList,
+  SalesOrganization,
+  SalesOrganizationError,
+  SalesOrganizationSummary,
+  SaveQuoteTemplateLayoutRequest,
+  SaveSalesOrganizationRequest,
+} from '@enterprise-platform/contracts-crm';
 
 export const listQuoteTemplates = (includeInactive = false) =>
   request<QuoteTemplate[]>(`/quote-templates${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
 export const createQuoteTemplate = (body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('POST', '/quote-templates', body);
 export const updateQuoteTemplate = (id: string, body: SaveQuoteTemplateRequest) => send<QuoteTemplate>('PUT', `/quote-templates/${encodeURIComponent(id)}`, body);
+/** Bố cục in của mẫu (phase 3): đọc cần `crm.read`; lưu, xoá (`layout: null`) cần `crm.manage`. 409 `LAYOUT_CONFLICT` khi `expectedUpdatedAt` lệch. */
+export const getQuoteTemplateLayout = (id: string) =>
+  request<QuoteTemplateLayout>(`/quote-templates/${encodeURIComponent(id)}/layout`, { cache: 'no-store' });
+export const saveQuoteTemplateLayout = (id: string, body: SaveQuoteTemplateLayoutRequest) =>
+  send<QuoteTemplateLayout>('PUT', `/quote-templates/${encodeURIComponent(id)}/layout`, body);
+/**
+ * Tổ chức báo giá (công ty con, plan mục 16): danh sách và chi tiết cần `crm.read` (danh sách không có logo); tạo, sửa,
+ * xoá cần `crm.manage`. Đã có báo giá dùng thì xoá trả 409 `SALES_ORGANIZATION_IN_USE`.
+ */
+export const listSalesOrganizations = (includeInactive = false) =>
+  request<SalesOrganizationSummary[]>(`/sales-organizations${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
+export const getSalesOrganization = (id: string) =>
+  request<SalesOrganization>(`/sales-organizations/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export const createSalesOrganization = (body: SaveSalesOrganizationRequest) => send<SalesOrganization>('POST', '/sales-organizations', body);
+export const updateSalesOrganization = (id: string, body: SaveSalesOrganizationRequest) =>
+  send<SalesOrganization>('PATCH', `/sales-organizations/${encodeURIComponent(id)}`, body);
+export const deleteSalesOrganization = (id: string) => send<void>('DELETE', `/sales-organizations/${encodeURIComponent(id)}`);
 export const listQuoteTypes = (includeInactive = false) =>
   request<QuoteType[]>(`/quote-types${toQuery({ includeInactive: includeInactive ? 'true' : undefined })}`, { cache: 'no-store' });
 export const createQuoteType = (body: SaveQuoteTypeRequest) => send<QuoteType>('POST', '/quote-types', body);

@@ -14,8 +14,8 @@ export const FINANCE_INSTANCE_REVERSAL_CHECK_PATH = (instanceId: string) =>
 export const CRM_INSTANCE_REVERSAL_CHECK_PATH = (instanceId: string) =>
   `/v1/internal/instances/${encodeURIComponent(instanceId)}/reversal-check`;
 
-/** Nguồn của Bán hàng: hỏi theo id hồ sơ (`crm_quote`, `crm_order_credit`). */
-const CRM_SOURCE_TYPES: readonly string[] = ['crm_quote', 'crm_order_credit'];
+/** Nguồn của Bán hàng: hỏi theo id hồ sơ (`crm_quote`, `crm_order_credit`, `crm_business_plan`). */
+const CRM_SOURCE_TYPES: readonly string[] = ['crm_quote', 'crm_order_credit', 'crm_business_plan'];
 
 /**
  * Hỏi module nguồn qua route nội bộ chỉ đọc. Không trả lời được thì coi như KHÔNG cho

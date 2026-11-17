@@ -176,6 +176,7 @@ services:
       # khoá VAPID lưu trong DB. Đặt thì dùng chung cho mọi công ty, cùng một cặp với worker.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -401,6 +402,23 @@ services:
     init: true
     restart: unless-stopped
 
+  correspondence-api:
+    build:
+      context: ../..
+      dockerfile: apps/correspondence-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3345'
+      # Tệp của hồ sơ văn thư nằm trong kho tài liệu của Hệ dùng chung (route nội bộ, service token).
+      SHARED_API_URL: http://shared-api:3342/api/shared
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   realtime-api:
     build:
       context: ../..
@@ -478,6 +496,7 @@ services:
       # email hoặc trang liên hệ gửi kèm cho dịch vụ push, nên đặt mailto:<email quản trị>.
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
     depends_on:
       migrator:
@@ -661,6 +680,16 @@ services:
     init: true
     restart: unless-stopped
 
+  correspondence-web:
+    build:
+      context: ../..
+      dockerfile: apps/correspondence-web/Dockerfile
+    depends_on:
+      correspondence-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -675,6 +704,7 @@ services:
       - ../nginx/shared-maintenance.html:/usr/share/nginx/html/shared-maintenance.html:ro
       - ../nginx/social-maintenance.html:/usr/share/nginx/html/social-maintenance.html:ro
       - ../nginx/crm-maintenance.html:/usr/share/nginx/html/crm-maintenance.html:ro
+      - ../nginx/correspondence-maintenance.html:/usr/share/nginx/html/correspondence-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy

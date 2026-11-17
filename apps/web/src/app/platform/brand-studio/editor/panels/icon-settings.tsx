@@ -12,6 +12,7 @@ import {
 import { BadgeCheck, CircleDashed, X } from 'lucide-react';
 import { useState, type KeyboardEvent } from 'react';
 import { Section, ToggleGroup, type ToggleOption } from '../../components/controls';
+import { Hint } from '../../components/hint';
 import { NumberField } from '../../components/number-field';
 import { LiveTextField } from '../../components/text-field';
 import { useGesture } from '../../components/use-gesture';
@@ -97,30 +98,32 @@ export function IconSettings({ state, dispatch }: EditorPanelProps) {
               className="inline-flex h-6 items-center gap-1 rounded bg-slate-100 pl-2 pr-1 text-[11px] text-slate-700"
             >
               {tag}
-              <button
-                type="button"
-                title={`Xoá nhãn ${tag}`}
-                aria-label={`Xoá nhãn ${tag}`}
-                onClick={() => setMeta({ tags: removeTag(doc.tags, tag) })}
-                className="inline-flex size-4 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
+              <Hint label={`Xoá nhãn ${tag}`}>
+                <button
+                  type="button"
+                  aria-label={`Xoá nhãn ${tag}`}
+                  onClick={() => setMeta({ tags: removeTag(doc.tags, tag) })}
+                  className="inline-flex size-4 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              </Hint>
             </span>
           ))}
-          <input
-            type="text"
-            aria-label="Thêm nhãn"
-            title="Gõ nhãn rồi nhấn Enter"
-            placeholder={tagsFull ? 'Đã đủ nhãn' : 'Thêm nhãn'}
-            maxLength={MAX_TAG_LENGTH}
-            disabled={tagsFull}
-            value={tagDraft}
-            onChange={(event) => setTagDraft(event.target.value)}
-            onKeyDown={onTagKeyDown}
-            onBlur={commitTag}
-            className="h-6 min-w-20 flex-1 rounded border border-transparent bg-transparent px-1 text-[11px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-200 focus:bg-white disabled:opacity-50"
-          />
+          <Hint label="Gõ nhãn rồi nhấn Enter">
+            <input
+              type="text"
+              aria-label="Thêm nhãn"
+              placeholder={tagsFull ? 'Đã đủ nhãn' : 'Thêm nhãn'}
+              maxLength={MAX_TAG_LENGTH}
+              disabled={tagsFull}
+              value={tagDraft}
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={onTagKeyDown}
+              onBlur={commitTag}
+              className="h-6 min-w-20 flex-1 rounded border border-transparent bg-transparent px-1 text-[11px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-200 focus:bg-white disabled:opacity-50"
+            />
+          </Hint>
         </div>
       </Section>
 
@@ -143,15 +146,17 @@ export function IconSettings({ state, dispatch }: EditorPanelProps) {
             className="w-[72px] shrink-0"
             onCommit={(size) => dispatch({ type: 'setSize', size, scale })}
           />
-          <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-600" title="Phóng hình theo tỷ lệ khi đổi cỡ lưới">
-            <input
-              type="checkbox"
-              checked={scale}
-              onChange={(event) => setScale(event.target.checked)}
-              className="size-3.5 shrink-0 accent-blue-600"
-            />
-            <span className="truncate">Co hình theo lưới</span>
-          </label>
+          <Hint label="Phóng hình theo tỷ lệ khi đổi cỡ lưới">
+            <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-600">
+              <input
+                type="checkbox"
+                checked={scale}
+                onChange={(event) => setScale(event.target.checked)}
+                className="size-3.5 shrink-0 accent-blue-600"
+              />
+              <span className="truncate">Co hình theo lưới</span>
+            </label>
+          </Hint>
         </div>
       </Section>
 

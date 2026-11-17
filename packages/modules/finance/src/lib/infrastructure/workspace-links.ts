@@ -1,7 +1,7 @@
 import type { FinanceAllocation, FinanceRelatedProject } from '@enterprise-platform/contracts-finance';
 import { invalid } from '../domain/finance.error.js';
 import type { NormalizedVoucher } from '../domain/voucher.rules.js';
-import { fetchWorkspaceProject, fetchWorkspaceWorkItem } from './workspace-api.js';
+import { fetchWorkspaceProject } from './workspace-api.js';
 import type { ResolvedWorkspaceLinks } from './vouchers.store.js';
 
 /**
@@ -37,20 +37,7 @@ export async function resolveWorkspaceLinks(
   let resolvedAllocation: FinanceAllocation | null = null;
   if (allocation) {
     const project = await projectOf(allocation.projectId);
-    if (allocation.type === 'PROJECT') {
-      resolvedAllocation = { type: 'PROJECT', ...project, workItemId: null, workItemCode: null, workItemTitle: null };
-    } else {
-      const same = stored?.allocation?.workItemId === allocation.workItemId && stored.allocation.projectId === allocation.projectId ? stored.allocation : null;
-      if (same) {
-        resolvedAllocation = { ...same, type: 'WORK_ITEM' };
-      } else {
-        const item = await fetchWorkspaceWorkItem(tenantId, String(allocation.workItemId));
-        if (!item) throw invalid('Công việc không tồn tại.');
-        if (item.project.id !== allocation.projectId) throw invalid(`Công việc ${item.code} không thuộc dự án đã chọn.`);
-        if (item.status === 'cancelled') throw invalid(`Công việc ${item.code} đã huỷ, không thể hạch toán.`);
-        resolvedAllocation = { type: 'WORK_ITEM', ...project, workItemId: item.id, workItemCode: item.code, workItemTitle: item.title };
-      }
-    }
+    resolvedAllocation = { type: 'PROJECT', ...project, workItemId: null, workItemCode: null, workItemTitle: null };
   }
 
   // Tuần tự theo thứ tự người dùng chọn: lỗi nêu đúng dự án đầu tiên sai, kết quả ổn định.

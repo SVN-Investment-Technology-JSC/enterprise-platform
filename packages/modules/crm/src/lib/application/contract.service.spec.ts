@@ -165,6 +165,40 @@ describe('ContractService', () => {
     expect(noWarehouse.inventory.reserve).not.toHaveBeenCalled();
   });
 
+  it('D3-37: mỗi dòng giữ ở kho riêng; dòng không chọn kho theo kho mặc định của hợp đồng', async () => {
+    const base = contract();
+    const lines = [
+      { ...base.lines[0], warehouseCode: 'KHO-2' },
+      { ...base.lines[0], id: 'l3', lineNo: 3, quantity: 4, warehouseCode: null },
+      base.lines[1],
+    ];
+    const { inventory, service } = setup(contract({ lines }));
+    await service.confirm(actor(), ID, { revision: 3 });
+    expect(inventory.reserve).toHaveBeenCalledWith(
+      TENANT,
+      expect.objectContaining({
+        lines: [
+          { materialCode: 'QA-KHO-CAP', warehouseCode: 'KHO-2', quantity: 10 },
+          { materialCode: 'QA-KHO-CAP', warehouseCode: 'KHO-1', quantity: 4 },
+        ],
+      }),
+    );
+  });
+
+  it('D3-37: không có kho mặc định thì mọi dòng hàng tồn kho phải có kho; báo đúng dòng thiếu', async () => {
+    const base = contract({ warehouseCode: null });
+    const lines = [{ ...base.lines[0], warehouseCode: 'KHO-2' }, { ...base.lines[0], id: 'l3', lineNo: 3, materialCode: 'QA-KHO-MUC', warehouseCode: null }, base.lines[1]];
+    const ok = setup(contract({ warehouseCode: null, lines: [lines[0], lines[2]] }));
+    await ok.service.confirm(actor(), ID, { revision: 3 });
+    expect(ok.inventory.reserve).toHaveBeenCalled();
+    const missing = setup(contract({ warehouseCode: null, lines }));
+    await expect(missing.service.confirm(actor(), ID, { revision: 3 })).rejects.toMatchObject({
+      code: 'WAREHOUSE_REQUIRED',
+      message: expect.stringContaining('dòng 3 (QA-KHO-MUC)'),
+    });
+    expect(missing.inventory.reserve).not.toHaveBeenCalled();
+  });
+
   it('hợp đồng khung không có số lượng: xác nhận không gọi Kho', async () => {
     const { inventory, store, service } = setup(contract({ type: 'FRAMEWORK', lines: [{ ...contract().lines[0], quantity: null, lineAmount: null }] }));
     await service.confirm(actor(), ID, { revision: 3 });

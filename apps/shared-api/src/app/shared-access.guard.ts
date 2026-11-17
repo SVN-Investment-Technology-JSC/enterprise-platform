@@ -24,8 +24,10 @@ interface SharedRequest extends Request {
  *
  * Route nội bộ `/v1/internal/*` (service-to-service) không đi qua cookie người
  * dùng: guard tự xác thực service token ở `authorizeService`, và bên gọi chỉ
- * nhận một actor hệ thống không có quyền nào, nên route nội bộ không thể dùng
- * để đọc hay ghi tài liệu. Hiện chỉ có `POST /v1/internal/storage/capacity-check`.
+ * nhận một actor hệ thống không có quyền nào, nên route nội bộ không dùng được
+ * để đọc hay ghi tài liệu của người dùng. Gồm `POST /v1/internal/storage/capacity-check`
+ * và `/v1/internal/filings/*`: phân hệ khác (Văn thư) lưu tệp, chỉ trong thư mục
+ * gốc do chính phân hệ đó dựng (`FilingService`).
  */
 @Injectable()
 export class SharedAccessGuard implements CanActivate {

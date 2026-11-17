@@ -77,6 +77,7 @@ export const detailFields: Record<string, string> = {
   durationMinutes: 'Thời lượng đăng ký',
   fields: 'Thông tin bổ sung',
   duration: 'Số lượng nghỉ',
+  groupCount: 'Số khoản nghỉ',
   startTime: 'Bắt đầu',
   endTime: 'Kết thúc',
   plannedMinutes: 'Thời gian OT đăng ký',

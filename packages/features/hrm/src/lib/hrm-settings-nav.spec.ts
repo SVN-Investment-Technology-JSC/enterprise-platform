@@ -22,7 +22,7 @@ describe('hrm-settings-nav', () => {
   it('Lý do nghỉ là lý do của loại đơn Đơn xin nghỉ (trong Loại đơn & lý do), không còn nằm trong nhóm nghỉ phép', () => {
     const leave = SETTINGS_GROUPS.find((g) => g.id === 'leave');
     const request = SETTINGS_GROUPS.find((g) => g.id === 'request');
-    expect(leave?.entries.map((e) => e.id)).toEqual(['leave-policy']);
+    expect(leave?.entries.map((e) => e.id)).toEqual(['leave-policy', 'overtime-comp']);
     expect(request?.entries.map((e) => e.id)).toEqual([
       'request-reasons',
       'request-quota',

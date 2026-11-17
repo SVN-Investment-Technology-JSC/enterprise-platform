@@ -22,6 +22,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from 'react';
 import { invalidateChatFeed, useChatTimelineInfiniteQuery } from '../chat-feed-store';
 import {
@@ -37,7 +38,17 @@ import {
   type TimelineMessageRow,
   type TimelineRow,
 } from '../chat-timeline.model';
-import { extractMentions, mentionHandles, scanMentions, splitByMentions } from '../mention.model';
+import {
+  applyMention,
+  extractMentions,
+  findMentionQuery,
+  mentionHandles,
+  nextActiveIndex,
+  scanMentions,
+  splitByMentions,
+  suggestMembers,
+  type MentionQuery,
+} from '../mention.model';
 import { formatDate, formatDateTime } from '../workspace-labels';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
@@ -721,6 +732,11 @@ function MessageBox({
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const mirror = useRef<HTMLDivElement>(null);
+  /** Lượt `@` đang gõ dở trước con trỏ; có thì hiện danh sách thành viên để chọn. */
+  const [mention, setMention] = useState<MentionQuery>();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const suggestions = mention ? suggestMembers(members, mention.term, nameOf) : [];
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -747,6 +763,37 @@ function MessageBox({
     element.style.height = `${Math.min(element.scrollHeight, INPUT_MAX_HEIGHT_PX)}px`;
   }, [draft]);
 
+  // Đổi từ khoá thì chọn lại từ đầu danh sách.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [mention?.start, mention?.term]);
+
+  const onDraftChange = (value: string, caret: number) => {
+    setDraft(value);
+    setMention(findMentionQuery(value, caret));
+  };
+
+  // Con trỏ đi ra khỏi lượt nhắc (bấm chuột vào chỗ khác, phím mũi tên trái/phải): ẩn danh sách.
+  const onCaretMove = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    if (!mention) return;
+    const field = event.currentTarget;
+    const query = findMentionQuery(field.value, field.selectionStart ?? 0);
+    if (!query || query.start !== mention.start) setMention(undefined);
+  };
+
+  const pickMention = (userId: string) => {
+    const field = input.current;
+    if (!mention || !field) return;
+    const result = applyMention(draft, mention, field.selectionStart ?? draft.length, handles.get(userId) ?? userId);
+    setDraft(result.text);
+    setMention(undefined);
+    // Đặt lại con trỏ sau khi React vẽ xong giá trị mới.
+    requestAnimationFrame(() => {
+      field.focus();
+      field.setSelectionRange(result.caret, result.caret);
+    });
+  };
+
   const submit = async () => {
     const body = draft.trim();
     if (!body || busy) return;
@@ -759,6 +806,7 @@ function MessageBox({
           : successText,
       );
       setDraft('');
+      setMention(undefined);
       setAttachmentIds([]);
       onSent();
     } catch (cause) {
@@ -771,6 +819,27 @@ function MessageBox({
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Đang gõ dở bằng bộ gõ tiếng Việt (Telex/VNI): Enter chốt chữ, không phải lệnh.
     if (event.nativeEvent.isComposing) return;
+    if (suggestions.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const key = event.key;
+        setActiveIndex((index) => nextActiveIndex(index, key, suggestions.length));
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const chosen = suggestions[activeIndex] ?? suggestions[0];
+        if (chosen) pickMention(chosen.userId);
+        return;
+      }
+      if (event.key === 'Escape') {
+        // Esc khi đang mở danh sách chỉ đóng danh sách, không huỷ cả ô trả lời.
+        event.preventDefault();
+        event.stopPropagation();
+        setMention(undefined);
+        return;
+      }
+    }
     if (event.key === 'Escape' && onCancel) {
       event.stopPropagation();
       onCancel();
@@ -803,6 +872,35 @@ function MessageBox({
         </div>
       ) : null}
       <div className={styles.timelineReplyBox}>
+        {/* Nổi ngay trên ô nhập (không chiếm chỗ trong luồng), nên luôn sát chỗ đang gõ. */}
+        {suggestions.length > 0 ? (
+          <ul className={styles.mentionList} role="listbox" aria-label="Gợi ý nhắc thành viên">
+            {suggestions.map((candidate, index) => (
+              <li
+                key={candidate.userId}
+                role="option"
+                aria-selected={index === activeIndex}
+                className={index === activeIndex ? styles.mentionActive : undefined}
+                ref={(element) => {
+                  // Đi bằng phím tới mục nằm ngoài vùng cuộn thì kéo nó vào tầm nhìn.
+                  if (index === activeIndex) element?.scrollIntoView({ block: 'nearest' });
+                }}
+              >
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  // Giữ focus ở ô nhập: nhấn nút không được làm mất vị trí con trỏ.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => pickMention(candidate.userId)}
+                >
+                  {nameOf(candidate.userId)}{' '}
+                  <span className={styles.muted}>@{handles.get(candidate.userId) ?? candidate.userId}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {attach ? (
           <div ref={attachBox} className={styles.timelinePanelBox}>
             <Tooltip content={attached.length > 0 ? `Đính kèm tệp (đã chọn ${attached.length})` : 'Đính kèm tệp'}>
@@ -864,18 +962,44 @@ function MessageBox({
             ) : null}
           </div>
         ) : null}
-        <textarea
-          ref={input}
-          autoFocus={autoFocus}
-          rows={1}
-          value={draft}
-          maxLength={MAX_CHAT_BODY_LENGTH}
-          disabled={busy}
-          placeholder={`${label}…`}
-          aria-label={label}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={onKeyDown}
-        />
+        {/*
+          Ô nhập không tô màu được từng đoạn chữ, nên chữ thật nằm trong lớp phản chiếu phía sau còn textarea trong suốt
+          nằm đè lên để nhận gõ phím. Hai lớp dùng chung font, đệm và cách ngắt dòng để chữ khớp từng ký tự; chữ xanh
+          nghĩa là người đó sẽ được báo (cùng bộ quét với `extractMentions`).
+        */}
+        <div className={styles.timelineInputWrap}>
+          <div className={styles.timelineMirror} ref={mirror} aria-hidden>
+            {splitByMentions(draft, scanMentions(draft, members, handles)).map((part, index) =>
+              part.mention ? (
+                <span key={index} className={styles.mentionTag}>
+                  {part.text}
+                </span>
+              ) : (
+                part.text
+              ),
+            )}
+            {/* Ký tự rộng 0 giữ chiều cao cho dòng trống cuối, như textarea. */}
+            {'​'}
+          </div>
+          <textarea
+            ref={input}
+            autoFocus={autoFocus}
+            rows={1}
+            value={draft}
+            maxLength={MAX_CHAT_BODY_LENGTH}
+            disabled={busy}
+            placeholder={`${label}…`}
+            aria-label={label}
+            onChange={(event) => onDraftChange(event.target.value, event.target.selectionStart ?? event.target.value.length)}
+            onKeyDown={onKeyDown}
+            onKeyUp={onCaretMove}
+            onClick={onCaretMove}
+            onBlur={() => setMention(undefined)}
+            onScroll={(event) => {
+              if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop;
+            }}
+          />
+        </div>
         <div className={styles.timelineReplyActions}>
           <button
             type="button"

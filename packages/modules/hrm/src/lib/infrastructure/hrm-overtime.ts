@@ -2,6 +2,7 @@ import { assertQuotaOnApprove } from './hrm-request-quota.js';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   NotFoundException,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
@@ -17,7 +18,12 @@ import {
 } from './hrm-time.js';
 import { localMinutesOfDay } from './hrm-leave-day-preview.js';
 import { requireDate } from './hrm-validation.js';
-import { assertNoRequestOverlap, tripBlocksOt } from './hrm-request-overlap.js';
+import { assertNoRequestOverlap, employeeShiftWindowOf, tripBlocksOtByShift } from './hrm-request-overlap.js';
+import { syncOvertimeBlocks } from './hrm-overtime-blocks.js';
+import { assertQuotaOnCreate } from './hrm-request-quota.js';
+import { assertRequestWithinMonth } from './hrm-request-month.js';
+import { assertRequestTiming } from './hrm-request-time-rules.js';
+import { attachRequestToOverlappingTrips } from './hrm-request-project-links.js';
 import {
   computeOvertimeTime,
   deriveOvertimeTime,
@@ -42,7 +48,7 @@ export type OtCreateInput = Pick<CreateOtRequestPayload, 'employeeId'> &
   Partial<
     Pick<
       CreateOtRequestPayload,
-      'fromAt' | 'toAt' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes'
+      'fromAt' | 'toAt' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes' | 'nextDayRest'
     >
   >;
 
@@ -218,6 +224,9 @@ export async function validateOt(
     // ngày và giờ đêm; phần sau 00:00 theo loại ngày của ngày hôm sau.
     nextDayKind = (await dayKindOf(db, tenant, date, body.employeeId)) || 'WORK';
   }
+  // Công tác tính theo giờ phân ca: OT chỉ bị chặn khi chồng giờ ca của nhân viên trong ngày công tác (OT bắt đầu sau khi hết ca
+  // được nhận; ngày không có ca như cuối tuần thì OT cả ngày).
+  const shiftOf = employeeShiftWindowOf(db, tenant, body.employeeId);
   // Tạo đơn mới: OT không được trùng ngày nghỉ phép hoặc công tác (đang chờ / đã duyệt).
   // Bước duyệt (có excludeId) không kiểm tra lại để đơn cũ tồn đọng vẫn xử lý được.
   if (!excludeId)
@@ -232,10 +241,9 @@ export async function validateOt(
               .toISOString()
               .slice(0, 10)
           : body.workDate,
-    }, { timeZone: policyTimeZone });
-  // Đơn công tác không cho OT chỉ chặn khi giờ OT chồng giờ công tác (xét theo giờ khi cả hai có giờ cụ thể);
-  // đơn công tác cũ không có giờ chiếm cả ngày. from_at/to_at đọc qua to_jsonb để chạy được trên tenant chưa có migration 0047.
-  // Công tác nhiều ngày chỉ bận trong khoảng giờ của đơn ở từng ngày (tripBusyWindows), không tính cả đêm giữa các ngày.
+    }, { timeZone: policyTimeZone, shiftOf });
+  // Đơn công tác không cho OT (allow_ot=false) chỉ chặn khi giờ OT chồng giờ ca của nhân viên trong ngày công tác (tripBusyWindowsByShift).
+  // from_at/to_at đọc qua to_jsonb để chạy được trên tenant chưa có migration 0047.
   const trips = await db.query(
     `SELECT to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date,
             to_jsonb(bt)->>'from_at' AS from_at, to_jsonb(bt)->>'to_at' AS to_at
@@ -254,10 +262,10 @@ export async function validateOt(
       : body.workDate;
   let blockedTrip = false;
   for (const trip of trips.rows) {
-    const blocks = tripBlocksOt(
+    const blocks = await tripBlocksOtByShift(
       trip,
       { fromDate: body.workDate, toDate: otToDate, from: otWindow?.from ?? NaN, to: otWindow?.to ?? NaN },
-      { timeZone: policyTimeZone },
+      shiftOf,
     );
     if (blocks) {
       blockedTrip = true;
@@ -401,6 +409,17 @@ export async function createOvertime(
         `INSERT INTO hrm_schema.ot_requests (tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,ot_type,ot_rate_multiplier,reason,reason_id,reason_name,paid,policy_version_id,rate_source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
         [...params, rateSource],
       );
+  // Ngày nghỉ sau ca xuyên đêm (chỉ ghi khi khác mặc định); dùng để phân loại làm thêm / ca đêm khi duyệt.
+  const nextDayRest = input.nextDayRest ?? 'NONE';
+  if (!['NONE', 'HALF', 'FULL'].includes(nextDayRest))
+    throw new BadRequestException('Nghỉ ngày kế tiếp chỉ nhận NONE, HALF hoặc FULL');
+  if (nextDayRest !== 'NONE') {
+    const withRest = await db.query(
+      `UPDATE hrm_schema.ot_requests SET next_day_rest=$3 WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+      [tenant, result.rows[0].id, nextDayRest],
+    );
+    return withRest.rows[0];
+  }
   return result.rows[0];
 }
 export async function approveOvertime(
@@ -446,5 +465,137 @@ export async function approveOvertime(
     `UPDATE hrm_schema.ot_requests SET status='APPROVED',approved_minutes=planned_minutes,ot_rate_multiplier=$4,policy_version_id=$5,rate_source=$6,ot_type=$7,approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenant, id, actor, rate, rule.policyId, reasonRate == null ? 'POLICY' : 'REASON', rule.kind],
   );
+  // Phân loại làm thêm / ca đêm theo chính sách của tháng (không ghi gì khi quy tắc chưa bật).
+  await syncOvertimeBlocks(db, tenant, actor, id, updated.rows[0]);
   return updated.rows[0];
+}
+
+export const MAX_OT_GROUP_RANGES = 10;
+
+export interface OtGroupRange {
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
+}
+
+/** Đọc danh sách khoảng bổ sung từ nội dung gửi lên; sai hình dạng thì từ chối cả đơn. */
+export function parseOtGroupRanges(value: unknown): OtGroupRange[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new BadRequestException('Danh sách khoảng làm thêm bổ sung không hợp lệ');
+  if (value.length + 1 > MAX_OT_GROUP_RANGES)
+    throw new BadRequestException(`Một đơn làm thêm chỉ có tối đa ${MAX_OT_GROUP_RANGES} khoảng`);
+  const text = (v: unknown) => (typeof v === 'string' && v.length <= 40 ? v : undefined);
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item))
+      throw new BadRequestException(`Khoảng làm thêm ${index + 2} không hợp lệ`);
+    const r = item as Record<string, unknown>;
+    const rest = r.nextDayRest === 'HALF' || r.nextDayRest === 'FULL' ? r.nextDayRest : 'NONE';
+    return { fromAt: text(r.fromAt), toAt: text(r.toAt), nextDayRest: rest };
+  });
+}
+
+function labelled(error: unknown, label: string): unknown {
+  if (!(error instanceof HttpException)) return error;
+  const response = error.getResponse();
+  const raw = typeof response === 'string' ? response : (response as { message?: unknown }).message ?? error.message;
+  const message = `${label}: ${Array.isArray(raw) ? raw.join('; ') : String(raw)}`;
+  return new HttpException(typeof response === 'string' ? message : { ...(response as object), message }, error.getStatus());
+}
+
+/**
+ * Tạo đơn làm thêm một khoảng hoặc nhiều khoảng trong CÙNG một giao dịch của người gọi: một khoảng không hợp lệ thì giao
+ * dịch bị hủy và không khoảng nào được tạo. Khoảng chính nối quy trình duyệt do `submitHrmRequest` lo (và kiểm tra khoảng
+ * chính ở đó); các khoảng bổ sung có `group_id` của khoảng chính, không có quy trình riêng. Mỗi khoảng giữ nextDayRest riêng.
+ */
+export async function createOvertimeGroup(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  input: OtCreateInput,
+  reason: OtReasonInput | undefined,
+  extra: readonly OtGroupRange[],
+  opts: { requestTypeLabel: string; afterCreate?: (row: Record<string, unknown>) => Promise<Record<string, unknown>> },
+) {
+  const grouped = extra.length > 0;
+  const guard = async <T>(index: number, work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      throw grouped ? labelled(error, `Khoảng làm thêm ${index + 1}`) : error;
+    }
+  };
+  let leader: Record<string, unknown> = await guard(0, () => createOvertime(db, tenant, input, reason));
+  if (grouped) {
+    await db.query(`UPDATE hrm_schema.ot_requests SET group_id=id WHERE tenant_id=$1 AND id=$2`, [tenant, leader.id]);
+    leader = { ...leader, group_id: leader.id };
+  }
+  if (opts.afterCreate) leader = await opts.afterCreate(leader);
+  for (const [i, range] of extra.entries()) {
+    await guard(i + 1, async () => {
+      let row: Record<string, unknown> = await createOvertime(
+        db,
+        tenant,
+        { employeeId: input.employeeId, fromAt: range.fromAt, toAt: range.toAt, nextDayRest: range.nextDayRest },
+        reason,
+      );
+      await db.query(`UPDATE hrm_schema.ot_requests SET group_id=$3 WHERE tenant_id=$1 AND id=$2`, [tenant, row.id, leader.id]);
+      row = { ...row, group_id: leader.id };
+      if (opts.afterCreate) row = await opts.afterCreate(row);
+      assertRequestWithinMonth('ot', row);
+      await assertQuotaOnCreate(db, tenant, 'ot', row);
+      await assertRequestTiming(db, tenant, 'ot', row);
+      await attachRequestToOverlappingTrips(db, {
+        tenantId: tenant,
+        kind: 'ot',
+        requestId: row.id as string,
+        employeeId: String(row.employee_id),
+        initiatedBy: actor,
+        requestTypeLabel: opts.requestTypeLabel,
+        status: String(row.status),
+      });
+    });
+  }
+  return leader;
+}
+
+/** Các khoảng khác trong nhóm của đơn (khoá theo thứ tự id); đơn không thuộc nhóm thì trả rỗng. */
+async function otGroupMembers(db: PoolClient, tenant: string, id: string) {
+  const head = await db.query(`SELECT group_id FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND id=$2`, [tenant, id]);
+  const groupId = head.rows[0]?.group_id as string | null | undefined;
+  if (!groupId) return [];
+  const members = await db.query(
+    `SELECT id,status FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND group_id=$2 ORDER BY id FOR UPDATE`,
+    [tenant, groupId],
+  );
+  return members.rows.filter((m) => m.id !== id) as { id: string; status: string }[];
+}
+
+/**
+ * Duyệt một đơn làm thêm; đơn thuộc nhóm nhiều khoảng thì mọi khoảng đang chờ duyệt của nhóm được duyệt cùng lúc trong
+ * một giao dịch (khoảng được thao tác xử lý trước, lỗi của nó dừng cả nhóm).
+ */
+export async function approveOvertimeGroup(db: PoolClient, tenant: string, actor: string, id: string) {
+  const others = await otGroupMembers(db, tenant, id);
+  const result = await approveOvertime(db, tenant, actor, id);
+  for (const member of others) {
+    if (member.status === 'PENDING') await approveOvertime(db, tenant, actor, member.id);
+  }
+  return result;
+}
+
+/** Từ chối (hoặc hủy) các khoảng còn chờ duyệt cùng nhóm với đơn đã được xử lý. */
+export async function cascadeOvertimeGroupStatus(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  id: string,
+  target: 'REJECTED' | 'CANCELLED',
+) {
+  const others = await otGroupMembers(db, tenant, id);
+  const pending = others.filter((m) => m.status === 'PENDING' || m.status === 'PEER_CONFIRMED').map((m) => m.id);
+  if (!pending.length) return;
+  await db.query(
+    `UPDATE hrm_schema.ot_requests SET status=$3,approved_by=$4,updated_at=now() WHERE tenant_id=$1 AND id = ANY($2::uuid[])`,
+    [tenant, pending, target, actor],
+  );
 }

@@ -59,6 +59,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         icon: 'leave',
         view: 'leave',
       },
+      {
+        id: 'overtime-comp',
+        label: 'Làm thêm và nghỉ bù',
+        description: 'Phân loại làm thêm và ca đêm, trần giờ làm thêm tính lương, quy đổi giờ dư thành ngày nghỉ bù',
+        icon: 'rules',
+        view: 'overtime-comp',
+        permissions: ['hrm.policy.view', 'hrm.policy.manage'],
+      },
     ],
   },
   {

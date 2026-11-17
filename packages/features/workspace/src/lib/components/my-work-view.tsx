@@ -16,6 +16,7 @@ import {
   type ProjectMember,
   type ProjectRole,
   type ProjectSummary,
+  type StandaloneTaskDetail,
   type UpdateStandaloneTaskRequest,
   type UpdateWorkItemRequest,
   type WorkItemPriority,
@@ -96,6 +97,8 @@ import { Pager } from './pager';
 import { ProjectForm } from './project-form';
 import { WorkItemForm } from './work-item-form';
 import { useDirectory } from './use-directory';
+import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
+import { progressCellMode } from '../progress-cell-rules';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -424,7 +427,29 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
     }
   };
 
+  /** Tiến độ của việc trong dự án đi qua luồng báo cáo tiến độ (đổi trạng thái theo con số, hộp báo cáo khi 100%). */
+  const {
+    setProgress: reportItemProgress,
+    reportQuantity,
+    dialog: progressDialog,
+  } = useProgressReport(() => {
+    invalidateMyWork();
+  });
+
   const patchItem = async (itemId: string, patch: UpdateWorkItemRequest, fallback: string) => {
+    // Chỉ khi có số mới (không phải "về tự động"): các lần sửa khác vẫn là cập nhật thẳng.
+    if (typeof patch.manualProgressPercent === 'number') {
+      setSavingItem(itemId);
+      try {
+        // Bản mới nhất của việc: hộp báo cáo và toast cần mã, tên và trạng thái hiện tại.
+        await reportItemProgress(await api.getWorkItem(itemId), patch.manualProgressPercent);
+      } catch (cause) {
+        setError(messageOf(cause, fallback));
+      } finally {
+        setSavingItem(undefined);
+      }
+      return;
+    }
     setError(undefined);
     setSavingItem(itemId);
     try {
@@ -460,8 +485,18 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           () => toastStatusChanged(entry.task.status, next, entry.task.code),
         );
 
-  const onTaskPatch = (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) =>
+  /** Tiến độ của việc lá ngoài dự án đi qua luồng báo cáo tiến độ (đổi trạng thái theo số, hộp báo cáo khi 100%). */
+  const taskProgress = useProgressReport<StandaloneTaskDetail>(() => {
+    invalidateMyWork();
+  }, STANDALONE_PROGRESS_ADAPTER);
+
+  const onTaskPatch = (entry: MyWorkStandaloneTask, patch: UpdateStandaloneTaskRequest, fallback: string) => {
+    if (typeof patch.manualProgressPercent === 'number' && entry.task.childCount === 0) {
+      void taskProgress.setProgress(entry.task, patch.manualProgressPercent);
+      return;
+    }
     void runTask(entry.task.id, () => api.updateStandaloneTask(entry.task.id, patch), fallback);
+  };
 
   const events = overview?.todayEvents ?? [];
   const invitations = overview?.pendingInvitations ?? [];
@@ -711,11 +746,20 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           ) : null}
 
           <div className={styles.ledgerScroll}>
-            <table className={`${styles.table} ${styles.ledgerTable}`}>
+            <table className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.myWorkTable}`}>
+              {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
+              <colgroup>
+                <col />
+                <col className={styles.myWorkColAssigner} />
+                <col className={styles.myWorkColPriority} />
+                <col className={styles.myWorkColStatus} />
+                <col className={styles.myWorkColDue} />
+                <col className={styles.myWorkColProgress} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Công việc</th>
-                  <th>Dự án / Người giao</th>
+                  <th>Người giao</th>
                   <th>Ưu tiên</th>
                   <th>Trạng thái</th>
                   <th>Hạn</th>
@@ -730,9 +774,11 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
                   open={ui.expanded.includes(group.projectId)}
                   onToggle={() => toggleGroup(group.projectId)}
                   onOpen={onOpen}
+                  assignerName={(entry) => directory.nameOf(entry.item.createdBy)}
                   savingItem={savingItem}
                   onStatus={onItemStatus}
                   onPatch={(entry, patch, fallback) => void patchItem(entry.item.id, patch, fallback)}
+                  onQuantity={(entry) => reportQuantity(entry.item)}
                   onPage={(page) => setPage(group.projectId, page)}
                   onPageSize={setPageSize}
                 />
@@ -944,6 +990,8 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
 
       {/* Vướng mắc luôn qua hộp ghi lý do (việc dự án lẫn việc giao lẻ). */}
       {blockedPrompt.dialog}
+      {progressDialog}
+      {taskProgress.dialog}
 
       {/* Hoàn thành luôn qua hộp xác nhận, kèm điều kiện hoàn thành nếu việc có đặt. */}
       <CompleteWorkItemDialog
@@ -1034,9 +1082,11 @@ function ProjectGroupBody({
   open,
   onToggle,
   onOpen,
+  assignerName,
   savingItem,
   onStatus,
   onPatch,
+  onQuantity,
   onPage,
   onPageSize,
 }: {
@@ -1045,9 +1095,11 @@ function ProjectGroupBody({
   open: boolean;
   onToggle: () => void;
   onOpen?: MyWorkViewProps['onOpen'];
+  assignerName: (entry: MyWorkItem) => string;
   savingItem?: string;
   onStatus: (entry: MyWorkItem, next: WorkItemStatus) => void;
   onPatch: (entry: MyWorkItem, patch: UpdateWorkItemRequest, fallback: string) => void;
+  onQuantity: (entry: MyWorkItem) => void;
   onPage: (page: number) => void;
   onPageSize: (size: number) => void;
 }) {
@@ -1078,25 +1130,31 @@ function ProjectGroupBody({
     <tbody className={query.isFetching && data ? styles.myWorkDim : undefined} aria-busy={query.isFetching}>
       <tr className={styles.groupRow}>
         <th scope="row">
-          <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
-            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            <span className={styles.treeCode}>{group.projectCode}</span>
-            {group.projectName}
-          </button>
-        </th>
-        <td>
-          {onOpen ? (
-            <button
-              type="button"
-              className={styles.groupOpenButton}
-              aria-label={`Mở dự án ${group.projectName}`}
-              onClick={() => onOpen(group.projectId, `project/${group.projectId}`)}
-            >
-              <ExternalLink size={13} aria-hidden />
-              Mở dự án
+          <div className={styles.workCell}>
+            <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
+              {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+              <Tooltip content={group.projectCode}>
+                <span className={styles.treeCode}>{group.projectCode}</span>
+              </Tooltip>
+              <Tooltip content={group.projectName}>
+                <span className={styles.workTitle}>{group.projectName}</span>
+              </Tooltip>
             </button>
-          ) : null}
-        </td>
+            {onOpen ? (
+              <Tooltip content="Mở dự án">
+                <button
+                  type="button"
+                  className={styles.groupOpenIcon}
+                  aria-label={`Mở dự án ${group.projectName}`}
+                  onClick={() => onOpen(group.projectId, `project/${group.projectId}`)}
+                >
+                  <ExternalLink size={14} aria-hidden />
+                </button>
+              </Tooltip>
+            ) : null}
+          </div>
+        </th>
+        <td />
         <td>
           {group.topPriority ? (
             <span className={styles.groupSummaryText}>
@@ -1150,9 +1208,11 @@ function ProjectGroupBody({
               key={entry.item.id}
               entry={entry}
               busy={savingItem === entry.item.id}
+              assignerName={assignerName(entry)}
               onOpen={onOpen}
               onStatus={(next) => onStatus(entry, next)}
               onPatch={(patch, fallback) => onPatch(entry, patch, fallback)}
+              onQuantity={() => onQuantity(entry)}
             />
           ))
         : null}
@@ -1263,15 +1323,20 @@ function StandaloneBody({
 function MyWorkRow({
   entry,
   busy,
+  assignerName,
   onOpen,
   onStatus,
   onPatch,
+  onQuantity,
 }: {
   entry: MyWorkItem;
   busy: boolean;
+  assignerName: string;
   onOpen?: MyWorkViewProps['onOpen'];
   onStatus: (next: WorkItemStatus) => void;
   onPatch: (patch: UpdateWorkItemRequest, fallback: string) => void;
+  /** Báo khối lượng đã làm (việc tính tiến độ theo khối lượng). */
+  onQuantity: () => void;
 }) {
   const { item } = entry;
   const locked = busy || Boolean(item.reversal);
@@ -1298,19 +1363,22 @@ function MyWorkRow({
   return (
     <tr>
       <td>
-        <button
-          type="button"
-          className={styles.cellTitleButton}
-          onClick={() => onOpen?.(item.projectId, `work-item/${item.id}`)}
-        >
-          <span className={styles.treeCode}>{item.code}</span>
-          {item.title}
-        </button>
+        <div className={`${styles.workCell} ${styles.workChild}`}>
+          <span className={styles.workIndent} aria-hidden />
+          <button
+            type="button"
+            className={styles.cellTitleButton}
+            onClick={() => onOpen?.(item.projectId, `work-item/${item.id}`)}
+          >
+            <span className={styles.treeCode}>{item.code}</span>
+            <Tooltip content={item.title}>
+              <span className={styles.workTitle}>{item.title}</span>
+            </Tooltip>
+          </button>
+        </div>
       </td>
       <td className={styles.cellSub}>
-        <Tooltip content={entry.projectName}>
-          <span>{entry.projectCode}</span>
-        </Tooltip>
+        <span className={styles.workTitle}>{assignerName}</span>
       </td>
       <td className={styles.inlineCell}>
         <ChipSelect
@@ -1355,16 +1423,23 @@ function MyWorkRow({
         />
       </td>
       <td>
-        <ProgressCell
-          label={`Tiến độ của ${item.code}`}
-          value={item.progressPercent}
-          manual={Boolean(item.progressManual)}
-          auto={item.autoProgressPercent}
-          disabled={locked}
-          onCommit={(next) =>
-            onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')
-          }
-        />
+        {(() => {
+          // Việc có việc con không có trong bảng này theo cách riêng, nên chỉ xét cách tính của chính nó.
+          const mode = progressCellMode(item, { hasChildren: false, canWrite: !locked });
+          return (
+            <ProgressCell
+              label={`Tiến độ của ${item.code}`}
+              value={item.progressPercent}
+              manual={Boolean(item.progressManual)}
+              auto={item.autoProgressPercent}
+              expected={item.expectedProgressPercent}
+              disabled={!mode.editable}
+              lockedReason={mode.reason}
+              onOpen={mode.quantity ? onQuantity : undefined}
+              onCommit={(next) => onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')}
+            />
+          );
+        })()}
       </td>
     </tr>
   );
@@ -1415,10 +1490,15 @@ function StandaloneTaskRow({
   return (
     <tr>
       <td>
-        <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask?.(task.id)}>
-          <span className={styles.treeCode}>{task.code}</span>
-          {task.title}
-        </button>
+        <div className={`${styles.workCell} ${styles.workChild}`}>
+          <span className={styles.workIndent} aria-hidden />
+          <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask?.(task.id)}>
+            <span className={styles.treeCode}>{task.code}</span>
+            <Tooltip content={task.title}>
+              <span className={styles.workTitle}>{task.title}</span>
+            </Tooltip>
+          </button>
+        </div>
       </td>
       <td className={styles.cellSub}>
         {entry.awaitingMyApproval ? (

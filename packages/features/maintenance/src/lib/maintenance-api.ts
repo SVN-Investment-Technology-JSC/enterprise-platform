@@ -12,6 +12,7 @@ import type {
   MaintenanceWorkspace,
   SaveMaintenanceMatrixRequest,
   SaveMaintenanceMatrixResult,
+  MaintenanceMyDashboardCards,
   MaintenanceSettingsKey,
   MaintenanceSettingsSnapshot,
   MaintenanceSettingsEntry,
@@ -192,6 +193,11 @@ export async function loadFleetAvailability(from: string, to: string): Promise<M
   return (await request<{ data: MaintenanceFleetAvailability }>(`/fleet/availability?${params}`, { cache: 'no-store' })).data;
 }
 
+/** Gửi lại phiếu đã báo lỗi sang Quy trình. */
+export function retryMaintenanceDispatch(id: string): Promise<MaintenanceOccurrence> {
+  return request<MaintenanceOccurrence>(`/occurrences/${id}/redispatch`, { method: 'POST' });
+}
+
 export function completeMaintenanceOccurrence(
   id: string,
   note?: string,
@@ -257,6 +263,17 @@ export const saveMaintenanceSetting = (
   request<MaintenanceSettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
     body: JSON.stringify({ value, expectedVersion }),
+  });
+
+/** Thẻ Tổng quan do chính người dùng chọn; `cardIds: null` là chưa tuỳ chỉnh. */
+export const loadMyDashboardCards = () =>
+  request<MaintenanceMyDashboardCards>('/me/dashboard-cards', { cache: 'no-store' });
+
+/** Lưu thẻ của riêng mình; truyền `null` để quay về mặc định. */
+export const saveMyDashboardCards = (cardIds: readonly string[] | null) =>
+  request<MaintenanceMyDashboardCards>('/me/dashboard-cards', {
+    method: 'PUT',
+    body: JSON.stringify({ cardIds }),
   });
 
 /** Gỡ hẳn thiết bị khỏi ma trận: xoá mọi lịch của nó. */

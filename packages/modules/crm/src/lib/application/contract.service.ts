@@ -4,6 +4,7 @@ import {
   CONTRACT_STATUSES,
   CONTRACT_TYPES,
   DEFAULT_VAT_RATE,
+  lineWarehouseCode,
   type ContractActionRequest,
   type ContractDetail,
   type ContractListQuery,
@@ -260,8 +261,12 @@ export class ContractService {
     const reservable = reservableContractLines(current.lines);
     let reservation: ReservedStock | null = null;
     if (reservable.length) {
-      if (!current.warehouseCode) {
-        throw new CrmValidationError('WAREHOUSE_REQUIRED', 'Vui lòng chọn kho giữ hàng cho hợp đồng trước khi xác nhận.');
+      const missing = reservable.filter((line) => !lineWarehouseCode(line, current.warehouseCode));
+      if (missing.length) {
+        throw new CrmValidationError(
+          'WAREHOUSE_REQUIRED',
+          `Chưa có kho giữ hàng cho ${missing.map((line) => `dòng ${line.lineNo} (${line.materialCode})`).join(', ')}; chọn kho cho dòng hoặc kho mặc định của hợp đồng trước khi xác nhận.`,
+        );
       }
       reservation = await this.reserve(actor.tenantId, current, reservable, today);
     }
@@ -338,7 +343,7 @@ export class ContractService {
           notes: `Hợp đồng ${contract.code}`,
           lines: lines.map((line) => ({
             materialCode: line.materialCode,
-            warehouseCode: contract.warehouseCode as string,
+            warehouseCode: lineWarehouseCode(line, contract.warehouseCode) as string,
             quantity: line.quantity as number,
           })),
         });
@@ -437,8 +442,12 @@ export class ContractService {
         throw error;
       }
       if (type === 'SALE' && quantity === null) throw fail('hợp đồng mua bán phải có số lượng.');
-      const key = `${material.id}|${unit.toLowerCase()}`;
-      if (seen.has(key)) throw fail('mặt hàng và đơn vị đã có ở dòng khác.');
+      const kind = material.kind ?? 'STOCK';
+      // Dịch vụ không giữ hàng nên không có kho.
+      const warehouse = kind === 'SERVICE' ? null : (optionalText(line.warehouseCode, 50, 'mã kho')?.toUpperCase() ?? null);
+      // Cùng mặt hàng, đơn vị được tách nhiều dòng nếu giữ ở các kho khác nhau.
+      const key = `${material.id}|${unit.toLowerCase()}|${warehouse ?? ''}`;
+      if (seen.has(key)) throw fail(warehouse ? 'mặt hàng, đơn vị và kho đã có ở dòng khác.' : 'mặt hàng và đơn vị đã có ở dòng khác.');
       seen.add(key);
       return {
         id: randomUUID(),
@@ -447,13 +456,14 @@ export class ContractService {
         materialCode: material.code,
         materialName: material.name,
         unit,
-        materialKind: material.kind ?? 'STOCK',
+        materialKind: kind,
         quantity,
         unitPrice,
         vatRate,
         discountPercent: 0,
         lineAmount: contractLineAmount(quantity, unitPrice),
         note: optionalText(line.note, 1000, 'ghi chú dòng'),
+        warehouseCode: warehouse,
       };
     });
   }

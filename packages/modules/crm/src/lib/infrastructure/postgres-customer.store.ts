@@ -43,6 +43,9 @@ interface CustomerRow {
   phone: string | null;
   email: string | null;
   group_id: string | null;
+  price_list_id: string | null;
+  price_list_code: string | null;
+  price_list_name: string | null;
   group_name: string | null;
   kind: CustomerKind;
   kind_name: string | null;
@@ -71,13 +74,14 @@ interface ContactRow {
 
 const CUSTOMER_COLUMNS = `
   c.id, c.code, c.name, c.tax_code, c.address, c.province, c.region, c.industry, c.phone, c.email,
-  c.group_id, g.name AS group_name, c.kind, ck.name AS kind_name, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
+  c.group_id, g.name AS group_name, c.price_list_id, pl.code AS price_list_code, pl.name AS price_list_name, c.kind, ck.name AS kind_name, c.credit_limit, c.payment_term_days, c.note, c.profile_note,
   c.owner_user_id, c.version, c.created_at, c.updated_at, pc.full_name AS primary_contact_name,
   ${cursorAt('c.updated_at')} AS cursor_at`;
 
 const CUSTOMER_FROM = `
   FROM crm_schema.customers c
   LEFT JOIN crm_schema.customer_groups g ON g.id = c.group_id
+  LEFT JOIN crm_schema.price_lists pl ON pl.id = c.price_list_id
   LEFT JOIN crm_schema.customer_kinds ck ON ck.code = c.kind
   LEFT JOIN crm_schema.customer_contacts pc ON pc.customer_id = c.id AND pc.is_primary`;
 
@@ -171,14 +175,15 @@ export class PostgresCustomerStore implements CustomerStore {
     try {
       // Sự kiện `crm.customer.updated` ghi cùng transaction với thay đổi (D1: Workspace giữ bản sao).
       await this.database.transaction(tenantId, async (client) => {
+        await assertCustomerPriceList(client, record.priceListId);
         const result = await client.query(
           `UPDATE crm_schema.customers
               SET code = $3, name = $4, tax_code = $5, address = $6, province = $7, region = $8, industry = $9,
                   phone = $10, email = $11, group_id = $12, kind = $13, credit_limit = $14,
-                  payment_term_days = $15, note = $16, owner_user_id = $17,
-                  version = version + 1, updated_at = now(), updated_by = $18
+                  payment_term_days = $15, note = $16, owner_user_id = $17, price_list_id = $18,
+                  version = version + 1, updated_at = now(), updated_by = $19
             WHERE id = $1 AND version = $2`,
-          [id, expectedVersion, code, ...customerValues(record), actorId],
+          [id, expectedVersion, code, ...customerValues(record), record.priceListId, actorId],
         );
         if (!result.rowCount) throw new CrmStaleVersionError();
         await writeCustomerEvent(client, tenantId, id, 'updated', actorId);
@@ -325,6 +330,7 @@ export async function insertCustomer(
   record: CustomerRecord,
   actorId: string,
 ): Promise<string> {
+  await assertCustomerPriceList(client, record.priceListId);
   const finalCode = code ?? (await nextCustomerCode(client));
   // Savepoint để lỗi trùng mã không làm hỏng transaction lớn hơn của bên gọi.
   await client.query('SAVEPOINT crm_insert_customer');
@@ -333,10 +339,10 @@ export async function insertCustomer(
     const result = await client.query<{ id: string }>(
       `INSERT INTO crm_schema.customers
          (code, name, tax_code, address, province, region, industry, phone, email, group_id, kind,
-          credit_limit, payment_term_days, note, owner_user_id, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+          credit_limit, payment_term_days, note, owner_user_id, price_list_id, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
        RETURNING id`,
-      [finalCode, ...customerValues(record), actorId],
+      [finalCode, ...customerValues(record), record.priceListId ?? null, actorId],
     );
     await client.query('RELEASE SAVEPOINT crm_insert_customer');
     id = result.rows[0]?.id;
@@ -422,6 +428,18 @@ function customerValues(record: CustomerRecord): unknown[] {
   ];
 }
 
+/** Bảng giá chọn cho khách phải có và không phải bảng chuẩn (bảng chuẩn đã áp cho mọi khách chưa chọn bảng giá). */
+async function assertCustomerPriceList(client: CrmSqlClient, priceListId: string | null | undefined): Promise<void> {
+  if (!priceListId) return;
+  const row = (
+    await client.query<{ is_standard: boolean }>(`SELECT is_standard FROM crm_schema.price_lists WHERE id = $1 FOR SHARE`, [priceListId])
+  ).rows[0];
+  if (!row) throw new CrmValidationError('PRICE_LIST_NOT_FOUND', 'Bảng giá không tồn tại.');
+  if (row.is_standard) {
+    throw new CrmValidationError('PRICE_LIST_STANDARD', 'Bảng giá chuẩn đã áp cho mọi khách chưa chọn bảng giá; hãy chọn bảng giá riêng hoặc để trống.');
+  }
+}
+
 function translateCustomerError(error: unknown): unknown {
   if (constraintViolation(error, '23505', 'uq_crm_customers_code')) return CODE_EXISTS();
   if (constraintViolation(error, '23503', 'fk_crm_customers_kind')) return KIND_MISSING();
@@ -441,6 +459,9 @@ function toSummary(row: CustomerRow): CustomerSummary {
     kindName: row.kind_name ?? row.kind,
     groupId: row.group_id,
     groupName: row.group_name,
+    priceListId: row.price_list_id ?? null,
+    priceListCode: row.price_list_code ?? null,
+    priceListName: row.price_list_name ?? null,
     ownerUserId: row.owner_user_id,
     primaryContactName: row.primary_contact_name,
     updatedAt: toIso(row.updated_at) ?? '',

@@ -12,6 +12,7 @@ import { Circle, Minus, Pentagon, Plus, Square, Star, Upload } from 'lucide-reac
 import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { FOCUS_RING, IconButton, Section } from '../../components/controls';
+import { Hint } from '../../components/hint';
 import { formatDecimal, NumberField } from '../../components/number-field';
 import {
   analyzeSvg,
@@ -147,18 +148,18 @@ export function InsertPanel({ state, dispatch, rules }: EditorPanelProps) {
           {FRAME_KINDS.map((kind) => {
             const name = FRAME_LABELS[kind].toLowerCase();
             return (
-              <button
-                key={kind}
-                type="button"
-                title={`Khung ${name}`}
-                aria-label={`Chèn khung ${name}`}
-                onClick={() => {
-                  for (const action of insertBehind([frameShape(kind, doc.size, rules)])) dispatch(action);
-                }}
-                className={cn(TILE, FOCUS_RING)}
-              >
-                <FramePreview kind={kind} />
-              </button>
+              <Hint key={kind} label={`Khung ${name}`}>
+                <button
+                  type="button"
+                  aria-label={`Chèn khung ${name}`}
+                  onClick={() => {
+                    for (const action of insertBehind([frameShape(kind, doc.size, rules)])) dispatch(action);
+                  }}
+                  className={cn(TILE, FOCUS_RING)}
+                >
+                  <FramePreview kind={kind} />
+                </button>
+              </Hint>
             );
           })}
         </div>
@@ -191,16 +192,16 @@ export function InsertPanel({ state, dispatch, rules }: EditorPanelProps) {
             <p className="mb-1 text-[10px] text-slate-400">{group}</p>
             <div className="grid grid-cols-6 gap-1">
               {items.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  title={template.name}
-                  aria-label={`Chèn hình mẫu ${template.name}`}
-                  onClick={() => add(glyphShape(template, doc.size, strokeWidth))}
-                  className={cn(TILE, FOCUS_RING)}
-                >
-                  <GlyphPreview template={template} />
-                </button>
+                <Hint key={template.id} label={template.name}>
+                  <button
+                    type="button"
+                    aria-label={`Chèn hình mẫu ${template.name}`}
+                    onClick={() => add(glyphShape(template, doc.size, strokeWidth))}
+                    className={cn(TILE, FOCUS_RING)}
+                  >
+                    <GlyphPreview template={template} />
+                  </button>
+                </Hint>
               ))}
             </div>
           </div>
@@ -242,17 +243,18 @@ export function InsertPanel({ state, dispatch, rules }: EditorPanelProps) {
               }}
             />
           </div>
-          <textarea
-            aria-label="Mã SVG"
-            title="Dán mã SVG hoặc thả tệp .svg vào đây"
-            placeholder="Dán mã SVG hoặc thả tệp vào đây"
-            rows={3}
-            spellCheck={false}
-            value={source}
-            onPaste={onPaste}
-            onChange={(event) => setSource(event.target.value)}
-            className="w-full resize-none rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-[11px] leading-snug text-slate-800 outline-none placeholder:font-sans placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          />
+          <Hint label="Dán mã SVG hoặc thả tệp .svg vào đây">
+            <textarea
+              aria-label="Mã SVG"
+              placeholder="Dán mã SVG hoặc thả tệp vào đây"
+              rows={3}
+              spellCheck={false}
+              value={source}
+              onPaste={onPaste}
+              onChange={(event) => setSource(event.target.value)}
+              className="w-full resize-none rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-[11px] leading-snug text-slate-800 outline-none placeholder:font-sans placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            />
+          </Hint>
 
           {analysis.result ? (
             <div className="space-y-1.5">
@@ -262,18 +264,17 @@ export function InsertPanel({ state, dispatch, rules }: EditorPanelProps) {
                 {analysis.deviates ? <span className="text-amber-700"> · lệch quy chuẩn</span> : null}
               </p>
               {dominant !== null ? (
-                <label
-                  className="flex items-center gap-1.5 text-[11px] text-slate-600"
-                  title={`Đưa mọi nét về ${formatDecimal(defaultStrokeWidth(rules.allowedStrokeWidths), 2)}, theo bộ độ dày cho phép`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={normalize}
-                    onChange={(event) => setNormalizeChoice(event.target.checked)}
-                    className="size-3.5 shrink-0 accent-blue-600"
-                  />
-                  Chuẩn hoá nét theo quy chuẩn
-                </label>
+                <Hint label={`Đưa mọi nét về ${formatDecimal(defaultStrokeWidth(rules.allowedStrokeWidths), 2)}, theo bộ độ dày cho phép`}>
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={normalize}
+                      onChange={(event) => setNormalizeChoice(event.target.checked)}
+                      className="size-3.5 shrink-0 accent-blue-600"
+                    />
+                    Chuẩn hoá nét theo quy chuẩn
+                  </label>
+                </Hint>
               ) : null}
               <button
                 type="button"

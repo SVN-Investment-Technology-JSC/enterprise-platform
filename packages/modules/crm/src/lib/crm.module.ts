@@ -1,5 +1,5 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ActivityService, CustomerTimelineService } from './application/activity.service.js';
 import { CRM_DIAGNOSTICS } from './application/crm-store.port.js';
 import { CrmPeopleService, CrmSettingsService, CustomerGroupService } from './application/customer-group.service.js';
@@ -73,6 +73,10 @@ import { QuoteService } from './application/quote.service.js';
 import { QuoteFormService } from './application/quote-form.service.js';
 import { CRM_QUOTE_FORM_STORE, type QuoteFormStore } from './application/quote-form-store.port.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
+import { SalesOrganizationService } from './application/sales-organization.service.js';
+import { CRM_SALES_ORGANIZATION_STORE, type SalesOrganizationStore } from './application/sales-organization-store.port.js';
+import { PostgresSalesOrganizationStore } from './infrastructure/postgres-sales-organization.store.js';
+import { SalesOrganizationsController } from './presentation/sales-organizations.controller.js';
 import { QuoteRelationService } from './application/quote-relation.service.js';
 import { CRM_QUOTE_RELATION_STORE, type QuoteRelationStore } from './application/quote-relation-store.port.js';
 import { PostgresQuoteRelationStore } from './infrastructure/postgres-quote-relation.store.js';
@@ -80,6 +84,10 @@ import { BusinessPlanService } from './application/business-plan.service.js';
 import { CRM_BUSINESS_PLAN_STORE, type BusinessPlanStore } from './application/business-plan-store.port.js';
 import { PostgresBusinessPlanStore } from './infrastructure/postgres-business-plan.store.js';
 import { BusinessPlansController } from './presentation/business-plans.controller.js';
+import { CrmTaskService } from './application/crm-task.service.js';
+import { CRM_TASK_STORE, type CrmTaskStore } from './application/crm-task-store.port.js';
+import { PostgresCrmTaskStore } from './infrastructure/postgres-crm-task.store.js';
+import { TasksController } from './presentation/tasks.controller.js';
 import {
   CRM_APPROVAL_LINKS,
   CRM_PROCEDURE_CLIENT,
@@ -237,9 +245,11 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     PricingController,
     QuotesController,
     QuoteFormController,
+    SalesOrganizationsController,
     QuoteRelationController,
     ApprovalSettingsController,
     BusinessPlansController,
+    TasksController,
     InternalInstancesController,
     ContractsController,
     SalesOrdersController,
@@ -424,8 +434,9 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     store(CRM_QUOTE_SETTINGS_STORE, (database) => new PostgresQuoteSettingsStore(database)),
     {
       provide: CRM_APPROVAL_LINKS,
-      useFactory: (database: CrmDatabase, procedures: ProcedureClient) => new PostgresApprovalLinks(database, procedures),
-      inject: [CrmDatabase, CRM_PROCEDURE_CLIENT],
+      useFactory: (database: CrmDatabase, procedures: ProcedureClient, people: PeopleDirectory) =>
+        new PostgresApprovalLinks(database, procedures, people),
+      inject: [CrmDatabase, CRM_PROCEDURE_CLIENT, CRM_PEOPLE_DIRECTORY],
     },
     {
       provide: QuoteService,
@@ -441,8 +452,25 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         reportingLines: ReportingLineReader,
         plans: BusinessPlanService,
         form: QuoteFormStore,
+        organizations: SalesOrganizationStore,
+        tasks: CrmTaskService,
       ) =>
-        new QuoteService(quotes, settings, pricing, catalog, customers, opportunities, scopes, links, reportingLines, undefined, plans, form),
+        new QuoteService(
+          quotes,
+          settings,
+          pricing,
+          catalog,
+          customers,
+          opportunities,
+          scopes,
+          links,
+          reportingLines,
+          undefined,
+          plans,
+          form,
+          organizations,
+          tasks,
+        ),
       inject: [
         CRM_QUOTE_STORE,
         CRM_QUOTE_SETTINGS_STORE,
@@ -455,7 +483,19 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         REPORTING_LINE_READER,
         BusinessPlanService,
         CRM_QUOTE_FORM_STORE,
+        CRM_SALES_ORGANIZATION_STORE,
+        CrmTaskService,
       ],
+    },
+    // Việc cần xử lý (phase 3, mục 17.4): chờ tôi duyệt, việc của tôi; hỏi Quy trình hồ sơ người xem xử lý được.
+    store(CRM_TASK_STORE, (database) => new PostgresCrmTaskStore(database)),
+    {
+      provide: CrmTaskService,
+      useFactory: (tasks: CrmTaskStore, scopes: CrmDataScopeService, procedures: HttpProcedureClient, people: PeopleDirectory) => {
+        const logger = new Logger(CrmTaskService.name);
+        return new CrmTaskService(tasks, scopes, procedures, people, (message) => logger.warn(message));
+      },
+      inject: [CRM_TASK_STORE, CrmDataScopeService, CRM_PROCEDURE_CLIENT, CRM_PEOPLE_DIRECTORY],
     },
     // Báo giá theo mẫu (GĐI): mẫu, loại, mã báo giá.
     store(CRM_QUOTE_FORM_STORE, (database) => new PostgresQuoteFormStore(database)),
@@ -463,6 +503,13 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
       provide: QuoteFormService,
       useFactory: (form: QuoteFormStore) => new QuoteFormService(form),
       inject: [CRM_QUOTE_FORM_STORE],
+    },
+    // Tổ chức báo giá (phase 3, mục 16).
+    store(CRM_SALES_ORGANIZATION_STORE, (database) => new PostgresSalesOrganizationStore(database)),
+    {
+      provide: SalesOrganizationService,
+      useFactory: (organizations: SalesOrganizationStore) => new SalesOrganizationService(organizations),
+      inject: [CRM_SALES_ORGANIZATION_STORE],
     },
     // Người theo dõi và đối tượng liên quan của báo giá (P2I-07).
     store(CRM_QUOTE_RELATION_STORE, (database) => new PostgresQuoteRelationStore(database)),
@@ -476,9 +523,14 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     store(CRM_BUSINESS_PLAN_STORE, (database) => new PostgresBusinessPlanStore(database)),
     {
       provide: BusinessPlanService,
-      useFactory: (plans: BusinessPlanStore, quotes: QuoteStore, scopes: CrmDataScopeService) =>
-        new BusinessPlanService(plans, quotes, scopes),
-      inject: [CRM_BUSINESS_PLAN_STORE, CRM_QUOTE_STORE, CrmDataScopeService],
+      useFactory: (
+        plans: BusinessPlanStore,
+        quotes: QuoteStore,
+        scopes: CrmDataScopeService,
+        settings: QuoteSettingsStore,
+        links: ApprovalLinks,
+      ) => new BusinessPlanService(plans, quotes, scopes, settings, links),
+      inject: [CRM_BUSINESS_PLAN_STORE, CRM_QUOTE_STORE, CrmDataScopeService, CRM_QUOTE_SETTINGS_STORE, CRM_APPROVAL_LINKS],
     },
     {
       provide: QuoteApprovalSettingsService,

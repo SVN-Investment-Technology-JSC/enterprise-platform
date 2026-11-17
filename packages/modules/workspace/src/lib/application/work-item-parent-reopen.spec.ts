@@ -53,6 +53,7 @@ function makeStore(items: WorkItem[], roles: Record<string, ProjectRole>) {
       progressRows: async () => [],
       applyProgress: async () => undefined,
       openChildCount: async () => 0,
+      listProgressReports: async () => [],
       changeStatus: async (_t: string, id: string, _a: string, next: WorkItemStatus) => {
         statusChanges.push({ id, next });
         return { ...(items.find((entry) => entry.id === id) as WorkItem), status: next };

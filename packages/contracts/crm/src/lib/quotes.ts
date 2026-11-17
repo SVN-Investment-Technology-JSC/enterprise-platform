@@ -9,6 +9,9 @@ import type { BusinessPlanDetail } from './business-plan.js';
 import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
 import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
+import type { QuoteLayout } from './quote-layout.js';
+import type { QuoteSeller } from './sales-organizations.js';
+import type { CrmTaskApprovalTarget } from './tasks.js';
 
 export const QUOTE_STATUSES = [
   'DRAFT',
@@ -234,6 +237,16 @@ export interface QuoteVersion {
   readonly respondedAt: string | null;
   readonly supersededAt: string | null;
   readonly createdAt: string;
+  /**
+   * Bố cục in chụp lúc phiên bản chuyển sang Đã gửi khách (phase 3). Rỗng khi chưa gửi, khi mẫu chưa có bố cục lúc
+   * gửi, hoặc báo giá gửi trước phase 3: giao diện dùng bố cục hiện tại của mẫu hoặc bố cục mặc định.
+   */
+  readonly layoutSnapshot: QuoteLayout | null;
+  /**
+   * Logo tổ chức báo giá dùng khi in (D3-27): đã gửi khách thì là logo chụp lúc gửi (tổ chức không có logo lúc gửi thì
+   * rỗng mãi); chưa gửi thì là logo hiện tại của tổ chức đang chọn. Chỉ có ở API chi tiết báo giá.
+   */
+  readonly sellerLogo: string | null;
   readonly lines: readonly QuoteLine[];
 }
 
@@ -295,6 +308,11 @@ export interface QuoteDetail extends QuoteSummary {
   readonly approvalCheck: readonly QuoteApprovalReason[] | null;
   /** PAKD của phiên bản đang xem; rỗng khi chưa lập. Người duyệt thấy doanh thu, giá vốn, lợi nhuận qua đây. */
   readonly businessPlan?: BusinessPlanDetail | null;
+  /**
+   * Báo giá (hoặc PAKD trình riêng của phiên bản hiện tại) đang chờ chính người xem duyệt (plan mục 17.4): qua Quy trình
+   * thì người xem thao tác được trên hồ sơ đang chạy; trực tiếp thì có quyền duyệt, trong phạm vi và không phải người trình.
+   */
+  readonly awaitingMyApproval?: CrmTaskApprovalTarget | null;
 }
 
 export interface QuoteListQuery {
@@ -307,6 +325,8 @@ export interface QuoteListQuery {
   /** Trang cần xem (từ 1), thay cho `cursor`: trả kèm `page` và `total` để chọn trang bất kỳ. */
   readonly page?: number;
   readonly limit?: number;
+  /** Chỉ báo giá đang chờ chính người xem duyệt (báo giá hoặc PAKD trình riêng), plan mục 17.4. */
+  readonly awaitingMyApproval?: boolean;
 }
 
 export interface CreateQuoteRequest {
@@ -328,6 +348,12 @@ export interface CreateQuoteRequest {
   readonly quoteTypeId?: string | null;
   /** Giá trị trường tuỳ biến theo id định nghĩa; kiểm kiểu và lựa chọn, chưa ép bắt buộc (báo giá chưa có dòng). */
   readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
+  /**
+   * Tổ chức báo giá (plan mục 16.2). Không gửi: tổ chức mặc định (nếu có). `null`: không chọn. Tổ chức phải đang bật.
+   */
+  readonly organizationId?: string | null;
+  /** Thông tin tổ chức sửa tay; không gửi thì chép từ tổ chức đã chọn. */
+  readonly seller?: QuoteSeller | null;
 }
 
 export interface UpdateQuoteVersionRequest {
@@ -354,6 +380,10 @@ export interface UpdateQuoteVersionRequest {
    * thiếu thì 400 nêu tên trường.
    */
   readonly customFields?: Readonly<Record<string, CustomFieldValue | null>>;
+  /** Đổi tổ chức (chỉ khi Nháp); `null` là bỏ. Đổi mà không gửi `seller` thì chép thông tin tổ chức mới. */
+  readonly organizationId?: string | null;
+  /** Sửa thông tin tổ chức riêng cho báo giá; `null` là xoá. */
+  readonly seller?: QuoteSeller | null;
 }
 
 export interface SaveQuoteLineRequest {
@@ -373,7 +403,15 @@ export type QuoteLineInput = Omit<SaveQuoteLineRequest, 'revision'>;
 export interface AddQuoteLinesRequest {
   readonly revision: number;
   readonly lines: readonly QuoteLineInput[];
+  /**
+   * Chèn lô dòng ngay trước dòng có số thứ tự này (phase 3, menu "Chèn"); các dòng từ vị trí đó dời xuống và số thứ
+   * tự đánh lại liên tục. Không truyền: thêm cuối như cũ. Số không có trong phiên bản: 400 `LINE_POSITION_INVALID`.
+   */
+  readonly beforeLineNo?: number;
 }
+
+/** Mã lỗi 400 khi `beforeLineNo` không phải số thứ tự của một dòng trong phiên bản. */
+export const QUOTE_LINE_POSITION_INVALID_CODE = 'LINE_POSITION_INVALID';
 
 /** Lỗi của một dòng trong lô; `line` đánh số từ 1 theo thứ tự gửi lên. */
 export interface QuoteLineError {
@@ -445,17 +483,30 @@ export interface CrmCatalogMaterial {
   readonly availableByWarehouse: readonly CatalogMaterialStock[] | null;
 }
 
+/** Nhóm mặt hàng ở Kho (mã `kind`): hàng hoá có tồn, hoặc dịch vụ. */
+export const CATALOG_MATERIAL_KINDS = ['STOCK', 'SERVICE'] as const;
+export type CatalogMaterialKind = (typeof CATALOG_MATERIAL_KINDS)[number];
+export const CATALOG_MATERIAL_KIND_LABELS: Readonly<Record<CatalogMaterialKind, string>> = { STOCK: 'Hàng hóa', SERVICE: 'Dịch vụ' };
+
+/** Một trang tìm mặt hàng (`GET /catalog/materials`); `nextCursor` rỗng là hết. */
+export interface CrmCatalogPage {
+  readonly items: readonly CrmCatalogMaterial[];
+  readonly nextCursor: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Cách duyệt và ngưỡng duyệt
 // ---------------------------------------------------------------------------
 
-export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN'] as const;
+export const APPROVAL_KINDS = ['QUOTE', 'ORDER_CREDIT', 'TENDER_PLAN', 'BUSINESS_PLAN'] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
 export const APPROVAL_KIND_LABELS: Readonly<Record<ApprovalKind, string>> = {
   QUOTE: 'Báo giá vượt ngưỡng',
   ORDER_CREDIT: 'Đơn bán vượt hạn mức công nợ',
   TENDER_PLAN: 'Phương án chào thầu',
+  /** PAKD trình riêng (không kèm báo giá); PAKD đi kèm báo giá theo kết quả duyệt báo giá (D3-30). */
+  BUSINESS_PLAN: 'Phương án kinh doanh trình riêng',
 };
 
 export const APPROVAL_MODES = ['DIRECT', 'PROCEDURE'] as const;

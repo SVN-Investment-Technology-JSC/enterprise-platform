@@ -107,6 +107,14 @@ export interface CrmContractExpiringPayload {
 }
 
 /** Đường dẫn mở hợp đồng trên giao diện (thông báo, dòng thời gian). */
+/**
+ * Kho giữ hàng thật của một dòng (D3-37): kho riêng của dòng, rỗng thì kho mặc định của hợp đồng hoặc đơn. Rỗng cả hai
+ * là chưa chọn kho.
+ */
+export function lineWarehouseCode(line: { readonly warehouseCode?: string | null }, defaultCode: string | null | undefined): string | null {
+  return line.warehouseCode?.trim() || defaultCode?.trim() || null;
+}
+
 export function contractDeepLink(contractId: string): string {
   return `/modules/crm#contracts/${encodeURIComponent(contractId)}`;
 }
@@ -135,6 +143,10 @@ export interface ContractLine {
   /** Số lượng × đơn giá, làm tròn đến đồng; rỗng khi không có số lượng. */
   readonly lineAmount: number | null;
   readonly note: string | null;
+  /**
+   * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của hợp đồng. Dịch vụ không dùng.
+   */
+  readonly warehouseCode?: string | null;
 }
 
 export interface PaymentTerm {
@@ -202,7 +214,7 @@ export interface ContractOrderRef {
 export interface ContractDetail extends ContractSummary {
   readonly signedDate: string | null;
   readonly warrantyMonths: number | null;
-  /** Kho giữ hàng khi xác nhận. */
+  /** Kho mặc định để giữ hàng khi xác nhận; dòng có kho riêng thì giữ ở kho của dòng (D3-37). */
   readonly warehouseCode: string | null;
   readonly note: string | null;
   /** Tăng mỗi lần lưu; gửi lại khi sửa để không ghi đè người khác. */
@@ -239,6 +251,10 @@ export interface SaveContractLineRequest {
   /** Mặc định 10%. */
   readonly vatRate?: number | null;
   readonly note?: string | null;
+  /**
+   * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của hợp đồng. Dịch vụ không dùng.
+   */
+  readonly warehouseCode?: string | null;
 }
 
 export interface SaveContractRequest {

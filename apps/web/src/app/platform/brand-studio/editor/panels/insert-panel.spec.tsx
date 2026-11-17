@@ -151,7 +151,7 @@ describe('InsertPanel: nhập SVG', () => {
   it('gõ tay mã SVG cũng đọc thử; mã hỏng hiện lỗi màu đỏ và không có nút chèn', () => {
     renderWithEditor(testDoc([]), panel);
     fireEvent.change(sourceBox(), { target: { value: '<svg><path' } });
-    expect(screen.getByRole('alert').textContent).toContain('không hợp lệ');
+    expect(screen.getByRole('alert').textContent).toContain('Không tìm thấy hình');
     expect(screen.queryByRole('button', { name: 'Chèn vào icon' })).toBeNull();
 
     fireEvent.change(sourceBox(), { target: { value: SVG_ALIGNED } });

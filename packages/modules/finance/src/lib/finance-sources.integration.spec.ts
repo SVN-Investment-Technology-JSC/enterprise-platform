@@ -217,10 +217,10 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     const byWorkItem = requested({ workItemId: WORK_ITEM.id });
     await receiveFinanceProcedureEvent(pool, tenantId, event(byWorkItem));
     expect((await app.voucher(cashierA, await voucherIdOf(byWorkItem.instanceId))).allocation).toMatchObject({
-      type: 'WORK_ITEM',
+      type: 'PROJECT',
       projectId: PROJECT.id,
-      workItemId: WORK_ITEM.id,
-      workItemCode: 'CV-7',
+      workItemId: null,
+      workItemCode: null,
     });
 
     ws.available = false;

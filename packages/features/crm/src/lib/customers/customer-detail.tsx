@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CRM_LIST_PAGE_SIZE,
   type CustomerContact,
   type CustomerDetail as CustomerDetailData,
   type OpportunitySummary,
@@ -130,6 +131,16 @@ export function CustomerDetail({
             <dd className={styles.mono}>{customer.taxCode ?? ''}</dd>
             <dt>Nhóm</dt>
             <dd>{customer.groupName ?? ''}</dd>
+            <dt>Bảng giá</dt>
+            <dd>
+              {customer.priceListName ? (
+                <>
+                  {customer.priceListName} <span className={styles.mono}>{customer.priceListCode}</span>
+                </>
+              ) : (
+                <span className={styles.muted}>Bảng giá chuẩn</span>
+              )}
+            </dd>
             <dt>Người phụ trách</dt>
             <dd>{personName(people, customer.ownerUserId)}</dd>
             <dt>Địa chỉ</dt>
@@ -348,7 +359,7 @@ function CustomerOpportunities({ customer, onOpen }: { customer: CustomerDetailD
   const canWrite = useCanWrite();
   const [creating, setCreating] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const list = usePagedList(`${customer.id}:${refresh}`, 20, (page) => listOpportunities({ customerId: customer.id, page, limit: 20 }));
+  const list = usePagedList(`${customer.id}:${refresh}`, CRM_LIST_PAGE_SIZE, (page) => listOpportunities({ customerId: customer.id, page, limit: CRM_LIST_PAGE_SIZE }));
   const columns = useMemo<ColumnsType<OpportunitySummary>>(
     () => [
       { title: 'Dự án bán hàng', dataIndex: 'name', ellipsis: true },

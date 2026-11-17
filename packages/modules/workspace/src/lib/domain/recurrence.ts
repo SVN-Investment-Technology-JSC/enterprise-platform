@@ -14,7 +14,11 @@ export interface RecurrenceRule {
   readonly interval: number;
   readonly until?: Date;
   readonly count?: number;
+  /** Chỉ với WEEKLY: các thứ trong tuần (0 = thứ Hai … 6 = Chủ nhật), tăng dần. Rỗng: theo thứ của buổi đầu. */
+  readonly byDay?: readonly number[];
 }
+
+const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
 
 /** Một lần xuất hiện đã khai triển. */
 export interface Occurrence {
@@ -168,6 +172,19 @@ export function parseRecurrenceRule(
     throw new WorkspaceValidationError(`COUNT phải là số nguyên từ 1 đến ${MAX_OCCURRENCES}.`);
   }
 
+  let byDay: number[] | undefined;
+  if (parts.has('BYDAY')) {
+    if (freq !== 'WEEKLY') {
+      throw new WorkspaceValidationError('BYDAY (lặp theo thứ) chỉ dùng với FREQ=WEEKLY.');
+    }
+    const codes = (parts.get('BYDAY') as string).toUpperCase().split(',').map((c) => c.trim());
+    const indexes = codes.map((code) => WEEKDAY_CODES.indexOf(code as (typeof WEEKDAY_CODES)[number]));
+    if (!codes.length || indexes.some((i) => i < 0)) {
+      throw new WorkspaceValidationError('BYDAY chỉ nhận MO, TU, WE, TH, FR, SA, SU, cách nhau bằng dấu phẩy.');
+    }
+    byDay = [...new Set(indexes)].sort((a, b) => a - b);
+  }
+
   const until = parts.has('UNTIL') ? parseUntil(parts.get('UNTIL') as string) : undefined;
 
   // Chuỗi vô hạn khiến mọi truy vấn phải tự nghĩ ra điểm dừng, và một sự kiện
@@ -176,7 +193,7 @@ export function parseRecurrenceRule(
     throw new WorkspaceValidationError('Quy tắc lặp phải có điểm dừng: UNTIL hoặc COUNT.');
   }
 
-  return { freq, interval, until, count };
+  return { freq, interval, until, count, byDay };
 }
 
 /**
@@ -287,6 +304,28 @@ export function expandOccurrences(input: ExpandInput, from: Date, to: Date): Occ
   // quy tắc lạ không quay vòng vô tận.
   const maxSteps = MAX_OCCURRENCES * 2;
   let produced = 0;
+
+  if (input.rule.freq === 'WEEKLY' && input.rule.byDay?.length) {
+    // Tuần bắt đầu từ thứ Hai (RFC 5545 WKST=MO); mỗi tuần thứ `interval*w` sinh một buổi cho mỗi thứ đã chọn.
+    const anchorDow = (new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day)).getUTCDay() + 6) % 7;
+    weeks: for (let w = 0; w < maxSteps; w += 1) {
+      for (const dow of input.rule.byDay) {
+        const dayShift = -anchorDow + 7 * input.rule.interval * w + dow;
+        if (dayShift < 0) continue; // trước buổi đầu
+        if (produced >= maxCount) break weeks;
+        const shifted = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day + dayShift));
+        const start = zonedWallClockToUtc(
+          { ...anchor, year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() },
+          input.timezone,
+        );
+        if (limitUntil && start.getTime() > limitUntil.getTime()) break weeks;
+        produced += 1;
+        if (start.getTime() > to.getTime()) break weeks;
+        if (overlaps(start, new Date(start.getTime() + durationMs), from, to)) results.push(single(start));
+      }
+    }
+    return results;
+  }
 
   for (let step = 0; step < maxSteps && produced < maxCount; step += 1) {
     const wall = shiftWallClock(anchor, input.rule.freq, input.rule.interval * step);

@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { assertNoRequestOverlap } from './hrm-request-overlap';
+import { assertNoRequestOverlap, tripBusyWindowsByShift, type ShiftWindowOf } from './hrm-request-overlap';
 
 const row = (kind: string, status = 'PENDING', allow_ot = false) => ({
   kind,
@@ -187,5 +187,76 @@ describe('assertNoRequestOverlap', () => {
         check([timed('leave', at('08:00'), at('12:00'))], { kind: 'leave', fromDate: '2026-10-12', toDate: '2026-10-12' }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
+  });
+});
+
+describe('công tác tính theo giờ phân ca', () => {
+  const at = (date: string, hm: string) => new Date(`${date}T${hm}:00+07:00`).getTime();
+  // Ca hành chính 07:30 đến 17:00 vào các ngày thứ Hai đến thứ Sáu; thứ Bảy và Chủ nhật không có ca.
+  const weekdayShift: ShiftWindowOf = async (date) => {
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+    return day === 0 || day === 6 ? null : { from: at(date, '07:30'), to: at(date, '17:00') };
+  };
+  // 2026-10-02 (T6) đến 2026-10-06 (T3): ngày 03 là thứ Bảy, 04 là Chủ nhật.
+  const trip = {
+    kind: 'business_trip',
+    from_date: '2026-10-02',
+    to_date: '2026-10-06',
+    status: 'APPROVED',
+    allow_ot: false,
+    from_at: new Date('2026-10-02T07:30:00+07:00').toISOString(),
+    to_at: new Date('2026-10-06T17:00:00+07:00').toISOString(),
+  };
+  const ot = (date: string, from: string, to: string, toDate = date) => ({
+    kind: 'ot' as const,
+    fromDate: date,
+    toDate,
+    fromAt: new Date(`${date}T${from}:00+07:00`).toISOString(),
+    toAt: new Date(`${toDate}T${to}:00+07:00`).toISOString(),
+  });
+  const run = (rows: unknown[], input: Parameters<typeof assertNoRequestOverlap>[3]) =>
+    assertNoRequestOverlap(dbWith(rows) as never, 't', 'e', input, { shiftOf: weekdayShift });
+
+  it('công tác chỉ bận trong giờ ca: ngày thường chỉ có ca, cuối tuần không bận', async () => {
+    const busy = await tripBusyWindowsByShift(trip, weekdayShift);
+    expect(busy.map((w) => w.date)).toEqual(['2026-10-02', '2026-10-05', '2026-10-06']);
+  });
+
+  it('ngày đầu bắt đầu từ giờ của đơn, ngày cuối kết thúc ở giờ của đơn', async () => {
+    const late = { ...trip, from_at: new Date('2026-10-02T13:00:00+07:00').toISOString(), to_at: new Date('2026-10-06T11:30:00+07:00').toISOString() };
+    const busy = await tripBusyWindowsByShift(late, weekdayShift);
+    expect(busy[0]).toMatchObject({ date: '2026-10-02', from: at('2026-10-02', '13:00'), to: at('2026-10-02', '17:00') });
+    expect(busy.at(-1)).toMatchObject({ date: '2026-10-06', from: at('2026-10-06', '07:30'), to: at('2026-10-06', '11:30') });
+  });
+
+  it('OT cuối tuần trong chuyến công tác được nhận cả ngày (ngày không có ca)', async () => {
+    await expect(run([trip], ot('2026-10-03', '12:00', '18:00'))).resolves.toBeUndefined();
+    await expect(run([trip], ot('2026-10-04', '07:00', '18:00'))).resolves.toBeUndefined();
+  });
+
+  it('OT bắt đầu sau khi hết ca ngày thường được nhận, OT chồng giờ ca bị chặn', async () => {
+    await expect(run([trip], ot('2026-10-05', '17:00', '23:00'))).resolves.toBeUndefined();
+    await expect(run([trip], ot('2026-10-05', '18:00', '04:00', '2026-10-06'))).resolves.toBeUndefined();
+    await expect(run([trip], ot('2026-10-05', '16:00', '19:00'))).rejects.toThrow(/công tác/);
+  });
+
+  it('OT sáng ngày cuối: chỉ chặn phần chồng giờ ca còn trong thời gian công tác', async () => {
+    const endsNoon = { ...trip, to_at: new Date('2026-10-06T11:30:00+07:00').toISOString() };
+    await expect(run([endsNoon], ot('2026-10-06', '13:00', '15:00'))).resolves.toBeUndefined();
+    await expect(run([endsNoon], ot('2026-10-06', '09:00', '10:00'))).rejects.toThrow(/công tác/);
+  });
+
+  it('tạo công tác khi đã có OT cuối tuần: cho qua; OT trong giờ ca: chặn', async () => {
+    const tripInput = { kind: 'business_trip' as const, fromDate: '2026-10-02', toDate: '2026-10-06', fromAt: trip.from_at, toAt: trip.to_at };
+    const otRow = (date: string, from: string, to: string) => ({
+      kind: 'ot', from_date: date, to_date: date, status: 'PENDING', allow_ot: false,
+      from_at: new Date(`${date}T${from}:00+07:00`).toISOString(), to_at: new Date(`${date}T${to}:00+07:00`).toISOString(),
+    });
+    await expect(run([otRow('2026-10-03', '12:00', '18:00')], tripInput)).resolves.toBeUndefined();
+    await expect(run([otRow('2026-10-05', '09:00', '11:00')], tripInput)).rejects.toThrow(/làm thêm giờ/);
+  });
+
+  it('nghỉ phép vẫn chặn OT như cũ', async () => {
+    await expect(run([{ ...trip, kind: 'leave' }], ot('2026-10-05', '18:00', '20:00'))).rejects.toBeInstanceOf(ConflictException);
   });
 });

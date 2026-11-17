@@ -1,0 +1,95 @@
+'use client';
+
+import type { FlowNode } from '@enterprise-platform/contracts-correspondence';
+import { formatDateTime } from '@enterprise-platform/shared-ui';
+import { Check } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { formatDay } from '../correspondence.model';
+import styles from '../correspondence.module.scss';
+
+/** Ô chưa tới: ghi loại bước để người xem biết ai sẽ làm. */
+const TODO_HINTS: Partial<Record<FlowNode['kind'], string>> = {
+  approve: 'Bước duyệt',
+  process: 'Phòng ban xử lý',
+  check: 'Văn thư kiểm tra',
+};
+/** Bước duyệt có phòng ban xử lý liền sau: lãnh đạo là người phân công. */
+const ASSIGN_HINT = 'Chỉ đạo, giao phòng ban';
+
+/**
+ * Thanh tiến trình của công văn, dựng đúng theo quy trình cấu hình: ô đầu, các bước ở giữa theo
+ * thứ tự cấu hình, ô cuối. Mỗi ô ghi người đã làm / đang được giao / sẽ làm, và lúc xong. Nhiều
+ * bước thì cuộn ngang, ô đang làm luôn được cuộn tới cho thấy.
+ */
+export function FlowStepper({
+  nodes,
+  workflowName,
+  cancelled = false,
+}: {
+  readonly nodes: readonly FlowNode[];
+  readonly workflowName?: string;
+  readonly cancelled?: boolean;
+}) {
+  const track = useRef<HTMLOListElement>(null);
+  const current = useRef<HTMLLIElement>(null);
+  // Chỉ cuộn ngang thanh tiến trình cho bước đang xử lý vào giữa; không cuộn ngăn chi tiết.
+  useEffect(() => {
+    const list = track.current;
+    const item = current.current;
+    if (!list || !item || list.scrollWidth <= list.clientWidth) return;
+    list.scrollLeft = Math.max(0, item.offsetLeft - (list.clientWidth - item.clientWidth) / 2);
+  }, [nodes]);
+
+  const approvals = nodes.filter((node) => node.approval).length;
+  return (
+    <section className={styles.flowCard} aria-label="Tiến trình xử lý">
+      <div className={styles.flowCardHead}>
+        <span>Tiến trình xử lý</span>
+        <span className={styles.muted}>
+          {workflowName ? `Quy trình: ${workflowName}` : 'Theo cấu hình'}
+          {` · ${nodes.length} bước`}
+          {approvals === 0 ? ', không có bước duyệt' : `, ${approvals} bước duyệt`}
+        </span>
+      </div>
+      <ol ref={track} className={styles.flowTrack}>
+        {nodes.map((node, index) => {
+          const state = cancelled && node.state !== 'done' ? 'todo' : node.state;
+          return (
+            <li
+              key={node.key}
+              ref={state === 'current' ? current : undefined}
+              className={[
+                styles.flowNode,
+                state === 'done' ? styles.flowNodeDone : '',
+                state === 'current' ? styles.flowNodeCurrent : '',
+                node.approval ? styles.flowNodeApproval : '',
+              ].join(' ')}
+              aria-current={state === 'current' ? 'step' : undefined}
+            >
+              <span className={styles.flowDot} aria-hidden>
+                {state === 'done' ? <Check size={13} strokeWidth={3} /> : index + 1}
+              </span>
+              <span className={styles.flowLabel}>{node.label}</span>
+              {node.people ? (
+                <span className={styles.flowPeople} title={node.people}>
+                  {node.people}
+                </span>
+              ) : null}
+              <span className={styles.flowWhen}>
+                {state === 'current'
+                  ? 'Đang xử lý'
+                  : state === 'done' && node.at
+                    ? node.at.length > 10
+                      ? formatDateTime(node.at)
+                      : formatDay(node.at)
+                    : state === 'done'
+                      ? 'Đã xong'
+                      : ((node.kind === 'approve' && nodes[index + 1]?.kind === 'process' ? ASSIGN_HINT : TODO_HINTS[node.kind]) ?? ' ')}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}

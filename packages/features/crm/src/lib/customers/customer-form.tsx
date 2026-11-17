@@ -7,6 +7,7 @@ import {
   type CustomerGroup,
   type CustomerKind,
   type CustomerKindOption,
+  type PriceListSummary,
   type TaxCodeMatch,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
@@ -18,6 +19,7 @@ import {
   createKind,
   errorMessage,
   findTaxCodeMatches,
+  listPriceLists,
   updateCustomer,
   type CrmApiError,
 } from '../crm-api';
@@ -36,6 +38,7 @@ interface FormState {
   phone: string;
   email: string;
   groupId: string;
+  priceListId: string;
   kind: CustomerKind;
   creditLimit: string;
   paymentTermDays: string;
@@ -55,6 +58,7 @@ function initialState(customer?: CustomerDetail): FormState {
     phone: customer?.phone ?? '',
     email: customer?.email ?? '',
     groupId: customer?.groupId ?? '',
+    priceListId: customer?.priceListId ?? '',
     kind: customer?.kind ?? DEFAULT_CUSTOMER_KIND,
     creditLimit: customer?.creditLimit === null || customer?.creditLimit === undefined ? '' : String(customer.creditLimit),
     paymentTermDays:
@@ -62,6 +66,21 @@ function initialState(customer?: CustomerDetail): FormState {
     note: customer?.note ?? '',
     ownerUserId: customer?.ownerUserId ?? '',
   };
+}
+
+/**
+ * Bảng giá chọn cho khách (D3-38): bảng giá riêng (không chuẩn) đang dùng; bảng đang chọn luôn có mặt dù đã tắt. Mô tả
+ * ghi thời gian hiệu lực, trạng thái.
+ */
+function priceListOptions(lists: readonly PriceListSummary[], current: string) {
+  return lists
+    .filter((list) => !list.isStandard && (list.status === 'ACTIVE' || list.id === current))
+    .map((list) => ({
+      value: list.id,
+      label: list.name,
+      badge: list.code,
+      description: `${list.validTo ? `Hiệu lực ${list.validFrom.split('-').reverse().join('/')} – ${list.validTo.split('-').reverse().join('/')}` : `Từ ${list.validFrom.split('-').reverse().join('/')}`}${list.status === 'ACTIVE' ? '' : ' · ngừng áp dụng'}`,
+    }));
 }
 
 const DUPLICATE_TAX_CODE_PROMPT =
@@ -86,6 +105,16 @@ export function CustomerFormDialog({
 }) {
   const { people, groups, kinds, capabilities, reloadGroups, reloadKinds } = useCrm();
   const canManageGroups = capabilities.isTenantAdmin || capabilities.canManage;
+  const [priceLists, setPriceLists] = useState<readonly PriceListSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    listPriceLists()
+      .then((rows) => active && setPriceLists(rows))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [creatingKind, setCreatingKind] = useState(false);
   const [form, setForm] = useState<FormState>(() => initialState(customer));
@@ -132,6 +161,7 @@ export function CustomerFormDialog({
       phone: text(form.phone),
       email: text(form.email),
       groupId: form.groupId || null,
+      priceListId: form.priceListId || null,
       kind: form.kind,
       creditLimit: number(form.creditLimit),
       paymentTermDays: number(form.paymentTermDays),
@@ -215,6 +245,16 @@ export function CustomerFormDialog({
             clearable
             footerAction={canManageGroups ? { label: 'Tạo nhóm mới', onClick: () => setCreatingGroup(true) } : undefined}
             onChange={(value) => set('groupId', value)}
+          />
+        </Field>
+        <Field label="Bảng giá" hint="Giá gốc khi báo giá cho khách lấy theo bảng này; bỏ trống hoặc bảng hết hiệu lực thì theo bảng giá chuẩn">
+          <SearchableSelect
+            options={priceListOptions(priceLists, form.priceListId)}
+            value={form.priceListId}
+            placeholder="Bảng giá chuẩn"
+            emptyText="Chưa có bảng giá riêng nào. Quản trị bán hàng tạo trong Cấu hình → Bảng giá."
+            clearable
+            onChange={(value) => set('priceListId', value)}
           />
         </Field>
         <Field label="Người phụ trách" hint={customer ? undefined : 'Mặc định là bạn'}>

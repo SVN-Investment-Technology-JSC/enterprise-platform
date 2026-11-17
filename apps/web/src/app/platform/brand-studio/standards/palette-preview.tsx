@@ -2,6 +2,7 @@
 
 import type { BrandPalette, IconDocument } from '@enterprise-platform/shared-brand-icon';
 import { cn } from '@/lib/utils';
+import { Hint } from '../components/hint';
 import { IconSvg } from '../icon-svg';
 
 const PREVIEW_COUNT = 12;
@@ -32,9 +33,11 @@ export function PalettePreview({ palette, docs }: { palette: BrandPalette; docs:
           key={tone}
         >
           {sample.map((doc) => (
-            <li key={doc.id} title={doc.name}>
-              <IconSvg className="size-8" doc={doc} palette={palette} title={doc.name} />
-            </li>
+            <Hint key={doc.id} label={doc.name}>
+              <li>
+                <IconSvg className="size-8" doc={doc} palette={palette} title={doc.name} />
+              </li>
+            </Hint>
           ))}
         </ul>
       ))}

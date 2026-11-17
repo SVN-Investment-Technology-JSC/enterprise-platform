@@ -20,6 +20,7 @@ export function DateTimeInput({
   disabled,
   required,
   withSeconds = false,
+  dateOnly = false,
   'aria-label': ariaLabel,
 }: {
   value: string;
@@ -28,6 +29,8 @@ export function DateTimeInput({
   disabled?: boolean;
   required?: boolean;
   withSeconds?: boolean;
+  /** Chỉ chọn ngày; giờ giữ nguyên theo giá trị hiện có (mặc định của form). */
+  dateOnly?: boolean;
   'aria-label'?: string;
 }) {
   const { date, time } = splitDateTime(value);
@@ -38,6 +41,18 @@ export function DateTimeInput({
     if (!d) return onChange('');
     onChange(`${d}T${t || lastTime.current || (withSeconds ? '00:00:00' : '00:00')}`);
   };
+  if (dateOnly)
+    return (
+      <div className={className}>
+        <DatePickerInput
+          value={date}
+          disabled={disabled}
+          required={required}
+          aria-label={ariaLabel ? `${ariaLabel} (ngày)` : undefined}
+          onChange={(d) => emit(d, time)}
+        />
+      </div>
+    );
   return (
     <div className={cn('grid grid-cols-[1fr_6.5rem] gap-1.5', className)}>
       <DatePickerInput

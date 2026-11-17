@@ -170,6 +170,8 @@ export interface FinanceReason {
   name: string;
   isActive: boolean;
   note: string | null;
+  /** Phiếu dùng lý do này bắt buộc hạch toán cho dự án (như "Chi theo dự án"). */
+  requireProject: boolean;
 }
 export interface SaveFinanceReasonRequest {
   kind: 'RECEIPT' | 'PAYMENT';
@@ -177,6 +179,7 @@ export interface SaveFinanceReasonRequest {
   name: string;
   isActive?: boolean;
   note?: string | null;
+  requireProject?: boolean;
 }
 
 /** Nhóm đối tượng thu/chi (khách hàng, nhà cung cấp, nhân viên...). */
@@ -221,10 +224,9 @@ export interface FinanceVoucherInvoice {
  * Hạch toán nội bộ của phiếu thu/chi: tiền thuộc về một dự án hoặc một công việc của dự án (Workspace).
  * Chỉ phần này được cộng vào tổng thu chi của dự án. Mã và tên là bản chụp lúc gắn, do Workspace xác nhận khi lưu phiếu.
  */
-export type FinanceAllocationType = 'PROJECT' | 'WORK_ITEM';
+export type FinanceAllocationType = 'PROJECT';
 export const FINANCE_ALLOCATION_LABELS: Readonly<Record<FinanceAllocationType, string>> = {
   PROJECT: 'Hạch toán cho dự án',
-  WORK_ITEM: 'Hạch toán cho công việc',
 };
 
 export interface FinanceAllocation {
@@ -232,16 +234,15 @@ export interface FinanceAllocation {
   projectId: string;
   projectCode: string;
   projectName: string;
-  workItemId: string | null;
-  workItemCode: string | null;
-  workItemTitle: string | null;
+  /** Luôn rỗng: hạch toán chỉ ở cấp dự án. Giữ trường để client cũ đọc được. */
+  workItemId: null;
+  workItemCode: null;
+  workItemTitle: null;
 }
 
-/** Nhãn gọn của hạch toán: "DA001 - Tên dự án" hoặc "CV-12 - Tên công việc (DA001)". */
-export function financeAllocationLabel(allocation: Pick<FinanceAllocation, 'type' | 'projectCode' | 'projectName' | 'workItemCode' | 'workItemTitle'>): string {
-  const project = `${allocation.projectCode} - ${allocation.projectName}`;
-  if (allocation.type === 'WORK_ITEM') return `${allocation.workItemCode ?? ''} - ${allocation.workItemTitle ?? ''} (${allocation.projectCode})`;
-  return project;
+/** Nhãn gọn của hạch toán: "DA001 - Tên dự án". */
+export function financeAllocationLabel(allocation: Pick<FinanceAllocation, 'projectCode' | 'projectName'>): string {
+  return `${allocation.projectCode} - ${allocation.projectName}`;
 }
 
 /** Dự án liên quan: chỉ để tham chiếu, không cộng vào tổng thu chi của dự án. */
@@ -251,12 +252,15 @@ export interface FinanceRelatedProject {
   projectName: string;
 }
 
-/** Yêu cầu gắn hạch toán; mã/tên không nhận từ client mà lấy từ Workspace. */
+/**
+ * Yêu cầu gắn hạch toán; mã/tên không nhận từ client mà lấy từ Workspace.
+ *
+ * Hạch toán nội bộ chỉ ở CẤP DỰ ÁN (như sổ chứng từ theo dự án): không hạch toán xuống công việc. Phiếu cũ từng hạch toán cho
+ * công việc vẫn còn dữ liệu nhưng được đọc như hạch toán cho dự án chứa công việc đó.
+ */
 export interface FinanceAllocationInput {
-  type: FinanceAllocationType;
+  type: 'PROJECT';
   projectId: string;
-  /** Bắt buộc khi `type = 'WORK_ITEM'`; phải thuộc đúng `projectId`. */
-  workItemId?: string | null;
 }
 
 /** Chứng từ đính kèm thủ công (ATTACHMENT) hay ảnh dán trực tiếp vào ô Ghi chú (NOTE_IMAGE); hai loại dùng chung kho nhưng đếm giới hạn riêng. */
@@ -377,8 +381,22 @@ export interface FinanceVoucher extends FinanceVoucherSummary {
   procedure: FinanceProcedureProgress | null;
   /** Hồ sơ quy trình đã tạo ra phiếu (chế độ INHERITED). */
   source: FinanceVoucherSource | null;
+  /**
+   * Công việc Workspace gắn với hồ sơ đã tạo phiếu, để hiện ở khối "Liên quan" (chỉ tham chiếu, KHÔNG phải đích hạch toán). Null khi
+   * phiếu không từ hồ sơ có công việc, hoặc Workspace không trả lời lúc đọc phiếu.
+   */
+  linkedWorkItem?: FinanceLinkedWorkItem | null;
   /** Thao tác người xem được phép làm ngay bây giờ. */
   permissions: FinanceVoucherPermissions;
+}
+
+/** Công việc Workspace liên quan tới phiếu (qua hồ sơ Quy trình). */
+export interface FinanceLinkedWorkItem {
+  id: string;
+  code: string;
+  title: string;
+  status: string;
+  projectId: string;
 }
 
 export interface FinanceVoucherPermissions {
@@ -660,10 +678,16 @@ export interface FinanceSettings {
   booksLockedUntil: string | null;
   /** Cho phép người lập tự duyệt phiếu của mình (mặc định tắt: tách người lập và người duyệt). */
   allowSelfApproval: boolean;
+  /**
+   * Bắt buộc hạch toán dự án: phiếu thu/chi phải chọn dự án (hoặc công việc) mới gửi duyệt hay ghi sổ được. Mặc định tắt.
+   * Bật thì mọi khoản thu chi đều có chỗ ở một dự án, nên sổ chứng từ của dự án không bỏ sót khoản nào.
+   */
+  requireAllocation: boolean;
 }
 export interface SaveFinanceSettingsRequest {
   booksLockedUntil?: string | null;
   allowSelfApproval?: boolean;
+  requireAllocation?: boolean;
 }
 
 export interface FinanceCapabilities {
@@ -750,6 +774,16 @@ export interface FinanceProjectVoucher {
   link: 'ALLOCATION' | 'RELATED';
   workItem: { id: string; code: string; title: string } | null;
   createdByName: string | null;
+  /** Ngày hạch toán `YYYY-MM-DD` (sổ chứng từ xếp theo ngày này). */
+  postingDate: string;
+  /** Lúc lập phiếu. */
+  createdAt: string;
+  /**
+   * Dòng tiền luỹ kế của dự án sau phiếu này (thu trừ chi, cộng dồn theo ngày hạch toán rồi giờ lập), chỉ có ở phiếu ĐÃ GHI SỔ
+   * hạch toán cho dự án. Phiếu chờ duyệt/chờ ghi sổ hay chỉ liên quan thì `null`: chưa phải tiền thật của dự án.
+   * Tính trên toàn bộ phiếu của dự án nên vẫn đúng khi danh sách bị cắt ở trần.
+   */
+  balance: number | null;
 }
 
 /** Tổng thu/chi của một nhóm phiếu hạch toán: đã duyệt là đã ghi sổ, chờ duyệt chưa ghi sổ. */

@@ -189,8 +189,11 @@ export function transformGeometry(geometry: Geometry, matrix: Matrix): Geometry 
   return transformGeometry(geometryToPath(geometry), matrix);
 }
 
+/** Biến đổi một lớp; mặt nạ (nếu có) biến đổi cùng phép đó để vẫn khớp với lớp. */
 export function transformShape(shape: IconShape, matrix: Matrix): IconShape {
-  return { ...shape, geometry: transformGeometry(shape.geometry, matrix) };
+  const moved = { ...shape, geometry: transformGeometry(shape.geometry, matrix) };
+  if (!shape.mask) return moved;
+  return { ...moved, mask: { layers: shape.mask.layers.map((layer) => ({ ...layer, geometry: transformGeometry(layer.geometry, matrix) })) } };
 }
 
 export const translateShape = (shape: IconShape, dx: number, dy: number): IconShape =>
