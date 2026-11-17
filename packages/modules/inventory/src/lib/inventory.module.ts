@@ -31,16 +31,26 @@ import { InternalDocumentsController } from './presentation/internal-documents.c
 import { LotController } from './presentation/lot.controller.js';
 import { SerialController } from './presentation/serial.controller.js';
 import { StockDocumentController } from './presentation/stock-document.controller.js';
+import { StocktakeService } from './application/stocktake.service.js';
+import { STOCKTAKE_STORE, type StocktakeStore } from './application/stocktake-store.port.js';
+import { PostgresStocktakeStore } from './infrastructure/postgres-stocktake.store.js';
+import { StocktakeController } from './presentation/stocktake.controller.js';
+import { StockMovementService } from './application/stock-movement.service.js';
+import { STOCK_MOVEMENT_STORE, type StockMovementStore } from './application/stock-movement-store.port.js';
+import { PostgresStockMovementStore } from './infrastructure/postgres-stock-movement.store.js';
+import { StockMovementController } from './presentation/stock-movement.controller.js';
 
 @Module({
   controllers: [
     InventoryController,
     StockDocumentController,
+    StocktakeController,
     LotController,
     SerialController,
     InternalCatalogController,
     InternalDocumentsController,
     InventoryReportsController,
+    StockMovementController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -69,6 +79,18 @@ import { StockDocumentController } from './presentation/stock-document.controlle
       useFactory: (documents: StockDocumentStore, store: InventoryStore) =>
         new StockDocumentService(documents, store),
       inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE],
+    },
+    {
+      provide: STOCKTAKE_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresStocktakeStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: StocktakeService,
+      useFactory: (stocktakes: StocktakeStore, documents: StockDocumentStore, store: InventoryStore) =>
+        new StocktakeService(stocktakes, documents, store),
+      inject: [STOCKTAKE_STORE, STOCK_DOCUMENT_STORE, INVENTORY_STORE],
     },
     {
       provide: TRACEABILITY_STORE,
@@ -108,14 +130,27 @@ import { StockDocumentController } from './presentation/stock-document.controlle
         new AssetDocumentService(references, pools),
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
+    {
+      provide: STOCK_MOVEMENT_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresStockMovementStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: StockMovementService,
+      useFactory: (store: StockMovementStore) => new StockMovementService(store),
+      inject: [STOCK_MOVEMENT_STORE],
+    },
   ],
   exports: [
     InventoryApplication,
     StockDocumentService,
+    StocktakeService,
     LotService,
     SerialService,
     QualityService,
     InventoryReportService,
+    StockMovementService,
     AssetDocumentService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

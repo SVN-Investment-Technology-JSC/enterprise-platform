@@ -121,6 +121,16 @@ export interface InventoryActor {
    * trống = suy theo `canManage`.
    */
   readonly canWriteQuality?: boolean;
+  /**
+   * Lập đợt kiểm kê, ghi số đếm, gửi duyệt, huỷ (`inventory.stocktake.create`).
+   * Bỏ trống = suy theo `canManage`.
+   */
+  readonly canCreateStocktake?: boolean;
+  /**
+   * Duyệt, trả về đếm lại và ghi sổ cân kho (`inventory.stocktake.approve`).
+   * Bỏ trống = suy theo `canManage`.
+   */
+  readonly canApproveStocktake?: boolean;
 }
 
 @Injectable()

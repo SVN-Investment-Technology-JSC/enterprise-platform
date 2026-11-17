@@ -53,17 +53,27 @@ export const STOCK_DOCUMENT_STATUS_BADGE: Readonly<
   CANCELLED: { bg: '#f8fafc', text: '#64748b', border: '#e2e8f0' },
 };
 
-/** Nguồn chứng từ hay gặp; giá trị khác hiện nguyên văn. */
-export function sourceTypeLabel(value?: string): string {
-  if (!value) return 'Không có nguồn';
+/**
+ * Nguồn phát sinh của chứng từ. Không ghi nguồn nghĩa là người dùng tự lập
+ * (Thủ công). Mã so không phân biệt hoa thường; mã chưa có nhãn hiện nguyên văn.
+ */
+export function sourceTypeLabel(value?: string | null): string {
+  const code = value?.trim();
+  if (!code) return 'Thủ công';
   const known: Record<string, string> = {
+    manual: 'Thủ công',
     crm_order: 'Đơn bán',
     crm_sales_order: 'Đơn bán',
     crm_delivery: 'Đợt giao hàng',
     crm_warranty: 'Bảo hành',
     crm_return: 'Trả hàng',
+    procedure: 'Quy trình',
+    maintenance: 'Bảo trì',
+    stocktake: 'Kiểm kê',
+    asset: 'Thiết bị vận hành',
+    opening_balance: 'Tồn đầu kỳ',
   };
-  return known[value] ?? value;
+  return known[code.toLowerCase()] ?? code;
 }
 
 /** Loại chứng từ người dùng tự lập trên màn Kho. Xuất bán, xuất bảo hành, nhập trả đến từ Bán hàng. */

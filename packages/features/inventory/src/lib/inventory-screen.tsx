@@ -38,8 +38,7 @@ import { MovementForm, type MovementInput, type MovementLineItem } from './compo
 import { ExcelImportDialog } from './components/excel-import-dialog';
 import { CreateStocktakeDialog } from './components/create-stocktake-dialog';
 import { LedgerTable } from './components/ledger-table';
-import { StockDocumentApproval, StockDocumentList } from './components/stock-document-list';
-import { IssueRequestPanel } from './components/issue-request-panel';
+import { StockMovementHub } from './components/stock-movement-hub';
 import { InventoryReports } from './components/inventory-reports';
 import {
   createAsset,
@@ -78,36 +77,34 @@ import {
 import { usageLabel } from './trade-items.model';
 import styles from './inventory.module.scss';
 import { InventoryPermissionsContext } from './inventory-permissions';
+import { movementHashTarget, type MovementHashTarget } from './stock-movement.model';
 
 type Tab =
   | 'dashboard'
   | 'items'
   | 'stock'
-  | 'documents'
-  | 'approvals'
-  | 'issue-requests'
   | 'assets'
   | 'custody'
   | 'ledger'
   | 'reports'
   | 'settings';
 
-/** Bốn tab con của trang Kho hàng. */
-type StockSubTab = 'goods' | 'warehouse' | 'history' | 'stocktakes';
+/** Năm tab con của trang Kho hàng. */
+type StockSubTab = 'goods' | 'warehouse' | 'movements' | 'history' | 'stocktakes';
 
 const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
   { id: 'goods', label: 'Hàng hóa' },
   { id: 'warehouse', label: 'Nhà kho' },
+  { id: 'movements', label: 'Xuất/nhập kho' },
   { id: 'history', label: 'Lịch sử xuất nhập' },
   { id: 'stocktakes', label: 'Lịch sử kiểm đếm' },
 ];
 
+// Chứng từ kho, Duyệt chứng từ, Yêu cầu xuất từ đơn bán đã gộp vào tab con
+// "Xuất/nhập kho" của Kho hàng; hash cũ chuyển hướng qua LEGACY_TAB.
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
   { id: 'stock', label: 'Kho hàng', group: 'Vận hành' },
-  { id: 'documents', label: 'Chứng từ kho', group: 'Chứng từ' },
-  { id: 'approvals', label: 'Duyệt chứng từ', group: 'Chứng từ' },
-  { id: 'issue-requests', label: 'Yêu cầu xuất từ đơn bán', group: 'Chứng từ' },
   { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
   { id: 'custody', label: 'Tài sản', group: 'Vận hành' },
   { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo' },
@@ -128,6 +125,11 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   reservations: 'stock',
   transactions: 'stock',
   'trade-items': 'stock',
+  // Ba màn chứng từ cũ và link chứng từ trong thông báo: mở tab con Xuất/nhập kho.
+  documents: 'stock',
+  approvals: 'stock',
+  'issue-requests': 'stock',
+  vouchers: 'stock',
 };
 
 /**
@@ -136,6 +138,7 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
  */
 function initialStockSubTab(): StockSubTab {
   if (typeof window === 'undefined') return 'goods';
+  if (movementHashTarget(window.location.hash)) return 'movements';
   const raw = window.location.hash.replace(/^#/, '').split('/')[0];
   if (raw === 'transactions') return 'history';
   if (raw === 'items' || raw === 'overview' || raw === 'materials' || raw === 'warehouses' || raw === 'serials') {
@@ -155,14 +158,38 @@ export function InventoryScreen() {
     legacy: LEGACY_TAB,
   });
   const [stockSubTab, setStockSubTab] = useState<StockSubTab>(initialStockSubTab);
+  const [movementTarget, setMovementTarget] = useState<MovementHashTarget | undefined>(() =>
+    typeof window === 'undefined' ? undefined : movementHashTarget(window.location.hash),
+  );
+  // Link chứng từ bấm khi đang ở sẵn trong Kho (thông báo, link cũ) chỉ đổi hash:
+  // phải tự chuyển sang tab con Xuất/nhập kho và đúng góc nhìn.
+  useEffect(() => {
+    const onHashChange = () => {
+      const target = movementHashTarget(window.location.hash);
+      if (!target) return;
+      setMovementTarget(target);
+      setStockSubTab('movements');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
   const canWriteQuality = workspace?.permissions?.canWriteQuality ?? false;
   const canApproveDocuments = workspace?.permissions?.canApproveDocuments ?? false;
+  const canCreateStocktake = workspace?.permissions?.canCreateStocktake ?? false;
+  const canApproveStocktake = workspace?.permissions?.canApproveStocktake ?? false;
   const uiPermissions = useMemo(
-    () => ({ canManage, canWriteTransactions, canWriteQuality, canApproveDocuments }),
-    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments],
+    () => ({
+      canManage,
+      canWriteTransactions,
+      canWriteQuality,
+      canApproveDocuments,
+      canCreateStocktake,
+      canApproveStocktake,
+    }),
+    [canManage, canWriteTransactions, canWriteQuality, canApproveDocuments, canCreateStocktake, canApproveStocktake],
   );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -981,7 +1008,7 @@ export function InventoryScreen() {
             />
           ) : null}
 
-          {showStocktakeDialog && workspace ? (
+          {showStocktakeDialog && workspace && canCreateStocktake ? (
             <CreateStocktakeDialog
               workspace={workspace}
               busy={busy}
@@ -1084,32 +1111,6 @@ export function InventoryScreen() {
                 navigate(target);
               }}
               onOpenMovement={canWriteTransactions ? () => setForm('movement') : undefined}
-            />
-          ) : null}
-
-          {tab === 'documents' ? (
-            <StockDocumentList
-              warehouses={workspace.warehouses}
-              materials={workspace.materials}
-              onNotice={notify}
-              onStockChanged={() => void reload()}
-            />
-          ) : null}
-
-          {tab === 'approvals' ? (
-            <StockDocumentApproval
-              warehouses={workspace.warehouses}
-              onNotice={notify}
-              onStockChanged={() => void reload()}
-            />
-          ) : null}
-
-          {tab === 'issue-requests' ? (
-            <IssueRequestPanel
-              warehouses={workspace.warehouses}
-              materials={workspace.materials}
-              onNotice={notify}
-              onStockChanged={() => void reload()}
             />
           ) : null}
 
@@ -1287,10 +1288,14 @@ export function InventoryScreen() {
                   warehouses={workspace.warehouses}
                   stock={workspace.stock}
                   onOpenBulkImport={canWriteTransactions ? () => setShowBulkImport(true) : undefined}
-                  onOpenStocktake={(init) => {
-                    setStocktakeInit(init);
-                    setShowStocktakeDialog(true);
-                  }}
+                  onOpenStocktake={
+                    canCreateStocktake
+                      ? (init) => {
+                          setStocktakeInit(init);
+                          setShowStocktakeDialog(true);
+                        }
+                      : undefined
+                  }
                   onOpenMovement={
                     canWriteTransactions
                       ? (init) => {
@@ -1299,6 +1304,16 @@ export function InventoryScreen() {
                         }
                       : undefined
                   }
+                />
+              ) : null}
+
+              {stockSubTab === 'movements' ? (
+                <StockMovementHub
+                  warehouses={workspace.warehouses}
+                  materials={workspace.materials}
+                  target={movementTarget}
+                  onNotice={notify}
+                  onStockChanged={() => void reload()}
                 />
               ) : null}
 
@@ -1320,7 +1335,6 @@ export function InventoryScreen() {
                 <StocktakeHub
                   workspace={workspace}
                   busy={busy}
-                  onSubmitMovement={submitMovement}
                   onNotice={notify}
                 />
               ) : null}

@@ -287,7 +287,6 @@ export function TransactionHub({
         <StocktakeHub
           workspace={workspace}
           busy={busy}
-          onSubmitMovement={onSubmitMovement}
           onNotice={onNotice}
         />
       ) : (
