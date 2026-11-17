@@ -25,6 +25,15 @@ const HRM_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
   dashboard: 'nav.dashboard',
   people: 'nav.users',
   settings: 'nav.settings',
+  attendance_monitor: 'sidebar.hrm.attendance-monitor',
+  request_processing: 'sidebar.hrm.approvals',
+  my_work: 'sidebar.hrm.my-work',
+  requests: 'sidebar.hrm.requests',
+  profile: 'sidebar.hrm.profile',
+  timekeeping: 'sidebar.hrm.timekeeping',
+  leave: 'sidebar.hrm.leave',
+  payroll: 'sidebar.hrm.payroll',
+  fleet: 'sidebar.hrm.fleet',
 };
 
 const COLLAPSED_KEY = 'hrm_sidebar_collapsed';
