@@ -1240,7 +1240,7 @@ describe('Quy trình chuẩn văn bản đến: dựng bằng cấu hình', () =
   });
 
   it('văn thư → TGĐ chỉ đạo → phòng ban xử lý → TGĐ duyệt kết quả → văn thư hoàn tất; TGĐ không đạt thì phòng ban làm lại', async () => {
-    const { service } = setup();
+    const { service, outbox } = setup();
     await service.saveWorkflow(configurer, undefined, {
       name: 'Qua TGĐ trước và sau phòng ban',
       direction: 'incoming',
@@ -1270,8 +1270,19 @@ describe('Quy trình chuẩn văn bản đến: dựng bằng cấu hình', () =
     });
     expect(processing).toMatchObject({ stage: 'processing', dueOn: '2026-11-25', instruction: 'Kế toán chủ trì, Pháp chế phối hợp.' });
     const [finance, legal] = processing.assignments;
-    await service.respond(accountant, letter.id, finance.id, { note: 'Đã lập báo cáo.' });
-    const signing = await service.respond(lawyer, letter.id, legal.id, { note: 'Đã rà soát.' });
+    // Phòng chủ trì tổng hợp: chưa gửi được khi phòng phối hợp chưa có kết quả.
+    const leadView = await service.detail(accountant, letter.id);
+    expect(leadView.assignments[0]).toMatchObject({ canRespond: true, waitingFor: ['Phòng Pháp chế'] });
+    expect((await service.list(accountant, { box: 'mine' })).map((item) => item.id)).not.toContain(letter.id);
+    await expect(service.respond(accountant, letter.id, finance.id, { note: 'Đã lập báo cáo.' })).rejects.toThrow(
+      'Phòng chủ trì gửi kết quả sau khi các phòng phối hợp đã gửi. Còn chờ: Phòng Pháp chế.',
+    );
+    const afterSupport = await service.respond(lawyer, letter.id, legal.id, { note: 'Đã rà soát.' });
+    expect(afterSupport).toMatchObject({ stage: 'processing' });
+    expect(outbox.at(-1)).toMatchObject({ type: CORRESPONDENCE_EVENTS.assigned });
+    expect(outbox.at(-1)?.payload['recipientUserIds']).toEqual(expect.arrayContaining(['u-fin-head', 'u-accountant']));
+    expect((await service.list(accountant, { box: 'mine' })).map((item) => item.id)).toContain(letter.id);
+    const signing = await service.respond(accountant, letter.id, finance.id, { note: 'Đã lập báo cáo, tổng hợp ý kiến Pháp chế.' });
     // Cùng TGĐ ở bước sau vẫn phải duyệt kết quả, không tự bỏ qua.
     expect(signing).toMatchObject({ stage: 'reviewing', currentStepName: 'TGĐ duyệt kết quả', currentAssigneeNames: ['Nguyễn Văn An'] });
     expect((await service.detail(leader, letter.id)).actions).toMatchObject({ approve: true, defaultReturnTarget: 'previous-step' });

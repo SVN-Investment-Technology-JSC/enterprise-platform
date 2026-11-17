@@ -206,7 +206,7 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy'> & {
+  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy' | 'mode'> & {
     /** Bước văn thư kiểm tra giao người riêng (không phải người làm văn thư). */
     readonly ownActors?: boolean;
   })[];

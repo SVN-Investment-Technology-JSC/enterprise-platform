@@ -543,7 +543,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
                    FROM correspondence_schema.assignments a WHERE a.letter_id = l.id) AS assignments,
                 (SELECT json_agg(json_build_object('seq', s.seq, 'name', s.name, 'kind', s.kind, 'status', s.status, 'rejectTo', s.reject_to,
                                                    'assigneeUserIds', s.assignee_user_ids, 'actedBy', s.acted_by,
-                                                   'ownActors', s.kind = 'check' AND s.approver IS NOT NULL, 'approvedBy', s.approved_by)
+                                                   'ownActors', s.kind = 'check' AND s.approver IS NOT NULL, 'approvedBy', s.approved_by,
+                                                   'mode', s.mode)
                                  ORDER BY s.seq)
                    FROM correspondence_schema.letter_steps s WHERE s.letter_id = l.id) AS steps,
                 (SELECT array_agg(DISTINCT mentioned)::text[]
@@ -577,6 +578,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           assigneeUserIds: Array.isArray(item['assigneeUserIds']) ? (item['assigneeUserIds'] as unknown[]).map(String) : [],
           actedBy: optional(item['actedBy']),
           ownActors: item['ownActors'] === true,
+          mode: item['mode'] === 'all' || item['mode'] === 'lead' || item['mode'] === 'any' ? item['mode'] : undefined,
           approvedBy: Array.isArray(item['approvedBy']) ? (item['approvedBy'] as unknown[]).map(String) : [],
         })),
         mentionedUserIds: (row.mentioned ?? []).map(String),

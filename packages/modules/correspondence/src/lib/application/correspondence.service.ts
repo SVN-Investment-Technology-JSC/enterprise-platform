@@ -110,6 +110,7 @@ import {
   canAssignHandler,
   canDeleteAttachment,
   canRespondFor,
+  supportPending,
   canViewLetter,
   dossierFolderName,
   formatArchiveCode,
@@ -490,6 +491,7 @@ export class CorrespondenceService {
           .filter((name): name is string => Boolean(name)),
         canAssignHandler: canAssignHandler(viewer, letter, item),
         canRespond: canRespondFor(viewer, letter, item),
+        waitingFor: supportPending({ steps, assignments }, item).map((other) => other.unitName),
       })),
       attachments: attachments.map((item) => {
         const assignment = item.assignmentId ? byId.get(item.assignmentId) : undefined;
@@ -819,8 +821,29 @@ export class CorrespondenceService {
             : `Chỉ người thuộc ${assignment.unitName} gửi được kết quả của phòng.`,
         );
       }
+      // Phòng chủ trì tổng hợp ý kiến phối hợp: gửi sau khi các phòng phối hợp đã gửi kết quả.
+      const waiting = supportPending(tx, assignment);
+      if (waiting.length > 0) {
+        throw new CorrespondenceValidationError(
+          `Phòng chủ trì gửi kết quả sau khi các phòng phối hợp đã gửi. Còn chờ: ${waiting.map((item) => item.unitName).join(', ')}.`,
+        );
+      }
       await tx.submitAssignment(assignment.id, { note, userId: actor.userId });
       await tx.history({ action: 'respond', summary: `${assignment.unitName} gửi kết quả xử lý`, note, actorUserId: actor.userId });
+      // Phòng phối hợp cuối cùng vừa gửi: báo phòng chủ trì tổng hợp và gửi kết quả.
+      const leads = tx.assignments.filter((item) => item.role === 'lead' && item.status === 'pending');
+      if (assignment.role === 'support' && leads.length > 0 && leads.every((lead) => supportPending(tx, lead).length === 0)) {
+        const snapshot = await this.organization.snapshot(actor.tenantId);
+        const recipients = leads.flatMap((lead) =>
+          lead.handlerUserId ? [lead.handlerUserId] : [...unitHeads(snapshot, lead.unitId), ...unitMembers(snapshot, lead.unitId).map((member) => member.userId)],
+        );
+        await tx.outbox(
+          this.event(CORRESPONDENCE_EVENTS.assigned, tx.letter, actor, recipients, {
+            summary: `Các phòng phối hợp đã gửi đủ kết quả công văn ${letterTitle(withNo(tx.letter))}: phòng chủ trì tổng hợp và gửi kết quả.`,
+            unitNames: leads.map((lead) => lead.unitName),
+          }),
+        );
+      }
       const step = tx.steps.find((item) => item.status === 'active' && item.kind === 'process');
       if (!blockingAssignments(tx.assignments, step).some((item) => item.status === 'pending')) {
         if (step) await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: null });

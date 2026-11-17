@@ -637,6 +637,8 @@ export interface LetterAssignment {
   readonly canAssignHandler: boolean;
   /** Người xem gửi được kết quả của phòng. */
   readonly canRespond: boolean;
+  /** Phòng chủ trì: các phòng phối hợp còn chưa gửi kết quả (chủ trì gửi sau khi đủ). */
+  readonly waitingFor?: readonly string[];
 }
 
 /* ------------------------------------------------------------- nhật ký, trao đổi */

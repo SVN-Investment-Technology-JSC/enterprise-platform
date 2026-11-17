@@ -31,6 +31,7 @@ import {
   submitLetter,
   updateLetter,
 } from '../correspondence-api';
+import { AssignmentsSection } from './assignments-section';
 import { EditLetterDialog } from './edit-letter-dialog';
 import { CommentsSection } from './comments-section';
 import { ConfigView } from './config-view';
@@ -1171,5 +1172,22 @@ describe('Định tuyến theo điều kiện trên giao diện', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Đã nhận' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.complete).toHaveBeenCalledWith('letter-1', undefined);
+  });
+});
+
+describe('Phòng chủ trì tổng hợp ý kiến phối hợp', () => {
+  it('còn phòng phối hợp chưa gửi: chủ trì soạn được nhưng chưa gửi được, ghi rõ chờ phòng nào', () => {
+    const base = { round: 1, status: 'pending' as const, headNames: [], canAssignHandler: false, canRespond: true };
+    const processing = letter({
+      stage: 'processing',
+      assignments: [
+        { ...base, id: 'a1', unitId: 'unit-sales', unitName: 'Phòng Kinh doanh', role: 'lead', waitingFor: ['Trung tâm Tư vấn'] },
+        { ...base, id: 'a2', unitId: 'unit-advice', unitName: 'Trung tâm Tư vấn', role: 'support', canRespond: false },
+      ],
+    });
+    render(<AssignmentsSection letter={processing} onDone={jest.fn()} onDirtyChange={jest.fn()} onFilesChanged={jest.fn()} onPreview={jest.fn()} />);
+    expect(screen.getByText(/gửi kết quả sau khi Trung tâm Tư vấn gửi/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Kết quả xử lý của Phòng Kinh doanh/), { target: { value: 'Bản tổng hợp nháp' } });
+    expect((screen.getByRole('button', { name: 'Gửi kết quả' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

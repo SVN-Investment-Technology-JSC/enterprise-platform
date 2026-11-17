@@ -7,6 +7,7 @@ import {
   type LetterStepStatus,
   type AssignmentRole,
   type ReturnTarget,
+  type StepMode,
   type StepType,
 } from '@enterprise-platform/contracts-correspondence';
 
@@ -47,6 +48,8 @@ export interface StepFacts {
   readonly ownActors?: boolean;
   /** Bước "tất cả cùng duyệt": người đã duyệt thì không duyệt lại. */
   readonly approvedBy?: readonly string[];
+  /** Cách xong bước; bước phòng ban `lead` = phòng chủ trì gửi là xong, không chờ phối hợp. */
+  readonly mode?: StepMode;
 }
 
 export interface AssignmentFacts {
@@ -159,6 +162,20 @@ export function canRespondFor(viewer: LetterViewer, letter: Pick<LetterFacts, 's
   return assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId);
 }
 
+/**
+ * Phòng phối hợp chưa gửi kết quả mà phòng chủ trì phải chờ: chủ trì tổng hợp ý kiến phối hợp nên gửi sau
+ * cùng. Bước đặt "phòng chủ trì gửi là xong" thì không chờ.
+ */
+export function supportPending<T extends AssignmentFacts>(
+  letter: { readonly steps: readonly StepFacts[]; readonly assignments: readonly T[] },
+  assignment: AssignmentFacts,
+): T[] {
+  if ((assignment.role ?? 'lead') !== 'lead') return [];
+  const step = letter.steps.find((item) => item.status === 'active' && item.kind === 'process');
+  if (step?.mode === 'lead') return [];
+  return letter.assignments.filter((item) => item.role === 'support' && item.status === 'pending');
+}
+
 /** Phân công người xử lý cho phòng: văn thư, trưởng phòng; phòng chưa có người xử lý thì nhân sự của phòng nhận việc. */
 export function canAssignHandler(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
   if (letter.stage !== 'processing' || assignment.status !== 'pending' || !handles(assignment)) return false;
@@ -186,6 +203,7 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
         (assignment) =>
           assignment.status === 'pending' &&
           handles(assignment) &&
+          supportPending(letter, assignment).length === 0 &&
           (assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId)),
       );
     case 'closing':

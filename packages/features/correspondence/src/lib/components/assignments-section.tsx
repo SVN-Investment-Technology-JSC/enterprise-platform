@@ -155,6 +155,12 @@ export function AssignmentsSection({
               ) : null}
               {assignment.canRespond ? (
                 <div className={styles.form}>
+                  {assignment.waitingFor?.length ? (
+                    <p className={styles.notice}>
+                      Phòng chủ trì tổng hợp ý kiến phối hợp: gửi kết quả sau khi {assignment.waitingFor.join(', ')} gửi. Soạn trước và
+                      tải tệp được; hệ thống báo khi các phòng phối hợp gửi đủ.
+                    </p>
+                  ) : null}
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>
                       Kết quả xử lý của {assignment.unitName}
@@ -173,7 +179,7 @@ export function AssignmentsSection({
                     <button
                       type="button"
                       className={styles.buttonPrimary}
-                      disabled={busy === assignment.id || !(notes[assignment.id] ?? '').trim()}
+                      disabled={busy === assignment.id || !(notes[assignment.id] ?? '').trim() || Boolean(assignment.waitingFor?.length)}
                       onClick={() => void respond(assignment)}
                     >
                       Gửi kết quả
