@@ -21,6 +21,7 @@ import {
   dispatchLetter,
   listLetters,
   loadLedger,
+  loadReport,
   loadStepChoice,
   publishLetter,
   quickAddCatalogItem,
@@ -42,6 +43,7 @@ import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
 import { LedgerView } from './ledger-view';
+import { ReportView } from './report-view';
 import { WorkflowPicker } from './workflow-picker';
 import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
@@ -68,6 +70,7 @@ jest.mock('../correspondence-api', () => ({
   dispatchLetter: jest.fn(),
   listLetters: jest.fn(),
   loadLedger: jest.fn(),
+  loadReport: jest.fn(),
   completeLetter: jest.fn(),
   updateLetter: jest.fn(),
 }));
@@ -90,6 +93,7 @@ const mocked = {
   dispatch: dispatchLetter as jest.MockedFunction<typeof dispatchLetter>,
   list: listLetters as jest.MockedFunction<typeof listLetters>,
   ledger: loadLedger as jest.MockedFunction<typeof loadLedger>,
+  report: loadReport as jest.MockedFunction<typeof loadReport>,
   complete: completeLetter as jest.MockedFunction<typeof completeLetter>,
   update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
@@ -1396,5 +1400,21 @@ describe('Chọn quy trình cho công văn lúc tạo, phân loại', () => {
     fireEvent.click(send);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.dispatch.mock.calls[0][1]).toMatchObject({ workflowId: 'wf-ceo' });
+  });
+});
+
+describe('Báo cáo: thẻ mở đầu', () => {
+  it('người xem được thống kê mở Báo cáo là thẻ Thống kê; văn thư (không xem thống kê) là sổ công văn đến', async () => {
+    mocked.report.mockReturnValue(new Promise(() => undefined));
+    mocked.ledger.mockResolvedValue([]);
+    const { unmount } = render(<ReportView refreshKey={0} canReadStats />);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Thống kê', 'Sổ công văn đến', 'Sổ công văn đi']);
+    expect(screen.getByRole('tab', { name: 'Thống kê' }).getAttribute('aria-selected')).toBe('true');
+    expect(mocked.report).toHaveBeenCalled();
+    expect(mocked.ledger).not.toHaveBeenCalled();
+    unmount();
+    render(<ReportView refreshKey={0} canReadStats={false} />);
+    expect(screen.getByRole('tab', { name: 'Sổ công văn đến' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(mocked.ledger).toHaveBeenCalledWith('incoming', expect.any(Number)));
   });
 });
