@@ -4,7 +4,9 @@ import {
   ICON_SLOTS,
   createDocument,
   createShape,
+  BUILT_IN_SLOT_GROUPS,
   type BrandSlotAssignment,
+  type BrandSlotGroup,
 } from '@enterprise-platform/shared-brand-icon';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
@@ -12,8 +14,12 @@ import {
   assignSlot,
   clearSlot,
   createCustomSlot,
+  createSlotGroup,
   deleteCustomSlot,
+  deleteSlotGroup,
+  listSlotGroups,
   listSlots,
+  updateSlotGroup,
 } from '../store/brand-api';
 import { useBrandSettings, useIconLibrary } from '../store';
 import { toast } from '@/components/ui/sonner';
@@ -31,6 +37,10 @@ jest.mock('../store/brand-api', () => ({
   createCustomSlot: jest.fn(),
   updateCustomSlot: jest.fn(),
   deleteCustomSlot: jest.fn(),
+  listSlotGroups: jest.fn(),
+  createSlotGroup: jest.fn(),
+  updateSlotGroup: jest.fn(),
+  deleteSlotGroup: jest.fn(),
 }));
 
 jest.mock('../store', () => ({
@@ -50,6 +60,10 @@ const mockAssignSlot = jest.mocked(assignSlot);
 const mockClearSlot = jest.mocked(clearSlot);
 const mockCreateCustomSlot = jest.mocked(createCustomSlot);
 const mockDeleteCustomSlot = jest.mocked(deleteCustomSlot);
+const mockCreateSlotGroup = jest.mocked(createSlotGroup);
+const mockUpdateSlotGroup = jest.mocked(updateSlotGroup);
+const mockDeleteSlotGroup = jest.mocked(deleteSlotGroup);
+const mockListSlotGroups = jest.mocked(listSlotGroups);
 const mockUseBrandSettings = jest.mocked(useBrandSettings);
 const mockUseIconLibrary = jest.mocked(useIconLibrary);
 
@@ -75,6 +89,14 @@ const DRAFT_ICON = createDocument({
 });
 
 const ALL_DOCS = [PUBLISHED_ICON, PUBLISHED_ICON_2, DRAFT_ICON];
+
+const BUILT_IN_GROUPS: readonly BrandSlotGroup[] = BUILT_IN_SLOT_GROUPS.map((group) => ({
+  ...group,
+  isBuiltIn: true,
+  slotCount: 3,
+}));
+const HELP_GROUP: BrandSlotGroup = { key: 'help', label: 'Trợ giúp', isBuiltIn: false, slotCount: 0 };
+const BUSY_GROUP: BrandSlotGroup = { key: 'busy', label: 'Đang dùng', isBuiltIn: false, slotCount: 2 };
 
 const ASSIGNED_LOGO: BrandSlotAssignment = {
   slot: 'brand.logo',
@@ -156,7 +178,8 @@ function setupStores() {
 beforeEach(() => {
   jest.clearAllMocks();
   setupStores();
-  mockListSlots.mockResolvedValue({ slots: [ASSIGNED_LOGO, ASSIGNED_MONO_DRAFT] });
+  mockListSlots.mockResolvedValue({ slots: [ASSIGNED_LOGO, ASSIGNED_MONO_DRAFT], groups: [...BUILT_IN_GROUPS, HELP_GROUP, BUSY_GROUP] });
+  mockListSlotGroups.mockResolvedValue({ groups: [...BUILT_IN_GROUPS, HELP_GROUP, BUSY_GROUP] });
   mockAssignSlot.mockResolvedValue({
     slot: 'module.inventory',
     iconId: PUBLISHED_ICON_2.id,
@@ -386,5 +409,74 @@ describe('SlotsPage', () => {
       expect(mockDeleteCustomSlot).toHaveBeenCalledWith('custom.promo-banner');
       expect(screen.queryByTestId('slot-row-custom.promo-banner')).toBeNull();
     });
+  });
+  it('thêm nhóm mới ngay trong ô Nhóm vị trí và tự chọn nhóm vừa tạo', async () => {
+    const created: BrandSlotGroup = { key: 'trung-tam-tro-giup', label: 'Trung tâm trợ giúp', isBuiltIn: false, slotCount: 0 };
+    mockCreateSlotGroup.mockResolvedValueOnce(created);
+    mockListSlotGroups.mockResolvedValue({ groups: [...BUILT_IN_GROUPS, HELP_GROUP, BUSY_GROUP, created] });
+    render(<SlotsPage />);
+    await waitFor(() => expect(screen.getByTestId('add-custom-slot-btn')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('add-custom-slot-btn'));
+    const groupInput = screen.getByDisplayValue('Tùy chỉnh');
+    fireEvent.focus(groupInput);
+    fireEvent.click(groupInput);
+    fireEvent.click(await screen.findByTestId('custom-slot-group-add-group'));
+    fireEvent.change(await screen.findByLabelText('Tên nhóm'), { target: { value: 'Trung tâm trợ giúp' } });
+    fireEvent.keyDown(screen.getByLabelText('Tên nhóm'), { key: 'Enter' });
+
+    await waitFor(() => expect(mockCreateSlotGroup).toHaveBeenCalledWith('Trung tâm trợ giúp'));
+    await waitFor(() => expect(screen.getByDisplayValue('Trung tâm trợ giúp')).toBeTruthy());
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Trung tâm trợ giúp'));
+    // Hộp thoại thêm vị trí vẫn mở
+    expect(screen.getByText('Thêm vị trí icon mới')).toBeTruthy();
+  });
+
+  it('popup Nhóm vị trí: nhóm có sẵn chỉ đọc, nhóm đang dùng bị khoá xoá', async () => {
+    render(<SlotsPage />);
+    await waitFor(() => expect(screen.getByTestId('manage-slot-groups-btn')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('manage-slot-groups-btn'));
+
+    const brandRow = await screen.findByTestId('slot-group-row-brand');
+    expect(within(brandRow).getByText('Có sẵn')).toBeTruthy();
+    expect(within(brandRow).getByText('Cố định')).toBeTruthy();
+    expect(screen.queryByTestId('slot-group-edit-brand')).toBeNull();
+    expect(screen.queryByTestId('slot-group-delete-brand')).toBeNull();
+
+    const busyDelete = screen.getByTestId('slot-group-delete-busy') as HTMLButtonElement;
+    expect(busyDelete.disabled).toBe(true);
+    expect(screen.getByTestId('slot-group-delete-help')).toBeTruthy();
+    expect((screen.getByTestId('slot-group-delete-help') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('popup Nhóm vị trí: thêm, đổi tên và xoá nhóm rỗng', async () => {
+    const created: BrandSlotGroup = { key: 'moi', label: 'Nhóm mới', isBuiltIn: false, slotCount: 0 };
+    mockCreateSlotGroup.mockResolvedValueOnce(created);
+    mockListSlotGroups.mockResolvedValue({ groups: [...BUILT_IN_GROUPS, HELP_GROUP, BUSY_GROUP, created] });
+    mockUpdateSlotGroup.mockResolvedValueOnce({ ...HELP_GROUP, label: 'Trợ giúp 2' });
+    mockDeleteSlotGroup.mockResolvedValueOnce({ key: 'help', deleted: true });
+    render(<SlotsPage />);
+    await waitFor(() => expect(screen.getByTestId('manage-slot-groups-btn')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('manage-slot-groups-btn'));
+
+    // Thêm
+    fireEvent.change(await screen.findByLabelText('Tên nhóm mới'), { target: { value: 'Nhóm mới' } });
+    fireEvent.click(screen.getByTestId('slot-group-add-btn'));
+    await waitFor(() => expect(mockCreateSlotGroup).toHaveBeenCalledWith('Nhóm mới'));
+    expect(await screen.findByTestId('slot-group-row-moi')).toBeTruthy();
+
+    // Đổi tên
+    fireEvent.click(screen.getByTestId('slot-group-edit-help'));
+    const editInput = screen.getByLabelText('Tên nhóm help');
+    fireEvent.change(editInput, { target: { value: 'Trợ giúp 2' } });
+    fireEvent.keyDown(editInput, { key: 'Enter' });
+    await waitFor(() => expect(mockUpdateSlotGroup).toHaveBeenCalledWith('help', 'Trợ giúp 2'));
+    expect(await within(screen.getByTestId('slot-group-row-help')).findByText('Trợ giúp 2')).toBeTruthy();
+
+    // Xoá có xác nhận
+    fireEvent.click(screen.getByTestId('slot-group-delete-help'));
+    fireEvent.click(screen.getByTestId('slot-group-confirm-delete-help'));
+    await waitFor(() => expect(mockDeleteSlotGroup).toHaveBeenCalledWith('help'));
+    await waitFor(() => expect(screen.queryByTestId('slot-group-row-help')).toBeNull());
   });
 });

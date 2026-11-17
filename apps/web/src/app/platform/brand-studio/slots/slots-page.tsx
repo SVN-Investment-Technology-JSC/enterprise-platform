@@ -1,14 +1,14 @@
 'use client';
 
 import {
+  BUILT_IN_SLOT_GROUPS,
   ICON_SLOTS,
-  SLOT_GROUP_LABELS,
   isValidSlotId,
   isBuiltInSlotId,
   type BrandSlotAssignment,
+  type BrandSlotGroup,
   type BrandSvgMode,
   type IconDocument,
-  type IconSlotGroup,
   type IconSlotId,
   type IconSlotMeta,
 } from '@enterprise-platform/shared-brand-icon';
@@ -27,22 +27,17 @@ import {
   Search,
   SearchX,
   SlidersHorizontal,
+  Tags,
   Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/sonner';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Hint } from '../components/hint';
 import { Panel, RAISED } from '../components/panel';
@@ -54,12 +49,16 @@ import { IconButton } from '../library/library-ui';
 import { LibraryPagerBar } from '../library/library-pager-bar';
 import { pageAfterSizeChange, paginate } from '../library/library-pager';
 import { useBrandSettings, useIconLibrary } from '../store';
+import { SlotDialogFrame, SlotField } from './slot-dialog-frame';
+import { SlotGroupSelect } from './slot-group-select';
+import { SlotGroupsDialog } from './slot-groups-dialog';
 import {
   assignSlot,
   clearSlot,
   createCustomSlot,
   deleteCustomSlot,
   errorMessage,
+  listSlotGroups,
   listSlots,
   updateCustomSlot,
 } from '../store/brand-api';
@@ -67,32 +66,19 @@ import {
 /** Danh sách dạng dòng nên dùng cỡ trang tròn chục (lưới icon dùng bội của 12 cho khớp số cột). */
 const SLOT_PAGE_SIZES: readonly number[] = [10, 20, 50];
 
-type GroupFilter = 'all' | IconSlotGroup;
+type GroupFilter = string;
 type StatusFilter = 'all' | 'assigned' | 'default';
 
-const GROUP_OPTIONS: readonly SearchableSelectOption[] = [
-  { value: 'all', label: 'Tất cả nhóm' },
-  { value: 'custom', label: SLOT_GROUP_LABELS.custom || 'Tùy chỉnh' },
-  { value: 'brand', label: SLOT_GROUP_LABELS.brand },
-  { value: 'module', label: SLOT_GROUP_LABELS.module },
-  { value: 'nav', label: SLOT_GROUP_LABELS.nav },
-  { value: 'header', label: SLOT_GROUP_LABELS.header },
-  { value: 'shell', label: SLOT_GROUP_LABELS.shell },
-  { value: 'dashboard', label: SLOT_GROUP_LABELS.dashboard },
-  { value: 'sidebar', label: SLOT_GROUP_LABELS.sidebar },
-];
+const DEFAULT_GROUPS: readonly BrandSlotGroup[] = BUILT_IN_SLOT_GROUPS.map((group) => ({
+  ...group,
+  isBuiltIn: true,
+  slotCount: 0,
+}));
 
 const STATUS_OPTIONS: readonly SearchableSelectOption[] = [
   { value: 'all', label: 'Tất cả trạng thái' },
   { value: 'assigned', label: 'Đã gán' },
   { value: 'default', label: 'Mặc định' },
-];
-
-const DIALOG_GROUP_OPTIONS: readonly SearchableSelectOption[] = [
-  { value: 'custom', label: 'Tùy chỉnh (custom)' },
-  { value: 'brand', label: 'Thương hiệu (brand)' },
-  { value: 'module', label: 'Phân hệ (module)' },
-  { value: 'nav', label: 'Thanh điều hướng (nav)' },
 ];
 
 const COLOR_MODE_OPTIONS: readonly SearchableSelectOption[] = [
@@ -112,15 +98,41 @@ function matchesSlot(
   query: string,
   group: GroupFilter,
   status: StatusFilter,
+  groupLabels: Readonly<Record<string, string>>,
 ): boolean {
   if (group !== 'all' && slot.group !== group) return false;
   if (status === 'assigned' && !assignment) return false;
   if (status === 'default' && assignment) return false;
   const tokens = foldText(query).split(' ').filter(Boolean);
   if (tokens.length === 0) return true;
-  const groupLabel = SLOT_GROUP_LABELS[slot.group] || slot.group;
+  const groupLabel = groupLabels[slot.group] || slot.group;
   const haystack = foldText([slot.label, slot.id, slot.description, groupLabel].join(' '));
   return tokens.every((token) => haystack.includes(token));
+}
+
+const GROUP_HINT = 'Chỉ để sắp xếp và lọc danh sách, không đổi cách icon hiển thị.';
+const COLOR_MODE_HINT = 'Giữ màu thương hiệu, hoặc lấy theo màu chữ xung quanh (hợp icon nhỏ trong menu).';
+
+/** Dòng chữ một dòng; chỉ khi bị cắt bằng dấu "…" thì rê chuột hay focus mới hiện tooltip đủ nội dung. */
+function TruncatedText({ text, className }: { text: string; className?: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [truncated, setTruncated] = useState(false);
+  const measure = () => {
+    const el = ref.current;
+    if (el) setTruncated(el.scrollWidth > el.clientWidth + 1);
+  };
+  return (
+    <Tooltip disabled={!truncated}>
+      <TooltipTrigger
+        render={
+          <p className={cn('truncate', className)} onFocus={measure} onMouseEnter={measure} ref={ref} tabIndex={truncated ? 0 : undefined}>
+            {text}
+          </p>
+        }
+      />
+      <TooltipContent positionerClassName="z-[10050]">{text}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function SlotPreview({
@@ -190,6 +202,8 @@ export function SlotsPage() {
   const [assignments, setAssignments] = useState<Readonly<Record<string, BrandSlotAssignment>>>({});
   const [slotsLoading, setSlotsLoading] = useState(true);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [groups, setGroups] = useState<readonly BrandSlotGroup[]>(DEFAULT_GROUPS);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [busySlot, setBusySlot] = useState<IconSlotId | null>(null);
 
   const [query, setQuery] = useState('');
@@ -231,6 +245,7 @@ export function SlotsPage() {
       if (response.definitions && response.definitions.length > 0) {
         setDefinitions(response.definitions);
       }
+      setGroups(response.groups && response.groups.length > 0 ? response.groups : DEFAULT_GROUPS);
     } catch (error) {
       setSlotsError(errorMessage(error, 'Không tải được danh sách vị trí sử dụng.'));
     } finally {
@@ -241,6 +256,40 @@ export function SlotsPage() {
   useEffect(() => {
     void loadSlots();
   }, [loadSlots]);
+
+  const groupLabels = useMemo(() => Object.fromEntries(groups.map((group) => [group.key, group.label])), [groups]);
+
+  const groupFilterOptions = useMemo<readonly SearchableSelectOption[]>(
+    () => [{ value: 'all', label: 'Tất cả nhóm' }, ...groups.map((group) => ({ value: group.key, label: group.label }))],
+    [groups],
+  );
+
+  /** Lấy lại danh sách nhóm (kèm số vị trí) sau khi thêm, sửa, xoá nhóm hoặc vị trí. */
+  const refreshGroups = useCallback(async () => {
+    try {
+      const response = await listSlotGroups();
+      setGroups(response.groups);
+    } catch {
+      // Giữ danh sách nhóm hiện có; lần tải lại sau sẽ cập nhật.
+    }
+  }, []);
+
+  const handleGroupCreated = useCallback(
+    (group: BrandSlotGroup) => {
+      setGroups((prev) => (prev.some((item) => item.key === group.key) ? prev : [...prev, group]));
+      void refreshGroups();
+    },
+    [refreshGroups],
+  );
+
+  const handleGroupUpdated = useCallback((group: BrandSlotGroup) => {
+    setGroups((prev) => prev.map((item) => (item.key === group.key ? group : item)));
+  }, []);
+
+  const handleGroupDeleted = useCallback((key: string) => {
+    setGroups((prev) => prev.filter((item) => item.key !== key));
+    setGroupFilter((current) => (current === key ? 'all' : current));
+  }, []);
 
   const publishedDocs = useMemo(
     () => library.docs.filter((doc) => doc.status === 'published'),
@@ -258,8 +307,8 @@ export function SlotsPage() {
   );
 
   const filteredSlots = useMemo(
-    () => definitions.filter((slot) => matchesSlot(slot, assignments[slot.id], query, groupFilter, statusFilter)),
-    [definitions, assignments, query, groupFilter, statusFilter],
+    () => definitions.filter((slot) => matchesSlot(slot, assignments[slot.id], query, groupFilter, statusFilter, groupLabels)),
+    [definitions, assignments, query, groupFilter, statusFilter, groupLabels],
   );
 
   // Phân trang: đổi từ khoá hoặc bộ lọc thì về trang 1; trang vượt cuối (xoá bớt vị trí) được paginate kẹp về trang cuối.
@@ -361,6 +410,7 @@ export function SlotsPage() {
         description: createDescription.trim(),
       });
       setDefinitions((prev) => [...prev, created]);
+      void refreshGroups();
       notifyBrandSlotsChanged();
       setCreateOpen(false);
       toast.success(`Đã tạo vị trí mới "${created.label}" (${created.id}).`);
@@ -400,6 +450,7 @@ export function SlotsPage() {
         description: editDescription.trim(),
       });
       setDefinitions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      void refreshGroups();
       notifyBrandSlotsChanged();
       setEditTarget(null);
       toast.success(`Đã cập nhật vị trí "${updated.label}".`);
@@ -417,6 +468,7 @@ export function SlotsPage() {
     try {
       await deleteCustomSlot(deleteTarget.id);
       setDefinitions((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      void refreshGroups();
       setAssignments((prev) => {
         const next = { ...prev };
         delete next[deleteTarget.id];
@@ -490,6 +542,16 @@ export function SlotsPage() {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            aria-label="Nhóm vị trí"
+            className={RAISED}
+            data-testid="manage-slot-groups-btn"
+            onClick={() => setGroupsOpen(true)}
+            variant="outline"
+          >
+            <Tags aria-hidden className="size-4" />
+            <span>Nhóm vị trí</span>
+          </Button>
           <Button
             aria-label="Thêm vị trí mới"
             className={cn(RAISED, 'bg-blue-600 hover:bg-blue-700 text-white')}
@@ -606,8 +668,8 @@ export function SlotsPage() {
                         height={32}
                         hideDropdownSearch
                         name="group-filter"
-                        onChange={(value) => setGroupFilter((value as GroupFilter) || 'all')}
-                        options={GROUP_OPTIONS}
+                        onChange={(value) => setGroupFilter(value || 'all')}
+                        options={groupFilterOptions}
                         searchInDropdown
                         value={groupFilter}
                       />
@@ -681,7 +743,7 @@ export function SlotsPage() {
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">{slot.id}</code>
                           <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                            {SLOT_GROUP_LABELS[slot.group] || slot.group}
+                            {groupLabels[slot.group] || slot.group}
                           </span>
                           <span
                             className={cn(
@@ -696,7 +758,7 @@ export function SlotsPage() {
                           <span className="text-[11px] tabular-nums text-slate-400">{slot.recommendedSize}px</span>
                         </div>
 
-                        <p className="line-clamp-1 text-xs text-slate-500">{slot.description}</p>
+                        <TruncatedText className="text-xs text-slate-500" text={slot.description} />
 
                         {isUnpublishedWarning && assignment ? (
                           <div
@@ -802,27 +864,40 @@ export function SlotsPage() {
         </Panel>
       )}
 
-      {/* Modal tạo vị trí mới */}
+      <SlotGroupsDialog
+        groups={groups}
+        onCreated={handleGroupCreated}
+        onDeleted={handleGroupDeleted}
+        onOpenChange={setGroupsOpen}
+        onUpdated={handleGroupUpdated}
+        open={groupsOpen}
+      />
+
+      {/* Hộp thoại tạo vị trí mới */}
       <Dialog onOpenChange={setCreateOpen} open={createOpen}>
-        <DialogContent className="max-w-md p-6">
-          <DialogHeader>
-            <DialogTitle>Thêm vị trí icon mới</DialogTitle>
-            <DialogDescription>
-              Định nghĩa vị trí sử dụng icon mới trong hệ thống để gán icon thương hiệu.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form className="mt-4 flex flex-col gap-4" onSubmit={handleCreateSubmit}>
-            {createError ? (
-              <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
-                {createError}
-              </div>
-            ) : null}
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-id">
-                Mã vị trí (ID) <span className="text-red-500">*</span>
-              </label>
+        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+          <SlotDialogFrame
+            description="Định nghĩa vị trí sử dụng icon mới trong hệ thống để gán icon thương hiệu."
+            error={createError}
+            footer={
+              <>
+                <Button disabled={createSubmitting} onClick={() => setCreateOpen(false)} type="button" variant="outline">
+                  Huỷ
+                </Button>
+                <Button
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  data-testid="create-slot-submit-btn"
+                  disabled={createSubmitting}
+                  type="submit"
+                >
+                  {createSubmitting ? 'Đang tạo...' : 'Tạo vị trí'}
+                </Button>
+              </>
+            }
+            onSubmit={handleCreateSubmit}
+            title="Thêm vị trí icon mới"
+          >
+            <SlotField hint="Chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới (vd: custom.help-center)" htmlFor="custom-slot-id" label="Mã vị trí (ID)" required>
               <Input
                 autoFocus
                 className="h-8 font-mono text-xs"
@@ -832,15 +907,9 @@ export function SlotsPage() {
                 required
                 value={createId}
               />
-              <span className="text-[11px] text-slate-500">
-                Chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới (vd: custom.help-center)
-              </span>
-            </div>
+            </SlotField>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-label">
-                Tên hiển thị <span className="text-red-500">*</span>
-              </label>
+            <SlotField htmlFor="custom-slot-label" label="Tên hiển thị" required>
               <Input
                 className="h-8"
                 id="custom-slot-label"
@@ -849,42 +918,35 @@ export function SlotsPage() {
                 required
                 value={createLabel}
               />
-            </div>
+            </SlotField>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-group">
-                  Nhóm vị trí
-                </label>
-                <SearchableSelect
-                  height={32}
-                  hideDropdownSearch
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SlotField hint={GROUP_HINT} htmlFor="custom-slot-group" label="Nhóm vị trí">
+                <SlotGroupSelect
+                  groups={groups}
                   name="custom-slot-group"
-                  onChange={(val) => setCreateGroup(val || 'custom')}
-                  options={DIALOG_GROUP_OPTIONS}
+                  onChange={setCreateGroup}
+                  onGroupCreated={handleGroupCreated}
                   value={createGroup}
                 />
-              </div>
+              </SlotField>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-mode">
-                  Chế độ màu
-                </label>
+              <SlotField hint={COLOR_MODE_HINT} htmlFor="custom-slot-mode" label="Chế độ màu">
                 <SearchableSelect
+                  clearable={false}
                   height={32}
                   hideDropdownSearch
                   name="custom-slot-mode"
+                  nativeTitle={false}
                   onChange={(val) => setCreateColorMode((val as BrandSvgMode) || 'brand')}
                   options={COLOR_MODE_OPTIONS}
+                  searchInDropdown
                   value={createColorMode}
                 />
-              </div>
+              </SlotField>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-size">
-                Kích thước khuyến nghị (pixel)
-              </label>
+            <SlotField htmlFor="custom-slot-size" label="Kích thước khuyến nghị (pixel)">
               <Input
                 className="h-8"
                 id="custom-slot-size"
@@ -894,12 +956,9 @@ export function SlotsPage() {
                 type="number"
                 value={createRecommendedSize}
               />
-            </div>
+            </SlotField>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-desc">
-                Mô tả
-              </label>
+            <SlotField htmlFor="custom-slot-desc" label="Mô tả">
               <Textarea
                 className="min-h-16 text-xs"
                 id="custom-slot-desc"
@@ -908,63 +967,39 @@ export function SlotsPage() {
                 rows={2}
                 value={createDescription}
               />
-            </div>
-
-            <DialogFooter className="mt-2">
-              <Button
-                disabled={createSubmitting}
-                onClick={() => setCreateOpen(false)}
-                type="button"
-                variant="outline"
-              >
-                Huỷ
-              </Button>
-              <Button
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                data-testid="create-slot-submit-btn"
-                disabled={createSubmitting}
-                type="submit"
-              >
-                {createSubmitting ? 'Đang tạo...' : 'Tạo vị trí'}
-              </Button>
-            </DialogFooter>
-          </form>
+            </SlotField>
+          </SlotDialogFrame>
         </DialogContent>
       </Dialog>
 
-      {/* Modal chỉnh sửa vị trí */}
+      {/* Hộp thoại chỉnh sửa vị trí */}
       <Dialog onOpenChange={(open) => !open && setEditTarget(null)} open={Boolean(editTarget)}>
-        <DialogContent className="max-w-md p-6">
-          <DialogHeader>
-            <DialogTitle>Chỉnh sửa vị trí tùy chỉnh</DialogTitle>
-            <DialogDescription>
-              Thay đổi thông tin cấu hình cho vị trí <code className="font-mono text-xs">{editTarget?.id}</code>.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+          <SlotDialogFrame
+            description={
+              <>
+                Thay đổi thông tin cấu hình cho vị trí <code className="font-mono text-xs">{editTarget?.id}</code>.
+              </>
+            }
+            error={editError}
+            footer={
+              <>
+                <Button disabled={editSubmitting} onClick={() => setEditTarget(null)} type="button" variant="outline">
+                  Huỷ
+                </Button>
+                <Button className="bg-blue-600 text-white hover:bg-blue-700" disabled={editSubmitting} type="submit">
+                  {editSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
+                </Button>
+              </>
+            }
+            onSubmit={handleEditSubmit}
+            title="Chỉnh sửa vị trí tùy chỉnh"
+          >
+            <SlotField htmlFor="edit-slot-id" label="Mã vị trí (ID)">
+              <Input className="h-8 bg-slate-50 font-mono text-xs text-slate-500" disabled id="edit-slot-id" value={editTarget?.id || ''} />
+            </SlotField>
 
-          <form className="mt-4 flex flex-col gap-4" onSubmit={handleEditSubmit}>
-            {editError ? (
-              <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
-                {editError}
-              </div>
-            ) : null}
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-id">
-                Mã vị trí (ID)
-              </label>
-              <Input
-                className="h-8 font-mono text-xs bg-slate-50 text-slate-500"
-                disabled
-                id="edit-slot-id"
-                value={editTarget?.id || ''}
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-label">
-                Tên hiển thị <span className="text-red-500">*</span>
-              </label>
+            <SlotField htmlFor="edit-slot-label" label="Tên hiển thị" required>
               <Input
                 autoFocus
                 className="h-8"
@@ -973,42 +1008,35 @@ export function SlotsPage() {
                 required
                 value={editLabel}
               />
-            </div>
+            </SlotField>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-group">
-                  Nhóm vị trí
-                </label>
-                <SearchableSelect
-                  height={32}
-                  hideDropdownSearch
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SlotField hint={GROUP_HINT} htmlFor="edit-slot-group" label="Nhóm vị trí">
+                <SlotGroupSelect
+                  groups={groups}
                   name="edit-slot-group"
-                  onChange={(val) => setEditGroup(val || 'custom')}
-                  options={DIALOG_GROUP_OPTIONS}
+                  onChange={setEditGroup}
+                  onGroupCreated={handleGroupCreated}
                   value={editGroup}
                 />
-              </div>
+              </SlotField>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-mode">
-                  Chế độ màu
-                </label>
+              <SlotField hint={COLOR_MODE_HINT} htmlFor="edit-slot-mode" label="Chế độ màu">
                 <SearchableSelect
+                  clearable={false}
                   height={32}
                   hideDropdownSearch
                   name="edit-slot-mode"
+                  nativeTitle={false}
                   onChange={(val) => setEditColorMode((val as BrandSvgMode) || 'brand')}
                   options={COLOR_MODE_OPTIONS}
+                  searchInDropdown
                   value={editColorMode}
                 />
-              </div>
+              </SlotField>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-size">
-                Kích thước khuyến nghị (pixel)
-              </label>
+            <SlotField htmlFor="edit-slot-size" label="Kích thước khuyến nghị (pixel)">
               <Input
                 className="h-8"
                 id="edit-slot-size"
@@ -1018,12 +1046,9 @@ export function SlotsPage() {
                 type="number"
                 value={editRecommendedSize}
               />
-            </div>
+            </SlotField>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-desc">
-                Mô tả
-              </label>
+            <SlotField htmlFor="edit-slot-desc" label="Mô tả">
               <Textarea
                 className="min-h-16 text-xs"
                 id="edit-slot-desc"
@@ -1031,70 +1056,44 @@ export function SlotsPage() {
                 rows={2}
                 value={editDescription}
               />
-            </div>
-
-            <DialogFooter className="mt-2">
-              <Button
-                disabled={editSubmitting}
-                onClick={() => setEditTarget(null)}
-                type="button"
-                variant="outline"
-              >
-                Huỷ
-              </Button>
-              <Button
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                disabled={editSubmitting}
-                type="submit"
-              >
-                {editSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
-              </Button>
-            </DialogFooter>
-          </form>
+            </SlotField>
+          </SlotDialogFrame>
         </DialogContent>
       </Dialog>
 
-      {/* Modal xác nhận xoá vị trí */}
+      {/* Hộp thoại xác nhận xoá vị trí */}
       <Dialog onOpenChange={(open) => !open && setDeleteTarget(null)} open={Boolean(deleteTarget)}>
-        <DialogContent className="max-w-md p-6">
-          <DialogHeader>
-            <DialogTitle>Xác nhận xoá vị trí tùy chỉnh</DialogTitle>
-            <DialogDescription>
-              Bạn có chắc chắn muốn xoá vị trí{' '}
-              <strong className="text-slate-900">{deleteTarget?.label}</strong> (
-              <code className="font-mono text-xs">{deleteTarget?.id}</code>)?
-            </DialogDescription>
-          </DialogHeader>
-
-          {deleteError ? (
-            <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
-              {deleteError}
-            </div>
-          ) : null}
-
-          <p className="mt-2 text-xs text-slate-500">
-            Hành động này sẽ xoá hoàn toàn cấu hình vị trí và huỷ gán icon hiện tại ở vị trí này. Thao tác không thể hoàn tác.
-          </p>
-
-          <DialogFooter className="mt-4">
-            <Button
-              disabled={deleteSubmitting}
-              onClick={() => setDeleteTarget(null)}
-              type="button"
-              variant="outline"
-            >
-              Huỷ
-            </Button>
-            <Button
-              className="bg-red-600 hover:bg-red-700 text-white"
-              data-testid="delete-slot-confirm-btn"
-              disabled={deleteSubmitting}
-              onClick={handleDeleteSubmit}
-              type="button"
-            >
-              {deleteSubmitting ? 'Đang xoá...' : 'Xoá vĩnh viễn'}
-            </Button>
-          </DialogFooter>
+        <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+          <SlotDialogFrame
+            description={
+              <>
+                Bạn có chắc chắn muốn xoá vị trí <strong className="text-slate-900">{deleteTarget?.label}</strong> (
+                <code className="font-mono text-xs">{deleteTarget?.id}</code>)?
+              </>
+            }
+            error={deleteError}
+            footer={
+              <>
+                <Button disabled={deleteSubmitting} onClick={() => setDeleteTarget(null)} type="button" variant="outline">
+                  Huỷ
+                </Button>
+                <Button
+                  className="bg-red-600 text-white hover:bg-red-700"
+                  data-testid="delete-slot-confirm-btn"
+                  disabled={deleteSubmitting}
+                  onClick={handleDeleteSubmit}
+                  type="button"
+                >
+                  {deleteSubmitting ? 'Đang xoá...' : 'Xoá vĩnh viễn'}
+                </Button>
+              </>
+            }
+            title="Xác nhận xoá vị trí tùy chỉnh"
+          >
+            <p className="text-xs text-slate-500">
+              Hành động này sẽ xoá hoàn toàn cấu hình vị trí và huỷ gán icon hiện tại ở vị trí này. Thao tác không thể hoàn tác.
+            </p>
+          </SlotDialogFrame>
         </DialogContent>
       </Dialog>
     </div>

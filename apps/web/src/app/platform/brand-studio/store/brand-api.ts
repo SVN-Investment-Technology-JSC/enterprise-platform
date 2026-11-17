@@ -9,11 +9,16 @@ import {
   type BrandIconStatus,
   type BrandIconSummary,
   type BrandSlotAssignment,
+  type BrandSlotGroup,
+  type BrandSlotGroupListResponse,
   type BrandSlotListResponse,
   type BrandStandardsResponse,
   type BrandSvgMode,
   type CreateBrandIconRequest,
+  type CreateBrandSlotGroupRequest,
   type CustomSlotPayload,
+  type DeleteBrandSlotGroupResponse,
+  type UpdateBrandSlotGroupRequest,
   type IconSlotMeta,
   type SaveBrandIconRequest,
   type SaveBrandIconResponse,
@@ -253,6 +258,30 @@ export function updateCustomSlot(id: string, patch: Partial<Omit<CustomSlotPaylo
 /** Xoá vị trí icon tùy chỉnh. */
 export function deleteCustomSlot(id: string): Promise<{ readonly id: string; readonly deleted: boolean }> {
   return request<{ readonly id: string; readonly deleted: boolean }>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+const slotGroupPath = (key: string) => `/slots/groups/${encodeURIComponent(key)}`;
+
+/** Danh sách mọi nhóm vị trí (có sẵn và tùy chỉnh) kèm số vị trí đang dùng. */
+export function listSlotGroups(): Promise<BrandSlotGroupListResponse> {
+  return request<BrandSlotGroupListResponse>('/slots/groups');
+}
+
+/** Tạo nhóm vị trí tùy chỉnh; bỏ `key` thì máy chủ sinh từ tên. */
+export function createSlotGroup(label: string, key?: string): Promise<BrandSlotGroup> {
+  const body: CreateBrandSlotGroupRequest = key ? { label, key } : { label };
+  return request<BrandSlotGroup>('/slots/groups', { method: 'POST', body });
+}
+
+/** Đổi tên hiển thị của nhóm tùy chỉnh (mã giữ nguyên). */
+export function updateSlotGroup(key: string, label: string): Promise<BrandSlotGroup> {
+  const body: UpdateBrandSlotGroupRequest = { label };
+  return request<BrandSlotGroup>(slotGroupPath(key), { method: 'PUT', body });
+}
+
+/** Xoá nhóm tùy chỉnh đang không có vị trí nào. */
+export function deleteSlotGroup(key: string): Promise<DeleteBrandSlotGroupResponse> {
+  return request<DeleteBrandSlotGroupResponse>(slotGroupPath(key), { method: 'DELETE' });
 }
 
 /** Đường dẫn ảnh SVG dựng sẵn của một phiên bản; bản đã phát hành đọc công khai, bản khác cần đăng nhập quản trị. */
