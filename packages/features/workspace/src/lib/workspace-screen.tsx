@@ -65,15 +65,30 @@ type Tab = 'my-work' | 'tasks' | 'projects' | 'customers' | 'documents' | 'repor
  * tiêu đề "DỰ ÁN" của mục dự án bên dưới để mở; các dự án nằm thẳng trong mục đó.
  */
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
+  {
+    id: 'my-work',
+    label: 'Công việc của tôi',
+    group: 'Công việc',
+    icon: <AppIcon slot="sidebar.workspace.my-work" fallback={ListChecks} className="size-4" />,
+  },
   {
     id: 'tasks',
     label: 'Công việc khác',
     group: 'Công việc',
-    icon: <ClipboardList size={16} />,
+    icon: <AppIcon slot="sidebar.workspace.tasks" fallback={ClipboardList} className="size-4" />,
   },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
-  { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
+  {
+    id: 'projects',
+    label: 'Dự án',
+    group: 'Công việc',
+    icon: <AppIcon slot="sidebar.workspace.projects" fallback={FolderKanban} className="size-4" />,
+  },
+  {
+    id: 'documents',
+    label: 'Tài liệu',
+    group: 'Công việc',
+    icon: <AppIcon slot="sidebar.workspace.documents" fallback={FileText} className="size-4" />,
+  },
   { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <AppIcon slot="nav.reports" fallback={BarChart3} className="size-4" /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
   { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <AppIcon slot="nav.users" fallback={Users} className="size-4" />, hidden: true },
