@@ -80,6 +80,12 @@ export class CorrespondenceController {
     return this.execute(() => this.service.report(this.actor(request), year));
   }
 
+  /** Sổ theo dõi công văn đến / đi theo năm (bảng văn thư). */
+  @Get('ledger')
+  ledger(@Req() request: CorrespondenceRequest, @Query('direction') direction?: string, @Query('year') year?: string) {
+    return this.execute(async () => ({ items: await this.service.ledger(this.actor(request), direction, year) }));
+  }
+
   /* ----------------------------------------------------------- cấu hình */
 
   /** Sổ, danh mục và quy trình duyệt: ai vào được phân hệ cũng đọc được, chỉ người có quyền cấu hình sửa. */
@@ -158,6 +164,9 @@ export class CorrespondenceController {
     @Query('stage') stage?: string,
     @Query('search') search?: string,
     @Query('registerId') registerId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('kind') kind?: string,
   ) {
     return this.execute(async () => ({
       items: await this.service.list(this.actor(request), {
@@ -165,6 +174,9 @@ export class CorrespondenceController {
         stage: (stage || undefined) as LetterStage | undefined,
         search,
         registerId: registerId || undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        kind: kind || undefined,
       }),
     }));
   }

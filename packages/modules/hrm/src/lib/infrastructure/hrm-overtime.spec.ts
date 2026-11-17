@@ -13,7 +13,8 @@ jest.mock('./hrm-time.js', () => ({
 }));
 jest.mock('./hrm-request-overlap.js', () => ({
   assertNoRequestOverlap: jest.fn(async () => undefined),
-  tripBlocksOt: jest.fn(() => false),
+  tripBlocksOtByShift: jest.fn(async () => false),
+  employeeShiftWindowOf: jest.fn(() => async () => null),
 }));
 
 const dayKind = dayKindOf as jest.Mock;
@@ -145,7 +146,7 @@ describe('validateOt: loại OT và hệ số do hệ thống suy ra theo chính
     const result = await validateOt(db, 't', at('23:00', '01:00'));
     expect(result).toMatchObject({ kind: 'NIGHT', rate: 2.1, duration: 120 });
     expect(openDate).toHaveBeenCalledWith(db, 't', NEXT_DATE);
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: NEXT_DATE }, { timeZone: 'Asia/Ho_Chi_Minh' });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: NEXT_DATE }, { timeZone: 'Asia/Ho_Chi_Minh', shiftOf: expect.any(Function) });
 
     dayKind.mockImplementation(async (_db: unknown, _t: string, date: string) => (date === NEXT_DATE ? 'HOLIDAY' : null));
     await expect(validateOt(db, 't', at('23:00', '01:00'))).resolves.toMatchObject({ kind: 'NIGHT', duration: 120 });
@@ -172,7 +173,7 @@ describe('validateOt: quy tắc của đơn từ giữ lại', () => {
   it('tạo mới: không được chồng ngày nghỉ phép hoặc công tác (assertNoRequestOverlap); bước duyệt không kiểm tra lại', async () => {
     const { db } = makeDb();
     await validateOt(db, 't', at('18:00', '20:00'));
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: DATE }, { timeZone: 'Asia/Ho_Chi_Minh' });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: DATE }, { timeZone: 'Asia/Ho_Chi_Minh', shiftOf: expect.any(Function) });
 
     overlap.mockClear();
     await validateOt(db, 't', at('18:00', '20:00'), 'ot-existing');

@@ -17,7 +17,12 @@ import {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { formatDateTime, formatNoteDates, formatNumber } from '../inventory-labels';
 import type { InventoryLedgerRow } from '../inventory-api';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+
+const METRIC_CARD = 'flex flex-col gap-[0.35rem] rounded-[7px] border border-slate-200 bg-white px-[0.85rem] py-[0.65rem]';
+const METRIC_NUMBER = 'text-xl font-bold tabular-nums text-slate-900';
 
 /** Nhãn loại bút toán, nói theo việc thủ kho làm chứ không theo tên enum. */
 const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
@@ -117,8 +122,8 @@ export function MaterialHistory(props: {
 
   if (props.state === undefined || props.state === 'loading') {
     return (
-      <div className={styles.historyLoadingBox}>
-        <div className={styles.historySpinner} />
+      <div className="flex flex-col items-center justify-center gap-[0.6rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-9 text-center">
+        <div className="size-6 animate-spin rounded-full border-[2.5px] border-slate-200 border-t-primary" />
         <span>Đang nạp dữ liệu lịch sử xuất nhập...</span>
       </div>
     );
@@ -126,7 +131,7 @@ export function MaterialHistory(props: {
 
   if (props.state === 'error') {
     return (
-      <div className={styles.historyErrorBox}>
+      <div className="flex flex-col items-center justify-center gap-[0.6rem] rounded-lg border border-dashed border-red-200 bg-red-50 px-6 py-9 text-center text-sm font-medium text-red-700">
         <span>Không thể truy vấn lịch sử nhập/xuất của vật tư này từ sổ cái.</span>
       </div>
     );
@@ -134,10 +139,10 @@ export function MaterialHistory(props: {
 
   if (rows.length === 0) {
     return (
-      <div className={styles.historyEmptyBox}>
+      <div className="flex flex-col items-center justify-center gap-[0.6rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-9 text-center">
         <Layers size={36} strokeWidth={1.5} color="#94a3b8" />
-        <span style={{ fontWeight: 600, color: '#475569' }}>Chưa có phát sinh giao dịch</span>
-        <span style={{ fontSize: '13px', color: '#94a3b8' }}>
+        <span className="font-semibold text-slate-600">Chưa có phát sinh giao dịch</span>
+        <span className="text-[13px] text-slate-400">
           Vật tư này chưa từng được nhập, xuất hoặc điều chỉnh kiểm kê nào trong hệ thống.
         </span>
       </div>
@@ -145,68 +150,68 @@ export function MaterialHistory(props: {
   }
 
   return (
-    <div className={styles.historyContainer}>
+    <div className="flex w-full flex-col gap-[0.85rem]">
       {/* 1. THANH TỔNG HỢP NHANH (KPI METRICS) */}
-      <div className={styles.historyMetricsGrid}>
-        <div className={styles.historyMetricCard}>
-          <div className={styles.historyMetricLabel}>
+      <div className="grid grid-cols-2 gap-[0.65rem] sm:grid-cols-4">
+        <div className={METRIC_CARD}>
+          <div className="flex items-center gap-[0.35rem] text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">
             <Calendar size={13} color="#64748b" />
             <span>Tổng phát sinh</span>
           </div>
-          <div className={styles.historyMetricValue}>
-            <strong>{formatNumber(stats.count)}</strong> <small>bút toán</small>
+          <div className="flex items-baseline gap-[0.35rem]">
+            <strong className={METRIC_NUMBER}>{formatNumber(stats.count)}</strong> <small className="text-xs font-medium text-slate-500">bút toán</small>
           </div>
         </div>
 
-        <div className={`${styles.historyMetricCard} ${styles.historyMetricCardIn}`}>
-          <div className={styles.historyMetricLabel}>
+        <div className={cn(METRIC_CARD, 'border-green-200 bg-green-50')}>
+          <div className="flex items-center gap-[0.35rem] text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">
             <ArrowDownLeft size={13} color="#15803d" />
             <span>Tổng nhập vào</span>
           </div>
-          <div className={`${styles.historyMetricValue} ${styles.historyTextIn}`}>
-            <strong>+{formatNumber(stats.totalIn)}</strong> <small>{props.unit ?? ''}</small>
+          <div className="flex items-baseline gap-[0.35rem] text-green-700">
+            <strong className={cn(METRIC_NUMBER, 'text-green-700')}>+{formatNumber(stats.totalIn)}</strong> <small className="text-xs font-medium text-slate-500">{props.unit ?? ''}</small>
           </div>
         </div>
 
-        <div className={`${styles.historyMetricCard} ${styles.historyMetricCardOut}`}>
-          <div className={styles.historyMetricLabel}>
+        <div className={cn(METRIC_CARD, 'border-red-200 bg-red-50')}>
+          <div className="flex items-center gap-[0.35rem] text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">
             <ArrowUpRight size={13} color="#b91c1c" />
             <span>Tổng xuất ra</span>
           </div>
-          <div className={`${styles.historyMetricValue} ${styles.historyTextOut}`}>
-            <strong>−{formatNumber(stats.totalOut)}</strong> <small>{props.unit ?? ''}</small>
+          <div className="flex items-baseline gap-[0.35rem] text-red-700">
+            <strong className={cn(METRIC_NUMBER, 'text-red-700')}>−{formatNumber(stats.totalOut)}</strong> <small className="text-xs font-medium text-slate-500">{props.unit ?? ''}</small>
           </div>
         </div>
 
-        <div className={styles.historyMetricCard}>
-          <div className={styles.historyMetricLabel}>
+        <div className={METRIC_CARD}>
+          <div className="flex items-center gap-[0.35rem] text-xs font-semibold uppercase tracking-[0.02em] text-slate-500">
             <SlidersHorizontal size={13} color="#2563eb" />
             <span>Biến động ròng</span>
           </div>
-          <div className={styles.historyMetricValue}>
-            <strong style={{ color: stats.net >= 0 ? '#15803d' : '#b91c1c' }}>
+          <div className="flex items-baseline gap-[0.35rem]">
+            <strong className={cn(METRIC_NUMBER, stats.net >= 0 ? 'text-green-700' : 'text-red-700')}>
               {stats.net > 0 ? `+${formatNumber(stats.net)}` : formatNumber(stats.net)}
             </strong>{' '}
-            <small>{props.unit ?? ''}</small>
+            <small className="text-xs font-medium text-slate-500">{props.unit ?? ''}</small>
           </div>
         </div>
       </div>
 
       {/* 2. THANH CÔNG CỤ TÌM KIẾM & BỘ LỌC */}
-      <div className={styles.historyFilterBar}>
-        <div className={styles.historySearchWrapper}>
-          <Search size={14} className={styles.historySearchIcon} />
-          <input
+      <div className="flex flex-wrap items-center justify-between gap-[0.65rem] rounded-lg border border-slate-200 bg-slate-50 px-3 py-[0.55rem]">
+        <div className="relative flex min-w-[220px] flex-1 items-center">
+          <Search size={14} className="pointer-events-none absolute left-[0.65rem] text-slate-400" />
+          <Input
             type="text"
-            className={styles.historySearchInput}
+            className="h-8 pl-8 text-[13px]"
             placeholder="Tìm theo nội dung, mã kiểm kê, phiếu xuất/lắp..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
-        <div className={styles.historyFilterGroup}>
-          <div style={{ minWidth: 155 }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-[155px]">
             <SearchableSelect
               options={typeOptions}
               value={filterType}
@@ -216,7 +221,7 @@ export function MaterialHistory(props: {
           </div>
 
           {warehouseOptions.length > 2 ? (
-            <div style={{ minWidth: 145 }}>
+            <div className="min-w-[145px]">
               <SearchableSelect
                 options={warehouseOptions}
                 value={filterWarehouse}
@@ -227,9 +232,9 @@ export function MaterialHistory(props: {
           ) : null}
 
           {(filterType !== 'ALL' || filterWarehouse !== 'ALL' || searchQuery) ? (
-            <button
+            <Button
               type="button"
-              className={styles.historyResetBtn}
+              variant="outline"
               onClick={() => {
                 setFilterType('ALL');
                 setFilterWarehouse('ALL');
@@ -239,25 +244,29 @@ export function MaterialHistory(props: {
             >
               <RotateCcw size={12} />
               <span>Xóa lọc</span>
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
       {/* 3. DANH SÁCH GIAO DỊCH DẠNG THẺ DÒNG THỜI GIAN HIỆN ĐẠI */}
-      <div className={styles.historyTimelineList}>
+      <div className="flex max-h-[480px] flex-col gap-[0.55rem] overflow-y-auto pr-0.5">
         {filteredRows.map((entry) => {
           const isPositive = entry.quantity > 0;
           const warehouseCode = props.warehouseCodeById.get(entry.warehouseId) ?? entry.warehouseId;
           const typeText = TYPE_LABEL[entry.type] ?? entry.type;
 
           return (
-            <div key={entry.id} className={styles.historyCardItem}>
+            <div
+              key={entry.id}
+              className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-[0.95rem] py-3 transition-[border-color,box-shadow] hover:border-blue-200 hover:shadow-[0_2px_6px_rgba(37,99,235,0.05)]"
+            >
               {/* Cột trái: Biểu tượng & Trực quan luồng */}
               <div
-                className={`${styles.historyDirectionBadge} ${
-                  isPositive ? styles.historyBadgeIn : styles.historyBadgeOut
-                }`}
+                className={cn(
+                  'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border',
+                  isPositive ? 'border-green-200 bg-green-100 text-green-700' : 'border-red-200 bg-red-100 text-red-700',
+                )}
                 title={isPositive ? 'Nhập / Tăng tồn kho' : 'Xuất / Giảm tồn kho'}
               >
                 {entry.type === 'ADJUST' ? (
@@ -272,32 +281,33 @@ export function MaterialHistory(props: {
               </div>
 
               {/* Cột giữa: Nội dung chi tiết */}
-              <div className={styles.historyCardBody}>
-                <div className={styles.historyCardHeader}>
-                  <div className={styles.historyActionInfo}>
+              <div className="flex min-w-0 flex-1 flex-col gap-[0.35rem]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-[0.45rem]">
                     <span
-                      className={`${styles.historyTypeTag} ${
-                        isPositive ? styles.historyTypeTagIn : styles.historyTypeTagOut
-                      }`}
+                      className={cn(
+                        'inline-flex items-center rounded border px-[7px] py-px text-xs font-bold',
+                        isPositive ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-rose-200 bg-rose-50 text-rose-700',
+                      )}
                     >
                       {typeText}
                     </span>
 
                     {warehouseCode ? (
-                      <span className={styles.historyWarehousePill}>
+                      <span className="inline-flex items-center gap-[3px] rounded border border-slate-300 bg-slate-100 px-1.5 py-px text-xs font-semibold text-slate-700">
                         <WarehouseIcon size={11} />
                         <span>{warehouseCode}</span>
                       </span>
                     ) : null}
 
                     {entry.transactionCode ? (
-                      <span className={styles.historyTxCode} title="Mã bút toán sổ cái">
+                      <span className="rounded border border-slate-200 bg-slate-50 px-[5px] py-px font-mono text-xs text-slate-500" title="Mã bút toán sổ cái">
                         {entry.transactionCode}
                       </span>
                     ) : null}
                   </div>
 
-                  <div className={styles.historyCardTimestamp}>
+                  <div className="inline-flex items-center gap-1 text-xs font-medium tabular-nums text-slate-500">
                     <Calendar size={12} />
                     <span>{formatDateTime(entry.createdAt)}</span>
                   </div>
@@ -305,25 +315,25 @@ export function MaterialHistory(props: {
 
                 {/* Diễn giải chi tiết hoặc lý do giao dịch */}
                 {entry.note ? (
-                  <div className={styles.historyNoteCard}>
-                    <p className={styles.historyNoteText}>{formatNoteDates(entry.note)}</p>
+                  <div className="rounded-r border-l-[2.5px] border-primary bg-slate-50 px-[0.65rem] py-[0.35rem]">
+                    <p className="m-0 text-[13px] leading-[1.45] text-slate-800 [word-break:break-word]">{formatNoteDates(entry.note)}</p>
                   </div>
                 ) : (
-                  <div className={styles.historyNoteCardEmpty}>
-                    <small>Không có ghi chú diễn giải</small>
+                  <div className="text-xs italic text-slate-400">
+                    <small className="text-xs font-medium text-slate-500">Không có ghi chú diễn giải</small>
                   </div>
                 )}
 
                 {/* Phụ lục: Sê-ri hoặc Tham chiếu */}
                 {entry.serialNumber || entry.referenceId ? (
-                  <div className={styles.historyMetaRow}>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
                     {entry.serialNumber ? (
-                      <span className={styles.historyMetaTag}>
+                      <span className="rounded bg-slate-100 px-1.5 py-px text-xs text-slate-600 [&_strong]:font-semibold [&_strong]:text-slate-900">
                         Sê-ri: <strong>{entry.serialNumber}</strong>
                       </span>
                     ) : null}
                     {entry.referenceId ? (
-                      <span className={styles.historyMetaTag}>
+                      <span className="rounded bg-slate-100 px-1.5 py-px text-xs text-slate-600 [&_strong]:font-semibold [&_strong]:text-slate-900">
                         Mã tham chiếu: <strong>{entry.referenceId}</strong>
                       </span>
                     ) : null}
@@ -332,15 +342,16 @@ export function MaterialHistory(props: {
               </div>
 
               {/* Cột phải: Số lượng biến động */}
-              <div className={styles.historyQtyColumn}>
+              <div className="flex min-w-[90px] shrink-0 flex-col items-end justify-center">
                 <div
-                  className={`${styles.historyQtyAmount} ${
-                    isPositive ? styles.historyTextIn : styles.historyTextOut
-                  }`}
+                  className={cn(
+                    'inline-flex items-baseline gap-0.5 tabular-nums',
+                    isPositive ? 'text-green-700' : 'text-red-700',
+                  )}
                 >
-                  <span className={styles.historyQtySign}>{isPositive ? '+' : '−'}</span>
-                  <span className={styles.historyQtyNumber}>{formatNumber(Math.abs(entry.quantity))}</span>
-                  <span className={styles.historyQtyUnit}>{props.unit ?? ''}</span>
+                  <span className="text-sm font-extrabold">{isPositive ? '+' : '−'}</span>
+                  <span className="text-xl font-extrabold">{formatNumber(Math.abs(entry.quantity))}</span>
+                  <span className="ml-0.5 text-xs font-semibold text-slate-500">{props.unit ?? ''}</span>
                 </div>
               </div>
             </div>
@@ -348,7 +359,7 @@ export function MaterialHistory(props: {
         })}
 
         {filteredRows.length === 0 ? (
-          <div className={styles.historyFilterEmpty}>
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-[13px] text-slate-500">
             <Filter size={24} strokeWidth={1.5} color="#94a3b8" />
             <span>Không tìm thấy giao dịch nào khớp với điều kiện lọc hiện tại.</span>
           </div>
@@ -356,7 +367,7 @@ export function MaterialHistory(props: {
       </div>
 
       {/* 4. FOOTER ĐẾM SỐ DÒNG */}
-      <div className={styles.historyFooterNote}>
+      <div className="flex items-center justify-end pt-1 text-xs text-slate-500 [&_strong]:text-slate-900">
         <span>
           Hiển thị <strong>{filteredRows.length}</strong> / <strong>{rows.length}</strong> giao dịch
         </span>

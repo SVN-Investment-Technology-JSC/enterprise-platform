@@ -13,7 +13,7 @@ import {
   resolveRequestTime,
 } from '../infrastructure/hrm-request-time.js';
 import { saveRequestTransport } from '../infrastructure/hrm-fleet.js';
-import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
+import { assertNoRequestOverlap, employeeShiftWindowOf } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -61,8 +61,10 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { throwWhyNotRejectable } from '../infrastructure/hrm-request-reject.js';
 import { workReferences } from '../infrastructure/hrm-work-references.js';
 import {
-  createOvertime,
-  approveOvertime,
+  createOvertimeGroup,
+  approveOvertimeGroup,
+  cascadeOvertimeGroupStatus,
+  parseOtGroupRanges,
 } from '../infrastructure/hrm-overtime.js';
 import { approveShiftChange } from '../infrastructure/hrm-shift-change.js';
 import {
@@ -81,6 +83,7 @@ import { businessTripDetails } from '../infrastructure/hrm-trip-details.js';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 @UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
@@ -144,6 +147,7 @@ export class HrmRequestController {
         tenantId,
         kind: 'ot',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn làm thêm giờ',
@@ -157,23 +161,36 @@ export class HrmRequestController {
           'OVERTIME',
           body,
         );
-        const created = await createOvertime(db, tenantId, { ...body, employeeId }, {
-          reasonId: reason.id,
-          reasonName: reason.name,
-          paid: reason.paid,
-          description,
-          rateMultiplier: reason.rateMultiplier,
-        });
-        return onBehalf
-          ? markOnBehalf(db, created, {
-              tenantId,
-              table: 'ot_requests',
-              kind: 'ot',
-              employeeId,
-              actorUserId: principal.userId,
-              reason: onBehalf.reason,
-            })
-          : created;
+        // Đơn nhiều khoảng: mọi khoảng tạo trong giao dịch này; một khoảng không hợp lệ thì không khoảng nào được gửi.
+        const extra = parseOtGroupRanges((body as { extraRanges?: unknown }).extraRanges);
+        return createOvertimeGroup(
+          db,
+          tenantId,
+          principal.userId,
+          { ...body, employeeId },
+          {
+            reasonId: reason.id,
+            reasonName: reason.name,
+            paid: reason.paid,
+            description,
+            rateMultiplier: reason.rateMultiplier,
+          },
+          extra,
+          {
+            requestTypeLabel: 'Đơn làm thêm giờ',
+            afterCreate: onBehalf
+              ? (created) =>
+                  markOnBehalf(db, created, {
+                    tenantId,
+                    table: 'ot_requests',
+                    kind: 'ot',
+                    employeeId,
+                    actorUserId: principal.userId,
+                    reason: onBehalf.reason,
+                  })
+              : undefined,
+          },
+        );
       },
     );
     return {
@@ -231,13 +248,22 @@ export class HrmRequestController {
       6 + approvalScope.params.length,
       { assignee, currentStep },
     );
+    // Người duyệt chỉ thấy khoảng chính của đơn nhiều khoảng; duyệt khoảng chính là duyệt cả nhóm.
+    const hideFollowers = forApproval === '1' ? 'AND (group_id IS NULL OR group_id = id)' : '';
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.ot_requests
+      `SELECT ot_requests.*,
+              CASE WHEN group_id = id THEN (
+                SELECT json_agg(json_build_object('id', g.id, 'workDate', g.work_date, 'startTime', g.start_time, 'endTime', g.end_time,
+                                                  'fromAt', g.from_at, 'toAt', g.to_at, 'plannedMinutes', g.planned_minutes, 'status', g.status)
+                                ORDER BY g.work_date, g.start_time, g.id)
+                  FROM hrm_schema.ot_requests g WHERE g.tenant_id = ot_requests.tenant_id AND g.group_id = ot_requests.id) END AS group_ranges
+       FROM hrm_schema.ot_requests
        WHERE tenant_id = $1
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::date IS NULL OR work_date >= $3)
          AND ($4::date IS NULL OR work_date <= $4)
          AND ($5::text IS NULL OR status = $5)
+         ${hideFollowers}
          AND ${approvalScope.sql}
          AND ${progress.sql}
        ORDER BY work_date DESC`,
@@ -280,7 +306,7 @@ export class HrmRequestController {
       'approve',
     );
     const row = await hrmTransaction(pool, (db) =>
-      approveOvertime(db, tenantId, principal.userId, id),
+      approveOvertimeGroup(db, tenantId, principal.userId, id),
     );
     const res = { rows: [row] };
     return {
@@ -315,11 +341,13 @@ export class HrmRequestController {
        WHERE tenant_id = $1 AND id = $2 AND status IN ('PENDING','PEER_CONFIRMED') RETURNING *`,
         [tenantId, id, principal.userId],
       );
-      if (result.rowCount)
+      if (result.rowCount) {
         await db.query(
           `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','OT',$3,$4)`,
           [tenantId, principal.userId, id, JSON.stringify({ reason: note })],
         );
+        await cascadeOvertimeGroupStatus(db, tenantId, principal.userId, id, 'REJECTED');
+      }
       return result;
     });
     if (res.rows.length === 0)
@@ -443,6 +471,7 @@ export class HrmRequestController {
         tenantId,
         kind: 'business_trip',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn công tác',
@@ -476,7 +505,7 @@ export class HrmRequestController {
           toDate: tripTo,
           fromAt: tripAt?.fromAt ?? null,
           toAt: tripAt?.toAt ?? null,
-        });
+        }, { shiftOf: employeeShiftWindowOf(db, tenantId, employeeId) });
         if (body.perDiemPolicyId) {
           const policy = await db.query(
             `SELECT id FROM hrm_schema.policies WHERE tenant_id=$1 AND id=$2`,
@@ -809,6 +838,7 @@ export class HrmRequestController {
         tenantId,
         kind: 'shift_change',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn đổi ca',
@@ -1226,6 +1256,8 @@ export class HrmRequestController {
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
+      groupId: (row.group_id as string | null | undefined) ?? null,
+      ...(Array.isArray(row.group_ranges) ? { groupRanges: row.group_ranges as HrmOtRequest['groupRanges'] } : {}),
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };

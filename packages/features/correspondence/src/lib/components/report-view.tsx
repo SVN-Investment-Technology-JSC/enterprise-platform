@@ -5,15 +5,38 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useState } from 'react';
 import { errorMessage, loadReport } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
+import { LedgerView } from './ledger-view';
 
-/** Báo cáo văn thư theo năm: tổng số, theo tháng, theo loại văn bản, theo phòng ban. */
-export function ReportView({ refreshKey }: { readonly refreshKey: number }) {
+type ReportTab = 'incoming' | 'outgoing' | 'stats';
+
+/**
+ * Báo cáo văn thư theo năm: sổ theo dõi công văn đến, công văn đi (bảng như văn thư ghi tay, mọi công văn tự
+ * vào sổ) và thống kê (tổng số, theo tháng, loại văn bản, phòng ban; cần quyền xem báo cáo).
+ */
+export function ReportView({
+  refreshKey,
+  canReadStats = true,
+  onOpenLetter,
+}: {
+  readonly refreshKey: number;
+  /** Người có quyền xem báo cáo mới thấy thẻ thống kê; văn thư xem sổ theo dõi. */
+  readonly canReadStats?: boolean;
+  readonly onOpenLetter?: (letterId: string) => void;
+}) {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
+  // Mở Báo cáo là thẻ Thống kê; người không xem được thống kê (văn thư) thì sổ công văn đến.
+  const [tab, setTab] = useState<ReportTab>(canReadStats ? 'stats' : 'incoming');
   const [report, setReport] = useState<CorrespondenceReport>();
   const [error, setError] = useState<string>();
+  const tabs: readonly { readonly id: ReportTab; readonly label: string }[] = [
+    ...(canReadStats ? [{ id: 'stats' as const, label: 'Thống kê' }] : []),
+    { id: 'incoming', label: 'Sổ công văn đến' },
+    { id: 'outgoing', label: 'Sổ công văn đi' },
+  ];
 
   useEffect(() => {
+    if (tab !== 'stats') return;
     let active = true;
     setReport(undefined);
     loadReport(year)
@@ -26,7 +49,7 @@ export function ReportView({ refreshKey }: { readonly refreshKey: number }) {
     return () => {
       active = false;
     };
-  }, [year, refreshKey]);
+  }, [year, refreshKey, tab]);
 
   const years = Array.from({ length: 6 }, (_, index) => thisYear - index);
   const max = Math.max(1, ...(report?.byMonth ?? []).map((row) => row.incoming + row.outgoing));
@@ -42,13 +65,30 @@ export function ReportView({ refreshKey }: { readonly refreshKey: number }) {
             onChange={(value) => setYear(Number(value) || thisYear)}
           />
         </div>
+        <div className={styles.tabs} role="tablist">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              className={tab === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
-      {error ? (
+      {tab !== 'stats' ? (
+        <LedgerView direction={tab} year={year} refreshKey={refreshKey} onOpen={(id) => onOpenLetter?.(id)} />
+      ) : null}
+      {tab === 'stats' && error ? (
         <p role="alert" className={styles.alert}>
           {error}
         </p>
       ) : null}
-      {report ? (
+      {tab !== 'stats' ? null : report ? (
         <>
           <div className={styles.stats}>
             {[

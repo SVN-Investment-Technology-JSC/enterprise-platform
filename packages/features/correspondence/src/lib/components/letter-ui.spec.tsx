@@ -19,6 +19,9 @@ import {
   completeLetter,
   decideRevoke,
   dispatchLetter,
+  listLetters,
+  loadLedger,
+  loadReport,
   loadStepChoice,
   publishLetter,
   quickAddCatalogItem,
@@ -31,6 +34,7 @@ import {
   submitLetter,
   updateLetter,
 } from '../correspondence-api';
+import { AssignmentsSection } from './assignments-section';
 import { EditLetterDialog } from './edit-letter-dialog';
 import { CommentsSection } from './comments-section';
 import { ConfigView } from './config-view';
@@ -38,6 +42,10 @@ import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
+import { LedgerView } from './ledger-view';
+import { ReportView } from './report-view';
+import { WorkflowPicker } from './workflow-picker';
+import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
 import { OverviewView } from './overview-view';
@@ -60,6 +68,9 @@ jest.mock('../correspondence-api', () => ({
   saveRegister: jest.fn(),
   publishLetter: jest.fn(),
   dispatchLetter: jest.fn(),
+  listLetters: jest.fn(),
+  loadLedger: jest.fn(),
+  loadReport: jest.fn(),
   completeLetter: jest.fn(),
   updateLetter: jest.fn(),
 }));
@@ -80,6 +91,9 @@ const mocked = {
   saveRegister: saveRegister as jest.MockedFunction<typeof saveRegister>,
   publish: publishLetter as jest.MockedFunction<typeof publishLetter>,
   dispatch: dispatchLetter as jest.MockedFunction<typeof dispatchLetter>,
+  list: listLetters as jest.MockedFunction<typeof listLetters>,
+  ledger: loadLedger as jest.MockedFunction<typeof loadLedger>,
+  report: loadReport as jest.MockedFunction<typeof loadReport>,
   complete: completeLetter as jest.MockedFunction<typeof completeLetter>,
   update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
@@ -784,14 +798,40 @@ describe('Bút phê, đôn đốc', () => {
     });
   });
 
-  it('đôn đốc: gửi lời nhắc kèm ghi chú', async () => {
+  it('đôn đốc: bắt chọn lý do và ghi lời nhắn; chọn được phòng cần nhắc, bỏ phòng chủ trì đang chờ', async () => {
     const onDone = jest.fn();
     mocked.remind.mockResolvedValue(letter());
-    render(<RemindDialog letter={{ id: 'letter-1', displayNo: '3/CVĐ', subject: 'X', stageLabel: 'Phòng ban xử lý' }} onClose={jest.fn()} onDone={onDone} />);
-    fireEvent.change(screen.getByLabelText('Lời nhắc (nếu có)'), { target: { value: 'Gửi kết quả trong hôm nay.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Gửi lời nhắc' }));
+    const base = { round: 1, status: 'pending' as const, headNames: [], canAssignHandler: false, canRespond: false };
+    render(
+      <RemindDialog
+        letter={{
+          id: 'letter-1',
+          displayNo: '3/CVĐ',
+          subject: 'X',
+          stageLabel: 'Phòng ban xử lý',
+          stage: 'processing',
+          assignments: [
+            { ...base, id: 'a1', unitId: 'u1', unitName: 'Phòng Kinh doanh', role: 'lead', waitingFor: ['Phòng Pháp chế', 'Phòng Kế toán'] },
+            { ...base, id: 'a2', unitId: 'u2', unitName: 'Phòng Pháp chế', role: 'support' },
+            { ...base, id: 'a3', unitId: 'u3', unitName: 'Phòng Kế toán', role: 'support' },
+          ],
+        }}
+        onClose={jest.fn()}
+        onDone={onDone}
+      />,
+    );
+    const send = screen.getByRole('button', { name: 'Gửi lời nhắc' }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText(/Lời nhắn/), { target: { value: 'Sở yêu cầu trả lời trước 15h.' } });
+    expect(send.disabled).toBe(true);
+    const reason = screen.getByRole('group', { name: 'Lý do' });
+    fireEvent.click(within(reason).getByRole('textbox'));
+    fireEvent.click(within(reason).getByRole('option', { name: /Cần xử lý gấp/ }));
+    expect(screen.queryByRole('checkbox', { name: 'Phòng Kinh doanh' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Phòng Pháp chế' }));
+    await waitFor(() => expect(send.disabled).toBe(false));
+    fireEvent.click(send);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(mocked.remind).toHaveBeenCalledWith('letter-1', 'Gửi kết quả trong hôm nay.');
+    expect(mocked.remind).toHaveBeenCalledWith('letter-1', { reason: 'urgent', note: 'Sở yêu cầu trả lời trước 15h.', assignmentIds: ['a2'] });
   });
 });
 
@@ -1171,5 +1211,210 @@ describe('Định tuyến theo điều kiện trên giao diện', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Đã nhận' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(mocked.complete).toHaveBeenCalledWith('letter-1', undefined);
+  });
+});
+
+describe('Phòng chủ trì tổng hợp ý kiến phối hợp', () => {
+  it('còn phòng phối hợp chưa gửi: chủ trì soạn được nhưng chưa gửi được, ghi rõ chờ phòng nào', () => {
+    const base = { round: 1, status: 'pending' as const, headNames: [], canAssignHandler: false, canRespond: true };
+    const processing = letter({
+      stage: 'processing',
+      assignments: [
+        { ...base, id: 'a1', unitId: 'unit-sales', unitName: 'Phòng Kinh doanh', role: 'lead', waitingFor: ['Trung tâm Tư vấn'] },
+        { ...base, id: 'a2', unitId: 'unit-advice', unitName: 'Trung tâm Tư vấn', role: 'support', canRespond: false },
+      ],
+    });
+    render(<AssignmentsSection letter={processing} onDone={jest.fn()} onDirtyChange={jest.fn()} onFilesChanged={jest.fn()} onPreview={jest.fn()} />);
+    expect(screen.getByText(/gửi kết quả sau khi Trung tâm Tư vấn gửi/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Kết quả xử lý của Phòng Kinh doanh/), { target: { value: 'Bản tổng hợp nháp' } });
+    expect((screen.getByRole('button', { name: 'Gửi kết quả' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('Lọc danh sách công văn đến, đi', () => {
+  it('mặc định công văn trong tháng này; đổi kỳ, khoảng ngày, loại văn bản thì tải lại theo bộ lọc', async () => {
+    mocked.list.mockResolvedValue([]);
+    const catalog = [{ id: 't', kind: 'letter_type' as const, code: 'report', name: 'Báo cáo', sortOrder: 0, isActive: true }];
+    render(<LetterListView box="incoming" today="2026-11-17" refreshKey={0} catalog={catalog} onOpen={jest.fn()} />);
+    await waitFor(() => expect(mocked.list).toHaveBeenCalled());
+    expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ box: 'incoming', fromDate: '2026-11-01', toDate: '2026-11-30', kind: undefined });
+    const pick = (index: number, option: RegExp) => {
+      const field = screen.getAllByRole('textbox').filter((input) => input.getAttribute('type') !== 'search').at(index) as HTMLElement;
+      fireEvent.click(field);
+      fireEvent.click(screen.getByRole('option', { name: option }));
+    };
+    pick(0, /Tháng trước/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: '2026-10-01', toDate: '2026-10-31' }));
+    pick(1, /Báo cáo/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'report' }));
+    pick(0, /Tất cả/);
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: undefined, toDate: undefined, kind: 'report' }));
+    pick(0, /Khoảng ngày/);
+    fireEvent.change(await screen.findByLabelText('Ngày đến từ'), { target: { value: '2026-09-15' } });
+    await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: '2026-09-15', toDate: '2026-11-30' }));
+  });
+});
+
+describe('Công văn đi: người gửi', () => {
+  it('danh sách ghi người gửi cá nhân kèm phòng, hay tên phòng khi gửi với danh nghĩa cả phòng', () => {
+    const outgoing = (id: string, sentAs: 'person' | 'unit') =>
+      ({
+        ...letter({ id, direction: 'outgoing', stage: 'drafting', displayNo: `${id}/DT`, recipient: 'Sở Tài chính' }),
+        authorName: 'Nguyễn Văn An',
+        authorUnitName: 'Ban Tổng Giám đốc',
+        sentAs,
+      }) as LetterSummary;
+    render(<LetterTable letters={[outgoing('1', 'person'), outgoing('2', 'unit')]} mode="outgoing" today="2026-11-17" emptyText="" onOpen={jest.fn()} />);
+    expect(screen.getByText('Nguyễn Văn An (Ban Tổng Giám đốc) → Sở Tài chính')).toBeTruthy();
+    expect(screen.getByText('Ban Tổng Giám đốc → Sở Tài chính')).toBeTruthy();
+  });
+});
+
+describe('Sổ theo dõi công văn trong Báo cáo', () => {
+  it('bảng công văn đến đủ cột như sổ văn thư; lọc theo tháng; bấm dòng mở công văn', async () => {
+    const onOpen = jest.fn();
+    const row = (id: string, receivedOn: string, extra: Partial<LetterSummary>) =>
+      ({ ...letter({ id, receivedOn, stage: 'archived', stageLabel: 'Đã lưu trữ' }), ...extra }) as LetterSummary;
+    mocked.ledger.mockResolvedValue([
+      row('a', '2026-01-05', {
+        incomingNo: '01/CVĐ',
+        senderRef: '6245/GLPC-KT+KHVT',
+        kindName: 'Công văn',
+        subject: 'V/v xác nhận vận hành thiết bị',
+        senderOrg: 'Công ty Điện lực Gia Lai',
+        senderDate: '2025-12-30',
+        copyCount: 1,
+        receiverNames: ['Diễm My'],
+        unitNames: ['Phòng Kinh doanh (chủ trì)'],
+        archiveCode: 'HS-2026-0001',
+      }),
+      row('b', '2026-04-17', { incomingNo: '02/CVĐ', kindName: 'Thông báo', subject: 'Về việc tham gia BHXH', senderOrg: 'Bảo hiểm xã hội TP Đà Nẵng' }),
+    ]);
+    render(<LedgerView direction="incoming" year={2026} refreshKey={0} onOpen={onOpen} />);
+    const table = await screen.findByRole('table', { name: 'Sổ công văn đến năm 2026' });
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'STT',
+      'Ngày đến',
+      'Số đến',
+      'Số, ký hiệu',
+      'Nội dung',
+      'Đơn vị gửi',
+      'Ngày văn bản',
+      'Số bản',
+      'Người nhận',
+      'Nơi nhận giải quyết',
+      'Hạn xử lý',
+      'Tình trạng',
+      'Số hồ sơ',
+    ]);
+    const first = within(table).getAllByRole('row')[1];
+    expect(within(first).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '1',
+      '05/01/2026',
+      '01/CVĐ',
+      '6245/GLPC-KT+KHVT',
+      'Công vănV/v xác nhận vận hành thiết bị',
+      'Công ty Điện lực Gia Lai',
+      '30/12/2025',
+      '1',
+      'Diễm My',
+      'Phòng Kinh doanh (chủ trì)',
+      '20/11/2026',
+      'Đã lưu trữ',
+      'HS-2026-0001',
+    ]);
+    expect(screen.getByText('2 công văn')).toBeTruthy();
+    // Thu phóng như Excel: mặc định vừa khung, phóng to từng nấc 10%, về 100%.
+    expect((screen.getByRole('button', { name: /Vừa khung/ }) as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '100%' }));
+    expect(screen.getByText('100%', { selector: 'span' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Thu nhỏ' }));
+    expect(screen.getByText('90%')).toBeTruthy();
+    expect(table.style.zoom).toBe('0.9');
+    const month = screen.getAllByRole('textbox').find((input) => input.getAttribute('type') !== 'search') as HTMLElement;
+    fireEvent.click(month);
+    fireEvent.click(screen.getByRole('option', { name: 'Tháng 4' }));
+    expect(screen.getByText('1 công văn')).toBeTruthy();
+    fireEvent.click(screen.getByText('Về việc tham gia BHXH'));
+    expect(onOpen).toHaveBeenCalledWith('b');
+    expect(mocked.ledger).toHaveBeenCalledWith('incoming', 2026);
+  });
+});
+
+describe('Chọn quy trình cho công văn lúc tạo, phân loại', () => {
+  const workflows = [
+    {
+      id: 'wf-default',
+      name: 'Quy trình mặc định',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: true,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' as const }],
+      updatedAt: '',
+    },
+    {
+      id: 'wf-ceo',
+      name: 'Qua Tổng giám đốc',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: false,
+      steps: [
+        { key: 'a', name: 'Phó TGĐ xem', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-ha'] }, condition: { urgency: ['urgent'], skip: true } },
+        { key: 'b', name: 'TGĐ giao phòng ban', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-an'] }, directs: true },
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process' as const },
+      ],
+      updatedAt: '',
+    },
+  ];
+  const withFlows: CorrespondenceConfig = { ...config, workflows };
+
+  it('trống là theo cấu hình; chọn quy trình thì xem trước từng bước, ai làm, bước không áp dụng', () => {
+    const onChange = jest.fn();
+    const facts = { kind: 'directive', urgency: 'urgent', confidentiality: 'normal' };
+    const { rerender } = render(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="" directory={directory} onChange={onChange} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    expect(within(group).getByRole('textbox').getAttribute('placeholder')).toBe('Theo cấu hình: Quy trình mặc định');
+    expect(screen.getByRole('list', { name: 'Xem trước quy trình Quy trình mặc định' })).toBeTruthy();
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    expect(onChange).toHaveBeenCalledWith('wf-ceo');
+    rerender(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="wf-ceo" directory={directory} onChange={onChange} />);
+    const preview = screen.getByRole('list', { name: 'Xem trước quy trình Qua Tổng giám đốc' });
+    const items = within(preview).getAllByRole('listitem').map((item) => item.textContent);
+    expect(items[1]).toContain('không áp dụng cho công văn này');
+    expect(items[2]).toBe('TGĐ giao phòng banLãnh đạo duyệt / chỉ đạo · Nguyễn Văn An · bút phê');
+    expect(items[3]).toContain('Phòng ban do người làm bước trước chọn');
+    expect(screen.getByText('Công văn này chạy đúng quy trình đã chọn.')).toBeTruthy();
+  });
+
+  it('văn thư đổi quy trình lúc phân loại: gửi kèm quy trình đã chọn', async () => {
+    const onDone = jest.fn();
+    const received = letter({ stage: 'received', stageLabel: 'Văn thư tiếp nhận', currentStepName: undefined, flow: [] }, { dispatch: true });
+    mocked.dispatch.mockResolvedValue(received);
+    render(<LetterActionPanel letter={received} config={withFlows} directory={directory} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    const send = await screen.findByRole('button', { name: 'Chuyển "Phó TGĐ xem"' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.dispatch.mock.calls[0][1]).toMatchObject({ workflowId: 'wf-ceo' });
+  });
+});
+
+describe('Báo cáo: thẻ mở đầu', () => {
+  it('người xem được thống kê mở Báo cáo là thẻ Thống kê; văn thư (không xem thống kê) là sổ công văn đến', async () => {
+    mocked.report.mockReturnValue(new Promise(() => undefined));
+    mocked.ledger.mockResolvedValue([]);
+    const { unmount } = render(<ReportView refreshKey={0} canReadStats />);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Thống kê', 'Sổ công văn đến', 'Sổ công văn đi']);
+    expect(screen.getByRole('tab', { name: 'Thống kê' }).getAttribute('aria-selected')).toBe('true');
+    expect(mocked.report).toHaveBeenCalled();
+    expect(mocked.ledger).not.toHaveBeenCalled();
+    unmount();
+    render(<ReportView refreshKey={0} canReadStats={false} />);
+    expect(screen.getByRole('tab', { name: 'Sổ công văn đến' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(mocked.ledger).toHaveBeenCalledWith('incoming', expect.any(Number)));
   });
 });

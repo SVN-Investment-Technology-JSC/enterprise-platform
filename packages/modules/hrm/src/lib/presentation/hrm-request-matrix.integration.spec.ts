@@ -425,7 +425,8 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
       ['nửa ngày sáng thứ Ba (08:00-12:00): 0.5 ngày', '2026-11-03T08:00', '2026-11-03T12:00', 0.5],
       ['nửa ngày chiều thứ Ba (13:00-17:00): 0.5 ngày', '2026-11-03T13:00', '2026-11-03T17:00', 0.5],
       ['thứ Bảy đi trọn ca ngắn (08:00-12:00): vẫn đủ 1 ngày công tác', '2026-11-07T08:00', '2026-11-07T12:00', 1],
-      ['thứ Sáu đến thứ Hai qua thứ Bảy: 3 ngày, bỏ Chủ nhật', '2026-11-13T08:00', '2026-11-16T17:00', 3],
+      ['thứ Sáu đến thứ Hai qua thứ Bảy và Chủ nhật: 4 ngày (Chủ nhật không có ca vẫn là ngày công tác)', '2026-11-13T08:00', '2026-11-16T17:00', 4],
+      ['chỉ Chủ nhật: 1 ngày công tác, không có giờ ca', '2026-11-08T08:00', '2026-11-08T17:00', 1],
       ['qua cuối tháng 10: thứ Năm 29 đến thứ Bảy 31', '2026-10-29T08:00', '2026-10-31T12:00', 3],
     ])('%s', async (_name, fromAt, toAt, days) => {
       const result = await mkTrip({ fromAt, toAt });
@@ -435,10 +436,8 @@ integration('Đơn từ: ma trận loại đơn x mốc thời gian x cách duy�
     });
 
     it.each([
-      ['Chủ nhật', '2026-11-08T08:00', '2026-11-08T17:00'],
-      ['ngày lễ', '2026-10-21T08:00', '2026-10-21T17:00'],
       ['ngoài ca (18:00-20:00)', '2026-11-04T18:00', '2026-11-04T20:00'],
-    ])('công tác rơi vào %s bị từ chối', async (_name, fromAt, toAt) => {
+    ])('công tác ngày làm việc %s bị từ chối', async (_name, fromAt, toAt) => {
       await expect(mkTrip({ fromAt, toAt })).rejects.toMatchObject({ status: 400 });
     });
 

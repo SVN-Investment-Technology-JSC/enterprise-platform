@@ -19,6 +19,10 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   LETTER_STAGES,
+  REMIND_COOLDOWN_MINUTES,
+  REMIND_REASONS,
+  REMIND_REASON_LABELS,
+  SENT_AS,
   conditionSet,
   matchesCondition,
   numberFormatError,
@@ -110,6 +114,7 @@ import {
   canAssignHandler,
   canDeleteAttachment,
   canRespondFor,
+  supportPending,
   canViewLetter,
   dossierFolderName,
   formatArchiveCode,
@@ -279,6 +284,9 @@ export class CorrespondenceService {
         box === 'archive' ? ARCHIVE_STAGES : box === 'mine' ? AWAITING_STAGES : box === 'tracking' ? OPEN_LETTER_STAGES : stage ? [stage] : undefined,
       search: query.search?.trim() || undefined,
       registerId: optionalText(query.registerId, 'Sổ đăng ký', 64),
+      fromDate: optionalDate(query.fromDate, 'Từ ngày'),
+      toDate: optionalDate(query.toDate, 'Đến ngày'),
+      kind: optionalText(query.kind, 'Loại văn bản', 40),
       limit: LIST_LIMIT,
     });
     let visible = rows.filter((row) => canViewLetter(viewer, facts(row, catalog)));
@@ -384,7 +392,10 @@ export class CorrespondenceService {
     ]);
     const nameOf = (userId: string) => names.get(userId) ?? 'Người dùng';
     const byId = new Map(assignments.map((item) => [item.id, item]));
-    const actions = letterActions(viewer, letterFacts);
+    const actions = letterActions(viewer, {
+      ...letterFacts,
+      waitingUserIds: await this.nextStepPeople(actor.tenantId, letter, steps, assignments),
+    });
     return {
       ...summaryOf(row, catalog, viewer, names),
       instruction: letter.instruction,
@@ -412,6 +423,7 @@ export class CorrespondenceService {
       addressedUserId: letter.addressedUserId,
       addressedUserName: letter.addressedUserId ? names.get(letter.addressedUserId) : undefined,
       personal: letter.personal || undefined,
+      chosenWorkflowId: letter.chosenWorkflowId,
       directive: letter.directive
         ? {
             ...letter.directive,
@@ -490,6 +502,7 @@ export class CorrespondenceService {
           .filter((name): name is string => Boolean(name)),
         canAssignHandler: canAssignHandler(viewer, letter, item),
         canRespond: canRespondFor(viewer, letter, item),
+        waitingFor: supportPending({ steps, assignments }, item).map((other) => other.unitName),
       })),
       attachments: attachments.map((item) => {
         const assignment = item.assignmentId ? byId.get(item.assignmentId) : undefined;
@@ -546,6 +559,33 @@ export class CorrespondenceService {
   }
 
   /** Báo cáo theo năm: số công văn đến, đi, đã xong, trễ hạn theo tháng, loại văn bản, phòng ban. */
+  /**
+   * Sổ theo dõi công văn đến / đi của một năm, như bảng văn thư vẫn ghi tay: mọi công văn người xem được thấy,
+   * công văn đến theo số đến, công văn đi theo số đi (chưa ban hành thì theo số dự thảo, xếp cuối).
+   * Văn thư, người xem báo cáo, quản trị xem được.
+   */
+  async ledger(original: CorrespondenceActor, directionValue: unknown, yearValue?: unknown): Promise<LetterSummary[]> {
+    const actor = await this.effective(original);
+    if (!actor.canReadReports && !actor.canRegister && !actor.canPublish && !actor.canArchive && !actor.isTenantAdmin) {
+      throw new CorrespondenceForbiddenError('Bạn không có quyền xem sổ theo dõi công văn.');
+    }
+    const direction = requireEnum(directionValue, LETTER_DIRECTIONS, 'Luồng công văn');
+    const year = yearValue === undefined || yearValue === '' ? Number(this.today().slice(0, 4)) : Number(yearValue);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new CorrespondenceValidationError('Năm không hợp lệ.');
+    const viewer = await this.viewer(actor);
+    const catalog = await this.catalogMap(actor.tenantId);
+    const rows = (await this.store.listLetters(actor.tenantId, { visibleTo: this.visibility(viewer), direction, year, limit: REPORT_LIMIT })).filter((row) =>
+      canViewLetter(viewer, facts(row, catalog)),
+    );
+    const order = (row: Row) =>
+      direction === 'incoming'
+        ? `${row.receivedOn}|${String(row.seq).padStart(8, '0')}`
+        : row.outgoingNo
+          ? `0|${row.publishedOn ?? ''}|${row.outgoingNo.padStart(16, '0')}`
+          : `1|${row.receivedOn}|${String(row.seq).padStart(8, '0')}`;
+    return this.summaries(actor, viewer, catalog, [...rows].sort((left, right) => order(left).localeCompare(order(right))));
+  }
+
   async report(actor: CorrespondenceActor, yearValue?: unknown): Promise<CorrespondenceReport> {
     if (!actor.canReadReports && !actor.isTenantAdmin) throw new CorrespondenceForbiddenError('Bạn không có quyền xem báo cáo văn thư.');
     const year = yearValue === undefined || yearValue === '' ? Number(this.today().slice(0, 4)) : Number(yearValue);
@@ -672,7 +712,10 @@ export class CorrespondenceService {
     if (input?.personal === true && !optionalText(input.addressedUserId, 'Người nhận đích danh', 64)) {
       throw new CorrespondenceValidationError('Thư riêng phải chọn người nhận đích danh trong hệ thống.');
     }
-    const autoStart = input?.personal === true ? undefined : await this.autoStartPlan(actor.tenantId, settings, catalog, codes);
+    // Quy trình chọn riêng cho công văn: phải đang dùng, đúng luồng; công văn chạy đúng quy trình này.
+    const chosenWorkflowId = await this.chosenWorkflow(actor.tenantId, 'incoming', codes, input?.workflowId);
+    const autoStart =
+      input?.personal === true ? undefined : await this.autoStartPlan(actor.tenantId, settings, catalog, { ...codes, chosenWorkflowId });
     const receivedOn = optionalDate(input?.receivedOn, 'Ngày đến') ?? this.today();
     // Vào sổ theo độ mật và loại văn bản (văn bản mật vào sổ mật, cấp số riêng), hay sổ văn thư chọn.
     const register = pickRegister(
@@ -697,6 +740,7 @@ export class CorrespondenceService {
         ...codes,
         dueOn,
         receivedBy: actor.userId,
+        chosenWorkflowId,
       },
       {
         registerId: register.id,
@@ -752,7 +796,13 @@ export class CorrespondenceService {
     await this.transition(actor, letterId, (actions) => actions.dispatch, async (tx) => {
       if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Hạn xử lý không được trước ngày đến.');
       await tx.replaceSteps(applicableSteps(workflow, { ...tx.letter, ...codes }));
-      await tx.update({ ...codes, dueOn: dueOn ?? tx.letter.dueOn, workflowId: workflow.id, workflowName: workflow.name });
+      await tx.update({
+        ...codes,
+        dueOn: dueOn ?? tx.letter.dueOn,
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        ...(input?.workflowId ? { chosenWorkflowId: workflow.id } : {}),
+      });
       const first = nextWaiting(tx, 0);
       if (first?.kind !== 'process') {
         await tx.history({
@@ -819,8 +869,29 @@ export class CorrespondenceService {
             : `Chỉ người thuộc ${assignment.unitName} gửi được kết quả của phòng.`,
         );
       }
+      // Phòng chủ trì tổng hợp ý kiến phối hợp: gửi sau khi các phòng phối hợp đã gửi kết quả.
+      const waiting = supportPending(tx, assignment);
+      if (waiting.length > 0) {
+        throw new CorrespondenceValidationError(
+          `Phòng chủ trì gửi kết quả sau khi các phòng phối hợp đã gửi. Còn chờ: ${waiting.map((item) => item.unitName).join(', ')}.`,
+        );
+      }
       await tx.submitAssignment(assignment.id, { note, userId: actor.userId });
       await tx.history({ action: 'respond', summary: `${assignment.unitName} gửi kết quả xử lý`, note, actorUserId: actor.userId });
+      // Phòng phối hợp cuối cùng vừa gửi: báo phòng chủ trì tổng hợp và gửi kết quả.
+      const leads = tx.assignments.filter((item) => item.role === 'lead' && item.status === 'pending');
+      if (assignment.role === 'support' && leads.length > 0 && leads.every((lead) => supportPending(tx, lead).length === 0)) {
+        const snapshot = await this.organization.snapshot(actor.tenantId);
+        const recipients = leads.flatMap((lead) =>
+          lead.handlerUserId ? [lead.handlerUserId] : [...unitHeads(snapshot, lead.unitId), ...unitMembers(snapshot, lead.unitId).map((member) => member.userId)],
+        );
+        await tx.outbox(
+          this.event(CORRESPONDENCE_EVENTS.assigned, tx.letter, actor, recipients, {
+            summary: `Các phòng phối hợp đã gửi đủ kết quả công văn ${letterTitle(withNo(tx.letter))}: phòng chủ trì tổng hợp và gửi kết quả.`,
+            unitNames: leads.map((lead) => lead.unitName),
+          }),
+        );
+      }
       const step = tx.steps.find((item) => item.status === 'active' && item.kind === 'process');
       if (!blockingAssignments(tx.assignments, step).some((item) => item.status === 'pending')) {
         if (step) await tx.updateStep(step.id, { status: 'done', actedBy: actor.userId, decision: 'approved', note: null });
@@ -850,6 +921,7 @@ export class CorrespondenceService {
       this.organization.snapshot(actor.tenantId),
     ]);
     const codes = this.classification(catalog, input);
+    const chosenWorkflowId = await this.chosenWorkflow(actor.tenantId, 'outgoing', codes, input?.workflowId);
     const mine = ownUnits(snapshot, actor.userId);
     // Mặc định là phòng của người soạn; soạn thay phòng khác thì chọn phòng đó (phải có trong sơ đồ tổ chức).
     const wanted = optionalText(input?.authorUnitId, 'Phòng ban soạn thảo', 64);
@@ -880,6 +952,8 @@ export class CorrespondenceService {
         authorUserId: actor.userId,
         authorUnitId: unit?.id,
         authorUnitName: unit?.name,
+        sentAs: parseOptional(input?.sentAs, SENT_AS, 'Gửi với danh nghĩa') ?? 'person',
+        chosenWorkflowId,
         relatedLetterId,
         receivedBy: actor.userId,
       },
@@ -900,10 +974,10 @@ export class CorrespondenceService {
     const chosen = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
     const current = await this.store.findLetter(actor.tenantId, letterId);
     if (!current) throw new LetterNotFoundError();
-    const workflow = await this.pickWorkflow(actor.tenantId, current);
+    const workflow = await this.pickWorkflow(actor.tenantId, current, optionalText(input?.workflowId, 'Quy trình', 64));
     await this.transition(actor, letterId, (actions) => actions.sendToClerk, async (tx) => {
       await tx.replaceSteps(applicableSteps(workflow, tx.letter));
-      await tx.update({ workflowId: workflow.id, workflowName: workflow.name });
+      await tx.update({ workflowId: workflow.id, workflowName: workflow.name, ...(input?.workflowId ? { chosenWorkflowId: workflow.id } : {}) });
       const first = nextWaiting(tx, 0);
       await tx.history({
         action: 'send-to-clerk',
@@ -1002,6 +1076,7 @@ export class CorrespondenceService {
         senderDate: !incoming || patch.senderDate === undefined ? tx.letter.senderDate : optionalDate(patch.senderDate, 'Ngày văn bản'),
         subject: patch.subject === undefined ? tx.letter.subject : requireText(patch.subject, 'Trích yếu', 1000),
         recipient: incoming || patch.recipient === undefined ? tx.letter.recipient : requireText(patch.recipient, 'Nơi nhận', 255),
+        ...(!incoming && patch.sentAs !== undefined ? { sentAs: requireEnum(patch.sentAs, SENT_AS, 'Gửi với danh nghĩa') } : {}),
         kind: this.catalogCode(catalog, 'letter_type', patch.kind, 'Loại văn bản') ?? tx.letter.kind,
         urgency: this.catalogCode(catalog, 'urgency', patch.urgency, 'Độ khẩn') ?? tx.letter.urgency,
         confidentiality: this.catalogCode(catalog, 'confidentiality', patch.confidentiality, 'Độ mật') ?? tx.letter.confidentiality,
@@ -1308,37 +1383,97 @@ export class CorrespondenceService {
    * công văn: người được giao bước duyệt, phòng ban còn chưa gửi kết quả, văn thư, người soạn.
    */
   async remind(actor: CorrespondenceActor, letterId: string, input: RemindRequest): Promise<LetterDetail> {
-    const note = optionalText(input?.note, 'Lời nhắc', 1000);
-    const snapshot = await this.organization.snapshot(actor.tenantId);
-    await this.transition(actor, letterId, (actions) => actions.remind, async (tx) => {
+    const reason = requireEnum(input?.reason, REMIND_REASONS, 'Lý do đôn đốc');
+    const note = requireText(input?.note, 'Lời nhắn đôn đốc', 1000);
+    const wanted = Array.isArray(input?.assignmentIds) && input.assignmentIds.length > 0 ? new Set(input.assignmentIds.map(String)) : undefined;
+    const [snapshot, history, viewer] = await Promise.all([
+      this.organization.snapshot(actor.tenantId),
+      this.store.history(actor.tenantId, letterId).catch(() => []),
+      this.viewer(actor),
+    ]);
+    await this.inLetter(actor, letterId, async (tx, letterFacts) => {
+      const waitingUserIds = await this.nextStepPeople(actor.tenantId, tx.letter, tx.steps, tx.assignments);
+      if (!letterActions(viewer, { ...letterFacts, waitingUserIds }).remind) {
+        if (!isOpenStage(tx.letter.stage) || tx.letter.stage === 'received') throw new LetterStageConflictError();
+        throw new CorrespondenceForbiddenError('Chỉ văn thư, bộ phận tổng hợp hay người đang chờ bước này xong đôn đốc được.');
+      }
       const active = tx.steps.find((item) => item.status === 'active');
+      // Không nhắc dồn dập: cùng người, cùng bước, trong khoảng chờ.
+      const since = Math.max(Date.now() - REMIND_COOLDOWN_MINUTES * 60_000, active?.activatedAt ? Date.parse(active.activatedAt) : 0);
+      const recent = history.find((item) => item.action === 'remind' && item.actorUserId === actor.userId && Date.parse(item.at) > since);
+      if (recent) {
+        throw new CorrespondenceValidationError(
+          `Bạn vừa đôn đốc bước này lúc ${new Date(recent.at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })}; đôn đốc lại sau ${REMIND_COOLDOWN_MINUTES} phút.`,
+        );
+      }
       let recipients: string[] = [];
       let notifyPermissions: string[] = [];
+      let reminded = '';
       if (tx.letter.stage === 'processing') {
-        recipients = blockingAssignments(tx.assignments, active)
-          .filter((item) => item.status === 'pending')
-          .flatMap((item) => (item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)]));
-      } else if (tx.letter.stage === 'reviewing') {
+        // Các phòng chưa gửi kết quả (phòng chủ trì đang chờ phối hợp thì nhắc phòng phối hợp); chọn được phòng cần nhắc.
+        const pending = blockingAssignments(tx.assignments, active).filter((item) => item.status === 'pending' && supportPending(tx, item).length === 0);
+        const targets = wanted ? pending.filter((item) => wanted.has(item.id)) : pending;
+        if (targets.length === 0 || (wanted && targets.length !== wanted.size)) {
+          throw new CorrespondenceValidationError('Chọn phòng cần nhắc trong số phòng đang phải xử lý.');
+        }
+        recipients = targets.flatMap((item) =>
+          item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)],
+        );
+        reminded = targets.map((item) => item.unitName).join(', ');
+      } else if (tx.letter.stage === 'reviewing' || (tx.letter.stage === 'checking' && active?.approver)) {
         recipients = [...(active?.assigneeUserIds ?? [])];
       } else if (tx.letter.stage === 'drafting') {
         recipients = tx.letter.authorUserId ? [tx.letter.authorUserId] : [];
+      } else if ((tx.letter.stage === 'closing' || tx.letter.stage === 'publishing') && tx.letter.closerIds?.length) {
+        recipients = [...tx.letter.closerIds];
       } else {
         const permission = tx.letter.stage === 'publishing' ? ROUTE_PERMISSIONS.publish : tx.letter.stage === 'closing' ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.register;
         const clerks = await this.clerkTargets(actor.tenantId, permission);
         recipients = clerks.recipients;
         notifyPermissions = clerks.notifyPermissions;
       }
+      recipients = [...new Set(recipients)].filter((userId) => userId !== actor.userId);
       const stepName = active?.name ?? LETTER_STAGE_LABELS[tx.letter.stage];
-      await tx.history({ action: 'remind', summary: `Đôn đốc bước "${stepName}"`, note, actorUserId: actor.userId });
+      const tag = reason === 'urgent' ? '[GẤP] ' : reason === 'late' ? '[CHẬM TRỄ] ' : '';
+      await tx.history({
+        action: 'remind',
+        summary: `Đôn đốc bước "${stepName}" (${REMIND_REASON_LABELS[reason].toLowerCase()})${reminded ? `: ${reminded}` : ''}`,
+        note,
+        actorUserId: actor.userId,
+      });
       await tx.outbox(
         this.event(CORRESPONDENCE_EVENTS.reminded, tx.letter, actor, recipients, {
-          summary: `${actor.displayName} đôn đốc xử lý công văn ${letterTitle(withNo(tx.letter))} (bước "${stepName}").${dueText(tx.letter.dueOn)}${note ? ` ${note}` : ''}`,
+          summary: `${tag}${actor.displayName} đôn đốc công văn ${letterTitle(withNo(tx.letter))}, bước "${stepName}". Lý do: ${REMIND_REASON_LABELS[reason].toLowerCase()}. ${note}${dueText(tx.letter.dueOn)}`,
           stepName,
+          reason,
           notifyPermissions,
         }),
       );
     });
     return this.detail(actor, letterId);
+  }
+
+  /**
+   * Người được giao bước kế tiếp (đang chờ bước hiện tại xong): bước duyệt / kiểm tra có người riêng thì giải
+   * theo luật của bước; hết bước thì người làm ô cuối đã cấu hình. Không giải được thì không ai.
+   */
+  private async nextStepPeople(
+    tenantId: string,
+    letter: LetterRecord,
+    steps: readonly StepRecord[],
+    assignments: readonly AssignmentRecord[],
+  ): Promise<string[]> {
+    if (!isOpenStage(letter.stage) || letter.stage === 'received' || letter.stage === 'drafting') return [];
+    const active = steps.find((item) => item.status === 'active');
+    if (!active) return [];
+    const next = sortedSteps(steps).find((item) => item.seq > active.seq && item.status === 'waiting');
+    if (!next) return [...(letter.closerIds ?? [])];
+    if (next.kind === 'process' || !next.approver) return [];
+    try {
+      return resolveAssignees(next.approver, await this.approverContext(tenantId, letter, assignments, next.chosenUserId));
+    } catch {
+      return [];
+    }
   }
 
   /** Trao đổi theo bước; nhắc tên (@) được người dùng của tenant, người được nhắc xem được công văn. */
@@ -1836,7 +1971,7 @@ export class CorrespondenceService {
     tenantId: string,
     settings: CorrespondenceSettings,
     catalog: Catalog,
-    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality'>,
+    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality' | 'chosenWorkflowId'>,
   ): Promise<{ readonly workflow: Workflow; readonly units?: readonly DispatchUnit[] } | undefined> {
     const kind = codes.kind;
     const workflow = await this.pickWorkflow(tenantId, { direction: 'incoming', ...codes }).catch(() => undefined);
@@ -2285,14 +2420,18 @@ export class CorrespondenceService {
   /** Quy trình theo cấu hình: được chỉ định, của loại văn bản, hay mặc định của luồng; phải đang dùng và đúng luồng. */
   private async pickWorkflow(
     tenantId: string,
-    letter: Pick<LetterRecord, 'direction' | 'kind'> & Partial<Pick<LetterRecord, 'urgency' | 'confidentiality'>>,
+    letter: Pick<LetterRecord, 'direction' | 'kind'> & Partial<Pick<LetterRecord, 'urgency' | 'confidentiality' | 'chosenWorkflowId'>>,
     workflowId?: string,
   ): Promise<Workflow> {
     const [workflows, catalog] = await Promise.all([this.store.workflows(tenantId), this.catalogMap(tenantId)]);
     const type = catalog.get('letter_type')?.get(letter.kind);
     const typeWorkflow = letter.direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
     const usable = workflows.filter((item) => item.isActive && item.direction === letter.direction);
-    const requested = typeof workflowId === 'string' ? workflowId.trim() : '';
+    // Quy trình được chỉ định (lúc chuyển bước, hay chọn riêng cho công văn lúc tạo) thì đúng quy trình đó.
+    const requested = (typeof workflowId === 'string' ? workflowId.trim() : '') || letter.chosenWorkflowId || '';
+    if (requested && !usable.some((item) => item.id === requested)) {
+      throw new CorrespondenceValidationError('Quy trình đã chọn cho công văn này không còn dùng hay không đúng luồng; chọn quy trình khác.');
+    }
     // Quy trình có điều kiện khớp công văn chọn trước; nhiều quy trình khớp thì quy trình đặt nhiều điều kiện hơn.
     const classified = { kind: letter.kind, urgency: letter.urgency ?? '', confidentiality: letter.confidentiality ?? '' };
     const conditional = usable
@@ -2310,6 +2449,18 @@ export class CorrespondenceService {
       );
     }
     return workflow;
+  }
+
+  /** Quy trình chọn riêng lúc tạo công văn: trống là tự chọn; có thì phải là quy trình đang dùng của luồng. */
+  private async chosenWorkflow(
+    tenantId: string,
+    direction: LetterDirection,
+    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality'>,
+    raw: unknown,
+  ): Promise<string | undefined> {
+    const wanted = optionalText(raw, 'Quy trình', 64);
+    if (!wanted) return undefined;
+    return (await this.pickWorkflow(tenantId, { direction, ...codes }, wanted)).id;
   }
 
   /** Phòng ban khi giao: có trong sơ đồ, người xử lý thuộc phòng; người nhận thông báo theo cách giao. */
@@ -2482,6 +2633,8 @@ export class CorrespondenceService {
       rows.flatMap((row) => [
         row.receivedBy,
         ...(row.authorUserId ? [row.authorUserId] : []),
+        ...(row.addressedUserId ? [row.addressedUserId] : []),
+        ...row.assignments.flatMap((assignment) => [assignment.handlerUserId, assignment.submittedBy].filter((id): id is string => Boolean(id))),
         ...(row.steps.find((step) => step.status === 'active')?.assigneeUserIds ?? []),
       ]),
     );
@@ -2614,6 +2767,7 @@ function facts(row: Row, catalog: Catalog): LetterFacts {
     addressedUserId: row.addressedUserId,
     closerIds: row.closerIds ?? [],
     personal: row.personal === true,
+    sentAs: row.sentAs,
   };
 }
 
@@ -2927,6 +3081,7 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     authorUserId: row.authorUserId,
     authorName: row.authorUserId ? names.get(row.authorUserId) : undefined,
     authorUnitName: row.authorUnitName,
+    sentAs: row.direction === 'outgoing' ? row.sentAs : undefined,
     outgoingNo: row.outgoingNo,
     publishedOn: row.publishedOn,
     recipient: row.recipient,
@@ -2944,6 +3099,21 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     signerName: row.signerName,
     signerTitle: row.signerTitle,
     copyCount: row.copyCount,
+    receiverNames:
+      row.direction === 'incoming'
+        ? [
+            ...new Set(
+              [
+                row.addressedTo,
+                row.addressedUserId ? names.get(row.addressedUserId) : undefined,
+                ...row.assignments
+                  .filter((assignment) => assignment.role !== 'info')
+                  .map((assignment) => assignment.handlerUserId ?? assignment.submittedBy)
+                  .map((userId) => (userId ? names.get(userId) : undefined)),
+              ].filter((name): name is string => Boolean(name)),
+            ),
+          ]
+        : undefined,
   };
 }
 

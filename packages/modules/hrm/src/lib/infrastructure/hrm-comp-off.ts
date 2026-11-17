@@ -35,7 +35,7 @@ import {
 } from '../domain/comp-off-ledger.js';
 import { validateCompOffUsageDays } from '../domain/overtime-monthly-cap.js';
 import { lifecycleAudit } from './hrm-lifecycle.js';
-import { loadOvertimeCompPolicy } from './hrm-overtime-blocks.js';
+import { ensureBlocksForMonth, loadOvertimeCompPolicy, overtimeSchemaReady } from './hrm-overtime-blocks.js';
 import {
   overtimeMonthFigures,
   readOvertimeCompSnapshot,
@@ -414,7 +414,23 @@ export async function confirmCompOffConversion(
     throw new ConflictException(`Tháng ${body.month.slice(5)}/${body.month.slice(0, 4)} chưa chốt công nên chưa chuyển đổi được`);
   if (!snapshot?.policy.enabled)
     throw new BadRequestException('Tháng này chốt công khi chưa bật quy tắc làm thêm và nghỉ bù; không có giờ dư để chuyển đổi');
-  const policy = snapshot.policy;
+  return writeCompOffAccruals(db, tenant, actor, body.month, snapshot.policy, snapshot.employees, body.rows);
+}
+
+type AccrualPolicy = NonNullable<ReturnType<typeof readOvertimeCompSnapshot>>['policy'];
+
+/** Ghi lô ACCRUAL cho các dòng chọn từ số liệu tháng (ảnh chụp lúc chốt hoặc tính trực tiếp). Mỗi nhân viên chỉ một lô cho mỗi tháng. */
+export async function writeCompOffAccruals(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  month: string,
+  policy: AccrualPolicy,
+  employees: Record<string, EmployeeOvertimeFigures>,
+  rows: readonly { employeeId: string; days?: number; reason?: string }[],
+): Promise<HrmCompOffConversionResult> {
+  const body = { month, rows };
+  const snapshot = { policy, employees };
   const accrualOn = accrualDate(body.month, policy.accrualMonthOffset);
   const expiresOn = expiryDate(accrualOn, policy.expiryMonths);
   const result: { created: number; skipped: { employeeId: string; reason: string }[] } = { created: 0, skipped: [] };
@@ -482,6 +498,43 @@ export async function confirmCompOffConversion(
     });
   }
   return { month: body.month, ...result };
+}
+
+
+/**
+ * Cộng quỹ nghỉ bù tự động cho một tháng đã kết thúc: dùng ảnh chụp lúc chốt công nếu có, chưa chốt thì tính trực tiếp
+ * theo chính sách của tháng. Chỉ chạy khi bật công thức tự động; chạy lại không cộng trùng (mỗi nhân viên một lô mỗi tháng).
+ * Gọi khi chốt công, từ tác vụ nền cuối tháng hoặc từ HR.
+ */
+export async function autoAccrueCompOff(
+  db: PoolClient,
+  tenant: string,
+  actor: string | null,
+  month: string,
+  asOf: string = today(),
+): Promise<HrmCompOffConversionResult & { skippedReason?: string }> {
+  const empty = { month, created: 0, skipped: [] as { employeeId: string; reason: string }[] };
+  if (!(await overtimeSchemaReady(db))) return { ...empty, skippedReason: 'SCHEMA_NOT_READY' };
+  const { snapshot } = await lockedSnapshot(db, tenant, month);
+  let policy: AccrualPolicy;
+  let employees: Record<string, EmployeeOvertimeFigures>;
+  if (snapshot) {
+    policy = snapshot.policy;
+    employees = snapshot.employees;
+  } else {
+    if (month >= monthOf(asOf)) return { ...empty, skippedReason: 'MONTH_NOT_ENDED' };
+    const live = await loadOvertimeCompPolicy(db, tenant, month);
+    policy = live.policy;
+    if (!policy.enabled) return { ...empty, skippedReason: 'DISABLED' };
+    await ensureBlocksForMonth(db, tenant, month, actor);
+    employees = Object.fromEntries((await overtimeMonthFigures(db, tenant, month, policy)).map((f) => [f.employeeId, f]));
+  }
+  if (!policy.enabled) return { ...empty, skippedReason: 'DISABLED' };
+  const rows = Object.values(employees)
+    .filter((f) => f.compDays > 0)
+    .map((f) => ({ employeeId: f.employeeId }));
+  if (!rows.length) return empty;
+  return writeCompOffAccruals(db, tenant, actor as string, month, policy, employees, rows);
 }
 
 /**

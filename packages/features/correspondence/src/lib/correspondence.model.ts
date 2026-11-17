@@ -70,11 +70,14 @@ export function plannedWorkflow(
   config: CorrespondenceConfig,
   direction: LetterDirection,
   kind: string,
-  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+  classified?: { readonly urgency?: string; readonly confidentiality?: string; readonly workflowId?: string },
 ): Workflow | undefined {
   const type = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind);
   const wanted = direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
   const usable = config.workflows.filter((workflow) => workflow.isActive && workflow.direction === direction);
+  // Quy trình chọn riêng cho công văn thì đúng quy trình đó.
+  const chosen = classified?.workflowId ? usable.find((workflow) => workflow.id === classified.workflowId) : undefined;
+  if (chosen) return chosen;
   // Như máy chủ: quy trình có điều kiện khớp chọn trước (đặt nhiều điều kiện hơn thì trước), rồi theo loại văn bản, rồi mặc định.
   const facts = { kind, urgency: classified?.urgency ?? '', confidentiality: classified?.confidentiality ?? '' };
   const weight = (workflow: Workflow) =>
@@ -95,6 +98,33 @@ export function flowLabels(
     ...workflow.steps.map((step) => step.name.trim() || STEP_TYPE_LABELS[stepTypeOf(step)]),
     workflow.endName?.trim() || FLOW_END_NAMES[direction],
   ];
+}
+
+/** Kỳ lọc danh sách công văn theo ngày vào sổ. */
+export const LIST_PERIODS = ['month', 'last-month', 'year', 'all', 'custom'] as const;
+export type ListPeriod = (typeof LIST_PERIODS)[number];
+export const LIST_PERIOD_LABELS: Readonly<Record<ListPeriod, string>> = {
+  month: 'Tháng này',
+  'last-month': 'Tháng trước',
+  year: 'Năm nay',
+  all: 'Tất cả',
+  custom: 'Khoảng ngày',
+};
+
+/** Từ ngày, đến ngày của một kỳ tính theo hôm nay (`YYYY-MM-DD`); "Tất cả", "Khoảng ngày" trả về trống. */
+export function periodRange(period: ListPeriod, today: string): { readonly from?: string; readonly to?: string } {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (period === 'month') return { from: `${year}-${pad(month)}-01`, to: `${year}-${pad(month)}-${pad(lastDay(year, month))}` };
+  if (period === 'last-month') {
+    const y = month === 1 ? year - 1 : year;
+    const m = month === 1 ? 12 : month - 1;
+    return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDay(y, m))}` };
+  }
+  if (period === 'year') return { from: `${year}-01-01`, to: `${year}-12-31` };
+  return {};
 }
 
 /** Nhãn luồng của một công văn theo phân loại: bỏ bước có điều kiện không khớp. */
@@ -120,10 +150,11 @@ export interface UpcomingStep {
  * bước (sang ô cuối) thì `undefined`.
  */
 export function upcomingStep(
-  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'> & Partial<Pick<LetterDetail, 'urgency' | 'confidentiality' | 'steps'>>,
+  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'> &
+    Partial<Pick<LetterDetail, 'urgency' | 'confidentiality' | 'steps' | 'chosenWorkflowId'>>,
   config: CorrespondenceConfig,
   kind?: string,
-  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+  classified?: { readonly urgency?: string; readonly confidentiality?: string; readonly workflowId?: string },
 ): UpcomingStep | undefined {
   if (letter.stage === 'received' || letter.stage === 'drafting') {
     // Quy trình sẽ áp dụng theo phân loại đang chọn; bước có điều kiện không khớp thì bỏ.
@@ -132,7 +163,8 @@ export function upcomingStep(
       urgency: classified?.urgency ?? letter.urgency ?? '',
       confidentiality: classified?.confidentiality ?? letter.confidentiality ?? '',
     };
-    const first = plannedWorkflow(config, letter.direction, facts.kind, facts)?.steps.find((step) => stepApplies(step, facts));
+    const workflowId = classified?.workflowId ?? letter.chosenWorkflowId;
+    const first = plannedWorkflow(config, letter.direction, facts.kind, { ...facts, workflowId })?.steps.find((step) => stepApplies(step, facts));
     return first ? { type: stepTypeOf(first), name: first.name, units: first.units, lockUnits: first.lockUnits } : undefined;
   }
   const at = letter.flow.findIndex((node) => node.state === 'current');

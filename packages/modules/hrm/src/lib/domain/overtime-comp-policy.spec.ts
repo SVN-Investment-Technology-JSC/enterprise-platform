@@ -1,5 +1,4 @@
 import {
-  classificationConfigOf,
   DEFAULT_OVERTIME_COMP_POLICY,
   monthlyCapConfigOf,
   overtimeCompLegalWarnings,
@@ -8,40 +7,42 @@ import {
 } from './overtime-comp-policy.js';
 
 describe('parseOvertimeCompPolicy', () => {
-  it('thiếu cấu hình thì dùng mặc định: tắt quy tắc, CLOCK_WINDOW, 40 và 200 giờ, hệ số 1,5', () => {
+  it('thiếu cấu hình thì dùng mặc định: tắt quy tắc, 40 và 200 giờ, hệ số 1,5', () => {
     expect(parseOvertimeCompPolicy(null)).toEqual(DEFAULT_OVERTIME_COMP_POLICY);
     expect(parseOvertimeCompPolicy({})).toEqual(DEFAULT_OVERTIME_COMP_POLICY);
-    expect(DEFAULT_OVERTIME_COMP_POLICY).toMatchObject({ enabled: false, ruleSet: 'CLOCK_WINDOW', monthlyCapHours: 40, yearlyCapHours: 200, compFactor: 1.5, usageStepDays: 0.5 });
+    expect(DEFAULT_OVERTIME_COMP_POLICY).toMatchObject({ enabled: false, monthlyCapHours: 40, yearlyCapHours: 200, compFactor: 1.5, usageStepDays: 0.5 });
   });
 
-  it('đọc nhóm overtimeComp và khung giờ đêm phẳng sẵn có', () => {
+  it('đọc nhóm overtimeComp', () => {
+    const p = parseOvertimeCompPolicy({
+      overtimeComp: { enabled: true, compFactor: 2, yearlyCapHours: null, rounding: 'DOWN', accrualMonthOffset: 0 },
+    });
+    expect(p).toMatchObject({ enabled: true, compFactor: 2, yearlyCapHours: null, rounding: 'DOWN', accrualMonthOffset: 0 });
+  });
+
+  it('bỏ qua các khóa cũ về chế độ phân loại và khung giờ đêm', () => {
     const p = parseOvertimeCompPolicy({
       nightStartMinute: 1260,
-      nightEndMinute: 300,
-      overtimeComp: { enabled: true, ruleSet: 'NIGHT_REST', compFactor: 2, yearlyCapHours: null, rounding: 'DOWN', accrualMonthOffset: 0 },
+      overtimeComp: { ruleSet: 'NIGHT_REST', nightStartMinute: 1200, allowHalfDay: false, declaredNightWindow: true, nightCapped: true },
     });
-    expect(p).toMatchObject({ enabled: true, ruleSet: 'NIGHT_REST', compFactor: 2, yearlyCapHours: null, rounding: 'DOWN', accrualMonthOffset: 0, nightStartMinute: 1260, nightEndMinute: 300 });
+    for (const key of ['ruleSet', 'nightStartMinute', 'nightEndMinute', 'nightRestHoursPerDay', 'allowHalfDay', 'declaredNightWindow', 'nightCapped'])
+      expect(p).not.toHaveProperty(key);
+    expect(monthlyCapConfigOf(p).nightCapped).toBe(false);
   });
 
-  it('khung giờ đêm trong nhóm overtimeComp ưu tiên hơn khóa phẳng', () => {
-    const p = parseOvertimeCompPolicy({ nightStartMinute: 1260, overtimeComp: { nightStartMinute: 1200 } });
-    expect(p.nightStartMinute).toBe(1200);
-  });
-
-  it('giá trị sai kiểu hay bộ quy tắc lạ quay về mặc định', () => {
-    const p = parseOvertimeCompPolicy({ overtimeComp: { ruleSet: 'KHAC', monthlyCapHours: 'abc', enabled: 'yes', rounding: 'X' } });
-    expect(p).toMatchObject({ ruleSet: 'CLOCK_WINDOW', monthlyCapHours: 40, enabled: false, rounding: 'HALF_UP' });
+  it('giá trị sai kiểu quay về mặc định', () => {
+    const p = parseOvertimeCompPolicy({ overtimeComp: { monthlyCapHours: 'abc', enabled: 'yes', rounding: 'X' } });
+    expect(p).toMatchObject({ monthlyCapHours: 40, enabled: false, rounding: 'HALF_UP' });
   });
 
   it('số giờ quy đổi một ngày mặc định bằng giờ chuẩn một ngày', () => {
     expect(monthlyCapConfigOf(parseOvertimeCompPolicy({ overtimeComp: { normalHoursPerDay: 7.5 } })).dayBasisHours).toBe(7.5);
     expect(monthlyCapConfigOf(parseOvertimeCompPolicy({ overtimeComp: { normalHoursPerDay: 7.5, dayBasisHours: 8 } })).dayBasisHours).toBe(8);
-    expect(classificationConfigOf(DEFAULT_OVERTIME_COMP_POLICY).nightRest).toEqual({ nightRestHoursPerDay: 8, allowHalfDay: true });
   });
 });
 
 describe('validateOvertimeCompPolicy', () => {
-  const ok = { enabled: true, ruleSet: 'NIGHT_REST', monthlyCapHours: 40, yearlyCapHours: 200, compFactor: 1.5, usageStepDays: 0.5, nightStartMinute: 1320, nightEndMinute: 360 };
+  const ok = { enabled: true, monthlyCapHours: 40, yearlyCapHours: 200, compFactor: 1.5, usageStepDays: 0.5 };
 
   it('cấu hình hợp lệ', () => {
     expect(validateOvertimeCompPolicy(ok)).toBeNull();
@@ -51,7 +52,6 @@ describe('validateOvertimeCompPolicy', () => {
 
   it.each([
     [null, /không hợp lệ/],
-    [{ ruleSet: 'KHAC' }, /NIGHT_REST hoặc CLOCK_WINDOW/],
     [{ enabled: 'true' }, /đúng hoặc sai/],
     [{ rounding: 'X' }, /làm tròn/],
     [{ monthlyCapHours: 0 }, /tháng/],
@@ -60,9 +60,6 @@ describe('validateOvertimeCompPolicy', () => {
     [{ decimals: 1.5 }, /chữ số thập phân/],
     [{ usageStepDays: 0.3 }, /ước của 1 ngày/],
     [{ accrualMonthOffset: 2 }, /Tháng cộng quỹ/],
-    [{ nightStartMinute: 600 }, /sau 12:00/],
-    [{ nightStartMinute: 1320, nightEndMinute: 900 }, /trước 12:00/],
-    [{ nightStartMinute: 700, nightEndMinute: 700 }, /sau 12:00|trước 12:00/],
   ])('từ chối %j', (input, message) => {
     expect(validateOvertimeCompPolicy(input)).toMatch(message);
   });

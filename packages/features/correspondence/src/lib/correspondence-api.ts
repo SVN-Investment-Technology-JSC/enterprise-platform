@@ -23,6 +23,7 @@ import {
   type RequestRevokeRequest,
   type LetterAttachment,
   type LetterDetail,
+  type LetterDirection,
   type LetterQuery,
   type LetterSummary,
   type PublishLetterRequest,
@@ -36,6 +37,7 @@ import {
   type UpdateDeliveryRequest,
   type UpdateLetterRequest,
   type Register,
+  type RemindRequest,
   type Workflow,
 } from '@enterprise-platform/contracts-correspondence';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -85,6 +87,8 @@ export const loadDirectory = () => request<CorrespondenceDirectory>('/directory'
 export const loadOverview = () => request<CorrespondenceOverview>('/overview', { cache: 'no-store' });
 export const loadArchiveTree = () => request<ArchiveTree>('/archive-tree', { cache: 'no-store' });
 export const loadReport = (year: number) => request<CorrespondenceReport>(`/reports?year=${year}`, { cache: 'no-store' });
+export const loadLedger = (direction: LetterDirection, year: number) =>
+  request<{ items: LetterSummary[] }>(`/ledger?direction=${direction}&year=${year}`, { cache: 'no-store' }).then((body) => body.items);
 export const loadConfig = () => request<CorrespondenceConfig>('/config', { cache: 'no-store' });
 export const saveSettings = (settings: CorrespondenceSettings) =>
   request<CorrespondenceSettings>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
@@ -154,7 +158,7 @@ export const cancelLetter = (id: string, reason: string) => post<LetterDetail>(l
 export const requestRevoke = (id: string, body: RequestRevokeRequest) => post<LetterDetail>(letter(id, 'revoke'), body);
 export const decideRevoke = (id: string, body: DecideRevokeRequest) => post<LetterDetail>(letter(id, 'revoke/decision'), body);
 export const withdrawRevoke = (id: string) => post<LetterDetail>(letter(id, 'revoke/withdraw'), {});
-export const remindLetter = (id: string, note?: string) => post<LetterDetail>(letter(id, 'remind'), { note });
+export const remindLetter = (id: string, body: RemindRequest) => post<LetterDetail>(letter(id, 'remind'), body);
 export const removeLetter = (id: string) => request<void>(`/letters/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const commentLetter = (id: string, body: CommentRequest) => post<LetterDetail>(letter(id, 'comments'), body);
 

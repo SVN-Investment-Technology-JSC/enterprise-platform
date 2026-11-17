@@ -68,7 +68,7 @@ const LETTER_COLUMNS = `l.id, l.direction, l.year, l.seq, l.incoming_no, l.recei
   l.revoke_approver_ids::text[] AS revoke_approver_ids, l.deleted_at, l.deleted_by,
   l.envelope_status, l.sealed, l.page_count, l.copy_count, l.addressed_to, l.addressed_user_id, l.directive,
   l.closer_ids::text[] AS closer_ids, l.register_id, l.signer_user_id, l.signer_name, l.signer_title,
-  (SELECT r.name FROM correspondence_schema.registers r WHERE r.id = l.register_id) AS register_name, l.personal,
+  (SELECT r.name FROM correspondence_schema.registers r WHERE r.id = l.register_id) AS register_name, l.personal, l.sent_as, l.chosen_workflow_id,
   l.shared_folder_id, l.received_by, l.created_at, l.updated_at`;
 
 const STEP_COLUMNS = `s.id, s.seq, s.name, s.kind, s.directs, s.approver, s.mode, s.units, s.lock_units, s.reject_to, s.due_days, s.status, s.chosen_user_id,
@@ -150,6 +150,8 @@ const PATCH_COLUMNS: Readonly<Record<keyof LetterPatch, string>> = {
   signerName: 'signer_name',
   signerTitle: 'signer_title',
   personal: 'personal',
+  sentAs: 'sent_as',
+  chosenWorkflowId: 'chosen_workflow_id',
   sharedFolderId: 'shared_folder_id',
 };
 
@@ -453,8 +455,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           `INSERT INTO correspondence_schema.letters AS l
                   (direction, stage, year, seq, incoming_no, received_on, sender_org, sender_ref, sender_date, subject,
                    kind, urgency, confidentiality, due_on, author_user_id, author_unit_id, author_unit_name,
-                   related_letter_id, recipient, received_by, register_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                   related_letter_id, recipient, received_by, register_id, sent_as, chosen_workflow_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
            RETURNING ${LETTER_COLUMNS}`,
           [
             input.direction,
@@ -478,6 +480,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
             input.recipient ?? null,
             input.receivedBy,
             register,
+            input.sentAs ?? 'unit',
+            input.chosenWorkflowId ?? null,
           ],
         );
         const letter = mapLetter(first(result.rows));
@@ -528,6 +532,9 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
       if (filter.stages?.length) where.push(`l.stage = ANY(${param(filter.stages)}::text[])`);
       if (filter.year) where.push(`l.year = ${param(filter.year)}`);
       if (filter.registerId) where.push(`l.register_id = ${param(filter.registerId)}::uuid`);
+      if (filter.fromDate) where.push(`l.received_on >= ${param(filter.fromDate)}::date`);
+      if (filter.toDate) where.push(`l.received_on <= ${param(filter.toDate)}::date`);
+      if (filter.kind) where.push(`l.kind = ${param(filter.kind)}`);
       if (filter.search) {
         const pattern = param(`%${escapeLike(filter.search)}%`);
         where.push(`(l.incoming_no ILIKE ${pattern} OR l.subject ILIKE ${pattern} OR l.sender_org ILIKE ${pattern}
@@ -543,7 +550,8 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
                    FROM correspondence_schema.assignments a WHERE a.letter_id = l.id) AS assignments,
                 (SELECT json_agg(json_build_object('seq', s.seq, 'name', s.name, 'kind', s.kind, 'status', s.status, 'rejectTo', s.reject_to,
                                                    'assigneeUserIds', s.assignee_user_ids, 'actedBy', s.acted_by,
-                                                   'ownActors', s.kind = 'check' AND s.approver IS NOT NULL, 'approvedBy', s.approved_by)
+                                                   'ownActors', s.kind = 'check' AND s.approver IS NOT NULL, 'approvedBy', s.approved_by,
+                                                   'mode', s.mode)
                                  ORDER BY s.seq)
                    FROM correspondence_schema.letter_steps s WHERE s.letter_id = l.id) AS steps,
                 (SELECT array_agg(DISTINCT mentioned)::text[]
@@ -577,6 +585,7 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
           assigneeUserIds: Array.isArray(item['assigneeUserIds']) ? (item['assigneeUserIds'] as unknown[]).map(String) : [],
           actedBy: optional(item['actedBy']),
           ownActors: item['ownActors'] === true,
+          mode: item['mode'] === 'all' || item['mode'] === 'lead' || item['mode'] === 'any' ? item['mode'] : undefined,
           approvedBy: Array.isArray(item['approvedBy']) ? (item['approvedBy'] as unknown[]).map(String) : [],
         })),
         mentionedUserIds: (row.mentioned ?? []).map(String),
@@ -1264,6 +1273,8 @@ function mapLetter(row: Row): LetterRecord {
     signerName: optional(row['signer_name']),
     signerTitle: optional(row['signer_title']),
     personal: row['personal'] === true,
+    sentAs: row['sent_as'] === 'person' ? 'person' : 'unit',
+    chosenWorkflowId: optional(row['chosen_workflow_id']),
     sharedFolderId: optional(row['shared_folder_id']),
     receivedBy: String(row['received_by']),
     createdAt: iso(row['created_at']),

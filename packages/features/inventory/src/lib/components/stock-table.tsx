@@ -18,9 +18,20 @@ import { loadMaterialHistory } from '../inventory-api';
 import { exportStockToExcel } from '../inventory-export';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Ban, Download } from 'lucide-react';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardHeader, CardTitle } from '../ui/card';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+
+const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, 100].map((value) => ({ value: String(value), label: `${value} / trang` }));
+const CHIP_CLASS = 'cursor-pointer rounded-full border px-3 py-[0.3rem] text-[0.8125rem]';
+const CHIP_ON_CLASS = 'border-primary bg-primary text-primary-foreground';
+const CHIP_OFF_CLASS = 'border-slate-200 bg-white text-slate-600 hover:border-primary hover:text-slate-900';
+const SUB_CLASS = 'mt-[0.2rem] block text-[0.8125rem] font-normal text-slate-500';
 
 /**
  * Tab Tồn kho gộp ba tab cũ: Tồn kho, Vật tư và Kho & vị trí. Một dòng tồn vốn đã
@@ -134,33 +145,34 @@ export function StockTable({
   };
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
-        <h2>Tồn kho theo vật tư</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            className={styles.searchInline}
+    <Card className="gap-0">
+      <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+        <CardTitle className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Tồn kho theo vật tư</CardTitle>
+        <div className="flex items-center gap-2">
+          <Input
+            className="min-w-56 w-auto"
             placeholder="Tìm mã hoặc tên vật tư…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <button
+          <Button
             type="button"
-            className={`${styles.action} ${styles.actionGhost}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '36px' }}
+            variant="outline"
+            size="lg"
+            className="gap-1.5"
             onClick={handleExport}
             title="Xuất danh sách tồn kho ra tệp Excel"
           >
             <Download size={15} />
             <span>Xuất Excel</span>
-          </button>
+          </Button>
         </div>
-      </div>
+      </CardHeader>
 
-      <div className={styles.chipRow}>
+      <div className="mb-[0.35rem] mt-[0.85rem] flex flex-wrap gap-[0.35rem]">
         <button
           type="button"
-          className={`${styles.chip} ${warehouseCode === 'all' ? styles.chipOn : ''}`}
+          className={cn(CHIP_CLASS, warehouseCode === 'all' ? CHIP_ON_CLASS : CHIP_OFF_CLASS)}
           onClick={() => setWarehouseCode('all')}
         >
           Tất cả kho
@@ -170,7 +182,7 @@ export function StockTable({
             key={warehouse.id}
             type="button"
             title={`${warehouse.name} · ${WAREHOUSE_TYPE_LABEL[warehouse.type]}`}
-            className={`${styles.chip} ${warehouseCode === warehouse.code ? styles.chipOn : ''}`}
+            className={cn(CHIP_CLASS, warehouseCode === warehouse.code ? CHIP_ON_CLASS : CHIP_OFF_CLASS)}
             onClick={() => setWarehouseCode(warehouse.code)}
           >
             {warehouse.code}
@@ -178,19 +190,19 @@ export function StockTable({
         ))}
       </div>
 
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
+      <TableWrap className="rounded-[0.85rem] border border-slate-200 bg-white">
+        <Table>
+          <TableHead>
             <tr>
-              <th>Vật tư</th>
-              <th>Kho</th>
-              <th className={styles.center}>Tồn thực</th>
-              <th className={styles.center}>Đã giữ</th>
-              <th className={styles.center}>Khả dụng</th>
-              <th className={styles.center}>Đơn giá</th>
+              <TableHeaderCell>Vật tư</TableHeaderCell>
+              <TableHeaderCell>Kho</TableHeaderCell>
+              <TableHeaderCell className="text-center">Tồn thực</TableHeaderCell>
+              <TableHeaderCell className="text-center">Đã giữ</TableHeaderCell>
+              <TableHeaderCell className="text-center">Khả dụng</TableHeaderCell>
+              <TableHeaderCell className="text-center">Đơn giá</TableHeaderCell>
             </tr>
-          </thead>
-          <tbody>
+          </TableHead>
+          <TableBody>
             {pagedRows.map((row) => {
               const material = row.materialCode ? materialByCode.get(row.materialCode) : undefined;
               const low = material ? row.available < material.minStock : false;
@@ -198,55 +210,45 @@ export function StockTable({
               const holders = open ? holdersOf(row.materialId, row.warehouseId) : [];
               return (
                 <Fragment key={row.id}>
-                  <tr
-                    className={styles.clickable}
+                  <TableRow
+                    className="cursor-pointer"
                     onClick={() => {
                       setOpenRowId(open ? undefined : row.id);
                       if (!open) openHistory(row.materialCode ?? undefined);
                     }}
                   >
-                    <td className={styles.code}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <TableCell className="font-bold text-slate-900">
+                      <div className="flex items-center gap-[6px]">
                         <span>{row.materialCode ?? '—'}</span>
                         {material && material.isActive === false ? (
-                          <span
-                            style={{
-                              fontSize: '12px',
-                              padding: '1px 5px',
-                              borderRadius: '4px',
-                              background: '#f1f5f9',
-                              color: '#64748b',
-                              border: '1px solid #cbd5e1',
-                              fontWeight: 500,
-                            }}
-                          >
+                          <Badge variant="outline" className="h-auto rounded px-[5px] py-px text-[12px] font-medium text-slate-500">
                             Ngừng dùng
-                          </span>
+                          </Badge>
                         ) : null}
                       </div>
-                      {material ? <span className={styles.sub}>{material.name}</span> : null}
-                    </td>
-                    <td>{row.warehouseCode ?? '—'}</td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
+                      {material ? <span className={SUB_CLASS}>{material.name}</span> : null}
+                    </TableCell>
+                    <TableCell>{row.warehouseCode ?? '—'}</TableCell>
+                    <TableCell className="text-center tabular-nums">
                       {formatNumber(row.quantity)} {material?.unit ?? ''}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums">
                       {formatNumber(row.quantityReserved)}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center} ${low ? styles.low : ''}`}>
+                    </TableCell>
+                    <TableCell className={cn('text-center tabular-nums', low && 'font-bold text-red-700')}>
                       {formatNumber(row.available)}
                       {low && material ? (
-                        <span className={styles.sub}>dưới mức tối thiểu {formatNumber(material.minStock)}</span>
+                        <span className={SUB_CLASS}>dưới mức tối thiểu {formatNumber(material.minStock)}</span>
                       ) : null}
-                    </td>
-                    <td className={`${styles.numeric} ${styles.center}`}>
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums">
                       {formatMaterialPrice(material?.purchasePrice, material?.currency)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                   {open ? (
-                    <tr className={styles.detailRow}>
-                      <td colSpan={6}>
-                        <div className={styles.detailGrid}>
+                    <tr>
+                      <TableCell colSpan={6} className="bg-slate-50">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-4 rounded-[0.65rem] border border-slate-200 bg-white px-4 py-3 [&_span]:block [&_span]:text-xs [&_span]:font-bold [&_span]:uppercase [&_span]:tracking-[0.04em] [&_span]:text-slate-500 [&_strong]:mt-1 [&_strong]:block [&_strong]:text-sm [&_strong]:text-slate-900">
                           <div>
                             <span>Phân loại</span>
                             <strong>{material?.tradeCategory || '—'}</strong>
@@ -260,7 +262,7 @@ export function StockTable({
                             {/* Trần tồn đã bỏ: không luật nào của kho dựa vào nó,
                                 nên nó chỉ là một con số phải nhập rồi không ai
                                 đọc. Sàn thì có việc thật — nó bật cảnh báo. */}
-                            <strong className={low ? styles.lowValue : undefined}>
+                            <strong className={low ? 'text-red-700' : undefined}>
                               {material ? formatNumber(material.minStock) : '—'}
                             </strong>
                           </div>
@@ -288,20 +290,24 @@ export function StockTable({
                         ) : null}
 
                         {material && (onEditMaterial || onRetireMaterial) ? (
-                          <div className={styles.rowActions}>
+                          <div className="flex items-center gap-[0.9rem] border-t border-slate-100 pt-[0.4rem]">
                             {onEditMaterial ? (
-                              <button
+                              <Button
                                 type="button"
-                                className={styles.linkButton}
+                                variant="link"
+                                size="xs"
+                                className="h-auto p-0 font-bold"
                                 onClick={() => onEditMaterial(material)}
                               >
                                 Sửa vật tư
-                              </button>
+                              </Button>
                             ) : null}
                             {onTransfer && row.materialCode && row.warehouseCode ? (
-                              <button
+                              <Button
                                 type="button"
-                                className={styles.linkButton}
+                                variant="link"
+                                size="xs"
+                                className="h-auto p-0 font-bold"
                                 title="Mở quy trình chuyển kho bên module Quy trình. Kho chỉ chuyển bạn sang đó kèm sẵn nội dung — số lượng chỉ đổi khi thủ kho thao tác."
                                 onClick={() =>
                                   onTransfer({
@@ -312,7 +318,7 @@ export function StockTable({
                                 }
                               >
                                 Chuyển kho
-                              </button>
+                              </Button>
                             ) : null}
                             {onRetireMaterial && material.isActive !== false ? (
                               <Popconfirm
@@ -325,15 +331,17 @@ export function StockTable({
                                 disabled={busy}
                                 onConfirm={() => onRetireMaterial(material)}
                               >
-                                <button
+                                <Button
                                   type="button"
-                                  className={styles.dangerButton}
+                                  variant="destructive"
+                                  size="sm"
+                                  className="gap-[0.35rem]"
                                   disabled={busy}
                                   title="Ngừng sử dụng mã vật tư này"
                                 >
                                   <Ban size={12} />
                                   <span>Ngừng dùng</span>
-                                </button>
+                                </Button>
                               </Popconfirm>
                             ) : null}
                           </div>
@@ -341,7 +349,7 @@ export function StockTable({
 
                         {row.quantityReserved > 0 ? (
                           holders.length > 0 ? (
-                            <ul className={styles.holderList}>
+                            <ul className="mx-0 mb-1 mt-[0.35rem] flex list-none flex-col gap-[0.35rem] p-0 [&_em]:text-[0.8125rem] [&_em]:not-italic [&_em]:text-slate-500 [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:gap-[0.6rem] [&_li]:rounded-lg [&_li]:border [&_li]:border-slate-200 [&_li]:bg-white [&_li]:px-[0.6rem] [&_li]:py-[0.45rem] [&_li]:text-sm">
                               {holders.map((reservation) => {
                                 const held = (reservation.items ?? [])
                                   .filter(
@@ -352,10 +360,10 @@ export function StockTable({
                                   .reduce((sum, item) => sum + item.quantityReserved, 0);
                                 return (
                                   <li key={reservation.id}>
-                                    <span className={styles.code}>{reservation.reservationCode}</span>
-                                    <span className={styles.pill}>
+                                    <span className="font-bold text-slate-900">{reservation.reservationCode}</span>
+                                    <Badge variant="outline" className="border-primary/30 bg-primary/10 text-slate-900">
                                       {RESERVATION_STATUS_LABEL[reservation.status]}
-                                    </span>
+                                    </Badge>
                                     <span>giữ {formatNumber(held)}</span>
                                     <em>
                                       {reservation.expiresAt
@@ -367,101 +375,78 @@ export function StockTable({
                               })}
                             </ul>
                           ) : (
-                            <p className={styles.hint}>
+                            <p className="m-0 mb-1 text-[0.8125rem] leading-normal text-slate-500">
                               Số lượng đang giữ không khớp phiếu nào còn hiệu lực.
                             </p>
                           )
                         ) : null}
-                      </td>
+                      </TableCell>
                     </tr>
                   ) : null}
                 </Fragment>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         {rows.length === 0 ? (
-          <p className={styles.empty}>
+          <p className="m-0 py-8 text-center text-slate-500">
             {workspace.stock.length === 0 ? 'Chưa có tồn kho.' : 'Không có dòng tồn nào khớp bộ lọc.'}
           </p>
         ) : null}
 
         {/* Pagination Footer */}
         {rows.length > pageSize ? (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 14px',
-              borderTop: '1px solid #e2e8f0',
-              fontSize: '13px',
-              color: '#64748b',
-              background: '#f8fafc',
-            }}
-          >
+          <div className="flex flex-wrap items-center justify-between border-t border-slate-200 bg-slate-50 px-[14px] py-[10px] text-[13px] text-slate-500">
             <div>
               Hiển thị {rows.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} –{' '}
               {Math.min(currentPage * pageSize, rows.length)} trong tổng số{' '}
               <strong>{rows.length}</strong> dòng tồn
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-[6px]">
                 <span>Hiển thị:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '13px',
-                  }}
-                >
-                  <option value={15}>15 / trang</option>
-                  <option value={30}>30 / trang</option>
-                  <option value={45}>45 / trang</option>
-                  <option value={60}>60 / trang</option>
-                  <option value={100}>100 / trang</option>
-                </select>
+                <div className="w-[120px]">
+                  <SearchableSelect
+                    options={PAGE_SIZE_OPTIONS}
+                    value={String(pageSize)}
+                    onChange={(value) => {
+                      setPageSize(Number(value) || 15);
+                      setCurrentPage(1);
+                    }}
+                    clearable={false}
+                    height={28}
+                  />
+                </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button
+              <div className="flex items-center gap-[6px]">
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
-                </button>
-                <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                </Button>
+                <span className="font-semibold text-slate-900">
                   {safeCurrentPage} / {totalPages}
                 </span>
-                <button
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >
                   Sau →
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         ) : null}
-      </div>
-    </section>
+      </TableWrap>
+    </Card>
   );
 }
-
-
-
-
