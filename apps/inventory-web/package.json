@@ -7,7 +7,9 @@
     "targets": {
       "typecheck": {
         "executor": "nx:run-commands",
-        "dependsOn": ["^typecheck"],
+        "dependsOn": [
+          "^typecheck"
+        ],
         "options": {
           "cwd": "apps/inventory-web",
           "command": "tsc --noEmit -p tsconfig.json"
@@ -40,5 +42,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "tailwindcss": "^4.3.3"
   }
 }

@@ -447,19 +447,19 @@ describe('TradeItemsPage', () => {
     const { container } = render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
     fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
     const dialogName = { name: 'Chi tiết VT-001' };
-    const backdrop = () => document.querySelector('[class*="drawerBackdrop"]') as HTMLElement;
+    const backdrop = () => document.querySelector('[data-slot="sheet-overlay"]') as HTMLElement;
 
     // Sửa, chưa đổi gì: click nền không đóng, ESC về chế độ xem.
     fireEvent.click(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Sửa' }));
     fireEvent.click(backdrop());
     expect(screen.queryByRole('dialog', dialogName)).toBeTruthy();
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(within(screen.getByRole('dialog', dialogName)).queryByRole('button', { name: 'Lưu thay đổi' })).toBeNull();
 
     // Sửa, đã đổi: ESC hỏi xác nhận; "Tiếp tục nhập" giữ nguyên, "Đóng và bỏ" về chế độ xem.
     fireEvent.click(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Sửa' }));
     fireEvent.change(within(screen.getByRole('dialog', dialogName)).getByLabelText(/Giá bán/), { target: { value: '70000' } });
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(await screen.findByText('Đóng và bỏ thay đổi?')).toBeTruthy();
     fireEvent.click(screen.getByText('Tiếp tục nhập'));
     expect(within(screen.getByRole('dialog', dialogName)).getByRole('button', { name: 'Lưu thay đổi' })).toBeTruthy();
@@ -474,7 +474,7 @@ describe('TradeItemsPage', () => {
     fireEvent.click(backdrop());
     expect(screen.queryByRole('dialog', dialogName)).toBeNull();
     fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByRole('dialog', dialogName)).toBeNull();
     expect(container).toBeTruthy();
   });

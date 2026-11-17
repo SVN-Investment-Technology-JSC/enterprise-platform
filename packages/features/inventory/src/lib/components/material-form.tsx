@@ -8,12 +8,61 @@ import type {
   MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
-import { Info, Layers, Package, QrCode, X } from 'lucide-react';
+import { Info, Layers, Package, QrCode } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { currencyLabel } from '../inventory-labels';
 import { categoriesOf, withCurrent } from '../trade-items.model';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+
+/** Nhãn bọc một ô nhập: chữ nhỏ đậm phía trên, ô nhập chữ thường bên dưới. */
+const FIELD_CLASS = 'flex flex-col gap-[0.28rem] text-xs font-bold text-slate-500 [&_input]:font-normal';
+
+/** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
+const NUMBER_INPUT_CLASS =
+  'h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm font-normal outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-50';
+
+const TRACKING_CARDS: readonly {
+  mode: MaterialTrackingMode;
+  Icon: typeof QrCode;
+  title: string;
+  description: string;
+  active: string;
+  icon: string;
+  titleActive: string;
+}[] = [
+  {
+    mode: 'SERIAL',
+    Icon: QrCode,
+    title: 'Theo Sê-ri (SN)',
+    description: 'Mỗi chiếc có số SN riêng biệt (thiết bị, rơ-le, máy biến áp, motor...).',
+    active: 'border-2 border-blue-600 bg-blue-50',
+    icon: 'text-blue-600',
+    titleActive: 'text-blue-700',
+  },
+  {
+    mode: 'LOT',
+    Icon: Layers,
+    title: 'Theo Lô (Lot/Batch)',
+    description: 'Quản lý mẻ/kiện, hạn dùng FEFO, kiểm định (dầu, cáp, hoá chất...).',
+    active: 'border-2 border-green-600 bg-green-50',
+    icon: 'text-green-600',
+    titleActive: 'text-green-700',
+  },
+  {
+    mode: 'NONE',
+    Icon: Package,
+    title: 'Thông thường',
+    description: 'Quản lý tồn thuần túy theo số lượng, không cần định danh chi tiết.',
+    active: 'border-2 border-slate-600 bg-slate-50',
+    icon: 'text-slate-900',
+    titleActive: 'text-slate-900',
+  },
+];
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
 
@@ -138,66 +187,50 @@ export function MaterialForm({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '620px',
-          background: '#ffffff',
-          borderRadius: '12px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          overflow: 'hidden',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Dialog onEscape={!busy && !isDirty ? onCancel : undefined}>
+      <DialogContent className="max-w-[620px]" aria-label={editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư mới'}>
+        <form onSubmit={submit} className="flex min-h-0 flex-col">
           {/* Header Dialog */}
-          <div className={styles.modalHead}>
+          <DialogHeader>
             <div>
-              <h2>{editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư mới'}</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+              <DialogTitle>{editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư mới'}</DialogTitle>
+              <DialogDescription>
                 Khai báo mã SKU, định mức tồn và phương thức quản lý định danh (Sê-ri hoặc Lô).
-              </p>
+              </DialogDescription>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                className={styles.closeButton}
-                title="Đóng"
-                aria-label="Đóng"
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
+              <DialogCloseButton />
             </CloseGuard>
-          </div>
+          </DialogHeader>
 
           {/* Thân Form Dialog */}
-          <div className={styles.modalBody} style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+          <DialogBody>
             {/* 1. Nhóm thông tin cơ bản của SKU */}
-            <div className={styles.formGrid}>
-              <label>
+            <div className="mb-[0.6rem] mt-[0.9rem] grid grid-cols-2 gap-x-[1.35rem] gap-y-[1.15rem]">
+              <Label className={FIELD_CLASS}>
                 Mã SKU / Mã vật tư *
-                <input
+                <Input
                   required
                   readOnly={Boolean(editing)}
+                  className="read-only:bg-slate-50 read-only:text-slate-500"
                   placeholder="VD: VT-RO-LE-01, VT-DAU-02…"
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
                 />
-                {editing ? <small>Mã đã dùng trong sổ cái nên không đổi được.</small> : null}
-              </label>
+                {editing ? <small className="text-xs font-normal text-slate-500">Mã đã dùng trong sổ cái nên không đổi được.</small> : null}
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Tên vật tư *
-                <input
+                <Input
                   required
                   placeholder="VD: Rơ-le bảo vệ so lệch, Dầu biến áp…"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
-              </label>
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Phân loại
                 <SearchableSelect
                   options={categoryOptions}
@@ -208,11 +241,11 @@ export function MaterialForm({
                   emptyText="Chưa khai báo trong Cài đặt"
                   onChange={(val) => setTradeCategory(val || '')}
                   clearable
-                  style={{ width: '100%' }}
+                  className="w-full"
                 />
-              </label>
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Loại vật tư
                 {types.length > 0 ? (
                   <SearchableSelect
@@ -222,18 +255,18 @@ export function MaterialForm({
                     emptyText="Không tìm thấy loại vật tư"
                     onChange={(val) => setType(val)}
                     clearable
-                    style={{ width: '100%' }}
+                    className="w-full"
                   />
                 ) : (
-                  <input
+                  <Input
                     placeholder="VD: Thiết bị, Chi tiết, Linh kiện..."
                     value={type}
                     onChange={(event) => setType(event.target.value)}
                   />
                 )}
-              </label>
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Đơn vị tính *
                 {units.length > 0 ? (
                   <SearchableSelect
@@ -243,19 +276,19 @@ export function MaterialForm({
                     emptyText="Không tìm thấy đơn vị tính"
                     onChange={(val) => setUnit(val)}
                     clearable
-                    style={{ width: '100%' }}
+                    className="w-full"
                   />
                 ) : (
-                  <input
+                  <Input
                     required
                     placeholder="VD: Cái, Bộ, Lít, Cuộn…"
                     value={unit}
                     onChange={(event) => setUnit(event.target.value)}
                   />
                 )}
-              </label>
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Loại mặt hàng *
                 <SearchableSelect
                   options={KIND_OPTIONS}
@@ -267,16 +300,16 @@ export function MaterialForm({
                     // Hàng hóa và dịch vụ có danh sách phân loại riêng: đổi nhóm thì bỏ phân loại đã chọn.
                     setTradeCategory('');
                   }}
-                  style={{ width: '100%' }}
+                  className="w-full"
                 />
                 {isService ? (
-                  <small>Dịch vụ không nhập, xuất kho và không giữ hàng.</small>
+                  <small className="text-xs font-normal text-slate-500">Dịch vụ không nhập, xuất kho và không giữ hàng.</small>
                 ) : null}
-              </label>
+              </Label>
 
-              <label>
+              <Label className={FIELD_CLASS}>
                 Bảo hành (tháng)
-                <input
+                <Input
                   type="number"
                   min={0}
                   step={1}
@@ -284,202 +317,91 @@ export function MaterialForm({
                   value={warrantyMonths}
                   onChange={(event) => setWarrantyMonths(event.target.value)}
                 />
-              </label>
+              </Label>
 
               {!isService ? (
                 <>
-                  <label>
+                  <Label className={FIELD_CLASS}>
                     Tồn tối thiểu (Min stock)
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       value={minStock}
                       onChange={(event) => setMinStock(event.target.value)}
                     />
-                  </label>
+                  </Label>
 
-                  <label>
+                  <Label className={FIELD_CLASS}>
                     Tồn tối đa (Max stock)
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       value={maxStock}
                       onChange={(event) => setMaxStock(event.target.value)}
                     />
-                  </label>
+                  </Label>
                 </>
               ) : null}
-              <label>
+              <Label className={FIELD_CLASS}>
                 Đơn giá ({currencyLabel(editing?.currency)})
                 <VnNumberInput
+                  className={NUMBER_INPUT_CLASS}
                   placeholder="Chưa khai báo"
                   value={purchasePrice}
                   onChange={setPurchasePrice}
                 />
                 {editing?.purchasePrice !== undefined ? (
-                  <small>Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
+                  <small className="text-xs font-normal text-slate-500">Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
                 ) : null}
-              </label>
+              </Label>
             </div>
 
             {/* 2. CHỌN DUY NHẤT 1 PHƯƠNG THỨC QUẢN LÝ (MUTUALLY EXCLUSIVE) */}
             {!isService ? (
-            <div style={{ marginTop: '20px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  color: '#0f172a',
-                  marginBottom: '8px',
-                }}
-              >
+            <div className="mt-5">
+              <span className="mb-2 block text-sm font-bold text-slate-900">
                 Phương thức quản lý định danh vật tư *
               </span>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: '10px',
-                }}
-              >
-                {/* Lựa chọn 1: Theo Sê-ri */}
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border:
-                      trackingMode === 'SERIAL' ? '2px solid #2563eb' : '1px solid #e2e8f0',
-                    background: trackingMode === 'SERIAL' ? '#eff6ff' : '#ffffff',
-                    cursor: editing ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="radio"
-                      name="trackingMode"
-                      disabled={Boolean(editing)}
-                      checked={trackingMode === 'SERIAL'}
-                      onChange={() => setTrackingMode('SERIAL')}
-                    />
-                    <QrCode size={16} color={trackingMode === 'SERIAL' ? '#2563eb' : '#64748b'} />
-                    <span
-                      style={{
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: trackingMode === 'SERIAL' ? '#1d4ed8' : '#334155',
-                      }}
+              <div className="grid grid-cols-3 gap-2.5">
+                {TRACKING_CARDS.map(({ mode, Icon, title, description, active, icon, titleActive }) => {
+                  const selected = trackingMode === mode;
+                  return (
+                    <label
+                      key={mode}
+                      className={cn(
+                        'flex flex-col gap-1.5 rounded-lg p-3 transition-all',
+                        selected ? active : 'border border-slate-200 bg-white',
+                        editing ? 'cursor-not-allowed' : 'cursor-pointer',
+                      )}
                     >
-                      Theo Sê-ri (SN)
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
-                    Mỗi chiếc có số SN riêng biệt (thiết bị, rơ-le, máy biến áp, motor...).
-                  </span>
-                </label>
-
-                {/* Lựa chọn 2: Theo Lô / Bịch / Mẻ */}
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border:
-                      trackingMode === 'LOT' ? '2px solid #16a34a' : '1px solid #e2e8f0',
-                    background: trackingMode === 'LOT' ? '#f0fdf4' : '#ffffff',
-                    cursor: editing ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="radio"
-                      name="trackingMode"
-                      disabled={Boolean(editing)}
-                      checked={trackingMode === 'LOT'}
-                      onChange={() => setTrackingMode('LOT')}
-                    />
-                    <Layers size={16} color={trackingMode === 'LOT' ? '#16a34a' : '#64748b'} />
-                    <span
-                      style={{
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: trackingMode === 'LOT' ? '#15803d' : '#334155',
-                      }}
-                    >
-                      Theo Lô (Lot/Batch)
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
-                    Quản lý mẻ/kiện, hạn dùng FEFO, kiểm định (dầu, cáp, hoá chất...).
-                  </span>
-                </label>
-
-                {/* Lựa chọn 3: Thông thường */}
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border:
-                      trackingMode === 'NONE' ? '2px solid #475569' : '1px solid #e2e8f0',
-                    background: trackingMode === 'NONE' ? '#f8fafc' : '#ffffff',
-                    cursor: editing ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="radio"
-                      name="trackingMode"
-                      disabled={Boolean(editing)}
-                      checked={trackingMode === 'NONE'}
-                      onChange={() => setTrackingMode('NONE')}
-                    />
-                    <Package size={16} color={trackingMode === 'NONE' ? '#0f172a' : '#64748b'} />
-                    <span
-                      style={{
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: trackingMode === 'NONE' ? '#0f172a' : '#334155',
-                      }}
-                    >
-                      Thông thường
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
-                    Quản lý tồn thuần túy theo số lượng, không cần định danh chi tiết.
-                  </span>
-                </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="trackingMode"
+                          className="accent-primary"
+                          disabled={Boolean(editing)}
+                          checked={selected}
+                          onChange={() => setTrackingMode(mode)}
+                        />
+                        <Icon size={16} className={selected ? icon : 'text-slate-500'} />
+                        <span className={cn('text-sm font-bold', selected ? titleActive : 'text-slate-700')}>
+                          {title}
+                        </span>
+                      </div>
+                      <span className="text-xs leading-[1.4] text-slate-500">{description}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
             ) : null}
 
             {/* Thông báo chuẩn nghiệp vụ kho */}
-            <div
-              style={{
-                marginTop: '16px',
-                padding: '12px 14px',
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '10px',
-              }}
-            >
-              <Info size={18} color="#64748b" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ fontSize: '13px', color: '#475569', lineHeight: '1.5' }}>
+            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
+              <Info size={18} className="mt-0.5 shrink-0 text-slate-500" />
+              <div className="text-[13px] leading-normal text-slate-600">
                 {trackingMode === 'SERIAL' && (
                   <span>
                     Các số Sê-ri (SN) cụ thể của từng cá thể sẽ được ghi nhận và quét mã khi thực hiện{' '}
@@ -501,29 +423,24 @@ export function MaterialForm({
               </div>
             </div>
             <FormError error={error} />
-          </div>
+          </DialogBody>
 
           {/* Footer Dialog Actions */}
-          <div className={styles.modalFoot}>
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                disabled={isDisabled}
-              >
+              <Button type="button" variant="outline" disabled={isDisabled}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
+            <Button
               type="submit"
-              className={`${styles.action} ${styles.actionPrimary}`}
               disabled={isDisabled || !code.trim() || !name.trim() || !unit.trim()}
             >
               {isDisabled ? 'Đang lưu…' : editing ? 'Lưu thay đổi' : 'Thêm vật tư'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

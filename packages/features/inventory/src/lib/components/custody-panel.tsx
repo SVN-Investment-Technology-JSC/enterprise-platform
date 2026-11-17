@@ -3,9 +3,11 @@
 import type { CreateAssetRequest, Material } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadAuditorCandidates, loadCustodyAssets, type AuditorCandidate } from '../inventory-api';
-import styles from '../inventory.module.scss';
 import { CustodyAssignDialog } from './custody-assign-dialog';
 import { ASSET_CATEGORY_LABEL, CustodyDeclareDialog } from './custody-declare-dialog';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
 
 function formatDate(value?: string): string {
   if (!value) return '—';
@@ -62,13 +64,8 @@ function StatePill({ state }: { state: CustodyState }) {
   return (
     <span
       data-testid={`custody-state-${state}`}
+      className="inline-block whitespace-nowrap rounded-full px-[0.6rem] py-[0.15rem] text-xs font-bold"
       style={{
-        display: 'inline-block',
-        padding: '0.15rem 0.6rem',
-        borderRadius: '999px',
-        fontSize: '0.75rem',
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
         color: tone.color,
         background: tone.background,
         border: `1px solid ${tone.border}`,
@@ -155,32 +152,23 @@ export function CustodyPanel({
 
   return (
     <section>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }} role="group" aria-label="Lọc theo tình trạng">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc theo tình trạng">
           {FILTERS.map((item) => (
-            <button
+            <Button
               key={item.id}
               type="button"
-              className={filter === item.id ? styles.btnPrimary : styles.btnSecondary}
+              variant={filter === item.id ? "default" : "outline"}
               aria-pressed={filter === item.id}
               onClick={() => setFilter(item.id)}
             >
               {item.label} ({counts[item.id]})
-            </button>
+            </Button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <div className={styles.tableSearchBox} style={{ flex: '0 1 260px', minWidth: '160px' }}>
-            <input
+        <div className="flex items-center gap-2">
+          <div className="relative flex min-w-40 flex-[0_1_260px] items-center">
+            <Input
               value={search}
               placeholder="Tìm tài sản, số sê-ri hoặc nhân viên…"
               onChange={(event) => setSearch(event.target.value)}
@@ -188,98 +176,97 @@ export function CustodyPanel({
           </div>
           {canManage ? (
             <>
-              <button
+              <Button
                 type="button"
-                className={styles.btnSecondary}
-                style={{ whiteSpace: 'nowrap' }}
+                variant="outline"
+                className="whitespace-nowrap"
                 disabled={busy}
                 onClick={() => setDialog({ kind: 'declare' })}
               >
                 Khai báo tài sản
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={styles.btnPrimary}
-                style={{ whiteSpace: 'nowrap' }}
+                className="whitespace-nowrap"
                 disabled={busy}
                 onClick={() => setDialog({ kind: 'assign' })}
               >
                 Cấp phát
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
       </div>
 
       {rows.length === 0 ? (
-        <p className={styles.empty} role={loadError ? 'alert' : undefined}>
+        <p className="m-0 py-8 text-center text-slate-500" role={loadError ? 'alert' : undefined}>
           {loadError ?? (assets.length === 0 ? 'Chưa có tài sản nào được khai báo.' : 'Không có dòng phù hợp.')}
         </p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.left}>Mã tài sản</th>
-                <th className={styles.left}>Tên tài sản</th>
-                <th className={styles.left}>Nhóm</th>
-                <th className={styles.left}>Trạng thái</th>
-                <th className={styles.left}>Người nhận</th>
-                <th className={styles.left}>Ngày cấp</th>
-                {canManage ? <th className={styles.right}>Thao tác</th> : null}
-              </tr>
-            </thead>
-            <tbody>
+        <TableWrap className="rounded-xl border border-slate-200 bg-white">
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-slate-50">
+                <TableHeaderCell>Mã tài sản</TableHeaderCell>
+                <TableHeaderCell>Tên tài sản</TableHeaderCell>
+                <TableHeaderCell>Nhóm</TableHeaderCell>
+                <TableHeaderCell>Trạng thái</TableHeaderCell>
+                <TableHeaderCell>Người nhận</TableHeaderCell>
+                <TableHeaderCell>Ngày cấp</TableHeaderCell>
+                {canManage ? <TableHeaderCell className="text-right">Thao tác</TableHeaderCell> : null}
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((asset) => {
                 const state = custodyStateOf(asset);
                 const owner = employeeById.get(asset.assignedEmployeeId ?? '');
                 return (
-                  <tr key={asset.id}>
-                    <td>{asset.code}</td>
-                    <td>{asset.name}</td>
-                    <td>{(asset.assetCategory && ASSET_CATEGORY_LABEL[asset.assetCategory]) || '—'}</td>
-                    <td>
+                  <TableRow key={asset.id}>
+                    <TableCell>{asset.code}</TableCell>
+                    <TableCell>{asset.name}</TableCell>
+                    <TableCell>{(asset.assetCategory && ASSET_CATEGORY_LABEL[asset.assetCategory]) || '—'}</TableCell>
+                    <TableCell>
                       <StatePill state={state} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {asset.assignedEmployeeId
                         ? owner
                           ? `${owner.name}${owner.code ? ` (${owner.code})` : ''}`
                           : asset.assignedEmployeeId
                         : '—'}
-                    </td>
-                    <td>{formatDate(asset.assignedAt)}</td>
+                    </TableCell>
+                    <TableCell>{formatDate(asset.assignedAt)}</TableCell>
                     {canManage ? (
-                      <td className={styles.right}>
+                      <TableCell className="text-right">
                         {state === 'IN_STOCK' ? (
-                          <button
+                          <Button
                             type="button"
-                            className={styles.btnSecondary}
-                            style={{ whiteSpace: 'nowrap' }}
+                            variant="outline"
+                            className="whitespace-nowrap"
                             disabled={busy}
                             onClick={() => setDialog({ kind: 'assign', code: asset.code })}
                           >
                             Cấp phát
-                          </button>
+                          </Button>
                         ) : null}
                         {state === 'IN_USE' && REVOKE_ENABLED ? (
-                          <button
+                          <Button
                             type="button"
-                            className={styles.btnSecondary}
+                            variant="outline"
                             disabled={busy}
                             onClick={() => void Promise.resolve(onAssign(asset, null)).then(reload)}
                           >
                             Thu hồi
-                          </button>
+                          </Button>
                         ) : null}
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
       )}
 
       {dialog?.kind === 'assign' ? (
