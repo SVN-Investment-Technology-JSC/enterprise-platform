@@ -39,7 +39,17 @@ import {
   type StockLevel,
 } from './movement-stock-check';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
+import { Textarea } from '../ui/textarea';
+
+/** Khối một nhãn và một ô nhập của phiếu. */
+const FIELD_BLOCK = 'flex min-w-0 flex-col gap-1 [&>div]:min-w-0';
 
 export type MovementKind = 'receipt' | 'issue' | 'transfer' | 'adjust';
 
@@ -302,12 +312,12 @@ function SearchableMaterialCombobox({
   };
 
   return (
-    <div className={styles.comboboxWrapper} ref={wrapperRef}>
-      <div className={styles.comboboxInputWrapper}>
-        <Search size={15} className={styles.comboboxSearchIcon} />
-        <input
+    <div className="relative w-full" ref={wrapperRef}>
+      <div className="flex items-center relative">
+        <Search size={15} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+        <Input
           type="text"
-          className={styles.comboboxInput}
+          className="pl-[34px] pr-8"
           placeholder="Tìm theo tên hoặc mã vật tư..."
           value={query}
           onFocus={() => setOpen(true)}
@@ -318,70 +328,42 @@ function SearchableMaterialCombobox({
           onKeyDown={handleKeyDown}
         />
         {query ? (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => {
               setQuery('');
               setOpen(false);
             }}
-            style={{
-              position: 'absolute',
-              right: '10px',
-              border: 'none',
-              background: 'transparent',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-            }}
+            className="absolute right-1.5 text-slate-400"
           >
             <X size={14} />
-          </button>
+          </Button>
         ) : null}
       </div>
 
       {open ? (
-        <ul className={styles.comboboxMenu}>
+        <ul className="absolute top-[calc(100%_+_4px)] left-0 right-0 max-h-60 overflow-y-auto bg-white border border-slate-300 rounded-md shadow-[0_10px_25px_-5px_rgba(0,_0,_0,_0.1),_0_8px_10px_-6px_rgba(0,_0,_0,_0.1)] z-[50] py-1 px-0 m-0 list-none">
           {filtered.map((item, idx) => (
             <li
               key={item.code}
-              className={`${styles.comboboxItem} ${
-                idx === activeIndex ? styles.comboboxItemActive : ''
-              }`}
+              className={cn(
+                'flex cursor-pointer items-center justify-between gap-3 px-3 py-[9px] text-[13px] transition-colors hover:bg-slate-100',
+                idx === activeIndex && 'bg-slate-100',
+              )}
               onMouseDown={() => handleSelect(item)}
               onMouseEnter={() => setActiveIndex(idx)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '9px 12px',
-                gap: '12px',
-                cursor: 'pointer',
-              }}
+              
             >
               <span
-                style={{
-                  fontWeight: 600,
-                  color: '#0f172a',
-                  fontSize: '13.5px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
+                className="font-semibold text-slate-900 text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap"
               >
                 {item.name}
               </span>
               <span
-                className={styles.comboboxItemCode}
-                style={{
-                  fontSize: '12px',
-                  color: '#2563eb',
-                  background: '#f1f5f9',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  flexShrink: 0,
-                  letterSpacing: '0.02em',
-                }}
+                className="font-bold text-blue-600 font-mono text-[12px] text-blue-600 bg-slate-100 py-0.5 px-2 rounded-sm shrink-0 tracking-[0.02em]"
+                
               >
                 {item.code}
               </span>
@@ -390,12 +372,7 @@ function SearchableMaterialCombobox({
 
           {filtered.length === 0 ? (
             <li
-              style={{
-                padding: '12px',
-                textAlign: 'center',
-                color: '#64748b',
-                fontSize: '13px',
-              }}
+              className="p-3 text-center text-slate-500 text-[13px]"
             >
               {query
                 ? `Không tìm thấy vật tư nào khớp với từ khoá "${query}" (hoặc đã có trên phiếu)`
@@ -405,18 +382,7 @@ function SearchableMaterialCombobox({
 
           {onOpenNewMaterial ? (
             <li
-              style={{
-                borderTop: '1px solid #f1f5f9',
-                padding: '8px 12px',
-                background: '#f8fafc',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: '#2563eb',
-                fontWeight: 600,
-                fontSize: '13px',
-              }}
+              className="border-t border-t-slate-100 py-2 px-3 bg-slate-50 cursor-pointer flex items-center gap-1.5 text-blue-600 font-semibold text-[13px]"
               onMouseDown={() => {
                 setOpen(false);
                 onOpenNewMaterial();
@@ -1059,126 +1025,92 @@ export function MovementForm({
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
+  const FooterTag = isDialog ? DialogFooter : 'div';
+  const BodyTag = isDialog ? DialogBody : 'div';
+
   const formContent = (
     <>
       {/* Header Form / Dialog */}
-      <div className={isDialog ? styles.modalHead : styles.cardHead}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>
-            {resolvedTitle}
-          </h2>
-          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
-            {resolvedDescription}
-          </p>
-        </div>
-        {isDialog ? (
+      {isDialog ? (
+        <DialogHeader>
+          <div>
+            <DialogTitle>{resolvedTitle}</DialogTitle>
+            <p className="mt-1 text-xs text-slate-500">{resolvedDescription}</p>
+          </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              className={styles.closeButton}
-              title="Đóng"
-              aria-label="Đóng"
-            >
-              <X size={18} strokeWidth={2} />
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        ) : null}
-      </div>
+        </DialogHeader>
+      ) : (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="m-0 text-[20px] font-bold text-slate-900">
+              {resolvedTitle}
+            </h2>
+            <p className="mt-1 mx-0 mb-0 text-[14px] text-slate-500">
+              {resolvedDescription}
+            </p>
+          </div>
+        </div>
+      )}
 
-      <div
-        className={isDialog ? styles.modalBody : ''}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-          overflowY: 'auto',
-          maxHeight: isDialog ? 'calc(85vh - 130px)' : 'none',
-          padding: isDialog ? '16px 20px' : '0',
-        }}
+      <BodyTag className={isDialog ? 'flex flex-col gap-4' : 'flex flex-col gap-4 overflow-y-auto p-0'}
       >
         {/* Thanh chuyển đổi nhanh Loại Phiếu */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+        <div className="flex items-center justify-between flex-wrap gap-2.5">
           <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px',
-              background: '#f1f5f9',
-              borderRadius: '8px',
-              width: 'fit-content',
-            }}
+            className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg w-[fit-content]"
           >
-            <button
+            <Button
               type="button"
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: kind === 'receipt' ? '#ffffff' : 'transparent',
-                color: kind === 'receipt' ? '#166534' : '#64748b',
-                boxShadow: kind === 'receipt' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
+                kind === 'receipt' ? 'bg-white text-green-800 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+              )}
               onClick={() => setKind('receipt')}
             >
               Nhập kho
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: kind === 'issue' ? '#ffffff' : 'transparent',
-                color: kind === 'issue' ? '#1d4ed8' : '#64748b',
-                boxShadow: kind === 'issue' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
+                kind === 'issue' ? 'bg-white text-blue-700 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+              )}
               onClick={() => setKind('issue')}
             >
               Xuất kho
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: kind === 'transfer' ? '#ffffff' : 'transparent',
-                color: kind === 'transfer' ? '#7c2d12' : '#64748b',
-                boxShadow: kind === 'transfer' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
+                kind === 'transfer' ? 'bg-white text-orange-900 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+              )}
               onClick={() => setKind('transfer')}
             >
               Điều chuyển kho
-            </button>
+            </Button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
+          <div className="flex items-center gap-2 text-[13px] text-slate-500">
             <FileText size={14} />
             <span>Mẫu phiếu đa đối tượng chuẩn ISO / ERP</span>
           </div>
         </div>
 
         {/* Khối Thông tin chung & Kho hàng (Header Grid) */}
-        <div className={styles.movementHeaderGrid}>
+        <div className="grid grid-cols-2 gap-4 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 max-[720px]:grid-cols-1 max-[720px]:gap-3">
           {/* Cột 1: Kho nguồn / Kho nhập mặc định */}
-          <div className={styles.formFieldBlock}>
-            <label>
-              {kind === 'transfer' ? 'Kho nguồn xuất hàng' : kind === 'receipt' ? 'Kho tiếp nhận của phiếu' : 'Kho xuất của phiếu'}
-              <span style={{ color: '#dc2626', marginLeft: '3px' }}>*</span>
-            </label>
+          <div className={FIELD_BLOCK}>
+            <Label required>
+              {kind === 'transfer' ? 'Kho nguồn xuất hàng' : kind === 'receipt' ? 'Kho tiếp nhận của phiếu' : 'Kho xuất của phiếu'}</Label>
             <SearchableSelect
               options={warehouseOptions}
               value={warehouseCode}
@@ -1192,10 +1124,9 @@ export function MovementForm({
 
           {/* Cột 2: Kho đích (khi Chuyển kho) HOẶC Đối tượng nhận (khi Xuất kho) HOẶC Quy trình (khi Nhập kho) */}
           {kind === 'transfer' ? (
-            <div className={styles.formFieldBlock}>
-              <label>
-                Kho đích tiếp nhận điều chuyển <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+            <div className={FIELD_BLOCK}>
+              <Label required>
+                Kho đích tiếp nhận điều chuyển</Label>
               <SearchableSelect
                 options={toWarehouseOptions}
                 value={toWarehouseCode}
@@ -1207,10 +1138,10 @@ export function MovementForm({
               />
             </div>
           ) : kind === 'issue' ? (
-            <div className={styles.formFieldBlock}>
-              <label>Mục đích & Đối tượng xuất</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ width: '150px', flexShrink: 0 }}>
+            <div className={FIELD_BLOCK}>
+              <Label>Mục đích & Đối tượng xuất</Label>
+              <div className="flex gap-2">
+                <div className="w-37.5 shrink-0">
                   <SearchableSelect
                     options={issueTargetTypeOptions}
                     value={issueTargetType}
@@ -1223,7 +1154,7 @@ export function MovementForm({
                 </div>
 
                 {issueTargetType === 'asset' ? (
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="flex-1 min-w-0">
                     <SearchableSelect
                       options={assetOptions}
                       value={targetAssetCode}
@@ -1235,9 +1166,9 @@ export function MovementForm({
                     />
                   </div>
                 ) : (
-                  <input
+                  <Input
                     type="text"
-                    style={{ flex: 1 }}
+                    className="flex-1"
                     value={issueTargetName}
                     onChange={(e) => setIssueTargetName(e.target.value)}
                     disabled={busy}
@@ -1254,8 +1185,8 @@ export function MovementForm({
               </div>
             </div>
           ) : (
-            <div className={styles.formFieldBlock}>
-              <label>Quy trình liên kết mở Work Order</label>
+            <div className={FIELD_BLOCK}>
+              <Label>Quy trình liên kết mở Work Order</Label>
               <SearchableSelect
                 options={procedureOptions}
                 value={procedureDefinitionId}
@@ -1271,9 +1202,9 @@ export function MovementForm({
           {/* Nơi nhập đến từ (chỉ phiếu nhập): lưu thành cột riêng của sổ cái */}
           {kind === 'receipt' ? (
             <>
-              <div className={styles.formFieldBlock}>
-                <label>Nhà cung cấp / Đơn vị giao hàng</label>
-                <input
+              <div className={FIELD_BLOCK}>
+                <Label>Nhà cung cấp / Đơn vị giao hàng</Label>
+                <Input
                   type="text"
                   value={supplierName}
                   onChange={(e) => setSupplierName(e.target.value)}
@@ -1282,9 +1213,9 @@ export function MovementForm({
                   placeholder="Tên nhà cung cấp…"
                 />
               </div>
-              <div className={styles.formFieldBlock}>
-                <label>Số hoá đơn / Chứng từ gốc</label>
-                <input
+              <div className={FIELD_BLOCK}>
+                <Label>Số hoá đơn / Chứng từ gốc</Label>
+                <Input
                   type="text"
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
@@ -1293,9 +1224,9 @@ export function MovementForm({
                   placeholder="VD: HD-2026-118"
                 />
               </div>
-              <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-                <label>Địa chỉ nhà cung cấp</label>
-                <input
+              <div className={cn(FIELD_BLOCK, 'col-span-2 max-[720px]:col-auto')}>
+                <Label>Địa chỉ nhà cung cấp</Label>
+                <Input
                   type="text"
                   value={supplierAddress}
                   onChange={(e) => setSupplierAddress(e.target.value)}
@@ -1307,11 +1238,10 @@ export function MovementForm({
           ) : null}
 
           {/* Cột 3: Lý do nghiệp vụ / Số hóa đơn */}
-          <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-            <label>
-              Lý do thực hiện / Số hoá đơn / Số lệnh <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <input
+          <div className={cn(FIELD_BLOCK, 'col-span-2 max-[720px]:col-auto')}>
+            <Label required>
+              Lý do thực hiện / Số hoá đơn / Số lệnh</Label>
+            <Input
               required
               type="text"
               placeholder="VD: Nhập theo Hóa đơn HD-2026-118, hoặc Xuất thay thế theo Lệnh PR-082…"
@@ -1321,19 +1251,19 @@ export function MovementForm({
           </div>
 
           {/* Cột 4: Khu vực đính kèm chứng từ */}
-          <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-            <label>Tệp chứng từ đính kèm (Biên bản giao nhận, Hoá đơn đỏ, Ảnh chụp...)</label>
+          <div className={cn(FIELD_BLOCK, 'col-span-2 max-[720px]:col-auto')}>
+            <Label>Tệp chứng từ đính kèm (Biên bản giao nhận, Hoá đơn đỏ, Ảnh chụp...)</Label>
             <input
               ref={fileInputRef}
               type="file"
-              style={{ display: 'none' }}
+              className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0] || null;
                 setSelectedFile(file);
               }}
             />
             <div
-              className={styles.fileUploadArea}
+              className="flex min-w-0 cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-2.5 transition-colors hover:border-blue-600 hover:bg-slate-50 [&>div]:min-w-0 [&>div]:flex-wrap"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -1345,17 +1275,19 @@ export function MovementForm({
             >
               {selectedFile ? (
                 <div
-                  className={styles.fileUploadAttachedCard}
+                  className="flex items-center justify-between py-1.5 px-3 bg-blue-50 border border-blue-200 rounded-md text-[13px] text-blue-700"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Paperclip size={15} color="#2563eb" />
-                  <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedFile.name}</span>
-                  <span style={{ color: '#64748b', fontSize: '12px' }}>
+                  <span className="font-semibold text-slate-800">{selectedFile.name}</span>
+                  <span className="text-slate-500 text-[12px]">
                     ({Math.round(selectedFile.size / 1024)} KB)
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className={styles.fileUploadRemoveBtn}
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-slate-500 hover:bg-red-100 hover:text-red-600"
                     onClick={() => {
                       setSelectedFile(null);
                       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1363,27 +1295,16 @@ export function MovementForm({
                     title="Xoá tệp đính kèm"
                   >
                     <X size={14} />
-                  </button>
+                  </Button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '13px' }}>
+                <div className="flex items-center gap-2 text-slate-500 text-[13px]">
                   <Upload size={16} color="#64748b" />
                   <span>Kéo thả tệp chứng từ vào đây hoặc </span>
-                  <button
-                    type="button"
-                    style={{
-                      border: 'none',
-                      background: 'none',
-                      color: '#2563eb',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      padding: 0,
-                      textDecoration: 'underline',
-                    }}
-                  >
+                  <Button type="button" variant="link" size="xs" className="h-auto p-0 font-semibold">
                     chọn từ máy tính
-                  </button>
-                  <span style={{ color: '#94a3b8', fontSize: '12px' }}>(Hỗ trợ PDF, Excel, JPG, PNG tối đa 25MB)</span>
+                  </Button>
+                  <span className="text-slate-400 text-[12px]">(Hỗ trợ PDF, Excel, JPG, PNG tối đa 25MB)</span>
                 </div>
               )}
             </div>
@@ -1391,22 +1312,22 @@ export function MovementForm({
         </div>
 
         {/* Khối Danh mục vật tư đa đối tượng */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="flex flex-col gap-2.5">
           {/* Tiêu đề danh sách vật tư */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="m-0 text-[14px] font-bold text-slate-800">
                 Danh sách vật tư / hàng hoá trên phiếu
               </h3>
-              <span style={{ fontSize: '13px', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+              <Badge variant="secondary" className="h-auto bg-sky-100 px-2 py-0.5 text-[13px] font-semibold text-sky-700">
                 {items.length} vật tư
-              </span>
+              </Badge>
             </div>
           </div>
 
           {/* Thanh công cụ: Filter + Thêm từ Excel + Thêm vật tư mới (cùng 1 hàng) */}
-          <div className={styles.movementItemToolbar}>
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-1 min-w-0">
               <SearchableMaterialCombobox
                 materials={workspace.materials}
                 excludedCodes={items.map((i) => i.materialCode)}
@@ -1415,43 +1336,37 @@ export function MovementForm({
               />
             </div>
 
-            <button
+            <Button
               type="button"
-              className={`${styles.toolbarActionBtn} ${styles.excelImportBtn}`}
+              variant="outline"
+              className="h-9 shrink-0 gap-1.5 border-green-200 bg-green-50 px-3.5 text-[13px] font-semibold text-green-700 hover:border-green-300 hover:bg-green-100 hover:text-green-800"
+
               onClick={() => setShowExcelImport(true)}
               title="Import danh sách vật tư từ file Excel"
             >
               <FileSpreadsheet size={15} />
               <span>Thêm từ Excel</span>
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
-              className={`${styles.toolbarActionBtn} ${styles.newMaterialBtn}`}
+              variant="outline"
+              className="h-9 shrink-0 gap-1.5 border-blue-200 bg-blue-50 px-3.5 text-[13px] font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-100 hover:text-blue-800"
+
               onClick={() => setShowNewMaterialModal(true)}
               title="Tạo nhanh mã vật tư mới vào danh mục"
             >
               <Plus size={15} />
               <span>Thêm vật tư mới</span>
-            </button>
+            </Button>
           </div>
 
           {/* Cảnh báo nếu có mặt hàng đang bị giữ chỗ cho Work Order */}
           {reservedAlerts.length > 0 ? (
             <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: '#fffbeb',
-                border: '1px solid #fde68a',
-                color: '#b45309',
-                fontSize: '13px',
-              }}
+              className="flex items-center gap-2 py-2 px-3 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-[13px]"
             >
-              <AlertTriangle size={16} color="#d97706" style={{ flexShrink: 0 }} />
+              <AlertTriangle size={16} color="#d97706" className="shrink-0" />
               <span>
                 <strong>Lưu ý giữ chỗ:</strong> Có {reservedAlerts.length} vật tư đang được giữ chỗ cho Lệnh công tác ({reservedAlerts.map((a) => `${a.name}: ${a.reserved} cái`).join(', ')}). Vui lòng kiểm tra tồn khả dụng trước khi xuất.
               </span>
@@ -1459,34 +1374,34 @@ export function MovementForm({
           ) : null}
 
           {warehouseNotice ? (
-            <p role="status" style={{ margin: 0, padding: '8px 12px', borderRadius: '6px', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '13px' }}>
+            <p role="status" className="m-0 py-2 px-3 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-[13px]">
               {warehouseNotice}
             </p>
           ) : null}
 
           {/* Bảng Danh sách vật tư (Multi-item Grid Table) */}
-          <div className={styles.movementGridWrap}>
-            <table className={styles.movementGridTable}>
-              <thead>
-                <tr>
-                  <th style={{ width: '40px', textAlign: 'center' }}>STT</th>
-                  <th style={{ minWidth: '200px' }}>Mã &amp; Tên vật tư</th>
-                  <th style={{ width: '65px', textAlign: 'center' }}>ĐVT</th>
-                  <th style={{ width: '90px', textAlign: 'right' }}>Số lượng</th>
-                  <th style={{ minWidth: '130px' }}>Thuộc nhóm</th>
-                  <th style={{ width: '140px' }}>Tình trạng kho</th>
+          <div className="relative max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white [scrollbar-color:#cbd5e1_#f8fafc] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-track]:bg-slate-50">
+            <Table className="min-w-[980px] border-separate border-spacing-0 text-[13px]">
+              <TableHead>
+                <TableRow className="group/row hover:bg-transparent">
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-10 text-center">STT</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-50">Mã &amp; Tên vật tư</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-[65px] text-center">ĐVT</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-22.5 text-right">Số lượng</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Thuộc nhóm</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-35">Tình trạng kho</TableHeaderCell>
                   {kind === 'receipt' ? (
                     <>
-                      <th style={{ width: '110px', textAlign: 'right' }}>Đơn giá (VNĐ)</th>
-                      <th style={{ width: '120px', textAlign: 'right' }}>Thành tiền</th>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-27.5 text-right">Đơn giá (VNĐ)</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-30 text-right">Thành tiền</TableHeaderCell>
                     </>
                   ) : null}
-                  <th style={{ width: '118px', textAlign: 'center' }}>Theo dõi định danh</th>
-                  <th style={{ minWidth: '130px' }}>Ghi chú dòng</th>
-                  <th style={{ width: '50px', textAlign: 'center' }}>Xoá</th>
-                </tr>
-              </thead>
-              <tbody>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-29.5 text-center">Theo dõi định danh</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Ghi chú dòng</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-12.5 text-center">Xoá</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {items.map((item, index) => {
                   const analysis = lineStockAnalysis[index];
                   const lineTotal = (Number(item.quantity) || 0) * (Number(item.unitCost) || 0);
@@ -1499,197 +1414,187 @@ export function MovementForm({
                   const itemType = item.materialType || itemMaterial?.type || '—';
 
                   return (
-                    <tr
+                    <TableRow
                       key={item.id}
-                      style={{
-                        background: analysis?.isOverdraw ? '#fef2f2' : undefined,
-                      }}
+                      className={cn('group/row hover:bg-transparent', analysis?.isOverdraw && 'bg-red-50')}
                     >
-                      <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 600, fontSize: '13px' }}>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center text-slate-500 font-semibold text-[13px]">
                         {index + 1}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-900 text-[14px]">
                               {item.materialCode}
                             </span>
                             {item.newMaterial ? (
-                              <span style={{ fontSize: '12px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                              <span className="text-[12px] bg-green-100 text-green-700 py-[1px] px-[5px] rounded-sm font-semibold">
                                 MỚI
                               </span>
                             ) : null}
                           </div>
-                          <span style={{ fontSize: '13px', color: '#475569' }}>
+                          <span className="text-[13px] text-slate-600">
                             {item.materialName}
                           </span>
                         </div>
-                      </td>
-                      <td style={{ textAlign: 'center', color: '#475569', fontSize: '13px' }}>
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center text-slate-600 text-[13px]">
                         {item.unit}
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                         <VnNumberInput
                           maxDecimals={itemUnitConfig.step === '1' ? 0 : 2}
-                          className={styles.gridCellInput}
-                          style={{
-                            textAlign: 'right',
-                            borderColor: analysis?.isOverdraw ? '#ef4444' : undefined,
-                            background: analysis?.isOverdraw ? '#fff' : undefined,
-                          }}
+                          className={cn('h-8 px-2 text-[13px] text-right', analysis?.isOverdraw && 'border-red-500 bg-white')}
                           value={item.quantity === 0 ? '' : String(item.quantity)}
                           onChange={(value) => handleUpdateQuantity(index, Number(value))}
                         />
-                      </td>
-                      <td style={{ minWidth: '130px' }}>
-                        <span style={{ fontSize: '12px', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] min-w-32.5">
+                        <span className="text-[12px] text-slate-600 bg-slate-100 py-0.5 px-2 rounded-sm inline-block">
                           {itemType}
                         </span>
-                      </td>
-                      <td>
-                        <span
-                          className={
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'h-auto px-[7px] py-0.5 text-[12px] font-semibold',
                             analysis?.badgeType === 'ok'
-                              ? styles.stockBadgeOk
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
                               : analysis?.badgeType === 'shared'
-                                ? styles.stockBadgeShared
-                                : styles.stockBadgeEmpty
-                          }
+                                ? 'border-amber-200 bg-amber-50 text-amber-600'
+                                : 'border-red-200 bg-red-50 text-red-600',
+                          )}
                           title={analysis?.badgeLabel}
                         >
                           {analysis?.badgeLabel}
-                        </span>
-                      </td>
+                        </Badge>
+                      </TableCell>
                       {kind === 'receipt' ? (
                         <>
-                          <td>
+                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                             <VnNumberInput
                               placeholder="0"
-                              className={styles.gridCellInput}
+                              className="h-8 px-2 text-[13px]"
                               value={item.unitCost === undefined ? '' : String(item.unitCost)}
                               onChange={(value) => handleUpdateUnitCost(index, value ? Number(value) : undefined)}
                             />
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
+                          </TableCell>
+                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-right font-semibold text-slate-800 text-[13px]">
                             {formatNumber(lineTotal)} đ
-                          </td>
+                          </TableCell>
                         </>
                       ) : null}
-                      <td style={{ textAlign: 'center' }}>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
                         {trackingMode === 'LOT' ? (
                           <>
-                            <button
+                            <Button
                               type="button"
                               onClick={() => handleOpenLotModal(index)}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', border: lotCount > 0 ? '1px solid #c4b5fd' : '1px solid #e2e8f0', background: lotCount > 0 ? '#f5f3ff' : '#f8fafc', color: lotCount > 0 ? '#6d28d9' : '#64748b', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                              variant="outline"
+                              size="xs"
+                              className={cn(
+                                'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                                lotCount > 0 ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-slate-50 text-slate-500',
+                              )}
                               title={kind === 'receipt' ? 'Khai báo lô hàng nhận vào' : 'Chọn lô hàng để xuất / điều chuyển'}
                             >
                               <Layers size={13} />
                               <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
-                            </button>
-                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div style={{ marginTop: '3px', fontSize: '12px', color: '#b45309' }}>Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
+                            </Button>
+                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div className="mt-[3px] text-[12px] text-amber-700">Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
                           </>
                         ) : trackingMode === 'SERIAL' ? (
-                          <button
+                          <Button
                             type="button"
                             onClick={() => handleOpenSerialModal(index)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '3px 8px',
-                              borderRadius: '4px',
-                              border: serialCount > 0 ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
-                              background: serialCount > 0 ? '#eff6ff' : '#f8fafc',
-                              color: serialCount > 0 ? '#1d4ed8' : '#64748b',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
+                            variant="outline"
+                            size="xs"
+                            className={cn(
+                              'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                              serialCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-slate-50 text-slate-500',
+                            )}
                             title="Nhập danh sách số sê-ri / barcode cho dòng này"
                           >
                             <Barcode size={13} />
                             <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
-                          </button>
+                          </Button>
                         ) : (
-                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Không theo dõi</span>
+                          <span className="text-[12px] text-slate-400">Không theo dõi</span>
                         )}
-                      </td>
-                      <td>
-                        <input
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
+                        <Input
                           type="text"
                           placeholder="Ghi chú dòng…"
-                          className={styles.gridCellInput}
+                          className="h-8 px-2 text-[13px]"
                           value={item.lineNote ?? ''}
                           onChange={(e) => handleUpdateLineNote(index, e.target.value)}
                         />
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
+                      </TableCell>
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
+                        <Button
                           type="button"
-                          className={styles.gridDeleteBtn}
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-slate-400 hover:bg-red-100 hover:text-red-600"
                           onClick={() => handleRemoveItem(index)}
                           title="Xoá dòng này khỏi phiếu"
                         >
                           <Trash2 size={15} />
-                        </button>
-                      </td>
-                    </tr>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
 
                 {items.length === 0 ? (
-                  <tr>
-                    <td
+                  <TableRow className="group/row hover:bg-transparent">
+                    <TableCell
                       colSpan={kind === 'receipt' ? 10 : 8}
-                      style={{
-                        padding: '32px 16px',
-                        textAlign: 'center',
-                        color: '#64748b',
-                        fontSize: '14px',
-                      }}
+                      className="px-4 py-8 text-center text-[14px] text-slate-500"
                     >
-                      <Layers size={28} color="#94a3b8" style={{ marginBottom: '6px', display: 'inline-block' }} />
+                      <Layers size={28} color="#94a3b8" className="mb-1.5 inline-block" />
                       <div>Chưa có vật tư nào trên phiếu.</div>
-                      <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px' }}>
+                      <div className="text-[13px] text-slate-400 mt-0.5">
                         Sử dụng thanh tìm kiếm phía trên để thêm các mặt hàng cần tác nghiệp vào phiếu.
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : null}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
 
             {/* Bảng tổng kết số liệu (Grid Footer Summary) */}
             {items.length > 0 ? (
-              <div className={styles.movementGridFooter}>
-                <div className={styles.movementGridSummaryStats}>
+              <div className="flex items-center justify-between py-2.5 px-4 bg-slate-50 border-t border-t-slate-200 text-[13px] text-slate-600 flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-4 text-[13px] [&_strong]:font-bold [&_strong]:text-slate-900">
                   <span>Số loại vật tư: <strong>{totalItemCount}</strong></span>
                   <span>Tổng số lượng xuất/nhập: <strong>{formatNumber(totalQuantity)}</strong></span>
                   {kind === 'receipt' ? (
-                    <span style={{ color: '#166534' }}>
+                    <span className="text-green-800">
                       Tổng giá trị nhập: <strong>{formatNumber(totalCost)} VNĐ</strong>
                     </span>
                   ) : null}
                 </div>
 
                 {stockBlockReason ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: stockStatus?.status === 'loading' || !stockStatus ? '#b45309' : '#dc2626', fontSize: '13px', fontWeight: 600 }}>
+                  <div className={cn('flex items-center gap-1.5 text-[13px] font-semibold', stockStatus?.status === 'loading' || !stockStatus ? 'text-amber-700' : 'text-red-600')}>
                     <AlertTriangle size={15} />
                     <span>{stockBlockReason}</span>
                   </div>
                 ) : hasInvalidLotAllocation ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
+                  <div className="flex items-center gap-1.5 text-amber-700 text-[13px] font-semibold">
                     <AlertTriangle size={15} />
                     <span>Phiếu nhập phải khai báo lô; phiếu xuất không được phân bổ lô vượt số lượng.</span>
                   </div>
                 ) : hasInvalidSerialSelection ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '13px', fontWeight: 600 }}>
+                  <div className="flex items-center gap-1.5 text-amber-700 text-[13px] font-semibold">
                     <AlertTriangle size={15} />
                     <span>Vật tư quản lý theo sê-ri phải khai đủ một số sê-ri cho mỗi đơn vị trên phiếu.</span>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534', fontSize: '13px', fontWeight: 600 }}>
+                  <div className="flex items-center gap-1.5 text-green-800 text-[13px] font-semibold">
                     <CheckCircle2 size={15} />
                     <span>Dữ liệu hợp lệ, sẵn sàng ghi sổ kho</span>
                   </div>
@@ -1698,28 +1603,32 @@ export function MovementForm({
             ) : null}
           </div>
         </div>
-      </div>
+      </BodyTag>
 
       {/* Modal Con: Phân bổ Lô hàng */}
       {lotModalIndex !== null && items[lotModalIndex] ? (
-        <div className={styles.modalOverlay} style={{ zIndex: 1100 }}>
-          <div className={`${styles.modalDialog} ${styles.lotMovementDialog}`} onClick={(event) => event.stopPropagation()}>
-            <div className={styles.lotMovementDialogHead}>
-              <div className={styles.lotMovementDialogTitle}>
-                <h3>{kind === 'receipt' ? 'Khai báo lô hàng nhập' : 'Phân bổ lô hàng xuất'}</h3>
-                <p>{items[lotModalIndex].materialCode} — {items[lotModalIndex].materialName} · Số lượng phiếu: {formatNumber(items[lotModalIndex].quantity)} {items[lotModalIndex].unit}</p>
+        <Dialog onEscape={lotDirty ? undefined : () => setLotModalIndex(null)}>
+          <DialogContent
+            className="z-1100 max-w-155"
+            backdropClassName="z-1100"
+            aria-label={kind === 'receipt' ? 'Khai báo lô hàng nhập' : 'Phân bổ lô hàng xuất'}
+          >
+            <DialogHeader>
+              <div className="min-w-0">
+                <DialogTitle>{kind === 'receipt' ? 'Khai báo lô hàng nhập' : 'Phân bổ lô hàng xuất'}</DialogTitle>
+                <p className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">{items[lotModalIndex].materialCode} — {items[lotModalIndex].materialName} · Số lượng phiếu: {formatNumber(items[lotModalIndex].quantity)} {items[lotModalIndex].unit}</p>
               </div>
               <CloseGuard dirty={lotDirty} onClose={() => setLotModalIndex(null)}>
-                <button type="button" className={styles.closeButton}><X size={16} /></button>
+                <DialogCloseButton />
               </CloseGuard>
-            </div>
+            </DialogHeader>
+            <DialogBody>
             {kind === 'receipt' ? (
-              <div className={styles.lotMovementFormGrid}>
-                <div className={styles.formFieldBlock}>
-                  <label>
-                    Mã lô <span className={styles.requiredMark}>*</span>
-                  </label>
-                  <input
+              <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4">
+                <div className={FIELD_BLOCK}>
+                  <Label required>
+                    Mã lô</Label>
+                  <Input
                     autoFocus
                     value={newLotDraft.lotNumber}
                     placeholder="VD: LOT-2026-001"
@@ -1728,9 +1637,9 @@ export function MovementForm({
                     }
                   />
                 </div>
-                <div className={styles.formFieldBlock}>
-                  <label>Số CO/CQ</label>
-                  <input
+                <div className={FIELD_BLOCK}>
+                  <Label>Số CO/CQ</Label>
+                  <Input
                     value={newLotDraft.coCqNumber}
                     placeholder="VD: CO-2026-01"
                     onChange={(event) =>
@@ -1738,8 +1647,8 @@ export function MovementForm({
                     }
                   />
                 </div>
-                <div className={styles.formFieldBlock}>
-                  <label>Ngày sản xuất</label>
+                <div className={FIELD_BLOCK}>
+                  <Label>Ngày sản xuất</Label>
                   <DatePickerInput
                     value={newLotDraft.manufactureDate}
                     onChange={(value) =>
@@ -1748,8 +1657,8 @@ export function MovementForm({
                     height={36}
                   />
                 </div>
-                <div className={styles.formFieldBlock}>
-                  <label>Hạn sử dụng</label>
+                <div className={FIELD_BLOCK}>
+                  <Label>Hạn sử dụng</Label>
                   <DatePickerInput
                     value={newLotDraft.expiryDate}
                     onChange={(value) =>
@@ -1758,9 +1667,9 @@ export function MovementForm({
                     height={36}
                   />
                 </div>
-                <div className={`${styles.formFieldBlock} ${styles.lotMovementFullWidth}`}>
-                  <label>Nhà cung cấp</label>
-                  <input
+                <div className={`flex min-w-0 flex-col gap-1 [&>div]:min-w-0 col-span-full`}>
+                  <Label>Nhà cung cấp</Label>
+                  <Input
                     value={newLotDraft.supplier}
                     placeholder="VD: Schneider Electric, ABB…"
                     onChange={(event) =>
@@ -1770,154 +1679,95 @@ export function MovementForm({
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '330px', overflowY: 'auto' }}>
+              <div className="flex flex-col gap-2 max-h-82.5 overflow-y-auto">
                 {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).map(({ lot, available }) => (
-                  <div key={lot.id} style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '12px', alignItems: 'center', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc' }}>
-                    <div><strong style={{ color: '#5b21b6' }}>{lot.lotNo}</strong><div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>Khả dụng: {formatNumber(available)} {items[lotModalIndex].unit}{lot.expiresOn ? ` · HSD ${formatDate(lot.expiresOn)}` : ''}{lot.qualityStatus !== 'PASSED' ? ` · ${QUALITY_STATUS_LABEL[lot.qualityStatus]}` : ''}</div></div>
-                    <input type="number" min={0} max={available} className={styles.gridCellInput} style={{ textAlign: 'right' }} value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
+                  <div key={lot.id} className="grid grid-cols-[1fr_110px] gap-3 items-center p-2.5 border border-slate-200 rounded-md bg-slate-50">
+                    <div><strong className="text-violet-800">{lot.lotNo}</strong><div className="text-slate-500 text-[12px] mt-0.5">Khả dụng: {formatNumber(available)} {items[lotModalIndex].unit}{lot.expiresOn ? ` · HSD ${formatDate(lot.expiresOn)}` : ''}{lot.qualityStatus !== 'PASSED' ? ` · ${QUALITY_STATUS_LABEL[lot.qualityStatus]}` : ''}</div></div>
+                    <Input type="number" min={0} max={available} className="h-8 px-2 text-[13px] text-right"  value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}
-                {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).length === 0 ? <p style={{ margin: '8px 0', color: '#64748b', fontSize: '14px' }}>Chưa có lô dùng được tại kho này. Phần không chọn lô sẽ lấy từ tồn không theo lô.</p> : null}
+                {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).length === 0 ? <p className="my-2 mx-0 text-slate-500 text-[14px]">Chưa có lô dùng được tại kho này. Phần không chọn lô sẽ lấy từ tồn không theo lô.</p> : null}
               </div>
             )}
-            <div className={styles.lotMovementDialogFoot}>
+            </DialogBody>
+            <DialogFooter>
               <CloseGuard dirty={lotDirty} onClose={() => setLotModalIndex(null)}>
-                <button type="button" className={`${styles.action} ${styles.actionGhost}`}>Huỷ</button>
+                <Button type="button" variant="outline">Huỷ</Button>
               </CloseGuard>
-              <button type="button" className={`${styles.action} ${styles.actionPrimary}`} disabled={kind === 'receipt' && !newLotDraft.lotNumber.trim()} onClick={handleSaveLots}>Lưu phân bổ lô</button>
-            </div>
-          </div>
-        </div>
+              <Button type="button" disabled={kind === 'receipt' && !newLotDraft.lotNumber.trim()} onClick={handleSaveLots}>Lưu phân bổ lô</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {/* Modal Con: Nhập Danh Sách Sê-ri */}
       {serialModalIndex !== null && items[serialModalIndex] ? (
-        <div
-          className={styles.modalOverlay}
-          style={{ zIndex: 1100 }}
-          onClick={() => setSerialModalIndex(null)}
-        >
-          <div
-            className={styles.modalDialog}
-            style={{
-              maxWidth: '520px',
-              background: '#ffffff',
-              borderRadius: '10px',
-              padding: '20px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <Dialog onEscape={() => setSerialModalIndex(null)}>
+          <DialogContent className="z-1100 max-w-130" backdropClassName="z-1100" aria-label="Khai báo Sê-ri / Barcode">
+            <DialogHeader>
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                  Khai báo Sê-ri / Barcode
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <DialogTitle>Khai báo Sê-ri / Barcode</DialogTitle>
+                <p className="mt-0.5 text-xs text-slate-500">
                   {items[serialModalIndex].materialCode} — {items[serialModalIndex].materialName}
                 </p>
               </div>
-              <button
-                type="button"
-                className={styles.closeButton}
-                onClick={() => setSerialModalIndex(null)}
-              >
-                <X size={16} />
-              </button>
-            </div>
+              <DialogCloseButton onClick={() => setSerialModalIndex(null)} />
+            </DialogHeader>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <DialogBody className="flex flex-col gap-2">
+              <Label>
                 Danh sách số Sê-ri (mỗi dòng một số, hoặc ngăn cách bằng dấu phẩy):
-              </label>
-              <textarea
+              </Label>
+              <Textarea
                 rows={6}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '14px',
-                  outline: 'none',
-                  fontFamily: 'monospace',
-                }}
+                className="font-mono"
                 placeholder="VD:\nSN-2026-001\nSN-2026-002\nSN-2026-003"
                 value={serialDraft}
                 onChange={(e) => setSerialDraft(e.target.value)}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b' }}>
+              <div className="flex justify-between items-center text-[13px] text-slate-500">
                 <span>
                   Đã nhận diện: <strong>{parseSerials(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
                 </span>
                 {parseSerials(serialDraft).length !== items[serialModalIndex].quantity ? (
-                  <span style={{ color: '#d97706', fontSize: '12px' }}>
+                  <span className="text-amber-600 text-[12px]">
                     ℹ Lưu sẽ tự động đồng bộ số lượng dòng
                   </span>
                 ) : null}
               </div>
-            </div>
+            </DialogBody>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={() => setSerialModalIndex(null)}
-              >
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSerialModalIndex(null)}>
                 Huỷ
-              </button>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
-                onClick={handleSaveSerials}
-              >
+              </Button>
+              <Button type="button" onClick={handleSaveSerials}>
                 Xác nhận lưu sê-ri
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {/* Modal Con: Tạo Nhanh Vật Tư Mới */}
       {showNewMaterialModal ? (
-        <div
-          className={styles.modalOverlay}
-          style={{ zIndex: 1100 }}
-          onClick={() => setShowNewMaterialModal(false)}
-        >
-          <div
-            className={styles.modalDialog}
-            style={{
-              maxWidth: '560px',
-              background: '#ffffff',
-              borderRadius: '10px',
-              padding: '20px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <Dialog onEscape={() => setShowNewMaterialModal(false)}>
+          <DialogContent className="z-1100 max-w-140" backdropClassName="z-1100" aria-label="Khai báo vật tư mới vào danh mục">
+            <DialogHeader>
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                  Khai báo vật tư mới vào danh mục
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <DialogTitle>Khai báo vật tư mới vào danh mục</DialogTitle>
+                <p className="mt-0.5 text-xs text-slate-500">
                   Vật tư này sẽ được tạo trong danh mục và tự động thêm vào phiếu hiện tại.
                 </p>
               </div>
-              <button
-                type="button"
-                className={styles.closeButton}
-                onClick={() => setShowNewMaterialModal(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
+              <DialogCloseButton onClick={() => setShowNewMaterialModal(false)} />
+            </DialogHeader>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className={styles.formFieldBlock}>
-                <label>
-                  Mã SKU vật tư <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+            <DialogBody className="grid grid-cols-[1fr_1fr] gap-3 [align-content:start]">
+              <div className={FIELD_BLOCK}>
+                <Label required>
+                  Mã SKU vật tư</Label>
+                <Input
                   type="text"
                   required
                   placeholder="VD: VT-BIEN-AP-01"
@@ -1928,10 +1778,9 @@ export function MovementForm({
                 />
               </div>
 
-              <div className={styles.formFieldBlock}>
-                <label>
-                  Đơn vị tính <span style={{ color: '#dc2626' }}>*</span>
-                </label>
+              <div className={FIELD_BLOCK}>
+                <Label required>
+                  Đơn vị tính</Label>
                 <SearchableSelect
                   options={unitOptions}
                   value={draftMaterial.unit}
@@ -1942,11 +1791,10 @@ export function MovementForm({
                 />
               </div>
 
-              <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-                <label>
-                  Tên đầy đủ của vật tư <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className={cn(FIELD_BLOCK, 'col-span-2')}>
+                <Label required>
+                  Tên đầy đủ của vật tư</Label>
+                <Input
                   type="text"
                   required
                   placeholder="VD: Dầu làm mát máy biến áp tiêu chuẩn IEC"
@@ -1957,8 +1805,8 @@ export function MovementForm({
                 />
               </div>
 
-              <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-                <label>Thuộc nhóm vật tư</label>
+              <div className={cn(FIELD_BLOCK, 'col-span-2')}>
+                <Label>Thuộc nhóm vật tư</Label>
                 <SearchableSelect
                   options={typeOptions}
                   value={draftMaterial.type}
@@ -1969,9 +1817,9 @@ export function MovementForm({
                 />
               </div>
 
-              <div className={styles.formFieldBlock} style={{ gridColumn: 'span 2' }}>
-                <label>Mức tồn kho an toàn tối thiểu</label>
-                <input
+              <div className={cn(FIELD_BLOCK, 'col-span-2')}>
+                <Label>Mức tồn kho an toàn tối thiểu</Label>
+                <Input
                   type="number"
                   min={0}
                   placeholder="0"
@@ -1981,27 +1829,22 @@ export function MovementForm({
                   }
                 />
               </div>
-            </div>
+            </DialogBody>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={() => setShowNewMaterialModal(false)}
-              >
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowNewMaterialModal(false)}>
                 Huỷ
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={!draftMaterial.code.trim() || !draftMaterial.name.trim()}
                 onClick={handleCreateNewMaterial}
               >
                 + Thêm vào phiếu
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {showExcelImport ? (
@@ -2018,46 +1861,42 @@ export function MovementForm({
 
       {/* Footer Actions của Phiếu */}
       {permissionError || submitBlockReason ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">
           {permissionError ?? submitBlockReason}
           {!permissionError && stockStatus?.status === 'error' ? (
             <>
               {' '}
-              <button type="button" className={styles.linkButton} onClick={() => setStockReloadKey((key) => key + 1)}>
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto p-0 text-sm font-bold text-blue-700"
+                onClick={() => setStockReloadKey((key) => key + 1)}
+              >
                 Thử lại
-              </button>
+              </Button>
             </>
           ) : null}
         </p>
       ) : null}
       <FormError error={error} style={{ margin: '0 0 1rem' }} />
-      <div
-        className={isDialog ? styles.modalFoot : styles.editActions}
-        style={
-          isDialog
-            ? { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
-            : { marginTop: '8px', paddingTop: '16px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
-        }
+      <FooterTag className={isDialog ? 'justify-between' : 'mt-2 flex items-center justify-between border-t border-slate-200 pt-4'}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="flex items-center gap-2">
           <Info size={15} color="#64748b" />
-          <span style={{ fontSize: '13px', color: '#64748b' }}>
+          <span className="text-[13px] text-slate-500">
             Phiếu có <strong>{items.length}</strong> vật tư · Tổng <strong>{formatNumber(totalQuantity)}</strong> đơn vị.
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="flex items-center gap-2.5">
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-            >
+            <Button type="button" variant="outline">
               Huỷ
-            </button>
+            </Button>
           </CloseGuard>
-          <button
+          <Button
             type="submit"
-            className={`${styles.action} ${styles.actionPrimary}`}
             disabled={
               Boolean(permissionError) ||
               busy ||
@@ -2073,43 +1912,29 @@ export function MovementForm({
             {busy
               ? 'Đang ghi sổ…'
               : `Xác nhận ${KIND_LABEL[kind]} (${items.length} mặt hàng)`}
-          </button>
+          </Button>
         </div>
-      </div>
+      </FooterTag>
     </>
   );
 
   if (isDialog) {
     return (
-      <div className={styles.modalOverlay}>
-        <div
-          className={`${styles.modalDialog} ${styles.movementDialog}`}
-          style={{
-            maxWidth: '1060px',
-            width: '95vw',
-            background: '#ffffff',
-            borderRadius: '12px',
-            boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
-            overflow: 'hidden',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <form
-            onSubmit={submit}
-            style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '90vh' }}
-          >
+      <Dialog>
+        <DialogContent className="w-[95vw] max-w-265" aria-label={resolvedTitle}>
+          <form onSubmit={submit} className="flex min-h-0 flex-col">
             {formContent}
           </form>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
     );
   }
 
   return (
     <form
-      className={styles.card}
+      className="rounded-2xl border border-slate-200 bg-white px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem] shadow-sm flex flex-col gap-4"
       onSubmit={submit}
-      style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+      
     >
       {formContent}
     </form>

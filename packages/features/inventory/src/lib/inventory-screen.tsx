@@ -76,7 +76,8 @@ import {
   type InventoryDashboardData,
 } from './inventory-dashboard.cards';
 import { usageLabel } from './trade-items.model';
-import styles from './inventory.module.scss';
+import { Button } from './ui/button';
+import { cn } from './ui/cn';
 import { InventoryPermissionsContext } from './inventory-permissions';
 
 type Tab =
@@ -804,14 +805,14 @@ export function InventoryScreen() {
       banner={
         <>
           {error ? (
-            <p role="alert" className={styles.alert}>
+            <p role="alert" className="mb-4 rounded-[0.65rem] border border-[#f0c2c2] bg-[#fdf2f2] px-4 py-[0.8rem] text-[#a12b2b]">
               {error}
               {loadFailed ? (
                 <>
                   {' '}
-                  <button type="button" className={styles.linkButton} onClick={() => void reload()}>
+                  <Button type="button" variant="link" size="xs" className="h-auto p-0 font-bold" onClick={() => void reload()}>
                     Tải lại
-                  </button>
+                  </Button>
                 </>
               ) : null}
             </p>
@@ -821,7 +822,7 @@ export function InventoryScreen() {
     >
 
       {!workspace ? (
-        <p className={styles.empty}>Đang tải dữ liệu kho…</p>
+        <p className="m-0 py-8 text-center text-slate-500">Đang tải dữ liệu kho…</p>
       ) : (
         <>
           {installTarget !== undefined ? (
@@ -943,28 +944,21 @@ export function InventoryScreen() {
           ) : null}
 
           {movementOrder ? (
-            <div className={styles.orderDialog} role="alertdialog" aria-labelledby="wo-title">
-              <div className={styles.orderDialogBox}>
+            <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40" role="alertdialog" aria-labelledby="wo-title">
+              <div className="w-[min(28rem,90vw)] rounded-xl bg-white p-5 shadow-xl [&_h2]:m-0 [&_h2]:mb-2 [&_h2]:text-lg [&_p]:m-0 [&_p]:mb-4 [&_p]:text-sm">
                 <h2 id="wo-title">Đã mở work order</h2>
                 <p>
                   Lệnh kho đã ghi nhận và work order{' '}
-                  <strong className={styles.orderDialogCode}>{movementOrder.code}</strong> đã được
+                  <strong className="font-bold">{movementOrder.code}</strong> đã được
                   mở bên module Quy trình.
                 </p>
-                <div className={styles.editActions}>
-                  <a
-                    className={`${styles.action} ${styles.actionPrimary}`}
-                    href="/modules/procedure#workspace"
-                  >
+                <div className="mt-1 flex gap-2">
+                  <Button render={<a href="/modules/procedure#workspace" />} nativeButton={false}>
                     Mở work order
-                  </a>
-                  <button
-                    type="button"
-                    className={styles.action}
-                    onClick={() => setMovementOrder(undefined)}
-                  >
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setMovementOrder(undefined)}>
                     Đóng
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -1175,9 +1169,9 @@ export function InventoryScreen() {
                     'Khai báo phân loại (hàng hóa và dịch vụ mỗi nhóm một danh sách) và cách sử dụng (chỉ bán, chỉ tặng, đi kèm combo...) cho trang Kho hàng. Mục đang có mặt hàng dùng thì không xoá được.',
                   render: () =>
                     tradeDraft ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      <div className="flex flex-col gap-5">
                         <div>
-                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Phân loại hàng hóa</h4>
+                          <h4 className="m-0 mb-2 text-[14px]">Phân loại hàng hóa</h4>
                           <UnitCatalogEditor
                             units={tradeDraft.goodsCategories}
                             usedUnits={usedTrade.goods}
@@ -1188,7 +1182,7 @@ export function InventoryScreen() {
                           />
                         </div>
                         <div>
-                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Phân loại dịch vụ</h4>
+                          <h4 className="m-0 mb-2 text-[14px]">Phân loại dịch vụ</h4>
                           <UnitCatalogEditor
                             units={tradeDraft.serviceCategories}
                             usedUnits={usedTrade.services}
@@ -1199,7 +1193,7 @@ export function InventoryScreen() {
                           />
                         </div>
                         <div>
-                          <h4 style={{ margin: '0 0 0.5rem', fontSize: '14px' }}>Sử dụng</h4>
+                          <h4 className="m-0 mb-2 text-[14px]">Sử dụng</h4>
                           <UnitCatalogEditor
                             units={tradeDraft.usageModes}
                             usedUnits={usedTrade.usage}
@@ -1256,12 +1250,17 @@ export function InventoryScreen() {
           {tab === 'stock' ? (
             <>
               {/* Trang Kho hàng: Hàng hóa (buôn bán) - Nhà kho (tồn kho) - Lịch sử xuất nhập - Lịch sử kiểm đếm */}
-              <div className={styles.tabs} style={{ margin: '0 0 1rem 0' }}>
+              <div className="mb-4 flex flex-wrap gap-[0.35rem]">
                 {STOCK_SUB_TABS.map((sub) => (
                   <button
                     key={sub.id}
                     type="button"
-                    className={`${styles.tab} ${stockSubTab === sub.id ? styles.tabActive : ''}`}
+                    className={cn(
+                      'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                      stockSubTab === sub.id
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                    )}
                     onClick={() => setStockSubTab(sub.id)}
                   >
                     {sub.label}
@@ -1328,7 +1327,7 @@ export function InventoryScreen() {
           ) : null}
 
           {tab === 'assets' ? (
-            <div className={styles.assetLayout}>
+            <div className="grid grid-cols-1 items-start gap-5 min-[60.01rem]:grid-cols-[minmax(18rem,23rem)_minmax(0,1fr)]">
               <AssetTree
                 assets={workspace.assets}
                 installed={installed}
@@ -1399,7 +1398,7 @@ export function InventoryScreen() {
                     onAddChild={canManage ? (asset) => setInstallTarget(asset) : undefined}
                   />
                 ) : (
-                  <p className={styles.empty}>Chọn một tài sản.</p>
+                  <p className="m-0 py-8 text-center text-slate-500">Chọn một tài sản.</p>
                 )}
               </section>
             </div>

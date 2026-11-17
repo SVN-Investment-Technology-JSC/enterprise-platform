@@ -13,22 +13,11 @@ export function FormError({ error, style }: { error?: string; style?: CSSPropert
   return (
     <div
       role="alert"
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '8px',
-        padding: '10px 12px',
-        border: '1px solid #fecaca',
-        borderRadius: '8px',
-        background: '#fef2f2',
-        color: '#b91c1c',
-        fontSize: '13px',
-        lineHeight: 1.5,
-        ...style,
-      }}
+      className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] leading-normal text-red-700"
+      style={style}
     >
-      <AlertTriangle aria-hidden="true" size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
-      <div style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere' }}>{error}</div>
+      <AlertTriangle aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1 wrap-anywhere">{error}</div>
     </div>
   );
 }

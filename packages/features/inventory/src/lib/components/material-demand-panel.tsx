@@ -4,7 +4,6 @@ import type { Material, Reservation, Warehouse } from '@enterprise-platform/cont
 import { useMemo } from 'react';
 import type { ProcedureWorkOrder } from '../inventory-api';
 import { formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
 
 /** Phiếu giữ chỗ còn hiệu lực — phần chưa giao vẫn đang chờ hàng. */
 const OPEN_STATUSES: ReadonlySet<Reservation['status']> = new Set([
@@ -65,29 +64,29 @@ export function MaterialDemandPanel({
   if (!materialCode) return null;
 
   if (rows.length === 0) {
-    return <p className={styles.hint}>Không có nhà kho nào có tồn món hàng này.</p>;
+    return <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">Không có nhà kho nào có tồn món hàng này.</p>;
   }
 
   const total = rows.reduce((sum, row) => sum + row.outstanding, 0);
 
   return (
-    <div className={styles.demandPanel}>
-      <header>
+    <div>
+      <header className="flex justify-between gap-2 text-[13px] text-slate-700">
         <strong>Đang có người chờ</strong>
         <span>
           {formatNumber(total)} {rows[0].unit}
         </span>
       </header>
-      <ul>
+      <ul className="m-0 list-none p-0">
         {rows.map((row) => (
-          <li key={row.key}>
-            <span className={styles.demandQty}>
+          <li key={row.key} className="flex flex-wrap gap-x-2 text-[13px]">
+            <span className="font-semibold tabular-nums text-slate-900">
               {formatNumber(row.outstanding)} {row.unit}
             </span>
-            <span className={styles.demandWhere}>kho {row.warehouse}</span>
+            <span className="text-slate-500">kho {row.warehouse}</span>
             {/* Quy trình không đọc được thì vẫn hiện mã phiếu giữ chỗ: thà một
                 mã tra cứu được còn hơn một dòng trống. */}
-            <span className={styles.demandOrder}>
+            <span className="text-slate-600">
               {row.order ? `${row.order.code} · ${row.order.title}` : row.reservationCode}
             </span>
           </li>

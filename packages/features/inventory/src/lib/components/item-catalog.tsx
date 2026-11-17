@@ -22,7 +22,6 @@ import { exportCatalogToExcel } from '../inventory-export';
 import type { MovementLineItem } from './movement-form';
 import {
   Search,
-  X,
   MapPin,
   Clock,
   ClipboardCheck,
@@ -36,7 +35,26 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { Popconfirm, formatDate, SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Sheet, SheetContent, SheetFooter, SheetHeader } from '../ui/sheet';
+
+const TAB_BTN =
+  'inline-flex cursor-pointer items-center gap-[0.4rem] whitespace-nowrap border-0 border-b-2 border-transparent bg-transparent px-[0.85rem] py-3 text-sm font-semibold text-slate-500 transition-all hover:text-slate-800';
+const TAB_BTN_ACTIVE = 'border-primary text-slate-900 hover:text-slate-900';
+const STOCK_CARD = 'flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-slate-50 px-4 py-[0.85rem]';
+
+/** Màu chip tình trạng thiết bị (OPERATING, STOPPED, MAINTENANCE, DISPOSED). */
+const ASSET_STATUS_BADGE: Readonly<Record<string, string>> = {
+  OPERATING: 'border-green-200 bg-green-50 text-green-800',
+  STOPPED: 'border-red-200 bg-red-50 text-red-800',
+  MAINTENANCE: 'border-amber-200 bg-amber-50 text-amber-700',
+  DISPOSED: 'border-slate-300 bg-slate-100 text-slate-500',
+};
 
 /**
  * Nhãn phân loại nói theo TRẠNG THÁI, không theo "loại vật tư".
@@ -479,17 +497,21 @@ export function ItemCatalog({
   };
 
   return (
-    <section id="inventory-item-catalog" className={styles.standardTableCard}>
+    <section
+      id="inventory-item-catalog"
+      className="flex w-full flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white"
+    >
       {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM -> BỘ LỌC VỊ TRÍ KHO, NHÓM VẬT TƯ -> CÁC NÚT THAO TÁC) */}
-      <div className={styles.tableControlsBar}>
-        <div className={styles.tableControlsLeft} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
           {/* 1. Ô Tìm kiếm */}
-          <div className={styles.tableSearchBox}>
-            <span className={styles.tableSearchIcon}>
+          <div className="relative flex min-w-[180px] flex-[1_1_240px] items-center">
+            <span className="pointer-events-none absolute left-[0.65rem] text-slate-400">
               <Search size={14} strokeWidth={2} />
             </span>
-            <input
+            <Input
               type="search"
+              className="pl-8"
               placeholder="Tìm theo mã hoặc tên hàng…"
               value={query}
               aria-label="Tìm vật tư"
@@ -501,7 +523,7 @@ export function ItemCatalog({
           </div>
 
           {/* 2. Bộ lọc theo vị trí kho */}
-          <div style={{ minWidth: '180px' }}>
+          <div className="min-w-[180px]">
             <SearchableSelect
               value={warehouseFilter}
               onChange={(val) => {
@@ -516,7 +538,7 @@ export function ItemCatalog({
 
           {/* 3. Bộ lọc theo nhóm vật tư */}
           {typeOptions.length > 1 ? (
-            <div style={{ minWidth: '180px' }}>
+            <div className="min-w-[180px]">
               <SearchableSelect
                 value={typeFilter}
                 onChange={(val) => {
@@ -532,9 +554,9 @@ export function ItemCatalog({
 
           {/* Nút Xoá lọc */}
           {query || warehouseFilter !== 'all' || typeFilter !== 'all' ? (
-            <button
+            <Button
               type="button"
-              className={styles.tableResetBtn}
+              variant="outline"
               title="Xóa bộ lọc"
               onClick={() => {
                 setQuery('');
@@ -544,55 +566,27 @@ export function ItemCatalog({
               }}
             >
               Xoá lọc
-            </button>
+            </Button>
           ) : null}
         </div>
 
         {/* Cụm nút Thao tác bên phải: Xuất file, Import file, Xuất nhập kho, Kiểm đếm */}
-        <div className={styles.tableControlsRight} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <button
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
             type="button"
-            className={styles.btnSecondary}
-            style={{
-              padding: '7px 12px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#334155',
-              fontSize: '13px',
-              fontWeight: 600,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-            }}
+            variant="outline"
             onClick={handleExport}
             title="Xuất dữ liệu tồn kho chuẩn ra tệp Excel (phục vụ quản kho, sao lưu và chuyển giao hệ thống)"
             disabled={busy}
           >
             <Download size={14} />
             <span>Xuất file</span>
-          </button>
+          </Button>
 
           {onOpenBulkImport || onOpenMovement ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{
-                padding: '7px 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#334155',
-                fontSize: '13px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-              }}
+              variant="outline"
               onClick={() => {
                 if (onOpenBulkImport) {
                   onOpenBulkImport();
@@ -605,27 +599,12 @@ export function ItemCatalog({
             >
               <Upload size={14} />
               <span>Import file</span>
-            </button>
+            </Button>
           ) : null}
 
           {onOpenMovement ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{
-                padding: '7px 14px',
-                borderRadius: '6px',
-                border: '1px solid #2563eb',
-                background: '#2563eb',
-                color: '#ffffff',
-                fontSize: '13px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
-              }}
               onClick={() => {
                 if (selectedCodes.size > 0) {
                   handleOpenMovementWithSelected('receipt');
@@ -646,27 +625,14 @@ export function ItemCatalog({
                   ? `Xuất nhập kho (${selectedCodes.size})`
                   : 'Xuất nhập kho'}
               </span>
-            </button>
+            </Button>
           ) : null}
 
           {onOpenStocktake ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
-              style={{
-                padding: '7px 12px',
-                borderRadius: '6px',
-                border: selectedCodes.size > 0 ? '1px solid #c4b5fd' : '1px solid #cbd5e1',
-                background: selectedCodes.size > 0 ? '#faf5ff' : '#ffffff',
-                color: selectedCodes.size > 0 ? '#6b21a8' : '#0f172a',
-                fontSize: '13px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-              }}
+              variant="outline"
+              className={cn(selectedCodes.size > 0 && 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100')}
               onClick={handleOpenStocktakeWithSelected}
               title={
                 selectedCodes.size > 0
@@ -679,29 +645,16 @@ export function ItemCatalog({
               <span>
                 {selectedCodes.size > 0 ? `Kiểm đếm (${selectedCodes.size})` : 'Kiểm đếm'}
               </span>
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
       {/* THANH TÁC VỤ KHI CÓ DÒNG ĐƯỢC CHỌN (SELECTION ACTION BAR) */}
       {selectedCodes.size > 0 ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '9px 14px',
-            background: '#eff6ff',
-            border: '1px solid #bfdbfe',
-            borderRadius: '6px',
-            margin: '0 0 10px 0',
-            flexWrap: 'wrap',
-            gap: '8px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e40af', fontSize: '13px', fontWeight: 600, flexWrap: 'wrap' }}>
-            <CheckCircle2 size={16} color="#2563eb" />
+        <div className="m-0 mb-2.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3.5 py-[9px]">
+          <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-blue-800">
+            <CheckCircle2 size={16} className="text-blue-600" />
             <span>
               Đã chọn <strong>{selectedCodes.size}</strong> {selectedCodes.size === rows.length ? '(toàn bộ danh sách)' : `/ ${rows.length}`} vật tư
             </span>
@@ -709,17 +662,7 @@ export function ItemCatalog({
               <button
                 type="button"
                 onClick={() => setSelectedCodes(new Set(rows.map((r) => r.code)))}
-                style={{
-                  border: 'none',
-                  background: 'none',
-                  color: '#2563eb',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  textDecoration: 'underline',
-                  cursor: 'pointer',
-                  padding: 0,
-                  marginLeft: '4px',
-                }}
+                className="ml-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-blue-600 underline"
               >
                 Chọn toàn bộ {rows.length} vật tư
               </button>
@@ -727,95 +670,56 @@ export function ItemCatalog({
             <button
               type="button"
               onClick={() => setSelectedCodes(new Set())}
-              style={{
-                border: 'none',
-                background: 'none',
-                color: '#64748b',
-                fontSize: '13px',
-                textDecoration: 'underline',
-                cursor: 'pointer',
-                padding: 0,
-                marginLeft: '4px',
-              }}
+              className="ml-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-normal text-slate-500 underline"
             >
               Bỏ chọn tất cả
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
+          <div className="flex items-center gap-2">
+            <Button
               type="button"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid #93c5fd',
-                background: '#ffffff',
-                color: '#1d4ed8',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              variant="outline"
+              size="sm"
+              className="border-blue-300 text-blue-700"
               onClick={() => handleOpenMovementWithSelected('issue')}
               title="Điền các vật tư đã chọn vào phiếu Xuất kho"
             >
               <span>Xuất kho ({selectedCodes.size})</span>
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid #86efac',
-                background: '#f0fdf4',
-                color: '#15803d',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              variant="outline"
+              size="sm"
+              className="border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
               onClick={() => handleOpenMovementWithSelected('receipt')}
               title="Điền các vật tư đã chọn vào phiếu Nhập kho"
             >
               <span>Nhập kho ({selectedCodes.size})</span>
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid #c4b5fd',
-                background: '#faf5ff',
-                color: '#6b21a8',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              variant="outline"
+              size="sm"
+              className="border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100"
               onClick={handleOpenStocktakeWithSelected}
               title="Khởi tạo đợt kiểm đếm với các vật tư đã chọn"
             >
               <ClipboardCheck size={14} />
               <span>Kiểm đếm ({selectedCodes.size})</span>
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
 
       {/* VÙNG 2: THÂN BẢNG DỮ LIỆU CÓ CHECKBOX + 6 CỘT: MÃ - TÊN HÀNG - VỊ TRÍ - ĐƠN VỊ TÍNH - SỐ LƯỢNG - THUỘC NHÓM */}
-      <div className={styles.tableResponsiveWrap}>
-        <table className={styles.standardTable}>
-          <thead>
-            <tr>
-              <th style={{ width: '44px', textAlign: 'center' }}>
+      <TableWrap className="w-full">
+        <Table className="min-w-[1100px] table-fixed">
+          <TableHead>
+            <TableRow className="hover:bg-slate-50">
+              <TableHeaderCell className="w-[44px] text-center">
                 <input
                   type="checkbox"
                   checked={allRowsSelected}
@@ -823,19 +727,19 @@ export function ItemCatalog({
                     if (el) el.indeterminate = someRowsSelected && !allRowsSelected;
                   }}
                   onChange={toggleSelectAll}
-                  style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#2563eb' }}
+                  className="size-4 cursor-pointer accent-primary"
                   title={allRowsSelected ? 'Bỏ chọn toàn bộ' : `Chọn toàn bộ ${rows.length} vật tư trong bảng`}
                 />
-              </th>
-              <th style={{ width: '220px' }}>Mã</th>
-              <th style={{ minWidth: '240px' }}>Tên hàng</th>
-              <th style={{ width: '170px' }}>Vị trí</th>
-              <th style={{ width: '100px' }} className={styles.center}>Đơn vị tính</th>
-              <th style={{ width: '110px' }} className={styles.center}>Số lượng</th>
-              <th style={{ width: '150px' }}>Thuộc nhóm</th>
-            </tr>
-          </thead>
-          <tbody>
+              </TableHeaderCell>
+              <TableHeaderCell className="w-[220px]">Mã</TableHeaderCell>
+              <TableHeaderCell className="min-w-[240px]">Tên hàng</TableHeaderCell>
+              <TableHeaderCell className="w-[170px]">Vị trí</TableHeaderCell>
+              <TableHeaderCell className="w-[100px] text-center">Đơn vị tính</TableHeaderCell>
+              <TableHeaderCell className="w-[110px] text-center">Số lượng</TableHeaderCell>
+              <TableHeaderCell className="w-[150px]">Thuộc nhóm</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {paginatedRows.map((item) => {
               const expanded = openCode === item.code;
               const isSelected = selectedCodes.has(item.code);
@@ -851,88 +755,85 @@ export function ItemCatalog({
 
               return (
                 <Fragment key={item.code}>
-                  <tr
-                    className={`${styles.clickable} ${expanded ? styles.tableRowActive : ''}`}
-                    style={{
-                      background: isSelected ? '#eff6ff' : undefined,
-                    }}
+                  <TableRow
+                    className={cn('cursor-pointer', (expanded || isSelected) && 'bg-primary/10 hover:bg-primary/10')}
                     onClick={busy ? undefined : () => open(item.code)}
                     title="Bấm để xem chi tiết vật tư"
                   >
-                    <td
-                      style={{ textAlign: 'center', width: '44px' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <TableCell className="w-[44px] text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => toggleSelectItem(item.code)}
-                        style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#2563eb' }}
+                        className="size-4 cursor-pointer accent-primary"
                       />
-                    </td>
-                    <td className={styles.code} title={item.code}>
-                      <strong className={styles.codeLabel}>{item.code}</strong>
-                    </td>
-                    <td title={item.name} style={{ wordBreak: 'break-word' }}>
-                      <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.name}</span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="overflow-hidden text-ellipsis whitespace-nowrap" title={item.code}>
+                      <strong className="inline-block max-w-full overflow-hidden align-middle font-mono text-sm font-bold text-ellipsis whitespace-nowrap text-slate-900">
+                        {item.code}
+                      </strong>
+                    </TableCell>
+                    <TableCell title={item.name} className="[word-break:break-word]">
+                      <span className="font-semibold text-slate-800">{item.name}</span>
+                    </TableCell>
+                    <TableCell>
                       {locationText !== '—' ? (
-                        <span className={styles.locationTag} title={locationText}>{locationText}</span>
+                        <span className="inline-flex items-center gap-1 text-[0.8125rem] text-slate-600" title={locationText}>
+                          {locationText}
+                        </span>
                       ) : (
-                        <span className={styles.muted}>—</span>
+                        <span className="text-slate-500">—</span>
                       )}
-                    </td>
-                    <td className={styles.center} style={{ color: '#475569', fontWeight: 500 }}>
-                      {item.unit || '—'}
-                    </td>
-                    <td
-                      className={`${styles.numeric} ${styles.center}`}
+                    </TableCell>
+                    <TableCell className="text-center font-medium text-slate-600">{item.unit || '—'}</TableCell>
+                    <TableCell
+                      className="text-center tabular-nums"
                       title={`${STOCK_COLUMN_TIP.onHand}
 ${STOCK_COLUMN_TIP.reserved} (${formatNumber(reserved(item))})
 ${STOCK_COLUMN_TIP.blocked} (${formatNumber(blocked(item))})
 ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                     >
-                      <strong style={{ color: onHand(item) > 0 ? '#0f172a' : '#94a3b8' }}>
+                      <strong className={onHand(item) > 0 ? 'text-slate-900' : 'text-slate-400'}>
                         {formatNumber(onHand(item))}
                       </strong>
                       {available(item) !== onHand(item) ? (
-                        <span className={styles.sub}>khả dụng {formatNumber(available(item))}</span>
-                      ) : null}
-                    </td>
-                    <td>
-                      {item.type ? (
-                        <span className={styles.typeBadge} title={item.type}>{item.type}</span>
-                      ) : (
-                        <span className={styles.muted}>
-                          {item.kind === 'ASSET' ? 'Thiết bị' : 'Vật tư'}
+                        <span className="mt-[0.2rem] block text-[0.8125rem] font-normal text-slate-500">
+                          khả dụng {formatNumber(available(item))}
                         </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      {item.type ? (
+                        <span
+                          className="inline-block rounded border border-slate-200 bg-slate-100 px-2 py-[0.15rem] text-[0.8125rem] font-semibold text-slate-700"
+                          title={item.type}
+                        >
+                          {item.type}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">{item.kind === 'ASSET' ? 'Thiết bị' : 'Vật tư'}</span>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 </Fragment>
               );
             })}
             {paginatedRows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className={styles.empty}>
-                  Không có mục nào khớp bộ lọc tìm kiếm.
-                </td>
-              </tr>
+              <TableEmpty colSpan={7}>Không có mục nào khớp bộ lọc tìm kiếm.</TableEmpty>
             ) : null}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </TableWrap>
 
       {/* VÙNG 3: FOOTER CHÂN BẢNG (ĐỒNG BỘ CHUẨN WORKSPACE) */}
-      <div className={styles.tableFooterBar}>
-        <div className={styles.tableFooterLeft}>
-          <span className={styles.tableTotalRecords}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[13px] text-slate-500">
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] text-slate-500 [&_strong]:text-slate-900">
             Hiển thị <strong>{totalRecords > 0 ? (safeCurrentPage - 1) * pageSize + 1 : 0}–{Math.min(safeCurrentPage * pageSize, totalRecords)}</strong> / <strong>{totalRecords}</strong> mục
           </span>
-          <div className={styles.tablePageSizeLabel} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <div className="inline-flex items-center gap-1.5 text-xs text-slate-500">
             <span>Hiển thị:</span>
-            <div style={{ width: '135px' }}>
+            <div className="w-[135px]">
               <SearchableSelect
                 value={String(pageSize)}
                 onChange={(val) => {
@@ -955,169 +856,92 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
           </div>
         </div>
 
-        <div className={styles.tableFooterRight}>
-          <div className={styles.tablePaginationGroup}>
-            <button
+        <div className="flex items-center">
+          <div className="flex items-center gap-2">
+            <Button
               type="button"
-              className={styles.tablePageBtn}
+              variant="outline"
+              size="sm"
               disabled={safeCurrentPage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               title="Trang trước"
             >
               ← Trước
-            </button>
-            <span className={styles.tablePageIndicator}>
+            </Button>
+            <span className="px-1 text-[13px] font-bold text-slate-900">
               {safeCurrentPage} / {totalPages}
             </span>
-            <button
+            <Button
               type="button"
-              className={styles.tablePageBtn}
+              variant="outline"
+              size="sm"
               disabled={safeCurrentPage >= totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               title="Trang sau"
             >
               Sau →
-            </button>
+            </Button>
           </div>
         </div>
       </div>
 
       {/* POPUP MODAL CHỈNH SỬA THÔNG TIN RECORD (CHUẨN MINIMAL POPUP FORM THEO SKILL UI-DESIGN) */}
       {editingItem ? (
-        <div className={styles.modalOverlay}>
-          <div
-            className={styles.modalDialog}
-            style={{
-              maxWidth: '520px',
-              background: '#f5f5f5',
-              border: '1px solid #e0e0e0',
-              borderRadius: '8px',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-              padding: '24px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header theo quy chuẩn Typography & Close Button */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: '24px',
-                    fontWeight: 700,
-                    color: '#333333',
-                    lineHeight: 1.25,
-                  }}
-                >
-                  Cập nhật vật tư
-                </h2>
-                <p
-                  style={{
-                    margin: '4px 0 0',
-                    fontSize: '14px',
-                    color: '#666666',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  Điều chỉnh mã SKU, tên hiển thị, loại danh mục và trạng thái kho bãi.
-                </p>
-              </div>
-              <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
-                <button
-                  type="button"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '32px',
-                    height: '32px',
-                    padding: 0,
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: 'transparent',
-                    color: '#666666',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease',
-                  }}
-                  aria-label="Đóng"
-                  title="Đóng"
-                >
-                  <X size={18} strokeWidth={2} />
-                </button>
-              </CloseGuard>
-            </div>
-
+        <Dialog onEscape={editIsDirty ? undefined : () => setEditingItem(null)}>
+          <DialogContent className="max-w-[520px]" aria-label="Cập nhật vật tư">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSaveEdit();
               }}
-              style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+              className="flex min-h-0 flex-col"
             >
+              <DialogHeader>
+                <div>
+                  <DialogTitle>Cập nhật vật tư</DialogTitle>
+                  <DialogDescription>
+                    Điều chỉnh mã SKU, tên hiển thị, loại danh mục và trạng thái kho bãi.
+                  </DialogDescription>
+                </div>
+                <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
+                  <DialogCloseButton />
+                </CloseGuard>
+              </DialogHeader>
+
+              <DialogBody className="flex flex-col gap-4">
               {/* Trường Mã vật tư */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                  Mã vật tư <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className="flex flex-col gap-1.5">
+                <Label required>Mã vật tư</Label>
+                <Input
                   type="text"
                   required
                   placeholder="VD: VT-001, MBA-01…"
                   value={editDraft.code}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '4px',
-                    border: '1px solid #e0e0e0',
-                    background: '#ffffff',
-                    fontSize: '16px',
-                    color: '#333333',
-                    outline: 'none',
-                  }}
                   onChange={(e) => setEditDraft((d) => ({ ...d, code: e.target.value }))}
                 />
-                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                <span className="text-[13px] text-slate-500">
                   Mã định danh duy nhất của vật tư trong hệ thống.
                 </span>
               </div>
 
               {/* Trường Tên vật tư */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                  Tên vật tư <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className="flex flex-col gap-1.5">
+                <Label required>Tên vật tư</Label>
+                <Input
                   type="text"
                   required
                   placeholder="VD: Dầu biến áp, Máy cắt không khí…"
                   value={editDraft.name}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '4px',
-                    border: '1px solid #e0e0e0',
-                    background: '#ffffff',
-                    fontSize: '16px',
-                    color: '#333333',
-                    outline: 'none',
-                  }}
                   onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
                 />
-                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                <span className="text-[13px] text-slate-500">
                   Tên gọi hiển thị trên danh mục và các biểu mẫu tác nghiệp.
                 </span>
               </div>
 
               {/* Trường Loại danh mục */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                  Loại danh mục
-                </label>
+              <div className="flex flex-col gap-1.5">
+                <Label>Loại danh mục</Label>
                 <SearchableSelect
                   value={editDraft.type}
                   onChange={(val) => setEditDraft((d) => ({ ...d, type: val }))}
@@ -1130,18 +954,16 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                     })),
                   ]}
                 />
-                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                <span className="text-[13px] text-slate-500">
                   Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
                 </span>
               </div>
 
               {/* Trạng thái vận hành & Vị trí kho (nếu không phải quản lý cá thể theo sê-ri) */}
               {!materialByCode?.get(editingItem.code)?.isSerialized ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                      Tình trạng vận hành
-                    </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Tình trạng vận hành</Label>
                     <SearchableSelect
                       value={editDraft.status}
                       onChange={(val) =>
@@ -1158,10 +980,8 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                     />
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                      Vị trí / Trạng thái kho
-                    </label>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Vị trí / Trạng thái kho</Label>
                     <SearchableSelect
                       value={editDraft.usageState}
                       onChange={(val) => setEditDraft((d) => ({ ...d, usageState: val }))}
@@ -1177,94 +997,43 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   </div>
                 </div>
               ) : (
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    background: '#eff6ff',
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '6px',
-                    color: '#1e40af',
-                    fontSize: '14px',
-                    lineHeight: '1.45',
-                  }}
-                >
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-sm leading-[1.45] text-blue-800">
                   Vật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
                 </div>
               )}
 
-              {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn của Minimal Popup Form */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  gap: '12px',
-                  marginTop: '8px',
-                  paddingTop: '16px',
-                  borderTop: '1px solid #e5e7eb',
-                }}
-              >
+              </DialogBody>
+
+              <DialogFooter>
                 <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
-                  <button
-                    type="button"
-                    style={{
-                      padding: '9px 16px',
-                      borderRadius: '4px',
-                      border: '1px solid #d1d5db',
-                      background: 'transparent',
-                      color: '#4b5563',
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                    disabled={busy}
-                  >
+                  <Button type="button" variant="outline" disabled={busy}>
                     Huỷ
-                  </button>
+                  </Button>
                 </CloseGuard>
-                <button
-                  type="submit"
-                  style={{
-                    padding: '9px 20px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    background: busy || !editDraft.code.trim() || !editDraft.name.trim() ? '#93c5fd' : '#2563eb',
-                    color: '#ffffff',
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    cursor: busy || !editDraft.code.trim() || !editDraft.name.trim() ? 'not-allowed' : 'pointer',
-                    transition: 'background 0.15s ease',
-                  }}
-                  disabled={busy || !editDraft.code.trim() || !editDraft.name.trim()}
-                >
+                <Button type="submit" disabled={busy || !editDraft.code.trim() || !editDraft.name.trim()}>
                   {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
-                </button>
-              </div>
+                </Button>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {/* DRAWER CHI TIẾT VẬT TƯ / THIẾT BỊ (ACTIONABLE DRAWER CONSOLE 680px CHUẨN THỦ KHO) */}
       {activeItem ? (
-        <>
-          <div
-            className={styles.drawerBackdrop}
-            onClick={() => setOpenCode(undefined)}
-            aria-hidden="true"
-          />
-          <aside className={styles.drawerPanel} aria-label="Chi tiết vật tư và hành động thủ kho">
+        <Sheet onEscape={() => setOpenCode(undefined)} onBackdropClick={() => setOpenCode(undefined)}>
+          <SheetContent aria-label="Chi tiết vật tư và hành động thủ kho">
             {/* Header Drawer */}
-            <div className={styles.drawerHead}>
-              <div className={styles.drawerHeadInfo}>
-                <div className={styles.drawerEyebrow}>
+            <SheetHeader>
+              <div className="flex min-w-0 flex-1 flex-col gap-[0.3rem]">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.04em] text-slate-500">
                   <Boxes size={13} strokeWidth={2.2} />
                   <span>Hồ sơ vận hành thiết bị · Thủ kho</span>
                 </div>
-                <h3 className={styles.drawerTitle}>{activeItem.name}</h3>
-                <div className={styles.drawerSubtitle}>
+                <h3 className="m-0 text-xl font-bold leading-[1.3] text-slate-900">{activeItem.name}</h3>
+                <div className="m-0 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                   <span>
-                    Mã: <code>{activeItem.code}</code>
+                    Mã: <code className="rounded bg-slate-100 px-[0.35rem] py-[0.1rem] font-mono font-bold text-slate-700">{activeItem.code}</code>
                   </span>
                   <span>·</span>
                   <span>
@@ -1284,7 +1053,12 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   {activeItem.status ? (
                     <>
                       <span>·</span>
-                      <span className={`${styles.statusBadge} ${styles[`status_${activeItem.status}`]}`}>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-[0.35rem] rounded-full border px-[0.55rem] py-[0.15rem] text-xs font-bold whitespace-nowrap',
+                          ASSET_STATUS_BADGE[activeItem.status] ?? '',
+                        )}
+                      >
                         {activeItem.status}
                       </span>
                     </>
@@ -1293,21 +1067,13 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
               </div>
 
               {/* Nút đóng trên Header Drawer */}
-              <button
-                type="button"
-                className={styles.drawerCloseBtn}
-                onClick={() => setOpenCode(undefined)}
-                aria-label="Đóng"
-                title="Đóng (ESC)"
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
+              <DialogCloseButton onClick={() => setOpenCode(undefined)} title="Đóng (ESC)" />
+            </SheetHeader>
 
             {/* Dải thông tin vị trí lưu kho & định vị nhanh */}
-            <div className={styles.drawerLocationBanner}>
-              <MapPin size={15} color="#2563eb" style={{ flexShrink: 0 }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
+            <div className="flex items-center gap-[0.45rem] border-b border-slate-200 bg-slate-100 px-[1.6rem] py-[0.65rem] text-sm font-medium text-slate-700">
+              <MapPin size={15} className="shrink-0 text-slate-500" />
+              <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 <span>Vị trí lưu kho:</span>
                 <strong>
                   {activeItem.installedAtName
@@ -1320,12 +1086,12 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
             </div>
 
             {/* Hệ thống Sub-Tabs: 1. Số lượng ở từng kho, 2. Lịch sử xuất nhập kho */}
-            <div className={styles.drawerTabs} role="tablist">
+            <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-5" role="tablist">
               <button
                 type="button"
                 role="tab"
                 aria-selected={drawerTab === 'storage'}
-                className={`${styles.drawerTabBtn} ${drawerTab === 'storage' ? styles.drawerTabBtnActive : ''}`}
+                className={cn(TAB_BTN, drawerTab === 'storage' && TAB_BTN_ACTIVE)}
                 onClick={() => setDrawerTab('storage')}
               >
                 <Boxes size={14} />
@@ -1336,7 +1102,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                 type="button"
                 role="tab"
                 aria-selected={drawerTab === 'ledger'}
-                className={`${styles.drawerTabBtn} ${drawerTab === 'ledger' ? styles.drawerTabBtnActive : ''}`}
+                className={cn(TAB_BTN, drawerTab === 'ledger' && TAB_BTN_ACTIVE)}
                 onClick={() => setDrawerTab('ledger')}
               >
                 <Clock size={14} />
@@ -1345,17 +1111,17 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
             </div>
 
             {/* Nội dung theo Tab đang chọn */}
-            <div className={styles.drawerBody}>
+            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-[1.6rem] py-5">
               {/* TAB 1: TỔNG QUAN & VỊ TRÍ LƯU TRỮ */}
               {drawerTab === 'storage' ? (
                 <>
                   {/* Vị trí lưu trữ từ tồn kho API */}
-                  <div className={styles.binCoordinateBox}>
-                    <div className={styles.binCoordinateDetail}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#1e40af' }}>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-[0.85rem]">
+                    <div className="flex flex-col gap-[0.2rem]">
+                      <span className="text-xs font-bold uppercase text-blue-800">
                         Định vị ngăn lưu trữ (Bin Location)
                       </span>
-                      <div className={styles.binCoordinatePath}>
+                      <div className="text-sm font-bold text-blue-800">
                         {activeItem.installedAtName
                           ? `Lắp tại: ${activeItem.installedAtName}`
                           : activeLocationIds.length > 0
@@ -1366,22 +1132,22 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   </div>
 
                   {/* Phân bố tồn kho thực tế */}
-                  <div className={styles.drawerSection}>
-                    <h4 className={styles.drawerSectionTitle}>
+                  <div className="flex flex-col gap-3">
+                    <h4 className="m-0 flex items-center justify-between gap-2 text-sm font-bold text-slate-800">
                       <span>Tồn kho theo từng kho vật lý</span>
-                      <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 400 }}>
+                      <span className="text-[13px] font-normal text-slate-500">
                         Tổng sở hữu: <strong>{formatNumber(onHand(activeItem) + inUse(activeItem))}</strong> {activeItem.unit ?? ''}
                       </span>
                     </h4>
                     {(stockByCode.get(activeItem.code) ?? []).length > 0 ? (
-                      <div className={styles.drawerStockGrid}>
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
                         {(stockByCode.get(activeItem.code) ?? []).map((row) => (
-                          <div key={row.id} className={styles.drawerStockCard}>
-                            <span className={styles.drawerStockWarehouse}>{row.warehouseCode}</span>
-                            <span className={styles.drawerStockQty}>
+                          <div key={row.id} className={STOCK_CARD}>
+                            <span className="text-sm font-bold text-slate-700">{row.warehouseCode}</span>
+                            <span className="text-xl font-bold text-slate-900">
                               {formatNumber(row.quantity)} {activeItem.unit ?? ''}
                             </span>
-                            <div className={styles.drawerStockMeta}>
+                            <div className="flex items-center justify-between text-[0.8125rem] text-slate-500">
                               <span title={STOCK_COLUMN_TIP.reserved}>Đã giữ: {formatNumber(row.quantityReserved)}</span>
                               {row.quantityBlocked ? (
                                 <span title={STOCK_COLUMN_TIP.blocked}>
@@ -1396,34 +1162,34 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                         ))}
                       </div>
                     ) : (
-                      <p className={styles.muted}>Chưa ghi nhận tồn kho ở kho nào.</p>
+                      <p className="text-slate-500">Chưa ghi nhận tồn kho ở kho nào.</p>
                     )}
                   </div>
 
                   {/* Tình trạng bảo quản & Quy chuẩn an toàn */}
-                  <div className={styles.drawerSection}>
-                    <h4 className={styles.drawerSectionTitle}>Tình trạng bảo quản & Dự phòng</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
-                      <div className={styles.drawerStockCard}>
-                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                          <span style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                  <div className="flex flex-col gap-3">
+                    <h4 className="m-0 flex items-center justify-between gap-2 text-sm font-bold text-slate-800">Tình trạng bảo quản & Dự phòng</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className={STOCK_CARD}>
+                        <span className="text-xs font-semibold text-slate-500">NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-base font-bold text-slate-900">
                             {activeMaterial ? formatNumber(activeMaterial.minStock) : 'Chưa có dữ liệu'} {activeItem.unit ?? ''}
                           </span>
                           {activeMaterial ? (
-                            <span style={{ fontSize: '12px', color: onHand(activeItem) < activeMaterial.minStock ? '#dc2626' : '#16a34a' }}>
+                            <span className={cn('text-xs', onHand(activeItem) < activeMaterial.minStock ? 'text-red-600' : 'text-green-600')}>
                               ({onHand(activeItem) < activeMaterial.minStock ? 'Dưới ngưỡng' : 'Đạt mức an toàn'})
                             </span>
                           ) : null}
                         </div>
-                        <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        <span className="text-xs text-slate-500">
                           Ngưỡng được lấy từ cấu hình vật tư và đối chiếu với tồn thực tế.
                         </span>
                       </div>
-                      <div className={styles.drawerStockCard}>
-                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>LỊCH BẢO QUẢN ĐỊNH KỲ</span>
+                      <div className={STOCK_CARD}>
+                        <span className="text-xs font-semibold text-slate-500">LỊCH BẢO QUẢN ĐỊNH KỲ</span>
                         {activeMaintenance?.length ? activeMaintenance.map((schedule) => (
-                          <div key={schedule.id} style={{ fontSize: '13px', color: '#334155' }}>
+                          <div key={schedule.id} className="text-[13px] text-slate-700">
                             <strong>{schedule.title}</strong>
                             <span> · {schedule.frequency}</span>
                             {schedule.nextDueAt ? (
@@ -1431,7 +1197,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                             ) : null}
                           </div>
                         )) : (
-                          <span style={{ fontSize: '12px', color: '#64748b' }}>
+                          <span className="text-xs text-slate-500">
                             Chưa có lịch bảo trì từ API.
                           </span>
                         )}
@@ -1443,7 +1209,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
 
               {/* TAB 2: LỊCH SỬ XUẤT NHẬP KHO (SỔ CÁI & THẺ KHO) */}
               {drawerTab === 'ledger' ? (
-                <div className={styles.drawerSection}>
+                <div className="flex flex-col gap-3">
                   <MaterialHistory
                     state={history[activeItem.code]}
                     unit={activeItem.unit}
@@ -1454,31 +1220,19 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
             </div>
 
             {/* STICKY ACTION FOOTER (CỐ ĐỊNH DƯỚI ĐÁY DRAWER CHUẨN THỦ KHO) */}
-            <div className={styles.drawerFooter}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <SheetFooter className="justify-between">
+              <div className="flex items-center gap-2">
                 {onPatch ? (
-                  <button
+                  <Button
                     type="button"
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      cursor: 'pointer',
-                    }}
+                    variant="outline"
                     onClick={() => handleStartEdit(activeItem)}
                     disabled={busy}
                     title="Sửa thông tin vật tư"
                   >
                     <Pencil size={14} />
                     <span>Sửa</span>
-                  </button>
+                  </Button>
                 ) : null}
 
                 {activeMaterial && activeMaterial.isActive !== false && onRetire ? (
@@ -1495,84 +1249,40 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                       onRetire(activeMaterial);
                     }}
                   >
-                    <button
+                    <Button
                       type="button"
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: '6px',
-                        border: '1px solid #fecaca',
-                        background: '#fef2f2',
-                        color: '#dc2626',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        cursor: 'pointer',
-                      }}
+                      variant="destructive"
                       disabled={busy}
                       title="Ngừng sử dụng mã vật tư này"
                     >
                       <Ban size={14} />
                       <span>Ngừng sử dụng</span>
-                    </button>
+                    </Button>
                   </Popconfirm>
                 ) : null}
               </div>
 
-              <button
-                type="button"
-                className={styles.modalCancelBtn}
-                onClick={() => setOpenCode(undefined)}
-              >
+              <Button type="button" variant="outline" onClick={() => setOpenCode(undefined)}>
                 Đóng
-              </button>
-            </div>
-          </aside>
-        </>
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
       ) : null}
 
       {/* MODAL IN TEM NHÃN QR CODE KHỔ 50x30MM */}
       {showQrPrintModal && activeItem ? (
-        <div className={styles.modalOverlay} onClick={() => setShowQrPrintModal(false)}>
-          <div
-            className={styles.modalDialog}
-            style={{
-              maxWidth: '460px',
-              background: '#ffffff',
-              borderRadius: '10px',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-              padding: '20px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                Xem trước tem nhãn dán thiết bị (50×30mm)
-              </h3>
-              <button
-                type="button"
-                className={styles.closeButton}
-                onClick={() => setShowQrPrintModal(false)}
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
+        <Dialog onEscape={() => setShowQrPrintModal(false)}>
+          <DialogContent className="max-w-[460px]" aria-label="Xem trước tem nhãn dán thiết bị (50×30mm)">
+            <DialogHeader>
+              <DialogTitle>Xem trước tem nhãn dán thiết bị (50×30mm)</DialogTitle>
+              <DialogCloseButton onClick={() => setShowQrPrintModal(false)} />
+            </DialogHeader>
 
+            <DialogBody>
             {/* Tem mẫu chuẩn in ấn */}
-            <div
-              style={{
-                border: '2px dashed #94a3b8',
-                borderRadius: '6px',
-                padding: '14px',
-                background: '#fafafa',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '14px',
-                marginBottom: '16px',
-              }}
-            >
-              <div style={{ width: '80px', height: '80px', background: '#fff', border: '1px solid #ccc', padding: '4px' }}>
+            <div className="mb-4 flex items-center gap-3.5 rounded-md border-2 border-dashed border-slate-400 bg-neutral-50 p-3.5">
+              <div className="size-20 border border-slate-300 bg-white p-1">
                 <svg viewBox="0 0 100 100" width="70" height="70">
                   <rect width="100" height="100" fill="#ffffff" />
                   <rect x="5" y="5" width="28" height="28" fill="#0f172a" />
@@ -1587,15 +1297,15 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   <rect x="40" y="40" width="20" height="20" fill="#2563eb" />
                 </svg>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-                <span style={{ fontSize: '12px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
+              <div className="flex flex-1 flex-col gap-[3px]">
+                <span className="text-xs font-bold uppercase text-slate-500">
                   ENTERPRISE PLATFORM · KHO
                 </span>
-                <strong style={{ fontSize: '14px', color: '#0f172a' }}>{activeItem.code}</strong>
-                <span style={{ fontSize: '12px', color: '#334155', fontWeight: 600, lineHeight: 1.2 }}>
+                <strong className="text-sm text-slate-900">{activeItem.code}</strong>
+                <span className="text-xs font-semibold leading-[1.2] text-slate-700">
                   {activeItem.name}
                 </span>
-                <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>
+                <span className="text-xs font-semibold text-slate-700">
                   Vị trí: {activeItem.installedAtName
                     ? `Lắp tại: ${activeItem.installedAtName}`
                     : activeLocationIds.length > 0
@@ -1605,28 +1315,25 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                className={styles.modalCancelBtn}
-                onClick={() => setShowQrPrintModal(false)}
-              >
-                Đóng
-              </button>
-              <button
-                type="button"
-                className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                onClick={() => {
-                  window.print();
-                  setShowQrPrintModal(false);
-                }}
-              >
-                <Printer size={15} />
-                <span>In ra máy in tem</span>
-              </button>
-            </div>
-          </div>
-        </div>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowQrPrintModal(false)}>
+              Đóng
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                window.print();
+                setShowQrPrintModal(false);
+              }}
+            >
+              <Printer size={15} />
+              <span>In ra máy in tem</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+        </Dialog>
       ) : null}
     </section>
   );

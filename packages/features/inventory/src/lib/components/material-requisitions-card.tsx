@@ -19,7 +19,10 @@ import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api'
 import { generateRequisitionCsvContent } from '../inventory-api';
 import { formatDate } from '@enterprise-platform/shared-ui';
 import { formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
 
 export function MaterialRequisitionsCard({
   requisitions,
@@ -62,67 +65,49 @@ export function MaterialRequisitionsCard({
   };
 
   return (
-    <section className={styles.card} style={{ borderLeft: '4px solid #2563eb' }}>
-      <div className={styles.cardHead}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <section className="rounded-2xl border border-slate-200 bg-white px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem] shadow-sm border-l-4 border-l-blue-600">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
           <div
-            style={{
-              padding: '8px',
-              borderRadius: '8px',
-              background: '#eff6ff',
-              color: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className="p-2 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"
           >
             <FileSpreadsheet size={20} strokeWidth={2.2} />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+            <h2 className="m-0 text-[16px] font-bold text-slate-900">
               Nhu cầu cấp phát vật tư từ Quy trình (Bảng kê CSV)
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
               Quy trình con &amp; lệnh bảo trì tự động kết xuất bảng kê CSV để thủ kho chủ động lập phiếu xuất/giữ chỗ.
             </p>
           </div>
         </div>
 
-        <span
-          style={{
-            padding: '3px 10px',
-            borderRadius: '999px',
-            fontSize: '13px',
-            fontWeight: 700,
-            background: requisitions.length > 0 ? '#dbeafe' : '#f1f5f9',
-            color: requisitions.length > 0 ? '#1d4ed8' : '#64748b',
-          }}
+        <Badge
+          variant="secondary"
+          className={cn(
+            'h-auto px-2.5 py-[3px] text-[13px] font-bold',
+            requisitions.length > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500',
+          )}
         >
           {loading ? 'Đang cập nhật…' : `${requisitions.length} yêu cầu`}
-        </span>
+        </Badge>
       </div>
 
       {loading ? (
-        <p style={{ padding: '16px', color: '#64748b', fontSize: '14px', margin: 0 }}>
+        <p className="p-4 text-slate-500 text-[14px] m-0">
           Đang quét dữ liệu bảng kê từ Quy trình…
         </p>
       ) : requisitions.length === 0 ? (
         <div
-          style={{
-            padding: '24px 16px',
-            textAlign: 'center',
-            background: '#f8fafc',
-            borderRadius: '8px',
-            border: '1px dashed #cbd5e1',
-            margin: '8px 0 4px',
-          }}
+          className="py-6 px-4 text-center bg-slate-50 rounded-lg border border-dashed border-slate-300 mt-2 mx-0 mb-1"
         >
-          <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
+          <p className="m-0 text-[14px] text-slate-500">
             Hiện chưa có hồ sơ quy trình nào gửi yêu cầu vật tư hoặc bảng kê CSV chờ xử lý.
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+        <div className="flex flex-col gap-2.5 mt-2.5">
           {requisitions.map((req) => {
             const isExpanded = expandedId === req.code;
             const totalItems = req.lines.reduce((acc, l) => acc + l.quantity, 0);
@@ -130,74 +115,43 @@ export function MaterialRequisitionsCard({
             return (
               <div
                 key={req.code}
-                style={{
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  background: '#ffffff',
-                  overflow: 'hidden',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
-                  transition: 'all 0.15s ease',
-                }}
+                className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150"
               >
                 {/* Dòng tóm tắt của yêu cầu */}
                 <div
-                  style={{
-                    padding: '12px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    background: isExpanded ? '#f8fafc' : '#ffffff',
-                    cursor: 'pointer',
-                  }}
+                  className={cn(
+                    'flex cursor-pointer items-center justify-between gap-3 px-3.5 py-3',
+                    isExpanded ? 'bg-slate-50' : 'bg-white',
+                  )}
                   onClick={() => setExpandedId(isExpanded ? null : req.code)}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        fontFamily: 'monospace',
-                        background: '#eff6ff',
-                        color: '#1d4ed8',
-                        border: '1px solid #bfdbfe',
-                      }}
+                      className="py-[3px] px-2 rounded-md text-[12px] font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200"
                     >
                       {req.code}
                     </span>
 
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="min-w-0 flex-1">
                       <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: '14px',
-                          color: '#1e293b',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
+                        className="font-semibold text-[14px] text-slate-800 flex items-center gap-1.5 whitespace-nowrap overflow-hidden text-ellipsis"
                       >
                         <span>{req.title}</span>
                         {req.assetCode ? (
-                          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>
+                          <span className="text-[12px] text-slate-500 font-medium">
                             (Thiết bị: {req.assetCode})
                           </span>
                         ) : null}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <div className="flex items-center gap-3 text-[12px] text-slate-500 mt-[3px]">
+                        <span className="inline-flex items-center gap-1">
                           <Boxes size={13} /> {req.lines.length} dòng vật tư (tổng {formatNumber(totalItems)})
                         </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <span className="inline-flex items-center gap-1">
                           <FileSpreadsheet size={13} /> {req.csvFileName}
                         </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <span className="inline-flex items-center gap-1">
                           <Clock size={13} /> {formatDate(req.startedAt)}
                         </span>
                         {/* Huy hiệu tóm tắt 3 màu cấp độ tồn kho của toàn phiếu */}
@@ -220,63 +174,30 @@ export function MaterialRequisitionsCard({
                             }
                           }
                           return (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', marginLeft: '6px' }}>
+                            <div className="inline-flex items-center gap-[5px] ml-1.5">
                               {singleCount > 0 ? (
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '3px',
-                                    padding: '1px 6px',
-                                    borderRadius: '10px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#ecfdf5',
-                                    color: '#047857',
-                                    border: '1px solid #a7f3d0',
-                                  }}
+                                <Badge variant="outline"
+                                  className="h-auto gap-[3px] py-[1px] px-1.5 text-[12px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200"
                                   title={`${singleCount}/${req.lines.length} vật tư có sẵn tại 1 kho`}
                                 >
                                   ● {singleCount} sẵn sàng
-                                </span>
+                                </Badge>
                               ) : null}
                               {transferCount > 0 ? (
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '3px',
-                                    padding: '1px 6px',
-                                    borderRadius: '10px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#fffbeb',
-                                    color: '#b45309',
-                                    border: '1px solid #fde68a',
-                                  }}
+                                <Badge variant="outline"
+                                  className="h-auto gap-[3px] py-[1px] px-1.5 text-[12px] font-semibold bg-amber-50 text-amber-700 border-amber-200"
                                   title={`${transferCount}/${req.lines.length} vật tư đủ nếu gom/chuyển kho`}
                                 >
                                   ▲ {transferCount} cần gom kho
-                                </span>
+                                </Badge>
                               ) : null}
                               {shortageCount > 0 ? (
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '3px',
-                                    padding: '1px 6px',
-                                    borderRadius: '10px',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    background: '#fef2f2',
-                                    color: '#b91c1c',
-                                    border: '1px solid #fecaca',
-                                  }}
+                                <Badge variant="outline"
+                                  className="h-auto gap-[3px] py-[1px] px-1.5 text-[12px] font-semibold bg-red-50 text-red-700 border-red-200"
                                   title={`${shortageCount}/${req.lines.length} vật tư thiếu toàn bộ các kho`}
                                 >
                                   ✕ {shortageCount} thiếu hàng
-                                </span>
+                                </Badge>
                               ) : null}
                             </div>
                           );
@@ -287,146 +208,77 @@ export function MaterialRequisitionsCard({
 
                   {/* Nút mũi tên mở rộng / đóng */}
                   <div
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    className="flex items-center gap-1.5"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button
-                      type="button"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#ffffff',
-                        color: '#334155',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
+                    <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ className="h-8 gap-[5px] px-3 text-[13px] font-semibold"
                       onClick={() => setExpandedId(isExpanded ? null : req.code)}
                     >
                       <span>{isExpanded ? 'Đóng chi tiết' : 'Xem chi tiết'}</span>
                       {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 {/* Bảng chi tiết từng dòng vật tư khi mở rộng (Bấm onclick xem chi tiết mới hiện các nút tác vụ) */}
                 {isExpanded ? (
                   <div
-                    style={{
-                      padding: '14px 16px',
-                      background: '#f8fafc',
-                      borderTop: '1px solid #e2e8f0',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px',
-                    }}
+                    className="py-3.5 px-4 bg-slate-50 border-t border-t-slate-200 flex flex-col gap-3"
                   >
                     {/* Thanh công cụ tác vụ: Chỉ xuất hiện khi mở xem chi tiết */}
                     <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: '10px',
-                        paddingBottom: '10px',
-                        borderBottom: '1px solid #e2e8f0',
-                      }}
+                      className="flex items-center justify-between flex-wrap gap-2.5 pb-2.5 border-b border-b-slate-200"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold text-slate-700">
                           Danh sách {req.lines.length} hạng mục vật tư chi tiết:
                         </span>
                         <a
                           href={`/modules/procedure#workspace`}
                           target="_blank"
                           rel="noreferrer"
-                          style={{
-                            color: '#2563eb',
-                            textDecoration: 'none',
-                            fontSize: '13px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            marginLeft: '8px',
-                          }}
+                          className="text-blue-600 no-underline text-[13px] inline-flex items-center gap-1 ml-2"
                         >
                           Xem hồ sơ gốc <ExternalLink size={12} />
                         </a>
                       </div>
 
                       {/* Cụm nút tác vụ: Tải CSV, Kiểm tra tồn kho, Xuất toàn bộ */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '6px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            background: '#ffffff',
-                            color: '#334155',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}
+                      <div className="flex items-center gap-2">
+                        <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ className="h-8 gap-[5px] px-3 text-[13px] font-semibold"
                           onClick={() => handleDownloadCsv(req)}
                           title={`Tải xuống tệp ${req.csvFileName}`}
                         >
                           <Download size={13} />
                           <span>Tải bảng kê CSV</span>
-                        </button>
+                        </Button>
 
                         {onCheckStock && req.lines.length > 0 ? (
-                          <button
-                            type="button"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px',
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              background: '#ffffff',
-                              color: '#0f172a',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease',
-                            }}
+                          <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ className="h-8 gap-[5px] px-3 text-[13px] font-semibold"
                             onClick={() => onCheckStock(req.lines[0]?.materialCode || '')}
                             title="Kiểm tra mức độ tồn kho và khả dụng của các vật tư trong bảng kê"
                           >
-                            <PackageCheck size={13} style={{ color: '#059669' }} />
+                            <PackageCheck size={13} className="text-emerald-600" />
                             <span>Kiểm tra tồn kho</span>
-                          </button>
+                          </Button>
                         ) : null}
 
-                        <button
+                        <Button
                           type="button"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            border: '1px solid #2563eb',
-                            background: '#2563eb',
-                            color: '#ffffff',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
-                            transition: 'all 0.15s ease',
-                          }}
+                          size="sm"
+                          className="h-8 gap-1.5 px-3.5 text-[13px] font-semibold"
                           onClick={() => onOpenIssueFromRequisition(req)}
                           disabled={!canWriteTransactions}
                           title={`Xử lý cấp phát toàn bộ ${req.lines.length} vật tư theo bảng kê`}
@@ -437,43 +289,35 @@ export function MaterialRequisitionsCard({
                               ? `Xử lý phiếu yêu cầu (${req.lines.length} vật tư)`
                               : 'Xử lý phiếu yêu cầu'}
                           </span>
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
                     {req.lines.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
+                      <p className="m-0 text-[13px] text-slate-400 italic">
                         Chưa có dòng vật tư chi tiết. Bấm "Xử lý phiếu yêu cầu" để nạp trực tiếp vào phiếu.
                       </p>
                     ) : (
-                      <table
-                        style={{
-                          width: '100%',
-                          borderCollapse: 'collapse',
-                          fontSize: '13px',
-                          background: '#ffffff',
-                          borderRadius: '6px',
-                          overflow: 'hidden',
-                          border: '1px solid #e2e8f0',
-                        }}
+                      <Table
+                        className="w-full border-collapse text-[13px] bg-white rounded-md overflow-hidden border border-slate-200"
                       >
-                        <thead>
-                          <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left' }}>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0' }}>Mã vật tư</th>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0' }}>Tên vật tư</th>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0', textAlign: 'right' }}>
+                        <TableHead>
+                          <TableRow className="bg-slate-100 text-left text-slate-600 hover:bg-slate-100">
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">Mã vật tư</TableHeaderCell>
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">Tên vật tư</TableHeaderCell>
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200 text-right">
                               Cần xuất
-                            </th>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0', textAlign: 'right' }}>
+                            </TableHeaderCell>
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200 text-right">
                               Khả dụng trong kho
-                            </th>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0' }}>ĐVT</th>
-                            <th style={{ padding: '6px 10px', borderBottom: '1px solid #e2e8f0', textAlign: 'center' }}>
+                            </TableHeaderCell>
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">ĐVT</TableHeaderCell>
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200 text-center">
                               Thao tác
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                            </TableHeaderCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
                           {req.lines.map((line, idx) => {
                             // Bóc tách tồn kho chi tiết trên từng kho
                             const matchingStocks = workspace?.stock?.filter(
@@ -525,150 +369,86 @@ export function MaterialRequisitionsCard({
                                 : `Tổng khả dụng: ${formatNumber(totalAvail)}`;
 
                             return (
-                              <tr key={`${line.materialCode}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '8px 10px', fontWeight: 600, color: '#2563eb' }}>
+                              <TableRow key={`${line.materialCode}-${idx}`} className="border-b border-b-slate-100">
+                                <TableCell className="py-2 px-2.5 font-semibold text-blue-600">
                                   {line.materialCode}
-                                </td>
-                                <td style={{ padding: '8px 10px', color: '#1e293b' }}>
+                                </TableCell>
+                                <TableCell className="py-2 px-2.5 text-slate-800">
                                   {line.materialName || '—'}
-                                </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                                </TableCell>
+                                <TableCell className="py-2 px-2.5 text-right font-bold text-slate-900">
                                   {formatNumber(line.quantity)}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: '8px 10px',
-                                    textAlign: 'right',
-                                  }}
+                                </TableCell>
+                                <TableCell
+                                  className="py-2 px-2.5 text-right"
                                   title={breakdownTooltip}
                                 >
                                   {stockTier === 'single_ready' ? (
-                                    <span
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        padding: '2px 8px',
-                                        borderRadius: '12px',
-                                        fontSize: '12px',
-                                        fontWeight: 600,
-                                        background: '#ecfdf5',
-                                        color: '#047857',
-                                        border: '1px solid #a7f3d0',
-                                        cursor: 'help',
-                                      }}
+                                    <Badge variant="outline"
+                                      className="h-auto gap-1 py-0.5 px-2 text-[12px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 cursor-help"
                                     >
                                       ● {formatNumber(totalAvail)} (Sẵn sàng 1 kho)
-                                    </span>
+                                    </Badge>
                                   ) : stockTier === 'transfer_needed' ? (
-                                    <span
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        padding: '2px 8px',
-                                        borderRadius: '12px',
-                                        fontSize: '12px',
-                                        fontWeight: 600,
-                                        background: '#fffbeb',
-                                        color: '#b45309',
-                                        border: '1px solid #fde68a',
-                                        cursor: 'help',
-                                      }}
+                                    <Badge variant="outline"
+                                      className="h-auto gap-1 py-0.5 px-2 text-[12px] font-semibold bg-amber-50 text-amber-700 border-amber-200 cursor-help"
                                     >
                                       ▲ {formatNumber(totalAvail)} (Đủ nếu gom kho)
-                                    </span>
+                                    </Badge>
                                   ) : (
-                                    <span
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        padding: '2px 8px',
-                                        borderRadius: '12px',
-                                        fontSize: '12px',
-                                        fontWeight: 600,
-                                        background: '#fef2f2',
-                                        color: '#b91c1c',
-                                        border: '1px solid #fecaca',
-                                        cursor: 'help',
-                                      }}
+                                    <Badge variant="outline"
+                                      className="h-auto gap-1 py-0.5 px-2 text-[12px] font-semibold bg-red-50 text-red-700 border-red-200 cursor-help"
                                     >
                                       ✕ {formatNumber(totalAvail)} (Thiếu toàn kho)
-                                    </span>
+                                    </Badge>
                                   )}
-                                </td>
-                                <td style={{ padding: '8px 10px', color: '#64748b' }}>
+                                </TableCell>
+                                <TableCell className="py-2 px-2.5 text-slate-500">
                                   {line.unit || '—'}
-                                </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                </TableCell>
+                                <TableCell className="py-2 px-2.5 text-center">
+                                  <div className="inline-flex items-center gap-1.5">
                                     {onCheckStock ? (
-                                      <button
+                                      <Button
                                         type="button"
-                                        style={{
-                                          border: '1px solid #e2e8f0',
-                                          background: '#f8fafc',
-                                          color: '#475569',
-                                          fontWeight: 600,
-                                          fontSize: '12px',
-                                          cursor: 'pointer',
-                                          padding: '3px 8px',
-                                          borderRadius: '4px',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '3px',
-                                        }}
+                                        variant="outline"
+                                        size="xs"
+                                        className="gap-[3px] bg-slate-50 text-[12px] font-semibold text-slate-600"
                                         onClick={() => onCheckStock(line.materialCode)}
                                         title={`Kiểm tra vị trí và lượng tồn kho của ${line.materialCode}`}
                                       >
                                         <Eye size={11} />
                                         Soi kho
-                                      </button>
+                                      </Button>
                                     ) : null}
 
                                     {/* Nút Tạo phiếu Chuyển kho khi trạng thái là Vàng (Đủ nếu gom kho) */}
                                     {stockTier === 'transfer_needed' && onOpenTransfer && canWriteTransactions ? (
-                                      <button
+                                      <Button
                                         type="button"
-                                        style={{
-                                          border: '1px solid #fcd34d',
-                                          background: '#fffbeb',
-                                          color: '#b45309',
-                                          fontWeight: 600,
-                                          fontSize: '12px',
-                                          cursor: 'pointer',
-                                          padding: '3px 8px',
-                                          borderRadius: '4px',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '3px',
-                                        }}
+                                        variant="outline"
+                                        size="xs"
+                                        className="gap-[3px] border-amber-300 bg-amber-50 text-[12px] font-semibold text-amber-700 hover:bg-amber-100"
                                         onClick={() => onOpenTransfer(line.materialCode)}
                                         title={`Tạo phiếu điều chuyển nội bộ để gom mã ${line.materialCode} về một kho trước khi xuất`}
                                       >
                                         <ArrowLeftRight size={11} />
                                         Chuyển kho ⇄
-                                      </button>
+                                      </Button>
                                     ) : null}
 
-                                    <button
+                                    <Button
                                       type="button"
-                                      style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color:
-                                          stockTier === 'single_ready'
-                                            ? '#16a34a'
-                                            : stockTier === 'transfer_needed'
-                                              ? '#d97706'
-                                              : '#2563eb',
-                                        fontWeight: 600,
-                                        fontSize: '12px',
-                                        cursor: 'pointer',
-                                        padding: '3px 6px',
-                                        borderRadius: '4px',
-                                      }}
+                                      variant="ghost"
+                                      size="xs"
+                                      className={cn(
+                                        'px-1.5 text-[12px] font-semibold',
+                                        stockTier === 'single_ready'
+                                          ? 'text-green-600'
+                                          : stockTier === 'transfer_needed'
+                                            ? 'text-amber-600'
+                                            : 'text-blue-600',
+                                      )}
                                       onClick={() => onOpenIssueFromRequisition(req, idx)}
                                       disabled={!canWriteTransactions}
                                     >
@@ -677,14 +457,14 @@ export function MaterialRequisitionsCard({
                                         : stockTier === 'transfer_needed'
                                           ? 'Tách kho xuất →'
                                           : 'Đề xuất mua sắm →'}
-                                    </button>
+                                    </Button>
                                   </div>
-                                </td>
-                              </tr>
+                                </TableCell>
+                              </TableRow>
                             );
                           })}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     )}
                   </div>
                 ) : null}

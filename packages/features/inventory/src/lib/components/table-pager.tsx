@@ -2,8 +2,8 @@
 
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import styles from '../inventory.module.scss';
 import { PAGE_SIZES, type Page } from '../trade-items.model';
+import { Button } from '../ui/button';
 
 /** Chân bảng: chọn số bản ghi mỗi trang (15, 30, 45), khoảng đang xem và nút chuyển trang. */
 export function TablePager({
@@ -20,12 +20,10 @@ export function TablePager({
   const pageSizeOptions = PAGE_SIZES.map((value) => ({ value: String(value), label: `${value} / trang` }));
 
   return (
-    <div
-      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: '#475569' }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-slate-600">
+      <div className="flex items-center gap-2">
         <span>Số bản ghi mỗi trang</span>
-        <div style={{ width: '120px' }}>
+        <div className="w-[120px]">
           <SearchableSelect
             options={pageSizeOptions}
             value={String(pageSize)}
@@ -38,28 +36,30 @@ export function TablePager({
       <span aria-live="polite">
         {view.from}–{view.to} / {view.total}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button
+      <div className="flex items-center gap-2">
+        <Button
           type="button"
-          className={styles.btnSecondary}
+          variant="outline"
+          size="icon"
           aria-label="Trang trước"
           disabled={view.page <= 1}
           onClick={() => onPageChange(view.page - 1)}
         >
           <ChevronLeft size={14} />
-        </button>
+        </Button>
         <span>
           Trang {view.page} / {view.pageCount}
         </span>
-        <button
+        <Button
           type="button"
-          className={styles.btnSecondary}
+          variant="outline"
+          size="icon"
           aria-label="Trang sau"
           disabled={view.page >= view.pageCount}
           onClick={() => onPageChange(view.page + 1)}
         >
           <ChevronRight size={14} />
-        </button>
+        </Button>
       </div>
     </div>
   );
