@@ -9,6 +9,7 @@ import type {
   CorrespondenceStatus,
   LetterStage,
 } from '@enterprise-platform/contracts-correspondence';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { Archive, BarChart3, BellRing, FilePen, Inbox, LayoutDashboard, Plus, Send, UserCheck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ArchiveView } from './components/archive-view';
@@ -116,25 +117,25 @@ export function CorrespondenceScreen() {
       id: 'mine',
       label: 'Cần tôi xử lý',
       group: 'Văn thư',
-      icon: <UserCheck size={16} />,
+      icon: <AppIcon slot="sidebar.correspondence.mine" fallback={UserCheck} className="size-4" />,
       badge: overview?.awaitingMe ? overview.awaitingMe : undefined,
     },
-    ...(canTrack ? [{ id: 'tracking' as const, label: 'Theo dõi đôn đốc', group: 'Văn thư', icon: <BellRing size={16} /> }] : []),
+    ...(canTrack ? [{ id: 'tracking' as const, label: 'Theo dõi đôn đốc', group: 'Văn thư', icon: <AppIcon slot="sidebar.correspondence.tracking" fallback={BellRing} className="size-4" /> }] : []),
     {
       id: 'incoming',
       label: 'Công văn đến',
       group: 'Sổ công văn',
-      icon: <Inbox size={16} />,
+      icon: <AppIcon slot="sidebar.correspondence.incoming" fallback={Inbox} className="size-4" />,
       badge: overview?.incomingOpen ? overview.incomingOpen : undefined,
     },
     {
       id: 'outgoing',
       label: 'Công văn đi',
       group: 'Sổ công văn',
-      icon: <Send size={16} />,
+      icon: <AppIcon slot="sidebar.correspondence.outgoing" fallback={Send} className="size-4" />,
       badge: overview?.outgoingOpen ? overview.outgoingOpen : undefined,
     },
-    { id: 'archive', label: 'Kho lưu trữ', group: 'Sổ công văn', icon: <Archive size={16} /> },
+    { id: 'archive', label: 'Kho lưu trữ', group: 'Sổ công văn', icon: <AppIcon slot="sidebar.correspondence.archive" fallback={Archive} className="size-4" /> },
     ...(canLedger
       ? [{ id: 'reports' as const, label: 'Báo cáo', group: 'Sổ công văn', icon: <BarChart3 size={16} /> }]
       : []),

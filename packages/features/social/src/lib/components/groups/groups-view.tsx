@@ -3,7 +3,7 @@
 import { SOCIAL_GROUP_PAGE_SIZE, type SocialGroupSummary } from '@enterprise-platform/contracts-social';
 import { Check, Clock, Link2, LogOut, Pin, Plus, Search, Star, Users } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { toast } from '@enterprise-platform/shared-ui';
+import { AppIcon, toast } from '@enterprise-platform/shared-ui';
 import { errorMessage } from '../../social-api';
 import { useSocialSession } from '../../social-context';
 import { navigateSocial, SocialLink } from '../../social-navigation';
@@ -313,7 +313,7 @@ export function GroupsView() {
         )
       ) : groups.length === 0 && !error ? (
         <div className={`flex flex-col items-center gap-1.5 px-4 py-7 text-center text-[13px] text-slate-500 ${SURFACE}`}>
-          <Users size={26} aria-hidden="true" />
+          <AppIcon slot="sidebar.social.groups" fallback={Users} size={26} />
           <strong className="text-sm text-slate-900">
             {query && tab === 'all'
               ? 'Không có nhóm phù hợp.'

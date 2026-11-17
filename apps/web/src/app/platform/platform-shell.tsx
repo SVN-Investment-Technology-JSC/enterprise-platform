@@ -5,10 +5,12 @@ import {
   ModuleShell,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
+import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import {
   BarChart3,
   FileUp,
   LayoutDashboard,
+  LayoutGrid,
   Layers,
   Palette,
   ReceiptText,
@@ -27,6 +29,7 @@ export type PlatformView =
   | 'plans'
   | 'brand-studio'
   | 'brand-standards'
+  | 'brand-slots'
   | 'data-import'
   | 'services'
   | 'billing'
@@ -49,11 +52,23 @@ const PAGES: readonly PlatformPage[] = [
   { id: 'plans', label: 'Gói dịch vụ & Hạn mức', href: '/platform/plans', group: 'Tổng quan & Quản trị', icon: Layers },
   { id: 'brand-studio', label: 'Thư viện icon', href: '/platform/brand-studio', group: 'Thương hiệu & Thiết kế', parent: 'Thương hiệu & Thiết kế', icon: Sparkles },
   { id: 'brand-standards', label: 'Bảng màu & quy chuẩn', href: '/platform/brand-studio/standards', group: 'Thương hiệu & Thiết kế', parent: 'Thương hiệu & Thiết kế', icon: Palette },
+  { id: 'brand-slots', label: 'Vị trí sử dụng', href: '/platform/brand-studio/slots', group: 'Thương hiệu & Thiết kế', parent: 'Thương hiệu & Thiết kế', icon: LayoutGrid },
   { id: 'data-import', label: 'Nhập dữ liệu', href: '/platform/data-import', group: 'Dữ liệu & Tích hợp', icon: FileUp },
   { id: 'services', label: 'Dịch vụ hệ thống', href: '#', group: 'Hạ tầng & Hệ thống', icon: ServerCog, disabled: true },
   { id: 'billing', label: 'Hóa đơn & Thanh toán', href: '#', group: 'Hạ tầng & Hệ thống', icon: ReceiptText, disabled: true },
   { id: 'reports', label: 'Báo cáo nền tảng', href: '#', group: 'Hạ tầng & Hệ thống', icon: BarChart3, disabled: true },
 ];
+
+const PLATFORM_VIEW_SLOT: Partial<Record<PlatformView, AppIconProps['slot']>> = {
+  dashboard: 'nav.dashboard',
+  tenants: 'nav.tenants',
+  plans: 'nav.plans',
+  'brand-studio': 'nav.brand-studio',
+  'brand-standards': 'nav.brand-standards',
+  'brand-slots': 'nav.brand-slots',
+  'data-import': 'nav.data-import',
+  reports: 'nav.reports',
+};
 
 const COLLAPSED_KEY = 'ep_platform_sidebar_collapsed';
 
@@ -81,6 +96,7 @@ export function PlatformShell({
 
   const view: PlatformView = useMemo(() => {
     // Trang trình thiết kế (/platform/brand-studio/editor/...) thuộc về mục Thư viện icon.
+    if (pathname.startsWith('/platform/brand-studio/slots')) return 'brand-slots';
     if (pathname.startsWith('/platform/brand-studio/standards')) return 'brand-standards';
     if (pathname.startsWith('/platform/brand-studio')) return 'brand-studio';
     if (pathname.startsWith('/platform/tenants')) return 'tenants';
@@ -92,13 +108,23 @@ export function PlatformShell({
   const nav: ModuleNavItem<PlatformView>[] = useMemo(() => {
     return PAGES.map((page) => {
       const Icon = page.icon;
+      const slot = PLATFORM_VIEW_SLOT[page.id];
+      const disabledClass = page.disabled ? 'opacity-40 text-slate-400' : undefined;
       return {
         id: page.id,
         label: page.label,
         group: page.parent ? undefined : page.group,
         parent: page.parent,
         parentIcon: page.parent ? <Sparkles size={16} aria-hidden /> : undefined,
-        icon: <Icon size={16} aria-hidden className={page.disabled ? 'opacity-40 text-slate-400' : undefined} />,
+        icon: slot ? (
+          <AppIcon
+            slot={slot}
+            fallback={page.icon}
+            className={disabledClass ? `size-4 ${disabledClass}` : 'size-4'}
+          />
+        ) : (
+          <Icon size={16} aria-hidden className={disabledClass} />
+        ),
         badge: page.disabled ? 'Sắp ra mắt' : undefined,
       };
     });

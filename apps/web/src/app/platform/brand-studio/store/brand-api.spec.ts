@@ -11,6 +11,7 @@ import {
   isBrandApiError,
   listIcons,
   publishIcon,
+  purgeIcon,
   restoreIcon,
   saveIcon,
   saveStandards,
@@ -101,7 +102,7 @@ describe('brand-api: yêu cầu', () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ baseVersion: 4, document: { id: 'icon-1' } });
   });
 
-  it('phát hành, gỡ, lưu trữ và khôi phục dùng đúng phương thức và đường dẫn', async () => {
+  it('phát hành, gỡ, lưu trữ, khôi phục và xoá vĩnh viễn dùng đúng phương thức và đường dẫn', async () => {
     mockFetch.mockResolvedValue(reply(200, {}));
 
     await publishIcon('icon-1');
@@ -112,6 +113,11 @@ describe('brand-api: yêu cầu', () => {
     expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/icons/icon-1`]);
     await restoreIcon('icon-1');
     expect([lastCall().init.method, lastCall().url]).toEqual(['POST', `${BASE}/icons/icon-1/restore`]);
+    expect(lastCall().init.body).toBeUndefined();
+
+    mockFetch.mockResolvedValue(reply(204));
+    await expect(purgeIcon('icon-1')).resolves.toBeUndefined();
+    expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/icons/icon-1/permanent`]);
     expect(lastCall().init.body).toBeUndefined();
   });
 

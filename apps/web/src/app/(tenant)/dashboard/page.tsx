@@ -2,12 +2,21 @@ import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-iden
 import type { UniversalTaskDto } from '@enterprise-platform/contracts-task-approval';
 import { UserAvatar } from '@enterprise-platform/feature-chat';
 import { isLauncherOnlyModule } from '@enterprise-platform/feature-module-shell';
-import { Building2, ClipboardCheck, GitFork, ListChecks, Package, Users, Wrench } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { CollapsibleGroup } from '../collapsible-group';
+import {
+  ApplicationsQuickIcon,
+  ApprovalsCardIcon,
+  LowStockCardIcon,
+  MaintenanceIncidentsCardIcon,
+  OrganizationQuickIcon,
+  ProcedureTasksCardIcon,
+  UsersQuickIcon,
+  WorkTodoCardIcon,
+} from './dashboard-slot-icons';
 import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
@@ -458,13 +467,13 @@ export default async function TenantPortalPage() {
           </p>
           {manager ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              <QuickLink href="/users" icon={<Users className="size-4" />}>
+              <QuickLink href="/users" icon={<UsersQuickIcon />}>
                 Quản lý người dùng
               </QuickLink>
-              <QuickLink href="/organization" icon={<Building2 className="size-4" />}>
+              <QuickLink href="/organization" icon={<OrganizationQuickIcon />}>
                 Thiết lập tổ chức
               </QuickLink>
-              <QuickLink href="/applications" icon={<Package className="size-4" />} accent>
+              <QuickLink href="/applications" icon={<ApplicationsQuickIcon />} accent>
                 Quản lý ứng dụng
               </QuickLink>
             </div>
@@ -477,7 +486,7 @@ export default async function TenantPortalPage() {
           title="Đơn từ cần bạn duyệt"
           count={hrmTasksTotal}
           tone="bg-emerald-100 text-emerald-700"
-          icon={<ClipboardCheck className="size-4" />}
+          icon={<ApprovalsCardIcon />}
         >
           {hrmTasks.length > 0 ? (
             <GroupTable
@@ -529,7 +538,7 @@ export default async function TenantPortalPage() {
           title="Hồ sơ cần bạn xử lý"
           count={actionable.length}
           tone="bg-violet-100 text-violet-700"
-          icon={<GitFork className="size-4" />}
+          icon={<ProcedureTasksCardIcon />}
         >
           {actionable.length > 0 ? (
             <GroupTable
@@ -580,7 +589,7 @@ export default async function TenantPortalPage() {
           title="Công việc cần xử lý"
           count={workToDo.length}
           tone="bg-amber-100 text-amber-800"
-          icon={<ListChecks className="size-4" />}
+          icon={<WorkTodoCardIcon />}
         >
           {workToDo.length > 0 ? (
             <GroupTable
@@ -635,7 +644,7 @@ export default async function TenantPortalPage() {
           title="Sự cố bảo trì đang mở"
           count={incidents.length}
           tone="bg-amber-100 text-amber-700"
-          icon={<Wrench className="size-4" />}
+          icon={<MaintenanceIncidentsCardIcon />}
         >
           {incidents.length > 0 ? (
             <GroupTable
@@ -682,7 +691,7 @@ export default async function TenantPortalPage() {
           title="Vật tư dưới mức tối thiểu"
           count={lowStock.length}
           tone="bg-blue-100 text-blue-800"
-          icon={<Package className="size-4" />}
+          icon={<LowStockCardIcon />}
         >
           {lowStock.length > 0 ? (
             <GroupTable

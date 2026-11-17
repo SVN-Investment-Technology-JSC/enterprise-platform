@@ -8,7 +8,7 @@ import {
   type BrandRules,
   type IconDocument,
 } from '@enterprise-platform/shared-brand-icon';
-import { toast } from '@enterprise-platform/shared-ui';
+import { notifyBrandSlotsChanged, toast } from '@enterprise-platform/shared-ui';
 import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -197,6 +197,7 @@ function EditorWorkspace({ initialDoc, routeIsNew, library, palette, rules, onRe
         baseStatusRef.current = published.status;
         if (stateRef.current.doc.status !== published.status) dispatch({ type: 'setMeta', patch: { status: published.status } });
         dispatch({ type: 'markSaved' });
+        notifyBrandSlotsChanged();
         toast.success('Đã phát hành.');
       }
     } catch (error) {

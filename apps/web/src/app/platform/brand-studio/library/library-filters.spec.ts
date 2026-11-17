@@ -89,16 +89,39 @@ describe('applyView', () => {
   it('lọc rồi sắp xếp', () => {
     expect(ids(applyView(docs, view({ category: 'module', sort: 'name' })))).toEqual(['b', 'a']);
   });
+
+  it('khi status là archived thì lọc trên archivedDocs theo từ khoá và danh mục', () => {
+    const archivedDocs = [
+      make({ id: 'ar-1', name: 'Kho Cũ', category: 'module', updatedAt: '2026-10-01T00:00:00.000Z' }),
+      make({ id: 'ar-2', name: 'Logo Cũ', category: 'brand', updatedAt: '2026-10-05T00:00:00.000Z' }),
+    ];
+    expect(ids(applyView(docs, view({ status: 'archived' }), archivedDocs))).toEqual(['ar-2', 'ar-1']);
+    expect(ids(applyView(docs, view({ status: 'archived', category: 'module' }), archivedDocs))).toEqual(['ar-1']);
+    expect(ids(applyView(docs, view({ status: 'archived', query: 'logo' }), archivedDocs))).toEqual(['ar-2']);
+  });
 });
 
 describe('facetCounts', () => {
   it('đếm danh mục theo trạng thái và ô tìm đang chọn, đếm trạng thái theo danh mục đang chọn', () => {
     const counts = facetCounts(docs, view({ status: 'draft' }));
     expect(counts.category).toEqual({ all: 3, brand: 1, module: 1, system: 0, custom: 1 });
-    expect(counts.status).toEqual({ all: 5, draft: 3, published: 2 });
+    expect(counts.status).toEqual({ all: 5, draft: 3, published: 2, archived: 0 });
 
     const byCategory = facetCounts(docs, view({ category: 'module' }));
-    expect(byCategory.status).toEqual({ all: 2, draft: 1, published: 1 });
+    expect(byCategory.status).toEqual({ all: 2, draft: 1, published: 1, archived: 0 });
+  });
+
+  it('đếm archivedDocs cho status.archived và đếm category trên archivedDocs khi đang lọc archived', () => {
+    const archivedDocs = [
+      make({ id: 'ar-1', name: 'Kho Cũ', category: 'module' }),
+      make({ id: 'ar-2', name: 'Logo Cũ', category: 'brand' }),
+    ];
+    const normalCounts = facetCounts(docs, view({ category: 'module' }), archivedDocs);
+    expect(normalCounts.status).toEqual({ all: 2, draft: 1, published: 1, archived: 1 });
+
+    const archivedCounts = facetCounts(docs, view({ status: 'archived' }), archivedDocs);
+    expect(archivedCounts.category).toEqual({ all: 2, brand: 1, module: 1, system: 0, custom: 0 });
+    expect(archivedCounts.status).toEqual({ all: 5, draft: 3, published: 2, archived: 2 });
   });
 
   it('con số trên nút khớp số icon hiện ra khi bấm nút', () => {

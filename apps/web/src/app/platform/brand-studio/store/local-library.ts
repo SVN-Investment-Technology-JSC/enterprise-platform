@@ -75,4 +75,20 @@ export const localLibraryOps = {
     if (!source) return null;
     return localLibraryOps.save({ ...source, status: 'published' });
   },
+
+  async restore(_id: string): Promise<IconDocument | null> {
+    return null;
+  },
+
+  async restoreMany(_ids: readonly string[]): Promise<number> {
+    return 0;
+  },
+
+  async purge(_id: string): Promise<void> {
+    // Chế độ cục bộ không có mục lưu trữ.
+  },
+
+  async purgeMany(_ids: readonly string[]): Promise<number> {
+    return 0;
+  },
 };

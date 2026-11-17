@@ -2,7 +2,8 @@
 
 import type { SocialMe } from '@enterprise-platform/contracts-social';
 import { ModuleSwitcher } from '@enterprise-platform/feature-module-shell';
-import { NotificationBell } from '@enterprise-platform/shared-ui';
+import { NotificationBell, useBrandSlot } from '@enterprise-platform/shared-ui';
+import { useState } from 'react';
 import { SOCIAL_BASE_PATH } from '../../social.model';
 import { SocialLink } from '../../social-navigation';
 import styles from '../../social-shell.module.scss';
@@ -24,13 +25,31 @@ export function SocialTopBar({
   readonly searchActive: boolean;
   readonly searchQuery: string;
 }) {
+  const { item: brandLogoItem, hasCustom: hasCustomBrandLogo } = useBrandSlot('brand.logo');
+  const [failedLogoKey, setFailedLogoKey] = useState<string | null>(null);
+  const logoKey = brandLogoItem ? `${brandLogoItem.iconId}@${brandLogoItem.version}` : null;
+  const customLogoSrc =
+    hasCustomBrandLogo && brandLogoItem && logoKey && failedLogoKey !== logoKey
+      ? `/api/platform/v1/brand/slots/brand.logo/svg?icon=${encodeURIComponent(brandLogoItem.iconId)}&v=${brandLogoItem.version}`
+      : null;
+
   return (
     <header className={styles.topbar}>
       <div className={styles.topbarInner}>
         <div className={styles.topbarBrand}>
           <ModuleSwitcher moduleKey="social" homeHref={homeHref} />
           <SocialLink className={styles.topbarTitle} to={{ name: 'feed' }}>
-            <img src={`${SOCIAL_BASE_PATH}/brand-logo.jpg`} alt="" width={30} height={30} />
+            <img
+              src={customLogoSrc ?? `${SOCIAL_BASE_PATH}/brand-logo.jpg`}
+              alt=""
+              width={30}
+              height={30}
+              onError={() => {
+                if (customLogoSrc && logoKey) {
+                  setFailedLogoKey(logoKey);
+                }
+              }}
+            />
             <span>
               <strong>SVN DTS</strong>
               <small>Mạng nội bộ</small>

@@ -1,13 +1,20 @@
 import { Logger } from '@nestjs/common';
 import {
   BRAND_SPEC_MAX_BYTES,
+  buildIconModel,
   checkCompliance,
   DEFAULT_PALETTE,
   DEFAULT_RULES,
+  getIconSlotMeta,
+  BUILT_IN_SLOT_GROUPS,
+  ICON_SLOTS,
+  isBuiltInSlotId,
+  isIconSlotId,
   LIMITS,
   normalizeDocument,
   normalizePalette,
   normalizeRules,
+  slotSymbolId,
   slugify,
   type BrandIconDetail,
   type BrandIconListResponse,
@@ -15,10 +22,19 @@ import {
   type BrandIconStatus,
   type BrandIconSummary,
   type BrandIconVersion,
+  type BrandSlotAssignment,
+  type BrandSlotGroup,
+  type BrandSlotGroupListResponse,
+  type DeleteBrandSlotGroupResponse,
+  type BrandSlotListResponse,
+  type BrandSlotManifestItem,
+  type BrandSlotManifestResponse,
   type BrandStandardsPayload,
   type BrandStandardsResponse,
   type BrandSvgMode,
   type IconDocument,
+  type IconSlotId,
+  type IconSlotMeta,
   type SaveBrandIconResponse,
   type SaveBrandStandardsResponse,
 } from '@enterprise-platform/shared-brand-icon';
@@ -41,16 +57,27 @@ import {
 } from './brand-codec.js';
 import {
   assertIconId,
+  assertSlotId,
   cleanNote,
+  parseCustomSlotInput,
+  parseCustomSlotPatch,
+  deriveSlotGroupKey,
   parseDocument,
+  parseSlotGroupCreate,
+  parseSlotGroupUpdate,
   parseStandards,
+  uniqueSlotGroupKey,
   parseVersionNumber,
 } from './brand-input.js';
 import type { BrandObjectStore } from './brand-object-store.js';
 import type {
   BrandStore,
   BrandTransaction,
+  CustomSlotRow,
   IconRow,
+  PublishedSlotEntry,
+  SlotGroupRow,
+  SlotRow,
   VersionRow,
 } from './brand-store.js';
 
@@ -85,6 +112,19 @@ export type SvgResult =
       readonly cacheControl: string;
       readonly body: string;
       readonly filename: string;
+    };
+
+export type SlotManifestResult =
+  | {
+      readonly notModified: true;
+      readonly etag: string;
+      readonly cacheControl: string;
+    }
+  | {
+      readonly notModified: false;
+      readonly etag: string;
+      readonly cacheControl: string;
+      readonly manifest: BrandSlotManifestResponse;
     };
 
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -122,6 +162,59 @@ const toVersion = (row: VersionRow): BrandIconVersion => ({
   createdBy: row.createdBy,
   createdAt: row.createdAt,
 });
+
+const toSlotAssignment = (row: SlotRow): BrandSlotAssignment => ({
+  slot: row.slot as IconSlotId,
+  iconId: row.iconId,
+  iconName: row.iconName,
+  iconSlug: row.iconSlug,
+  iconStatus: row.iconStatus,
+  publishedVersion: row.publishedVersion,
+  currentVersion: row.currentVersion,
+  updatedBy: row.updatedBy,
+  updatedAt: row.updatedAt,
+});
+
+const customSlotToMeta = (row: CustomSlotRow): IconSlotMeta => ({
+  id: row.id,
+  label: row.label,
+  description: row.description,
+  group: row.groupKey,
+  colorMode: row.colorMode,
+  recommendedSize: row.recommendedSize,
+  isCustom: true,
+});
+
+const BUILT_IN_GROUP_KEYS: ReadonlySet<string> = new Set(
+  BUILT_IN_SLOT_GROUPS.map((group) => group.key),
+);
+
+/** Nhóm có sẵn (đúng thứ tự cố định) rồi nhóm tùy chỉnh (đã sắp theo tên), kèm số vị trí mỗi nhóm. */
+function buildSlotGroups(
+  groupRows: readonly SlotGroupRow[],
+  customSlots: readonly CustomSlotRow[],
+): readonly BrandSlotGroup[] {
+  const counts = new Map<string, number>();
+  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  for (const meta of ICON_SLOTS) bump(meta.group);
+  for (const row of customSlots) bump(row.groupKey);
+  return [
+    ...BUILT_IN_SLOT_GROUPS.map((group) => ({
+      key: group.key,
+      label: group.label,
+      isBuiltIn: true,
+      slotCount: counts.get(group.key) ?? 0,
+    })),
+    ...groupRows
+      .filter((row) => !BUILT_IN_GROUP_KEYS.has(row.key))
+      .map((row) => ({
+        key: row.key,
+        label: row.label,
+        isBuiltIn: false,
+        slotCount: counts.get(row.key) ?? 0,
+      })),
+  ];
+}
 
 /** Bản phát hành công khai: icon đang `published` và phiên bản không vượt `publishedVersion`. */
 function isLive(icon: IconRow, version: number | null): version is number {
@@ -246,11 +339,6 @@ export class BrandIconService {
       const row = await this.store.findVersion(id, version);
       if (!row) throw brandErrors.versionNotFound();
 
-      // Cùng spec, cùng bảng màu và cùng chế độ thì SVG giống hệt, nên không cần đọc kho để trả 304.
-      const etag =
-        query.mode === 'mono'
-          ? `"${row.specSha256}-mono"`
-          : `"${row.specSha256}-brand-s${row.standardsVersion}"`;
       const scope = isPublic ? 'public' : 'private';
       const cacheControl =
         query.version !== null
@@ -258,20 +346,379 @@ export class BrandIconService {
           : isPublic
             ? 'public, max-age=300'
             : 'private, no-cache';
-      if (etagMatches(ifNoneMatch, etag))
-        return { notModified: true, etag, cacheControl };
-
-      const body = await this.readObject(
-        query.mode === 'mono' ? row.monoSvgKey : row.svgKey,
-        OBJECT_READ_LIMIT,
+      return this.serveSvgVersion(
+        row,
+        query.mode,
+        cacheControl,
+        `${icon.slug}${query.mode === 'mono' ? '.mono' : ''}.svg`,
+        ifNoneMatch,
       );
+    });
+  }
+
+  /* --------------------------------------------------------------- vị trí */
+
+  listSlotDefinitions(): Promise<readonly IconSlotMeta[]> {
+    return this.guard(async () => {
+      const customRows = await this.store.listCustomSlots();
+      return [...ICON_SLOTS, ...customRows.map(customSlotToMeta)];
+    });
+  }
+
+  listSlotGroups(): Promise<BrandSlotGroupListResponse> {
+    return this.guard(async () => {
+      const [customRows, groupRows] = await Promise.all([
+        this.store.listCustomSlots(),
+        this.store.listSlotGroups(),
+      ]);
+      return { groups: buildSlotGroups(groupRows, customRows) };
+    });
+  }
+
+  createSlotGroup(actor: BrandActor, input: unknown): Promise<BrandSlotGroup> {
+    return this.guard(async () => {
+      const parsed = parseSlotGroupCreate(input);
+      const existing = await this.store.listSlotGroups();
+      const taken = new Set<string>([
+        ...BUILT_IN_GROUP_KEYS,
+        ...existing.map((row) => row.key),
+      ]);
+      let key: string;
+      if (parsed.key !== undefined) {
+        if (taken.has(parsed.key)) throw brandErrors.slotGroupConflict();
+        key = parsed.key;
+      } else {
+        key = uniqueSlotGroupKey(deriveSlotGroupKey(parsed.label), taken);
+      }
+      let row: SlotGroupRow;
+      try {
+        row = await this.store.createSlotGroup({
+          key,
+          label: parsed.label,
+          createdBy: actor.userId,
+        });
+      } catch (error) {
+        if (error instanceof BrandStoreConflictError)
+          throw brandErrors.slotGroupConflict();
+        throw error;
+      }
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.created', actor.userId, {
+          group: row.key,
+          label: row.label,
+        });
+      });
+      return { key: row.key, label: row.label, isBuiltIn: false, slotCount: 0 };
+    });
+  }
+
+  updateSlotGroup(
+    actor: BrandActor,
+    key: string,
+    input: unknown,
+  ): Promise<BrandSlotGroup> {
+    return this.guard(async () => {
+      if (BUILT_IN_GROUP_KEYS.has(key)) {
+        throw brandErrors.slotGroupBuiltInCannotModify();
+      }
+      const { label } = parseSlotGroupUpdate(input);
+      const row = await this.store.updateSlotGroup(key, label);
+      if (!row) throw brandErrors.slotGroupNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.updated', actor.userId, {
+          group: row.key,
+          label: row.label,
+        });
+      });
+      const customRows = await this.store.listCustomSlots();
+      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      return { key: row.key, label: row.label, isBuiltIn: false, slotCount };
+    });
+  }
+
+  deleteSlotGroup(
+    actor: BrandActor,
+    key: string,
+  ): Promise<DeleteBrandSlotGroupResponse> {
+    return this.guard(async () => {
+      if (BUILT_IN_GROUP_KEYS.has(key)) {
+        throw brandErrors.slotGroupBuiltInCannotModify();
+      }
+      const existing = await this.store.findSlotGroup(key);
+      if (!existing) throw brandErrors.slotGroupNotFound();
+      const customRows = await this.store.listCustomSlots();
+      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      if (slotCount > 0) throw brandErrors.slotGroupInUse(slotCount);
+      const deleted = await this.store.deleteSlotGroup(key);
+      if (!deleted) throw brandErrors.slotGroupNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-group.deleted', actor.userId, {
+          group: key,
+        });
+      });
+      return { key, deleted: true };
+    });
+  }
+
+  /** Nhóm của vị trí phải tồn tại: nhóm có sẵn hoặc nhóm tùy chỉnh đã tạo. */
+  private async assertSlotGroupExists(groupKey: string): Promise<void> {
+    if (BUILT_IN_GROUP_KEYS.has(groupKey)) return;
+    const row = await this.store.findSlotGroup(groupKey);
+    if (!row) throw brandErrors.slotGroupUnknown();
+  }
+
+  listSlots(): Promise<BrandSlotListResponse> {
+    return this.guard(async () => {
+      const [slotRows, customRows, groupRows] = await Promise.all([
+        this.store.listSlots(),
+        this.store.listCustomSlots(),
+        this.store.listSlotGroups(),
+      ]);
+      const definitions: readonly IconSlotMeta[] = [
+        ...ICON_SLOTS,
+        ...customRows.map(customSlotToMeta),
+      ];
+      return {
+        slots: slotRows
+          .filter((row) => isIconSlotId(row.slot))
+          .map(toSlotAssignment),
+        definitions,
+        groups: buildSlotGroups(groupRows, customRows),
+      };
+    });
+  }
+
+  createCustomSlot(
+    actor: BrandActor,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      const parsed = parseCustomSlotInput(input, actor.userId);
+      if (isBuiltInSlotId(parsed.id)) {
+        throw brandErrors.slotConflict();
+      }
+      const existing = await this.store.findCustomSlot(parsed.id);
+      if (existing) {
+        throw brandErrors.slotConflict();
+      }
+      await this.assertSlotGroupExists(parsed.groupKey);
+      const row = await this.store.createCustomSlot(parsed);
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.created', actor.userId, {
+          slot: row.id,
+          label: row.label,
+        });
+      });
+      return customSlotToMeta(row);
+    });
+  }
+
+  updateCustomSlot(
+    actor: BrandActor,
+    id: string,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      if (isBuiltInSlotId(id)) {
+        throw brandErrors.slotBuiltInCannotModify();
+      }
+      const patch = parseCustomSlotPatch(input);
+      if (patch.groupKey !== undefined) {
+        await this.assertSlotGroupExists(patch.groupKey);
+      }
+      const row = await this.store.updateCustomSlot(id, patch);
+      if (!row) throw brandErrors.slotNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.updated', actor.userId, {
+          slot: row.id,
+          label: row.label,
+        });
+      });
+      return customSlotToMeta(row);
+    });
+  }
+
+  deleteCustomSlot(
+    actor: BrandActor,
+    id: string,
+  ): Promise<{ readonly id: string; readonly deleted: boolean }> {
+    return this.guard(async () => {
+      if (isBuiltInSlotId(id)) {
+        throw brandErrors.slotBuiltInCannotModify();
+      }
+      const deleted = await this.store.deleteCustomSlot(id);
+      if (!deleted) throw brandErrors.slotNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.deleted', actor.userId, {
+          slot: id,
+        });
+      });
+      return { id, deleted };
+    });
+  }
+
+  assignSlot(
+    actor: BrandActor,
+    slot: string,
+    input: { readonly iconId?: unknown },
+  ): Promise<BrandSlotAssignment> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      if (!isBuiltInSlotId(slot)) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (!custom) throw brandErrors.slotNotFound();
+      }
+      assertIconId(input.iconId);
+      const iconId = input.iconId;
+      const now = this.now().toISOString();
+      return this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(iconId);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'published' || icon.publishedVersion === null) {
+          throw brandErrors.slotIconNotPublished();
+        }
+        const row = await tx.upsertSlot(slot, iconId, actor.userId, now);
+        await tx.audit('platform.brand-slot.assigned', actor.userId, {
+          slot,
+          iconId,
+          publishedVersion: icon.publishedVersion,
+        });
+        return toSlotAssignment(row);
+      });
+    });
+  }
+
+  clearSlot(
+    actor: BrandActor,
+    slot: string,
+  ): Promise<{ readonly slot: IconSlotId; readonly cleared: boolean }> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      if (!isBuiltInSlotId(slot)) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (!custom) throw brandErrors.slotNotFound();
+      }
+      return this.store.transaction(async (tx) => {
+        const cleared = await tx.deleteSlot(slot);
+        if (cleared) {
+          await tx.audit('platform.brand-slot.cleared', actor.userId, { slot });
+        }
+        return { slot, cleared };
+      });
+    });
+  }
+
+  slotManifest(
+    viewer: () => Promise<SvgViewer>,
+    ifNoneMatch?: string,
+  ): Promise<SlotManifestResult> {
+    return this.guard(async () => {
+      const publicRead = this.options.publicRead?.() ?? true;
+      if (!publicRead) {
+        const reader = await viewer();
+        if (reader === 'anonymous') throw brandErrors.unauthorized();
+      }
+      const cacheControl = publicRead
+        ? 'public, no-cache, must-revalidate'
+        : 'private, no-cache';
+
+      const customSlots = await this.store.listCustomSlots();
+      const customMap = new Map(
+        customSlots.map((r) => [r.id, customSlotToMeta(r)]),
+      );
+      const resolveMeta = (slot: string): IconSlotMeta | undefined =>
+        getIconSlotMeta(slot) ?? customMap.get(slot);
+
+      const entries = (await this.store.listPublishedSlotEntries()).filter(
+        (entry): entry is PublishedSlotEntry & { readonly slot: IconSlotId } =>
+          isIconSlotId(entry.slot) && Boolean(resolveMeta(entry.slot)),
+      );
+      const signature = entries.map((entry) => {
+        const meta = resolveMeta(entry.slot)!;
+        return `${entry.slot}:${entry.iconId}:${entry.publishedVersion}:${entry.specSha256}:${entry.standardsVersion}:${meta.colorMode}`;
+      });
+      const hash = sha256Hex(JSON.stringify(signature));
+      const etag = `"${hash}"`;
+      if (etagMatches(ifNoneMatch, etag)) {
+        return { notModified: true, etag, cacheControl };
+      }
+
+      const needsBrandPalette = entries.some(
+        (entry) => resolveMeta(entry.slot)?.colorMode !== 'mono',
+      );
+      const palette = needsBrandPalette
+        ? (await this.currentStandards()).palette
+        : DEFAULT_PALETTE;
+
+      const slots: Record<string, BrandSlotManifestItem> = {};
+      for (const entry of entries) {
+        const meta = resolveMeta(entry.slot)!;
+        const doc = await this.readSpecDocument({ specKey: entry.specKey });
+        const model = buildIconModel(doc, {
+          colorMode: meta.colorMode === 'mono' ? 'currentColor' : 'brand',
+          palette,
+          idPrefix: slotSymbolId(entry.slot),
+        });
+        slots[entry.slot] = {
+          slot: entry.slot,
+          iconId: entry.iconId,
+          version: entry.publishedVersion,
+          colorMode: meta.colorMode,
+          model,
+        };
+      }
       return {
         notModified: false,
         etag,
         cacheControl,
-        body,
-        filename: `${icon.slug}${query.mode === 'mono' ? '.mono' : ''}.svg`,
+        manifest: { hash, slots },
       };
+    });
+  }
+
+  readSlotSvg(
+    slot: string,
+    viewer: () => Promise<SvgViewer>,
+    ifNoneMatch?: string,
+  ): Promise<SvgResult> {
+    return this.guard(async () => {
+      assertSlotId(slot);
+      const publicRead = this.options.publicRead?.() ?? true;
+      if (!publicRead) {
+        const reader = await viewer();
+        if (reader === 'anonymous') throw brandErrors.unauthorized();
+      }
+      const slotRow = await this.store.findSlot(slot);
+      if (
+        !slotRow ||
+        slotRow.iconStatus !== 'published' ||
+        slotRow.publishedVersion === null
+      ) {
+        throw brandErrors.slotNotFound();
+      }
+      const version = await this.store.findVersion(
+        slotRow.iconId,
+        slotRow.publishedVersion,
+      );
+      if (!version) throw brandErrors.versionNotFound();
+
+      let meta = getIconSlotMeta(slot);
+      if (!meta) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (custom) meta = customSlotToMeta(custom);
+      }
+      if (!meta) throw brandErrors.slotNotFound();
+
+      const cacheControl = publicRead
+        ? 'public, no-cache, must-revalidate'
+        : 'private, no-cache';
+      return this.serveSvgVersion(
+        version,
+        meta.colorMode,
+        cacheControl,
+        `${slot}${meta.colorMode === 'mono' ? '.mono' : ''}.svg`,
+        ifNoneMatch,
+      );
     });
   }
 
@@ -455,15 +902,59 @@ export class BrandIconService {
 
   /** Khôi phục icon đã lưu trữ về nháp (không tự phát hành lại). */
   restore(actor: BrandActor, id: string): Promise<BrandIconSummary> {
-    return this.changeState(
-      actor,
-      id,
-      'platform.brand-icon.restored',
-      (icon) =>
-        icon.status === 'archived'
-          ? { status: 'draft', publishedVersion: null }
-          : null,
-    );
+    return this.guard(async () => {
+      assertIconId(id);
+      const now = this.now().toISOString();
+      return this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(id);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'archived') return toSummary(icon);
+        if ((await tx.countIcons()) >= LIMITS.maxIcons)
+          throw brandErrors.iconLimitReached();
+        const updated = await tx.setState(id, {
+          status: 'draft',
+          publishedVersion: null,
+          now,
+        });
+        await tx.audit('platform.brand-icon.restored', actor.userId, {
+          iconId: id,
+          status: 'draft',
+        });
+        return toSummary(updated);
+      });
+    });
+  }
+
+  /** Xoá vĩnh viễn icon đang ở trạng thái đã lưu trữ cùng toàn bộ phiên bản và object trong kho. */
+  purge(actor: BrandActor, id: string): Promise<void> {
+    return this.guard(async () => {
+      assertIconId(id);
+      const keys = await this.store.transaction(async (tx) => {
+        const icon = await tx.lockIcon(id);
+        if (!icon) throw brandErrors.iconNotFound();
+        if (icon.status !== 'archived') {
+          throw brandErrors.requestInvalid(
+            'Chỉ xoá vĩnh viễn được icon đang ở trạng thái Đã lưu trữ.',
+          );
+        }
+        const versions = await this.store.listVersions(id);
+        const objectKeys = versions.flatMap((v) => [
+          v.specKey,
+          v.svgKey,
+          v.monoSvgKey,
+        ]);
+        await tx.deleteIcon(id);
+        await tx.audit('platform.brand-icon.purged', actor.userId, {
+          iconId: id,
+          name: icon.name,
+        });
+        return objectKeys;
+      });
+      for (const key of keys) {
+        this.objectCache.delete(key);
+      }
+      await this.discard(keys);
+    });
   }
 
   /** Lưu bảng màu và quy chuẩn thành phiên bản mới. `baseVersion` là bản người dùng đã mở (0 khi chưa lưu lần nào). */
@@ -694,7 +1185,40 @@ export class BrandIconService {
       throw brandErrors.payloadTooLarge();
   }
 
-  private async readSpecDocument(row: VersionRow): Promise<IconDocument> {
+  private async serveSvgVersion(
+    row: Pick<
+      VersionRow,
+      'specSha256' | 'standardsVersion' | 'svgKey' | 'monoSvgKey'
+    >,
+    mode: BrandSvgMode,
+    cacheControl: string,
+    filename: string,
+    ifNoneMatch?: string,
+  ): Promise<SvgResult> {
+    // Cùng spec, cùng bảng màu và cùng chế độ thì SVG giống hệt, nên không cần đọc kho để trả 304.
+    const etag =
+      mode === 'mono'
+        ? `"${row.specSha256}-mono"`
+        : `"${row.specSha256}-brand-s${row.standardsVersion}"`;
+    if (etagMatches(ifNoneMatch, etag))
+      return { notModified: true, etag, cacheControl };
+
+    const body = await this.readObject(
+      mode === 'mono' ? row.monoSvgKey : row.svgKey,
+      OBJECT_READ_LIMIT,
+    );
+    return {
+      notModified: false,
+      etag,
+      cacheControl,
+      body,
+      filename,
+    };
+  }
+
+  private async readSpecDocument(
+    row: Pick<VersionRow, 'specKey'>,
+  ): Promise<IconDocument> {
     const text = await this.readObject(row.specKey, OBJECT_READ_LIMIT, false);
     try {
       const document = normalizeDocument(JSON.parse(text));

@@ -51,6 +51,8 @@ export interface RemoteSnapshot extends Core {
   readonly summaries: ReadonlyMap<string, BrandIconSummary>;
   /** Icon hiển thị trong thư viện: bản trên máy chủ (đã áp thay đổi chờ ghi) cộng icon mẫu chưa có trên máy chủ. */
   readonly docs: readonly IconDocument[];
+  /** Icon đang ở trạng thái đã lưu trữ trên máy chủ. */
+  readonly archivedDocs: readonly IconDocument[];
   readonly docsById: ReadonlyMap<string, IconDocument>;
 }
 
@@ -69,6 +71,7 @@ const SERVER_SNAPSHOT: RemoteSnapshot = {
   ...INITIAL_CORE,
   summaries: new Map(),
   docs: [],
+  archivedDocs: [],
   docsById: new Map(),
 };
 
@@ -132,8 +135,9 @@ function serverDoc(summary: BrandIconSummary, spec: IconDocument): IconDocument 
 
 function buildSnapshot(): RemoteSnapshot {
   // Thư viện máy chủ chỉ có nghĩa ở chế độ máy chủ; chế độ khác dùng localStorage nên không hiện icon mẫu ở đây.
-  if (core.mode !== 'server') return { ...core, summaries, docs: [], docsById: new Map() };
+  if (core.mode !== 'server') return { ...core, summaries, docs: [], archivedDocs: [], docsById: new Map() };
   const docs: IconDocument[] = [];
+  const archivedDocs: IconDocument[] = [];
   const seen = new Set<string>();
   for (const summary of summaries.values()) {
     seen.add(summary.id);
@@ -143,9 +147,13 @@ function buildSnapshot(): RemoteSnapshot {
       docs.push(pending);
       continue;
     }
-    if (summary.status === 'archived') continue;
     const spec = bestSpec(summary.id, summary.currentVersion);
-    if (spec) docs.push(serverDoc(summary, spec));
+    if (!spec) continue;
+    if (summary.status === 'archived') {
+      archivedDocs.push(serverDoc(summary, spec));
+      continue;
+    }
+    docs.push(serverDoc(summary, spec));
   }
   for (const [id, pending] of overlay) {
     if (pending && !seen.has(id)) {
@@ -156,7 +164,7 @@ function buildSnapshot(): RemoteSnapshot {
   for (const preset of presetDocs()) {
     if (!seen.has(preset.id)) docs.push(preset);
   }
-  return { ...core, summaries, docs, docsById: new Map(docs.map((doc) => [doc.id, doc])) };
+  return { ...core, summaries, docs, archivedDocs, docsById: new Map(docs.map((doc) => [doc.id, doc])) };
 }
 
 function emit() {
@@ -240,7 +248,7 @@ function cacheSpec(id: string, version: number, doc: IconDocument) {
   byVersion.set(version, doc);
 }
 
-const needsSpec = (summary: BrandIconSummary) => summary.status !== 'archived' && !exactSpec(summary.id, summary.currentVersion);
+const needsSpec = (summary: BrandIconSummary) => !exactSpec(summary.id, summary.currentVersion);
 
 /** Nạp spec của phiên bản hiện hành; các lời gọi đồng thời dùng chung một yêu cầu. Ném lỗi nếu không nạp được. */
 function fetchSpec(summary: BrandIconSummary): Promise<void> {
@@ -490,6 +498,17 @@ function commit(summary: BrandIconSummary, saved?: { readonly version: number; r
   if (needsSpec(summary)) void ensureSpec(summary).then((ok) => ok && emit());
 }
 
+/** Máy chủ đã xoá vĩnh viễn icon: bỏ hẳn khỏi danh sách tóm tắt và bộ nhớ dẫn xuất. */
+function purgeCommit(id: string) {
+  const next = new Map(summaries);
+  next.delete(id);
+  summaries = next;
+  overlay.delete(id);
+  derived.delete(id);
+  specs.delete(id);
+  emit();
+}
+
 function resetForTest() {
   if (standardsTimer) clearTimeout(standardsTimer);
   standardsTimer = null;
@@ -537,6 +556,7 @@ export const remoteStore = {
   begin,
   revert,
   commit,
+  purgeCommit,
 
   /** Chỉ dùng cho kiểm thử: về trạng thái chưa khởi tạo (lần đọc kế tiếp thử kết nối lại). */
   resetForTest,

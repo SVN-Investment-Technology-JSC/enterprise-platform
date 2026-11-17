@@ -112,7 +112,7 @@ export function RulesEditor({ rules, onChange }: { rules: BrandRules; onChange: 
           <form className="flex items-center gap-1" onSubmit={submitWidth}>
             <Input
               aria-label="Độ dày nét mới"
-              className="h-7 w-16 rounded-md px-2 text-center text-xs"
+              className="h-8 w-16 rounded-md px-2 text-center text-xs"
               inputMode="decimal"
               onChange={(event) => setWidth(event.target.value)}
               placeholder="1,25"

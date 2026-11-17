@@ -7,14 +7,15 @@ import { loadBirthdaysUpcoming } from '../../social-discovery-api';
 import { SocialLink } from '../../social-navigation';
 import { ageLabel, entryDayMonth, splitForWidget } from '../birthday/birthday.model';
 import styles from '../birthday/birthday.module.scss';
+import { AppIcon, type AppIconFallbackProps } from '@enterprise-platform/shared-ui';
 import { UserAvatar } from '../user-avatar';
 
 const NEXT_AVATARS = 3;
 
 /** Bánh sinh nhật nhỏ ở đầu thẻ. */
-function CakeIcon() {
+function CakeIcon({ size = 20, className }: AppIconFallbackProps) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+    <svg width={size} height={size} viewBox="0 0 20 20" className={className} aria-hidden="true" focusable="false">
       <rect x="9" y="2.6" width="2" height="3" rx="0.6" fill="#f22b2b" />
       <path d="M10 0.4c.7.9 1 1.4 1 1.9a1 1 0 0 1-2 0c0-.5.3-1 1-1.9Z" fill="#f0c419" />
       <rect x="5" y="5.6" width="10" height="4.6" rx="1.4" fill="#f9eab0" />
@@ -79,7 +80,7 @@ export function BirthdayWidget() {
   return (
     <section className={styles.widget} aria-label="Sinh nhật">
       <header className={styles.widgetHead}>
-        <CakeIcon />
+        <AppIcon slot="sidebar.social.birthday" fallback={CakeIcon} size={20} />
         <h2>Sinh nhật</h2>
         {today.length > 0 ? (
           <span className={styles.todayTag} aria-label={`${today.length} sinh nhật hôm nay`}>
