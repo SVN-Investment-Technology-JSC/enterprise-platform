@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from '@enterprise-platform/shared-ui';
 import Page from '../src/app/page';
 
@@ -85,6 +85,21 @@ function mockFetch(capabilities: Record<string, boolean>, overrides: Record<stri
   return calls;
 }
 
+/**
+ * Chờ màn hình nạp xong theo dữ liệu giả, không theo đồng hồ: mỗi vòng nhường một lượt macrotask trong `act` để mọi
+ * phản hồi fetch giả, `json()` và cập nhật state kéo theo chạy hết; dừng khi một vòng không phát sinh lời gọi fetch mới.
+ * Nhờ vậy test không phụ thuộc máy chạy nhanh hay chậm (khác `waitFor` hết giờ sau 1 giây).
+ */
+async function settleFetches(calls: readonly string[]): Promise<void> {
+  let seen: number;
+  do {
+    seen = calls.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  } while (calls.length !== seen);
+}
+
 describe('Duyệt chứng từ kho và bốn loại tồn', () => {
   const originalFetch = global.fetch;
   beforeAll(() => {
@@ -125,7 +140,8 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
     window.history.replaceState(null, '', '/#approvals');
     const calls = mockFetch({ canManage: false, canWriteTransactions: false, canApproveDocuments });
     render(<Page />);
-    await waitFor(() => expect(screen.getAllByText('PK-0001').length).toBeGreaterThan(0));
+    await settleFetches(calls);
+    expect(screen.getAllByText('PK-0001').length).toBeGreaterThan(0);
     expect(calls.some((call) => call.includes('/stock-documents?status=PENDING'))).toBe(true);
     expect(Boolean(screen.queryByRole('button', { name: 'Duyệt' }))).toBe(visible);
     expect(Boolean(screen.queryByRole('button', { name: 'Từ chối' }))).toBe(visible);
