@@ -70,11 +70,14 @@ export function plannedWorkflow(
   config: CorrespondenceConfig,
   direction: LetterDirection,
   kind: string,
-  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+  classified?: { readonly urgency?: string; readonly confidentiality?: string; readonly workflowId?: string },
 ): Workflow | undefined {
   const type = config.catalog.find((item) => item.kind === 'letter_type' && item.code === kind);
   const wanted = direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
   const usable = config.workflows.filter((workflow) => workflow.isActive && workflow.direction === direction);
+  // Quy trình chọn riêng cho công văn thì đúng quy trình đó.
+  const chosen = classified?.workflowId ? usable.find((workflow) => workflow.id === classified.workflowId) : undefined;
+  if (chosen) return chosen;
   // Như máy chủ: quy trình có điều kiện khớp chọn trước (đặt nhiều điều kiện hơn thì trước), rồi theo loại văn bản, rồi mặc định.
   const facts = { kind, urgency: classified?.urgency ?? '', confidentiality: classified?.confidentiality ?? '' };
   const weight = (workflow: Workflow) =>
@@ -147,10 +150,11 @@ export interface UpcomingStep {
  * bước (sang ô cuối) thì `undefined`.
  */
 export function upcomingStep(
-  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'> & Partial<Pick<LetterDetail, 'urgency' | 'confidentiality' | 'steps'>>,
+  letter: Pick<LetterDetail, 'stage' | 'flow' | 'direction' | 'kind'> &
+    Partial<Pick<LetterDetail, 'urgency' | 'confidentiality' | 'steps' | 'chosenWorkflowId'>>,
   config: CorrespondenceConfig,
   kind?: string,
-  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+  classified?: { readonly urgency?: string; readonly confidentiality?: string; readonly workflowId?: string },
 ): UpcomingStep | undefined {
   if (letter.stage === 'received' || letter.stage === 'drafting') {
     // Quy trình sẽ áp dụng theo phân loại đang chọn; bước có điều kiện không khớp thì bỏ.
@@ -159,7 +163,8 @@ export function upcomingStep(
       urgency: classified?.urgency ?? letter.urgency ?? '',
       confidentiality: classified?.confidentiality ?? letter.confidentiality ?? '',
     };
-    const first = plannedWorkflow(config, letter.direction, facts.kind, facts)?.steps.find((step) => stepApplies(step, facts));
+    const workflowId = classified?.workflowId ?? letter.chosenWorkflowId;
+    const first = plannedWorkflow(config, letter.direction, facts.kind, { ...facts, workflowId })?.steps.find((step) => stepApplies(step, facts));
     return first ? { type: stepTypeOf(first), name: first.name, units: first.units, lockUnits: first.lockUnits } : undefined;
   }
   const at = letter.flow.findIndex((node) => node.state === 'current');

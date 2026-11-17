@@ -42,6 +42,7 @@ import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
 import { LedgerView } from './ledger-view';
+import { WorkflowPicker } from './workflow-picker';
 import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
@@ -1324,5 +1325,67 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     fireEvent.click(screen.getByText('Về việc tham gia BHXH'));
     expect(onOpen).toHaveBeenCalledWith('b');
     expect(mocked.ledger).toHaveBeenCalledWith('incoming', 2026);
+  });
+});
+
+describe('Chọn quy trình cho công văn lúc tạo, phân loại', () => {
+  const workflows = [
+    {
+      id: 'wf-default',
+      name: 'Quy trình mặc định',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: true,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' as const }],
+      updatedAt: '',
+    },
+    {
+      id: 'wf-ceo',
+      name: 'Qua Tổng giám đốc',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: false,
+      steps: [
+        { key: 'a', name: 'Phó TGĐ xem', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-ha'] }, condition: { urgency: ['urgent'], skip: true } },
+        { key: 'b', name: 'TGĐ giao phòng ban', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-an'] }, directs: true },
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process' as const },
+      ],
+      updatedAt: '',
+    },
+  ];
+  const withFlows: CorrespondenceConfig = { ...config, workflows };
+
+  it('trống là theo cấu hình; chọn quy trình thì xem trước từng bước, ai làm, bước không áp dụng', () => {
+    const onChange = jest.fn();
+    const facts = { kind: 'directive', urgency: 'urgent', confidentiality: 'normal' };
+    const { rerender } = render(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="" directory={directory} onChange={onChange} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    expect(within(group).getByRole('textbox').getAttribute('placeholder')).toBe('Theo cấu hình: Quy trình mặc định');
+    expect(screen.getByRole('list', { name: 'Xem trước quy trình Quy trình mặc định' })).toBeTruthy();
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    expect(onChange).toHaveBeenCalledWith('wf-ceo');
+    rerender(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="wf-ceo" directory={directory} onChange={onChange} />);
+    const preview = screen.getByRole('list', { name: 'Xem trước quy trình Qua Tổng giám đốc' });
+    const items = within(preview).getAllByRole('listitem').map((item) => item.textContent);
+    expect(items[1]).toContain('không áp dụng cho công văn này');
+    expect(items[2]).toBe('TGĐ giao phòng banLãnh đạo duyệt / chỉ đạo · Nguyễn Văn An · bút phê');
+    expect(items[3]).toContain('Phòng ban do người làm bước trước chọn');
+    expect(screen.getByText('Công văn này chạy đúng quy trình đã chọn.')).toBeTruthy();
+  });
+
+  it('văn thư đổi quy trình lúc phân loại: gửi kèm quy trình đã chọn', async () => {
+    const onDone = jest.fn();
+    const received = letter({ stage: 'received', stageLabel: 'Văn thư tiếp nhận', currentStepName: undefined, flow: [] }, { dispatch: true });
+    mocked.dispatch.mockResolvedValue(received);
+    render(<LetterActionPanel letter={received} config={withFlows} directory={directory} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    const send = await screen.findByRole('button', { name: 'Chuyển "Phó TGĐ xem"' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.dispatch.mock.calls[0][1]).toMatchObject({ workflowId: 'wf-ceo' });
   });
 });

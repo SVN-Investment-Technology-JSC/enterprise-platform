@@ -791,6 +791,8 @@ export interface LetterDetail extends LetterSummary {
   readonly addressedUserName?: string;
   /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình xử lý. */
   readonly personal?: boolean;
+  /** Quy trình chọn riêng cho công văn (lúc tạo, phân loại, gửi đi); trống là tự chọn. */
+  readonly chosenWorkflowId?: string;
   /** Bút phê của bước chỉ đạo gần nhất. */
   readonly directive?: LetterDirective;
   /** Đề nghị huỷ công văn đã ban hành / hoàn tất: đang chờ xác nhận (giai đoạn `revoking`) hay đã được đồng ý. */
@@ -893,6 +895,8 @@ export interface CreateLetterRequest extends IntakeCheck {
   readonly confidentiality?: string;
   /** Sổ đăng ký; trống là sổ theo độ mật và loại văn bản. */
   readonly registerId?: string;
+  /** Quy trình riêng cho công văn này; trống là tự chọn theo điều kiện, loại văn bản, mặc định. */
+  readonly workflowId?: string;
   /**
    * Thư riêng gửi đích danh (`addressedUserId`): không bóc bì, chuyển thẳng người nhận, không vào quy trình
    * xử lý; người nhận trả văn thư được nếu là việc chung.
@@ -928,6 +932,8 @@ export interface CreateOutgoingRequest {
   readonly authorUnitId?: string;
   /** Gửi với danh nghĩa cá nhân (mặc định) hay cả phòng ban. */
   readonly sentAs?: SentAs;
+  /** Quy trình riêng cho công văn này; trống là tự chọn theo điều kiện, loại văn bản, mặc định. */
+  readonly workflowId?: string;
   /** Công văn đến mà công văn đi này trả lời. */
   readonly relatedLetterId?: string;
 }
@@ -1015,6 +1021,8 @@ export interface SubmitLetterRequest extends NextStepInput {
 /** Người soạn gửi công văn đi sang bước đầu của quy trình. */
 export interface SendLetterRequest extends NextStepInput {
   readonly note?: string;
+  /** Đổi quy trình của công văn lúc gửi đi; trống là quy trình đã chọn lúc tạo hay tự chọn. */
+  readonly workflowId?: string;
   readonly assigneeUserId?: string;
 }
 

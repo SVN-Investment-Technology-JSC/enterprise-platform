@@ -1493,6 +1493,36 @@ $fs-meta: 12px;
   }
 }
 
+// Chọn quy trình cho công văn: ô chọn và xem trước các bước theo thứ tự.
+.workflowPicker {
+  display: grid;
+  gap: 8px;
+}
+
+.workflowPreview {
+  margin: 0;
+  padding: 10px 12px 10px 32px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+  display: grid;
+  gap: 6px;
+
+  li > b {
+    display: block;
+    font-weight: 600;
+    color: var(--ep-text);
+  }
+}
+
+.workflowSkipped {
+  opacity: 0.5;
+
+  > b {
+    text-decoration: line-through;
+  }
+}
+
 // Sổ theo dõi công văn (báo cáo): bảng kẻ ô như sổ văn thư ghi tay, tiêu đề cột dính khi cuộn.
 .ledgerWrap {
   overflow: auto;

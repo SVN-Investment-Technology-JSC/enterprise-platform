@@ -10,11 +10,12 @@ import {
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLetter, errorMessage, uploadAttachment } from '../correspondence-api';
-import { appliedFlowLabels, catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
+import { catalogOptions, localToday } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { CheckGroup, Field, FilePickField, FormDialog, SelectField } from './form-dialog';
 import { IntakeCheckFields, intakeCheckPayload } from './intake-check-fields';
+import { WorkflowPicker } from './workflow-picker';
 
 interface IntakeForm {
   senderOrg: string;
@@ -36,6 +37,8 @@ interface IntakeForm {
   registerId: string;
   /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
   personal: boolean;
+  /** Quy trình chọn riêng; trống là tự chọn theo cấu hình. */
+  workflowId: string;
 }
 
 /** Hạn mặc định: số ngày của loại văn bản, không đặt thì theo cấu hình sổ; không có số ngày thì là ngày đến. */
@@ -70,6 +73,7 @@ function emptyForm(config: CorrespondenceConfig): IntakeForm {
     addressedUserId: '',
     registerId: '',
     personal: false,
+    workflowId: '',
   };
 }
 
@@ -112,7 +116,6 @@ export function IntakeDialog({
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof IntakeForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const facts = { kind: form.kind, urgency: form.urgency, confidentiality: form.confidentiality };
-  const workflow = plannedWorkflow(config, 'incoming', form.kind, facts);
 
   const restricted = Boolean(config.catalog.find((item) => item.kind === 'confidentiality' && item.code === form.confidentiality)?.restricted);
   const registers = config.registers.filter((item) => item.isActive && item.direction === 'incoming');
@@ -142,6 +145,7 @@ export function IntakeDialog({
         confidentiality: form.confidentiality,
         ...intakeCheckPayload(form, restricted),
         registerId: form.registerId || undefined,
+        workflowId: form.workflowId || undefined,
         personal: form.personal && Boolean(form.addressedUserId) ? true : undefined,
       });
       let failed = 0;
@@ -276,10 +280,9 @@ export function IntakeDialog({
         </Field>
         <FilePickField label="Bản quét công văn" files={files} hint="PDF, ảnh hay tệp Word của công văn" onChange={setFiles} />
       </div>
-      <p className={styles.plan}>
-        <span>Quy trình (theo cấu hình):</span>{' '}
-        {workflow ? appliedFlowLabels(workflow, 'incoming', facts).join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
-      </p>
+      {form.personal ? null : (
+        <WorkflowPicker config={config} direction="incoming" facts={facts} value={form.workflowId} directory={directory} onChange={(value) => set('workflowId', value)} />
+      )}
     </FormDialog>
   );
 }

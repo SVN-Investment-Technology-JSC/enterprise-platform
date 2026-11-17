@@ -1707,6 +1707,53 @@ describe('Sổ theo dõi công văn (báo cáo)', () => {
   });
 });
 
+describe('Chọn quy trình riêng cho công văn lúc tạo', () => {
+  it('không chọn thì theo cấu hình; chọn thì công văn chạy đúng quy trình đó, kể cả khi trả về ô đầu; quy trình ngừng dùng thì báo', async () => {
+    const { service } = setup();
+    const special = await service.saveWorkflow(configurer, undefined, {
+      name: 'Qua Giám đốc trực tiếp',
+      direction: 'incoming',
+      steps: [{ key: 'd', name: 'Giám đốc xem', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } }],
+    });
+    const outgoingFlow = (await service.config(configurer)).workflows.find((item) => item.direction === 'outgoing') as Workflow;
+    await expect(service.create(clerk, { ...intake, workflowId: outgoingFlow.id })).rejects.toThrow('không còn dùng hay không đúng luồng');
+    const normal = await service.create(clerk, intake);
+    expect(normal).toMatchObject({ workflowName: 'Xem xét công văn đến', chosenWorkflowId: undefined });
+    const chosen = await service.create(clerk, { ...intake, workflowId: special.id });
+    expect(chosen).toMatchObject({ workflowName: 'Qua Giám đốc trực tiếp', chosenWorkflowId: special.id });
+    expect(chosen.flow.map((node) => node.label)).toContain('Giám đốc xem');
+    const directing = await service.dispatch(clerk, chosen.id, { kind: 'finance', urgency: 'normal' });
+    expect(directing).toMatchObject({ currentStepName: 'Giám đốc xem', workflowName: 'Qua Giám đốc trực tiếp' });
+    // Trả về ô đầu rồi chuyển lại: vẫn quy trình đã chọn.
+    await service.returnLetter(leader, chosen.id, { target: 'clerk', reason: 'Phân loại lại.' });
+    expect((await service.dispatch(clerk, chosen.id, { kind: 'finance', urgency: 'normal' })).currentStepName).toBe('Giám đốc xem');
+
+    // Văn thư đổi quy trình lúc phân loại.
+    const changed = await service.dispatch(clerk, normal.id, { kind: 'finance', urgency: 'normal', workflowId: special.id });
+    expect(changed).toMatchObject({ currentStepName: 'Giám đốc xem', chosenWorkflowId: special.id });
+
+    // Quy trình đã chọn ngừng dùng: báo khi chuyển bước.
+    const later = await service.create(clerk, { ...intake, workflowId: special.id });
+    await service.saveWorkflow(configurer, special.id, { name: special.name, direction: 'incoming', isActive: false, steps: special.steps });
+    await expect(service.dispatch(clerk, later.id, { kind: 'finance', urgency: 'normal' })).rejects.toThrow('không còn dùng');
+  });
+
+  it('công văn đi: chọn quy trình lúc soạn, đổi được lúc gửi đi', async () => {
+    const { service } = setup();
+    const quick = await service.saveWorkflow(configurer, undefined, {
+      name: 'Đi nhanh',
+      direction: 'outgoing',
+      steps: [{ key: 'sign', name: 'Giám đốc ký', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } }],
+    });
+    const draft = await service.createOutgoing(accountant, { subject: 'Báo cáo', recipient: 'Sở', kind: 'finance', workflowId: quick.id });
+    expect(draft).toMatchObject({ chosenWorkflowId: quick.id, workflowName: 'Đi nhanh' });
+    const sent = await service.sendToClerk(accountant, draft.id, {});
+    expect(sent).toMatchObject({ stage: 'reviewing', currentStepName: 'Giám đốc ký' });
+    const other = await service.createOutgoing(accountant, { subject: 'Khác', recipient: 'Sở', kind: 'finance' });
+    expect((await service.sendToClerk(accountant, other.id, { workflowId: quick.id })).currentStepName).toBe('Giám đốc ký');
+  });
+});
+
 describe('Ô đầu, ô cuối cấu hình được', () => {
   it('tự chuyển bước đầu khi vào sổ: giao phòng ban gợi ý của loại văn bản', async () => {
     const { service, outbox } = setup();
