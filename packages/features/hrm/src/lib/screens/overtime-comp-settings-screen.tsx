@@ -17,7 +17,6 @@ import {
   overtimeCompFormProblem,
   removableCompVersionId,
   ROUNDING_OPTIONS,
-  RULE_SET_OPTIONS,
   type OvertimeCompForm,
 } from '../comp-off-model';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -217,48 +216,15 @@ export default function OvertimeCompSettingsScreen() {
               />
               <p className="pl-6 text-[12px] text-slate-500">
                 {form.enabled
-                  ? 'Cuối mỗi tháng, giờ làm thêm vượt trần và ca đêm được quy đổi và cộng vào quỹ nghỉ bù theo các thiết lập bên dưới.'
+                  ? 'Cuối mỗi tháng, giờ làm thêm vượt trần được quy đổi và cộng vào quỹ nghỉ bù theo các thiết lập bên dưới.'
                   : 'Đang tắt: không cắt trần làm thêm, không đổi công thức lương và không tự cộng quỹ khi chốt công. Các thiết lập bên dưới chưa được áp dụng.'}
               </p>
             </div>
-            <Field label="Chế độ phân loại làm thêm / ca đêm">
-              <SearchableSelect
-                height={36}
-                value={form.ruleSet}
-                options={RULE_SET_OPTIONS}
-                clearable={false}
-                disabled={!canManage}
-                onChange={(v) => v && set('ruleSet', v as OvertimeCompForm['ruleSet'])}
-              />
-            </Field>
             {text('normalHoursPerDay', 'Số giờ chuẩn một ngày làm việc')}
-            {form.ruleSet === 'NIGHT_REST' ? (
-              <>
-                {text('nightRestHoursPerDay', 'Số giờ ca đêm bù cho mỗi ngày nghỉ sau ca đêm')}
-                <Check label="Cho phép nghỉ nửa ngày" checked={form.allowHalfDay} disabled={!canManage} onChange={(v) => set('allowHalfDay', v)} />
-              </>
-            ) : null}
-            <Check
-              label="Đơn công tác khai giờ theo ngày: giờ làm thêm trong khung đêm tính là giờ đêm"
-              checked={form.declaredNightWindow}
-              disabled={!canManage}
-              onChange={(v) => set('declaredNightWindow', v)}
-            />
-            {form.ruleSet === 'CLOCK_WINDOW' || form.declaredNightWindow ? (
-              <>
-                <Field label="Khung giờ đêm: từ" hint="Dạng HH:mm, sau 12:00">
-                  <Input value={form.nightStart} disabled={!canManage} onChange={(e) => set('nightStart', e.target.value)} />
-                </Field>
-                <Field label="Khung giờ đêm: đến" hint="Dạng HH:mm, trước 12:00">
-                  <Input value={form.nightEnd} disabled={!canManage} onChange={(e) => set('nightEnd', e.target.value)} />
-                </Field>
-              </>
-            ) : null}
           </Section>
           <Section title="Công thức: trần làm thêm và trả lương">
             {text('monthlyCapHours', 'Trần làm thêm theo tháng (giờ)')}
             {text('yearlyCapHours', 'Trần làm thêm theo năm (giờ)', 'Để trống nếu không giới hạn')}
-            <Check label="Ca đêm cũng bị cắt trần" checked={form.nightCapped} disabled={!canManage} onChange={(v) => set('nightCapped', v)} />
           </Section>
           <Section title="Công thức: quy đổi nghỉ bù">
             {text('compFactor', 'Hệ số quy đổi giờ dư thành nghỉ bù')}
@@ -374,7 +340,7 @@ export default function OvertimeCompSettingsScreen() {
                 <Badge variant={phaseOf(v) === 'CURRENT' ? 'default' : 'outline'}>{COMP_VERSION_PHASE_LABELS[phaseOf(v)]}</Badge>
                 <Badge variant={v.config.enabled ? 'default' : 'outline'}>{v.config.enabled ? 'Bật' : 'Tắt'}</Badge>
                 <span className="text-xs text-slate-500">
-                  {v.config.ruleSet === 'NIGHT_REST' ? 'Theo ngày nghỉ sau ca đêm' : 'Theo khung giờ đêm'} · trần {v.config.monthlyCapHours} giờ/tháng · hệ số{' '}
+                  Trần {v.config.monthlyCapHours} giờ/tháng · hệ số{' '}
                   {v.config.compFactor}
                 </span>
                 {canManage && v.id === removableId ? (

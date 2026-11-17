@@ -14,20 +14,9 @@ export interface HrmOvertimeCompConfig {
   readonly enabled: boolean;
   /** Bật quản lý quỹ nghỉ bù (giữ chỗ & trừ quỹ khi tạo/duyệt đơn Nghỉ bù) độc lập với tính toán tự động từ OT. */
   readonly fundEnabled?: boolean;
-  readonly ruleSet: HrmOvertimeRuleSet;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
   readonly yearlyCapHours: number | null;
-  readonly nightCapped: boolean;
-  readonly nightStartMinute: number;
-  readonly nightEndMinute: number;
-  readonly nightRestHoursPerDay: number;
-  readonly allowHalfDay: boolean;
-  /**
-   * Đơn công tác khai giờ theo ngày: phần làm thêm nằm trong khung đêm được tách thành giờ đêm (true), hoặc gộp chung
-   * vào làm thêm không phân biệt (false). Dùng khung giờ đêm `nightStartMinute` và `nightEndMinute`.
-   */
-  readonly declaredNightWindow: boolean;
   readonly compFactor: number;
   readonly dayBasisHours: number | null;
   readonly decimals: number;
@@ -92,6 +81,7 @@ export interface HrmOvertimeBlock {
   readonly end: string;
   readonly hours: number;
   readonly crossesMidnight: boolean;
+  /** Cột cũ: quy tắc công ty ghi cố định NIGHT_REST (CLOCK_WINDOW chỉ còn ở dữ liệu cũ); DECLARED là ca từ giờ thực tế đơn công tác. */
   readonly ruleSet: HrmOvertimeRuleSet | 'DECLARED';
   readonly restFractionSuggested: number;
   readonly otHoursSuggested: number;
@@ -131,7 +121,7 @@ export interface HrmOvertimeClassifyPreview {
   readonly parts: readonly HrmOvertimeClassifyPreviewPart[];
   readonly otHours: number;
   readonly nightHours: number;
-  /** Có ca xuyên đêm: giao diện hiện lựa chọn "Hôm sau nghỉ". */
+  /** Khoảng qua đêm bắt đầu từ thứ Hai đến thứ Sáu: giao diện hỏi "sáng hôm sau có đi làm". */
   readonly askNextDayRest: boolean;
 }
 

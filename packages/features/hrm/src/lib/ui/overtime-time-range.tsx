@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { HrmRequestTimePreview } from '@enterprise-platform/contracts-hrm';
 import { DatePickerInput } from './date-picker-input';
 import { splitDateTime } from './date-time-input';
@@ -13,8 +13,13 @@ export function nextDateOf(date: string): string {
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + 1)).toISOString().slice(0, 10);
 }
 
+/** Sáng hôm sau của ca qua đêm: làm việc bình thường, nghỉ cả ngày hoặc nghỉ nửa ngày. */
+export type NextMorning = 'WORK' | 'FULL' | 'HALF';
+
 /**
- * Khoảng thời gian làm thêm giờ: một ô ngày, giờ bắt đầu, giờ kết thúc và ô "Làm xuyên đêm" (kết thúc vào ngày hôm sau).
+ * Khoảng thời gian làm thêm giờ, một dòng: ngày, giờ bắt đầu, giờ kết thúc và (khi qua đêm) ô chọn sáng hôm sau. Giờ kết
+ * thúc nhỏ hơn giờ bắt đầu (ví dụ 22:00 đến 04:00) tự hiểu là kết thúc vào ngày hôm sau, không có ô "Làm qua đêm" để chọn
+ * nhầm (20:00-22:00 cộng qua đêm thành 26 giờ và trùng giờ hành chính).
  * Giá trị vào/ra vẫn là cặp `fromAt`/`toAt` ('YYYY-MM-DDTHH:mm') như mọi khoảng thời gian khác nên form cha, máy chủ và
  * các khoảng bổ sung không đổi cách xử lý. Chưa chọn ngày thì giờ đang nhập được giữ lại trong ô để dùng khi chọn ngày.
  * Không hiện tổng giờ: tổng của từng khoảng và của cả đơn nằm ở khu vực tổng hợp của form.
@@ -30,6 +35,12 @@ export function OvertimeTimeRange({
   startTime = '17:30',
   endTime = '20:30',
   idPrefix = 'ot',
+  morningWorked,
+  onMorningWorkedChange,
+  morningHalf,
+  onMorningHalfChange,
+  compact = false,
+  trailing,
 }: {
   employeeId: string;
   fromAt: string;
@@ -43,73 +54,101 @@ export function OvertimeTimeRange({
   startTime?: string;
   endTime?: string;
   idPrefix?: string;
+  /** Sáng hôm sau có đi làm việc không; ô chọn chỉ hiện khi khoảng qua đêm và có hàm `onMorningWorkedChange`. */
+  morningWorked?: boolean;
+  onMorningWorkedChange?: (value: boolean) => void;
+  /** Chỉ nghỉ nửa ngày sáng hôm sau (khi `morningWorked` là false): ca đêm tối đa 4 giờ. */
+  morningHalf?: boolean;
+  onMorningHalfChange?: (value: boolean) => void;
+  /** true: dòng gọn cho khoảng bổ sung (không tiêu đề, không nhãn trên ô). */
+  compact?: boolean;
+  /** Phần cuối dòng (ví dụ nút xoá khoảng). */
+  trailing?: ReactNode;
 }) {
   const from = splitDateTime(fromAt);
   const to = splitDateTime(toAt);
-  const [draft, setDraft] = useState({ start: startTime, end: endTime, overnight: false });
+  const [draft, setDraft] = useState({ start: startTime, end: endTime });
   const start = from.time || draft.start;
   const end = to.time || draft.end;
   const date = from.date;
-  const overnight = date ? Boolean(to.date && to.date > date) : draft.overnight;
   const { preview, previewError, ordered } = useRequestTimePreview({ employeeId, fromAt, toAt, kind: 'ot', onPreview });
 
-  const emit = (next: { date: string; start: string; end: string; overnight: boolean }) => {
-    setDraft({ start: next.start, end: next.end, overnight: next.overnight });
+  const emit = (next: { date: string; start: string; end: string }) => {
+    // Giờ kết thúc nhỏ hơn giờ bắt đầu: ca kết thúc vào sáng hôm sau (ví dụ 22:00 đến 04:00), vẫn là MỘT khoảng.
+    const overnightNow = Boolean(next.start && next.end && next.end < next.start);
+    setDraft({ start: next.start, end: next.end });
     if (!next.date) return onChange({ fromAt: '', toAt: '' });
     onChange({
       fromAt: `${next.date}T${next.start}`,
-      toAt: `${next.overnight ? nextDateOf(next.date) : next.date}T${next.end}`,
+      toAt: `${overnightNow ? nextDateOf(next.date) : next.date}T${next.end}`,
     });
   };
 
+  const morning: NextMorning = morningWorked !== false ? 'WORK' : morningHalf ? 'HALF' : 'FULL';
+  const chooseMorning = (value: NextMorning) => {
+    onMorningWorkedChange?.(value === 'WORK');
+    onMorningHalfChange?.(value === 'HALF');
+  };
+  const caption = (text: string) =>
+    compact ? null : <span className="text-[12px] font-medium text-slate-600">{text}</span>;
+
   return (
-    <div className="space-y-2" data-testid="overtime-time-range">
-      <span className="block text-xs font-semibold text-slate-700">
-        {label} <span className="text-rose-500">*</span>
-      </span>
-      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem] lg:grid-cols-[minmax(0,1fr)_7rem_7rem_auto]">
-        <label className="block space-y-1">
-          <span className="text-[12px] font-medium text-slate-600">Ngày</span>
+    <div className="space-y-2" data-testid={compact ? undefined : 'overtime-time-range'}>
+      {!compact && (
+        <span className="block text-xs font-semibold text-slate-700">
+          {label} <span className="text-rose-500">*</span>
+        </span>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block min-w-[10rem] flex-1 space-y-1">
+          {caption('Ngày')}
           <DatePickerInput
             value={date}
             disabled={disabled}
             aria-label="Ngày làm thêm"
-            onChange={(d) => emit({ date: d, start, end, overnight })}
+            onChange={(d) => emit({ date: d, start, end })}
           />
         </label>
-        <label className="block space-y-1">
-          <span className="text-[12px] font-medium text-slate-600">Từ giờ</span>
+        <label className="block w-28 space-y-1">
+          {caption('Từ giờ')}
           <TimeComboInput
             value={start}
             disabled={disabled}
             aria-label="Giờ bắt đầu"
-            onChange={(t) => emit({ date, start: t, end, overnight })}
+            onChange={(t) => emit({ date, start: t, end })}
           />
         </label>
-        <label className="block space-y-1">
-          <span className="text-[12px] font-medium text-slate-600">Đến giờ</span>
+        <label className="block w-28 space-y-1">
+          {caption('Đến giờ')}
           <TimeComboInput
             value={end}
             disabled={disabled}
             aria-label="Giờ kết thúc"
-            onChange={(t) => emit({ date, start, end: t, overnight })}
+            onChange={(t) => emit({ date, start, end: t })}
           />
         </label>
-        <label className="flex h-9 cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
-          <input
-            id={`${idPrefix}-overnight`}
-            type="checkbox"
-            className="size-4 rounded border-slate-300"
-            checked={overnight}
-            disabled={disabled}
-            onChange={(e) => emit({ date, start, end, overnight: e.target.checked })}
-          />
-          Làm xuyên đêm
-        </label>
+        {onMorningWorkedChange && (
+          <label className="block w-48 space-y-1">
+            {caption('Sáng hôm sau')}
+            <select
+              id={`${idPrefix}-next-morning`}
+              aria-label="Sáng hôm sau"
+              className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 disabled:opacity-60"
+              value={morning}
+              disabled={disabled}
+              onChange={(e) => chooseMorning(e.target.value as NextMorning)}
+            >
+              <option value="WORK">Làm việc bình thường</option>
+              <option value="FULL">Nghỉ cả ngày</option>
+              <option value="HALF">Nghỉ nửa ngày</option>
+            </select>
+          </label>
+        )}
+        <div className="flex h-9 w-[4.5rem] shrink-0 items-center">{trailing}</div>
       </div>
       {!ordered && (
         <p role="alert" className="text-xs font-semibold text-rose-600">
-          Giờ kết thúc phải sau giờ bắt đầu; nếu làm qua đêm, hãy chọn &quot;Làm xuyên đêm&quot;.
+          Giờ kết thúc phải khác giờ bắt đầu.
         </p>
       )}
       {preview?.errors.map((text) => (

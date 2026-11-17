@@ -84,7 +84,16 @@ export function RequestTimeRange({
   disabled,
   dateOnly = false,
   showSummary = true,
+  compact = false,
+  trailing,
+  reserveTrailing = false,
 }: {
+  /** true: dòng gọn cho khoảng bổ sung (không nhãn trên ô; nhãn còn ở aria-label). */
+  compact?: boolean;
+  /** Phần cuối dòng (ví dụ nút xoá khoảng); chiếm cột cố định để các dòng thẳng hàng. */
+  trailing?: React.ReactNode;
+  /** Giữ sẵn cột cuối (rỗng) cho dòng chính để thẳng hàng với các dòng có nút xoá. */
+  reserveTrailing?: boolean;
   /** Chỉ chọn ngày bắt đầu và kết thúc; giờ giữ theo giá trị truyền vào. */
   dateOnly?: boolean;
   /** false: không hiện thẻ tổng giờ/ngày công và cảnh báo; chỉ còn lỗi chặn gửi đơn (nơi khác đã có thẻ tính riêng). */
@@ -118,11 +127,15 @@ export function RequestTimeRange({
 
   return (
     <div className="space-y-2" data-testid="request-time-range">
-      <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[1fr_auto_1fr]">
+      <div
+        className={`grid grid-cols-1 items-end gap-3 ${trailing || reserveTrailing ? 'md:grid-cols-[1fr_auto_1fr_4.5rem]' : 'md:grid-cols-[1fr_auto_1fr]'}`}
+      >
         <label className="block space-y-1.5">
-          <span className="text-xs font-semibold text-slate-700">
-            {fromLabel} <span className="text-rose-500">*</span>
-          </span>
+          {!compact && (
+            <span className="text-xs font-semibold text-slate-700">
+              {fromLabel} <span className="text-rose-500">*</span>
+            </span>
+          )}
           <DateTimeInput
             value={fromAt}
             disabled={disabled}
@@ -144,9 +157,11 @@ export function RequestTimeRange({
           →
         </span>
         <label className="block space-y-1.5">
-          <span className="text-xs font-semibold text-slate-700">
-            {toLabel} <span className="text-rose-500">*</span>
-          </span>
+          {!compact && (
+            <span className="text-xs font-semibold text-slate-700">
+              {toLabel} <span className="text-rose-500">*</span>
+            </span>
+          )}
           <DateTimeInput
             value={toAt}
             disabled={disabled}
@@ -155,6 +170,7 @@ export function RequestTimeRange({
             onChange={(value) => onChange({ fromAt, toAt: value })}
           />
         </label>
+        {(trailing || reserveTrailing) && <div className="flex h-9 items-center">{trailing}</div>}
       </div>
       {kind === 'trip' && !dateOnly && !preview && !previewError && (
         <p className="text-[11px] text-slate-500">

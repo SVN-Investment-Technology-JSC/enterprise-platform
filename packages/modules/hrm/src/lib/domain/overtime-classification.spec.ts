@@ -1,15 +1,12 @@
 import {
   blockHours,
   classifyBlock,
-  classifyClockWindow,
-  classifyNightRest,
   crossesMidnight,
   splitBlockByMonth,
+  weekdayOf,
   type OvertimeBlock,
 } from './overtime-classification.js';
 
-const nightRest = { nightRestHoursPerDay: 8, allowHalfDay: true };
-const clockWindow = { nightStartMinute: 1320, nightEndMinute: 360 };
 const b = (start: string, end: string): OvertimeBlock => ({ start, end });
 
 describe('blockHours và crossesMidnight', () => {
@@ -32,75 +29,68 @@ describe('blockHours và crossesMidnight', () => {
   });
 });
 
-describe('classifyNightRest (chốt 8 giờ cho mỗi ngày nghỉ sau ca đêm)', () => {
-  const cases: Array<[string, string, string, number, number, number]> = [
-    ['10 giờ, hôm sau nghỉ cả ngày', '2026-10-06T18:00', '2026-10-07T04:00', 1, 2, 8],
-    ['6 giờ đến 00:00, hôm sau nghỉ cả ngày', '2026-10-08T18:00', '2026-10-09T00:00', 1, 0, 6],
-    ['14,5 giờ, hôm sau nghỉ cả ngày', '2026-10-28T17:00', '2026-10-29T07:30', 1, 6.5, 8],
-    ['13,5 giờ, hôm sau nghỉ nửa ngày', '2026-10-13T17:30', '2026-10-14T07:00', 0.5, 9.5, 4],
-    ['12 giờ, hôm sau đi làm bình thường', '2026-09-08T17:00', '2026-09-09T05:00', 0, 12, 0],
-  ];
-  it.each(cases)('%s', (_name, start, end, fraction, ot, night) => {
-    const r = classifyNightRest(b(start, end), fraction, nightRest);
+describe('classifyBlock (quy tắc công ty: ca đêm theo sáng hôm sau)', () => {
+  const worked = { nextMorningWorked: true };
+  const off = { nextMorningWorked: false };
+
+  it.each([
+    // Ngày thường, qua đêm, sáng hôm sau KHÔNG đi làm: tối đa 8 giờ đầu là ca đêm, phần vượt là làm thêm.
+    ['23/09 (T4) 17:00 đến 08:00 hôm sau, nghỉ sáng', '2026-09-23T17:00', '2026-09-24T08:00', off, 7, 8],
+    ['18:00 đến 04:00, nghỉ sáng', '2026-10-06T18:00', '2026-10-07T04:00', off, 2, 8],
+    ['18:00 đến 02:00 (đúng 8 giờ), nghỉ sáng', '2026-10-06T18:00', '2026-10-07T02:00', off, 0, 8],
+    ['18:00 đến 00:00 (6 giờ), nghỉ sáng', '2026-10-08T18:00', '2026-10-09T00:00', off, 0, 6],
+    // Sáng hôm sau có đi làm: toàn bộ là làm thêm.
+    ['18:00 đến 04:00, có đi làm sáng', '2026-10-06T18:00', '2026-10-07T04:00', worked, 10, 0],
+    // Không qua đêm: toàn bộ là làm thêm, kể cả khi sáng hôm sau nghỉ.
+    ['17:00 đến 21:00 trong ngày', '2026-10-06T17:00', '2026-10-06T21:00', off, 4, 0],
+    ['13:00 đến 17:00 trong ngày', '2026-10-06T13:00', '2026-10-06T17:00', off, 4, 0],
+    // Thứ Bảy và Chủ nhật: toàn bộ là làm thêm, không xét sáng hôm sau.
+    ['thứ Bảy 18:00 đến 04:00 (D+1 là Chủ nhật)', '2026-10-17T18:00', '2026-10-18T04:00', off, 10, 0],
+    // Chủ nhật bắt đầu: D+1 là thứ Hai (ngày có ca) nên vẫn xét ca đêm.
+    ['Chủ nhật 17:00 đến 01:00, nghỉ sáng thứ Hai', '2026-10-04T17:00', '2026-10-05T01:00', off, 0, 8],
+    ['Chủ nhật 18:00 đến 06:00, nghỉ sáng thứ Hai', '2026-10-18T18:00', '2026-10-19T06:00', off, 4, 8],
+    // Nghỉ nửa ngày hôm sau: ca đêm tối đa 4 giờ.
+    ['18:00 đến 07:00 (13h), nghỉ nửa ngày', '2026-10-13T17:30', '2026-10-14T07:00', { nextMorningWorked: false, nextMorningHalf: true }, 9.5, 4],
+    ['18:00 đến 02:00 (8h), nghỉ nửa ngày', '2026-10-18T18:00', '2026-10-19T02:00', { nextMorningWorked: false, nextMorningHalf: true }, 4, 4],
+    ['17:00 đến 01:00 (8h), nghỉ nửa ngày', '2026-10-06T17:00', '2026-10-07T01:00', { nextMorningWorked: false, nextMorningHalf: true }, 4, 4],
+  ])('%s', (_name, start, end, options, ot, night) => {
+    const r = classifyBlock(b(start, end), options);
     expect(r).toMatchObject({ otHours: ot, nightHours: night });
     expect(r.otHours + r.nightHours).toBe(blockHours(b(start, end)));
   });
 
-  it('ca không xuyên đêm luôn là làm thêm toàn bộ, kể cả ca dài hơn 4 giờ và dù khai nghỉ hôm sau', () => {
-    expect(classifyNightRest(b('2026-10-17T13:00', '2026-10-17T18:00'), 0, nightRest)).toMatchObject({ otHours: 5, nightHours: 0 });
-    expect(classifyNightRest(b('2026-10-04T07:00', '2026-10-04T18:00'), 1, nightRest)).toMatchObject({ otHours: 11, nightHours: 0 });
-    expect(classifyNightRest(b('2026-10-17T15:30', '2026-10-17T21:30'), 1, nightRest)).toMatchObject({ otHours: 6, nightHours: 0 });
+  it('số giờ ca đêm tối đa lấy theo tham số, mặc định 8', () => {
+    expect(classifyBlock(b('2026-10-06T18:00', '2026-10-07T04:00'), { ...off, nightMaxHours: 6 })).toMatchObject({ otHours: 4, nightHours: 6 });
   });
 
-  it('chính sách không cho nghỉ nửa ngày thì bỏ phần nghỉ nửa ngày và cảnh báo', () => {
-    const r = classifyNightRest(b('2026-10-13T17:30', '2026-10-14T07:00'), 0.5, { ...nightRest, allowHalfDay: false });
-    expect(r).toMatchObject({ otHours: 13.5, nightHours: 0 });
-    expect(r.warnings).toHaveLength(1);
+  it('thứ trong tuần tính theo ngày bắt đầu khoảng', () => {
+    expect(weekdayOf(b('2026-09-23T17:00', '2026-09-24T08:00'))).toBe(3);
+    expect(weekdayOf(b('2026-09-26T13:00', '2026-09-26T19:00'))).toBe(6);
+    expect(weekdayOf(b('2026-09-27T06:00', '2026-09-27T19:00'))).toBe(0);
   });
 
-  it('số giờ bù mỗi ngày nghỉ lấy từ cấu hình, không cứng 8', () => {
-    const r = classifyNightRest(b('2026-10-06T18:00', '2026-10-07T04:00'), 1, { ...nightRest, nightRestHoursPerDay: 6 });
-    expect(r).toMatchObject({ otHours: 4, nightHours: 6 });
+  it('từ chối khoảng có giờ kết thúc không sau giờ bắt đầu', () => {
+    expect(() => classifyBlock(b('2026-10-06T18:00', '2026-10-06T17:00'), worked)).toThrow(RangeError);
   });
 
-  it('chỉ nhận phần ngày nghỉ 0, 0,5 hoặc 1', () => {
-    expect(() => classifyNightRest(b('2026-10-06T18:00', '2026-10-07T04:00'), 0.3, nightRest)).toThrow(RangeError);
-  });
-});
-
-describe('classifyClockWindow (khung đêm 22:00 đến 06:00)', () => {
-  it.each([
-    ['20:00 đến 02:00', '2026-10-06T20:00', '2026-10-07T02:00', 2, 4],
-    ['17:00 đến 23:00', '2026-10-06T17:00', '2026-10-06T23:00', 5, 1],
-    ['ca ban ngày 08:00 đến 17:00', '2026-10-06T08:00', '2026-10-06T17:00', 9, 0],
-    ['22:00 đến 06:00 là toàn bộ ca đêm', '2026-10-06T22:00', '2026-10-07T06:00', 0, 8],
-    ['05:00 đến 08:00 chạm cuối khung đêm', '2026-10-07T05:00', '2026-10-07T08:00', 2, 1],
-  ])('%s', (_name, start, end, ot, night) => {
-    expect(classifyClockWindow(b(start, end), clockWindow)).toMatchObject({ otHours: ot, nightHours: night });
-  });
-
-  it('khung đêm lấy từ cấu hình', () => {
-    const r = classifyClockWindow(b('2026-10-06T21:00', '2026-10-06T23:00'), { nightStartMinute: 1260, nightEndMinute: 300 });
-    expect(r).toMatchObject({ otHours: 0, nightHours: 2 });
-  });
-
-  it('từ chối khung đêm sai thứ tự', () => {
-    expect(() => classifyClockWindow(b('2026-10-06T20:00', '2026-10-06T23:00'), { nightStartMinute: 300, nightEndMinute: 1320 })).toThrow(RangeError);
-  });
-});
-
-describe('classifyBlock chọn bộ quy tắc theo chính sách', () => {
-  const block = b('2026-10-06T18:00', '2026-10-07T04:00');
-  it('hai bộ quy tắc cho hai kết quả khác nhau trên cùng một ca, cùng một kiểu kết quả', () => {
-    const base = { block, restFraction: 1, nightRest, clockWindow };
-    const a = classifyBlock({ ...base, ruleSet: 'NIGHT_REST' });
-    const c = classifyBlock({ ...base, ruleSet: 'CLOCK_WINDOW' });
-    expect(a).toMatchObject({ otHours: 2, nightHours: 8 });
-    expect(c).toMatchObject({ otHours: 4, nightHours: 6 });
-  });
-
-  it('bộ quy tắc lạ bị từ chối', () => {
-    expect(() => classifyBlock({ block, nightRest, clockWindow, ruleSet: 'KHAC' as never })).toThrow(RangeError);
+  it('mẫu Phan Trung Kiên dòng 69: tổng 58, làm thêm 50, ca đêm 8 (chỉ khoảng 23/09 qua đêm và sáng 24/09 nghỉ)', () => {
+    const rows: Array<[string, string, { nextMorningWorked: boolean }]> = [
+      ['2026-09-20T07:30', '2026-09-20T17:00', worked],
+      ['2026-09-21T17:00', '2026-09-21T21:30', worked],
+      ['2026-09-22T17:00', '2026-09-22T22:00', worked],
+      ['2026-09-23T17:00', '2026-09-24T08:00', off],
+      ['2026-09-25T17:00', '2026-09-25T22:00', worked],
+      ['2026-09-26T13:00', '2026-09-26T19:00', worked],
+      ['2026-09-27T06:00', '2026-09-27T19:00', worked],
+    ];
+    const total = rows.reduce(
+      (n, [s, e, o]) => {
+        const r = classifyBlock(b(s, e), o);
+        return { ot: n.ot + r.otHours, night: n.night + r.nightHours };
+      },
+      { ot: 0, night: 0 },
+    );
+    expect(total).toEqual({ ot: 50, night: 8 });
   });
 });
 

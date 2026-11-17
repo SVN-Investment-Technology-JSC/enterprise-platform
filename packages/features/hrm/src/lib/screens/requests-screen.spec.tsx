@@ -1004,6 +1004,26 @@ describe('Đơn từ của tôi: tháng, thẻ tổng quan và lọc theo trạn
     expect(rowOf(a)).toBeNull();
   });
 
+  it('đơn duyệt trực tiếp chưa duyệt có nút Sửa đơn và mở form điền sẵn', async () => {
+    const direct = 'aaaaaaaa-4444-0000-0000-000000000001';
+    leaveRows = [{ ...leave(direct, 'PENDING', new Date().toISOString(), 'Sửa được'), employeeId: 'e1', description: 'Mô tả sai' }];
+    render(<RequestsPage />);
+    await screen.findByTestId(`request-row-${direct}`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sửa đơn' }));
+    expect(await screen.findByRole('button', { name: /Lưu chỉnh sửa/ })).toBeTruthy();
+  });
+
+  it('đơn đã nối quy trình duyệt thì không có nút Sửa đơn', async () => {
+    const viaProcedure = 'aaaaaaaa-4444-0000-0000-000000000002';
+    leaveRows = [
+      { ...leave(viaProcedure, 'PENDING', new Date().toISOString(), 'Qua quy trình'), employeeId: 'e1', procedureInstanceId: 'pi-1' },
+    ];
+    render(<RequestsPage />);
+    await screen.findByTestId(`request-row-${viaProcedure}`);
+    await screen.findByRole('button', { name: 'Thu hồi đơn' });
+    expect(screen.queryByRole('button', { name: 'Sửa đơn' })).toBeNull();
+  });
+
   it('đơn chờ duyệt có nút Thu hồi đơn: xác nhận rồi gọi withdraw', async () => {
     const id = 'aaaaaaaa-3333-0000-0000-000000000001';
     leaveRows = [leave(id, 'PENDING', new Date().toISOString(), 'Cần thu hồi')];
@@ -1153,31 +1173,30 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     expect((screen.getByLabelText('Giờ bắt đầu') as HTMLInputElement).value).toBe('16:00');
   });
 
-  it('đơn làm thêm giờ: giờ bắt đầu muộn hơn giờ kết thúc chỉ hiện lỗi; chọn Làm xuyên đêm thì kết thúc sang ngày hôm sau', async () => {
+  it('đơn làm thêm giờ: giờ kết thúc không sau giờ bắt đầu tự tích Làm qua đêm, kết thúc sang ngày hôm sau', async () => {
     reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
     const fromTime = (await screen.findByLabelText('Giờ bắt đầu')) as HTMLInputElement;
     const toTime = screen.getByLabelText('Giờ kết thúc') as HTMLInputElement;
-    const overnight = screen.getByLabelText('Làm xuyên đêm') as HTMLInputElement;
-    // Chỉ một ô ngày; không còn ô chọn ngày kết thúc.
+    // Không có ô "Làm qua đêm"; chỉ một ô ngày, không còn ô chọn ngày kết thúc.
+    expect(screen.queryByLabelText('Làm qua đêm')).toBeNull();
     expect(screen.queryByLabelText('Đến ngày giờ làm thêm (ngày)')).toBeNull();
-    expect(overnight.checked).toBe(false);
-    // Mặc định 17:30 - 20:30; đặt bắt đầu 21:00 (sau giờ kết thúc cũ).
+    // Ô sáng hôm sau luôn hiện (mặc định làm việc bình thường), không phụ thuộc khoảng có qua đêm hay không.
+    expect((screen.getByLabelText('Sáng hôm sau') as HTMLSelectElement).value).toBe('WORK');
+    // Mặc định 17:30 - 20:30; đặt bắt đầu 21:00 (sau giờ kết thúc cũ): tự hiểu là qua đêm.
     fireEvent.change(fromTime, { target: { value: '2100' } });
     fireEvent.blur(fromTime);
     expect(fromTime.value).toBe('21:00');
     expect(toTime.value).toBe('20:30');
-    expect((await screen.findAllByText(/Giờ kết thúc phải sau giờ bắt đầu/)).length).toBeGreaterThan(0);
-    // Làm xuyên đêm: kết thúc 20:30 ngày hôm sau, lỗi biến mất.
-    fireEvent.click(overnight);
-    expect(overnight.checked).toBe(true);
-    expect(screen.queryByText(/Giờ kết thúc phải sau giờ bắt đầu/)).toBeNull();
-    expect(toTime.value).toBe('20:30');
-    // Bỏ chọn thì kết thúc về cùng ngày.
-    fireEvent.click(overnight);
-    expect(overnight.checked).toBe(false);
-    expect((await screen.findAllByText(/Giờ kết thúc phải sau giờ bắt đầu/)).length).toBeGreaterThan(0);
+    const morning = screen.getByLabelText('Sáng hôm sau') as HTMLSelectElement;
+    expect(morning.value).toBe('WORK');
+    expect(Array.from(morning.options).map((o) => o.text)).toEqual(['Làm việc bình thường', 'Nghỉ cả ngày', 'Nghỉ nửa ngày']);
+    expect(screen.queryByText(/Giờ kết thúc phải khác giờ bắt đầu/)).toBeNull();
+    // Đặt kết thúc 23:00 (sau giờ bắt đầu): khoảng nằm trong một ngày, ô sáng hôm sau vẫn hiện.
+    fireEvent.change(toTime, { target: { value: '2300' } });
+    fireEvent.blur(toTime);
+    expect(screen.getByLabelText('Sáng hôm sau')).toBeTruthy();
   });
 
   it('đơn làm thêm giờ: nhãn khu vực là "Ngày giờ", không còn thẻ tổng thời gian ở từng vùng mà có bảng tổng hợp', async () => {
@@ -1231,7 +1250,35 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     return extra;
   }
 
-  it('đơn làm thêm giờ nhiều khoảng: thêm khoảng, gửi thành từng đơn riêng với cùng lý do và mô tả', async () => {
+  it.each([
+    ['Nghỉ cả ngày', 'FULL'],
+    ['Nghỉ nửa ngày', 'HALF'],
+  ])('đơn làm thêm qua đêm: chọn sáng hôm sau "%s" thì chỉ khoảng đó gửi nextDayRest %s', async (optionText, expected) => {
+    const extra = await openOtWithExtraRange();
+    // Khoảng chính và khoảng thêm đều có ô sáng hôm sau, mặc định làm việc bình thường.
+    expect(screen.queryAllByLabelText('Sáng hôm sau')).toHaveLength(2);
+    const to = within(extra).getByLabelText('Giờ kết thúc') as HTMLInputElement;
+    fireEvent.change(to, { target: { value: '0400' } });
+    fireEvent.blur(to);
+    const morning = (await within(extra).findByLabelText('Sáng hôm sau')) as HTMLSelectElement;
+    expect(morning.value).toBe('WORK');
+    const option = Array.from(morning.options).find((o) => o.text === optionText)!;
+    fireEvent.change(morning, { target: { value: option.value } });
+    expect(morning.value).toBe(option.value);
+    // Máy chủ tính lại khoảng vừa đổi (có trễ nhỏ) rồi mới gửi được.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    // Một đơn duy nhất gồm khoảng chính và khoảng bổ sung; mỗi khoảng mang nextDayRest riêng.
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(1));
+    const drafts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/request-drafts/ot'));
+    expect(drafts).toHaveLength(1);
+    const payload = drafts[0].body?.payload as { nextDayRest: string; extraRanges: Array<{ nextDayRest: string }> };
+    expect(payload.nextDayRest).toBe('NONE');
+    expect(payload.extraRanges.map((r) => r.nextDayRest)).toEqual([expected]);
+  });
+
+  it('đơn làm thêm giờ nhiều khoảng: thêm khoảng, gửi thành MỘT đơn gồm nhiều khoảng với cùng lý do và mô tả', async () => {
     const successSpy = jest.spyOn(toast, 'success');
     const extra = await openOtWithExtraRange();
     // Khoảng 2 lấy ngày liền sau khoảng chính, cùng giờ 17:30 - 20:30.
@@ -1241,17 +1288,15 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     expect(screen.getByTestId('ot-total').textContent).toContain('6 giờ');
     await waitFor(() => expect(submitButton().disabled).toBe(false));
     fireEvent.click(submitButton());
-    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(2));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(1));
     const drafts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/request-drafts/ot'));
-    expect(drafts).toHaveLength(2);
-    const payloads = drafts.map((d) => d.body?.payload as Record<string, string>);
-    expect(payloads[0].fromAt).not.toBe(payloads[1].fromAt);
-    expect(payloads[1].fromAt.slice(11)).toBe('17:30');
-    expect(new Date(payloads[1].fromAt).getTime()).toBeGreaterThan(new Date(payloads[0].toAt).getTime());
-    for (const payload of payloads) {
-      expect(payload).toMatchObject({ reasonId: 'ot1', description: 'Chạy tiến độ', plannedMinutes: 180 });
-    }
-    await waitFor(() => expect(successSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Đã gửi 2 đơn' })));
+    expect(drafts).toHaveLength(1);
+    const payload = drafts[0].body?.payload as Record<string, unknown> & { extraRanges: Array<{ fromAt: string; toAt: string }> };
+    expect(payload).toMatchObject({ reasonId: 'ot1', description: 'Chạy tiến độ', plannedMinutes: 180 });
+    expect(payload.extraRanges).toHaveLength(1);
+    expect(payload.extraRanges[0].fromAt.slice(11)).toBe('17:30');
+    expect(new Date(payload.extraRanges[0].fromAt).getTime()).toBeGreaterThan(new Date(String(payload.toAt)).getTime());
+    await waitFor(() => expect(successSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Đã gửi đơn làm thêm (2 khoảng)' })));
   });
 
   it('đơn làm thêm giờ nhiều khoảng: khoảng bổ sung trùng ca bị báo lỗi theo khoảng và không gửi đơn nào', async () => {
@@ -1285,20 +1330,18 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(1));
   });
 
-  it('đơn làm thêm giờ nhiều khoảng: khoảng thứ hai bị máy chủ từ chối thì báo rõ khoảng lỗi và số đơn đã gửi', async () => {
-    otFailFrom = 2;
+  it('đơn làm thêm giờ nhiều khoảng: máy chủ từ chối thì báo lỗi và không khoảng nào được gửi', async () => {
+    otFailFrom = 1;
     const errorSpy = jest.spyOn(toast, 'error');
     await openOtWithExtraRange();
     await waitFor(() => expect(submitButton().disabled).toBe(false));
     fireEvent.click(submitButton());
     await waitFor(() => expect(errorSpy).toHaveBeenCalled());
     const message = errorSpy.mock.calls[errorSpy.mock.calls.length - 1][0] as { title: string; description: string };
-    expect(message.title).toBe('Khoảng làm thêm 2 gửi không thành công');
+    expect(message.title).toBe('Đơn nhiều khoảng chưa gửi được');
     expect(message.description).toContain('Trùng đơn đã có');
-    expect(message.description).toContain('Đã gửi thành công 1 khoảng trước đó');
-    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(2);
-    // Một khoảng đã thành đơn: form đóng để không gửi trùng.
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Gửi duyệt đơn/, hidden: true })).toBeNull());
+    expect(message.description).toContain('Chưa có khoảng nào được gửi');
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ot-requests'))).toHaveLength(1);
   });
 
   it('đơn nghỉ nhiều khoảng: tổng số ngày cộng các khoảng và phép năm bị chặn khi tổng vượt quỹ', async () => {

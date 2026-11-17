@@ -113,6 +113,7 @@ import {
   ANNUAL_ONLY_MESSAGE,
   assertAnnualLeaveType,
 } from '../infrastructure/hrm-annual-leave-policy.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 @UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
@@ -1412,6 +1413,7 @@ export class HrmLeaveController {
         tenantId,
         kind: 'leave',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn nghỉ phép',

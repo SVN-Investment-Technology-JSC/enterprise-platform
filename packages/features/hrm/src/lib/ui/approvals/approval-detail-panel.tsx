@@ -43,7 +43,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="grid grid-cols-[132px_1fr] gap-3 py-1.5 text-[13px]">
       <dt className="text-slate-500">{label}</dt>
-      <dd className="min-w-0 break-words font-medium text-slate-900">{children}</dd>
+      <dd className="min-w-0 whitespace-pre-line break-words font-medium tabular-nums text-slate-900">{children}</dd>
     </div>
   );
 }

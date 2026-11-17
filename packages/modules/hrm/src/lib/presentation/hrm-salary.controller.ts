@@ -55,6 +55,7 @@ import {
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 @Controller('v1')
 export class HrmSalaryController {
@@ -621,6 +622,7 @@ export class HrmSalaryController {
         tenantId,
         kind: 'advance',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn tạm ứng lương',

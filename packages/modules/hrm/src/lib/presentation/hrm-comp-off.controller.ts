@@ -14,6 +14,7 @@ import type { Request } from 'express';
 import type { PoolClient } from 'pg';
 import {
   adjustCompOff,
+  autoAccrueCompOff,
   compOffAvailability,
   compOffAdjustmentHistory,
   compOffStatus,
@@ -241,6 +242,15 @@ export class HrmCompOffController {
       data: await hrmTransaction(pool, (db) => confirmCompOffConversion(db, tenantId, principal.userId, { month, rows })),
       meta: meta(req),
     };
+  }
+
+  /** Cộng quỹ nghỉ bù của một tháng đã kết thúc từ số liệu làm thêm (chốt công rồi thì dùng ảnh chụp). Chạy lại không cộng trùng. */
+  @Post('comp-off/accrue')
+  @RequirePermission('hrm.comp_off.convert')
+  async accrue(@Req() req: Request, @Body() body: { month?: string }) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.comp_off.convert');
+    const month = parseMonth(body?.month).month;
+    return { data: await hrmTransaction(pool, (db) => autoAccrueCompOff(db, tenantId, principal.userId, month)), meta: meta(req) };
   }
 
   /** Lịch sử điều chỉnh (bấm tay, import, đảo) của mọi nhân viên, cho màn "Lịch sử điều chỉnh". */

@@ -4,7 +4,6 @@
 import type {
   HrmCompOffAvailability,
   HrmCompOffConversionRow,
-  HrmNextDayRest,
   HrmOvertimeCompConfig,
   HrmOvertimeCompVersionSummary,
   HrmTripDayLine,
@@ -125,12 +124,6 @@ export function compOffUsageProblem(
   return '';
 }
 
-export const NEXT_DAY_REST_OPTIONS: readonly { value: HrmNextDayRest; label: string }[] = [
-  { value: 'NONE', label: 'Không nghỉ' },
-  { value: 'HALF', label: 'Nghỉ nửa ngày' },
-  { value: 'FULL', label: 'Nghỉ cả ngày' },
-];
-
 // ---------------------------------------------------------------- chuyển đổi tháng
 
 export interface ConversionEdit {
@@ -179,16 +172,9 @@ export function conversionPayload(
 export interface OvertimeCompForm {
   enabled: boolean;
   fundEnabled: boolean;
-  ruleSet: HrmOvertimeCompConfig['ruleSet'];
   normalHoursPerDay: string;
   monthlyCapHours: string;
   yearlyCapHours: string;
-  nightCapped: boolean;
-  nightStart: string;
-  nightEnd: string;
-  nightRestHoursPerDay: string;
-  allowHalfDay: boolean;
-  declaredNightWindow: boolean;
   compFactor: string;
   dayBasisHours: string;
   decimals: string;
@@ -200,22 +186,14 @@ export interface OvertimeCompForm {
 }
 
 const str = (n: number | null): string => (n === null ? '' : String(n));
-const hhmm = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 
 export function configToForm(c: HrmOvertimeCompConfig): OvertimeCompForm {
   return {
     enabled: c.enabled,
     fundEnabled: c.fundEnabled ?? c.enabled,
-    ruleSet: c.ruleSet,
     normalHoursPerDay: str(c.normalHoursPerDay),
     monthlyCapHours: str(c.monthlyCapHours),
     yearlyCapHours: str(c.yearlyCapHours),
-    nightCapped: c.nightCapped,
-    nightStart: hhmm(c.nightStartMinute),
-    nightEnd: hhmm(c.nightEndMinute),
-    nightRestHoursPerDay: str(c.nightRestHoursPerDay),
-    allowHalfDay: c.allowHalfDay,
-    declaredNightWindow: c.declaredNightWindow ?? false,
     compFactor: str(c.compFactor),
     dayBasisHours: str(c.dayBasisHours),
     decimals: str(c.decimals),
@@ -227,28 +205,19 @@ export function configToForm(c: HrmOvertimeCompConfig): OvertimeCompForm {
   };
 }
 
-const minuteOf = (value: string): number => {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
-  return m ? Number(m[1]) * 60 + Number(m[2]) : Number.NaN;
-};
-
 const num = (value: string): number => (value.trim() === '' ? Number.NaN : Number(value.replace(',', '.')));
 const numOrNull = (value: string): number | null => (value.trim() === '' ? null : num(value));
 
 /**
- * Cấu hình gửi máy chủ từ biểu mẫu. Chỉ gửi các tham số của chế độ đang chọn; tham số của chế độ kia giữ nguyên ở máy chủ.
- * Giá trị không đọc được là NaN để máy chủ trả lỗi rõ ràng thay vì bị bỏ qua âm thầm.
+ * Cấu hình gửi máy chủ từ biểu mẫu. Giá trị không đọc được là NaN để máy chủ trả lỗi rõ ràng thay vì bị bỏ qua âm thầm.
  */
 export function formToConfig(f: OvertimeCompForm): Partial<HrmOvertimeCompConfig> {
   const config: Record<string, unknown> = {
     enabled: f.enabled,
     fundEnabled: f.enabled ? true : f.fundEnabled,
-    ruleSet: f.ruleSet,
     normalHoursPerDay: num(f.normalHoursPerDay),
     monthlyCapHours: num(f.monthlyCapHours),
     yearlyCapHours: numOrNull(f.yearlyCapHours),
-    nightCapped: f.nightCapped,
-    declaredNightWindow: f.declaredNightWindow,
     compFactor: num(f.compFactor),
     dayBasisHours: numOrNull(f.dayBasisHours),
     decimals: num(f.decimals),
@@ -258,14 +227,6 @@ export function formToConfig(f: OvertimeCompForm): Partial<HrmOvertimeCompConfig
     expiryMonths: num(f.expiryMonths),
     accumulationCapDays: numOrNull(f.accumulationCapDays),
   };
-  if (f.ruleSet === 'CLOCK_WINDOW' || f.declaredNightWindow) {
-    config.nightStartMinute = minuteOf(f.nightStart);
-    config.nightEndMinute = minuteOf(f.nightEnd);
-  }
-  if (f.ruleSet !== 'CLOCK_WINDOW') {
-    config.nightRestHoursPerDay = num(f.nightRestHoursPerDay);
-    config.allowHalfDay = f.allowHalfDay;
-  }
   return config as Partial<HrmOvertimeCompConfig>;
 }
 
@@ -276,19 +237,8 @@ export function overtimeCompFormProblem(f: OvertimeCompForm, effectiveFrom: stri
   const config = formToConfig(f) as Record<string, unknown>;
   for (const key of ['normalHoursPerDay', 'monthlyCapHours', 'compFactor', 'decimals', 'usageStepDays', 'expiryMonths'])
     if (!Number.isFinite(config[key] as number)) return 'Có tham số bắt buộc chưa nhập hoặc không phải số';
-  if (f.ruleSet === 'CLOCK_WINDOW' || f.declaredNightWindow) {
-    if (!Number.isFinite(config.nightStartMinute as number) || !Number.isFinite(config.nightEndMinute as number))
-      return 'Khung giờ đêm cần nhập dạng HH:mm';
-  }
-  if (f.ruleSet !== 'CLOCK_WINDOW' && !Number.isFinite(config.nightRestHoursPerDay as number))
-    return 'Số giờ ca đêm bù mỗi ngày nghỉ chưa hợp lệ';
   return '';
 }
-
-export const RULE_SET_OPTIONS = [
-  { value: 'NIGHT_REST', label: 'Theo ngày nghỉ sau ca đêm (NIGHT_REST)' },
-  { value: 'CLOCK_WINDOW', label: 'Theo khung giờ đêm (CLOCK_WINDOW)' },
-];
 
 export const ROUNDING_OPTIONS = [
   { value: 'HALF_UP', label: 'Làm tròn gần nhất' },
@@ -328,7 +278,6 @@ export const shortLocal = (local: string): string => `${local.slice(8, 10)}/${lo
 
 export interface CompOffFundSummary {
   readonly enabled: boolean;
-  readonly classify: string;
   readonly cap: string;
   readonly conversion: string;
   readonly accrual: string;
@@ -351,13 +300,12 @@ export function buildCompOffFundSummary(config: HrmOvertimeCompConfig): CompOffF
   const days = Math.round((extra / basis) * config.compFactor * scale) / scale;
   return {
     enabled: config.enabled,
-    classify: config.ruleSet === 'NIGHT_REST' ? 'Theo ngày nghỉ sau ca đêm' : 'Theo khung giờ đêm',
     cap: `${formatCompNumber(config.monthlyCapHours)} giờ/tháng trả lương làm thêm${yearly}`,
     conversion: `Giờ dư × hệ số ${formatCompNumber(config.compFactor)} ÷ ${formatCompNumber(basis)} giờ/ngày`,
     accrual: config.accrualMonthOffset === 1 ? 'Cộng vào tháng kế tiếp' : 'Cộng cùng tháng',
     expiry: config.expiryMonths > 0 ? `${config.expiryMonths} tháng kể từ tháng cộng quỹ` : 'Không hết hạn',
     accumulation: config.accumulationCapDays != null ? `Tối đa ${formatCompNumber(config.accumulationCapDays)} ngày` : 'Không giới hạn',
-    usage: `Dùng theo bước ${formatCompNumber(config.usageStepDays)} ngày${config.allowHalfDay ? ', cho nghỉ nửa ngày' : ''}`,
+    usage: `Dùng theo bước ${formatCompNumber(config.usageStepDays)} ngày${config.usageStepDays <= 0.5 ? ', cho nghỉ nửa ngày' : ''}`,
     example: `Nếu một tháng làm thêm vượt trần ${formatCompNumber(extra)} giờ thì được ${formatCompNumber(days)} ngày nghỉ bù (${formatCompNumber(extra)} ÷ ${formatCompNumber(basis)} × ${formatCompNumber(config.compFactor)}).`,
   };
 }
