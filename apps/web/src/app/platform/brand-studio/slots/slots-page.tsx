@@ -76,6 +76,10 @@ const GROUP_OPTIONS: readonly SearchableSelectOption[] = [
   { value: 'brand', label: SLOT_GROUP_LABELS.brand },
   { value: 'module', label: SLOT_GROUP_LABELS.module },
   { value: 'nav', label: SLOT_GROUP_LABELS.nav },
+  { value: 'header', label: SLOT_GROUP_LABELS.header },
+  { value: 'shell', label: SLOT_GROUP_LABELS.shell },
+  { value: 'dashboard', label: SLOT_GROUP_LABELS.dashboard },
+  { value: 'sidebar', label: SLOT_GROUP_LABELS.sidebar },
 ];
 
 const STATUS_OPTIONS: readonly SearchableSelectOption[] = [
@@ -133,7 +137,7 @@ function SlotPreview({
   if (!assignment) {
     return (
       <div
-        className="flex h-16 w-28 shrink-0 flex-col items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50/70 px-2 text-center"
+        className="flex h-16 w-[120px] shrink-0 flex-col items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50/70 px-2 text-center"
         data-testid={`slot-preview-default-${slot.id}`}
       >
         <span className="text-[11px] font-medium text-slate-400">Mặc định</span>
@@ -144,7 +148,7 @@ function SlotPreview({
   if (!doc) {
     return (
       <div
-        className="flex h-16 w-28 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-amber-200 bg-amber-50/70 px-2 text-center text-amber-700"
+        className="flex h-16 w-[120px] shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-amber-200 bg-amber-50/70 px-2 text-center text-amber-700"
         data-testid={`slot-preview-missing-${slot.id}`}
       >
         <AlertTriangle aria-hidden className="size-4" />
@@ -155,7 +159,7 @@ function SlotPreview({
 
   if (slot.colorMode === 'mono') {
     return (
-      <div className="flex shrink-0 items-center gap-2" data-testid={`slot-preview-mono-${slot.id}`}>
+      <div className="flex w-[120px] shrink-0 items-center gap-2" data-testid={`slot-preview-mono-${slot.id}`}>
         <div className="flex h-16 w-14 flex-col items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-slate-700">
           <IconSvg className="size-6" colorMode="currentColor" doc={doc} palette={palette} title={`${slot.label} - thường`} />
           <span className="text-[10px] leading-none text-slate-500">Thường</span>
@@ -170,7 +174,7 @@ function SlotPreview({
 
   return (
     <div
-      className="flex h-16 w-28 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50"
+      className="flex h-16 w-[120px] shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50"
       data-testid={`slot-preview-brand-${slot.id}`}
     >
       <IconSvg className="size-8" colorMode="brand" doc={doc} palette={palette} title={slot.label} />
@@ -519,7 +523,7 @@ export function SlotsPage() {
       {slotsError ? (
         <div className="flex items-center justify-between gap-3 border-l-2 border-red-500 bg-red-50/60 py-2 pl-3 pr-3 text-sm text-red-800" role="alert">
           <p>{slotsError}</p>
-          <Button onClick={() => void loadSlots()} size="sm" variant="outline">
+          <Button onClick={() => void loadSlots()} variant="outline">
             Thử lại
           </Button>
         </div>
@@ -558,7 +562,7 @@ export function SlotsPage() {
                 <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   aria-label="Tìm theo tên hoặc mã vị trí"
-                  className="h-9 bg-white pl-9 pr-8"
+                  className="h-8 bg-white pl-9 pr-8"
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Tìm tên hoặc mã..."
                   value={query}
@@ -578,9 +582,8 @@ export function SlotsPage() {
                 <Button
                   aria-expanded={filterOpen}
                   aria-haspopup="dialog"
-                  className={cn(RAISED, 'h-9 px-3')}
+                  className={RAISED}
                   onClick={() => setFilterOpen((open) => !open)}
-                  size="sm"
                   variant="outline"
                 >
                   <SlidersHorizontal aria-hidden className="size-3.5" />
@@ -600,7 +603,7 @@ export function SlotsPage() {
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-medium text-slate-600">Nhóm</span>
                       <SearchableSelect
-                        height={36}
+                        height={32}
                         hideDropdownSearch
                         name="group-filter"
                         onChange={(value) => setGroupFilter((value as GroupFilter) || 'all')}
@@ -612,7 +615,7 @@ export function SlotsPage() {
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-medium text-slate-600">Trạng thái</span>
                       <SearchableSelect
-                        height={36}
+                        height={32}
                         hideDropdownSearch
                         name="status-filter"
                         onChange={(value) => setStatusFilter((value as StatusFilter) || 'all')}
@@ -628,7 +631,6 @@ export function SlotsPage() {
                           setGroupFilter('all');
                           setStatusFilter('all');
                         }}
-                        size="sm"
                         variant="ghost"
                       >
                         Xoá bộ lọc
@@ -660,64 +662,67 @@ export function SlotsPage() {
 
                   return (
                     <div
-                      className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between"
+                      className="grid items-center gap-x-5 gap-y-3 px-4 py-3.5 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,480px)]"
                       data-testid={`slot-row-${slot.id}`}
                       key={slot.id}
                     >
-                      <div className="flex min-w-0 flex-1 items-start gap-4">
-                        <SlotPreview assignment={assignment} doc={assignedDoc} palette={settings.palette} slot={slot} />
+                      <SlotPreview assignment={assignment} doc={assignedDoc} palette={settings.palette} slot={slot} />
 
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-sm font-semibold text-slate-900">{slot.label}</h3>
-                            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">{slot.id}</code>
-                            {slot.isCustom ? (
-                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
-                                Tùy chỉnh
-                              </span>
-                            ) : null}
-                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                              {SLOT_GROUP_LABELS[slot.group] || slot.group}
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <h3 className="truncate text-sm font-semibold text-slate-900">{slot.label}</h3>
+                          {slot.isCustom ? (
+                            <span className="inline-flex shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                              Tùy chỉnh
                             </span>
-                            <span
-                              className={cn(
-                                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-                                slot.colorMode === 'brand'
-                                  ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200'
-                                  : 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200',
-                              )}
-                            >
-                              {slot.colorMode === 'brand' ? 'Màu thương hiệu' : 'Theo ngữ cảnh (currentColor)'}
-                            </span>
-                            <span className="text-xs text-slate-400">{slot.recommendedSize}px</span>
-                          </div>
-
-                          <p className="text-xs text-slate-500">{slot.description}</p>
-
-                          {isUnpublishedWarning && assignment ? (
-                            <div
-                              className="mt-1.5 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800"
-                              data-testid={`slot-warning-${slot.id}`}
-                              role="alert"
-                            >
-                              <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
-                              <span>
-                                {assignment.iconStatus === 'archived'
-                                  ? `Icon "${assignment.iconName}" đã bị lưu trữ. Hãy chọn icon đã phát hành khác hoặc đưa về mặc định.`
-                                  : `Icon "${assignment.iconName}" đã bị gỡ phát hành. Hãy phát hành lại hoặc chọn icon khác.`}
-                              </span>
-                            </div>
                           ) : null}
                         </div>
+
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">{slot.id}</code>
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                            {SLOT_GROUP_LABELS[slot.group] || slot.group}
+                          </span>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              slot.colorMode === 'brand'
+                                ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200'
+                                : 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200',
+                            )}
+                          >
+                            {slot.colorMode === 'brand' ? 'Màu thương hiệu' : 'Theo ngữ cảnh (currentColor)'}
+                          </span>
+                          <span className="text-[11px] tabular-nums text-slate-400">{slot.recommendedSize}px</span>
+                        </div>
+
+                        <p className="line-clamp-1 text-xs text-slate-500">{slot.description}</p>
+
+                        {isUnpublishedWarning && assignment ? (
+                          <div
+                            className="flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800"
+                            data-testid={`slot-warning-${slot.id}`}
+                            role="alert"
+                          >
+                            <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                            <span>
+                              {assignment.iconStatus === 'archived'
+                                ? `Icon "${assignment.iconName}" đã bị lưu trữ. Hãy chọn icon đã phát hành khác hoặc đưa về mặc định.`
+                                : `Icon "${assignment.iconName}" đã bị gỡ phát hành. Hãy phát hành lại hoặc chọn icon khác.`}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 lg:w-[420px] lg:shrink-0 lg:justify-end">
-                        <div className="min-w-[210px] flex-1">
+                      {/* Ô chọn rộng đều ở mọi hàng; ba ô thao tác (về mặc định, sửa, xoá) giữ chỗ cố định nên cột thẳng hàng. */}
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
                           <SearchableSelect
                             disabled={isBusy || publishedDocs.length === 0}
                             emptyText="Chưa có icon nào ở trạng thái phát hành."
-                            height={36}
+                            height={32}
                             name={`slot-select-${slot.id}`}
+                            nativeTitle={false}
                             onChange={(value) => void handleAssign(slot, value)}
                             options={iconOptions}
                             placeholder={
@@ -732,53 +737,61 @@ export function SlotsPage() {
                           />
                         </div>
 
-                        {assignment ? (
-                          <Button
-                            className={cn(RAISED, 'h-9 px-3')}
-                            disabled={isBusy}
-                            onClick={() => void handleClear(slot)}
-                            size="sm"
-                            variant="outline"
-                          >
-                            <RotateCcw aria-hidden className="size-3.5" />
-                            <span>Về mặc định</span>
-                          </Button>
-                        ) : null}
-
-                        {slot.isCustom ? (
-                          <div className="flex items-center gap-1">
-                            <Hint label="Sửa vị trí tùy chỉnh">
-                              <Button
-                                aria-label={`Sửa vị trí ${slot.label}`}
-                                data-testid={`slot-edit-btn-${slot.id}`}
-                                disabled={isBusy}
-                                onClick={() => openEditDialog(slot)}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <Pencil aria-hidden className="size-3.5" />
-                                <span className="sr-only sm:not-sr-only">Sửa</span>
-                              </Button>
-                            </Hint>
-                            <Hint label="Xoá vị trí tùy chỉnh">
-                              <Button
-                                aria-label={`Xoá vị trí ${slot.label}`}
-                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                data-testid={`slot-delete-btn-${slot.id}`}
-                                disabled={isBusy}
-                                onClick={() => {
-                                  setDeleteTarget(slot);
-                                  setDeleteError(null);
-                                }}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <Trash2 aria-hidden className="size-3.5" />
-                                <span className="sr-only sm:not-sr-only">Xoá</span>
-                              </Button>
-                            </Hint>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <div className="size-8">
+                            {assignment ? (
+                              <Hint label="Về mặc định">
+                                <Button
+                                  aria-label="Về mặc định"
+                                  className={RAISED}
+                                  disabled={isBusy}
+                                  onClick={() => void handleClear(slot)}
+                                  size="icon"
+                                  variant="outline"
+                                >
+                                  <RotateCcw aria-hidden className="size-4" />
+                                </Button>
+                              </Hint>
+                            ) : null}
                           </div>
-                        ) : null}
+                          <div className="size-8">
+                            {slot.isCustom ? (
+                              <Hint label="Sửa vị trí tùy chỉnh">
+                                <Button
+                                  aria-label={`Sửa vị trí ${slot.label}`}
+                                  className={RAISED}
+                                  data-testid={`slot-edit-btn-${slot.id}`}
+                                  disabled={isBusy}
+                                  onClick={() => openEditDialog(slot)}
+                                  size="icon"
+                                  variant="outline"
+                                >
+                                  <Pencil aria-hidden className="size-4" />
+                                </Button>
+                              </Hint>
+                            ) : null}
+                          </div>
+                          <div className="size-8">
+                            {slot.isCustom ? (
+                              <Hint label="Xoá vị trí tùy chỉnh">
+                                <Button
+                                  aria-label={`Xoá vị trí ${slot.label}`}
+                                  className={cn(RAISED, 'text-red-600 hover:bg-red-50 hover:text-red-700')}
+                                  data-testid={`slot-delete-btn-${slot.id}`}
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    setDeleteTarget(slot);
+                                    setDeleteError(null);
+                                  }}
+                                  size="icon"
+                                  variant="outline"
+                                >
+                                  <Trash2 aria-hidden className="size-4" />
+                                </Button>
+                              </Hint>
+                            ) : null}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -812,7 +825,7 @@ export function SlotsPage() {
               </label>
               <Input
                 autoFocus
-                className="h-9 font-mono text-xs"
+                className="h-8 font-mono text-xs"
                 id="custom-slot-id"
                 onChange={(e) => setCreateId(e.target.value)}
                 placeholder="custom.ten_vi_tri"
@@ -829,7 +842,7 @@ export function SlotsPage() {
                 Tên hiển thị <span className="text-red-500">*</span>
               </label>
               <Input
-                className="h-9"
+                className="h-8"
                 id="custom-slot-label"
                 onChange={(e) => setCreateLabel(e.target.value)}
                 placeholder="Trung tâm trợ giúp"
@@ -844,7 +857,7 @@ export function SlotsPage() {
                   Nhóm vị trí
                 </label>
                 <SearchableSelect
-                  height={36}
+                  height={32}
                   hideDropdownSearch
                   name="custom-slot-group"
                   onChange={(val) => setCreateGroup(val || 'custom')}
@@ -858,7 +871,7 @@ export function SlotsPage() {
                   Chế độ màu
                 </label>
                 <SearchableSelect
-                  height={36}
+                  height={32}
                   hideDropdownSearch
                   name="custom-slot-mode"
                   onChange={(val) => setCreateColorMode((val as BrandSvgMode) || 'brand')}
@@ -873,7 +886,7 @@ export function SlotsPage() {
                 Kích thước khuyến nghị (pixel)
               </label>
               <Input
-                className="h-9"
+                className="h-8"
                 id="custom-slot-size"
                 max={512}
                 min={8}
@@ -941,7 +954,7 @@ export function SlotsPage() {
                 Mã vị trí (ID)
               </label>
               <Input
-                className="h-9 font-mono text-xs bg-slate-50 text-slate-500"
+                className="h-8 font-mono text-xs bg-slate-50 text-slate-500"
                 disabled
                 id="edit-slot-id"
                 value={editTarget?.id || ''}
@@ -954,7 +967,7 @@ export function SlotsPage() {
               </label>
               <Input
                 autoFocus
-                className="h-9"
+                className="h-8"
                 id="edit-slot-label"
                 onChange={(e) => setEditLabel(e.target.value)}
                 required
@@ -968,7 +981,7 @@ export function SlotsPage() {
                   Nhóm vị trí
                 </label>
                 <SearchableSelect
-                  height={36}
+                  height={32}
                   hideDropdownSearch
                   name="edit-slot-group"
                   onChange={(val) => setEditGroup(val || 'custom')}
@@ -982,7 +995,7 @@ export function SlotsPage() {
                   Chế độ màu
                 </label>
                 <SearchableSelect
-                  height={36}
+                  height={32}
                   hideDropdownSearch
                   name="edit-slot-mode"
                   onChange={(val) => setEditColorMode((val as BrandSvgMode) || 'brand')}
@@ -997,7 +1010,7 @@ export function SlotsPage() {
                 Kích thước khuyến nghị (pixel)
               </label>
               <Input
-                className="h-9"
+                className="h-8"
                 id="edit-slot-size"
                 max={512}
                 min={8}

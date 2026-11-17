@@ -368,8 +368,8 @@ describe('SlotsPage', () => {
       );
     });
 
-    // Kiểm tra hàng vị trí mới xuất hiện với huy hiệu Tùy chỉnh và các nút hành động (nằm cuối danh sách nên hiện tất cả)
-    await showAllSlots();
+    // Kiểm tra hàng vị trí mới xuất hiện với huy hiệu Tùy chỉnh và các nút hành động (nằm cuối danh sách dài nhiều trang nên tìm theo mã)
+    fireEvent.change(screen.getByLabelText('Tìm theo tên hoặc mã vị trí'), { target: { value: 'custom.promo-banner' } });
     await waitFor(() => {
       expect(screen.getByTestId('slot-row-custom.promo-banner')).toBeTruthy();
       expect(screen.getByTestId('slot-edit-btn-custom.promo-banner')).toBeTruthy();

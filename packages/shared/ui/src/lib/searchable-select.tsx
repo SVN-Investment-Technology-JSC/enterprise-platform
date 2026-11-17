@@ -48,6 +48,8 @@ export interface SearchableSelectProps {
    * con số) đặt nhỏ để danh sách bằng ô, không rộng hơn ô nhiều.
    */
   readonly dropdownMinWidth?: number;
+  /** Tắt gợi ý `title` gốc của trình duyệt trên ô nhập (mặc định bật, hiện giá trị đang chọn khi bị cắt). */
+  readonly nativeTitle?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -200,6 +202,7 @@ export function SearchableSelect({
   searchInDropdown = false,
   hideDropdownSearch = false,
   dropdownMinWidth = DROPDOWN_MIN_WIDTH,
+  nativeTitle = true,
   clearable = true,
   onChange,
   renderOption,
@@ -619,7 +622,7 @@ export function SearchableSelect({
           style={height ? { height } : undefined}
           readOnly={searchInDropdown}
           placeholder={isOpen && !searchInDropdown ? (searchPlaceholder ?? placeholder) : placeholder}
-          title={!isOpen ? (query || placeholder || undefined) : undefined}
+          title={nativeTitle && !isOpen ? (query || placeholder || undefined) : undefined}
           value={query}
           disabled={disabled}
           onClick={() => {
