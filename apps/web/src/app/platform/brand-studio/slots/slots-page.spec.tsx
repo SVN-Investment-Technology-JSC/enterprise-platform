@@ -8,15 +8,29 @@ import {
 } from '@enterprise-platform/shared-brand-icon';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
-import { assignSlot, clearSlot, listSlots } from '../store/brand-api';
+import {
+  assignSlot,
+  clearSlot,
+  createCustomSlot,
+  deleteCustomSlot,
+  listSlots,
+} from '../store/brand-api';
 import { useBrandSettings, useIconLibrary } from '../store';
+import { toast } from '@/components/ui/sonner';
 import { SlotsPage } from './slots-page';
+
+jest.mock('@/components/ui/sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
+}));
 
 jest.mock('../store/brand-api', () => ({
   ...jest.requireActual('../store/brand-api'),
   listSlots: jest.fn(),
   assignSlot: jest.fn(),
   clearSlot: jest.fn(),
+  createCustomSlot: jest.fn(),
+  updateCustomSlot: jest.fn(),
+  deleteCustomSlot: jest.fn(),
 }));
 
 jest.mock('../store', () => ({
@@ -24,9 +38,18 @@ jest.mock('../store', () => ({
   useIconLibrary: jest.fn(),
 }));
 
+const showAllSlots = async () => {
+  const sizeInput = (await screen.findByTestId('pager-bar')).querySelector('input[type="text"]') as HTMLInputElement;
+  fireEvent.focus(sizeInput);
+  fireEvent.click(sizeInput);
+  fireEvent.click(await screen.findByText('50'));
+};
+
 const mockListSlots = jest.mocked(listSlots);
 const mockAssignSlot = jest.mocked(assignSlot);
 const mockClearSlot = jest.mocked(clearSlot);
+const mockCreateCustomSlot = jest.mocked(createCustomSlot);
+const mockDeleteCustomSlot = jest.mocked(deleteCustomSlot);
 const mockUseBrandSettings = jest.mocked(useBrandSettings);
 const mockUseIconLibrary = jest.mocked(useIconLibrary);
 
@@ -169,7 +192,8 @@ describe('SlotsPage', () => {
     expect(within(logoRow).getByTestId('slot-preview-brand-brand.logo').querySelector('svg')).toBeTruthy();
     expect(within(logoRow).getByRole('button', { name: 'Về mặc định' })).toBeTruthy();
 
-    // Vị trí mono đã gán hiện cả thường và nền xanh
+    // Vị trí mono đã gán hiện cả thường và nền xanh (nằm ở trang sau nên hiện tất cả trước)
+    await showAllSlots();
     const reportsRow = screen.getByTestId('slot-row-nav.reports');
     expect(within(reportsRow).getByText('Theo ngữ cảnh (currentColor)')).toBeTruthy();
     const monoPreview = within(reportsRow).getByTestId('slot-preview-mono-nav.reports');
@@ -183,9 +207,29 @@ describe('SlotsPage', () => {
     expect(within(inventoryRow).queryByRole('button', { name: 'Về mặc định' })).toBeNull();
   });
 
+  it('phân trang danh sách vị trí: 10 vị trí mỗi trang, chuyển trang và đổi cỡ trang bằng ô chọn', async () => {
+    render(<SlotsPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('slot-row-brand.logo')).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('pager-bar').textContent).toContain(`1–10 / ${ICON_SLOTS.length} vị trí`);
+    expect(screen.getAllByTestId(/^slot-row-/)).toHaveLength(10);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trang 2' }));
+    expect(screen.queryByTestId('slot-row-brand.logo')).toBeNull();
+    expect(screen.getByTestId('pager-bar').textContent).toContain(`11–20 / ${ICON_SLOTS.length} vị trí`);
+
+    // Đổi bộ lọc/ô tìm thì về trang 1
+    fireEvent.change(screen.getByLabelText('Tìm theo tên hoặc mã vị trí'), { target: { value: 'brand.logo' } });
+    expect(screen.getByTestId('slot-row-brand.logo')).toBeTruthy();
+    expect(screen.getAllByTestId(/^slot-row-/)).toHaveLength(1);
+  });
+
   it('hiện cảnh báo rõ ràng khi icon đang gán bị gỡ phát hành hoặc lưu trữ', async () => {
     mockListSlots.mockResolvedValue({ slots: [ASSIGNED_MONO_DRAFT, ASSIGNED_ARCHIVED] });
     render(<SlotsPage />);
+    await showAllSlots();
 
     await waitFor(() => {
       expect(screen.getByTestId('slot-warning-nav.reports')).toBeTruthy();
@@ -216,7 +260,7 @@ describe('SlotsPage', () => {
     await waitFor(() => {
       expect(mockAssignSlot).toHaveBeenCalledWith('module.inventory', PUBLISHED_ICON_2.id);
     });
-    expect(screen.getByRole('status').textContent).toContain('Đã gán icon');
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Đã gán icon'));
   });
 
   it('gọi clearSlot khi bấm Về mặc định và đưa vị trí về trạng thái mặc định', async () => {
@@ -234,7 +278,7 @@ describe('SlotsPage', () => {
     });
 
     expect(within(logoRow).getByTestId('slot-preview-default-brand.logo')).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toContain('về mặc định');
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('về mặc định'));
   });
 
   it('tìm kiếm theo tên/mã vị trí và lọc theo nhóm, trạng thái', async () => {
@@ -250,7 +294,8 @@ describe('SlotsPage', () => {
     expect(screen.getByTestId('slot-row-module.inventory')).toBeTruthy();
     expect(screen.queryByTestId('slot-row-brand.logo')).toBeNull();
 
-    // Xoá bộ lọc
+    // Mở nút Bộ lọc (chứa chọn nhóm, trạng thái và nút xoá bộ lọc), rồi xoá bộ lọc
+    fireEvent.click(screen.getByRole('button', { name: /^Bộ lọc/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Xoá bộ lọc' }));
     expect(screen.getByTestId('slot-row-brand.logo')).toBeTruthy();
 
@@ -279,6 +324,67 @@ describe('SlotsPage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toContain('Không thể tải danh sách vị trí.');
+    });
+  });
+
+  it('hỗ trợ tạo, chỉnh sửa và xoá vị trí tuỳ chỉnh trên UI', async () => {
+    mockCreateCustomSlot.mockResolvedValueOnce({
+      id: 'custom.promo-banner',
+      label: 'Banner Khuyến Mãi',
+      description: 'Banner hiển thị ưu đãi',
+      group: 'custom',
+      colorMode: 'brand',
+      recommendedSize: 32,
+      isCustom: true,
+    });
+    mockDeleteCustomSlot.mockResolvedValueOnce({ id: 'custom.promo-banner', deleted: true });
+
+    render(<SlotsPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('add-custom-slot-btn')).toBeTruthy();
+    });
+
+    // Mở modal thêm vị trí
+    fireEvent.click(screen.getByTestId('add-custom-slot-btn'));
+    expect(screen.getByText('Thêm vị trí icon mới')).toBeTruthy();
+
+    // Điền form
+    fireEvent.change(screen.getByLabelText(/Mã vị trí \(ID\)/), {
+      target: { value: 'custom.promo-banner' },
+    });
+    fireEvent.change(screen.getByLabelText(/Tên hiển thị/), {
+      target: { value: 'Banner Khuyến Mãi' },
+    });
+
+    // Submit form tạo
+    fireEvent.click(screen.getByTestId('create-slot-submit-btn'));
+
+    await waitFor(() => {
+      expect(mockCreateCustomSlot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'custom.promo-banner',
+          label: 'Banner Khuyến Mãi',
+        }),
+      );
+    });
+
+    // Kiểm tra hàng vị trí mới xuất hiện với huy hiệu Tùy chỉnh và các nút hành động (nằm cuối danh sách nên hiện tất cả)
+    await showAllSlots();
+    await waitFor(() => {
+      expect(screen.getByTestId('slot-row-custom.promo-banner')).toBeTruthy();
+      expect(screen.getByTestId('slot-edit-btn-custom.promo-banner')).toBeTruthy();
+      expect(screen.getByTestId('slot-delete-btn-custom.promo-banner')).toBeTruthy();
+    });
+
+    // Bấm nút xoá
+    fireEvent.click(screen.getByTestId('slot-delete-btn-custom.promo-banner'));
+    expect(screen.getByText('Xác nhận xoá vị trí tùy chỉnh')).toBeTruthy();
+
+    // Xác nhận xoá
+    fireEvent.click(screen.getByTestId('delete-slot-confirm-btn'));
+    await waitFor(() => {
+      expect(mockDeleteCustomSlot).toHaveBeenCalledWith('custom.promo-banner');
+      expect(screen.queryByTestId('slot-row-custom.promo-banner')).toBeNull();
     });
   });
 });

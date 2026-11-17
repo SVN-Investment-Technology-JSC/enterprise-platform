@@ -3,10 +3,14 @@
 import {
   ICON_SLOTS,
   SLOT_GROUP_LABELS,
+  isValidSlotId,
+  isBuiltInSlotId,
   type BrandSlotAssignment,
+  type BrandSvgMode,
   type IconDocument,
   type IconSlotGroup,
   type IconSlotId,
+  type IconSlotMeta,
 } from '@enterprise-platform/shared-brand-icon';
 import {
   SearchableSelect,
@@ -16,35 +20,59 @@ import {
 import {
   AlertTriangle,
   LayoutGrid,
+  Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
   SearchX,
+  SlidersHorizontal,
+  Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/components/ui/sonner';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Hint } from '../components/hint';
 import { Panel, RAISED } from '../components/panel';
+import { useFillViewportHeight } from '../components/use-fill-viewport';
+import { useMediaQuery } from '../components/use-media-query';
 import { IconSvg } from '../icon-svg';
 import { foldText } from '../library/library-filters';
 import { IconButton } from '../library/library-ui';
+import { LibraryPagerBar } from '../library/library-pager-bar';
+import { pageAfterSizeChange, paginate } from '../library/library-pager';
 import { useBrandSettings, useIconLibrary } from '../store';
-import { assignSlot, clearSlot, errorMessage, listSlots } from '../store/brand-api';
+import {
+  assignSlot,
+  clearSlot,
+  createCustomSlot,
+  deleteCustomSlot,
+  errorMessage,
+  listSlots,
+  updateCustomSlot,
+} from '../store/brand-api';
 
-type SlotMeta = (typeof ICON_SLOTS)[number];
+/** Danh sách dạng dòng nên dùng cỡ trang tròn chục (lưới icon dùng bội của 12 cho khớp số cột). */
+const SLOT_PAGE_SIZES: readonly number[] = [10, 20, 50];
+
 type GroupFilter = 'all' | IconSlotGroup;
 type StatusFilter = 'all' | 'assigned' | 'default';
 
-interface Notice {
-  readonly tone: 'ok' | 'error';
-  readonly text: string;
-}
-
 const GROUP_OPTIONS: readonly SearchableSelectOption[] = [
   { value: 'all', label: 'Tất cả nhóm' },
+  { value: 'custom', label: SLOT_GROUP_LABELS.custom || 'Tùy chỉnh' },
   { value: 'brand', label: SLOT_GROUP_LABELS.brand },
   { value: 'module', label: SLOT_GROUP_LABELS.module },
   { value: 'nav', label: SLOT_GROUP_LABELS.nav },
@@ -56,19 +84,38 @@ const STATUS_OPTIONS: readonly SearchableSelectOption[] = [
   { value: 'default', label: 'Mặc định' },
 ];
 
+const DIALOG_GROUP_OPTIONS: readonly SearchableSelectOption[] = [
+  { value: 'custom', label: 'Tùy chỉnh (custom)' },
+  { value: 'brand', label: 'Thương hiệu (brand)' },
+  { value: 'module', label: 'Phân hệ (module)' },
+  { value: 'nav', label: 'Thanh điều hướng (nav)' },
+];
+
+const COLOR_MODE_OPTIONS: readonly SearchableSelectOption[] = [
+  { value: 'brand', label: 'Màu thương hiệu / Gradient' },
+  { value: 'mono', label: 'Theo ngữ cảnh (currentColor)' },
+];
+
 function indexAssignments(slots: readonly BrandSlotAssignment[]): Record<string, BrandSlotAssignment> {
   const map: Record<string, BrandSlotAssignment> = {};
   for (const item of slots) map[item.slot] = item;
   return map;
 }
 
-function matchesSlot(slot: SlotMeta, assignment: BrandSlotAssignment | undefined, query: string, group: GroupFilter, status: StatusFilter): boolean {
+function matchesSlot(
+  slot: IconSlotMeta,
+  assignment: BrandSlotAssignment | undefined,
+  query: string,
+  group: GroupFilter,
+  status: StatusFilter,
+): boolean {
   if (group !== 'all' && slot.group !== group) return false;
   if (status === 'assigned' && !assignment) return false;
   if (status === 'default' && assignment) return false;
   const tokens = foldText(query).split(' ').filter(Boolean);
   if (tokens.length === 0) return true;
-  const haystack = foldText([slot.label, slot.id, slot.description, SLOT_GROUP_LABELS[slot.group]].join(' '));
+  const groupLabel = SLOT_GROUP_LABELS[slot.group] || slot.group;
+  const haystack = foldText([slot.label, slot.id, slot.description, groupLabel].join(' '));
   return tokens.every((token) => haystack.includes(token));
 }
 
@@ -78,7 +125,7 @@ function SlotPreview({
   doc,
   palette,
 }: {
-  slot: SlotMeta;
+  slot: IconSlotMeta;
   assignment: BrandSlotAssignment | undefined;
   doc: IconDocument | undefined;
   palette: ReturnType<typeof useBrandSettings>['palette'];
@@ -135,15 +182,41 @@ export function SlotsPage() {
   const settings = useBrandSettings();
   const library = useIconLibrary();
 
+  const [definitions, setDefinitions] = useState<readonly IconSlotMeta[]>([...ICON_SLOTS]);
   const [assignments, setAssignments] = useState<Readonly<Record<string, BrandSlotAssignment>>>({});
   const [slotsLoading, setSlotsLoading] = useState(true);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [busySlot, setBusySlot] = useState<IconSlotId | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
 
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState<GroupFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  // Modal tạo vị trí mới
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createId, setCreateId] = useState('');
+  const [createLabel, setCreateLabel] = useState('');
+  const [createGroup, setCreateGroup] = useState('custom');
+  const [createColorMode, setCreateColorMode] = useState<BrandSvgMode>('brand');
+  const [createRecommendedSize, setCreateRecommendedSize] = useState(24);
+  const [createDescription, setCreateDescription] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+
+  // Modal chỉnh sửa vị trí
+  const [editTarget, setEditTarget] = useState<IconSlotMeta | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editGroup, setEditGroup] = useState('custom');
+  const [editColorMode, setEditColorMode] = useState<BrandSvgMode>('brand');
+  const [editRecommendedSize, setEditRecommendedSize] = useState(24);
+  const [editDescription, setEditDescription] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Modal xoá vị trí
+  const [deleteTarget, setDeleteTarget] = useState<IconSlotMeta | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   const loadSlots = useCallback(async () => {
     setSlotsLoading(true);
@@ -151,6 +224,9 @@ export function SlotsPage() {
     try {
       const response = await listSlots();
       setAssignments(indexAssignments(response.slots));
+      if (response.definitions && response.definitions.length > 0) {
+        setDefinitions(response.definitions);
+      }
     } catch (error) {
       setSlotsError(errorMessage(error, 'Không tải được danh sách vị trí sử dụng.'));
     } finally {
@@ -178,22 +254,32 @@ export function SlotsPage() {
   );
 
   const filteredSlots = useMemo(
-    () => ICON_SLOTS.filter((slot) => matchesSlot(slot, assignments[slot.id], query, groupFilter, statusFilter)),
-    [assignments, query, groupFilter, statusFilter],
+    () => definitions.filter((slot) => matchesSlot(slot, assignments[slot.id], query, groupFilter, statusFilter)),
+    [definitions, assignments, query, groupFilter, statusFilter],
   );
+
+  // Phân trang: đổi từ khoá hoặc bộ lọc thì về trang 1; trang vượt cuối (xoá bớt vị trí) được paginate kẹp về trang cuối.
+  const [pageSize, setPageSize] = useState(SLOT_PAGE_SIZES[0]);
+  const [pageNumber, setPageNumber] = useState(1);
+  useEffect(() => {
+    setPageNumber(1);
+  }, [query, groupFilter, statusFilter]);
+  const slice = useMemo(() => paginate(filteredSlots, pageNumber, pageSize, SLOT_PAGE_SIZES), [filteredSlots, pageNumber, pageSize]);
+  const panelRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [slice.page, pageSize]);
 
   const assignedCount = useMemo(
-    () => ICON_SLOTS.filter((slot) => Boolean(assignments[slot.id])).length,
-    [assignments],
+    () => definitions.filter((slot) => Boolean(assignments[slot.id])).length,
+    [definitions, assignments],
   );
 
-  const handleAssign = async (slot: SlotMeta, iconId: string) => {
+  const handleAssign = async (slot: IconSlotMeta, iconId: string) => {
     if (!iconId) return;
     setBusySlot(slot.id);
-    setNotice(null);
     try {
-      // Icon mẫu mặc định (như svndts-favicon, svndts-master...) chỉ nằm ở bộ nhớ trình duyệt cho tới khi lưu lần đầu;
-      // nếu chưa có trên máy chủ thì tự lưu và phát hành lên máy chủ trước khi gán vị trí.
       if (library.mode === 'server' && !library.serverInfo(iconId)) {
         const doc = library.get(iconId);
         if (doc) await library.save({ ...doc, status: 'published' });
@@ -201,17 +287,16 @@ export function SlotsPage() {
       const updated = await assignSlot(slot.id, iconId);
       setAssignments((prev) => ({ ...prev, [slot.id]: updated }));
       notifyBrandSlotsChanged();
-      setNotice({ tone: 'ok', text: `Đã gán icon "${updated.iconName}" cho vị trí "${slot.label}".` });
+      toast.success(`Đã gán icon "${updated.iconName}" cho vị trí "${slot.label}".`);
     } catch (error) {
-      setNotice({ tone: 'error', text: errorMessage(error, 'Không gán được icon vào vị trí.') });
+      toast.error(errorMessage(error, 'Không gán được icon vào vị trí.'));
     } finally {
       setBusySlot(null);
     }
   };
 
-  const handleClear = async (slot: SlotMeta) => {
+  const handleClear = async (slot: IconSlotMeta) => {
     setBusySlot(slot.id);
-    setNotice(null);
     try {
       await clearSlot(slot.id);
       setAssignments((prev) => {
@@ -220,11 +305,127 @@ export function SlotsPage() {
         return next;
       });
       notifyBrandSlotsChanged();
-      setNotice({ tone: 'ok', text: `Đã đưa vị trí "${slot.label}" về mặc định.` });
+      toast.success(`Đã đưa vị trí "${slot.label}" về mặc định.`);
     } catch (error) {
-      setNotice({ tone: 'error', text: errorMessage(error, 'Không đưa được vị trí về mặc định.') });
+      toast.error(errorMessage(error, 'Không đưa được vị trí về mặc định.'));
     } finally {
       setBusySlot(null);
+    }
+  };
+
+  const openCreateDialog = () => {
+    setCreateId('custom.');
+    setCreateLabel('');
+    setCreateGroup('custom');
+    setCreateColorMode('brand');
+    setCreateRecommendedSize(24);
+    setCreateDescription('');
+    setCreateError(null);
+    setCreateOpen(true);
+  };
+
+  const handleCreateSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const id = createId.trim();
+    const label = createLabel.trim();
+    if (!isValidSlotId(id)) {
+      setCreateError('Mã vị trí không hợp lệ. Phải bắt đầu bằng chữ thường, gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới, từ 2-64 ký tự.');
+      return;
+    }
+    if (isBuiltInSlotId(id)) {
+      setCreateError('Mã vị trí này trùng với vị trí hệ thống cố định. Hãy chọn mã khác.');
+      return;
+    }
+    if (definitions.some((d) => d.id === id)) {
+      setCreateError('Mã vị trí này đã tồn tại.');
+      return;
+    }
+    if (!label) {
+      setCreateError('Tên vị trí không được để trống.');
+      return;
+    }
+
+    setCreateSubmitting(true);
+    setCreateError(null);
+    try {
+      const created = await createCustomSlot({
+        id,
+        label,
+        group: createGroup,
+        colorMode: createColorMode,
+        recommendedSize: createRecommendedSize,
+        description: createDescription.trim(),
+      });
+      setDefinitions((prev) => [...prev, created]);
+      notifyBrandSlotsChanged();
+      setCreateOpen(false);
+      toast.success(`Đã tạo vị trí mới "${created.label}" (${created.id}).`);
+    } catch (error) {
+      setCreateError(errorMessage(error, 'Không thể tạo vị trí mới.'));
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
+  const openEditDialog = (slot: IconSlotMeta) => {
+    setEditTarget(slot);
+    setEditLabel(slot.label);
+    setEditGroup(slot.group);
+    setEditColorMode(slot.colorMode);
+    setEditRecommendedSize(slot.recommendedSize);
+    setEditDescription(slot.description || '');
+    setEditError(null);
+  };
+
+  const handleEditSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editTarget) return;
+    const label = editLabel.trim();
+    if (!label) {
+      setEditError('Tên vị trí không được để trống.');
+      return;
+    }
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      const updated = await updateCustomSlot(editTarget.id, {
+        label,
+        group: editGroup,
+        colorMode: editColorMode,
+        recommendedSize: editRecommendedSize,
+        description: editDescription.trim(),
+      });
+      setDefinitions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      notifyBrandSlotsChanged();
+      setEditTarget(null);
+      toast.success(`Đã cập nhật vị trí "${updated.label}".`);
+    } catch (error) {
+      setEditError(errorMessage(error, 'Không thể cập nhật vị trí.'));
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!deleteTarget) return;
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+    try {
+      await deleteCustomSlot(deleteTarget.id);
+      setDefinitions((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      setAssignments((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget.id];
+        return next;
+      });
+      notifyBrandSlotsChanged();
+      const targetLabel = deleteTarget.label;
+      setDeleteTarget(null);
+      toast.success(`Đã xoá vị trí "${targetLabel}".`);
+    } catch (error) {
+      setDeleteError(errorMessage(error, 'Không thể xoá vị trí.'));
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -248,21 +449,52 @@ export function SlotsPage() {
     [library, settings.palette],
   );
 
+  const activeFilterCount = (groupFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filterOpen) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!filterRef.current?.contains(event.target as Node)) setFilterOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [filterOpen]);
   const isFiltered = query.trim() !== '' || groupFilter !== 'all' || statusFilter !== 'all';
   const ready = settings.ready && library.ready && !slotsLoading;
 
+  // Khối danh sách cao vừa phần màn hình còn lại, nội dung dài chỉ cuộn trong khối; màn hình hẹp để trang cuộn như thường.
+  const wide = useMediaQuery('(min-width: 768px)');
+  useFillViewportHeight(panelRef, 360, ready, wide, 12);
+
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Vị trí sử dụng</h1>
           {ready ? (
             <span className="text-xs text-slate-500">
-              {assignedCount}/{ICON_SLOTS.length} vị trí đã gán icon riêng
+              {assignedCount}/{definitions.length} vị trí đã gán icon riêng
             </span>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            aria-label="Thêm vị trí mới"
+            className={cn(RAISED, 'bg-blue-600 hover:bg-blue-700 text-white')}
+            data-testid="add-custom-slot-btn"
+            onClick={openCreateDialog}
+          >
+            <Plus aria-hidden className="size-4" />
+            <span>Thêm vị trí mới</span>
+          </Button>
           <Hint label="Tải lại danh sách vị trí từ máy chủ">
             <Button
               aria-label="Tải lại"
@@ -277,21 +509,6 @@ export function SlotsPage() {
           </Hint>
         </div>
       </header>
-
-      {notice ? (
-        <div
-          className={cn(
-            'flex items-start gap-2 border-l-2 py-1.5 pl-3 pr-1 text-sm',
-            notice.tone === 'ok' ? 'border-emerald-500 bg-emerald-50/60 text-emerald-800' : 'border-red-500 bg-red-50/60 text-red-800',
-          )}
-          role={notice.tone === 'error' ? 'alert' : 'status'}
-        >
-          <p className="min-w-0 flex-1">{notice.text}</p>
-          <IconButton className="size-6" label="Đóng thông báo" onClick={() => setNotice(null)}>
-            <X aria-hidden className="size-3.5" />
-          </IconButton>
-        </div>
-      ) : null}
 
       {library.error ? (
         <p className="border-l-2 border-red-500 bg-red-50/60 py-1.5 pl-3 text-sm text-red-800" role="alert">
@@ -316,20 +533,34 @@ export function SlotsPage() {
         </div>
       ) : (
         <Panel
+          bodyRef={bodyRef}
+          fill={wide}
+          footer={
+            filteredSlots.length > 0 ? (
+              <LibraryPagerBar
+                onPage={setPageNumber}
+                onPageSize={(size) => {
+                  setPageNumber(pageAfterSizeChange(slice.page, pageSize, size));
+                  setPageSize(size);
+                }}
+                sizeControl="select"
+                sizes={SLOT_PAGE_SIZES}
+                slice={slice}
+                unit="vị trí"
+              />
+            ) : null
+          }
+          sectionRef={panelRef}
           hint="Gán icon đã phát hành vào từng vị trí hiển thị trong ứng dụng"
-          icon={LayoutGrid}
-          id="slots-panel-title"
-          title="Danh sách vị trí icon"
-        >
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative min-w-[220px] flex-1">
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="relative w-60">
                 <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   aria-label="Tìm theo tên hoặc mã vị trí"
-                  className="h-9 pl-9 pr-8"
+                  className="h-9 bg-white pl-9 pr-8"
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Tìm theo tên hoặc mã vị trí..."
+                  placeholder="Tìm tên hoặc mã..."
                   value={query}
                 />
                 {query ? (
@@ -343,45 +574,76 @@ export function SlotsPage() {
                 ) : null}
               </div>
 
-              <div className="w-48">
-                <SearchableSelect
-                  height={36}
-                  hideDropdownSearch
-                  name="group-filter"
-                  onChange={(value) => setGroupFilter((value as GroupFilter) || 'all')}
-                  options={GROUP_OPTIONS}
-                  searchInDropdown
-                  value={groupFilter}
-                />
-              </div>
-
-              <div className="w-44">
-                <SearchableSelect
-                  height={36}
-                  hideDropdownSearch
-                  name="status-filter"
-                  onChange={(value) => setStatusFilter((value as StatusFilter) || 'all')}
-                  options={STATUS_OPTIONS}
-                  searchInDropdown
-                  value={statusFilter}
-                />
-              </div>
-
-              {isFiltered ? (
+              <div className="relative" ref={filterRef}>
                 <Button
-                  onClick={() => {
-                    setQuery('');
-                    setGroupFilter('all');
-                    setStatusFilter('all');
-                  }}
+                  aria-expanded={filterOpen}
+                  aria-haspopup="dialog"
+                  className={cn(RAISED, 'h-9 px-3')}
+                  onClick={() => setFilterOpen((open) => !open)}
                   size="sm"
-                  variant="ghost"
+                  variant="outline"
                 >
-                  Xoá bộ lọc
+                  <SlidersHorizontal aria-hidden className="size-3.5" />
+                  <span>Bộ lọc</span>
+                  {activeFilterCount > 0 ? (
+                    <span className="grid size-4 place-items-center rounded-full bg-blue-600 text-[10px] font-semibold text-white">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
                 </Button>
-              ) : null}
+                {filterOpen ? (
+                  <div
+                    aria-label="Bộ lọc vị trí"
+                    className="absolute right-0 top-full z-30 mt-2 flex w-64 flex-col gap-3 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+                    role="dialog"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-medium text-slate-600">Nhóm</span>
+                      <SearchableSelect
+                        height={36}
+                        hideDropdownSearch
+                        name="group-filter"
+                        onChange={(value) => setGroupFilter((value as GroupFilter) || 'all')}
+                        options={GROUP_OPTIONS}
+                        searchInDropdown
+                        value={groupFilter}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-medium text-slate-600">Trạng thái</span>
+                      <SearchableSelect
+                        height={36}
+                        hideDropdownSearch
+                        name="status-filter"
+                        onChange={(value) => setStatusFilter((value as StatusFilter) || 'all')}
+                        options={STATUS_OPTIONS}
+                        searchInDropdown
+                        value={statusFilter}
+                      />
+                    </div>
+                    {isFiltered ? (
+                      <Button
+                        onClick={() => {
+                          setQuery('');
+                          setGroupFilter('all');
+                          setStatusFilter('all');
+                        }}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Xoá bộ lọc
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
-
+          }
+          icon={LayoutGrid}
+          id="slots-panel-title"
+          title="Danh sách vị trí icon"
+        >
+          <div className="flex flex-col gap-4">
             {filteredSlots.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-200 py-10 text-center">
                 <SearchX aria-hidden className="size-8 text-slate-300" />
@@ -390,7 +652,7 @@ export function SlotsPage() {
               </div>
             ) : (
               <div className="divide-y divide-slate-200 rounded-md border border-slate-200">
-                {filteredSlots.map((slot) => {
+                {slice.items.map((slot) => {
                   const assignment = assignments[slot.id];
                   const assignedDoc = assignment ? library.get(assignment.iconId) : undefined;
                   const isBusy = busySlot === slot.id;
@@ -409,8 +671,13 @@ export function SlotsPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="text-sm font-semibold text-slate-900">{slot.label}</h3>
                             <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">{slot.id}</code>
+                            {slot.isCustom ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                                Tùy chỉnh
+                              </span>
+                            ) : null}
                             <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                              {SLOT_GROUP_LABELS[slot.group]}
+                              {SLOT_GROUP_LABELS[slot.group] || slot.group}
                             </span>
                             <span
                               className={cn(
@@ -444,7 +711,7 @@ export function SlotsPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 lg:w-[360px] lg:shrink-0 lg:justify-end">
+                      <div className="flex flex-wrap items-center gap-2 lg:w-[420px] lg:shrink-0 lg:justify-end">
                         <div className="min-w-[210px] flex-1">
                           <SearchableSelect
                             disabled={isBusy || publishedDocs.length === 0}
@@ -459,6 +726,7 @@ export function SlotsPage() {
                                 : 'Chọn icon đã phát hành...'
                             }
                             renderOption={renderIconOption}
+                            searchInDropdown
                             searchPlaceholder="Tìm icon theo tên..."
                             value={assignment?.iconStatus === 'published' ? assignment.iconId : ''}
                           />
@@ -466,7 +734,7 @@ export function SlotsPage() {
 
                         {assignment ? (
                           <Button
-                            className={RAISED}
+                            className={cn(RAISED, 'h-9 px-3')}
                             disabled={isBusy}
                             onClick={() => void handleClear(slot)}
                             size="sm"
@@ -475,6 +743,41 @@ export function SlotsPage() {
                             <RotateCcw aria-hidden className="size-3.5" />
                             <span>Về mặc định</span>
                           </Button>
+                        ) : null}
+
+                        {slot.isCustom ? (
+                          <div className="flex items-center gap-1">
+                            <Hint label="Sửa vị trí tùy chỉnh">
+                              <Button
+                                aria-label={`Sửa vị trí ${slot.label}`}
+                                data-testid={`slot-edit-btn-${slot.id}`}
+                                disabled={isBusy}
+                                onClick={() => openEditDialog(slot)}
+                                size="sm"
+                                variant="outline"
+                              >
+                                <Pencil aria-hidden className="size-3.5" />
+                                <span className="sr-only sm:not-sr-only">Sửa</span>
+                              </Button>
+                            </Hint>
+                            <Hint label="Xoá vị trí tùy chỉnh">
+                              <Button
+                                aria-label={`Xoá vị trí ${slot.label}`}
+                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                data-testid={`slot-delete-btn-${slot.id}`}
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setDeleteTarget(slot);
+                                  setDeleteError(null);
+                                }}
+                                size="sm"
+                                variant="outline"
+                              >
+                                <Trash2 aria-hidden className="size-3.5" />
+                                <span className="sr-only sm:not-sr-only">Xoá</span>
+                              </Button>
+                            </Hint>
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -485,6 +788,302 @@ export function SlotsPage() {
           </div>
         </Panel>
       )}
+
+      {/* Modal tạo vị trí mới */}
+      <Dialog onOpenChange={setCreateOpen} open={createOpen}>
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle>Thêm vị trí icon mới</DialogTitle>
+            <DialogDescription>
+              Định nghĩa vị trí sử dụng icon mới trong hệ thống để gán icon thương hiệu.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="mt-4 flex flex-col gap-4" onSubmit={handleCreateSubmit}>
+            {createError ? (
+              <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
+                {createError}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-id">
+                Mã vị trí (ID) <span className="text-red-500">*</span>
+              </label>
+              <Input
+                autoFocus
+                className="h-9 font-mono text-xs"
+                id="custom-slot-id"
+                onChange={(e) => setCreateId(e.target.value)}
+                placeholder="custom.ten_vi_tri"
+                required
+                value={createId}
+              />
+              <span className="text-[11px] text-slate-500">
+                Chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới (vd: custom.help-center)
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-label">
+                Tên hiển thị <span className="text-red-500">*</span>
+              </label>
+              <Input
+                className="h-9"
+                id="custom-slot-label"
+                onChange={(e) => setCreateLabel(e.target.value)}
+                placeholder="Trung tâm trợ giúp"
+                required
+                value={createLabel}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-group">
+                  Nhóm vị trí
+                </label>
+                <SearchableSelect
+                  height={36}
+                  hideDropdownSearch
+                  name="custom-slot-group"
+                  onChange={(val) => setCreateGroup(val || 'custom')}
+                  options={DIALOG_GROUP_OPTIONS}
+                  value={createGroup}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-mode">
+                  Chế độ màu
+                </label>
+                <SearchableSelect
+                  height={36}
+                  hideDropdownSearch
+                  name="custom-slot-mode"
+                  onChange={(val) => setCreateColorMode((val as BrandSvgMode) || 'brand')}
+                  options={COLOR_MODE_OPTIONS}
+                  value={createColorMode}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-size">
+                Kích thước khuyến nghị (pixel)
+              </label>
+              <Input
+                className="h-9"
+                id="custom-slot-size"
+                max={512}
+                min={8}
+                onChange={(e) => setCreateRecommendedSize(Number(e.target.value) || 24)}
+                type="number"
+                value={createRecommendedSize}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="custom-slot-desc">
+                Mô tả
+              </label>
+              <Textarea
+                className="min-h-16 text-xs"
+                id="custom-slot-desc"
+                onChange={(e) => setCreateDescription(e.target.value)}
+                placeholder="Vị trí hiển thị icon tại trang..."
+                rows={2}
+                value={createDescription}
+              />
+            </div>
+
+            <DialogFooter className="mt-2">
+              <Button
+                disabled={createSubmitting}
+                onClick={() => setCreateOpen(false)}
+                type="button"
+                variant="outline"
+              >
+                Huỷ
+              </Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="create-slot-submit-btn"
+                disabled={createSubmitting}
+                type="submit"
+              >
+                {createSubmitting ? 'Đang tạo...' : 'Tạo vị trí'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal chỉnh sửa vị trí */}
+      <Dialog onOpenChange={(open) => !open && setEditTarget(null)} open={Boolean(editTarget)}>
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa vị trí tùy chỉnh</DialogTitle>
+            <DialogDescription>
+              Thay đổi thông tin cấu hình cho vị trí <code className="font-mono text-xs">{editTarget?.id}</code>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="mt-4 flex flex-col gap-4" onSubmit={handleEditSubmit}>
+            {editError ? (
+              <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
+                {editError}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-id">
+                Mã vị trí (ID)
+              </label>
+              <Input
+                className="h-9 font-mono text-xs bg-slate-50 text-slate-500"
+                disabled
+                id="edit-slot-id"
+                value={editTarget?.id || ''}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-label">
+                Tên hiển thị <span className="text-red-500">*</span>
+              </label>
+              <Input
+                autoFocus
+                className="h-9"
+                id="edit-slot-label"
+                onChange={(e) => setEditLabel(e.target.value)}
+                required
+                value={editLabel}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-group">
+                  Nhóm vị trí
+                </label>
+                <SearchableSelect
+                  height={36}
+                  hideDropdownSearch
+                  name="edit-slot-group"
+                  onChange={(val) => setEditGroup(val || 'custom')}
+                  options={DIALOG_GROUP_OPTIONS}
+                  value={editGroup}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-mode">
+                  Chế độ màu
+                </label>
+                <SearchableSelect
+                  height={36}
+                  hideDropdownSearch
+                  name="edit-slot-mode"
+                  onChange={(val) => setEditColorMode((val as BrandSvgMode) || 'brand')}
+                  options={COLOR_MODE_OPTIONS}
+                  value={editColorMode}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-size">
+                Kích thước khuyến nghị (pixel)
+              </label>
+              <Input
+                className="h-9"
+                id="edit-slot-size"
+                max={512}
+                min={8}
+                onChange={(e) => setEditRecommendedSize(Number(e.target.value) || 24)}
+                type="number"
+                value={editRecommendedSize}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700" htmlFor="edit-slot-desc">
+                Mô tả
+              </label>
+              <Textarea
+                className="min-h-16 text-xs"
+                id="edit-slot-desc"
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={2}
+                value={editDescription}
+              />
+            </div>
+
+            <DialogFooter className="mt-2">
+              <Button
+                disabled={editSubmitting}
+                onClick={() => setEditTarget(null)}
+                type="button"
+                variant="outline"
+              >
+                Huỷ
+              </Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={editSubmitting}
+                type="submit"
+              >
+                {editSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal xác nhận xoá vị trí */}
+      <Dialog onOpenChange={(open) => !open && setDeleteTarget(null)} open={Boolean(deleteTarget)}>
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle>Xác nhận xoá vị trí tùy chỉnh</DialogTitle>
+            <DialogDescription>
+              Bạn có chắc chắn muốn xoá vị trí{' '}
+              <strong className="text-slate-900">{deleteTarget?.label}</strong> (
+              <code className="font-mono text-xs">{deleteTarget?.id}</code>)?
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError ? (
+            <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700" role="alert">
+              {deleteError}
+            </div>
+          ) : null}
+
+          <p className="mt-2 text-xs text-slate-500">
+            Hành động này sẽ xoá hoàn toàn cấu hình vị trí và huỷ gán icon hiện tại ở vị trí này. Thao tác không thể hoàn tác.
+          </p>
+
+          <DialogFooter className="mt-4">
+            <Button
+              disabled={deleteSubmitting}
+              onClick={() => setDeleteTarget(null)}
+              type="button"
+              variant="outline"
+            >
+              Huỷ
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white"
+              data-testid="delete-slot-confirm-btn"
+              disabled={deleteSubmitting}
+              onClick={handleDeleteSubmit}
+              type="button"
+            >
+              {deleteSubmitting ? 'Đang xoá...' : 'Xoá vĩnh viễn'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
