@@ -1219,3 +1219,18 @@ describe('Lọc danh sách công văn đến, đi', () => {
     await waitFor(() => expect(mocked.list.mock.calls.at(-1)?.[0]).toMatchObject({ fromDate: '2026-09-15', toDate: '2026-11-30' }));
   });
 });
+
+describe('Công văn đi: người gửi', () => {
+  it('danh sách ghi người gửi cá nhân kèm phòng, hay tên phòng khi gửi với danh nghĩa cả phòng', () => {
+    const outgoing = (id: string, sentAs: 'person' | 'unit') =>
+      ({
+        ...letter({ id, direction: 'outgoing', stage: 'drafting', displayNo: `${id}/DT`, recipient: 'Sở Tài chính' }),
+        authorName: 'Nguyễn Văn An',
+        authorUnitName: 'Ban Tổng Giám đốc',
+        sentAs,
+      }) as LetterSummary;
+    render(<LetterTable letters={[outgoing('1', 'person'), outgoing('2', 'unit')]} mode="outgoing" today="2026-11-17" onOpen={jest.fn()} />);
+    expect(screen.getByText('Nguyễn Văn An (Ban Tổng Giám đốc) → Sở Tài chính')).toBeTruthy();
+    expect(screen.getByText('Ban Tổng Giám đốc → Sở Tài chính')).toBeTruthy();
+  });
+});

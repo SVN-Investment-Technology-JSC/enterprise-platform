@@ -1613,6 +1613,23 @@ describe('Lọc danh sách công văn', () => {
   });
 });
 
+describe('Công văn đi: gửi với danh nghĩa cá nhân hay cả phòng ban', () => {
+  it('cá nhân: chỉ người soạn gửi được, hiện tên người soạn; cả phòng: người cùng phòng gửi được', async () => {
+    const { service } = setup();
+    const personal = await service.createOutgoing(accountant, { subject: 'Đề xuất', recipient: 'Sở', kind: 'finance' });
+    expect(personal).toMatchObject({ sentAs: 'person', authorName: 'Kế toán', authorUnitName: 'Phòng Kế toán' });
+    expect((await service.detail(financeHead, personal.id)).actions.sendToClerk).toBe(false);
+    await expect(service.sendToClerk(financeHead, personal.id, {})).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    const shared = await service.createOutgoing(accountant, { subject: 'Báo cáo phòng', recipient: 'Sở', kind: 'finance', sentAs: 'unit' });
+    expect(shared.sentAs).toBe('unit');
+    expect((await service.detail(financeHead, shared.id)).actions.sendToClerk).toBe(true);
+    // Người soạn đổi sang cả phòng khi đang soạn.
+    const switched = await service.update(accountant, personal.id, { sentAs: 'unit' });
+    expect(switched.sentAs).toBe('unit');
+    await expect(service.createOutgoing(accountant, { subject: 'X', recipient: 'Y', sentAs: 'team' as never })).rejects.toThrow('Gửi với danh nghĩa');
+  });
+});
+
 describe('Ô đầu, ô cuối cấu hình được', () => {
   it('tự chuyển bước đầu khi vào sổ: giao phòng ban gợi ý của loại văn bản', async () => {
     const { service, outbox } = setup();

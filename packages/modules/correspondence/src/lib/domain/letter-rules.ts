@@ -81,6 +81,8 @@ export interface LetterFacts {
   readonly closerIds?: readonly string[];
   /** Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung. */
   readonly personal?: boolean;
+  /** Công văn đi gửi với danh nghĩa cá nhân: chỉ người soạn làm việc của người soạn. */
+  readonly sentAs?: 'person' | 'unit';
 }
 
 /** Người xem làm được ô cuối (hoàn tất / ban hành): người được cấu hình, không cấu hình thì văn thư có quyền. */
@@ -124,6 +126,14 @@ export function memberOf(viewer: LetterViewer, unitId: string | undefined): bool
 /** Người soạn hay người cùng phòng soạn thảo (công văn đi). */
 export function isAuthorSide(viewer: LetterViewer, letter: Pick<LetterFacts, 'authorUserId' | 'authorUnitId'>): boolean {
   return letter.authorUserId === viewer.userId || memberOf(viewer, letter.authorUnitId);
+}
+
+/**
+ * Làm việc của người soạn (sửa, gửi bản soạn): công văn gửi với danh nghĩa cá nhân thì chỉ người soạn,
+ * cả phòng ban thì mọi người trong phòng soạn thảo.
+ */
+export function actsAsAuthor(viewer: LetterViewer, letter: Pick<LetterFacts, 'authorUserId' | 'authorUnitId' | 'sentAs'>): boolean {
+  return letter.authorUserId === viewer.userId || (letter.sentAs !== 'person' && memberOf(viewer, letter.authorUnitId));
 }
 
 /** Người tiếp nhận, người soạn, người được giao hay đã làm một bước, người thuộc phòng ban xử lý, người được nhắc tên. */
@@ -280,7 +290,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
   const stage = letter.stage;
   const incoming = letter.direction === 'incoming';
   const onStep = stage === 'reviewing' && actsOnActiveStep(viewer, letter);
-  const authorSide = !incoming && isAuthorSide(viewer, letter);
+  const authorSide = !incoming && actsAsAuthor(viewer, letter);
   const respondsSomewhere = letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment));
 
   const attachKinds = new Set<AttachmentKind>();

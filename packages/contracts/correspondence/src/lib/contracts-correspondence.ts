@@ -742,6 +742,8 @@ export interface LetterSummary {
   readonly authorUserId?: string;
   readonly authorName?: string;
   readonly authorUnitName?: string;
+  /** Công văn đi: gửi với danh nghĩa cá nhân người soạn hay cả phòng ban. */
+  readonly sentAs?: SentAs;
   readonly outgoingNo?: string;
   readonly publishedOn?: string;
   readonly recipient?: string;
@@ -894,6 +896,22 @@ export interface CreateLetterRequest extends IntakeCheck {
 }
 
 /** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
+/** Công văn đi gửi với danh nghĩa cá nhân người soạn hay cả phòng ban soạn thảo. */
+export const SENT_AS = ['person', 'unit'] as const;
+export type SentAs = (typeof SENT_AS)[number];
+export const SENT_AS_LABELS: Readonly<Record<SentAs, string>> = {
+  person: 'Cá nhân người soạn',
+  unit: 'Cả phòng ban soạn thảo',
+};
+
+/** Người gửi công văn đi để hiện: cá nhân "Tên (Phòng)", cả phòng "Phòng". */
+export function outgoingSender(letter: { readonly sentAs?: SentAs; readonly authorName?: string; readonly authorUnitName?: string; readonly senderOrg: string }): string {
+  if (letter.sentAs === 'person' && letter.authorName) {
+    return letter.authorUnitName ? `${letter.authorName} (${letter.authorUnitName})` : letter.authorName;
+  }
+  return letter.authorUnitName ?? letter.senderOrg;
+}
+
 export interface CreateOutgoingRequest {
   readonly subject: string;
   readonly recipient: string;
@@ -903,6 +921,8 @@ export interface CreateOutgoingRequest {
   readonly confidentiality?: string;
   /** Phòng ban soạn thảo khi người soạn thuộc nhiều phòng. */
   readonly authorUnitId?: string;
+  /** Gửi với danh nghĩa cá nhân (mặc định) hay cả phòng ban. */
+  readonly sentAs?: SentAs;
   /** Công văn đến mà công văn đi này trả lời. */
   readonly relatedLetterId?: string;
 }
@@ -918,6 +938,7 @@ export interface UpdateLetterRequest extends IntakeCheck {
   readonly urgency?: string;
   readonly confidentiality?: string;
   readonly recipient?: string;
+  readonly sentAs?: SentAs;
 }
 
 /**

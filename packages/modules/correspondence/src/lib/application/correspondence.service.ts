@@ -19,6 +19,7 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   LETTER_STAGES,
+  SENT_AS,
   conditionSet,
   matchesCondition,
   numberFormatError,
@@ -906,6 +907,7 @@ export class CorrespondenceService {
         authorUserId: actor.userId,
         authorUnitId: unit?.id,
         authorUnitName: unit?.name,
+        sentAs: parseOptional(input?.sentAs, SENT_AS, 'Gửi với danh nghĩa') ?? 'person',
         relatedLetterId,
         receivedBy: actor.userId,
       },
@@ -1028,6 +1030,7 @@ export class CorrespondenceService {
         senderDate: !incoming || patch.senderDate === undefined ? tx.letter.senderDate : optionalDate(patch.senderDate, 'Ngày văn bản'),
         subject: patch.subject === undefined ? tx.letter.subject : requireText(patch.subject, 'Trích yếu', 1000),
         recipient: incoming || patch.recipient === undefined ? tx.letter.recipient : requireText(patch.recipient, 'Nơi nhận', 255),
+        ...(!incoming && patch.sentAs !== undefined ? { sentAs: requireEnum(patch.sentAs, SENT_AS, 'Gửi với danh nghĩa') } : {}),
         kind: this.catalogCode(catalog, 'letter_type', patch.kind, 'Loại văn bản') ?? tx.letter.kind,
         urgency: this.catalogCode(catalog, 'urgency', patch.urgency, 'Độ khẩn') ?? tx.letter.urgency,
         confidentiality: this.catalogCode(catalog, 'confidentiality', patch.confidentiality, 'Độ mật') ?? tx.letter.confidentiality,
@@ -2640,6 +2643,7 @@ function facts(row: Row, catalog: Catalog): LetterFacts {
     addressedUserId: row.addressedUserId,
     closerIds: row.closerIds ?? [],
     personal: row.personal === true,
+    sentAs: row.sentAs,
   };
 }
 
@@ -2953,6 +2957,7 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     authorUserId: row.authorUserId,
     authorName: row.authorUserId ? names.get(row.authorUserId) : undefined,
     authorUnitName: row.authorUnitName,
+    sentAs: row.direction === 'outgoing' ? row.sentAs : undefined,
     outgoingNo: row.outgoingNo,
     publishedOn: row.publishedOn,
     recipient: row.recipient,

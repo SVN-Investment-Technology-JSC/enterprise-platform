@@ -20,6 +20,7 @@ import type {
   Register,
   ReturnTarget,
   RevokeKind,
+  SentAs,
   StepMode,
   StepType,
   Workflow,
@@ -116,6 +117,8 @@ export interface LetterRecord {
   readonly signerTitle?: string;
   /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
   readonly personal?: boolean;
+  /** Công văn đi: gửi với danh nghĩa cá nhân người soạn hay cả phòng ban. */
+  readonly sentAs?: SentAs;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -262,6 +265,7 @@ export interface LetterInsert {
   readonly authorUnitName?: string;
   readonly relatedLetterId?: string;
   readonly recipient?: string;
+  readonly sentAs?: SentAs;
   readonly receivedBy: string;
 }
 
