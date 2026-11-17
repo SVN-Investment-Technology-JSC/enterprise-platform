@@ -766,6 +766,11 @@ export interface LetterSummary {
   readonly signerTitle?: string;
   /** Số bản (đến: lúc tiếp nhận; đi: số bản phát hành). */
   readonly copyCount?: number;
+  /**
+   * Công văn đến: người nhận — người nhận đích danh, người xử lý của các phòng (người được phân công, chưa
+   * phân công thì người đã gửi kết quả của phòng).
+   */
+  readonly receiverNames?: readonly string[];
 }
 
 export interface LetterDetail extends LetterSummary {

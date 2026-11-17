@@ -558,6 +558,33 @@ export class CorrespondenceService {
   }
 
   /** Báo cáo theo năm: số công văn đến, đi, đã xong, trễ hạn theo tháng, loại văn bản, phòng ban. */
+  /**
+   * Sổ theo dõi công văn đến / đi của một năm, như bảng văn thư vẫn ghi tay: mọi công văn người xem được thấy,
+   * công văn đến theo số đến, công văn đi theo số đi (chưa ban hành thì theo số dự thảo, xếp cuối).
+   * Văn thư, người xem báo cáo, quản trị xem được.
+   */
+  async ledger(original: CorrespondenceActor, directionValue: unknown, yearValue?: unknown): Promise<LetterSummary[]> {
+    const actor = await this.effective(original);
+    if (!actor.canReadReports && !actor.canRegister && !actor.canPublish && !actor.canArchive && !actor.isTenantAdmin) {
+      throw new CorrespondenceForbiddenError('Bạn không có quyền xem sổ theo dõi công văn.');
+    }
+    const direction = requireEnum(directionValue, LETTER_DIRECTIONS, 'Luồng công văn');
+    const year = yearValue === undefined || yearValue === '' ? Number(this.today().slice(0, 4)) : Number(yearValue);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new CorrespondenceValidationError('Năm không hợp lệ.');
+    const viewer = await this.viewer(actor);
+    const catalog = await this.catalogMap(actor.tenantId);
+    const rows = (await this.store.listLetters(actor.tenantId, { visibleTo: this.visibility(viewer), direction, year, limit: REPORT_LIMIT })).filter((row) =>
+      canViewLetter(viewer, facts(row, catalog)),
+    );
+    const order = (row: Row) =>
+      direction === 'incoming'
+        ? `${row.receivedOn}|${String(row.seq).padStart(8, '0')}`
+        : row.outgoingNo
+          ? `0|${row.publishedOn ?? ''}|${row.outgoingNo.padStart(16, '0')}`
+          : `1|${row.receivedOn}|${String(row.seq).padStart(8, '0')}`;
+    return this.summaries(actor, viewer, catalog, [...rows].sort((left, right) => order(left).localeCompare(order(right))));
+  }
+
   async report(actor: CorrespondenceActor, yearValue?: unknown): Promise<CorrespondenceReport> {
     if (!actor.canReadReports && !actor.isTenantAdmin) throw new CorrespondenceForbiddenError('Bạn không có quyền xem báo cáo văn thư.');
     const year = yearValue === undefined || yearValue === '' ? Number(this.today().slice(0, 4)) : Number(yearValue);
@@ -2577,6 +2604,8 @@ export class CorrespondenceService {
       rows.flatMap((row) => [
         row.receivedBy,
         ...(row.authorUserId ? [row.authorUserId] : []),
+        ...(row.addressedUserId ? [row.addressedUserId] : []),
+        ...row.assignments.flatMap((assignment) => [assignment.handlerUserId, assignment.submittedBy].filter((id): id is string => Boolean(id))),
         ...(row.steps.find((step) => step.status === 'active')?.assigneeUserIds ?? []),
       ]),
     );
@@ -3041,6 +3070,21 @@ function summaryOf(row: Row, catalog: Catalog, viewer: LetterViewer, names: Read
     signerName: row.signerName,
     signerTitle: row.signerTitle,
     copyCount: row.copyCount,
+    receiverNames:
+      row.direction === 'incoming'
+        ? [
+            ...new Set(
+              [
+                row.addressedTo,
+                row.addressedUserId ? names.get(row.addressedUserId) : undefined,
+                ...row.assignments
+                  .filter((assignment) => assignment.role !== 'info')
+                  .map((assignment) => assignment.handlerUserId ?? assignment.submittedBy)
+                  .map((userId) => (userId ? names.get(userId) : undefined)),
+              ].filter((name): name is string => Boolean(name)),
+            ),
+          ]
+        : undefined,
   };
 }
 

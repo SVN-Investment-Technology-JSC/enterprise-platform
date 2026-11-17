@@ -1677,6 +1677,36 @@ describe('Đôn đốc: người đang chờ bước hiện tại', () => {
   });
 });
 
+describe('Sổ theo dõi công văn (báo cáo)', () => {
+  it('công văn đến theo số đến, kèm người nhận; công văn đi đã ban hành trước, dự thảo sau; theo năm; người ngoài không xem được', async () => {
+    const { service } = setup();
+    const first = await dispatched(service);
+    await service.respond(accountant, first.id, first.assignments[0].id, { note: 'Đã đối chiếu.' });
+    const second = await service.create(clerk, { ...intake, addressedTo: 'Công đoàn', addressedUserId: 'u-lawyer' });
+    await service.create(clerk, { ...intake, receivedOn: '2025-12-30', dueOn: '2026-01-05' });
+    const incoming = await service.ledger(clerk, 'incoming', 2026);
+    expect(incoming.map((item) => item.id)).toEqual([first.id, second.id]);
+    // Người nhận: người xử lý của phòng (đã gửi kết quả hay được phân công); người nhận đích danh.
+    expect(incoming[0].receiverNames).toEqual(['Kế toán', 'Pháp chế']);
+    expect(incoming[1].receiverNames).toEqual(['Công đoàn', 'Pháp chế']);
+    expect((await service.ledger(clerk, 'incoming', 2025)).map((item) => item.incomingNo)).toEqual(['01/CVĐ']);
+
+    const draft = await service.createOutgoing(accountant, { subject: 'Dự thảo', recipient: 'Sở', kind: 'quick' });
+    const issued = await service.createOutgoing(accountant, { subject: 'Thông báo', recipient: 'Toàn công ty', kind: 'quick' });
+    await service.sendToClerk(accountant, issued.id, {});
+    await service.submit(clerk, issued.id, {});
+    await service.publish(clerk, issued.id, { recipient: 'Toàn công ty', copyCount: 2 });
+    const outgoing = await service.ledger(clerk, 'outgoing', 2026);
+    expect(outgoing.map((item) => [item.id, item.outgoingNo])).toEqual([
+      [issued.id, '01/CV'],
+      [draft.id, undefined],
+    ]);
+    expect(outgoing[0]).toMatchObject({ copyCount: 2, recipient: 'Toàn công ty' });
+    await expect(service.ledger(lawyer, 'incoming', 2026)).rejects.toBeInstanceOf(CorrespondenceForbiddenError);
+    await expect(service.ledger(clerk, 'sideways', 2026)).rejects.toThrow('Luồng công văn');
+  });
+});
+
 describe('Ô đầu, ô cuối cấu hình được', () => {
   it('tự chuyển bước đầu khi vào sổ: giao phòng ban gợi ý của loại văn bản', async () => {
     const { service, outbox } = setup();

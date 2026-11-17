@@ -23,6 +23,7 @@ import {
   type RequestRevokeRequest,
   type LetterAttachment,
   type LetterDetail,
+  type LetterDirection,
   type LetterQuery,
   type LetterSummary,
   type PublishLetterRequest,
@@ -86,6 +87,8 @@ export const loadDirectory = () => request<CorrespondenceDirectory>('/directory'
 export const loadOverview = () => request<CorrespondenceOverview>('/overview', { cache: 'no-store' });
 export const loadArchiveTree = () => request<ArchiveTree>('/archive-tree', { cache: 'no-store' });
 export const loadReport = (year: number) => request<CorrespondenceReport>(`/reports?year=${year}`, { cache: 'no-store' });
+export const loadLedger = (direction: LetterDirection, year: number) =>
+  request<{ items: LetterSummary[] }>(`/ledger?direction=${direction}&year=${year}`, { cache: 'no-store' }).then((body) => body.items);
 export const loadConfig = () => request<CorrespondenceConfig>('/config', { cache: 'no-store' });
 export const saveSettings = (settings: CorrespondenceSettings) =>
   request<CorrespondenceSettings>('/settings', { method: 'PUT', body: JSON.stringify(settings) });

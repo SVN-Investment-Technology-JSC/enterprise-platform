@@ -96,6 +96,10 @@ export function CorrespondenceScreen() {
   const canConfigure = Boolean(capabilities?.canConfigure || capabilities?.isTenantAdmin);
   // Văn thư hay bộ phận tổng hợp (xem báo cáo) theo dõi, đôn đốc.
   const canTrack = Boolean(capabilities?.canRegister || capabilities?.canReadReports || capabilities?.isTenantAdmin);
+  // Sổ theo dõi công văn (trong Báo cáo): văn thư, người xem báo cáo, quản trị.
+  const canLedger = Boolean(
+    capabilities?.canRegister || capabilities?.canReadReports || capabilities?.canPublish || capabilities?.canArchive || capabilities?.isTenantAdmin,
+  );
   // Nút "+" thêm nhanh danh mục lúc nhập: người cấu hình và văn thư.
   const canQuickAdd = Boolean(canConfigure || capabilities?.canRegister);
   const catalogAdded = useCallback(
@@ -131,7 +135,7 @@ export function CorrespondenceScreen() {
       badge: overview?.outgoingOpen ? overview.outgoingOpen : undefined,
     },
     { id: 'archive', label: 'Kho lưu trữ', group: 'Sổ công văn', icon: <Archive size={16} /> },
-    ...(capabilities?.canReadReports
+    ...(canLedger
       ? [{ id: 'reports' as const, label: 'Báo cáo', group: 'Sổ công văn', icon: <BarChart3 size={16} /> }]
       : []),
     // Mở bằng nút bánh răng; khai ở đây để breadcrumb mang tên trang.
@@ -204,8 +208,8 @@ export function CorrespondenceScreen() {
         <TrackingView today={today} refreshKey={refreshKey} canRemind={canTrack} onOpen={openLetter} onChanged={refresh} />
       ) : shown === 'archive' ? (
         <ArchiveView refreshKey={refreshKey} onOpenLetter={openLetter} />
-      ) : shown === 'reports' && capabilities?.canReadReports ? (
-        <ReportView refreshKey={refreshKey} />
+      ) : shown === 'reports' && canLedger ? (
+        <ReportView refreshKey={refreshKey} canReadStats={Boolean(capabilities?.canReadReports || capabilities?.isTenantAdmin)} onOpenLetter={openLetter} />
       ) : (
         <LetterListView
           box={shown === 'mine' ? 'mine' : shown === 'outgoing' ? 'outgoing' : 'incoming'}

@@ -20,6 +20,7 @@ import {
   decideRevoke,
   dispatchLetter,
   listLetters,
+  loadLedger,
   loadStepChoice,
   publishLetter,
   quickAddCatalogItem,
@@ -40,6 +41,7 @@ import { FlowStepper } from './flow-stepper';
 import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
+import { LedgerView } from './ledger-view';
 import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
@@ -64,6 +66,7 @@ jest.mock('../correspondence-api', () => ({
   publishLetter: jest.fn(),
   dispatchLetter: jest.fn(),
   listLetters: jest.fn(),
+  loadLedger: jest.fn(),
   completeLetter: jest.fn(),
   updateLetter: jest.fn(),
 }));
@@ -85,6 +88,7 @@ const mocked = {
   publish: publishLetter as jest.MockedFunction<typeof publishLetter>,
   dispatch: dispatchLetter as jest.MockedFunction<typeof dispatchLetter>,
   list: listLetters as jest.MockedFunction<typeof listLetters>,
+  ledger: loadLedger as jest.MockedFunction<typeof loadLedger>,
   complete: completeLetter as jest.MockedFunction<typeof completeLetter>,
   update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
@@ -1258,5 +1262,67 @@ describe('Công văn đi: người gửi', () => {
     render(<LetterTable letters={[outgoing('1', 'person'), outgoing('2', 'unit')]} mode="outgoing" today="2026-11-17" emptyText="" onOpen={jest.fn()} />);
     expect(screen.getByText('Nguyễn Văn An (Ban Tổng Giám đốc) → Sở Tài chính')).toBeTruthy();
     expect(screen.getByText('Ban Tổng Giám đốc → Sở Tài chính')).toBeTruthy();
+  });
+});
+
+describe('Sổ theo dõi công văn trong Báo cáo', () => {
+  it('bảng công văn đến đủ cột như sổ văn thư; lọc theo tháng; bấm dòng mở công văn', async () => {
+    const onOpen = jest.fn();
+    const row = (id: string, receivedOn: string, extra: Partial<LetterSummary>) =>
+      ({ ...letter({ id, receivedOn, stage: 'archived', stageLabel: 'Đã lưu trữ' }), ...extra }) as LetterSummary;
+    mocked.ledger.mockResolvedValue([
+      row('a', '2026-01-05', {
+        incomingNo: '01/CVĐ',
+        senderRef: '6245/GLPC-KT+KHVT',
+        kindName: 'Công văn',
+        subject: 'V/v xác nhận vận hành thiết bị',
+        senderOrg: 'Công ty Điện lực Gia Lai',
+        senderDate: '2025-12-30',
+        copyCount: 1,
+        receiverNames: ['Diễm My'],
+        unitNames: ['Phòng Kinh doanh (chủ trì)'],
+        archiveCode: 'HS-2026-0001',
+      }),
+      row('b', '2026-04-17', { incomingNo: '02/CVĐ', kindName: 'Thông báo', subject: 'Về việc tham gia BHXH', senderOrg: 'Bảo hiểm xã hội TP Đà Nẵng' }),
+    ]);
+    render(<LedgerView direction="incoming" year={2026} refreshKey={0} onOpen={onOpen} />);
+    const table = await screen.findByRole('table', { name: 'Sổ công văn đến năm 2026' });
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Ngày đến',
+      'Số đến',
+      'Số, ký hiệu',
+      'Nội dung',
+      'Đơn vị gửi',
+      'Ngày văn bản',
+      'Số bản',
+      'Người nhận',
+      'Nơi nhận giải quyết',
+      'Hạn xử lý',
+      'Tình trạng',
+      'Số hồ sơ',
+    ]);
+    const first = within(table).getAllByRole('row')[1];
+    expect(within(first).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '05/01/2026',
+      '01/CVĐ',
+      '6245/GLPC-KT+KHVT',
+      'Công vănV/v xác nhận vận hành thiết bị',
+      'Công ty Điện lực Gia Lai',
+      '30/12/2025',
+      '1',
+      'Diễm My',
+      'Phòng Kinh doanh (chủ trì)',
+      '20/11/2026',
+      'Đã lưu trữ',
+      'HS-2026-0001',
+    ]);
+    expect(screen.getByText('2 công văn')).toBeTruthy();
+    const month = screen.getAllByRole('textbox').find((input) => input.getAttribute('type') !== 'search') as HTMLElement;
+    fireEvent.click(month);
+    fireEvent.click(screen.getByRole('option', { name: 'Tháng 4' }));
+    expect(screen.getByText('1 công văn')).toBeTruthy();
+    fireEvent.click(screen.getByText('Về việc tham gia BHXH'));
+    expect(onOpen).toHaveBeenCalledWith('b');
+    expect(mocked.ledger).toHaveBeenCalledWith('incoming', 2026);
   });
 });
