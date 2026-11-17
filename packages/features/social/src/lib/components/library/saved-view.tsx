@@ -5,7 +5,7 @@ import type {
   SocialPost,
 } from '@enterprise-platform/contracts-social';
 import { Bookmark, Folder, FolderPlus, Inbox, Layers, Pencil, Trash2 } from 'lucide-react';
-import { toast } from '@enterprise-platform/shared-ui';
+import { AppIcon, toast } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import extras from '../../post-extras.module.scss';
 import { errorMessage } from '../../social-api';
@@ -129,7 +129,7 @@ export function SavedView() {
       <header className={styles.head}>
         <div className={styles.titleRow}>
           <span className={styles.icon} aria-hidden="true">
-            <Bookmark size={20} />
+            <AppIcon slot="sidebar.social.saved" fallback={Bookmark} size={20} />
           </span>
           <div className={styles.text}>
             <h2>

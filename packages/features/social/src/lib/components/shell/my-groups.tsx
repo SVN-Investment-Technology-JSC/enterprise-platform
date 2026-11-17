@@ -1,6 +1,7 @@
 'use client';
 
 import type { SocialGroupSummary, SocialUserRef } from '@enterprise-platform/contracts-social';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { Pin, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { loadMyGroups } from '../../social-api';
@@ -82,7 +83,7 @@ export function MyGroups({ groups: all, failed }: Pick<MyGroupsState, 'groups' |
   return (
     <section className={styles.panel} aria-label="Nhóm của bạn">
       <header className={styles.panelHead}>
-        <Users size={17} aria-hidden="true" />
+        <AppIcon slot="sidebar.social.groups" fallback={Users} size={17} />
         <h2>Nhóm của bạn</h2>
         <SocialLink className={styles.panelLink} to={{ name: 'groups' }}>
           Xem tất cả

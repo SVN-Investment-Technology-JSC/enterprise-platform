@@ -11,6 +11,7 @@ import {
   type SharedStatus,
   type StorageUsage,
 } from '@enterprise-platform/contracts-shared';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { FolderOpen, FolderPlus, HardDrive, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { LibraryView, type LibraryAbilities, type LibraryRequest } from './components/library-view';
@@ -80,12 +81,12 @@ export function SharedScreen() {
     view === 'library' && sub === 'trash' && (capabilities.canDeleteDocuments || capabilities.isTenantAdmin);
 
   const nav: readonly ModuleNavItem<Tab>[] = [
-    { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <FolderOpen size={16} /> },
+    { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <AppIcon slot="sidebar.shared.library" fallback={FolderOpen} className="size-4" /> },
     {
       id: 'storage',
       label: 'Dung lượng',
       group: 'Quản trị',
-      icon: <HardDrive size={16} />,
+      icon: <AppIcon slot="sidebar.shared.storage" fallback={HardDrive} className="size-4" />,
       badge: usage ? `${Math.round(usage.usedPercent)}%` : undefined,
       hidden: !capabilities.canManage,
     },
