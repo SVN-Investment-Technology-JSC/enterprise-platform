@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { render, screen, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { ModuleShell } from './module-shell';
 import type { ModuleNavItem } from './module-shell.types';
 
@@ -11,6 +11,9 @@ jest.mock('@enterprise-platform/feature-chat', () => ({
   UserAvatar: () => null,
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
+  AppIcon: ({ fallback: Fallback, className }: { fallback: ComponentType<{ className?: string }>; className?: string }) => (
+    <Fallback className={className} />
+  ),
   NotificationBell: () => null,
   NotificationProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   SearchableSelect: () => null,

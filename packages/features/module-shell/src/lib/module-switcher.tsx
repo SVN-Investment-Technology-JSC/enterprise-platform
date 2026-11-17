@@ -3,6 +3,7 @@
 import { AppIcon, authFetch, useBrandSlot } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isLauncherOnlyModule } from './launcher-only-modules';
+import { EmptyFallback, ModuleGridFallback } from './shell-icons';
 import styles from './module-shell-light.module.scss';
 
 type ModuleSlotId = Parameters<typeof useBrandSlot>[0];
@@ -18,6 +19,9 @@ const MODULE_SLOT_MAP: Partial<Record<string, ModuleSlotId>> = {
   crm: 'module.crm',
   shared: 'module.shared',
   social: 'module.social',
+  assistant: 'module.assistant',
+  chat: 'module.chat',
+  correspondence: 'module.correspondence',
 };
 
 function SlotBadge({
@@ -121,12 +125,7 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="14" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" />
-        </svg>
+        <AppIcon slot="shell.module-switcher" fallback={ModuleGridFallback} className={styles.icon} />
       </button>
 
       {open ? (
@@ -167,6 +166,7 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
             );
           })}
           <a role="menuitem" href={homeHref} className={styles.switcherAll}>
+            <AppIcon slot="nav.applications" fallback={EmptyFallback} className="mr-1.5 inline-block size-4 align-text-bottom" />
             Tất cả ứng dụng
           </a>
         </div>

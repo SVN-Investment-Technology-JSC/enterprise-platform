@@ -1,10 +1,11 @@
 'use client';
 
 import { ASSISTANT_MESSAGE, isAssistantFrameMessage } from '@enterprise-platform/contracts-assistant';
-import { authFetch, useRealtimeEvent } from '@enterprise-platform/shared-ui';
+import { AppIcon, authFetch, useRealtimeEvent } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from './assistant-launcher.module.scss';
 import { ASSISTANT_MODULE_KEY } from './launcher-only-modules';
+import { AssistantFallback } from './shell-icons';
 
 /** Giao diện chat (savina-agent) mà gateway chuyển về; `embed=1` là bản gọn cho ngăn bên phải. */
 const ASSISTANT_URL = '/modules/assistant/';
@@ -159,10 +160,7 @@ export function AssistantLauncher({ className }: AssistantLauncherProps) {
         aria-controls="savina-assistant-panel"
         onClick={toggle}
       >
-        <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-          <path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6-4.6-1.9 4.6-1.9z" />
-          <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
-        </svg>
+        <AppIcon slot="header.assistant" fallback={AssistantFallback} className={styles.icon} />
       </button>
       {mounted ? (
         <aside

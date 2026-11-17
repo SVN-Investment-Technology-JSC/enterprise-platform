@@ -36,6 +36,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { AppIcon, type AppIconProps } from './brand-slots';
 import {
   BrowserNotificationClient,
   normalizeNotificationPreference,
@@ -507,7 +508,7 @@ export function NotificationBell({ className = '' }: { readonly className?: stri
       title="Thông báo"
       onClick={() => realtime.setDrawerOpen(true)}
     >
-      <Bell aria-hidden="true" size={17} />
+      <AppIcon slot="header.notifications" fallback={Bell} size={17} />
       {realtime.unreadCount > 0 ? (
         <span className={styles.badge}>{realtime.unreadCount > 99 ? '99+' : realtime.unreadCount}</span>
       ) : null}
@@ -752,7 +753,11 @@ function NotificationList() {
             onClick={() => void realtime.openNotification(notification)}
           >
             <span className={`${styles.avatar} ${styles[`module_${notification.module}`] ?? ''}`.trim()} aria-hidden="true">
-              <ModuleIcon size={17} />
+              {MODULE_SLOTS[notification.module] ? (
+                <AppIcon slot={MODULE_SLOTS[notification.module] as AppIconProps['slot']} fallback={ModuleIcon} size={17} />
+              ) : (
+                <ModuleIcon size={17} />
+              )}
             </span>
             <span className={styles.itemContent}>
               <span className={styles.itemTop}>
@@ -1068,6 +1073,13 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   crm: Handshake,
   correspondence: Stamp,
   chat: MessagesSquare,
+};
+
+/** Nhóm thông báo đã có vị trí icon thương hiệu; nhóm khác giữ icon lucide cũ. */
+const MODULE_SLOTS: Readonly<Partial<Record<NotificationRecord['module'], AppIconProps['slot']>>> = {
+  identity: 'nav.account',
+  correspondence: 'module.correspondence',
+  chat: 'module.chat',
 };
 
 function moduleLabel(module: NotificationRecord['module']): string {

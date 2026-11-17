@@ -2,11 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChatLauncher, UserAvatar } from '@enterprise-platform/feature-chat';
-import { NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
+import { AppIcon, NotificationBell, NotificationProvider, SessionKeepAlive } from '@enterprise-platform/shared-ui';
 import { AssistantLauncher } from './assistant-launcher';
 import { BrandLogo } from './brand-logo';
 import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
+import {
+  ClassicAccountFallback,
+  ClassicFullscreenFallback,
+  ClassicHomeFallback,
+  ClassicLogoutDangerFallback,
+  ClassicLogoutFallback,
+  ClassicSearchFallback,
+  ClassicSettingsFallback,
+} from './shell-icons';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell.module.scss';
 
@@ -158,20 +167,12 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
         <div className={styles.railFoot}>
           <a className={styles.homeLink} href={homeHref} title="Quay lại Trang chủ">
-            <svg
+            <AppIcon
+              slot="shell.home"
+              fallback={ClassicHomeFallback}
+              size={14}
               className={styles.railFootIcon}
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
+            />
             Trang chủ
           </a>
           <button
@@ -182,20 +183,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
             title={logoutError || (loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất')}
             aria-label="Đăng xuất"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+            <AppIcon slot="shell.logout" fallback={ClassicLogoutFallback} size={14} />
           </button>
           {logoutError ? <span className={styles.logoutError} role="alert">{logoutError}</span> : null}
         </div>
@@ -246,18 +234,11 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
 
             {/* 1. Search Bar */}
             <div className={styles.topSearch}>
-              <svg
+              <AppIcon
+                slot="header.search"
+                fallback={ClassicSearchFallback}
                 className={styles.topSearchIcon}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              />
               <input
                 type="text"
                 value={searchQuery}
@@ -275,18 +256,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
               title={isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}
               aria-label="Toàn màn hình"
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-              </svg>
+              <AppIcon slot="header.fullscreen" fallback={ClassicFullscreenFallback} size={15} />
             </button>
 
 
@@ -350,10 +320,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                     className={styles.menuItem}
                     onClick={() => setUserMenuOpen(false)}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
+                    <AppIcon slot="nav.account" fallback={ClassicAccountFallback} size={14} />
                     <span>Tài khoản của tôi</span>
                   </a>
 
@@ -362,10 +329,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                     className={styles.menuItem}
                     onClick={() => setUserMenuOpen(false)}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
-                      <circle cx="12" cy="12" r="3" />
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
+                    <AppIcon slot="nav.settings" fallback={ClassicSettingsFallback} size={14} />
                     <span>Cài đặt hệ thống</span>
                   </button>
 
@@ -377,11 +341,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                     onClick={handleLogout}
                     disabled={loggingOut}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
-                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                      <polyline points="16 17 21 12 16 7" />
-                      <line x1="21" y1="12" x2="9" y2="12" />
-                    </svg>
+                    <AppIcon slot="shell.logout" fallback={ClassicLogoutDangerFallback} size={14} />
                     <span>{loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất'}</span>
                   </button>
                 </div>
