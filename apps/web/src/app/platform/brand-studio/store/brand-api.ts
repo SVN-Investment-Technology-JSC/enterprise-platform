@@ -19,6 +19,7 @@ import {
   type CustomSlotPayload,
   type DeleteBrandSlotGroupResponse,
   type UpdateBrandSlotGroupRequest,
+  type UpdateBrandSlotRequest,
   type IconSlotMeta,
   type SaveBrandIconRequest,
   type SaveBrandIconResponse,
@@ -250,9 +251,17 @@ export function createCustomSlot(input: CustomSlotPayload): Promise<IconSlotMeta
   return request<IconSlotMeta>('/slots/definitions', { method: 'POST', body: input });
 }
 
-/** Chỉnh sửa vị trí icon tùy chỉnh. */
-export function updateCustomSlot(id: string, patch: Partial<Omit<CustomSlotPayload, 'id'>>): Promise<IconSlotMeta> {
+/**
+ * Chỉnh sửa vị trí icon (tùy chỉnh hoặc có sẵn). Với vị trí có sẵn, trường có giá trị là ghi đè, trường null là khôi phục
+ * mặc định của trường đó, trường vắng là giữ nguyên.
+ */
+export function updateCustomSlot(id: string, patch: UpdateBrandSlotRequest): Promise<IconSlotMeta> {
   return request<IconSlotMeta>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'PUT', body: patch });
+}
+
+/** Khôi phục mọi giá trị đã chỉnh sửa của vị trí có sẵn về mặc định trong code. */
+export function resetSlotOverride(id: string): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>(`/slots/definitions/${encodeURIComponent(id)}/override`, { method: 'DELETE' });
 }
 
 /** Xoá vị trí icon tùy chỉnh. */

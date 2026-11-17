@@ -2,6 +2,8 @@
 
 import {
   BUILT_IN_SLOT_GROUPS,
+  SLOT_OVERRIDE_FIELDS,
+  type SlotOverrideField,
   ICON_SLOTS,
   isValidSlotId,
   isBuiltInSlotId,
@@ -11,6 +13,7 @@ import {
   type IconDocument,
   type IconSlotId,
   type IconSlotMeta,
+  type UpdateBrandSlotRequest,
 } from '@enterprise-platform/shared-brand-icon';
 import {
   SearchableSelect,
@@ -60,6 +63,7 @@ import {
   errorMessage,
   listSlotGroups,
   listSlots,
+  resetSlotOverride,
   updateCustomSlot,
 } from '../store/brand-api';
 
@@ -228,6 +232,7 @@ export function SlotsPage() {
   const [editColorMode, setEditColorMode] = useState<BrandSvgMode>('brand');
   const [editRecommendedSize, setEditRecommendedSize] = useState(24);
   const [editDescription, setEditDescription] = useState('');
+  const [editResetting, setEditResetting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -431,6 +436,24 @@ export function SlotsPage() {
     setEditError(null);
   };
 
+  const applyUpdatedSlot = (updated: IconSlotMeta) => {
+    setDefinitions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    void refreshGroups();
+    notifyBrandSlotsChanged();
+  };
+
+  /** Vị trí có sẵn: chỉ gửi trường đổi so với giá trị hiện tại; trường về đúng mặc định trong code gửi null (khôi phục). */
+  const buildBuiltInPatch = (target: IconSlotMeta, values: Required<UpdateBrandSlotRequest>): UpdateBrandSlotRequest => {
+    const patch: Record<string, string | number | null> = {};
+    for (const field of SLOT_OVERRIDE_FIELDS) {
+      const next = values[field];
+      if (next === target[field]) continue;
+      const fallback = target.defaults?.[field];
+      patch[field] = fallback !== undefined && next === fallback ? null : next;
+    }
+    return patch as UpdateBrandSlotRequest;
+  };
+
   const handleEditSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editTarget) return;
@@ -439,25 +462,46 @@ export function SlotsPage() {
       setEditError('Tên vị trí không được để trống.');
       return;
     }
+    const values = {
+      label,
+      group: editGroup,
+      colorMode: editColorMode,
+      recommendedSize: editRecommendedSize,
+      description: editDescription.trim(),
+    };
+    const builtIn = !editTarget.isCustom;
+    const patch = builtIn ? buildBuiltInPatch(editTarget, values) : values;
+    if (builtIn && Object.keys(patch).length === 0) {
+      setEditTarget(null);
+      return;
+    }
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const updated = await updateCustomSlot(editTarget.id, {
-        label,
-        group: editGroup,
-        colorMode: editColorMode,
-        recommendedSize: editRecommendedSize,
-        description: editDescription.trim(),
-      });
-      setDefinitions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-      void refreshGroups();
-      notifyBrandSlotsChanged();
+      const updated = await updateCustomSlot(editTarget.id, patch);
+      applyUpdatedSlot(updated);
       setEditTarget(null);
       toast.success(`Đã cập nhật vị trí "${updated.label}".`);
     } catch (error) {
       setEditError(errorMessage(error, 'Không thể cập nhật vị trí.'));
     } finally {
       setEditSubmitting(false);
+    }
+  };
+
+  const handleResetOverride = async () => {
+    if (!editTarget) return;
+    setEditResetting(true);
+    setEditError(null);
+    try {
+      const restored = await resetSlotOverride(editTarget.id);
+      applyUpdatedSlot(restored);
+      setEditTarget(null);
+      toast.success(`Đã khôi phục mặc định cho vị trí "${restored.label}".`);
+    } catch (error) {
+      setEditError(errorMessage(error, 'Không thể khôi phục mặc định cho vị trí.'));
+    } finally {
+      setEditResetting(false);
     }
   };
 
@@ -483,6 +527,50 @@ export function SlotsPage() {
     } finally {
       setDeleteSubmitting(false);
     }
+  };
+
+  const editBuiltIn = Boolean(editTarget && !editTarget.isCustom);
+  const colorModeChanged = Boolean(editTarget && editColorMode !== editTarget.colorMode);
+  const editValueOf = (field: SlotOverrideField): string | number => {
+    switch (field) {
+      case 'label':
+        return editLabel.trim();
+      case 'group':
+        return editGroup;
+      case 'colorMode':
+        return editColorMode;
+      case 'recommendedSize':
+        return editRecommendedSize;
+      default:
+        return editDescription.trim();
+    }
+  };
+
+  /** Trường của vị trí có sẵn đã được sửa và giá trị trong ô chưa về mặc định: hiện nút Khôi phục nhỏ (đưa ô về mặc định, chỉ lưu khi bấm Lưu thay đổi). */
+  const renderFieldReset = (field: SlotOverrideField, onReset: () => void) => {
+    if (!editBuiltIn || !editTarget?.overriddenFields?.includes(field)) return null;
+    if (editValueOf(field) === editTarget.defaults?.[field]) return null;
+    return (
+      <Button
+        className="h-6 px-1.5 text-[11px]"
+        data-testid={`slot-reset-field-${field}`}
+        onClick={onReset}
+        type="button"
+        variant="ghost"
+      >
+        Khôi phục
+      </Button>
+    );
+  };
+
+  /** Hiện mặc định trong code dưới trường đã sửa. */
+  const renderFieldDefault = <T extends string | number>(field: SlotOverrideField, value: T | undefined, format?: (value: T) => string) => {
+    if (!editBuiltIn || value === undefined || !editTarget?.overriddenFields?.includes(field)) return null;
+    return (
+      <span className="text-[11px] text-slate-500" data-testid={`slot-default-${field}`}>
+        Mặc định: {format ? format(value) : String(value)}
+      </span>
+    );
   };
 
   const renderIconOption = useCallback(
@@ -738,6 +826,14 @@ export function SlotsPage() {
                               Tùy chỉnh
                             </span>
                           ) : null}
+                          {slot.overriddenFields && slot.overriddenFields.length > 0 ? (
+                            <span
+                              className="inline-flex shrink-0 items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-200"
+                              data-testid={`slot-overridden-${slot.id}`}
+                            >
+                              Đã chỉnh sửa
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -817,21 +913,19 @@ export function SlotsPage() {
                             ) : null}
                           </div>
                           <div className="size-8">
-                            {slot.isCustom ? (
-                              <Hint label="Sửa vị trí tùy chỉnh">
-                                <Button
-                                  aria-label={`Sửa vị trí ${slot.label}`}
-                                  className={RAISED}
-                                  data-testid={`slot-edit-btn-${slot.id}`}
-                                  disabled={isBusy}
-                                  onClick={() => openEditDialog(slot)}
-                                  size="icon"
-                                  variant="outline"
-                                >
-                                  <Pencil aria-hidden className="size-4" />
-                                </Button>
-                              </Hint>
-                            ) : null}
+                            <Hint label={slot.isCustom ? 'Sửa vị trí tùy chỉnh' : 'Sửa vị trí'}>
+                              <Button
+                                aria-label={`Sửa vị trí ${slot.label}`}
+                                className={RAISED}
+                                data-testid={`slot-edit-btn-${slot.id}`}
+                                disabled={isBusy}
+                                onClick={() => openEditDialog(slot)}
+                                size="icon"
+                                variant="outline"
+                              >
+                                <Pencil aria-hidden className="size-4" />
+                              </Button>
+                            </Hint>
                           </div>
                           <div className="size-8">
                             {slot.isCustom ? (
@@ -972,34 +1066,60 @@ export function SlotsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Hộp thoại chỉnh sửa vị trí */}
+      {/* Hộp thoại chỉnh sửa vị trí (tùy chỉnh và có sẵn) */}
       <Dialog onOpenChange={(open) => !open && setEditTarget(null)} open={Boolean(editTarget)}>
         <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
           <SlotDialogFrame
             description={
               <>
-                Thay đổi thông tin cấu hình cho vị trí <code className="font-mono text-xs">{editTarget?.id}</code>.
+                {editBuiltIn ? 'Đổi cách hiển thị của vị trí hệ thống ' : 'Thay đổi thông tin cấu hình cho vị trí '}
+                <code className="font-mono text-xs">{editTarget?.id}</code>.
+                {editBuiltIn ? ' Mã vị trí không đổi được.' : null}
               </>
             }
             error={editError}
             footer={
               <>
-                <Button disabled={editSubmitting} onClick={() => setEditTarget(null)} type="button" variant="outline">
+                {editBuiltIn && editTarget?.overriddenFields && editTarget.overriddenFields.length > 0 ? (
+                  <Button
+                    className="mr-auto"
+                    data-testid={`slot-reset-btn-${editTarget.id}`}
+                    disabled={editSubmitting || editResetting}
+                    onClick={() => void handleResetOverride()}
+                    type="button"
+                    variant="outline"
+                  >
+                    <RotateCcw aria-hidden className="size-4" />
+                    {editResetting ? 'Đang khôi phục...' : 'Khôi phục mặc định'}
+                  </Button>
+                ) : null}
+                <Button disabled={editSubmitting || editResetting} onClick={() => setEditTarget(null)} type="button" variant="outline">
                   Huỷ
                 </Button>
-                <Button className="bg-blue-600 text-white hover:bg-blue-700" disabled={editSubmitting} type="submit">
+                <Button
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  data-testid="edit-slot-submit-btn"
+                  disabled={editSubmitting || editResetting}
+                  type="submit"
+                >
                   {editSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
                 </Button>
               </>
             }
             onSubmit={handleEditSubmit}
-            title="Chỉnh sửa vị trí tùy chỉnh"
+            title={editBuiltIn ? 'Chỉnh sửa vị trí' : 'Chỉnh sửa vị trí tùy chỉnh'}
           >
             <SlotField htmlFor="edit-slot-id" label="Mã vị trí (ID)">
               <Input className="h-8 bg-slate-50 font-mono text-xs text-slate-500" disabled id="edit-slot-id" value={editTarget?.id || ''} />
             </SlotField>
 
-            <SlotField htmlFor="edit-slot-label" label="Tên hiển thị" required>
+            <SlotField
+              action={renderFieldReset('label', () => setEditLabel(editTarget?.defaults?.label ?? ''))}
+              footnote={renderFieldDefault('label', editTarget?.defaults?.label)}
+              htmlFor="edit-slot-label"
+              label="Tên hiển thị"
+              required
+            >
               <Input
                 autoFocus
                 className="h-8"
@@ -1011,7 +1131,13 @@ export function SlotsPage() {
             </SlotField>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <SlotField hint={GROUP_HINT} htmlFor="edit-slot-group" label="Nhóm vị trí">
+              <SlotField
+                action={renderFieldReset('group', () => setEditGroup(editTarget?.defaults?.group ?? 'custom'))}
+                footnote={renderFieldDefault('group', editTarget?.defaults?.group, (value) => groupLabels[value] || value)}
+                hint={GROUP_HINT}
+                htmlFor="edit-slot-group"
+                label="Nhóm vị trí"
+              >
                 <SlotGroupSelect
                   groups={groups}
                   name="edit-slot-group"
@@ -1021,7 +1147,15 @@ export function SlotsPage() {
                 />
               </SlotField>
 
-              <SlotField hint={COLOR_MODE_HINT} htmlFor="edit-slot-mode" label="Chế độ màu">
+              <SlotField
+                action={renderFieldReset('colorMode', () => setEditColorMode(editTarget?.defaults?.colorMode ?? 'brand'))}
+                footnote={renderFieldDefault('colorMode', editTarget?.defaults?.colorMode, (value) =>
+                  value === 'brand' ? 'Màu thương hiệu / Gradient' : 'Theo ngữ cảnh (currentColor)',
+                )}
+                hint={COLOR_MODE_HINT}
+                htmlFor="edit-slot-mode"
+                label="Chế độ màu"
+              >
                 <SearchableSelect
                   clearable={false}
                   height={32}
@@ -1036,7 +1170,27 @@ export function SlotsPage() {
               </SlotField>
             </div>
 
-            <SlotField htmlFor="edit-slot-size" label="Kích thước khuyến nghị (pixel)">
+            {colorModeChanged ? (
+              <div
+                className="flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800"
+                data-testid="slot-color-warning"
+                role="alert"
+              >
+                <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                <span>
+                  Đổi chế độ màu sẽ thay đổi cách icon được vẽ ở mọi nơi dùng vị trí này. Vị trí menu và nút nhỏ nên giữ
+                  &quot;Theo ngữ cảnh (currentColor)&quot; để icon đổi màu theo trạng thái chọn và giao diện tối; &quot;Màu thương hiệu&quot;
+                  giữ nguyên màu và dải màu của icon.
+                </span>
+              </div>
+            ) : null}
+
+            <SlotField
+              action={renderFieldReset('recommendedSize', () => setEditRecommendedSize(editTarget?.defaults?.recommendedSize ?? 24))}
+              footnote={renderFieldDefault('recommendedSize', editTarget?.defaults?.recommendedSize, (value) => `${value}px`)}
+              htmlFor="edit-slot-size"
+              label="Kích thước khuyến nghị (pixel)"
+            >
               <Input
                 className="h-8"
                 id="edit-slot-size"
@@ -1048,7 +1202,12 @@ export function SlotsPage() {
               />
             </SlotField>
 
-            <SlotField htmlFor="edit-slot-desc" label="Mô tả">
+            <SlotField
+              action={renderFieldReset('description', () => setEditDescription(editTarget?.defaults?.description ?? ''))}
+              footnote={renderFieldDefault('description', editTarget?.defaults?.description, (value) => value || '(để trống)')}
+              htmlFor="edit-slot-desc"
+              label="Mô tả"
+            >
               <Textarea
                 className="min-h-16 text-xs"
                 id="edit-slot-desc"

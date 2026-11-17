@@ -17,6 +17,8 @@ import {
   saveStandards,
   svgUrl,
   unpublishIcon,
+  resetSlotOverride,
+  updateCustomSlot,
 } from './brand-api';
 
 jest.mock('@enterprise-platform/shared-ui', () => ({ authFetch: jest.fn() }));
@@ -119,6 +121,15 @@ describe('brand-api: yêu cầu', () => {
     await expect(purgeIcon('icon-1')).resolves.toBeUndefined();
     expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/icons/icon-1/permanent`]);
     expect(lastCall().init.body).toBeUndefined();
+  });
+
+  it('sửa vị trí gửi PUT kèm trường null, khôi phục ghi đè gọi DELETE .../override', async () => {
+    mockFetch.mockResolvedValue(reply(200, {}));
+    await updateCustomSlot('brand.logo', { label: null, recommendedSize: 40 });
+    expect([lastCall().init.method, lastCall().url]).toEqual(['PUT', `${BASE}/slots/definitions/brand.logo`]);
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({ label: null, recommendedSize: 40 });
+    await resetSlotOverride('brand.logo');
+    expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/slots/definitions/brand.logo/override`]);
   });
 
   it('bảng màu và quy chuẩn: GET rồi PUT kèm baseVersion', async () => {

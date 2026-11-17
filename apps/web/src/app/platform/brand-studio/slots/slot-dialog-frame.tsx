@@ -9,21 +9,31 @@ export function SlotField({
   htmlFor,
   required,
   hint,
+  action,
+  footnote,
   children,
 }: {
   label: string;
   htmlFor: string;
   required?: boolean;
   hint?: string;
+  /** Nút nhỏ cạnh nhãn (vd: Khôi phục mặc định của trường). */
+  action?: ReactNode;
+  /** Dòng ghi chú thêm dưới ô nhập (vd: giá trị mặc định trong code). */
+  footnote?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <label className="text-xs font-semibold text-slate-700" htmlFor={htmlFor}>
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-semibold text-slate-700" htmlFor={htmlFor}>
+          {label}
+          {required ? <span className="text-red-500"> *</span> : null}
+        </label>
+        {action}
+      </div>
       {children}
+      {footnote}
       {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
     </div>
   );

@@ -19,6 +19,8 @@ import {
   deleteSlotGroup,
   listSlotGroups,
   listSlots,
+  resetSlotOverride,
+  updateCustomSlot,
   updateSlotGroup,
 } from '../store/brand-api';
 import { useBrandSettings, useIconLibrary } from '../store';
@@ -36,6 +38,7 @@ jest.mock('../store/brand-api', () => ({
   clearSlot: jest.fn(),
   createCustomSlot: jest.fn(),
   updateCustomSlot: jest.fn(),
+  resetSlotOverride: jest.fn(),
   deleteCustomSlot: jest.fn(),
   listSlotGroups: jest.fn(),
   createSlotGroup: jest.fn(),
@@ -59,6 +62,8 @@ const mockListSlots = jest.mocked(listSlots);
 const mockAssignSlot = jest.mocked(assignSlot);
 const mockClearSlot = jest.mocked(clearSlot);
 const mockCreateCustomSlot = jest.mocked(createCustomSlot);
+const mockUpdateCustomSlot = jest.mocked(updateCustomSlot);
+const mockResetSlotOverride = jest.mocked(resetSlotOverride);
 const mockDeleteCustomSlot = jest.mocked(deleteCustomSlot);
 const mockCreateSlotGroup = jest.mocked(createSlotGroup);
 const mockUpdateSlotGroup = jest.mocked(updateSlotGroup);
@@ -478,5 +483,133 @@ describe('SlotsPage', () => {
     fireEvent.click(screen.getByTestId('slot-group-confirm-delete-help'));
     await waitFor(() => expect(mockDeleteSlotGroup).toHaveBeenCalledWith('help'));
     await waitFor(() => expect(screen.queryByTestId('slot-group-row-help')).toBeNull());
+  });
+
+  describe('chỉnh sửa vị trí có sẵn', () => {
+    const LOGO = ICON_SLOTS.find((slot) => slot.id === 'brand.logo');
+    if (!LOGO) throw new Error('Thiếu vị trí brand.logo');
+    const OVERRIDDEN_LOGO = {
+      ...LOGO,
+      label: 'Logo của tôi',
+      colorMode: 'mono' as const,
+      overriddenFields: ['label', 'colorMode'] as const,
+      defaults: { label: LOGO.label, colorMode: LOGO.colorMode },
+    };
+
+    const withDefinitions = (logo: typeof LOGO | typeof OVERRIDDEN_LOGO) => {
+      mockListSlots.mockResolvedValue({
+        slots: [],
+        groups: [...BUILT_IN_GROUPS],
+        definitions: ICON_SLOTS.map((slot) => (slot.id === 'brand.logo' ? logo : slot)),
+      });
+    };
+
+    const openLogoEdit = async () => {
+      render(<SlotsPage />);
+      fireEvent.click(await screen.findByTestId('slot-edit-btn-brand.logo'));
+      await screen.findByText(/Chỉnh sửa vị trí$/);
+    };
+
+    const pickColorMode = async (current: string, optionLabel: string) => {
+      const input = screen.getByDisplayValue(current);
+      fireEvent.focus(input);
+      fireEvent.click(input);
+      const options = await screen.findAllByRole('option');
+      const option = options.find((item) => item.textContent?.includes(optionLabel));
+      if (!option) throw new Error(`Không thấy lựa chọn ${optionLabel}`);
+      fireEvent.click(option);
+    };
+
+    it('vị trí có sẵn có nút sửa nhưng không có nút xoá, chưa sửa thì không có nhãn Đã chỉnh sửa', async () => {
+      withDefinitions(LOGO);
+      render(<SlotsPage />);
+      await screen.findByTestId('slot-row-brand.logo');
+      expect(screen.getByTestId('slot-edit-btn-brand.logo')).toBeTruthy();
+      expect(screen.queryByTestId('slot-delete-btn-brand.logo')).toBeNull();
+      expect(screen.queryByTestId('slot-overridden-brand.logo')).toBeNull();
+    });
+
+    it('sửa tên chỉ gửi trường đã đổi, không cảnh báo màu và cập nhật hàng', async () => {
+      withDefinitions(LOGO);
+      mockUpdateCustomSlot.mockResolvedValueOnce({
+        ...LOGO,
+        label: 'Logo mới',
+        overriddenFields: ['label'],
+        defaults: { label: LOGO.label },
+      });
+      await openLogoEdit();
+
+      expect((screen.getByLabelText(/Mã vị trí \(ID\)/) as HTMLInputElement).disabled).toBe(true);
+      fireEvent.change(screen.getByLabelText(/Tên hiển thị/), { target: { value: 'Logo mới' } });
+      expect(screen.queryByTestId('slot-color-warning')).toBeNull();
+      fireEvent.click(screen.getByTestId('edit-slot-submit-btn'));
+
+      await waitFor(() => expect(mockUpdateCustomSlot).toHaveBeenCalledWith('brand.logo', { label: 'Logo mới' }));
+      expect(await screen.findByTestId('slot-overridden-brand.logo')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-row-brand.logo')).getByText('Logo mới')).toBeTruthy();
+      expect(mockListSlotGroups).toHaveBeenCalled();
+    });
+
+    it('đổi chế độ màu thì hiện cảnh báo, đổi lại như cũ thì ẩn, và chỉ lưu khi bấm Lưu', async () => {
+      withDefinitions(LOGO);
+      await openLogoEdit();
+
+      await pickColorMode('Màu thương hiệu / Gradient', 'Theo ngữ cảnh (currentColor)');
+      const warning = await screen.findByTestId('slot-color-warning');
+      expect(warning.getAttribute('role')).toBe('alert');
+      expect(warning.textContent).toContain('thay đổi cách icon được vẽ ở mọi nơi dùng vị trí này');
+      expect(mockUpdateCustomSlot).not.toHaveBeenCalled();
+
+      await pickColorMode('Theo ngữ cảnh (currentColor)', 'Màu thương hiệu / Gradient');
+      await waitFor(() => expect(screen.queryByTestId('slot-color-warning')).toBeNull());
+    });
+
+    it('hàng đã sửa có nhãn, hộp thoại hiện mặc định và khôi phục từng trường gửi null', async () => {
+      withDefinitions(OVERRIDDEN_LOGO);
+      mockUpdateCustomSlot.mockResolvedValueOnce({
+        ...OVERRIDDEN_LOGO,
+        label: LOGO.label,
+        overriddenFields: ['colorMode'],
+        defaults: { colorMode: LOGO.colorMode },
+      });
+      render(<SlotsPage />);
+      expect(await screen.findByTestId('slot-overridden-brand.logo')).toBeTruthy();
+      fireEvent.click(screen.getByTestId('slot-edit-btn-brand.logo'));
+
+      expect(screen.getByTestId('slot-default-label').textContent).toContain(LOGO.label);
+      fireEvent.click(screen.getByTestId('slot-reset-field-label'));
+      expect((screen.getByLabelText(/Tên hiển thị/) as HTMLInputElement).value).toBe(LOGO.label);
+      expect(mockUpdateCustomSlot).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('edit-slot-submit-btn'));
+
+      await waitFor(() => expect(mockUpdateCustomSlot).toHaveBeenCalledWith('brand.logo', { label: null }));
+    });
+
+    it('Khôi phục mặc định xoá mọi ghi đè và bỏ nhãn Đã chỉnh sửa', async () => {
+      withDefinitions(OVERRIDDEN_LOGO);
+      mockResetSlotOverride.mockResolvedValueOnce(LOGO);
+      render(<SlotsPage />);
+      fireEvent.click(await screen.findByTestId('slot-edit-btn-brand.logo'));
+      fireEvent.click(screen.getByTestId('slot-reset-btn-brand.logo'));
+
+      await waitFor(() => expect(mockResetSlotOverride).toHaveBeenCalledWith('brand.logo'));
+      await waitFor(() => expect(screen.queryByTestId('slot-overridden-brand.logo')).toBeNull());
+      expect(within(screen.getByTestId('slot-row-brand.logo')).getByText(LOGO.label)).toBeTruthy();
+    });
+
+    it('vị trí chưa sửa không có nút Khôi phục mặc định trong hộp thoại', async () => {
+      withDefinitions(LOGO);
+      await openLogoEdit();
+      expect(screen.queryByTestId('slot-reset-btn-brand.logo')).toBeNull();
+    });
+
+    it('tìm theo tên mới vẫn lọc đúng', async () => {
+      withDefinitions(OVERRIDDEN_LOGO);
+      render(<SlotsPage />);
+      await screen.findByTestId('slot-row-brand.logo');
+      fireEvent.change(screen.getByLabelText('Tìm theo tên hoặc mã vị trí'), { target: { value: 'logo cua toi' } });
+      await waitFor(() => expect(screen.queryAllByTestId(/^slot-row-/)).toHaveLength(1));
+      expect(screen.getByTestId('slot-row-brand.logo')).toBeTruthy();
+    });
   });
 });
