@@ -10,6 +10,7 @@ import {
   formatQuantityVn,
   parseVnNumber,
   CloseGuard,
+  spreadsheetFileSizeError,
 } from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
@@ -793,6 +794,11 @@ export function ExcelImportDialog({
         : `${Math.round(file.size / 1024)} KB`,
     );
 
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      alert(sizeError);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       try {

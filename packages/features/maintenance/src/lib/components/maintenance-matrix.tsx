@@ -8,7 +8,13 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  SearchableSelect,
+  formatDate,
+  SPREADSHEET_FILE_UNREADABLE_MESSAGE,
+  spreadsheetFileSizeError,
+} from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   Download,
@@ -612,6 +618,12 @@ export function MaintenanceMatrixBoard({
   const importMatrix = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      alert(sizeError);
+      event.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
@@ -762,8 +774,8 @@ export function MaintenanceMatrixBoard({
           validRows,
           invalidRows,
         });
-      } catch (err: unknown) {
-        alert('Lỗi khi đọc file Excel: ' + (err instanceof Error ? err.message : String(err)));
+      } catch {
+        alert(SPREADSHEET_FILE_UNREADABLE_MESSAGE);
       } finally {
         if (event.target) event.target.value = '';
       }

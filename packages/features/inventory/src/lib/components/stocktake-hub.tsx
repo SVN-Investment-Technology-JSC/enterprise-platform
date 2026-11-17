@@ -35,7 +35,14 @@ import {
   Sparkles,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { SearchableSelect, Popconfirm, VnNumberInput, formatCurrencyVn } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  Popconfirm,
+  VnNumberInput,
+  formatCurrencyVn,
+  SPREADSHEET_FILE_UNREADABLE_MESSAGE,
+  spreadsheetFileSizeError,
+} from '@enterprise-platform/shared-ui';
 import { CreateStocktakeDialog } from './create-stocktake-dialog';
 import { StocktakeLotSerialDrawer } from './stocktake-lot-serial-drawer';
 import { Button, Card, Input, Label, Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap, Textarea } from '../ui';
@@ -343,6 +350,12 @@ export function StocktakeHub({
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      alert(sizeError);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -399,8 +412,8 @@ export function StocktakeHub({
 
         setDirty(true);
         if (onNotice) onNotice(`Đã nạp số đếm từ Excel cho ${matchCount} mặt hàng.`);
-      } catch (err) {
-        alert('Không thể đọc file Excel: ' + (err instanceof Error ? err.message : 'Định dạng không hợp lệ'));
+      } catch {
+        alert(SPREADSHEET_FILE_UNREADABLE_MESSAGE);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }

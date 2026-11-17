@@ -2,6 +2,7 @@
 import { useRef, useState } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import type { ImportHrmCompOffRow } from '@enterprise-platform/contracts-hrm';
+import { spreadsheetFileSizeError } from '@enterprise-platform/shared-ui';
 import { compOffApi } from '../../hrm-comp-off-api';
 import { downloadXlsx } from '../../hrm-xlsx';
 import { Button } from '../button';
@@ -68,6 +69,12 @@ export function CompOffImportDialog({
     if (!file) return;
     setError('');
     setFileName(file.name);
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      setError(sizeError);
+      setRows([]);
+      return;
+    }
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });

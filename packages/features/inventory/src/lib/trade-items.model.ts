@@ -3,7 +3,7 @@ import type {
   InventoryTradeCatalog,
   Material,
 } from '@enterprise-platform/contracts-inventory';
-import { formatCurrencyVn, parseVnNumber } from '@enterprise-platform/shared-ui';
+import { assertSpreadsheetFileSize, formatCurrencyVn, parseVnNumber } from '@enterprise-platform/shared-ui';
 import * as XLSX from 'xlsx';
 
 /** Nhóm trên trang: dịch vụ không quản lý tồn, còn lại là hàng hóa. */
@@ -399,6 +399,7 @@ export function parseImportRows(
 }
 
 export async function readImportFile(file: File, catalog?: InventoryTradeCatalog): Promise<ImportRow[]> {
+  assertSpreadsheetFileSize(file);
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return [];

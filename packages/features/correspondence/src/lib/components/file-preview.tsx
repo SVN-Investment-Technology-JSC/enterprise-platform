@@ -1,7 +1,11 @@
 'use client';
 
 import type { LetterAttachment } from '@enterprise-platform/contracts-correspondence';
-import { toast } from '@enterprise-platform/shared-ui';
+import {
+  MAX_SPREADSHEET_FILE_BYTES,
+  SPREADSHEET_FILE_UNREADABLE_MESSAGE,
+  toast,
+} from '@enterprise-platform/shared-ui';
 import { Download, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -33,7 +37,12 @@ async function fetchFile(url: string): Promise<Response> {
   return response;
 }
 
-async function load(kind: PreviewKind, url: string, fileName: string): Promise<Loaded> {
+const SHEET_TOO_LARGE: Loaded = {
+  kind: 'none',
+  message: 'Tệp quá lớn để xem trước (tối đa 10 MB). Tải xuống để mở.',
+};
+
+async function load(kind: PreviewKind, url: string, fileName: string, sizeBytes?: number): Promise<Loaded> {
   switch (kind) {
     case 'pdf':
     case 'image':
@@ -48,12 +57,20 @@ async function load(kind: PreviewKind, url: string, fileName: string): Promise<L
     case 'docx':
       return { kind: 'docx', blob: await (await fetchFile(url)).blob() };
     case 'sheet': {
+      // Kiểm kích thước trước khi tải và trước khi đọc: tệp lớn làm treo tab.
+      if (sizeBytes !== undefined && sizeBytes > MAX_SPREADSHEET_FILE_BYTES) return SHEET_TOO_LARGE;
       const data = await (await fetchFile(url)).arrayBuffer();
+      if (data.byteLength > MAX_SPREADSHEET_FILE_BYTES) return SHEET_TOO_LARGE;
       // Nạp thư viện bảng tính khi cần: chỉ người mở bảng tính mới phải tải về.
       const XLSX = await import('xlsx');
-      const book = fileName.toLowerCase().endsWith('.csv')
-        ? XLSX.read(new TextDecoder().decode(data), { type: 'string' })
-        : XLSX.read(data, { type: 'array' });
+      let book: ReturnType<typeof XLSX.read>;
+      try {
+        book = fileName.toLowerCase().endsWith('.csv')
+          ? XLSX.read(new TextDecoder().decode(data), { type: 'string' })
+          : XLSX.read(data, { type: 'array' });
+      } catch {
+        throw new Error(SPREADSHEET_FILE_UNREADABLE_MESSAGE);
+      }
       return {
         kind: 'sheet',
         sheets: book.SheetNames.map((name) => {
@@ -99,7 +116,7 @@ export function FilePreview({ target, onClose }: { readonly target?: PreviewTarg
       try {
         const ticket = await attachmentTicket(target.letterId, target.file.id, 'preview');
         const kind = previewKind(ticket.contentType || target.file.contentType, target.file.fileName);
-        const next = await load(kind, ticket.downloadUrl, target.file.fileName);
+        const next = await load(kind, ticket.downloadUrl, target.file.fileName, target.file.sizeBytes);
         if (next.kind === 'deck') disposeDeck = next.deck.dispose;
         if (alive) setLoaded(next);
         else disposeDeck?.();
