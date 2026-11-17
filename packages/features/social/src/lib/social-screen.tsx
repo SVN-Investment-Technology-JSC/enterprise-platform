@@ -122,9 +122,11 @@ export function SocialScreen() {
     };
   }, [me, linkPostId]);
 
+  // Chỉ cuộn khi mở bài khác; cập nhật nội dung của cùng bài (sửa, thả cảm xúc) không cuộn lại.
+  const focusedId = focused?.id;
   useEffect(() => {
-    if (focused) focusRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, [focused?.id]);
+    if (focusedId) focusRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [focusedId]);
 
   const reloadTopics = useCallback(() => {
     loadTopics()
@@ -189,7 +191,7 @@ export function SocialScreen() {
 
   const session = useMemo<SocialSession | undefined>(
     () => (me ? { me, topics, openComposer, notify, openTopic, saved } : undefined),
-    [me, topics, openComposer, openTopic, saved],
+    [me, topics, openComposer, notify, openTopic, saved],
   );
 
   const closeFocus = () => {

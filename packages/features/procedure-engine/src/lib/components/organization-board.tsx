@@ -30,7 +30,7 @@ export function OrganizationBoard({
   onReload?: () => void | Promise<void>;
 }) {
   const units = organization.units ?? [];
-  const members = organization.members ?? [];
+  const members = useMemo(() => organization.members ?? [], [organization.members]);
   const unitTypes = organization.unitTypes ?? [];
 
   const [selectedId, setSelectedId] = useState(units[0]?.id);
