@@ -1289,6 +1289,7 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     render(<LedgerView direction="incoming" year={2026} refreshKey={0} onOpen={onOpen} />);
     const table = await screen.findByRole('table', { name: 'Sổ công văn đến năm 2026' });
     expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'STT',
       'Ngày đến',
       'Số đến',
       'Số, ký hiệu',
@@ -1304,6 +1305,7 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     ]);
     const first = within(table).getAllByRole('row')[1];
     expect(within(first).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '1',
       '05/01/2026',
       '01/CVĐ',
       '6245/GLPC-KT+KHVT',
@@ -1318,6 +1320,13 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
       'HS-2026-0001',
     ]);
     expect(screen.getByText('2 công văn')).toBeTruthy();
+    // Thu phóng như Excel: mặc định vừa khung, phóng to từng nấc 10%, về 100%.
+    expect((screen.getByRole('button', { name: /Vừa khung/ }) as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '100%' }));
+    expect(screen.getByText('100%', { selector: 'span' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Thu nhỏ' }));
+    expect(screen.getByText('90%')).toBeTruthy();
+    expect(table.style.zoom).toBe('0.9');
     const month = screen.getAllByRole('textbox').find((input) => input.getAttribute('type') !== 'search') as HTMLElement;
     fireEvent.click(month);
     fireEvent.click(screen.getByRole('option', { name: 'Tháng 4' }));

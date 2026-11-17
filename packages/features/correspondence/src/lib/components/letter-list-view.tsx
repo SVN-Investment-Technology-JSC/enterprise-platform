@@ -99,23 +99,25 @@ export function LetterListView({
 
   return (
     <div className={styles.page}>
-      <div className={styles.toolbar}>
-        {direction
-          ? [undefined, ...filters].map((value) => {
-              const on = activeStage === value;
-              return (
-                <button
-                  key={value ?? 'all'}
-                  type="button"
-                  className={on ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-                  aria-pressed={on}
-                  onClick={() => onStageChange?.(value)}
-                >
-                  {value ? LETTER_STAGE_LABELS[value] : 'Tất cả'}
-                </button>
-              );
-            })
-          : null}
+      {direction ? (
+        <div className={styles.stageChips} role="group" aria-label="Lọc theo bước">
+          {[undefined, ...filters].map((value) => {
+            const on = activeStage === value;
+            return (
+              <button
+                key={value ?? 'all'}
+                type="button"
+                className={on ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+                aria-pressed={on}
+                onClick={() => onStageChange?.(value)}
+              >
+                {value ? LETTER_STAGE_LABELS[value] : 'Tất cả'}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      <div className={`${styles.toolbar} ${styles.filterBar}`}>
         {direction ? (
           <div className={styles.listFilters}>
             <div className={styles.filterSelect}>
