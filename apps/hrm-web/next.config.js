@@ -4,16 +4,10 @@ const path = require('node:path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: [
-    ...(process.env.DEV_ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-    '192.168.88.16',
-    '192.168.88.16:3000',
-    '192.168.88.16:3004',
-    '192.168.88.16:4200',
-  ],
+  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
   basePath: '/modules/hrm',
   experimental: {
     // Trang chỉ nạp phần HRM mình dùng thay vì cả gói (antd, xlsx, mọi màn hình).
