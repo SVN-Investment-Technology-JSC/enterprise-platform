@@ -227,40 +227,46 @@ export function BrandSlotProvider({
     if (typeof document === 'undefined' || !document.head) return;
     if (faviconItem) {
       const href = `${BRAND_API_BASE}/slots/brand.favicon/svg?icon=${encodeURIComponent(faviconItem.iconId)}&v=${faviconItem.version}`;
-      const existing = document.head.querySelectorAll<HTMLLinkElement>(
-        'link[rel="icon"], link[rel="shortcut icon"]',
-      );
-      existing.forEach((node) => {
-        if (node.getAttribute('data-ep-brand-favicon') !== 'active') {
-          node.remove();
-        }
-      });
-      let activeLink = document.head.querySelector<HTMLLinkElement>(
+      const currentActive = document.head.querySelector<HTMLLinkElement>(
         'link[data-ep-brand-favicon="active"]',
       );
-      if (!activeLink) {
-        activeLink = document.createElement('link');
-        activeLink.rel = 'icon';
-        activeLink.setAttribute('data-ep-brand-favicon', 'active');
-        document.head.appendChild(activeLink);
+      if (currentActive && currentActive.getAttribute('href') === href) {
+        return;
       }
+      // Xoá các thẻ icon cũ để ép Chromium/WebKit kích hoạt lại quá trình nạp biểu tượng tab
+      document.head
+        .querySelectorAll<HTMLLinkElement>(
+          'link[rel="icon"], link[rel="shortcut icon"]',
+        )
+        .forEach((node) => node.remove());
+
+      const activeLink = document.createElement('link');
+      activeLink.rel = 'icon';
       activeLink.type = 'image/svg+xml';
-      activeLink.removeAttribute('sizes');
-      if (activeLink.getAttribute('href') !== href) {
-        activeLink.setAttribute('href', href);
-      }
+      activeLink.setAttribute('data-ep-brand-favicon', 'active');
+      activeLink.setAttribute('href', href);
+      document.head.appendChild(activeLink);
       return;
     }
 
     if (loaded) {
-      const customLink = document.head.querySelector<HTMLLinkElement>(
+      const hasActive = document.head.querySelector<HTMLLinkElement>(
         'link[data-ep-brand-favicon="active"]',
       );
-      if (customLink) {
-        customLink.setAttribute('data-ep-brand-favicon', 'fallback');
-        customLink.removeAttribute('type');
-        customLink.setAttribute('sizes', 'any');
-        customLink.setAttribute('href', '/favicon.ico');
+      if (hasActive) {
+        // Khi gỡ icon thương hiệu về mặc định: tạo lại thẻ mới trỏ về /favicon.ico để browser tab cập nhật tức thì
+        document.head
+          .querySelectorAll<HTMLLinkElement>(
+            'link[rel="icon"], link[rel="shortcut icon"]',
+          )
+          .forEach((node) => node.remove());
+
+        const fallbackLink = document.createElement('link');
+        fallbackLink.rel = 'icon';
+        fallbackLink.setAttribute('data-ep-brand-favicon', 'fallback');
+        fallbackLink.setAttribute('sizes', 'any');
+        fallbackLink.setAttribute('href', '/favicon.ico');
+        document.head.appendChild(fallbackLink);
       }
     }
   }, [faviconItem, loaded]);
