@@ -23,7 +23,7 @@
     "@enterprise-platform/contracts-assistant": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "@nestjs/common": "^11.0.0",
+    "@nestjs/common": "^11.2.10",
     "jose": "^6.2.9"
   },
   "devDependencies": {

@@ -46,7 +46,7 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
     "@enterprise-platform/shared-brand-icon": "workspace:*",
-    "@nestjs/common": "^11.2.1"
+    "@nestjs/common": "^11.2.10"
   },
   "devDependencies": {
     "@types/express": "^5.0.6"

@@ -28,7 +28,7 @@
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-task-approval": "workspace:*",
-    "@nestjs/common": "^11.2.1",
+    "@nestjs/common": "^11.2.10",
     "pg": "^8.23.0",
     "tslib": "^2.3.0"
   },

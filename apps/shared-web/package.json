@@ -28,7 +28,7 @@
     "@enterprise-platform/feature-shared": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@swc/helpers": "0.5.23",
-    "next": "~16.3.1",
+    "next": "~16.4.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

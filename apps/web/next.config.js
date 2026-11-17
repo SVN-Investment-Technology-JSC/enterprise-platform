@@ -17,6 +17,8 @@ const nextConfig = {
     '192.168.88.16:3004',
     '192.168.88.16:4200',
   ],
+  // Mã không dùng next/image; tắt bộ tối ưu ảnh để đóng endpoint /_next/image (ISS-OPS-002).
+  images: { unoptimized: true },
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   outputFileTracingRoot: path.join(__dirname, '../..'),

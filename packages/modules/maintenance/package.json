@@ -27,7 +27,7 @@
     "@enterprise-platform/adapter-storage": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-maintenance": "workspace:*",
-    "@nestjs/common": "^11.2.1",
+    "@nestjs/common": "^11.2.10",
     "pg": "^8.23.0",
     "tslib": "^2.3.0"
   },
