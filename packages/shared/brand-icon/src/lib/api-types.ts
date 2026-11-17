@@ -207,6 +207,19 @@ export interface DeleteBrandSlotGroupResponse {
   readonly deleted: true;
 }
 
+/**
+ * Sửa vị trí (PUT slots/definitions/:id). Vị trí tùy chỉnh: mọi trường tùy chọn, không nhận null.
+ * Vị trí có sẵn: chỉ 5 trường này (mã không đổi được); giá trị null là khôi phục mặc định trong code của trường đó;
+ * giá trị bằng mặc định trong code cũng được coi là khôi phục.
+ */
+export interface UpdateBrandSlotRequest {
+  readonly label?: string | null;
+  readonly description?: string | null;
+  readonly group?: string | null;
+  readonly colorMode?: BrandSvgMode | null;
+  readonly recommendedSize?: number | null;
+}
+
 export interface AssignBrandSlotRequest {
   readonly iconId: string;
 }

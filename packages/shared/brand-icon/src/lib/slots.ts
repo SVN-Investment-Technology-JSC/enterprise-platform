@@ -13,7 +13,16 @@ export interface IconSlotMeta {
   readonly recommendedSize: number;
   /** Đánh dấu vị trí do người dùng tự tạo; false hoặc undefined là vị trí hệ thống cố định. */
   readonly isCustom?: boolean;
+  /** Chỉ vị trí có sẵn: các trường quản trị viên đã sửa so với mặc định trong code (rỗng hoặc vắng là chưa sửa). */
+  readonly overriddenFields?: readonly SlotOverrideField[];
+  /** Chỉ vị trí có sẵn đã sửa: giá trị mặc định trong code của đúng các trường đã sửa, để hiện và khôi phục. */
+  readonly defaults?: SlotOverrideDefaults;
 }
+
+/** Các trường của vị trí có sẵn cho phép quản trị viên sửa (mã vị trí thì không). */
+export const SLOT_OVERRIDE_FIELDS = ['label', 'description', 'group', 'colorMode', 'recommendedSize'] as const;
+export type SlotOverrideField = (typeof SLOT_OVERRIDE_FIELDS)[number];
+export type SlotOverrideDefaults = Partial<Pick<IconSlotMeta, SlotOverrideField>>;
 
 export const SLOT_ID_PATTERN = /^[a-z][a-z0-9_.-]{1,63}$/;
 
