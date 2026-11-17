@@ -8,7 +8,11 @@ import {
   type IconSlotGroup,
   type IconSlotId,
 } from '@enterprise-platform/shared-brand-icon';
-import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  notifyBrandSlotsChanged,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
   LayoutGrid,
@@ -196,6 +200,7 @@ export function SlotsPage() {
       }
       const updated = await assignSlot(slot.id, iconId);
       setAssignments((prev) => ({ ...prev, [slot.id]: updated }));
+      notifyBrandSlotsChanged();
       setNotice({ tone: 'ok', text: `Đã gán icon "${updated.iconName}" cho vị trí "${slot.label}".` });
     } catch (error) {
       setNotice({ tone: 'error', text: errorMessage(error, 'Không gán được icon vào vị trí.') });
@@ -214,6 +219,7 @@ export function SlotsPage() {
         delete next[slot.id];
         return next;
       });
+      notifyBrandSlotsChanged();
       setNotice({ tone: 'ok', text: `Đã đưa vị trí "${slot.label}" về mặc định.` });
     } catch (error) {
       setNotice({ tone: 'error', text: errorMessage(error, 'Không đưa được vị trí về mặc định.') });

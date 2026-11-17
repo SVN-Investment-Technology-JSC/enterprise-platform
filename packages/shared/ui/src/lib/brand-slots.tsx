@@ -22,7 +22,14 @@ import {
 } from '@enterprise-platform/shared-brand-icon';
 
 export const BRAND_SLOTS_CACHE_KEY = 'ep_brand_slots_manifest_v1';
+export const BRAND_SLOTS_CHANGED_EVENT = 'ep:brand-slots-changed';
 const DEFAULT_MANIFEST_ENDPOINT = `${BRAND_API_BASE}/slots/manifest`;
+
+/** Phát tín hiệu để mọi `BrandSlotProvider` đang mở nạp lại manifest ngay lập tức (sau khi gán/gỡ vị trí hoặc phát hành icon). */
+export function notifyBrandSlotsChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(BRAND_SLOTS_CHANGED_EVENT));
+}
 
 export interface BrandSlotContextValue {
   readonly manifest: BrandSlotManifestResponse | null;
@@ -176,9 +183,12 @@ export function BrandSlotProvider({
     const controller = new AbortController();
     let active = true;
 
-    void (async () => {
+    const loadManifest = async (noStore = false) => {
       try {
-        const response = await fetch(endpoint, { signal: controller.signal });
+        const response = await fetch(endpoint, {
+          signal: controller.signal,
+          cache: noStore ? 'no-store' : 'default',
+        });
         if (!active || !response.ok) return;
         const data: unknown = await response.json();
         if (!active || !isValidManifest(data)) return;
@@ -192,13 +202,68 @@ export function BrandSlotProvider({
           setLoaded(true);
         }
       }
-    })();
+    };
+
+    void loadManifest(false);
+
+    const onSlotsChanged = () => {
+      void loadManifest(true);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(BRAND_SLOTS_CHANGED_EVENT, onSlotsChanged);
+    }
 
     return () => {
       active = false;
       controller.abort();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(BRAND_SLOTS_CHANGED_EVENT, onSlotsChanged);
+      }
     };
   }, [endpoint, initialManifest]);
+
+  const faviconItem = manifest?.slots['brand.favicon'];
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.head) return;
+    if (faviconItem) {
+      const href = `${BRAND_API_BASE}/slots/brand.favicon/svg?icon=${encodeURIComponent(faviconItem.iconId)}&v=${faviconItem.version}`;
+      const existing = document.head.querySelectorAll<HTMLLinkElement>(
+        'link[rel="icon"], link[rel="shortcut icon"]',
+      );
+      existing.forEach((node) => {
+        if (node.getAttribute('data-ep-brand-favicon') !== 'active') {
+          node.remove();
+        }
+      });
+      let activeLink = document.head.querySelector<HTMLLinkElement>(
+        'link[data-ep-brand-favicon="active"]',
+      );
+      if (!activeLink) {
+        activeLink = document.createElement('link');
+        activeLink.rel = 'icon';
+        activeLink.setAttribute('data-ep-brand-favicon', 'active');
+        document.head.appendChild(activeLink);
+      }
+      activeLink.type = 'image/svg+xml';
+      activeLink.removeAttribute('sizes');
+      if (activeLink.getAttribute('href') !== href) {
+        activeLink.setAttribute('href', href);
+      }
+      return;
+    }
+
+    if (loaded) {
+      const customLink = document.head.querySelector<HTMLLinkElement>(
+        'link[data-ep-brand-favicon="active"]',
+      );
+      if (customLink) {
+        customLink.setAttribute('data-ep-brand-favicon', 'fallback');
+        customLink.removeAttribute('type');
+        customLink.setAttribute('sizes', 'any');
+        customLink.setAttribute('href', '/favicon.ico');
+      }
+    }
+  }, [faviconItem, loaded]);
 
   const value = useMemo<BrandSlotContextValue>(
     () => ({ manifest, loaded }),

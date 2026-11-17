@@ -4,6 +4,7 @@ import {
   AppIcon,
   BRAND_SLOTS_CACHE_KEY,
   BrandSlotProvider,
+  notifyBrandSlotsChanged,
   useBrandSlot,
   type AppIconFallbackProps,
 } from './brand-slots';
@@ -297,5 +298,68 @@ describe('brand-slots', () => {
     expect(
       screen.getByTestId('slot-probe').getAttribute('data-has-custom'),
     ).toBe('false');
+  });
+
+  it('cập nhật động thẻ <link rel="icon"> trong document.head khi gán hoặc gỡ brand.favicon qua notifyBrandSlotsChanged', async () => {
+    const baseManifest = createManifest('hash-v1');
+    const withFavicon: BrandSlotManifestResponse = {
+      hash: 'hash-fav-1',
+      slots: {
+        ...baseManifest.slots,
+        'brand.favicon': {
+          slot: 'brand.favicon',
+          iconId: 'svndts-favicon',
+          version: 2,
+          colorMode: 'brand',
+          model: baseManifest.slots['brand.logo'].model,
+        },
+      },
+    };
+
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => baseManifest,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => withFavicon,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => baseManifest,
+      } as Response);
+    global.fetch = fetchMock;
+
+    render(
+      <BrandSlotProvider>
+        <SlotProbe />
+      </BrandSlotProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slot-probe').getAttribute('data-loaded')).toBe('true');
+    });
+
+    notifyBrandSlotsChanged();
+
+    await waitFor(() => {
+      const link = document.head.querySelector<HTMLLinkElement>(
+        'link[data-ep-brand-favicon="active"]',
+      );
+      expect(link?.getAttribute('href')).toBe(
+        '/api/platform/v1/brand/slots/brand.favicon/svg?icon=svndts-favicon&v=2',
+      );
+    });
+
+    notifyBrandSlotsChanged();
+
+    await waitFor(() => {
+      const fallback = document.head.querySelector<HTMLLinkElement>(
+        'link[data-ep-brand-favicon="fallback"]',
+      );
+      expect(fallback?.getAttribute('href')).toBe('/favicon.ico');
+    });
   });
 });

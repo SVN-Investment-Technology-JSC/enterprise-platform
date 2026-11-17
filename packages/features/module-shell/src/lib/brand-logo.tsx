@@ -24,11 +24,12 @@ export function BrandLogo({
   ...rest
 }: BrandLogoProps) {
   const { item, hasCustom } = useBrandSlotSafe('brand.logo');
-  const [failedVersion, setFailedVersion] = useState<number | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const itemKey = item ? `${item.iconId}@${item.version}` : null;
 
   const customSrc =
-    hasCustom && item && failedVersion !== item.version
-      ? `/api/platform/v1/brand/slots/brand.logo/svg?v=${item.version}`
+    hasCustom && item && itemKey && failedKey !== itemKey
+      ? `/api/platform/v1/brand/slots/brand.logo/svg?icon=${encodeURIComponent(item.iconId)}&v=${item.version}`
       : null;
 
   return (
@@ -37,8 +38,8 @@ export function BrandLogo({
       src={customSrc ?? fallbackSrc}
       alt={alt}
       onError={(event) => {
-        if (customSrc && item) {
-          setFailedVersion(item.version);
+        if (customSrc && itemKey) {
+          setFailedKey(itemKey);
         }
         onError?.(event);
       }}

@@ -26,10 +26,11 @@ export function SocialTopBar({
   readonly searchQuery: string;
 }) {
   const { item: brandLogoItem, hasCustom: hasCustomBrandLogo } = useBrandSlot('brand.logo');
-  const [failedLogoVersion, setFailedLogoVersion] = useState<number | null>(null);
+  const [failedLogoKey, setFailedLogoKey] = useState<string | null>(null);
+  const logoKey = brandLogoItem ? `${brandLogoItem.iconId}@${brandLogoItem.version}` : null;
   const customLogoSrc =
-    hasCustomBrandLogo && brandLogoItem && failedLogoVersion !== brandLogoItem.version
-      ? `/api/platform/v1/brand/slots/brand.logo/svg?v=${brandLogoItem.version}`
+    hasCustomBrandLogo && brandLogoItem && logoKey && failedLogoKey !== logoKey
+      ? `/api/platform/v1/brand/slots/brand.logo/svg?icon=${encodeURIComponent(brandLogoItem.iconId)}&v=${brandLogoItem.version}`
       : null;
 
   return (
@@ -44,8 +45,8 @@ export function SocialTopBar({
               width={30}
               height={30}
               onError={() => {
-                if (customLogoSrc && brandLogoItem) {
-                  setFailedLogoVersion(brandLogoItem.version);
+                if (customLogoSrc && logoKey) {
+                  setFailedLogoKey(logoKey);
                 }
               }}
             />
