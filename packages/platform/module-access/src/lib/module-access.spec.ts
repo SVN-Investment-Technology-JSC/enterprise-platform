@@ -33,6 +33,30 @@ describe('ModuleAccess', () => {
     process.env.INTERNAL_SERVICE_TOKEN = originalToken;
   });
 
+  describe('isHealthCheck (OPS014-10)', () => {
+    const access = new ModuleAccess({ moduleKey: 'workspace', verifyToken: async () => tenantUser });
+
+    it.each([
+      '/api/crm/health/live',
+      '/api/crm/health/ready',
+      '/api/finance/health/ready',
+      '/api/hrm/health/ready',
+      '/api/inventory/health/ready',
+      '/api/shared/health/ready',
+      '/api/social/health/ready',
+      '/api/workspace/health/ready',
+      '/api/correspondence/health/ready',
+      '/api/maintenance/health/ready',
+      '/api/procedure/health/ready',
+    ])('%s đi qua guard không cần cookie', (path) => {
+      expect(access.isHealthCheck(request({ path }))).toBe(true);
+    });
+
+    it('đường nghiệp vụ không được coi là healthcheck', () => {
+      expect(access.isHealthCheck(request({ path: '/api/crm/v1/customers' }))).toBe(false);
+    });
+  });
+
   describe('requireCsrfForMutation', () => {
     const access = new ModuleAccess({ moduleKey: 'workspace', verifyToken: async () => tenantUser });
 

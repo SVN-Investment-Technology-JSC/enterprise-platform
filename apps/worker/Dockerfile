@@ -20,4 +20,8 @@ RUN corepack enable && corepack install --global pnpm@10.33.1 && pnpm config set
 RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store,sharing=locked pnpm fetch --prod --frozen-lockfile \
     && pnpm install --prod --offline --frozen-lockfile
 USER node
+# Khoẻ khi tệp nhịp tim tồn tại và mtime cách hiện tại dưới 60 giây. Worker chỉ ghi tệp khi mọi consumer RabbitMQ còn kênh
+# (src/main.ts, startFileHeartbeat); mất broker thì sau khoảng 2 chu kỳ kiểm container báo unhealthy. Chỉ dùng Node có sẵn.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=2 \
+  CMD ["node", "-e", "try{const s=require('fs').statSync(process.env.WORKER_HEARTBEAT_FILE||'/tmp/worker.alive');process.exit(Date.now()-s.mtimeMs<60000?0:1)}catch{process.exit(1)}"]
 CMD ["node", "main.js"]

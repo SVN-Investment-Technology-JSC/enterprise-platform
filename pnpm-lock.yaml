@@ -2668,6 +2668,9 @@ importers:
 
   packages/platform/module-access:
     dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
       '@enterprise-platform/contracts-assistant':
         specifier: workspace:*
         version: link:../../contracts/assistant

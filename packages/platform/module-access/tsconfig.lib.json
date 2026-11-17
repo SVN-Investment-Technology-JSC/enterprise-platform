@@ -25,6 +25,9 @@
     },
     {
       "path": "../../contracts/assistant/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],
   "exclude": [
