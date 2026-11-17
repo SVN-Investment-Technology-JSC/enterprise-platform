@@ -83,6 +83,12 @@ export function LetterTable({
       <table className={styles.table}>
         {mode === 'archive' ? (
           <>
+            <colgroup>
+              <col style={{ width: 150 }} />
+              <col />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 130 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Số hồ sơ</th>
@@ -109,6 +115,13 @@ export function LetterTable({
           </>
         ) : (
           <>
+            <colgroup>
+              <col style={{ width: 132 }} />
+              <col />
+              <col style={{ width: 128 }} />
+              <col style={{ width: 210 }} />
+              <col style={{ width: 132 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>{mode === 'incoming' ? 'Số đến' : mode === 'outgoing' ? 'Số' : 'Số'}</th>

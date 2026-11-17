@@ -574,24 +574,28 @@ $fs-meta: 12px;
 
 .table {
   width: 100%;
-  min-width: 760px;
+  min-width: 880px;
   border-collapse: collapse;
+  // Độ rộng cột cố định theo colgroup: các cột thẳng hàng giữa các trang, trích yếu chiếm phần còn lại.
+  table-layout: fixed;
 
   th {
-    padding: 10px 14px;
+    padding: 10px 16px;
     border-bottom: 1px solid #e2e8f0;
-    color: #475569;
+    background: #f8fafc;
+    color: #64748b;
     font-size: $fs-small;
-    font-weight: 700;
+    font-weight: 600;
     text-align: left;
     white-space: nowrap;
   }
 
   td {
-    padding: 11px 14px;
-    border-bottom: 1px solid var(--ep-line);
+    padding: 12px 16px;
+    border-bottom: 1px solid #eef1f5;
     vertical-align: top;
     font-size: $fs-body;
+    line-height: 1.45;
   }
 
   tbody tr {
@@ -617,15 +621,18 @@ $fs-meta: 12px;
 }
 
 .code {
-  font-family: ui-monospace, 'SFMono-Regular', menlo, consolas, monospace;
+  // Cùng font với bảng, chữ số đều hàng để các số thẳng cột.
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
+  color: var(--ep-text);
   white-space: nowrap;
 }
 
 .subject {
-  max-width: 420px;
   color: var(--ep-text);
   font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .tableFoot {
@@ -1493,58 +1500,111 @@ $fs-meta: 12px;
   }
 }
 
-// Sổ theo dõi công văn (báo cáo): bảng kẻ ô như sổ văn thư ghi tay, tiêu đề cột dính khi cuộn.
+// Chọn quy trình cho công văn: ô chọn và xem trước các bước theo thứ tự.
+.workflowPicker {
+  display: grid;
+  gap: 8px;
+}
+
+.workflowPreview {
+  margin: 0;
+  padding: 10px 12px 10px 32px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+  display: grid;
+  gap: 6px;
+
+  li > b {
+    display: block;
+    font-weight: 600;
+    color: var(--ep-text);
+  }
+}
+
+.workflowSkipped {
+  opacity: 0.5;
+
+  > b {
+    text-decoration: line-through;
+  }
+}
+
+// Sổ theo dõi công văn (báo cáo): như trang tính Excel — kẻ ô xám, tiêu đề nền xám dính khi cuộn, cột STT;
+// thu phóng bằng `zoom` trên bảng, mặc định vừa khung.
 .ledgerWrap {
   overflow: auto;
-  max-height: 70vh;
-  border: 1px solid var(--ep-border-strong);
-  border-radius: 8px;
+  max-height: calc(100vh - 280px);
+  min-height: 240px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .ledger {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: $fs-body;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1f2328;
 
   th,
   td {
-    border: 1px solid var(--ep-border-strong);
-    padding: 8px 10px;
+    border-right: 1px solid #d9d9d9;
+    border-bottom: 1px solid #d9d9d9;
+    padding: 5px 8px;
     text-align: left;
     vertical-align: top;
+    overflow-wrap: anywhere;
   }
 
   th {
     position: sticky;
     top: 0;
     z-index: 1;
-    // Nền đặc để hàng cuộn bên dưới không lộ qua tiêu đề.
-    background: linear-gradient(var(--ep-accent-soft), var(--ep-accent-soft)) var(--ep-surface);
-    color: var(--ep-text);
+    background: #f2f2f2;
+    color: #1f2328;
     font-weight: 600;
     text-align: center;
     vertical-align: middle;
+    border-bottom: 2px solid #bfbfbf;
   }
 
   tbody tr {
     cursor: pointer;
 
-    &:hover,
+    &:nth-child(even) td {
+      background: #fafafa;
+    }
+
+    &:hover td,
+    &:focus-visible td {
+      background: #e8f0fe;
+    }
+
     &:focus-visible {
-      background: rgba(37, 99, 235, 0.05);
       outline: none;
     }
   }
 }
 
+.ledgerIndex {
+  text-align: center !important;
+  color: #57606a;
+  background: #f2f2f2 !important;
+  font-variant-numeric: tabular-nums;
+}
+
 .ledgerCenter {
   text-align: center !important;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .ledgerKind {
   display: block;
-  font-size: $fs-small;
+  font-size: 11.5px;
   font-style: italic;
   text-transform: uppercase;
   color: var(--ep-text-muted);
@@ -1552,6 +1612,37 @@ $fs-meta: 12px;
 
 .ledgerUrgent {
   color: var(--ep-danger);
+}
+
+.zoomBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zoomValue {
+  min-width: 44px;
+  text-align: center;
+  font-size: $fs-small;
+  font-variant-numeric: tabular-nums;
+  color: var(--ep-text-sub);
+}
+
+// Danh sách công văn: hàng nút lọc theo bước, rồi hàng bộ lọc (kỳ, loại, sổ, tìm kiếm, xuất sổ bên phải).
+.stageChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filterBar {
+  > button:last-child {
+    margin-left: auto;
+  }
+
+  .search {
+    max-width: none;
+  }
 }
 
 // Lọc danh sách theo kỳ (ngày vào sổ), loại văn bản.

@@ -119,6 +119,8 @@ export interface LetterRecord {
   readonly personal?: boolean;
   /** Công văn đi: gửi với danh nghĩa cá nhân người soạn hay cả phòng ban. */
   readonly sentAs?: SentAs;
+  /** Quy trình chọn riêng cho công văn; trống là tự chọn. */
+  readonly chosenWorkflowId?: string;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -266,6 +268,7 @@ export interface LetterInsert {
   readonly relatedLetterId?: string;
   readonly recipient?: string;
   readonly sentAs?: SentAs;
+  readonly chosenWorkflowId?: string;
   readonly receivedBy: string;
 }
 

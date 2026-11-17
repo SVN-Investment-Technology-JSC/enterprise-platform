@@ -423,6 +423,7 @@ export class CorrespondenceService {
       addressedUserId: letter.addressedUserId,
       addressedUserName: letter.addressedUserId ? names.get(letter.addressedUserId) : undefined,
       personal: letter.personal || undefined,
+      chosenWorkflowId: letter.chosenWorkflowId,
       directive: letter.directive
         ? {
             ...letter.directive,
@@ -711,7 +712,10 @@ export class CorrespondenceService {
     if (input?.personal === true && !optionalText(input.addressedUserId, 'Người nhận đích danh', 64)) {
       throw new CorrespondenceValidationError('Thư riêng phải chọn người nhận đích danh trong hệ thống.');
     }
-    const autoStart = input?.personal === true ? undefined : await this.autoStartPlan(actor.tenantId, settings, catalog, codes);
+    // Quy trình chọn riêng cho công văn: phải đang dùng, đúng luồng; công văn chạy đúng quy trình này.
+    const chosenWorkflowId = await this.chosenWorkflow(actor.tenantId, 'incoming', codes, input?.workflowId);
+    const autoStart =
+      input?.personal === true ? undefined : await this.autoStartPlan(actor.tenantId, settings, catalog, { ...codes, chosenWorkflowId });
     const receivedOn = optionalDate(input?.receivedOn, 'Ngày đến') ?? this.today();
     // Vào sổ theo độ mật và loại văn bản (văn bản mật vào sổ mật, cấp số riêng), hay sổ văn thư chọn.
     const register = pickRegister(
@@ -736,6 +740,7 @@ export class CorrespondenceService {
         ...codes,
         dueOn,
         receivedBy: actor.userId,
+        chosenWorkflowId,
       },
       {
         registerId: register.id,
@@ -791,7 +796,13 @@ export class CorrespondenceService {
     await this.transition(actor, letterId, (actions) => actions.dispatch, async (tx) => {
       if (dueOn && dueOn < tx.letter.receivedOn) throw new CorrespondenceValidationError('Hạn xử lý không được trước ngày đến.');
       await tx.replaceSteps(applicableSteps(workflow, { ...tx.letter, ...codes }));
-      await tx.update({ ...codes, dueOn: dueOn ?? tx.letter.dueOn, workflowId: workflow.id, workflowName: workflow.name });
+      await tx.update({
+        ...codes,
+        dueOn: dueOn ?? tx.letter.dueOn,
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        ...(input?.workflowId ? { chosenWorkflowId: workflow.id } : {}),
+      });
       const first = nextWaiting(tx, 0);
       if (first?.kind !== 'process') {
         await tx.history({
@@ -910,6 +921,7 @@ export class CorrespondenceService {
       this.organization.snapshot(actor.tenantId),
     ]);
     const codes = this.classification(catalog, input);
+    const chosenWorkflowId = await this.chosenWorkflow(actor.tenantId, 'outgoing', codes, input?.workflowId);
     const mine = ownUnits(snapshot, actor.userId);
     // Mặc định là phòng của người soạn; soạn thay phòng khác thì chọn phòng đó (phải có trong sơ đồ tổ chức).
     const wanted = optionalText(input?.authorUnitId, 'Phòng ban soạn thảo', 64);
@@ -941,6 +953,7 @@ export class CorrespondenceService {
         authorUnitId: unit?.id,
         authorUnitName: unit?.name,
         sentAs: parseOptional(input?.sentAs, SENT_AS, 'Gửi với danh nghĩa') ?? 'person',
+        chosenWorkflowId,
         relatedLetterId,
         receivedBy: actor.userId,
       },
@@ -961,10 +974,10 @@ export class CorrespondenceService {
     const chosen = optionalText(input?.assigneeUserId, 'Người duyệt', 64);
     const current = await this.store.findLetter(actor.tenantId, letterId);
     if (!current) throw new LetterNotFoundError();
-    const workflow = await this.pickWorkflow(actor.tenantId, current);
+    const workflow = await this.pickWorkflow(actor.tenantId, current, optionalText(input?.workflowId, 'Quy trình', 64));
     await this.transition(actor, letterId, (actions) => actions.sendToClerk, async (tx) => {
       await tx.replaceSteps(applicableSteps(workflow, tx.letter));
-      await tx.update({ workflowId: workflow.id, workflowName: workflow.name });
+      await tx.update({ workflowId: workflow.id, workflowName: workflow.name, ...(input?.workflowId ? { chosenWorkflowId: workflow.id } : {}) });
       const first = nextWaiting(tx, 0);
       await tx.history({
         action: 'send-to-clerk',
@@ -1958,7 +1971,7 @@ export class CorrespondenceService {
     tenantId: string,
     settings: CorrespondenceSettings,
     catalog: Catalog,
-    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality'>,
+    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality' | 'chosenWorkflowId'>,
   ): Promise<{ readonly workflow: Workflow; readonly units?: readonly DispatchUnit[] } | undefined> {
     const kind = codes.kind;
     const workflow = await this.pickWorkflow(tenantId, { direction: 'incoming', ...codes }).catch(() => undefined);
@@ -2407,14 +2420,18 @@ export class CorrespondenceService {
   /** Quy trình theo cấu hình: được chỉ định, của loại văn bản, hay mặc định của luồng; phải đang dùng và đúng luồng. */
   private async pickWorkflow(
     tenantId: string,
-    letter: Pick<LetterRecord, 'direction' | 'kind'> & Partial<Pick<LetterRecord, 'urgency' | 'confidentiality'>>,
+    letter: Pick<LetterRecord, 'direction' | 'kind'> & Partial<Pick<LetterRecord, 'urgency' | 'confidentiality' | 'chosenWorkflowId'>>,
     workflowId?: string,
   ): Promise<Workflow> {
     const [workflows, catalog] = await Promise.all([this.store.workflows(tenantId), this.catalogMap(tenantId)]);
     const type = catalog.get('letter_type')?.get(letter.kind);
     const typeWorkflow = letter.direction === 'incoming' ? type?.workflowId : type?.outgoingWorkflowId;
     const usable = workflows.filter((item) => item.isActive && item.direction === letter.direction);
-    const requested = typeof workflowId === 'string' ? workflowId.trim() : '';
+    // Quy trình được chỉ định (lúc chuyển bước, hay chọn riêng cho công văn lúc tạo) thì đúng quy trình đó.
+    const requested = (typeof workflowId === 'string' ? workflowId.trim() : '') || letter.chosenWorkflowId || '';
+    if (requested && !usable.some((item) => item.id === requested)) {
+      throw new CorrespondenceValidationError('Quy trình đã chọn cho công văn này không còn dùng hay không đúng luồng; chọn quy trình khác.');
+    }
     // Quy trình có điều kiện khớp công văn chọn trước; nhiều quy trình khớp thì quy trình đặt nhiều điều kiện hơn.
     const classified = { kind: letter.kind, urgency: letter.urgency ?? '', confidentiality: letter.confidentiality ?? '' };
     const conditional = usable
@@ -2432,6 +2449,18 @@ export class CorrespondenceService {
       );
     }
     return workflow;
+  }
+
+  /** Quy trình chọn riêng lúc tạo công văn: trống là tự chọn; có thì phải là quy trình đang dùng của luồng. */
+  private async chosenWorkflow(
+    tenantId: string,
+    direction: LetterDirection,
+    codes: Pick<LetterRecord, 'kind' | 'urgency' | 'confidentiality'>,
+    raw: unknown,
+  ): Promise<string | undefined> {
+    const wanted = optionalText(raw, 'Quy trình', 64);
+    if (!wanted) return undefined;
+    return (await this.pickWorkflow(tenantId, { direction, ...codes }, wanted)).id;
   }
 
   /** Phòng ban khi giao: có trong sơ đồ, người xử lý thuộc phòng; người nhận thông báo theo cách giao. */

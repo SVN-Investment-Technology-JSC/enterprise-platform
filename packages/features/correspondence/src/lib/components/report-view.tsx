@@ -25,13 +25,14 @@ export function ReportView({
 }) {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
-  const [tab, setTab] = useState<ReportTab>('incoming');
+  // Mở Báo cáo là thẻ Thống kê; người không xem được thống kê (văn thư) thì sổ công văn đến.
+  const [tab, setTab] = useState<ReportTab>(canReadStats ? 'stats' : 'incoming');
   const [report, setReport] = useState<CorrespondenceReport>();
   const [error, setError] = useState<string>();
   const tabs: readonly { readonly id: ReportTab; readonly label: string }[] = [
+    ...(canReadStats ? [{ id: 'stats' as const, label: 'Thống kê' }] : []),
     { id: 'incoming', label: 'Sổ công văn đến' },
     { id: 'outgoing', label: 'Sổ công văn đi' },
-    ...(canReadStats ? [{ id: 'stats' as const, label: 'Thống kê' }] : []),
   ];
 
   useEffect(() => {

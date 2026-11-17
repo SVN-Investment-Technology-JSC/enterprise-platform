@@ -21,6 +21,7 @@ import {
   dispatchLetter,
   listLetters,
   loadLedger,
+  loadReport,
   loadStepChoice,
   publishLetter,
   quickAddCatalogItem,
@@ -42,6 +43,8 @@ import { CheckGroup, FilePickField, FormDialog } from './form-dialog';
 import { LetterActionPanel } from './letter-actions';
 import { IntakeDialog } from './intake-dialog';
 import { LedgerView } from './ledger-view';
+import { ReportView } from './report-view';
+import { WorkflowPicker } from './workflow-picker';
 import { LetterListView } from './letter-list-view';
 import { LetterTable } from './letter-table';
 import { OutgoingDialog } from './outgoing-dialog';
@@ -67,6 +70,7 @@ jest.mock('../correspondence-api', () => ({
   dispatchLetter: jest.fn(),
   listLetters: jest.fn(),
   loadLedger: jest.fn(),
+  loadReport: jest.fn(),
   completeLetter: jest.fn(),
   updateLetter: jest.fn(),
 }));
@@ -89,6 +93,7 @@ const mocked = {
   dispatch: dispatchLetter as jest.MockedFunction<typeof dispatchLetter>,
   list: listLetters as jest.MockedFunction<typeof listLetters>,
   ledger: loadLedger as jest.MockedFunction<typeof loadLedger>,
+  report: loadReport as jest.MockedFunction<typeof loadReport>,
   complete: completeLetter as jest.MockedFunction<typeof completeLetter>,
   update: updateLetter as jest.MockedFunction<typeof updateLetter>,
 };
@@ -1288,6 +1293,7 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     render(<LedgerView direction="incoming" year={2026} refreshKey={0} onOpen={onOpen} />);
     const table = await screen.findByRole('table', { name: 'Sổ công văn đến năm 2026' });
     expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'STT',
       'Ngày đến',
       'Số đến',
       'Số, ký hiệu',
@@ -1303,6 +1309,7 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     ]);
     const first = within(table).getAllByRole('row')[1];
     expect(within(first).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '1',
       '05/01/2026',
       '01/CVĐ',
       '6245/GLPC-KT+KHVT',
@@ -1317,6 +1324,13 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
       'HS-2026-0001',
     ]);
     expect(screen.getByText('2 công văn')).toBeTruthy();
+    // Thu phóng như Excel: mặc định vừa khung, phóng to từng nấc 10%, về 100%.
+    expect((screen.getByRole('button', { name: /Vừa khung/ }) as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '100%' }));
+    expect(screen.getByText('100%', { selector: 'span' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Thu nhỏ' }));
+    expect(screen.getByText('90%')).toBeTruthy();
+    expect(table.style.zoom).toBe('0.9');
     const month = screen.getAllByRole('textbox').find((input) => input.getAttribute('type') !== 'search') as HTMLElement;
     fireEvent.click(month);
     fireEvent.click(screen.getByRole('option', { name: 'Tháng 4' }));
@@ -1324,5 +1338,83 @@ describe('Sổ theo dõi công văn trong Báo cáo', () => {
     fireEvent.click(screen.getByText('Về việc tham gia BHXH'));
     expect(onOpen).toHaveBeenCalledWith('b');
     expect(mocked.ledger).toHaveBeenCalledWith('incoming', 2026);
+  });
+});
+
+describe('Chọn quy trình cho công văn lúc tạo, phân loại', () => {
+  const workflows = [
+    {
+      id: 'wf-default',
+      name: 'Quy trình mặc định',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: true,
+      steps: [{ key: 'p', name: 'Phòng ban xử lý', type: 'process' as const }],
+      updatedAt: '',
+    },
+    {
+      id: 'wf-ceo',
+      name: 'Qua Tổng giám đốc',
+      direction: 'incoming' as const,
+      isActive: true,
+      isDefault: false,
+      steps: [
+        { key: 'a', name: 'Phó TGĐ xem', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-ha'] }, condition: { urgency: ['urgent'], skip: true } },
+        { key: 'b', name: 'TGĐ giao phòng ban', type: 'approve' as const, approver: { type: 'users' as const, userIds: ['u-an'] }, directs: true },
+        { key: 'p', name: 'Phòng ban xử lý', type: 'process' as const },
+      ],
+      updatedAt: '',
+    },
+  ];
+  const withFlows: CorrespondenceConfig = { ...config, workflows };
+
+  it('trống là theo cấu hình; chọn quy trình thì xem trước từng bước, ai làm, bước không áp dụng', () => {
+    const onChange = jest.fn();
+    const facts = { kind: 'directive', urgency: 'urgent', confidentiality: 'normal' };
+    const { rerender } = render(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="" directory={directory} onChange={onChange} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    expect(within(group).getByRole('textbox').getAttribute('placeholder')).toBe('Theo cấu hình: Quy trình mặc định');
+    expect(screen.getByRole('list', { name: 'Xem trước quy trình Quy trình mặc định' })).toBeTruthy();
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    expect(onChange).toHaveBeenCalledWith('wf-ceo');
+    rerender(<WorkflowPicker config={withFlows} direction="incoming" facts={facts} value="wf-ceo" directory={directory} onChange={onChange} />);
+    const preview = screen.getByRole('list', { name: 'Xem trước quy trình Qua Tổng giám đốc' });
+    const items = within(preview).getAllByRole('listitem').map((item) => item.textContent);
+    expect(items[1]).toContain('không áp dụng cho công văn này');
+    expect(items[2]).toBe('TGĐ giao phòng banLãnh đạo duyệt / chỉ đạo · Nguyễn Văn An · bút phê');
+    expect(items[3]).toContain('Phòng ban do người làm bước trước chọn');
+    expect(screen.getByText('Công văn này chạy đúng quy trình đã chọn.')).toBeTruthy();
+  });
+
+  it('văn thư đổi quy trình lúc phân loại: gửi kèm quy trình đã chọn', async () => {
+    const onDone = jest.fn();
+    const received = letter({ stage: 'received', stageLabel: 'Văn thư tiếp nhận', currentStepName: undefined, flow: [] }, { dispatch: true });
+    mocked.dispatch.mockResolvedValue(received);
+    render(<LetterActionPanel letter={received} config={withFlows} directory={directory} onDone={onDone} onDirtyChange={jest.fn()} />);
+    const group = screen.getByRole('group', { name: 'Quy trình' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(within(group).getByRole('option', { name: /Qua Tổng giám đốc/ }));
+    const send = await screen.findByRole('button', { name: 'Chuyển "Phó TGĐ xem"' });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(mocked.dispatch.mock.calls[0][1]).toMatchObject({ workflowId: 'wf-ceo' });
+  });
+});
+
+describe('Báo cáo: thẻ mở đầu', () => {
+  it('người xem được thống kê mở Báo cáo là thẻ Thống kê; văn thư (không xem thống kê) là sổ công văn đến', async () => {
+    mocked.report.mockReturnValue(new Promise(() => undefined));
+    mocked.ledger.mockResolvedValue([]);
+    const { unmount } = render(<ReportView refreshKey={0} canReadStats />);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Thống kê', 'Sổ công văn đến', 'Sổ công văn đi']);
+    expect(screen.getByRole('tab', { name: 'Thống kê' }).getAttribute('aria-selected')).toBe('true');
+    expect(mocked.report).toHaveBeenCalled();
+    expect(mocked.ledger).not.toHaveBeenCalled();
+    unmount();
+    render(<ReportView refreshKey={0} canReadStats={false} />);
+    expect(screen.getByRole('tab', { name: 'Sổ công văn đến' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(mocked.ledger).toHaveBeenCalledWith('incoming', expect.any(Number)));
   });
 });

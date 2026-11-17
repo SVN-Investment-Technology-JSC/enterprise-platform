@@ -22,6 +22,7 @@ const MIGRATIONS = [
   '0007-registers-numbering-signer.sql',
   '0008-conditions-fixed-units-personal.sql',
   '0009-outgoing-sent-as.sql',
+  '0010-chosen-workflow.sql',
 ].map((file) =>
   resolve(process.cwd(), '../../../migrations/tenant/correspondence', file),
 );

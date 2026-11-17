@@ -6,7 +6,6 @@ import {
   ASSIGNMENT_ROLE_LABELS,
   REVOKE_KINDS,
   REVOKE_KIND_LABELS,
-  stepApplies,
   suggestRegister,
   returnTargetLabel,
   type CatalogItem,
@@ -43,6 +42,7 @@ import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 import { missingHandler, suggestedUnits, unitsPayload, UnitsPicker, type UnitPick } from './units-picker';
+import { WorkflowPicker } from './workflow-picker';
 
 interface ActionProps {
   readonly letter: LetterDetail;
@@ -133,34 +133,6 @@ function ErrorLine({ error }: { readonly error?: string }) {
   ) : null;
 }
 
-/** Quy trình sẽ áp dụng, đọc theo cấu hình (theo loại văn bản đang chọn); người dùng không chọn quy trình. */
-function PlannedSteps({
-  config,
-  letter,
-  kind,
-  urgency = letter.urgency,
-  confidentiality = letter.confidentiality,
-}: {
-  readonly config: CorrespondenceConfig;
-  readonly letter: LetterDetail;
-  readonly kind: string;
-  readonly urgency?: string;
-  readonly confidentiality?: string;
-}) {
-  const facts = { kind, urgency, confidentiality };
-  const workflow = plannedWorkflow(config, letter.direction, kind, facts);
-  if (!workflow) {
-    return <p className={styles.notice}>Chưa có quy trình đang dùng cho luồng này. Nhờ người quản trị vào Cấu hình đặt quy trình mặc định.</p>;
-  }
-  // Bước có điều kiện không khớp phân loại đang chọn thì không có trong luồng của công văn này.
-  const steps = workflow.steps.filter((step) => stepApplies(step, facts));
-  return (
-    <p className={styles.plan}>
-      <span>Quy trình {workflow.name}:</span> {flowLabels({ ...workflow, steps }, letter.direction).join(' → ')}
-    </p>
-  );
-}
-
 /**
  * Phần chọn cho bước kế tiếp: bước đó là phòng ban xử lý thì chọn phòng ban; bước duyệt (ngay
  * sau, hay sau bước phòng ban) để người trình chọn người thì chọn người.
@@ -169,7 +141,7 @@ function useNextStep(
   letter: LetterDetail,
   config: CorrespondenceConfig,
   kind?: string,
-  classified?: { readonly urgency?: string; readonly confidentiality?: string },
+  classified?: { readonly urgency?: string; readonly confidentiality?: string; readonly workflowId?: string },
 ) {
   const upcoming = upcomingStep(letter, config, kind, classified);
   // Bước phòng ban có phòng cố định: giao sẵn (chọn lại được), khoá thì luôn giao đúng các phòng đó.
@@ -568,7 +540,8 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
   const [confidentiality, setConfidentiality] = useState(letter.confidentiality);
   const [dueOn, setDueOn] = useState(letter.dueOn ?? localToday());
   const [note, setNote] = useState('');
-  const next = useNextStep(letter, config, kind, { urgency, confidentiality });
+  const [workflowId, setWorkflowId] = useState(letter.chosenWorkflowId ?? '');
+  const next = useNextStep(letter, config, kind, { urgency, confidentiality, workflowId: workflowId || undefined });
   const { busy, error, run } = useRunner(onDone);
   useEffect(
     () => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged),
@@ -580,7 +553,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
     // Chưa chọn phòng nào thì gợi ý phòng ban của loại văn bản.
     if (units.length === 0) setUnits(suggestedUnits(config, value));
   };
-  const workflow = plannedWorkflow(config, 'incoming', kind, { urgency, confidentiality });
+  const workflow = plannedWorkflow(config, 'incoming', kind, { urgency, confidentiality, workflowId: workflowId || undefined });
   const end = workflow ? (flowLabels(workflow, 'incoming').at(-1) ?? '') : '';
 
   return (
@@ -620,7 +593,14 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
             onChange={setConfidentiality}
           />
         </div>
-        <PlannedSteps config={config} letter={letter} kind={kind} urgency={urgency} confidentiality={confidentiality} />
+        <WorkflowPicker
+          config={config}
+          direction="incoming"
+          facts={{ kind, urgency, confidentiality }}
+          value={workflowId}
+          directory={directory}
+          onChange={setWorkflowId}
+        />
         <NextStepFields next={next} letter={letter} config={config} directory={directory} showDue={false} />
         <div className={styles.formRow}>
           <Field label="Hạn xử lý">
@@ -649,6 +629,7 @@ function DispatchForm({ letter, config, directory, onDone, onDirtyChange, canQui
                     dueOn: dueOn || undefined,
                     note: note || undefined,
                     assigneeUserId: next.payload.assignee,
+                    workflowId: workflowId || undefined,
                   }),
                 next.needsUnits ? `Đã giao ${units.length} phòng ban xử lý.` : `Đã chuyển "${next.upcoming?.name ?? end}".`,
               )
@@ -725,11 +706,12 @@ function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
 /** Người soạn gửi công văn đi sang bước đầu của quy trình (thường là văn thư kiểm tra). */
 function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: ActionProps) {
   const [note, setNote] = useState('');
-  const next = useNextStep(letter, config);
+  const [workflowId, setWorkflowId] = useState(letter.chosenWorkflowId ?? '');
+  const next = useNextStep(letter, config, undefined, { workflowId: workflowId || undefined });
   const { busy, error, run } = useRunner(onDone);
   useEffect(() => onDirtyChange(note.trim() !== '' || next.assignee !== '' || next.unitsChanged), [note, next.assignee, next.unitsChanged, onDirtyChange]);
   const drafts = letter.attachments.filter((item) => item.kind === 'draft').length;
-  const workflow = plannedWorkflow(config, 'outgoing', letter.kind, letter);
+  const workflow = plannedWorkflow(config, 'outgoing', letter.kind, { ...letter, workflowId: workflowId || undefined });
   const end = workflow ? (flowLabels(workflow, 'outgoing').at(-1) ?? '') : '';
   const target = next.upcoming?.name ?? end;
   return (
@@ -738,7 +720,14 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
         <p className={styles.sectionNote}>
           {drafts > 0 ? `Đã có ${drafts} tệp dự thảo.` : 'Tải tệp dự thảo ở mục Tệp của hồ sơ trước khi gửi.'}
         </p>
-        <PlannedSteps config={config} letter={letter} kind={letter.kind} />
+        <WorkflowPicker
+          config={config}
+          direction="outgoing"
+          facts={{ kind: letter.kind, urgency: letter.urgency, confidentiality: letter.confidentiality }}
+          value={workflowId}
+          directory={directory}
+          onChange={setWorkflowId}
+        />
         <NextStepFields next={next} letter={letter} config={config} directory={directory} />
         <Field label="Ghi chú">
           <textarea value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} />
@@ -753,7 +742,13 @@ function SendToClerkForm({ letter, config, directory, onDone, onDirtyChange }: A
             onClick={() =>
               run(
                 () =>
-                  sendToClerk(letter.id, { note: note || undefined, units: next.payload.units, dueOn: next.payload.dueOn, assigneeUserId: next.payload.assignee }),
+                  sendToClerk(letter.id, {
+                    note: note || undefined,
+                    units: next.payload.units,
+                    dueOn: next.payload.dueOn,
+                    assigneeUserId: next.payload.assignee,
+                    workflowId: workflowId || undefined,
+                  }),
                 `Đã gửi "${target}".`,
               )
             }

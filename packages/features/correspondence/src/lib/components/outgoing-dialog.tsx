@@ -11,10 +11,11 @@ import {
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
-import { appliedFlowLabels, catalogOptions, localToday, plannedWorkflow } from '../correspondence.model';
+import { catalogOptions, localToday } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 import { CatalogField } from './catalog-field';
 import { Field, FilePickField, FormDialog, SelectField } from './form-dialog';
+import { WorkflowPicker } from './workflow-picker';
 
 interface OutgoingForm {
   subject: string;
@@ -25,6 +26,8 @@ interface OutgoingForm {
   confidentiality: string;
   authorUnitId: string;
   sentAs: SentAs;
+  /** Quy trình chọn riêng; trống là tự chọn theo cấu hình. */
+  workflowId: string;
 }
 
 /** Công văn đi trả lời một công văn đến. */
@@ -81,6 +84,7 @@ export function OutgoingDialog({
       confidentiality: catalogOptions(config.catalog, 'confidentiality')[0]?.value ?? '',
       authorUnitId: directory?.myUnitIds[0] ?? '',
       sentAs: 'person',
+      workflowId: '',
     }),
     [config, directory, replyTo],
   );
@@ -102,7 +106,6 @@ export function OutgoingDialog({
   const dirty = files.length > 0 || (Object.keys(initial) as (keyof OutgoingForm)[]).some((key) => form[key] !== initial[key]);
   const set = <K extends keyof OutgoingForm>(key: K, value: OutgoingForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const facts = { kind: form.kind, urgency: form.urgency, confidentiality: form.confidentiality };
-  const workflow = plannedWorkflow(config, 'outgoing', form.kind, facts);
 
   const submit = async () => {
     if (!form.subject.trim() || !form.recipient.trim()) {
@@ -125,6 +128,7 @@ export function OutgoingDialog({
         confidentiality: form.confidentiality,
         authorUnitId: form.authorUnitId || undefined,
         sentAs: form.sentAs,
+        workflowId: form.workflowId || undefined,
         relatedLetterId: replyTo?.letterId,
       });
       let failed = 0;
@@ -241,10 +245,7 @@ export function OutgoingDialog({
         </Field>
         <FilePickField label="Tệp dự thảo" files={files} hint="Tệp Word, PDF của dự thảo" onChange={setFiles} />
       </div>
-      <p className={styles.plan}>
-        <span>Quy trình (theo cấu hình):</span>{' '}
-        {workflow ? appliedFlowLabels(workflow, 'outgoing', facts).join(' → ') : 'chưa có quy trình đang dùng, nhờ người quản trị vào Cấu hình đặt quy trình mặc định'}
-      </p>
+      <WorkflowPicker config={config} direction="outgoing" facts={facts} value={form.workflowId} directory={directory} onChange={(value) => set('workflowId', value)} />
     </FormDialog>
   );
 }
