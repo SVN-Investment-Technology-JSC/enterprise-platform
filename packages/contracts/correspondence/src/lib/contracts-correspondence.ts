@@ -953,8 +953,23 @@ export interface DispatchUnit {
 }
 
 /** Văn thư / bộ phận tổng hợp nhắc người đang phải xử lý công văn. */
+/** Lý do đôn đốc: chậm trễ, cần làm gấp, hay khác (ghi rõ ở lời nhắn). */
+export const REMIND_REASONS = ['late', 'urgent', 'other'] as const;
+export type RemindReason = (typeof REMIND_REASONS)[number];
+export const REMIND_REASON_LABELS: Readonly<Record<RemindReason, string>> = {
+  late: 'Chậm trễ, quá hạn',
+  urgent: 'Cần xử lý gấp (hoả tốc)',
+  other: 'Khác',
+};
+/** Một người không đôn đốc lại cùng một bước trong khoảng này (phút). */
+export const REMIND_COOLDOWN_MINUTES = 30;
+
 export interface RemindRequest {
-  readonly note?: string;
+  readonly reason: RemindReason;
+  /** Lời nhắn bắt buộc: cần làm gì, trước khi nào. */
+  readonly note: string;
+  /** Bước phòng ban: chỉ nhắc các phòng này (trong số phòng chưa gửi kết quả); trống là mọi phòng chưa gửi. */
+  readonly assignmentIds?: readonly string[];
 }
 
 /** Văn thư phân loại, chọn phòng ban xử lý và giao (công văn đến). */

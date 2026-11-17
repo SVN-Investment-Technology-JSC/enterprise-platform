@@ -789,14 +789,40 @@ describe('Bút phê, đôn đốc', () => {
     });
   });
 
-  it('đôn đốc: gửi lời nhắc kèm ghi chú', async () => {
+  it('đôn đốc: bắt chọn lý do và ghi lời nhắn; chọn được phòng cần nhắc, bỏ phòng chủ trì đang chờ', async () => {
     const onDone = jest.fn();
     mocked.remind.mockResolvedValue(letter());
-    render(<RemindDialog letter={{ id: 'letter-1', displayNo: '3/CVĐ', subject: 'X', stageLabel: 'Phòng ban xử lý' }} onClose={jest.fn()} onDone={onDone} />);
-    fireEvent.change(screen.getByLabelText('Lời nhắc (nếu có)'), { target: { value: 'Gửi kết quả trong hôm nay.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Gửi lời nhắc' }));
+    const base = { round: 1, status: 'pending' as const, headNames: [], canAssignHandler: false, canRespond: false };
+    render(
+      <RemindDialog
+        letter={{
+          id: 'letter-1',
+          displayNo: '3/CVĐ',
+          subject: 'X',
+          stageLabel: 'Phòng ban xử lý',
+          stage: 'processing',
+          assignments: [
+            { ...base, id: 'a1', unitId: 'u1', unitName: 'Phòng Kinh doanh', role: 'lead', waitingFor: ['Phòng Pháp chế', 'Phòng Kế toán'] },
+            { ...base, id: 'a2', unitId: 'u2', unitName: 'Phòng Pháp chế', role: 'support' },
+            { ...base, id: 'a3', unitId: 'u3', unitName: 'Phòng Kế toán', role: 'support' },
+          ],
+        }}
+        onClose={jest.fn()}
+        onDone={onDone}
+      />,
+    );
+    const send = screen.getByRole('button', { name: 'Gửi lời nhắc' }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText(/Lời nhắn/), { target: { value: 'Sở yêu cầu trả lời trước 15h.' } });
+    expect(send.disabled).toBe(true);
+    const reason = screen.getByRole('group', { name: 'Lý do' });
+    fireEvent.click(within(reason).getByRole('textbox'));
+    fireEvent.click(within(reason).getByRole('option', { name: /Cần xử lý gấp/ }));
+    expect(screen.queryByRole('checkbox', { name: 'Phòng Kinh doanh' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Phòng Pháp chế' }));
+    await waitFor(() => expect(send.disabled).toBe(false));
+    fireEvent.click(send);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(mocked.remind).toHaveBeenCalledWith('letter-1', 'Gửi kết quả trong hôm nay.');
+    expect(mocked.remind).toHaveBeenCalledWith('letter-1', { reason: 'urgent', note: 'Sở yêu cầu trả lời trước 15h.', assignmentIds: ['a2'] });
   });
 });
 
@@ -1229,7 +1255,7 @@ describe('Công văn đi: người gửi', () => {
         authorUnitName: 'Ban Tổng Giám đốc',
         sentAs,
       }) as LetterSummary;
-    render(<LetterTable letters={[outgoing('1', 'person'), outgoing('2', 'unit')]} mode="outgoing" today="2026-11-17" onOpen={jest.fn()} />);
+    render(<LetterTable letters={[outgoing('1', 'person'), outgoing('2', 'unit')]} mode="outgoing" today="2026-11-17" emptyText="" onOpen={jest.fn()} />);
     expect(screen.getByText('Nguyễn Văn An (Ban Tổng Giám đốc) → Sở Tài chính')).toBeTruthy();
     expect(screen.getByText('Ban Tổng Giám đốc → Sở Tài chính')).toBeTruthy();
   });

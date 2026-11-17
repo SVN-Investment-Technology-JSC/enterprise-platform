@@ -83,6 +83,8 @@ export interface LetterFacts {
   readonly personal?: boolean;
   /** Công văn đi gửi với danh nghĩa cá nhân: chỉ người soạn làm việc của người soạn. */
   readonly sentAs?: 'person' | 'unit';
+  /** Người được giao bước kế tiếp (hay ô cuối), đang chờ bước hiện tại xong; tính khi xem chi tiết, đôn đốc. */
+  readonly waitingUserIds?: readonly string[];
 }
 
 /** Người xem làm được ô cuối (hoàn tất / ban hành): người được cấu hình, không cấu hình thì văn thư có quyền. */
@@ -134,6 +136,24 @@ export function isAuthorSide(viewer: LetterViewer, letter: Pick<LetterFacts, 'au
  */
 export function actsAsAuthor(viewer: LetterViewer, letter: Pick<LetterFacts, 'authorUserId' | 'authorUnitId' | 'sentAs'>): boolean {
   return letter.authorUserId === viewer.userId || (letter.sentAs !== 'person' && memberOf(viewer, letter.authorUnitId));
+}
+
+/**
+ * Người đang chờ bước hiện tại xong nên được đôn đốc nó: người đã chuyển công văn sang bước này (làm bước
+ * liền trước; chưa có thì người tiếp nhận / người soạn), người được giao bước kế tiếp, phòng chủ trì đang
+ * chờ phòng phối hợp, người soạn công văn đi khi công văn đã rời tay mình.
+ */
+export function waitsOnCurrentStep(viewer: LetterViewer, letter: LetterFacts): boolean {
+  if (letter.waitingUserIds?.includes(viewer.userId)) return true;
+  const previous = doneBefore(letter);
+  if (previous ? previous.actedBy === viewer.userId : letter.direction === 'incoming' ? letter.receivedBy === viewer.userId : letter.authorUserId === viewer.userId) {
+    return true;
+  }
+  if (letter.direction === 'outgoing' && letter.stage !== 'drafting' && actsAsAuthor(viewer, letter)) return true;
+  return (
+    letter.stage === 'processing' &&
+    letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment) && supportPending(letter, assignment).length > 0)
+  );
 }
 
 /** Người tiếp nhận, người soạn, người được giao hay đã làm một bước, người thuộc phòng ban xử lý, người được nhắc tên. */
@@ -330,7 +350,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     decideRevoke: stage === 'revoking' && (Boolean(letter.revokeApproverIds?.includes(viewer.userId)) || viewer.isTenantAdmin),
     withdrawRevoke:
       stage === 'revoking' && (letter.revokeRequestedBy === viewer.userId || clerkOfDirection(viewer, letter.direction)),
-    remind: open && stage !== 'received' && Boolean(viewer.canTrack || viewer.isTenantAdmin),
+    remind: open && stage !== 'received' && (Boolean(viewer.canTrack || viewer.isTenantAdmin) || waitsOnCurrentStep(viewer, letter)),
     remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
     returnSteps,

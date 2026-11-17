@@ -19,6 +19,9 @@ import {
   FLOW_START_NAMES,
   LETTER_DIRECTIONS,
   LETTER_STAGES,
+  REMIND_COOLDOWN_MINUTES,
+  REMIND_REASONS,
+  REMIND_REASON_LABELS,
   SENT_AS,
   conditionSet,
   matchesCondition,
@@ -389,7 +392,10 @@ export class CorrespondenceService {
     ]);
     const nameOf = (userId: string) => names.get(userId) ?? 'Người dùng';
     const byId = new Map(assignments.map((item) => [item.id, item]));
-    const actions = letterActions(viewer, letterFacts);
+    const actions = letterActions(viewer, {
+      ...letterFacts,
+      waitingUserIds: await this.nextStepPeople(actor.tenantId, letter, steps, assignments),
+    });
     return {
       ...summaryOf(row, catalog, viewer, names),
       instruction: letter.instruction,
@@ -1337,37 +1343,97 @@ export class CorrespondenceService {
    * công văn: người được giao bước duyệt, phòng ban còn chưa gửi kết quả, văn thư, người soạn.
    */
   async remind(actor: CorrespondenceActor, letterId: string, input: RemindRequest): Promise<LetterDetail> {
-    const note = optionalText(input?.note, 'Lời nhắc', 1000);
-    const snapshot = await this.organization.snapshot(actor.tenantId);
-    await this.transition(actor, letterId, (actions) => actions.remind, async (tx) => {
+    const reason = requireEnum(input?.reason, REMIND_REASONS, 'Lý do đôn đốc');
+    const note = requireText(input?.note, 'Lời nhắn đôn đốc', 1000);
+    const wanted = Array.isArray(input?.assignmentIds) && input.assignmentIds.length > 0 ? new Set(input.assignmentIds.map(String)) : undefined;
+    const [snapshot, history, viewer] = await Promise.all([
+      this.organization.snapshot(actor.tenantId),
+      this.store.history(actor.tenantId, letterId).catch(() => []),
+      this.viewer(actor),
+    ]);
+    await this.inLetter(actor, letterId, async (tx, letterFacts) => {
+      const waitingUserIds = await this.nextStepPeople(actor.tenantId, tx.letter, tx.steps, tx.assignments);
+      if (!letterActions(viewer, { ...letterFacts, waitingUserIds }).remind) {
+        if (!isOpenStage(tx.letter.stage) || tx.letter.stage === 'received') throw new LetterStageConflictError();
+        throw new CorrespondenceForbiddenError('Chỉ văn thư, bộ phận tổng hợp hay người đang chờ bước này xong đôn đốc được.');
+      }
       const active = tx.steps.find((item) => item.status === 'active');
+      // Không nhắc dồn dập: cùng người, cùng bước, trong khoảng chờ.
+      const since = Math.max(Date.now() - REMIND_COOLDOWN_MINUTES * 60_000, active?.activatedAt ? Date.parse(active.activatedAt) : 0);
+      const recent = history.find((item) => item.action === 'remind' && item.actorUserId === actor.userId && Date.parse(item.at) > since);
+      if (recent) {
+        throw new CorrespondenceValidationError(
+          `Bạn vừa đôn đốc bước này lúc ${new Date(recent.at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })}; đôn đốc lại sau ${REMIND_COOLDOWN_MINUTES} phút.`,
+        );
+      }
       let recipients: string[] = [];
       let notifyPermissions: string[] = [];
+      let reminded = '';
       if (tx.letter.stage === 'processing') {
-        recipients = blockingAssignments(tx.assignments, active)
-          .filter((item) => item.status === 'pending')
-          .flatMap((item) => (item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)]));
-      } else if (tx.letter.stage === 'reviewing') {
+        // Các phòng chưa gửi kết quả (phòng chủ trì đang chờ phối hợp thì nhắc phòng phối hợp); chọn được phòng cần nhắc.
+        const pending = blockingAssignments(tx.assignments, active).filter((item) => item.status === 'pending' && supportPending(tx, item).length === 0);
+        const targets = wanted ? pending.filter((item) => wanted.has(item.id)) : pending;
+        if (targets.length === 0 || (wanted && targets.length !== wanted.size)) {
+          throw new CorrespondenceValidationError('Chọn phòng cần nhắc trong số phòng đang phải xử lý.');
+        }
+        recipients = targets.flatMap((item) =>
+          item.handlerUserId ? [item.handlerUserId] : [...unitHeads(snapshot, item.unitId), ...unitMembers(snapshot, item.unitId).map((member) => member.userId)],
+        );
+        reminded = targets.map((item) => item.unitName).join(', ');
+      } else if (tx.letter.stage === 'reviewing' || (tx.letter.stage === 'checking' && active?.approver)) {
         recipients = [...(active?.assigneeUserIds ?? [])];
       } else if (tx.letter.stage === 'drafting') {
         recipients = tx.letter.authorUserId ? [tx.letter.authorUserId] : [];
+      } else if ((tx.letter.stage === 'closing' || tx.letter.stage === 'publishing') && tx.letter.closerIds?.length) {
+        recipients = [...tx.letter.closerIds];
       } else {
         const permission = tx.letter.stage === 'publishing' ? ROUTE_PERMISSIONS.publish : tx.letter.stage === 'closing' ? ROUTE_PERMISSIONS.archive : ROUTE_PERMISSIONS.register;
         const clerks = await this.clerkTargets(actor.tenantId, permission);
         recipients = clerks.recipients;
         notifyPermissions = clerks.notifyPermissions;
       }
+      recipients = [...new Set(recipients)].filter((userId) => userId !== actor.userId);
       const stepName = active?.name ?? LETTER_STAGE_LABELS[tx.letter.stage];
-      await tx.history({ action: 'remind', summary: `Đôn đốc bước "${stepName}"`, note, actorUserId: actor.userId });
+      const tag = reason === 'urgent' ? '[GẤP] ' : reason === 'late' ? '[CHẬM TRỄ] ' : '';
+      await tx.history({
+        action: 'remind',
+        summary: `Đôn đốc bước "${stepName}" (${REMIND_REASON_LABELS[reason].toLowerCase()})${reminded ? `: ${reminded}` : ''}`,
+        note,
+        actorUserId: actor.userId,
+      });
       await tx.outbox(
         this.event(CORRESPONDENCE_EVENTS.reminded, tx.letter, actor, recipients, {
-          summary: `${actor.displayName} đôn đốc xử lý công văn ${letterTitle(withNo(tx.letter))} (bước "${stepName}").${dueText(tx.letter.dueOn)}${note ? ` ${note}` : ''}`,
+          summary: `${tag}${actor.displayName} đôn đốc công văn ${letterTitle(withNo(tx.letter))}, bước "${stepName}". Lý do: ${REMIND_REASON_LABELS[reason].toLowerCase()}. ${note}${dueText(tx.letter.dueOn)}`,
           stepName,
+          reason,
           notifyPermissions,
         }),
       );
     });
     return this.detail(actor, letterId);
+  }
+
+  /**
+   * Người được giao bước kế tiếp (đang chờ bước hiện tại xong): bước duyệt / kiểm tra có người riêng thì giải
+   * theo luật của bước; hết bước thì người làm ô cuối đã cấu hình. Không giải được thì không ai.
+   */
+  private async nextStepPeople(
+    tenantId: string,
+    letter: LetterRecord,
+    steps: readonly StepRecord[],
+    assignments: readonly AssignmentRecord[],
+  ): Promise<string[]> {
+    if (!isOpenStage(letter.stage) || letter.stage === 'received' || letter.stage === 'drafting') return [];
+    const active = steps.find((item) => item.status === 'active');
+    if (!active) return [];
+    const next = sortedSteps(steps).find((item) => item.seq > active.seq && item.status === 'waiting');
+    if (!next) return [...(letter.closerIds ?? [])];
+    if (next.kind === 'process' || !next.approver) return [];
+    try {
+      return resolveAssignees(next.approver, await this.approverContext(tenantId, letter, assignments, next.chosenUserId));
+    } catch {
+      return [];
+    }
   }
 
   /** Trao đổi theo bước; nhắc tên (@) được người dùng của tenant, người được nhắc xem được công văn. */
