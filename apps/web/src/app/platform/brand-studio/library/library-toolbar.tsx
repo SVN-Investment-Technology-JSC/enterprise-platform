@@ -41,7 +41,7 @@ const statusName = (status: StatusFilter) => STATUS_FILTER_LABELS[status];
 /** Chip một bộ lọc đang bật, bấm để bỏ riêng bộ lọc đó. */
 function ActiveChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex h-7 items-center gap-1 rounded-full bg-blue-50 pl-2.5 pr-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200">
+    <span className="inline-flex h-8 items-center gap-1 rounded-full bg-blue-50 pl-2.5 pr-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200">
       {label}
       <button
         aria-label={`Bỏ lọc ${label}`}
@@ -99,14 +99,15 @@ export function LibraryToolbar({
         />
         {view.query ? (
           <Hint label="Xoá từ khoá">
-            <button
+            <Button
               aria-label="Xoá từ khoá"
-              className="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:text-slate-700"
+              className="absolute right-0 top-0 text-slate-400 hover:text-slate-700"
               onClick={() => onChange({ query: '' })}
-              type="button"
+              size="icon"
+              variant="ghost"
             >
-              <X aria-hidden className="size-3.5" />
-            </button>
+              <X aria-hidden className="size-4" />
+            </Button>
           </Hint>
         ) : null}
       </div>
@@ -114,7 +115,7 @@ export function LibraryToolbar({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button aria-label={activeCount > 0 ? `Bộ lọc, đang bật ${activeCount}` : 'Bộ lọc'} className={cn(RAISED, 'gap-1.5 px-2.5')} variant="outline" />
+            <Button aria-label={activeCount > 0 ? `Bộ lọc, đang bật ${activeCount}` : 'Bộ lọc'} className={RAISED} variant="outline" />
           }
         >
           <ListFilter aria-hidden className="size-4 text-blue-600" />
@@ -152,7 +153,6 @@ export function LibraryToolbar({
         aria-pressed={view.status === 'archived'}
         className={cn(
           RAISED,
-          'gap-1.5 px-2.5',
           view.status === 'archived' && 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100/70',
         )}
         onClick={() => onChange({ status: view.status === 'archived' ? 'all' : 'archived' })}
@@ -190,10 +190,10 @@ export function LibraryToolbar({
             />
           </div>
         </Hint>
-        <div aria-label="Kiểu hiển thị" className="flex rounded-md border border-slate-300 bg-white p-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]" role="group">
+        <div aria-label="Kiểu hiển thị" className="flex items-center gap-1" role="group">
           <IconButton
             aria-pressed={mode === 'grid'}
-            className={cn('size-7', mode === 'grid' && 'bg-blue-50 text-blue-700')}
+            className={cn(mode === 'grid' && 'bg-blue-50 text-blue-700')}
             label="Dạng lưới"
             onClick={() => onMode('grid')}
           >
@@ -201,7 +201,7 @@ export function LibraryToolbar({
           </IconButton>
           <IconButton
             aria-pressed={mode === 'list'}
-            className={cn('size-7', mode === 'list' && 'bg-blue-50 text-blue-700')}
+            className={cn(mode === 'list' && 'bg-blue-50 text-blue-700')}
             label="Dạng danh sách"
             onClick={() => onMode('list')}
           >

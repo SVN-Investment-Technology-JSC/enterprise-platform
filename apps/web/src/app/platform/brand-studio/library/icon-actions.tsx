@@ -5,7 +5,7 @@ import { Popconfirm, type PopconfirmPlacement } from '@enterprise-platform/share
 import { Copy, Download, MoreHorizontal, PencilLine, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -71,7 +71,7 @@ export function IconActions({
       <Hint label="Mở trong trình thiết kế">
         <Link
           aria-label={`Mở ${doc.name} trong trình thiết kế`}
-          className="inline-flex size-7 items-center justify-center rounded text-blue-600 transition-colors outline-none hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600/40"
+          className={cn(buttonVariants({ size: 'icon', variant: 'ghost' }), 'text-blue-600 hover:bg-blue-50 hover:text-blue-700')}
           href={asRoute(editorPath(doc.id))}
         >
           <PencilLine aria-hidden className="size-4" />
@@ -140,12 +140,14 @@ export function IconActionsMenu({
       <DropdownMenu>
         <Hint label="Thao tác">
           <DropdownMenuTrigger
-            aria-label={`Thao tác với ${doc.name}`}
-            className={cn(
-              'inline-flex size-7 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-500 shadow-sm outline-none transition-colors',
-              'hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-blue-600/40 aria-expanded:bg-slate-100 aria-expanded:text-slate-900',
-              className,
-            )}
+            render={
+              <Button
+                aria-label={`Thao tác với ${doc.name}`}
+                className={cn('border-slate-200 bg-white/95 text-slate-500 shadow-sm hover:text-slate-900', className)}
+                size="icon"
+                variant="outline"
+              />
+            }
           >
             <MoreHorizontal aria-hidden className="size-4" />
           </DropdownMenuTrigger>

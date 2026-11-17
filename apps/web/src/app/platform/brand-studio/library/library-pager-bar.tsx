@@ -2,13 +2,10 @@
 
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { FOCUS_RING } from '../components/controls';
 import { Hint } from '../components/hint';
 import { PAGE_SIZE_OPTIONS, pageWindow, type PageSlice } from './library-pager';
-
-const STEP =
-  'inline-flex size-7 items-center justify-center rounded border border-transparent text-xs tabular-nums text-slate-600 transition-colors hover:bg-white hover:text-slate-900 disabled:pointer-events-none disabled:opacity-35';
 
 /**
  * Chân khối icon: khoảng đang xem, chọn số icon mỗi trang, và nút chuyển trang. Chỉ hiện khi có nhiều hơn một trang cỡ
@@ -51,7 +48,7 @@ export function LibraryPagerBar({
               <SearchableSelect
                 clearable={false}
                 dropdownMinWidth={72}
-                height={26}
+                height={32}
                 hideDropdownSearch
                 name="page-size"
                 onChange={(value) => onPageSize(Number(value))}
@@ -65,22 +62,19 @@ export function LibraryPagerBar({
           <div aria-label={`Số ${unit} mỗi trang`} className="flex items-center gap-1" role="group">
             <span aria-hidden>Mỗi trang</span>
             {sizes.map((size) => (
-              <button
+              <Button
                 aria-label={`${size} ${unit} mỗi trang`}
                 aria-pressed={slice.pageSize === size}
                 className={cn(
-                  'h-6 min-w-8 rounded border px-1.5 tabular-nums transition-colors',
-                  slice.pageSize === size
-                    ? 'border-blue-300 bg-blue-50 font-semibold text-blue-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
-                  FOCUS_RING,
+                  'min-w-8 tabular-nums',
+                  slice.pageSize === size && 'border-blue-300 bg-blue-50 font-semibold text-blue-700 hover:bg-blue-50',
                 )}
                 key={size}
                 onClick={() => onPageSize(size)}
-                type="button"
+                variant="outline"
               >
                 {size}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -88,9 +82,9 @@ export function LibraryPagerBar({
 
       <nav aria-label="Phân trang" className="flex items-center gap-0.5">
         <Hint label="Trang trước">
-          <button aria-label="Trang trước" className={cn(STEP, FOCUS_RING)} disabled={page <= 1} onClick={() => onPage(page - 1)} type="button">
+          <Button aria-label="Trang trước" disabled={page <= 1} onClick={() => onPage(page - 1)} size="icon" variant="ghost">
             <ChevronLeft aria-hidden className="size-4" />
-          </button>
+          </Button>
         </Hint>
         <span className="px-2 tabular-nums sm:hidden">
           Trang {page} / {pages}
@@ -98,32 +92,31 @@ export function LibraryPagerBar({
         <div className="hidden items-center gap-0.5 sm:flex">
           {pageWindow(page, pages).map((token) =>
             typeof token === 'number' ? (
-              <button
+              <Button
                 aria-current={token === page ? 'page' : undefined}
                 aria-label={`Trang ${token}`}
                 className={cn(
-                  STEP,
-                  'min-w-7 px-1',
+                  'tabular-nums',
                   token === page && 'border-blue-300 bg-blue-50 font-semibold text-blue-700 hover:bg-blue-50 hover:text-blue-700',
-                  FOCUS_RING,
                 )}
                 key={token}
                 onClick={() => onPage(token)}
-                type="button"
+                size="icon"
+                variant={token === page ? 'outline' : 'ghost'}
               >
                 {token}
-              </button>
+              </Button>
             ) : (
-              <span aria-hidden className="grid size-7 place-items-center text-slate-400" key={token}>
+              <span aria-hidden className="grid size-8 place-items-center text-slate-400" key={token}>
                 …
               </span>
             ),
           )}
         </div>
         <Hint label="Trang sau">
-          <button aria-label="Trang sau" className={cn(STEP, FOCUS_RING)} disabled={page >= pages} onClick={() => onPage(page + 1)} type="button">
+          <Button aria-label="Trang sau" disabled={page >= pages} onClick={() => onPage(page + 1)} size="icon" variant="ghost">
             <ChevronRight aria-hidden className="size-4" />
-          </button>
+          </Button>
         </Hint>
       </nav>
     </div>

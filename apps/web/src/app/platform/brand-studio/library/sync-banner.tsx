@@ -76,14 +76,14 @@ export function SyncBanner({ library }: { readonly library: IconLibrary }) {
       {server && library.localOnlyCount > 0 ? (
         <>
           <span>{library.localOnlyCount} icon chỉ có trong trình duyệt</span>
-          <Button className="h-6 rounded-md border-slate-300 bg-white px-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-px hover:bg-white hover:shadow-md" disabled={busy} onClick={sync} size="sm" variant="outline">
+          <Button className="border-slate-300 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-px hover:bg-white hover:shadow-md" disabled={busy} onClick={sync} variant="outline">
             Đồng bộ lên máy chủ ({library.localOnlyCount})
           </Button>
         </>
       ) : null}
 
       {!server ? (
-        <Button className="h-6 rounded-md px-2 text-xs" disabled={busy} onClick={retry} size="sm" variant="ghost">
+        <Button disabled={busy} onClick={retry} variant="ghost">
           Thử lại
         </Button>
       ) : null}
