@@ -105,6 +105,7 @@ function setupStores() {
   mockUseIconLibrary.mockReturnValue({
     ready: true,
     docs: ALL_DOCS,
+    archivedDocs: [],
     error: null,
     mode: 'server',
     modeReason: null,
@@ -116,6 +117,10 @@ function setupStores() {
     saveMany: jest.fn(),
     remove: jest.fn(),
     removeMany: jest.fn(),
+    restore: jest.fn(),
+    restoreMany: jest.fn(),
+    purge: jest.fn(),
+    purgeMany: jest.fn(),
     duplicate: jest.fn(),
     importDocs: jest.fn(),
     resetPreset: jest.fn(),

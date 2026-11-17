@@ -188,6 +188,12 @@ export function SlotsPage() {
     setBusySlot(slot.id);
     setNotice(null);
     try {
+      // Icon mẫu mặc định (như svndts-favicon, svndts-master...) chỉ nằm ở bộ nhớ trình duyệt cho tới khi lưu lần đầu;
+      // nếu chưa có trên máy chủ thì tự lưu và phát hành lên máy chủ trước khi gán vị trí.
+      if (library.mode === 'server' && !library.serverInfo(iconId)) {
+        const doc = library.get(iconId);
+        if (doc) await library.save({ ...doc, status: 'published' });
+      }
       const updated = await assignSlot(slot.id, iconId);
       setAssignments((prev) => ({ ...prev, [slot.id]: updated }));
       setNotice({ tone: 'ok', text: `Đã gán icon "${updated.iconName}" cho vị trí "${slot.label}".` });
