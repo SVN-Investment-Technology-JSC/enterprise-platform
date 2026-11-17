@@ -97,6 +97,33 @@ export function flowLabels(
   ];
 }
 
+/** Kỳ lọc danh sách công văn theo ngày vào sổ. */
+export const LIST_PERIODS = ['month', 'last-month', 'year', 'all', 'custom'] as const;
+export type ListPeriod = (typeof LIST_PERIODS)[number];
+export const LIST_PERIOD_LABELS: Readonly<Record<ListPeriod, string>> = {
+  month: 'Tháng này',
+  'last-month': 'Tháng trước',
+  year: 'Năm nay',
+  all: 'Tất cả',
+  custom: 'Khoảng ngày',
+};
+
+/** Từ ngày, đến ngày của một kỳ tính theo hôm nay (`YYYY-MM-DD`); "Tất cả", "Khoảng ngày" trả về trống. */
+export function periodRange(period: ListPeriod, today: string): { readonly from?: string; readonly to?: string } {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (period === 'month') return { from: `${year}-${pad(month)}-01`, to: `${year}-${pad(month)}-${pad(lastDay(year, month))}` };
+  if (period === 'last-month') {
+    const y = month === 1 ? year - 1 : year;
+    const m = month === 1 ? 12 : month - 1;
+    return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDay(y, m))}` };
+  }
+  if (period === 'year') return { from: `${year}-01-01`, to: `${year}-12-31` };
+  return {};
+}
+
 /** Nhãn luồng của một công văn theo phân loại: bỏ bước có điều kiện không khớp. */
 export function appliedFlowLabels(
   workflow: Workflow,

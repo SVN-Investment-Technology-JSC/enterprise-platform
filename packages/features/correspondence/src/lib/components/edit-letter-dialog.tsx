@@ -1,10 +1,11 @@
 'use client';
 
-import type { CorrespondenceDirectory, LetterDetail } from '@enterprise-platform/contracts-correspondence';
+import { SENT_AS, SENT_AS_LABELS, type CorrespondenceDirectory, type LetterDetail, type SentAs } from '@enterprise-platform/contracts-correspondence';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, updateLetter } from '../correspondence-api';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog } from './form-dialog';
+import { Field, FormDialog, SelectField } from './form-dialog';
 import { IntakeCheckFields, intakeCheckOf, intakeCheckPayload, type IntakeCheckValue } from './intake-check-fields';
 
 interface EditForm {
@@ -15,12 +16,14 @@ interface EditForm {
   receivedOn: string;
   dueOn: string;
   recipient: string;
+  sentAs: SentAs;
   check: IntakeCheckValue;
 }
 
 function formOf(letter: LetterDetail): EditForm {
   return {
     check: intakeCheckOf(letter),
+    sentAs: letter.sentAs ?? 'unit',
     senderOrg: letter.senderOrg,
     senderRef: letter.senderRef ?? '',
     senderDate: letter.senderDate ?? '',
@@ -59,7 +62,7 @@ export function EditLetterDialog({
 
   const incoming = letter.direction === 'incoming';
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const set = (key: Exclude<keyof EditForm, 'check'>, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const set = (key: Exclude<keyof EditForm, 'check' | 'sentAs'>, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   const submit = async () => {
     setSubmitting(true);
@@ -78,7 +81,7 @@ export function EditLetterDialog({
                 dueOn: form.dueOn,
                 ...intakeCheckPayload(form.check, letter.restricted),
               }
-            : { subject: form.subject, recipient: form.recipient, dueOn: form.dueOn },
+            : { subject: form.subject, recipient: form.recipient, dueOn: form.dueOn, sentAs: form.sentAs },
         ),
       );
     } catch (cause) {
@@ -146,6 +149,17 @@ export function EditLetterDialog({
           </Field>
         </div>
       )}
+      {!incoming ? (
+        <SelectField label="Gửi với danh nghĩa">
+          <SearchableSelect
+            options={SENT_AS.map((value) => ({ value, label: SENT_AS_LABELS[value] }))}
+            value={form.sentAs}
+            searchInDropdown
+            hideDropdownSearch
+            onChange={(value) => value && setForm((current) => ({ ...current, sentAs: value as SentAs }))}
+          />
+        </SelectField>
+      ) : null}
     </FormDialog>
   );
 }

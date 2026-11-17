@@ -126,6 +126,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0006-step-modes-info-role', path: 'tenant/correspondence/0006-step-modes-info-role.sql' },
     { version: '0007-registers-numbering-signer', path: 'tenant/correspondence/0007-registers-numbering-signer.sql' },
     { version: '0008-conditions-fixed-units-personal', path: 'tenant/correspondence/0008-conditions-fixed-units-personal.sql' },
+    { version: '0009-outgoing-sent-as', path: 'tenant/correspondence/0009-outgoing-sent-as.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [

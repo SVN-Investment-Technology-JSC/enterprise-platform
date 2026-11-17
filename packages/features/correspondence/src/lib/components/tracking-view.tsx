@@ -1,13 +1,20 @@
 'use client';
 
-import { daysUntil, type LetterSummary } from '@enterprise-platform/contracts-correspondence';
-import { toast } from '@enterprise-platform/shared-ui';
+import {
+  daysUntil,
+  REMIND_REASONS,
+  REMIND_REASON_LABELS,
+  type LetterDetail,
+  type LetterSummary,
+  type RemindReason,
+} from '@enterprise-platform/contracts-correspondence';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { BellRing } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, listLetters, remindLetter } from '../correspondence-api';
 import { dueText, formatDay, matchesSearch } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
-import { Field, FormDialog } from './form-dialog';
+import { CheckGroup, Field, FormDialog, SelectField } from './form-dialog';
 
 type TrackingFilter = 'all' | 'overdue' | 'soon';
 
@@ -180,30 +187,42 @@ export function TrackingView({
   );
 }
 
-/** Gửi lời nhắc cho người đang xử lý công văn (người duyệt, phòng ban chưa gửi kết quả, văn thư, người soạn). */
+/**
+ * Đôn đốc người đang xử lý bước hiện tại: chọn lý do (chậm trễ, cần làm gấp, khác) và ghi lời nhắn rõ ràng;
+ * ở bước phòng ban chọn được phòng cần nhắc (mặc định mọi phòng chưa gửi kết quả).
+ */
 export function RemindDialog({
   letter,
   onClose,
   onDone,
 }: {
-  readonly letter?: Pick<LetterSummary, 'id' | 'displayNo' | 'subject' | 'stageLabel'>;
+  readonly letter?: Pick<LetterSummary, 'id' | 'displayNo' | 'subject' | 'stageLabel'> & Partial<Pick<LetterDetail, 'stage' | 'assignments'>>;
   readonly onClose: () => void;
   readonly onDone: () => void;
 }) {
+  const [reason, setReason] = useState<RemindReason | ''>('');
   const [note, setNote] = useState('');
+  const [units, setUnits] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // Phòng còn phải gửi kết quả; phòng chủ trì đang chờ phối hợp thì chưa nhắc.
+  const pending =
+    letter?.stage === 'processing'
+      ? (letter.assignments ?? []).filter((item) => item.status === 'pending' && item.role !== 'info' && !item.waitingFor?.length)
+      : [];
   useEffect(() => {
+    setReason('');
     setNote('');
+    setUnits([]);
     setError(undefined);
   }, [letter]);
   const submit = async () => {
-    if (!letter) return;
+    if (!letter || !reason) return;
     setBusy(true);
     setError(undefined);
     try {
-      await remindLetter(letter.id, note.trim() || undefined);
-      toast.success(`Đã nhắc người đang xử lý công văn ${letter.displayNo}.`);
+      await remindLetter(letter.id, { reason, note: note.trim(), assignmentIds: units.length > 0 ? units : undefined });
+      toast.success(`Đã đôn đốc công văn ${letter.displayNo}.`);
       onDone();
     } catch (cause) {
       setError(errorMessage(cause, 'Không gửi được lời nhắc.'));
@@ -215,16 +234,48 @@ export function RemindDialog({
     <FormDialog
       open={Boolean(letter)}
       title="Đôn đốc xử lý"
-      subtitle={letter ? `Công văn ${letter.displayNo}, bước "${letter.stageLabel}": người đang xử lý nhận thông báo nhắc.` : ''}
+      subtitle={letter ? `Công văn ${letter.displayNo}, bước "${letter.stageLabel}": người đang xử lý nhận thông báo kèm lý do và lời nhắn.` : ''}
       submitLabel="Gửi lời nhắc"
       submitting={busy}
-      dirty={note.trim() !== ''}
+      submitDisabled={!reason || !note.trim()}
+      dirty={reason !== '' || note.trim() !== ''}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Lời nhắc (nếu có)">
-        <textarea value={note} maxLength={1000} rows={3} autoFocus placeholder="Ví dụ: Sở hỏi lại, đề nghị gửi kết quả trong hôm nay" onChange={(event) => setNote(event.target.value)} />
+      <SelectField label="Lý do" required>
+        <SearchableSelect
+          options={REMIND_REASONS.map((value) => ({ value, label: REMIND_REASON_LABELS[value] }))}
+          value={reason}
+          placeholder="Chọn lý do đôn đốc"
+          searchInDropdown
+          hideDropdownSearch
+          onChange={(value) => setReason((value ?? '') as RemindReason | '')}
+        />
+      </SelectField>
+      {pending.length > 1 ? (
+        <CheckGroup label="Nhắc phòng (bỏ trống là mọi phòng chưa gửi kết quả)">
+          {pending.map((item) => (
+            <label key={item.id} className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={units.includes(item.id)}
+                onChange={(event) => setUnits((current) => (event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id)))}
+              />
+              {item.unitName}
+            </label>
+          ))}
+        </CheckGroup>
+      ) : null}
+      <Field label="Lời nhắn" required>
+        <textarea
+          value={note}
+          maxLength={1000}
+          rows={3}
+          autoFocus
+          placeholder={reason === 'urgent' ? 'Ví dụ: Sở yêu cầu trả lời trước 15h hôm nay' : 'Ví dụ: Đã quá hạn 2 ngày, đề nghị gửi kết quả trong hôm nay'}
+          onChange={(event) => setNote(event.target.value)}
+        />
       </Field>
     </FormDialog>
   );

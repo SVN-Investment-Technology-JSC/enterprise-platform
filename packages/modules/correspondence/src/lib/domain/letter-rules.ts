@@ -7,6 +7,7 @@ import {
   type LetterStepStatus,
   type AssignmentRole,
   type ReturnTarget,
+  type StepMode,
   type StepType,
 } from '@enterprise-platform/contracts-correspondence';
 
@@ -47,6 +48,8 @@ export interface StepFacts {
   readonly ownActors?: boolean;
   /** Bước "tất cả cùng duyệt": người đã duyệt thì không duyệt lại. */
   readonly approvedBy?: readonly string[];
+  /** Cách xong bước; bước phòng ban `lead` = phòng chủ trì gửi là xong, không chờ phối hợp. */
+  readonly mode?: StepMode;
 }
 
 export interface AssignmentFacts {
@@ -78,6 +81,10 @@ export interface LetterFacts {
   readonly closerIds?: readonly string[];
   /** Thư riêng gửi đích danh: người nhận xác nhận đã nhận, hay trả văn thư nếu là việc chung. */
   readonly personal?: boolean;
+  /** Công văn đi gửi với danh nghĩa cá nhân: chỉ người soạn làm việc của người soạn. */
+  readonly sentAs?: 'person' | 'unit';
+  /** Người được giao bước kế tiếp (hay ô cuối), đang chờ bước hiện tại xong; tính khi xem chi tiết, đôn đốc. */
+  readonly waitingUserIds?: readonly string[];
 }
 
 /** Người xem làm được ô cuối (hoàn tất / ban hành): người được cấu hình, không cấu hình thì văn thư có quyền. */
@@ -123,6 +130,32 @@ export function isAuthorSide(viewer: LetterViewer, letter: Pick<LetterFacts, 'au
   return letter.authorUserId === viewer.userId || memberOf(viewer, letter.authorUnitId);
 }
 
+/**
+ * Làm việc của người soạn (sửa, gửi bản soạn): công văn gửi với danh nghĩa cá nhân thì chỉ người soạn,
+ * cả phòng ban thì mọi người trong phòng soạn thảo.
+ */
+export function actsAsAuthor(viewer: LetterViewer, letter: Pick<LetterFacts, 'authorUserId' | 'authorUnitId' | 'sentAs'>): boolean {
+  return letter.authorUserId === viewer.userId || (letter.sentAs !== 'person' && memberOf(viewer, letter.authorUnitId));
+}
+
+/**
+ * Người đang chờ bước hiện tại xong nên được đôn đốc nó: người đã chuyển công văn sang bước này (làm bước
+ * liền trước; chưa có thì người tiếp nhận / người soạn), người được giao bước kế tiếp, phòng chủ trì đang
+ * chờ phòng phối hợp, người soạn công văn đi khi công văn đã rời tay mình.
+ */
+export function waitsOnCurrentStep(viewer: LetterViewer, letter: LetterFacts): boolean {
+  if (letter.waitingUserIds?.includes(viewer.userId)) return true;
+  const previous = doneBefore(letter);
+  if (previous ? previous.actedBy === viewer.userId : letter.direction === 'incoming' ? letter.receivedBy === viewer.userId : letter.authorUserId === viewer.userId) {
+    return true;
+  }
+  if (letter.direction === 'outgoing' && letter.stage !== 'drafting' && actsAsAuthor(viewer, letter)) return true;
+  return (
+    letter.stage === 'processing' &&
+    letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment) && supportPending(letter, assignment).length > 0)
+  );
+}
+
 /** Người tiếp nhận, người soạn, người được giao hay đã làm một bước, người thuộc phòng ban xử lý, người được nhắc tên. */
 export function involves(viewer: LetterViewer, letter: LetterFacts): boolean {
   if (letter.receivedBy === viewer.userId || isAuthorSide(viewer, letter)) return true;
@@ -159,6 +192,20 @@ export function canRespondFor(viewer: LetterViewer, letter: Pick<LetterFacts, 's
   return assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId);
 }
 
+/**
+ * Phòng phối hợp chưa gửi kết quả mà phòng chủ trì phải chờ: chủ trì tổng hợp ý kiến phối hợp nên gửi sau
+ * cùng. Bước đặt "phòng chủ trì gửi là xong" thì không chờ.
+ */
+export function supportPending<T extends AssignmentFacts>(
+  letter: { readonly steps: readonly StepFacts[]; readonly assignments: readonly T[] },
+  assignment: AssignmentFacts,
+): T[] {
+  if ((assignment.role ?? 'lead') !== 'lead') return [];
+  const step = letter.steps.find((item) => item.status === 'active' && item.kind === 'process');
+  if (step?.mode === 'lead') return [];
+  return letter.assignments.filter((item) => item.role === 'support' && item.status === 'pending');
+}
+
 /** Phân công người xử lý cho phòng: văn thư, trưởng phòng; phòng chưa có người xử lý thì nhân sự của phòng nhận việc. */
 export function canAssignHandler(viewer: LetterViewer, letter: Pick<LetterFacts, 'stage'>, assignment: AssignmentFacts): boolean {
   if (letter.stage !== 'processing' || assignment.status !== 'pending' || !handles(assignment)) return false;
@@ -186,6 +233,7 @@ export function awaitsViewer(viewer: LetterViewer, letter: LetterFacts): boolean
         (assignment) =>
           assignment.status === 'pending' &&
           handles(assignment) &&
+          supportPending(letter, assignment).length === 0 &&
           (assignment.handlerUserId ? assignment.handlerUserId === viewer.userId : memberOf(viewer, assignment.unitId)),
       );
     case 'closing':
@@ -262,7 +310,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
   const stage = letter.stage;
   const incoming = letter.direction === 'incoming';
   const onStep = stage === 'reviewing' && actsOnActiveStep(viewer, letter);
-  const authorSide = !incoming && isAuthorSide(viewer, letter);
+  const authorSide = !incoming && actsAsAuthor(viewer, letter);
   const respondsSomewhere = letter.assignments.some((assignment) => canRespondFor(viewer, letter, assignment));
 
   const attachKinds = new Set<AttachmentKind>();
@@ -302,7 +350,7 @@ export function letterActions(viewer: LetterViewer, letter: LetterFacts): Letter
     decideRevoke: stage === 'revoking' && (Boolean(letter.revokeApproverIds?.includes(viewer.userId)) || viewer.isTenantAdmin),
     withdrawRevoke:
       stage === 'revoking' && (letter.revokeRequestedBy === viewer.userId || clerkOfDirection(viewer, letter.direction)),
-    remind: open && stage !== 'received' && Boolean(viewer.canTrack || viewer.isTenantAdmin),
+    remind: open && stage !== 'received' && (Boolean(viewer.canTrack || viewer.isTenantAdmin) || waitsOnCurrentStep(viewer, letter)),
     remove: stage === 'cancelled' && (viewer.isTenantAdmin || viewer.canRegister || viewer.canPublish || viewer.canArchive),
     returnTargets: targets,
     returnSteps,

@@ -1493,6 +1493,84 @@ $fs-meta: 12px;
   }
 }
 
+// Sổ theo dõi công văn (báo cáo): bảng kẻ ô như sổ văn thư ghi tay, tiêu đề cột dính khi cuộn.
+.ledgerWrap {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 8px;
+}
+
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: $fs-body;
+
+  th,
+  td {
+    border: 1px solid var(--ep-border-strong);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    // Nền đặc để hàng cuộn bên dưới không lộ qua tiêu đề.
+    background: linear-gradient(var(--ep-accent-soft), var(--ep-accent-soft)) var(--ep-surface);
+    color: var(--ep-text);
+    font-weight: 600;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  tbody tr {
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(37, 99, 235, 0.05);
+      outline: none;
+    }
+  }
+}
+
+.ledgerCenter {
+  text-align: center !important;
+  white-space: nowrap;
+}
+
+.ledgerKind {
+  display: block;
+  font-size: $fs-small;
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--ep-text-muted);
+}
+
+.ledgerUrgent {
+  color: var(--ep-danger);
+}
+
+// Lọc danh sách theo kỳ (ngày vào sổ), loại văn bản.
+.listFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  > input[type='date'] {
+    width: 150px;
+  }
+}
+
+.filterSelect {
+  width: 200px;
+  max-width: 100%;
+}
+
 // Lọc danh sách theo sổ đăng ký, cạnh ô tìm kiếm.
 .registerFilter {
   width: 220px;

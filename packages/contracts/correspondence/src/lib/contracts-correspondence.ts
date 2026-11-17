@@ -637,6 +637,8 @@ export interface LetterAssignment {
   readonly canAssignHandler: boolean;
   /** Người xem gửi được kết quả của phòng. */
   readonly canRespond: boolean;
+  /** Phòng chủ trì: các phòng phối hợp còn chưa gửi kết quả (chủ trì gửi sau khi đủ). */
+  readonly waitingFor?: readonly string[];
 }
 
 /* ------------------------------------------------------------- nhật ký, trao đổi */
@@ -740,6 +742,8 @@ export interface LetterSummary {
   readonly authorUserId?: string;
   readonly authorName?: string;
   readonly authorUnitName?: string;
+  /** Công văn đi: gửi với danh nghĩa cá nhân người soạn hay cả phòng ban. */
+  readonly sentAs?: SentAs;
   readonly outgoingNo?: string;
   readonly publishedOn?: string;
   readonly recipient?: string;
@@ -762,6 +766,11 @@ export interface LetterSummary {
   readonly signerTitle?: string;
   /** Số bản (đến: lúc tiếp nhận; đi: số bản phát hành). */
   readonly copyCount?: number;
+  /**
+   * Công văn đến: người nhận — người nhận đích danh, người xử lý của các phòng (người được phân công, chưa
+   * phân công thì người đã gửi kết quả của phòng).
+   */
+  readonly receiverNames?: readonly string[];
 }
 
 export interface LetterDetail extends LetterSummary {
@@ -892,6 +901,22 @@ export interface CreateLetterRequest extends IntakeCheck {
 }
 
 /** Soạn công văn đi. Đơn vị soạn thảo mặc định là phòng ban của người soạn, chọn lại được phòng khác trong sơ đồ tổ chức. */
+/** Công văn đi gửi với danh nghĩa cá nhân người soạn hay cả phòng ban soạn thảo. */
+export const SENT_AS = ['person', 'unit'] as const;
+export type SentAs = (typeof SENT_AS)[number];
+export const SENT_AS_LABELS: Readonly<Record<SentAs, string>> = {
+  person: 'Cá nhân người soạn',
+  unit: 'Cả phòng ban soạn thảo',
+};
+
+/** Người gửi công văn đi để hiện: cá nhân "Tên (Phòng)", cả phòng "Phòng". */
+export function outgoingSender(letter: { readonly sentAs?: SentAs; readonly authorName?: string; readonly authorUnitName?: string; readonly senderOrg: string }): string {
+  if (letter.sentAs === 'person' && letter.authorName) {
+    return letter.authorUnitName ? `${letter.authorName} (${letter.authorUnitName})` : letter.authorName;
+  }
+  return letter.authorUnitName ?? letter.senderOrg;
+}
+
 export interface CreateOutgoingRequest {
   readonly subject: string;
   readonly recipient: string;
@@ -901,6 +926,8 @@ export interface CreateOutgoingRequest {
   readonly confidentiality?: string;
   /** Phòng ban soạn thảo khi người soạn thuộc nhiều phòng. */
   readonly authorUnitId?: string;
+  /** Gửi với danh nghĩa cá nhân (mặc định) hay cả phòng ban. */
+  readonly sentAs?: SentAs;
   /** Công văn đến mà công văn đi này trả lời. */
   readonly relatedLetterId?: string;
 }
@@ -916,6 +943,7 @@ export interface UpdateLetterRequest extends IntakeCheck {
   readonly urgency?: string;
   readonly confidentiality?: string;
   readonly recipient?: string;
+  readonly sentAs?: SentAs;
 }
 
 /**
@@ -930,8 +958,23 @@ export interface DispatchUnit {
 }
 
 /** Văn thư / bộ phận tổng hợp nhắc người đang phải xử lý công văn. */
+/** Lý do đôn đốc: chậm trễ, cần làm gấp, hay khác (ghi rõ ở lời nhắn). */
+export const REMIND_REASONS = ['late', 'urgent', 'other'] as const;
+export type RemindReason = (typeof REMIND_REASONS)[number];
+export const REMIND_REASON_LABELS: Readonly<Record<RemindReason, string>> = {
+  late: 'Chậm trễ, quá hạn',
+  urgent: 'Cần xử lý gấp (hoả tốc)',
+  other: 'Khác',
+};
+/** Một người không đôn đốc lại cùng một bước trong khoảng này (phút). */
+export const REMIND_COOLDOWN_MINUTES = 30;
+
 export interface RemindRequest {
-  readonly note?: string;
+  readonly reason: RemindReason;
+  /** Lời nhắn bắt buộc: cần làm gì, trước khi nào. */
+  readonly note: string;
+  /** Bước phòng ban: chỉ nhắc các phòng này (trong số phòng chưa gửi kết quả); trống là mọi phòng chưa gửi. */
+  readonly assignmentIds?: readonly string[];
 }
 
 /** Văn thư phân loại, chọn phòng ban xử lý và giao (công văn đến). */
@@ -1084,6 +1127,11 @@ export interface LetterQuery {
   readonly search?: string;
   /** Chỉ công văn của một sổ đăng ký. */
   readonly registerId?: string;
+  /** Ngày vào sổ (đến: ngày đến; đi: ngày soạn) từ, đến (`YYYY-MM-DD`, tính cả hai đầu). */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  /** Mã loại văn bản. */
+  readonly kind?: string;
 }
 
 /* ------------------------------------------------------------ tổng quan, báo cáo */

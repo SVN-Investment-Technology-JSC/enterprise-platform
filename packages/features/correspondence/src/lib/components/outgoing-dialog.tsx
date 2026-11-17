@@ -1,6 +1,13 @@
 'use client';
 
-import type { CatalogItem, CorrespondenceConfig, CorrespondenceDirectory } from '@enterprise-platform/contracts-correspondence';
+import {
+  SENT_AS,
+  SENT_AS_LABELS,
+  type CatalogItem,
+  type CorrespondenceConfig,
+  type CorrespondenceDirectory,
+  type SentAs,
+} from '@enterprise-platform/contracts-correspondence';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createOutgoing, errorMessage, uploadAttachment } from '../correspondence-api';
@@ -17,6 +24,7 @@ interface OutgoingForm {
   urgency: string;
   confidentiality: string;
   authorUnitId: string;
+  sentAs: SentAs;
 }
 
 /** Công văn đi trả lời một công văn đến. */
@@ -72,6 +80,7 @@ export function OutgoingDialog({
       urgency: catalogOptions(config.catalog, 'urgency')[0]?.value ?? '',
       confidentiality: catalogOptions(config.catalog, 'confidentiality')[0]?.value ?? '',
       authorUnitId: directory?.myUnitIds[0] ?? '',
+      sentAs: 'person',
     }),
     [config, directory, replyTo],
   );
@@ -115,6 +124,7 @@ export function OutgoingDialog({
         urgency: form.urgency,
         confidentiality: form.confidentiality,
         authorUnitId: form.authorUnitId || undefined,
+        sentAs: form.sentAs,
         relatedLetterId: replyTo?.letterId,
       });
       let failed = 0;
@@ -166,10 +176,10 @@ export function OutgoingDialog({
           onChange={(event) => set('subject', event.target.value)}
         />
       </Field>
+      <Field label="Nơi nhận" required>
+        <input value={form.recipient} maxLength={255} placeholder="Sở Kế hoạch và Đầu tư Đà Nẵng" onChange={(event) => set('recipient', event.target.value)} />
+      </Field>
       <div className={styles.formRow}>
-        <Field label="Nơi nhận" required>
-          <input value={form.recipient} maxLength={255} placeholder="Sở Kế hoạch và Đầu tư Đà Nẵng" onChange={(event) => set('recipient', event.target.value)} />
-        </Field>
         <SelectField label="Phòng ban soạn thảo">
           <SearchableSelect
             options={unitOptions}
@@ -177,6 +187,22 @@ export function OutgoingDialog({
             placeholder="Chọn phòng ban soạn thảo"
             emptyText={directory?.degraded ? 'Chưa đọc được sơ đồ tổ chức, thử lại sau.' : 'Sơ đồ tổ chức chưa có phòng ban.'}
             onChange={(value) => set('authorUnitId', value)}
+          />
+        </SelectField>
+        <SelectField label="Gửi với danh nghĩa">
+          <SearchableSelect
+            options={SENT_AS.map((value) => ({
+              value,
+              label: SENT_AS_LABELS[value],
+              description:
+                value === 'person'
+                  ? 'Hiện tên bạn là người gửi; chỉ bạn sửa, gửi bản soạn'
+                  : 'Hiện tên phòng là người gửi; người trong phòng cùng sửa, gửi được',
+            }))}
+            value={form.sentAs}
+            searchInDropdown
+            hideDropdownSearch
+            onChange={(value) => value && set('sentAs', value as SentAs)}
           />
         </SelectField>
       </div>

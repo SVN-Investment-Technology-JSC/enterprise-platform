@@ -1,6 +1,6 @@
 'use client';
 
-import { DELIVERY_STATUS_LABELS, type LetterSummary } from '@enterprise-platform/contracts-correspondence';
+import { DELIVERY_STATUS_LABELS, outgoingSender, type LetterSummary } from '@enterprise-platform/contracts-correspondence';
 import { dueText, formatDay, stageTone, urgencyTone } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 
@@ -76,7 +76,7 @@ export function LetterTable({
   const party = (letter: LetterSummary) =>
     letter.direction === 'incoming'
       ? `${letter.senderOrg}${letter.senderRef ? ` · ${letter.senderRef}` : ''}`
-      : `${letter.authorUnitName ?? letter.senderOrg} → ${letter.recipient ?? ''}`;
+      : `${outgoingSender(letter)} → ${letter.recipient ?? ''}`;
 
   return (
     <div className={styles.tableWrap}>
