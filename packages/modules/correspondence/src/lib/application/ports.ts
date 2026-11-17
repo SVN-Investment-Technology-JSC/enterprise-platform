@@ -357,6 +357,15 @@ export interface CatalogUpsert {
   readonly numberFormat: string | null;
 }
 
+export interface WorkflowDeletion {
+  readonly deleted: boolean;
+  /** Tên loại văn bản đang gắn quy trình. */
+  readonly types: readonly string[];
+  /** Số công văn (chưa xoá) chạy hay chọn riêng quy trình, vài số đầu, và tổng số. */
+  readonly letters: readonly string[];
+  readonly letterCount: number;
+}
+
 export interface RegisterUpsert {
   readonly direction: LetterDirection;
   readonly name: string;
@@ -405,7 +414,11 @@ export interface CorrespondenceStore {
   workflows(tenantId: string): Promise<Workflow[]>;
   /** Đặt `isDefault` thì bỏ cờ mặc định ở quy trình khác cùng luồng, cùng transaction. */
   saveWorkflow(tenantId: string, userId: string, id: string | undefined, input: WorkflowUpsert): Promise<Workflow>;
-  deleteWorkflow(tenantId: string, id: string): Promise<boolean>;
+  /**
+   * Xoá quy trình chưa có gì dùng: loại văn bản đang gắn, công văn (chưa xoá) chạy hay chọn riêng quy trình này
+   * thì không xoá, trả về những thứ đang dùng. Công văn đã xoá không chặn (giữ tên quy trình đã chạy).
+   */
+  deleteWorkflow(tenantId: string, id: string): Promise<WorkflowDeletion>;
 
   registers(tenantId: string): Promise<Register[]>;
   /** Đặt `isDefault` thì bỏ cờ mặc định ở sổ khác cùng luồng, cùng transaction. */
