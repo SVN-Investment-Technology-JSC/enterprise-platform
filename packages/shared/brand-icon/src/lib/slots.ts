@@ -838,6 +838,24 @@ export const SLOT_GROUP_LABELS: Record<string, string> = {
   custom: 'Tùy chỉnh',
 };
 
+/** Nhóm có sẵn của hệ thống (cố định, không đổi tên hay xoá); thứ tự là thứ tự hiển thị. */
+export const BUILT_IN_SLOT_GROUPS: readonly { readonly key: string; readonly label: string }[] = [
+  { key: 'brand', label: SLOT_GROUP_LABELS.brand },
+  { key: 'module', label: SLOT_GROUP_LABELS.module },
+  { key: 'nav', label: SLOT_GROUP_LABELS.nav },
+  { key: 'header', label: SLOT_GROUP_LABELS.header },
+  { key: 'shell', label: SLOT_GROUP_LABELS.shell },
+  { key: 'dashboard', label: SLOT_GROUP_LABELS.dashboard },
+  { key: 'sidebar', label: SLOT_GROUP_LABELS.sidebar },
+  { key: 'custom', label: SLOT_GROUP_LABELS.custom },
+];
+
+export const SLOT_GROUP_KEY_PATTERN = /^[a-z][a-z0-9_-]{1,31}$/;
+
+export function isValidSlotGroupKey(key: unknown): key is string {
+  return typeof key === 'string' && SLOT_GROUP_KEY_PATTERN.test(key);
+}
+
 const SLOT_BY_ID = new Map<string, IconSlotMeta>(
   ICON_SLOTS.map((slot) => [slot.id, slot]),
 );

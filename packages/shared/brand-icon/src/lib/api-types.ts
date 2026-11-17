@@ -132,6 +132,10 @@ export const BRAND_ERROR_CODES = {
   slotNotFound: 'BRAND_SLOT_NOT_FOUND',
   slotConflict: 'BRAND_SLOT_CONFLICT',
   slotBuiltInCannotModify: 'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+  slotGroupNotFound: 'BRAND_SLOT_GROUP_NOT_FOUND',
+  slotGroupConflict: 'BRAND_SLOT_GROUP_CONFLICT',
+  slotGroupBuiltInCannotModify: 'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+  slotGroupInUse: 'BRAND_SLOT_GROUP_IN_USE',
   slotIconNotPublished: 'BRAND_SLOT_ICON_NOT_PUBLISHED',
   versionNotFound: 'BRAND_ICON_VERSION_NOT_FOUND',
   versionConflict: 'BRAND_ICON_VERSION_CONFLICT',
@@ -171,6 +175,36 @@ export interface BrandSlotAssignment {
 export interface BrandSlotListResponse {
   readonly slots: readonly BrandSlotAssignment[];
   readonly definitions?: readonly IconSlotMeta[];
+  /** Mọi nhóm vị trí (có sẵn và tùy chỉnh) kèm số vị trí đang dùng. */
+  readonly groups?: readonly BrandSlotGroup[];
+}
+
+/** Một nhóm vị trí. Nhóm có sẵn (`isBuiltIn`) cố định; nhóm tùy chỉnh do quản trị viên tạo, sửa tên, xoá. */
+export interface BrandSlotGroup {
+  readonly key: string;
+  readonly label: string;
+  readonly isBuiltIn: boolean;
+  /** Số vị trí (có sẵn và tùy chỉnh) đang thuộc nhóm này; nhóm đang có vị trí không xoá được. */
+  readonly slotCount: number;
+}
+
+export interface BrandSlotGroupListResponse {
+  readonly groups: readonly BrandSlotGroup[];
+}
+
+/** Tạo nhóm: `key` có thể bỏ trống, máy chủ sinh từ `label` (bỏ dấu, chữ thường, gạch ngang). */
+export interface CreateBrandSlotGroupRequest {
+  readonly label: string;
+  readonly key?: string;
+}
+
+export interface UpdateBrandSlotGroupRequest {
+  readonly label: string;
+}
+
+export interface DeleteBrandSlotGroupResponse {
+  readonly key: string;
+  readonly deleted: true;
 }
 
 export interface AssignBrandSlotRequest {
