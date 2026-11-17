@@ -543,7 +543,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       ).rejects.toMatchObject({ status: 400 });
     });
 
-    it('công tác từ thứ Sáu đến thứ Hai: tự tính ngày làm việc theo ca (bỏ qua T7-CN), lưu mốc giờ', async () => {
+    it('công tác từ thứ Sáu đến thứ Hai: tính theo ca (ngày không có ca như T7-CN vẫn là ngày công tác), lưu mốc giờ', async () => {
       const result = await requestController().createBusinessTripRequest(req, {
         employeeId,
         reasonId: tripReason,
@@ -554,7 +554,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       expect(result.data).toMatchObject({
         fromDate: '2026-10-23',
         toDate: '2026-10-26',
-        daysCount: 2,
+        daysCount: 4,
         fromAt: '2026-10-23T01:00:00.000Z',
         toAt: '2026-10-26T10:00:00.000Z',
         timeKnown: true,

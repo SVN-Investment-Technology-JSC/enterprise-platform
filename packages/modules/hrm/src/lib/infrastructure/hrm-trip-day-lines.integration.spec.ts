@@ -81,11 +81,11 @@ integration('HRM đơn công tác khai giờ theo ngày: PostgreSQL integration'
         defaultName: 'Quy định tăng ca',
       }),
     );
-    // Quy tắc nghỉ bù bật, tách giờ đêm theo khung 22:00 đến 06:00.
+    // Quy tắc nghỉ bù bật; mọi giờ làm thêm của đơn công tác đều là giờ làm thêm (không tách giờ đêm).
     await tx((db) =>
       saveOvertimeCompSettings(db, tenantId, actor, {
         effectiveFrom: '2025-09-01',
-        config: { enabled: true, ruleSet: 'NIGHT_REST', monthlyCapHours: 10, declaredNightWindow: true, nightStartMinute: 1320, nightEndMinute: 360 },
+        config: { enabled: true, monthlyCapHours: 10 },
         reason: 'Bật quy tắc để thử',
       }),
     );
@@ -118,9 +118,10 @@ integration('HRM đơn công tác khai giờ theo ngày: PostgreSQL integration'
       )
     ).rows;
 
-  it('cấu hình tách giờ đêm được lưu và đọc lại', async () => {
+  it('cấu hình được lưu và đọc lại, không còn tách giờ đêm', async () => {
     const { policy } = await tx((db) => loadOvertimeCompPolicy(db, tenantId, '2025-10', employeeId));
-    expect(policy).toMatchObject({ enabled: true, declaredNightWindow: true, nightStartMinute: 1320 });
+    expect(policy).toMatchObject({ enabled: true, monthlyCapHours: 10 });
+    expect(policy).not.toHaveProperty('declaredNightWindow');
   });
 
   it('giờ dự kiến chỉ để xem trước: tách ca và làm thêm nhưng chưa ghi vào quỹ', async () => {
@@ -131,7 +132,7 @@ integration('HRM đơn công tác khai giờ theo ngày: PostgreSQL integration'
       }),
     );
     const day = saved.lines.find((l) => l.date === '2025-10-12')!;
-    expect(day).toMatchObject({ status: 'PLANNED', scheduledMinutes: 480, normalMinutes: 480, otMinutes: 180, nightMinutes: 180 });
+    expect(day).toMatchObject({ status: 'PLANNED', scheduledMinutes: 480, normalMinutes: 480, otMinutes: 180, nightMinutes: 0 });
     expect(await blocks()).toHaveLength(0);
   });
 
@@ -175,22 +176,22 @@ integration('HRM đơn công tác khai giờ theo ngày: PostgreSQL integration'
     expect(await blocks()).toHaveLength(0);
   });
 
-  it('duyệt giờ thực tế: giờ làm thêm vào ca làm thêm, tách giờ đêm và vào số liệu tháng', async () => {
+  it('duyệt giờ thực tế: giờ làm thêm vào ca làm thêm và vào số liệu tháng', async () => {
     const result = await tx((db) => decideTripDayLines(db, tenantId, approver, tripId, { decision: 'APPROVE' }));
     expect(result.lines.filter((l) => l.status === 'ACTUAL_APPROVED')).toHaveLength(4);
     const rows = await blocks();
-    // Ngày 12: 3 giờ (02:00 đến 05:00 đều trong khung đêm); ngày 13: 1 giờ (02:00 đến 03:00); ngày 18: khai 4 + 10 giờ, ca 8 giờ nên
-    // còn 6 giờ làm thêm (17:00 đến 23:00, có 1 giờ đêm); ngày 19 là ngày nghỉ nên cả 4 giờ là làm thêm.
+    // Ngày 12: 3 giờ (02:00 đến 05:00); ngày 13: 1 giờ (02:00 đến 03:00); ngày 18: khai 4 + 10 giờ, ca 8 giờ nên còn 6 giờ làm
+    // thêm; ngày 19 là ngày nghỉ nên cả 4 giờ là làm thêm. Mọi giờ đều là giờ làm thêm, không có giờ đêm.
     expect(rows.map((r) => [r.hours, r.ot, r.night])).toEqual([
-      [3, 0, 3],
-      [1, 0, 1],
-      [6, 5, 1],
+      [3, 3, 0],
+      [1, 1, 0],
+      [6, 6, 0],
       [4, 4, 0],
     ]);
     expect(rows.every((r) => r.rule_set === 'DECLARED' && r.source === 'CT_DECLARED' && r.period_month === '2025-10')).toBe(true);
     const { policy } = await tx((db) => loadOvertimeCompPolicy(db, tenantId, '2025-10', employeeId));
     const figures = await overtimeMonthFigures(pool, tenantId, '2025-10', policy, [employeeId]);
-    expect(figures[0]).toMatchObject({ blockCount: 4, actualOtHours: 9, nightHours: 5 });
+    expect(figures[0]).toMatchObject({ blockCount: 4, actualOtHours: 14, nightHours: 0 });
   });
 
   it('giờ thực tế đã duyệt không sửa lại; đơn bị hủy hiệu lực thì xóa ca làm thêm', async () => {

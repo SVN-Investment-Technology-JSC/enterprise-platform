@@ -9,6 +9,7 @@ jest.mock('../infrastructure/hrm-procedure-sync.js', () => ({
 }));
 jest.mock('../infrastructure/hrm-request-overlap.js', () => ({
   assertNoRequestOverlap: jest.fn(async () => undefined),
+  employeeShiftWindowOf: jest.fn(() => async () => null),
 }));
 jest.mock('../infrastructure/hrm-time.js', () => ({
   ...jest.requireActual('../infrastructure/hrm-time.js'),
@@ -22,10 +23,21 @@ jest.mock('../infrastructure/hrm-time.js', () => ({
   scheduleDayTypeOf: jest.fn(async () => null),
   shiftForDate: jest.fn(async () => null),
 }));
-jest.mock('../infrastructure/hrm-overtime.js', () => ({
-  createOvertime: jest.fn(),
-  approveOvertime: jest.fn(),
-}));
+jest.mock('../infrastructure/hrm-overtime.js', () => {
+  const createOvertime = jest.fn();
+  return {
+    createOvertime,
+    approveOvertime: jest.fn(),
+    approveOvertimeGroup: jest.fn(),
+    cascadeOvertimeGroupStatus: jest.fn(),
+    parseOtGroupRanges: jest.fn(() => []),
+    // Đơn một khoảng: nhóm chỉ gọi createOvertime (giả) với cùng đối số.
+    createOvertimeGroup: jest.fn(async (db: unknown, tenant: string, _actor: string, input: unknown, reason: unknown, _extra: unknown, opts: { afterCreate?: (r: unknown) => Promise<unknown> }) => {
+      const row = await createOvertime(db, tenant, input, reason);
+      return opts.afterCreate ? opts.afterCreate(row) : row;
+    }),
+  };
+});
 jest.mock('../infrastructure/hrm-approval-notification.js', () => ({
   ...jest.requireActual('../infrastructure/hrm-approval-notification.js'),
   notifyApproversOfDirectRequest: jest.fn(async () => undefined),

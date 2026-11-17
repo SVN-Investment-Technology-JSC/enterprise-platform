@@ -280,7 +280,7 @@ describe('POST /timesheet-months/:month/close (chốt công)', () => {
     expect(lockTimesheetPeriod).not.toHaveBeenCalled();
   });
 
-  it('còn ngày bất thường theo kết quả tính: 409 ABNORMAL_DAYS, không tính/khóa', async () => {
+  it('ngày bất thường (thiếu chấm công ra) không chặn chốt; chỉ ngày chưa có ca mới chặn', async () => {
     const e = '00000000-0000-4000-8000-0000000000b1';
     const { controller } = setup(['hrm.timesheet.calculate'], {
       periods: [period()],
@@ -289,16 +289,8 @@ describe('POST /timesheet-months/:month/close (chốt công)', () => {
     });
     const error = await controller.close(req, PAST).catch((x) => x);
     const blockers = error.getResponse().blockers;
-    expect(blockers[0]).toMatchObject({
-      code: 'ABNORMAL_DAYS',
-      message: 'Còn 1 ngày công bất thường (1 nhân viên) cần xử lý',
-      count: 1,
-      items: [{ employeeId: e, date: '2020-01-02', codes: ['MISSING_CHECK_OUT'] }],
-    });
-    // Các ngày còn lại của tháng chưa có ca: blocker riêng, có chi tiết từng ngày để phân ca.
-    expect(blockers[1]).toMatchObject({ code: 'UNSCHEDULED_DAYS' });
-    expect(blockers[1].count).toBeGreaterThan(0);
-    expect(blockers[1].items[0]).toMatchObject({ employeeId: e, codes: ['NO_SHIFT'] });
+    expect(blockers.map((x: { code: string }) => x.code)).toEqual(['UNSCHEDULED_DAYS']);
+    expect(blockers[0].items[0]).toMatchObject({ employeeId: e, codes: ['NO_SHIFT'] });
     expect(calculateTimesheet).not.toHaveBeenCalled();
   });
 
@@ -310,13 +302,11 @@ describe('POST /timesheet-months/:month/close (chốt công)', () => {
     expect(audits).toEqual(expect.arrayContaining(['TIMESHEET_CALCULATED', 'TIMESHEET_MONTH_CLOSED']));
   });
 
-  it('sau khi tính còn dòng ABNORMAL (ví dụ ngày làm việc chưa có ca): 409, không khóa', async () => {
+  it('sau khi tính còn dòng ABNORMAL: vẫn khóa (ngày đó 0 công, HR xử lý sau)', async () => {
     (calculateTimesheet as jest.Mock).mockResolvedValueOnce({ count: 9, abnormal: 2 });
     const { controller } = setup(['hrm.timesheet.calculate'], { periods: [period()] });
-    const error = await controller.close(req, PAST).catch((x) => x);
-    expect(error).toBeInstanceOf(ConflictException);
-    expect(error.getResponse().blockers[0]).toMatchObject({ code: 'ABNORMAL_DAYS', count: 2 });
-    expect(lockTimesheetPeriod).not.toHaveBeenCalled();
+    await controller.close(req, PAST);
+    expect(lockTimesheetPeriod).toHaveBeenCalled();
   });
 
   it('tháng đã chốt công: 409', async () => {

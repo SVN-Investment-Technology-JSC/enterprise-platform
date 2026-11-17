@@ -1509,6 +1509,18 @@ export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
 export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
+/** Một khoảng làm thêm trong đơn nhiều khoảng (khoảng chính và các khoảng bổ sung cùng lần gửi). */
+export interface HrmOtGroupRange {
+  readonly id: string;
+  readonly workDate: string;
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+  readonly plannedMinutes: number;
+  readonly status: HrmOtStatus;
+}
+
 export interface HrmOtRequest extends HrmRequestReasonView, HrmRequestOnBehalfView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
@@ -1539,6 +1551,10 @@ export interface HrmOtRequest extends HrmRequestReasonView, HrmRequestOnBehalfVi
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
+  /** Đơn nhiều khoảng: id của khoảng chính (khoảng chính có `groupId` bằng `id`); duyệt hoặc từ chối khoảng chính là cả nhóm. */
+  readonly groupId?: string | null;
+  /** Chỉ có ở khoảng chính của đơn nhiều khoảng: toàn bộ các khoảng, theo thứ tự thời gian. */
+  readonly groupRanges?: readonly HrmOtGroupRange[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -1560,6 +1576,12 @@ export interface CreateOtRequestPayload extends RequestReasonInput {
   readonly isNightOt?: boolean;
   /** Sau ca xuyên đêm có nghỉ ngày làm việc kế tiếp không (chỉ ảnh hưởng phân loại khi chế độ NIGHT_REST). Mặc định không nghỉ. */
   readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
+  /** Đơn nhiều khoảng: các khoảng bổ sung gửi cùng khoảng chính thành MỘT đơn; mỗi khoảng có nextDayRest riêng. */
+  readonly extraRanges?: readonly {
+    readonly fromAt: string;
+    readonly toAt: string;
+    readonly nextDayRest?: 'NONE' | 'HALF' | 'FULL';
+  }[];
 }
 
 export type HrmBusinessTripType = 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';

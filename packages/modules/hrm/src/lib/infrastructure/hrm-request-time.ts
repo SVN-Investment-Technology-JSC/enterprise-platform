@@ -191,6 +191,15 @@ export function computeRequestTime(
 
   for (const day of days) {
     const inRange = rangeDates.has(day.date);
+    // Đơn công tác (strict): công tác vẫn diễn ra vào ngày không có ca (Chủ nhật, ngày nghỉ, ngày lễ, chưa phân ca). Mỗi ngày như
+    // vậy tính là 1 ngày công tác, không có phút làm việc theo ca (nên cả ngày đó là giờ làm thêm nếu có đơn OT).
+    if (strict && day.kind !== 'WORK') {
+      if (inRange) {
+        out.push({ date: day.date, kind: day.kind, minutes: 0, quantity: 1 });
+        totalDays += unit === 'DAYS' ? 1 : 0;
+      }
+      continue;
+    }
     if (day.kind === 'OFF' || day.kind === 'HOLIDAY') {
       if (inRange) {
         out.push({ date: day.date, kind: day.kind, minutes: 0, quantity: 0 });
@@ -257,7 +266,7 @@ export function computeRequestTime(
     totalDays += unit === 'DAYS' ? quantity : weight * Math.min(1, minutes / shiftMinutes);
   }
 
-  if (!out.some((d) => d.minutes > 0))
+  if (!out.some((d) => d.minutes > 0 || (strict && d.quantity > 0)))
     errors.push('Khoảng thời gian không có giờ làm việc nào theo ca của nhân viên.');
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return {
@@ -323,7 +332,8 @@ export function computeOvertimeTime(
 /**
  * Thời gian đơn CÔNG TÁC (HÀM THUẦN): tính theo ngày công tác như đơn nghỉ. Mỗi ngày làm việc trong khoảng phải là cả ca
  * (1 ngày, tức khung ca hành chính) hoặc đúng nửa ca (0.5 ngày); khoảng khác (ví dụ 3 giờ, hoặc ngoài khung ca) là lỗi chặn gửi đơn.
- * Ngày nghỉ hằng tuần và ngày lễ trong khoảng chỉ được ghi chú, không tính vào số ngày; ngày chưa phân ca là lỗi.
+ * Công tác tính theo giờ phân ca: ngày làm việc chỉ tính phần giờ ca. Ngày không có ca (Chủ nhật, nghỉ hằng tuần, lễ, chưa phân ca)
+ * vẫn là 1 ngày công tác với 0 phút ca, không báo lỗi.
  * `totalDays` là số ngày công tác sẽ lưu; `totalMinutes` là số phút làm việc theo ca của các ngày đó.
  */
 export function computeTripTime(

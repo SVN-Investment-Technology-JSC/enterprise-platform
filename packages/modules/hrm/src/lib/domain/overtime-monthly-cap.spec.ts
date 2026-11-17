@@ -1,7 +1,4 @@
-import {
-  classifyNightRest,
-  type OvertimeBlock,
-} from './overtime-classification.js';
+import { blockHours, crossesMidnight, type OvertimeBlock } from './overtime-classification.js';
 import {
   compOffDays,
   roundDays,
@@ -10,7 +7,16 @@ import {
   type MonthlyCapConfig,
 } from './overtime-monthly-cap.js';
 
-const nightRest = { nightRestHoursPerDay: 8, allowHalfDay: true };
+/**
+ * Dữ liệu mẫu 1Office: giờ đêm là phần khai theo phần ngày nghỉ sau ca (8 giờ cho mỗi ngày nghỉ, có nghỉ nửa ngày). Quy tắc
+ * của hệ thống hiện chỉ có nghỉ hoặc không nghỉ sáng hôm sau, nên spec tự tính để kiểm tra phần trần và quy đổi của tổng
+ * hợp tháng.
+ */
+const classifyNightRest = (block: OvertimeBlock, fraction: number) => {
+  const hours = blockHours(block);
+  const night = crossesMidnight(block) ? Math.min(hours, 8 * fraction) : 0;
+  return { otHours: hours - night, nightHours: night };
+};
 const cap: MonthlyCapConfig = {
   capApplies: true,
   monthlyCapHours: 40,
@@ -125,7 +131,7 @@ describe('khớp bảng 1Office của NV-A tháng 10/2026 (mã ẩn danh)', () =
 
   const classify = (blocks: Array<[string, string, number]>) =>
     blocks
-      .map(([s, e, f]) => classifyNightRest(b(s, e), f, nightRest))
+      .map(([s, e, f]) => classifyNightRest(b(s, e), f))
       .reduce((a, r) => ({ ot: a.ot + r.otHours, night: a.night + r.nightHours }), { ot: 0, night: 0 });
 
   it.each(rows)('dòng $name', ({ blocks, ot, night }) => {

@@ -12,16 +12,9 @@ import {
 
 const config: HrmOvertimeCompConfig = {
   enabled: true,
-  ruleSet: 'NIGHT_REST',
   normalHoursPerDay: 8,
   monthlyCapHours: 40,
   yearlyCapHours: 200,
-  nightCapped: false,
-  nightStartMinute: 1320,
-  nightEndMinute: 360,
-  nightRestHoursPerDay: 8,
-  allowHalfDay: true,
-  declaredNightWindow: false,
   compFactor: 1.5,
   dayBasisHours: null,
   decimals: 1,
@@ -107,32 +100,25 @@ describe('biểu mẫu cấu hình', () => {
   it('đổi qua lại giữa cấu hình và biểu mẫu không làm mất giá trị', () => {
     expect(formToConfig(configToForm(config))).toMatchObject({
       enabled: true,
-      ruleSet: 'NIGHT_REST',
       monthlyCapHours: 40,
       yearlyCapHours: 200,
       compFactor: 1.5,
       dayBasisHours: null,
       accrualMonthOffset: 1,
-      nightRestHoursPerDay: 8,
-      allowHalfDay: true,
-      declaredNightWindow: false,
     });
   });
 
-  it('chỉ gửi tham số của chế độ đang chọn', () => {
-    const nightRest = formToConfig(configToForm(config));
-    expect(nightRest).not.toHaveProperty('nightStartMinute');
-    const clock = formToConfig(configToForm({ ...config, ruleSet: 'CLOCK_WINDOW' }));
-    expect(clock).toMatchObject({ nightStartMinute: 1320, nightEndMinute: 360 });
-    expect(clock).not.toHaveProperty('nightRestHoursPerDay');
+  it('không còn gửi chế độ phân loại hay khung giờ đêm', () => {
+    const sent = formToConfig(configToForm(config));
+    for (const key of ['ruleSet', 'nightStartMinute', 'nightEndMinute', 'nightRestHoursPerDay', 'allowHalfDay', 'declaredNightWindow', 'nightCapped'])
+      expect(sent).not.toHaveProperty(key);
   });
 
-  it('ngày hiệu lực phải là mùng 1, cần lý do, số nhập sai và giờ đêm sai định dạng bị báo', () => {
+  it('ngày hiệu lực phải là mùng 1, cần lý do, và số nhập sai bị báo', () => {
     const form = configToForm(config);
     expect(overtimeCompFormProblem(form, '2026-12-01', 'Bật quy tắc')).toBe('');
     expect(overtimeCompFormProblem(form, '2026-12-15', 'x')).toContain('mùng 1');
     expect(overtimeCompFormProblem(form, '2026-12-01', ' ')).toContain('lý do');
     expect(overtimeCompFormProblem({ ...form, monthlyCapHours: 'abc' }, '2026-12-01', 'x')).toContain('không phải số');
-    expect(overtimeCompFormProblem({ ...form, ruleSet: 'CLOCK_WINDOW', nightStart: '25' }, '2026-12-01', 'x')).toContain('HH:mm');
   });
 });
