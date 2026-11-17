@@ -1,16 +1,33 @@
 import type { BrandSvgMode } from './api-types';
 
 /** Nhóm vị trí sử dụng icon trong toàn hệ thống. */
-export type IconSlotGroup = 'brand' | 'module' | 'nav';
+export type IconSlotGroup = 'brand' | 'module' | 'nav' | 'custom' | (string & {});
 
 export interface IconSlotMeta {
-  readonly id: IconSlotId;
-  readonly group: IconSlotGroup;
+  readonly id: string;
+  readonly group: string;
   readonly label: string;
   readonly description: string;
   /** `brand`: giữ màu thương hiệu & gradient; `mono`: dùng `currentColor` theo màu chữ. */
   readonly colorMode: BrandSvgMode;
   readonly recommendedSize: number;
+  /** Đánh dấu vị trí do người dùng tự tạo; false hoặc undefined là vị trí hệ thống cố định. */
+  readonly isCustom?: boolean;
+}
+
+export const SLOT_ID_PATTERN = /^[a-z][a-z0-9_.-]{1,63}$/;
+
+export function isValidSlotId(id: unknown): id is string {
+  return typeof id === 'string' && SLOT_ID_PATTERN.test(id);
+}
+
+export interface CustomSlotPayload {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly group?: string;
+  readonly colorMode?: BrandSvgMode;
+  readonly recommendedSize?: number;
 }
 
 export const ICON_SLOTS = [
@@ -213,20 +230,26 @@ export const ICON_SLOTS = [
   },
 ] as const;
 
-export type IconSlotId = (typeof ICON_SLOTS)[number]['id'];
+export type BuiltInSlotId = (typeof ICON_SLOTS)[number]['id'];
+export type IconSlotId = BuiltInSlotId | (string & {});
 
-export const SLOT_GROUP_LABELS: Record<IconSlotGroup, string> = {
+export const SLOT_GROUP_LABELS: Record<string, string> = {
   brand: 'Thương hiệu',
   module: 'Phân hệ',
   nav: 'Thanh điều hướng',
+  custom: 'Tùy chỉnh',
 };
 
 const SLOT_BY_ID = new Map<string, IconSlotMeta>(
   ICON_SLOTS.map((slot) => [slot.id, slot]),
 );
 
-export function isIconSlotId(value: string): value is IconSlotId {
+export function isBuiltInSlotId(value: string): value is BuiltInSlotId {
   return SLOT_BY_ID.has(value);
+}
+
+export function isIconSlotId(value: string): value is IconSlotId {
+  return isValidSlotId(value);
 }
 
 export function getIconSlotMeta(slot: string): IconSlotMeta | undefined {

@@ -631,6 +631,62 @@ describe('BrandController – vị trí sử dụng icon (slots)', () => {
     expect((await call('GET', '/slots/brand.logo/svg')).status).toBe(404);
   });
 
+  it('CRUD /slots/definitions cho custom slots qua HTTP', async () => {
+    // 1. Tạo custom slot
+    const createRes = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: {
+        id: 'custom.report-chart',
+        label: 'Biểu đồ báo cáo',
+        description: 'Vị trí icon biểu đồ báo cáo',
+        groupKey: 'custom',
+        colorMode: 'mono',
+        recommendedSize: 32,
+      },
+    });
+    expect(createRes.status).toBe(201);
+    expect(createRes.json).toMatchObject({
+      id: 'custom.report-chart',
+      label: 'Biểu đồ báo cáo',
+      isCustom: true,
+    });
+
+    // 2. Danh sách definitions
+    const defsRes = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(defsRes.status).toBe(200);
+    expect(
+      (defsRes.json as Array<{ id: string }>).some(
+        (d) => d.id === 'custom.report-chart',
+      ),
+    ).toBe(true);
+
+    // 3. Cập nhật custom slot
+    const updateRes = await call('PUT', '/slots/definitions/custom.report-chart', {
+      headers: asAdmin,
+      body: { label: 'Biểu đồ báo cáo nâng cao' },
+    });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.json).toMatchObject({
+      label: 'Biểu đồ báo cáo nâng cao',
+    });
+
+    // 4. Xoá custom slot
+    const deleteRes = await call(
+      'DELETE',
+      '/slots/definitions/custom.report-chart',
+      {
+        headers: asAdmin,
+      },
+    );
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.json).toEqual({
+      id: 'custom.report-chart',
+      deleted: true,
+    });
+  });
+
   it('tắt đọc công khai: manifest và slot svg trả 401 cho khách, 200 cho user', async () => {
     await call('PUT', '/slots/nav.dashboard', {
       headers: asAdmin,

@@ -177,6 +177,46 @@ export class BrandController {
     });
   }
 
+  @Get('slots/definitions')
+  listSlotDefinitions(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlotDefinitions();
+    });
+  }
+
+  @Post('slots/definitions')
+  @HttpCode(201)
+  createCustomSlot(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.createCustomSlot(admin, this.record(body));
+    });
+  }
+
+  @Put('slots/definitions/:id')
+  updateCustomSlot(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.updateCustomSlot(admin, id, this.record(body));
+    });
+  }
+
+  @Delete('slots/definitions/:id')
+  deleteCustomSlot(@Req() request: Request, @Param('id') id: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.deleteCustomSlot(admin, id);
+    });
+  }
+
   /** Đặt trước `slots/:slot/svg` để NestJS không bắt nhầm `manifest` là `:slot`. */
   @Get('slots/manifest')
   async slotManifest(

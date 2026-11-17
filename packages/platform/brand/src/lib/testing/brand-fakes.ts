@@ -11,6 +11,8 @@ import type {
 import type {
   BrandStore,
   BrandTransaction,
+  CustomSlotInput,
+  CustomSlotRow,
   IconRow,
   IconStateInput,
   NewIconInput,
@@ -50,6 +52,7 @@ interface State {
   versions: VersionRow[];
   standards: StandardsRow;
   slots: Map<string, StoredSlot>;
+  customSlots: Map<string, CustomSlotRow>;
   audits: AuditEntry[];
 }
 
@@ -70,6 +73,7 @@ export class FakeBrandStore implements BrandStore {
     versions: [],
     standards: EMPTY_STANDARDS,
     slots: new Map(),
+    customSlots: new Map(),
     audits: [],
   };
   private tail: Promise<unknown> = Promise.resolve();
@@ -188,6 +192,69 @@ export class FakeBrandStore implements BrandStore {
     return entries.sort((a, b) => a.slot.localeCompare(b.slot));
   }
 
+  async listCustomSlots(): Promise<readonly CustomSlotRow[]> {
+    this.maybeFailRead();
+    return [...this.state.customSlots.values()].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+  }
+
+  async findCustomSlot(id: string): Promise<CustomSlotRow | null> {
+    this.maybeFailRead();
+    return this.state.customSlots.get(id) ?? null;
+  }
+
+  async createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow> {
+    this.maybeFailRead();
+    if (this.state.customSlots.has(input.id)) {
+      throw new BrandStoreConflictError(`Custom slot '${input.id}' already exists`);
+    }
+    const now = new Date().toISOString();
+    const row: CustomSlotRow = {
+      id: input.id,
+      label: input.label,
+      description: input.description,
+      groupKey: input.groupKey,
+      colorMode: input.colorMode,
+      recommendedSize: input.recommendedSize,
+      createdBy: input.createdBy ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.customSlots.set(row.id, row);
+    return row;
+  }
+
+  async updateCustomSlot(
+    id: string,
+    patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
+  ): Promise<CustomSlotRow | null> {
+    this.maybeFailRead();
+    const existing = this.state.customSlots.get(id);
+    if (!existing) return null;
+    const updated: CustomSlotRow = {
+      ...existing,
+      ...(patch.label !== undefined && { label: patch.label }),
+      ...(patch.description !== undefined && { description: patch.description }),
+      ...(patch.groupKey !== undefined && { groupKey: patch.groupKey }),
+      ...(patch.colorMode !== undefined && { colorMode: patch.colorMode }),
+      ...(patch.recommendedSize !== undefined && {
+        recommendedSize: patch.recommendedSize,
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.customSlots.set(id, updated);
+    return updated;
+  }
+
+  async deleteCustomSlot(id: string): Promise<boolean> {
+    this.maybeFailRead();
+    if (!this.state.customSlots.has(id)) return false;
+    this.state.customSlots.delete(id);
+    this.state.slots.delete(id);
+    return true;
+  }
+
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
       this.transactions += 1;
@@ -196,6 +263,7 @@ export class FakeBrandStore implements BrandStore {
         versions: [...this.state.versions],
         standards: this.state.standards,
         slots: new Map(this.state.slots),
+        customSlots: new Map(this.state.customSlots),
         audits: [...this.state.audits],
       };
       try {

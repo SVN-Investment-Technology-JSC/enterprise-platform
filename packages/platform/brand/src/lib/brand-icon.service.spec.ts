@@ -1443,4 +1443,102 @@ describe('BrandIconService – quản lý & phát hành vị trí icon (slots)',
     );
     expect([empty.status, empty.code]).toEqual([404, 'BRAND_SLOT_NOT_FOUND']);
   });
+
+  describe('custom slots', () => {
+    it('tạo, cập nhật, xoá vị trí tuỳ chỉnh và đồng bộ với manifest/svg', async () => {
+      const { service, store } = setup();
+      await service.create(ADMIN, { document: sampleDocument() });
+      await service.publish(ADMIN, 'icon-a');
+
+      // 1. Tạo vị trí tuỳ chỉnh mới
+      const created = await service.createCustomSlot(ADMIN, {
+        id: 'custom.dashboard-banner',
+        label: 'Banner trang chủ',
+        description: 'Banner kích thước lớn',
+        groupKey: 'custom',
+        colorMode: 'brand',
+        recommendedSize: 48,
+      });
+      expect(created).toMatchObject({
+        id: 'custom.dashboard-banner',
+        label: 'Banner trang chủ',
+        isCustom: true,
+      });
+      expect(store.audits.at(-1)).toEqual({
+        action: 'platform.brand-slot-definition.created',
+        actorId: ADMIN.userId,
+        metadata: { slot: 'custom.dashboard-banner', label: 'Banner trang chủ' },
+      });
+
+      // 2. Kiểm tra danh sách definitions và slots
+      const defs = await service.listSlotDefinitions();
+      expect(defs.some((d) => d.id === 'custom.dashboard-banner')).toBe(true);
+
+      const slotsResponse = await service.listSlots();
+      expect(slotsResponse.definitions?.some((d) => d.id === 'custom.dashboard-banner')).toBe(true);
+
+      // 3. Gán icon cho vị trí tuỳ chỉnh
+      const assigned = await service.assignSlot(ADMIN, 'custom.dashboard-banner', {
+        iconId: 'icon-a',
+      });
+      expect(assigned.slot).toBe('custom.dashboard-banner');
+
+      // 4. Kiểm tra manifest và readSlotSvg
+      const manifest = await service.slotManifest(viewerOf('anonymous'));
+      if (manifest.notModified) throw new Error('expected manifest');
+      expect(manifest.manifest.slots['custom.dashboard-banner']).toBeDefined();
+
+      const svgResult = await service.readSlotSvg(
+        'custom.dashboard-banner',
+        viewerOf('anonymous'),
+      );
+      expect(svgResult.notModified).toBe(false);
+
+      // 5. Cập nhật vị trí tuỳ chỉnh
+      const updated = await service.updateCustomSlot(
+        ADMIN,
+        'custom.dashboard-banner',
+        { label: 'Banner trang chủ mới' },
+      );
+      expect(updated.label).toBe('Banner trang chủ mới');
+
+      // 6. Xoá vị trí tuỳ chỉnh -> cascade xoá gán icon
+      const del = await service.deleteCustomSlot(ADMIN, 'custom.dashboard-banner');
+      expect(del.deleted).toBe(true);
+      const afterDel = await service.listSlots();
+      expect(afterDel.slots.some((s) => s.slot === 'custom.dashboard-banner')).toBe(false);
+      expect(afterDel.definitions?.some((d) => d.id === 'custom.dashboard-banner')).toBe(false);
+    });
+
+    it('từ chối can thiệp vào vị trí hệ thống cố định', async () => {
+      const { service } = setup();
+
+      const dupBuiltIn = await rejection(
+        service.createCustomSlot(ADMIN, {
+          id: 'brand.logo',
+          label: 'Logo trùng',
+        }),
+      );
+      expect([dupBuiltIn.status, dupBuiltIn.code]).toEqual([
+        409,
+        'BRAND_SLOT_CONFLICT',
+      ]);
+
+      const updateBuiltIn = await rejection(
+        service.updateCustomSlot(ADMIN, 'brand.logo', { label: 'Sửa logo' }),
+      );
+      expect([updateBuiltIn.status, updateBuiltIn.code]).toEqual([
+        400,
+        'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+      ]);
+
+      const deleteBuiltIn = await rejection(
+        service.deleteCustomSlot(ADMIN, 'brand.logo'),
+      );
+      expect([deleteBuiltIn.status, deleteBuiltIn.code]).toEqual([
+        400,
+        'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+      ]);
+    });
+  });
 });

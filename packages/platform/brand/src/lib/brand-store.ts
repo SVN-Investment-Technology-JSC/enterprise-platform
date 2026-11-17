@@ -148,6 +148,28 @@ export interface BrandTransaction {
   ): Promise<void>;
 }
 
+export interface CustomSlotRow {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly groupKey: string;
+  readonly colorMode: BrandSvgMode;
+  readonly recommendedSize: number;
+  readonly createdBy: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CustomSlotInput {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly groupKey: string;
+  readonly colorMode: BrandSvgMode;
+  readonly recommendedSize: number;
+  readonly createdBy?: string | null;
+}
+
 /** Cổng dữ liệu của Brand Studio; hiện thực thật là `PgBrandStore`. */
 export interface BrandStore {
   listIcons(statuses?: readonly BrandIconStatus[]): Promise<readonly IconRow[]>;
@@ -159,6 +181,14 @@ export interface BrandStore {
   listSlots(): Promise<readonly SlotRow[]>;
   findSlot(slot: string): Promise<SlotRow | null>;
   listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]>;
+  listCustomSlots(): Promise<readonly CustomSlotRow[]>;
+  findCustomSlot(id: string): Promise<CustomSlotRow | null>;
+  createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow>;
+  updateCustomSlot(
+    id: string,
+    patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
+  ): Promise<CustomSlotRow | null>;
+  deleteCustomSlot(id: string): Promise<boolean>;
   /**
    * Chạy `work` trong một giao dịch: hoàn tất thì chốt, ném lỗi thì huỷ. Có thể ném `BrandStoreBusyError`
    * khi không lấy được khoá hàng trong thời hạn.

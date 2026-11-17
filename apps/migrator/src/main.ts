@@ -41,6 +41,7 @@ async function main() {
     await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql');
     await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql');
     await migrate(platform, 'platform-core', '0011-brand-icon-slots', 'platform/0011-brand-icon-slots.sql');
+    await migrate(platform, 'platform-core', '0012-brand-custom-slots', 'platform/0012-brand-custom-slots.sql');
     await migrateTenantCoreSchemas(platform);
     await processProvisioningJobs(platform);
     await upgradeActiveEntitlements(platform);

@@ -6,6 +6,7 @@ import {
 } from '@enterprise-platform/adapter-database';
 import type {
   BrandIconStatus,
+  BrandSvgMode,
   IconCategory,
 } from '@enterprise-platform/shared-brand-icon';
 import {
@@ -15,6 +16,8 @@ import {
 import type {
   BrandStore,
   BrandTransaction,
+  CustomSlotInput,
+  CustomSlotRow,
   IconRow,
   IconStateInput,
   NewIconInput,
@@ -163,6 +166,30 @@ const toPublishedSlot = (row: PublishedSlotDbRow): PublishedSlotEntry => ({
   monoSvgKey: row.mono_svg_key,
   specSha256: row.spec_sha256,
   standardsVersion: row.standards_version,
+});
+
+interface CustomSlotDbRow {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly group_key: string;
+  readonly color_mode: BrandSvgMode;
+  readonly recommended_size: number;
+  readonly created_by: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+const toCustomSlot = (row: CustomSlotDbRow): CustomSlotRow => ({
+  id: row.id,
+  label: row.label,
+  description: row.description,
+  groupKey: row.group_key,
+  colorMode: row.color_mode,
+  recommendedSize: row.recommended_size,
+  createdBy: row.created_by,
+  createdAt: iso(row.created_at)!,
+  updatedAt: iso(row.updated_at)!,
 });
 
 const NO_STANDARDS: StandardsRow = {
@@ -487,6 +514,75 @@ export class PgBrandStore implements BrandStore {
         ORDER BY s.slot`,
     );
     return result.rows.map(toPublishedSlot);
+  }
+
+  async listCustomSlots(): Promise<readonly CustomSlotRow[]> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `SELECT id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at
+         FROM brand_schema.custom_slots
+        ORDER BY created_at ASC`,
+    );
+    return result.rows.map(toCustomSlot);
+  }
+
+  async findCustomSlot(id: string): Promise<CustomSlotRow | null> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `SELECT id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at
+         FROM brand_schema.custom_slots
+        WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ? toCustomSlot(result.rows[0]) : null;
+  }
+
+  async createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `INSERT INTO brand_schema.custom_slots (id, label, description, group_key, color_mode, recommended_size, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at`,
+      [
+        input.id,
+        input.label,
+        input.description,
+        input.groupKey,
+        input.colorMode,
+        input.recommendedSize,
+        input.createdBy ?? null,
+      ],
+    );
+    return toCustomSlot(result.rows[0]);
+  }
+
+  async updateCustomSlot(
+    id: string,
+    patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
+  ): Promise<CustomSlotRow | null> {
+    const existing = await this.findCustomSlot(id);
+    if (!existing) return null;
+    const label = patch.label ?? existing.label;
+    const description = patch.description ?? existing.description;
+    const groupKey = patch.groupKey ?? existing.groupKey;
+    const colorMode = patch.colorMode ?? existing.colorMode;
+    const recommendedSize = patch.recommendedSize ?? existing.recommendedSize;
+
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `UPDATE brand_schema.custom_slots
+          SET label = $2, description = $3, group_key = $4, color_mode = $5, recommended_size = $6, updated_at = now()
+        WHERE id = $1
+        RETURNING id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at`,
+      [id, label, description, groupKey, colorMode, recommendedSize],
+    );
+    return result.rows[0] ? toCustomSlot(result.rows[0]) : null;
+  }
+
+  async deleteCustomSlot(id: string): Promise<boolean> {
+    return run(() =>
+      inTransaction(this.pool, async (client) => {
+        await client.query(`DELETE FROM brand_schema.icon_slots WHERE slot = $1`, [id]);
+        const result = await client.query(`DELETE FROM brand_schema.custom_slots WHERE id = $1`, [id]);
+        return (result.rowCount ?? 0) > 0;
+      }),
+    );
   }
 
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {

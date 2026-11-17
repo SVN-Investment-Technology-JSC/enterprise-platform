@@ -8,6 +8,8 @@ import {
   assertIconId,
   assertSlotId,
   cleanNote,
+  parseCustomSlotInput,
+  parseCustomSlotPatch,
   parseDocument,
   parseOptionalVersion,
   parseStatuses,
@@ -49,10 +51,11 @@ describe('assertIconId', () => {
 });
 
 describe('assertSlotId', () => {
-  it('nhận slot hợp lệ và từ chối slot không nằm trong danh sách ICON_SLOTS', () => {
+  it('nhận slot có định dạng hợp lệ và từ chối slot sai định dạng', () => {
     expect(codeOf(() => assertSlotId('brand.logo'))).toBeUndefined();
     expect(codeOf(() => assertSlotId('nav.dashboard'))).toBeUndefined();
-    for (const bad of ['', 'unknown.slot', 'brand/logo', '../x', 123, null]) {
+    expect(codeOf(() => assertSlotId('custom.test-banner'))).toBeUndefined();
+    for (const bad of ['', 'INVALID_UPPER', '123startWithDigit', 'brand/logo', '../x', 123, null]) {
       expect(codeOf(() => assertSlotId(bad))).toBe('BRAND_SLOT_NOT_FOUND');
     }
   });
@@ -233,5 +236,64 @@ describe('parseStandards', () => {
       codeOf(() => parseStandards({ palette: DEFAULT_PALETTE, rules: 'x' })),
     ).toBe('BRAND_STANDARDS_INVALID');
     expect(codeOf(() => parseStandards(null))).toBe('BRAND_STANDARDS_INVALID');
+  });
+});
+
+describe('parseCustomSlotInput', () => {
+  it('nhận dữ liệu hợp lệ và thiết lập giá trị mặc định', () => {
+    const result = parseCustomSlotInput(
+      { id: 'custom.my-slot', label: 'Vị trí của tôi' },
+      'user-1',
+    );
+    expect(result).toEqual({
+      id: 'custom.my-slot',
+      label: 'Vị trí của tôi',
+      description: '',
+      groupKey: 'custom',
+      colorMode: 'brand',
+      recommendedSize: 24,
+      createdBy: 'user-1',
+    });
+  });
+
+  it('từ chối mã vị trí trùng với vị trí hệ thống cố định', () => {
+    expect(
+      codeOf(() =>
+        parseCustomSlotInput({ id: 'brand.logo', label: 'Logo mới' }),
+      ),
+    ).toBe('BRAND_SLOT_CONFLICT');
+  });
+
+  it('từ chối mã vị trí sai định dạng hoặc thiếu tên', () => {
+    expect(codeOf(() => parseCustomSlotInput({ id: '123bad', label: 'Tên' }))).toBe(
+      'BRAND_REQUEST_INVALID',
+    );
+    expect(codeOf(() => parseCustomSlotInput({ id: 'custom.ok', label: '   ' }))).toBe(
+      'BRAND_REQUEST_INVALID',
+    );
+  });
+});
+
+describe('parseCustomSlotPatch', () => {
+  it('cho phép cập nhật từng phần', () => {
+    const patch = parseCustomSlotPatch({
+      label: 'Tên mới',
+      colorMode: 'mono',
+      recommendedSize: 32,
+    });
+    expect(patch).toEqual({
+      label: 'Tên mới',
+      colorMode: 'mono',
+      recommendedSize: 32,
+    });
+  });
+
+  it('từ chối tên rỗng hoặc kích thước ngoài khoảng 8-512', () => {
+    expect(codeOf(() => parseCustomSlotPatch({ label: '  ' }))).toBe(
+      'BRAND_REQUEST_INVALID',
+    );
+    expect(codeOf(() => parseCustomSlotPatch({ recommendedSize: 2 }))).toBe(
+      'BRAND_REQUEST_INVALID',
+    );
   });
 });

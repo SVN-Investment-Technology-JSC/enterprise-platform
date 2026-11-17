@@ -6,6 +6,8 @@ import {
   DEFAULT_PALETTE,
   DEFAULT_RULES,
   getIconSlotMeta,
+  ICON_SLOTS,
+  isBuiltInSlotId,
   isIconSlotId,
   LIMITS,
   normalizeDocument,
@@ -28,6 +30,7 @@ import {
   type BrandSvgMode,
   type IconDocument,
   type IconSlotId,
+  type IconSlotMeta,
   type SaveBrandIconResponse,
   type SaveBrandStandardsResponse,
 } from '@enterprise-platform/shared-brand-icon';
@@ -52,6 +55,8 @@ import {
   assertIconId,
   assertSlotId,
   cleanNote,
+  parseCustomSlotInput,
+  parseCustomSlotPatch,
   parseDocument,
   parseStandards,
   parseVersionNumber,
@@ -60,6 +65,7 @@ import type { BrandObjectStore } from './brand-object-store.js';
 import type {
   BrandStore,
   BrandTransaction,
+  CustomSlotRow,
   IconRow,
   PublishedSlotEntry,
   SlotRow,
@@ -158,6 +164,16 @@ const toSlotAssignment = (row: SlotRow): BrandSlotAssignment => ({
   currentVersion: row.currentVersion,
   updatedBy: row.updatedBy,
   updatedAt: row.updatedAt,
+});
+
+const customSlotToMeta = (row: CustomSlotRow): IconSlotMeta => ({
+  id: row.id,
+  label: row.label,
+  description: row.description,
+  group: row.groupKey,
+  colorMode: row.colorMode,
+  recommendedSize: row.recommendedSize,
+  isCustom: true,
 });
 
 /** Bản phát hành công khai: icon đang `published` và phiên bản không vượt `publishedVersion`. */
@@ -302,12 +318,95 @@ export class BrandIconService {
 
   /* --------------------------------------------------------------- vị trí */
 
+  listSlotDefinitions(): Promise<readonly IconSlotMeta[]> {
+    return this.guard(async () => {
+      const customRows = await this.store.listCustomSlots();
+      return [...ICON_SLOTS, ...customRows.map(customSlotToMeta)];
+    });
+  }
+
   listSlots(): Promise<BrandSlotListResponse> {
-    return this.guard(async () => ({
-      slots: (await this.store.listSlots())
-        .filter((row) => isIconSlotId(row.slot))
-        .map(toSlotAssignment),
-    }));
+    return this.guard(async () => {
+      const [slotRows, customRows] = await Promise.all([
+        this.store.listSlots(),
+        this.store.listCustomSlots(),
+      ]);
+      const definitions: readonly IconSlotMeta[] = [
+        ...ICON_SLOTS,
+        ...customRows.map(customSlotToMeta),
+      ];
+      return {
+        slots: slotRows
+          .filter((row) => isIconSlotId(row.slot))
+          .map(toSlotAssignment),
+        definitions,
+      };
+    });
+  }
+
+  createCustomSlot(
+    actor: BrandActor,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      const parsed = parseCustomSlotInput(input, actor.userId);
+      if (isBuiltInSlotId(parsed.id)) {
+        throw brandErrors.slotConflict();
+      }
+      const existing = await this.store.findCustomSlot(parsed.id);
+      if (existing) {
+        throw brandErrors.slotConflict();
+      }
+      const row = await this.store.createCustomSlot(parsed);
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.created', actor.userId, {
+          slot: row.id,
+          label: row.label,
+        });
+      });
+      return customSlotToMeta(row);
+    });
+  }
+
+  updateCustomSlot(
+    actor: BrandActor,
+    id: string,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      if (isBuiltInSlotId(id)) {
+        throw brandErrors.slotBuiltInCannotModify();
+      }
+      const patch = parseCustomSlotPatch(input);
+      const row = await this.store.updateCustomSlot(id, patch);
+      if (!row) throw brandErrors.slotNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.updated', actor.userId, {
+          slot: row.id,
+          label: row.label,
+        });
+      });
+      return customSlotToMeta(row);
+    });
+  }
+
+  deleteCustomSlot(
+    actor: BrandActor,
+    id: string,
+  ): Promise<{ readonly id: string; readonly deleted: boolean }> {
+    return this.guard(async () => {
+      if (isBuiltInSlotId(id)) {
+        throw brandErrors.slotBuiltInCannotModify();
+      }
+      const deleted = await this.store.deleteCustomSlot(id);
+      if (!deleted) throw brandErrors.slotNotFound();
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.deleted', actor.userId, {
+          slot: id,
+        });
+      });
+      return { id, deleted };
+    });
   }
 
   assignSlot(
@@ -317,6 +416,10 @@ export class BrandIconService {
   ): Promise<BrandSlotAssignment> {
     return this.guard(async () => {
       assertSlotId(slot);
+      if (!isBuiltInSlotId(slot)) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (!custom) throw brandErrors.slotNotFound();
+      }
       assertIconId(input.iconId);
       const iconId = input.iconId;
       const now = this.now().toISOString();
@@ -343,6 +446,10 @@ export class BrandIconService {
   ): Promise<{ readonly slot: IconSlotId; readonly cleared: boolean }> {
     return this.guard(async () => {
       assertSlotId(slot);
+      if (!isBuiltInSlotId(slot)) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (!custom) throw brandErrors.slotNotFound();
+      }
       return this.store.transaction(async (tx) => {
         const cleared = await tx.deleteSlot(slot);
         if (cleared) {
@@ -367,12 +474,19 @@ export class BrandIconService {
         ? 'public, no-cache, must-revalidate'
         : 'private, no-cache';
 
+      const customSlots = await this.store.listCustomSlots();
+      const customMap = new Map(
+        customSlots.map((r) => [r.id, customSlotToMeta(r)]),
+      );
+      const resolveMeta = (slot: string): IconSlotMeta | undefined =>
+        getIconSlotMeta(slot) ?? customMap.get(slot);
+
       const entries = (await this.store.listPublishedSlotEntries()).filter(
         (entry): entry is PublishedSlotEntry & { readonly slot: IconSlotId } =>
-          isIconSlotId(entry.slot),
+          isIconSlotId(entry.slot) && Boolean(resolveMeta(entry.slot)),
       );
       const signature = entries.map((entry) => {
-        const meta = getIconSlotMeta(entry.slot)!;
+        const meta = resolveMeta(entry.slot)!;
         return `${entry.slot}:${entry.iconId}:${entry.publishedVersion}:${entry.specSha256}:${entry.standardsVersion}:${meta.colorMode}`;
       });
       const hash = sha256Hex(JSON.stringify(signature));
@@ -382,7 +496,7 @@ export class BrandIconService {
       }
 
       const needsBrandPalette = entries.some(
-        (entry) => getIconSlotMeta(entry.slot)?.colorMode !== 'mono',
+        (entry) => resolveMeta(entry.slot)?.colorMode !== 'mono',
       );
       const palette = needsBrandPalette
         ? (await this.currentStandards()).palette
@@ -390,7 +504,7 @@ export class BrandIconService {
 
       const slots: Record<string, BrandSlotManifestItem> = {};
       for (const entry of entries) {
-        const meta = getIconSlotMeta(entry.slot)!;
+        const meta = resolveMeta(entry.slot)!;
         const doc = await this.readSpecDocument({ specKey: entry.specKey });
         const model = buildIconModel(doc, {
           colorMode: meta.colorMode === 'mono' ? 'currentColor' : 'brand',
@@ -440,7 +554,13 @@ export class BrandIconService {
       );
       if (!version) throw brandErrors.versionNotFound();
 
-      const meta = getIconSlotMeta(slot)!;
+      let meta = getIconSlotMeta(slot);
+      if (!meta) {
+        const custom = await this.store.findCustomSlot(slot);
+        if (custom) meta = customSlotToMeta(custom);
+      }
+      if (!meta) throw brandErrors.slotNotFound();
+
       const cacheControl = publicRead
         ? 'public, no-cache, must-revalidate'
         : 'private, no-cache';

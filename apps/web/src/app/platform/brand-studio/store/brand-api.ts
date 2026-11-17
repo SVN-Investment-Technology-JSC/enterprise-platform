@@ -13,6 +13,8 @@ import {
   type BrandStandardsResponse,
   type BrandSvgMode,
   type CreateBrandIconRequest,
+  type CustomSlotPayload,
+  type IconSlotMeta,
   type SaveBrandIconRequest,
   type SaveBrandIconResponse,
   type SaveBrandStandardsRequest,
@@ -231,6 +233,26 @@ export function assignSlot(slot: string, iconId: string): Promise<BrandSlotAssig
 /** Bỏ gán icon ở vị trí sử dụng, đưa về icon mặc định của hệ thống. */
 export function clearSlot(slot: string): Promise<void> {
   return request<void>(slotPath(slot), { method: 'DELETE' });
+}
+
+/** Danh sách định nghĩa vị trí icon (gồm cả vị trí hệ thống và vị trí tùy chỉnh). */
+export function listSlotDefinitions(): Promise<readonly IconSlotMeta[]> {
+  return request<readonly IconSlotMeta[]>('/slots/definitions');
+}
+
+/** Tạo vị trí icon tùy chỉnh mới. */
+export function createCustomSlot(input: CustomSlotPayload): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>('/slots/definitions', { method: 'POST', body: input });
+}
+
+/** Chỉnh sửa vị trí icon tùy chỉnh. */
+export function updateCustomSlot(id: string, patch: Partial<Omit<CustomSlotPayload, 'id'>>): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'PUT', body: patch });
+}
+
+/** Xoá vị trí icon tùy chỉnh. */
+export function deleteCustomSlot(id: string): Promise<{ readonly id: string; readonly deleted: boolean }> {
+  return request<{ readonly id: string; readonly deleted: boolean }>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 /** Đường dẫn ảnh SVG dựng sẵn của một phiên bản; bản đã phát hành đọc công khai, bản khác cần đăng nhập quản trị. */

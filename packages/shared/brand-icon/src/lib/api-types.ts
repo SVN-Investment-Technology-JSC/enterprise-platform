@@ -6,7 +6,7 @@ import type { BrandRules } from './compliance';
 import type { IconCategory, IconDocument } from './model';
 import type { BrandPalette } from './palette';
 import type { IconSvgModel } from './render';
-import type { IconSlotId } from './slots';
+import type { IconSlotId, IconSlotMeta } from './slots';
 
 /** Đường dẫn gốc của API; đã gồm tiền tố `api` của Platform API. */
 export const BRAND_API_BASE = '/api/platform/v1/brand';
@@ -130,6 +130,8 @@ export const BRAND_ERROR_CODES = {
   iconLimitReached: 'BRAND_ICON_LIMIT_REACHED',
   iconNotPublishable: 'BRAND_ICON_NOT_PUBLISHABLE',
   slotNotFound: 'BRAND_SLOT_NOT_FOUND',
+  slotConflict: 'BRAND_SLOT_CONFLICT',
+  slotBuiltInCannotModify: 'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
   slotIconNotPublished: 'BRAND_SLOT_ICON_NOT_PUBLISHED',
   versionNotFound: 'BRAND_ICON_VERSION_NOT_FOUND',
   versionConflict: 'BRAND_ICON_VERSION_CONFLICT',
@@ -168,6 +170,7 @@ export interface BrandSlotAssignment {
 
 export interface BrandSlotListResponse {
   readonly slots: readonly BrandSlotAssignment[];
+  readonly definitions?: readonly IconSlotMeta[];
 }
 
 export interface AssignBrandSlotRequest {

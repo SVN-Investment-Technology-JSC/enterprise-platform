@@ -98,6 +98,14 @@ export const brandErrors = {
     ),
   slotNotFound: () =>
     new BrandError(404, E.slotNotFound, 'Không tìm thấy vị trí icon.'),
+  slotConflict: () =>
+    new BrandError(409, E.slotConflict, 'Mã vị trí icon này đã tồn tại.'),
+  slotBuiltInCannotModify: () =>
+    new BrandError(
+      400,
+      E.slotBuiltInCannotModify,
+      'Không thể chỉnh sửa hoặc xoá vị trí hệ thống cố định.',
+    ),
   slotIconNotPublished: () =>
     new BrandError(
       422,

@@ -3,7 +3,9 @@ import {
   BRAND_ICON_STATUSES,
   BRAND_NOTE_MAX_LENGTH,
   BRAND_SVG_MODES,
+  isBuiltInSlotId,
   isIconSlotId,
+  isValidSlotId,
   normalizeDocument,
   normalizePalette,
   normalizeRules,
@@ -14,6 +16,7 @@ import {
   type IconSlotId,
 } from '@enterprise-platform/shared-brand-icon';
 import { brandErrors } from './brand.errors.js';
+import type { CustomSlotInput } from './brand-store.js';
 
 /** Số màu tối đa của bảng màu (khớp giới hạn của `normalizePalette`). */
 const MAX_PALETTE_TOKENS = 64;
@@ -179,4 +182,100 @@ export function parseStandards(input: unknown): BrandStandardsPayload {
   if (!isRecord(input.rules))
     throw brandErrors.standardsInvalid('Thiếu quy chuẩn thương hiệu.');
   return { palette, rules: normalizeRules(input.rules) };
+}
+
+export function parseCustomSlotInput(
+  value: unknown,
+  actorId?: string,
+): CustomSlotInput {
+  if (!isRecord(value)) {
+    throw brandErrors.requestInvalid('Thiếu dữ liệu vị trí icon.');
+  }
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  if (!isValidSlotId(id)) {
+    throw brandErrors.requestInvalid(
+      'Mã vị trí icon không hợp lệ (bắt đầu bằng chữ thường, gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới, từ 2-64 ký tự).',
+    );
+  }
+  if (isBuiltInSlotId(id)) {
+    throw brandErrors.slotConflict();
+  }
+  const label = typeof value.label === 'string' ? value.label.trim() : '';
+  if (!label) {
+    throw brandErrors.requestInvalid('Tên vị trí icon không được để trống.');
+  }
+  const description =
+    typeof value.description === 'string' ? value.description.trim() : '';
+  const groupKey =
+    typeof value.groupKey === 'string' && value.groupKey.trim() !== ''
+      ? value.groupKey.trim()
+      : 'custom';
+  const colorMode =
+    value.colorMode === 'mono' || value.colorMode === 'brand'
+      ? (value.colorMode as BrandSvgMode)
+      : 'brand';
+  const recommendedSize =
+    typeof value.recommendedSize === 'number' &&
+    Number.isSafeInteger(value.recommendedSize) &&
+    value.recommendedSize >= 8 &&
+    value.recommendedSize <= 512
+      ? value.recommendedSize
+      : 24;
+
+  return {
+    id,
+    label,
+    description,
+    groupKey,
+    colorMode,
+    recommendedSize,
+    createdBy: actorId,
+  };
+}
+
+export function parseCustomSlotPatch(
+  value: unknown,
+): Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>> {
+  if (!isRecord(value)) {
+    throw brandErrors.requestInvalid('Thiếu dữ liệu cập nhật vị trí icon.');
+  }
+  const patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>> = {};
+  if (value.label !== undefined) {
+    if (typeof value.label !== 'string' || !value.label.trim()) {
+      throw brandErrors.requestInvalid('Tên vị trí icon không được để trống.');
+    }
+    patch.label = value.label.trim();
+  }
+  if (value.description !== undefined) {
+    if (typeof value.description !== 'string') {
+      throw brandErrors.requestInvalid('Mô tả vị trí icon phải là chuỗi.');
+    }
+    patch.description = value.description.trim();
+  }
+  if (value.groupKey !== undefined) {
+    if (typeof value.groupKey !== 'string' || !value.groupKey.trim()) {
+      throw brandErrors.requestInvalid('Nhóm vị trí icon không hợp lệ.');
+    }
+    patch.groupKey = value.groupKey.trim();
+  }
+  if (value.colorMode !== undefined) {
+    if (value.colorMode !== 'brand' && value.colorMode !== 'mono') {
+      throw brandErrors.requestInvalid('Chế độ màu phải là "brand" hoặc "mono".');
+    }
+    patch.colorMode = value.colorMode;
+  }
+  if (value.recommendedSize !== undefined) {
+    if (
+      typeof value.recommendedSize !== 'number' ||
+      !Number.isSafeInteger(value.recommendedSize) ||
+      value.recommendedSize < 8 ||
+      value.recommendedSize > 512
+    ) {
+      throw brandErrors.requestInvalid(
+        'Kích thước khuyến nghị phải từ 8 đến 512 pixel.',
+      );
+    }
+    patch.recommendedSize = value.recommendedSize;
+  }
+  return patch;
 }
