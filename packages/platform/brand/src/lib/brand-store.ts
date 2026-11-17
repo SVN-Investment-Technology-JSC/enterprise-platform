@@ -186,6 +186,22 @@ export interface SlotGroupInput {
   readonly createdBy?: string | null;
 }
 
+/** Giá trị ghi đè của một vị trí có sẵn; null là không ghi đè trường đó (dùng mặc định trong code). */
+export interface SlotOverrideValues {
+  readonly label: string | null;
+  readonly description: string | null;
+  readonly groupKey: string | null;
+  readonly colorMode: BrandSvgMode | null;
+  readonly recommendedSize: number | null;
+}
+
+/** Một dòng `brand_schema.slot_overrides`. */
+export interface SlotOverrideRow extends SlotOverrideValues {
+  readonly slotId: string;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
 /** Cổng dữ liệu của Brand Studio; hiện thực thật là `PgBrandStore`. */
 export interface BrandStore {
   listIcons(statuses?: readonly BrandIconStatus[]): Promise<readonly IconRow[]>;
@@ -205,6 +221,16 @@ export interface BrandStore {
     patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
   ): Promise<CustomSlotRow | null>;
   deleteCustomSlot(id: string): Promise<boolean>;
+  listSlotOverrides(): Promise<readonly SlotOverrideRow[]>;
+  findSlotOverride(slotId: string): Promise<SlotOverrideRow | null>;
+  /** Lưu ghi đè của vị trí có sẵn. Mọi giá trị null thì xoá hàng và trả null. */
+  saveSlotOverride(
+    slotId: string,
+    values: SlotOverrideValues,
+    updatedBy: string | null,
+  ): Promise<SlotOverrideRow | null>;
+  /** Trả true nếu có hàng bị xoá. */
+  deleteSlotOverride(slotId: string): Promise<boolean>;
   /** Nhóm tùy chỉnh, sắp theo tên hiển thị. */
   listSlotGroups(): Promise<readonly SlotGroupRow[]>;
   findSlotGroup(key: string): Promise<SlotGroupRow | null>;

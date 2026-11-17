@@ -831,3 +831,127 @@ describe('BrandController – nhóm vị trí (slots/groups)', () => {
     expect(gone.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_NOT_FOUND' });
   });
 });
+
+describe('sửa vị trí có sẵn qua HTTP', () => {
+  it('PUT ghi đè, GET definitions phản ánh, DELETE override khôi phục', async () => {
+    const put = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { id: 'nav.khac', label: 'Tổng quan', colorMode: 'brand' },
+    });
+    expect(put.status).toBe(200);
+    expect(put.json).toMatchObject({
+      id: 'nav.dashboard',
+      label: 'Tổng quan',
+      colorMode: 'brand',
+      overriddenFields: ['label', 'colorMode'],
+      defaults: { label: 'Bảng điều khiển', colorMode: 'mono' },
+    });
+
+    const defs = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const list = defs.json as unknown as Array<Record<string, unknown>>;
+    expect(list.find((d) => d.id === 'nav.dashboard')).toMatchObject({
+      label: 'Tổng quan',
+      colorMode: 'brand',
+    });
+    expect(list.some((d) => d.id === 'nav.khac')).toBe(false);
+
+    const nullBody = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { label: null },
+    });
+    expect(nullBody.status).toBe(200);
+    expect(nullBody.json).toMatchObject({
+      label: 'Bảng điều khiển',
+      overriddenFields: ['colorMode'],
+    });
+
+    const reset = await call(
+      'DELETE',
+      '/slots/definitions/nav.dashboard/override',
+      { headers: asAdmin },
+    );
+    expect(reset.status).toBe(200);
+    expect(reset.json).toMatchObject({
+      id: 'nav.dashboard',
+      colorMode: 'mono',
+    });
+    expect(reset.json.overriddenFields).toBeUndefined();
+  });
+
+  it('lỗi dữ liệu: nhóm lạ 400, vị trí lạ 404, tùy chỉnh 409 khi khôi phục, xoá vị trí có sẵn 400', async () => {
+    const badGroup = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { group: 'khong-co' },
+    });
+    expect([badGroup.status, badGroup.json.code]).toEqual([
+      400,
+      'BRAND_SLOT_GROUP_NOT_FOUND',
+    ]);
+    const unknown = await call(
+      'DELETE',
+      '/slots/definitions/custom.khong-co/override',
+      { headers: asAdmin },
+    );
+    expect([unknown.status, unknown.json.code]).toEqual([
+      404,
+      'BRAND_SLOT_NOT_FOUND',
+    ]);
+    await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: { id: 'custom.override-test', label: 'Thử' },
+    });
+    const custom = await call(
+      'DELETE',
+      '/slots/definitions/custom.override-test/override',
+      { headers: asAdmin },
+    );
+    expect([custom.status, custom.json.code]).toEqual([
+      409,
+      'BRAND_SLOT_CONFLICT',
+    ]);
+    await call('DELETE', '/slots/definitions/custom.override-test', {
+      headers: asAdmin,
+    });
+    const del = await call('DELETE', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+    });
+    expect([del.status, del.json.code]).toEqual([
+      400,
+      'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+    ]);
+  });
+
+  it('PUT và DELETE override: không phiên 401, tenant 403, thiếu CSRF 403', async () => {
+    const targets: Array<[string, string]> = [
+      ['PUT', '/slots/definitions/nav.dashboard'],
+      ['DELETE', '/slots/definitions/nav.dashboard/override'],
+    ];
+    for (const [method, path] of targets) {
+      const body = { label: 'X' };
+      const anonymous = await call(method, path, { body });
+      expect(anonymous.status).toBe(401);
+      const tenant = await call(method, path, {
+        body,
+        headers: {
+          cookie: `ep_access=user-token; ep_csrf=${CSRF}`,
+          'x-csrf-token': CSRF,
+        },
+      });
+      expect([tenant.status, tenant.json.code]).toEqual([403, 'FORBIDDEN']);
+      const noCsrf = await call(method, path, {
+        body,
+        headers: { cookie: 'ep_access=admin-token' },
+      });
+      expect([noCsrf.status, noCsrf.json.code]).toEqual([403, 'CSRF_INVALID']);
+    }
+    const check = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const list = check.json as unknown as Array<Record<string, unknown>>;
+    expect(
+      list.find((d) => d.id === 'nav.dashboard')?.overriddenFields,
+    ).toBeUndefined();
+  });
+});

@@ -1783,3 +1783,344 @@ describe('BrandIconService – nhóm vị trí (slot groups)', () => {
     expect(byKey.get('custom')!.slotCount).toBe(customBefore + 1);
   });
 });
+
+describe('BrandIconService – sửa vị trí có sẵn (ghi đè)', () => {
+  const codeOf = (error: BrandError) => [error.status, error.code];
+  const meta = (defs: readonly { id: string }[], id: string) =>
+    defs.find((d) => d.id === id) as Record<string, unknown> | undefined;
+
+  it('sửa từng trường: ghi đè kèm overriddenFields và defaults, trường khác giữ mặc định', async () => {
+    const { service, store } = setup();
+    const label = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: '  Tổng quan mới  ',
+    });
+    expect(label).toMatchObject({
+      id: 'nav.dashboard',
+      label: 'Tổng quan mới',
+      group: 'nav',
+      colorMode: 'mono',
+      recommendedSize: 18,
+      overriddenFields: ['label'],
+      defaults: { label: 'Bảng điều khiển' },
+    });
+    expect(label.isCustom).toBeUndefined();
+
+    const desc = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      description: '',
+    });
+    expect(desc.description).toBe('');
+    expect(desc.overriddenFields).toEqual(['label', 'description']);
+
+    const size = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      recommendedSize: 20,
+    });
+    expect(size.recommendedSize).toBe(20);
+    const color = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      colorMode: 'brand',
+    });
+    expect(color.colorMode).toBe('brand');
+    const group = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      group: 'module',
+    });
+    expect(group).toMatchObject({
+      group: 'module',
+      label: 'Tổng quan mới',
+      overriddenFields: [
+        'label',
+        'description',
+        'group',
+        'colorMode',
+        'recommendedSize',
+      ],
+      defaults: {
+        label: 'Bảng điều khiển',
+        group: 'nav',
+        colorMode: 'mono',
+        recommendedSize: 18,
+      },
+    });
+    expect(store.slotOverrideRows).toHaveLength(1);
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-slot-definition.updated',
+      actorId: ADMIN.userId,
+      metadata: { slot: 'nav.dashboard', builtIn: true, fields: ['group'] },
+    });
+  });
+
+  it('sửa nhiều trường một lần và nhận groupKey cho tương thích', async () => {
+    const { service } = setup();
+    const result = await service.updateSlot(ADMIN, 'brand.logo', {
+      label: 'Logo mới',
+      recommendedSize: 40,
+      groupKey: 'nav',
+    });
+    expect(result).toMatchObject({
+      label: 'Logo mới',
+      recommendedSize: 40,
+      group: 'nav',
+      colorMode: 'brand',
+      overriddenFields: ['label', 'group', 'recommendedSize'],
+    });
+    expect(result.defaults).toEqual({
+      label: 'Logo chính hệ thống',
+      group: 'brand',
+      recommendedSize: 32,
+    });
+  });
+
+  it('giá trị bằng mặc định trong code không lưu thừa; hết ghi đè thì xoá hàng', async () => {
+    const { service, store } = setup();
+    const same = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: 'Bảng điều khiển',
+      colorMode: 'mono',
+      recommendedSize: 18,
+      group: 'nav',
+    });
+    expect(same.overriddenFields).toBeUndefined();
+    expect(same.defaults).toBeUndefined();
+    expect(store.slotOverrideRows).toHaveLength(0);
+
+    await service.updateSlot(ADMIN, 'nav.dashboard', { recommendedSize: 20 });
+    expect(store.slotOverrideRows).toHaveLength(1);
+    const back = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      recommendedSize: 18,
+    });
+    expect(back.overriddenFields).toBeUndefined();
+    expect(store.slotOverrideRows).toHaveLength(0);
+  });
+
+  it('null khôi phục mặc định của đúng trường đó, trường vắng giữ nguyên', async () => {
+    const { service, store } = setup();
+    await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: 'A',
+      recommendedSize: 22,
+    });
+    const afterNull = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: null,
+    });
+    expect(afterNull).toMatchObject({
+      label: 'Bảng điều khiển',
+      recommendedSize: 22,
+      overriddenFields: ['recommendedSize'],
+      defaults: { recommendedSize: 18 },
+    });
+    const none = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      recommendedSize: null,
+    });
+    expect(none.overriddenFields).toBeUndefined();
+    expect(store.slotOverrideRows).toHaveLength(0);
+  });
+
+  it('mã (id) trong thân bị bỏ qua', async () => {
+    const { service, store } = setup();
+    const result = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      id: 'nav.khac',
+      label: 'Mới',
+    });
+    expect(result.id).toBe('nav.dashboard');
+    expect(store.slotOverrideRows.map((r) => r.slotId)).toEqual([
+      'nav.dashboard',
+    ]);
+  });
+
+  it('kiểm tra giá trị: nhóm không tồn tại, tên rỗng hoặc quá dài, kích thước, chế độ màu', async () => {
+    const { service, store } = setup();
+    const badGroup = await rejection(
+      service.updateSlot(ADMIN, 'nav.dashboard', { group: 'khong-co' }),
+    );
+    expect(codeOf(badGroup)).toEqual([400, 'BRAND_SLOT_GROUP_NOT_FOUND']);
+    for (const body of [
+      { label: '   ' },
+      { label: 'x'.repeat(121) },
+      { recommendedSize: 7 },
+      { recommendedSize: 513 },
+      { recommendedSize: 20.5 },
+      { colorMode: 'rgb' },
+      { description: 5 },
+      { group: '' },
+    ]) {
+      const err = await rejection(
+        service.updateSlot(ADMIN, 'nav.dashboard', body),
+      );
+      expect(codeOf(err)).toEqual([400, 'BRAND_REQUEST_INVALID']);
+    }
+    expect(store.slotOverrideRows).toHaveLength(0);
+    await service.createSlotGroup(ADMIN, { label: 'Mới', key: 'nhom-moi' });
+    const ok = await service.updateSlot(ADMIN, 'nav.dashboard', {
+      group: 'nhom-moi',
+    });
+    expect(ok.group).toBe('nhom-moi');
+  });
+
+  it('vị trí tùy chỉnh vẫn sửa trực tiếp qua updateSlot; vị trí lạ là 404', async () => {
+    const { service, store } = setup();
+    await service.createCustomSlot(ADMIN, { id: 'custom.a-icon', label: 'A' });
+    const updated = await service.updateSlot(ADMIN, 'custom.a-icon', {
+      label: 'B',
+    });
+    expect(updated).toMatchObject({ label: 'B', isCustom: true });
+    expect(updated.overriddenFields).toBeUndefined();
+    expect(store.slotOverrideRows).toHaveLength(0);
+    const unknown = await rejection(
+      service.updateSlot(ADMIN, 'custom.khong-co', { label: 'B' }),
+    );
+    expect(codeOf(unknown)).toEqual([404, 'BRAND_SLOT_NOT_FOUND']);
+  });
+
+  it('resetSlotOverride khôi phục toàn bộ; lặp lại vẫn trả mặc định; ghi audit khi có xoá', async () => {
+    const { service, store } = setup();
+    await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: 'A',
+      colorMode: 'brand',
+    });
+    const reset = await service.resetSlotOverride(ADMIN, 'nav.dashboard');
+    expect(reset).toMatchObject({
+      id: 'nav.dashboard',
+      label: 'Bảng điều khiển',
+      colorMode: 'mono',
+    });
+    expect(reset.overriddenFields).toBeUndefined();
+    expect(store.slotOverrideRows).toHaveLength(0);
+    expect(store.audits.at(-1)).toEqual({
+      action: 'platform.brand-slot-definition.override-reset',
+      actorId: ADMIN.userId,
+      metadata: { slot: 'nav.dashboard' },
+    });
+    const count = store.audits.length;
+    await service.resetSlotOverride(ADMIN, 'nav.dashboard');
+    expect(store.audits).toHaveLength(count);
+  });
+
+  it('resetSlotOverride: vị trí tùy chỉnh là 409, mã lạ là 404', async () => {
+    const { service } = setup();
+    await service.createCustomSlot(ADMIN, { id: 'custom.a-icon', label: 'A' });
+    const custom = await rejection(
+      service.resetSlotOverride(ADMIN, 'custom.a-icon'),
+    );
+    expect(codeOf(custom)).toEqual([409, 'BRAND_SLOT_CONFLICT']);
+    const unknown = await rejection(
+      service.resetSlotOverride(ADMIN, 'custom.khong-co'),
+    );
+    expect(codeOf(unknown)).toEqual([404, 'BRAND_SLOT_NOT_FOUND']);
+  });
+
+  it('xoá vị trí có sẵn vẫn bị từ chối, kể cả khi đã sửa', async () => {
+    const { service, store } = setup();
+    await service.updateSlot(ADMIN, 'nav.dashboard', { label: 'A' });
+    const del = await rejection(
+      service.deleteCustomSlot(ADMIN, 'nav.dashboard'),
+    );
+    expect(codeOf(del)).toEqual([400, 'BRAND_SLOT_BUILTIN_CANNOT_MODIFY']);
+    expect(store.slotOverrideRows).toHaveLength(1);
+  });
+
+  it('listSlotDefinitions và listSlots phản ánh ghi đè', async () => {
+    const { service } = setup();
+    await service.updateSlot(ADMIN, 'nav.dashboard', {
+      label: 'Tổng quan',
+      group: 'module',
+    });
+    const defs = await service.listSlotDefinitions();
+    expect(meta(defs, 'nav.dashboard')).toMatchObject({
+      label: 'Tổng quan',
+      group: 'module',
+      overriddenFields: ['label', 'group'],
+    });
+    expect(meta(defs, 'nav.applications')?.overriddenFields).toBeUndefined();
+    const slots = await service.listSlots();
+    expect(meta(slots.definitions ?? [], 'nav.dashboard')).toMatchObject({
+      label: 'Tổng quan',
+      group: 'module',
+    });
+  });
+
+  it('slotCount của nhóm tính theo nhóm hiệu lực của vị trí có sẵn', async () => {
+    const { service } = setup();
+    const before = new Map(
+      (await service.listSlotGroups()).groups.map((g) => [g.key, g.slotCount]),
+    );
+    await service.createSlotGroup(ADMIN, { label: 'Mới', key: 'nhom-moi' });
+    await service.updateSlot(ADMIN, 'nav.dashboard', { group: 'nhom-moi' });
+    await service.updateSlot(ADMIN, 'nav.applications', { group: 'nhom-moi' });
+    const after = new Map(
+      (await service.listSlotGroups()).groups.map((g) => [g.key, g.slotCount]),
+    );
+    expect(after.get('nhom-moi')).toBe(2);
+    expect(after.get('nav')).toBe((before.get('nav') ?? 0) - 2);
+    const viaSlots = new Map(
+      ((await service.listSlots()).groups ?? []).map((g) => [
+        g.key,
+        g.slotCount,
+      ]),
+    );
+    expect(viaSlots.get('nhom-moi')).toBe(2);
+    expect(viaSlots.get('nav')).toBe((before.get('nav') ?? 0) - 2);
+  });
+
+  it('chặn xoá nhóm tùy chỉnh còn vị trí có sẵn đã chuyển vào; xoá được sau khi khôi phục', async () => {
+    const { service } = setup();
+    await service.createSlotGroup(ADMIN, { label: 'Mới', key: 'nhom-moi' });
+    await service.updateSlot(ADMIN, 'nav.dashboard', { group: 'nhom-moi' });
+    const inUse = await rejection(service.deleteSlotGroup(ADMIN, 'nhom-moi'));
+    expect(codeOf(inUse)).toEqual([409, 'BRAND_SLOT_GROUP_IN_USE']);
+    expect(inUse.extra).toEqual({ slotCount: 1 });
+    const renamed = await service.updateSlotGroup(ADMIN, 'nhom-moi', {
+      label: 'Tên khác',
+    });
+    expect(renamed.slotCount).toBe(1);
+    await service.resetSlotOverride(ADMIN, 'nav.dashboard');
+    await expect(service.deleteSlotGroup(ADMIN, 'nhom-moi')).resolves.toEqual({
+      key: 'nhom-moi',
+      deleted: true,
+    });
+  });
+
+  it('colorMode ghi đè đổi manifest: hash, colorMode và cách dựng icon', async () => {
+    const { service } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    await service.assignSlot(ADMIN, 'nav.dashboard', { iconId: 'icon-a' });
+    const read = async () => {
+      const res = await service.slotManifest(viewerOf('anonymous'));
+      if (res.notModified) throw new Error('expected manifest');
+      return res;
+    };
+    const before = await read();
+    expect(before.manifest.slots['brand.logo'].colorMode).toBe('brand');
+    expect(JSON.stringify(before.manifest.slots['brand.logo'].model)).toContain(
+      '#2563eb',
+    );
+
+    await service.updateSlot(ADMIN, 'brand.logo', { colorMode: 'mono' });
+    const after = await read();
+    expect(after.manifest.hash).not.toBe(before.manifest.hash);
+    expect(after.etag).not.toBe(before.etag);
+    expect(after.manifest.slots['brand.logo'].colorMode).toBe('mono');
+    const model = JSON.stringify(after.manifest.slots['brand.logo'].model);
+    expect(model).toContain('currentColor');
+    expect(model).not.toContain('#2563eb');
+    expect(after.manifest.slots['nav.dashboard']).toEqual(
+      before.manifest.slots['nav.dashboard'],
+    );
+
+    // Đổi nhãn không ảnh hưởng manifest; khôi phục thì về đúng hash ban đầu.
+    await service.updateSlot(ADMIN, 'nav.dashboard', { label: 'Tổng quan' });
+    expect((await read()).manifest.hash).toBe(after.manifest.hash);
+    await service.resetSlotOverride(ADMIN, 'brand.logo');
+    expect((await read()).manifest.hash).toBe(before.manifest.hash);
+  });
+
+  it('readSlotSvg dùng colorMode ghi đè', async () => {
+    const { service } = setup();
+    await service.create(ADMIN, { document: sampleDocument() });
+    await service.publish(ADMIN, 'icon-a');
+    await service.assignSlot(ADMIN, 'brand.logo', { iconId: 'icon-a' });
+    await service.updateSlot(ADMIN, 'brand.logo', { colorMode: 'mono' });
+    const svg = await service.readSlotSvg('brand.logo', viewerOf('anonymous'));
+    if (svg.notModified) throw new Error('expected body');
+    expect(svg.body).toContain('currentColor');
+    expect(svg.body).not.toContain('#2563eb');
+    expect(svg.filename).toBe('brand.logo.mono.svg');
+  });
+});

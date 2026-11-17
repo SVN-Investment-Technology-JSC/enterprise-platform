@@ -245,7 +245,17 @@ export class BrandController {
     return this.run(async () => {
       const admin = await this.admin(request);
       this.requireCsrf(request);
-      return this.brand.updateCustomSlot(admin, id, this.record(body));
+      return this.brand.updateSlot(admin, id, this.record(body));
+    });
+  }
+
+  /** Khôi phục mặc định mọi trường đã sửa của vị trí có sẵn. */
+  @Delete('slots/definitions/:id/override')
+  resetSlotOverride(@Req() request: Request, @Param('id') id: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.resetSlotOverride(admin, id);
     });
   }
 

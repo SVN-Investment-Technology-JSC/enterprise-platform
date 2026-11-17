@@ -15,9 +15,13 @@ import {
   type BrandSvgMode,
   type IconDocument,
   type IconSlotId,
+  type IconSlotMeta,
+  type SlotOverrideDefaults,
+  type SlotOverrideField,
+  SLOT_OVERRIDE_FIELDS,
 } from '@enterprise-platform/shared-brand-icon';
 import { brandErrors } from './brand.errors.js';
-import type { CustomSlotInput } from './brand-store.js';
+import type { CustomSlotInput, SlotOverrideRow } from './brand-store.js';
 
 /** Số màu tối đa của bảng màu (khớp giới hạn của `normalizePalette`). */
 const MAX_PALETTE_TOKENS = 64;
@@ -357,4 +361,119 @@ export function parseSlotGroupUpdate(value: unknown): { readonly label: string }
     throw brandErrors.requestInvalid('Thiếu dữ liệu nhóm vị trí.');
   }
   return { label: parseSlotGroupLabel(value.label) };
+}
+
+/** Nội dung sửa vị trí có sẵn: giá trị là ghi đè, null là khôi phục mặc định của trường, vắng là giữ nguyên. */
+export interface BuiltInSlotPatch {
+  label?: string | null;
+  description?: string | null;
+  groupKey?: string | null;
+  colorMode?: BrandSvgMode | null;
+  recommendedSize?: number | null;
+}
+
+/** Độ dài tối đa của tên vị trí (khớp CHECK của cột `slot_overrides.label`). */
+export const SLOT_LABEL_MAX = 120;
+
+/** Chỉ nhận 5 trường sửa được; mã (`id`) và trường lạ trong thân bị bỏ qua. */
+export function parseBuiltInSlotPatch(value: unknown): BuiltInSlotPatch {
+  if (!isRecord(value)) {
+    throw brandErrors.requestInvalid('Thiếu dữ liệu cập nhật vị trí icon.');
+  }
+  const patch: BuiltInSlotPatch = {};
+  if (value.label !== undefined) {
+    if (value.label === null) {
+      patch.label = null;
+    } else {
+      const label = typeof value.label === 'string' ? value.label.trim() : '';
+      if (!label) {
+        throw brandErrors.requestInvalid('Tên vị trí icon không được để trống.');
+      }
+      if (label.length > SLOT_LABEL_MAX) {
+        throw brandErrors.requestInvalid(
+          `Tên vị trí icon tối đa ${SLOT_LABEL_MAX} ký tự.`,
+        );
+      }
+      patch.label = label;
+    }
+  }
+  if (value.description !== undefined) {
+    if (value.description === null) {
+      patch.description = null;
+    } else if (typeof value.description === 'string') {
+      patch.description = value.description.trim();
+    } else {
+      throw brandErrors.requestInvalid('Mô tả vị trí icon phải là chuỗi.');
+    }
+  }
+  const rawGroup = value.group !== undefined ? value.group : value.groupKey;
+  if (rawGroup !== undefined) {
+    if (rawGroup === null) {
+      patch.groupKey = null;
+    } else if (typeof rawGroup === 'string' && rawGroup.trim() !== '') {
+      patch.groupKey = rawGroup.trim();
+    } else {
+      throw brandErrors.requestInvalid('Nhóm vị trí icon không hợp lệ.');
+    }
+  }
+  if (value.colorMode !== undefined) {
+    if (value.colorMode === null) {
+      patch.colorMode = null;
+    } else if (value.colorMode === 'brand' || value.colorMode === 'mono') {
+      patch.colorMode = value.colorMode;
+    } else {
+      throw brandErrors.requestInvalid('Chế độ màu phải là "brand" hoặc "mono".');
+    }
+  }
+  if (value.recommendedSize !== undefined) {
+    if (value.recommendedSize === null) {
+      patch.recommendedSize = null;
+    } else if (
+      typeof value.recommendedSize === 'number' &&
+      Number.isSafeInteger(value.recommendedSize) &&
+      value.recommendedSize >= 8 &&
+      value.recommendedSize <= 512
+    ) {
+      patch.recommendedSize = value.recommendedSize;
+    } else {
+      throw brandErrors.requestInvalid(
+        'Kích thước khuyến nghị phải từ 8 đến 512 pixel.',
+      );
+    }
+  }
+  return patch;
+}
+
+/**
+ * Gộp ghi đè vào metadata vị trí có sẵn; nơi duy nhất làm việc này. Trường ghi đè null hoặc bằng mặc định
+ * trong code coi như không ghi đè. Có ghi đè thì kèm `overriddenFields` và `defaults`.
+ */
+export function applySlotOverride(
+  meta: IconSlotMeta,
+  override: SlotOverrideRow | null | undefined,
+): IconSlotMeta {
+  if (!override) return meta;
+  const values: Record<SlotOverrideField, string | number | null> = {
+    label: override.label,
+    description: override.description,
+    group: override.groupKey,
+    colorMode: override.colorMode,
+    recommendedSize: override.recommendedSize,
+  };
+  const overridden: SlotOverrideField[] = [];
+  const merged: Record<string, unknown> = { ...meta };
+  const defaults: Record<string, unknown> = {};
+  for (const field of SLOT_OVERRIDE_FIELDS) {
+    const value = values[field];
+    if (value === null || value === meta[field]) continue;
+    overridden.push(field);
+    merged[field] = value;
+    defaults[field] = meta[field];
+  }
+  if (overridden.length === 0) return meta;
+  return {
+    ...(merged as unknown as IconSlotMeta),
+    overriddenFields: overridden,
+    defaults: defaults as SlotOverrideDefaults,
+  };
 }

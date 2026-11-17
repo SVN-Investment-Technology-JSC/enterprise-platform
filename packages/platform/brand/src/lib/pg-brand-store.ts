@@ -26,6 +26,8 @@ import type {
   SavedHeadInput,
   SlotGroupInput,
   SlotGroupRow,
+  SlotOverrideRow,
+  SlotOverrideValues,
   SlotRow,
   StandardsRow,
   StandardsUpdateInput,
@@ -209,6 +211,31 @@ const toSlotGroup = (row: SlotGroupDbRow): SlotGroupRow => ({
   createdAt: iso(row.created_at)!,
   updatedAt: iso(row.updated_at)!,
 });
+
+interface SlotOverrideDbRow {
+  readonly slot_id: string;
+  readonly label: string | null;
+  readonly description: string | null;
+  readonly group_key: string | null;
+  readonly color_mode: BrandSvgMode | null;
+  readonly recommended_size: number | null;
+  readonly updated_by: string | null;
+  readonly updated_at: Date;
+}
+
+const toSlotOverride = (row: SlotOverrideDbRow): SlotOverrideRow => ({
+  slotId: row.slot_id,
+  label: row.label,
+  description: row.description,
+  groupKey: row.group_key,
+  colorMode: row.color_mode,
+  recommendedSize: row.recommended_size,
+  updatedBy: row.updated_by,
+  updatedAt: iso(row.updated_at)!,
+});
+
+const SLOT_OVERRIDE_COLUMNS =
+  'slot_id, label, description, group_key, color_mode, recommended_size, updated_by, updated_at';
 
 const SLOT_GROUP_COLUMNS = 'key, label, created_by, created_at, updated_at';
 
@@ -605,6 +632,70 @@ export class PgBrandStore implements BrandStore {
         return (result.rowCount ?? 0) > 0;
       }),
     );
+  }
+
+  async listSlotOverrides(): Promise<readonly SlotOverrideRow[]> {
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `SELECT ${SLOT_OVERRIDE_COLUMNS} FROM brand_schema.slot_overrides ORDER BY slot_id ASC`,
+    );
+    return result.rows.map(toSlotOverride);
+  }
+
+  async findSlotOverride(slotId: string): Promise<SlotOverrideRow | null> {
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `SELECT ${SLOT_OVERRIDE_COLUMNS} FROM brand_schema.slot_overrides WHERE slot_id = $1`,
+      [slotId],
+    );
+    return result.rows[0] ? toSlotOverride(result.rows[0]) : null;
+  }
+
+  async saveSlotOverride(
+    slotId: string,
+    values: SlotOverrideValues,
+    updatedBy: string | null,
+  ): Promise<SlotOverrideRow | null> {
+    const empty =
+      values.label === null &&
+      values.description === null &&
+      values.groupKey === null &&
+      values.colorMode === null &&
+      values.recommendedSize === null;
+    if (empty) {
+      await this.deleteSlotOverride(slotId);
+      return null;
+    }
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `INSERT INTO brand_schema.slot_overrides
+         (slot_id, label, description, group_key, color_mode, recommended_size, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+       ON CONFLICT (slot_id) DO UPDATE
+          SET label = EXCLUDED.label,
+              description = EXCLUDED.description,
+              group_key = EXCLUDED.group_key,
+              color_mode = EXCLUDED.color_mode,
+              recommended_size = EXCLUDED.recommended_size,
+              updated_by = EXCLUDED.updated_by,
+              updated_at = now()
+       RETURNING ${SLOT_OVERRIDE_COLUMNS}`,
+      [
+        slotId,
+        values.label,
+        values.description,
+        values.groupKey,
+        values.colorMode,
+        values.recommendedSize,
+        updatedBy,
+      ],
+    );
+    return toSlotOverride(result.rows[0]);
+  }
+
+  async deleteSlotOverride(slotId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brand_schema.slot_overrides WHERE slot_id = $1`,
+      [slotId],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async listSlotGroups(): Promise<readonly SlotGroupRow[]> {

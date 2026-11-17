@@ -15,6 +15,8 @@ import type {
   CustomSlotRow,
   SlotGroupInput,
   SlotGroupRow,
+  SlotOverrideRow,
+  SlotOverrideValues,
   IconRow,
   IconStateInput,
   NewIconInput,
@@ -56,6 +58,7 @@ interface State {
   slots: Map<string, StoredSlot>;
   customSlots: Map<string, CustomSlotRow>;
   slotGroups: Map<string, SlotGroupRow>;
+  slotOverrides: Map<string, SlotOverrideRow>;
   audits: AuditEntry[];
 }
 
@@ -78,6 +81,7 @@ export class FakeBrandStore implements BrandStore {
     slots: new Map(),
     customSlots: new Map(),
     slotGroups: new Map(),
+    slotOverrides: new Map(),
     audits: [],
   };
   private tail: Promise<unknown> = Promise.resolve();
@@ -259,6 +263,47 @@ export class FakeBrandStore implements BrandStore {
     return true;
   }
 
+  get slotOverrideRows(): readonly SlotOverrideRow[] {
+    return [...this.state.slotOverrides.values()];
+  }
+
+  async listSlotOverrides(): Promise<readonly SlotOverrideRow[]> {
+    this.maybeFailRead();
+    return [...this.state.slotOverrides.values()].sort((a, b) =>
+      a.slotId.localeCompare(b.slotId),
+    );
+  }
+
+  async findSlotOverride(slotId: string): Promise<SlotOverrideRow | null> {
+    this.maybeFailRead();
+    return this.state.slotOverrides.get(slotId) ?? null;
+  }
+
+  async saveSlotOverride(
+    slotId: string,
+    values: SlotOverrideValues,
+    updatedBy: string | null,
+  ): Promise<SlotOverrideRow | null> {
+    this.maybeFailRead();
+    if (Object.values(values).every((value) => value === null)) {
+      this.state.slotOverrides.delete(slotId);
+      return null;
+    }
+    const row: SlotOverrideRow = {
+      slotId,
+      ...values,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.slotOverrides.set(slotId, row);
+    return row;
+  }
+
+  async deleteSlotOverride(slotId: string): Promise<boolean> {
+    this.maybeFailRead();
+    return this.state.slotOverrides.delete(slotId);
+  }
+
   async listSlotGroups(): Promise<readonly SlotGroupRow[]> {
     this.maybeFailRead();
     return [...this.state.slotGroups.values()].sort(
@@ -319,6 +364,7 @@ export class FakeBrandStore implements BrandStore {
         slots: new Map(this.state.slots),
         customSlots: new Map(this.state.customSlots),
         slotGroups: new Map(this.state.slotGroups),
+        slotOverrides: new Map(this.state.slotOverrides),
         audits: [...this.state.audits],
       };
       try {

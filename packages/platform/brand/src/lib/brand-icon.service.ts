@@ -61,6 +61,8 @@ import {
   cleanNote,
   parseCustomSlotInput,
   parseCustomSlotPatch,
+  parseBuiltInSlotPatch,
+  applySlotOverride,
   deriveSlotGroupKey,
   parseDocument,
   parseSlotGroupCreate,
@@ -77,6 +79,7 @@ import type {
   IconRow,
   PublishedSlotEntry,
   SlotGroupRow,
+  SlotOverrideValues,
   SlotRow,
   VersionRow,
 } from './brand-store.js';
@@ -189,15 +192,15 @@ const BUILT_IN_GROUP_KEYS: ReadonlySet<string> = new Set(
   BUILT_IN_SLOT_GROUPS.map((group) => group.key),
 );
 
-/** Nhóm có sẵn (đúng thứ tự cố định) rồi nhóm tùy chỉnh (đã sắp theo tên), kèm số vị trí mỗi nhóm. */
+/** Nhóm có sẵn (đúng thứ tự cố định) rồi nhóm tùy chỉnh (đã sắp theo tên), kèm số vị trí mỗi nhóm (theo nhóm hiệu lực). */
 function buildSlotGroups(
   groupRows: readonly SlotGroupRow[],
-  customSlots: readonly CustomSlotRow[],
+  definitions: readonly IconSlotMeta[],
 ): readonly BrandSlotGroup[] {
   const counts = new Map<string, number>();
-  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
-  for (const meta of ICON_SLOTS) bump(meta.group);
-  for (const row of customSlots) bump(row.groupKey);
+  for (const meta of definitions) {
+    counts.set(meta.group, (counts.get(meta.group) ?? 0) + 1);
+  }
   return [
     ...BUILT_IN_SLOT_GROUPS.map((group) => ({
       key: group.key,
@@ -358,20 +361,30 @@ export class BrandIconService {
 
   /* --------------------------------------------------------------- vị trí */
 
+  /** Vị trí có sẵn đã gộp ghi đè, rồi vị trí tùy chỉnh. */
+  private async effectiveDefinitions(): Promise<readonly IconSlotMeta[]> {
+    const [overrides, customRows] = await Promise.all([
+      this.store.listSlotOverrides(),
+      this.store.listCustomSlots(),
+    ]);
+    const byId = new Map(overrides.map((row) => [row.slotId, row]));
+    return [
+      ...ICON_SLOTS.map((meta) => applySlotOverride(meta, byId.get(meta.id))),
+      ...customRows.map(customSlotToMeta),
+    ];
+  }
+
   listSlotDefinitions(): Promise<readonly IconSlotMeta[]> {
-    return this.guard(async () => {
-      const customRows = await this.store.listCustomSlots();
-      return [...ICON_SLOTS, ...customRows.map(customSlotToMeta)];
-    });
+    return this.guard(() => this.effectiveDefinitions());
   }
 
   listSlotGroups(): Promise<BrandSlotGroupListResponse> {
     return this.guard(async () => {
-      const [customRows, groupRows] = await Promise.all([
-        this.store.listCustomSlots(),
+      const [definitions, groupRows] = await Promise.all([
+        this.effectiveDefinitions(),
         this.store.listSlotGroups(),
       ]);
-      return { groups: buildSlotGroups(groupRows, customRows) };
+      return { groups: buildSlotGroups(groupRows, definitions) };
     });
   }
 
@@ -430,8 +443,8 @@ export class BrandIconService {
           label: row.label,
         });
       });
-      const customRows = await this.store.listCustomSlots();
-      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      const definitions = await this.effectiveDefinitions();
+      const slotCount = definitions.filter((d) => d.group === key).length;
       return { key: row.key, label: row.label, isBuiltIn: false, slotCount };
     });
   }
@@ -446,8 +459,8 @@ export class BrandIconService {
       }
       const existing = await this.store.findSlotGroup(key);
       if (!existing) throw brandErrors.slotGroupNotFound();
-      const customRows = await this.store.listCustomSlots();
-      const slotCount = customRows.filter((r) => r.groupKey === key).length;
+      const definitions = await this.effectiveDefinitions();
+      const slotCount = definitions.filter((d) => d.group === key).length;
       if (slotCount > 0) throw brandErrors.slotGroupInUse(slotCount);
       const deleted = await this.store.deleteSlotGroup(key);
       if (!deleted) throw brandErrors.slotGroupNotFound();
@@ -469,21 +482,17 @@ export class BrandIconService {
 
   listSlots(): Promise<BrandSlotListResponse> {
     return this.guard(async () => {
-      const [slotRows, customRows, groupRows] = await Promise.all([
+      const [slotRows, definitions, groupRows] = await Promise.all([
         this.store.listSlots(),
-        this.store.listCustomSlots(),
+        this.effectiveDefinitions(),
         this.store.listSlotGroups(),
       ]);
-      const definitions: readonly IconSlotMeta[] = [
-        ...ICON_SLOTS,
-        ...customRows.map(customSlotToMeta),
-      ];
       return {
         slots: slotRows
           .filter((row) => isIconSlotId(row.slot))
           .map(toSlotAssignment),
         definitions,
-        groups: buildSlotGroups(groupRows, customRows),
+        groups: buildSlotGroups(groupRows, definitions),
       };
     });
   }
@@ -535,6 +544,87 @@ export class BrandIconService {
         });
       });
       return customSlotToMeta(row);
+    });
+  }
+
+  /** Sửa vị trí: tùy chỉnh thì sửa thẳng bản ghi, có sẵn thì lưu ghi đè theo từng trường. */
+  updateSlot(
+    actor: BrandActor,
+    id: string,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    if (isBuiltInSlotId(id)) return this.updateBuiltInSlot(actor, id, input);
+    return this.updateCustomSlot(actor, id, input);
+  }
+
+  private updateBuiltInSlot(
+    actor: BrandActor,
+    id: string,
+    input: unknown,
+  ): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      const base = getIconSlotMeta(id);
+      if (!base) throw brandErrors.slotNotFound();
+      const patch = parseBuiltInSlotPatch(input);
+      if (patch.groupKey) await this.assertSlotGroupExists(patch.groupKey);
+      const existing = await this.store.findSlotOverride(id);
+      // Trường vắng giữ nguyên; null hoặc bằng mặc định trong code là khôi phục (không lưu thừa).
+      const next = <T extends string | number>(
+        patchValue: T | null | undefined,
+        current: T | null | undefined,
+        fallback: T,
+      ): T | null => {
+        if (patchValue === undefined) return current ?? null;
+        return patchValue === null || patchValue === fallback ? null : patchValue;
+      };
+      const values: SlotOverrideValues = {
+        label: next(patch.label, existing?.label, base.label),
+        description: next(
+          patch.description,
+          existing?.description,
+          base.description,
+        ),
+        groupKey: next(patch.groupKey, existing?.groupKey, base.group),
+        colorMode: next(patch.colorMode, existing?.colorMode, base.colorMode),
+        recommendedSize: next(
+          patch.recommendedSize,
+          existing?.recommendedSize,
+          base.recommendedSize,
+        ),
+      };
+      const row = await this.store.saveSlotOverride(id, values, actor.userId);
+      await this.store.transaction(async (tx) => {
+        await tx.audit('platform.brand-slot-definition.updated', actor.userId, {
+          slot: id,
+          builtIn: true,
+          fields: Object.keys(patch).map((key) => (key === 'groupKey' ? 'group' : key)),
+        });
+      });
+      return applySlotOverride(base, row);
+    });
+  }
+
+  /** Khôi phục mặc định toàn bộ trường đã sửa của một vị trí có sẵn. */
+  resetSlotOverride(actor: BrandActor, id: string): Promise<IconSlotMeta> {
+    return this.guard(async () => {
+      const base = getIconSlotMeta(id);
+      if (!base) {
+        if (isIconSlotId(id) && (await this.store.findCustomSlot(id))) {
+          throw brandErrors.slotNotBuiltIn();
+        }
+        throw brandErrors.slotNotFound();
+      }
+      const removed = await this.store.deleteSlotOverride(id);
+      if (removed) {
+        await this.store.transaction(async (tx) => {
+          await tx.audit(
+            'platform.brand-slot-definition.override-reset',
+            actor.userId,
+            { slot: id },
+          );
+        });
+      }
+      return base;
     });
   }
 
@@ -622,12 +712,11 @@ export class BrandIconService {
         ? 'public, no-cache, must-revalidate'
         : 'private, no-cache';
 
-      const customSlots = await this.store.listCustomSlots();
-      const customMap = new Map(
-        customSlots.map((r) => [r.id, customSlotToMeta(r)]),
+      const metaById = new Map(
+        (await this.effectiveDefinitions()).map((meta) => [meta.id, meta]),
       );
       const resolveMeta = (slot: string): IconSlotMeta | undefined =>
-        getIconSlotMeta(slot) ?? customMap.get(slot);
+        metaById.get(slot);
 
       const entries = (await this.store.listPublishedSlotEntries()).filter(
         (entry): entry is PublishedSlotEntry & { readonly slot: IconSlotId } =>
@@ -703,7 +792,9 @@ export class BrandIconService {
       if (!version) throw brandErrors.versionNotFound();
 
       let meta = getIconSlotMeta(slot);
-      if (!meta) {
+      if (meta) {
+        meta = applySlotOverride(meta, await this.store.findSlotOverride(slot));
+      } else {
         const custom = await this.store.findCustomSlot(slot);
         if (custom) meta = customSlotToMeta(custom);
       }

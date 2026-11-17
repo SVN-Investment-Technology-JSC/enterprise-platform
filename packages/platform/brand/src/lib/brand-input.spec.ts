@@ -2,13 +2,17 @@ import {
   BRAND_NOTE_MAX_LENGTH,
   DEFAULT_PALETTE,
   DEFAULT_RULES,
+  getIconSlotMeta,
 } from '@enterprise-platform/shared-brand-icon';
 import { BrandError } from './brand.errors.js';
+import type { SlotOverrideRow } from './brand-store.js';
 import {
+  applySlotOverride,
   assertIconId,
   assertSlotId,
   cleanNote,
   deriveSlotGroupKey,
+  parseBuiltInSlotPatch,
   parseCustomSlotInput,
   parseCustomSlotPatch,
   parseDocument,
@@ -346,5 +350,67 @@ describe('deriveSlotGroupKey và parseSlotGroupCreate', () => {
     });
     expect(() => parseSlotGroupCreate({ label: 'N', key: '1abc' })).toThrow();
     expect(() => parseSlotGroupCreate(null)).toThrow();
+  });
+});
+
+describe('parseBuiltInSlotPatch và applySlotOverride', () => {
+  const base = getIconSlotMeta('nav.dashboard')!;
+  const row = (over: Partial<SlotOverrideRow> = {}): SlotOverrideRow => ({
+    slotId: 'nav.dashboard',
+    label: null,
+    description: null,
+    groupKey: null,
+    colorMode: null,
+    recommendedSize: null,
+    updatedBy: null,
+    updatedAt: '2026-03-01T00:00:00.000Z',
+    ...over,
+  });
+
+  it('chỉ nhận 5 trường, bỏ qua id và trường lạ, giữ null để khôi phục', () => {
+    expect(
+      parseBuiltInSlotPatch({
+        id: 'x',
+        isCustom: true,
+        label: ' A ',
+        description: null,
+        group: ' nav ',
+        colorMode: 'brand',
+        recommendedSize: 24,
+      }),
+    ).toEqual({
+      label: 'A',
+      description: null,
+      groupKey: 'nav',
+      colorMode: 'brand',
+      recommendedSize: 24,
+    });
+    expect(parseBuiltInSlotPatch({})).toEqual({});
+    expect(parseBuiltInSlotPatch({ description: '  ' })).toEqual({
+      description: '',
+    });
+    expect(() => parseBuiltInSlotPatch(null)).toThrow(BrandError);
+    expect(() => parseBuiltInSlotPatch({ label: 'x'.repeat(121) })).toThrow(
+      BrandError,
+    );
+  });
+
+  it('applySlotOverride: không ghi đè trả nguyên bản; có ghi đè gộp và kèm defaults', () => {
+    expect(applySlotOverride(base, null)).toBe(base);
+    expect(applySlotOverride(base, row())).toBe(base);
+    const merged = applySlotOverride(
+      base,
+      row({ label: 'Mới', recommendedSize: 20 }),
+    );
+    expect(merged).toMatchObject({
+      id: 'nav.dashboard',
+      label: 'Mới',
+      recommendedSize: 20,
+      group: 'nav',
+      overriddenFields: ['label', 'recommendedSize'],
+      defaults: { label: base.label, recommendedSize: base.recommendedSize },
+    });
+    // Giá trị lưu trùng mặc định (dữ liệu cũ) cũng coi là không ghi đè.
+    expect(applySlotOverride(base, row({ label: base.label }))).toBe(base);
   });
 });

@@ -106,6 +106,13 @@ export const brandErrors = {
       E.slotBuiltInCannotModify,
       'Không thể chỉnh sửa hoặc xoá vị trí hệ thống cố định.',
     ),
+  /** Khôi phục mặc định chỉ có nghĩa với vị trí có sẵn. */
+  slotNotBuiltIn: () =>
+    new BrandError(
+      409,
+      E.slotConflict,
+      'Chỉ vị trí có sẵn mới có mặc định để khôi phục. Vị trí tùy chỉnh hãy sửa hoặc xoá trực tiếp.',
+    ),
   slotIconNotPublished: () =>
     new BrandError(
       422,
